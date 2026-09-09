@@ -3,6 +3,7 @@ flutter/
 
 # Claude session memory log
 .remember/
+.claude/settings.local.json
 
 # --- Python / Django ---
 __pycache__/
