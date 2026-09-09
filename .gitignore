@@ -1,0 +1,31 @@
+# Flutter SDK (vendored into repo, has its own git history — never add)
+flutter/
+
+# Claude session memory log
+.remember/
+
+# --- Python / Django ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+db.sqlite3
+staticfiles/
+media/
+
+# --- Flutter app (app/) ---
+app/build/
+app/.dart_tool/
+app/.flutter-plugins*
+app/android/.gradle/
+app/android/local.properties
+app/ios/Pods/
+app/ios/.symlinks/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
