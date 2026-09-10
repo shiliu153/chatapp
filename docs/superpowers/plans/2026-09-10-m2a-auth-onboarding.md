@@ -2372,7 +2372,7 @@ class _PhotoGridState extends ConsumerState<PhotoGrid> {
 
   @override
   Widget build(BuildContext context) {
-    final photos = ref.watch(profileProvider).valueOrNull?.photos ?? const <Photo>[];
+    final photos = ref.watch(profileProvider).value?.photos ?? const <Photo>[];
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -3164,7 +3164,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     try {
       await ref.read(profileProvider.notifier).reload();
       if (!mounted) return;
-      final profile = ref.read(profileProvider).valueOrNull;
+      final profile = ref.read(profileProvider).value;
       if (profile == null || profile.photos.where((photo) => photo.isApproved).isEmpty) {
         _show('至少上传一张照片');
         return;
