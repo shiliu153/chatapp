@@ -255,7 +255,7 @@ class ImClientTests(SimpleTestCase):
         args, kwargs = req.call_args
         self.assertEqual(args[0], "openim")
         self.assertEqual(args[1], "sendmsg")
-        self.assertEqual(kwargs["identifier"], "u1")            # 以发送方身份调用
+        self.assertIsNone(kwargs.get("identifier"))   # 必须以管理员身份调(错误码 60010),发送方看 From_Account
         payload = args[2]
         self.assertEqual(payload["From_Account"], "u1")
         self.assertEqual(payload["To_Account"], "u2")
@@ -354,7 +354,9 @@ def send_custom_elem(from_identifier: str, to_identifier: str, data: dict, desc:
         }],
     }
     try:
-        result = _request("openim", "sendmsg", payload, identifier=from_identifier)
+        # REST 的 identifier 必须是本应用的管理员账号(否则腾讯报 60010);
+        # 消息的发送方由 body 里的 From_Account 决定,所以对外仍是"双方各自发的"。
+        result = _request("openim", "sendmsg", payload)
     except Exception:
         logger.exception("IM 发消息失败 %s -> %s", from_identifier, to_identifier)
         return False
@@ -383,10 +385,12 @@ python manage.py test im
 cd "D:/pycharmproject/chat_app" && git add chatapp/im && git commit -m "feat: tencent im rest client (import/custom message/match notice) (M1b)"
 ```
 
-**卡点速查:**
-- 真机冒烟报 `70003`(userSig 校验失败)→ 时钟偏差或密钥不对;先 `decode_user_sig` 看内容
-- 真机冒烟报 `7015`/账号不存在 → 先用 `import_account` 把账号导进去(腾讯要求发消息前账号已存在)
-- `sendmsg` 字段名如果被腾讯拒绝 → 以控制台/官方文档为准核对 `MsgBody`/`MsgContent`(Task 9 冒烟会亲自验证)
+**卡点速查(2026-09-10 真机实测后更新):**
+- ✅ 已实测:`account_import` 与 `openim/sendmsg` 用**管理员身份**调用 + `From_Account` 指定发送方 → `ErrorCode 0`,返回 `MsgKey`/`MsgId`
+- ❌ `sendmsg` 若把 REST 的 `identifier` 设为消息发送方,腾讯报 `60010 set the identifier field of the RESTful API request to the admin account` —— 必须用管理员
+- 报 `70003`(userSig 校验失败)→ 时钟偏差或密钥不对;先 `decode_user_sig` 看内容
+- 报 `7015`/账号不存在 → 先用 `import_account` 把账号导进去(腾讯要求发消息前账号已存在)
+- ⚠️ **别用 `im_open_login_svc/account_check` 做冒烟**:2026-09-10 实测该接口在本应用下对任何参数组合都返回 `70402 Invalid parameters`(不是 userSig 的问题 —— 同一签名调 `account_import` 返回 `ErrorCode 0/OK`)。验签一律用 `account_import`。
 
 ---
 

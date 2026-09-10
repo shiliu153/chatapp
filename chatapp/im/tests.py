@@ -1,5 +1,9 @@
+import json
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, override_settings
 
+from .client import _request, import_account, send_custom_elem, send_match_notice
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 
 IM_TEST_SETTINGS = dict(
@@ -33,3 +37,58 @@ class UserSigTests(SimpleTestCase):
         sig = gen_user_sig("u1")
         for ch in "+/=":
             self.assertNotIn(ch, sig)
+
+
+@override_settings(**IM_TEST_SETTINGS)
+class ImClientTests(SimpleTestCase):
+    def test_request_builds_tencent_params(self):
+        with patch("im.client.requests.post") as post:
+            post.return_value.json.return_value = {"ErrorCode": 0}
+            _request("openim", "sendmsg", {"a": 1})
+        args, kwargs = post.call_args
+        self.assertTrue(args[0].endswith("/openim/sendmsg"))
+        self.assertEqual(kwargs["params"]["sdkappid"], "1400000000")
+        self.assertEqual(kwargs["params"]["identifier"], "administrator")
+        self.assertEqual(kwargs["params"]["contenttype"], "json")
+        self.assertIn("usersig", kwargs["params"])
+        self.assertIn("random", kwargs["params"])
+        self.assertEqual(kwargs["json"], {"a": 1})
+
+    def test_import_account_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(import_account("u1", "小明"))
+        args, _ = req.call_args
+        self.assertEqual(args[0], "im_open_login_svc")
+        self.assertEqual(args[1], "account_import")
+        self.assertEqual(args[2]["Identifier"], "u1")
+        self.assertEqual(args[2]["Nick"], "小明")
+
+    def test_import_account_error_code_returns_false(self):
+        with patch("im.client._request", return_value={"ErrorCode": 7015, "ErrorInfo": "exist"}):
+            self.assertFalse(import_account("u1"))
+
+    def test_import_account_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=Exception("boom")):
+            self.assertFalse(import_account("u1"))
+
+    def test_send_custom_elem_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(send_custom_elem("u1", "u2", {"type": "match_notice"}, "灰条"))
+        args, kwargs = req.call_args
+        self.assertEqual(args[0], "openim")
+        self.assertEqual(args[1], "sendmsg")
+        self.assertIsNone(kwargs.get("identifier"))   # 必须以管理员身份调(错误码 60010),发送方看 From_Account
+        payload = args[2]
+        self.assertEqual(payload["From_Account"], "u1")
+        self.assertEqual(payload["To_Account"], "u2")
+        body = payload["MsgBody"][0]
+        self.assertEqual(body["MsgType"], "TIMCustomElem")
+        self.assertEqual(json.loads(body["MsgContent"]["Data"]), {"type": "match_notice"})
+        self.assertEqual(body["MsgContent"]["Desc"], "灰条")
+
+    def test_send_match_notice_sends_both_directions(self):
+        with patch("im.client.send_custom_elem", return_value=True) as send:
+            self.assertTrue(send_match_notice("u1", "u2"))
+        self.assertEqual(send.call_count, 2)
+        self.assertEqual(send.call_args_list[0][0][:2], ("u1", "u2"))
+        self.assertEqual(send.call_args_list[1][0][:2], ("u2", "u1"))
