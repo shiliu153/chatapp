@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from rest_framework.test import APITestCase
 
 User = get_user_model()
 
@@ -14,3 +15,10 @@ class UserManagerTests(TestCase):
         admin = User.objects.create_superuser(phone="13900139000", password="admin-pass")
         self.assertTrue(admin.is_staff)
         self.assertTrue(admin.is_superuser)
+
+
+class HealthTests(APITestCase):
+    def test_health_ok(self):
+        resp = self.client.get("/api/v1/health")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"status": "ok"})

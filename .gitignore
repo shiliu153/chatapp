@@ -30,3 +30,6 @@ app/ios/.symlinks/
 *.iml
 .DS_Store
 Thumbs.db
+
+# Playwright MCP artifacts
+.playwright-mcp/
