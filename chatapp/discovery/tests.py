@@ -1,16 +1,18 @@
+import threading
 from datetime import date
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Photo, PhotoStatus, Preference, Profile, ProfileStatus
 
+from . import services as discovery_services
 from .models import Match, Swipe, SwipeAction
 
 User = get_user_model()
@@ -183,7 +185,7 @@ class SwipeApiTests(APITestCase):
 
     def test_mutual_like_creates_one_match(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
-        with patch("discovery.services.im_client.send_match_notice"):   # 别真打腾讯云
+        with patch("discovery.services._notify_async"):   # 别真打腾讯云(灰条在后台线程发)
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.swipe(self.target.id)
         self.assertEqual(resp.json(), {"matched": True})
@@ -192,7 +194,7 @@ class SwipeApiTests(APITestCase):
 
     def test_mutual_like_after_match_does_not_resend_notice(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
-        with patch("discovery.services.im_client.send_match_notice") as notice:
+        with patch("discovery.services._notify_async") as notice:
             with self.captureOnCommitCallbacks(execute=True):
                 self.swipe(self.target.id)
                 again = self.swipe(self.target.id)
@@ -208,7 +210,10 @@ class SwipeApiTests(APITestCase):
 
     def test_im_failure_does_not_break_swipe(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
-        with patch("im.client._request", side_effect=Exception("im down")):
+        # 把异步派发换成同步执行,好在请求内制造「IM 全挂」;响应仍须正常
+        with patch("discovery.services._notify_async",
+                   lambda a, b: discovery_services.im_client.send_match_notice(a, b)), \
+                patch("im.client._request", side_effect=Exception("im down")):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.swipe(self.target.id)
         self.assertEqual(resp.status_code, 200)
@@ -240,6 +245,18 @@ class SwipeApiTests(APITestCase):
             self.assertEqual(self.swipe(self.target.id).status_code, 200)
             self.assertEqual(self.swipe(self.target.id).status_code, 200)
             self.assertEqual(self.swipe(self.target.id).status_code, 429)
+
+
+class MatchNoticeDispatchTests(SimpleTestCase):
+    """灰条走后台线程发:配对响应不等腾讯 REST(手测:同步发两条 ~0.9s,弹窗明显被拖慢)。"""
+
+    def test_notify_async_dispatches_in_background_thread(self):
+        done = threading.Event()
+        with patch("discovery.services.im_client.send_match_notice",
+                   side_effect=lambda a, b: done.set()) as notice:
+            discovery_services._notify_async("u1", "u2")
+            self.assertTrue(done.wait(timeout=2))   # 后台线程确实把消息发出去了
+        notice.assert_called_once_with("u1", "u2")
 
 
 class MatchListTests(APITestCase):
