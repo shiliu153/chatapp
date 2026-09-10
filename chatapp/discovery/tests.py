@@ -240,3 +240,48 @@ class SwipeApiTests(APITestCase):
             self.assertEqual(self.swipe(self.target.id).status_code, 200)
             self.assertEqual(self.swipe(self.target.id).status_code, 200)
             self.assertEqual(self.swipe(self.target.id).status_code, 429)
+
+
+class MatchListTests(APITestCase):
+    URL = "/api/v1/matches"
+
+    def setUp(self):
+        self.me = self._make_user("13800138000")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make_user(self, phone, nickname=None, with_photo=True):
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(user=user, nickname=nickname or phone, gender="female",
+                               birthday="2000-01-01", city="上海", bio="你好",
+                               status=ProfileStatus.COMPLETE)
+        if with_photo:
+            Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        return user
+
+    def test_lists_both_sides(self):
+        other = self._make_user("13900139000", nickname="小红")
+        Match.objects.create(**Match.pair_kwargs(self.me, other))
+        data = self.client.get(self.URL).json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["user_id"], other.id)
+        self.assertEqual(data[0]["im_user_id"], other.im_user_id)
+        self.assertEqual(data[0]["nickname"], "小红")
+        self.assertTrue(data[0]["avatar_url"].startswith("http://testserver/media/"))
+
+    def test_avatar_null_without_approved_photo(self):
+        other = self._make_user("13900139000", with_photo=False)
+        Match.objects.create(**Match.pair_kwargs(self.me, other))
+        self.assertIsNone(self.client.get(self.URL).json()[0]["avatar_url"])
+
+    def test_only_my_matches(self):
+        other = self._make_user("13900139000")
+        stranger_a = self._make_user("13900139001")
+        stranger_b = self._make_user("13900139002")
+        Match.objects.create(**Match.pair_kwargs(self.me, other))
+        Match.objects.create(**Match.pair_kwargs(stranger_a, stranger_b))
+        data = self.client.get(self.URL).json()
+        self.assertEqual([item["user_id"] for item in data], [other.id])
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get(self.URL).status_code, 401)

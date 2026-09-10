@@ -89,3 +89,25 @@ def swipe(request):
         matched = True
 
     return Response({"matched": matched})
+
+
+@api_view(["GET"])
+def match_list(request):
+    me = request.user
+    matches = (Match.objects.filter(Q(user_a=me) | Q(user_b=me))
+               .select_related("user_a__profile", "user_b__profile")
+               .prefetch_related("user_a__photos", "user_b__photos"))
+    return Response([_match_entry(match, me, request) for match in matches])
+
+
+def _match_entry(match, me, request):
+    other = match.other_user(me)
+    profile = getattr(other, "profile", None)
+    approved = [p for p in other.photos.all() if p.status == PhotoStatus.APPROVED]
+    return {
+        "user_id": other.id,
+        "im_user_id": other.im_user_id,
+        "nickname": profile.nickname if profile else "",
+        "avatar_url": request.build_absolute_uri(approved[0].file.url) if approved else None,
+        "matched_at": match.created_at,
+    }
