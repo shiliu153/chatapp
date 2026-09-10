@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'features/auth/login_page.dart';
 import 'features/auth/session.dart';
 import 'features/auth/splash_page.dart';
+import 'features/chat/chat_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/profile/preference_page.dart';
 import 'features/profile/profile_edit_page.dart';
@@ -28,6 +29,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/profile/edit', builder: (context, state) => const ProfileEditPage()),
       GoRoute(path: '/preference', builder: (context, state) => const PreferencePage()),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsPage()),
+      GoRoute(
+        path: '/chat/:peerId',
+        builder: (context, state) => ChatPage(peerId: state.pathParameters['peerId']!),
+      ),
     ],
     redirect: (context, state) {
       final session = ref.read(sessionProvider);

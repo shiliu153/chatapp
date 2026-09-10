@@ -69,4 +69,31 @@ void main() {
     expect(find.textContaining('6001'), findsOneWidget);
     expect(find.byKey(const Key('chats.retry')), findsOneWidget);
   });
+
+  testWidgets('点会话 → 进聊天页', (tester) async {
+    final fake = FakeImClient()
+      ..conversations = [_conversation()]
+      ..history = {
+        'u9': [
+          ChatMessage(
+            msgId: 'm1',
+            peerId: 'u9',
+            isSelf: false,
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+            kind: ChatMessageKind.text,
+            text: '你好呀',
+          ),
+        ],
+      };
+    await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('会话'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('小红'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('chat.input')), findsOneWidget);
+    expect(find.text('你好呀'), findsOneWidget); // 历史里的那条
+  });
 }
