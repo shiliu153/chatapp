@@ -10,8 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL)
 - **聊天**: 腾讯云 IM SDK(消息走腾讯云 IM,业务数据存 Django)
 
-**当前进度:M1 后端全量已完成**(M0 地基 + M1a 认证/资料 + M1b IM/滑卡配对:短信验证码登录、JWT 轮换、资料与照片、userSig 签发、IM 账号导入、候选推荐、划卡互喜配对 + 灰条消息、配对列表;91 个后端测试全绿,腾讯云 IM 真机冒烟与全链路 curl 冒烟均通过)。
-设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`,checkbox 全勾)。**下一步 M2 前端全量**(登录页 → 资料引导 → 卡片流 → 配对动效 → 会话列表 → 聊天页;接口约定见 M1b 计划末尾的「留给 M2 的接口约定」表)。
+**当前进度:M2a 已完成**(M0 地基 + M1 后端全量 + M2a 前端:依赖与 core(401 静默刷新拦截器)、会话状态/启动鉴权、验证码登录页、三 Tab 主框架、3 步资料引导(昵称/性别/生日/城市/简介/标签/照片)、我的资料+编辑、偏好设置、退出登录;前端 37 测试全绿 + analyze 零告警,后端 91 测试回归通过,模拟器联调通过)。
+设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`,checkbox 全勾)。**下一步 M2b**(发现卡片流 → 配对动效,M2c:IM SDK → 会话列表 → 聊天页灰条;接口约定见 M2a 计划末尾的「留给 M2b / M2c 的接口约定」表)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
 
@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 路径 | 内容 | 说明 |
 |---|---|---|
-| `app/` | Flutter 应用(Flutter 3.47.2) | `lib/core/api_client.dart` 是网络层起点;测试用 `test/fake_adapter.dart` 离线假适配器 |
+| `app/` | Flutter 应用(Flutter 3.47.2) | `lib/core/`(网络/错误/凭证)、`lib/router.dart`(go_router 路由表)、`lib/features/{auth,onboarding,discovery,chat,profile,settings,shell}`;测试是"真实 provider + 假网络":`test/support/scripted_adapter.dart` + `test/support/harness.dart` 的 `pumpApp` |
 | `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 5 个业务 app:`accounts users discovery im moderation`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
 | `docs/superpowers/` | 设计 spec 与实施计划 | 计划的执行进度以文件内 checkbox 为准 |
@@ -41,6 +41,7 @@ python manage.py makemigrations && python manage.py migrate
 ```bash
 ../flutter/bin/flutter.bat analyze   # 必须零告警
 ../flutter/bin/flutter.bat test
+../flutter/bin/flutter.bat test test/core          # 单目录跑
 ../flutter/bin/flutter.bat run -d chrome            # 或 -d windows
 ../flutter/bin/flutter.bat run -d web-server --web-port 5173   # 无头验证用
 ```
@@ -85,6 +86,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - 模拟器设备:`emulator-5554`(sdk gphone16k x86_64,Android 17 / API 37)
 - 运行:`../flutter/bin/flutter.bat run -d emulator-5554 --dart-define=API_BASE=http://10.0.2.2:8000/api/v1`(模拟器里 `10.0.2.2` = 宿主机回环;`.env` 的 ALLOWED_HOSTS 已含它)
 - 截图验证:`"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe" -s emulator-5554 exec-out screencap -p > shot.png`
+- 模拟器相册默认是空的:要测照片上传,先 `adb push 本地图.png /sdcard/Pictures/x.png` 并触发媒体扫描(`adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/x.png`),或改用 `-d windows` 走文件选择
 - ⚠️ **只保留一个 runserver 进程**:Windows 下多个 runserver 可同时绑定 8000,旧进程会拿旧配置抢答(踩过:旧 ALLOWED_HOSTS 导致 400)。排查:`netstat -ano | grep :8000`,再用 `Get-CimInstance Win32_Process` 看 PID 的启动时间和命令行
 
 ## 腾讯云 IM 集成要点(已实测)
@@ -97,8 +99,20 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - ⚠️ **`im_open_login_svc/account_check` 别用来验签**:本应用下它对任何参数组合都返回 `70402 Invalid parameters`(与签名无关,同一签名调 `account_import` 返回 0)。验签一律用 `account_import`。
 - **配对灰条消息**:配对成功时 `send_match_notice(a, b)` 给**双方各发一条** `TIMCustomElem`,`MsgContent.Data` = `{"type":"match_notice"}`,`Desc` = "你们已互相喜欢,开始聊天吧"(M2 端拦截该类型渲染成居中灰条,会话随之创建)。
 - 账号导入:注册成功后经 `transaction.on_commit` 调 `account_import(u{id})`,失败只记日志不阻塞注册。
-- Flutter 端 IM SDK 包:`tim_plus_flutter`(M2 引入)。
+- Flutter 端 IM SDK 包:`tim_plus_flutter`(M2c 引入)。
 - 详细设计(配对灰条消息、会话列表数据源、审核合规)见 spec 文档,写 IM 相关代码前先读它。
+
+## 前端约定与踩坑(M2a 已实测)
+
+- **分层**:repository(纯 IO,JSON → 模型)→ Riverpod controller(会话/资料状态)→ widget;路由表在 `lib/router.dart`,按 `SessionState`(sealed)重定向:splash → 登录页 → 主框架
+- **鉴权**:`AuthInterceptor` 自动带 Bearer;401 → 用**裸 Dio** 静默刷新一次 → 重放原请求;刷新也失败就 `TokenStore.clear()`,它的通知让 `SessionController` 把人踢回登录页 —— 这是"会话过期"的唯一传播通道,别在页面里各自处理 401
+- **错误**:所有接口错误统一抛 `ApiException`(message 就是后端的中文提示);页面用 SnackBar 展示,网络错误有兜底文案
+- **接口地址**:`--dart-define=API_BASE=...`;桌面/Web 默认 `http://127.0.0.1:8000/api/v1`,模拟器用 `http://10.0.2.2:8000/api/v1`
+- **测试纪律**:widget 测试用 `test/support/harness.dart` 的 `pumpApp`(假网络按 `"METHOD path"` 铺响应,没铺的路由返回 404 提示你);有倒计时/轮询的页面别用 `pumpAndSettle`(永不 settle),测试尾部 `await tester.pumpWidget(const SizedBox())` 卸载页面取消 Timer
+- **Riverpod 3.4 注意**:`AsyncValue.valueOrNull` 已移除,用 `.value`(可空);测试辅助函数别叫 `fail`(与 flutter_test 自带 `fail()` 撞名)
+- ⚠️ Windows 上 `pub add` 插件后提示 "requires symlink support"(需开发者模式)——**Android/Web 构建不受影响**;桌面 `-d windows` 需要开启系统开发者模式
+- ⚠️ **`app/android/gradle.properties` 里的 `kotlin.incremental=false` 勿删**:pub 缓存在 C 盘、工程在 D 盘,Kotlin 增量编译缓存算跨盘相对路径会崩(`Could not close incremental caches ... different roots`),关掉增量编译是官方 workaround
+- 照片上传走 `readAsBytes` + `MultipartFile.fromBytes`(Web 上 `XFile.path` 是 blob URL,不能用 `fromFile`);单张 ≤5MB 前端先拦
 
 ## 后端测试注意事项
 
