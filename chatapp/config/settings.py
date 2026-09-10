@@ -153,7 +153,7 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ),
     "EXCEPTION_HANDLER": "config.exceptions.api_exception_handler",
-    "DEFAULT_THROTTLE_RATES": {"sms_send": "20/hour"},
+    "DEFAULT_THROTTLE_RATES": {"sms_send": "20/hour", "swipe": "300/hour"},
 }
 
 CORS_ALLOWED_ORIGIN_REGEXES = [

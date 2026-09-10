@@ -1,6 +1,8 @@
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
@@ -144,3 +146,97 @@ class CandidateTests(APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get(self.URL).status_code, 401)
+
+
+class SwipeApiTests(APITestCase):
+    URL = "/api/v1/discovery/swipe"
+
+    def setUp(self):
+        cache.clear()               # 限流计数存在缓存里,测试之间必须清
+        self.addCleanup(cache.clear)
+        self.me = self._make_user("13800138000", gender="male")
+        self.target = self._make_user("13900139000", gender="female")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make_user(self, phone, gender="female"):
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(user=user, nickname=phone, gender=gender, birthday="2000-01-01",
+                               city="上海", bio="你好", status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        return user
+
+    def swipe(self, target_id, action="like"):
+        return self.client.post(self.URL, {"target_user_id": target_id, "action": action}, format="json")
+
+    def test_like_creates_swipe(self):
+        resp = self.swipe(self.target.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"matched": False})
+        self.assertTrue(Swipe.objects.filter(swiper=self.me, target=self.target,
+                                             action=SwipeAction.LIKE).exists())
+
+    def test_repeat_swipe_is_idempotent(self):
+        self.swipe(self.target.id)
+        resp = self.swipe(self.target.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Swipe.objects.count(), 1)
+
+    def test_mutual_like_creates_one_match(self):
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        with patch("discovery.services.im_client.send_match_notice"):   # 别真打腾讯云
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.swipe(self.target.id)
+        self.assertEqual(resp.json(), {"matched": True})
+        self.assertEqual(Match.objects.count(), 1)
+        self.assertEqual(Match.objects.first().user_a, self.me)
+
+    def test_mutual_like_after_match_does_not_resend_notice(self):
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        with patch("discovery.services.im_client.send_match_notice") as notice:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.swipe(self.target.id)
+                again = self.swipe(self.target.id)
+        self.assertEqual(again.json(), {"matched": True})
+        self.assertEqual(notice.call_count, 1)
+        self.assertEqual(notice.call_args[0], (self.me.im_user_id, self.target.im_user_id))
+
+    def test_pass_never_matches(self):
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        resp = self.swipe(self.target.id, action="pass")
+        self.assertEqual(resp.json(), {"matched": False})
+        self.assertEqual(Match.objects.count(), 0)
+
+    def test_im_failure_does_not_break_swipe(self):
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        with patch("im.client._request", side_effect=Exception("im down")):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.swipe(self.target.id)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"matched": True})
+
+    def test_cannot_swipe_self(self):
+        self.assertEqual(self.swipe(self.me.id).status_code, 400)
+
+    def test_unknown_target_returns_404(self):
+        self.assertEqual(self.swipe(999999).status_code, 404)
+
+    def test_incomplete_target_rejected(self):
+        loner = User.objects.create_user(phone="13900139001")
+        Profile.objects.create(user=loner, status=ProfileStatus.INCOMPLETE)
+        self.assertEqual(self.swipe(loner.id).status_code, 400)
+
+    def test_banned_light_cannot_swipe(self):
+        Profile.objects.filter(user=self.me).update(status=ProfileStatus.BANNED_LIGHT)
+        resp = self.swipe(self.target.id)
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(Swipe.objects.exists())
+
+    def test_invalid_action_rejected(self):
+        self.assertEqual(self.swipe(self.target.id, action="hug").status_code, 400)
+
+    def test_swipe_throttled(self):
+        from discovery.throttles import SwipeThrottle
+        with patch.object(SwipeThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.swipe(self.target.id).status_code, 200)
+            self.assertEqual(self.swipe(self.target.id).status_code, 200)
+            self.assertEqual(self.swipe(self.target.id).status_code, 429)

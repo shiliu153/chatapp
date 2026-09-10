@@ -3,6 +3,8 @@ from rest_framework import serializers
 from users.models import PhotoStatus, Profile
 from users.serializers import PhotoSerializer, TagSerializer
 
+from .models import SwipeAction
+
 
 class CandidateSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source="user.id", read_only=True)
@@ -17,3 +19,8 @@ class CandidateSerializer(serializers.ModelSerializer):
     def get_photos(self, profile):
         approved = [p for p in profile.user.photos.all() if p.status == PhotoStatus.APPROVED]
         return PhotoSerializer(approved, many=True, context=self.context).data
+
+
+class SwipeSerializer(serializers.Serializer):
+    target_user_id = serializers.IntegerField()
+    action = serializers.ChoiceField(choices=SwipeAction.choices)

@@ -1206,8 +1206,9 @@ class SwipeApiTests(APITestCase):
 
     def test_mutual_like_creates_one_match(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
-        with self.captureOnCommitCallbacks(execute=True):
-            resp = self.swipe(self.target.id)
+        with patch("discovery.services.im_client.send_match_notice"):   # 别真打腾讯云
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.swipe(self.target.id)
         self.assertEqual(resp.json(), {"matched": True})
         self.assertEqual(Match.objects.count(), 1)
         self.assertEqual(Match.objects.first().user_a, self.me)
@@ -1410,6 +1411,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/config && g
 - 灰条消息没发出去 → 检查 `notify_match` 是否**在 `transaction.atomic()` 块内**调用(on_commit 必须在事务里注册)
 - 测试里 `notice.assert_called_once()` 失败 → 忘了 `self.captureOnCommitCallbacks(execute=True)`(测试事务里 on_commit 默认不执行)
 - 429 出现在不相干的用例 → `cache.clear()` 没加(限流状态存在缓存里)
+- ⚠️ **每个执行 on_commit 回调的用例都要 mock 掉 IM**:漏 mock 会**真的**打腾讯云(2026-09-10 实测:漏掉一个,日志里出现 `20003 Invalid sender or receiver identifier`,因为测试用户的 `u{id}` 在 IM 里并不存在)。用例仍然是绿的(业务函数吞异常),但测试变慢且依赖网络 —— 靠"跑测试时日志里有没有 IM 报错"来发现。
 
 ---
 
