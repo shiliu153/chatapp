@@ -46,7 +46,7 @@
   - `core/token_store.dart` → `TokenStore extends ChangeNotifier`:`save({access, refresh, userId})` / `saveTokens({access, refresh})` / `clear()`(会 `notifyListeners()`) / `accessToken` / `refreshToken` / `userId`
   - `app.dart` → `ChatApp`(先是无路由占位,Task 3 换成 `MaterialApp.router`)
 
-- [ ] **Step 1:加依赖**
+- [x] **Step 1:加依赖**
 
 ```bash
 cd "D:/pycharmproject/chat_app/app" && ../flutter/bin/flutter.bat pub add flutter_riverpod go_router shared_preferences image_picker
@@ -65,7 +65,7 @@ cd "D:/pycharmproject/chat_app/app" && ../flutter/bin/flutter.bat pub add flutte
 
 预期:两个命令都输出 `Changed ... dependencies!` / `Got dependencies!`。**记下 pub 解析出的 flutter_riverpod 大版本**(`grep -A1 flutter_riverpod pubspec.yaml`)——若解析到 3.x 而某段代码编译不过,以编译器报错为准微调,并在本计划「卡点速查」补记。
 
-- [ ] **Step 2:写失败的测试**
+- [x] **Step 2:写失败的测试**
 
 新建 `app/test/core/api_exception_test.dart`:
 
@@ -145,7 +145,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 3:运行确认失败**
+- [x] **Step 3:运行确认失败**
 
 ```bash
 cd "D:/pycharmproject/chat_app/app" && ../flutter/bin/flutter.bat test test/core
@@ -153,7 +153,7 @@ cd "D:/pycharmproject/chat_app/app" && ../flutter/bin/flutter.bat test test/core
 
 预期:编译失败 / `Target of URI doesn't exist: 'package:chatapp_app/core/api_exception.dart'`。
 
-- [ ] **Step 4:实现 core**
+- [x] **Step 4:实现 core**
 
 新建 `app/lib/core/config.dart`:
 
@@ -250,7 +250,7 @@ class TokenStore extends ChangeNotifier {
 }
 ```
 
-- [ ] **Step 5:换成新入口**
+- [x] **Step 5:换成新入口**
 
 重写 `app/lib/main.dart`:
 
@@ -286,7 +286,7 @@ class ChatApp extends StatelessWidget {
 
 删除 `app/test/widget_test.dart`(它测的 M0 握手页已不存在)。
 
-- [ ] **Step 6:运行测试确认通过**
+- [x] **Step 6:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core && ../flutter/bin/flutter.bat analyze
@@ -294,7 +294,7 @@ class ChatApp extends StatelessWidget {
 
 预期:5 个用例 OK;analyze `No issues found!`。
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: flutter deps + core (config/error/token store) (M2a)"
@@ -324,7 +324,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: flutter d
 
 **为什么要有"裸 Dio":** 刷新 token 的请求如果也过同一个拦截器,refresh 也 401 时会无限递归。单开一个不带拦截器的 Dio 只干刷新这一件事。
 
-- [ ] **Step 1:写测试基建与失败的测试**
+- [x] **Step 1:写测试基建与失败的测试**
 
 新建 `app/test/support/scripted_adapter.dart`:
 
@@ -451,7 +451,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/auth_interceptor_test.dart
@@ -459,7 +459,7 @@ void main() {
 
 预期:编译失败(`auth_interceptor.dart` / `token_refresher.dart` 不存在)。
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 新建 `app/lib/core/token_refresher.dart`:
 
@@ -642,7 +642,7 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 删除 `app/test/api_client_test.dart` 与 `app/test/fake_adapter.dart`。
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -650,7 +650,7 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 预期:全部用例 OK(core 5 + 拦截器 4);analyze 无问题。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: dio jwt interceptor + api client + scripted test adapter (M2a)"
@@ -678,7 +678,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: dio jwt i
 
 **为什么状态要 sealed:** `switch` 能穷尽四种状态,编译器盯着你写全;`SessionBootFailed` 与 `SessionLoggedOut` 分开,网络抖动能"重试"而不是被清掉凭证重新登录。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `app/test/features/auth/session_test.dart`:
 
@@ -821,7 +821,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features
@@ -829,7 +829,7 @@ void main() {
 
 预期:编译失败(`features/auth/session.dart` 等不存在)。
 
-- [ ] **Step 3:实现会话与仓库**
+- [x] **Step 3:实现会话与仓库**
 
 新建 `app/lib/features/auth/auth_repository.dart`:
 
@@ -975,7 +975,7 @@ class SessionController extends Notifier<SessionState> {
 final sessionProvider = NotifierProvider<SessionController, SessionState>(SessionController.new);
 ```
 
-- [ ] **Step 4:实现路由与页面骨架**
+- [x] **Step 4:实现路由与页面骨架**
 
 新建 `app/lib/features/common/placeholder_page.dart`:
 
@@ -1143,7 +1143,7 @@ class ChatApp extends ConsumerWidget {
 }
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -1151,7 +1151,7 @@ class ChatApp extends ConsumerWidget {
 
 预期:session 6 个 + 启动流 1 个 + core 5 个 + 拦截器 4 个全绿;analyze 无问题。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: session state + startup auth + go_router skeleton (M2a)"
@@ -1177,7 +1177,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: session s
 
 **为什么验证码页能当注册页:** 后端 `sms/verify` 对没注册过的号码自动建号,前端只需根据 `is_new_user` 决定去向导还是主框架。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `app/test/features/auth/login_page_test.dart`:
 
@@ -1277,7 +1277,7 @@ Map<String, dynamic> profileJson({
     };
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/auth
@@ -1285,7 +1285,7 @@ Map<String, dynamic> profileJson({
 
 预期:新用例失败(找不到 `login.phone` / 断言 `登录页施工中` 落空)。
 
-- [ ] **Step 3:实现登录页**
+- [x] **Step 3:实现登录页**
 
 整体替换 `app/lib/features/auth/login_page.dart`:
 
@@ -1467,7 +1467,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     expect(find.text('获取验证码'), findsOneWidget);
 ```
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -1475,7 +1475,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
 预期:全绿;analyze 无问题。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: phone + sms code login page (M2a)"
@@ -1508,7 +1508,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: phone + s
 
 **为什么资料放 Provider 而不是页面里:** 三个 Tab、编辑页、向导都要读同一份资料;`profileProvider` 一处拉取、处处 `watch`,改完 `save()` 直接换 state,全 UI 同步刷新。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `app/test/features/profile/models_test.dart`:
 
@@ -1650,7 +1650,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/profile test/features/shell
@@ -1658,7 +1658,7 @@ void main() {
 
 预期:编译失败(模块不存在)。
 
-- [ ] **Step 3:实现模型与仓库**
+- [x] **Step 3:实现模型与仓库**
 
 新建 `app/lib/core/format.dart`:
 
@@ -1884,7 +1884,7 @@ final tagsProvider =
     FutureProvider<List<Tag>>((ref) => ref.watch(profileRepositoryProvider).fetchTags());
 ```
 
-- [ ] **Step 4:实现主框架与我的资料页**
+- [x] **Step 4:实现主框架与我的资料页**
 
 新建 `app/lib/features/chat/chats_page.dart`(M2c 之前的占位):
 
@@ -2168,7 +2168,7 @@ Map<String, dynamic> photoJson(int id, {bool approved = true, int order = 0}) =>
     expect(find.byType(NavigationBar), findsOneWidget); // 进主框架了
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -2176,7 +2176,7 @@ Map<String, dynamic> photoJson(int id, {bool approved = true, int order = 0}) =>
 
 预期:全绿;analyze 无问题。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: profile models/repository + home shell + my profile page (M2a)"
@@ -2204,7 +2204,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: profile m
 
 **为什么要注入 pickImage:** 相册选择走平台通道,单测里无法真的弹相册;把"选一张图"抽成一个函数参数,测试塞个假的 `XFile` 就能跑通整条上传链路。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `app/test/features/profile/photo_grid_test.dart`:
 
@@ -2278,7 +2278,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/profile/photo_grid_test.dart
@@ -2286,7 +2286,7 @@ void main() {
 
 预期:编译失败(`photo_grid.dart` 不存在)。
 
-- [ ] **Step 3:实现 PhotoGrid**
+- [x] **Step 3:实现 PhotoGrid**
 
 新建 `app/lib/features/profile/widgets/photo_grid.dart`:
 
@@ -2465,7 +2465,7 @@ class _AddTile extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/profile && ../flutter/bin/flutter.bat analyze
@@ -2473,7 +2473,7 @@ class _AddTile extends StatelessWidget {
 
 预期:照片部件 2 个用例 OK;analyze 无问题。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: photo grid with upload/delete (M2a)"
@@ -2500,7 +2500,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: photo gri
   - `TagSelector({selectedIds, onChanged})`(`Set<int>` 进出)
   - `ProfileEditPage`:钥匙 `edit.save`;PATCH 只发非 null 字段(后端 DateField/ChoiceField 不接受显式 null);生日 <18 本地拦截
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `app/test/features/profile/profile_edit_page_test.dart`:
 
@@ -2563,7 +2563,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/profile/profile_edit_page_test.dart
@@ -2571,7 +2571,7 @@ void main() {
 
 预期:编译失败(`profile_edit_page.dart` 不存在)。
 
-- [ ] **Step 3:实现共享字段部件**
+- [x] **Step 3:实现共享字段部件**
 
 新建 `app/lib/features/profile/widgets/profile_form_fields.dart`:
 
@@ -2744,7 +2744,7 @@ class TagSelector extends ConsumerWidget {
 }
 ```
 
-- [ ] **Step 4:实现编辑页**
+- [x] **Step 4:实现编辑页**
 
 新建 `app/lib/features/profile/profile_edit_page.dart`:
 
@@ -2906,7 +2906,7 @@ import 'features/profile/profile_edit_page.dart';
           builder: (context, state) => const ProfileEditPage()),
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -2914,7 +2914,7 @@ import 'features/profile/profile_edit_page.dart';
 
 预期:全绿;analyze 无问题。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: profile edit page with shared form widgets (M2a)"
@@ -2941,7 +2941,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: profile e
 
 **为什么每步单独 PATCH:** 中途退出/网络抖动不丢已填内容;下次进来由资料接口回填,从第 1 步继续。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `app/test/features/onboarding/onboarding_page_test.dart`:
 
@@ -3026,7 +3026,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/onboarding
@@ -3034,7 +3034,7 @@ void main() {
 
 预期:编译失败(`onboarding_page.dart` 不存在)。
 
-- [ ] **Step 3:实现向导**
+- [x] **Step 3:实现向导**
 
 新建 `app/lib/features/onboarding/onboarding_page.dart`:
 
@@ -3346,7 +3346,7 @@ import 'features/onboarding/onboarding_page.dart';
       GoRoute(path: '/onboarding', builder: (context, state) => const OnboardingPage()),
 ```
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -3354,7 +3354,7 @@ import 'features/onboarding/onboarding_page.dart';
 
 预期:全绿;analyze 无问题。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: 3-step onboarding wizard (M2a)"
@@ -3379,7 +3379,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: 3-step on
   - `PreferencePage`:目标性别(不限/男/女 → `target_gender: null/male/female`)、年龄区间(`RangeSlider` 18–99)、城市(可空);钥匙 `preference.save`
   - `SettingsPage`:退出登录(确认弹窗)→ `sessionProvider.logout()` + `ref.invalidate(profileProvider)` → 自动回登录页
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `app/test/features/settings/settings_page_test.dart`:
 
@@ -3460,7 +3460,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/settings test/features/profile/preference_page_test.dart
@@ -3468,7 +3468,7 @@ void main() {
 
 预期:编译失败 / 断言失败(还是占位页)。
 
-- [ ] **Step 3:实现偏好页**
+- [x] **Step 3:实现偏好页**
 
 新建 `app/lib/features/profile/preference_page.dart`:
 
@@ -3616,7 +3616,7 @@ class _PreferencePageState extends ConsumerState<PreferencePage> {
 }
 ```
 
-- [ ] **Step 4:实现设置页**
+- [x] **Step 4:实现设置页**
 
 新建 `app/lib/features/settings/settings_page.dart`:
 
@@ -3675,7 +3675,7 @@ import 'features/settings/settings_page.dart';
       GoRoute(path: '/settings', builder: (context, state) => const SettingsPage()),
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -3683,7 +3683,7 @@ import 'features/settings/settings_page.dart';
 
 预期:全绿;analyze 无问题。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: preference page + settings/logout (M2a)"
@@ -3705,7 +3705,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: preferenc
 - Consumes: 前面全部 Task;后端已跑起来(单进程)。
 - Produces: 模拟器上的真机联调记录;CLAUDE.md 更新到 M2a 状态;M2b 交接说明。
 
-- [ ] **Step 1:全量静态检查与测试**
+- [x] **Step 1:全量静态检查与测试**
 
 ```bash
 cd "D:/pycharmproject/chat_app/app" && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test
@@ -3713,7 +3713,7 @@ cd "D:/pycharmproject/chat_app/app" && ../flutter/bin/flutter.bat analyze && ../
 
 预期:`No issues found!` + 全部用例 OK(约 25+)。
 
-- [ ] **Step 2:确认后端干净启动(单进程!)**
+- [x] **Step 2:确认后端干净启动(单进程!)**
 
 ```bash
 netstat -ano | grep :8000
@@ -3725,7 +3725,7 @@ netstat -ano | grep :8000
 cd "D:/pycharmproject/chat_app/chatapp" && python manage.py runserver
 ```
 
-- [ ] **Step 3:模拟器联调**
+- [x] **Step 3:模拟器联调**
 
 ```bash
 cd "D:/pycharmproject/chat_app/app" && ../flutter/bin/flutter.bat run -d emulator-5554 --dart-define=API_BASE=http://10.0.2.2:8000/api/v1
@@ -3740,14 +3740,14 @@ cd "D:/pycharmproject/chat_app/app" && ../flutter/bin/flutter.bat run -d emulato
 - 退出登录 → 回登录页;再登录 → 资料还在(后端数据)
 - 后端 Ctrl+C 后再操作 → 界面出现中文错误提示而不是崩(网络错误兜底)
 
-- [ ] **Step 4:更新 CLAUDE.md**
+- [x] **Step 4:更新 CLAUDE.md**
 
 - 「当前进度」改成:M2a 完成(前端基建+登录+资料引导+主框架/我的资料/偏好/退出),下一步 M2b(卡片流+配对动效)
 - 「目录结构」的 `app/` 行更新:`lib/core`(网络/会话/错误)、`lib/features/*`(auth/onboarding/discovery/chat/profile/settings/shell)、`lib/router.dart`;测试:`test/support/scripted_adapter.dart` 假网络、`test/support/harness.dart` 起整个 App
 - 「常用命令」补:`../flutter/bin/flutter.bat test test/core` 等单目录跑法
 - 新增「前端约定与踩坑」小节:401 静默刷新机制(TokenStore 通知 → 会话踢回登录)、`--dart-define=API_BASE`、倒计时 Timer 与 `pumpAndSettle` 的坑、ScriptedAdapter 只铺已用路由、照片上传走 bytes、模拟器推图命令
 
-- [ ] **Step 5:勾选本计划 + 验收清单,提交**
+- [x] **Step 5:勾选本计划 + 验收清单,提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add CLAUDE.md docs/superpowers/plans/2026-09-10-m2a-auth-onboarding.md && git commit -m "docs: M2a done — app foundation/auth/onboarding (M2a)"
@@ -3757,12 +3757,23 @@ cd "D:/pycharmproject/chat_app" && git add CLAUDE.md docs/superpowers/plans/2026
 
 ## M2a 验收清单(全部通过即进入 M2b 计划)
 
-- [ ] `flutter analyze` 零告警;`flutter test` 全绿(离线,无真实网络)
-- [ ] 后端 `python manage.py test` 仍全绿(本计划没动后端,回归确认)
-- [ ] 模拟器:新号注册 → 3 步向导(含照片)→ 主框架;杀进程重启保持登录
-- [ ] 资料未完善时发现 Tab 显示引导卡;完善后消失
-- [ ] 编辑资料 / 照片增删 / 偏好设置 / 退出登录 全部可用,错误有中文提示
-- [ ] CLAUDE.md 更新完毕;`git status` 干净
+- [x] `flutter analyze` 零告警;`flutter test` 全绿(离线,无真实网络;37 个用例)
+- [x] 后端 `python manage.py test` 仍全绿(91 个用例,本计划没动后端,回归确认)
+- [x] 模拟器:新号注册(18502826370)→ 3 步向导(昵称/性别/生日 → 城市/简介/标签 → 照片)→ 主框架 ← 真机实测通过
+- [x] 资料未完善时发现 Tab 显示引导卡;上传照片、资料变 complete 后消失 ← 真机实测通过
+- [x] 照片上传:模拟器相册选图 → `scaled_34.png` 上传成功、`AUTO_APPROVE` 过审、头像渲染、media 服务 HTTP 200 ← 真机实测通过
+- [ ] ⚠️ 真机手测**跳过**(用户决定直接收尾,仅单测覆盖):杀进程重启保持登录、编辑资料保存、偏好设置保存、退出登录。其中 bootstrap 静默刷新/资料 PATCH/偏好 PATCH/登出清凭证均有 widget 测试与 session 单测覆盖,但没过真机
+- [x] CLAUDE.md 更新完毕;`git status` 干净
+
+### 执行中的偏差与记录(2026-09-10)
+
+| 事项 | 结果 |
+|---|---|
+| 依赖版本 | flutter_riverpod 解析到 **3.4.3**、go_router 18.0.1;`AsyncValue.valueOrNull` 已移除 → 全部改用 `.value`(可空) |
+| 测试辅助函数 | `fail()` 与 flutter_test 撞名 → 改名 **`jsonError()`**(计划文档已同步) |
+| 占位页文案 | PlaceholderPage 中间版本用 `'$title施工中'`(无空格);M2a 收尾时该文件已随真页面就位而删除 |
+| Android 构建 | pub 缓存在 C 盘 + 工程在 D 盘 → Kotlin 增量编译崩溃 → `app/android/gradle.properties` 加 `kotlin.incremental=false`(勿删) |
+| 模拟器相册 | 空相册导致选不到图 → `adb push` 一张测试图到 `/sdcard/Pictures/` 并触发媒体扫描 |
 
 ## 留给 M2b / M2c 的接口约定
 
