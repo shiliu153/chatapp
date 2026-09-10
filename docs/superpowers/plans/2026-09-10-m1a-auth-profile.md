@@ -41,7 +41,7 @@
 
 **为什么先做这个:** 前端(M2)要写统一的错误处理,后端必须先保证错误格式一致。改一处 EXCEPTION_HANDLER,全项目生效,后面每个接口都不用再操心。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `chatapp/config/tests.py`:
 
@@ -57,7 +57,7 @@ class ErrorEnvelopeTests(APITestCase):
         self.assertIn("message", resp.json())
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 cd "D:/pycharmproject/chat_app/chatapp" && python manage.py test config
@@ -65,7 +65,7 @@ cd "D:/pycharmproject/chat_app/chatapp" && python manage.py test config
 
 预期:FAIL(`KeyError: 'code'` —— 现在返回的是 DRF 默认的 `{"detail": ...}`)。
 
-- [ ] **Step 3:实现异常处理器**
+- [x] **Step 3:实现异常处理器**
 
 新建 `chatapp/config/exceptions.py`:
 
@@ -100,7 +100,7 @@ def api_exception_handler(exc, context):
     return response
 ```
 
-- [ ] **Step 4:在 settings.py 挂上处理器 + 本地化**
+- [x] **Step 4:在 settings.py 挂上处理器 + 本地化**
 
 `chatapp/config/settings.py` 里 `REST_FRAMEWORK` 字典增加一行:
 
@@ -124,7 +124,7 @@ LANGUAGE_CODE = "zh-hans"
 TIME_ZONE = "Asia/Shanghai"
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 python manage.py test config
@@ -132,7 +132,7 @@ python manage.py test config
 
 预期:`Ran 1 test ... OK`。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/config && git commit -m "feat: unified {code,message} error envelope + zh-hans locale (M1a)"
@@ -156,7 +156,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/config && git commit -m "feat
 
 **为什么有 60 秒重发 + IP 限流两层:** 前者防"对着一个号码狂点"(业务规则,spec §10),后者防"换着号码刷"(用 DRF 自带限流,spec §10 要求)。开发期验证码固定在 settings,上线换腾讯云 SMS 时只改 `services.send_code` 一处。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/accounts/tests.py` 顶部补 import,文件末尾追加:
 
@@ -193,7 +193,7 @@ class SmsSendTests(APITestCase):
 
     def test_send_ip_throttle(self):
         # DRF 的 THROTTLE_RATES 是类属性快照,测试里直接临时改 rate 才生效
-        with patch.object(SmsSendThrottle, "rate", "2/hour"):
+        with patch.object(SmsSendThrottle, "rate", "2/hour", create=True):
             for i in range(2):
                 resp = self.client.post("/api/v1/auth/sms/send", {"phone": f"1380013800{i}"}, format="json")
                 self.assertEqual(resp.status_code, 200)
@@ -201,7 +201,7 @@ class SmsSendTests(APITestCase):
             self.assertEqual(resp.status_code, 429)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test accounts
@@ -209,7 +209,7 @@ python manage.py test accounts
 
 预期:ERROR 一堆 —— 这一步 `accounts.services` / `accounts.throttles` 还不存在,测试文件会因为 import 失败整个加载不了(这是"红"得最彻底的一种:连跑都跑不起来)。等 Step 4/5 建完模块,再跑一次。
 
-- [ ] **Step 3:写设置项**
+- [x] **Step 3:写设置项**
 
 `chatapp/config/settings.py` 文件末尾追加:
 
@@ -237,7 +237,7 @@ LOGGING = {
     "DEFAULT_THROTTLE_RATES": {"sms_send": "20/hour"},
 ```
 
-- [ ] **Step 4:写服务层**
+- [x] **Step 4:写服务层**
 
 新建 `chatapp/accounts/services.py`:
 
@@ -300,7 +300,7 @@ def check_code(phone: str, code: str) -> None:
     cache.delete(_attempts_key(phone))
 ```
 
-- [ ] **Step 5:写序列化器、限流器、视图、路由**
+- [x] **Step 5:写序列化器、限流器、视图、路由**
 
 新建 `chatapp/accounts/serializers.py`:
 
@@ -387,7 +387,7 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 6:运行测试确认通过**
+- [x] **Step 6:运行测试确认通过**
 
 ```bash
 python manage.py test accounts
@@ -395,7 +395,7 @@ python manage.py test accounts
 
 预期:7 个用例(原有 3 个 + 新增 4 个)全部 OK。
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/accounts chatapp/config && git commit -m "feat: sms code service + /auth/sms/send (M1a)"
@@ -422,7 +422,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/accounts chatapp/config && gi
 
 **为什么 refresh 要轮换 + 黑名单:** 轮换让"偷来的 refresh 只能用一次且必然留下痕迹";黑名单让作废真正生效(SimpleJWT 需要 `token_blacklist` app 记黑名单表)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/accounts/tests.py` 顶部补 import(`from rest_framework_simplejwt.tokens import AccessToken, RefreshToken`;`services` 在 Task 2 已导入),末尾追加:
 
@@ -450,7 +450,7 @@ class SmsVerifyTests(APITestCase):
         self.assertTrue(data["is_new_user"])
         user = User.objects.get(phone=self.phone)
         self.assertEqual(data["user_id"], user.id)
-        self.assertEqual(AccessToken(data["access"])["user_id"], user.id)
+        self.assertEqual(AccessToken(data["access"])["user_id"], str(user.id))  # claim 是字符串
 
     def test_verify_second_time_is_not_new_user(self):
         self.verify(self.issue_code())
@@ -499,7 +499,7 @@ class TokenRefreshTests(APITestCase):
         self.assertEqual(again.json()["code"], 401)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test accounts
@@ -509,7 +509,7 @@ python manage.py test accounts
 
 (另:`services` 已在 Task 2 导入,本步只需补 JWT 的 import。)
 
-- [ ] **Step 3:配置 JWT 轮换 + 黑名单**
+- [x] **Step 3:配置 JWT 轮换 + 黑名单**
 
 `chatapp/config/settings.py`:
 
@@ -542,7 +542,7 @@ SIMPLE_JWT = {
 python manage.py migrate
 ```
 
-- [ ] **Step 4:实现 verify 视图 + 刷新路由**
+- [x] **Step 4:实现 verify 视图 + 刷新路由**
 
 `chatapp/accounts/views.py` 追加(import 区补 `from django.contrib.auth import get_user_model`、`from rest_framework_simplejwt.tokens import RefreshToken`、`from .serializers import SmsVerifySerializer`):
 
@@ -583,7 +583,7 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 python manage.py test accounts
@@ -591,7 +591,7 @@ python manage.py test accounts
 
 预期:13 个用例全部 OK。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/accounts chatapp/config && git commit -m "feat: sms verify login + JWT refresh rotation (M1a)"
@@ -619,7 +619,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/accounts chatapp/config && gi
 
 **为什么 Tag 用数据迁移种而不是 fixture:** 迁移跟着 `migrate` 自动跑,测试库也自动有种子数据,少一个"记得执行"的步骤。
 
-- [ ] **Step 1:装 Pillow 并写失败的测试**
+- [x] **Step 1:装 Pillow 并写失败的测试**
 
 ```bash
 cd "D:/pycharmproject/chat_app/chatapp" && python -m pip install "Pillow>=10.0"
@@ -672,7 +672,7 @@ class SeedTagTests(TestCase):
         self.assertGreaterEqual(Tag.objects.count(), 10)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test users
@@ -680,7 +680,7 @@ python manage.py test users
 
 预期:ERROR(`Profile` 不存在)。
 
-- [ ] **Step 3:写模型**
+- [x] **Step 3:写模型**
 
 `chatapp/users/models.py` 整体替换:
 
@@ -794,7 +794,7 @@ class Preference(models.Model):
         return f"preference({self.profile_id})"
 ```
 
-- [ ] **Step 4:生成迁移 + 写种子迁移**
+- [x] **Step 4:生成迁移 + 写种子迁移**
 
 ```bash
 python manage.py makemigrations users
@@ -832,7 +832,7 @@ class Migration(migrations.Migration):
 python manage.py migrate
 ```
 
-- [ ] **Step 5:注册 admin(方便用户在后台看数据)**
+- [x] **Step 5:注册 admin(方便用户在后台看数据)**
 
 `chatapp/users/admin.py` 整体替换:
 
@@ -865,7 +865,7 @@ class PreferenceAdmin(admin.ModelAdmin):
     list_display = ("profile", "target_gender", "age_min", "age_max", "city")
 ```
 
-- [ ] **Step 6:运行测试确认通过**
+- [x] **Step 6:运行测试确认通过**
 
 ```bash
 python manage.py test users
@@ -873,7 +873,7 @@ python manage.py test users
 
 预期:4 个用例 OK。
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/users chatapp/requirements.txt && git commit -m "feat: users models (Profile/Photo/Tag/Preference) + tag seed + admin (M1a)"
@@ -899,7 +899,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/users chatapp/requirements.tx
   - `users.views._get_profile(user)` 帮助函数(后续接口都复用)
   - `ProfileSerializer`(读)供后续 Task 复用
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/users/tests.py` 追加:
 
@@ -942,7 +942,7 @@ class MeTests(AuthMixin, APITestCase):
         self.assertGreaterEqual(len(resp.json()), 10)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test users
@@ -950,7 +950,7 @@ python manage.py test users
 
 预期:3 个新用例 FAIL/ERROR(404)。
 
-- [ ] **Step 3:写序列化器**
+- [x] **Step 3:写序列化器**
 
 新建 `chatapp/users/serializers.py`:
 
@@ -996,7 +996,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 注意:`photos` 用 `source="user.photos"`、`preference` 是反向 1:1 —— 如果 Profile 还没有 preference 记录,序列化 `preference` 会报 `RelatedObjectDoesNotExist`。所以 `_get_profile` 里要顺手把 preference 也建出来(Task 8 会正式用到)。
 
-- [ ] **Step 4:写视图与路由**
+- [x] **Step 4:写视图与路由**
 
 `chatapp/users/views.py` 整体替换:
 
@@ -1052,7 +1052,7 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 python manage.py test users
@@ -1060,7 +1060,7 @@ python manage.py test users
 
 预期:7 个用例全部 OK。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/users chatapp/config && git commit -m "feat: GET /users/me + /users/tags (M1a)"
@@ -1083,7 +1083,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/users chatapp/config && git c
 
 **为什么 18 岁门槛在这里:** 注册只有手机号,拿不到年龄;首次填生日是唯一的合规卡点(spec §6/§8)。拒绝后资料保持原样,用户改不了假生日蒙混(除非真的改年份,这是 MVP 的固有限制)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 新建 `chatapp/moderation/tests.py`(替换模板):
 
@@ -1163,7 +1163,7 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
         self.assertEqual(resp.status_code, 400)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test moderation users
@@ -1171,7 +1171,7 @@ python manage.py test moderation users
 
 预期:FAIL(`No module named 'moderation.text_check'`、PATCH 405)。
 
-- [ ] **Step 3:写词库**
+- [x] **Step 3:写词库**
 
 新建 `chatapp/moderation/text_check.py`:
 
@@ -1191,7 +1191,7 @@ def find_blocked_word(text: str) -> str | None:
     return None
 ```
 
-- [ ] **Step 4:写更新序列化器**
+- [x] **Step 4:写更新序列化器**
 
 `chatapp/users/serializers.py` 的 import 区改成下面两行(原来只有 `from .models import Photo, Preference, Profile, Tag`),然后文件末尾追加序列化器:
 
@@ -1232,7 +1232,7 @@ class ProfileUpdateSerializer(serializers.Serializer):
         return value
 ```
 
-- [ ] **Step 5:视图支持 PATCH**
+- [x] **Step 5:视图支持 PATCH**
 
 `chatapp/users/views.py` 的 `me` 整体替换为:
 
@@ -1256,7 +1256,7 @@ def me(request):
 
 import 区补 `from .serializers import ProfileSerializer, ProfileUpdateSerializer, TagSerializer`。
 
-- [ ] **Step 6:运行测试确认通过**
+- [x] **Step 6:运行测试确认通过**
 
 ```bash
 python manage.py test moderation users
@@ -1264,7 +1264,7 @@ python manage.py test moderation users
 
 预期:3 + 13 个用例全部 OK。
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/moderation chatapp/users && git commit -m "feat: PATCH /users/me with age gate and text wordlist (M1a)"
@@ -1288,7 +1288,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/moderation chatapp/users && g
   - 设置项:`AUTO_APPROVE`(env,默认 1)、`PHOTO_MAX_COUNT=6`、`PHOTO_MAX_BYTES=5MB`
   - 开发期图片直接可通过,访问地址 `/media/...`;M3 把 `AUTO_APPROVE=0` 即走"待审"
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/users/tests.py` 顶部补 import:
 
@@ -1377,7 +1377,7 @@ class PhotoTests(AuthMixin, APITestCase):
         self.assertEqual(self.client.get("/api/v1/users/me").json()["status"], "incomplete")
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test users
@@ -1385,7 +1385,7 @@ python manage.py test users
 
 预期:8 个新用例 FAIL/ERROR(404)。
 
-- [ ] **Step 3:写设置(MEDIA + 照片规则)**
+- [x] **Step 3:写设置(MEDIA + 照片规则)**
 
 `chatapp/config/settings.py` 文件末尾追加:
 
@@ -1425,7 +1425,7 @@ AUTO_APPROVE=1
 SMS_DEV_MODE=1
 ```
 
-- [ ] **Step 4:写上传/删除接口**
+- [x] **Step 4:写上传/删除接口**
 
 `chatapp/users/serializers.py` 追加(顶部补 `from django.conf import settings`):
 
@@ -1491,7 +1491,7 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 python manage.py test users
@@ -1499,7 +1499,7 @@ python manage.py test users
 
 预期:21 个用例全部 OK。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/users chatapp/config chatapp/.env.example && git commit -m "feat: photo upload/delete with AUTO_APPROVE + profile completion (M1a)"
@@ -1521,7 +1521,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/users chatapp/config chatapp/
 - Consumes: Task 4 的 `Preference`、Task 5 的 `_get_profile`(已顺手创建 preference)、`PreferenceSerializer`。
 - Produces: `GET/PATCH /api/v1/users/me/preference` → `{"target_gender": null|"male"|"female", "age_min": 18, "age_max": 99, "city": ""}`。M1b 的候选筛选读它;`target_gender=null` 表示不限。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/users/tests.py` 追加:
 
@@ -1564,7 +1564,7 @@ class PreferenceTests(AuthMixin, APITestCase):
         self.assertIsNone(resp.json()["target_gender"])
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test users
@@ -1572,7 +1572,7 @@ python manage.py test users
 
 预期:5 个新用例 FAIL(404)。
 
-- [ ] **Step 3:写校验与视图**
+- [x] **Step 3:写校验与视图**
 
 `chatapp/users/serializers.py` 的 `PreferenceSerializer` 整体替换为:
 
@@ -1615,7 +1615,7 @@ def my_preference(request):
     path("me/preference", views.my_preference),
 ```
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 python manage.py test users
@@ -1623,7 +1623,7 @@ python manage.py test users
 
 预期:26 个用例全部 OK。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/users && git commit -m "feat: preference endpoint (M1a)"
@@ -1641,7 +1641,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/users && git commit -m "feat:
 - Consumes: 前面全部 Task。
 - Produces: 一份"照着敲就能复现"的冒烟记录;CLAUDE.md 更新到 M1a 状态;M1b 的交接说明。
 
-- [ ] **Step 1:全量测试 + 静态检查**
+- [x] **Step 1:全量测试 + 静态检查**
 
 ```bash
 cd "D:/pycharmproject/chat_app/chatapp" && python manage.py check && python manage.py test
@@ -1649,7 +1649,7 @@ cd "D:/pycharmproject/chat_app/chatapp" && python manage.py check && python mana
 
 预期:`System check identified no issues`;全部用例 OK(accounts 13 + config 1 + users 26 + moderation 3 = 43 个)。
 
-- [ ] **Step 2:起服务,curl 冒烟**
+- [x] **Step 2:起服务,curl 冒烟**
 
 终端 A:
 
@@ -1687,11 +1687,21 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/auth/sms/send -H "Content-Type: app
 
 冒烟完:Ctrl+C 停 runserver(⚠️ **确认没有残留的第二个 runserver 进程抢 8000**,排查命令见 CLAUDE.md);顺手删掉 `chatapp/media/photos/` 下这次上传的测试图(或整目录,反正 gitignore)。
 
-- [ ] **Step 3:更新 CLAUDE.md**
+⚠️ **实操踩坑(Git Bash + curl + 中文)**:`-d '{"nickname":"小明"}'` 里的中文会按本地 GBK 码页发出,服务端 UTF-8 解析失败 → `400 JSON parse error - 'utf-8' codec can't decode byte 0xc9`。这不是后端 bug。冒烟要么用纯 ASCII 值,要么把 JSON 写进 UTF-8 文件再 `--data-binary @body.json`:
+
+```bash
+python -c "import json,pathlib;pathlib.Path('body.json').write_text(json.dumps({'nickname':'小明','city':'上海'},ensure_ascii=False),encoding='utf-8')"
+curl -s -X PATCH http://127.0.0.1:8001/api/v1/users/me -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json; charset=utf-8" --data-binary @body.json
+```
+
+**2026-09-10 实测记录**(8001 端口,避开用户占用的 8000):发码 → 登录(`is_new_user=true`)→ PATCH 资料(`status=incomplete`,`missing_fields=["photos"]`,`age=26`)→ 传照片(`status=approved`,url 为绝对地址)→ 再查资料(`status=complete`)→ 未满 18 生日 `{"code":400,"message":"未满 18 周岁,无法使用本应用"}`。全部符合预期;冒烟数据已从 dev 库清理(`Tag` 12 个种子保留)。
+
+- [x] **Step 3:更新 CLAUDE.md**
 
 在「当前进度」段落更新为 M1a 完成,并在「常用命令」附近补一小段接口清单(注册登录/资料/照片/偏好 + 错误格式约定),方便下个会话直接接手。注意 CLAUDE.md 里已有一句"下一步是 M1(后端业务全量)",改成"M1a 完成,M1b 待做(im + discovery)"。
 
-- [ ] **Step 4:提交**
+- [x] **Step 4:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add CLAUDE.md chatapp/.env.example && git commit -m "docs: M1a done — auth/profile APIs + error envelope (M1a)"
@@ -1701,12 +1711,12 @@ cd "D:/pycharmproject/chat_app" && git add CLAUDE.md chatapp/.env.example && git
 
 ## M1a 验收清单(全部通过即进入 M1b 计划)
 
-- [ ] `python manage.py test` 全绿(43 个用例),`manage.py check` 无问题
-- [ ] `python manage.py migrate` 无待应用迁移;admin 里能看到 Tag 种子(12 个)
-- [ ] curl 冒烟:发码 → 登录拿 token → 改资料 → 传照片 → status=complete
-- [ ] 错误响应一律 `{"code": ..., "message": ...}`(401/400/429 各验一个)
-- [ ] `git status` 干净;`media/`、`.env` 未被提交
-- [ ] M1a 提交数:9 条左右,均在 `master` 上
+- [x] `python manage.py test` 全绿(43 个用例),`manage.py check` 无问题
+- [x] `python manage.py migrate` 无待应用迁移;admin 里能看到 Tag 种子(12 个)
+- [x] curl 冒烟:发码 → 登录拿 token → 改资料 → 传照片 → status=complete
+- [x] 错误响应一律 `{"code": ..., "message": ...}`(401/400/429 各验一个)
+- [x] `git status` 干净;`media/`、`.env` 未被提交
+- [x] M1a 提交数:9 条左右,均在 `master` 上
 
 ## 留给 M1b 的接口约定(下一个计划直接用)
 
