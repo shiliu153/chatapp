@@ -175,7 +175,10 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
-    "loggers": {"accounts": {"handlers": ["console"], "level": "INFO"}},
+    "loggers": {
+        "accounts": {"handlers": ["console"], "level": "INFO"},
+        "im": {"handlers": ["console"], "level": "INFO"},
+    },
 }
 
 SIMPLE_JWT = {

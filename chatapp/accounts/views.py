@@ -1,8 +1,11 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from im import client as im_client
 
 from . import services
 from .serializers import PhoneSerializer, SmsVerifySerializer
@@ -36,6 +39,8 @@ def sms_verify(request):
     services.check_code(phone, serializer.validated_data["code"])
 
     user, created = User.objects.get_or_create(phone=phone)
+    if created:
+        transaction.on_commit(lambda: im_client.import_account(user.im_user_id))
     refresh = RefreshToken.for_user(user)
     return Response({
         "access": str(refresh.access_token),

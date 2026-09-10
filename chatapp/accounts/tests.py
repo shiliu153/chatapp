@@ -122,6 +122,43 @@ class ImUserIdTests(TestCase):
         self.assertEqual(user.im_user_id, f"u{user.id}")
 
 
+class ImImportOnRegisterTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.phone = "13800138000"
+
+    def issue_code(self):
+        cache.delete(f"sms:sent:{self.phone}")
+        return services.send_code(self.phone)
+
+    def verify(self):
+        return self.client.post("/api/v1/auth/sms/verify",
+                                {"phone": self.phone, "code": self.issue_code()}, format="json")
+
+    def test_new_user_triggers_im_import(self):
+        with patch("accounts.views.im_client.import_account") as imp:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.verify()
+        self.assertEqual(resp.status_code, 200)
+        user = User.objects.get(phone=self.phone)
+        imp.assert_called_once_with(user.im_user_id)
+
+    def test_existing_user_does_not_trigger_import(self):
+        self.verify()
+        with patch("accounts.views.im_client.import_account") as imp:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.verify()
+        imp.assert_not_called()
+
+    def test_im_failure_does_not_break_register(self):
+        with patch("im.client._request", side_effect=Exception("im down")):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.verify()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(User.objects.filter(phone=self.phone).exists())
+
+
 class TokenRefreshTests(APITestCase):
     def setUp(self):
         cache.clear()
