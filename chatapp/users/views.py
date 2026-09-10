@@ -4,8 +4,8 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from .models import Photo, PhotoStatus, Preference, Profile, Tag
-from .serializers import (PhotoSerializer, PhotoUploadSerializer, ProfileSerializer,
-                          ProfileUpdateSerializer, TagSerializer)
+from .serializers import (PhotoSerializer, PhotoUploadSerializer, PreferenceSerializer,
+                          ProfileSerializer, ProfileUpdateSerializer, TagSerializer)
 
 
 def _get_profile(user):
@@ -57,3 +57,14 @@ def delete_photo(request, photo_id):
     photo.delete()
     _get_profile(request.user).refresh_status()
     return Response(status=204)
+
+
+@api_view(["GET", "PATCH"])
+def my_preference(request):
+    profile = _get_profile(request.user)
+    preference = profile.preference
+    if request.method == "PATCH":
+        serializer = PreferenceSerializer(preference, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+    return Response(PreferenceSerializer(preference).data)

@@ -201,3 +201,41 @@ class PhotoTests(AuthMixin, APITestCase):
         self.fill_profile()
         self.assertEqual(self.upload().json()["status"], "pending")
         self.assertEqual(self.client.get("/api/v1/users/me").json()["status"], "incomplete")
+
+
+class PreferenceTests(AuthMixin, APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(phone="13800138000")
+        self.login(self.user)
+        self.url = "/api/v1/users/me/preference"
+
+    def test_defaults(self):
+        data = self.client.get(self.url).json()
+        self.assertIsNone(data["target_gender"])
+        self.assertEqual(data["age_min"], 18)
+        self.assertEqual(data["age_max"], 99)
+        self.assertEqual(data["city"], "")
+
+    def test_update(self):
+        resp = self.client.patch(self.url, {"target_gender": "female", "age_min": 22,
+                                            "age_max": 30, "city": "上海"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        data = self.client.get(self.url).json()
+        self.assertEqual(data["target_gender"], "female")
+        self.assertEqual(data["age_min"], 22)
+        self.assertEqual(data["age_max"], 30)
+        self.assertEqual(data["city"], "上海")
+
+    def test_invalid_range_rejected(self):
+        resp = self.client.patch(self.url, {"age_min": 40, "age_max": 30}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_underage_range_rejected(self):
+        resp = self.client.patch(self.url, {"age_min": 17}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_target_gender_null_means_any(self):
+        self.client.patch(self.url, {"target_gender": "male"}, format="json")
+        resp = self.client.patch(self.url, {"target_gender": None}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["target_gender"])

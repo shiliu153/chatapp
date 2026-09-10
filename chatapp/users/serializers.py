@@ -25,6 +25,18 @@ class PreferenceSerializer(serializers.ModelSerializer):
         model = Preference
         fields = ["target_gender", "age_min", "age_max", "city"]
 
+    def validate_age_min(self, value):
+        if value < 18:
+            raise serializers.ValidationError("最小年龄不能小于 18")
+        return value
+
+    def validate(self, attrs):
+        age_min = attrs.get("age_min", getattr(self.instance, "age_min", 18))
+        age_max = attrs.get("age_max", getattr(self.instance, "age_max", 99))
+        if age_min > age_max:
+            raise serializers.ValidationError("最小年龄不能大于最大年龄")
+        return attrs
+
 
 class ProfileSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(source="user.phone", read_only=True)
