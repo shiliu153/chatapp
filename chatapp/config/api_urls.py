@@ -1,7 +1,8 @@
-from django.urls import path
+from django.urls import include, path
 
 from accounts.views import health
 
 urlpatterns = [
     path("health", health),
+    path("auth/", include("accounts.urls")),
 ]

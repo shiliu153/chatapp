@@ -151,9 +151,27 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ),
     "EXCEPTION_HANDLER": "config.exceptions.api_exception_handler",
+    "DEFAULT_THROTTLE_RATES": {"sms_send": "20/hour"},
 }
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://localhost:\d+$",   # Flutter Web / 调试用
     r"^http://127\.0\.0\.1:\d+$",
 ]
+
+
+# --- 短信验证码(开发期模拟;上线接腾讯云 SMS 时改 services.send_code) ---
+SMS_DEV_MODE = os.getenv("SMS_DEV_MODE", "1") == "1"   # 1=开发模式,验证码固定且只打日志
+SMS_DEV_CODE = "123456"
+SMS_CODE_TTL = 300          # 验证码有效期(秒)
+SMS_RESEND_INTERVAL = 60    # 同一号码重发间隔(秒)
+SMS_MAX_ATTEMPTS = 5        # 连续错误次数上限
+SMS_LOCK_TTL = 900          # 触发上限后锁定时长(秒)
+
+# --- 日志:开发期要能在终端看到验证码 ---
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "loggers": {"accounts": {"handlers": ["console"], "level": "INFO"}},
+}
