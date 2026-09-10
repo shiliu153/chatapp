@@ -10,8 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL)
 - **聊天**: 腾讯云 IM SDK(消息走腾讯云 IM,业务数据存 Django)
 
-**当前进度:M2a 已完成**(M0 地基 + M1 后端全量 + M2a 前端:依赖与 core(401 静默刷新拦截器)、会话状态/启动鉴权、验证码登录页、三 Tab 主框架、3 步资料引导(昵称/性别/生日/城市/简介/标签/照片)、我的资料+编辑、偏好设置、退出登录;前端 37 测试全绿 + analyze 零告警,后端 91 测试回归通过,模拟器联调通过)。
-设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`,checkbox 全勾)。**下一步 M2b**(发现卡片流 → 配对动效,M2c:IM SDK → 会话列表 → 聊天页灰条;接口约定见 M2a 计划末尾的「留给 M2b / M2c 的接口约定」表)。
+**当前进度:M2b 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流:候选批量拉取与自动续拉、拖拽/按钮滑卡(like/pass)、配对成功动效;前端 60 测试全绿 + analyze 零告警,后端 91 测试回归通过)。
+设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`,checkbox 全勾)。**下一步 M2c**(IM SDK 登录 → 会话列表 → 聊天页灰条;接口约定见 M2a 计划末尾的表与 M2b 计划末尾的「留给 M2c 的接口约定」)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
 
@@ -113,6 +113,16 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - ⚠️ Windows 上 `pub add` 插件后提示 "requires symlink support"(需开发者模式)——**Android/Web 构建不受影响**;桌面 `-d windows` 需要开启系统开发者模式
 - ⚠️ **`app/android/gradle.properties` 里的 `kotlin.incremental=false` 勿删**:pub 缓存在 C 盘、工程在 D 盘,Kotlin 增量编译缓存算跨盘相对路径会崩(`Could not close incremental caches ... different roots`),关掉增量编译是官方 workaround
 - 照片上传走 `readAsBytes` + `MultipartFile.fromBytes`(Web 上 `XFile.path` 是 blob URL,不能用 `fromFile`);单张 ≤5MB 前端先拦
+
+## 发现卡片流(M2b 已实测)
+
+- **代码位置**:`lib/features/discovery/`(`discovery_repository.dart` 纯 IO、`discovery_controller.dart` 卡组状态、`widgets/{profile_card,swipe_deck,match_overlay}.dart`);手势动画全自绘,**没引第三方卡组包**
+- **卡组行为**:拖过屏宽 25% 判滑出(不到弹回);`decide` 先移卡(乐观)、失败放回队首并 SnackBar;剩 ≤3 张且非整批拉取时自动续拉;拉空 → 空态 + 「刷新」
+- **⚠️ Riverpod 3 会给 build 失败的 provider 自动重试**(200ms 起指数退避,`ProviderContainer.defaultRetry`)——页面上已有手动「重试」按钮时,在 provider 上 `retry: (count, error) => null` 关掉,否则错误界面会一闪而过、测试断言不稳
+- **⚠️ `GestureDetector` 默认 `deferToChild`**:卡片照片区没有任何命中目标,按在照片上会拖不动 —— 顶层卡的拖拽手势必须 `behavior: HitTestBehavior.opaque`
+- **⚠️ 测试里网络图片必须自兜底**(`Image.network(errorBuilder:)` / `CircleAvatar(onBackgroundImageError:)`):widget 测试的假网络对所有图片请求返回 400,不兜底会直接报错
+- **测试断言请求**:自动续拉的 GET 可能排在滑卡 POST 后面,别用 `adapter.log.last`,用 `lastWhere((r) => r.method == 'POST')`
+- 手测配对动效需要 **两个资料完善且有已过审照片**的账号互滑(单账号只能看到「卡片飞出」)
 
 ## 后端测试注意事项
 

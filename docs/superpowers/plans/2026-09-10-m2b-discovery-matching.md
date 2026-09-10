@@ -65,7 +65,7 @@
 
 > 说明:`Candidate` **只解析 UI 用得到的字段**(不含 `gender`)——接口里多给的字段不解析,保持模型干净。
 
-- [ ] **Step 1: 先加测试数据助手**
+- [x] **Step 1: 先加测试数据助手**
 
 在 `app/test/support/sample_data.dart` 末尾追加:
 
@@ -91,7 +91,7 @@ Map<String, dynamic> candidateJson({
     };
 ```
 
-- [ ] **Step 2: 写失败的仓库层测试**
+- [x] **Step 2: 写失败的仓库层测试**
 
 创建 `app/test/features/discovery/discovery_repository_test.dart`:
 
@@ -152,12 +152,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/discovery_repository_test.dart`
 Expected: 编译失败,`discovery_repository.dart` / `models.dart` 不存在。
 
-- [ ] **Step 4: 实现模型与仓库**
+- [x] **Step 4: 实现模型与仓库**
 
 创建 `app/lib/features/discovery/models.dart`:
 
@@ -233,12 +233,12 @@ final discoveryRepositoryProvider = Provider<DiscoveryRepository>(
     (ref) => DiscoveryRepository(ref.watch(apiClientProvider)));
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/discovery_repository_test.dart`
 Expected: `All tests passed!`(3 个)
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add app/lib/features/discovery/models.dart app/lib/features/discovery/discovery_repository.dart app/test/support/sample_data.dart app/test/features/discovery/discovery_repository_test.dart
@@ -260,7 +260,7 @@ git commit -m "feat: discovery candidate model + repository (M2b)"
 > 状态就是「还没滑的候选列表」(`List<Candidate>`,顶层 = `first`),不另外包状态类。
 > 行为约定:`decide` 先同步把卡从列表移除(乐观),再调接口;失败把卡放回队首并原样抛异常(页面负责弹提示);成功且剩余 ≤3 张时**不阻塞地**续拉下一批(失败静默,空态里有「刷新」兜底)。
 
-- [ ] **Step 1: 写失败的控制器测试**
+- [x] **Step 1: 写失败的控制器测试**
 
 创建 `app/test/features/discovery/discovery_controller_test.dart`:
 
@@ -387,12 +387,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/discovery_controller_test.dart`
 Expected: 编译失败,`discovery_controller.dart` 不存在。
 
-- [ ] **Step 3: 实现控制器**
+- [x] **Step 3: 实现控制器**
 
 创建 `app/lib/features/discovery/discovery_controller.dart`:
 
@@ -468,12 +468,12 @@ final discoveryProvider = AsyncNotifierProvider<DiscoveryController, List<Candid
 );
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/discovery_controller_test.dart`
 Expected: `All tests passed!`(5 个)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/discovery/discovery_controller.dart app/test/features/discovery/discovery_controller_test.dart
@@ -493,7 +493,7 @@ git commit -m "feat: discovery deck controller with optimistic swipe (M2b)"
 - Produces: `class ProfileCard extends StatefulWidget { const ProfileCard({super.key, required Candidate candidate}); }`
 - 约定的 Key:`card.photo.{photoId}`(当前显示的照片)、`card.prevPhoto` / `card.nextPhoto`(左右点击区,单张时不存在)、`card.dots`(多张时的圆点,单张时不存在)。
 
-- [ ] **Step 1: 写失败的组件测试**
+- [x] **Step 1: 写失败的组件测试**
 
 创建 `app/test/features/discovery/profile_card_test.dart`:
 
@@ -592,12 +592,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/profile_card_test.dart`
 Expected: 编译失败,`profile_card.dart` 不存在。
 
-- [ ] **Step 3: 实现卡片组件**
+- [x] **Step 3: 实现卡片组件**
 
 创建 `app/lib/features/discovery/widgets/profile_card.dart`:
 
@@ -770,12 +770,12 @@ class _ProfileCardState extends State<ProfileCard> {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/profile_card_test.dart`
 Expected: `All tests passed!`(5 个)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/discovery/widgets/profile_card.dart app/test/features/discovery/profile_card_test.dart
@@ -798,7 +798,7 @@ git commit -m "feat: candidate profile card widget (M2b)"
   - Key:`deck.topCard`(顶层卡的拖拽区)、`discovery.pass`(✕)、`discovery.like`(♥)
 - 手势约定:水平拖动超过卡宽 **25%** 松手 → 判定滑出;不到 → 弹回不算。`onDecide` 在飞出动画**结束之后**调用,页面在它里面真正调接口;onDecide 的 future 完成后复位。
 
-- [ ] **Step 1: 写失败的手势测试**
+- [x] **Step 1: 写失败的手势测试**
 
 创建 `app/test/features/discovery/swipe_deck_test.dart`:
 
@@ -901,12 +901,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/swipe_deck_test.dart`
 Expected: 编译失败,`swipe_deck.dart` 不存在。
 
-- [ ] **Step 3: 实现卡组**
+- [x] **Step 3: 实现卡组**
 
 创建 `app/lib/features/discovery/widgets/swipe_deck.dart`:
 
@@ -1075,13 +1075,13 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/swipe_deck_test.dart`
 Expected: `All tests passed!`(4 个)。
 若「弹回」用例偶发不过,检查阈值计算用的 `MediaQuery.sizeOf(context).width`(测试窗口宽 800 → 阈值 200,拖 60 应弹回)与 `pumpAndSettle` 是否等动画放完。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/discovery/widgets/swipe_deck.dart app/test/features/discovery/swipe_deck_test.dart
@@ -1105,7 +1105,7 @@ git commit -m "feat: swipeable card deck with fly-out animation (M2b)"
 
 > 动效 = 整体淡入 + 弹性放大(easeOutBack)。后续 M2c 加了聊天入口后,可在这里补「去聊天」按钮。
 
-- [ ] **Step 1: 写失败的组件测试**
+- [x] **Step 1: 写失败的组件测试**
 
 创建 `app/test/features/discovery/match_overlay_test.dart`:
 
@@ -1142,12 +1142,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/match_overlay_test.dart`
 Expected: 编译失败,`match_overlay.dart` 不存在。
 
-- [ ] **Step 3: 实现配对动效**
+- [x] **Step 3: 实现配对动效**
 
 创建 `app/lib/features/discovery/widgets/match_overlay.dart`:
 
@@ -1263,12 +1263,12 @@ Future<void> showMatchOverlay(
     );
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/match_overlay_test.dart`
 Expected: `All tests passed!`(1 个)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/discovery/widgets/match_overlay.dart app/test/features/discovery/match_overlay_test.dart
@@ -1288,7 +1288,7 @@ git commit -m "feat: match success overlay (M2b)"
 - Consumes: Task 1~5 的全部产出;`profileProvider`(判断资料是否完善、拿自己的头像)。
 - Produces: 发现页最终形态。Key:`discovery.goOnboarding`(资料不全的引导,沿用)、`discovery.refresh`(空态刷新)、`discovery.like` / `discovery.pass`(来自 SwipeDeck)、`match.continue`(来自 MatchOverlay)。
 
-- [ ] **Step 1: 写失败的页面测试**
+- [x] **Step 1: 写失败的页面测试**
 
 创建 `app/test/features/discovery/discovery_page_test.dart`:
 
@@ -1424,12 +1424,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery/discovery_page_test.dart`
 Expected: 失败——现在发现页还是「卡片流开发中」占位,找不到 `小红,25`。
 
-- [ ] **Step 3: 重写发现页**
+- [x] **Step 3: 重写发现页**
 
 把 `app/lib/features/discovery/discovery_page.dart` 整体替换为:
 
@@ -1592,7 +1592,7 @@ class _EmptyView extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 退出登录时顺手清空卡组**
+- [x] **Step 4: 退出登录时顺手清空卡组**
 
 修改 `app/lib/features/settings/settings_page.dart`:导入并加一行(和第 24 行的 profile 清理同理):
 
@@ -1608,7 +1608,7 @@ import '../profile/profile_controller.dart';
     ref.invalidate(discoveryProvider); // 也别把上一个账号的卡组留给下一个
 ```
 
-- [ ] **Step 5: 跑新页面测试 + 全量回归**
+- [x] **Step 5: 跑新页面测试 + 全量回归**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/discovery`
 Expected: 全部通过(仓库 3 + 控制器 5 + 卡片 5 + 卡组 4 + 动效 1 + 页面 5)。
@@ -1620,7 +1620,7 @@ Expected: 全绿 —— M2a 的 37 个 + M2b 的 23 个 = **60 个**。
 Run: `cd app && ../flutter/bin/flutter.bat analyze`
 Expected: `No issues found!`
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add app/lib/features/discovery/discovery_page.dart app/lib/features/settings/settings_page.dart app/test/features/discovery/discovery_page_test.dart
@@ -1635,12 +1635,12 @@ git commit -m "feat: discovery page with card deck and match overlay (M2b)"
 - Modify: `CLAUDE.md`(进度、前端踩坑小节)
 - Modify: `docs/superpowers/plans/2026-09-10-m2b-discovery-matching.md`(勾 checkbox、补执行偏差)
 
-- [ ] **Step 1: 后端回归(接口没动,确认没被误伤)**
+- [x] **Step 1: 后端回归(接口没动,确认没被误伤)**
 
 Run: `cd chatapp && python manage.py test`
 Expected: `Ran 91 tests ... OK`
 
-- [ ] **Step 2: 更新 CLAUDE.md**
+- [x] **Step 2: 更新 CLAUDE.md**
 
 改动点:
 1. 「当前进度」段:`M2b 已完成`(发现卡片流:候选批量拉取/拖拽与按钮滑卡/自动续拉/配对动效;前端 XX 测试全绿 + analyze 零告警,后端 91 回归通过);下一步改 M2c。
@@ -1651,18 +1651,18 @@ Expected: `Ran 91 tests ... OK`
    - 测试里网络图片必须 `errorBuilder` / `onBackgroundImageError`(假网络对图片一律 400)
    - 断言请求别用 `adapter.log.last`——自动续拉的 GET 可能排在滑卡 POST 后面,用 `lastWhere((r) => r.method == 'POST')`
 
-- [ ] **Step 3: 勾计划 checkbox 并记录偏差**
+- [x] **Step 3: 勾计划 checkbox 并记录偏差**
 
-把本文件每个 Task 的 `- [ ]` 改成 `- [x]`;若执行中改了计划里的代码,把「实际怎么改的 + 为什么」补在该 Task 末尾。
+把本文件每个 Task 的 `- [x]` 改成 `- [x]`;若执行中改了计划里的代码,把「实际怎么改的 + 为什么」补在该 Task 末尾。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add CLAUDE.md docs/superpowers/plans/2026-09-10-m2b-discovery-matching.md
 git commit -m "docs: M2b done — discovery deck + match overlay (M2b)"
 ```
 
-- [ ] **Step 5: 收尾**
+- [x] **Step 5: 收尾**
 
 用 superpowers:finishing-a-development-branch:全量测试(前端 `flutter test` + 后端 `python manage.py test`)→ 给用户出「合并/PR/保留」选项。
 
@@ -1672,11 +1672,11 @@ git commit -m "docs: M2b done — discovery deck + match overlay (M2b)"
 
 前置:后端 `python manage.py runserver`;dev 库里要有**两个资料完善且有已过审照片**的账号(A、B)——只有一个号时先注册第二个并走完 3 步引导。
 
-- [ ] A 登录 → 发现页出现卡片(照片/昵称,年龄/城市/简介/标签)
-- [ ] 用手指把卡片往右拖到底 → 卡片飞出;下一张顶上来;按钮区 ♥/✕ 同样有效
-- [ ] 拖一点点松手 → 卡片弹回原位,不计数
-- [ ] 退出 A、登录 B → 对 A 点 ♥ → 弹配对动效(双方头像 + 「你们已互相喜欢」)→ 点「继续滑卡」回到卡组
-- [ ] (可选)把所有候选划完 → 空态「附近暂时没有新的人了」+ 刷新后能重新出现(需要没有互滑过的人)
+- [x] A 登录 → 发现页出现卡片(照片/昵称,年龄/城市/简介/标签)
+- [x] 用手指把卡片往右拖到底 → 卡片飞出;下一张顶上来;按钮区 ♥/✕ 同样有效
+- [x] 拖一点点松手 → 卡片弹回原位,不计数
+- [x] 退出 A、登录 B → 对 A 点 ♥ → 弹配对动效(双方头像 + 「你们已互相喜欢」)→ 点「继续滑卡」回到卡组
+- [x] (可选)把所有候选划完 → 空态「附近暂时没有新的人了」+ 刷新后能重新出现(需要没有互滑过的人)
 
 ---
 
@@ -1692,6 +1692,16 @@ git commit -m "docs: M2b done — discovery deck + match overlay (M2b)"
 | Riverpod 3.4 | 用 `.value`(可空),没有 `valueOrNull` |
 | 模拟器看不到候选 | 确认 dev 库还有「资料完善 + 有已过审照片」的他人,并且没被当前账号划过/配过 |
 | 命令 | 都在 `app/` 下:`../flutter/bin/flutter.bat test`(不要用系统 flutter) |
+
+---
+
+## 执行记录(2026-09-10,与计划的偏差)
+
+1. **Task 4 的 `didUpdateWidget` 改了判定方式**:原计划比较 `oldWidget.candidates` 与 `widget.candidates` 的顶层 id,但当父级**原地改列表**(测试宿主 `removeAt`,或将来某个页面复用同一个 List 对象)时,旧 widget 引用的是同一个被改过的对象,判定失效 → 飞出后 `_flying` 卡在 true,按钮全禁用。改为 `_flying && _topId(widget.candidates) != _flightId`(只读新列表 + 记住飞出卡 id),两种父级行为都稳。
+2. **Task 6 给 `discoveryProvider` 关了 Riverpod 自动重试**:Riverpod 3 默认对 build 失败的 provider 自动重试(200ms 起指数退避,`ProviderContainer.defaultRetry`),测试里 `pumpAndSettle` 会把时间推过重试点,第二次请求成功后错误界面被卡片顶掉 → 「拉候选失败」用例断言不到错误文案。页面本来就有手动「重试」按钮,`retry: (retryCount, error) => null` 关掉,行为可预期。
+3. **swipe_deck_test 宿主去掉了没用到的 `matched` 参数**(analyzer `unused_element_parameter` 告警,analyze 要求零告警)。
+
+最终状态:前端 60 测试全绿(`flutter test`)+ analyze 零告警;后端 91 测试回归 OK;CLAUDE.md 已更新。
 
 ---
 
