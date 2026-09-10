@@ -9,11 +9,15 @@ class MatchOverlay extends StatelessWidget {
     required this.candidate,
     this.myAvatarUrl,
     required this.onClose,
+    this.onGoChat,
   });
 
   final Candidate candidate;
   final String? myAvatarUrl;
   final VoidCallback onClose;
+
+  /// 有值才显示「去聊天」按钮。
+  final VoidCallback? onGoChat;
 
   @override
   Widget build(BuildContext context) {
@@ -45,10 +49,23 @@ class MatchOverlay extends StatelessWidget {
             Text('和 ${candidate.nickname} 打个招呼吧',
                 style: const TextStyle(color: Colors.white70, fontSize: 15)),
             const SizedBox(height: 32),
-            FilledButton(
-              key: const Key('match.continue'),
-              onPressed: onClose,
-              child: const Text('继续滑卡'),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (onGoChat != null) ...[
+                  FilledButton(
+                    key: const Key('match.goChat'),
+                    onPressed: onGoChat,
+                    child: const Text('去聊天'),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                OutlinedButton(
+                  key: const Key('match.continue'),
+                  onPressed: onClose,
+                  child: const Text('继续滑卡'),
+                ),
+              ],
             ),
           ],
         ),
@@ -86,6 +103,7 @@ Future<void> showMatchOverlay(
   BuildContext context, {
   required Candidate candidate,
   String? myAvatarUrl,
+  VoidCallback? onGoChat,
 }) =>
     showGeneralDialog<void>(
       context: context,
@@ -97,6 +115,13 @@ Future<void> showMatchOverlay(
         candidate: candidate,
         myAvatarUrl: myAvatarUrl,
         onClose: () => Navigator.of(dialogContext).pop(),
+        // 先关弹层再跳,不然路由推在弹层下面
+        onGoChat: onGoChat == null
+            ? null
+            : () {
+                Navigator.of(dialogContext).pop();
+                onGoChat();
+              },
       ),
       transitionBuilder: (context, animation, secondary, child) => FadeTransition(
         opacity: animation,

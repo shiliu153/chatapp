@@ -27,4 +27,30 @@ void main() {
     await tester.tap(find.byKey(const Key('match.continue')));
     expect(closed, isTrue);
   });
+
+  testWidgets('给了 onGoChat 才显示「去聊天」;点了触发回调', (tester) async {
+    final candidate = Candidate.fromJson(candidateJson(nickname: '小红'));
+    var wentChat = false;
+
+    await tester.pumpWidget(MaterialApp(
+      home: MatchOverlay(
+        candidate: candidate,
+        onClose: () {},
+        onGoChat: () => wentChat = true,
+      ),
+    ));
+
+    await tester.tap(find.byKey(const Key('match.goChat')));
+    expect(wentChat, isTrue);
+  });
+
+  testWidgets('不给 onGoChat 时没有「去聊天」', (tester) async {
+    final candidate = Candidate.fromJson(candidateJson(nickname: '小红'));
+
+    await tester.pumpWidget(MaterialApp(
+      home: MatchOverlay(candidate: candidate, onClose: () {}),
+    ));
+
+    expect(find.byKey(const Key('match.goChat')), findsNothing);
+  });
 }

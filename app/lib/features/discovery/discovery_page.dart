@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
+import '../chat/match_cache.dart';
 import '../profile/models.dart';
 import '../profile/profile_controller.dart';
 import 'discovery_controller.dart';
@@ -83,8 +84,13 @@ class _DeckView extends ConsumerWidget {
           await ref.read(discoveryProvider.notifier).decide(candidate, like: like);
       if (matched && context.mounted) {
         final me = ref.read(profileProvider).value;
-        await showMatchOverlay(context,
-            candidate: candidate, myAvatarUrl: me?.avatar?.url);
+        ref.invalidate(matchCacheProvider); // 刚配对的人,昵称/头像要立刻能显示
+        await showMatchOverlay(
+          context,
+          candidate: candidate,
+          myAvatarUrl: me?.avatar?.url,
+          onGoChat: () => context.push('/chat/u${candidate.userId}'),
+        );
       }
       return matched;
     } on ApiException catch (error) {
