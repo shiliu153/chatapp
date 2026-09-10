@@ -135,7 +135,8 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **数据流**:`ConversationsController`/`ChatController` 都 `watch(imStatusProvider)`,登录后订阅 `ImClient.events`(新消息/会话变化→刷新);`match_cache.dart` 把 `GET /matches` 缓成 `imUserId→昵称/头像`,watch session,登出自动清
 - **⚠️ `flutter test` 里**别**裸 `await` 走 dio 的调用**(widget 测试的假时钟不推进 dio 内部定时器,测试会**死锁**,连超时都不触发 —— 2026-09-10 踩坑,一个用例挂了 7 分钟)。要么让调用发生在 widget 树里(靠 `pumpAndSettle` 推进),要么把 provider 直接 override 成目标状态(见 `chat_page_test.dart` 的 `_LoggedInImManager`)
 - **⚠️ 构造 SDK 消息对象只能用 `V2TimMessage.fromJson({...})`**:默认构造函数内部调 `TIMManager.getServerTime()` → 加载 `dart_native_imsdk.dll` → VM 测试直接崩;`fromJson` 是纯 Dart。JSON 键名与必填字段见 `test/im/tencent_im_client_test.dart`
-- **SDK 细节**:单聊 conversationID 前缀 `c2c_`;`sendMessage` 的 `id` 参数已废弃但 **web 分支只认它**,要 `id`+`message` 都传;清未读用 `cleanConversationUnreadMessageCount`(废弃的 `markC2CMessageAsRead` 别用);`ChatMessage.timestamp` 统一毫秒(SDK 是秒,映射时 ×1000)
+- **SDK 细节**:单聊 conversationID 前缀 `c2c_`;`sendMessage` 的 `id` 参数已废弃但 **web 分支只认它**,要 `id`+`message` 都传;清未读用 `cleanConversationUnreadMessageCount`(废弃的 `markC2CMessageAsRead` 别用;`cleanTimestamp` 传最后一条消息的秒级时间戳、`cleanSequence` 传它的 seq,2026-09-10 模拟器实测 1→0 成功);`ChatMessage.timestamp` 统一毫秒(SDK 是秒,映射时 ×1000)
+- **日志噪音**:登录后 `E/imsdk ... community group not open |error_code:11000|` 是无害的(SDK 顺带拉群列表,本应用不用群),别当故障排查
 - 手测:`python manage.py im_send --from uB --to uA --text "..."`,模拟器登录 A;灰条用 `--notice`。切换账号前记得 IM 登出已自动挂在退出通道上
 
 ## 后端测试注意事项
