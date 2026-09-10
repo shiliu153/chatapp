@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
-from .models import Photo, Preference, Profile, Tag
+from moderation.text_check import find_blocked_word
+
+from .models import Gender, Photo, Preference, Profile, Tag, calculate_age
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -35,3 +37,33 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ["id", "phone", "nickname", "gender", "birthday", "age", "city", "bio",
                   "status", "missing_fields", "tags", "photos", "preference"]
+
+
+class ProfileUpdateSerializer(serializers.Serializer):
+    nickname = serializers.CharField(max_length=20, required=False)
+    gender = serializers.ChoiceField(choices=Gender.choices, required=False)
+    birthday = serializers.DateField(required=False)
+    city = serializers.CharField(max_length=50, required=False)
+    bio = serializers.CharField(max_length=200, required=False)
+    tag_ids = serializers.ListField(child=serializers.IntegerField(), required=False, allow_empty=True)
+
+    def validate_nickname(self, value):
+        if find_blocked_word(value):
+            raise serializers.ValidationError("昵称包含违规内容,请修改")
+        return value.strip()
+
+    def validate_bio(self, value):
+        if find_blocked_word(value):
+            raise serializers.ValidationError("简介包含违规内容,请修改")
+        return value.strip()
+
+    def validate_birthday(self, value):
+        if calculate_age(value) < 18:
+            raise serializers.ValidationError("未满 18 周岁,无法使用本应用")
+        return value
+
+    def validate_tag_ids(self, value):
+        unique_ids = set(value)
+        if Tag.objects.filter(id__in=unique_ids).count() != len(unique_ids):
+            raise serializers.ValidationError("存在无效的标签")
+        return value

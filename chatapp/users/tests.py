@@ -2,6 +2,7 @@ from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -70,3 +71,56 @@ class MeTests(AuthMixin, APITestCase):
         resp = self.client.get("/api/v1/users/tags")
         self.assertEqual(resp.status_code, 200)
         self.assertGreaterEqual(len(resp.json()), 10)
+
+
+class ProfileUpdateTests(AuthMixin, APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(phone="13800138000")
+        self.login(self.user)
+        self.url = "/api/v1/users/me"
+
+    def _full_profile(self, **overrides):
+        data = {
+            "nickname": "小明",
+            "gender": "male",
+            "birthday": "2000-01-01",
+            "city": "上海",
+            "bio": "喜欢音乐",
+        }
+        data.update(overrides)
+        return data
+
+    def test_update_fields(self):
+        tag = Tag.objects.first()
+        resp = self.client.patch(self.url, {**self._full_profile(), "tag_ids": [tag.id]}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["nickname"], "小明")
+        self.assertEqual(data["age"], calculate_age(date(2000, 1, 1)))
+        self.assertEqual([t["id"] for t in data["tags"]], [tag.id])
+        self.assertEqual(data["status"], "incomplete")   # 还差照片
+
+    def test_partial_update_keeps_other_fields(self):
+        self.client.patch(self.url, {"nickname": "小明"}, format="json")
+        resp = self.client.patch(self.url, {"city": "北京"}, format="json")
+        self.assertEqual(resp.json()["nickname"], "小明")
+        self.assertEqual(resp.json()["city"], "北京")
+
+    def test_underage_rejected_and_not_saved(self):
+        too_young = f"{timezone.localdate().year - 17}-01-01"
+        resp = self.client.patch(self.url, {"birthday": too_young}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIsNone(Profile.objects.get(user=self.user).birthday)
+
+    def test_blocked_word_in_nickname_rejected(self):
+        resp = self.client.patch(self.url, {"nickname": "代开发票找我"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("message", resp.json())
+
+    def test_unknown_tag_rejected(self):
+        resp = self.client.patch(self.url, {"tag_ids": [999999]}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_invalid_gender_rejected(self):
+        resp = self.client.patch(self.url, {"gender": "alien"}, format="json")
+        self.assertEqual(resp.status_code, 400)
