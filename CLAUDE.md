@@ -36,6 +36,7 @@ python manage.py test accounts     # 单 app 测试
 python manage.py runserver         # 开发服务器 :8000
 python manage.py makemigrations && python manage.py migrate
 python manage.py im_send --from u2 --to u3 --text "你好"   # 手测:代发消息(--notice 发灰条)
+python manage.py dev_reset_pair --a u8 --b u9              # 手测:清两人的滑卡/配对,重演配对流程
 ```
 
 **前端**(cwd = `app/`):
@@ -137,7 +138,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **⚠️ 构造 SDK 消息对象只能用 `V2TimMessage.fromJson({...})`**:默认构造函数内部调 `TIMManager.getServerTime()` → 加载 `dart_native_imsdk.dll` → VM 测试直接崩;`fromJson` 是纯 Dart。JSON 键名与必填字段见 `test/im/tencent_im_client_test.dart`
 - **SDK 细节**:单聊 conversationID 前缀 `c2c_`;`sendMessage` 的 `id` 参数已废弃但 **web 分支只认它**,要 `id`+`message` 都传;清未读用 `cleanConversationUnreadMessageCount`(废弃的 `markC2CMessageAsRead` 别用;`cleanTimestamp` 传最后一条消息的秒级时间戳、`cleanSequence` 传它的 seq,2026-09-10 模拟器实测 1→0 成功);`ChatMessage.timestamp` 统一毫秒(SDK 是秒,映射时 ×1000)
 - **日志噪音**:登录后 `E/imsdk ... community group not open |error_code:11000|` 是无害的(SDK 顺带拉群列表,本应用不用群),别当故障排查
-- 手测:`python manage.py im_send --from uB --to uA --text "..."`,模拟器登录 A;灰条用 `--notice`。切换账号前记得 IM 登出已自动挂在退出通道上
+- 手测:`python manage.py im_send --from uB --to uA --text "..."`,模拟器登录 A;灰条用 `--notice`;重演配对用 `dev_reset_pair --a u8 --b u9`(清滑卡+配对,不清 IM 聊天记录)。切换账号前记得 IM 登出已自动挂在退出通道上
 
 ## 后端测试注意事项
 
