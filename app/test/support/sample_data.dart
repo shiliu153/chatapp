@@ -37,3 +37,23 @@ Map<String, dynamic> photoJson(int id, {bool approved = true, int order = 0}) =>
       'status': approved ? 'approved' : 'pending',
       'order': order,
     };
+
+/// 造一份 GET /discovery/candidates 里的候选;字段可覆盖。
+Map<String, dynamic> candidateJson({
+  int userId = 9,
+  String nickname = '小红',
+  int? age = 25,
+  String city = '上海',
+  String bio = '喜欢爬山',
+  List<Map<String, dynamic>> tags = const [],
+  List<Map<String, dynamic>>? photos,
+}) =>
+    {
+      'user_id': userId,
+      'nickname': nickname,
+      'age': age,
+      'city': city,
+      'bio': bio,
+      'tags': tags,
+      'photos': photos ?? [photoJson(userId * 100)],
+    };
