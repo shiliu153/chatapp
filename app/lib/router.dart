@@ -6,6 +6,7 @@ import 'features/auth/login_page.dart';
 import 'features/auth/session.dart';
 import 'features/auth/splash_page.dart';
 import 'features/common/placeholder_page.dart';
+import 'features/shell/home_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   // 会话状态变化 → 让 GoRouter 重新跑一遍 redirect
@@ -22,7 +23,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
           path: '/onboarding',
           builder: (context, state) => const PlaceholderPage(title: '资料引导')),
-      GoRoute(path: '/home', builder: (context, state) => const PlaceholderPage(title: '主框架')),
+      GoRoute(path: '/home', builder: (context, state) => const HomeShell()),
+      GoRoute(
+          path: '/profile/edit',
+          builder: (context, state) => const PlaceholderPage(title: '编辑资料')),
+      GoRoute(
+          path: '/preference',
+          builder: (context, state) => const PlaceholderPage(title: '想找的人')),
+      GoRoute(
+          path: '/settings', builder: (context, state) => const PlaceholderPage(title: '设置')),
     ],
     redirect: (context, state) {
       final session = ref.read(sessionProvider);

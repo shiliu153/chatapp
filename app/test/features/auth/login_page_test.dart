@@ -52,6 +52,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(adapter.log.where((r) => r.path == '/auth/sms/verify'), hasLength(1));
-    expect(find.text('主框架施工中'), findsOneWidget); // Task 5 会替换成主框架壳
+    expect(find.byType(NavigationBar), findsOneWidget); // 进主框架了
   });
 }
