@@ -3,20 +3,15 @@ from rest_framework.decorators import api_view
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from .models import Photo, PhotoStatus, Preference, Profile, Tag
+from .models import Photo, PhotoStatus, Profile, Tag
 from .serializers import (PhotoSerializer, PhotoUploadSerializer, PreferenceSerializer,
                           ProfileSerializer, ProfileUpdateSerializer, TagSerializer)
-
-
-def _get_profile(user):
-    profile, _ = Profile.objects.get_or_create(user=user)
-    Preference.objects.get_or_create(profile=profile)
-    return profile
+from .services import get_profile
 
 
 @api_view(["GET", "PATCH"])
 def me(request):
-    profile = _get_profile(request.user)
+    profile = get_profile(request.user)
     if request.method == "PATCH":
         serializer = ProfileUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -46,7 +41,7 @@ def upload_photo(request):
     status = PhotoStatus.APPROVED if settings.AUTO_APPROVE else PhotoStatus.PENDING
     photo = Photo.objects.create(user=request.user, file=serializer.validated_data["file"],
                                  order=count, status=status)
-    _get_profile(request.user).refresh_status()
+    get_profile(request.user).refresh_status()
     return Response(PhotoSerializer(photo, context={"request": request}).data, status=201)
 
 
@@ -55,13 +50,13 @@ def delete_photo(request, photo_id):
     photo = get_object_or_404(request.user.photos, id=photo_id)
     photo.file.delete(save=False)   # 连磁盘文件一起删
     photo.delete()
-    _get_profile(request.user).refresh_status()
+    get_profile(request.user).refresh_status()
     return Response(status=204)
 
 
 @api_view(["GET", "PATCH"])
 def my_preference(request):
-    profile = _get_profile(request.user)
+    profile = get_profile(request.user)
     preference = profile.preference
     if request.method == "PATCH":
         serializer = PreferenceSerializer(preference, data=request.data, partial=True)

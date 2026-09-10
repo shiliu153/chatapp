@@ -33,5 +33,10 @@ class User(AbstractUser):
 
     objects = UserManager()
 
+    @property
+    def im_user_id(self):
+        """腾讯云 IM 的账号标识;全项目只在这里拼,别处一律用这个属性。"""
+        return f"u{self.id}"
+
     def __str__(self):
         return self.phone

@@ -116,6 +116,12 @@ class SmsVerifyTests(APITestCase):
         self.assertEqual(resp.status_code, 429)
 
 
+class ImUserIdTests(TestCase):
+    def test_im_user_id_is_u_prefixed_id(self):
+        user = User.objects.create_user(phone="13800138000")
+        self.assertEqual(user.im_user_id, f"u{user.id}")
+
+
 class TokenRefreshTests(APITestCase):
     def setUp(self):
         cache.clear()
