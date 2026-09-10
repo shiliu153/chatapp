@@ -1,0 +1,6 @@
+CREATE DATABASE IF NOT EXISTS chatapp_dev
+  DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'chatapp'@'localhost' IDENTIFIED BY '<YOUR_DB_PASSWORD>';
+GRANT ALL PRIVILEGES ON chatapp_dev.* TO 'chatapp'@'localhost';
+FLUSH PRIVILEGES;
