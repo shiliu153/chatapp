@@ -62,5 +62,8 @@ class DiscoveryController extends AsyncNotifier<List<Candidate>> {
   }
 }
 
-final discoveryProvider =
-    AsyncNotifierProvider<DiscoveryController, List<Candidate>>(DiscoveryController.new);
+final discoveryProvider = AsyncNotifierProvider<DiscoveryController, List<Candidate>>(
+  DiscoveryController.new,
+  // Riverpod 3 默认失败重试(200ms 起指数退避);页面已有手动「重试」按钮,关掉更可预期
+  retry: (retryCount, error) => null,
+);

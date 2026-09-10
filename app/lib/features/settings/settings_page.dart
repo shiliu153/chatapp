@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/session.dart';
+import '../discovery/discovery_controller.dart';
 import '../profile/profile_controller.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -22,6 +23,7 @@ class SettingsPage extends ConsumerWidget {
     if (confirmed != true) return;
     await ref.read(sessionProvider.notifier).logout();
     ref.invalidate(profileProvider); // 别把上一个账号的资料留给下一个
+    ref.invalidate(discoveryProvider); // 也别把上一个账号的卡组留给下一个
   }
 
   @override

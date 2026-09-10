@@ -14,10 +14,9 @@ List<Candidate> _candidates() => [
 
 /// 最小宿主:收到滑卡结果就从卡组去掉一张(模仿页面的行为)。
 class _Host extends StatefulWidget {
-  const _Host({required this.decisions, this.matched = false});
+  const _Host({required this.decisions});
 
   final List<String> decisions;
-  final bool matched;
 
   @override
   State<_Host> createState() => _HostState();
@@ -35,7 +34,7 @@ class _HostState extends State<_Host> {
           onDecide: (candidate, {required like}) async {
             widget.decisions.add('${candidate.userId}:${like ? 'like' : 'pass'}');
             setState(() => _left.removeAt(0));
-            return widget.matched;
+            return false;
           },
         ),
       ),
