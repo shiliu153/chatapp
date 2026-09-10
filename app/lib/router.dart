@@ -6,6 +6,7 @@ import 'features/auth/login_page.dart';
 import 'features/auth/session.dart';
 import 'features/auth/splash_page.dart';
 import 'features/common/placeholder_page.dart';
+import 'features/profile/profile_edit_page.dart';
 import 'features/shell/home_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -24,9 +25,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           path: '/onboarding',
           builder: (context, state) => const PlaceholderPage(title: '资料引导')),
       GoRoute(path: '/home', builder: (context, state) => const HomeShell()),
-      GoRoute(
-          path: '/profile/edit',
-          builder: (context, state) => const PlaceholderPage(title: '编辑资料')),
+      GoRoute(path: '/profile/edit', builder: (context, state) => const ProfileEditPage()),
       GoRoute(
           path: '/preference',
           builder: (context, state) => const PlaceholderPage(title: '想找的人')),
