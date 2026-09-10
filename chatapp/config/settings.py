@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from datetime import timedelta
 from pathlib import Path
 import os
 
@@ -44,6 +45,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # 第三方
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     # 业务 app
     "accounts",
@@ -174,4 +176,11 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "loggers": {"accounts": {"handlers": ["console"], "level": "INFO"}},
+}
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
+    "ROTATE_REFRESH_TOKENS": True,     # 每次刷新都换新 refresh
+    "BLACKLIST_AFTER_ROTATION": True,  # 旧的立即拉黑
 }
