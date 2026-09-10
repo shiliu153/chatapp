@@ -118,6 +118,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 
 - **代码位置**:`lib/features/discovery/`(`discovery_repository.dart` 纯 IO、`discovery_controller.dart` 卡组状态、`widgets/{profile_card,swipe_deck,match_overlay}.dart`);手势动画全自绘,**没引第三方卡组包**
 - **卡组行为**:拖过屏宽 25% 判滑出(不到弹回);`decide` 先移卡(乐观)、失败放回队首并 SnackBar;剩 ≤3 张且非整批拉取时自动续拉;拉空 → 空态 + 「刷新」
+- **⚠️ 续拉必须去重**:`/discovery/candidates` 只排除「已划过」的人,**卡组里还没划的人会被再发回来**;直接追加会出现同一人的重复卡(划完一张还剩一张,后端幂等不报错,极难发现 —— 2026-09-10 手测揪出)。追加前按 `userId` 过滤卡组已有的
 - **⚠️ Riverpod 3 会给 build 失败的 provider 自动重试**(200ms 起指数退避,`ProviderContainer.defaultRetry`)——页面上已有手动「重试」按钮时,在 provider 上 `retry: (count, error) => null` 关掉,否则错误界面会一闪而过、测试断言不稳
 - **⚠️ `GestureDetector` 默认 `deferToChild`**:卡片照片区没有任何命中目标,按在照片上会拖不动 —— 顶层卡的拖拽手势必须 `behavior: HitTestBehavior.opaque`
 - **⚠️ 测试里网络图片必须自兜底**(`Image.network(errorBuilder:)` / `CircleAvatar(onBackgroundImageError:)`):widget 测试的假网络对所有图片请求返回 400,不兜底会直接报错

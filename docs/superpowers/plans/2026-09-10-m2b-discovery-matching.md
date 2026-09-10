@@ -1700,6 +1700,9 @@ git commit -m "docs: M2b done — discovery deck + match overlay (M2b)"
 1. **Task 4 的 `didUpdateWidget` 改了判定方式**:原计划比较 `oldWidget.candidates` 与 `widget.candidates` 的顶层 id,但当父级**原地改列表**(测试宿主 `removeAt`,或将来某个页面复用同一个 List 对象)时,旧 widget 引用的是同一个被改过的对象,判定失效 → 飞出后 `_flying` 卡在 true,按钮全禁用。改为 `_flying && _topId(widget.candidates) != _flightId`(只读新列表 + 记住飞出卡 id),两种父级行为都稳。
 2. **Task 6 给 `discoveryProvider` 关了 Riverpod 自动重试**:Riverpod 3 默认对 build 失败的 provider 自动重试(200ms 起指数退避,`ProviderContainer.defaultRetry`),测试里 `pumpAndSettle` 会把时间推过重试点,第二次请求成功后错误界面被卡片顶掉 → 「拉候选失败」用例断言不到错误文案。页面本来就有手动「重试」按钮,`retry: (retryCount, error) => null` 关掉,行为可预期。
 3. **swipe_deck_test 宿主去掉了没用到的 `matched` 参数**(analyzer `unused_element_parameter` 告警,analyze 要求零告警)。
+4. **续拉补了去重(真机手测揪出来的)**:后端 `/discovery/candidates` 只排除「已划过」的人,卡组里**还没划**的人会被再次发回来;原实现 `[...现有, ...新批]` 直接追加 → 卡组里出现两张同一个人,划完一张还剩一张(表现为「同一个人划两次」,幂等所以后端不报错,很难发现)。修法:追加前按 `userId` 过滤掉卡组已有的。回归测试:`续拉去重:后端把卡组里已有的人又发回来时,不出现重复卡`。
+
+最终状态:前端 61 测试全绿(`flutter test`)+ analyze 零告警;后端 91 测试回归 OK;CLAUDE.md 已更新。
 
 最终状态:前端 60 测试全绿(`flutter test`)+ analyze 零告警;后端 91 测试回归 OK;CLAUDE.md 已更新。
 

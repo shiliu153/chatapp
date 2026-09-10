@@ -51,8 +51,12 @@ class DiscoveryController extends AsyncNotifier<List<Candidate>> {
     try {
       final batch = await _fetch();
       final now = state.value;
-      if (now != null && batch.isNotEmpty) {
-        state = AsyncValue.data([...now, ...batch]);
+      if (now == null || batch.isEmpty) return;
+      // 后端只排除「已划过」的人,卡组里还没划的人会被再发一次 —— 按 userId 去重,别出重复卡
+      final existing = now.map((item) => item.userId).toSet();
+      final fresh = batch.where((item) => !existing.contains(item.userId)).toList();
+      if (fresh.isNotEmpty) {
+        state = AsyncValue.data([...now, ...fresh]);
       }
     } catch (_) {
       // 忽略:下次滑卡会自动再试

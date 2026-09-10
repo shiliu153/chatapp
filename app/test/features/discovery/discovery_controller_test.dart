@@ -100,6 +100,26 @@ void main() {
         [10, 11, 12, 20]);
   });
 
+  test('续拉去重:后端把卡组里已有的人又发回来时,不出现重复卡', () async {
+    var calls = 0;
+    adapter.routes['GET /discovery/candidates'] = (options) {
+      calls += 1;
+      return calls == 1
+          ? ok([candidateJson(userId: 9), candidateJson(userId: 10)])
+          // 后端只排除「已划过」的:10 还在卡组里没划,会被再发一次
+          : ok([candidateJson(userId: 10), candidateJson(userId: 20)]);
+    };
+    adapter.routes['POST /discovery/swipe'] = (options) => ok({'matched': false});
+    final container = makeContainer();
+    addTearDown(container.dispose);
+    final candidates = await container.read(discoveryProvider.future);
+
+    await container.read(discoveryProvider.notifier).decide(candidates.first, like: true);
+    await pumpEventQueue();
+
+    expect(container.read(discoveryProvider).value!.map((item) => item.userId), [10, 20]);
+  });
+
   test('卡还多的时候不续拉', () async {
     var calls = 0;
     adapter.routes['GET /discovery/candidates'] = (options) {
