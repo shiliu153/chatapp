@@ -992,7 +992,7 @@ class PlaceholderPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: Center(child: Text('$title 施工中')),
+      body: Center(child: Text('$title施工中')),
     );
   }
 }

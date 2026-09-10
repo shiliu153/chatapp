@@ -7,6 +7,6 @@ void main() {
   testWidgets('没有本地凭证启动 → 落在登录页', (tester) async {
     await pumpApp(tester, ScriptedAdapter({}));
     await tester.pumpAndSettle();
-    expect(find.text('登录页施工中'), findsOneWidget);
+    expect(find.text('获取验证码'), findsOneWidget);
   });
 }
