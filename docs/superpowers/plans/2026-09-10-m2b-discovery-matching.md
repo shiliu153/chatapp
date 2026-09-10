@@ -936,6 +936,7 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
   Animation<Offset>? _animation;
   Offset _offset = Offset.zero;
   bool _flying = false;
+  int? _flightId;
 
   @override
   void dispose() {
@@ -946,8 +947,9 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
   @override
   void didUpdateWidget(covariant SwipeDeck oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 顶层换人了:上一张的位移/动画状态作废,新卡从居中开始
-    if (_topId(oldWidget.candidates) != _topId(widget.candidates)) {
+    // 飞出去的那张已经不在顶层了(列表换人,或父级原地删了它)→ 复位,新卡从居中开始。
+    // 只读新列表:老 widget 的列表可能是被父级原地改过的同一个对象,读不得。
+    if (_flying && _topId(widget.candidates) != _flightId) {
       _offset = Offset.zero;
       _flying = false;
     }
@@ -992,6 +994,7 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
     if (_flying || widget.candidates.isEmpty) return;
     final candidate = widget.candidates.first;
     _flying = true;
+    _flightId = candidate.userId;
     await _animateTo(Offset(like ? _width * 1.5 : -_width * 1.5, _offset.dy + 32));
     if (!mounted) return;
     try {
