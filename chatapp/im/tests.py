@@ -2,13 +2,15 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Profile, ProfileStatus
 
-from .client import _request, import_account, send_custom_elem, send_match_notice
+from .client import _request, import_account, send_custom_elem, send_match_notice, send_text
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 
 User = get_user_model()
@@ -99,6 +101,44 @@ class ImClientTests(SimpleTestCase):
         self.assertEqual(send.call_count, 2)
         self.assertEqual(send.call_args_list[0][0][:2], ("u1", "u2"))
         self.assertEqual(send.call_args_list[1][0][:2], ("u2", "u1"))
+
+    def test_send_text_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(send_text("u1", "u2", "你好"))
+        args, _ = req.call_args
+        self.assertEqual(args[0], "openim")
+        self.assertEqual(args[1], "sendmsg")
+        payload = args[2]
+        self.assertEqual(payload["From_Account"], "u1")
+        self.assertEqual(payload["To_Account"], "u2")
+        body = payload["MsgBody"][0]
+        self.assertEqual(body["MsgType"], "TIMTextElem")
+        self.assertEqual(body["MsgContent"]["Text"], "你好")
+
+
+class ImSendCommandTests(SimpleTestCase):
+    def test_text_and_notice_are_mutually_exclusive(self):
+        with self.assertRaises(CommandError):
+            call_command("im_send", sender="u1", receiver="u2", text="hi", notice=True)
+        with self.assertRaises(CommandError):
+            call_command("im_send", sender="u1", receiver="u2")
+
+    def test_sends_text(self):
+        with patch("im.management.commands.im_send.send_text", return_value=True) as send:
+            call_command("im_send", sender="u1", receiver="u2", text="hi")
+        send.assert_called_once_with("u1", "u2", "hi")
+
+    def test_sends_match_notice(self):
+        with patch("im.management.commands.im_send.send_custom_elem", return_value=True) as send:
+            call_command("im_send", sender="u1", receiver="u2", notice=True)
+        args = send.call_args[0]
+        self.assertEqual(args[:2], ("u1", "u2"))
+        self.assertEqual(args[2], {"type": "match_notice"})
+
+    def test_send_failure_raises(self):
+        with patch("im.management.commands.im_send.send_text", return_value=False):
+            with self.assertRaises(CommandError):
+                call_command("im_send", sender="u1", receiver="u2", text="hi")
 
 
 @override_settings(**IM_TEST_SETTINGS)

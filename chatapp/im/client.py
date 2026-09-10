@@ -82,3 +82,20 @@ def send_match_notice(identifier_a: str, identifier_b: str) -> bool:
     ok_a = send_custom_elem(identifier_a, identifier_b, data, MATCH_NOTICE_TEXT)
     ok_b = send_custom_elem(identifier_b, identifier_a, data, MATCH_NOTICE_TEXT)
     return ok_a and ok_b
+
+
+def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
+    """发一条普通文本消息;手测/联调用(业务消息都从 App 端走 SDK)。"""
+    payload = {
+        "SyncOtherMachine": 2,
+        "From_Account": from_identifier,
+        "To_Account": to_identifier,
+        "MsgRandom": _random_int(),
+        "MsgBody": [{"MsgType": "TIMTextElem", "MsgContent": {"Text": text}}],
+    }
+    try:
+        result = _request("openim", "sendmsg", payload)
+    except Exception:
+        logger.exception("IM 发消息失败 %s -> %s", from_identifier, to_identifier)
+        return False
+    return _check(result, "sendmsg")
