@@ -1,7 +1,11 @@
+import base64
+import shutil
+import tempfile
 from datetime import date
 
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -124,3 +128,76 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
     def test_invalid_gender_rejected(self):
         resp = self.client.patch(self.url, {"gender": "alien"}, format="json")
         self.assertEqual(resp.status_code, 400)
+
+
+PNG_1PX = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+class PhotoTests(AuthMixin, APITestCase):
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)   # 别把测试图片写进真 media/
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13800138000")
+        self.login(self.user)
+        self.url = "/api/v1/users/me/photos"
+
+    def upload(self, name="a.png", content=PNG_1PX, content_type="image/png"):
+        return self.client.post(self.url, {"file": SimpleUploadedFile(name, content, content_type=content_type)},
+                                format="multipart")
+
+    def fill_profile(self):
+        return self.client.patch("/api/v1/users/me", {
+            "nickname": "小明", "gender": "male", "birthday": "2000-01-01",
+            "city": "上海", "bio": "喜欢音乐",
+        }, format="json")
+
+    def test_upload_auto_approved_in_dev(self):
+        resp = self.upload()
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertEqual(data["status"], "approved")
+        self.assertTrue(data["url"].startswith("http://testserver/media/"))
+
+    def test_upload_rejects_non_image(self):
+        resp = self.upload(name="a.txt", content=b"not an image", content_type="text/plain")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_upload_limit_six(self):
+        for i in range(6):
+            self.assertEqual(self.upload(name=f"{i}.png").status_code, 201)
+        self.assertEqual(self.upload(name="7.png").status_code, 400)
+
+    def test_delete_own_photo_removes_file(self):
+        photo_id = self.upload().json()["id"]
+        resp = self.client.delete(f"{self.url}/{photo_id}")
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Photo.objects.filter(id=photo_id).exists())
+
+    def test_cannot_delete_others_photo(self):
+        other = User.objects.create_user(phone="13900139000")
+        photo = Photo.objects.create(user=other, file="photos/x.png")
+        resp = self.client.delete(f"{self.url}/{photo.id}")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_status_becomes_complete_with_approved_photo(self):
+        self.fill_profile()
+        self.assertEqual(self.client.get("/api/v1/users/me").json()["status"], "incomplete")
+        self.upload()
+        self.assertEqual(self.client.get("/api/v1/users/me").json()["status"], "complete")
+
+    def test_status_returns_to_incomplete_after_photo_delete(self):
+        self.fill_profile()
+        photo_id = self.upload().json()["id"]
+        self.client.delete(f"{self.url}/{photo_id}")
+        self.assertEqual(self.client.get("/api/v1/users/me").json()["status"], "incomplete")
+
+    @override_settings(AUTO_APPROVE=False)
+    def test_pending_photo_when_auto_approve_off(self):
+        self.fill_profile()
+        self.assertEqual(self.upload().json()["status"], "pending")
+        self.assertEqual(self.client.get("/api/v1/users/me").json()["status"], "incomplete")

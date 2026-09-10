@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import serializers
 
 from moderation.text_check import find_blocked_word
@@ -66,4 +67,13 @@ class ProfileUpdateSerializer(serializers.Serializer):
         unique_ids = set(value)
         if Tag.objects.filter(id__in=unique_ids).count() != len(unique_ids):
             raise serializers.ValidationError("存在无效的标签")
+        return value
+
+
+class PhotoUploadSerializer(serializers.Serializer):
+    file = serializers.ImageField()
+
+    def validate_file(self, value):
+        if value.size > settings.PHOTO_MAX_BYTES:
+            raise serializers.ValidationError("图片不能超过 5MB")
         return value

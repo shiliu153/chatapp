@@ -184,3 +184,11 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,     # 每次刷新都换新 refresh
     "BLACKLIST_AFTER_ROTATION": True,  # 旧的立即拉黑
 }
+
+# --- 照片 ---
+AUTO_APPROVE = os.getenv("AUTO_APPROVE", "1") == "1"   # 开发期自动过审;上线接内容安全 API 后置 0
+PHOTO_MAX_COUNT = 6
+PHOTO_MAX_BYTES = 5 * 1024 * 1024
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
