@@ -4,7 +4,7 @@
 
 **Goal:** 后端补齐 MVP 闭环的最后一段:`im`(userSig 签发、账号导入、配对灰条消息)+ `discovery`(候选推荐、滑卡、互喜配对、配对列表),接口有测试、全绿,并用真实腾讯云 IM 跑通冒烟。
 
-**Architecture:** `im` 是纯客户端模块(无模型):`signature.py` 生成 userSig(腾讯自定义 base64 变体,算法已在 M0 实测通过),`client.py` 封装 REST 调用(REST 一律以 `administrator` 或消息发送方身份调用),失败只记日志不抛异常。`discovery` 承载业务:`Swipe` 记录划卡(唯一约束保证幂等),`Match` 用有序对 + 唯一约束 + CheckConstraint 保证并发互喜只配对一次;配对成功在事务提交后给双方各发一条 `TIMCustomElem`(M2 渲染成居中灰条,会话随之创建)。候选按 `Preference` 过滤,不设则全量随机。
+**Architecture:** `im` 是纯客户端模块(无模型):`signature.py` 生成 userSig(腾讯自定义 base64 变体,算法已在 M0 实测通过),`client.py` 封装 REST 调用(REST 一律以管理员 `administrator` 身份调用,消息发送方靠 body 的 `From_Account` 指定),失败只记日志不抛异常。`discovery` 承载业务:`Swipe` 记录划卡(唯一约束保证幂等),`Match` 用有序对 + 唯一约束 + CheckConstraint 保证并发互喜只配对一次;配对成功在事务提交后给双方各发一条 `TIMCustomElem`(M2 渲染成居中灰条,会话随之创建)。候选按 `Preference` 过滤,不设则全量随机。
 
 **Tech Stack:** 承接 M1a(Django 5.2 + DRF + SimpleJWT + MySQL 8);新增 `requests`(腾讯云 IM REST 调用,环境里已有 2.32.5,只需写进 requirements)。
 
@@ -42,7 +42,7 @@
 
 **为什么单独一个模块:** userSig 是全网最容易踩坑的地方(腾讯用自家 base64 变体:**标准** base64 后再把 `+`→`*`、`/`→`-`、`=`→`_`),把它与网络调用分开,测试能直接断言"编码后能原样解回来、sig 字段等于官方 HMAC 公式"。
 
-- [ ] **Step 1:补依赖与设置**
+- [x] **Step 1:补依赖与设置**
 
 `chatapp/requirements.txt` 末尾加一行:
 
@@ -62,7 +62,7 @@ IM_SIG_EXPIRE = 7 * 24 * 3600   # userSig 有效期(秒),腾讯上限 180 天
 IM_TIMEOUT = 5                  # REST 超时(秒)
 ```
 
-- [ ] **Step 2:写失败的测试**
+- [x] **Step 2:写失败的测试**
 
 `chatapp/im/tests.py` 整体替换:
 
@@ -104,7 +104,7 @@ class UserSigTests(SimpleTestCase):
             self.assertNotIn(ch, sig)
 ```
 
-- [ ] **Step 3:运行确认失败**
+- [x] **Step 3:运行确认失败**
 
 ```bash
 cd "D:/pycharmproject/chat_app/chatapp" && python manage.py test im
@@ -112,7 +112,7 @@ cd "D:/pycharmproject/chat_app/chatapp" && python manage.py test im
 
 预期:ERROR(`No module named 'im.signature'`)。
 
-- [ ] **Step 4:实现**
+- [x] **Step 4:实现**
 
 新建 `chatapp/im/signature.py`:
 
@@ -174,7 +174,7 @@ def decode_user_sig(sig: str) -> dict:
     return json.loads(zlib.decompress(_b64_variant_decode(sig)).decode("utf-8"))
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 python manage.py test im
@@ -182,7 +182,7 @@ python manage.py test im
 
 预期:3 个用例 OK。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/im chatapp/config/settings.py chatapp/requirements.txt && git commit -m "feat: tencent im userSig generation (M1b)"
@@ -212,7 +212,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/im chatapp/config/settings.py
 
 **为什么要包一层:** 业务代码只关心"导入了/发出去了没有";REST 的 URL 拼装、`random`/`contenttype` 参数、腾讯的 `ErrorCode` 判定全部收在这里,将来换接口或加重试只改这一个文件。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/im/tests.py` 顶部补 import(`import json`、`from unittest.mock import patch`、`from .client import import_account, send_custom_elem, send_match_notice, _request`),文件末尾追加:
 
@@ -272,7 +272,7 @@ class ImClientTests(SimpleTestCase):
         self.assertEqual(send.call_args_list[1][0][:2], ("u2", "u1"))
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test im
@@ -280,7 +280,7 @@ python manage.py test im
 
 预期:ERROR(`No module named 'im.client'`)。
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 新建 `chatapp/im/client.py`:
 
@@ -371,7 +371,7 @@ def send_match_notice(identifier_a: str, identifier_b: str) -> bool:
     return ok_a and ok_b
 ```
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 python manage.py test im
@@ -379,7 +379,7 @@ python manage.py test im
 
 预期:9 个用例(3 + 6)全部 OK。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/im && git commit -m "feat: tencent im rest client (import/custom message/match notice) (M1b)"
@@ -407,7 +407,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/im && git commit -m "feat: te
   - `users.services.get_profile(user) -> Profile`(懒建 Profile + Preference;把 M1a 里 `users/views.py` 的私有 `_get_profile` 提出来,供 discovery/im 复用)
   - `POST /api/v1/im/user_sig` → `{"user_sig", "sdkappid", "im_user_id", "expire"}`;`banned_heavy` → 403
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/accounts/tests.py` 的文件末尾追加:
 
@@ -452,7 +452,7 @@ class UserSigApiTests(APITestCase):
         self.assertEqual(resp.json()["code"], 403)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test accounts im
@@ -460,7 +460,7 @@ python manage.py test accounts im
 
 预期:新用例 FAIL/ERROR(404、`AttributeError: im_user_id`)。
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `chatapp/accounts/models.py` 的 `User` 类里(`__str__` 上方)加:
 
@@ -542,7 +542,7 @@ urlpatterns = [
 
 (`discovery/` 路由等 Task 6 建好 `discovery/urls.py` 再加 —— 现在写了会因为模块不存在直接报错。)
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 python manage.py test accounts im users
@@ -550,7 +550,7 @@ python manage.py test accounts im users
 
 预期:全绿(M1a 的 users 测试要一并确认没被 `get_profile` 重构弄坏)。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/accounts chatapp/users chatapp/im chatapp/config && git commit -m "feat: POST /im/user_sig + User.im_user_id + users.services.get_profile (M1b)"
@@ -569,7 +569,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/accounts chatapp/users chatap
 
 **为什么用 `transaction.on_commit`:** 数据库事务还没提交就调外部接口,一旦事务回滚,IM 里就留下一个"幽灵账号"。`on_commit` 保证只在数据真正落库后才发请求。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/accounts/tests.py` 顶部补 import(`from unittest.mock import patch` 已在;补 `from django.db import transaction` 不需要),文件末尾追加:
 
@@ -611,7 +611,7 @@ class ImImportOnRegisterTests(APITestCase):
         self.assertTrue(User.objects.filter(phone=self.phone).exists())
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test accounts
@@ -619,7 +619,7 @@ python manage.py test accounts
 
 预期:3 个新用例 FAIL(`import_account` 从未被调用)。
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `chatapp/accounts/views.py` 顶部加 import:
 
@@ -645,7 +645,7 @@ from im import client as im_client
     },
 ```
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 python manage.py test accounts
@@ -653,7 +653,7 @@ python manage.py test accounts
 
 预期:16 个用例全部 OK(13 + 3)。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/accounts chatapp/config/settings.py && git commit -m "feat: import im account on register (M1b)"
@@ -677,7 +677,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/accounts chatapp/config/setti
 
 **为什么 Match 要"有序对 + CheckConstraint":** 唯一约束是"并发互喜只配对一次"的最终保证 —— 两个人同时点喜欢时,数据库只让一条 `(user_a, user_b)` 插进去,另一条撞唯一约束。强制 `user_a.id < user_b.id` 让 `(1,2)` 与 `(2,1)` 在数据库层面是同一条记录,否则唯一约束形同虚设。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/users/tests.py` 追加:
 
@@ -750,7 +750,7 @@ class MatchModelTests(TestCase):
         self.assertEqual(match.other_user(self.b), self.a)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test discovery users
@@ -758,7 +758,7 @@ python manage.py test discovery users
 
 预期:ERROR(`No module named 'discovery.models'` 的模型部分 / `birthday_bounds` 不存在)。
 
-- [ ] **Step 3:实现用户侧助手**
+- [x] **Step 3:实现用户侧助手**
 
 `chatapp/users/models.py` 在 `calculate_age` 之后加:
 
@@ -789,7 +789,7 @@ def birthday_bounds(age_min, age_max, today=None):
         return self.status in self.BANNED_STATUSES
 ```
 
-- [ ] **Step 4:实现 discovery 模型与 admin**
+- [x] **Step 4:实现 discovery 模型与 admin**
 
 `chatapp/discovery/models.py` 整体替换:
 
@@ -864,14 +864,14 @@ class MatchAdmin(admin.ModelAdmin):
     list_display = ("id", "user_a", "user_b", "created_at")
 ```
 
-- [ ] **Step 5:生成迁移并 migrate**
+- [x] **Step 5:生成迁移并 migrate**
 
 ```bash
 python manage.py makemigrations discovery
 python manage.py migrate
 ```
 
-- [ ] **Step 6:运行测试确认通过**
+- [x] **Step 6:运行测试确认通过**
 
 ```bash
 python manage.py test discovery users
@@ -879,7 +879,7 @@ python manage.py test discovery users
 
 预期:discovery 6 个 + users 28 个全部 OK。
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/users && git commit -m "feat: Swipe/Match models + age range helper (M1b)"
@@ -904,7 +904,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/users && gi
   - `discovery.serializers.CandidateSerializer`
   - 排除规则:自己 / 资料非 `complete` / 已划过 / 已配对;过滤规则:目标性别、城市、年龄区间(来自 `Preference`,空则不筛);顺序:随机;默认 10 条、上限 20 条
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/discovery/tests.py` 顶部补 import,文件末尾追加:
 
@@ -1021,7 +1021,7 @@ from users.models import Photo, PhotoStatus, Preference, Profile, ProfileStatus
 from .models import Match, Swipe, SwipeAction
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test discovery
@@ -1029,7 +1029,7 @@ python manage.py test discovery
 
 预期:新用例 FAIL/ERROR(404)。
 
-- [ ] **Step 3:实现序列化器**
+- [x] **Step 3:实现序列化器**
 
 新建 `chatapp/discovery/serializers.py`:
 
@@ -1055,7 +1055,7 @@ class CandidateSerializer(serializers.ModelSerializer):
         return PhotoSerializer(approved, many=True, context=self.context).data
 ```
 
-- [ ] **Step 4:实现视图与路由**
+- [x] **Step 4:实现视图与路由**
 
 `chatapp/discovery/views.py` 整体替换:
 
@@ -1130,7 +1130,7 @@ urlpatterns = [
     path("discovery/", include("discovery.urls")),
 ```
 
-- [ ] **Step 5:运行测试确认通过**
+- [x] **Step 5:运行测试确认通过**
 
 ```bash
 python manage.py test discovery
@@ -1138,7 +1138,7 @@ python manage.py test discovery
 
 预期:14 个用例(6 + 8)全部 OK。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/config && git commit -m "feat: GET /discovery/candidates (M1b)"
@@ -1166,7 +1166,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/config && g
 
 **为什么配对要放在 `transaction.atomic()` 里 + `get_or_create`:** 两个人几乎同时互相点喜欢时,两个请求都会走到建 Match;唯一约束让第二条插不进去,`get_or_create` 把它变成"拿到已有那条"。事务保证"记录 Swipe"和"建 Match"要么都成、要么都不成。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/discovery/tests.py` 顶部补 `from unittest.mock import patch`,文件末尾追加:
 
@@ -1265,7 +1265,7 @@ class SwipeApiTests(APITestCase):
             self.assertEqual(self.swipe(self.target.id).status_code, 429)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test discovery
@@ -1273,7 +1273,7 @@ python manage.py test discovery
 
 预期:12 个新用例 FAIL/ERROR。
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `chatapp/config/settings.py` 的 `DEFAULT_THROTTLE_RATES` 改成:
 
@@ -1393,7 +1393,7 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 python manage.py test discovery
@@ -1401,7 +1401,7 @@ python manage.py test discovery
 
 预期:26 个用例(14 + 12)全部 OK。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/config && git commit -m "feat: POST /discovery/swipe with match + im notice + throttle (M1b)"
@@ -1426,7 +1426,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/config && g
 
 **为什么单独这个接口:** 会话列表数据源是腾讯云 IM(不经过我们服务器),App 拿到会话里的 userId 后必须靠本地缓存翻译成昵称/头像 —— 这份缓存就来自这里。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `chatapp/discovery/tests.py` 末尾追加:
 
@@ -1476,7 +1476,7 @@ class MatchListTests(APITestCase):
         self.assertEqual(self.client.get(self.URL).status_code, 401)
 ```
 
-- [ ] **Step 2:运行确认失败**
+- [x] **Step 2:运行确认失败**
 
 ```bash
 python manage.py test discovery
@@ -1484,7 +1484,7 @@ python manage.py test discovery
 
 预期:4 个新用例 FAIL/ERROR(404)。
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `chatapp/discovery/views.py` 的 import 区补 `from users.models import PhotoStatus`(与已有的 `Profile, ProfileStatus, birthday_bounds` 合并),追加视图:
 
@@ -1526,7 +1526,7 @@ from accounts.views import health
 from discovery import views as discovery_views
 ```
 
-- [ ] **Step 4:运行测试确认通过**
+- [x] **Step 4:运行测试确认通过**
 
 ```bash
 python manage.py test discovery
@@ -1534,7 +1534,7 @@ python manage.py test discovery
 
 预期:30 个用例(26 + 4)全部 OK。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/config && git commit -m "feat: GET /matches for conversation warm-up (M1b)"
@@ -1552,7 +1552,7 @@ cd "D:/pycharmproject/chat_app" && git add chatapp/discovery chatapp/config && g
 - Consumes: 前面全部 Task。
 - Produces: 一份真实腾讯云 IM 的冒烟记录(证明 userSig/账号导入/自定义消息三个环节在真环境可用);CLAUDE.md 更新到 M1b 状态;M2 的交接说明。
 
-- [ ] **Step 1:全量测试**
+- [x] **Step 1:全量测试**
 
 ```bash
 cd "D:/pycharmproject/chat_app/chatapp" && python manage.py check && python manage.py test
@@ -1560,7 +1560,7 @@ cd "D:/pycharmproject/chat_app/chatapp" && python manage.py check && python mana
 
 预期:全绿(约 75+ 个用例)。
 
-- [ ] **Step 2:真实 IM 冒烟(会打到腾讯云,消耗少量体验版额度)**
+- [x] **Step 2:真实 IM 冒烟(会打到腾讯云,消耗少量体验版额度)**
 
 ```bash
 python manage.py shell -c "
@@ -1575,7 +1575,7 @@ print('互发灰条:', client.send_match_notice('u9001', 'u9002'))
 
 ⚠️ 若 `send_match_notice` 返回 False:先看日志里的 `ErrorCode` —— `7015`=账号不存在(先导入)、`70003`=userSig 无效(检查密钥/时钟)。字段名若被拒,以腾讯云官方文档「单发单聊消息」为准核对后调整 `im/client.py` 的 `send_custom_elem`(这是本计划唯一预留了"按文档微调"的地方)。
 
-- [ ] **Step 3:本地接口冒烟(可选,验证 REST 与业务串起来)**
+- [x] **Step 3:本地接口冒烟(可选,验证 REST 与业务串起来)**
 
 起服务后(⚠️ 先确认 8000 端口没有残留 runserver):
 
@@ -1589,14 +1589,14 @@ curl -s http://127.0.0.1:8000/api/v1/matches -H "Authorization: Bearer $TOKEN"
 
 (需要先在 dev 库造两个资料完整的用户;中文一律别走 `-d`,见 CLAUDE.md 的 Git Bash 编码提醒。)
 
-- [ ] **Step 4:更新 CLAUDE.md**
+- [x] **Step 4:更新 CLAUDE.md**
 
 - 「当前进度」改成:**M1 后端全量完成**(M1a 认证/资料 + M1b IM/滑卡配对),下一步 M2 前端全量
 - 接口表补四行:`POST /im/user_sig`、`GET /discovery/candidates`、`POST /discovery/swipe`、`GET /matches`
 - 「腾讯云 IM 集成要点」补:代码位置 `chatapp/im/signature.py` + `chatapp/im/client.py`、`SyncOtherMachine=2`、灰条消息格式 `TIMCustomElem{type:"match_notice"}`、Desc 文案、配对时双方互发
 - 记一条踩坑:测试里 on_commit 要用 `captureOnCommitCallbacks(execute=True)`
 
-- [ ] **Step 5:勾计划 + 提交**
+- [x] **Step 5:勾计划 + 提交**
 
 ```bash
 cd "D:/pycharmproject/chat_app" && git add CLAUDE.md docs/superpowers/plans/2026-09-10-m1b-im-discovery.md && git commit -m "docs: M1b done — im + discovery APIs (M1b)"
@@ -1606,12 +1606,12 @@ cd "D:/pycharmproject/chat_app" && git add CLAUDE.md docs/superpowers/plans/2026
 
 ## M1b 验收清单(全部通过即进入 M2 前端计划)
 
-- [ ] `python manage.py test` 全绿;`manage.py check` 无问题
-- [ ] 真实 IM 冒烟:账号导入 ×2 + 互发灰条 均为 True
-- [ ] `POST /im/user_sig` 能拿到 userSig(可 `decode_user_sig` 核对 identifier = `u{id}`)
-- [ ] 互喜配对:第二次划卡返回 `matched: true` 且 `Match` 只有一条、灰条只发一次
-- [ ] `banned_light` 滑卡 403;`banned_heavy` 取 userSig 403
-- [ ] `git status` 干净;`docs/superpowers/plans/2026-09-10-m1b-im-discovery.md` 已提交
+- [x] `python manage.py test` 全绿;`manage.py check` 无问题
+- [x] 真实 IM 冒烟:账号导入 ×2 + 互发灰条 均为 True
+- [x] `POST /im/user_sig` 能拿到 userSig(可 `decode_user_sig` 核对 identifier = `u{id}`)
+- [x] 互喜配对:第二次划卡返回 `matched: true` 且 `Match` 只有一条、灰条只发一次
+- [x] `banned_light` 滑卡 403;`banned_heavy` 取 userSig 403
+- [x] `git status` 干净;`docs/superpowers/plans/2026-09-10-m1b-im-discovery.md` 已提交
 
 ## 留给 M2 的接口约定(前端直接用)
 

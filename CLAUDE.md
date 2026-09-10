@@ -10,8 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL)
 - **聊天**: 腾讯云 IM SDK(消息走腾讯云 IM,业务数据存 Django)
 
-**当前进度:M1a 已完成**(M0 地基 + 注册登录/资料完善后端:短信验证码、JWT 轮换刷新、Profile/照片/标签/偏好接口;43 个后端测试全绿,curl 冒烟通过)。
-设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`,checkbox 全勾)。**下一步 M1b**(im + discovery:userSig/账号导入/候选/滑卡/配对),接口约定见 M1a 计划文件末尾的「留给 M1b 的接口约定」表。
+**当前进度:M1 后端全量已完成**(M0 地基 + M1a 认证/资料 + M1b IM/滑卡配对:短信验证码登录、JWT 轮换、资料与照片、userSig 签发、IM 账号导入、候选推荐、划卡互喜配对 + 灰条消息、配对列表;91 个后端测试全绿,腾讯云 IM 真机冒烟与全链路 curl 冒烟均通过)。
+设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`,checkbox 全勾)。**下一步 M2 前端全量**(登录页 → 资料引导 → 卡片流 → 配对动效 → 会话列表 → 聊天页;接口约定见 M1b 计划末尾的「留给 M2 的接口约定」表)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
 
@@ -62,6 +62,10 @@ python manage.py makemigrations && python manage.py migrate
 | `GET /users/tags` | 标签池(12 个,由数据迁移 `users/0002_seed_tags.py` 写入) |
 | `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段名 `file`;最多 6 张、≤5MB);开发期 `AUTO_APPROVE=1` 上传即过审 |
 | `GET/PATCH /users/me/preference` | 想找的人:目标性别(可空=不限)/年龄区间/城市 |
+| `POST /im/user_sig` | 取 IM 登录用 userSig → `{user_sig, sdkappid, im_user_id, expire}`;`banned_heavy` 403 |
+| `GET /discovery/candidates` | 候选卡片(默认 10、上限 20);排除自己/划过/已配对/资料未完善;**只推有已过审照片的人** |
+| `POST /discovery/swipe` | `{target_user_id, action: like\|pass}`;幂等;互喜 → `{"matched": true}` 并给双方发 IM 灰条;按用户限流 300/小时 |
+| `GET /matches` | 配对列表(`user_id/im_user_id/nickname/avatar_url/matched_at`),M2 用来预热"userId→昵称头像"本地缓存 |
 
 资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`,否则 `incomplete`(接口返回的 `missing_fields` 会列出缺项);`banned_light` / `banned_heavy` 状态预留封禁用(M1b/M3)。
 
@@ -86,7 +90,18 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 ## 腾讯云 IM 集成要点(已实测)
 
 - 凭据:`IM_SDKAPPID=1600161711`(公开,App 端也要用),密钥只在 `chatapp/.env`,**永不入代码/提交**。管理员账号 `administrator` 默认存在。
-- **userSig 生成是最大的坑**:腾讯用自家的 base64 变体,不是标准/URL-safe base64。正确流程:构建 JSON(ver/identifier/sdkappid/expire/time,sig 用**标准** base64 的 HMAC-SHA256)→ `json.dumps` → `zlib.compress` → 标准 base64 后替换 `+`→`*`、`/`→`-`、`=`→`_`。字符串会以 `*` `-` `_` 出现且不 strip 填充。2026-09-10 已用 REST `im_open_login_svc/account_check` 实测通过。
+- **代码位置**:userSig 生成在 `chatapp/im/signature.py`(含 `decode_user_sig` 调试解码);REST 调用在 `chatapp/im/client.py`(`import_account` / `send_custom_elem` / `send_match_notice`,**对外永不抛异常**,失败返回 False 只记日志)。
+- **userSig 生成是最大的坑**:腾讯用自家的 base64 变体,不是标准/URL-safe base64。正确流程:构建 JSON(ver/identifier/sdkappid/expire/time,sig 用**标准** base64 的 HMAC-SHA256)→ `json.dumps` → `zlib.compress` → 标准 base64 后替换 `+`→`*`、`/`→`-`、`=`→`_`。字符串会以 `*` `-` `_` 出现且不 strip 填充。2026-09-10 由 `im/client.py` 实测通过。
 - REST API 调用格式:`https://console.tim.qq.com/v4/{service}/{command}?sdkappid=&identifier=&usersig=&random=&contenttype=json`(usersig 需 URL 编码)。
+- ⚠️ **`openim/sendmsg` 的 `identifier` 必须是管理员**(`administrator`),发送方靠 body 的 `From_Account` 指定;错用发送方身份会报 `60010 set the identifier field ... to the admin account`。2026-09-10 实测修正。
+- ⚠️ **`im_open_login_svc/account_check` 别用来验签**:本应用下它对任何参数组合都返回 `70402 Invalid parameters`(与签名无关,同一签名调 `account_import` 返回 0)。验签一律用 `account_import`。
+- **配对灰条消息**:配对成功时 `send_match_notice(a, b)` 给**双方各发一条** `TIMCustomElem`,`MsgContent.Data` = `{"type":"match_notice"}`,`Desc` = "你们已互相喜欢,开始聊天吧"(M2 端拦截该类型渲染成居中灰条,会话随之创建)。
+- 账号导入:注册成功后经 `transaction.on_commit` 调 `account_import(u{id})`,失败只记日志不阻塞注册。
 - Flutter 端 IM SDK 包:`tim_plus_flutter`(M2 引入)。
 - 详细设计(配对灰条消息、会话列表数据源、审核合规)见 spec 文档,写 IM 相关代码前先读它。
+
+## 后端测试注意事项
+
+- **测 on_commit**:`notify_match` / 注册导入都走 `transaction.on_commit`,测试里必须 `with self.captureOnCommitCallbacks(execute=True):` 包住请求,否则断言永远不触发。
+- **凡是会触发 IM 调用的用例都要 mock**:漏 mock 会真打腾讯云(用例仍会绿,因为业务函数吞异常 —— 靠跑测试时日志里有没有 `IM ... 返回错误` 来发现),且变慢、依赖网络。
+- 限流用例要 `cache.clear()`:限流计数存在 Django 缓存(LocMem)里,跨用例残留会导致偶发 429。
