@@ -57,3 +57,18 @@ Map<String, dynamic> candidateJson({
       'tags': tags,
       'photos': photos ?? [photoJson(userId * 100)],
     };
+
+/// 造一份 GET /matches 里的配对;字段可覆盖。
+Map<String, dynamic> matchJson({
+  int userId = 9,
+  String? imUserId,
+  String nickname = '小红',
+  String? avatarUrl = 'http://test/media/photos/900.png',
+}) =>
+    {
+      'user_id': userId,
+      'im_user_id': imUserId ?? 'u$userId',
+      'nickname': nickname,
+      'avatar_url': avatarUrl,
+      'matched_at': '2026-09-10T12:00:00+08:00',
+    };
