@@ -320,7 +320,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: flutter d
   - `core/auth_interceptor.dart` → `AuthInterceptor({tokenStore, refresher})` 挂在 Dio 上
   - `core/api_client.dart` → `ApiClient(dio)`;`get(path, {query})` / `post(path, {data})` / `patch(path, {data})` / `delete(path)`,统一抛 `ApiException`
   - `core/providers.dart` → `tokenStoreProvider` / `baseDioProvider` / `refreshDioProvider` / `tokenRefresherProvider` / `apiClientProvider`
-  - `test/support/scripted_adapter.dart` → `ScriptedAdapter(routes)`(带 `log`)、`ok(body, {status})`、`fail(status, [message])`、`offline(options)`
+  - `test/support/scripted_adapter.dart` → `ScriptedAdapter(routes)`(带 `log`)、`ok(body, {status})`、`jsonError(status, [message])`、`offline(options)`
 
 **为什么要有"裸 Dio":** 刷新 token 的请求如果也过同一个拦截器,refresh 也 401 时会无限递归。单开一个不带拦截器的 Dio 只干刷新这一件事。
 
@@ -367,7 +367,7 @@ const Map<String, List<String>> _jsonHeaders = {
 Future<ResponseBody> ok(Object body, {int status = 200}) async =>
     ResponseBody.fromString(jsonEncode(body), status, headers: _jsonHeaders);
 
-Future<ResponseBody> fail(int status, [String message = '出错了']) async =>
+Future<ResponseBody> jsonError(int status, [String message = '出错了']) async =>
     ResponseBody.fromString(jsonEncode({'code': status, 'message': message}), status,
         headers: _jsonHeaders);
 
@@ -424,7 +424,7 @@ void main() {
       if (options.headers['Authorization'] == 'Bearer new-access') {
         return ok({'nickname': '小明'});
       }
-      return fail(401, '身份认证信息未提供');
+      return jsonError(401, '身份认证信息未提供');
     };
     expect(await client.get('/users/me'), {'nickname': '小明'});
     expect(attempts, 2);
@@ -433,15 +433,15 @@ void main() {
   });
 
   test('刷新也被拒 → 清空凭证并抛原始错误', () async {
-    adapter.routes['POST /auth/token/refresh'] = (options) => fail(401, 'Token 无效或已过期');
-    adapter.routes['GET /users/me'] = (options) => fail(401, '身份认证信息未提供');
+    adapter.routes['POST /auth/token/refresh'] = (options) => jsonError(401, 'Token 无效或已过期');
+    adapter.routes['GET /users/me'] = (options) => jsonError(401, '身份认证信息未提供');
     await expectLater(client.get('/users/me'), throwsA(isA<ApiException>()));
     expect(await store.accessToken, isNull);
     expect(await store.refreshToken, isNull);
   });
 
   test('非 401 错误原样抛出,不触发刷新', () async {
-    adapter.routes['GET /users/me'] = (options) => fail(500, '服务器开小差了');
+    adapter.routes['GET /users/me'] = (options) => jsonError(500, '服务器开小差了');
     await expectLater(
       client.get('/users/me'),
       throwsA(predicate((error) => error is ApiException && error.message == '服务器开小差了')),
@@ -728,7 +728,7 @@ void main() {
 
   test('refresh 被拒(401)→ 清空凭证并回登录页', () async {
     SharedPreferences.setMockInitialValues({'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7});
-    adapter.routes['POST /auth/token/refresh'] = (options) => fail(401, 'Token 无效或已过期');
+    adapter.routes['POST /auth/token/refresh'] = (options) => jsonError(401, 'Token 无效或已过期');
     final container = makeContainer();
     addTearDown(container.dispose);
     await container.read(sessionProvider.notifier).bootstrap();
@@ -2545,7 +2545,7 @@ void main() {
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
       'GET /users/me': (options) => ok(profileJson()),
       'GET /users/tags': (options) => ok([]),
-      'PATCH /users/me': (options) => fail(400, '昵称包含违规内容,请修改'),
+      'PATCH /users/me': (options) => jsonError(400, '昵称包含违规内容,请修改'),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();

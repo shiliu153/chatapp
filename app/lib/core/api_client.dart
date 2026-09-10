@@ -1,30 +1,30 @@
 import 'package:dio/dio.dart';
 
-class ApiException implements Exception {
-  ApiException(this.message);
-  final String message;
+import 'api_exception.dart';
 
-  @override
-  String toString() => 'ApiException: $message';
-}
-
+/// 薄封装:统一抛 ApiException,调用方直接拿 response.data。
 class ApiClient {
-  ApiClient({required this.baseUrl, Dio? dio})
-      : _dio = dio ??
-            Dio(BaseOptions(
-              baseUrl: baseUrl,
-              connectTimeout: const Duration(seconds: 10),
-              receiveTimeout: const Duration(seconds: 10),
-            ));
+  ApiClient(this._dio);
 
-  final String baseUrl;
   final Dio _dio;
 
-  Future<String> health() async {
-    final resp = await _dio.get('/health');
-    if (resp.statusCode != 200) {
-      throw ApiException('HTTP ${resp.statusCode}');
+  Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
+      _guard(() => _dio.get<dynamic>(path, queryParameters: query));
+
+  Future<dynamic> post(String path, {Object? data}) =>
+      _guard(() => _dio.post<dynamic>(path, data: data));
+
+  Future<dynamic> patch(String path, {Object? data}) =>
+      _guard(() => _dio.patch<dynamic>(path, data: data));
+
+  Future<dynamic> delete(String path) => _guard(() => _dio.delete<dynamic>(path));
+
+  Future<dynamic> _guard(Future<Response<dynamic>> Function() request) async {
+    try {
+      final response = await request();
+      return response.data;
+    } on DioException catch (error) {
+      throw ApiException.from(error);
     }
-    return resp.data['status'] as String;
   }
 }
