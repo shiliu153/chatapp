@@ -5,9 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'features/auth/login_page.dart';
 import 'features/auth/session.dart';
 import 'features/auth/splash_page.dart';
-import 'features/common/placeholder_page.dart';
 import 'features/onboarding/onboarding_page.dart';
+import 'features/profile/preference_page.dart';
 import 'features/profile/profile_edit_page.dart';
+import 'features/settings/settings_page.dart';
 import 'features/shell/home_shell.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -25,11 +26,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/onboarding', builder: (context, state) => const OnboardingPage()),
       GoRoute(path: '/home', builder: (context, state) => const HomeShell()),
       GoRoute(path: '/profile/edit', builder: (context, state) => const ProfileEditPage()),
-      GoRoute(
-          path: '/preference',
-          builder: (context, state) => const PlaceholderPage(title: '想找的人')),
-      GoRoute(
-          path: '/settings', builder: (context, state) => const PlaceholderPage(title: '设置')),
+      GoRoute(path: '/preference', builder: (context, state) => const PreferencePage()),
+      GoRoute(path: '/settings', builder: (context, state) => const SettingsPage()),
     ],
     redirect: (context, state) {
       final session = ref.read(sessionProvider);
