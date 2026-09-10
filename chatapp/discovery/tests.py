@@ -4,6 +4,8 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
@@ -302,3 +304,42 @@ class MatchListTests(APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get(self.URL).status_code, 401)
+
+
+class DevResetPairCommandTests(TestCase):
+    """开发手测用:把一对用户的滑卡/配对记录清掉,好重演「互喜 → 配对」。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+
+    def _seed(self):
+        Swipe.objects.create(swiper=self.a, target=self.b, action=SwipeAction.LIKE)
+        Swipe.objects.create(swiper=self.b, target=self.a, action=SwipeAction.PASS)
+        Match.objects.create(**Match.pair_kwargs(self.a, self.b))
+
+    def test_clears_swipes_and_match_between_the_pair(self):
+        self._seed()
+
+        call_command("dev_reset_pair", a=f"u{self.a.id}", b=f"u{self.b.id}")
+
+        self.assertFalse(Swipe.objects.exists())
+        self.assertFalse(Match.objects.exists())
+
+    def test_leaves_other_pairs_alone(self):
+        self._seed()
+        other = User.objects.create_user(phone="13900139001")
+        Swipe.objects.create(swiper=self.a, target=other, action=SwipeAction.LIKE)
+
+        call_command("dev_reset_pair", a=f"u{self.a.id}", b=f"u{self.b.id}")
+
+        self.assertEqual(Swipe.objects.count(), 1)
+        self.assertTrue(Swipe.objects.filter(swiper=self.a, target=other).exists())
+
+    def test_unknown_im_id_raises(self):
+        with self.assertRaises(CommandError):
+            call_command("dev_reset_pair", a="u99999", b=f"u{self.b.id}")
+
+    def test_same_id_raises(self):
+        with self.assertRaises(CommandError):
+            call_command("dev_reset_pair", a=f"u{self.a.id}", b=f"u{self.a.id}")
