@@ -1,5 +1,8 @@
 allprojects {
     repositories {
+        // 国内镜像优先(阿里云),原始仓库作为兜底
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
         google()
         mavenCentral()
     }
