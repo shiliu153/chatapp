@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/providers.dart';
+import '../../im/im_manager.dart';
 import 'auth_repository.dart';
 
 sealed class SessionState {
@@ -52,6 +55,7 @@ class SessionController extends Notifier<SessionState> {
       if (state is! SessionLoggedIn) {
         state = const SessionLoggedIn();
       }
+      unawaited(ref.read(imStatusProvider.notifier).login());
     } on ApiException catch (error) {
       if (error.statusCode == 401) {
         await ref.read(tokenStoreProvider).clear(); // 触发 _forceLogout
@@ -72,6 +76,8 @@ class SessionController extends Notifier<SessionState> {
           userId: result.userId,
         );
     state = const SessionLoggedIn();
+    // IM 登录不阻塞进主界面;失败时聊天页有「重试」
+    unawaited(ref.read(imStatusProvider.notifier).login());
     return result;
   }
 
@@ -85,6 +91,8 @@ class SessionController extends Notifier<SessionState> {
     if (state is! SessionLoggedOut) {
       state = const SessionLoggedOut();
     }
+    // JWT 一清就 IM 登出(防串号);IM 清理统一挂在这条唯一通道上
+    unawaited(ref.read(imStatusProvider.notifier).logout());
   }
 }
 
