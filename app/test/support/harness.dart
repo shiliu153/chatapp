@@ -6,12 +6,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/app.dart';
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/im/im_manager.dart';
 
+import 'fake_im_client.dart';
 import 'scripted_adapter.dart';
 
-/// 起整个 App(真实 provider + 假网络)。prefs 里塞 {'auth.refresh': 'r', ...} 模拟已登录。
-Future<void> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
-    {Map<String, Object> prefs = const {}}) async {
+/// 起整个 App(真实 provider + 假网络 + 假 IM)。prefs 里塞 {'auth.refresh': 'r', ...} 模拟已登录。
+/// 返回注入的 FakeImClient,测试可用它铺数据/断言调用(想自定义就传 imClient)。
+Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
+    {Map<String, Object> prefs = const {}, FakeImClient? imClient}) async {
+  final fake = imClient ?? FakeImClient();
   SharedPreferences.setMockInitialValues(prefs);
   final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
   final refreshDio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
@@ -19,9 +23,11 @@ Future<void> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
     overrides: [
       baseDioProvider.overrideWithValue(dio),
       refreshDioProvider.overrideWithValue(refreshDio),
+      imClientProvider.overrideWithValue(fake),
     ],
     child: const ChatApp(),
   ));
+  return fake;
 }
 
 /// 底部导航栏里的 Tab 标签(避开与各页 AppBar 标题重名)。
