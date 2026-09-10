@@ -10,8 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL)
 - **聊天**: 腾讯云 IM SDK(消息走腾讯云 IM,业务数据存 Django)
 
-**当前进度:M2b 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流:候选批量拉取与自动续拉、拖拽/按钮滑卡(like/pass)、配对成功动效;前端 60 测试全绿 + analyze 零告警,后端 91 测试回归通过)。
-设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`,checkbox 全勾)。**下一步 M2c**(IM SDK 登录 → 会话列表 → 聊天页灰条;接口约定见 M2a 计划末尾的表与 M2b 计划末尾的「留给 M2c 的接口约定」)。
+**当前进度:M2c 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流 + M2c IM 接入:IM 自动登录与 userSig 过期重登、会话列表 + 未读角标、聊天页自绘气泡/match_notice 灰条/发文本、配对动效「去聊天」、退出与过期时 IM 登出;前端 99 测试全绿 + analyze 零告警,后端 96 测试回归通过)。
+设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`;M2c: `plans/2026-09-10-m2c-im-chat.md`,checkbox 全勾)。**下一步 M3**(合规收尾:照片/文本审核后台、举报/拉黑、封禁拦截、协议文本;约定见 M2a/M2c 计划末尾的表)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
 
@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 路径 | 内容 | 说明 |
 |---|---|---|
-| `app/` | Flutter 应用(Flutter 3.47.2) | `lib/core/`(网络/错误/凭证)、`lib/router.dart`(go_router 路由表)、`lib/features/{auth,onboarding,discovery,chat,profile,settings,shell}`;测试是"真实 provider + 假网络":`test/support/scripted_adapter.dart` + `test/support/harness.dart` 的 `pumpApp` |
+| `app/` | Flutter 应用(Flutter 3.47.2) | `lib/core/`(网络/错误/凭证)、`lib/im/`(IM 抽象层)、`lib/router.dart`(go_router 路由表)、`lib/features/{auth,onboarding,discovery,chat,profile,settings,shell}`;测试是"真实 provider + 假网络 + 假 IM":`test/support/scripted_adapter.dart` + `test/support/harness.dart` 的 `pumpApp` + `test/support/fake_im_client.dart` |
 | `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 5 个业务 app:`accounts users discovery im moderation`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
 | `docs/superpowers/` | 设计 spec 与实施计划 | 计划的执行进度以文件内 checkbox 为准 |
@@ -35,6 +35,7 @@ python manage.py test              # 全量测试(测试库 test_chatapp_dev,授
 python manage.py test accounts     # 单 app 测试
 python manage.py runserver         # 开发服务器 :8000
 python manage.py makemigrations && python manage.py migrate
+python manage.py im_send --from u2 --to u3 --text "你好"   # 手测:代发消息(--notice 发灰条)
 ```
 
 **前端**(cwd = `app/`):
@@ -92,14 +93,15 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 ## 腾讯云 IM 集成要点(已实测)
 
 - 凭据:`IM_SDKAPPID=1600161711`(公开,App 端也要用),密钥只在 `chatapp/.env`,**永不入代码/提交**。管理员账号 `administrator` 默认存在。
-- **代码位置**:userSig 生成在 `chatapp/im/signature.py`(含 `decode_user_sig` 调试解码);REST 调用在 `chatapp/im/client.py`(`import_account` / `send_custom_elem` / `send_match_notice`,**对外永不抛异常**,失败返回 False 只记日志)。
+- **代码位置**:userSig 生成在 `chatapp/im/signature.py`(含 `decode_user_sig` 调试解码);REST 调用在 `chatapp/im/client.py`(`import_account` / `send_custom_elem` / `send_match_notice` / `send_text`,**对外永不抛异常**,失败返回 False 只记日志)。
 - **userSig 生成是最大的坑**:腾讯用自家的 base64 变体,不是标准/URL-safe base64。正确流程:构建 JSON(ver/identifier/sdkappid/expire/time,sig 用**标准** base64 的 HMAC-SHA256)→ `json.dumps` → `zlib.compress` → 标准 base64 后替换 `+`→`*`、`/`→`-`、`=`→`_`。字符串会以 `*` `-` `_` 出现且不 strip 填充。2026-09-10 由 `im/client.py` 实测通过。
 - REST API 调用格式:`https://console.tim.qq.com/v4/{service}/{command}?sdkappid=&identifier=&usersig=&random=&contenttype=json`(usersig 需 URL 编码)。
 - ⚠️ **`openim/sendmsg` 的 `identifier` 必须是管理员**(`administrator`),发送方靠 body 的 `From_Account` 指定;错用发送方身份会报 `60010 set the identifier field ... to the admin account`。2026-09-10 实测修正。
 - ⚠️ **`im_open_login_svc/account_check` 别用来验签**:本应用下它对任何参数组合都返回 `70402 Invalid parameters`(与签名无关,同一签名调 `account_import` 返回 0)。验签一律用 `account_import`。
 - **配对灰条消息**:配对成功时 `send_match_notice(a, b)` 给**双方各发一条** `TIMCustomElem`,`MsgContent.Data` = `{"type":"match_notice"}`,`Desc` = "你们已互相喜欢,开始聊天吧"(M2 端拦截该类型渲染成居中灰条,会话随之创建)。
 - 账号导入:注册成功后经 `transaction.on_commit` 调 `account_import(u{id})`,失败只记日志不阻塞注册。
-- Flutter 端 IM SDK 包:`tim_plus_flutter`(M2c 引入)。
+- **Flutter 端 IM SDK 包是 `tencent_cloud_chat_sdk`(9.0.x,2026-06 发布)**:spec 早期写的 `tim_plus_flutter` 在 pub.dev 上**不存在**,已更正。只用它底层 API,不引 `tencent_cloud_chat_uikit`。支持 Android(x86_64 库有,模拟器能跑)/iOS/Web/Windows/macOS,Android minSdk 19。
+- **手测代发消息**(不用第二台设备):`python manage.py im_send --from uX --to uY --text "你好"` 或 `--notice`(发灰条事件);走 REST,账号须已导入。
 - 详细设计(配对灰条消息、会话列表数据源、审核合规)见 spec 文档,写 IM 相关代码前先读它。
 
 ## 前端约定与踩坑(M2a 已实测)
@@ -124,6 +126,17 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **⚠️ 测试里网络图片必须自兜底**(`Image.network(errorBuilder:)` / `CircleAvatar(onBackgroundImageError:)`):widget 测试的假网络对所有图片请求返回 400,不兜底会直接报错
 - **测试断言请求**:自动续拉的 GET 可能排在滑卡 POST 后面,别用 `adapter.log.last`,用 `lastWhere((r) => r.method == 'POST')`
 - 手测配对动效需要 **两个资料完善且有已过审照片**的账号互滑(单账号只能看到「卡片飞出」)
+
+## IM 聊天(M2c 已实测)
+
+- **代码位置**:`lib/im/`(抽象层:`im_client.dart` 领域模型+接口、`tencent_im_client.dart` **全项目唯一 import SDK 的文件**、`im_repository.dart` userSig/matches、`im_manager.dart` 登录生命周期);UI 在 `lib/features/chat/`(`chats_page.dart` 会话列表、`chat_page.dart` 聊天页、`chat_controller.dart`/`conversations_controller.dart`/`match_cache.dart`)
+- **测试策略**:SDK 是原生插件,`flutter test` 跑不了 → 测试注入 `test/support/fake_im_client.dart`(`pumpApp` 默认已注入,可传 `imClient:` 自定义);真实客户端永远只在手测/真机上跑
+- **登录生命周期**:唯一触发点是 `SessionController` —— 登录成功/启动鉴权成功 → `imStatusProvider.notifier.login()`(fire-and-forget,不阻塞进主界面);`TokenStore.clear()` → `_forceLogout()` → `logout()`(防串号)。`ImManager` 内部把登录/登出**排成队列**(SDK 要求登出回调结束前不能再 login);`onUserSigExpired` 事件会自动重拉签名重登
+- **数据流**:`ConversationsController`/`ChatController` 都 `watch(imStatusProvider)`,登录后订阅 `ImClient.events`(新消息/会话变化→刷新);`match_cache.dart` 把 `GET /matches` 缓成 `imUserId→昵称/头像`,watch session,登出自动清
+- **⚠️ `flutter test` 里**别**裸 `await` 走 dio 的调用**(widget 测试的假时钟不推进 dio 内部定时器,测试会**死锁**,连超时都不触发 —— 2026-09-10 踩坑,一个用例挂了 7 分钟)。要么让调用发生在 widget 树里(靠 `pumpAndSettle` 推进),要么把 provider 直接 override 成目标状态(见 `chat_page_test.dart` 的 `_LoggedInImManager`)
+- **⚠️ 构造 SDK 消息对象只能用 `V2TimMessage.fromJson({...})`**:默认构造函数内部调 `TIMManager.getServerTime()` → 加载 `dart_native_imsdk.dll` → VM 测试直接崩;`fromJson` 是纯 Dart。JSON 键名与必填字段见 `test/im/tencent_im_client_test.dart`
+- **SDK 细节**:单聊 conversationID 前缀 `c2c_`;`sendMessage` 的 `id` 参数已废弃但 **web 分支只认它**,要 `id`+`message` 都传;清未读用 `cleanConversationUnreadMessageCount`(废弃的 `markC2CMessageAsRead` 别用);`ChatMessage.timestamp` 统一毫秒(SDK 是秒,映射时 ×1000)
+- 手测:`python manage.py im_send --from uB --to uA --text "..."`,模拟器登录 A;灰条用 `--notice`。切换账号前记得 IM 登出已自动挂在退出通道上
 
 ## 后端测试注意事项
 

@@ -105,7 +105,7 @@ chat_app/                # git 仓库根(已 init)
 
 ### 7.4 会话列表与聊天
 - 会话列表数据源 = IM 会话(未读/最后消息由 IM);App 端用 `userId → {昵称, 头像}` 本地缓存渲染(启动 + 配对时预热,来源:`GET /api/v1/matches`)
-- 聊天页 = tim_plus_flutter 底层 API 自绘气泡(不用官方 UIKit:黑盒、定制成本高);客户端拦截 TIMCustomElem 渲染灰条,不进普通消息流
+- 聊天页 = tencent_cloud_chat_sdk 底层 API 自绘气泡(不用官方 UIKit:黑盒、定制成本高);客户端拦截 TIMCustomElem 渲染灰条,不进普通消息流
 - 点头像 → `GET /api/v1/users/{id}` 公开资料卡,内含举报/拉黑入口
 
 ### 7.5 退出/切换账号
@@ -129,8 +129,9 @@ app/lib/
 ├── main.dart / app.dart     # 入口、go_router 路由表、主题
 ├── core/                    # dio 实例(JWT 拦截器:401→refresh→重试一次)、
 │                            # token 存取、环境配置(--dart-define: SDKAppID/API_BASE)、错误映射
-├── im/im_service.dart       # IM 全局服务:init、login/logout、userSig 拉取与自动重登、
-│                            #   消息/会话回调 → Riverpod 状态(单例,启动即挂)
+├── im/                      # IM 抽象层(M2c 落地):im_client.dart 领域模型+ImClient 接口、
+│                            #   tencent_im_client.dart 唯一 SDK 适配、im_repository.dart(userSig/matches)、
+│                            #   im_manager.dart 登录生命周期与自动重登;测试用 FakeImClient
 └── features/
     ├── auth/                # 手机号登录(验证码页)、启动鉴权
     ├── onboarding/          # 首次资料引导:昵称/生日/城市/标签/照片

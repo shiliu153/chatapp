@@ -19,12 +19,17 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     final sub = client.events.listen((event) {
       if (event is ImNewMessage && event.message.peerId == peerId) {
         _append(event.message);
-        unawaited(client.markConversationRead(peerId)); // 正看着这个会话,来了就算已读
+        _markRead(client); // 正看着这个会话,来了就算已读
       }
     });
     ref.onDispose(sub.cancel);
-    unawaited(client.markConversationRead(peerId));
+    _markRead(client);
     return client.fetchHistory(peerId);
+  }
+
+  /// 清未读是尽力而为:失败只影响角标,不该炸聊天页。
+  void _markRead(ImClient client) {
+    unawaited(client.markConversationRead(peerId).catchError((Object _) {}));
   }
 
   void _append(ChatMessage message) {

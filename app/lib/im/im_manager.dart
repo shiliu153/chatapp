@@ -61,7 +61,11 @@ class ImManager extends Notifier<ImStatus> {
   Future<void> retry() => login();
 
   Future<void> logout() => _run(() async {
-        await ref.read(imClientProvider).logout();
+        try {
+          await ref.read(imClientProvider).logout();
+        } catch (_) {
+          // 登出失败也要把本地状态清掉:JWT 都没了,不能停在上一个号的登录态
+        }
         state = const ImLoggedOut();
       });
 
