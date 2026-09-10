@@ -185,6 +185,14 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,  # 旧的立即拉黑
 }
 
+# --- 腾讯云 IM REST(凭据只在 .env) ---
+IM_SDKAPPID = os.getenv("IM_SDKAPPID", "")
+IM_SECRETKEY = os.getenv("IM_SECRETKEY", "")
+IM_ADMIN_IDENTIFIER = os.getenv("IM_ADMIN_IDENTIFIER", "administrator")
+IM_REST_BASE = "https://console.tim.qq.com/v4"
+IM_SIG_EXPIRE = 7 * 24 * 3600   # userSig 有效期(秒),腾讯上限 180 天
+IM_TIMEOUT = 5                  # REST 超时(秒)
+
 # --- 照片 ---
 AUTO_APPROVE = os.getenv("AUTO_APPROVE", "1") == "1"   # 开发期自动过审;上线接内容安全 API 后置 0
 PHOTO_MAX_COUNT = 6
