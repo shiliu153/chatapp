@@ -39,6 +39,6 @@ void main() {
     expect(find.text('完善资料后就能开始滑卡'), findsOneWidget);
     await tester.tap(find.byKey(const Key('discovery.goOnboarding')));
     await tester.pumpAndSettle();
-    expect(find.text('资料引导施工中'), findsOneWidget);
+    expect(find.text('第 1 步 / 共 3 步'), findsOneWidget);
   });
 }

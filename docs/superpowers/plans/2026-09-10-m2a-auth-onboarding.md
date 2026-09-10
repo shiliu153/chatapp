@@ -2930,7 +2930,7 @@ cd "D:/pycharmproject/chat_app" && git add app && git commit -m "feat: profile e
 
 **Files:**
 - Create: `app/lib/features/onboarding/onboarding_page.dart`
-- Modify: `app/lib/router.dart`(`/onboarding` 换成真页面)
+- Modify: `app/lib/router.dart`(`/onboarding` 换成真页面)、`app/test/features/shell/home_shell_test.dart`(断言从「资料引导施工中」改成「第 1 步 / 共 3 步」)
 - Test: `app/test/features/onboarding/onboarding_page_test.dart`
 
 **Interfaces:**

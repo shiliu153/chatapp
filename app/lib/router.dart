@@ -6,6 +6,7 @@ import 'features/auth/login_page.dart';
 import 'features/auth/session.dart';
 import 'features/auth/splash_page.dart';
 import 'features/common/placeholder_page.dart';
+import 'features/onboarding/onboarding_page.dart';
 import 'features/profile/profile_edit_page.dart';
 import 'features/shell/home_shell.dart';
 
@@ -21,9 +22,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: '/splash', builder: (context, state) => const SplashPage()),
       GoRoute(path: '/login', builder: (context, state) => const LoginPage()),
-      GoRoute(
-          path: '/onboarding',
-          builder: (context, state) => const PlaceholderPage(title: '资料引导')),
+      GoRoute(path: '/onboarding', builder: (context, state) => const OnboardingPage()),
       GoRoute(path: '/home', builder: (context, state) => const HomeShell()),
       GoRoute(path: '/profile/edit', builder: (context, state) => const ProfileEditPage()),
       GoRoute(
