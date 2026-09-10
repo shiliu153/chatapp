@@ -10,7 +10,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Photo, Profile, ProfileStatus, Tag, calculate_age
+from .models import Photo, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
 
 User = get_user_model()
 
@@ -20,6 +20,17 @@ class AgeTests(SimpleTestCase):
         today = date(2026, 9, 10)
         self.assertEqual(calculate_age(date(2008, 9, 11), today), 17)   # 差一天
         self.assertEqual(calculate_age(date(2008, 9, 10), today), 18)   # 生日当天刚好 18
+
+
+class BirthdayBoundsTests(SimpleTestCase):
+    def test_bounds(self):
+        upper, lower = birthday_bounds(18, 30, today=date(2026, 9, 10))
+        self.assertEqual(upper, date(2008, 9, 10))   # 生在这天 = 刚好 18 岁
+        self.assertEqual(lower, date(1995, 9, 10))   # 生在更早 = 31 岁,排除
+
+    def test_leap_day(self):
+        upper, _ = birthday_bounds(1, 30, today=date(2024, 2, 29))
+        self.assertEqual(upper, date(2023, 2, 28))
 
 
 class ProfileModelTests(TestCase):

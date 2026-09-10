@@ -8,6 +8,24 @@ def calculate_age(birthday, today=None):
     return today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
 
 
+def shift_years(day, years):
+    """把日期往前推 N 年;2 月 29 日退化成 2 月 28 日。"""
+    try:
+        return day.replace(year=day.year - years)
+    except ValueError:
+        return day.replace(year=day.year - years, day=28)
+
+
+def birthday_bounds(age_min, age_max, today=None):
+    """把年龄区间换算成生日区间:birthday <= upper 且 birthday > lower。
+
+    推导:age >= age_min ⇔ 生日不晚于"今天减 age_min 年";
+         age <= age_max ⇔ 生日晚于"今天减 (age_max+1) 年"。
+    """
+    today = today or timezone.localdate()
+    return shift_years(today, age_min), shift_years(today, age_max + 1)
+
+
 class Gender(models.TextChoices):
     MALE = "male", "男"
     FEMALE = "female", "女"
@@ -69,6 +87,10 @@ class Profile(models.Model):
         if not self.user.photos.filter(status=PhotoStatus.APPROVED).exists():
             missing.append("photos")
         return missing
+
+    @property
+    def is_banned(self):
+        return self.status in self.BANNED_STATUSES
 
     def refresh_status(self):
         """在 未完善/已完善 之间流转;封禁状态不被覆盖(M1b/M3 靠它兜底)。"""
