@@ -5,10 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/api_exception.dart';
 import 'im_client.dart';
 import 'im_repository.dart';
+import 'tencent_im_client.dart';
 
-/// 真实 IM 客户端;测试里 override 成 FakeImClient。
-/// Task 3 换成 TencentImClient,本任务先留桩。
-final imClientProvider = Provider<ImClient>((ref) => throw UnimplementedError('Task 3 接入'));
+/// 真实 IM 客户端(全局单例语义);测试里 override 成 FakeImClient。
+final imClientProvider = Provider<ImClient>((ref) => TencentImClient());
 
 sealed class ImStatus {
   const ImStatus();
