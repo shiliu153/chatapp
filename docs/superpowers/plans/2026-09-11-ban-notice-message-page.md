@@ -42,7 +42,7 @@
   - `ensure_account(identifier: str, nickname: str = "") -> bool`
   - 管理命令 `im_setup_system_account`
 
-- [ ] **Step 1: 写失败测试(im/tests.py)**
+- [x] **Step 1: 写失败测试(im/tests.py)**
 
 顶部 import 行(第 13-14 行)改为:
 
@@ -122,12 +122,12 @@ class ImSetupSystemAccountCommandTests(SimpleTestCase):
                 call_command("im_setup_system_account")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test im`
 Expected: FAIL(`ImportError: cannot import name 'ensure_account'` / `ModuleNotFoundError` 命令不存在)
 
-- [ ] **Step 3: 实现(im/client.py 追加)**
+- [x] **Step 3: 实现(im/client.py 追加)**
 
 在 `MATCH_NOTICE_TEXT = ...` 行后追加常量;在文件末尾追加函数:
 
@@ -174,7 +174,7 @@ def send_ban_lifted(to_identifier: str) -> bool:
                             {"type": "ban_lifted"}, BAN_LIFTED_TEXT)
 ```
 
-- [ ] **Step 4: 实现管理命令(新建 im_setup_system_account.py)**
+- [x] **Step 4: 实现管理命令(新建 im_setup_system_account.py)**
 
 ```python
 """一次性环境步骤:创建「系统通知」IM 账号(封禁/解封消息的发送方)。
@@ -200,12 +200,12 @@ class Command(BaseCommand):
             f"系统账号就绪:{SYSTEM_NOTICE_IDENTIFIER}({SYSTEM_NOTICE_NICK})"))
 ```
 
-- [ ] **Step 5: 跑测试确认通过 + 全量回归**
+- [x] **Step 5: 跑测试确认通过 + 全量回归**
 
 Run: `python manage.py test im && python manage.py test`
 Expected: 全绿(im 新增 ~8 用例;全量 180 + 8 左右)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add chatapp/im/client.py chatapp/im/tests.py chatapp/im/management/commands/im_setup_system_account.py
@@ -225,7 +225,7 @@ git commit -m "feat(im): 系统通知账号与封禁/解封消息发送函数"
 - Consumes: Task 1 的 `im_client.send_ban_notice(to, level, reason)` / `im_client.send_ban_lifted(to)`
 - Produces: `moderation.services._send_notice_then_kick(identifier, reason) -> None`(专供派发,先发消息后踢)
 
-- [ ] **Step 1: 改测试为先(期望新行为,此刻会失败)**
+- [x] **Step 1: 改测试为先(期望新行为,此刻会失败)**
 
 `moderation/tests.py` 顶部第 15 行改为:
 
@@ -332,12 +332,12 @@ from moderation.services import _send_notice_then_kick
         self.assertTrue(BanLog.objects.filter(user=self.user, action=BanAction.UNBAN).exists())
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test moderation.tests.BanAuditServiceTests ops.tests.OpsUserBanTests ops.tests.ReportActionTests`
 Expected: FAIL(断言不匹配:`kick_user` vs `_send_notice_then_kick`;light 断言 not called 但马上会派发)
 
-- [ ] **Step 3: 实现(moderation/services.py)**
+- [x] **Step 3: 实现(moderation/services.py)**
 
 `log_ban_change` 整体替换为:
 
@@ -367,17 +367,17 @@ def _send_notice_then_kick(identifier, reason) -> None:
     im_client.kick_user(identifier)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test moderation ops`
 Expected: PASS(全绿)
 
-- [ ] **Step 5: 全量回归(抓其他触发 IM 的用例)**
+- [x] **Step 5: 全量回归(抓其他触发 IM 的用例)**
 
 Run: `python manage.py test`
 Expected: 全绿;且日志里**不应出现** `IM sendmsg/account_import 返回错误`(出现说明有路径漏 mock)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add chatapp/moderation/services.py chatapp/moderation/tests.py chatapp/ops/tests.py
@@ -399,7 +399,7 @@ git commit -m "feat(moderation): 封禁/解封联动系统通知消息(先发后
 - Produces(供 Task 4/5 使用):`ChatMessageKind.banNotice`、`const systemNoticePeerId = 'system_notice'`
 - 注意:`ChatMessageKind` 是 enum,新增成员会让所有 **exhaustive switch** 编译不过 —— 本任务内把 `tencent_im_client.dart` 与 `chats_page.dart` 的两处 switch 一并补齐
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/im/tencent_im_client_test.dart` 在 `'match_notice 自定义消息 → 灰条,文案取 Desc'` 测试之后追加:
 
@@ -460,12 +460,12 @@ git commit -m "feat(moderation): 封禁/解封联动系统通知消息(先发后
 
 并把 `initialLocation: '/chat/u9'` 改为 `initialLocation: '/chat/$peerId'`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `../flutter/bin/flutter.bat test test/im/tencent_im_client_test.dart test/features/chat/chat_page_test.dart`
 Expected: FAIL(`ChatMessageKind.banNotice` 不存在,编译错)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/lib/im/im_client.dart`:
 
@@ -526,12 +526,12 @@ String? _customType(String? data) {
       ChatMessageKind.banNotice => last.text.isEmpty ? '系统通知' : last.text,
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + analyze**
+- [x] **Step 4: 跑测试确认通过 + analyze**
 
 Run: `../flutter/bin/flutter.bat test test/im/tencent_im_client_test.dart test/features/chat/chat_page_test.dart && ../flutter/bin/flutter.bat analyze`
 Expected: PASS;analyze 零告警
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib/im/im_client.dart app/lib/im/tencent_im_client.dart app/lib/features/chat/widgets/message_bubble.dart app/lib/features/chat/chats_page.dart app/test/im/tencent_im_client_test.dart app/test/features/chat/chat_page_test.dart
@@ -551,7 +551,7 @@ git commit -m "feat(app): ban_notice 消息类型映射与灰条渲染"
 - Consumes: Task 3 的 `systemNoticePeerId`
 - Produces: `displayNameFor` 对 `system_notice` 恒返回「系统通知」
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/features/chat/match_cache_test.dart` 的 `'显示名:缓存 > IM 名 > id;头像:缓存 > IM 头像'` 测试里追加一行断言:
 
@@ -565,12 +565,12 @@ git commit -m "feat(app): ban_notice 消息类型映射与灰条渲染"
     expect(find.text('封禁期间所有功能暂停使用'), findsOneWidget);
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `../flutter/bin/flutter.bat test test/features/chat/match_cache_test.dart test/features/shell/banned_page_test.dart`
 Expected: FAIL(返回 'system_notice' 而非「系统通知」;封禁页无该行)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/lib/features/chat/match_cache.dart` 顶部加 import:
 
@@ -597,12 +597,12 @@ String displayNameFor(Map<String, MatchEntry> cache, String peerId, {String? imN
                 const Text('封禁期间所有功能暂停使用'),
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `../flutter/bin/flutter.bat test test/features/chat/match_cache_test.dart test/features/shell/banned_page_test.dart`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib/features/chat/match_cache.dart app/lib/features/shell/banned_page.dart app/test/features/chat/match_cache_test.dart app/test/features/shell/banned_page_test.dart
@@ -623,7 +623,7 @@ git commit -m "feat(app): 系统通知显示名特判 + 封禁页补充说明"
 - Consumes: Task 3/4 的 `systemNoticePeerId`、`ChatMessageKind.banNotice`、`displayNameFor` 特判;`conversationsProvider`、`matchCacheProvider`、`formatMessageTime`、`avatarUrlFor`
 - Produces: 页面 keys —— `chats.strip`、`chats.stripItem:{peerId}`、`chats.systemNotice`、`chats.tile:{peerId}`(测试用);字体/配色按 Global Constraints
 
-- [ ] **Step 1: 改测试为先(整文件替换 chats_page_test.dart)**
+- [x] **Step 1: 改测试为先(整文件替换 chats_page_test.dart)**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -778,12 +778,12 @@ void main() {
     expect(badge.backgroundColor, const Color(0xFFFF2C55)); // 抖音红
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `../flutter/bin/flutter.bat test test/features/chat/chats_page_test.dart test/features/shell/home_shell_test.dart`
 Expected: FAIL(navTab('消息') 找不到;`还没有消息`/keys 不存在)
 
-- [ ] **Step 3: 实现(整页重写 chats_page.dart)**
+- [x] **Step 3: 实现(整页重写 chats_page.dart)**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -1150,17 +1150,17 @@ class _EmptyView extends StatelessWidget {
           const NavigationDestination(icon: Icon(Icons.person_outline), label: '我的'),
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + analyze**
+- [x] **Step 4: 跑测试确认通过 + analyze**
 
 Run: `../flutter/bin/flutter.bat test test/features/chat/chats_page_test.dart test/features/shell/home_shell_test.dart && ../flutter/bin/flutter.bat analyze`
 Expected: PASS;analyze 零告警
 
-- [ ] **Step 5: 全量前端回归**
+- [x] **Step 5: 全量前端回归**
 
 Run: `../flutter/bin/flutter.bat test`
 Expected: 全绿(全仓库 `navTab('会话')` 仅存在于 chats_page_test / home_shell_test,本任务已全部更新;其余「会话」字样都在注释里,不影响测试)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/lib/features/chat/chats_page.dart app/lib/features/shell/home_shell.dart app/test/features/chat/chats_page_test.dart app/test/features/shell/home_shell_test.dart
@@ -1175,17 +1175,17 @@ git commit -m "feat(app): 消息页抖音式版式,会话改名消息"
 - Modify: `CLAUDE.md`(IM 集成要点 / 前端约定 / 合规 三节各加 1-3 行)
 - Modify: 本计划文档(勾选进度)
 
-- [ ] **Step 1: 双端全量回归**
+- [x] **Step 1: 双端全量回归**
 
 Run: `cd chatapp && python manage.py test`;`cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test`
 Expected: 后端 180+ 全绿(日志无 `IM ... 返回错误`);前端 115+ 全绿;analyze 零告警
 
-- [ ] **Step 2: 建系统账号(真实调用,一次)**
+- [x] **Step 2: 建系统账号(真实调用,一次)**
 
 Run: `cd chatapp && python manage.py im_setup_system_account`
 Expected: `系统账号就绪:system_notice(系统通知)`(重跑也成功——7015 已存在视为成功)
 
-- [ ] **Step 3: 更新 CLAUDE.md**
+- [x] **Step 3: 更新 CLAUDE.md**
 
 按以下要点融入对应小节现有文风:
 1. 「腾讯云 IM 集成要点」加:
@@ -1196,7 +1196,7 @@ Expected: `系统账号就绪:system_notice(系统通知)`(重跑也成功——
    - 新增 `ChatMessageKind.banNotice`(覆盖 ban_notice/ban_lifted,渲染同款灰条)
 3. 「合规与审核」加:封禁联动系统通知消息一句(与上呼应)
 
-- [ ] **Step 4: 计划文档勾选 + Commit**
+- [x] **Step 4: 计划文档勾选 + Commit**
 
 把本文件所有已完成步骤勾上,执行记录(实际测试数、遇到并修复的问题)追加到文件末尾「执行记录」小节。
 
@@ -1205,7 +1205,7 @@ git add CLAUDE.md docs/superpowers/plans/2026-09-11-ban-notice-message-page.md
 git commit -m "docs: 封禁系统消息+消息页改版收尾(CLAUDE.md/计划勾选)"
 ```
 
-- [ ] **Step 5: 手测交接(交回用户;建议清单)**
+- [x] **Step 5: 手测交接(交回用户;建议清单)**
 
 1. 轻封 Bob(13900139000)→ Bob 端消息页出现「系统通知」置顶行(红点)→ 点开见灰条文案 → 滑卡被拒提示、聊天仍通
 2. 重封 Bob → 被踢下线、整屏封禁页多一行「封禁期间所有功能暂停使用」
@@ -1213,3 +1213,16 @@ git commit -m "docs: 封禁系统消息+消息页改版收尾(CLAUDE.md/计划�
 4. 双端回归:Alice/Bob 正常聊天/配对不受影响;消息页版式与模拟图一致(横滑条、置顶行、行样式)
 
 手测前重启后端(`AUTO_APPROVE` 等配置按需),确保 runserver 只有一个进程。
+
+---
+
+## 执行记录(2026-09-11,本会话内联执行)
+
+- 分支 `ban-notice`,6 个 Task 全部完成,提交:`1de28fa`(T1)/`527867a`(T2)/`a7d476a`(T3)/`c214f8c`(T4)/`3dbc253`(T5)+ 本收尾提交
+- 测试终态:后端 **190** 全绿(180→190;测试日志无 `IM ... 返回错误`);前端 **120** 全绿(115→120);`flutter analyze` 零告警
+- 真实调用:`python manage.py im_setup_system_account` 已执行成功(开发用 IM 应用已建 `system_notice` 账号)
+- 执行中修复的问题:
+  1. 自定义未读角标 `Container(alignment:)` 在 ListTile trailing 下有界约束会撑满整格宽 → 框架断言崩溃;改用 `Center(widthFactor: 1)`(已记入 CLAUDE.md 踩坑)
+  2. `chat_page_test` 的 `pumpChat` 原写死 `/chat/u9`,改为可选 `peerId` 参数以测系统通知会话
+- 与原计划的小偏差:发送函数/测试插入位置在类尾而非文件尾(无行为差异);`_isMatchNotice` 泛化为 `_customType`(同义重构)
+- 手测(本文件 Task 6 Step 5 清单)待用户执行
