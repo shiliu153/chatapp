@@ -167,3 +167,24 @@ def _user_context(user):
         "blocks_made": Block.objects.filter(blocker=user).select_related("blocked")[:20],
         "blocks_received": Block.objects.filter(blocked=user).select_related("blocker")[:20],
     }
+
+
+@require_POST
+@staff_required
+def user_ban(request, user_id):
+    user = get_object_or_404(User, pk=user_id)
+    action = request.POST.get("action")
+    reason = request.POST.get("reason", "").strip()
+    error = None
+    if action == "unban":
+        _apply_status_change(user, action, reason, request.user)
+    elif action in ("ban_light", "ban_heavy"):
+        if not reason:
+            error = "封禁必须填写原因"
+        else:
+            _apply_status_change(user, action, reason, request.user)
+    else:
+        error = "未知操作"
+    ctx = _user_context(user)
+    ctx["error"] = error
+    return render(request, "ops/partials/user_ban_panel.html", ctx)

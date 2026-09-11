@@ -226,3 +226,55 @@ class OpsUserDetailTests(TestCase):
         self.assertContains(resp, "小红")
         self.assertContains(resp, "骗钱")
         self.assertContains(resp, "13900139000")   # 举报人
+
+
+class OpsUserBanTests(TestCase):
+    def setUp(self):
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+        self.user = User.objects.create_user(phone="13900139000")
+        self.profile = Profile.objects.create(
+            user=self.user, nickname="小红", gender="female", birthday="2000-01-01",
+            city="上海", bio="你好", status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=self.user, file="photos/a.png", status=PhotoStatus.APPROVED)
+
+    def test_ban_light_records_log_without_kick(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            resp = self.client.post(f"/ops/users/{self.user.id}/ban",
+                                    {"action": "ban_light", "reason": "骚扰他人"})
+        self.assertEqual(resp.status_code, 200)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.status, ProfileStatus.BANNED_LIGHT)
+        self.assertEqual(self.profile.ban_reason, "骚扰他人")
+        self.assertTrue(BanLog.objects.filter(user=self.user, action=BanAction.BAN_LIGHT,
+                                              operator=self.staff).exists())
+        dispatch.assert_not_called()
+
+    def test_ban_heavy_kicks_im(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            self.client.post(f"/ops/users/{self.user.id}/ban",
+                             {"action": "ban_heavy", "reason": "严重违规"})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.status, ProfileStatus.BANNED_HEAVY)
+        dispatch.assert_called_once_with(im_client.kick_user, self.user.im_user_id)
+
+    def test_ban_requires_reason(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            resp = self.client.post(f"/ops/users/{self.user.id}/ban",
+                                    {"action": "ban_heavy", "reason": "  "})
+        self.assertContains(resp, "必须填写原因")
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)
+        dispatch.assert_not_called()
+
+    def test_unban_recomputes_status_and_clears_reason(self):
+        with patch("moderation.services._dispatch_async"):
+            self.client.post(f"/ops/users/{self.user.id}/ban",
+                             {"action": "ban_light", "reason": "先封"})
+        resp = self.client.post(f"/ops/users/{self.user.id}/ban",
+                                {"action": "unban", "reason": ""})
+        self.assertEqual(resp.status_code, 200)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)   # 资料齐全+有照片 → 重算回已完善
+        self.assertEqual(self.profile.ban_reason, "")
+        self.assertTrue(BanLog.objects.filter(user=self.user, action=BanAction.UNBAN).exists())
