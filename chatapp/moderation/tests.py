@@ -12,7 +12,7 @@ from im import client as im_client
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 from .models import BanAction, BanLog, Block, Report, ReportStatus, ReportType
-from .services import log_ban_change
+from .services import _send_notice_then_kick, log_ban_change
 from .text_check import find_blocked_word
 
 User = get_user_model()
@@ -120,7 +120,7 @@ class BanAuditServiceTests(TestCase):
         self.operator = User.objects.create_superuser(phone="13700137000", password="pw")
         self.target = User.objects.create_user(phone="13900139000")
 
-    def test_heavy_ban_writes_log_and_kicks_offline(self):
+    def test_heavy_ban_dispatches_notice_then_kick(self):
         with patch("moderation.services._dispatch_async") as dispatch:
             log_ban_change(self.target, ProfileStatus.COMPLETE, ProfileStatus.BANNED_HEAVY,
                            "骚扰他人", self.operator)
@@ -128,23 +128,40 @@ class BanAuditServiceTests(TestCase):
         self.assertEqual(log.action, BanAction.BAN_HEAVY)
         self.assertEqual(log.reason, "骚扰他人")
         self.assertEqual(log.operator, self.operator)
-        dispatch.assert_called_once_with(im_client.kick_user, self.target.im_user_id)
+        dispatch.assert_called_once_with(_send_notice_then_kick,
+                                         self.target.im_user_id, "骚扰他人")
 
-    def test_light_ban_writes_log_without_kick(self):
+    def test_light_ban_dispatches_notice_without_kick(self):
         with patch("moderation.services._dispatch_async") as dispatch:
             log_ban_change(self.target, ProfileStatus.COMPLETE, ProfileStatus.BANNED_LIGHT,
                            "轻度违规", self.operator)
         self.assertEqual(BanLog.objects.get(user=self.target).action, BanAction.BAN_LIGHT)
-        dispatch.assert_not_called()
+        dispatch.assert_called_once_with(im_client.send_ban_notice,
+                                         self.target.im_user_id, "light", "轻度违规")
 
-    def test_unban_writes_unban_log(self):
-        log_ban_change(self.target, ProfileStatus.BANNED_HEAVY, ProfileStatus.COMPLETE,
-                       "申诉通过", self.operator)
+    def test_unban_dispatches_lifted_notice(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            log_ban_change(self.target, ProfileStatus.BANNED_HEAVY, ProfileStatus.COMPLETE,
+                           "申诉通过", self.operator)
         self.assertEqual(BanLog.objects.get(user=self.target).action, BanAction.UNBAN)
+        dispatch.assert_called_once_with(im_client.send_ban_lifted, self.target.im_user_id)
+
+    def test_send_notice_then_kick_sends_before_kick(self):
+        calls = []
+        with patch.object(im_client, "send_ban_notice",
+                          side_effect=lambda *a: calls.append("send")) as send, \
+             patch.object(im_client, "kick_user",
+                          side_effect=lambda *a: calls.append("kick")):
+            _send_notice_then_kick("u9", "骚扰他人")
+        self.assertEqual(calls, ["send", "kick"])
+        send.assert_called_once_with("u9", "heavy", "骚扰他人")
 
     def test_non_ban_transition_writes_nothing(self):
-        log_ban_change(self.target, ProfileStatus.INCOMPLETE, ProfileStatus.COMPLETE, "", self.operator)
+        with patch("moderation.services._dispatch_async") as dispatch:
+            log_ban_change(self.target, ProfileStatus.INCOMPLETE, ProfileStatus.COMPLETE,
+                           "", self.operator)
         self.assertFalse(BanLog.objects.exists())
+        dispatch.assert_not_called()
 
 
 class ProfileAdminHookTests(TestCase):

@@ -6,6 +6,7 @@ from accounts.models import User
 from im import client as im_client
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
+from moderation.services import _send_notice_then_kick
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
@@ -132,7 +133,8 @@ class ReportActionTests(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, ReportStatus.HANDLED)
         self.assertEqual(self.report.handled_note, "封禁处理")
-        dispatch.assert_called_once_with(im_client.kick_user, self.target.im_user_id)
+        dispatch.assert_called_once_with(_send_notice_then_kick,
+                                         self.target.im_user_id, "色情图片")
 
     def test_quick_ban_requires_reason(self):
         with patch("moderation.services._dispatch_async") as dispatch:
@@ -238,7 +240,7 @@ class OpsUserBanTests(TestCase):
             city="上海", bio="你好", status=ProfileStatus.COMPLETE)
         Photo.objects.create(user=self.user, file="photos/a.png", status=PhotoStatus.APPROVED)
 
-    def test_ban_light_records_log_without_kick(self):
+    def test_ban_light_dispatches_notice_no_kick(self):
         with patch("moderation.services._dispatch_async") as dispatch:
             resp = self.client.post(f"/ops/users/{self.user.id}/ban",
                                     {"action": "ban_light", "reason": "骚扰他人"})
@@ -248,7 +250,8 @@ class OpsUserBanTests(TestCase):
         self.assertEqual(self.profile.ban_reason, "骚扰他人")
         self.assertTrue(BanLog.objects.filter(user=self.user, action=BanAction.BAN_LIGHT,
                                               operator=self.staff).exists())
-        dispatch.assert_not_called()
+        dispatch.assert_called_once_with(im_client.send_ban_notice,
+                                         self.user.im_user_id, "light", "骚扰他人")
 
     def test_ban_heavy_kicks_im(self):
         with patch("moderation.services._dispatch_async") as dispatch:
@@ -256,7 +259,8 @@ class OpsUserBanTests(TestCase):
                              {"action": "ban_heavy", "reason": "严重违规"})
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.status, ProfileStatus.BANNED_HEAVY)
-        dispatch.assert_called_once_with(im_client.kick_user, self.user.im_user_id)
+        dispatch.assert_called_once_with(_send_notice_then_kick,
+                                         self.user.im_user_id, "严重违规")
 
     def test_ban_requires_reason(self):
         with patch("moderation.services._dispatch_async") as dispatch:
@@ -271,8 +275,9 @@ class OpsUserBanTests(TestCase):
         with patch("moderation.services._dispatch_async"):
             self.client.post(f"/ops/users/{self.user.id}/ban",
                              {"action": "ban_light", "reason": "先封"})
-        resp = self.client.post(f"/ops/users/{self.user.id}/ban",
-                                {"action": "unban", "reason": ""})
+        with patch("moderation.services._dispatch_async"):
+            resp = self.client.post(f"/ops/users/{self.user.id}/ban",
+                                    {"action": "unban", "reason": ""})
         self.assertEqual(resp.status_code, 200)
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)   # 资料齐全+有照片 → 重算回已完善
