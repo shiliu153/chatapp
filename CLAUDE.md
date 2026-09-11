@@ -11,6 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **聊天**: 腾讯云 IM SDK(消息走腾讯云 IM,业务数据存 Django)
 
 **当前进度:M3 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流 + M2c IM 接入 + M3 合规收尾:moderation 三模型与 Django admin 审核台、举报/拉黑全链路(含 IM 黑名单同步与踢下线)、重封禁全域 403、首启协议弹窗与协议全文、Android 签名 APK;后端 153 测试、前端 115 测试全绿,analyze 零告警)。核心链路(登录/互滑/聊天/资料卡/举报/拉黑)已双端手测;协议、照片审核、封禁页等细节项待后续补验。
+
+**M3 后追加:运营审核台 `/ops/`**(独立 Django app `ops`,is_staff 登录;举报处理 / 照片审核(含 reviewed_by/at 审计)/ 用户封禁解封 / 操作日志;后端测试 180 全绿。设计: `specs/2026-09-11-moderation-console-design.md`;计划: `plans/2026-09-11-ops-console.md`)。
 设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`;M2c: `plans/2026-09-10-m2c-im-chat.md`;M3 设计: `specs/2026-09-11-m3-compliance-design.md`;M3: `plans/2026-09-11-m3-compliance.md`)。**下一步 M4**(上线:服务器 + 域名部署;短信/内容安全/COS 接真;商店上架;iOS 打包决策;ICP 备案为并行事项)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
@@ -20,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 路径 | 内容 | 说明 |
 |---|---|---|
 | `app/` | Flutter 应用(Flutter 3.47.2) | `lib/core/`(网络/错误/凭证)、`lib/im/`(IM 抽象层)、`lib/router.dart`(go_router 路由表)、`lib/features/{auth,onboarding,discovery,chat,profile,settings,shell}`;测试是"真实 provider + 假网络 + 假 IM":`test/support/scripted_adapter.dart` + `test/support/harness.dart` 的 `pumpApp` + `test/support/fake_im_client.dart` |
-| `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 5 个业务 app:`accounts users discovery im moderation`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
+| `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 6 个业务 app:`accounts users discovery im moderation ops`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
 | `docs/superpowers/` | 设计 spec 与实施计划 | 计划的执行进度以文件内 checkbox 为准 |
 | `.remember/` | Claude 会话记忆日志(内部机制) | 勿改动、勿提交 |
@@ -164,6 +166,15 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
   cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=http://10.0.2.2:8000/api/v1
   ```
   产物 `app/build/app/outputs/flutter-apk/app-release.apk`;装模拟器用 `adb -s <设备> install -r ...`(同设备覆盖 debug 包会因签名冲突失败,需先卸载)
+
+## 运营审核台 /ops/(M3 后新增)
+
+- 独立 Django app `ops`:服务端模板 + HTMX 局部刷新;静态资源 vendored 在 `ops/static/ops/vendor/`(Pico.css/htmx),**不依赖 CDN,生产需 collectstatic**
+- 登录复用 Django 账号体系,**判据 `is_staff`**;建运营账号 = 建一个 is_staff 用户(手机号+密码)。登录页会直接拒非 staff;已登录非 staff 访问任何 ops 页面 → 403
+- 写操作与 admin 同源:`log_ban_change`(封禁审计+踢 IM)、`users/services.py::review_photos`(照片审核+资料状态重算+`reviewed_by/at` 审计)
+- 解封会 `refresh_status()` 重算 complete/incomplete(admin 是手改状态下拉,别混用)
+- 照片任何状态都可再审(已通过可「撤回并驳回」,用于事后处置);「已跳过」= 照片已被用户删除的陈旧页面
+- 测试纪律:任何触发 IM 的路径 mock `moderation.services._dispatch_async`
 
 ## 后端测试注意事项
 
