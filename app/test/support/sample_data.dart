@@ -72,3 +72,38 @@ Map<String, dynamic> matchJson({
       'avatar_url': avatarUrl,
       'matched_at': '2026-09-10T12:00:00+08:00',
     };
+
+/// 造一份 GET /users/{id} 的公开资料;字段可覆盖。
+Map<String, dynamic> publicProfileJson({
+  int userId = 9,
+  String nickname = '小红',
+  String? gender = 'female',
+  int? age = 25,
+  String city = '上海',
+  String bio = '喜欢爬山',
+  List<Map<String, dynamic>> tags = const [],
+  List<Map<String, dynamic>>? photos,
+}) =>
+    {
+      'user_id': userId,
+      'nickname': nickname,
+      'gender': gender,
+      'age': age,
+      'city': city,
+      'bio': bio,
+      'tags': tags,
+      'photos': photos ?? [photoJson(userId * 100)],
+    };
+
+/// 造一份 GET /blocks 里的一条。
+Map<String, dynamic> blockedUserJson({
+  int userId = 9,
+  String nickname = '小红',
+  String? avatarUrl,
+}) =>
+    {
+      'user_id': userId,
+      'nickname': nickname,
+      'avatar_url': avatarUrl,
+      'blocked_at': '2026-09-11T12:00:00+08:00',
+    };
