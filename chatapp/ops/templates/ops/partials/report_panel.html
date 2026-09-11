@@ -1,0 +1,22 @@
+<div id="report-panel">
+  {% if error %}<p class="ops-error">{{ error }}</p>{% endif %}
+  {% if report.status == 'handled' %}
+    <p>已处理{% if report.handled_by %}({{ report.handled_by.phone }}){% endif %}
+       · {{ report.handled_at|date:"Y-m-d H:i" }}</p>
+    {% if report.handled_note %}<p>备注:{{ report.handled_note }}</p>{% endif %}
+  {% else %}
+    <form hx-post="{% url 'ops:report_handle' report.id %}"
+          hx-target="#report-panel" hx-swap="outerHTML">
+      <label>处理备注<input type="text" name="note" maxlength="200"></label>
+      <button type="submit">标记已处理</button>
+    </form>
+    <hr>
+    <form hx-post="{% url 'ops:report_ban' report.id %}"
+          hx-target="#report-panel" hx-swap="outerHTML">
+      <label>封禁原因(封禁必填)<input type="text" name="reason" maxlength="200"></label>
+      <button type="submit" name="level" value="ban_light">轻度封禁被举报人</button>
+      <button type="submit" name="level" value="ban_heavy" class="secondary">重度封禁被举报人</button>
+    </form>
+    <p><small>及时封禁会自动把该举报标记为已处理(备注「封禁处理」)。</small></p>
+  {% endif %}
+</div>

@@ -1,8 +1,12 @@
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from accounts.models import User
-from moderation.models import Report, ReportStatus, ReportType
-from users.models import Profile
+from im import client as im_client
+from moderation.models import (BanAction, BanLog, Report, ReportStatus,
+                               ReportType)
+from users.models import Profile, ProfileStatus
 
 
 def make_staff(phone="13700137000", password="ops-pass-123"):
@@ -87,3 +91,56 @@ class ReportDetailTests(TestCase):
         self.assertContains(resp, "13800138000")   # 举报人
         self.assertContains(resp, "13900139000")   # 被举报人
         self.assertContains(resp, "骚扰我")
+
+
+class ReportActionTests(TestCase):
+    def setUp(self):
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+        self.reporter = User.objects.create_user(phone="13800138000")
+        self.target = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.target, status=ProfileStatus.COMPLETE)
+        self.report = Report.objects.create(reporter=self.reporter, target=self.target,
+                                            type=ReportType.PORN, detail="色情")
+
+    def test_handle_marks_report(self):
+        resp = self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "已警告"})
+        self.assertEqual(resp.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, ReportStatus.HANDLED)
+        self.assertEqual(self.report.handled_note, "已警告")
+        self.assertEqual(self.report.handled_by, self.staff)
+        self.assertIsNotNone(self.report.handled_at)
+        self.assertContains(resp, "已处理")
+
+    def test_handle_twice_keeps_first(self):
+        self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "第一次"})
+        self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "第二次"})
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.handled_note, "第一次")
+
+    def test_quick_ban_heavy_bans_and_handles(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            resp = self.client.post(f"/ops/reports/{self.report.id}/ban",
+                                    {"level": "ban_heavy", "reason": "色情图片"})
+        self.assertContains(resp, "已处理")
+        profile = Profile.objects.get(user=self.target)
+        self.assertEqual(profile.status, ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(profile.ban_reason, "色情图片")
+        self.assertTrue(BanLog.objects.filter(user=self.target, action=BanAction.BAN_HEAVY,
+                                              operator=self.staff).exists())
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, ReportStatus.HANDLED)
+        self.assertEqual(self.report.handled_note, "封禁处理")
+        dispatch.assert_called_once_with(im_client.kick_user, self.target.im_user_id)
+
+    def test_quick_ban_requires_reason(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            resp = self.client.post(f"/ops/reports/{self.report.id}/ban",
+                                    {"level": "ban_light", "reason": ""})
+        self.assertContains(resp, "必须填写原因")
+        profile = Profile.objects.get(user=self.target)
+        self.assertEqual(profile.status, ProfileStatus.COMPLETE)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, ReportStatus.PENDING)
+        dispatch.assert_not_called()

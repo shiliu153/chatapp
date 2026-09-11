@@ -18,9 +18,9 @@
     {% include "ops/partials/user_card.html" with user_obj=report.target profile=target_profile %}
   </article>
 </div>
-<article id="report-panel-wrap">
+<article>
   <h3>处理</h3>
-  <p>待处理(Task 3 提供操作)</p>
+  {% include "ops/partials/report_panel.html" with error=None %}
 </article>
 <article>
   <h3>被举报人封禁历史</h3>
