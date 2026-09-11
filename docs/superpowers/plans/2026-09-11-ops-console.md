@@ -928,13 +928,12 @@ class OpsPhotoReviewTests(TestCase):
         self.assertEqual(self.approved.status, PhotoStatus.REJECTED)
         self.assertEqual(self.profile.status, ProfileStatus.INCOMPLETE)
 
-    def test_already_reviewed_photo_is_skipped_with_notice(self):
+    def test_missing_photo_id_is_skipped_with_notice(self):
+        # 页面陈旧(照片已被用户删除)时,不存在的 id 只提示跳过,不报错
         resp = self.client.post("/ops/photos/review",
-                                {"ids": str(self.approved.id), "action": "approve",
+                                {"ids": "99999999", "action": "approve",
                                  "status": "pending"})
         self.assertContains(resp, "已跳过")
-        self.approved.refresh_from_db()
-        self.assertEqual(self.approved.reviewed_by_id, None)   # 未被重复审核
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -965,9 +964,10 @@ def photo_review(request):
     status_map = {"approve": PhotoStatus.APPROVED, "reject": PhotoStatus.REJECTED}
     skipped = 0
     if action in status_map and ids:
-        pending = Photo.objects.filter(pk__in=ids, status=PhotoStatus.PENDING)
-        skipped = len(ids) - pending.count()
-        review_photos(pending, status_map[action], request.user)
+        # 任何状态都可再审(已通过可撤回驳回);skipped 只统计页面陈旧、照片已被删除的 id
+        targets = Photo.objects.filter(pk__in=ids)
+        skipped = len(ids) - targets.count()
+        review_photos(targets, status_map[action], request.user)
     status = request.POST.get("status", PhotoStatus.PENDING)
     qs = Photo.objects.select_related("user", "reviewed_by").order_by("-created_at")
     if status in PhotoStatus.values:
@@ -1026,8 +1026,14 @@ def photo_review(request):
             hx-target="#photo-grid" hx-swap="outerHTML">
         <input type="hidden" name="ids" value="{{ photo.id }}">
         <input type="hidden" name="status" value="{{ status }}">
-        <button type="submit" name="action" value="approve">通过</button>
-        <button type="submit" name="action" value="reject" class="secondary">驳回</button>
+        {% if photo.status == 'pending' %}
+          <button type="submit" name="action" value="approve">通过</button>
+          <button type="submit" name="action" value="reject" class="secondary">驳回</button>
+        {% elif photo.status == 'approved' %}
+          <button type="submit" name="action" value="reject" class="secondary">撤回并驳回</button>
+        {% else %}
+          <button type="submit" name="action" value="approve">恢复通过</button>
+        {% endif %}
       </form>
     </div>
   </div>
@@ -1065,6 +1071,8 @@ Expected: PASS
 git add chatapp/ops
 git commit -m "feat(ops): photo review queue with single/batch approve/reject"
 ```
+
+> **执行记录(2026-09-11)**:原计划 view 只处理 `status=PENDING` 的照片、已过审照片不可再驳回——实现后发现这与「已通过/已驳回」tab 的按钮语义矛盾(用户举报一张已过审照片时运营无法撤回)。已改为**任何状态都可再审**;`skipped` 只统计页面陈旧、照片已被删除的 id;行内按钮按当前状态显示(待审:通过/驳回;已通过:撤回并驳回;已驳回:恢复通过)。
 
 ---
 

@@ -1,0 +1,41 @@
+<div id="photo-grid">
+  {% if skipped %}<p class="ops-warn">有 {{ skipped }} 张已不在待审核状态,已跳过</p>{% endif %}
+  {% if photos %}
+  {# 批量表单只放按钮;勾选框用 form="batch-form" 从行里关联进来,避免行内快捷按钮误带勾选值 #}
+  <form id="batch-form" hx-post="{% url 'ops:photo_review' %}"
+        hx-target="#photo-grid" hx-swap="outerHTML">
+    <input type="hidden" name="status" value="{{ status }}">
+    <p>
+      <button type="submit" name="action" value="approve">通过所选</button>
+      <button type="submit" name="action" value="reject" class="secondary">驳回所选</button>
+    </p>
+  </form>
+  {% for photo in photos %}
+  <div class="ops-photo-row">
+    <label><input type="checkbox" name="ids" value="{{ photo.id }}" form="batch-form"></label>
+    <img src="{{ photo.file.url }}" alt="photo#{{ photo.id }}">
+    <div class="ops-photo-meta">
+      <span>{{ photo.user.phone }} · {{ photo.created_at|date:"m-d H:i" }}</span>
+      {% if photo.reviewed_by %}
+        <small>审核:{{ photo.reviewed_by.phone }} · {{ photo.reviewed_at|date:"m-d H:i" }}</small>
+      {% endif %}
+      <form hx-post="{% url 'ops:photo_review' %}"
+            hx-target="#photo-grid" hx-swap="outerHTML">
+        <input type="hidden" name="ids" value="{{ photo.id }}">
+        <input type="hidden" name="status" value="{{ status }}">
+        {% if photo.status == 'pending' %}
+          <button type="submit" name="action" value="approve">通过</button>
+          <button type="submit" name="action" value="reject" class="secondary">驳回</button>
+        {% elif photo.status == 'approved' %}
+          <button type="submit" name="action" value="reject" class="secondary">撤回并驳回</button>
+        {% else %}
+          <button type="submit" name="action" value="approve">恢复通过</button>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p>没有照片</p>
+  {% endif %}
+</div>

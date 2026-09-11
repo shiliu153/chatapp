@@ -18,4 +18,6 @@ urlpatterns = [
     path("reports/<int:report_id>/", views.report_detail, name="report_detail"),
     path("reports/<int:report_id>/handle", views.report_handle, name="report_handle"),
     path("reports/<int:report_id>/ban", views.report_ban, name="report_ban"),
+    path("photos/", views.photos, name="photos"),
+    path("photos/review", views.photo_review, name="photo_review"),
 ]

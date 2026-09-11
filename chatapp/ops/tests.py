@@ -6,7 +6,7 @@ from accounts.models import User
 from im import client as im_client
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
-from users.models import Profile, ProfileStatus
+from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
 def make_staff(phone="13700137000", password="ops-pass-123"):
@@ -144,3 +144,49 @@ class ReportActionTests(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, ReportStatus.PENDING)
         dispatch.assert_not_called()
+
+
+class OpsPhotoReviewTests(TestCase):
+    def setUp(self):
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+        self.user = User.objects.create_user(phone="13900139000")
+        self.profile = Profile.objects.create(
+            user=self.user, nickname="小红", gender="female", birthday="2000-01-01",
+            city="上海", bio="你好", status=ProfileStatus.COMPLETE)
+        self.approved = Photo.objects.create(user=self.user, file="photos/a.png",
+                                             status=PhotoStatus.APPROVED)
+        self.pending = Photo.objects.create(user=self.user, file="photos/b.png")
+
+    def test_grid_shows_pending_by_default(self):
+        resp = self.client.get("/ops/photos/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, f'value="{self.pending.id}"')
+        self.assertNotContains(resp, f'value="{self.approved.id}"')
+
+    def test_single_approve_records_reviewer(self):
+        resp = self.client.post("/ops/photos/review",
+                                {"ids": str(self.pending.id), "action": "approve",
+                                 "status": "pending"})
+        self.assertEqual(resp.status_code, 200)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, PhotoStatus.APPROVED)
+        self.assertEqual(self.pending.reviewed_by_id, self.staff.id)
+        self.assertIsNotNone(self.pending.reviewed_at)
+
+    def test_reject_only_approved_photo_makes_profile_incomplete(self):
+        resp = self.client.post("/ops/photos/review",
+                                {"ids": str(self.approved.id), "action": "reject",
+                                 "status": "approved"})
+        self.assertEqual(resp.status_code, 200)
+        self.approved.refresh_from_db()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.approved.status, PhotoStatus.REJECTED)
+        self.assertEqual(self.profile.status, ProfileStatus.INCOMPLETE)
+
+    def test_missing_photo_id_is_skipped_with_notice(self):
+        # 页面陈旧(照片已被用户删除)时,不存在的 id 只提示跳过,不报错
+        resp = self.client.post("/ops/photos/review",
+                                {"ids": "99999999", "action": "approve",
+                                 "status": "pending"})
+        self.assertContains(resp, "已跳过")

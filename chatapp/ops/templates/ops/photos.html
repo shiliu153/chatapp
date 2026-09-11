@@ -1,0 +1,10 @@
+{% extends "ops/base.html" %}
+{% block content %}
+<h2>照片审核</h2>
+<p class="ops-tabs">
+  <a href="?status=pending" class="{% if status == 'pending' %}active{% endif %}">待审核</a>
+  <a href="?status=approved" class="{% if status == 'approved' %}active{% endif %}">已通过</a>
+  <a href="?status=rejected" class="{% if status == 'rejected' %}active{% endif %}">已驳回</a>
+</p>
+{% include "ops/partials/photo_grid.html" %}
+{% endblock %}

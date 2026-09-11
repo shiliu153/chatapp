@@ -12,3 +12,8 @@
 .ops-tabs-sep { margin: 0 .5rem; color: #999; }
 .ops-photos { display: flex; gap: .4rem; flex-wrap: wrap; }
 .ops-photos img { max-height: 96px; border-radius: 6px; }
+.ops-photo-row { display: flex; gap: 1rem; align-items: flex-start;
+  border-bottom: 1px solid #ddd; padding: .75rem 0; }
+.ops-photo-row img { max-height: 140px; border-radius: 6px; }
+.ops-photo-meta { display: flex; flex-direction: column; gap: .35rem; }
+.ops-photo-meta button { width: auto; padding: .25rem .75rem; margin: 0; }

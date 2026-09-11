@@ -5,7 +5,8 @@ from django.views.decorators.http import require_POST
 
 from moderation.models import BanLog, Report, ReportStatus, ReportType
 from moderation.services import log_ban_change
-from users.models import Profile, ProfileStatus
+from users.models import Photo, PhotoStatus, Profile, ProfileStatus
+from users.services import review_photos
 
 from .decorators import staff_required
 
@@ -106,3 +107,33 @@ def report_ban(request, report_id):
             report.save(update_fields=["status", "handled_note", "handled_by", "handled_at"])
     return render(request, "ops/partials/report_panel.html",
                   {"report": report, "error": error})
+
+
+@staff_required
+def photos(request):
+    status = request.GET.get("status", PhotoStatus.PENDING)
+    qs = Photo.objects.select_related("user", "reviewed_by").order_by("-created_at")
+    if status in PhotoStatus.values:
+        qs = qs.filter(status=status)
+    return render(request, "ops/photos.html",
+                  {"photos": qs[:120], "status": status, "skipped": 0})
+
+
+@require_POST
+@staff_required
+def photo_review(request):
+    ids = set(request.POST.getlist("ids"))
+    action = request.POST.get("action")
+    status_map = {"approve": PhotoStatus.APPROVED, "reject": PhotoStatus.REJECTED}
+    skipped = 0
+    if action in status_map and ids:
+        # 任何状态都可再审(已通过可撤回驳回);skipped 只统计页面陈旧、照片已被删除的 id
+        targets = Photo.objects.filter(pk__in=ids)
+        skipped = len(ids) - targets.count()
+        review_photos(targets, status_map[action], request.user)
+    status = request.POST.get("status", PhotoStatus.PENDING)
+    qs = Photo.objects.select_related("user", "reviewed_by").order_by("-created_at")
+    if status in PhotoStatus.values:
+        qs = qs.filter(status=status)
+    return render(request, "ops/partials/photo_grid.html",
+                  {"photos": qs[:120], "status": status, "skipped": skipped})
