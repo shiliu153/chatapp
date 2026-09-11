@@ -38,9 +38,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             icon: Badge.count(
               count: unread,
               isLabelVisible: unread > 0,
+              backgroundColor: const Color(0xFFFF2C55),
               child: const Icon(Icons.chat_bubble_outline),
             ),
-            label: '会话',
+            label: '消息',
           ),
           const NavigationDestination(icon: Icon(Icons.person_outline), label: '我的'),
         ],
