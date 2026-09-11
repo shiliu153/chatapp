@@ -15,6 +15,7 @@ class MessageBubble extends StatelessWidget {
     if (message.kind != ChatMessageKind.text) {
       final label = switch (message.kind) {
         ChatMessageKind.matchNotice => message.text.isEmpty ? noticeFallback : message.text,
+        ChatMessageKind.banNotice => message.text.isEmpty ? '系统通知' : message.text,
         _ => '[暂不支持的消息]',
       };
       return Padding(

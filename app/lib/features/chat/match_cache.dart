@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../im/im_client.dart';
 import '../../im/im_repository.dart';
 import '../auth/session.dart';
 
@@ -29,8 +30,9 @@ final matchCacheProvider = AsyncNotifierProvider<MatchCacheController, Map<Strin
   retry: (retryCount, error) => null,
 );
 
-/// 显示名:本地缓存 > IM 会话名 > IM id。
+/// 显示名:系统通知特判 > 本地缓存 > IM 会话名 > IM id。
 String displayNameFor(Map<String, MatchEntry> cache, String peerId, {String? imName}) {
+  if (peerId == systemNoticePeerId) return '系统通知';
   final cached = cache[peerId]?.nickname;
   if (cached != null && cached.isNotEmpty) return cached;
   if (imName != null && imName.isNotEmpty) return imName;

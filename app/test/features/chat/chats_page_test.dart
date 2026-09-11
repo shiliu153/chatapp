@@ -35,42 +35,71 @@ ImConversation _conversation({int unread = 2, String text = '在吗'}) => ImConv
       ),
     );
 
+ImConversation _systemConversation({int unread = 1}) => ImConversation(
+      peerId: 'system_notice',
+      unreadCount: unread,
+      lastMessage: ChatMessage(
+        msgId: 's1',
+        peerId: 'system_notice',
+        isSelf: false,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        kind: ChatMessageKind.banNotice,
+        text: '您的账号因「发布违规内容」被限制。',
+      ),
+    );
+
 void main() {
-  testWidgets('会话列表:昵称来自 matches 缓存,预览和未读都在', (tester) async {
+  testWidgets('消息页:昵称来自 matches 缓存,预览和未读都在', (tester) async {
     final fake = FakeImClient()..conversations = [_conversation()];
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('会话'));
+    await tester.tap(navTab('消息'));
     await tester.pumpAndSettle();
 
-    expect(find.text('小红'), findsOneWidget);
+    expect(find.text('小红'), findsNWidgets(2)); // 横滑条 + 列表行
     expect(find.text('在吗'), findsOneWidget);
-    // 列表项一个、底部 Tab 一个(未读总数),共两个 '2'
+    // 列表行角标一个、底部 Tab 一个(未读总数),共两个 '2'
     expect(find.text('2'), findsNWidgets(2));
   });
 
-  testWidgets('没有会话 → 空态', (tester) async {
+  testWidgets('没有会话 → 空态,无横滑条', (tester) async {
     final fake = FakeImClient();
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('会话'));
+    await tester.tap(navTab('消息'));
     await tester.pumpAndSettle();
 
-    expect(find.text('还没有会话'), findsOneWidget);
+    expect(find.text('还没有消息'), findsOneWidget);
+    expect(find.byKey(const Key('chats.strip')), findsNothing);
   });
 
   testWidgets('IM 登录失败 → 显示原因 + 重试按钮', (tester) async {
     final fake = FakeImClient()..loginError = const ImException(6001, 'boom');
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('会话'));
+    await tester.tap(navTab('消息'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('6001'), findsOneWidget);
     expect(find.byKey(const Key('chats.retry')), findsOneWidget);
   });
 
-  testWidgets('点会话 → 进聊天页', (tester) async {
+  testWidgets('系统通知:置顶在会话列表之上 + 官方标', (tester) async {
+    final fake = FakeImClient()..conversations = [_conversation(), _systemConversation()];
+    await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('消息'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('chats.systemNotice')), findsOneWidget);
+    expect(find.text('系统通知'), findsOneWidget);
+    expect(find.text('官方'), findsOneWidget);
+    final systemY = tester.getTopLeft(find.byKey(const Key('chats.systemNotice'))).dy;
+    final friendY = tester.getTopLeft(find.byKey(const Key('chats.tile:u9'))).dy;
+    expect(systemY, lessThan(friendY));
+  });
+
+  testWidgets('点列表行 → 进聊天页', (tester) async {
     final fake = FakeImClient()
       ..conversations = [_conversation()]
       ..history = {
@@ -87,13 +116,26 @@ void main() {
       };
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('会话'));
+    await tester.tap(navTab('消息'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('小红'));
+    await tester.tap(find.byKey(const Key('chats.tile:u9')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('chat.input')), findsOneWidget);
     expect(find.text('你好呀'), findsOneWidget); // 历史里的那条
+  });
+
+  testWidgets('点横滑条头像 → 直达聊天页', (tester) async {
+    final fake = FakeImClient()..conversations = [_conversation()];
+    await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('消息'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('chats.stripItem:u9')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('chat.input')), findsOneWidget);
   });
 }

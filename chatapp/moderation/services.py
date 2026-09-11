@@ -17,16 +17,25 @@ def blocked_user_ids(user) -> set[int]:
 
 
 def log_ban_change(user, old_status, new_status, reason, operator) -> None:
-    """admin 保存 Profile 时调用:状态跨封禁边界就写审计;重封禁顺带踢下线。"""
+    """admin 保存 Profile 时调用:状态跨封禁边界就写审计 + 发系统通知;重封禁顺带踢下线。"""
     if new_status == old_status:
         return
+    identifier = user.im_user_id
     if new_status == ProfileStatus.BANNED_LIGHT:
         _write_log(user, BanAction.BAN_LIGHT, reason, operator)
+        _dispatch_async(im_client.send_ban_notice, identifier, "light", reason or "")
     elif new_status == ProfileStatus.BANNED_HEAVY:
         _write_log(user, BanAction.BAN_HEAVY, reason, operator)
-        _dispatch_async(im_client.kick_user, user.im_user_id)
+        _dispatch_async(_send_notice_then_kick, identifier, reason or "")
     elif old_status in Profile.BANNED_STATUSES:
         _write_log(user, BanAction.UNBAN, reason, operator)
+        _dispatch_async(im_client.send_ban_lifted, identifier)
+
+
+def _send_notice_then_kick(identifier, reason) -> None:
+    """重封禁:先把封禁说明送达,再踢下线(同一线程保证顺序)。"""
+    im_client.send_ban_notice(identifier, "heavy", reason)
+    im_client.kick_user(identifier)
 
 
 def sync_im_blacklist(blocker, blocked, *, add: bool) -> None:

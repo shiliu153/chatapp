@@ -27,6 +27,7 @@ ChatMessage chatMessageFromSdk(V2TimMessage message) {
     text: switch (kind) {
       ChatMessageKind.text => message.textElem?.text ?? '',
       ChatMessageKind.matchNotice => message.customElem?.desc ?? '',
+      ChatMessageKind.banNotice => message.customElem?.desc ?? '',
       ChatMessageKind.other => '',
     },
   );
@@ -36,20 +37,23 @@ ChatMessageKind _kindOf(V2TimMessage message) {
   if (message.elemType == MessageElemType.V2TIM_ELEM_TYPE_TEXT) {
     return ChatMessageKind.text;
   }
-  if (message.elemType == MessageElemType.V2TIM_ELEM_TYPE_CUSTOM &&
-      _isMatchNotice(message.customElem?.data)) {
-    return ChatMessageKind.matchNotice;
+  if (message.elemType == MessageElemType.V2TIM_ELEM_TYPE_CUSTOM) {
+    final type = _customType(message.customElem?.data);
+    if (type == 'match_notice') return ChatMessageKind.matchNotice;
+    if (type == 'ban_notice' || type == 'ban_lifted') {
+      return ChatMessageKind.banNotice;
+    }
   }
   return ChatMessageKind.other;
 }
 
-bool _isMatchNotice(String? data) {
-  if (data == null || data.isEmpty) return false;
+String? _customType(String? data) {
+  if (data == null || data.isEmpty) return null;
   try {
     final decoded = jsonDecode(data);
-    return decoded is Map && decoded['type'] == 'match_notice';
+    return decoded is Map ? decoded['type'] as String? : null;
   } catch (_) {
-    return false;
+    return null;
   }
 }
 

@@ -23,7 +23,7 @@ void main() {
 
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(navTab('发现'), findsOneWidget);
-    expect(navTab('会话'), findsOneWidget);
+    expect(navTab('消息'), findsOneWidget);
     expect(navTab('我的'), findsOneWidget);
 
     await tester.tap(navTab('我的'));
@@ -45,7 +45,7 @@ void main() {
     expect(find.text('第 1 步 / 共 3 步'), findsOneWidget);
   });
 
-  testWidgets('会话 Tab 显示未读角标', (tester) async {
+  testWidgets('消息 Tab 显示未读角标', (tester) async {
     final fake = FakeImClient()..conversations = [ImConversation(peerId: 'u9', unreadCount: 3)];
     final adapter = _adapter(profile: profileJson())
       ..routes['POST /im/user_sig'] = (options) => ok({
@@ -59,5 +59,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('3'), findsWidgets); // 角标数字
+    final badge = tester.widget<Badge>(find.byType(Badge));
+    expect(badge.backgroundColor, const Color(0xFFFF2C55)); // 抖音红
   });
 }

@@ -18,6 +18,21 @@ logger = logging.getLogger(__name__)
 
 MATCH_NOTICE_TEXT = "你们已互相喜欢,开始聊天吧"
 
+SYSTEM_NOTICE_IDENTIFIER = "system_notice"
+SYSTEM_NOTICE_NICK = "系统通知"
+
+BAN_REASON_FALLBACK = "违反社区规范"
+BAN_LIFTED_TEXT = "您的账号限制已解除,所有功能已恢复。请遵守社区规范。"
+
+
+def _ban_notice_text(level: str, reason: str) -> str:
+    reason = reason or BAN_REASON_FALLBACK
+    if level == "heavy":
+        return (f"您的账号因「{reason}」已被封禁。"
+                "封禁期间所有功能暂停使用,如有疑问请联系客服。")
+    return (f"您的账号因「{reason}」被限制。"
+            "限制期间无法使用滑卡功能,聊天、资料等其他功能不受影响。如有疑问请联系客服。")
+
 
 def _random_int():
     return random.randint(1, 4294967295)
@@ -111,6 +126,32 @@ def kick_user(identifier: str) -> bool:
         logger.exception("IM kick 调用失败 identifier=%s", identifier)
         return False
     return _check(result, "kick")
+
+
+def ensure_account(identifier: str, nickname: str = "") -> bool:
+    """幂等建号:已存在(ErrorCode 7015)视为成功。"""
+    payload = {"Identifier": identifier, "Nick": nickname, "FaceUrl": ""}
+    try:
+        result = _request("im_open_login_svc", "account_import", payload)
+    except Exception:
+        logger.exception("IM account_import 调用失败 identifier=%s", identifier)
+        return False
+    if result.get("ErrorCode") == 7015:
+        return True
+    return _check(result, "account_import")
+
+
+def send_ban_notice(to_identifier: str, level: str, reason: str) -> bool:
+    """封禁说明:以「系统通知」身份发一条自定义消息(level 取 light/heavy)。"""
+    data = {"type": "ban_notice", "level": level}
+    return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier, data,
+                            _ban_notice_text(level, reason))
+
+
+def send_ban_lifted(to_identifier: str) -> bool:
+    """解封通知:以「系统通知」身份发一条自定义消息。"""
+    return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
+                            {"type": "ban_lifted"}, BAN_LIFTED_TEXT)
 
 
 def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
