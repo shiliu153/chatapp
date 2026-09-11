@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APITestCase
@@ -220,3 +221,66 @@ class ReportAdminTests(TestCase):
             self.assertFalse(model_admin.has_add_permission(request))
             self.assertFalse(model_admin.has_change_permission(request))
             self.assertFalse(model_admin.has_delete_permission(request))
+
+
+class ReportApiTests(APITestCase):
+    URL = "/api/v1/reports"
+
+    def setUp(self):
+        cache.clear()               # 限流计数在缓存里,用例之间必须清
+        self.addCleanup(cache.clear)
+        self.me = User.objects.create_user(phone="13800138000")
+        self.target = User.objects.create_user(phone="13900139000")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def report(self, target_id=None, type_="harassment", detail=""):
+        return self.client.post(self.URL, {
+            "target_user_id": self.target.id if target_id is None else target_id,
+            "type": type_,
+            "detail": detail,
+        }, format="json")
+
+    def test_creates_pending_report(self):
+        resp = self.report(detail="一直发骚扰消息")
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["status"], "pending")
+        report = Report.objects.get()
+        self.assertEqual((report.reporter, report.target), (self.me, self.target))
+        self.assertEqual(report.detail, "一直发骚扰消息")
+
+    def test_duplicate_pending_report_is_idempotent(self):
+        first = self.report()
+        second = self.report(type_="fraud")
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["id"], first.json()["id"])
+        self.assertEqual(Report.objects.count(), 1)
+
+    def test_new_report_after_previous_handled(self):
+        Report.objects.create(reporter=self.me, target=self.target, type="harassment",
+                              status=ReportStatus.HANDLED)
+        self.assertEqual(self.report().status_code, 201)
+        self.assertEqual(Report.objects.count(), 2)
+
+    def test_cannot_report_self(self):
+        self.assertEqual(self.report(target_id=self.me.id).status_code, 400)
+
+    def test_unknown_target_returns_404(self):
+        self.assertEqual(self.report(target_id=999999).status_code, 404)
+
+    def test_invalid_type_rejected(self):
+        self.assertEqual(self.report(type_="spam").status_code, 400)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.report().status_code, 401)
+
+    def test_report_throttled(self):
+        from .throttles import ReportThrottle
+
+        other = User.objects.create_user(phone="13900139001")
+        with patch.object(ReportThrottle, "rate", "2/day", create=True):
+            self.assertEqual(self.report(target_id=other.id).status_code, 201)
+            self.assertEqual(self.report().status_code, 201)
+            self.assertEqual(self.report(type_="fraud").status_code, 429)

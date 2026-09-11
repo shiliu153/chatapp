@@ -154,7 +154,7 @@ REST_FRAMEWORK = {
         "moderation.permissions.IsNotHeavyBanned",
     ),
     "EXCEPTION_HANDLER": "config.exceptions.api_exception_handler",
-    "DEFAULT_THROTTLE_RATES": {"sms_send": "20/hour", "swipe": "300/hour"},
+    "DEFAULT_THROTTLE_RATES": {"sms_send": "20/hour", "swipe": "300/hour", "report": "20/day"},
 }
 
 CORS_ALLOWED_ORIGIN_REGEXES = [
