@@ -89,6 +89,12 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+_db_options = {"charset": "utf8mb4"}
+if os.getenv("DB_SSL_DISABLED", "1") == "1":
+    # 本地 MySQL 的 TLS 握手 ~250ms(2026-09-11 实测:每请求 ~280ms → ~22ms)。
+    # dev 默认关;远程库/生产上置 DB_SSL_DISABLED=0。
+    _db_options["ssl_disabled"] = True
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
@@ -97,7 +103,7 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD", "<YOUR_DB_PASSWORD>"),
         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
         "PORT": os.getenv("DB_PORT", "3306"),
-        "OPTIONS": {"charset": "utf8mb4"},
+        "OPTIONS": _db_options,
     }
 }
 
