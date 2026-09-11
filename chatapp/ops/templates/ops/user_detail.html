@@ -1,6 +1,6 @@
 {% extends "ops/base.html" %}
+{% block page_title %}用户 #{{ target_user.id }}{% endblock %}
 {% block content %}
-<h2>用户 #{{ target_user.id }}</h2>
 {% include "ops/partials/user_card.html" with user_obj=target_user profile=target_profile %}
 <article>
   <h3>封禁管理</h3>
@@ -15,7 +15,7 @@
     {% for r in reports_received %}
       <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
           <td>{{ r.reporter.phone }}</td><td>{{ r.detail|default:"—" }}</td>
-          <td>{{ r.get_status_display }}</td></tr>
+          <td><span class="tag {% if r.status == 'pending' %}tag-orange{% else %}tag-green{% endif %}">{{ r.get_status_display }}</span></td></tr>
     {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
     </tbody>
   </table>
@@ -26,7 +26,7 @@
     {% for r in reports_made %}
       <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
           <td>{{ r.target.phone }}</td><td>{{ r.detail|default:"—" }}</td>
-          <td>{{ r.get_status_display }}</td></tr>
+          <td><span class="tag {% if r.status == 'pending' %}tag-orange{% else %}tag-green{% endif %}">{{ r.get_status_display }}</span></td></tr>
     {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
     </tbody>
   </table>

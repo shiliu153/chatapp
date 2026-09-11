@@ -1,11 +1,11 @@
 {% extends "ops/base.html" %}
+{% block page_title %}举报详情 #{{ report.id }}{% endblock %}
 {% block content %}
-<h2>举报详情 #{{ report.id }}</h2>
 <p><a href="{% url 'ops:reports' %}">← 返回队列</a></p>
 <article>
   <p><strong>类型:</strong>{{ report.get_type_display }}
      　<strong>时间:</strong>{{ report.created_at|date:"Y-m-d H:i" }}
-     　<strong>状态:</strong>{{ report.get_status_display }}</p>
+     　<strong>状态:</strong><span class="tag {% if report.status == 'pending' %}tag-orange{% else %}tag-green{% endif %}">{{ report.get_status_display }}</span></p>
   <p><strong>说明:</strong>{{ report.detail|default:"(无)" }}</p>
 </article>
 <div class="ops-grid-2">

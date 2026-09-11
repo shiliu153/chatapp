@@ -2,7 +2,7 @@
   <p><strong>{{ user_obj.phone }}</strong>
     {% if profile %} {{ profile.nickname|default:"(未设昵称)" }}{% endif %}</p>
   {% if profile %}
-    <p>状态:{{ profile.get_status_display }}
+    <p>状态:<span class="tag {% if profile.status == 'complete' %}tag-green{% elif profile.status == 'banned_light' %}tag-orange{% elif profile.status == 'banned_heavy' %}tag-red{% else %}tag-gray{% endif %}">{{ profile.get_status_display }}</span>
       {% if profile.ban_reason %}· 原因:{{ profile.ban_reason }}{% endif %}</p>
     <p>性别:{{ profile.get_gender_display|default:"—" }} · 城市:{{ profile.city|default:"—" }}</p>
     <p>简介:{{ profile.bio|default:"—" }}</p>

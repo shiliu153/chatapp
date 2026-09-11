@@ -14,8 +14,8 @@
     <form hx-post="{% url 'ops:report_ban' report.id %}"
           hx-target="#report-panel" hx-swap="outerHTML">
       <label>封禁原因(封禁必填)<input type="text" name="reason" maxlength="200"></label>
-      <button type="submit" name="level" value="ban_light">轻度封禁被举报人</button>
-      <button type="submit" name="level" value="ban_heavy" class="secondary">重度封禁被举报人</button>
+      <button type="submit" name="level" value="ban_light" class="warn">轻度封禁被举报人</button>
+      <button type="submit" name="level" value="ban_heavy" class="danger">重度封禁被举报人</button>
     </form>
     <p><small>及时封禁会自动把该举报标记为已处理(备注「封禁处理」)。</small></p>
   {% endif %}

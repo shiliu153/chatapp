@@ -38,6 +38,9 @@ article, .ops-user-card { background: #fff; border: 1px solid #e8eaed; border-ra
 #photo-grid { background: #fff; border: 1px solid #e8eaed; border-radius: 8px;
   padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
 .ops-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.ops-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.ops-filters label { flex: 0 0 240px; margin-bottom: 0; }
+.ops-filters button { flex: 0 0 auto; }
 
 /* ===== 按钮 ===== */
 button { height: 30px; padding: 0 12px; border: 1px solid #2c7be5; border-radius: 4px;

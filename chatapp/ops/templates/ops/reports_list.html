@@ -1,6 +1,6 @@
 {% extends "ops/base.html" %}
+{% block page_title %}举报队列{% endblock %}
 {% block content %}
-<h2>举报队列</h2>
 <p class="ops-tabs">
   <a href="?status=pending" class="{% if status == 'pending' %}active{% endif %}">待处理</a>
   <a href="?status=handled" class="{% if status == 'handled' %}active{% endif %}">已处理</a>
@@ -10,6 +10,7 @@
     <a href="?status={{ status }}&type={{ value }}" class="{% if rtype == value %}active{% endif %}">{{ label }}</a>
   {% endfor %}
 </p>
+<article>
 <table>
   <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>被举报人</th><th>被举报次数</th><th></th></tr></thead>
   <tbody>
@@ -27,4 +28,5 @@
   {% endfor %}
   </tbody>
 </table>
+</article>
 {% endblock %}

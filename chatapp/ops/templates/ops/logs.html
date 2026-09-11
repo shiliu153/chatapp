@@ -1,7 +1,8 @@
 {% extends "ops/base.html" %}
+{% block page_title %}操作日志{% endblock %}
 {% block content %}
-<h2>操作日志</h2>
-<form method="get" class="ops-grid-2">
+<article>
+<form method="get" class="ops-filters">
   <label>动作
     <select name="action">
       <option value="">全部</option>
@@ -14,6 +15,8 @@
   <label>日期<input type="date" name="date" value="{{ date }}"></label>
   <button type="submit">筛选</button>
 </form>
+</article>
+<article>
 <h3>封禁审计流水</h3>
 <table>
   <thead><tr><th>时间</th><th>用户</th><th>动作</th><th>原因</th><th>操作人</th></tr></thead>
@@ -25,6 +28,8 @@
   {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
   </tbody>
 </table>
+</article>
+<article>
 <h3>拉黑对账(只读;拉黑须走 App 接口才会同步 IM)</h3>
 <table>
   <thead><tr><th>时间</th><th>拉黑方</th><th>被拉黑方</th></tr></thead>
@@ -35,4 +40,5 @@
   {% empty %}<tr><td colspan="3">无记录</td></tr>{% endfor %}
   </tbody>
 </table>
+</article>
 {% endblock %}

@@ -1,6 +1,7 @@
 {% extends "ops/base.html" %}
+{% block page_title %}用户查询{% endblock %}
 {% block content %}
-<h2>用户查询</h2>
+<article>
 <form method="get">
   <input type="search" name="q" value="{{ q }}" placeholder="手机号(完整)或昵称">
   <button type="submit">搜索</button>
@@ -21,4 +22,5 @@
   </tbody>
 </table>
 {% endif %}
+</article>
 {% endblock %}

@@ -1,6 +1,6 @@
 {% extends "ops/base.html" %}
+{% block page_title %}照片审核{% endblock %}
 {% block content %}
-<h2>照片审核</h2>
 <p class="ops-tabs">
   <a href="?status=pending" class="{% if status == 'pending' %}active{% endif %}">待审核</a>
   <a href="?status=approved" class="{% if status == 'approved' %}active{% endif %}">已通过</a>
