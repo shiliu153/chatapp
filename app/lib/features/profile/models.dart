@@ -62,6 +62,7 @@ class Profile {
     required this.tags,
     required this.photos,
     required this.preference,
+    this.banReason = '',
   });
 
   factory Profile.fromJson(Map<String, dynamic> json) => Profile(
@@ -73,6 +74,7 @@ class Profile {
         city: (json['city'] ?? '') as String,
         bio: (json['bio'] ?? '') as String,
         status: json['status'] as String,
+        banReason: (json['ban_reason'] ?? '') as String,
         missingFields:
             ((json['missing_fields'] ?? const []) as List<dynamic>).cast<String>(),
         tags: ((json['tags'] ?? const []) as List<dynamic>)
@@ -92,6 +94,7 @@ class Profile {
   final String city;
   final String bio;
   final String status;
+  final String banReason;
   final List<String> missingFields;
   final List<Tag> tags;
   final List<Photo> photos;

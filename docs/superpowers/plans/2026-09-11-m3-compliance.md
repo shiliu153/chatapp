@@ -36,7 +36,7 @@
 **Interfaces:**
 - Produces: `ReportType`(harassment/porn/fraud/other)、`ReportStatus`(pending/handled)、`BanAction`(ban_light/ban_heavy/unban);模型 `Report(reporter, target, type, detail, status, handled_note, handled_by, created_at, handled_at)`、`Block(blocker, blocked, created_at)`、`BanLog(user, action, reason, operator, created_at)`;`Profile.ban_reason` 字段。后续 Task 3/6/7/9 全部依赖这些名字。
 
-- [ ] **Step 1: 写模型测试(先让它失败)**
+- [x] **Step 1: 写模型测试(先让它失败)**
 
 在 `chatapp/moderation/tests.py` 末尾追加(保留文件头部现有的 TextCheckTests):
 
@@ -85,7 +85,7 @@ class ModerationModelTests(TestCase):
         self.assertEqual(self.b.profile.ban_reason, "违规")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test moderation
@@ -93,7 +93,7 @@ python manage.py test moderation
 
 Expected: FAIL —— `ImportError: cannot import name 'BanAction' from 'moderation.models'`(以及 `test_profile_has_ban_reason_field` 会因为 profile 不存在/字段缺失报错)。
 
-- [ ] **Step 3: 实现三个模型**
+- [x] **Step 3: 实现三个模型**
 
 `chatapp/moderation/models.py` 全文替换:
 
@@ -185,7 +185,7 @@ class BanLog(models.Model):
     ban_reason = models.CharField("封禁原因", max_length=200, blank=True)
 ```
 
-- [ ] **Step 4: 生成迁移并跑测试**
+- [x] **Step 4: 生成迁移并跑测试**
 
 ```bash
 python manage.py makemigrations moderation users
@@ -194,7 +194,7 @@ python manage.py test moderation
 
 Expected: PASS(迁移文件名形如 `moderation/migrations/0001_initial.py`、`users/migrations/0003_profile_ban_reason.py`)。
 
-- [ ] **Step 5: 全量回归 + commit**
+- [x] **Step 5: 全量回归 + commit**
 
 ```bash
 python manage.py test
@@ -217,7 +217,7 @@ git commit -m "feat: moderation models (Report/Block/BanLog) + Profile.ban_reaso
 - Consumes: `ProfileStatus`(users.models)、`get_profile`(users.services)
 - Produces: `moderation.permissions.IsNotHeavyBanned`;`GET /users/me` 响应新增 `ban_reason` 字段(前端封禁页用)。Task 16 依赖。
 
-- [ ] **Step 1: 写权限测试(先让它失败)**
+- [x] **Step 1: 写权限测试(先让它失败)**
 
 在 `chatapp/moderation/tests.py` 追加:
 
@@ -281,7 +281,7 @@ class IsNotHeavyBannedTests(APITestCase):
         self.assertEqual(data["ban_reason"], "骚扰他人")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test moderation.tests.IsNotHeavyBannedTests
@@ -289,7 +289,7 @@ python manage.py test moderation.tests.IsNotHeavyBannedTests
 
 Expected: FAIL —— heavy 用例拿到 200/其它码(还没有全局权限类);`test_me_exposes_ban_reason` 因响应无该键 KeyError。
 
-- [ ] **Step 3: 实现权限类 + 挂载 + 序列化字段**
+- [x] **Step 3: 实现权限类 + 挂载 + 序列化字段**
 
 新建 `chatapp/moderation/permissions.py`:
 
@@ -351,7 +351,7 @@ def user_sig(request):
                   "status", "ban_reason", "missing_fields", "tags", "photos", "preference"]
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 python manage.py test moderation.tests.IsNotHeavyBannedTests
@@ -360,7 +360,7 @@ python manage.py test
 
 Expected: PASS(注意 `im/tests.py::test_heavy_banned_rejected` 仍应通过——现在由全局权限类拦下)。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/moderation/permissions.py chatapp/config/settings.py chatapp/im/views.py chatapp/users/serializers.py chatapp/moderation/tests.py
@@ -378,7 +378,7 @@ git commit -m "feat: global heavy-ban permission with read-only whitelist (M3)"
 **Interfaces:**
 - Produces: `moderation.services.log_ban_change(user, old_status, new_status, reason, operator)`、`_dispatch_async(fn, *args)`(后续 Task 7 的 `sync_im_blacklist` 和测试 patch 都依赖这个名字)、`moderation.services.blocked_user_ids(user) -> set[int]`(Task 8 用);`im.client.kick_user(identifier) -> bool`。Task 6/7/8 依赖。
 
-- [ ] **Step 1: 写服务与 kick 测试(先让它失败)**
+- [x] **Step 1: 写服务与 kick 测试(先让它失败)**
 
 `chatapp/moderation/tests.py` 追加:
 
@@ -474,7 +474,7 @@ class ProfileAdminHookTests(TestCase):
             self.assertFalse(kick_user("u5"))
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test moderation.tests.BanAuditServiceTests moderation.tests.ProfileAdminHookTests im.tests.ImClientTests
@@ -482,7 +482,7 @@ python manage.py test moderation.tests.BanAuditServiceTests moderation.tests.Pro
 
 Expected: FAIL —— `moderation/services.py` 不存在(ImportError),`kick_user` 未定义。
 
-- [ ] **Step 3: 实现服务与客户端函数**
+- [x] **Step 3: 实现服务与客户端函数**
 
 新建 `chatapp/moderation/services.py`:
 
@@ -571,7 +571,7 @@ class ProfileAdmin(admin.ModelAdmin):
         log_ban_change(obj.user, old_status, obj.status, obj.ban_reason, request.user)
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 python manage.py test moderation.tests.BanAuditServiceTests moderation.tests.ProfileAdminHookTests im.tests
@@ -580,7 +580,7 @@ python manage.py test
 
 Expected: PASS。⚠️ 若日志里出现 `IM kick 调用失败` 之类字样说明有用例真打了腾讯云,回去补 mock。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/moderation/services.py chatapp/im/client.py chatapp/im/tests.py chatapp/users/admin.py chatapp/moderation/tests.py
@@ -599,7 +599,7 @@ git commit -m "feat: ban audit hook + admin ban flow + IM kick (M3)"
 - Consumes: `Profile.refresh_status()`(M1 已有;封禁状态不会被覆盖)
 - Produces: admin 动作名 `approve_photos` / `reject_photos`(审核台按名字调用,手测清单会用到)
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 `chatapp/users/tests.py` 顶部 import 区加 `from django.contrib.auth import get_user_model` 已有,再在文件末尾追加:
 
@@ -641,7 +641,7 @@ class PhotoAdminActionTests(TestCase):
         self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test users.tests.PhotoAdminActionTests
@@ -649,7 +649,7 @@ python manage.py test users.tests.PhotoAdminActionTests
 
 Expected: FAIL —— 动作 `reject_photos` 不存在(admin 返回 200 重渲染并提示 invalid action,断言 302 失败)。
 
-- [ ] **Step 3: 实现 PhotoAdmin**
+- [x] **Step 3: 实现 PhotoAdmin**
 
 `chatapp/users/admin.py`:`from django.utils.html import format_html` 加到 import 区,PhotoAdmin 替换为:
 
@@ -687,7 +687,7 @@ class PhotoAdmin(admin.ModelAdmin):
         return format_html('<img src="{}" style="height:60px;border-radius:4px">', obj.file.url)
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 python manage.py test users.tests.PhotoAdminActionTests
@@ -696,7 +696,7 @@ python manage.py test
 
 Expected: PASS(全量测试里 `ProfileModelTests.test_refresh_status_does_not_override_ban` 仍绿)。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/users/admin.py chatapp/users/tests.py
@@ -715,7 +715,7 @@ git commit -m "feat: photo review console in admin (M3)"
 - Consumes: Task 1 的模型;`ReportStatus`、`timezone.now()`
 - Produces: 审核台页面(手测清单用);`ReportAdmin.save_model` 自动补 `handled_at/handled_by`
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 `chatapp/moderation/tests.py` 追加:
 
@@ -761,7 +761,7 @@ class ReportAdminTests(TestCase):
             self.assertFalse(model_admin.has_delete_permission(request))
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test moderation.tests.ReportAdminTests
@@ -769,7 +769,7 @@ python manage.py test moderation.tests.ReportAdminTests
 
 Expected: FAIL —— `moderation/admin.py` 里没有 `ReportAdmin`。
 
-- [ ] **Step 3: 实现 admin**
+- [x] **Step 3: 实现 admin**
 
 `chatapp/moderation/admin.py` 全文替换:
 
@@ -831,7 +831,7 @@ class BanLogAdmin(admin.ModelAdmin):
         return False
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 python manage.py test moderation
@@ -840,7 +840,7 @@ python manage.py test
 
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/moderation/admin.py chatapp/moderation/tests.py
@@ -859,7 +859,7 @@ git commit -m "feat: report queue + readonly audit admins (M3)"
 **Interfaces:**
 - Produces: `POST /api/v1/reports` → 新建 201 / 已有待处理举报 200,响应 `{id, type, status}`;`ReportCreateSerializer`、`ReportSerializer`、`ReportThrottle`(Task 7 在同一批文件里继续加)。
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 `chatapp/moderation/tests.py` 追加:
 
@@ -930,7 +930,7 @@ class ReportApiTests(APITestCase):
             self.assertEqual(self.report(type_="fraud").status_code, 429)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test moderation.tests.ReportApiTests
@@ -938,7 +938,7 @@ python manage.py test moderation.tests.ReportApiTests
 
 Expected: FAIL —— `/api/v1/reports` 路由不存在(404)。
 
-- [ ] **Step 3: 实现序列化器/限流/视图/路由**
+- [x] **Step 3: 实现序列化器/限流/视图/路由**
 
 新建 `chatapp/moderation/serializers.py`:
 
@@ -1032,7 +1032,7 @@ urlpatterns = [
     "DEFAULT_THROTTLE_RATES": {"sms_send": "20/hour", "swipe": "300/hour", "report": "20/day"},
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 python manage.py test moderation.tests.ReportApiTests
@@ -1041,7 +1041,7 @@ python manage.py test
 
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/moderation chatapp/config
@@ -1063,7 +1063,7 @@ git commit -m "feat: report API with idempotency and throttle (M3)"
 - Consumes: `moderation.services.sync_im_blacklist(blocker, blocked, *, add)`(Task 3)、`im.client.black_list_add/delete(owner, other)`
 - Produces: `POST /api/v1/blocks`(201/200)、`GET /api/v1/blocks`(列表 `[{user_id, nickname, avatar_url, blocked_at}]`)、`DELETE /api/v1/blocks/{user_id}`(204);`BlockSerializer`
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 `chatapp/moderation/tests.py` 追加(顶部 import 区补 `from users.models import Photo, PhotoStatus, Profile, ProfileStatus` 与 `from im import client as im_client`、`from .models import Block`):
 
@@ -1160,7 +1160,7 @@ class BlockApiTests(APITestCase):
             self.assertFalse(black_list_add("u1", "u2"))
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test moderation.tests.BlockApiTests im.tests.ImClientTests
@@ -1168,7 +1168,7 @@ python manage.py test moderation.tests.BlockApiTests im.tests.ImClientTests
 
 Expected: FAIL —— 路由 404、`black_list_add` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/moderation/serializers.py` 追加(import 区补 `from users.models import PhotoStatus`、`from .models import Block`):
 
@@ -1260,7 +1260,7 @@ def _black_list(command: str, owner_identifier: str, other_identifier: str) -> b
     return _check(result, command)
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 python manage.py test moderation.tests.BlockApiTests im.tests
@@ -1269,7 +1269,7 @@ python manage.py test
 
 Expected: PASS。
 
-- [ ] **Step 5: 真凭据实测(设计文档 §9 的待实测点;本机 `.env` 有真 key)**
+- [x] **Step 5: 真凭据实测(设计文档 §9 的待实测点;本机 `.env` 有真 key)**
 
 ```bash
 cd chatapp && python manage.py shell
@@ -1284,7 +1284,9 @@ client.kick_user("u9")                # 期望 True(如 u9 不在线,允许返�
 
 若返回 False,看日志里的腾讯错误码:若是 `60010`(identifier 必须管理员)这类问题,**不动**(当前 `_request` 默认管理员,语义正确);若是「From_Account 与 identifier 不匹配」,把 `_black_list` 改成用 `From_Account` 身份签名(参照 `send_custom_elem` 的注释),并同步改 `im/tests.py` 的断言与注释。结论记到本 Task 末尾 + CLAUDE.md。
 
-- [ ] **Step 6: Commit**
+> **实测结论(2026-09-11,真凭据)**:`black_list_add("u8","u9")` / 重复 add / `black_list_delete` / `kick_user("u9")` 四个调用**全部返回 True**。结论:**`sns/black_list_*` 与 `im_open_login_svc/kick` 用管理员 identifier 均成立**,`_request` 默认管理员语义不用改;重复 add 腾讯侧幂等。黑名单测试条目已当场删除。
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add chatapp/moderation chatapp/im docs/superpowers/plans/2026-09-11-m3-compliance.md
@@ -1303,7 +1305,7 @@ git commit -m "feat: block/unblock API with IM blacklist sync (M3)"
 - Consumes: `moderation.services.blocked_user_ids(user) -> set[int]`(Task 3)
 - Produces: 候选卡片与 `GET /matches` 都排除「我拉黑的 ∪ 拉黑我的」;Swipe/Match 数据不删(解除后自动恢复)
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 `chatapp/moderation/tests.py` 追加:
 
@@ -1343,7 +1345,7 @@ class BlockVisibilityTests(APITestCase):
         self.assertEqual(len(self.client.get("/api/v1/discovery/candidates").json()), 1)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test moderation.tests.BlockVisibilityTests
@@ -1351,7 +1353,7 @@ python manage.py test moderation.tests.BlockVisibilityTests
 
 Expected: FAIL —— 拉黑后候选里还能看到对方。
 
-- [ ] **Step 3: 实现过滤**
+- [x] **Step 3: 实现过滤**
 
 `chatapp/discovery/views.py`:`from moderation.services import blocked_user_ids` 加到 import 区;`candidates` 里 `qs = (...)` 追加一行 `.exclude(user_id__in=list(blocked_ids))`,即:
 
@@ -1375,7 +1377,7 @@ Expected: FAIL —— 拉黑后候选里还能看到对方。
                .prefetch_related("user_a__photos", "user_b__photos"))
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 python manage.py test moderation.tests.BlockVisibilityTests
@@ -1385,7 +1387,7 @@ python manage.py test
 
 Expected: PASS(discovery 原有用例不受影响——没有任何 Block 数据时结果不变)。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/discovery/views.py chatapp/moderation/tests.py
@@ -1406,7 +1408,7 @@ git commit -m "feat: hide blocked users from candidates and matches (M3)"
 - Consumes: `moderation.services.blocked_user_ids`
 - Produces: `GET /api/v1/users/{id}` → `{user_id, nickname, gender, age, city, bio, tags, photos}`(photos 只含过审);heavy 封禁/任一方拉黑/不存在 → 404 `{"code":404,"message":"用户不存在"}`。Task 12 前端依赖此响应形状。
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 `chatapp/users/tests.py` 末尾追加:
 
@@ -1457,7 +1459,7 @@ class PublicProfileTests(AuthMixin, APITestCase):
         self.assertEqual(self._get().status_code, 401)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 python manage.py test users.tests.PublicProfileTests
@@ -1465,7 +1467,7 @@ python manage.py test users.tests.PublicProfileTests
 
 Expected: FAIL —— 路由 `/api/v1/users/9` 不存在(404,但 JSON 形状不符 / 也有 404 巧合,以 fields 用例的失败为准)。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/users/serializers.py` 追加:
 
@@ -1524,7 +1526,7 @@ def public_profile(request, user_id):
     path("<int:user_id>", views.public_profile),
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 python manage.py test users
@@ -1533,7 +1535,7 @@ python manage.py test
 
 Expected: PASS。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/users
@@ -1552,7 +1554,7 @@ git commit -m "feat: public user profile endpoint (M3)"
 **Interfaces:**
 - Produces: `ImClient.deleteConversation(String peerId)`(peerId 形如 `u9`);Fake 会记流水 `deleteConversation:u9` 并把它从 `conversations` 里移除。Task 12 的拉黑流依赖。
 
-- [ ] **Step 1: 三个文件同步加方法**
+- [x] **Step 1: 三个文件同步加方法**
 
 `app/lib/im/im_client.dart` 的 `ImClient` 抽象类里,`markConversationRead` 后加:
 
@@ -1583,7 +1585,7 @@ git commit -m "feat: public user profile endpoint (M3)"
   }
 ```
 
-- [ ] **Step 2: 验证(编译即接口测试)**
+- [x] **Step 2: 验证(编译即接口测试)**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test
@@ -1591,7 +1593,7 @@ cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test
 
 Expected: `analyze` 零告警(两个实现都补齐了接口);原有测试全绿。真实行为在 Task 12 的拉黑流用例里断言。
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add app/lib/im app/test/support/fake_im_client.dart
@@ -1611,7 +1613,7 @@ git commit -m "feat(app): ImClient.deleteConversation for block flow (M3)"
 - Consumes: `ApiClient`(`core/api_client.dart`)、`apiClientProvider`(`core/providers.dart`)、`Tag`/`Photo`(`features/profile/models.dart`)
 - Produces: `UserProfile{userId,nickname,gender,age,city,bio,tags,photos}`、`BlockedUser{userId,nickname,avatarUrl,blockedAt}`;`ModerationRepository.fetchUserProfile(int)/report({targetUserId,type,detail})/block(int)/unblock(int)/fetchBlockedUsers()`;`userProfileProvider(FutureProvider.family<UserProfile,int>)`、`blockedUsersProvider`。Task 12/13 依赖。
 
-- [ ] **Step 1: 写造数 + repository 测试(先让它失败)**
+- [x] **Step 1: 写造数 + repository 测试(先让它失败)**
 
 `app/test/support/sample_data.dart` 末尾追加:
 
@@ -1709,7 +1711,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/moderation
@@ -1717,7 +1719,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/moderation
 
 Expected: FAIL —— `moderation_repository.dart` 不存在(编译错误)。
 
-- [ ] **Step 3: 实现三个文件**
+- [x] **Step 3: 实现三个文件**
 
 新建 `app/lib/features/moderation/models.dart`:
 
@@ -1856,7 +1858,7 @@ final blockedUsersProvider =
 );
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/moderation && ../flutter/bin/flutter.bat analyze
@@ -1864,7 +1866,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/moderation && ../flutter
 
 Expected: PASS + 零告警。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib/features/moderation app/test/features/moderation app/test/support/sample_data.dart
@@ -1885,7 +1887,7 @@ git commit -m "feat(app): moderation data layer for report/block (M3)"
 - Consumes: Task 10 的 `deleteConversation`、Task 11 的 `userProfileProvider`/`moderationRepositoryProvider`、`conversationsProvider`(chat)、`imClientProvider`(im_manager)
 - Produces: 路由 `/users/:id`;组件 `ReportSheet`(弹窗返回 `({String type, String detail})?`);聊天页标题 key `chat.title`
 
-- [ ] **Step 1: 写 widget 测试(先让它失败)**
+- [x] **Step 1: 写 widget 测试(先让它失败)**
 
 新建 `app/test/features/profile/user_profile_page_test.dart`:
 
@@ -2043,7 +2045,7 @@ void main() {
 
 (记得给 chat_page_test.dart 补 `import 'package:go_router/go_router.dart';`)
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_page_test.dart test/features/chat/chat_page_test.dart
@@ -2051,7 +2053,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_pag
 
 Expected: FAIL —— `user_profile_page.dart` 不存在;`chat.title` 找不到。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 新建 `app/lib/features/moderation/widgets/report_sheet.dart`:
 
@@ -2342,7 +2344,7 @@ class _ProfileBody extends ConsumerWidget {
   }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_page_test.dart test/features/chat && ../flutter/bin/flutter.bat analyze
@@ -2350,7 +2352,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_pag
 
 Expected: PASS + 零告警(注意:页面里的网络图片都带了 errorBuilder,符合项目约定)。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib app/test
@@ -2370,7 +2372,7 @@ git commit -m "feat(app): user profile card with report/block flows (M3)"
 - Consumes: `blockedUsersProvider` / `moderationRepositoryProvider`(Task 11)
 - Produces: 路由 `/settings/blocks`;设置页「黑名单」入口
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 新建 `app/test/features/settings/blocked_users_page_test.dart`:
 
@@ -2439,7 +2441,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/settings/blocked_users_page_test.dart
@@ -2447,7 +2449,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/settings/blocked_users_p
 
 Expected: FAIL —— 文件不存在。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 新建 `app/lib/features/settings/blocked_users_page.dart`:
 
@@ -2569,7 +2571,7 @@ String _dateLabel(DateTime? time) {
 
 (import 加 `features/settings/blocked_users_page.dart`)
 
-- [ ] **Step 4: 跑测试确认通过 + 回归**
+- [x] **Step 4: 跑测试确认通过 + 回归**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -2577,7 +2579,7 @@ cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
 
 Expected: PASS + 零告警。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib app/test
@@ -2596,7 +2598,7 @@ git commit -m "feat(app): blocked users management page (M3)"
 **Interfaces:**
 - Produces: `legalVersion`(int)、`hasAgreedToLegal()`/`acceptLegal()`(SharedPreferences 键 `legal.agreed_version`)、路由 `/legal/agreement`、`/legal/privacy`、弹窗 `showAgreementDialog(context) -> Future<bool?>`(同意 true / 不同意 false)
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 新建 `app/test/features/legal/agreement_gate_test.dart`:
 
@@ -2646,7 +2648,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/legal
@@ -2654,7 +2656,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/legal
 
 Expected: FAIL —— `legal_texts.dart` 不存在;harness 也还没有默认值。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 新建 `app/lib/features/legal/legal_texts.dart`:
 
@@ -2932,7 +2934,7 @@ redirect 里放行 `/legal`(协议是公开文本,首启弹窗要能打开):
   SharedPreferences.setMockInitialValues({'legal.agreed_version': legalVersion, ...prefs});
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量回归**
+- [x] **Step 4: 跑测试确认通过 + 全量回归**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -2940,7 +2942,7 @@ cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
 
 Expected: 全绿(既有用例因为 harness 默认已同意,不受弹窗影响)。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib app/test
@@ -2960,7 +2962,7 @@ git commit -m "feat(app): agreement gate on first launch + legal pages (M3)"
 - Consumes: `profileProvider`(features/profile/profile_controller.dart)、`GET /users/me` 的 `status`/`ban_reason`(Task 2)、`sessionProvider.logout()`
 - Produces: `Profile.banReason`;`BannedPage(profile)`;key `banned.logout`
 
-- [ ] **Step 1: 写测试(先让它失败)**
+- [x] **Step 1: 写测试(先让它失败)**
 
 新建 `app/test/features/shell/banned_page_test.dart`:
 
@@ -2995,7 +2997,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/shell/banned_page_test.dart
@@ -3003,7 +3005,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/shell/banned_page_test.d
 
 Expected: FAIL —— `profileJson` 没有 `status`/`banReason` 参数(编译错误);页面也不存在。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/test/support/sample_data.dart` 的 `profileJson` 做三处小改(其余保持原样):
 
@@ -3085,7 +3087,7 @@ class BannedPage extends ConsumerWidget {
     }
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量回归**
+- [x] **Step 4: 跑测试确认通过 + 全量回归**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
@@ -3093,7 +3095,7 @@ cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze
 
 Expected: PASS + 零告警。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/lib app/test
@@ -3113,7 +3115,7 @@ git commit -m "feat(app): full-screen banned page for banned_heavy users (M3)"
 **Interfaces:**
 - Produces: `app/build/app/outputs/flutter-apk/app-release.apk`(正式签名);以后所有版本用它更新
 
-- [ ] **Step 1: 用户生成 keystore(需要你本人操作)**
+- [x] **Step 1: 用户生成 keystore(需要你本人操作)**
 
 先找 keytool(Android Studio 自带的 JDK 里有):
 
@@ -3131,7 +3133,7 @@ keytool -genkeypair -v -keystore "$USERPROFILE/chatapp-release.jks" -storetype J
 - 口令自定,建议两处备份(密码管理器 + 离线拷贝);**keystore 文件 + 口令丢了,应用就永远无法更新**
 - 生成后把 jks 文件复制一份到安全位置
 
-- [ ] **Step 2: 配 key.properties + gradle 签名**
+- [x] **Step 2: 配 key.properties + gradle 签名**
 
 `.gitignore` 追加:
 
@@ -3182,7 +3184,7 @@ if (keystorePropertiesFile.exists()) {
     }
 ```
 
-- [ ] **Step 3: 出包**
+- [x] **Step 3: 出包**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=http://10.0.2.2:8000/api/v1
@@ -3191,7 +3193,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 Expected: 构建成功,产物 `app/build/app/outputs/flutter-apk/app-release.apk`。
 (国内源配置已就位;若报 Kotlin 增量缓存错误,确认 `app/android/gradle.properties` 里 `kotlin.incremental=false` 还在)
 
-- [ ] **Step 4: 装到模拟器验证**
+- [x] **Step 4: 装到模拟器验证**
 
 ```bash
 "$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe" devices        # 看两台设备的 id
@@ -3200,7 +3202,7 @@ Expected: 构建成功,产物 `app/build/app/outputs/flutter-apk/app-release.apk
 
 打开 App:登录 → 滑卡 → 进会话(核心链路能跑即算通过;详细清单在 Task 17)。真机等你有设备时再补装。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .gitignore app/android/app/build.gradle.kts
@@ -3214,7 +3216,7 @@ git commit -m "chore(android): release signing config (M3)"
 **Files:**
 - Modify: `CLAUDE.md`、`docs/superpowers/plans/2026-09-11-m3-compliance.md`(本文件,勾 checkbox / 记录差异)
 
-- [ ] **Step 1: 起环境(用户参与)**
+- [x] **Step 1: 起环境(用户参与)**
 
 ```bash
 # 终端 1:后端(注意只保留一个 runserver 进程,踩过旧进程抢答的坑)
@@ -3227,7 +3229,7 @@ python manage.py createsuperuser
 
 两台模拟器分别 `flutter run -d <设备id> --dart-define=API_BASE=http://10.0.2.2:8000/api/v1`(或装 Task 16 的 release 包)。
 
-- [ ] **Step 2: 双端手测清单(逐条勾)**
+- [ ] **Step 2: 双端手测清单(逐条勾;核心链路已验,其余待补)**
 
 | # | 场景 | 预期 |
 |---|---|---|
@@ -3242,7 +3244,7 @@ python manage.py createsuperuser
 | 9 | 首启协议:清 App 数据后重开 | 弹协议;同意进 App;设置里能重看全文;不同意退出 |
 | 10 | 签名 APK(Task 16 产物)| 安装启动,核心链路可跑 |
 
-- [ ] **Step 3: 文档收尾**
+- [x] **Step 3: 文档收尾**
 
 - `CLAUDE.md`:
   - 「当前进度」改成 M3 已完成,列出本里程碑内容与测试数(填实际值)
@@ -3251,7 +3253,7 @@ python manage.py createsuperuser
 - 本计划文档:把执行中的偏差、实测结论补进对应 Task 末尾
 - 全量回归:后端 `python manage.py test`;前端 `flutter test` + `analyze`
 
-- [ ] **Step 4: Commit + 合并**
+- [x] **Step 4: Commit + 合并**
 
 ```bash
 git add CLAUDE.md docs/superpowers/plans
@@ -3273,4 +3275,23 @@ git checkout master && git merge --no-ff m3-compliance
 | `DELETE /api/v1/blocks/{user_id}` | 204 幂等;后台移除 IM 黑名单 |
 
 后台入口:`/admin/` → 照片(users → 照片,勾选后选动作)、举报队列(moderation → 举报)、封禁(users → 资料,改状态+原因)、只读对账(拉黑/封禁日志)。
+
+---
+
+## 执行记录(2026-09-11)
+
+**进度**:Task 1–16 全部完成并逐 Task 提交;Task 17 的文档收尾已完成;双端手测已验核心链路(登录/互滑/聊天/资料卡/举报入口/拉黑),其余清单项(解封、照片审核、协议、封禁页、安装细节)留待后续补验。
+
+**手测发现并修复的问题(2 个,均已补复现测试)**:
+1. **黑名单缓存 bug**:拉黑成功后设置里的黑名单仍显示空——列表 provider 全局缓存没失效。修复:`user_profile_page.dart` 拉黑成功后 `ref.invalidate(blockedUsersProvider)`(commit `cbf802e`)。
+2. **所有接口 ~280ms 慢**:根因是每请求新建 MySQL 连接 + TLS 握手 ~250ms(不是资料接口特有)。修复:dev 默认 `DB_SSL_DISABLED=1`(commit `2e5bd1d`),接口降到 ~30ms,后端测试 13s→8.5s。
+
+**执行中的偏差(与计划文本不同处,已在实现中修正)**:
+- `users/tests.py` 新测试类插到文件末尾(计划的插入点在 PreferenceTests 中间,会把后续用例卷进新类)
+- 黑名单测试断言用 `lastWhere`(reload 的 GET 排在 DELETE 之后——项目老坑)
+- 协议用例不能用 `pumpAndSettle`(启动页无限转圈会超时),改有限次 pump
+- `splash_page.dart` 需要 `import 'package:flutter/services.dart'`(SystemNavigator 不在 material 里)
+- widget 测试里裸 `await provider.future` 会死锁(假时钟),缓存失效用例改成走 UI 路径(预热 → 拉黑 → 回列表)
+
+**实测结论**:`sns/black_list_add|delete` 与 `im_open_login_svc/kick` 用管理员 identifier 均返回成功,重复 add 腾讯侧幂等(见 Task 7 Step 5)。
 

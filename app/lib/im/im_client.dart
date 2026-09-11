@@ -101,4 +101,7 @@ abstract class ImClient {
   Future<ChatMessage> sendText({required String peerId, required String text});
 
   Future<void> markConversationRead(String peerId);
+
+  /// 删除本机会话(拉黑后清理用;对方设备上的会话不受影响)。
+  Future<void> deleteConversation(String peerId);
 }

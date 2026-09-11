@@ -9,5 +9,6 @@ urlpatterns = [
     path("users/", include("users.urls")),
     path("im/", include("im.urls")),
     path("discovery/", include("discovery.urls")),
+    path("", include("moderation.urls")),
     path("matches", discovery_views.match_list),
 ]

@@ -10,7 +10,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Profile, ProfileStatus
 
-from .client import _request, import_account, send_custom_elem, send_match_notice, send_text
+from .client import (_request, black_list_add, black_list_delete, import_account, kick_user,
+                     send_custom_elem, send_match_notice, send_text)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 
 User = get_user_model()
@@ -114,6 +115,36 @@ class ImClientTests(SimpleTestCase):
         body = payload["MsgBody"][0]
         self.assertEqual(body["MsgType"], "TIMTextElem")
         self.assertEqual(body["MsgContent"]["Text"], "你好")
+
+    def test_kick_user_payload(self):
+        with patch("im.client._request", return_value={"ActionStatus": "OK", "ErrorCode": 0}) as req:
+            self.assertTrue(kick_user("u5"))
+        args, _ = req.call_args
+        self.assertEqual(args[0], "im_open_login_svc")
+        self.assertEqual(args[1], "kick")
+        self.assertEqual(args[2], {"UserID": "u5"})
+
+    def test_kick_user_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=Exception("boom")):
+            self.assertFalse(kick_user("u5"))
+
+    def test_black_list_add_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(black_list_add("u1", "u2"))
+        args, _ = req.call_args
+        self.assertEqual(args[0], "sns")
+        self.assertEqual(args[1], "black_list_add")
+        self.assertEqual(args[2], {"From_Account": "u1", "To_Account": ["u2"]})
+
+    def test_black_list_delete_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(black_list_delete("u1", "u2"))
+        args, _ = req.call_args
+        self.assertEqual(args[1], "black_list_delete")
+
+    def test_black_list_error_returns_false(self):
+        with patch("im.client._request", side_effect=Exception("boom")):
+            self.assertFalse(black_list_add("u1", "u2"))
 
 
 class ImSendCommandTests(SimpleTestCase):

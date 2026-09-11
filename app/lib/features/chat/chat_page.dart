@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../im/im_client.dart';
+import '../../im/im_repository.dart';
 import 'chat_controller.dart';
 import 'match_cache.dart';
 import 'widgets/message_bubble.dart';
@@ -49,12 +51,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _openProfile(BuildContext context, Map<String, MatchEntry> cache) {
+    // 优先用 matches 缓存里的真实 id;缓存没有(如刚被清)就按 u9 → 9 兜底
+    final userId =
+        cache[widget.peerId]?.userId ?? int.tryParse(widget.peerId.replaceFirst('u', ''));
+    if (userId == null) return;
+    context.push('/users/$userId');
+  }
+
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(chatProvider(widget.peerId));
     final cache = ref.watch(matchCacheProvider).value ?? const {};
     return Scaffold(
-      appBar: AppBar(title: Text(displayNameFor(cache, widget.peerId))),
+      appBar: AppBar(
+        title: InkWell(
+          key: const Key('chat.title'),
+          onTap: () => _openProfile(context, cache),
+          child: Text(displayNameFor(cache, widget.peerId)),
+        ),
+      ),
       body: Column(
         children: [
           Expanded(

@@ -84,6 +84,35 @@ def send_match_notice(identifier_a: str, identifier_b: str) -> bool:
     return ok_a and ok_b
 
 
+def black_list_add(owner_identifier: str, other_identifier: str) -> bool:
+    return _black_list("black_list_add", owner_identifier, other_identifier)
+
+
+def black_list_delete(owner_identifier: str, other_identifier: str) -> bool:
+    return _black_list("black_list_delete", owner_identifier, other_identifier)
+
+
+def _black_list(command: str, owner_identifier: str, other_identifier: str) -> bool:
+    # ⚠️ identifier 语义(是否必须管理员)实施时用真凭据实测,与 sendmsg 的 60010 同类问题
+    payload = {"From_Account": owner_identifier, "To_Account": [other_identifier]}
+    try:
+        result = _request("sns", command, payload)
+    except Exception:
+        logger.exception("IM %s 失败 %s -> %s", command, owner_identifier, other_identifier)
+        return False
+    return _check(result, command)
+
+
+def kick_user(identifier: str) -> bool:
+    """把账号的在线 IM 会话踢下线(重封禁用;不然已有 userSig 最长 7 天还能聊)。"""
+    try:
+        result = _request("im_open_login_svc", "kick", {"UserID": identifier})
+    except Exception:
+        logger.exception("IM kick 调用失败 identifier=%s", identifier)
+        return False
+    return _check(result, "kick")
+
+
 def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
     """发一条普通文本消息;手测/联调用(业务消息都从 App 端走 SDK)。"""
     payload = {

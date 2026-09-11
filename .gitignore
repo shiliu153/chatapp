@@ -24,6 +24,10 @@ app/android/local.properties
 app/ios/Pods/
 app/ios/.symlinks/
 
+# --- Android 签名(密钥与口令永不入库存) ---
+app/android/key.properties
+*.jks
+
 # --- IDE / OS ---
 .idea/
 .vscode/

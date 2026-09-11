@@ -10,7 +10,9 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Photo, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
+from moderation.models import Block
+
+from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
 
 User = get_user_model()
 
@@ -250,3 +252,86 @@ class PreferenceTests(AuthMixin, APITestCase):
         resp = self.client.patch(self.url, {"target_gender": None}, format="json")
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(resp.json()["target_gender"])
+
+
+class PhotoAdminActionTests(TestCase):
+    """审核台批量动作:改照片状态,并重算用户的「资料完善」状态。"""
+
+    def setUp(self):
+        self.staff = User.objects.create_superuser(phone="13700137000", password="pw")
+        self.user = User.objects.create_user(phone="13900139000")
+        self.profile = Profile.objects.create(
+            user=self.user, nickname="小红", gender="female", birthday="2000-01-01",
+            city="上海", bio="你好", status=ProfileStatus.COMPLETE)
+        self.photo = Photo.objects.create(user=self.user, file="photos/x.png",
+                                          status=PhotoStatus.APPROVED)
+        self.client.force_login(self.staff)
+
+    def _run_action(self, action, *photos):
+        return self.client.post("/admin/users/photo/", {
+            "action": action,
+            "_selected_action": [p.pk for p in photos],
+        })
+
+    def test_reject_action_marks_photo_and_profile_incomplete(self):
+        resp = self._run_action("reject_photos", self.photo)
+        self.assertEqual(resp.status_code, 302)
+        self.photo.refresh_from_db()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.photo.status, PhotoStatus.REJECTED)
+        self.assertEqual(self.profile.status, ProfileStatus.INCOMPLETE)
+
+    def test_approve_action_completes_profile_again(self):
+        Photo.objects.filter(pk=self.photo.pk).update(status=PhotoStatus.PENDING)
+        Profile.objects.filter(pk=self.profile.pk).update(status=ProfileStatus.INCOMPLETE)
+        self._run_action("approve_photos", self.photo)
+        self.photo.refresh_from_db()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.photo.status, PhotoStatus.APPROVED)
+        self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)
+
+
+class PublicProfileTests(AuthMixin, APITestCase):
+    def setUp(self):
+        self.me = User.objects.create_user(phone="13800138000")
+        self.login(self.me)
+        self.other = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.other, nickname="小红", gender="female",
+                               birthday="1998-01-01", city="上海", bio="喜欢爬山",
+                               status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=self.other, file="photos/a.png", status=PhotoStatus.APPROVED)
+        Photo.objects.create(user=self.other, file="photos/b.png", status=PhotoStatus.PENDING)
+
+    def _get(self):
+        return self.client.get(f"/api/v1/users/{self.other.id}")
+
+    def test_returns_public_fields_only(self):
+        data = self._get().json()
+        self.assertEqual(data["user_id"], self.other.id)
+        self.assertEqual(data["nickname"], "小红")
+        self.assertEqual(data["age"], calculate_age(date(1998, 1, 1)))
+        self.assertEqual(len(data["photos"]), 1)          # 只有过审那张
+        for hidden in ("phone", "birthday", "preference", "missing_fields"):
+            self.assertNotIn(hidden, data)
+
+    def test_heavy_banned_target_is_invisible(self):
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(self._get().status_code, 404)
+
+    def test_light_banned_target_still_visible(self):
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_LIGHT)
+        self.assertEqual(self._get().status_code, 200)
+
+    def test_blocked_relationship_hides_both_ways(self):
+        Block.objects.create(blocker=self.me, blocked=self.other)
+        self.assertEqual(self._get().status_code, 404)
+        Block.objects.all().delete()
+        Block.objects.create(blocker=self.other, blocked=self.me)
+        self.assertEqual(self._get().status_code, 404)
+
+    def test_unknown_user_returns_404(self):
+        self.assertEqual(self.client.get("/api/v1/users/999999").status_code, 404)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self._get().status_code, 401)

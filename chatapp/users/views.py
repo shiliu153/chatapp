@@ -1,12 +1,19 @@
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from rest_framework.decorators import api_view
+from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from .models import Photo, PhotoStatus, Profile, Tag
+from moderation.services import blocked_user_ids
+
+from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
 from .serializers import (PhotoSerializer, PhotoUploadSerializer, PreferenceSerializer,
-                          ProfileSerializer, ProfileUpdateSerializer, TagSerializer)
+                          ProfileSerializer, ProfileUpdateSerializer, PublicProfileSerializer,
+                          TagSerializer)
 from .services import get_profile
+
+User = get_user_model()
 
 
 @api_view(["GET", "PATCH"])
@@ -29,6 +36,18 @@ def me(request):
 @api_view(["GET"])
 def tag_list(request):
     return Response(TagSerializer(Tag.objects.all(), many=True).data)
+
+
+@api_view(["GET"])
+def public_profile(request, user_id):
+    # 双向拉黑 = 互相不存在;heavy 封禁的人对外不可见(轻封禁仍可见,还能聊天)
+    if user_id in blocked_user_ids(request.user):
+        raise NotFound("用户不存在")
+    target = get_object_or_404(User, id=user_id)
+    profile = getattr(target, "profile", None)
+    if profile is None or profile.status == ProfileStatus.BANNED_HEAVY:
+        raise NotFound("用户不存在")
+    return Response(PublicProfileSerializer(profile, context={"request": request}).data)
 
 
 @api_view(["POST"])

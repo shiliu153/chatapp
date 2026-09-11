@@ -67,6 +67,12 @@ class FakeImClient implements ImClient {
   @override
   Future<void> markConversationRead(String peerId) async => log.add('read:$peerId');
 
+  @override
+  Future<void> deleteConversation(String peerId) async {
+    log.add('deleteConversation:$peerId');
+    conversations = conversations.where((item) => item.peerId != peerId).toList();
+  }
+
   /// 模拟服务器推事件。
   void emit(ImEvent event) => _events.add(event);
 

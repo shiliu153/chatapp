@@ -64,6 +64,7 @@ class Profile(models.Model):
     tags = models.ManyToManyField(Tag, blank=True, related_name="profiles")
     status = models.CharField("状态", max_length=20, choices=ProfileStatus.choices,
                               default=ProfileStatus.INCOMPLETE)
+    ban_reason = models.CharField("封禁原因", max_length=200, blank=True)
 
     def __str__(self):
         return f"{self.nickname or '?'}({self.user_id})"

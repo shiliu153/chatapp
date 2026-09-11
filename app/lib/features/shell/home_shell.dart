@@ -5,6 +5,8 @@ import '../chat/chats_page.dart';
 import '../chat/conversations_controller.dart';
 import '../discovery/discovery_page.dart';
 import '../profile/my_profile_page.dart';
+import '../profile/profile_controller.dart';
+import 'banned_page.dart';
 
 class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
@@ -20,6 +22,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final profile = ref.watch(profileProvider).value;
+    if (profile != null && profile.status == 'banned_heavy') {
+      return BannedPage(profile: profile);
+    }
     final unread = ref.watch(unreadTotalProvider);
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),

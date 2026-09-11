@@ -163,6 +163,14 @@ class TencentImClient implements ImClient {
     );
     _check(result.code, result.desc);
   }
+
+  @override
+  Future<void> deleteConversation(String peerId) async {
+    final result = await TencentImSDKPlugin.v2TIMManager
+        .getConversationManager()
+        .deleteConversation(conversationID: 'c2c_$peerId');
+    _check(result.code, result.desc);
+  }
 }
 
 void _check(int code, String message) {
