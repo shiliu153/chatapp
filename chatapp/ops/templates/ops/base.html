@@ -5,27 +5,53 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}运营审核台{% endblock %}</title>
-  <link rel="stylesheet" href="{% static 'ops/vendor/pico.min.css' %}">
   <link rel="stylesheet" href="{% static 'ops/ops.css' %}">
   <script src="{% static 'ops/vendor/htmx.min.js' %}"></script>
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
-<nav class="container ops-nav">
-  <strong>运营审核台</strong>
-  <a href="{% url 'ops:reports' %}">举报{% if pending_report_count %} <span class="ops-badge">{{ pending_report_count }}</span>{% endif %}</a>
-  <a href="{% url 'ops:photos' %}">照片审核{% if pending_photo_count %} <span class="ops-badge">{{ pending_photo_count }}</span>{% endif %}</a>
-  <a href="{% url 'ops:users' %}">用户</a>
-  <a href="{% url 'ops:logs' %}">日志</a>
-  {% if user.is_authenticated %}
-  <form method="post" action="{% url 'ops:logout' %}" class="ops-logout">
-    {% csrf_token %}
-    <span>{{ user.phone }}</span>
-    <button type="submit" class="secondary outline">退出</button>
-  </form>
-  {% endif %}
-</nav>
-<main class="container">
-  {% block content %}{% endblock %}
-</main>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">运营审核台</div>
+    <nav class="menu">
+      <a href="{% url 'ops:reports' %}" class="{% if '/ops/reports' in request.path %}active{% endif %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4c4-2 8 2 12 0v10c-4 2-8-2-12 0"/></svg>
+        举报{% if pending_report_count %}<span class="ops-badge">{{ pending_report_count }}</span>{% endif %}
+      </a>
+      <a href="{% url 'ops:photos' %}" class="{% if '/ops/photos' in request.path %}active{% endif %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+        照片审核{% if pending_photo_count %}<span class="ops-badge">{{ pending_photo_count }}</span>{% endif %}
+      </a>
+      <a href="{% url 'ops:users' %}" class="{% if '/ops/users' in request.path %}active{% endif %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        用户
+      </a>
+      <a href="{% url 'ops:logs' %}" class="{% if '/ops/logs' in request.path %}active{% endif %}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        日志
+      </a>
+    </nav>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="page-title">{% block page_title %}{% endblock %}</div>
+      <div class="topbar-right">
+        {% if user.is_authenticated %}
+          <span class="who">{{ user.phone }}</span>
+          <form method="post" action="{% url 'ops:logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="secondary">退出</button>
+          </form>
+        {% endif %}
+      </div>
+    </header>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
 </body>
 </html>
