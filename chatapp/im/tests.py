@@ -10,7 +10,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Profile, ProfileStatus
 
-from .client import (_request, black_list_add, black_list_delete, import_account, kick_user,
+from .client import (_request, black_list_add, black_list_delete, ensure_account,
+                     import_account, kick_user, send_ban_lifted, send_ban_notice,
                      send_custom_elem, send_match_notice, send_text)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 
@@ -146,6 +147,55 @@ class ImClientTests(SimpleTestCase):
         with patch("im.client._request", side_effect=Exception("boom")):
             self.assertFalse(black_list_add("u1", "u2"))
 
+    def test_ensure_account_existing_is_success(self):
+        with patch("im.client._request", return_value={"ErrorCode": 7015, "ErrorInfo": "exist"}):
+            self.assertTrue(ensure_account("system_notice", "系统通知"))
+
+    def test_ensure_account_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(ensure_account("system_notice", "系统通知"))
+        args = req.call_args[0]
+        self.assertEqual(args[0], "im_open_login_svc")
+        self.assertEqual(args[1], "account_import")
+        self.assertEqual(args[2]["Identifier"], "system_notice")
+        self.assertEqual(args[2]["Nick"], "系统通知")
+
+    def test_ensure_account_other_error_returns_false(self):
+        with patch("im.client._request", return_value={"ErrorCode": 9999}):
+            self.assertFalse(ensure_account("system_notice"))
+
+    def test_send_ban_notice_light_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(send_ban_notice("u9", "light", "骚扰他人"))
+        args = req.call_args[0]
+        self.assertEqual(args[:2], ("openim", "sendmsg"))
+        payload = args[2]
+        self.assertEqual(payload["From_Account"], "system_notice")
+        self.assertEqual(payload["To_Account"], "u9")
+        content = payload["MsgBody"][0]["MsgContent"]
+        self.assertEqual(json.loads(content["Data"]), {"type": "ban_notice", "level": "light"})
+        self.assertIn("骚扰他人", content["Desc"])
+        self.assertIn("无法使用滑卡功能", content["Desc"])
+
+    def test_send_ban_notice_heavy_reason_fallback(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            send_ban_notice("u9", "heavy", "")
+        content = req.call_args[0][2]["MsgBody"][0]["MsgContent"]
+        self.assertEqual(json.loads(content["Data"]), {"type": "ban_notice", "level": "heavy"})
+        self.assertIn("违反社区规范", content["Desc"])
+        self.assertIn("封禁期间所有功能暂停使用", content["Desc"])
+
+    def test_send_ban_lifted_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(send_ban_lifted("u9"))
+        content = req.call_args[0][2]["MsgBody"][0]["MsgContent"]
+        self.assertEqual(json.loads(content["Data"]), {"type": "ban_lifted"})
+        self.assertIn("已解除", content["Desc"])
+
+    def test_send_ban_notice_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=RuntimeError("boom")):
+            self.assertFalse(send_ban_notice("u9", "light", "x"))
+
 
 class ImSendCommandTests(SimpleTestCase):
     def test_text_and_notice_are_mutually_exclusive(self):
@@ -170,6 +220,20 @@ class ImSendCommandTests(SimpleTestCase):
         with patch("im.management.commands.im_send.send_text", return_value=False):
             with self.assertRaises(CommandError):
                 call_command("im_send", sender="u1", receiver="u2", text="hi")
+
+
+class ImSetupSystemAccountCommandTests(SimpleTestCase):
+    def test_command_creates_system_account(self):
+        with patch("im.management.commands.im_setup_system_account.ensure_account",
+                   return_value=True) as ensure:
+            call_command("im_setup_system_account")
+        ensure.assert_called_once_with("system_notice", "系统通知")
+
+    def test_command_raises_when_not_ready(self):
+        with patch("im.management.commands.im_setup_system_account.ensure_account",
+                   return_value=False):
+            with self.assertRaises(CommandError):
+                call_command("im_setup_system_account")
 
 
 @override_settings(**IM_TEST_SETTINGS)
