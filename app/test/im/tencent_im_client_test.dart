@@ -81,4 +81,28 @@ void main() {
 
     expect(message.kind, ChatMessageKind.other);
   });
+
+  test('ban_notice 自定义消息 → banNotice,文案取 Desc', () {
+    final message = chatMessageFromSdk(sdkMessage(
+      isSelf: false,
+      sender: 'system_notice',
+      elem: customElem('{"type":"ban_notice","level":"light"}',
+          desc: '您的账号因「骚扰他人」被限制。'),
+    ));
+
+    expect(message.kind, ChatMessageKind.banNotice);
+    expect(message.text, '您的账号因「骚扰他人」被限制。');
+    expect(message.peerId, 'system_notice');
+  });
+
+  test('ban_lifted 自定义消息 → banNotice', () {
+    final message = chatMessageFromSdk(sdkMessage(
+      isSelf: false,
+      sender: 'system_notice',
+      elem: customElem('{"type":"ban_lifted"}', desc: '您的账号限制已解除,所有功能已恢复。'),
+    ));
+
+    expect(message.kind, ChatMessageKind.banNotice);
+    expect(message.text, '您的账号限制已解除,所有功能已恢复。');
+  });
 }

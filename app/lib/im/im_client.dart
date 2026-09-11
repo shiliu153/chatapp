@@ -2,7 +2,10 @@
 ///
 /// 真实实现在 tencent_im_client.dart(全项目唯一 import 腾讯 SDK 的文件);
 /// 测试用 test/support/fake_im_client.dart —— 原生插件在 flutter test 里跑不起来。
-enum ChatMessageKind { text, matchNotice, other }
+enum ChatMessageKind { text, matchNotice, banNotice, other }
+
+/// 「系统通知」固定 IM 账号(与后端 im/client.py::SYSTEM_NOTICE_IDENTIFIER 是跨栈契约)。
+const systemNoticePeerId = 'system_notice';
 
 class ChatMessage {
   const ChatMessage({

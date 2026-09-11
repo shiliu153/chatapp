@@ -52,7 +52,7 @@ void main() {
     addTearDown(fake.dispose);
   });
 
-  Future<void> pumpChat(WidgetTester tester) async {
+  Future<void> pumpChat(WidgetTester tester, {String peerId = 'u9'}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
@@ -63,7 +63,7 @@ void main() {
     ]);
     addTearDown(container.dispose);
     final router = GoRouter(
-      initialLocation: '/chat/u9',
+      initialLocation: '/chat/$peerId',
       routes: [
         GoRoute(
           path: '/chat/:peerId',
@@ -114,6 +114,25 @@ void main() {
 
     expect(find.byKey(const Key('chat.notice')), findsOneWidget);
     expect(find.text('你们已互相喜欢,开始聊天吧'), findsOneWidget);
+  });
+
+  testWidgets('ban_notice → 居中灰条', (tester) async {
+    fake.history = {
+      'system_notice': [
+        const ChatMessage(
+          msgId: 's1',
+          peerId: 'system_notice',
+          isSelf: false,
+          timestamp: 1700000000000,
+          kind: ChatMessageKind.banNotice,
+          text: '您的账号因「骚扰他人」被限制。',
+        ),
+      ],
+    };
+    await pumpChat(tester, peerId: 'system_notice');
+
+    expect(find.byKey(const Key('chat.notice')), findsOneWidget);
+    expect(find.text('您的账号因「骚扰他人」被限制。'), findsOneWidget);
   });
 
   testWidgets('输入发送 → 气泡上屏 + 调 SDK;清空输入框', (tester) async {
