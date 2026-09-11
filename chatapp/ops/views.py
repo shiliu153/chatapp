@@ -1,10 +1,12 @@
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.models import User
-from moderation.models import BanLog, Block, Report, ReportStatus, ReportType
+from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
+                               ReportType)
 from moderation.services import log_ban_change
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import review_photos
@@ -188,3 +190,26 @@ def user_ban(request, user_id):
     ctx = _user_context(user)
     ctx["error"] = error
     return render(request, "ops/partials/user_ban_panel.html", ctx)
+
+
+@staff_required
+def logs(request):
+    action = request.GET.get("action", "")
+    phone = request.GET.get("phone", "").strip()
+    date = request.GET.get("date", "").strip()
+    qs = BanLog.objects.select_related("user", "operator").order_by("-created_at")
+    if action in BanAction.values:
+        qs = qs.filter(action=action)
+    if phone:
+        qs = qs.filter(user__phone=phone)
+    if date:
+        try:
+            qs = qs.filter(created_at__date=date)
+        except ValidationError:
+            date = ""
+    blocks = Block.objects.select_related("blocker", "blocked").order_by("-created_at")[:100]
+    return render(request, "ops/logs.html", {
+        "ban_logs": qs[:200], "blocks": blocks,
+        "action": action, "phone": phone, "date": date,
+        "actions": BanAction.choices,
+    })

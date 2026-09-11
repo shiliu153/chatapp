@@ -1,0 +1,38 @@
+{% extends "ops/base.html" %}
+{% block content %}
+<h2>操作日志</h2>
+<form method="get" class="ops-grid-2">
+  <label>动作
+    <select name="action">
+      <option value="">全部</option>
+      {% for value, label in actions %}
+        <option value="{{ value }}" {% if action == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>手机号<input type="text" name="phone" value="{{ phone }}" placeholder="完整手机号"></label>
+  <label>日期<input type="date" name="date" value="{{ date }}"></label>
+  <button type="submit">筛选</button>
+</form>
+<h3>封禁审计流水</h3>
+<table>
+  <thead><tr><th>时间</th><th>用户</th><th>动作</th><th>原因</th><th>操作人</th></tr></thead>
+  <tbody>
+  {% for log in ban_logs %}
+    <tr><td>{{ log.created_at|date:"Y-m-d H:i" }}</td><td>{{ log.user.phone }}</td>
+        <td>{{ log.get_action_display }}</td><td>{{ log.reason|default:"—" }}</td>
+        <td>{{ log.operator.phone|default:"—" }}</td></tr>
+  {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
+  </tbody>
+</table>
+<h3>拉黑对账(只读;拉黑须走 App 接口才会同步 IM)</h3>
+<table>
+  <thead><tr><th>时间</th><th>拉黑方</th><th>被拉黑方</th></tr></thead>
+  <tbody>
+  {% for b in blocks %}
+    <tr><td>{{ b.created_at|date:"Y-m-d H:i" }}</td><td>{{ b.blocker.phone }}</td>
+        <td>{{ b.blocked.phone }}</td></tr>
+  {% empty %}<tr><td colspan="3">无记录</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

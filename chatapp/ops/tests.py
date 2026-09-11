@@ -278,3 +278,22 @@ class OpsUserBanTests(TestCase):
         self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)   # 资料齐全+有照片 → 重算回已完善
         self.assertEqual(self.profile.ban_reason, "")
         self.assertTrue(BanLog.objects.filter(user=self.user, action=BanAction.UNBAN).exists())
+
+
+class OpsLogsTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_staff())
+        self.user = User.objects.create_user(phone="13900139000")
+        BanLog.objects.create(user=self.user, action=BanAction.BAN_LIGHT, reason="骚扰")
+        BanLog.objects.create(user=self.user, action=BanAction.UNBAN, reason="申诉通过")
+
+    def test_logs_list_shows_history(self):
+        resp = self.client.get("/ops/logs/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "骚扰")
+        self.assertContains(resp, "申诉通过")
+
+    def test_filter_by_action(self):
+        resp = self.client.get("/ops/logs/", {"action": "unban"})
+        self.assertContains(resp, "申诉通过")
+        self.assertNotContains(resp, "骚扰")   # 轻度封禁行的原因文本被过滤掉(动作名在筛选下拉里恒有,不能拿来断言)
