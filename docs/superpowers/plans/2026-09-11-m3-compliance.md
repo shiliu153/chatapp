@@ -1284,6 +1284,8 @@ client.kick_user("u9")                # 期望 True(如 u9 不在线,允许返�
 
 若返回 False,看日志里的腾讯错误码:若是 `60010`(identifier 必须管理员)这类问题,**不动**(当前 `_request` 默认管理员,语义正确);若是「From_Account 与 identifier 不匹配」,把 `_black_list` 改成用 `From_Account` 身份签名(参照 `send_custom_elem` 的注释),并同步改 `im/tests.py` 的断言与注释。结论记到本 Task 末尾 + CLAUDE.md。
 
+> **实测结论(2026-09-11,真凭据)**:`black_list_add("u8","u9")` / 重复 add / `black_list_delete` / `kick_user("u9")` 四个调用**全部返回 True**。结论:**`sns/black_list_*` 与 `im_open_login_svc/kick` 用管理员 identifier 均成立**,`_request` 默认管理员语义不用改;重复 add 腾讯侧幂等。黑名单测试条目已当场删除。
+
 - [ ] **Step 6: Commit**
 
 ```bash

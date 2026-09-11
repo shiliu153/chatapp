@@ -4,8 +4,10 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from .models import Report, ReportStatus
-from .serializers import ReportCreateSerializer, ReportSerializer
+from .models import Block, Report, ReportStatus
+from .serializers import (BlockCreateSerializer, BlockSerializer, ReportCreateSerializer,
+                          ReportSerializer)
+from .services import sync_im_blacklist
 from .throttles import ReportThrottle
 
 User = get_user_model()
@@ -26,3 +28,33 @@ def create_report(request):
         defaults={"type": data["type"], "detail": data["detail"]},
     )
     return Response(ReportSerializer(report).data, status=201 if created else 200)
+
+
+@api_view(["GET", "POST"])
+def blocks(request):
+    if request.method == "POST":
+        serializer = BlockCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        target_id = serializer.validated_data["target_user_id"]
+        if target_id == request.user.id:
+            raise ValidationError("不能拉黑自己")
+        target = get_object_or_404(User, id=target_id)
+        block, created = Block.objects.get_or_create(blocker=request.user, blocked=target)
+        if created:
+            sync_im_blacklist(request.user, target, add=True)
+        return Response(BlockSerializer(block, context={"request": request}).data,
+                        status=201 if created else 200)
+
+    entries = (Block.objects.filter(blocker=request.user)
+               .select_related("blocked__profile").prefetch_related("blocked__photos"))
+    return Response([BlockSerializer(block, context={"request": request}).data for block in entries])
+
+
+@api_view(["DELETE"])
+def unblock(request, user_id):
+    block = Block.objects.filter(blocker=request.user, blocked_id=user_id).first()
+    if block is not None:
+        target = block.blocked
+        block.delete()
+        sync_im_blacklist(request.user, target, add=False)
+    return Response(status=204)

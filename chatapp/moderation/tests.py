@@ -284,3 +284,73 @@ class ReportApiTests(APITestCase):
             self.assertEqual(self.report(target_id=other.id).status_code, 201)
             self.assertEqual(self.report().status_code, 201)
             self.assertEqual(self.report(type_="fraud").status_code, 429)
+
+
+class BlockApiTests(APITestCase):
+    URL = "/api/v1/blocks"
+
+    def setUp(self):
+        self.me = User.objects.create_user(phone="13800138000")
+        self.target = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.target, nickname="小红", gender="female",
+                               birthday="2000-01-01", city="上海", bio="你好",
+                               status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=self.target, file="photos/x.png", status=PhotoStatus.APPROVED)
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def test_block_creates_row_and_syncs_im(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            resp = self.client.post(self.URL, {"target_user_id": self.target.id}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(Block.objects.filter(blocker=self.me, blocked=self.target).exists())
+        dispatch.assert_called_once_with(im_client.black_list_add,
+                                         self.me.im_user_id, self.target.im_user_id)
+
+    def test_duplicate_block_idempotent_without_resync(self):
+        Block.objects.create(blocker=self.me, blocked=self.target)
+        with patch("moderation.services._dispatch_async") as dispatch:
+            resp = self.client.post(self.URL, {"target_user_id": self.target.id}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Block.objects.count(), 1)
+        dispatch.assert_not_called()
+
+    def test_cannot_block_self(self):
+        resp = self.client.post(self.URL, {"target_user_id": self.me.id}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_unknown_target_returns_404(self):
+        resp = self.client.post(self.URL, {"target_user_id": 999999}, format="json")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_list_shows_nickname_and_avatar(self):
+        Block.objects.create(blocker=self.me, blocked=self.target)
+        data = self.client.get(self.URL).json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["user_id"], self.target.id)
+        self.assertEqual(data[0]["nickname"], "小红")
+        self.assertTrue(data[0]["avatar_url"].startswith("http://testserver/media/"))
+
+    def test_list_avatar_null_without_approved_photo(self):
+        Photo.objects.update(status=PhotoStatus.PENDING)
+        Block.objects.create(blocker=self.me, blocked=self.target)
+        self.assertIsNone(self.client.get(self.URL).json()[0]["avatar_url"])
+
+    def test_unblock_removes_and_syncs_im(self):
+        Block.objects.create(blocker=self.me, blocked=self.target)
+        with patch("moderation.services._dispatch_async") as dispatch:
+            resp = self.client.delete(f"{self.URL}/{self.target.id}")
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Block.objects.exists())
+        dispatch.assert_called_once_with(im_client.black_list_delete,
+                                         self.me.im_user_id, self.target.im_user_id)
+
+    def test_unblock_missing_is_idempotent(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            resp = self.client.delete(f"{self.URL}/{self.target.id}")
+        self.assertEqual(resp.status_code, 204)
+        dispatch.assert_not_called()
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get(self.URL).status_code, 401)
