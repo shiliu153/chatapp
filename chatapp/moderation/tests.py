@@ -1,12 +1,16 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from im import client as im_client
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 from .models import BanAction, BanLog, Block, Report, ReportStatus, ReportType
+from .services import log_ban_change
 from .text_check import find_blocked_word
 
 User = get_user_model()
@@ -107,3 +111,71 @@ class IsNotHeavyBannedTests(APITestCase):
         data = self.client.get("/api/v1/users/me").json()
         self.assertEqual(data["status"], "banned_heavy")
         self.assertEqual(data["ban_reason"], "骚扰他人")
+
+
+class BanAuditServiceTests(TestCase):
+    def setUp(self):
+        self.operator = User.objects.create_superuser(phone="13700137000", password="pw")
+        self.target = User.objects.create_user(phone="13900139000")
+
+    def test_heavy_ban_writes_log_and_kicks_offline(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            log_ban_change(self.target, ProfileStatus.COMPLETE, ProfileStatus.BANNED_HEAVY,
+                           "骚扰他人", self.operator)
+        log = BanLog.objects.get(user=self.target)
+        self.assertEqual(log.action, BanAction.BAN_HEAVY)
+        self.assertEqual(log.reason, "骚扰他人")
+        self.assertEqual(log.operator, self.operator)
+        dispatch.assert_called_once_with(im_client.kick_user, self.target.im_user_id)
+
+    def test_light_ban_writes_log_without_kick(self):
+        with patch("moderation.services._dispatch_async") as dispatch:
+            log_ban_change(self.target, ProfileStatus.COMPLETE, ProfileStatus.BANNED_LIGHT,
+                           "轻度违规", self.operator)
+        self.assertEqual(BanLog.objects.get(user=self.target).action, BanAction.BAN_LIGHT)
+        dispatch.assert_not_called()
+
+    def test_unban_writes_unban_log(self):
+        log_ban_change(self.target, ProfileStatus.BANNED_HEAVY, ProfileStatus.COMPLETE,
+                       "申诉通过", self.operator)
+        self.assertEqual(BanLog.objects.get(user=self.target).action, BanAction.UNBAN)
+
+    def test_non_ban_transition_writes_nothing(self):
+        log_ban_change(self.target, ProfileStatus.INCOMPLETE, ProfileStatus.COMPLETE, "", self.operator)
+        self.assertFalse(BanLog.objects.exists())
+
+
+class ProfileAdminHookTests(TestCase):
+    """admin 保存 Profile 的钩子:运营只填 状态+原因,审计自动落。"""
+
+    def setUp(self):
+        self.operator = User.objects.create_superuser(phone="13700137000", password="pw")
+        self.target = User.objects.create_user(phone="13900139000")
+        Profile.objects.get_or_create(user=self.target)
+
+    def _save(self, status, reason):
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+
+        from users.admin import ProfileAdmin
+
+        request = RequestFactory().post("/admin/")
+        request.user = self.operator
+        model_admin = ProfileAdmin(Profile, django_admin.site)
+        obj = Profile.objects.get(user=self.target)
+        obj.status = status
+        obj.ban_reason = reason
+        with patch("moderation.services._dispatch_async"):
+            model_admin.save_model(request, obj, form=None, change=True)
+
+    def test_heavy_ban_via_admin_writes_audit(self):
+        self._save(ProfileStatus.BANNED_HEAVY, "骚扰他人")
+        log = BanLog.objects.get(user=self.target)
+        self.assertEqual(log.action, BanAction.BAN_HEAVY)
+        self.assertEqual(log.operator, self.operator)
+
+    def test_unban_via_admin_writes_audit(self):
+        Profile.objects.filter(user=self.target).update(
+            status=ProfileStatus.BANNED_HEAVY, ban_reason="骚扰他人")
+        self._save(ProfileStatus.COMPLETE, "")
+        self.assertEqual(BanLog.objects.get(user=self.target).action, BanAction.UNBAN)

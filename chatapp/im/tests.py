@@ -10,7 +10,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Profile, ProfileStatus
 
-from .client import _request, import_account, send_custom_elem, send_match_notice, send_text
+from .client import _request, import_account, kick_user, send_custom_elem, send_match_notice, send_text
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 
 User = get_user_model()
@@ -114,6 +114,18 @@ class ImClientTests(SimpleTestCase):
         body = payload["MsgBody"][0]
         self.assertEqual(body["MsgType"], "TIMTextElem")
         self.assertEqual(body["MsgContent"]["Text"], "你好")
+
+    def test_kick_user_payload(self):
+        with patch("im.client._request", return_value={"ActionStatus": "OK", "ErrorCode": 0}) as req:
+            self.assertTrue(kick_user("u5"))
+        args, _ = req.call_args
+        self.assertEqual(args[0], "im_open_login_svc")
+        self.assertEqual(args[1], "kick")
+        self.assertEqual(args[2], {"UserID": "u5"})
+
+    def test_kick_user_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=Exception("boom")):
+            self.assertFalse(kick_user("u5"))
 
 
 class ImSendCommandTests(SimpleTestCase):
