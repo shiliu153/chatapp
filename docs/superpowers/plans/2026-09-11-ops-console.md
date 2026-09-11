@@ -1,6 +1,6 @@
 # 运营审核台(Moderation Console)实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 新 Django app `ops`,在 `/ops/` 提供产品级运营审核台(举报处理、照片审核、用户封禁、操作日志),替代日常使用 Django admin。
 
@@ -34,7 +34,7 @@
 - Consumes: `moderation.models.Report/ReportStatus/ReportType`、`accounts.models.User`(USERNAME_FIELD=phone,`create_user` 不设密码)
 - Produces: `ops.decorators.staff_required`(其他所有 Task 用)、`ops.context_processors.ops_badges`(提供 `pending_report_count`/`pending_photo_count`)、URL 命名空间 `ops`(`ops:reports` 等)
 
-- [ ] **Step 1: 建分支 + app 骨架 + 环境接线**
+- [x] **Step 1: 建分支 + app 骨架 + 环境接线**
 
 ```bash
 cd D:/pycharmproject/chat_app
@@ -90,7 +90,7 @@ urlpatterns = [
 ]
 ```
 
-- [ ] **Step 2: 写失败测试**
+- [x] **Step 2: 写失败测试**
 
 `chatapp/ops/tests.py`:
 
@@ -170,12 +170,12 @@ class ReportListTests(TestCase):
         self.assertNotContains(resp, "被举报乙")
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `python manage.py test ops`
 Expected: FAIL —— `ModuleNotFoundError: No module named 'ops.urls'`(urls/views 还没写)
 
-- [ ] **Step 4: 实现 decorator / 表单 / 上下文处理器 / 视图 / 模板**
+- [x] **Step 4: 实现 decorator / 表单 / 上下文处理器 / 视图 / 模板**
 
 `chatapp/ops/decorators.py`:
 
@@ -392,12 +392,12 @@ urlpatterns = [
 .ops-photos img { max-height: 96px; border-radius: 6px; }
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `python manage.py test ops`
 Expected: PASS(6 个用例全绿)
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/ops chatapp/config/settings.py chatapp/config/urls.py
@@ -416,7 +416,7 @@ git commit -m "feat(ops): ops app skeleton, staff login, report queue list"
 - Consumes: `ops.decorators.staff_required`、`moderation.models.BanLog/Report`
 - Produces: `ops.views.report_detail`、view 上下文函数 `_report_context(report)`(Task 3 复用)、`ops/partials/user_card.html`(入参 `user_obj` / `profile`,Task 6 也复用)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 追加到 `chatapp/ops/tests.py`:
 
@@ -437,12 +437,12 @@ class ReportDetailTests(TestCase):
         self.assertContains(resp, "骚扰我")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test ops.tests.ReportDetailTests`
 Expected: FAIL —— 404(路由还没建)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加:
 
@@ -576,12 +576,12 @@ from moderation.models import BanLog, Report, ReportStatus, ReportType
 <td><a href="{% url 'ops:report_detail' r.id %}">查看</a></td>
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test ops`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
@@ -600,7 +600,7 @@ git commit -m "feat(ops): report detail page with both parties' cards and histor
 - Consumes: `moderation.services.log_ban_change(user, old_status, new_status, reason, operator)`(已存在:写 BanLog;重封会后台踢 IM)、`_report_context`
 - Produces: `ops.views._apply_status_change(user, action, reason, operator)`(action ∈ `ban_light|ban_heavy|unban`;Task 7 复用)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 追加到 `chatapp/ops/tests.py`(顶部 import 补:`from unittest.mock import patch`、`from im import client as im_client`、`from moderation.models import BanAction, BanLog`、`from users.models import Profile, ProfileStatus`):
 
@@ -658,12 +658,12 @@ class ReportActionTests(TestCase):
         dispatch.assert_not_called()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test ops.tests.ReportActionTests`
 Expected: FAIL —— 404(handle/ban 路由还没建)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加(import 补 `from django.utils import timezone`、`from django.views.decorators.http import require_POST`、`from moderation.services import log_ban_change`、`from users.models import Profile, ProfileStatus`):
 
@@ -766,12 +766,12 @@ def report_ban(request, report_id):
 </article>
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test ops`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
@@ -790,7 +790,7 @@ git commit -m "feat(ops): report handling actions with quick-ban (HTMX)"
 - Produces: `users.services.review_photos(queryset, status, operator=None) -> int`(改状态 + 重算 Profile 状态 + 落 `reviewed_by/reviewed_at`;Task 5 复用)、`Photo.reviewed_by` / `Photo.reviewed_at` 字段
 - Consumes: 无(纯 users app 内重构)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `chatapp/users/tests.py` 的 `PhotoAdminActionTests` 类内追加:
 
@@ -802,12 +802,12 @@ git commit -m "feat(ops): report handling actions with quick-ban (HTMX)"
         self.assertIsNotNone(self.photo.reviewed_at)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test users.tests.PhotoAdminActionTests`
 Expected: FAIL —— `AttributeError: 'Photo' object has no attribute 'reviewed_by'`
 
-- [ ] **Step 3: 模型 + service + admin 改造**
+- [x] **Step 3: 模型 + service + admin 改造**
 
 `chatapp/users/models.py` 的 `Photo` 类在 `created_at` 前加:
 
@@ -850,7 +850,7 @@ def _review_photos(modeladmin, request, queryset, status):
     modeladmin.message_user(request, f"已处理 {count} 张照片")
 ```
 
-- [ ] **Step 4: 生成并应用 migration**
+- [x] **Step 4: 生成并应用 migration**
 
 Run:
 
@@ -861,12 +861,12 @@ python manage.py migrate
 
 Expected: 生成 `users/0004_*.py`(含 `photo.reviewed_by`、`photo.reviewed_at`),migrate OK。
 
-- [ ] **Step 5: 跑测试确认通过(含既有回归)**
+- [x] **Step 5: 跑测试确认通过(含既有回归)**
 
 Run: `python manage.py test users`
 Expected: PASS(原有 PhotoAdminActionTests 也全绿)
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/users
@@ -885,7 +885,7 @@ git commit -m "feat(users): extract review_photos service and add photo review a
 - Consumes: `users.services.review_photos`、`Photo.reviewed_by/reviewed_at`
 - Produces: `ops.views.photos`、`ops.views.photo_review`(POST `ids`(多个)+ `action` ∈ `approve|reject` + `status` 回显筛选)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 追加到 `chatapp/ops/tests.py`(import 补 `from users.models import Photo, PhotoStatus`):
 
@@ -928,21 +928,20 @@ class OpsPhotoReviewTests(TestCase):
         self.assertEqual(self.approved.status, PhotoStatus.REJECTED)
         self.assertEqual(self.profile.status, ProfileStatus.INCOMPLETE)
 
-    def test_already_reviewed_photo_is_skipped_with_notice(self):
+    def test_missing_photo_id_is_skipped_with_notice(self):
+        # 页面陈旧(照片已被用户删除)时,不存在的 id 只提示跳过,不报错
         resp = self.client.post("/ops/photos/review",
-                                {"ids": str(self.approved.id), "action": "approve",
+                                {"ids": "99999999", "action": "approve",
                                  "status": "pending"})
         self.assertContains(resp, "已跳过")
-        self.approved.refresh_from_db()
-        self.assertEqual(self.approved.reviewed_by_id, None)   # 未被重复审核
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test ops.tests.OpsPhotoReviewTests`
 Expected: FAIL —— 404(photos 路由还没建)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加(import 补 `from users.models import Photo, PhotoStatus`、`from users.services import review_photos`):
 
@@ -965,9 +964,10 @@ def photo_review(request):
     status_map = {"approve": PhotoStatus.APPROVED, "reject": PhotoStatus.REJECTED}
     skipped = 0
     if action in status_map and ids:
-        pending = Photo.objects.filter(pk__in=ids, status=PhotoStatus.PENDING)
-        skipped = len(ids) - pending.count()
-        review_photos(pending, status_map[action], request.user)
+        # 任何状态都可再审(已通过可撤回驳回);skipped 只统计页面陈旧、照片已被删除的 id
+        targets = Photo.objects.filter(pk__in=ids)
+        skipped = len(ids) - targets.count()
+        review_photos(targets, status_map[action], request.user)
     status = request.POST.get("status", PhotoStatus.PENDING)
     qs = Photo.objects.select_related("user", "reviewed_by").order_by("-created_at")
     if status in PhotoStatus.values:
@@ -1026,8 +1026,14 @@ def photo_review(request):
             hx-target="#photo-grid" hx-swap="outerHTML">
         <input type="hidden" name="ids" value="{{ photo.id }}">
         <input type="hidden" name="status" value="{{ status }}">
-        <button type="submit" name="action" value="approve">通过</button>
-        <button type="submit" name="action" value="reject" class="secondary">驳回</button>
+        {% if photo.status == 'pending' %}
+          <button type="submit" name="action" value="approve">通过</button>
+          <button type="submit" name="action" value="reject" class="secondary">驳回</button>
+        {% elif photo.status == 'approved' %}
+          <button type="submit" name="action" value="reject" class="secondary">撤回并驳回</button>
+        {% else %}
+          <button type="submit" name="action" value="approve">恢复通过</button>
+        {% endif %}
       </form>
     </div>
   </div>
@@ -1054,17 +1060,19 @@ def photo_review(request):
 .ops-photo-meta button { width: auto; padding: .25rem .75rem; margin: 0; }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test ops`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
 git commit -m "feat(ops): photo review queue with single/batch approve/reject"
 ```
+
+> **执行记录(2026-09-11)**:原计划 view 只处理 `status=PENDING` 的照片、已过审照片不可再驳回——实现后发现这与「已通过/已驳回」tab 的按钮语义矛盾(用户举报一张已过审照片时运营无法撤回)。已改为**任何状态都可再审**;`skipped` 只统计页面陈旧、照片已被删除的 id;行内按钮按当前状态显示(待审:通过/驳回;已通过:撤回并驳回;已驳回:恢复通过)。
 
 ---
 
@@ -1078,7 +1086,7 @@ git commit -m "feat(ops): photo review queue with single/batch approve/reject"
 - Consumes: `ops/partials/user_card.html`
 - Produces: `ops.views.users_search`、`ops.views.user_detail`、view 上下文函数 `_user_context(user)`(Task 7 复用);`ops/partials/user_ban_panel.html`(Task 7 会在其中加表单)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 追加到 `chatapp/ops/tests.py`:
 
@@ -1119,12 +1127,12 @@ class OpsUserDetailTests(TestCase):
         self.assertContains(resp, "13900139000")   # 举报人
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test ops.tests.OpsUserSearchTests ops.tests.OpsUserDetailTests`
 Expected: FAIL —— 404(users 路由还没建)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加(import 补 `from django.db.models import Count, Q`、`from moderation.models import Block`):
 
@@ -1211,22 +1219,24 @@ import 行同时补 `from accounts.models import User`(Task 1-5 还没用过 Use
   <h3>举报关系</h3>
   <p>被举报({{ reports_received|length }} 条):</p>
   <table>
-    <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>状态</th></tr></thead>
+    <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>说明</th><th>状态</th></tr></thead>
     <tbody>
     {% for r in reports_received %}
       <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
-          <td>{{ r.reporter.phone }}</td><td>{{ r.get_status_display }}</td></tr>
-    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+          <td>{{ r.reporter.phone }}</td><td>{{ r.detail|default:"—" }}</td>
+          <td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
     </tbody>
   </table>
   <p>发出的举报({{ reports_made|length }} 条):</p>
   <table>
-    <thead><tr><th>时间</th><th>类型</th><th>被举报人</th><th>状态</th></tr></thead>
+    <thead><tr><th>时间</th><th>类型</th><th>被举报人</th><th>说明</th><th>状态</th></tr></thead>
     <tbody>
     {% for r in reports_made %}
       <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
-          <td>{{ r.target.phone }}</td><td>{{ r.get_status_display }}</td></tr>
-    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+          <td>{{ r.target.phone }}</td><td>{{ r.detail|default:"—" }}</td>
+          <td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
     </tbody>
   </table>
 </article>
@@ -1270,12 +1280,12 @@ import 行同时补 `from accounts.models import User`(Task 1-5 还没用过 Use
   <a href="{% url 'ops:users' %}">用户</a>
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test ops`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
@@ -1293,7 +1303,7 @@ git commit -m "feat(ops): user search and profile detail page"
 - Consumes: `ops.views._apply_status_change`(Task 3)、`_user_context`(Task 6)
 - Produces: `ops.views.user_ban`(POST `action` ∈ `ban_light|ban_heavy|unban` + `reason`)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 追加到 `chatapp/ops/tests.py`:
 
@@ -1350,12 +1360,12 @@ class OpsUserBanTests(TestCase):
         self.assertTrue(BanLog.objects.filter(user=self.user, action=BanAction.UNBAN).exists())
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test ops.tests.OpsUserBanTests`
 Expected: FAIL —— 404(user ban 路由还没建)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加:
 
@@ -1401,12 +1411,12 @@ def user_ban(request, user_id):
   <p><small>重度封禁会自动踢掉其 IM 登录(重封最长 7 天内还能聊的问题由踢下线兜底)。</small></p>
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test ops`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
@@ -1425,7 +1435,7 @@ git commit -m "feat(ops): user ban/unban actions with audit trail (HTMX)"
 - Consumes: `moderation.models.BanLog/BanAction/Block`
 - Produces: `ops.views.logs`(筛选参数 `action` / `phone` / `date`)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 追加到 `chatapp/ops/tests.py`:
 
@@ -1449,12 +1459,12 @@ class OpsLogsTests(TestCase):
         self.assertNotContains(resp, "骚扰")   # 轻度封禁行的原因文本被过滤掉(动作名在筛选下拉里恒有,不能拿来断言)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test ops.tests.OpsLogsTests`
 Expected: FAIL —— 404(logs 路由还没建)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加(import 补 `from django.core.exceptions import ValidationError`、`from moderation.models import BanAction`):
 
@@ -1537,12 +1547,12 @@ def logs(request):
   <a href="{% url 'ops:logs' %}">日志</a>
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test ops`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
@@ -1560,7 +1570,7 @@ git commit -m "feat(ops): audit logs page (ban history + block reconciliation)"
 - Consumes: 前 8 个 Task 的全部产出
 - Produces: 可交付的 `/ops/` 审核台 + 文档
 
-- [ ] **Step 1: 全量测试(后端 + 确认前端不受影响)**
+- [x] **Step 1: 全量测试(后端 + 确认前端不受影响)**
 
 ```bash
 cd D:/pycharmproject/chat_app/chatapp && python manage.py test
@@ -1569,6 +1579,8 @@ cd D:/pycharmproject/chat_app/chatapp && python manage.py test
 Expected: 全部 PASS(原 153 + 本计划新增 ≈ 25 个用例)。
 
 - [ ] **Step 2: 手测冒烟(需后端 runserver + 浏览器)**
+
+> **执行记录(2026-09-11)**:自动化冒烟已过——实时 runserver `/ops/` 302→登录页、`/ops/login/` 200、三个静态资源 200;staff 会话(admin 账号)对 `/ops/reports/`、`/ops/photos/`、`/ops/users/`、`/ops/logs/`、举报详情、用户详情均 200。**浏览器逐项手测留待用户**(下方清单)。
 
 启动/复用 `python manage.py runserver 0.0.0.0:8000`,浏览器开 `http://127.0.0.1:8000/ops/`:
 
@@ -1580,7 +1592,7 @@ Expected: 全部 PASS(原 153 + 本计划新增 ≈ 25 个用例)。
 6. 日志页出现刚才的封禁/解封流水
 7. 顺带确认 Django admin 照片 action 仍可用(随便点一个)
 
-- [ ] **Step 3: 更新 CLAUDE.md**
+- [x] **Step 3: 更新 CLAUDE.md**
 
 「当前进度」段的 M3 描述后追加一句:完成 `ops` 运营审核台(`/ops/`,is_staff 登录;举报处理/照片审核/用户封禁/操作日志)。并在「合规与审核(M3 已实测)」小节末尾新增:
 
@@ -1594,7 +1606,7 @@ Expected: 全部 PASS(原 153 + 本计划新增 ≈ 25 个用例)。
 - 测试纪律:任何触发 IM 的路径 mock `moderation.services._dispatch_async`
 ```
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 cd D:/pycharmproject/chat_app
@@ -1602,7 +1614,7 @@ git add CLAUDE.md
 git commit -m "docs: document ops console in CLAUDE.md"
 ```
 
-- [ ] **Step 5: 分支收尾**
+- [x] **Step 5: 分支收尾**
 
 沿用仓库节奏(短生命周期分支):用户手测通过后合回 master:
 

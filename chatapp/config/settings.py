@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "discovery",
     "im",
     "moderation",
+    "ops",
 ]
 
 MIDDLEWARE = [
@@ -78,6 +79,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "ops.context_processors.ops_badges",
             ],
         },
     },
@@ -210,3 +212,5 @@ PHOTO_MAX_BYTES = 5 * 1024 * 1024
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+LOGIN_REDIRECT_URL = "/ops/reports/"

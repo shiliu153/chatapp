@@ -1,0 +1,24 @@
+<div id="ban-panel">
+  {% if error %}<p class="ops-error">{{ error }}</p>{% endif %}
+  <p>当前状态:{% if target_profile %}<span class="tag {% if target_profile.status == 'complete' %}tag-green{% elif target_profile.status == 'banned_light' %}tag-orange{% elif target_profile.status == 'banned_heavy' %}tag-red{% else %}tag-gray{% endif %}">{{ target_profile.get_status_display }}</span>{% else %}无资料{% endif %}
+    {% if target_profile.ban_reason %}· 原因:{{ target_profile.ban_reason }}{% endif %}</p>
+  <form hx-post="{% url 'ops:user_ban' target_user.id %}"
+        hx-target="#ban-panel" hx-swap="outerHTML">
+    <label>原因(封禁必填;解封可留空)
+      <input type="text" name="reason" maxlength="200"></label>
+    <button type="submit" name="action" value="ban_light" class="warn">轻度封禁</button>
+    <button type="submit" name="action" value="ban_heavy" class="danger">重度封禁</button>
+    <button type="submit" name="action" value="unban" class="ok">解封</button>
+  </form>
+  <p><small>重度封禁会自动踢掉其 IM 登录(重封最长 7 天内还能聊的问题由踢下线兜底)。</small></p>
+  <h4>封禁历史</h4>
+  <table>
+    <thead><tr><th>时间</th><th>动作</th><th>原因</th><th>操作人</th></tr></thead>
+    <tbody>
+    {% for log in ban_logs %}
+      <tr><td>{{ log.created_at|date:"Y-m-d H:i" }}</td><td>{{ log.get_action_display }}</td>
+          <td>{{ log.reason|default:"—" }}</td><td>{{ log.operator.phone|default:"—" }}</td></tr>
+    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>

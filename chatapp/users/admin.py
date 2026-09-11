@@ -4,6 +4,7 @@ from django.utils.html import format_html
 from moderation.services import log_ban_change
 
 from .models import Photo, PhotoStatus, Preference, Profile, Tag
+from .services import review_photos
 
 
 @admin.register(Profile)
@@ -32,12 +33,7 @@ def reject_photos(modeladmin, request, queryset):
 
 
 def _review_photos(modeladmin, request, queryset, status):
-    user_ids = set(queryset.values_list("user_id", flat=True))
-    count = queryset.count()
-    queryset.update(status=status)
-    # 照片数量变化会影响「资料完善」判定(掉回未完善 = 失去候选资格),必须重算
-    for profile in Profile.objects.filter(user_id__in=user_ids):
-        profile.refresh_status()
+    count = review_photos(queryset, status, request.user)
     modeladmin.message_user(request, f"已处理 {count} 张照片")
 
 

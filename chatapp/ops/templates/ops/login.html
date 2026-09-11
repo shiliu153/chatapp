@@ -1,0 +1,22 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · 运营审核台</title>
+  <link rel="stylesheet" href="{% static 'ops/ops.css' %}">
+</head>
+<body class="login-body">
+<div class="login-card">
+  <h1>运营审核台</h1>
+  <form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<p class="ops-error">{{ form.non_field_errors.0 }}</p>{% endif %}
+    <label>手机号<input type="text" name="username" autofocus autocomplete="username"></label>
+    <label>密码<input type="password" name="password" autocomplete="current-password"></label>
+    <button type="submit">登录</button>
+  </form>
+</div>
+</body>
+</html>

@@ -109,6 +109,9 @@ class Photo(models.Model):
     order = models.PositiveSmallIntegerField("排序", default=0)
     status = models.CharField("审核状态", max_length=10, choices=PhotoStatus.choices,
                               default=PhotoStatus.PENDING)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                    on_delete=models.SET_NULL, related_name="photos_reviewed")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

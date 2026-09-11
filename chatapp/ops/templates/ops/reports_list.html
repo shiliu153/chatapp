@@ -1,0 +1,32 @@
+{% extends "ops/base.html" %}
+{% block page_title %}举报队列{% endblock %}
+{% block content %}
+<p class="ops-tabs">
+  <a href="?status=pending" class="{% if status == 'pending' %}active{% endif %}">待处理</a>
+  <a href="?status=handled" class="{% if status == 'handled' %}active{% endif %}">已处理</a>
+  <a href="?status=all" class="{% if status == 'all' %}active{% endif %}">全部</a>
+  <span class="ops-tabs-sep">|</span>
+  {% for value, label in types %}
+    <a href="?status={{ status }}&type={{ value }}" class="{% if rtype == value %}active{% endif %}">{{ label }}</a>
+  {% endfor %}
+</p>
+<article>
+<table>
+  <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>被举报人</th><th>被举报次数</th><th></th></tr></thead>
+  <tbody>
+  {% for r in reports %}
+    <tr>
+      <td>{{ r.created_at|date:"m-d H:i" }}</td>
+      <td>{{ r.get_type_display }}</td>
+      <td>{{ r.reporter.phone }}</td>
+      <td>{{ r.target.phone }}{% if r.target.profile.nickname %}({{ r.target.profile.nickname }}){% endif %}</td>
+      <td>{{ r.target_report_count }}</td>
+      <td><a href="{% url 'ops:report_detail' r.id %}">查看</a></td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="6">没有符合条件的举报</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</article>
+{% endblock %}

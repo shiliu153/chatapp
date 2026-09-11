@@ -290,6 +290,12 @@ class PhotoAdminActionTests(TestCase):
         self.assertEqual(self.photo.status, PhotoStatus.APPROVED)
         self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)
 
+    def test_action_records_reviewer_and_time(self):
+        self._run_action("approve_photos", self.photo)
+        self.photo.refresh_from_db()
+        self.assertEqual(self.photo.reviewed_by, self.staff)
+        self.assertIsNotNone(self.photo.reviewed_at)
+
 
 class PublicProfileTests(AuthMixin, APITestCase):
     def setUp(self):
