@@ -37,3 +37,6 @@ Thumbs.db
 
 # Playwright MCP artifacts
 .playwright-mcp/
+
+# Brainstorm 预览(Mockup)会话产物
+.superpowers/
