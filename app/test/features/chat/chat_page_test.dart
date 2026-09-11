@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
@@ -61,9 +62,23 @@ void main() {
       sessionProvider.overrideWith(_LoggedInSession.new),
     ]);
     addTearDown(container.dispose);
+    final router = GoRouter(
+      initialLocation: '/chat/u9',
+      routes: [
+        GoRoute(
+          path: '/chat/:peerId',
+          builder: (context, state) => ChatPage(peerId: state.pathParameters['peerId']!),
+        ),
+        GoRoute(
+          path: '/users/:id',
+          builder: (context, state) =>
+              Scaffold(body: Text('资料卡:${state.pathParameters['id']}')),
+        ),
+      ],
+    );
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(home: ChatPage(peerId: 'u9')),
+      child: MaterialApp.router(routerConfig: router),
     ));
     await tester.pumpAndSettle();
   }
@@ -133,5 +148,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('在吗'), findsOneWidget);
+  });
+
+  testWidgets('点标题进对方资料卡', (tester) async {
+    await pumpChat(tester);
+
+    await tester.tap(find.byKey(const Key('chat.title')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('资料卡:9'), findsOneWidget);   // u9 → 用户 9
   });
 }

@@ -9,6 +9,7 @@ import 'features/chat/chat_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/profile/preference_page.dart';
 import 'features/profile/profile_edit_page.dart';
+import 'features/profile/user_profile_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/shell/home_shell.dart';
 
@@ -32,6 +33,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/chat/:peerId',
         builder: (context, state) => ChatPage(peerId: state.pathParameters['peerId']!),
+      ),
+      GoRoute(
+        path: '/users/:id',
+        builder: (context, state) =>
+            UserProfilePage(userId: int.parse(state.pathParameters['id']!)),
       ),
     ],
     redirect: (context, state) {
