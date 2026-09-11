@@ -1,0 +1,60 @@
+{% extends "ops/base.html" %}
+{% block content %}
+<h2>举报详情 #{{ report.id }}</h2>
+<p><a href="{% url 'ops:reports' %}">← 返回队列</a></p>
+<article>
+  <p><strong>类型:</strong>{{ report.get_type_display }}
+     　<strong>时间:</strong>{{ report.created_at|date:"Y-m-d H:i" }}
+     　<strong>状态:</strong>{{ report.get_status_display }}</p>
+  <p><strong>说明:</strong>{{ report.detail|default:"(无)" }}</p>
+</article>
+<div class="ops-grid-2">
+  <article>
+    <h3>举报人</h3>
+    {% include "ops/partials/user_card.html" with user_obj=report.reporter profile=reporter_profile %}
+  </article>
+  <article>
+    <h3>被举报人</h3>
+    {% include "ops/partials/user_card.html" with user_obj=report.target profile=target_profile %}
+  </article>
+</div>
+<article id="report-panel-wrap">
+  <h3>处理</h3>
+  <p>待处理(Task 3 提供操作)</p>
+</article>
+<article>
+  <h3>被举报人封禁历史</h3>
+  <table>
+    <thead><tr><th>时间</th><th>动作</th><th>原因</th><th>操作人</th></tr></thead>
+    <tbody>
+    {% for log in target_ban_logs %}
+      <tr><td>{{ log.created_at|date:"Y-m-d H:i" }}</td><td>{{ log.get_action_display }}</td>
+          <td>{{ log.reason|default:"—" }}</td><td>{{ log.operator.phone|default:"—" }}</td></tr>
+    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</article>
+<article>
+  <h3>双方举报历史</h3>
+  <p>举报人发出的举报:</p>
+  <table>
+    <thead><tr><th>时间</th><th>类型</th><th>被举报人</th><th>状态</th></tr></thead>
+    <tbody>
+    {% for r in reporter_reports %}
+      <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
+          <td>{{ r.target.phone }}</td><td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <p>被举报人被举报的历史:</p>
+  <table>
+    <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>状态</th></tr></thead>
+    <tbody>
+    {% for r in target_reports %}
+      <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
+          <td>{{ r.reporter.phone }}</td><td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</article>
+{% endblock %}

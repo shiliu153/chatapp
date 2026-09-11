@@ -71,3 +71,19 @@ class ReportListTests(TestCase):
         resp = self.client.get("/ops/reports/", {"status": "handled"})
         self.assertContains(resp, "被举报甲")
         self.assertNotContains(resp, "被举报乙")
+
+
+class ReportDetailTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_staff())
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+        self.report = Report.objects.create(reporter=self.a, target=self.b,
+                                            type=ReportType.HARASSMENT, detail="骚扰我")
+
+    def test_detail_shows_both_parties(self):
+        resp = self.client.get(f"/ops/reports/{self.report.id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "13800138000")   # 举报人
+        self.assertContains(resp, "13900139000")   # 被举报人
+        self.assertContains(resp, "骚扰我")

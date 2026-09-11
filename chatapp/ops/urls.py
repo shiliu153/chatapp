@@ -15,4 +15,5 @@ urlpatterns = [
     ), name="login"),
     path("logout/", auth_views.LogoutView.as_view(next_page="ops:login"), name="logout"),
     path("reports/", views.reports_list, name="reports"),
+    path("reports/<int:report_id>/", views.report_detail, name="report_detail"),
 ]

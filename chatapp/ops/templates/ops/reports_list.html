@@ -20,7 +20,7 @@
       <td>{{ r.reporter.phone }}</td>
       <td>{{ r.target.phone }}{% if r.target.profile.nickname %}({{ r.target.profile.nickname }}){% endif %}</td>
       <td>{{ r.target_report_count }}</td>
-      <td></td>
+      <td><a href="{% url 'ops:report_detail' r.id %}">查看</a></td>
     </tr>
   {% empty %}
     <tr><td colspan="6">没有符合条件的举报</td></tr>
