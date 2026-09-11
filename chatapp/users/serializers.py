@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from moderation.text_check import find_blocked_word
 
-from .models import Gender, Photo, Preference, Profile, Tag, calculate_age
+from .models import Gender, Photo, PhotoStatus, Preference, Profile, Tag, calculate_age
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -50,6 +50,23 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ["id", "phone", "nickname", "gender", "birthday", "age", "city", "bio",
                   "status", "ban_reason", "missing_fields", "tags", "photos", "preference"]
+
+
+class PublicProfileSerializer(serializers.ModelSerializer):
+    """对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。"""
+
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
+    age = serializers.IntegerField(read_only=True)
+    tags = TagSerializer(many=True, read_only=True)
+    photos = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Profile
+        fields = ["user_id", "nickname", "gender", "age", "city", "bio", "tags", "photos"]
+
+    def get_photos(self, profile):
+        approved = [p for p in profile.user.photos.all() if p.status == PhotoStatus.APPROVED]
+        return PhotoSerializer(approved, many=True, context=self.context).data
 
 
 class ProfileUpdateSerializer(serializers.Serializer):

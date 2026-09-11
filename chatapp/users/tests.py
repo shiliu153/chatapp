@@ -10,6 +10,8 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from moderation.models import Block
+
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
 
 User = get_user_model()
@@ -287,3 +289,49 @@ class PhotoAdminActionTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.photo.status, PhotoStatus.APPROVED)
         self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)
+
+
+class PublicProfileTests(AuthMixin, APITestCase):
+    def setUp(self):
+        self.me = User.objects.create_user(phone="13800138000")
+        self.login(self.me)
+        self.other = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.other, nickname="小红", gender="female",
+                               birthday="1998-01-01", city="上海", bio="喜欢爬山",
+                               status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=self.other, file="photos/a.png", status=PhotoStatus.APPROVED)
+        Photo.objects.create(user=self.other, file="photos/b.png", status=PhotoStatus.PENDING)
+
+    def _get(self):
+        return self.client.get(f"/api/v1/users/{self.other.id}")
+
+    def test_returns_public_fields_only(self):
+        data = self._get().json()
+        self.assertEqual(data["user_id"], self.other.id)
+        self.assertEqual(data["nickname"], "小红")
+        self.assertEqual(data["age"], calculate_age(date(1998, 1, 1)))
+        self.assertEqual(len(data["photos"]), 1)          # 只有过审那张
+        for hidden in ("phone", "birthday", "preference", "missing_fields"):
+            self.assertNotIn(hidden, data)
+
+    def test_heavy_banned_target_is_invisible(self):
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(self._get().status_code, 404)
+
+    def test_light_banned_target_still_visible(self):
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_LIGHT)
+        self.assertEqual(self._get().status_code, 200)
+
+    def test_blocked_relationship_hides_both_ways(self):
+        Block.objects.create(blocker=self.me, blocked=self.other)
+        self.assertEqual(self._get().status_code, 404)
+        Block.objects.all().delete()
+        Block.objects.create(blocker=self.other, blocked=self.me)
+        self.assertEqual(self._get().status_code, 404)
+
+    def test_unknown_user_returns_404(self):
+        self.assertEqual(self.client.get("/api/v1/users/999999").status_code, 404)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self._get().status_code, 401)

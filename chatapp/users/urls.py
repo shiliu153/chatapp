@@ -8,4 +8,5 @@ urlpatterns = [
     path("me/photos/<int:photo_id>", views.delete_photo),
     path("me/preference", views.my_preference),
     path("tags", views.tag_list),
+    path("<int:user_id>", views.public_profile),
 ]
