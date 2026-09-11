@@ -49,7 +49,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = ["id", "phone", "nickname", "gender", "birthday", "age", "city", "bio",
-                  "status", "missing_fields", "tags", "photos", "preference"]
+                  "status", "ban_reason", "missing_fields", "tags", "photos", "preference"]
 
 
 class ProfileUpdateSerializer(serializers.Serializer):

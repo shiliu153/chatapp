@@ -1,8 +1,10 @@
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import RefreshToken
 
-from users.models import Profile
+from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 from .models import BanAction, BanLog, Block, Report, ReportStatus, ReportType
 from .text_check import find_blocked_word
@@ -52,3 +54,56 @@ class ModerationModelTests(TestCase):
         profile = Profile.objects.create(user=self.b, ban_reason="违规")
         profile.refresh_from_db()
         self.assertEqual(profile.ban_reason, "违规")
+
+
+class IsNotHeavyBannedTests(APITestCase):
+    """重封禁 = 全业务 403;白名单(看自己资料/标签池)放行;轻封禁不受影响。"""
+
+    def setUp(self):
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我", gender="male", birthday="2000-01-01",
+                               city="上海", bio="你好", status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=self.me, file="photos/x.png", status=PhotoStatus.APPROVED)
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _ban(self, status):
+        Profile.objects.filter(user=self.me).update(status=status)
+
+    def test_heavy_banned_blocked_across_business_endpoints(self):
+        self._ban(ProfileStatus.BANNED_HEAVY)
+        for method, url in [
+            ("get", "/api/v1/discovery/candidates"),
+            ("get", "/api/v1/matches"),
+            ("post", "/api/v1/discovery/swipe"),
+            ("post", "/api/v1/users/me/photos"),
+            ("patch", "/api/v1/users/me/preference"),
+        ]:
+            resp = getattr(self.client, method)(url)
+            self.assertEqual(resp.status_code, 403, msg=f"{method} {url} 应 403")
+            self.assertEqual(resp.json()["message"], "账号已被封禁,如有疑问请联系客服")
+
+    def test_heavy_banned_can_still_read_own_profile_and_tags(self):
+        self._ban(ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(self.client.get("/api/v1/users/me").status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/users/tags").status_code, 200)
+
+    def test_heavy_banned_cannot_patch_own_profile(self):
+        self._ban(ProfileStatus.BANNED_HEAVY)
+        resp = self.client.patch("/api/v1/users/me", {"city": "北京"}, format="json")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_light_banned_only_swipe_blocked(self):
+        self._ban(ProfileStatus.BANNED_LIGHT)
+        self.assertEqual(self.client.get("/api/v1/discovery/candidates").status_code, 200)
+        # swipe 里先过序列化器再查封禁,所以要带合法 body
+        resp = self.client.post("/api/v1/discovery/swipe",
+                                {"target_user_id": 999999, "action": "like"}, format="json")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_me_exposes_ban_reason(self):
+        Profile.objects.filter(user=self.me).update(
+            status=ProfileStatus.BANNED_HEAVY, ban_reason="骚扰他人")
+        data = self.client.get("/api/v1/users/me").json()
+        self.assertEqual(data["status"], "banned_heavy")
+        self.assertEqual(data["ban_reason"], "骚扰他人")
