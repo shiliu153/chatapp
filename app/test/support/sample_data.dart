@@ -10,6 +10,8 @@ Map<String, dynamic> profileJson({
   List<Map<String, dynamic>> tags = const [],
   List<Map<String, dynamic>> photos = const [],
   Map<String, dynamic>? preference,
+  String? status,
+  String banReason = '',
 }) =>
     {
       'id': id,
@@ -20,7 +22,8 @@ Map<String, dynamic> profileJson({
       'age': birthday == null ? null : 26,
       'city': city,
       'bio': bio,
-      'status': missing.isEmpty ? 'complete' : 'incomplete',
+      'status': status ?? (missing.isEmpty ? 'complete' : 'incomplete'),
+      'ban_reason': banReason,
       'missing_fields': missing,
       'tags': tags,
       'photos': photos,
