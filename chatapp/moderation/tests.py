@@ -179,3 +179,44 @@ class ProfileAdminHookTests(TestCase):
             status=ProfileStatus.BANNED_HEAVY, ban_reason="骚扰他人")
         self._save(ProfileStatus.COMPLETE, "")
         self.assertEqual(BanLog.objects.get(user=self.target).action, BanAction.UNBAN)
+
+
+class ReportAdminTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_superuser(phone="13700137000", password="pw")
+        self.reporter = User.objects.create_user(phone="13800138000")
+        self.target = User.objects.create_user(phone="13900139000")
+        self.report = Report.objects.create(reporter=self.reporter, target=self.target,
+                                            type=ReportType.HARASSMENT, detail="发骚扰消息")
+
+    def test_handling_report_fills_handler_and_time(self):
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+
+        from .admin import ReportAdmin
+
+        request = RequestFactory().post("/admin/")
+        request.user = self.staff
+        model_admin = ReportAdmin(Report, django_admin.site)
+        obj = Report.objects.get(pk=self.report.pk)
+        obj.status = ReportStatus.HANDLED
+        obj.handled_note = "已警告"
+        model_admin.save_model(request, obj, form=None, change=True)
+        obj.refresh_from_db()
+        self.assertEqual(obj.handled_by, self.staff)
+        self.assertIsNotNone(obj.handled_at)
+        self.assertEqual(obj.handled_note, "已警告")
+
+    def test_block_and_banlog_admins_are_readonly(self):
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+
+        from .admin import BanLogAdmin, BlockAdmin
+
+        request = RequestFactory().get("/admin/")
+        request.user = self.staff
+        for model, admin_cls in [(Block, BlockAdmin), (BanLog, BanLogAdmin)]:
+            model_admin = admin_cls(model, django_admin.site)
+            self.assertFalse(model_admin.has_add_permission(request))
+            self.assertFalse(model_admin.has_change_permission(request))
+            self.assertFalse(model_admin.has_delete_permission(request))
