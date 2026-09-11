@@ -1,0 +1,14 @@
+.ops-nav { display: flex; gap: 1rem; align-items: center; padding-top: 1rem; }
+.ops-nav .ops-badge { background: #d93025; color: #fff; border-radius: 999px;
+  font-size: .75rem; padding: .05rem .5rem; margin-left: .25rem; }
+.ops-nav .ops-logout { margin-left: auto; display: flex; gap: .5rem; align-items: center; }
+.ops-nav .ops-logout button { padding: .25rem .75rem; width: auto; margin: 0; }
+.ops-error { color: #b3261e; font-weight: 600; }
+.ops-warn { color: #8a6d00; }
+.ops-login { max-width: 26rem; margin: 4rem auto; }
+.ops-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.ops-tabs a { margin-right: .75rem; }
+.ops-tabs a.active { font-weight: 700; text-decoration: underline; }
+.ops-tabs-sep { margin: 0 .5rem; color: #999; }
+.ops-photos { display: flex; gap: .4rem; flex-wrap: wrap; }
+.ops-photos img { max-height: 96px; border-radius: 6px; }

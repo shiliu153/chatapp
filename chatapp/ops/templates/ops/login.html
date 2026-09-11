@@ -1,0 +1,14 @@
+{% extends "ops/base.html" %}
+{% block title %}登录 · 运营审核台{% endblock %}
+{% block content %}
+<article class="ops-login">
+  <h2>运营审核台</h2>
+  <form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<p class="ops-error">{{ form.non_field_errors.0 }}</p>{% endif %}
+    <label>手机号<input type="text" name="username" autofocus autocomplete="username"></label>
+    <label>密码<input type="password" name="password" autocomplete="current-password"></label>
+    <button type="submit">登录</button>
+  </form>
+</article>
+{% endblock %}

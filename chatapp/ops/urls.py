@@ -1,0 +1,18 @@
+from django.contrib.auth import views as auth_views
+from django.urls import path
+
+from . import views
+from .forms import OpsLoginForm
+
+app_name = "ops"
+
+urlpatterns = [
+    path("", views.home, name="home"),
+    path("login/", auth_views.LoginView.as_view(
+        template_name="ops/login.html",
+        authentication_form=OpsLoginForm,
+        redirect_authenticated_user=True,
+    ), name="login"),
+    path("logout/", auth_views.LogoutView.as_view(next_page="ops:login"), name="logout"),
+    path("reports/", views.reports_list, name="reports"),
+]

@@ -1,0 +1,28 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}运营审核台{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'ops/vendor/pico.min.css' %}">
+  <link rel="stylesheet" href="{% static 'ops/ops.css' %}">
+  <script src="{% static 'ops/vendor/htmx.min.js' %}"></script>
+</head>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+<nav class="container ops-nav">
+  <strong>运营审核台</strong>
+  <a href="{% url 'ops:reports' %}">举报{% if pending_report_count %} <span class="ops-badge">{{ pending_report_count }}</span>{% endif %}</a>
+  {% if user.is_authenticated %}
+  <form method="post" action="{% url 'ops:logout' %}" class="ops-logout">
+    {% csrf_token %}
+    <span>{{ user.phone }}</span>
+    <button type="submit" class="secondary outline">退出</button>
+  </form>
+  {% endif %}
+</nav>
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>
