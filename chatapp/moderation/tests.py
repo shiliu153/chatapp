@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, TestCase
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from discovery.models import Match
 from im import client as im_client
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
@@ -354,3 +355,38 @@ class BlockApiTests(APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get(self.URL).status_code, 401)
+
+
+class BlockVisibilityTests(APITestCase):
+    """拉黑双向不可见:候选/配对统一过滤;已有 Match 记录不删(解除后恢复)。"""
+
+    def setUp(self):
+        self.me = self._make_user("13800138000")
+        self.other = self._make_user("13900139000")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make_user(self, phone):
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(user=user, nickname=phone, gender="female", birthday="2000-01-01",
+                               city="上海", bio="你好", status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        return user
+
+    def test_candidates_exclude_blocked_by_me(self):
+        Block.objects.create(blocker=self.me, blocked=self.other)
+        self.assertEqual(self.client.get("/api/v1/discovery/candidates").json(), [])
+
+    def test_candidates_exclude_people_who_blocked_me(self):
+        Block.objects.create(blocker=self.other, blocked=self.me)
+        self.assertEqual(self.client.get("/api/v1/discovery/candidates").json(), [])
+
+    def test_matches_exclude_blocked_pair(self):
+        Match.objects.create(**Match.pair_kwargs(self.me, self.other))
+        self.assertEqual(len(self.client.get("/api/v1/matches").json()), 1)
+        Block.objects.create(blocker=self.other, blocked=self.me)
+        self.assertEqual(self.client.get("/api/v1/matches").json(), [])
+
+    def test_removing_block_restores_visibility(self):
+        Block.objects.create(blocker=self.me, blocked=self.other).delete()
+        self.assertEqual(len(self.client.get("/api/v1/discovery/candidates").json()), 1)

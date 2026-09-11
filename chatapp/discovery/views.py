@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from moderation.services import blocked_user_ids
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bounds
 from users.services import get_profile
 
@@ -35,11 +36,13 @@ def candidates(request):
     ]
 
     # 有过审照片的人才进候选(用子查询而不是 JOIN,避免出重复行、也避免 distinct + 随机排序的坑)
+    blocked_ids = blocked_user_ids(me)
     with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
     qs = (Profile.objects.filter(status=ProfileStatus.COMPLETE, user_id__in=with_photos)
           .exclude(user_id=me.id)
           .exclude(user_id__in=list(swiped_ids))
-          .exclude(user_id__in=matched_ids))
+          .exclude(user_id__in=matched_ids)
+          .exclude(user_id__in=list(blocked_ids)))
 
     if preference.target_gender:
         qs = qs.filter(gender=preference.target_gender)
@@ -94,7 +97,9 @@ def swipe(request):
 @api_view(["GET"])
 def match_list(request):
     me = request.user
+    blocked_ids = blocked_user_ids(me)
     matches = (Match.objects.filter(Q(user_a=me) | Q(user_b=me))
+               .exclude(Q(user_a_id__in=blocked_ids) | Q(user_b_id__in=blocked_ids))
                .select_related("user_a__profile", "user_b__profile")
                .prefetch_related("user_a__photos", "user_b__photos"))
     return Response([_match_entry(match, me, request) for match in matches])
