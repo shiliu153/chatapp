@@ -92,6 +92,8 @@ class _ProfileBody extends ConsumerWidget {
       if (context.mounted) _snack(context, error.message);
       return;
     }
+    // 黑名单列表是全局缓存的:拉黑后不失效,设置里再打开还是旧列表(2026-09-11 手测 bug)
+    ref.invalidate(blockedUsersProvider);
     try {
       // 拉黑已生效,清本机会话只是收尾:失败不打断流程(对方消息已被 IM 黑名单拦)
       await ref.read(imClientProvider).deleteConversation('u${profile.userId}');

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/profile/user_profile_page.dart';
+import 'package:chatapp_app/features/settings/blocked_users_page.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
@@ -112,5 +113,52 @@ void main() {
     expect(fake.log, contains('deleteConversation:u9'));
     expect(find.text('首页'), findsOneWidget);   // 已返回上一页
     expect(find.text('已拉黑'), findsOneWidget);
+  });
+
+  testWidgets('拉黑后回黑名单页:缓存失效并重新拉取(复现 2026-09-11 手测)', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(nickname: '小红'));
+    var blocks = <Map<String, dynamic>>[];
+    adapter.routes['GET /blocks'] = (options) => ok(blocks);
+    adapter.routes['POST /blocks'] = (options) {
+      blocks = [blockedUserJson(userId: 9, nickname: '小红')];
+      return ok({'user_id': 9}, status: 201);
+    };
+
+    final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
+    final container = ProviderContainer(overrides: [
+      baseDioProvider.overrideWithValue(dio),
+      refreshDioProvider.overrideWithValue(dio),
+      imClientProvider.overrideWithValue(fake),
+      imStatusProvider.overrideWith(_LoggedInImManager.new),
+    ]);
+    addTearDown(container.dispose);
+    // 首页 = 黑名单页(先看过一次,空列表进缓存),可 push 资料卡
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(path: '/', builder: (context, state) => const BlockedUsersPage()),
+        GoRoute(
+          path: '/users/:id',
+          builder: (context, state) =>
+              UserProfilePage(userId: int.parse(state.pathParameters['id']!)),
+        ),
+      ],
+    );
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有拉黑任何人'), findsOneWidget);   // 预热:空态已缓存
+
+    router.push('/users/9');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('user.block')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('user.block.confirm')));
+    await tester.pumpAndSettle();
+
+    // 拉黑成功会 pop 回黑名单页;缓存若没失效,这里仍是空态(手测踩到的 bug)
+    expect(find.text('小红'), findsOneWidget);
   });
 }
