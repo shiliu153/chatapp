@@ -1219,22 +1219,24 @@ import 行同时补 `from accounts.models import User`(Task 1-5 还没用过 Use
   <h3>举报关系</h3>
   <p>被举报({{ reports_received|length }} 条):</p>
   <table>
-    <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>状态</th></tr></thead>
+    <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>说明</th><th>状态</th></tr></thead>
     <tbody>
     {% for r in reports_received %}
       <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
-          <td>{{ r.reporter.phone }}</td><td>{{ r.get_status_display }}</td></tr>
-    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+          <td>{{ r.reporter.phone }}</td><td>{{ r.detail|default:"—" }}</td>
+          <td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
     </tbody>
   </table>
   <p>发出的举报({{ reports_made|length }} 条):</p>
   <table>
-    <thead><tr><th>时间</th><th>类型</th><th>被举报人</th><th>状态</th></tr></thead>
+    <thead><tr><th>时间</th><th>类型</th><th>被举报人</th><th>说明</th><th>状态</th></tr></thead>
     <tbody>
     {% for r in reports_made %}
       <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
-          <td>{{ r.target.phone }}</td><td>{{ r.get_status_display }}</td></tr>
-    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+          <td>{{ r.target.phone }}</td><td>{{ r.detail|default:"—" }}</td>
+          <td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
     </tbody>
   </table>
 </article>

@@ -1,9 +1,10 @@
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from moderation.models import BanLog, Report, ReportStatus, ReportType
+from accounts.models import User
+from moderation.models import BanLog, Block, Report, ReportStatus, ReportType
 from moderation.services import log_ban_change
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import review_photos
@@ -137,3 +138,32 @@ def photo_review(request):
         qs = qs.filter(status=status)
     return render(request, "ops/partials/photo_grid.html",
                   {"photos": qs[:120], "status": status, "skipped": skipped})
+
+
+@staff_required
+def users_search(request):
+    q = request.GET.get("q", "").strip()
+    results = []
+    if q:
+        results = (User.objects.filter(Q(phone=q) | Q(profile__nickname__icontains=q))
+                   .select_related("profile").order_by("id")[:50])
+    return render(request, "ops/users_search.html", {"q": q, "results": results})
+
+
+@staff_required
+def user_detail(request, user_id):
+    user = get_object_or_404(User.objects.select_related("profile"), pk=user_id)
+    return render(request, "ops/user_detail.html", _user_context(user))
+
+
+def _user_context(user):
+    """用户详情页上下文;Task 7 的封禁局部刷新也复用它。"""
+    return {
+        "target_user": user,
+        "target_profile": getattr(user, "profile", None),
+        "ban_logs": BanLog.objects.filter(user=user).select_related("operator")[:20],
+        "reports_received": Report.objects.filter(target=user).select_related("reporter")[:20],
+        "reports_made": Report.objects.filter(reporter=user).select_related("target")[:20],
+        "blocks_made": Block.objects.filter(blocker=user).select_related("blocked")[:20],
+        "blocks_received": Block.objects.filter(blocked=user).select_related("blocker")[:20],
+    }

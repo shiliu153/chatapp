@@ -1,0 +1,39 @@
+{% extends "ops/base.html" %}
+{% block content %}
+<h2>用户 #{{ target_user.id }}</h2>
+{% include "ops/partials/user_card.html" with user_obj=target_user profile=target_profile %}
+<article>
+  <h3>封禁管理</h3>
+  {% include "ops/partials/user_ban_panel.html" %}
+</article>
+<article>
+  <h3>举报关系</h3>
+  <p>被举报({{ reports_received|length }} 条):</p>
+  <table>
+    <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>说明</th><th>状态</th></tr></thead>
+    <tbody>
+    {% for r in reports_received %}
+      <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
+          <td>{{ r.reporter.phone }}</td><td>{{ r.detail|default:"—" }}</td>
+          <td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <p>发出的举报({{ reports_made|length }} 条):</p>
+  <table>
+    <thead><tr><th>时间</th><th>类型</th><th>被举报人</th><th>说明</th><th>状态</th></tr></thead>
+    <tbody>
+    {% for r in reports_made %}
+      <tr><td>{{ r.created_at|date:"m-d H:i" }}</td><td>{{ r.get_type_display }}</td>
+          <td>{{ r.target.phone }}</td><td>{{ r.detail|default:"—" }}</td>
+          <td>{{ r.get_status_display }}</td></tr>
+    {% empty %}<tr><td colspan="5">无记录</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</article>
+<article>
+  <h3>拉黑关系</h3>
+  <p>拉黑的人:{% for b in blocks_made %}{{ b.blocked.phone }}({{ b.created_at|date:"m-d" }}) {% empty %}—{% endfor %}</p>
+  <p>被谁拉黑:{% for b in blocks_received %}{{ b.blocker.phone }}({{ b.created_at|date:"m-d" }}) {% empty %}—{% endfor %}</p>
+</article>
+{% endblock %}

@@ -190,3 +190,39 @@ class OpsPhotoReviewTests(TestCase):
                                 {"ids": "99999999", "action": "approve",
                                  "status": "pending"})
         self.assertContains(resp, "已跳过")
+
+
+class OpsUserSearchTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_staff())
+        self.alice = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.alice, nickname="小红")
+
+    def test_search_by_phone_exact(self):
+        resp = self.client.get("/ops/users/", {"q": "13800138000"})
+        self.assertContains(resp, "小红")
+
+    def test_search_by_nickname_substring(self):
+        resp = self.client.get("/ops/users/", {"q": "小"})
+        self.assertContains(resp, "13800138000")
+
+    def test_partial_phone_does_not_match(self):
+        resp = self.client.get("/ops/users/", {"q": "13800138"})
+        self.assertNotContains(resp, "小红")
+
+
+class OpsUserDetailTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_staff())
+        self.alice = User.objects.create_user(phone="13800138000")
+        self.bob = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.alice, nickname="小红")
+        Report.objects.create(reporter=self.bob, target=self.alice,
+                              type=ReportType.FRAUD, detail="骗钱")
+
+    def test_detail_shows_profile_reports_and_links(self):
+        resp = self.client.get(f"/ops/users/{self.alice.id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "小红")
+        self.assertContains(resp, "骗钱")
+        self.assertContains(resp, "13900139000")   # 举报人

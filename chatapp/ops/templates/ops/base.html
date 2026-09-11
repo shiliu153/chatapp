@@ -14,6 +14,7 @@
   <strong>运营审核台</strong>
   <a href="{% url 'ops:reports' %}">举报{% if pending_report_count %} <span class="ops-badge">{{ pending_report_count }}</span>{% endif %}</a>
   <a href="{% url 'ops:photos' %}">照片审核{% if pending_photo_count %} <span class="ops-badge">{{ pending_photo_count }}</span>{% endif %}</a>
+  <a href="{% url 'ops:users' %}">用户</a>
   {% if user.is_authenticated %}
   <form method="post" action="{% url 'ops:logout' %}" class="ops-logout">
     {% csrf_token %}

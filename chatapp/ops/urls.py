@@ -20,4 +20,6 @@ urlpatterns = [
     path("reports/<int:report_id>/ban", views.report_ban, name="report_ban"),
     path("photos/", views.photos, name="photos"),
     path("photos/review", views.photo_review, name="photo_review"),
+    path("users/", views.users_search, name="users"),
+    path("users/<int:user_id>/", views.user_detail, name="user_detail"),
 ]

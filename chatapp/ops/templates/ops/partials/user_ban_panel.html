@@ -1,0 +1,15 @@
+<div id="ban-panel">
+  {% if error %}<p class="ops-error">{{ error }}</p>{% endif %}
+  <p>当前状态:{% if target_profile %}{{ target_profile.get_status_display }}{% else %}无资料{% endif %}
+    {% if target_profile.ban_reason %}· 原因:{{ target_profile.ban_reason }}{% endif %}</p>
+  <h4>封禁历史</h4>
+  <table>
+    <thead><tr><th>时间</th><th>动作</th><th>原因</th><th>操作人</th></tr></thead>
+    <tbody>
+    {% for log in ban_logs %}
+      <tr><td>{{ log.created_at|date:"Y-m-d H:i" }}</td><td>{{ log.get_action_display }}</td>
+          <td>{{ log.reason|default:"—" }}</td><td>{{ log.operator.phone|default:"—" }}</td></tr>
+    {% empty %}<tr><td colspan="4">无记录</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
