@@ -1,6 +1,6 @@
 # 运营审核台 UI 改版(宝塔式亮色)实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 把 `/ops/` 从 Pico 默认观感改成宝塔面板式三区布局(侧边栏 + 顶栏 + 内容区)+ 亮色蓝主题,零行为改动。
 
@@ -35,7 +35,7 @@
 - Consumes: 现有 `ops:` URL 名(reports/photos/users/logs/login/logout)、context processor 的 `pending_report_count`/`pending_photo_count`
 - Produces: 新 CSS 组件类:`.layout/.sidebar/.brand/.menu/.ops-badge/.main/.topbar/.page-title/.topbar-right/.content`(结构)、`.tag/.tag-gray/.tag-green/.tag-orange/.tag-red`(状态胶囊)、按钮变体 `button.secondary/.danger/.warn/.ok`、保留旧类名重定义(`.ops-tabs/.ops-photo-row/.ops-photo-meta/.ops-photos/.ops-user-card/.ops-error/.ops-warn/.ops-grid-2`);`{% block page_title %}`(Task 2 各页使用)
 
-- [ ] **Step 1: 重写 base.html**
+- [x] **Step 1: 重写 base.html**
 
 ```html
 {% load static %}
@@ -97,7 +97,7 @@
 </html>
 ```
 
-- [ ] **Step 2: login.html 独立成页(不再 extends base)**
+- [x] **Step 2: login.html 独立成页(不再 extends base)**
 
 ```html
 {% load static %}
@@ -124,7 +124,7 @@
 </html>
 ```
 
-- [ ] **Step 3: 重写 ops.css(自包含,约 140 行)**
+- [x] **Step 3: 重写 ops.css(自包含,约 140 行)**
 
 ```css
 /* ===== 基础 ===== */
@@ -231,7 +231,7 @@ tbody tr:last-child td { border-bottom: none; }
 .login-card button { width: 100%; height: 36px; margin-top: 6px; }
 ```
 
-- [ ] **Step 4: 删除 Pico + 验证测试仍绿**
+- [x] **Step 4: 删除 Pico + 验证测试仍绿**
 
 ```bash
 git rm chatapp/ops/static/ops/vendor/pico.min.css
@@ -240,7 +240,7 @@ cd chatapp && python manage.py test ops
 
 Expected: 全部 PASS(26 个;文案与 name/value 未动,断言不受影响)
 
-- [ ] **Step 5: 截图目检(登录页 + 壳)**
+- [x] **Step 5: 截图目检(登录页 + 壳)**
 
 若后端未运行:`cd chatapp && python manage.py runserver 0.0.0.0:8000`(后台)。
 建临时运营账号(截图用,Task 3 会删除):
@@ -251,7 +251,7 @@ python manage.py shell -c "from accounts.models import User; u = User.objects.cr
 
 用 Playwright:打开 `http://127.0.0.1:8000/ops/login/` 截图 → 填 `13000000001` / `ops-temp-123` 登录 → 截图 `/ops/reports/`。用 Read 查看截图,对照 spec §2/§3 检查:左侧边栏+顶栏结构、白色卡片、蓝色选中菜单、红色角标。有问题当场修 CSS 并重复截图。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/ops
@@ -270,7 +270,7 @@ git commit -m "feat(ops): Baota-style light shell with sidebar and topbar"
 - Consumes: Task 1 的 `{% block page_title %}`、`.tag-*` 胶囊类、`button.danger/.warn/.ok`
 - Produces: 全部页面的最终视觉形态(无新接口)
 
-- [ ] **Step 1: 六个页面页头改造(文案一字不改)**
+- [x] **Step 1: 六个页面页头改造(文案一字不改)**
 
 各页面统一模式:在 `{% extends "ops/base.html" %}` 后加 `{% block page_title %}...{% endblock %}`,并删掉正文里的 `<h2>`:
 
@@ -302,13 +302,13 @@ git commit -m "feat(ops): Baota-style light shell with sidebar and topbar"
 
 即:删 `<h2>...</h2>` 一行;表格外包一层 `<article></article>`。**注意 reports_list 只包表格**(tabs 留在卡片外)。
 
-- [ ] **Step 2: 卡片包裹补齐(logs / users_search)**
+- [x] **Step 2: 卡片包裹补齐(logs / users_search)**
 
 `logs.html`:筛选 `<form method="get" class="ops-grid-2">...</form>` 外套 `<article>`;两个 `<h3>+<table>` 块各自外套 `<article>`(即三个卡片)。
 
 `users_search.html`:`<form method="get">...</form>` 与结果 `<table>` 一起外套一个 `<article>`。
 
-- [ ] **Step 3: 状态改彩色胶囊**
+- [x] **Step 3: 状态改彩色胶囊**
 
 `report_detail.html` 状态行:
 
@@ -338,7 +338,7 @@ git commit -m "feat(ops): Baota-style light shell with sidebar and topbar"
 <td><span class="tag {% if r.status == 'pending' %}tag-orange{% else %}tag-green{% endif %}">{{ r.get_status_display }}</span></td>
 ```
 
-- [ ] **Step 4: 危险/语义按钮改类名**
+- [x] **Step 4: 危险/语义按钮改类名**
 
 | 文件 | 按钮 | 加类 |
 |---|---|---|
@@ -351,7 +351,7 @@ git commit -m "feat(ops): Baota-style light shell with sidebar and topbar"
 
 即把对应 `class="secondary"`/`class="outline"` 换成上表类名;「通过」「恢复通过」「通过所选」保持默认(蓝)。
 
-- [ ] **Step 5: 跑测试 + 截图全页目检**
+- [x] **Step 5: 跑测试 + 截图全页目检**
 
 ```bash
 cd chatapp && python manage.py test ops
@@ -361,12 +361,14 @@ Expected: PASS(26 个)。
 
 Playwright(复用 Task 1 的临时账号与已登录会话或重新登录)依次截图并目检:`/ops/reports/`(tabs+表格卡片)、一条举报详情(双方卡片并排、状态胶囊、两种封禁按钮橙/红)、`/ops/photos/`(照片卡、通过/驳回按钮蓝/红)、`/ops/users/?q=13300133001`(结果表)、用户详情(状态胶囊、封禁三按钮橙/红/绿、举报关系表状态胶囊)、`/ops/logs/`(筛选+两表三卡片)。有问题当场修并重复。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/ops
 git commit -m "feat(ops): adapt pages to new shell (titles, status tags, danger buttons)"
 ```
+
+> **执行记录(2026-09-11)**:截图目检时发现日志页筛选表单沿用 `.ops-grid-2` 会把「筛选」按钮拉成一整条(网格单元默认拉伸)。已在 `ops.css` 新增 `.ops-filters`(flex 行 + 240px 定宽 label + 紧凑按钮),`logs.html` 表单类名改为 `ops-filters`。另:Playwright 目检全程用临时运营账号 `13000000001`(Task 3 已删除);截图过程遇到浏览器缓存旧 CSS,已用 CDP `Network.setCacheDisabled` 强制重载复核。
 
 ---
 
@@ -379,7 +381,7 @@ git commit -m "feat(ops): adapt pages to new shell (titles, status tags, danger 
 - Consumes: Task 1/2 的全部产出
 - Produces: 可交付的改版(等待用户浏览器复核)
 
-- [ ] **Step 1: 后端全量测试**
+- [x] **Step 1: 后端全量测试**
 
 ```bash
 cd D:/pycharmproject/chat_app/chatapp && python manage.py test
@@ -387,7 +389,7 @@ cd D:/pycharmproject/chat_app/chatapp && python manage.py test
 
 Expected: 180 个全部 PASS。
 
-- [ ] **Step 2: 删除临时截图账号**
+- [x] **Step 2: 删除临时截图账号**
 
 ```bash
 python manage.py shell -c "from accounts.models import User; print(User.objects.filter(phone='13000000001').delete())"
@@ -395,17 +397,17 @@ python manage.py shell -c "from accounts.models import User; print(User.objects.
 
 Expected: 输出删除计数(1 条);**不动** `13900000000` 运营账号。
 
-- [ ] **Step 3: 最终截图留档(可选)**
+- [x] **Step 3: 最终截图留档(可选)**
 
 登录页 + 举报队列两页再截一次,确认最终态;截图存 `%TEMP%`,不入库。
 
-- [ ] **Step 4: 勾选本计划 checkbox 并提交**
+- [x] **Step 4: 勾选本计划 checkbox 并提交**
 
 ```bash
 git add docs/superpowers/plans/2026-09-11-ops-console-ui.md
 git commit -m "docs: mark ops console UI plan progress"
 ```
 
-- [ ] **Step 5: 交回用户复核**
+- [x] **Step 5: 交回用户复核**
 
 告知用户浏览器打开 `http://127.0.0.1:8000/ops/` 复核视觉效果(账号 `13900000000`);确认后再回到合并决策。
