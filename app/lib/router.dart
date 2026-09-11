@@ -10,6 +10,7 @@ import 'features/onboarding/onboarding_page.dart';
 import 'features/profile/preference_page.dart';
 import 'features/profile/profile_edit_page.dart';
 import 'features/profile/user_profile_page.dart';
+import 'features/settings/blocked_users_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/shell/home_shell.dart';
 
@@ -30,6 +31,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/profile/edit', builder: (context, state) => const ProfileEditPage()),
       GoRoute(path: '/preference', builder: (context, state) => const PreferencePage()),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsPage()),
+      GoRoute(path: '/settings/blocks', builder: (context, state) => const BlockedUsersPage()),
       GoRoute(
         path: '/chat/:peerId',
         builder: (context, state) => ChatPage(peerId: state.pathParameters['peerId']!),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../auth/session.dart';
 import '../discovery/discovery_controller.dart';
@@ -32,6 +33,11 @@ class SettingsPage extends ConsumerWidget {
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
         children: [
+          ListTile(
+            leading: const Icon(Icons.block),
+            title: const Text('黑名单'),
+            onTap: () => context.push('/settings/blocks'),
+          ),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text('退出登录', style: TextStyle(color: Colors.red)),
