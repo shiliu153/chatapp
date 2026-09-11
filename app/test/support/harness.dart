@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/app.dart';
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/features/legal/legal_texts.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
 import 'fake_im_client.dart';
@@ -16,7 +17,8 @@ import 'scripted_adapter.dart';
 Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
     {Map<String, Object> prefs = const {}, FakeImClient? imClient}) async {
   final fake = imClient ?? FakeImClient();
-  SharedPreferences.setMockInitialValues(prefs);
+  // 默认已同意协议,绝大多数用例直接进 App;协议用例自己传 legal.agreed_version: 0
+  SharedPreferences.setMockInitialValues({'legal.agreed_version': legalVersion, ...prefs});
   final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
   final refreshDio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
   await tester.pumpWidget(ProviderScope(

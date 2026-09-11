@@ -39,6 +39,16 @@ class SettingsPage extends ConsumerWidget {
             onTap: () => context.push('/settings/blocks'),
           ),
           ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('用户协议'),
+            onTap: () => context.push('/legal/agreement'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('隐私政策'),
+            onTap: () => context.push('/legal/privacy'),
+          ),
+          ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
             title: const Text('退出登录', style: TextStyle(color: Colors.red)),
             onTap: () => _logout(context, ref),
