@@ -29,6 +29,8 @@ class BannedPage extends ConsumerWidget {
                   Text('原因:${profile.banReason}'),
                 ],
                 const SizedBox(height: 8),
+                const Text('封禁期间所有功能暂停使用'),
+                const SizedBox(height: 8),
                 const Text('如有疑问请联系客服', style: TextStyle(color: Colors.black54)),
                 const SizedBox(height: 24),
                 FilledButton(

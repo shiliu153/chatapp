@@ -68,6 +68,7 @@ void main() {
     expect(displayNameFor(cache, 'u9', imName: 'IM名'), '小红');
     expect(displayNameFor(cache, 'u8', imName: 'IM名'), 'IM名');
     expect(displayNameFor(cache, 'u7'), 'u7');
+    expect(displayNameFor(cache, 'system_notice'), '系统通知'); // 特判:不裸奔成 id
     expect(avatarUrlFor(cache, 'u9', imFaceUrl: 'http://im'), 'http://cached');
     expect(avatarUrlFor(cache, 'u8', imFaceUrl: 'http://im'), 'http://im');
     expect(avatarUrlFor(cache, 'u7'), isNull);

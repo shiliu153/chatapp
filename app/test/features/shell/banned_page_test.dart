@@ -19,6 +19,7 @@ void main() {
 
     expect(find.text('账号已被封禁'), findsOneWidget);
     expect(find.text('原因:骚扰他人'), findsOneWidget);
+    expect(find.text('封禁期间所有功能暂停使用'), findsOneWidget);
     expect(find.text('发现'), findsNothing);   // 底部 Tab 被整屏替换
 
     await tester.tap(find.byKey(const Key('banned.logout')));
