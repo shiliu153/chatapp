@@ -10,8 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL)
 - **聊天**: 腾讯云 IM SDK(消息走腾讯云 IM,业务数据存 Django)
 
-**当前进度:M2c 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流 + M2c IM 接入:IM 自动登录与 userSig 过期重登、会话列表 + 未读角标、聊天页自绘气泡/match_notice 灰条/发文本、配对动效「去聊天」、退出与过期时 IM 登出;前端 99 测试全绿 + analyze 零告警,后端 96 测试回归通过)。
-设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`;M2c: `plans/2026-09-10-m2c-im-chat.md`,checkbox 全勾)。**下一步 M3**(合规收尾:照片/文本审核后台、举报/拉黑、封禁拦截、协议文本;约定见 M2a/M2c 计划末尾的表)。
+**当前进度:M3 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流 + M2c IM 接入 + M3 合规收尾:moderation 三模型与 Django admin 审核台、举报/拉黑全链路(含 IM 黑名单同步与踢下线)、重封禁全域 403、首启协议弹窗与协议全文、Android 签名 APK;后端 153 测试、前端 115 测试全绿,analyze 零告警)。核心链路(登录/互滑/聊天/资料卡/举报/拉黑)已双端手测;协议、照片审核、封禁页等细节项待后续补验。
+设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`;M2c: `plans/2026-09-10-m2c-im-chat.md`;M3 设计: `specs/2026-09-11-m3-compliance-design.md`;M3: `plans/2026-09-11-m3-compliance.md`)。**下一步 M4**(上线:服务器 + 域名部署;短信/内容安全/COS 接真;商店上架;iOS 打包决策;ICP 备案为并行事项)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
 
@@ -49,6 +49,8 @@ python manage.py dev_reset_pair --a u8 --b u9              # 手测:清两人的
 ```
 
 **MySQL**:本机 MySQL 8.0,库 `chatapp_dev`,用户 `chatapp`(口令在 `.env`)。建库/授权脚本 `chatapp/db_setup.sql`(可重复执行)。
+
+⚠️ **本地 MySQL 连接延迟(M3 实测)**:Django 默认每请求新建连接(dev server 一请求一线程,连不上池),而本机 MySQL 的 TLS 握手要 ~250ms → **所有接口 ~280ms**。已默认 `DB_SSL_DISABLED=1`(settings 里按 env 注入 `ssl_disabled=True`),接口降到 ~30ms。**远程库/生产要把 `DB_SSL_DISABLED` 置 0 或改连接池**;若哪天接口又变慢,先量「建连 vs 查询」。
 
 ## 后端接口(M1a 已实现)
 
@@ -116,6 +118,10 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - ⚠️ Windows 上 `pub add` 插件后提示 "requires symlink support"(需开发者模式)——**Android/Web 构建不受影响**;桌面 `-d windows` 需要开启系统开发者模式
 - ⚠️ **`app/android/gradle.properties` 里的 `kotlin.incremental=false` 勿删**:pub 缓存在 C 盘、工程在 D 盘,Kotlin 增量编译缓存算跨盘相对路径会崩(`Could not close incremental caches ... different roots`),关掉增量编译是官方 workaround
 - 照片上传走 `readAsBytes` + `MultipartFile.fromBytes`(Web 上 `XFile.path` 是 blob URL,不能用 `fromFile`);单张 ≤5MB 前端先拦
+- **provider 全局缓存**:`AsyncNotifierProvider` 默认常驻,页面 A 读过、页面 B 写了同一个列表 → B 必须 `ref.invalidate(该 provider)`(M3 手测:拉黑后黑名单页仍显示空)。写操作(拉黑/解除/改资料…)后检查一下相关 provider 要不要失效
+- **widget 测试里别裸 `await` 走 dio 的 provider**(如 `container.read(xxxProvider.future)`):假时钟不推进 dio 内部定时器,测试直接卡死。要么让调用发生在 widget 树里(靠 `pumpAndSettle` 推进),要么直接 override provider 成目标状态
+- **含无限动画的页面别 `pumpAndSettle`**(启动页转圈、倒计时):会超时。协议弹窗用例用有限次 `pump` 推进(见 `test/features/legal/agreement_gate_test.dart`)
+- `SystemNavigator` 在 `package:flutter/services.dart`,material 不导出
 
 ## 发现卡片流(M2b 已实测)
 
@@ -139,6 +145,25 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **SDK 细节**:单聊 conversationID 前缀 `c2c_`;`sendMessage` 的 `id` 参数已废弃但 **web 分支只认它**,要 `id`+`message` 都传;清未读用 `cleanConversationUnreadMessageCount`(废弃的 `markC2CMessageAsRead` 别用;`cleanTimestamp` 传最后一条消息的秒级时间戳、`cleanSequence` 传它的 seq,2026-09-10 模拟器实测 1→0 成功);`ChatMessage.timestamp` 统一毫秒(SDK 是秒,映射时 ×1000)
 - **日志噪音**:登录后 `E/imsdk ... community group not open |error_code:11000|` 是无害的(SDK 顺带拉群列表,本应用不用群),别当故障排查
 - 手测:`python manage.py im_send --from uB --to uA --text "..."`,模拟器登录 A;灰条用 `--notice`;重演配对用 `dev_reset_pair --a u8 --b u9`(清滑卡+配对,不清 IM 聊天记录)。切换账号前记得 IM 登出已自动挂在退出通道上
+
+## 合规与审核(M3 已实测)
+
+- **封禁两级**:`banned_light` 只禁滑卡(检查在 `discovery/views.py`);`banned_heavy` = 全域 403 —— 由全局权限类 `moderation/permissions.py::IsNotHeavyBanned`(挂在 `DEFAULT_PERMISSION_CLASSES`)拦截,白名单只有 `GET /users/me`(前端要读封禁原因)和 `GET /users/tags`。**新增业务接口自动被覆盖**,不用逐个加检查
+- **admin 审核台**(`/admin/`,运营账号用 `createsuperuser` 建,登录字段是手机号):
+  - 照片审核:users → 照片;列表有缩略图预览,勾选后选「通过所选照片/驳回所选照片」;动作会自动重算用户的资料完善状态(驳回可能让人掉回未完善)
+  - 举报队列:moderation → 举报;把状态改成「已处理」时自动补处理人/时间;从举报点进被举报人 Profile 可直接封禁
+  - 封禁:users → 资料;改 `status` + 填 `ban_reason` 保存 → 自动写 `BanLog`(谁/何时/什么动作/原因);**重封禁会后台调 IM 踢下线**(已有 userSig 否则最长 7 天还能聊)
+  - moderation → 拉黑/封禁日志是**只读对账页**(拉黑必须走 App 接口才会同步 IM,手工加会漏)
+- **拉黑链路**:`POST/GET /blocks`、`DELETE /blocks/{id}`;双向不可见由 `moderation.services.blocked_user_ids` 统一过滤(候选、`GET /matches`、`GET /users/{id}` 404 全靠它);IM 黑名单后台线程同步(**实测管理员 identifier 对 `sns/black_list_*` 与 `im_open_login_svc/kick` 均成立**);拉黑方本机会话由 App 端 `deleteConversation` 删除
+- **⚠️ 前端写操作后要失效相关缓存**:黑名单列表 provider 是全局缓存的,拉黑成功后必须 `ref.invalidate(blockedUsersProvider)`(M3 手测 bug:拉黑后黑名单页仍显示空)。以后加类似的「列表类」provider 写操作都要照此处理
+- **举报**:`POST /reports`,同一个人已有待处理举报 → 幂等返回已有记录(201 新建 / 200 已有);限流 20/天
+- **协议**:`app/lib/features/legal/legal_texts.dart` 存两份文本 + `legalVersion`;启动页检查本地 `legal.agreed_version`,未同意弹不可关的弹窗(不同意退出 App)。**改文案要把 legalVersion +1**,弹窗会重新出现一次;测试脚手架 `pumpApp` 默认「已同意」,协议用例传 `{'legal.agreed_version': 0}`
+- **封禁页**:`home_shell` 检测 `profile.status == 'banned_heavy'` → 整屏封禁页(原因 + 退出登录)
+- **签名打包**:keystore 在 `C:\Users\you\chatapp-release.jks`(口令见 `app/android/key.properties`,**两个文件都不入库,务必备份**);出包:
+  ```bash
+  cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=http://10.0.2.2:8000/api/v1
+  ```
+  产物 `app/build/app/outputs/flutter-apk/app-release.apk`;装模拟器用 `adb -s <设备> install -r ...`(同设备覆盖 debug 包会因签名冲突失败,需先卸载)
 
 ## 后端测试注意事项
 
