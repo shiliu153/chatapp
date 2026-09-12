@@ -43,7 +43,7 @@
   - `im.tasks.sync_profile(user_id: int, kind: str)`(kind ∈ `"nick"` / `"avatar"`)
 - Consumes: 现有 `RETRY_POLICY`、`_require`、`im/client.py` 的 REST 封装
 
-- [ ] **Step 1: 写失败测试**(`chatapp/im/tests.py`:import 区先改成)
+- [x] **Step 1: 写失败测试**(`chatapp/im/tests.py`:import 区先改成)
 
 ```python
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -131,12 +131,12 @@ class ImSideEffectTaskTests(TestCase):
         sync_profile.run(999999, "nick")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test im.tests.ImSideEffectTaskTests`
 Expected: FAIL — `ImportError: cannot import name 'ban_notice' from 'im.tasks'`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/config/settings.py` 的照片配置块附近追加:
 
@@ -230,12 +230,12 @@ def sync_profile(user_id: int, kind: str) -> None:
         raise ValueError(f"未知的资料同步类型 kind={kind}")
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test im`
 Expected: PASS(新增 10 个用例 + 原有全绿)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/im/tasks.py chatapp/im/client.py chatapp/im/tests.py chatapp/config/settings.py
@@ -254,7 +254,7 @@ git commit -m "feat(chatapp): im/tasks 补齐副作用任务(配对灰条/封禁
 - Consumes: Task 1 的 `im.tasks.send_match_notice(user_a_id, user_b_id)`
 - Produces: `discovery.services.notify_match(match)` 签名不变(内部改入队)
 
-- [ ] **Step 1: 改测试(先红)**
+- [x] **Step 1: 改测试(先红)**
 
 `chatapp/discovery/tests.py`:
 
@@ -292,12 +292,12 @@ git commit -m "feat(chatapp): im/tasks 补齐副作用任务(配对灰条/封禁
 
 3. 若 `from . import services as discovery_services` / `cache` 等 import 不再被使用,一并删除(grep 确认后)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test discovery`
 Expected: FAIL — `test_mutual_like_creates_one_match` 的 `notice.assert_called_once_with` 失败(旧代码没入队)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/discovery/services.py` 全文替换为:
 
@@ -316,12 +316,12 @@ def notify_match(match):
     transaction.on_commit(lambda: im_tasks.send_match_notice.delay(a_id, b_id), robust=True)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test discovery`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/discovery/services.py chatapp/discovery/tests.py
@@ -340,7 +340,7 @@ git commit -m "refactor(chatapp): 配对灰条改走任务队列(删 discovery �
 - Consumes: Task 1 的 `im.tasks.ban_notice / ban_lifted / blacklist_add / blacklist_remove`
 - Produces: `log_ban_change(user, old_status, new_status, reason, operator)`、`sync_im_blacklist(blocker, blocked, *, add)` 签名不变
 
-- [ ] **Step 1: 改测试(先红)**
+- [x] **Step 1: 改测试(先红)**
 
 `chatapp/moderation/tests.py`:
 
@@ -512,12 +512,12 @@ git commit -m "refactor(chatapp): 配对灰条改走任务队列(删 discovery �
         self.assertEqual(self.profile.ban_reason, "")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test moderation ops`
 Expected: FAIL — 多处 `assert_called_once_with` 不匹配(旧代码 dispatch 的是 im_client 函数)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/moderation/services.py` 全文替换为:
 
@@ -578,12 +578,12 @@ def _enqueue(task, *args) -> None:
     transaction.on_commit(lambda: task.delay(*args), robust=True)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test moderation ops`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/moderation/services.py chatapp/moderation/tests.py chatapp/ops/tests.py
@@ -603,7 +603,7 @@ git commit -m "refactor(chatapp): 封禁通知与黑名单同步改走任务队�
 - Consumes: Task 1 的 `im.tasks.sync_profile(user_id, kind)`
 - Produces: `users.services.sync_im_nickname(user)`(签名不变)、新增 `users.services.sync_im_avatar(user_id)`
 
-- [ ] **Step 1: 改测试(先红)**
+- [x] **Step 1: 改测试(先红)**
 
 `chatapp/users/tests.py`:
 
@@ -658,12 +658,12 @@ git commit -m "refactor(chatapp): 封禁通知与黑名单同步改走任务队�
         delay.assert_called_once_with(self.user.id, "avatar")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test users`
 Expected: FAIL — `AttributeError: <module 'users.services'> does not have the attribute '_dispatch_async'`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/users/services.py` 全文替换为:
 
@@ -719,12 +719,12 @@ def sync_im_avatar(user_id: int) -> None:
         sync_im_avatar(request.user.id)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test users`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/users chatapp/ops/tests.py
@@ -749,7 +749,7 @@ git commit -m "refactor(chatapp): 昵称/头像同步改走任务队列 + 照片
 - Produces: `config.request_id.set_request_id(value)` / `current_request_id()` / `RequestIdFilter`;`config.celery._inject_request_id(headers=...)` / `_bind_request_id(task=...)`(模块级普通函数,供单测直接调用)
 - 行为:任何响应带 `X-Request-Id`(客户端带了就回显);**错误体为标准契约 `{code, message, request_id}`**;日志每行带 `[request_id]`;`chatapp.request` 记录「方法 路径 状态 耗时」,≥ `REQUEST_SLOW_MS`(默认 500)升 WARNING;`LOG_FILE` 非空时额外落盘
 
-- [ ] **Step 1: 写失败测试**(`chatapp/config/tests.py` 追加;顶部 import 补 `from django.test import SimpleTestCase, override_settings`)
+- [x] **Step 1: 写失败测试**(`chatapp/config/tests.py` 追加;顶部 import 补 `from django.test import SimpleTestCase, override_settings`)
 
 ```python
 class RequestIdTests(APITestCase):
@@ -808,12 +808,12 @@ class CeleryRequestIdTests(SimpleTestCase):
         self.assertEqual(current_request_id(), "rid-2")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test config.tests.RequestIdTests config.tests.CeleryRequestIdTests`
 Expected: FAIL — 响应无 `X-Request-Id`、`ModuleNotFoundError: config.request_id`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/config/request_id.py`(新建):
 
@@ -978,17 +978,17 @@ from .request_id import current_request_id
 # MEDIA_BASE_URL=http://127.0.0.1:8000
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test config`
 Expected: PASS(新增 6 个用例 + 原有全绿)
 
-- [ ] **Step 5: 全量后端回归(日志格式改动影响面大,提前跑一次)**
+- [x] **Step 5: 全量后端回归(日志格式改动影响面大,提前跑一次)**
 
 Run: `cd chatapp && python manage.py test`
 Expected: 全绿
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add chatapp/config chatapp/.env.example
@@ -1011,7 +1011,7 @@ git commit -m "feat(chatapp): request_id 请求追踪(响应头+日志+Celery he
 - Produces: `accounts.throttles.SmsVerifyThrottle`(scope `sms_verify`);`SmsLocked(wait=...)` 响应带 `Retry-After`
 - 维度现状:号码重发 60s = `sms:send:{phone}` 自有键(不变);IP 维度 = DRF throttling(计数在 Redis)
 
-- [ ] **Step 1: 写失败测试**(`chatapp/accounts/tests.py`;`SmsVerifyTests` 类内追加)
+- [x] **Step 1: 写失败测试**(`chatapp/accounts/tests.py`;`SmsVerifyTests` 类内追加)
 
 ```python
     def test_verify_ip_throttle(self):
@@ -1041,12 +1041,12 @@ git commit -m "feat(chatapp): request_id 请求追踪(响应头+日志+Celery he
         rest.assert_not_called()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test accounts.tests.SmsVerifyTests`
 Expected: FAIL — `AttributeError: module 'accounts.throttles' has no attribute 'SmsVerifyThrottle'`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/accounts/throttles.py` 追加:
 
@@ -1107,12 +1107,12 @@ REST_FRAMEWORK = {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test accounts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/accounts chatapp/config/settings.py
@@ -1137,7 +1137,7 @@ git commit -m "feat(chatapp): 限流维度补齐(verify IP 限流 + rate env 化
 - 后端响应新契约:`{"count": n, "next": url|null, "previous": url|null, "results": [...]}`
 - 前端 `ApiClient.getAllPages(path, {pageSize = 50}) -> List<dynamic>`(循环跟 `next`,返回 results 拼接)
 
-- [ ] **Step 1: 改测试(先红)**
+- [x] **Step 1: 改测试(先红)**
 
 后端 `chatapp/discovery/tests.py::MatchListTests` 四个用例改写 + 新增一个:
 
@@ -1241,13 +1241,13 @@ Map<String, dynamic> pageJson(List<dynamic> items, {bool hasNext = false}) => {
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test discovery.tests.MatchListTests moderation.tests.BlockApiTests`
 Run: `cd app && ../flutter/bin/flutter.bat test test/im/im_repository_test.dart`
 Expected: 双端 FAIL — 后端返回裸 list(取 `["results"]` KeyError/TypeError);前端 `data as List` 对新对象 cast 失败
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/config/pagination.py`(新建):
 
@@ -1328,13 +1328,13 @@ def match_list(request):
     final data = await _api.getAllPages('/blocks');
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test discovery moderation`
 Run: `cd app && ../flutter/bin/flutter.bat test`
 Expected: 全绿
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/config/pagination.py chatapp/config/settings.py chatapp/discovery/views.py chatapp/moderation/views.py
@@ -1350,13 +1350,13 @@ git commit -m "feat(app): 配对/黑名单列表适配分页(跟 next 拉全量)
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: 双端全量回归**
+- [x] **Step 1: 双端全量回归**
 
 Run: `cd chatapp && python manage.py test`
 Run: `cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze`
 Expected: 后端全绿(新增约 10+6+3 用例)、前端全绿、analyze 零告警
 
-- [ ] **Step 2: 手测(Redis + runserver + worker 三者同跑,双模拟器)**
+- [x] **Step 2: 手测(Redis + runserver + worker 三者同跑,双模拟器)**
 
 ```bash
 cd chatapp
@@ -1374,7 +1374,7 @@ python -m celery -A config worker -l info --pool=solo     # 终端 B
 6. 分页:匹配数 > 20 时「消息」页会话名不缺失(前端跟页拉全);黑名单页正常;
 7. 限流:同 IP 快速连点验证码 → 429 带 Retry-After;连错 5 次 → 429 + Retry-After(15 分钟)。
 
-- [ ] **Step 3: 更新 CLAUDE.md**
+- [x] **Step 3: 更新 CLAUDE.md**
 
 1. 「接口标准化」节:
    - 把「⚠️ moderation / discovery / users 目前**仍是旧的后台线程**(…),第 2 期统一迁到 tasks」改为:IM 副作用**全部**经 `im/tasks.py`(配对灰条/封禁通知/黑名单/昵称头像),线程辅助函数已删除;
@@ -1383,7 +1383,7 @@ python -m celery -A config worker -l info --pool=solo     # 终端 B
 2. 「后端测试注意事项」:补一条「第 2 期起断言入队一律 `patch("im.tasks.X.delay")` + `captureOnCommitCallbacks(execute=True)`;任务体测试用 `.run()`」。
 3. 「常用命令」:`seed_fake_users` 行补一句「头像/昵称会经任务同步(需 worker 在跑)」。
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add CLAUDE.md
@@ -1392,6 +1392,12 @@ git commit -m "docs: 接口标准化第 2 期落地写入 CLAUDE.md(IM 任务化
 
 ---
 
-## 执行记录
+## 执行记录(2026-09-12)
 
-(执行时在此记录:完成情况、测试数、手测结论、发现的坑)
+- Task 1–7 全部完成,后端 247 / 前端 155 测试全绿,`flutter analyze` 零告警;9 个提交在分支 `backend-standardization-phase2`。
+- Task 8 Step 1/3/4 完成(双端全量回归 + CLAUDE.md 更新)。
+- **Task 8 Step 2 手测**:
+  - HTTP 侧已用 curl 端到端验证:`X-Request-Id` 响应头回显、405 错误体带 `request_id`、`/matches` 与 `/blocks` 返回 `{count,next,previous,results}`;
+  - Celery 真链路已验:任务入队消息的 headers 带 `request_id`(DB14 + kombu 读消息核对,已清理队列);
+  - **模拟器手测待用户执行**;⚠️ 手测前需**重启 worker** —— 当前 worker 是 17:43 启动的旧代码,不认识本期的 6 个新任务(收到会报 unregistered task)。
+- 补充记录:计划外的遗漏点 1 处 —— `moderation/tests.py::BlockVisibilityTests.test_matches_exclude_blocked_pair` 也断言了 `/matches` 裸列表,分页改造时一并改为 `["results"]`(计划 File 清单里未列,执行中发现)。
