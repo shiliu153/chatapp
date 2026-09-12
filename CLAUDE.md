@@ -66,7 +66,7 @@ python manage.py seed_fake_users --count 20                # 手测:批量建资
 | `POST /auth/sms/send` | 发验证码;开发期固定 `123456`(开关 `SMS_DEV_MODE`),同号 60 秒重发间隔,IP 限流 20/小时 |
 | `POST /auth/sms/verify` | 校验并登录(号码没注册过则自动建号)→ `{access, refresh, is_new_user, user_id}`;连错 5 次锁 15 分钟 |
 | `POST /auth/token/refresh` | 刷新 access(响应里同时给新 refresh) |
-| `GET/PATCH /users/me` | 我的资料;PATCH 可改 昵称/性别/生日/城市/简介/`tag_ids`,未满 18 岁生日直接 400 |
+| `GET/PATCH /users/me` | 我的资料;PATCH 可改 昵称/性别/生日/城市/简介/`tag_ids`,未满 18 岁生日直接 400。⚠️ 响应里 `id` 是 **profile 表主键**,账号 ID 看 `user_id`(与公开资料卡同源;我的页 ID 行显示 `u{user_id}`——取错会差一位,u7 显示成 u6,2026-09-12 修) |
 | `GET /users/tags` | 标签池(12 个,由数据迁移 `users/0002_seed_tags.py` 写入) |
 | `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段名 `file`;最多 6 张、≤5MB);开发期 `AUTO_APPROVE=1` 上传即过审 |
 | `GET/PATCH /users/me/preference` | 想找的人:目标性别(可空=不限)/年龄区间/城市 |
@@ -127,6 +127,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - ⚠️ **`app/android/gradle.properties` 里的 `kotlin.incremental=false` 勿删**:pub 缓存在 C 盘、工程在 D 盘,Kotlin 增量编译缓存算跨盘相对路径会崩(`Could not close incremental caches ... different roots`),关掉增量编译是官方 workaround
 - 照片上传走 `readAsBytes` + `MultipartFile.fromBytes`(Web 上 `XFile.path` 是 blob URL,不能用 `fromFile`);单张 ≤5MB 前端先拦
 - **provider 全局缓存**:`AsyncNotifierProvider` 默认常驻,页面 A 读过、页面 B 写了同一个列表 → B 必须 `ref.invalidate(该 provider)`(M3 手测:拉黑后黑名单页仍显示空)。写操作(拉黑/解除/改资料…)后检查一下相关 provider 要不要失效
+- **换号登录先作废上一账号缓存**:`SessionController.login()` 成功后统一 invalidate 按用户隔离的 provider(`profile`/`discovery`/`blockedUsers`,清单纯净地放在 `_resetUserScopedCaches()`;随 IM 登录态自动重建的会话列表/matchCache 不用)。⚠️ 别把清理只挂在「设置→退出登录」上:被顶号/心跳 40101 退出的路径不经过设置页,漏清就串号(2026-09-12 手测:被顶号后换号登录,5554 我的页整屏还是上一个账号的 Alice)
 - **widget 测试里别裸 `await` 走 dio 的 provider**(如 `container.read(xxxProvider.future)`):假时钟不推进 dio 内部定时器,测试直接卡死。要么让调用发生在 widget 树里(靠 `pumpAndSettle` 推进),要么直接 override provider 成目标状态
 - **含无限动画的页面别 `pumpAndSettle`**(启动页转圈、倒计时):会超时。协议弹窗用例用有限次 `pump` 推进(见 `test/features/legal/agreement_gate_test.dart`)
 - `SystemNavigator` 在 `package:flutter/services.dart`,material 不导出

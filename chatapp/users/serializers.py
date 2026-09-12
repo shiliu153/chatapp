@@ -39,6 +39,8 @@ class PreferenceSerializer(serializers.ModelSerializer):
 
 
 class ProfileSerializer(serializers.ModelSerializer):
+    # id 是 profile 表主键;对外标识用户一律用 user_id(与公开资料卡的 user_id 同源)
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
     phone = serializers.CharField(source="user.phone", read_only=True)
     age = serializers.IntegerField(read_only=True)
     tags = TagSerializer(many=True, read_only=True)
@@ -48,7 +50,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Profile
-        fields = ["id", "phone", "nickname", "gender", "birthday", "age", "city", "bio",
+        fields = ["id", "user_id", "phone", "nickname", "gender", "birthday", "age", "city", "bio",
                   "status", "ban_reason", "missing_fields", "tags", "photos", "preference"]
 
 

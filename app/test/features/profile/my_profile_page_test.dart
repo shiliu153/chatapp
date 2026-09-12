@@ -11,15 +11,22 @@ void main() {
   testWidgets('行版式:ID/昵称/性别等取值渲染', (tester) async {
     final adapter = ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      // id 是 profile 主键(6),账号 ID 是 7:ID 行必须显示后者
       'GET /users/me': (options) => ok(profileJson(
-          nickname: '小雨', gender: 'female', city: '杭州', tags: [tagJson(1, '运动')])),
+          id: 6,
+          userId: 7,
+          nickname: '小雨',
+          gender: 'female',
+          city: '杭州',
+          tags: [tagJson(1, '运动')])),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
     await tester.tap(navTab('我的'));
     await tester.pumpAndSettle();
 
-    expect(find.text('u7'), findsOneWidget); // ID 行用 u{id}
+    expect(find.text('u7'), findsOneWidget); // ID 行用 u{user_id}
+    expect(find.text('u6'), findsNothing); // 不能拿 profile 主键冒充账号 ID
     expect(find.text('小雨'), findsOneWidget);
     expect(find.text('女'), findsOneWidget);
     expect(find.byKey(const Key('my.row.id')), findsOneWidget);

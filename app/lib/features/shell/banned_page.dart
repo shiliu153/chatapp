@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/session.dart';
-import '../discovery/discovery_controller.dart';
 import '../profile/models.dart';
-import '../profile/profile_controller.dart';
 
 /// 重封禁用户看到的整屏提示(替代主框架):原因 + 退出登录。
 class BannedPage extends ConsumerWidget {
@@ -35,11 +33,7 @@ class BannedPage extends ConsumerWidget {
                 const SizedBox(height: 24),
                 FilledButton(
                   key: const Key('banned.logout'),
-                  onPressed: () async {
-                    await ref.read(sessionProvider.notifier).logout();
-                    ref.invalidate(profileProvider);
-                    ref.invalidate(discoveryProvider);
-                  },
+                  onPressed: () => ref.read(sessionProvider.notifier).logout(),
                   child: const Text('退出登录'),
                 ),
               ],

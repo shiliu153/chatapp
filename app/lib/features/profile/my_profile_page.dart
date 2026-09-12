@@ -62,7 +62,7 @@ class MyProfilePage extends ConsumerWidget {
               _InfoRow(
                 rowKey: 'my.row.id',
                 label: 'ID',
-                value: 'u${data.id}',
+                value: 'u${data.userId}',
                 onTap: () => context.push('/profile/edit'),
               ),
               _InfoRow(

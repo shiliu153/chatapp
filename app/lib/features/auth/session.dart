@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api_exception.dart';
 import '../../core/providers.dart';
 import '../../im/im_manager.dart';
+import '../discovery/discovery_controller.dart';
+import '../moderation/moderation_controller.dart';
+import '../profile/profile_controller.dart';
 import '../profile/profile_repository.dart';
 import 'auth_repository.dart';
 
@@ -110,6 +113,20 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
+  /// 登录成功 = 换了(或重登)账号:先作废上一个账号留下的业务缓存。
+  /// 这些 provider 不随会话状态自动重建,不清的话新账号会读到旧数据
+  /// (2026-09-12 手测:被顶号后换号登录,我的页仍显示上一个账号)。
+  /// 新增按用户隔离的缓存 provider 要加进清单;随 IM 登录态重建的
+  /// (会话列表、matchCache)不用管。
+  void _resetUserScopedCaches() {
+    ref.invalidate(profileProvider);
+    ref.invalidate(discoveryProvider);
+    ref.invalidate(blockedUsersProvider);
+    // 整族失效:资料卡是公开数据,但「能不能看到」随号主而变(拉黑/重封禁),
+    // 留着上一个号看过的卡会让新号绕过可见性判断
+    ref.invalidate(userProfileProvider);
+  }
+
   Future<LoginResult> login(String phone, String code) async {
     final result = await ref.read(authRepositoryProvider).verifySms(phone, code);
     await ref.read(tokenStoreProvider).save(
@@ -117,6 +134,7 @@ class SessionController extends Notifier<SessionState> {
           refresh: result.refresh,
           userId: result.userId,
         );
+    _resetUserScopedCaches();
     state = const SessionLoggedIn();
     _startHeartbeat();
     // IM 登录不阻塞进主界面;失败时聊天页有「重试」

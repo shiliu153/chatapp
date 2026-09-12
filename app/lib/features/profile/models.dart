@@ -51,6 +51,7 @@ class Preference {
 class Profile {
   const Profile({
     required this.id,
+    required this.userId,
     required this.nickname,
     required this.gender,
     required this.birthday,
@@ -67,6 +68,7 @@ class Profile {
 
   factory Profile.fromJson(Map<String, dynamic> json) => Profile(
         id: json['id'] as int,
+        userId: json['user_id'] as int,
         nickname: (json['nickname'] ?? '') as String,
         gender: json['gender'] as String?,
         birthday: json['birthday'] as String?,
@@ -86,7 +88,11 @@ class Profile {
         preference: Preference.fromJson(json['preference'] as Map<String, dynamic>?),
       );
 
+  /// profile 表主键(仅内部用;对外标识一律 userId)
   final int id;
+
+  /// 账号 ID,与公开资料卡 user_id 同源
+  final int userId;
   final String nickname;
   final String? gender;
   final String? birthday;

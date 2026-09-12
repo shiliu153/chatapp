@@ -84,6 +84,15 @@ class MeTests(AuthMixin, APITestCase):
         self.assertIn("nickname", data["missing_fields"])
         self.assertTrue(Profile.objects.filter(user=self.user).exists())
 
+    def test_me_user_id_is_account_id_not_profile_pk(self):
+        # 我的页「ID」行要显示账号 ID(u7),不是 profile 主键(u7 的资料是第 6 条)
+        other = User.objects.create_user(phone="13800138001")
+        Profile.objects.get_or_create(user=other)   # 先占掉 profile 自增 1
+        self.login(self.user)
+        data = self.client.get("/api/v1/users/me").json()
+        self.assertEqual(data["user_id"], self.user.id)
+        self.assertNotEqual(data["id"], data["user_id"])   # id 仍是 profile 主键,便于区分
+
     def test_tags_pool(self):
         self.login(self.user)
         resp = self.client.get("/api/v1/users/tags")

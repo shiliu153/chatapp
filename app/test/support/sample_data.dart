@@ -1,6 +1,9 @@
 /// 造一份 GET /users/me 的响应;各字段可覆盖。
+/// id 是 profile 表主键,userId 是账号 ID——真实后端里两者不相等,
+/// 要测 ID 行显示就传 userId。
 Map<String, dynamic> profileJson({
   int id = 7,
+  int? userId,
   String nickname = '小明',
   String? gender = 'male',
   String? birthday = '2000-01-01',
@@ -15,6 +18,7 @@ Map<String, dynamic> profileJson({
 }) =>
     {
       'id': id,
+      'user_id': userId ?? id,
       'phone': '13800138000',
       'nickname': nickname,
       'gender': gender,
