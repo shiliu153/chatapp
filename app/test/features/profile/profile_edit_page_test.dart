@@ -20,7 +20,7 @@ void main() {
 
     await tester.tap(navTab('我的'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('编辑资料'));
+    await tester.tap(find.byKey(const Key('my.row.nickname')));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byKey(const Key('edit.nickname')), '新昵称');
@@ -45,7 +45,7 @@ void main() {
 
     await tester.tap(navTab('我的'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('编辑资料'));
+    await tester.tap(find.byKey(const Key('my.row.nickname')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('edit.save')));
