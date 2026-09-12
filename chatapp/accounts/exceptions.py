@@ -29,6 +29,10 @@ class SmsLocked(APIException):
     default_detail = "错误次数过多,请稍后再试"
     detail_code = error_codes.SMS_TOO_MANY_ATTEMPTS
 
+    def __init__(self, wait=None):
+        self.wait = wait      # DRF 全局处理器见到 wait 会给响应加 Retry-After
+        super().__init__()
+
 
 class SmsSendTooFrequent(Throttled):
     default_detail = "发送太频繁,请稍后再试"

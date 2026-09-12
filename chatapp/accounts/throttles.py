@@ -9,3 +9,12 @@ class SmsSendThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         # SimpleRateThrottle 要求必须自己实现缓存键;这里按客户端 IP 计数
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class SmsVerifyThrottle(SimpleRateThrottle):
+    """按 IP 限流校验验证码(防扫号);额度在 settings.DEFAULT_THROTTLE_RATES["sms_verify"]。"""
+
+    scope = "sms_verify"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}

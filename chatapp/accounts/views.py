@@ -14,7 +14,7 @@ from notifications.tasks import send_sms_code
 from . import services
 from .exceptions import SingleDeviceSessionConflict, SmsServiceUnavailable
 from .serializers import PhoneSerializer, SmsVerifySerializer
-from .throttles import SmsSendThrottle
+from .throttles import SmsSendThrottle, SmsVerifyThrottle
 from .tokens import SessionRefreshToken
 
 User = get_user_model()
@@ -48,6 +48,7 @@ def sms_send(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([SmsVerifyThrottle])
 def sms_verify(request):
     serializer = SmsVerifySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)

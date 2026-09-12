@@ -149,6 +149,32 @@ class SmsVerifyTests(APITestCase):
         self.assertEqual(second.status_code, 200)
         self.assertNotEqual(first.json()["access"], second.json()["access"])
 
+    def test_verify_ip_throttle(self):
+        from accounts.throttles import SmsVerifyThrottle
+        with patch.object(SmsVerifyThrottle, "rate", "3/hour", create=True):
+            for i in range(3):
+                resp = self.verify("000000", phone=f"1380013800{i}")
+                self.assertEqual(resp.status_code, 400)   # 码错(限流额度内)
+            resp = self.verify("000000", phone="13800138009")
+        self.assertEqual(resp.status_code, 429)
+
+    def test_lock_response_carries_retry_after(self):
+        self.issue_code()
+        for _ in range(settings.SMS_MAX_ATTEMPTS):
+            self.verify("000000")
+        resp = self.verify("000000")
+        self.assertEqual(resp.status_code, 429)
+        self.assertEqual(resp.headers.get("Retry-After"), str(settings.SMS_LOCK_TTL))
+
+    def test_verify_path_never_calls_im_rest(self):
+        """响应路径零外部调用:登录成功只入队任务,绝不同步打腾讯(第 1 期铁律的回归)。"""
+        code = self.issue_code()
+        with patch("im.client._request") as rest, patch("im.tasks.import_account.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.verify(code)
+        self.assertEqual(resp.status_code, 200)
+        rest.assert_not_called()
+
 
 class SmsCodeStateTests(TestCase):
     """验证码状态机:HMAC 存储 + Lua 原子校验 + 重放窗口。"""

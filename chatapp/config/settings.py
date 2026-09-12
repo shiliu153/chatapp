@@ -184,6 +184,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
 
+# --- 限流额度(env 可调;DEBUG 下放宽,免得两台模拟器共享 127.0.0.1 触发 IP 限流) ---
+SMS_SEND_IP_RATE = os.getenv("SMS_SEND_IP_RATE", "200/hour" if DEBUG else "20/hour")
+SMS_VERIFY_IP_RATE = os.getenv("SMS_VERIFY_IP_RATE", "600/hour" if DEBUG else "60/hour")
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "accounts.authentication.SessionJwtAuthentication",
@@ -193,7 +197,12 @@ REST_FRAMEWORK = {
         "moderation.permissions.IsNotHeavyBanned",
     ),
     "EXCEPTION_HANDLER": "config.exceptions.api_exception_handler",
-    "DEFAULT_THROTTLE_RATES": {"sms_send": "20/hour", "swipe": "300/hour", "report": "20/day"},
+    "DEFAULT_THROTTLE_RATES": {
+        "sms_send": SMS_SEND_IP_RATE,
+        "sms_verify": SMS_VERIFY_IP_RATE,
+        "swipe": "300/hour",
+        "report": "20/day",
+    },
 }
 
 CORS_ALLOWED_ORIGIN_REGEXES = [

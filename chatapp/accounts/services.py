@@ -38,4 +38,4 @@ def check_code(phone: str, code: str) -> None:
     if result is sms_codes.CodeResult.WRONG:
         raise SmsCodeWrong()
     if result in (sms_codes.CodeResult.LOCKED, sms_codes.CodeResult.JUST_LOCKED):
-        raise SmsLocked()
+        raise SmsLocked(wait=settings.SMS_LOCK_TTL)
