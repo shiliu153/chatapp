@@ -54,4 +54,59 @@ void main() {
     expect(adapter.log.where((r) => r.path == '/auth/sms/verify'), hasLength(1));
     expect(find.byType(NavigationBar), findsOneWidget); // 进主框架了
   });
+
+  testWidgets('verify 网络级失败 → 自动重试一次后成功进入主框架', (tester) async {
+    var calls = 0;
+    final adapter = ScriptedAdapter({
+      'POST /auth/sms/verify': (options) {
+        calls++;
+        if (calls == 1) return offline(options); // 第一次断网
+        return ok({'access': 'a', 'refresh': 'r', 'is_new_user': false, 'user_id': 7});
+      },
+      'GET /users/me': (options) => ok(profileJson()),
+    });
+    await pumpApp(tester, adapter);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('login.phone')), '13800138000');
+    await tester.enterText(find.byKey(const Key('login.code')), '123456');
+    await tester.tap(find.byKey(const Key('login.submit')));
+    await tester.pumpAndSettle();
+
+    expect(calls, 2);                                    // 重试了一次
+    expect(find.byType(NavigationBar), findsOneWidget);  // 进主框架
+  });
+
+  testWidgets('verify 网络两次都失败 → 提示可直接再点登录', (tester) async {
+    final adapter = ScriptedAdapter({'POST /auth/sms/verify': (options) => offline(options)});
+    await pumpApp(tester, adapter);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('login.phone')), '13800138000');
+    await tester.enterText(find.byKey(const Key('login.code')), '123456');
+    await tester.tap(find.byKey(const Key('login.submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('网络超时,可直接再次点击「登录」重试'), findsOneWidget);
+  });
+
+  testWidgets('verify 业务错误(码过期)不重试', (tester) async {
+    var calls = 0;
+    final adapter = ScriptedAdapter({
+      'POST /auth/sms/verify': (options) {
+        calls++;
+        return jsonError(400, '验证码已过期,请重新获取');
+      },
+    });
+    await pumpApp(tester, adapter);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('login.phone')), '13800138000');
+    await tester.enterText(find.byKey(const Key('login.code')), '123456');
+    await tester.tap(find.byKey(const Key('login.submit')));
+    await tester.pumpAndSettle();
+
+    expect(calls, 1);
+    expect(find.text('验证码已过期,请重新获取'), findsOneWidget);
+  });
 }

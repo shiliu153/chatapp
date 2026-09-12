@@ -105,7 +105,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       if (!mounted) return;
       context.go(result.isNewUser ? '/onboarding' : '/home');
     } on ApiException catch (error) {
-      if (mounted) _show(error.message);
+      if (mounted) {
+        _show(error.statusCode == null ? '网络超时,可直接再次点击「登录」重试' : error.message);
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

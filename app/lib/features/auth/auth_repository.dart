@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/api_exception.dart';
 import '../../core/providers.dart';
 
 class LoginResult {
@@ -34,6 +35,16 @@ class AuthRepository {
   }
 
   Future<LoginResult> verifySms(String phone, String code) async {
+    try {
+      return await _verify(phone, code);
+    } on ApiException catch (error) {
+      // 网络级失败(无 HTTP 状态码)自动重试一次:服务端有 60 秒幂等重放窗口,同码安全
+      if (error.statusCode != null) rethrow;
+      return _verify(phone, code);
+    }
+  }
+
+  Future<LoginResult> _verify(String phone, String code) async {
     final data = await _api.post('/auth/sms/verify', data: {'phone': phone, 'code': code});
     return LoginResult.fromJson(data as Map<String, dynamic>);
   }
