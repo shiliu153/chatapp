@@ -10,5 +10,6 @@ urlpatterns = [
     path("im/", include("im.urls")),
     path("discovery/", include("discovery.urls")),
     path("", include("moderation.urls")),
+    path("", include("feed.urls")),
     path("matches", discovery_views.match_list),
 ]

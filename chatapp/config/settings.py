@@ -204,6 +204,9 @@ REST_FRAMEWORK = {
         "sms_verify": SMS_VERIFY_IP_RATE,
         "swipe": "300/hour",
         "report": "20/day",
+        "post_create": "20/day",
+        "post_comment": "60/day",
+        "post_report": "20/day",
     },
 }
 
