@@ -1,4 +1,5 @@
 import base64
+import os
 import shutil
 import tempfile
 from unittest.mock import patch
@@ -229,3 +230,43 @@ class FeedFlowTests(FeedApiMixin, APITestCase):
         Post.objects.create(author=self.other, text="别人的")
         data = self.client.get("/api/v1/posts/mine").json()
         self.assertEqual([item["id"] for item in data["results"]], [mine.id])
+
+
+class PostDeleteTests(FeedApiMixin, APITestCase):
+    def setUp(self):
+        self.use_temp_media()
+        self.me = User.objects.create_user(phone="13800138000")
+        self.other = User.objects.create_user(phone="13900139000")
+        self.login(self.me)
+
+    def test_author_can_delete_with_files_and_children(self):
+        post = Post.objects.create(author=self.me, text="删除我")
+        PostImage.objects.create(post=post, file=self.image())
+        PostLike.objects.create(post=post, user=self.other)
+        PostComment.objects.create(post=post, author=self.other, text="评论")
+        path = post.images.get().file.path
+        resp = self.client.delete(f"/api/v1/posts/{post.id}")
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Post.objects.filter(pk=post.id).exists())
+        self.assertEqual(PostLike.objects.count(), 0)
+        self.assertEqual(PostComment.objects.count(), 0)
+        self.assertFalse(os.path.exists(path))   # 磁盘文件也删了
+
+    def test_non_author_gets_404(self):
+        post = Post.objects.create(author=self.other, text="别人的")
+        self.assertEqual(self.client.delete(f"/api/v1/posts/{post.id}").status_code, 404)
+        self.assertTrue(Post.objects.filter(pk=post.id).exists())
+
+    def test_delete_closes_pending_reports_and_notifies(self):
+        post = Post.objects.create(author=self.me, text="被举报")
+        report = PostReport.objects.create(reporter=self.other, post=post,
+                                           type=ReportType.PORN)
+        with patch("im.tasks.report_handled.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.delete(f"/api/v1/posts/{post.id}")
+        self.assertEqual(resp.status_code, 204)
+        report.refresh_from_db()
+        self.assertEqual(report.status, ReportStatus.HANDLED)
+        self.assertEqual(report.handled_note, "动态已删除")
+        self.assertIsNotNone(report.handled_at)
+        delay.assert_called_once_with(self.other.id)

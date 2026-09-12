@@ -8,7 +8,7 @@ from config.pagination import DefaultLimitOffsetPagination
 
 from .models import Post, PostImage, PostLike
 from .serializers import PostCreateSerializer, PostSerializer
-from .services import visible_posts
+from .services import delete_post, visible_posts
 from .throttles import PostCreateThrottle
 
 
@@ -51,7 +51,11 @@ def my_posts(request):
     return _page_response(request, queryset)
 
 
-@api_view(["GET"])
+@api_view(["GET", "DELETE"])
 def post_detail(request, post_id):
+    if request.method == "DELETE":
+        post = get_object_or_404(Post, pk=post_id, author=request.user)   # 非作者 404
+        delete_post(post)
+        return Response(status=204)
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     return Response(PostSerializer(post, context={"request": request}).data)
