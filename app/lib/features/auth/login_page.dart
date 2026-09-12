@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
+import '../../core/providers.dart';
 import 'auth_repository.dart';
 import 'session.dart';
 
@@ -25,6 +26,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   int _countdown = 0;
   bool _sending = false;
   bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 被踢/强退带过来的原因(一次性信号):首帧后提示,让用户知道为什么被退出
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final reason = ref.read(tokenStoreProvider).takeForceLogoutReason();
+      if (reason != null) _show(reason);
+    });
+  }
 
   @override
   void dispose() {

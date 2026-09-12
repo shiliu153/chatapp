@@ -16,6 +16,9 @@ class FakeImClient extends ImClient {
   Object? loginError;
   Object? sendError;
 
+  /// 置上则只让**下一次** login 抛错,之后恢复正常(测 6206 重试)。
+  Object? loginErrorOnce;
+
   int _seq = 0;
   bool _initialized = false;
 
@@ -32,6 +35,11 @@ class FakeImClient extends ImClient {
   @override
   Future<void> login({required String userId, required String userSig}) async {
     log.add('login:$userId');
+    if (loginErrorOnce != null) {
+      final error = loginErrorOnce!;
+      loginErrorOnce = null;
+      throw error;
+    }
     if (loginError != null) throw loginError!;
   }
 

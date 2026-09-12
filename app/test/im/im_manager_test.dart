@@ -96,7 +96,36 @@ void main() {
     expect(fake.log, ['init:1600161711', 'login:u3', 'login:u3']);
   });
 
-  test('被踢下线 → ImFailed 提示', () async {
+  test('6206 瞬时冲突 → 自动重试一次后成功', () async {
+    stubUserSig();
+    fake.loginErrorOnce = const ImException(6206, 'sig rejected');
+    final original = ImManager.loginRetryDelay;
+    ImManager.loginRetryDelay = Duration.zero;
+    addTearDown(() => ImManager.loginRetryDelay = original);
+    final container = makeContainer();
+
+    await container.read(imStatusProvider.notifier).login();
+
+    expect(container.read(imStatusProvider), isA<ImLoggedIn>());
+    expect(fake.log.where((l) => l.startsWith('login:')), hasLength(2)); // 试了两次
+  });
+
+  test('6206 持续失败 → ImFailed(不再无限重试)', () async {
+    stubUserSig();
+    fake.loginError = const ImException(6206, 'sig rejected');
+    final original = ImManager.loginRetryDelay;
+    ImManager.loginRetryDelay = Duration.zero;
+    addTearDown(() => ImManager.loginRetryDelay = original);
+    final container = makeContainer();
+
+    await container.read(imStatusProvider.notifier).login();
+
+    expect((container.read(imStatusProvider) as ImFailed).message, contains('6206'));
+    expect(fake.log.where((l) => l.startsWith('login:')), hasLength(2));
+  });
+
+  test('被踢下线 → 清凭证强制退出,状态回未登录', () async {
+    SharedPreferences.setMockInitialValues({'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7});
     stubUserSig();
     final container = makeContainer();
     await container.read(imStatusProvider.notifier).login();
@@ -104,6 +133,9 @@ void main() {
     fake.emit(const ImKickedOffline());
     await pumpEventQueue();
 
-    expect((container.read(imStatusProvider) as ImFailed).message, contains('其他设备'));
+    expect(container.read(imStatusProvider), isA<ImLoggedOut>());
+    final store = container.read(tokenStoreProvider);
+    expect(await store.refreshToken, isNull); // 凭证已清(会话唯一强退通道)
+    expect(store.takeForceLogoutReason(), contains('其他设备'));
   });
 }

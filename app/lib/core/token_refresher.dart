@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../im/im_client.dart';
 import 'api_exception.dart';
 import 'token_store.dart';
 
@@ -25,7 +26,12 @@ class TokenRefresher {
     try {
       response = await dio.post<dynamic>('/auth/token/refresh', data: {'refresh': refreshToken});
     } on DioException catch (error) {
-      throw ApiException.from(error);
+      final apiError = ApiException.from(error);
+      if (apiError.code == singleDeviceCode) {
+        // 单设备登录:refresh 也被判作废,清凭证并留下原因(登录页提示)
+        await tokenStore.forceLogout(kickedOfflineMessage);
+      }
+      throw apiError;
     }
 
     final data = response.data as Map<String, dynamic>;

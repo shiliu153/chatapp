@@ -5,7 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api_exception.dart';
 import '../../core/providers.dart';
 import '../../im/im_manager.dart';
+import '../profile/profile_repository.dart';
 import 'auth_repository.dart';
+
+/// 登录态心跳间隔;override 成 null 可关闭(测试用)。
+final heartbeatIntervalProvider =
+    Provider<Duration?>((ref) => const Duration(seconds: 45));
 
 sealed class SessionState {
   const SessionState();
@@ -30,6 +35,7 @@ class SessionBootFailed extends SessionState {
 
 class SessionController extends Notifier<SessionState> {
   bool _bootstrapping = false;
+  Timer? _heartbeat;
 
   @override
   SessionState build() {
@@ -37,8 +43,30 @@ class SessionController extends Notifier<SessionState> {
     void onTokensCleared() => _forceLogout();
     store.addListener(onTokensCleared);
     ref.onDispose(() => store.removeListener(onTokensCleared));
+    ref.onDispose(() => _heartbeat?.cancel());
     return const SessionLoading();
   }
+
+  /// 登录态心跳:定期轻量请求一次,被顶号/封禁后不用等用户操作页面,
+  /// 最多一个周期内就会被 40101 顶回登录页(测试里把间隔 override 成 null 关掉)。
+  void _startHeartbeat() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    final interval = ref.read(heartbeatIntervalProvider);
+    if (interval == null || interval <= Duration.zero) return;
+    _heartbeat = Timer.periodic(interval, (_) async {
+      try {
+        await ref.read(profileRepositoryProvider).fetchMe();
+      } catch (_) {
+        // 鉴权类失败由 AuthInterceptor 统一处理;网络抖动忽略,下个周期再试
+      }
+    });
+  }
+
+  /// 网络级失败的重试参数:启动时偶发抖动别直接弹错误页(401 不重试)。
+  /// 非 const:测试里把间隔调成 0,避免白等。
+  static int bootRetries = 2;
+  static Duration bootRetryDelay = Duration(seconds: 1);
 
   /// 启动鉴权:有 refresh token 就静默换新 access;没有就回登录页。
   Future<void> bootstrap() async {
@@ -51,10 +79,11 @@ class SessionController extends Notifier<SessionState> {
         state = const SessionLoggedOut();
         return;
       }
-      await ref.read(tokenRefresherProvider).refresh();
+      await _refreshWithRetry();
       if (state is! SessionLoggedIn) {
         state = const SessionLoggedIn();
       }
+      _startHeartbeat();
       unawaited(ref.read(imStatusProvider.notifier).login());
     } on ApiException catch (error) {
       if (error.statusCode == 401) {
@@ -68,6 +97,19 @@ class SessionController extends Notifier<SessionState> {
     }
   }
 
+  /// 换新 access;网络级失败(超时/连不上)短暂等待后重试,业务错误(401 等)直接抛。
+  Future<void> _refreshWithRetry() async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        await ref.read(tokenRefresherProvider).refresh();
+        return;
+      } on ApiException catch (error) {
+        if (error.statusCode != null || attempt >= bootRetries) rethrow;
+        await Future.delayed(bootRetryDelay);
+      }
+    }
+  }
+
   Future<LoginResult> login(String phone, String code) async {
     final result = await ref.read(authRepositoryProvider).verifySms(phone, code);
     await ref.read(tokenStoreProvider).save(
@@ -76,6 +118,7 @@ class SessionController extends Notifier<SessionState> {
           userId: result.userId,
         );
     state = const SessionLoggedIn();
+    _startHeartbeat();
     // IM 登录不阻塞进主界面;失败时聊天页有「重试」
     unawaited(ref.read(imStatusProvider.notifier).login());
     return result;
@@ -83,11 +126,15 @@ class SessionController extends Notifier<SessionState> {
 
   Future<void> logout() async {
     // 清凭证会通知监听者;M2c 接入 IM 后这里还要 IM 登出 + 清本地缓存(spec §7.5)
+    _heartbeat?.cancel();
+    _heartbeat = null;
     await ref.read(tokenStoreProvider).clear();
     state = const SessionLoggedOut();
   }
 
   void _forceLogout() {
+    _heartbeat?.cancel();
+    _heartbeat = null;
     if (state is! SessionLoggedOut) {
       state = const SessionLoggedOut();
     }

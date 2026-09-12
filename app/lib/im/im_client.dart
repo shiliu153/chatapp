@@ -7,6 +7,9 @@ enum ChatMessageKind { text, matchNotice, banNotice, image, other }
 /// 「系统通知」固定 IM 账号(与后端 im/client.py::SYSTEM_NOTICE_IDENTIFIER 是跨栈契约)。
 const systemNoticePeerId = 'system_notice';
 
+/// 账号在另一台设备登录(腾讯踢下线)时给用户的提示。
+const kickedOfflineMessage = '账号已在其他设备登录,请重新登录';
+
 class ChatMessage {
   const ChatMessage({
     required this.msgId,

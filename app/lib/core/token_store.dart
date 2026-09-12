@@ -8,6 +8,8 @@ class TokenStore extends ChangeNotifier {
   static const _refreshKey = 'auth.refresh';
   static const _userIdKey = 'auth.user_id';
 
+  String? _forceLogoutReason;
+
   Future<void> save(
       {required String access, required String refresh, required int userId}) async {
     final prefs = await SharedPreferences.getInstance();
@@ -28,6 +30,19 @@ class TokenStore extends ChangeNotifier {
     await prefs.remove(_refreshKey);
     await prefs.remove(_userIdKey);
     notifyListeners();
+  }
+
+  /// 带原因的强制退出(如:账号在另一台设备登录被顶下线)。
+  /// 原因是一次性信号:登录页展示后 take 掉。
+  Future<void> forceLogout(String reason) async {
+    _forceLogoutReason = reason;
+    await clear();
+  }
+
+  String? takeForceLogoutReason() {
+    final reason = _forceLogoutReason;
+    _forceLogoutReason = null;
+    return reason;
   }
 
   Future<String?> get accessToken async =>
