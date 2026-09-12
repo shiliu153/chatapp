@@ -16,6 +16,7 @@ from .client import (_request, black_list_add, black_list_delete, ensure_account
                      send_custom_elem, send_match_notice, send_text, set_profile_avatar,
                      set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
+from .tasks import kick_user as kick_user_task, sync_login
 
 User = get_user_model()
 
@@ -317,3 +318,28 @@ class UserSigApiTests(APITestCase):
         resp = self.client.post("/api/v1/im/user_sig")
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(resp.json()["code"], 403)
+
+
+class ImTaskTests(TestCase):
+    """IM 副作用任务:失败要抛异常(Celery 才会重试),查不到用户则静默跳过。"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(phone="13800138000")
+
+    def test_sync_login_imports_for_new_user(self):
+        with patch("im.client.import_account", return_value=True) as imp:
+            sync_login.run(self.user.id, True)
+        imp.assert_called_once_with(self.user.im_user_id)
+
+    def test_sync_login_kicks_for_existing_user(self):
+        with patch("im.client.kick_user", return_value=True) as kick:
+            sync_login.run(self.user.id, False)
+        kick.assert_called_once_with(self.user.im_user_id)
+
+    def test_failure_raises_so_celery_retries(self):
+        with patch("im.client.kick_user", return_value=False):
+            with self.assertRaises(RuntimeError):
+                sync_login.run(self.user.id, False)
+
+    def test_missing_user_is_noop(self):
+        kick_user_task.run(999999)   # 不抛异常
