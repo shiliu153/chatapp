@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
@@ -25,6 +28,20 @@ class FeedRepository {
     } else {
       await _api.delete('/posts/$postId/like');
     }
+  }
+
+  Future<Post> createPost({
+    required String text,
+    required List<({Uint8List bytes, String name})> images,
+  }) async {
+    final data = await _api.post('/posts', data: FormData.fromMap({
+      'text': text,
+      'images': [
+        for (final image in images)
+          MultipartFile.fromBytes(image.bytes, filename: image.name),
+      ],
+    }));
+    return Post.fromJson(data as Map<String, dynamic>);
   }
 }
 

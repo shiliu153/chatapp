@@ -14,6 +14,7 @@ import 'features/profile/user_profile_page.dart';
 import 'features/settings/blocked_users_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/shell/home_shell.dart';
+import 'features/square/post_compose_page.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   // 会话状态变化 → 让 GoRouter 重新跑一遍 redirect
@@ -42,6 +43,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) =>
             UserProfilePage(userId: int.parse(state.pathParameters['id']!)),
       ),
+      GoRoute(path: '/posts/compose', builder: (context, state) => const PostComposePage()),
       GoRoute(path: '/legal/agreement', builder: (context, state) => const LegalPage.agreement()),
       GoRoute(path: '/legal/privacy', builder: (context, state) => const LegalPage.privacy()),
     ],

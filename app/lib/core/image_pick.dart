@@ -8,3 +8,9 @@ Future<XFile?> pickImageFromGallery() => ImagePicker().pickImage(
       maxWidth: 1080,
       imageQuality: 85,
     );
+
+typedef PickImages = Future<List<XFile>> Function();
+
+/// 相册多选(发布动态用);部分平台不支持 limit,前端再做一次截断。
+Future<List<XFile>> pickImagesFromGallery({int limit = 9}) =>
+    ImagePicker().pickMultiImage(maxWidth: 1080, imageQuality: 85, limit: limit);
