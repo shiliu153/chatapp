@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "im",
     "moderation",
     "ops",
+    "notifications",
 ]
 
 MIDDLEWARE = [
