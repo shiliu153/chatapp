@@ -42,6 +42,13 @@ python manage.py dev_reset_pair --a u8 --b u9              # 手测:清两人的
 python manage.py seed_fake_users --count 20                # 手测:批量建资料完善的女号(幂等;号码从已分配最大值续编)
 ```
 
+**Redis / Celery**(验证码、限流、异步 IM 副作用都靠它们;cwd = `chatapp/`):
+```bash
+docker compose -f docker-compose.dev.yml up -d             # Redis 容器(redis:7,6379);跑测试/接口前必须起
+python -m celery -A config worker -l info --pool=solo      # IM 副作用 worker(Windows 只能 solo 池);另开一个终端
+```
+⚠️ `python manage.py test` 现在前置要求 Redis 在跑(测试自动用 DB15 缓存 / DB14 broker,不碰开发数据)。
+
 **前端**(cwd = `app/`):
 ```bash
 ../flutter/bin/flutter.bat analyze   # 必须零告警
@@ -63,8 +70,8 @@ python manage.py seed_fake_users --count 20                # 手测:批量建资
 
 | 接口 | 说明 |
 |---|---|
-| `POST /auth/sms/send` | 发验证码;开发期固定 `123456`(开关 `SMS_DEV_MODE`),同号 60 秒重发间隔,IP 限流 20/小时 |
-| `POST /auth/sms/verify` | 校验并登录(号码没注册过则自动建号)→ `{access, refresh, is_new_user, user_id}`;连错 5 次锁 15 分钟 |
+| `POST /auth/sms/send` | 发验证码;开发期固定 `123456`(开关 `SMS_DEV_MODE`),同号 60 秒重发间隔(42901,带 Retry-After),IP 限流 20/小时;短信经 Celery 任务发送,**入队失败回滚并回 503(50301)** |
+| `POST /auth/sms/verify` | 校验并登录(号码没注册过则自动建号)→ `{access, refresh, is_new_user, user_id}`;连错 5 次锁 15 分钟(42902);**成功后有 60 秒幂等重放窗口**:同码可再换一次令牌(响应丢失/客户端超时不用重新发码) |
 | `POST /auth/token/refresh` | 刷新 access(响应里同时给新 refresh) |
 | `GET/PATCH /users/me` | 我的资料;PATCH 可改 昵称/性别/生日/城市/简介/`tag_ids`,未满 18 岁生日直接 400。⚠️ 响应里 `id` 是 **profile 表主键**,账号 ID 看 `user_id`(与公开资料卡同源;我的页 ID 行显示 `u{user_id}`——取错会差一位,u7 显示成 u6,2026-09-12 修) |
 | `GET /users/tags` | 标签池(12 个,由数据迁移 `users/0002_seed_tags.py` 写入) |
@@ -78,6 +85,8 @@ python manage.py seed_fake_users --count 20                # 手测:批量建资
 资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`,否则 `incomplete`(接口返回的 `missing_fields` 会列出缺项);`banned_light` / `banned_heavy` 状态预留封禁用(M1b/M3)。
 
 ⚠️ **Git Bash 里 curl 发中文会 400**:`curl -d '{"昵称":...}'` 按本地 GBK 码页发出,服务端 UTF-8 解析失败(不是后端 bug)。冒烟测试用纯 ASCII,或把 JSON 写成 UTF-8 文件后 `--data-binary @file`。
+
+✅ **验证码/限流计数已迁 Redis(2026-09-12)**:`CACHES` 走 django-redis(`docker-compose.dev.yml` 起容器),runserver 重启/多进程不再丢状态。历史坑(已修):LocMem 时代改一行代码 autoreload 重启,验证码就「凭空过期」。
 
 ## 国内镜像(Android 构建,已实测通过)
 
@@ -105,7 +114,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - ⚠️ **`openim/sendmsg` 的 `identifier` 必须是管理员**(`administrator`),发送方靠 body 的 `From_Account` 指定;错用发送方身份会报 `60010 set the identifier field ... to the admin account`。2026-09-10 实测修正。
 - ⚠️ **`im_open_login_svc/account_check` 别用来验签**:本应用下它对任何参数组合都返回 `70402 Invalid parameters`(与签名无关,同一签名调 `account_import` 返回 0)。验签一律用 `account_import`。
 - **配对灰条消息**:配对成功时 `send_match_notice(a, b)` 给**双方各发一条** `TIMCustomElem`,`MsgContent.Data` = `{"type":"match_notice"}`,`Desc` = "你们已互相喜欢,开始聊天吧"(M2 端拦截该类型渲染成居中灰条,会话随之创建)。⚠️ 2026-09-10 起**改在后台线程发**(`discovery/services.py::_notify_async`):同步发两条各 ~0.45s,「配对成功」弹窗被拖慢近 1 秒;后端测试 patch `discovery.services._notify_async`(别 patch `im_client.send_match_notice`,那是线程里的真实路径)。
-- 账号导入:注册成功后经 `transaction.on_commit` 调 `account_import(u{id})`,失败只记日志不阻塞注册。
+- 账号导入:**所有 IM 副作用(建号/踢人/黑名单/通知)统一走 `im/tasks.py` 的 Celery 任务**,由 `transaction.on_commit(..., robust=True)` 入队;登录路径不再同步调腾讯(响应路径禁止外部调用)。`/im/user_sig` 另有存在性保障:Redis 标记缺失时幂等补建(`ensure_account`,7015 视为成功)。
 - **Flutter 端 IM SDK 包是 `tencent_cloud_chat_sdk`(9.0.x,2026-06 发布)**:spec 早期写的 `tim_plus_flutter` 在 pub.dev 上**不存在**,已更正。只用它底层 API,不引 `tencent_cloud_chat_uikit`。支持 Android(x86_64 库有,模拟器能跑)/iOS/Web/Windows/macOS,Android minSdk 19。
 - **手测代发消息**(不用第二台设备):`python manage.py im_send --from uX --to uY --text "你好"` 或 `--notice`(发灰条事件);走 REST,账号须已导入。
 - **系统通知账号**:`system_notice`(昵称「系统通知」)是封禁/解封消息的发送方;新环境(含生产)跑一次 `python manage.py im_setup_system_account`(幂等,已存在 7015 视为成功;开发库 2026-09-11 已建)。账号缺失时封禁动作照常,只是消息发送失败记日志。
@@ -127,7 +136,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - ⚠️ **`app/android/gradle.properties` 里的 `kotlin.incremental=false` 勿删**:pub 缓存在 C 盘、工程在 D 盘,Kotlin 增量编译缓存算跨盘相对路径会崩(`Could not close incremental caches ... different roots`),关掉增量编译是官方 workaround
 - 照片上传走 `readAsBytes` + `MultipartFile.fromBytes`(Web 上 `XFile.path` 是 blob URL,不能用 `fromFile`);单张 ≤5MB 前端先拦
 - **provider 全局缓存**:`AsyncNotifierProvider` 默认常驻,页面 A 读过、页面 B 写了同一个列表 → B 必须 `ref.invalidate(该 provider)`(M3 手测:拉黑后黑名单页仍显示空)。写操作(拉黑/解除/改资料…)后检查一下相关 provider 要不要失效
-- **换号登录先作废上一账号缓存**:`SessionController.login()` 成功后统一 invalidate 按用户隔离的 provider(`profile`/`discovery`/`blockedUsers`,清单纯净地放在 `_resetUserScopedCaches()`;随 IM 登录态自动重建的会话列表/matchCache 不用)。⚠️ 别把清理只挂在「设置→退出登录」上:被顶号/心跳 40101 退出的路径不经过设置页,漏清就串号(2026-09-12 手测:被顶号后换号登录,5554 我的页整屏还是上一个账号的 Alice)
+- **换号登录先作废上一账号缓存**:`SessionController.login()` 成功后统一 invalidate 按用户隔离的 provider(`profile`/`discovery`/`blockedUsers`/`userProfileProvider` 整族,清单纯净地放在 `_resetUserScopedCaches()`;随 IM 登录态自动重建的会话列表/matchCache 不用)。⚠️ 别把清理只挂在「设置→退出登录」上:被顶号/心跳 40101 退出的路径不经过设置页,漏清就串号(2026-09-12 手测:被顶号后换号登录,5554 我的页整屏还是上一个账号的 Alice)。他人资料卡虽为公开数据,但「能不能看到」随号主变(拉黑/重封禁),留旧缓存会让新号绕过可见性判断。⚠️ 修复代码要重打 APK 并覆盖安装模拟器才算生效(2026-09-12:只改代码没打包,用户在旧包上复测以为没修好)
 - **widget 测试里别裸 `await` 走 dio 的 provider**(如 `container.read(xxxProvider.future)`):假时钟不推进 dio 内部定时器,测试直接卡死。要么让调用发生在 widget 树里(靠 `pumpAndSettle` 推进),要么直接 override provider 成目标状态
 - **含无限动画的页面别 `pumpAndSettle`**(启动页转圈、倒计时):会超时。协议弹窗用例用有限次 `pump` 推进(见 `test/features/legal/agreement_gate_test.dart`)
 - `SystemNavigator` 在 `package:flutter/services.dart`,material 不导出
@@ -167,7 +176,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 **产品规则:一个账号同时只允许一台设备在线**,后登录的把先登录的顶下线。腾讯 IM 控制台侧的「单平台登录」实测**不可靠**(腾讯不下发踢信号),所以我们自己实现,不依赖腾讯:
 
 - **后端作废机制**:`User.session_version` 每次登录 +1,写进 access/refresh 的 JWT claim(令牌类在 `accounts/tokens.py`);`accounts/authentication.py::SessionJwtAuthentication` 鉴权时比对版本,不一致回 **401 + `code: 40101`**(message「账号已在其他设备登录」);`accounts/views.py::SessionTokenRefreshView` 刷新时同样校验。无 claim 的历史令牌按初始版本兼容(测试自造令牌不受影响)
-- **重新登录时踢旧 IM 会话**:`accounts/views.py` 登录分支调 `im_client.kick_and_logout`(即 `im_open_login_svc/kick`;文档:+实测——**kick 会让该账号所有历史 userSig 失效**,旧实例必须拿新签名重登)。不踢的话新设备的 IM 登录会被服务端拒绝(实测表现为 **6206**)
+- **重新登录时踢旧 IM 会话(异步)**:登录提交后入队 `im.tasks.sync_login(user_id, created)`——新号建号,老号 `kick_user`(即 `im_open_login_svc/kick`;文档:+实测——**kick 会让该账号所有历史 userSig 失效**,旧实例必须拿新签名重登)。不踢的话新设备的 IM 登录会被服务端拒绝(实测表现为 **6206**);响应不再等它,靠前端 6206 自动重试兜时序差
 - **IM 6206/70001 自动重试**:`im_manager.dart` 对这两个码重拉签名重试一次(顶号的瞬时冲突,重试通常就过了)
 - **被顶设备的三条退出路径**(互为兜底):
   1. IM 踢下线事件(`ImKickedOffline`)→ 清凭证强退(即时,但腾讯下发不稳定)
@@ -176,6 +185,16 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **⚠️ 40101 不能一刀切强退**(踩过):登录竞态里,新设备带着旧令牌的在途请求会被拒——若被拒令牌 ≠ 本机当前令牌,说明本机已有新令牌,应**换新令牌重试**而不是强退;凭证已空时收到 401(被顶号后的孤儿请求)也要按被顶号收尾,否则前端兜底成「网络不给力」误导排查
 - **退出提示**:`TokenStore.forceLogout(reason)` 记一次性原因,登录页首帧 SnackBar 展示「账号已在其他设备登录,请重新登录」
 - 手测:两台模拟器先后登同一账号 → 后登录端正常,先登录端应即时/≤45s 退回登录页带提示
+
+## 接口标准化(2026-09-12 第 1 期:基建 + 登录链路)
+
+设计见 `docs/superpowers/specs/2026-09-12-backend-standardization-design.md`,计划 `docs/superpowers/plans/2026-09-12-backend-standardization.md`(第 2 期:其余 IM 任务迁移 / request_id / 请求日志 / 限流维度 / 分页;第 3 期:部署形态)。
+
+- **铁律:HTTP 响应路径禁止任何第三方网络调用**(`requests`/腾讯 REST/短信商)。跨系统副作用一律经 Celery 任务,由 `transaction.on_commit(fn, robust=True)` 入队——⚠️ **`on_commit` 的语义是「DB 提交后」,不是「响应后」**(无 `ATOMIC_REQUESTS` 时不在事务里就立即同步执行,别再往里塞慢调用)。
+- **验证码状态机**(`accounts/sms_codes.py`):Redis hash `sms:code:{phone}`(`h`=HMAC 码/`n`=错误数/`c`=已消费)+ `sms:lock:{phone}`(15 分钟锁)+ `sms:send:{phone}`(60 秒重发占位);校验走**单个 Lua 脚本**原子完成,并发安全。校验成功不删码,TTL 缩短为 `SMS_REPLAY_TTL`(60s)= 幂等重放窗口。
+- **业务码目录**(`config/error_codes.py`):前 3 位=HTTP 状态,后 2 位序号(40101 单设备 / 40001 码过期 / 40002 码错 / 42901 发太频 / 42902 锁 / 50301 短信不可用);异常类带 `detail_code`,全局处理器透传。
+- **IM 副作用入口**:`im/tasks.py`(重试 5 次指数退避;`im/client.py` 仍永不抛异常,任务层把 False 转异常)。⚠️ moderation / discovery / users 目前**仍是旧的后台线程**(`_dispatch_async`/`_notify_async`),第 2 期统一迁到 tasks。
+- **短信后端**:`notifications/backends.py`(dev 控制台打印;M4 接短信商时加实现)。开发时验证码打在 **worker 控制台**(runserver 终端另有 `[开发模式] 验证码` 一行)。
 
 ## 合规与审核(M3 已实测)
 
@@ -208,6 +227,8 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 
 ## 后端测试注意事项
 
-- **测 on_commit**:`notify_match` / 注册导入都走 `transaction.on_commit`,测试里必须 `with self.captureOnCommitCallbacks(execute=True):` 包住请求,否则断言永远不触发。
+- **测 on_commit**:`notify_match` / 登录后的 `sync_login` 入队都走 `transaction.on_commit`,测试里必须 `with self.captureOnCommitCallbacks(execute=True):` 包住请求,否则断言永远不触发。
+- **跑测试先起 Redis**(`docker compose -f docker-compose.dev.yml up -d`);测试自动用 DB15(缓存)/DB14(broker)。
+- **测试里 Celery 任务只入队、不执行**(无 worker):断言「入队了什么」用 `patch("im.tasks.sync_login.delay")` 之类;要测任务体直接 `task.run(...)`(此时 mock `im.client.*`,腾讯 REST 一次都不能真打)。
 - **凡是会触发 IM 调用的用例都要 mock**:漏 mock 会真打腾讯云(用例仍会绿,因为业务函数吞异常 —— 靠跑测试时日志里有没有 `IM ... 返回错误` 来发现),且变慢、依赖网络。
-- 限流用例要 `cache.clear()`:限流计数存在 Django 缓存(LocMem)里,跨用例残留会导致偶发 429。
+- 限流用例要 `cache.clear()`:限流计数存在 Redis 缓存里,跨用例残留会导致偶发 429(测试 DB15 与开发 DB0 隔离,clear 不会误伤)。
