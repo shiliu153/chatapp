@@ -20,6 +20,8 @@ void main() {
 
     await tester.tap(navTab('我的'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('想找的人')); // 行在可视区外,先滚到位再点
+    await tester.pumpAndSettle();
     await tester.tap(find.text('想找的人'));
     await tester.pumpAndSettle();
 

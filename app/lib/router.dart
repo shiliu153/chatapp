@@ -14,6 +14,7 @@ import 'features/profile/user_profile_page.dart';
 import 'features/settings/blocked_users_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/shell/home_shell.dart';
+import 'features/square/my_posts_page.dart';
 import 'features/square/post_compose_page.dart';
 import 'features/square/post_detail_page.dart';
 
@@ -45,6 +46,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             UserProfilePage(userId: int.parse(state.pathParameters['id']!)),
       ),
       GoRoute(path: '/posts/compose', builder: (context, state) => const PostComposePage()),
+      GoRoute(path: '/my-posts', builder: (context, state) => const MyPostsPage()),
       GoRoute(
         path: '/posts/:id',
         builder: (context, state) =>

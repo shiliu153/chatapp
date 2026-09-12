@@ -64,7 +64,8 @@ ChatMessageKind _kindOf(V2TimMessage message) {
   if (message.elemType == MessageElemType.V2TIM_ELEM_TYPE_CUSTOM) {
     final type = _customType(message.customElem?.data);
     if (type == 'match_notice') return ChatMessageKind.matchNotice;
-    if (type == 'ban_notice' || type == 'ban_lifted' || type == 'report_handled') {
+    if (type == 'ban_notice' || type == 'ban_lifted' || type == 'report_handled'
+        || type == 'post_commented') {
       return ChatMessageKind.banNotice;
     }
   }

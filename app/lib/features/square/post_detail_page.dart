@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
 import '../chat/widgets/photo_viewer.dart';
 import '../profile/profile_controller.dart';
+import 'feed_repository.dart';
 import 'models.dart';
+import 'post_actions.dart';
 import 'post_detail_controller.dart';
+import 'square_controller.dart';
 import 'widgets/post_card.dart';
 
 /// 动态详情:顶部完整卡片 + 评论列表(正序)+ 底部输入框。
@@ -59,6 +63,19 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
     }
   }
 
+  Future<void> _deletePost() async {
+    final confirmed = await confirmDeletePost(context);
+    if (!confirmed || !mounted) return;
+    try {
+      await ref.read(feedRepositoryProvider).deletePost(widget.postId);
+      ref.invalidate(squareProvider);
+      ref.invalidate(myPostsProvider);
+      if (mounted) context.pop();
+    } on ApiException catch (error) {
+      if (mounted) _show(error.message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final post = ref.watch(postDetailProvider(widget.postId));
@@ -83,7 +100,9 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                     onToggleLike: _toggleLike,
                     onOpenImage: (i) =>
                         openPhotoViewer(context, urls: data.images, initialIndex: i),
-                    // 删除/举报菜单在 Task 12 接入
+                    menuAction: (action) => action == 'delete'
+                        ? _deletePost()
+                        : reportPostFromSheet(context, ref, data.id),
                   ),
                   const Divider(height: 1),
                   comments.when(

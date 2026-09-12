@@ -31,6 +31,7 @@ void main() {
     expect(find.text('女'), findsOneWidget);
     expect(find.byKey(const Key('my.row.id')), findsOneWidget);
     expect(find.byKey(const Key('my.row.preference')), findsOneWidget);
+    expect(find.byKey(const Key('my.row.posts')), findsOneWidget);   // 我的动态入口
     expect(find.text('编辑资料'), findsNothing); // 独立入口已删
     // 纯入口行(头像/想找的人/设置)没有取值概念,不能显示「未填」
     expect(find.text('未填'), findsNothing);

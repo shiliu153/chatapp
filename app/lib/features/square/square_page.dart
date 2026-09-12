@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../core/api_exception.dart';
 import '../chat/widgets/photo_viewer.dart';
 import '../profile/profile_controller.dart';
+import 'feed_repository.dart';
 import 'models.dart';
+import 'post_actions.dart';
 import 'square_controller.dart';
 import 'widgets/post_card.dart';
 
@@ -44,6 +46,19 @@ class _SquarePageState extends ConsumerState<SquarePage> {
   Future<void> _toggleLike(Post post) async {
     try {
       await ref.read(squareProvider.notifier).toggleLike(post);
+    } on ApiException catch (error) {
+      if (mounted) _show(error.message);
+    }
+  }
+
+  Future<void> _deletePost(Post post) async {
+    final confirmed = await confirmDeletePost(context);
+    if (!confirmed || !mounted) return;
+    try {
+      await ref.read(feedRepositoryProvider).deletePost(post.id);
+      await ref.read(squareProvider.notifier).reload();
+      ref.invalidate(myPostsProvider);
+      if (mounted) _show('已删除');
     } on ApiException catch (error) {
       if (mounted) _show(error.message);
     }
@@ -107,6 +122,9 @@ class _SquarePageState extends ConsumerState<SquarePage> {
                       onTap: () => context.push('/posts/${post.id}'),
                       onOpenImage: (i) =>
                           openPhotoViewer(context, urls: post.images, initialIndex: i),
+                      menuAction: (action) => action == 'delete'
+                          ? _deletePost(post)
+                          : reportPostFromSheet(context, ref, post.id),
                     );
                   },
                 ),

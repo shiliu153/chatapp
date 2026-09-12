@@ -60,3 +60,44 @@ final squareProvider =
   // 页面自己有错误态,关掉 Riverpod 3 的自动重试
   retry: (retryCount, error) => null,
 );
+
+class MyPostsController extends AsyncNotifier<List<Post>> {
+  bool _hasMore = true;
+
+  @override
+  Future<List<Post>> build() async {
+    final page = await ref.read(feedRepositoryProvider).fetchPosts(path: '/posts/mine');
+    _hasMore = page.hasMore;
+    return page.items;
+  }
+
+  Future<void> reload() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(build);
+  }
+
+  Future<void> loadMore() async {
+    final current = state.value;
+    if (current == null || !_hasMore) return;
+    final page = await ref
+        .read(feedRepositoryProvider)
+        .fetchPosts(path: '/posts/mine', offset: current.length);
+    _hasMore = page.hasMore;
+    final existing = current.map((post) => post.id).toSet();
+    state = AsyncValue.data(
+        [...current, ...page.items.where((post) => !existing.contains(post.id))]);
+  }
+
+  /// 删除后本地移除(行立刻消失)。
+  Future<void> remove(int postId) async {
+    await ref.read(feedRepositoryProvider).deletePost(postId);
+    final current = state.value ?? const <Post>[];
+    state = AsyncValue.data(current.where((post) => post.id != postId).toList());
+  }
+}
+
+final myPostsProvider =
+    AsyncNotifierProvider.autoDispose<MyPostsController, List<Post>>(
+  MyPostsController.new,
+  retry: (retryCount, error) => null,
+);

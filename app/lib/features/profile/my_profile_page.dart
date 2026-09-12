@@ -98,6 +98,11 @@ class MyProfilePage extends ConsumerWidget {
             ]),
             _Group(children: [
               _InfoRow(
+                rowKey: 'my.row.posts',
+                label: '我的动态',
+                onTap: () => context.push('/my-posts'),
+              ),
+              _InfoRow(
                 rowKey: 'my.row.preference',
                 label: '想找的人',
                 onTap: () => context.push('/preference'),
