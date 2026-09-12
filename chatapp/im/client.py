@@ -128,6 +128,16 @@ def kick_user(identifier: str) -> bool:
     return _check(result, "kick")
 
 
+def kick_and_logout(identifier: str) -> None:
+    """换设备登录前清掉旧 IM 会话。
+
+    文档实测:kick 会让该账号**所有历史 userSig 失效**并断开在线连接
+    (见「失效账号登录状态」接口);旧实例要重登必须拿新签名。
+    换设备时用它把旧实例请走,否则新设备的登录可能被服务端拒绝(表现为 6206)。
+    """
+    kick_user(identifier)
+
+
 def ensure_account(identifier: str, nickname: str = "") -> bool:
     """幂等建号:已存在(ErrorCode 7015)视为成功。"""
     payload = {"Identifier": identifier, "Nick": nickname, "FaceUrl": ""}
@@ -176,13 +186,22 @@ def set_profile_nick(identifier: str, nickname: str) -> bool:
 
     ⚠️ 接口是 profile/portrait_set;名字写错(如 profile_set_field)会返回 60008。
     """
-    payload = {
-        "From_Account": identifier,
-        "ProfileItem": [{"Tag": "Tag_Profile_IM_Nick", "Value": nickname}],
-    }
+    return _portrait_set(identifier, [{"Tag": "Tag_Profile_IM_Nick", "Value": nickname}], "portrait_set")
+
+
+def set_profile_avatar(identifier: str, avatar_url: str) -> bool:
+    """把头像同步到 IM 资料(会话列表/消息页头像取自 IM 的资料)。
+
+    ⚠️ 字段名是 Tag_Profile_IM_Image;写成 Url 会报 40009「Invalid field」。
+    """
+    return _portrait_set(identifier, [{"Tag": "Tag_Profile_IM_Image", "Value": avatar_url}], "portrait_set")
+
+
+def _portrait_set(identifier: str, profile_items: list, what: str) -> bool:
+    payload = {"From_Account": identifier, "ProfileItem": profile_items}
     try:
         result = _request("profile", "portrait_set", payload)
     except Exception:
         logger.exception("IM portrait_set 调用失败 identifier=%s", identifier)
         return False
-    return _check(result, "portrait_set")
+    return _check(result, what)

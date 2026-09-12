@@ -13,7 +13,8 @@ from users.models import Profile, ProfileStatus
 
 from .client import (_request, black_list_add, black_list_delete, ensure_account,
                      import_account, kick_user, send_ban_lifted, send_ban_notice,
-                     send_custom_elem, send_match_notice, send_text, set_profile_nick)
+                     send_custom_elem, send_match_notice, send_text, set_profile_avatar,
+                     set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 
 User = get_user_model()
@@ -147,6 +148,14 @@ class ImClientTests(SimpleTestCase):
     def test_set_profile_nick_network_error_returns_false(self):
         with patch("im.client._request", side_effect=Exception("boom")):
             self.assertFalse(set_profile_nick("u1", "小明"))
+
+    def test_set_profile_avatar_payload(self):
+        # 实测字段名必须是 Tag_Profile_IM_Image,写成 Url 腾讯回 40009
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(set_profile_avatar("u1", "http://x/a.jpg"))
+        args, _ = req.call_args
+        self.assertEqual(args[2]["ProfileItem"],
+                         [{"Tag": "Tag_Profile_IM_Image", "Value": "http://x/a.jpg"}])
 
     def test_black_list_add_payload(self):
         with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
