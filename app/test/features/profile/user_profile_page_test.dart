@@ -138,7 +138,7 @@ void main() {
   testWidgets('拉黑后回黑名单页:缓存失效并重新拉取(复现 2026-09-11 手测)', (tester) async {
     adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(nickname: '小红'));
     var blocks = <Map<String, dynamic>>[];
-    adapter.routes['GET /blocks'] = (options) => ok(blocks);
+    adapter.routes['GET /blocks'] = (options) => ok(pageJson(blocks));
     adapter.routes['POST /blocks'] = (options) {
       blocks = [blockedUserJson(userId: 9, nickname: '小红')];
       return ok({'user_id': 9}, status: 201);

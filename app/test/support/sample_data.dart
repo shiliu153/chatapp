@@ -114,3 +114,11 @@ Map<String, dynamic> blockedUserJson({
       'avatar_url': avatarUrl,
       'blocked_at': '2026-09-11T12:00:00+08:00',
     };
+
+/// 造一份 LimitOffset 分页响应;hasNext=true 时给一个非空 next(测跟页用)。
+Map<String, dynamic> pageJson(List<dynamic> items, {bool hasNext = false}) => {
+      'count': items.length,
+      'next': hasNext ? 'http://test/api/v1/next' : null,
+      'previous': null,
+      'results': items,
+    };

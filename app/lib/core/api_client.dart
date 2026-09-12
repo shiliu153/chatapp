@@ -19,6 +19,20 @@ class ApiClient {
 
   Future<dynamic> delete(String path) => _guard(() => _dio.delete<dynamic>(path));
 
+  /// 跟 LimitOffset 分页约定拉全量:循环请求直到 next 为空,返回 results 拼接。
+  Future<List<dynamic>> getAllPages(String path, {int pageSize = 50}) async {
+    final items = <dynamic>[];
+    var offset = 0;
+    while (true) {
+      final page = await get(path, query: {'limit': pageSize, 'offset': offset})
+          as Map<String, dynamic>;
+      final results = page['results'] as List<dynamic>;
+      items.addAll(results);
+      offset += results.length;
+      if (page['next'] == null || results.isEmpty) return items;
+    }
+  }
+
   Future<dynamic> _guard(Future<Response<dynamic>> Function() request) async {
     try {
       final response = await request();

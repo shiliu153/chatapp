@@ -44,7 +44,7 @@ void main() {
   });
 
   test('fetchBlockedUsers 解析列表', () async {
-    adapter.routes['GET /blocks'] = (options) => ok([blockedUserJson()]);
+    adapter.routes['GET /blocks'] = (options) => ok(pageJson([blockedUserJson()]));
     final users = await repository.fetchBlockedUsers();
     expect(users.single.nickname, '小红');
     expect(users.single.userId, 9);

@@ -58,7 +58,7 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     adapter = ScriptedAdapter({
-      'GET /matches': (options) => ok([matchJson(userId: 9, nickname: '小红')]),
+      'GET /matches': (options) => ok(pageJson([matchJson(userId: 9, nickname: '小红')])),
       'GET /users/me': (options) => ok(profileJson()),
     });
     fake = FakeImClient();
@@ -254,7 +254,7 @@ void main() {
 
   testWidgets('缓存里没有对方时,标题降级用 IM 会话名', (tester) async {
     adapter = ScriptedAdapter({
-      'GET /matches': (options) => ok([]),
+      'GET /matches': (options) => ok(pageJson([])),
       'GET /users/me': (options) => ok(profileJson()),
     });
     fake.conversations = [

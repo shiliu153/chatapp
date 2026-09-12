@@ -19,7 +19,7 @@ ScriptedAdapter _adapter() => ScriptedAdapter({
             'im_user_id': 'u3',
             'expire': 604800,
           }),
-      'GET /matches': (options) => ok([matchJson(userId: 9, nickname: '小红')]),
+      'GET /matches': (options) => ok(pageJson([matchJson(userId: 9, nickname: '小红')])),
     });
 
 ImConversation _conversation({int unread = 2, String text = '在吗'}) => ImConversation(

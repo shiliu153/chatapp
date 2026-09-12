@@ -56,7 +56,7 @@ class ImRepository {
   }
 
   Future<List<MatchEntry>> fetchMatches() async {
-    final data = await _api.get('/matches') as List<dynamic>;
+    final data = await _api.getAllPages('/matches');
     return data.map((item) => MatchEntry.fromJson(item as Map<String, dynamic>)).toList();
   }
 }

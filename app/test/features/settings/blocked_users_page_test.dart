@@ -33,7 +33,7 @@ void main() {
   }
 
   testWidgets('空态', (tester) async {
-    adapter.routes['GET /blocks'] = (options) => ok([]);
+    adapter.routes['GET /blocks'] = (options) => ok(pageJson([]));
     await pumpBlocked(tester);
     expect(find.text('还没有拉黑任何人'), findsOneWidget);
   });
@@ -41,7 +41,7 @@ void main() {
   testWidgets('列表 + 解除拉黑', (tester) async {
     // 可变列表:解除后 reload 能拿到空列表,和真实后端行为一致
     var blocked = [blockedUserJson(userId: 9, nickname: '小红')];
-    adapter.routes['GET /blocks'] = (options) => ok(blocked);
+    adapter.routes['GET /blocks'] = (options) => ok(pageJson(blocked));
     adapter.routes['DELETE /blocks/9'] = (options) {
       blocked = [];
       return ok({}, status: 204);

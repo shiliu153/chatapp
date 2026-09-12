@@ -37,14 +37,30 @@ void main() {
   });
 
   test('fetchMatches 解析配对列表', () async {
-    adapter.routes['GET /matches'] = (options) =>
-        ok([matchJson(userId: 9, nickname: '小红'), matchJson(userId: 10, nickname: '小刚')]);
+    adapter.routes['GET /matches'] = (options) => ok(
+        pageJson([matchJson(userId: 9, nickname: '小红'), matchJson(userId: 10, nickname: '小刚')]));
 
     final matches = await repository.fetchMatches();
 
     expect(matches.map((entry) => entry.imUserId), ['u9', 'u10']);
     expect(matches.first.nickname, '小红');
     expect(matches.first.userId, 9);
+  });
+
+  test('fetchMatches 跟 next 拉完所有页(分页约定)', () async {
+    adapter.routes['GET /matches'] = (options) {
+      final offset = options.uri.queryParameters['offset'] ?? '0';
+      if (offset == '0') {
+        return ok(pageJson([matchJson(userId: 9, nickname: '小红')], hasNext: true));
+      }
+      return ok(pageJson([matchJson(userId: 10, nickname: '小刚')]));
+    };
+
+    final matches = await repository.fetchMatches();
+
+    expect(matches.map((entry) => entry.userId), [9, 10]);
+    expect(adapter.log.length, 2);                                  // 拉了 2 页
+    expect(adapter.log.last.uri.queryParameters['offset'], '1');    // 第二页 offset=第一页实际条数
   });
 
   test('接口报错时抛 ApiException(message 是后端中文提示)', () async {

@@ -35,7 +35,7 @@ void main() {
     SharedPreferences.setMockInitialValues(
         {'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 3});
     adapter.routes['POST /auth/token/refresh'] = (options) => ok({'access': 'a2', 'refresh': 'r2'});
-    adapter.routes['GET /matches'] = (options) => ok([matchJson(userId: 9, nickname: '小红')]);
+    adapter.routes['GET /matches'] = (options) => ok(pageJson([matchJson(userId: 9, nickname: '小红')]));
     final container = makeContainer();
 
     await container.read(sessionProvider.notifier).bootstrap();

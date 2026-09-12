@@ -29,7 +29,7 @@ class ModerationRepository {
   }
 
   Future<List<BlockedUser>> fetchBlockedUsers() async {
-    final data = await _api.get('/blocks') as List<dynamic>;
+    final data = await _api.getAllPages('/blocks');
     return data.map((item) => BlockedUser.fromJson(item as Map<String, dynamic>)).toList();
   }
 }
