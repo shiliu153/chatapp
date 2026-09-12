@@ -1,18 +1,21 @@
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef
 from rest_framework.decorators import api_view, throttle_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from config.pagination import DefaultLimitOffsetPagination
+from moderation.models import ReportStatus
 from moderation.services import blocked_user_ids
 from users.models import ProfileStatus
 
-from .models import Post, PostComment, PostImage, PostLike
+from .models import Post, PostComment, PostImage, PostLike, PostReport
 from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
-                          PostCreateSerializer, PostSerializer)
+                          PostCreateSerializer, PostReportCreateSerializer,
+                          PostSerializer)
 from .services import delete_post, notify_post_commented, visible_posts
-from .throttles import PostCommentThrottle, PostCreateThrottle
+from .throttles import PostCommentThrottle, PostCreateThrottle, PostReportThrottle
 
 
 def _page_response(request, queryset, serializer_class=PostSerializer):
@@ -92,3 +95,19 @@ def post_comments(request, post_id):
                 .exclude(author__profile__status=ProfileStatus.BANNED_HEAVY)
                 .select_related("author__profile").prefetch_related("author__photos"))
     return _page_response(request, comments, PostCommentSerializer)
+
+
+@api_view(["POST"])
+@throttle_classes([PostReportThrottle])
+def post_report(request, post_id):
+    post = get_object_or_404(visible_posts(request.user), pk=post_id)
+    if post.author_id == request.user.id:
+        raise ValidationError("不能举报自己的动态")
+    serializer = PostReportCreateSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    report, created = PostReport.objects.get_or_create(
+        reporter=request.user, post=post, status=ReportStatus.PENDING,
+        defaults={"type": serializer.validated_data["type"],
+                  "detail": serializer.validated_data["detail"]})
+    return Response({"id": report.id, "status": report.status},
+                    status=201 if created else 200)

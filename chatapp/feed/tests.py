@@ -359,3 +359,53 @@ class PostCommentTests(FeedApiMixin, APITestCase):
                                               {"text": "2"}, format="json").status_code, 201)
             self.assertEqual(self.client.post(f"/api/v1/posts/{self.post.id}/comments",
                                               {"text": "3"}, format="json").status_code, 429)
+
+
+class PostReportTests(FeedApiMixin, APITestCase):
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        self.author = User.objects.create_user(phone="13900139000")
+        self.post = Post.objects.create(author=self.author, text="被举报的动态")
+        self.login(self.me)
+        self.url = f"/api/v1/posts/{self.post.id}/report"
+
+    def test_creates_pending_report(self):
+        resp = self.client.post(self.url, {"type": "porn", "detail": "色情图"}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        report = PostReport.objects.get()
+        self.assertEqual((report.reporter, report.post, report.type),
+                         (self.me, self.post, "porn"))
+        self.assertEqual(report.status, ReportStatus.PENDING)
+
+    def test_duplicate_pending_is_idempotent(self):
+        first = self.client.post(self.url, {"type": "porn"}, format="json")
+        second = self.client.post(self.url, {"type": "fraud"}, format="json")
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["id"], first.json()["id"])
+        self.assertEqual(PostReport.objects.count(), 1)
+
+    def test_cannot_report_own_post(self):
+        self.login(self.author)
+        self.assertEqual(
+            self.client.post(self.url, {"type": "other"}, format="json").status_code, 400)
+
+    def test_invisible_post_404(self):
+        Block.objects.create(blocker=self.author, blocked=self.me)
+        self.assertEqual(
+            self.client.post(self.url, {"type": "other"}, format="json").status_code, 404)
+
+    def test_invalid_type_rejected(self):
+        self.assertEqual(
+            self.client.post(self.url, {"type": "spam"}, format="json").status_code, 400)
+
+    def test_throttled(self):
+        from .throttles import PostReportThrottle
+
+        other = Post.objects.create(author=self.author, text="第二条")
+        with patch.object(PostReportThrottle, "rate", "1/day", create=True):
+            self.assertEqual(self.client.post(self.url, {"type": "other"},
+                                              format="json").status_code, 201)
+            self.assertEqual(self.client.post(f"/api/v1/posts/{other.id}/report",
+                                              {"type": "other"}, format="json").status_code, 429)

@@ -27,3 +27,12 @@ class PostCommentThrottle(SimpleRateThrottle):
         if request.method != "POST":
             return True
         return super().allow_request(request, view)
+
+
+class PostReportThrottle(SimpleRateThrottle):
+    """按用户限流举报动态;额度在 settings.DEFAULT_THROTTLE_RATES["post_report"]。"""
+
+    scope = "post_report"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": request.user.id}

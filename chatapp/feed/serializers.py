@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from moderation.models import ReportType
 from moderation.text_check import find_blocked_word
 from users.models import PhotoStatus
 
@@ -80,3 +81,8 @@ class PostCommentCreateSerializer(serializers.Serializer):
         if not text:
             raise serializers.ValidationError("评论不能为空")
         return text
+
+
+class PostReportCreateSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=ReportType.choices)
+    detail = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
