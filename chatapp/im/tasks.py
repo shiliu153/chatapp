@@ -83,6 +83,15 @@ def ban_lifted(user_id: int) -> None:
 
 
 @shared_task(**RETRY_POLICY)
+def report_handled(reporter_id: int) -> None:
+    """举报处理完成:告知举报者(收件人是举报者,不是被举报人)。"""
+    user = _user(reporter_id)
+    if user is None:
+        return
+    _require(im_client.send_report_handled(user.im_user_id), "report_handled")
+
+
+@shared_task(**RETRY_POLICY)
 def sync_profile(user_id: int, kind: str) -> None:
     """把资料同步到 IM(kind: nick|avatar);没有可同步的值时静默跳过。"""
     user = _user(user_id)

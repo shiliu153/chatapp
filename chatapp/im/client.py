@@ -22,6 +22,7 @@ SYSTEM_NOTICE_NICK = "系统通知"
 
 BAN_REASON_FALLBACK = "违反社区规范"
 BAN_LIFTED_TEXT = "您的账号限制已解除,所有功能已恢复。请遵守社区规范。"
+REPORT_HANDLED_TEXT = "您提交的举报已处理,感谢您对社区安全的支持。"
 
 
 def _ban_notice_text(level: str, reason: str) -> str:
@@ -151,6 +152,12 @@ def send_ban_lifted(to_identifier: str) -> bool:
     """解封通知:以「系统通知」身份发一条自定义消息。"""
     return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
                             {"type": "ban_lifted"}, BAN_LIFTED_TEXT)
+
+
+def send_report_handled(to_identifier: str) -> bool:
+    """举报处理结果通知:以「系统通知」身份告知举报者(固定文案,不披露处罚细节)。"""
+    return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
+                            {"type": "report_handled"}, REPORT_HANDLED_TEXT)
 
 
 def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:

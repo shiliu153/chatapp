@@ -14,12 +14,12 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 from .client import (_request, black_list_add, black_list_delete, ensure_account,
                      import_account, kick_user, send_ban_lifted, send_ban_notice,
-                     send_custom_elem, send_match_notice, send_text, set_profile_avatar,
-                     set_profile_nick)
+                     send_custom_elem, send_match_notice, send_report_handled, send_text,
+                     set_profile_avatar, set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
                     import_account as import_account_task, kick_pending,
-                    kick_pending_key, sync_profile)
+                    kick_pending_key, report_handled as report_handled_task, sync_profile)
 from .tasks import send_match_notice as send_match_notice_task
 
 User = get_user_model()
@@ -228,6 +228,22 @@ class ImClientTests(SimpleTestCase):
     def test_send_ban_notice_network_error_returns_false(self):
         with patch("im.client._request", side_effect=RuntimeError("boom")):
             self.assertFalse(send_ban_notice("u9", "light", "x"))
+
+    def test_send_report_handled_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(send_report_handled("u9"))
+        args = req.call_args[0]
+        self.assertEqual(args[:2], ("openim", "sendmsg"))
+        payload = args[2]
+        self.assertEqual(payload["From_Account"], "system_notice")
+        self.assertEqual(payload["To_Account"], "u9")
+        content = payload["MsgBody"][0]["MsgContent"]
+        self.assertEqual(json.loads(content["Data"]), {"type": "report_handled"})
+        self.assertEqual(content["Desc"], "您提交的举报已处理,感谢您对社区安全的支持。")
+
+    def test_send_report_handled_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=RuntimeError("boom")):
+            self.assertFalse(send_report_handled("u9"))
 
 
 class ImSendCommandTests(SimpleTestCase):
@@ -440,6 +456,19 @@ class ImSideEffectTaskTests(TestCase):
         with patch("im.client.set_profile_avatar") as sync:
             sync_profile.run(self.b.id, "avatar")
         sync.assert_not_called()
+
+    def test_report_handled_task(self):
+        with patch("im.client.send_report_handled", return_value=True) as send:
+            report_handled_task.run(self.a.id)
+        send.assert_called_once_with(self.a.im_user_id)
+
+    def test_report_handled_failure_raises_so_celery_retries(self):
+        with patch("im.client.send_report_handled", return_value=False):
+            with self.assertRaises(RuntimeError):
+                report_handled_task.run(self.a.id)
+
+    def test_report_handled_missing_user_is_noop(self):
+        report_handled_task.run(999999)   # 不抛异常、不调用
 
     def test_missing_user_is_noop(self):
         send_match_notice_task.run(self.a.id, 999999)   # 不抛异常
