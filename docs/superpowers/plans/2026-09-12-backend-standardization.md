@@ -1084,7 +1084,7 @@ git commit -m "feat(app): 登录 verify 网络级失败自动重试一次 + 超�
 Run: `cd chatapp && python manage.py test`
 Expected: 全绿(含新增:缓存隔离 2、状态机 6、短信任务 2、IM 任务 4、accounts 改造用例)
 
-- [ ] **Step 2: 双模拟器手测(需 Redis 容器 + worker + runserver 三者同跑)**
+- [x] **Step 2: 双模拟器手测(需 Redis 容器 + worker + runserver 三者同跑)**
 
 ```bash
 cd chatapp
@@ -1129,3 +1129,14 @@ git commit -m "docs: 登录鉴权标准化落地(Redis+Celery 基建/验证码�
   - 发码 `POST /auth/sms/send` 200 / 107ms,`notifications.tasks.send_sms_code` 在 worker 侧执行;
   - 登录 200 且响应路径不等腾讯;worker 侧 `im.tasks.sync_login`(踢旧 IM 会话)0.75s 完成;
   - **60 秒窗口内同码重放 200 / 40ms**(旧版本此时会回「验证码已过期」)。
+
+### 手测补记(2026-09-12 晚)
+
+- 双模拟器手测通过(登录变快 / 新号注册 / 顶号 / 踢下线链路);期间发现并修复两个真 bug:
+  1. **测试任务漏进开发 broker**(`8020cd2`):`.env` 里用 `CELERY_BROKER_URL` 会被 Celery 的
+     「环境变量优先」压过 settings 的 TESTING 覆盖 → 环境变量改名 `BROKER_URL` + 回归用例;
+  2. **自我踢下线回归**(`8c30e1b`):踢旧 IM 会话做成「响应后异步」会踢掉新设备刚建的会话,
+     客户端误报「账号已在其他设备登录」→ 改为 verify 写 `im:kick_pending` 标记、
+     `/im/user_sig` 同步踢后再发签名 + 20s 延迟兜底任务。
+- 用户在模拟器复测确认正常;日志核对:kick 标记被 user_sig 消费、兜底任务空转、
+  全程无 40101、429 后用同一验证码重放登录成功(60s 幂等窗口生效)。
