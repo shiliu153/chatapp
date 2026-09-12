@@ -4,6 +4,8 @@ from django.test import TestCase
 from django_redis import get_redis_connection
 from rest_framework.test import APITestCase
 
+from config.celery import ping
+
 
 class ErrorEnvelopeTests(APITestCase):
     def test_error_response_uses_code_message_envelope(self):
@@ -22,3 +24,8 @@ class CacheBackendTests(TestCase):
     def test_testing_uses_isolated_redis_db(self):
         db = get_redis_connection("default").connection_pool.connection_kwargs["db"]
         self.assertEqual(db, 15)   # 测试绝不写开发库(DB0)
+
+
+class CelerySkeletonTests(TestCase):
+    def test_ping_task_returns_pong(self):
+        self.assertEqual(ping.apply().get(), "pong")
