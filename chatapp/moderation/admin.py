@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.utils import timezone
 
 from .models import BanLog, Block, Report, ReportStatus
+from .services import notify_report_handled
 
 
 @admin.register(Report)
@@ -14,10 +15,13 @@ class ReportAdmin(admin.ModelAdmin):
     ordering = ("-status", "-created_at")
 
     def save_model(self, request, obj, form, change):
-        if obj.status == ReportStatus.HANDLED and obj.handled_at is None:
+        first_handling = obj.status == ReportStatus.HANDLED and obj.handled_at is None
+        if first_handling:
             obj.handled_at = timezone.now()
             obj.handled_by = request.user
         super().save_model(request, obj, form, change)
+        if first_handling:
+            notify_report_handled(obj)
 
 
 @admin.register(Block)

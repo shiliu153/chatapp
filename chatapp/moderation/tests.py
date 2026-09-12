@@ -211,11 +211,32 @@ class ReportAdminTests(TestCase):
         obj = Report.objects.get(pk=self.report.pk)
         obj.status = ReportStatus.HANDLED
         obj.handled_note = "已警告"
-        model_admin.save_model(request, obj, form=None, change=True)
+        with patch("im.tasks.report_handled.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                model_admin.save_model(request, obj, form=None, change=True)
         obj.refresh_from_db()
         self.assertEqual(obj.handled_by, self.staff)
         self.assertIsNotNone(obj.handled_at)
         self.assertEqual(obj.handled_note, "已警告")
+        delay.assert_called_once_with(self.reporter.id)
+
+    def test_resaving_handled_report_does_not_notify_again(self):
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+
+        from .admin import ReportAdmin
+
+        request = RequestFactory().post("/admin/")
+        request.user = self.staff
+        model_admin = ReportAdmin(Report, django_admin.site)
+        with patch("im.tasks.report_handled.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                first = Report.objects.get(pk=self.report.pk)
+                first.status = ReportStatus.HANDLED
+                model_admin.save_model(request, first, form=None, change=True)
+                second = Report.objects.get(pk=self.report.pk)
+                model_admin.save_model(request, second, form=None, change=True)
+        self.assertEqual(delay.call_count, 1)
 
     def test_block_and_banlog_admins_are_readonly(self):
         from django.contrib import admin as django_admin
