@@ -427,8 +427,8 @@ git commit -m "docs: CLAUDE.md 补记举报处理通知机制"
 
 (执行时在此勾选/记录偏差)
 
-- [ ] Task 1
-- [ ] Task 2
-- [ ] Task 3
-- [ ] Task 4
+- [x] Task 1
+- [x] Task 2
+- [x] Task 3
+- [x] Task 4
 - [ ] Task 5

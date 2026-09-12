@@ -126,6 +126,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **头像同步**:同接口、Tag 用 **`Tag_Profile_IM_Image`**(`set_profile_avatar`;⚠️ 猜成 `Tag_Profile_IM_Url` 会回 40009「Invalid field」,2026-09-12 实测)。造数命令会顺带同步;**照片过审(含 `AUTO_APPROVE=1` 上传即过审)也会经 `im/tasks.py::sync_profile(user, "avatar")` 同步**(绝对 URL 用 `MEDIA_BASE_URL` 拼)。
 - **管理员 kick**:`im_open_login_svc/kick`(body `{"UserID": u}`)会让该账号**所有历史 userSig 失效**并断开在线连接;单设备登录靠它清旧实例(见「单设备登录」节)。⚠️ 没有 `…/logout` 这个接口(调用回 60008)。
 - **封禁/解封系统消息**:custom 消息 `type=ban_notice`(带 `level: light|heavy`)/`ban_lifted`,Desc 为完整中文说明;统一由 `moderation/services.py::log_ban_change` 入队 `im/tasks.ban_notice|ban_lifted`(admin 与 /ops/ 同源自动覆盖)。重封禁在同一任务内**先发消息再踢下线**。重封禁用户被封期间进不了消息页,消息留档、解封后可见。
+- **举报处理通知**:举报首次标记「已处理」时,给**举报者**发 custom `type=report_handled`(固定文案「您提交的举报已处理…」,不披露处罚细节;运营备注不进通知);由 `moderation/services.py::notify_report_handled` 入队 `im/tasks.py::report_handled`,触发点 3 处(ops「已处理」/「快速封禁」、admin save_model)全挂在各自「首次处理」分支上;App 端归入系统通知灰条(前端类型白名单里 `report_handled` 与 `ban_notice/ban_lifted` 同分支)。
 - 详细设计(配对灰条消息、会话列表数据源、审核合规)见 spec 文档,写 IM 相关代码前先读它。
 
 ## 前端约定与踩坑(M2a 已实测)
