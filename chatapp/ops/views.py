@@ -5,6 +5,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.models import User
+from feed.models import Post
+from feed.services import delete_post
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
 from moderation.services import log_ban_change, notify_report_handled
@@ -215,3 +217,24 @@ def logs(request):
         "action": action, "phone": phone, "date": date,
         "actions": BanAction.choices,
     })
+
+
+def _posts_queryset():
+    return (Post.objects.select_related("author__profile")
+            .prefetch_related("images")
+            .annotate(like_count=Count("likes", distinct=True),
+                      comment_count=Count("comments", distinct=True))
+            .order_by("-created_at", "-id")[:200])
+
+
+@staff_required
+def posts(request):
+    return render(request, "ops/posts.html", {"posts": _posts_queryset()})
+
+
+@require_POST
+@staff_required
+def post_delete(request, post_id):
+    post = get_object_or_404(Post, pk=post_id)
+    delete_post(post)
+    return render(request, "ops/partials/posts_table.html", {"posts": _posts_queryset()})

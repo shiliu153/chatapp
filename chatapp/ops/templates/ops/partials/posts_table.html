@@ -1,0 +1,24 @@
+<article>
+<table id="posts-table">
+  <thead><tr><th>图</th><th>时间</th><th>作者</th><th>内容</th><th>赞</th><th>评</th><th></th></tr></thead>
+  <tbody>
+  {% for post in posts %}
+    <tr>
+      <td>{% with image=post.images.first %}{% if image %}<img class="thumb" src="{{ image.file.url }}" alt="">{% endif %}{% endwith %}</td>
+      <td>{{ post.created_at|date:"m-d H:i" }}</td>
+      <td>{{ post.author.profile.nickname|default:post.author.phone }}({{ post.author.phone }})</td>
+      <td>{{ post.text|truncatechars:40|default:"(无文字)" }}</td>
+      <td>{{ post.like_count }}</td>
+      <td>{{ post.comment_count }}</td>
+      <td>
+        <form hx-post="{% url 'ops:post_delete' post.id %}" hx-target="#posts-table" hx-swap="outerHTML">
+          <button type="submit" class="danger" onclick="return confirm('删除这条动态?')">删除</button>
+        </form>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7">还没有动态</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</article>

@@ -3,6 +3,7 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from accounts.models import User
+from feed.models import Post, PostLike
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -326,3 +327,29 @@ class OpsLogsTests(TestCase):
         resp = self.client.get("/ops/logs/", {"action": "unban"})
         self.assertContains(resp, "申诉通过")
         self.assertNotContains(resp, "骚扰")   # 轻度封禁行的原因文本被过滤掉(动作名在筛选下拉里恒有,不能拿来断言)
+
+
+class OpsPostsTests(TestCase):
+    def setUp(self):
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+        self.user = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.user, nickname="小红")
+        self.post = Post.objects.create(author=self.user, text="违规动态")
+        PostLike.objects.create(post=self.post, user=self.staff)
+
+    def test_posts_list_shows_post(self):
+        resp = self.client.get("/ops/posts/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "违规动态")
+        self.assertContains(resp, "小红")
+
+    def test_delete_removes_post(self):
+        resp = self.client.post(f"/ops/posts/{self.post.id}/delete")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Post.objects.filter(pk=self.post.id).exists())
+
+    def test_non_staff_forbidden(self):
+        plain = User.objects.create_user(phone="13800138001")
+        self.client.force_login(plain)
+        self.assertEqual(self.client.get("/ops/posts/").status_code, 403)
