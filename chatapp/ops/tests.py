@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from accounts.models import User
-from feed.models import Post, PostLike
+from feed.models import Post, PostLike, PostReport
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -353,3 +353,60 @@ class OpsPostsTests(TestCase):
         plain = User.objects.create_user(phone="13800138001")
         self.client.force_login(plain)
         self.assertEqual(self.client.get("/ops/posts/").status_code, 403)
+
+
+class OpsPostReportsTests(TestCase):
+    def setUp(self):
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+        self.reporter = User.objects.create_user(phone="13800138000")
+        self.author = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.author, nickname="小红")
+        self.post = Post.objects.create(author=self.author, text="被举报的动态")
+        self.report = PostReport.objects.create(reporter=self.reporter, post=self.post,
+                                                type="porn", detail="色情")
+
+    def test_queue_shows_pending(self):
+        resp = self.client.get("/ops/post-reports/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "被举报的动态")
+        self.assertContains(resp, "色情")
+
+    def test_ignore_marks_handled_and_notifies(self):
+        with patch("im.tasks.report_handled.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/ops/post-reports/{self.report.id}/handle",
+                                        {"note": "内容没问题"})
+        self.assertEqual(resp.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, ReportStatus.HANDLED)
+        self.assertEqual(self.report.handled_note, "内容没问题")
+        self.assertEqual(self.report.handled_by, self.staff)
+        delay.assert_called_once_with(self.reporter.id)
+        self.assertTrue(PostReport.objects.filter(pk=self.report.pk).exists())
+
+    def test_delete_post_removes_and_closes_all_pending(self):
+        second = PostReport.objects.create(reporter=self.staff, post=self.post, type="other")
+        with patch("im.tasks.report_handled.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/ops/post-reports/{self.report.id}/delete-post")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Post.objects.filter(pk=self.post.pk).exists())
+        self.report.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(self.report.status, ReportStatus.HANDLED)
+        self.assertEqual(self.report.handled_note, "动态已删除")
+        self.assertEqual(second.status, ReportStatus.HANDLED)
+        self.assertEqual(delay.call_count, 2)   # 两个举报者各一次
+
+    def test_repeat_handle_does_not_notify_again(self):
+        with patch("im.tasks.report_handled.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(f"/ops/post-reports/{self.report.id}/handle", {"note": "一"})
+                self.client.post(f"/ops/post-reports/{self.report.id}/handle", {"note": "二"})
+        self.assertEqual(delay.call_count, 1)
+
+    def test_non_staff_forbidden(self):
+        plain = User.objects.create_user(phone="13800138001")
+        self.client.force_login(plain)
+        self.assertEqual(self.client.get("/ops/post-reports/").status_code, 403)

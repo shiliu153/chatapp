@@ -26,4 +26,9 @@ urlpatterns = [
     path("logs/", views.logs, name="logs"),
     path("posts/", views.posts, name="posts"),
     path("posts/<int:post_id>/delete", views.post_delete, name="post_delete"),
+    path("post-reports/", views.post_reports, name="post_reports"),
+    path("post-reports/<int:report_id>/handle", views.post_report_handle,
+         name="post_report_handle"),
+    path("post-reports/<int:report_id>/delete-post", views.post_report_delete_post,
+         name="post_report_delete_post"),
 ]

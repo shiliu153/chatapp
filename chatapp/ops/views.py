@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.models import User
-from feed.models import Post
+from feed.models import Post, PostReport
 from feed.services import delete_post
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
@@ -238,3 +238,59 @@ def post_delete(request, post_id):
     post = get_object_or_404(Post, pk=post_id)
     delete_post(post)
     return render(request, "ops/partials/posts_table.html", {"posts": _posts_queryset()})
+
+
+def _post_reports_queryset(status):
+    qs = (PostReport.objects.select_related("post__author__profile", "reporter", "handled_by")
+          .order_by("-status", "-created_at"))
+    if status in ReportStatus.values:
+        qs = qs.filter(status=status)
+    return qs[:200]
+
+
+def _render_post_reports(request):
+    status = (request.POST.get("status") or request.GET.get("status")
+              or ReportStatus.PENDING)
+    return render(request, "ops/partials/post_reports_table.html",
+                  {"reports": _post_reports_queryset(status), "status": status})
+
+
+@staff_required
+def post_reports(request):
+    status = request.GET.get("status", ReportStatus.PENDING)
+    return render(request, "ops/post_reports.html", {
+        "reports": _post_reports_queryset(status), "status": status,
+        "types": ReportType.choices,
+    })
+
+
+@require_POST
+@staff_required
+def post_report_handle(request, report_id):
+    report = get_object_or_404(PostReport, pk=report_id)
+    if report.status == ReportStatus.PENDING:
+        report.status = ReportStatus.HANDLED
+        report.handled_note = request.POST.get("note", "").strip()[:200]
+        report.handled_by = request.user
+        report.handled_at = timezone.now()
+        report.save(update_fields=["status", "handled_note", "handled_by", "handled_at"])
+        notify_report_handled(report)
+    return _render_post_reports(request)
+
+
+@require_POST
+@staff_required
+def post_report_delete_post(request, report_id):
+    report = get_object_or_404(PostReport.objects.select_related("post"), pk=report_id)
+    if report.status == ReportStatus.PENDING:
+        if report.post is not None:
+            delete_post(report.post)   # 内部:该动态全部 pending 标 handled + 各举报者通知 + 删行
+        else:
+            # 动态已被作者删除(post 置空)但举报还挂着:只关闭这条
+            report.status = ReportStatus.HANDLED
+            report.handled_note = "动态已删除"
+            report.handled_by = request.user
+            report.handled_at = timezone.now()
+            report.save(update_fields=["status", "handled_note", "handled_by", "handled_at"])
+            notify_report_handled(report)
+    return _render_post_reports(request)

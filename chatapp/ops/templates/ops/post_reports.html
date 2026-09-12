@@ -1,0 +1,9 @@
+{% extends "ops/base.html" %}
+{% block page_title %}动态举报{% endblock %}
+{% block content %}
+<p class="ops-tabs">
+  <a href="?status=pending" class="{% if status == 'pending' %}active{% endif %}">待处理</a>
+  <a href="?status=handled" class="{% if status == 'handled' %}active{% endif %}">已处理</a>
+</p>
+{% include "ops/partials/post_reports_table.html" %}
+{% endblock %}

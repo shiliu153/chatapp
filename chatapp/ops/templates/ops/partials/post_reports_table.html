@@ -1,0 +1,30 @@
+<article>
+<table id="post-reports-table">
+  <thead><tr><th>时间</th><th>类型</th><th>举报人</th><th>动态</th><th>作者</th><th>状态</th><th></th></tr></thead>
+  <tbody>
+  {% for r in reports %}
+    <tr>
+      <td>{{ r.created_at|date:"m-d H:i" }}</td>
+      <td>{{ r.get_type_display }}</td>
+      <td>{{ r.reporter.phone }}</td>
+      <td>{% if r.post %}{{ r.post.text|truncatechars:30|default:"(无文字)" }}{% else %}(动态已删除){% endif %}</td>
+      <td>{% if r.post %}<a href="{% url 'ops:user_detail' r.post.author.id %}">{{ r.post.author.profile.nickname|default:r.post.author.phone }}</a>{% else %}—{% endif %}</td>
+      <td>{% if r.status == 'pending' %}<span class="tag tag-orange">待处理</span>{% else %}<span class="tag tag-green">已处理</span>{% if r.handled_note %}({{ r.handled_note }}){% endif %}{% endif %}</td>
+      <td>
+        {% if r.status == 'pending' %}
+        <form hx-post="{% url 'ops:post_report_delete_post' r.id %}" hx-target="#post-reports-table" hx-swap="outerHTML" style="display:inline">
+          <button type="submit" class="danger" onclick="return confirm('删除这条动态?')">删除动态</button>
+        </form>
+        <form hx-post="{% url 'ops:post_report_handle' r.id %}" hx-target="#post-reports-table" hx-swap="outerHTML" style="display:inline">
+          <input type="text" name="note" maxlength="200" placeholder="备注(可选)">
+          <button type="submit" class="secondary">忽略</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7">没有符合条件的举报</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</article>
