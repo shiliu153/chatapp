@@ -41,6 +41,15 @@ def sync_im_blacklist(blocker, blocked, *, add: bool) -> None:
     _enqueue(task, blocker.id, blocked.id)
 
 
+def notify_report_handled(report) -> None:
+    """举报首次标记「已处理」时调用:给举报者发系统通知(经任务队列)。
+
+    只在处理状态从 pending 变为 handled 的那一刻调用;重复处理不要再调,
+    否则举报者会收到多条同样的通知。
+    """
+    _enqueue(im_tasks.report_handled, report.reporter_id)
+
+
 def _write_log(user, action, reason, operator) -> None:
     try:
         BanLog.objects.create(user=user, action=action, reason=reason or "", operator=operator)

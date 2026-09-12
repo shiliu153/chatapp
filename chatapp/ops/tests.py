@@ -119,7 +119,8 @@ class ReportActionTests(TestCase):
         self.assertEqual(self.report.handled_note, "第一次")
 
     def test_quick_ban_heavy_bans_and_handles(self):
-        with patch("im.tasks.ban_notice.delay") as delay:
+        with patch("im.tasks.ban_notice.delay") as delay, \
+                patch("im.tasks.report_handled.delay"):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(f"/ops/reports/{self.report.id}/ban",
                                         {"level": "ban_heavy", "reason": "色情图片"})
@@ -145,6 +146,28 @@ class ReportActionTests(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, ReportStatus.PENDING)
         delay.assert_not_called()
+
+    def test_handle_notifies_reporter(self):
+        with patch("im.tasks.report_handled.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "已警告"})
+        delay.assert_called_once_with(self.reporter.id)
+
+    def test_handle_twice_notifies_once(self):
+        with patch("im.tasks.report_handled.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "一"})
+                self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "二"})
+        self.assertEqual(delay.call_count, 1)
+
+    def test_quick_ban_notifies_reporter(self):
+        with patch("im.tasks.ban_notice.delay") as ban_delay, \
+                patch("im.tasks.report_handled.delay") as report_delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(f"/ops/reports/{self.report.id}/ban",
+                                 {"level": "ban_heavy", "reason": "色情图片"})
+        ban_delay.assert_called_once_with(self.target.id, "heavy", "色情图片")
+        report_delay.assert_called_once_with(self.reporter.id)
 
 
 class OpsPhotoReviewTests(TestCase):

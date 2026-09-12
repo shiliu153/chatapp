@@ -7,7 +7,7 @@ from django.views.decorators.http import require_POST
 from accounts.models import User
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
-from moderation.services import log_ban_change
+from moderation.services import log_ban_change, notify_report_handled
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import review_photos
 
@@ -85,6 +85,7 @@ def report_handle(request, report_id):
         report.handled_by = request.user
         report.handled_at = timezone.now()
         report.save(update_fields=["status", "handled_note", "handled_by", "handled_at"])
+        notify_report_handled(report)
     return render(request, "ops/partials/report_panel.html",
                   {"report": report, "error": None})
 
@@ -108,6 +109,7 @@ def report_ban(request, report_id):
             report.handled_by = request.user
             report.handled_at = timezone.now()
             report.save(update_fields=["status", "handled_note", "handled_by", "handled_at"])
+            notify_report_handled(report)
     return render(request, "ops/partials/report_panel.html",
                   {"report": report, "error": error})
 
