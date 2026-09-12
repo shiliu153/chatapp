@@ -1,5 +1,7 @@
 from rest_framework.views import exception_handler
 
+from .request_id import current_request_id
+
 
 def _first_message(data):
     """从 DRF 各种形状的错误数据里取第一条可读信息。"""
@@ -29,5 +31,6 @@ def api_exception_handler(exc, context):
     response.data = {
         "code": detail_code if detail_code is not None else response.status_code,
         "message": _first_message(response.data),
+        "request_id": current_request_id(),
     }
     return response

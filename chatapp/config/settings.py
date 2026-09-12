@@ -59,6 +59,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "config.middleware.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -199,6 +200,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://localhost:\d+$",   # Flutter Web / 调试用
     r"^http://127\.0\.0\.1:\d+$",
 ]
+CORS_EXPOSE_HEADERS = ["X-Request-Id"]   # 浏览器端能读到追踪头
 
 
 # --- 短信验证码(开发期控制台后端;上线接短信商时加 notifications/backends.py 实现) ---
@@ -210,16 +212,40 @@ SMS_MAX_ATTEMPTS = 5        # 连续错误次数上限
 SMS_LOCK_TTL = 900          # 触发上限后锁定时长(秒)
 SMS_REPLAY_TTL = 60         # 校验成功后的幂等重放窗口(秒):响应丢失时同码可再换令牌
 
-# --- 日志:开发期要能在终端看到验证码 ---
+# --- 日志:开发期要能在终端看到验证码;每行带 request_id ---
+LOG_FILE = os.getenv("LOG_FILE", "")          # 置为文件路径则额外落盘(手测配 --noreload)
+REQUEST_SLOW_MS = int(os.getenv("REQUEST_SLOW_MS", "500"))
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "filters": {"request_id": {"()": "config.request_id.RequestIdFilter"}},
+    "formatters": {
+        "console": {"format": "%(levelname)s %(asctime)s [%(request_id)s] %(name)s %(message)s"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler",
+                    "filters": ["request_id"], "formatter": "console"},
+    },
     "loggers": {
         "accounts": {"handlers": ["console"], "level": "INFO"},
         "im": {"handlers": ["console"], "level": "INFO"},
+        "chatapp.request": {"handlers": ["console"], "level": "INFO",
+                            "filters": ["request_id"]},
     },
 }
+if LOG_FILE:
+    # ⚠️ 手测时用 runserver --noreload:autoreload 的两个进程会抢写同一文件
+    LOGGING["handlers"]["file"] = {
+        "class": "logging.handlers.RotatingFileHandler",
+        "filename": LOG_FILE,
+        "maxBytes": 5 * 1024 * 1024,
+        "backupCount": 3,
+        "encoding": "utf-8",
+        "filters": ["request_id"],
+        "formatter": "console",
+    }
+    LOGGING["root"] = {"handlers": ["console", "file"], "level": "INFO"}
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
