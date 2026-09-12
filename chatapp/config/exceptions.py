@@ -24,5 +24,10 @@ def api_exception_handler(exc, context):
     response = exception_handler(exc, context)
     if response is None:
         return None
-    response.data = {"code": response.status_code, "message": _first_message(response.data)}
+    # 异常自带业务码(如单设备登录的 40101)时透传,否则用 HTTP 状态码作业务码
+    detail_code = getattr(exc, "detail_code", None)
+    response.data = {
+        "code": detail_code if detail_code is not None else response.status_code,
+        "message": _first_message(response.data),
+    }
     return response

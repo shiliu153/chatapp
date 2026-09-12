@@ -24,9 +24,14 @@ class UserManager(BaseUserManager):
         return user
 
 
+SESSION_VERSION_DEFAULT = 1   # 单设备登录:登录时 version+1,>1 说明已有过会话
+
+
 class User(AbstractUser):
     username = None
     phone = models.CharField("手机号", max_length=20, unique=True)
+    # 单设备登录:每次登录 +1;JWT 里带签发时的版本,鉴权时对不上 = 已在别处登录
+    session_version = models.PositiveIntegerField("会话版本", default=SESSION_VERSION_DEFAULT)
 
     USERNAME_FIELD = "phone"
     REQUIRED_FIELDS = []
