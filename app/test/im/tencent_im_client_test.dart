@@ -133,6 +133,19 @@ void main() {
     expect(message.text, '您的账号限制已解除,所有功能已恢复。');
   });
 
+  test('report_handled 自定义消息 → banNotice 灰条,文案取 Desc', () {
+    final message = chatMessageFromSdk(sdkMessage(
+      isSelf: false,
+      sender: 'system_notice',
+      elem: customElem('{"type":"report_handled"}',
+          desc: '您提交的举报已处理,感谢您对社区安全的支持。'),
+    ));
+
+    expect(message.kind, ChatMessageKind.banNotice);
+    expect(message.text, '您提交的举报已处理,感谢您对社区安全的支持。');
+    expect(message.peerId, 'system_notice');
+  });
+
   test('图片消息:kind=image,localPath 取 path,缩略/原图取对应 url', () {
     final message = chatMessageFromSdk(sdkMessage(isSelf: true, elem: imageElem()));
 
