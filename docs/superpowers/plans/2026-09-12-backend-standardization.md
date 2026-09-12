@@ -36,7 +36,7 @@
 **Interfaces:**
 - Produces: `settings.REDIS_URL`、`settings.CELERY_BROKER_URL`、`settings.TESTING`;`CACHES["default"]` = django-redis(后续任务全部依赖)
 
-- [ ] **Step 1: 写失败测试**(`chatapp/config/tests.py` 末尾追加)
+- [x] **Step 1: 写失败测试**(`chatapp/config/tests.py` 末尾追加)
 
 ```python
 from django.conf import settings
@@ -56,12 +56,12 @@ class CacheBackendTests(TestCase):
         self.assertEqual(db, 15)   # 测试绝不写开发库(DB0)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test config`
 Expected: FAIL — `ModuleNotFoundError: No module named 'django_redis'`
 
-- [ ] **Step 3: 装依赖 + 基建文件**
+- [x] **Step 3: 装依赖 + 基建文件**
 
 `chatapp/docker-compose.dev.yml`(新建):
 
@@ -128,17 +128,17 @@ REDIS_URL=redis://127.0.0.1:6379/0
 CELERY_BROKER_URL=redis://127.0.0.1:6379/1
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test config`
 Expected: PASS(2 个新用例)
 
-- [ ] **Step 5: 全量回归**
+- [x] **Step 5: 全量回归**
 
 Run: `python manage.py test`
 Expected: 全绿(此时业务逻辑未动,只是缓存后端换成了 Redis;DB15 与 MySQL 测试库同理隔离)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add chatapp/docker-compose.dev.yml chatapp/requirements.txt chatapp/config/settings.py chatapp/config/tests.py chatapp/.env.example
@@ -157,7 +157,7 @@ git commit -m "chore(chatapp): 引入 Redis 基建:缓存换 django-redis + Cele
 **Interfaces:**
 - Produces: `config.celery.app`(Celery 实例,autodiscover 各 app 的 `tasks.py`);后续任务 `@shared_task` 都挂在它上面
 
-- [ ] **Step 1: 写失败测试**(`chatapp/config/tests.py` 追加)
+- [x] **Step 1: 写失败测试**(`chatapp/config/tests.py` 追加)
 
 ```python
 from config.celery import ping
@@ -168,12 +168,12 @@ class CelerySkeletonTests(TestCase):
         self.assertEqual(ping.apply().get(), "pong")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test config`
 Expected: FAIL — `ModuleNotFoundError: No module named 'config.celery'`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/config/celery.py`(新建):
 
@@ -204,12 +204,12 @@ from .celery import app as celery_app
 __all__ = ("celery_app",)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test config`
 Expected: PASS
 
-- [ ] **Step 5: 手动验证 worker 能起、能收任务**
+- [x] **Step 5: 手动验证 worker 能起、能收任务**
 
 ```bash
 cd chatapp
@@ -219,7 +219,7 @@ python manage.py shell -c "from config.celery import ping; ping.delay(); print('
 
 Expected: 终端 A 出现 `Task config.celery.ping[...] received` 与 `succeeded`;终端 B 打印 `sent`。
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add chatapp/config/celery.py chatapp/config/__init__.py chatapp/config/tests.py
@@ -239,7 +239,7 @@ git commit -m "chore(chatapp): Celery 骨架(config/celery.py + ping 冒烟任�
 - Produces:`store(phone: str, code: str) -> None`、`verify(phone: str, code: str) -> CodeResult`、`delete(phone: str) -> None`、`CodeResult` 枚举(`OK/EXPIRED/WRONG/JUST_LOCKED/LOCKED`);Task 5 的 services 依赖这四个名字
 - Consumes:Task 1 的 `CACHES`(经 `get_redis_connection("default")` 拿裸 redis 客户端)
 
-- [ ] **Step 1: 写失败测试**(`chatapp/accounts/tests.py` 追加;顶部 import 区补 `from django.conf import settings`、`from django_redis import get_redis_connection`、`from accounts import sms_codes`)
+- [x] **Step 1: 写失败测试**(`chatapp/accounts/tests.py` 追加;顶部 import 区补 `from django.conf import settings`、`from django_redis import get_redis_connection`、`from accounts import sms_codes`)
 
 ```python
 class SmsCodeStateTests(TestCase):
@@ -281,12 +281,12 @@ class SmsCodeStateTests(TestCase):
         self.assertNotIn(b"123456", stored.values())
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test accounts.tests.SmsCodeStateTests`
 Expected: FAIL — `ModuleNotFoundError` / `AttributeError: module 'accounts.sms_codes' has no attribute ...`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/config/settings.py` SMS 配置块追加一行:
 
@@ -388,12 +388,12 @@ def verify(phone: str, code: str) -> CodeResult:
     return CodeResult[_RESULTS[int(raw)]]
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test accounts.tests.SmsCodeStateTests`
 Expected: PASS(6 个用例)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/accounts/sms_codes.py chatapp/accounts/tests.py chatapp/config/settings.py
@@ -413,7 +413,7 @@ git commit -m "feat(chatapp): 验证码状态机(HMAC 存储 + Redis Lua 原子�
 - Produces:`notifications.tasks.send_sms_code(phone, code)`(Celery 任务,重试 5 次指数退避)、`notifications.backends.get_sms_backend()`、`ConsoleSmsBackend.send_code(phone, code)`;Task 5 的 send 视图依赖它们
 - Consumes:Task 2 的 Celery app(autodiscover)
 
-- [ ] **Step 1: 写失败测试**(`chatapp/notifications/tests.py` 新建)
+- [x] **Step 1: 写失败测试**(`chatapp/notifications/tests.py` 新建)
 
 ```python
 from unittest.mock import patch
@@ -438,12 +438,12 @@ class SendSmsCodeTaskTests(TestCase):
         backend.return_value.send_code.assert_called_once_with("13800138000", "123456")
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test notifications`
 Expected: FAIL — `ModuleNotFoundError: No module named 'notifications'`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/notifications/__init__.py`:空文件。
 `chatapp/notifications/apps.py`:
@@ -494,12 +494,12 @@ def send_sms_code(phone: str, code: str) -> None:
 
 `chatapp/config/settings.py` 的 `INSTALLED_APPS` 业务 app 区追加 `"notifications",`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test notifications`
 Expected: PASS(2 个用例)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/notifications chatapp/config/settings.py
@@ -518,7 +518,7 @@ git commit -m "feat(chatapp): notifications app + 短信发送任务(控制台�
 - Produces:`im.tasks.sync_login(user_id: int, created: bool)`、`im.tasks.import_account(user_id)`、`im.tasks.kick_user(user_id)`(均带重试:失败经 `_require` 抛异常触发 Celery 重试,max_retries=5 指数退避+抖动);Task 6 的登录视图依赖 `sync_login`
 - Consumes:Task 2 的 Celery app(`shared_task` 自动发现);`im/client.py` 现成的 `import_account/kick_user`(参数是 `u{id}` 标识符,经 `User.im_user_id` 取)
 
-- [ ] **Step 1: 写失败测试**(`chatapp/im/tests.py` 追加;顶部 import 区补 `from django.contrib.auth import get_user_model` 与 `from im.tasks import kick_user, sync_login`)
+- [x] **Step 1: 写失败测试**(`chatapp/im/tests.py` 追加;顶部 import 区补 `from django.contrib.auth import get_user_model` 与 `from im.tasks import kick_user, sync_login`)
 
 ```python
 class ImTaskTests(TestCase):
@@ -544,12 +544,12 @@ class ImTaskTests(TestCase):
         kick_user.run(999999)   # 不抛异常
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test im`
 Expected: FAIL — `ModuleNotFoundError: No module named 'im.tasks'`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/im/tasks.py`(新建):
 
@@ -603,12 +603,12 @@ def sync_login(user_id: int, created: bool) -> None:
         kick_user(user_id)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test im`
 Expected: PASS(新增 4 个用例 + 原有 im 用例全绿)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/im/tasks.py chatapp/im/tests.py
@@ -631,7 +631,7 @@ git commit -m "feat(chatapp): IM 副作用任务层(im/tasks.py:建号/踢旧会
 - Produces:`services.issue_code(phone) -> str`、`services.rollback_send(phone) -> None`、`services.check_code(phone, code) -> None`(失败抛业务异常);异常类 `SmsCodeExpired/SmsCodeWrong/SmsLocked/SmsSendTooFrequent/SmsServiceUnavailable`
 - Consumes:Task 3 的 `sms_codes`、Task 4 的 `send_sms_code` 任务、Task 5 的 `im.tasks.sync_login`
 
-- [ ] **Step 1: 改测试(先红)**
+- [x] **Step 1: 改测试(先红)**
 
 `chatapp/accounts/tests.py`:
 
@@ -736,12 +736,12 @@ git commit -m "feat(chatapp): IM 副作用任务层(im/tasks.py:建号/踢旧会
 
 5. `SingleDeviceSessionTests`:删除 `test_relogin_kicks_old_im_session` 与 `test_first_login_does_not_kick`(语义已被上面两个入队用例覆盖,`created` 参数即区分建号/踢会话)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test accounts`
 Expected: 多个 FAIL(42901/50301/40001/40002 未实现、`sms:send` 键名变化等)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/config/error_codes.py`(新建):
 
@@ -932,12 +932,12 @@ def user_sig(request):
     })
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test accounts`
 Expected: PASS(注意 `test_send_ip_throttle` 仍绿:IP 限流键走 Redis,`cache.clear()` 已隔离)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add chatapp/config/error_codes.py chatapp/accounts chatapp/im/views.py
@@ -957,7 +957,7 @@ git commit -m "feat(chatapp): 登录接口标准化(发送入队+回滚、verify
 **Interfaces:**
 - Consumes:后端 60 秒重放窗口(同码可重试);`ApiException.statusCode == null` 即网络级失败(现有 `api_exception.dart` 语义)
 
-- [ ] **Step 1: 写失败测试**(`app/test/features/auth/login_page_test.dart` 追加;用文件内已有的 `pumpApp/ok/offline/profileJson` 辅助)
+- [x] **Step 1: 写失败测试**(`app/test/features/auth/login_page_test.dart` 追加;用文件内已有的 `pumpApp/ok/offline/profileJson` 辅助)
 
 ```dart
   testWidgets('verify 网络级失败 → 自动重试一次后成功进入主框架', (tester) async {
@@ -1016,12 +1016,12 @@ git commit -m "feat(chatapp): 登录接口标准化(发送入队+回滚、verify
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/auth/login_page_test.dart`
 Expected: FAIL — 第一个用例 `calls` 为 1;第二个用例找不到新文案
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/lib/features/auth/auth_repository.dart`:
 
@@ -1054,17 +1054,17 @@ Expected: FAIL — 第一个用例 `calls` 为 1;第二个用例找不到新文�
     }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/auth/`
 Expected: PASS(新增 3 个用例 + 原有全绿)
 
-- [ ] **Step 5: 全量前端测试 + analyze**
+- [x] **Step 5: 全量前端测试 + analyze**
 
 Run: `cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze`
 Expected: 全绿、零告警
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/lib/features/auth/auth_repository.dart app/lib/features/auth/login_page.dart app/test/features/auth/login_page_test.dart
@@ -1079,7 +1079,7 @@ git commit -m "feat(app): 登录 verify 网络级失败自动重试一次 + 超�
 - Modify: `CLAUDE.md`(常用命令 + 新机制/坑)
 - Test: 手工清单(见下)
 
-- [ ] **Step 1: 后端全量回归**
+- [x] **Step 1: 后端全量回归**
 
 Run: `cd chatapp && python manage.py test`
 Expected: 全绿(含新增:缓存隔离 2、状态机 6、短信任务 2、IM 任务 4、accounts 改造用例)
@@ -1100,21 +1100,32 @@ python -m celery -A config worker -l info --pool=solo     # 终端 B
 4. 5556 杀进程重启 App 再登录 → 不出现「验证码已过期」死循环;
 5. 新号注册登录 → 终端 B 出现 `im.tasks.sync_login` 执行(建号)。
 
-- [ ] **Step 3: 更新 CLAUDE.md**
+- [x] **Step 3: 更新 CLAUDE.md**
 
 至少加三处:
 - 「常用命令」后端块:`docker compose -f docker-compose.dev.yml up -d`(Redis)、`python -m celery -A config worker -l info --pool=solo`(worker,Windows 必须 solo)、测试前置 Redis 一句;
 - 新节「接口标准化(2026-09-12)」:响应路径禁外部调用、`transaction.on_commit(fn, robust=True)` 只用于入队、验证码状态机与 60s 重放窗口、错误码目录(`config/error_codes.py`,前 3 位=HTTP 状态)、`im/tasks.py` 是唯一 IM 副作用入口、测试里任务只入队不执行(`.run()` 测任务体);
 - 「验证码/限流计数存在 LocMem」旧坑改为:已迁 Redis(DB0),测试用 DB15。
 
-- [ ] **Step 4: 全量前端回归 + analyze**
+- [x] **Step 4: 全量前端回归 + analyze**
 
 Run: `cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze`
 Expected: 全绿、零告警
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add CLAUDE.md
 git commit -m "docs: 登录鉴权标准化落地(Redis+Celery 基建/验证码状态机/IM 任务化)写入 CLAUDE.md"
 ```
+
+---
+
+## 执行记录(2026-09-12)
+
+- Task 1–7 全部完成:后端 224 / 前端 154 测试全绿,`flutter analyze` 零告警;8 个提交在分支 `backend-standardization`。
+- Task 8 Step 1/3/4/5 完成(回归 + CLAUDE.md 文档)。
+- **Task 8 Step 2(双模拟器手测)待用户执行**。此前已用 curl 做过端到端验证:
+  - 发码 `POST /auth/sms/send` 200 / 107ms,`notifications.tasks.send_sms_code` 在 worker 侧执行;
+  - 登录 200 且响应路径不等腾讯;worker 侧 `im.tasks.sync_login`(踢旧 IM 会话)0.75s 完成;
+  - **60 秒窗口内同码重放 200 / 40ms**(旧版本此时会回「验证码已过期」)。
