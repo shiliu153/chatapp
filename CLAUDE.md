@@ -195,6 +195,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **业务码目录**(`config/error_codes.py`):前 3 位=HTTP 状态,后 2 位序号(40101 单设备 / 40001 码过期 / 40002 码错 / 42901 发太频 / 42902 锁 / 50301 短信不可用);异常类带 `detail_code`,全局处理器透传。
 - **IM 副作用入口**:`im/tasks.py`(重试 5 次指数退避;`im/client.py` 仍永不抛异常,任务层把 False 转异常)。⚠️ moderation / discovery / users 目前**仍是旧的后台线程**(`_dispatch_async`/`_notify_async`),第 2 期统一迁到 tasks。
 - **短信后端**:`notifications/backends.py`(dev 控制台打印;M4 接短信商时加实现)。开发时验证码打在 **worker 控制台**(runserver 终端另有 `[开发模式] 验证码` 一行)。
+- ⚠️ **`CELERY_` 前缀的键千万别放 `.env`**:Celery 的 `broker_url`/`result_backend` 属性是**环境变量优先**(`celery/app/utils.py`: `os.environ.get('CELERY_BROKER_URL') or 配置值`)。`load_dotenv` 一旦把 `CELERY_BROKER_URL` 灌进环境,就会压过 settings 里的一切覆盖(踩过:测试任务漏进开发 broker DB1,被 dev worker 真执行)。所以本项目的键叫 **`BROKER_URL`**;回归用例 `config.tests.CelerySkeletonTests.test_broker_uses_isolated_db_in_tests` 钉死这一点。
 
 ## 合规与审核(M3 已实测)
 
