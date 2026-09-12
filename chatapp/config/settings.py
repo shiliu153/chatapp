@@ -198,7 +198,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
 ]
 
 
-# --- 短信验证码(开发期模拟;上线接腾讯云 SMS 时改 services.send_code) ---
+# --- 短信验证码(开发期控制台后端;上线接短信商时加 notifications/backends.py 实现) ---
 SMS_DEV_MODE = os.getenv("SMS_DEV_MODE", "1") == "1"   # 1=开发模式,验证码固定且只打日志
 SMS_DEV_CODE = "123456"
 SMS_CODE_TTL = 300          # 验证码有效期(秒)

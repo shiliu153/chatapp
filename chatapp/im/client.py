@@ -128,16 +128,6 @@ def kick_user(identifier: str) -> bool:
     return _check(result, "kick")
 
 
-def kick_and_logout(identifier: str) -> None:
-    """换设备登录前清掉旧 IM 会话。
-
-    文档 + 实测:kick 会让该账号**所有历史 userSig 失效**并断开在线连接
-    (「失效账号登录状态」接口);旧实例要重登必须拿新签名。
-    不踢的话新设备的 IM 登录可能被服务端拒绝(实测表现为 6206)。
-    """
-    kick_user(identifier)
-
-
 def ensure_account(identifier: str, nickname: str = "") -> bool:
     """幂等建号:已存在(ErrorCode 7015)视为成功。"""
     payload = {"Identifier": identifier, "Nick": nickname, "FaceUrl": ""}

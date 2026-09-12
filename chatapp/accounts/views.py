@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
@@ -5,16 +7,18 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenRefreshView
 
-from im.client import import_account, kick_and_logout
+from im import tasks as im_tasks
+from notifications.tasks import send_sms_code
 
 from . import services
-from .exceptions import SingleDeviceSessionConflict
-from .models import SESSION_VERSION_DEFAULT
+from .exceptions import SingleDeviceSessionConflict, SmsServiceUnavailable
 from .serializers import PhoneSerializer, SmsVerifySerializer
 from .throttles import SmsSendThrottle
 from .tokens import SessionRefreshToken
 
 User = get_user_model()
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(["GET"])
@@ -29,7 +33,15 @@ def health(request):
 def sms_send(request):
     serializer = PhoneSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    services.send_code(serializer.validated_data["phone"])
+    phone = serializer.validated_data["phone"]
+    code = services.issue_code(phone)
+    try:
+        send_sms_code.delay(phone, code)
+    except Exception:
+        # 入队失败用户拿不到码:回滚占位与码并 fail-closed,否则用户被 60 秒间隔卡死
+        services.rollback_send(phone)
+        logger.exception("短信任务入队失败 phone=%s", phone)
+        raise SmsServiceUnavailable()
     return Response({"status": "ok"})
 
 
@@ -42,15 +54,17 @@ def sms_verify(request):
     services.check_code(phone, serializer.validated_data["code"])
 
     user, created = User.objects.get_or_create(phone=phone)
-    # 单设备登录:版本 +1 作废旧令牌;有旧会话则把旧 IM 会话登出+踢掉,
-    # 否则旧实例在线状态还在,本机 IM 登录可能被服务端拒绝(实测 6206)
+    # 单设备登录:版本 +1 作废旧令牌;IM 建号/踢旧会话交给队列(响应路径不做外部调用)
     previous_version = user.session_version
     user.session_version = previous_version + 1
     user.save(update_fields=["session_version"])
-    if created:
-        transaction.on_commit(lambda: import_account(user.im_user_id))
-    elif previous_version > SESSION_VERSION_DEFAULT:
-        transaction.on_commit(lambda: kick_and_logout(user.im_user_id))
+
+    def _after_commit():
+        # robust=True:broker 抖动不会把已提交的登录拖成 500
+        im_tasks.sync_login.delay(user.id, created)
+
+    transaction.on_commit(_after_commit, robust=True)
+
     refresh = SessionRefreshToken.for_user(user)
     return Response({
         "access": str(refresh.access_token),

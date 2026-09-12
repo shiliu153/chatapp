@@ -45,16 +45,30 @@ class SmsSendTests(APITestCase):
         self.addCleanup(cache.clear)
 
     def test_send_stores_code_and_returns_ok(self):
-        resp = self.client.post("/api/v1/auth/sms/send", {"phone": "13800138000"}, format="json")
+        with patch("notifications.tasks.send_sms_code.delay") as delay:
+            resp = self.client.post("/api/v1/auth/sms/send", {"phone": "13800138000"}, format="json")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"status": "ok"})
-        self.assertEqual(cache.get("sms:code:13800138000"), "123456")
+        self.assertIs(sms_codes.verify("13800138000", "123456"), sms_codes.CodeResult.OK)
+        delay.assert_called_once_with("13800138000", "123456")
 
     def test_send_twice_within_interval_is_throttled(self):
-        self.client.post("/api/v1/auth/sms/send", {"phone": "13800138000"}, format="json")
-        resp = self.client.post("/api/v1/auth/sms/send", {"phone": "13800138000"}, format="json")
+        with patch("notifications.tasks.send_sms_code.delay"):
+            self.client.post("/api/v1/auth/sms/send", {"phone": "13800138000"}, format="json")
+            resp = self.client.post("/api/v1/auth/sms/send", {"phone": "13800138000"}, format="json")
         self.assertEqual(resp.status_code, 429)
-        self.assertEqual(resp.json()["code"], 429)
+        self.assertEqual(resp.json()["code"], 42901)
+        self.assertIn("Retry-After", resp.headers)
+
+    def test_enqueue_failure_rolls_back_and_returns_503(self):
+        with patch("notifications.tasks.send_sms_code.delay", side_effect=Exception("broker down")):
+            resp = self.client.post("/api/v1/auth/sms/send", {"phone": "13800138000"}, format="json")
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json()["code"], 50301)
+        # 已回滚:立刻重发应成功(而不是被 60 秒间隔卡住)
+        with patch("notifications.tasks.send_sms_code.delay"):
+            resp = self.client.post("/api/v1/auth/sms/send", {"phone": "13800138000"}, format="json")
+        self.assertEqual(resp.status_code, 200)
 
     def test_send_invalid_phone_rejected(self):
         resp = self.client.post("/api/v1/auth/sms/send", {"phone": "12345"}, format="json")
@@ -79,8 +93,9 @@ class SmsVerifyTests(APITestCase):
 
     def issue_code(self, phone=None):
         phone = phone or self.phone
-        cache.delete(f"sms:sent:{phone}")   # 测试里绕过 60 秒重发间隔
-        return services.send_code(phone)
+        cache.delete(f"sms:send:{phone}")   # 测试里绕过 60 秒重发间隔的服务端占位
+        sms_codes.store(phone, settings.SMS_DEV_CODE)
+        return settings.SMS_DEV_CODE
 
     def verify(self, code, phone=None):
         return self.client.post("/api/v1/auth/sms/verify",
@@ -107,12 +122,13 @@ class SmsVerifyTests(APITestCase):
         self.issue_code()
         resp = self.verify("000000")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("message", resp.json())
+        self.assertEqual(resp.json()["code"], 40002)
         self.assertFalse(User.objects.filter(phone=self.phone).exists())
 
     def test_verify_expired_code(self):
         resp = self.verify("123456")   # 从没发过码
         self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], 40001)
 
     def test_lock_after_five_failures(self):
         code = self.issue_code()
@@ -120,8 +136,17 @@ class SmsVerifyTests(APITestCase):
             self.verify("000000")
         resp = self.verify("000000")
         self.assertEqual(resp.status_code, 429)
+        self.assertEqual(resp.json()["code"], 42902)
         resp = self.verify(code)       # 锁定期间即使码对也不行
         self.assertEqual(resp.status_code, 429)
+
+    def test_replay_within_window_issues_new_tokens(self):
+        code = self.issue_code()
+        first = self.verify(code)
+        self.assertEqual(first.status_code, 200)
+        second = self.verify(code)     # 60 秒重放窗口内:同码可再换令牌
+        self.assertEqual(second.status_code, 200)
+        self.assertNotEqual(first.json()["access"], second.json()["access"])
 
 
 class SmsCodeStateTests(TestCase):
@@ -176,36 +201,35 @@ class ImImportOnRegisterTests(APITestCase):
         self.phone = "13800138000"
 
     def issue_code(self):
-        cache.delete(f"sms:sent:{self.phone}")
-        return services.send_code(self.phone)
+        cache.delete(f"sms:send:{self.phone}")
+        sms_codes.store(self.phone, settings.SMS_DEV_CODE)
+        return settings.SMS_DEV_CODE
 
     def verify(self):
         return self.client.post("/api/v1/auth/sms/verify",
                                 {"phone": self.phone, "code": self.issue_code()}, format="json")
 
-    def test_new_user_triggers_im_import(self):
-        with patch("accounts.views.import_account") as imp:
+    def test_new_user_triggers_sync_login(self):
+        with patch("im.tasks.sync_login.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.verify()
         self.assertEqual(resp.status_code, 200)
         user = User.objects.get(phone=self.phone)
-        imp.assert_called_once_with(user.im_user_id)
+        delay.assert_called_once_with(user.id, True)
 
-    def test_existing_user_does_not_trigger_import(self):
+    def test_existing_login_triggers_sync_login(self):
         self.verify()
-        with patch("accounts.views.import_account") as imp, \
-                patch("accounts.views.kick_and_logout") as kick:   # 重复登录会踢旧会话,别真打腾讯
+        with patch("im.tasks.sync_login.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 self.verify()
-        imp.assert_not_called()
-        kick.assert_called_once()
+        user = User.objects.get(phone=self.phone)
+        delay.assert_called_once_with(user.id, False)
 
-    def test_im_failure_does_not_break_register(self):
-        with patch("im.client._request", side_effect=Exception("im down")):
+    def test_enqueue_failure_does_not_break_login(self):
+        with patch("im.tasks.sync_login.delay", side_effect=Exception("broker down")):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.verify()
-        self.assertEqual(resp.status_code, 200)
-        self.assertTrue(User.objects.filter(phone=self.phone).exists())
+        self.assertEqual(resp.status_code, 200)   # on_commit(robust=True)兜住
 
 
 class TokenRefreshTests(APITestCase):
@@ -235,8 +259,9 @@ class SingleDeviceSessionTests(APITestCase):
         self.phone = "13800138000"
 
     def login(self):
-        cache.delete(f"sms:sent:{self.phone}")   # 绕过 60 秒重发间隔
-        code = services.send_code(self.phone)
+        cache.delete(f"sms:send:{self.phone}")   # 绕过 60 秒重发间隔的服务端占位
+        code = settings.SMS_DEV_CODE
+        sms_codes.store(self.phone, code)
         return self.client.post("/api/v1/auth/sms/verify",
                                 {"phone": self.phone, "code": code}, format="json")
 
@@ -257,21 +282,6 @@ class SingleDeviceSessionTests(APITestCase):
         resp = self.client.post("/api/v1/auth/token/refresh", {"refresh": first_refresh}, format="json")
         self.assertEqual(resp.status_code, 401)
         self.assertEqual(resp.json()["code"], 40101)
-
-    def test_relogin_kicks_old_im_session(self):
-        self.login()
-        with patch("accounts.views.kick_and_logout") as kick:
-            with self.captureOnCommitCallbacks(execute=True):
-                self.login()
-        user = User.objects.get(phone=self.phone)
-        kick.assert_called_once_with(user.im_user_id)
-
-    def test_first_login_does_not_kick(self):
-        with patch("accounts.views.kick_and_logout") as kick:
-            with self.captureOnCommitCallbacks(execute=True):
-                self.login()
-        kick.assert_not_called()
-
 
 class SeedFakeUsersTests(TestCase):
     """造数命令 seed_fake_users:建「资料已完善 + 过审照片」的女号(手测发现页用)。"""
