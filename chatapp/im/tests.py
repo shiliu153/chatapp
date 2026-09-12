@@ -3,6 +3,7 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -295,12 +296,16 @@ class ImSyncNicknamesCommandTests(TestCase):
 @override_settings(**IM_TEST_SETTINGS)
 class UserSigApiTests(APITestCase):
     def setUp(self):
+        cache.clear()   # 清 im:imported 标记,否则第二次跑测试时 ensure_account 不会被调用
+        self.addCleanup(cache.clear)
         self.user = User.objects.create_user(phone="13800138000")
         token = RefreshToken.for_user(self.user).access_token
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
     def test_returns_sig_for_current_user(self):
-        resp = self.client.post("/api/v1/im/user_sig")
+        with patch("im.views.ensure_account", return_value=True) as ensure:
+            resp = self.client.post("/api/v1/im/user_sig")
+        ensure.assert_called_once_with(self.user.im_user_id)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["im_user_id"], f"u{self.user.id}")
