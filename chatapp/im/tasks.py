@@ -92,6 +92,24 @@ def report_handled(reporter_id: int) -> None:
 
 
 @shared_task(**RETRY_POLICY)
+def post_commented(comment_id: int) -> None:
+    """动态被评论:告知动态作者(自己评自己不打扰;内容缺失静默)。"""
+    from feed.models import PostComment   # 延迟导入,避免 app 加载顺序问题
+
+    comment = (PostComment.objects.filter(id=comment_id)
+               .select_related("post__author__profile", "author__profile").first())
+    if comment is None or comment.post is None:
+        return
+    author = comment.post.author
+    if author.id == comment.author_id:
+        return
+    profile = getattr(comment.author, "profile", None)
+    nickname = (profile.nickname if profile else "") or f"u{comment.author_id}"
+    _require(im_client.send_post_commented(author.im_user_id, nickname, comment.text[:50]),
+             "post_commented")
+
+
+@shared_task(**RETRY_POLICY)
 def sync_profile(user_id: int, kind: str) -> None:
     """把资料同步到 IM(kind: nick|avatar);没有可同步的值时静默跳过。"""
     user = _user(user_id)

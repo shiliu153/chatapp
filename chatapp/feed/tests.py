@@ -270,3 +270,92 @@ class PostDeleteTests(FeedApiMixin, APITestCase):
         self.assertEqual(report.handled_note, "动态已删除")
         self.assertIsNotNone(report.handled_at)
         delay.assert_called_once_with(self.other.id)
+
+
+class PostLikeTests(FeedApiMixin, APITestCase):
+    def setUp(self):
+        self.me = User.objects.create_user(phone="13800138000")
+        self.other = User.objects.create_user(phone="13900139000")
+        self.post = Post.objects.create(author=self.other, text="点赞我")
+        self.login(self.me)
+
+    def test_like_is_idempotent(self):
+        first = self.client.post(f"/api/v1/posts/{self.post.id}/like")
+        second = self.client.post(f"/api/v1/posts/{self.post.id}/like")
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(PostLike.objects.count(), 1)
+
+    def test_unlike_is_idempotent(self):
+        PostLike.objects.create(post=self.post, user=self.me)
+        self.assertEqual(self.client.delete(f"/api/v1/posts/{self.post.id}/like").status_code, 204)
+        self.assertEqual(self.client.delete(f"/api/v1/posts/{self.post.id}/like").status_code, 204)
+        self.assertEqual(PostLike.objects.count(), 0)
+
+    def test_like_invisible_post_404(self):
+        Block.objects.create(blocker=self.other, blocked=self.me)
+        self.assertEqual(self.client.post(f"/api/v1/posts/{self.post.id}/like").status_code, 404)
+
+
+class PostCommentTests(FeedApiMixin, APITestCase):
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.author = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.author, nickname="小红")
+        self.post = Post.objects.create(author=self.author, text="评论我")
+        self.login(self.me)
+
+    def test_create_comment_notifies_author(self):
+        with patch("im.tasks.post_commented.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/api/v1/posts/{self.post.id}/comments",
+                                        {"text": "好漂亮"}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["text"], "好漂亮")
+        self.assertEqual(resp.json()["author"]["nickname"], "我")
+        comment = PostComment.objects.get()
+        delay.assert_called_once_with(comment.id)
+
+    def test_blocked_word_rejected(self):
+        resp = self.client.post(f"/api/v1/posts/{self.post.id}/comments",
+                                {"text": "代开发票"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["message"], "评论包含违规内容,请修改")
+
+    def test_self_comment_does_not_notify(self):
+        self.login(self.author)
+        with patch("im.tasks.post_commented.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/api/v1/posts/{self.post.id}/comments",
+                                        {"text": "自评"}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        delay.assert_not_called()
+
+    def test_list_is_oldest_first_and_paginated(self):
+        for i in range(3):
+            PostComment.objects.create(post=self.post, author=self.me, text=f"c{i}")
+        data = self.client.get(f"/api/v1/posts/{self.post.id}/comments").json()
+        self.assertEqual([c["text"] for c in data["results"]], ["c0", "c1", "c2"])
+        self.assertEqual(data["count"], 3)
+
+    def test_list_hides_blocked_commenters(self):
+        PostComment.objects.create(post=self.post, author=self.me, text="可见")
+        blocked = User.objects.create_user(phone="13700137000")
+        Profile.objects.create(user=blocked, nickname="拉黑")
+        PostComment.objects.create(post=self.post, author=blocked, text="不可见")
+        Block.objects.create(blocker=self.me, blocked=blocked)
+        data = self.client.get(f"/api/v1/posts/{self.post.id}/comments").json()
+        self.assertEqual([c["text"] for c in data["results"]], ["可见"])
+
+    def test_comment_throttled(self):
+        from .throttles import PostCommentThrottle
+
+        with patch.object(PostCommentThrottle, "rate", "2/day", create=True):
+            self.assertEqual(self.client.post(f"/api/v1/posts/{self.post.id}/comments",
+                                              {"text": "1"}, format="json").status_code, 201)
+            self.assertEqual(self.client.post(f"/api/v1/posts/{self.post.id}/comments",
+                                              {"text": "2"}, format="json").status_code, 201)
+            self.assertEqual(self.client.post(f"/api/v1/posts/{self.post.id}/comments",
+                                              {"text": "3"}, format="json").status_code, 429)

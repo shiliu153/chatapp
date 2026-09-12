@@ -68,3 +68,15 @@ class PostCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError("单张图片不能超过 5MB")
             image_field.run_validation(file)   # PIL 校验确实是图片,失败抛 400
         return attrs
+
+
+class PostCommentCreateSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=200)
+
+    def validate_text(self, value):
+        if find_blocked_word(value):
+            raise serializers.ValidationError("评论包含违规内容,请修改")
+        text = value.strip()
+        if not text:
+            raise serializers.ValidationError("评论不能为空")
+        return text

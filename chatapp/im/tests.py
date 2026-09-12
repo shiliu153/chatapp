@@ -12,14 +12,18 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
+from feed.models import Post, PostComment
+
 from .client import (_request, black_list_add, black_list_delete, ensure_account,
                      import_account, kick_user, send_ban_lifted, send_ban_notice,
-                     send_custom_elem, send_match_notice, send_report_handled, send_text,
+                     send_custom_elem, send_match_notice, send_post_commented,
+                     send_report_handled, send_text,
                      set_profile_avatar, set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
                     import_account as import_account_task, kick_pending,
-                    kick_pending_key, report_handled as report_handled_task, sync_profile)
+                    kick_pending_key, post_commented as post_commented_task,
+                    report_handled as report_handled_task, sync_profile)
 from .tasks import send_match_notice as send_match_notice_task
 
 User = get_user_model()
@@ -244,6 +248,48 @@ class ImClientTests(SimpleTestCase):
     def test_send_report_handled_network_error_returns_false(self):
         with patch("im.client._request", side_effect=RuntimeError("boom")):
             self.assertFalse(send_report_handled("u9"))
+
+
+class PostCommentedClientTests(TestCase):
+    def test_send_post_commented_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(send_post_commented("u9", "小红", "好漂亮"))
+        args = req.call_args[0]
+        self.assertEqual(args[:2], ("openim", "sendmsg"))
+        payload = args[2]
+        self.assertEqual(payload["From_Account"], "system_notice")
+        self.assertEqual(payload["To_Account"], "u9")
+        content = payload["MsgBody"][0]["MsgContent"]
+        self.assertEqual(json.loads(content["Data"]), {"type": "post_commented"})
+        self.assertEqual(content["Desc"], "小红 评论了你的动态:好漂亮")
+
+    def test_send_post_commented_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=RuntimeError("boom")):
+            self.assertFalse(send_post_commented("u9", "小红", "好漂亮"))
+
+
+class PostCommentedTaskTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(phone="13800138000")
+        self.commenter = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.commenter, nickname="小红")
+        self.post = Post.objects.create(author=self.author, text="动态")
+
+    def test_task_sends_notice_to_author(self):
+        comment = PostComment.objects.create(post=self.post, author=self.commenter,
+                                             text="好漂亮")
+        with patch("im.client.send_post_commented", return_value=True) as send:
+            post_commented_task.run(comment.id)
+        send.assert_called_once_with(self.author.im_user_id, "小红", "好漂亮")
+
+    def test_self_comment_not_sent(self):
+        comment = PostComment.objects.create(post=self.post, author=self.author, text="自评")
+        with patch("im.client.send_post_commented") as send:
+            post_commented_task.run(comment.id)
+        send.assert_not_called()
+
+    def test_missing_comment_is_silent(self):
+        post_commented_task.run(999999)   # 不抛异常
 
 
 class ImSendCommandTests(SimpleTestCase):

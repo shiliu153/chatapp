@@ -5,18 +5,21 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from config.pagination import DefaultLimitOffsetPagination
+from moderation.services import blocked_user_ids
+from users.models import ProfileStatus
 
-from .models import Post, PostImage, PostLike
-from .serializers import PostCreateSerializer, PostSerializer
-from .services import delete_post, visible_posts
-from .throttles import PostCreateThrottle
+from .models import Post, PostComment, PostImage, PostLike
+from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
+                          PostCreateSerializer, PostSerializer)
+from .services import delete_post, notify_post_commented, visible_posts
+from .throttles import PostCommentThrottle, PostCreateThrottle
 
 
-def _page_response(request, queryset):
+def _page_response(request, queryset, serializer_class=PostSerializer):
     paginator = DefaultLimitOffsetPagination()
     page = paginator.paginate_queryset(queryset, request)
     return paginator.get_paginated_response(
-        PostSerializer(page, many=True, context={"request": request}).data)
+        serializer_class(page, many=True, context={"request": request}).data)
 
 
 @api_view(["GET", "POST"])
@@ -59,3 +62,33 @@ def post_detail(request, post_id):
         return Response(status=204)
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     return Response(PostSerializer(post, context={"request": request}).data)
+
+
+@api_view(["POST", "DELETE"])
+def post_like(request, post_id):
+    post = get_object_or_404(visible_posts(request.user), pk=post_id)
+    if request.method == "POST":
+        _, created = PostLike.objects.get_or_create(post=post, user=request.user)
+        return Response({"liked": True}, status=201 if created else 200)
+    PostLike.objects.filter(post=post, user=request.user).delete()
+    return Response(status=204)
+
+
+@api_view(["GET", "POST"])
+@throttle_classes([PostCommentThrottle])
+def post_comments(request, post_id):
+    post = get_object_or_404(visible_posts(request.user), pk=post_id)
+    if request.method == "POST":
+        serializer = PostCommentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        comment = PostComment.objects.create(post=post, author=request.user,
+                                             text=serializer.validated_data["text"])
+        notify_post_commented(comment)
+        return Response(PostCommentSerializer(comment, context={"request": request}).data,
+                        status=201)
+    blocked = blocked_user_ids(request.user)
+    comments = (post.comments
+                .exclude(author_id__in=blocked)
+                .exclude(author__profile__status=ProfileStatus.BANNED_HEAVY)
+                .select_related("author__profile").prefetch_related("author__photos"))
+    return _page_response(request, comments, PostCommentSerializer)

@@ -1,6 +1,8 @@
+from django.db import transaction
 from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone
 
+from im import tasks as im_tasks
 from moderation.models import ReportStatus
 from moderation.services import blocked_user_ids, notify_report_handled
 from users.models import ProfileStatus
@@ -39,3 +41,13 @@ def delete_post(post) -> None:
     for image in post.images.all():
         image.file.delete(save=False)
     post.delete()
+
+
+def notify_post_commented(comment) -> None:
+    """评论创建后调用:给动态作者发通知(经任务队列)。
+
+    评论者是作者本人时不入队(自己评自己不打扰)。
+    """
+    if comment.post.author_id == comment.author_id:
+        return
+    transaction.on_commit(lambda: im_tasks.post_commented.delay(comment.id), robust=True)

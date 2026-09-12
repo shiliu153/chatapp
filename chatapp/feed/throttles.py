@@ -13,3 +13,17 @@ class PostCreateThrottle(SimpleRateThrottle):
         if request.method != "POST":
             return True
         return super().allow_request(request, view)
+
+
+class PostCommentThrottle(SimpleRateThrottle):
+    """按用户限流发评论;只限 POST(看评论列表不限)。"""
+
+    scope = "post_comment"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": request.user.id}
+
+    def allow_request(self, request, view):
+        if request.method != "POST":
+            return True
+        return super().allow_request(request, view)
