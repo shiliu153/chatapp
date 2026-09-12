@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -20,6 +21,16 @@ ChatMessage _text(String id, {required bool isSelf, required String text}) => Ch
       peerId: 'u9',
       isSelf: isSelf,
       timestamp: DateTime.now().millisecondsSinceEpoch,
+      kind: ChatMessageKind.text,
+      text: text,
+    );
+
+ChatMessage _textAt(String id, DateTime time, {required String text, bool isSelf = false}) =>
+    ChatMessage(
+      msgId: id,
+      peerId: 'u9',
+      isSelf: isSelf,
+      timestamp: time.millisecondsSinceEpoch,
       kind: ChatMessageKind.text,
       text: text,
     );
@@ -46,6 +57,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     adapter = ScriptedAdapter({
       'GET /matches': (options) => ok([matchJson(userId: 9, nickname: '小红')]),
+      'GET /users/me': (options) => ok(profileJson()),
     });
     fake = FakeImClient();
     addTearDown(fake.dispose);
@@ -181,5 +193,69 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('资料卡:9'), findsOneWidget);   // u9 → 用户 9
+  });
+
+  testWidgets('超过 5 分钟的两个消息之间出现时间条', (tester) async {
+    final base = DateTime.now().subtract(const Duration(hours: 1));
+    fake.history = {
+      'u9': [
+        _textAt('m1', base, text: '早'),
+        _textAt('m2', base.add(const Duration(minutes: 6)), text: '晚'),
+      ],
+    };
+    await pumpChat(tester);
+
+    expect(find.byKey(const Key('chat.time')), findsNWidgets(2));
+  });
+
+  testWidgets('长按消息 → 复制进剪贴板', (tester) async {
+    final calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform, (call) async {
+      calls.add(call);
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    fake.history = {
+      'u9': [_text('m1', isSelf: false, text: '你好')],
+    };
+    await pumpChat(tester);
+
+    await tester.longPress(find.text('你好'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat.menu.copy')));
+    await tester.pumpAndSettle();
+
+    expect(calls.any((c) => c.method == 'Clipboard.setData'), isTrue);
+  });
+
+  testWidgets('长按消息 → 删除本机', (tester) async {
+    fake.history = {
+      'u9': [_text('m1', isSelf: false, text: '再见')],
+    };
+    await pumpChat(tester);
+
+    await tester.longPress(find.text('再见'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat.menu.delete')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('再见'), findsNothing);
+    expect(fake.log, contains('delete:m1'));
+  });
+
+  testWidgets('缓存里没有对方时,标题降级用 IM 会话名', (tester) async {
+    adapter = ScriptedAdapter({
+      'GET /matches': (options) => ok([]),
+      'GET /users/me': (options) => ok(profileJson()),
+    });
+    fake.conversations = [
+      const ImConversation(peerId: 'u9', unreadCount: 0, showName: '小鹿'),
+    ];
+    await pumpChat(tester);
+
+    expect(find.text('小鹿'), findsOneWidget);
   });
 }
