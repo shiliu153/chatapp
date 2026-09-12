@@ -172,14 +172,17 @@ def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
 
 
 def set_profile_nick(identifier: str, nickname: str) -> bool:
-    """把昵称同步到 IM 资料(会话列表 showName 的来源,名字降级兜底的根)。"""
+    """把昵称同步到 IM 资料(会话列表 showName 的来源,名字降级兜底的根)。
+
+    ⚠️ 接口是 profile/portrait_set;名字写错(如 profile_set_field)会返回 60008。
+    """
     payload = {
         "From_Account": identifier,
         "ProfileItem": [{"Tag": "Tag_Profile_IM_Nick", "Value": nickname}],
     }
     try:
-        result = _request("profile", "profile_set_field", payload)
+        result = _request("profile", "portrait_set", payload)
     except Exception:
-        logger.exception("IM profile_set_field 调用失败 identifier=%s", identifier)
+        logger.exception("IM portrait_set 调用失败 identifier=%s", identifier)
         return False
-    return _check(result, "profile_set_field")
+    return _check(result, "portrait_set")
