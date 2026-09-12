@@ -107,6 +107,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - 截图验证:`"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe" -s emulator-5554 exec-out screencap -p > shot.png`
 - 模拟器相册默认是空的:要测照片上传,先 `adb push 本地图.png /sdcard/Pictures/x.png` 并触发媒体扫描(`adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/x.png`),或改用 `-d windows` 走文件选择
 - ⚠️ **只保留一个 runserver 进程**:Windows 下多个 runserver 可同时绑定 8000,旧进程会拿旧配置抢答(踩过:旧 ALLOWED_HOSTS 导致 400)。排查:`netstat -ano | grep :8000`,再用 `Get-CimInstance Win32_Process` 看 PID 的启动时间和命令行
+- ⚠️ **模拟器长跑数小时后 IM 长连接劣化(2026-09-12 实测)**:现象=消息不实时(最长隔 ~2 分钟才到)、聊天记录加载慢、偶发「网络不给力」;`adb logcat -d | grep -c ERR_CONNECTION_RESET` 数得到断连每 ~2 分钟一次(SDK 心跳 120s 踩线跑不过链路重置)。判据:同机裸 TCP 空闲连接不断、后端接口全 15~60ms、宿主直连腾讯 IP 正常 → 模拟器侧劣化,与后端/校园网无关。处理:**重启模拟器(冷启动 `-no-snapshot-load`)即恢复**
 
 ## 腾讯云 IM 集成要点(已实测)
 
@@ -138,7 +139,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - ⚠️ Windows 上 `pub add` 插件后提示 "requires symlink support"(需开发者模式)——**Android/Web 构建不受影响**;桌面 `-d windows` 需要开启系统开发者模式
 - ⚠️ **`app/android/gradle.properties` 里的 `kotlin.incremental=false` 勿删**:pub 缓存在 C 盘、工程在 D 盘,Kotlin 增量编译缓存算跨盘相对路径会崩(`Could not close incremental caches ... different roots`),关掉增量编译是官方 workaround
 - 照片上传走 `readAsBytes` + `MultipartFile.fromBytes`(Web 上 `XFile.path` 是 blob URL,不能用 `fromFile`);单张 ≤5MB 前端先拦
-- **provider 全局缓存**:`AsyncNotifierProvider` 默认常驻,页面 A 读过、页面 B 写了同一个列表 → B 必须 `ref.invalidate(该 provider)`(M3 手测:拉黑后黑名单页仍显示空)。写操作(拉黑/解除/改资料…)后检查一下相关 provider 要不要失效
+- **provider 全局缓存**:`AsyncNotifierProvider` 默认常驻,页面 A 读过、页面 B 写了同一个列表 → B 必须 `ref.invalidate(该 provider)`(M3 手测:拉黑后黑名单页仍显示空)。写操作(拉黑/解除/改资料…)后检查一下相关 provider 要不要失效。⚠️ **反向的坑(2026-09-12 手测):页面级状态的 provider 必须 `.autoDispose`**——聊天页 `chatProvider` 原为常驻,退出聊天页后订阅不取消、新消息仍被自动已读,消息列表红点永远不出现;凡「只在页面打开期间才该生效」的副作用(自动已读/事件订阅),声明都要带 `autoDispose`
 - **换号登录先作废上一账号缓存**:`SessionController.login()` 成功后统一 invalidate 按用户隔离的 provider(`profile`/`discovery`/`blockedUsers`/`userProfileProvider` 整族,清单纯净地放在 `_resetUserScopedCaches()`;随 IM 登录态自动重建的会话列表/matchCache 不用)。⚠️ 别把清理只挂在「设置→退出登录」上:被顶号/心跳 40101 退出的路径不经过设置页,漏清就串号(2026-09-12 手测:被顶号后换号登录,5554 我的页整屏还是上一个账号的 Alice)。他人资料卡虽为公开数据,但「能不能看到」随号主变(拉黑/重封禁),留旧缓存会让新号绕过可见性判断。⚠️ 修复代码要重打 APK 并覆盖安装模拟器才算生效(2026-09-12:只改代码没打包,用户在旧包上复测以为没修好)
 - **widget 测试里别裸 `await` 走 dio 的 provider**(如 `container.read(xxxProvider.future)`):假时钟不推进 dio 内部定时器,测试直接卡死。要么让调用发生在 widget 树里(靠 `pumpAndSettle` 推进),要么直接 override provider 成目标状态
 - **含无限动画的页面别 `pumpAndSettle`**(启动页转圈、倒计时):会超时。协议弹窗用例用有限次 `pump` 推进(见 `test/features/legal/agreement_gate_test.dart`)
