@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from config.pagination import DefaultLimitOffsetPagination
 from moderation.services import blocked_user_ids
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bounds
 from users.services import get_profile
@@ -102,7 +103,10 @@ def match_list(request):
                .exclude(Q(user_a_id__in=blocked_ids) | Q(user_b_id__in=blocked_ids))
                .select_related("user_a__profile", "user_b__profile")
                .prefetch_related("user_a__photos", "user_b__photos"))
-    return Response([_match_entry(match, me, request) for match in matches])
+    entries = [_match_entry(match, me, request) for match in matches]
+    paginator = DefaultLimitOffsetPagination()   # Match Meta ordering=-created_at,翻页顺序稳定
+    page = paginator.paginate_queryset(entries, request)
+    return paginator.get_paginated_response(page)
 
 
 def _match_entry(match, me, request):

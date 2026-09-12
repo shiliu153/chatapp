@@ -197,6 +197,7 @@ REST_FRAMEWORK = {
         "moderation.permissions.IsNotHeavyBanned",
     ),
     "EXCEPTION_HANDLER": "config.exceptions.api_exception_handler",
+    "DEFAULT_PAGINATION_CLASS": "config.pagination.DefaultLimitOffsetPagination",
     "DEFAULT_THROTTLE_RATES": {
         "sms_send": SMS_SEND_IP_RATE,
         "sms_verify": SMS_VERIFY_IP_RATE,

@@ -4,6 +4,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from config.pagination import DefaultLimitOffsetPagination
+
 from .models import Block, Report, ReportStatus
 from .serializers import (BlockCreateSerializer, BlockSerializer, ReportCreateSerializer,
                           ReportSerializer)
@@ -47,7 +49,10 @@ def blocks(request):
 
     entries = (Block.objects.filter(blocker=request.user)
                .select_related("blocked__profile").prefetch_related("blocked__photos"))
-    return Response([BlockSerializer(block, context={"request": request}).data for block in entries])
+    paginator = DefaultLimitOffsetPagination()
+    page = paginator.paginate_queryset(entries, request)
+    return paginator.get_paginated_response(
+        [BlockSerializer(block, context={"request": request}).data for block in page])
 
 
 @api_view(["DELETE"])

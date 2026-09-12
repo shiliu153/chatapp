@@ -264,16 +264,17 @@ class MatchListTests(APITestCase):
         other = self._make_user("13900139000", nickname="小红")
         Match.objects.create(**Match.pair_kwargs(self.me, other))
         data = self.client.get(self.URL).json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["user_id"], other.id)
-        self.assertEqual(data[0]["im_user_id"], other.im_user_id)
-        self.assertEqual(data[0]["nickname"], "小红")
-        self.assertTrue(data[0]["avatar_url"].startswith("http://testserver/media/"))
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["user_id"], other.id)
+        self.assertEqual(data["results"][0]["im_user_id"], other.im_user_id)
+        self.assertEqual(data["results"][0]["nickname"], "小红")
+        self.assertTrue(data["results"][0]["avatar_url"].startswith("http://testserver/media/"))
 
     def test_avatar_null_without_approved_photo(self):
         other = self._make_user("13900139000", with_photo=False)
         Match.objects.create(**Match.pair_kwargs(self.me, other))
-        self.assertIsNone(self.client.get(self.URL).json()[0]["avatar_url"])
+        self.assertIsNone(self.client.get(self.URL).json()["results"][0]["avatar_url"])
 
     def test_only_my_matches(self):
         other = self._make_user("13900139000")
@@ -282,7 +283,19 @@ class MatchListTests(APITestCase):
         Match.objects.create(**Match.pair_kwargs(self.me, other))
         Match.objects.create(**Match.pair_kwargs(stranger_a, stranger_b))
         data = self.client.get(self.URL).json()
-        self.assertEqual([item["user_id"] for item in data], [other.id])
+        self.assertEqual([item["user_id"] for item in data["results"]], [other.id])
+
+    def test_pagination_limit_and_offset(self):
+        others = [self._make_user(f"1390013910{i}") for i in range(3)]
+        for other in others:
+            Match.objects.create(**Match.pair_kwargs(self.me, other))
+        first = self.client.get(self.URL, {"limit": 2}).json()
+        self.assertEqual(first["count"], 3)
+        self.assertEqual(len(first["results"]), 2)
+        second = self.client.get(self.URL, {"limit": 2, "offset": 2}).json()
+        self.assertEqual(len(second["results"]), 1)
+        ids = [item["user_id"] for item in first["results"] + second["results"]]
+        self.assertEqual(sorted(ids), sorted(other.id for other in others))   # 翻页不重不漏
 
     def test_requires_auth(self):
         self.client.credentials()

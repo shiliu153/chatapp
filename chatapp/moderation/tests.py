@@ -336,15 +336,15 @@ class BlockApiTests(APITestCase):
     def test_list_shows_nickname_and_avatar(self):
         Block.objects.create(blocker=self.me, blocked=self.target)
         data = self.client.get(self.URL).json()
-        self.assertEqual(len(data), 1)
-        self.assertEqual(data[0]["user_id"], self.target.id)
-        self.assertEqual(data[0]["nickname"], "小红")
-        self.assertTrue(data[0]["avatar_url"].startswith("http://testserver/media/"))
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["user_id"], self.target.id)
+        self.assertEqual(data["results"][0]["nickname"], "小红")
+        self.assertTrue(data["results"][0]["avatar_url"].startswith("http://testserver/media/"))
 
     def test_list_avatar_null_without_approved_photo(self):
         Photo.objects.update(status=PhotoStatus.PENDING)
         Block.objects.create(blocker=self.me, blocked=self.target)
-        self.assertIsNone(self.client.get(self.URL).json()[0]["avatar_url"])
+        self.assertIsNone(self.client.get(self.URL).json()["results"][0]["avatar_url"])
 
     def test_unblock_removes_and_syncs_im(self):
         Block.objects.create(blocker=self.me, blocked=self.target)
@@ -393,9 +393,9 @@ class BlockVisibilityTests(APITestCase):
 
     def test_matches_exclude_blocked_pair(self):
         Match.objects.create(**Match.pair_kwargs(self.me, self.other))
-        self.assertEqual(len(self.client.get("/api/v1/matches").json()), 1)
+        self.assertEqual(len(self.client.get("/api/v1/matches").json()["results"]), 1)
         Block.objects.create(blocker=self.other, blocked=self.me)
-        self.assertEqual(self.client.get("/api/v1/matches").json(), [])
+        self.assertEqual(self.client.get("/api/v1/matches").json()["results"], [])
 
     def test_removing_block_restores_visibility(self):
         Block.objects.create(blocker=self.me, blocked=self.other).delete()
