@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:tencent_cloud_chat_sdk/enum/V2TimAdvancedMsgListener.dart';
 import 'package:tencent_cloud_chat_sdk/enum/V2TimConversationListener.dart';
 import 'package:tencent_cloud_chat_sdk/enum/V2TimSDKListener.dart';
+import 'package:tencent_cloud_chat_sdk/enum/image_types.dart';
 import 'package:tencent_cloud_chat_sdk/enum/log_level_enum.dart';
 import 'package:tencent_cloud_chat_sdk/enum/message_elem_type.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_conversation.dart';
@@ -17,6 +18,7 @@ import 'im_client.dart';
 ChatMessage chatMessageFromSdk(V2TimMessage message) {
   final isSelf = message.isSelf ?? false;
   final kind = _kindOf(message);
+  final imageList = message.imageElem?.imageList;
   return ChatMessage(
     msgId: message.msgID ?? '',
     // 单聊消息:自己发的消息 userID 是接收者,对方发的是 sender
@@ -28,14 +30,36 @@ ChatMessage chatMessageFromSdk(V2TimMessage message) {
       ChatMessageKind.text => message.textElem?.text ?? '',
       ChatMessageKind.matchNotice => message.customElem?.desc ?? '',
       ChatMessageKind.banNotice => message.customElem?.desc ?? '',
+      ChatMessageKind.image => '',
       ChatMessageKind.other => '',
     },
+    localPath: kind == ChatMessageKind.image ? message.imageElem?.path : null,
+    imageUrl: kind == ChatMessageKind.image
+        ? (_pickImageUrl(imageList, V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_THUMB) ??
+            _pickImageUrl(imageList, V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_ORIGIN))
+        : null,
+    imageLargeUrl: kind == ChatMessageKind.image
+        ? (_pickImageUrl(imageList, V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_ORIGIN) ??
+            _pickImageUrl(imageList, V2TIM_IMAGE_TYPE.V2TIM_IMAGE_TYPE_LARGE))
+        : null,
   );
+}
+
+String? _pickImageUrl(List<dynamic>? list, int type) {
+  if (list == null) return null;
+  for (final item in list) {
+    final url = item?.url;
+    if (item?.type == type && url is String && url.isNotEmpty) return url;
+  }
+  return null;
 }
 
 ChatMessageKind _kindOf(V2TimMessage message) {
   if (message.elemType == MessageElemType.V2TIM_ELEM_TYPE_TEXT) {
     return ChatMessageKind.text;
+  }
+  if (message.elemType == MessageElemType.V2TIM_ELEM_TYPE_IMAGE) {
+    return ChatMessageKind.image;
   }
   if (message.elemType == MessageElemType.V2TIM_ELEM_TYPE_CUSTOM) {
     final type = _customType(message.customElem?.data);
@@ -66,7 +90,7 @@ ImConversation conversationFromSdk(V2TimConversation conversation) => ImConversa
           conversation.lastMessage == null ? null : chatMessageFromSdk(conversation.lastMessage!),
     );
 
-class TencentImClient implements ImClient {
+class TencentImClient extends ImClient {
   final _events = StreamController<ImEvent>.broadcast();
   bool _initialized = false;
 
@@ -152,6 +176,32 @@ class TencentImClient implements ImClient {
     );
     _check(sent.code, sent.desc);
     return chatMessageFromSdk(sent.data!);
+  }
+
+  @override
+  Future<ChatMessage> sendImage({required String peerId, required String imagePath}) async {
+    final manager = TencentImSDKPlugin.v2TIMManager.getMessageManager();
+    final created = await manager.createImageMessage(imagePath: imagePath);
+    _check(created.code, created.desc);
+
+    final sent = await manager.sendMessage(
+      // web 分支只认 id(不转 message 对象),两个都传保持两端一致
+      // ignore: deprecated_member_use
+      id: created.data!.id,
+      message: created.data!.messageInfo,
+      receiver: peerId,
+      groupID: '', // 单聊固定空串
+    );
+    _check(sent.code, sent.desc);
+    return chatMessageFromSdk(sent.data!);
+  }
+
+  @override
+  Future<void> deleteMessage(ChatMessage message) async {
+    final result = await TencentImSDKPlugin.v2TIMManager
+        .getMessageManager()
+        .deleteMessageFromLocalStorage(msgID: message.msgId);
+    _check(result.code, result.desc);
   }
 
   @override

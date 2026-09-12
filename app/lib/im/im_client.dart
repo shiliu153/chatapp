@@ -2,7 +2,7 @@
 ///
 /// 真实实现在 tencent_im_client.dart(全项目唯一 import 腾讯 SDK 的文件);
 /// 测试用 test/support/fake_im_client.dart —— 原生插件在 flutter test 里跑不起来。
-enum ChatMessageKind { text, matchNotice, banNotice, other }
+enum ChatMessageKind { text, matchNotice, banNotice, image, other }
 
 /// 「系统通知」固定 IM 账号(与后端 im/client.py::SYSTEM_NOTICE_IDENTIFIER 是跨栈契约)。
 const systemNoticePeerId = 'system_notice';
@@ -16,6 +16,10 @@ class ChatMessage {
     required this.kind,
     this.text = '',
     this.isPending = false,
+    this.isFailed = false,
+    this.localPath,
+    this.imageUrl,
+    this.imageLargeUrl,
   });
 
   final String msgId;
@@ -31,6 +35,32 @@ class ChatMessage {
 
   /// 本地先上屏、服务器回执还没回来。
   final bool isPending;
+
+  /// 发送失败(可点重发)。
+  final bool isFailed;
+
+  /// 图片消息的本机文件(发送中先上屏;接收方通常为 null)。
+  final String? localPath;
+
+  /// 远程缩略图(气泡里展示用)。
+  final String? imageUrl;
+
+  /// 远程原图(全屏查看用)。
+  final String? imageLargeUrl;
+
+  ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl}) => ChatMessage(
+        msgId: msgId,
+        peerId: peerId,
+        isSelf: isSelf,
+        timestamp: timestamp,
+        kind: kind,
+        text: text,
+        isPending: isPending ?? this.isPending,
+        isFailed: isFailed ?? this.isFailed,
+        localPath: localPath,
+        imageUrl: imageUrl ?? this.imageUrl,
+        imageLargeUrl: imageLargeUrl,
+      );
 }
 
 class ImConversation {
@@ -45,7 +75,7 @@ class ImConversation {
   final String peerId;
   final int unreadCount;
 
-  /// IM 侧的名字/头像:我们没给 IM 设资料,通常是空的,显示时优先用本地 matches 缓存。
+  /// IM 侧的名字/头像:昵称已由后端同步(改昵称 → portrait_set),展示优先本地 matches 缓存。
   final String? showName;
   final String? faceUrl;
   final ChatMessage? lastMessage;
@@ -102,6 +132,19 @@ abstract class ImClient {
   Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50});
 
   Future<ChatMessage> sendText({required String peerId, required String text});
+
+  Future<ChatMessage> sendImage({required String peerId, required String imagePath});
+
+  /// 删除本地消息(对方不受影响);本地未发出的消息可直接忽略此调用。
+  Future<void> deleteMessage(ChatMessage message);
+
+  /// 该 SDK 版本无原生重发:等价于用原内容重新发送。
+  Future<ChatMessage> resend(ChatMessage message) {
+    if (message.kind == ChatMessageKind.image && message.localPath != null) {
+      return sendImage(peerId: message.peerId, imagePath: message.localPath!);
+    }
+    return sendText(peerId: message.peerId, text: message.text);
+  }
 
   Future<void> markConversationRead(String peerId);
 

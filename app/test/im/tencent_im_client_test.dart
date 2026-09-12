@@ -1,6 +1,8 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:tencent_cloud_chat_sdk/enum/conversation_type.dart';
+import 'package:tencent_cloud_chat_sdk/models/common_utils.dart';
 import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_sdk/native_im/adapter/tim_c_enum.dart';
 import 'package:chatapp_app/im/im_client.dart';
@@ -37,7 +39,32 @@ Map<String, dynamic> customElem(String data, {String desc = ''}) => {
       'custom_elem_desc': desc,
     };
 
+Map<String, dynamic> imageElem({
+  String path = '/tmp/a.png',
+  String? thumbUrl = 'https://x/thumb.png',
+  String? originUrl = 'https://x/origin.png',
+}) =>
+    {
+      'elem_type': CElemType.ElemImage,
+      'image_elem_orig_path': path,
+      'image_elem_thumb_url': thumbUrl,
+      'image_elem_orig_url': originUrl,
+      'image_elem_large_url': originUrl,
+    };
+
 void main() {
+  setUpAll(() async {
+    // 图片元素 fromJson 会读 SDK 的文件目录(真机由 initSDK 初始化);
+    // VM 测试里把 path_provider 通道 mock 成假目录再手动 init 一次。
+    TestWidgetsFlutterBinding.ensureInitialized();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/path_provider'),
+      (call) async => '/tmp/chatapp_test',
+    );
+    await CommonUtils.init();
+  });
+
   test('对方发的文本:peerId 取 sender,timestamp 秒转毫秒', () {
     final message = chatMessageFromSdk(sdkMessage(
       isSelf: false,
@@ -104,5 +131,21 @@ void main() {
 
     expect(message.kind, ChatMessageKind.banNotice);
     expect(message.text, '您的账号限制已解除,所有功能已恢复。');
+  });
+
+  test('图片消息:kind=image,localPath 取 path,缩略/原图取对应 url', () {
+    final message = chatMessageFromSdk(sdkMessage(isSelf: true, elem: imageElem()));
+
+    expect(message.kind, ChatMessageKind.image);
+    expect(message.localPath, '/tmp/a.png');
+    expect(message.imageUrl, 'https://x/thumb.png');
+    expect(message.imageLargeUrl, 'https://x/origin.png');
+  });
+
+  test('图片消息:没有缩略图时 imageUrl 落回原图', () {
+    final message =
+        chatMessageFromSdk(sdkMessage(isSelf: false, elem: imageElem(thumbUrl: null)));
+
+    expect(message.imageUrl, 'https://x/origin.png');
   });
 }
