@@ -1,4 +1,3 @@
-import threading
 from datetime import date
 from unittest.mock import patch
 
@@ -7,14 +6,13 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Photo, PhotoStatus, Preference, Profile, ProfileStatus
 
-from . import services as discovery_services
 from .models import Match, Swipe, SwipeAction
 
 User = get_user_model()
@@ -187,22 +185,22 @@ class SwipeApiTests(APITestCase):
 
     def test_mutual_like_creates_one_match(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
-        with patch("discovery.services._notify_async"):   # 别真打腾讯云(灰条在后台线程发)
+        with patch("im.tasks.send_match_notice.delay") as notice:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.swipe(self.target.id)
         self.assertEqual(resp.json(), {"matched": True})
         self.assertEqual(Match.objects.count(), 1)
         self.assertEqual(Match.objects.first().user_a, self.me)
+        notice.assert_called_once_with(self.me.id, self.target.id)
 
     def test_mutual_like_after_match_does_not_resend_notice(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
-        with patch("discovery.services._notify_async") as notice:
+        with patch("im.tasks.send_match_notice.delay") as notice:
             with self.captureOnCommitCallbacks(execute=True):
                 self.swipe(self.target.id)
                 again = self.swipe(self.target.id)
         self.assertEqual(again.json(), {"matched": True})
         self.assertEqual(notice.call_count, 1)
-        self.assertEqual(notice.call_args[0], (self.me.im_user_id, self.target.im_user_id))
 
     def test_pass_never_matches(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
@@ -210,15 +208,12 @@ class SwipeApiTests(APITestCase):
         self.assertEqual(resp.json(), {"matched": False})
         self.assertEqual(Match.objects.count(), 0)
 
-    def test_im_failure_does_not_break_swipe(self):
+    def test_enqueue_failure_does_not_break_swipe(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
-        # 把异步派发换成同步执行,好在请求内制造「IM 全挂」;响应仍须正常
-        with patch("discovery.services._notify_async",
-                   lambda a, b: discovery_services.im_client.send_match_notice(a, b)), \
-                patch("im.client._request", side_effect=Exception("im down")):
+        with patch("im.tasks.send_match_notice.delay", side_effect=Exception("broker down")):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.swipe(self.target.id)
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 200)   # robust=True 兜住,配对结果不受影响
         self.assertEqual(resp.json(), {"matched": True})
 
     def test_cannot_swipe_self(self):
@@ -247,18 +242,6 @@ class SwipeApiTests(APITestCase):
             self.assertEqual(self.swipe(self.target.id).status_code, 200)
             self.assertEqual(self.swipe(self.target.id).status_code, 200)
             self.assertEqual(self.swipe(self.target.id).status_code, 429)
-
-
-class MatchNoticeDispatchTests(SimpleTestCase):
-    """灰条走后台线程发:配对响应不等腾讯 REST(手测:同步发两条 ~0.9s,弹窗明显被拖慢)。"""
-
-    def test_notify_async_dispatches_in_background_thread(self):
-        done = threading.Event()
-        with patch("discovery.services.im_client.send_match_notice",
-                   side_effect=lambda a, b: done.set()) as notice:
-            discovery_services._notify_async("u1", "u2")
-            self.assertTrue(done.wait(timeout=2))   # 后台线程确实把消息发出去了
-        notice.assert_called_once_with("u1", "u2")
 
 
 class MatchListTests(APITestCase):
