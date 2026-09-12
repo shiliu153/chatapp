@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/image_pick.dart';
 import '../../im/im_client.dart';
 import '../../im/im_repository.dart';
 import '../profile/profile_controller.dart';
@@ -10,13 +11,19 @@ import 'chat_controller.dart';
 import 'chat_items.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
+import 'widgets/emoji_panel.dart';
 import 'widgets/message_bubble.dart';
+import 'widgets/more_panel.dart';
+import 'widgets/photo_viewer.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
-  const ChatPage({super.key, required this.peerId});
+  const ChatPage({super.key, required this.peerId, this.pickImage = pickImageFromGallery});
 
   /// 对方的 IM id,如 'u9'。
   final String peerId;
+
+  /// 相册选图(测试注入用)。
+  final PickImage pickImage;
 
   @override
   ConsumerState<ChatPage> createState() => _ChatPageState();
@@ -24,11 +31,29 @@ class ChatPage extends ConsumerStatefulWidget {
 
 class _ChatPageState extends ConsumerState<ChatPage> {
   final _input = TextEditingController();
+  final _focusNode = FocusNode();
   bool _sending = false;
+  bool _showEmoji = false;
+  bool _showMore = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 键盘弹起时收起表情/＋面板
+    _focusNode.addListener(() {
+      if (_focusNode.hasFocus && (_showEmoji || _showMore)) {
+        setState(() {
+          _showEmoji = false;
+          _showMore = false;
+        });
+      }
+    });
+  }
 
   @override
   void dispose() {
     _input.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -47,6 +72,48 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         cache[widget.peerId]?.userId ?? int.tryParse(widget.peerId.replaceFirst('u', ''));
     if (userId == null) return;
     context.push('/users/$userId');
+  }
+
+  void _toggleEmoji() {
+    setState(() {
+      _showEmoji = !_showEmoji;
+      _showMore = false;
+    });
+    if (_showEmoji) FocusScope.of(context).unfocus();
+  }
+
+  void _toggleMore() {
+    setState(() {
+      _showMore = !_showMore;
+      _showEmoji = false;
+    });
+    if (_showMore) FocusScope.of(context).unfocus();
+  }
+
+  void _insertEmoji(String emoji) {
+    final selection = _input.selection;
+    final start = selection.start >= 0 ? selection.start : _input.text.length;
+    final end = selection.end >= 0 ? selection.end : _input.text.length;
+    final text = _input.text.replaceRange(start, end, emoji);
+    _input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: start + emoji.length),
+    );
+  }
+
+  Future<void> _pickAndSendImage() async {
+    final file = await widget.pickImage();
+    if (file == null || !mounted) return;
+    setState(() => _showMore = false);
+    await ref.read(chatProvider(widget.peerId).notifier).sendImage(file.path);
+  }
+
+  void _openImage(ChatMessage message) {
+    final url = (message.imageLargeUrl?.isNotEmpty ?? false)
+        ? message.imageLargeUrl!
+        : message.imageUrl;
+    if (url == null || url.isEmpty) return;
+    openPhotoViewer(context, urls: [url]);
   }
 
   /// 标题降级链的第三级:IM 会话名(昵称已由后端同步到 IM 资料)。
@@ -146,6 +213,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             peerAvatarUrl: peerAvatarUrl,
                             selfAvatarUrl: selfAvatarUrl,
                             onLongPress: () => _showMessageMenu(itemContext, message),
+                            onTapImage: () => _openImage(message),
                             onRetry: () =>
                                 ref.read(chatProvider(widget.peerId).notifier).retry(message),
                           ),
@@ -156,7 +224,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               },
             ),
           ),
-          _InputBar(controller: _input, sending: _sending, onSend: _send),
+          _InputBar(
+            controller: _input,
+            focusNode: _focusNode,
+            sending: _sending,
+            onSend: _send,
+            onToggleEmoji: _toggleEmoji,
+            onToggleMore: _toggleMore,
+          ),
+          if (_showEmoji)
+            EmojiPanel(onSelect: _insertEmoji)
+          else if (_showMore)
+            MorePanel(onPickImage: _pickAndSendImage),
         ],
       ),
     );
@@ -180,22 +259,33 @@ class _TimeSeparator extends StatelessWidget {
 }
 
 class _InputBar extends StatelessWidget {
-  const _InputBar({required this.controller, required this.sending, required this.onSend});
+  const _InputBar({
+    required this.controller,
+    required this.focusNode,
+    required this.sending,
+    required this.onSend,
+    required this.onToggleEmoji,
+    required this.onToggleMore,
+  });
 
   final TextEditingController controller;
+  final FocusNode focusNode;
   final bool sending;
   final VoidCallback onSend;
+  final VoidCallback onToggleEmoji;
+  final VoidCallback onToggleMore;
 
   @override
   Widget build(BuildContext context) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
           child: Row(
             children: [
               Expanded(
                 child: TextField(
                   key: const Key('chat.input'),
                   controller: controller,
+                  focusNode: focusNode,
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => onSend(),
                   decoration: const InputDecoration(
@@ -205,6 +295,16 @@ class _InputBar extends StatelessWidget {
                     contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
                 ),
+              ),
+              IconButton(
+                key: const Key('chat.emoji.button'),
+                onPressed: onToggleEmoji,
+                icon: const Icon(Icons.emoji_emotions_outlined),
+              ),
+              IconButton(
+                key: const Key('chat.more.button'),
+                onPressed: onToggleMore,
+                icon: const Icon(Icons.add_circle_outline),
               ),
               IconButton(
                 key: const Key('chat.send'),

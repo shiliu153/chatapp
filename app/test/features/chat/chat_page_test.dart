@@ -6,10 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:chatapp_app/core/image_pick.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
 import 'package:chatapp_app/im/im_client.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
 import '../../support/fake_im_client.dart';
@@ -63,7 +65,8 @@ void main() {
     addTearDown(fake.dispose);
   });
 
-  Future<void> pumpChat(WidgetTester tester, {String peerId = 'u9'}) async {
+  Future<void> pumpChat(WidgetTester tester,
+      {String peerId = 'u9', PickImage? pickImage}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
@@ -78,7 +81,10 @@ void main() {
       routes: [
         GoRoute(
           path: '/chat/:peerId',
-          builder: (context, state) => ChatPage(peerId: state.pathParameters['peerId']!),
+          builder: (context, state) => ChatPage(
+            peerId: state.pathParameters['peerId']!,
+            pickImage: pickImage ?? () async => null,
+          ),
         ),
         GoRoute(
           path: '/users/:id',
@@ -257,5 +263,48 @@ void main() {
     await pumpChat(tester);
 
     expect(find.text('小鹿'), findsOneWidget);
+  });
+
+  testWidgets('表情面板:点选插入输入框', (tester) async {
+    await pumpChat(tester);
+    await tester.tap(find.byKey(const Key('chat.emoji.button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('chat.emoji.panel')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('chat.emoji.😀')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(find.byKey(const Key('chat.input'))).controller!.text,
+        contains('😀'));
+  });
+
+  testWidgets('＋面板选图 → 发出图片消息', (tester) async {
+    await pumpChat(tester, pickImage: () async => XFile('fake.png'));
+    await tester.tap(find.byKey(const Key('chat.more.button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat.more.image')));
+    await tester.pumpAndSettle();
+
+    expect(fake.log, contains('sendImage:u9:fake.png'));
+    expect(find.byKey(const Key('chat.image')), findsWidgets);
+  });
+
+  testWidgets('点图片气泡 → 打开全屏查看', (tester) async {
+    fake.history = {
+      'u9': [
+        const ChatMessage(
+            msgId: 'i1',
+            peerId: 'u9',
+            isSelf: false,
+            timestamp: 1,
+            kind: ChatMessageKind.image,
+            imageUrl: 'https://x/1.png'),
+      ],
+    };
+    await pumpChat(tester);
+
+    await tester.tap(find.byKey(const Key('chat.image')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('viewer.page')), findsOneWidget);
   });
 }

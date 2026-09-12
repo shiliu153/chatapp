@@ -1,19 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../../core/api_exception.dart';
+import '../../../core/image_pick.dart';
 import '../models.dart';
 import '../profile_controller.dart';
 import '../profile_repository.dart';
-
-typedef PickImage = Future<XFile?> Function();
-
-Future<XFile?> pickImageFromGallery() => ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1080,
-      imageQuality: 85,
-    );
 
 const _maxBytes = 5 * 1024 * 1024;
 
