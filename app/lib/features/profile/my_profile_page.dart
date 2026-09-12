@@ -153,7 +153,8 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = (value == null || value!.isEmpty) ? '未填' : value!;
+    // value == null:纯入口行(头像/想找的人/设置),不显示取值;空串:数据字段未填
+    final text = value == null ? '' : (value!.isEmpty ? '未填' : value!);
     return InkWell(
       key: Key(rowKey),
       onTap: onTap,

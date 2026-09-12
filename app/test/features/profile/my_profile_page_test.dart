@@ -11,8 +11,8 @@ void main() {
   testWidgets('行版式:ID/昵称/性别等取值渲染', (tester) async {
     final adapter = ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
-      'GET /users/me': (options) =>
-          ok(profileJson(nickname: '小雨', gender: 'female', city: '杭州')),
+      'GET /users/me': (options) => ok(profileJson(
+          nickname: '小雨', gender: 'female', city: '杭州', tags: [tagJson(1, '运动')])),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
@@ -25,6 +25,8 @@ void main() {
     expect(find.byKey(const Key('my.row.id')), findsOneWidget);
     expect(find.byKey(const Key('my.row.preference')), findsOneWidget);
     expect(find.text('编辑资料'), findsNothing); // 独立入口已删
+    // 纯入口行(头像/想找的人/设置)没有取值概念,不能显示「未填」
+    expect(find.text('未填'), findsNothing);
   });
 
   testWidgets('空值显示「未填」', (tester) async {
