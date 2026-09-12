@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from datetime import timedelta
 from pathlib import Path
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -108,6 +109,31 @@ DATABASES = {
         "OPTIONS": _db_options,
     }
 }
+
+
+# --- Redis / 缓存 / Celery(2026-09-12 标准化:共享状态不许再用 LocMem) ---
+TESTING = sys.argv[1:2] == ["test"]
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/1")
+if TESTING:
+    # 测试用独立 DB 序号:清库不误伤开发数据;任务只入队不执行(无 worker)
+    REDIS_URL = "redis://127.0.0.1:6379/15"
+    CELERY_BROKER_URL = "redis://127.0.0.1:6379/14"
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "KEY_PREFIX": "chatapp",
+        "OPTIONS": {"CONNECTION_POOL_KWARGS": {"max_connections": 50}},
+    }
+}
+
+CELERY_TASK_IGNORE_RESULT = True          # 副作用任务不需要结果
+CELERY_TASK_ACKS_LATE = True              # 任务不丢:执行完才 ack
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 
 # Password validation
