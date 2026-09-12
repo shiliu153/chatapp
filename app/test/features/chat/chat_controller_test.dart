@@ -35,6 +35,11 @@ void main() {
     return container;
   }
 
+  /// 模拟「聊天页已打开」:占住订阅,否则 autoDispose 会把会话控制器收走。
+  void openChat(ProviderContainer container) {
+    addTearDown(container.listen(chatProvider('u9'), (_, _) {}).close);
+  }
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     adapter = ScriptedAdapter({
@@ -62,9 +67,31 @@ void main() {
     expect(fake.log, contains('read:u9'));
   });
 
+  test('离开会话后新消息不再自动已读(否则列表红点永远不出现)', () async {
+    final container = makeContainer();
+    await container.read(imStatusProvider.notifier).login();
+
+    // 模拟进入聊天页:建立监听等首帧;此时标记已读是对的
+    final sub = container.listen(chatProvider('u9'), (_, _) {});
+    await container.read(chatProvider('u9').future);
+    expect(fake.log, contains('read:u9'));
+
+    // 离开聊天页
+    sub.close();
+    await pumpEventQueue();
+    fake.log.clear();
+
+    // 人在列表页,来了新消息 —— 不该再被自动已读
+    fake.emitIncoming('u9', '在吗');
+    await pumpEventQueue();
+
+    expect(fake.log.where((l) => l.startsWith('read:')).toList(), isEmpty);
+  });
+
   test('实时消息追加并去重(多端回显同一条不重复上屏)', () async {
     final container = makeContainer();
     await container.read(imStatusProvider.notifier).login();
+    openChat(container);
     await container.read(chatProvider('u9').future);
 
     fake.emitIncoming('u9', '在吗');
@@ -79,6 +106,7 @@ void main() {
   test('别的会话的消息不会串进来', () async {
     final container = makeContainer();
     await container.read(imStatusProvider.notifier).login();
+    openChat(container);
     await container.read(chatProvider('u9').future);
 
     fake.emitIncoming('u8', '嗨');
@@ -90,6 +118,7 @@ void main() {
   test('发送:乐观上屏后用服务器消息替换', () async {
     final container = makeContainer();
     await container.read(imStatusProvider.notifier).login();
+    openChat(container);
     await container.read(chatProvider('u9').future);
 
     await container.read(chatProvider('u9').notifier).send('你好呀');
@@ -104,6 +133,7 @@ void main() {
   test('发送失败:气泡保留并标记 isFailed,重发后恢复', () async {
     final container = makeContainer();
     await container.read(imStatusProvider.notifier).login();
+    openChat(container);
     await container.read(chatProvider('u9').future);
     fake.sendError = const ImException(6013, 'network');
 

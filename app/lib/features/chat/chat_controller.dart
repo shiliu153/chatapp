@@ -100,8 +100,10 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
   }
 }
 
-final chatProvider = AsyncNotifierProvider.family<ChatController, List<ChatMessage>, String>(
+final chatProvider =
+    AsyncNotifierProvider.autoDispose.family<ChatController, List<ChatMessage>, String>(
   ChatController.new,
   // 页面自己有错误态,关掉 Riverpod 3 的自动重试,行为更可预期
   retry: (retryCount, error) => null,
+  // autoDispose 不能丢:离开聊天页后订阅必须取消,否则新消息仍被自动已读,列表红点永远不出现
 );
