@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:chatapp_app/im/im_client.dart';
 
 /// 测试用假 IM 客户端:不碰原生插件,行为可编排,调用有流水可断言。
-class FakeImClient implements ImClient {
+class FakeImClient extends ImClient {
   final _events = StreamController<ImEvent>.broadcast();
 
   /// 调用流水,如 'init:1600161711' / 'login:u3' / 'send:u9:你好'。
@@ -63,6 +63,23 @@ class FakeImClient implements ImClient {
       text: text,
     );
   }
+
+  @override
+  Future<ChatMessage> sendImage({required String peerId, required String imagePath}) async {
+    log.add('sendImage:$peerId:$imagePath');
+    if (sendError != null) throw sendError!;
+    return ChatMessage(
+      msgId: 'sent-${++_seq}',
+      peerId: peerId,
+      isSelf: true,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      kind: ChatMessageKind.image,
+      localPath: imagePath,
+    );
+  }
+
+  @override
+  Future<void> deleteMessage(ChatMessage message) async => log.add('delete:${message.msgId}');
 
   @override
   Future<void> markConversationRead(String peerId) async => log.add('read:$peerId');

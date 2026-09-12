@@ -11,7 +11,7 @@ from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
 from .serializers import (PhotoSerializer, PhotoUploadSerializer, PreferenceSerializer,
                           ProfileSerializer, ProfileUpdateSerializer, PublicProfileSerializer,
                           TagSerializer)
-from .services import get_profile
+from .services import get_profile, sync_im_nickname
 
 User = get_user_model()
 
@@ -24,12 +24,15 @@ def me(request):
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
         tag_ids = data.pop("tag_ids", None)
+        old_nickname = profile.nickname
         for field, value in data.items():
             setattr(profile, field, value)
         profile.save()
         if tag_ids is not None:
             profile.tags.set(Tag.objects.filter(id__in=tag_ids))
         profile.refresh_status()
+        if profile.nickname != old_nickname:
+            sync_im_nickname(profile.user)
     return Response(ProfileSerializer(profile, context={"request": request}).data)
 
 

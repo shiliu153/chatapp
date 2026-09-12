@@ -1,6 +1,6 @@
 # 聊天页/资料页微信式改版 + IM 昵称同步 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 三页(聊天页/我的页/别人的资料页)改微信版式+品牌粉色调,补齐聊天页 7 项功能,并以「IM 昵称同步」修掉拉黑后会话名降级成裸 id 的问题。
 
@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces: `set_profile_nick(identifier: str, nickname: str) -> bool`(Task 2/3 使用)
 
-- [ ] **Step 1: 写失败测试**(`chatapp/im/tests.py`,与现有 `test_import_account_payload` 同风格)
+- [x] **Step 1: 写失败测试**(`chatapp/im/tests.py`,与现有 `test_import_account_payload` 同风格)
 
 ```python
 @patch("im.client._request", return_value={"ErrorCode": 0})
@@ -50,11 +50,11 @@ def test_set_profile_nick_network_error_returns_false(self, request):
 
 顶部 import 区补:`set_profile_nick`(加入现有 from .client import 列表)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test im` → ImportError/NameError
 
-- [ ] **Step 3: 实现**(`chatapp/im/client.py` 末尾)
+- [x] **Step 3: 实现**(`chatapp/im/client.py` 末尾)
 
 ```python
 def set_profile_nick(identifier: str, nickname: str) -> bool:
@@ -71,9 +71,9 @@ def set_profile_nick(identifier: str, nickname: str) -> bool:
     return _check(result, "profile_set_field")
 ```
 
-- [ ] **Step 4: 跑测试确认通过** — `python manage.py test im` 全绿
+- [x] **Step 4: 跑测试确认通过** — `python manage.py test im` 全绿
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/im/client.py chatapp/im/tests.py
@@ -93,7 +93,7 @@ git commit -m "feat(backend): im.client 增加 set_profile_nick 昵称同步"
 - Consumes: Task 1 的 `im_client.set_profile_nick`
 - Produces: `users.services.sync_im_nickname(user) -> None`;`users.services._dispatch_async(fn, *args) -> None`(测试 mock 点)
 
-- [ ] **Step 1: 写失败测试**(`chatapp/users/tests.py`,找现有 `test_patch...` 昵称用例所在类)
+- [x] **Step 1: 写失败测试**(`chatapp/users/tests.py`,找现有 `test_patch...` 昵称用例所在类)
 
 ```python
 @patch("users.services._dispatch_async")
@@ -117,9 +117,9 @@ def test_patch_other_field_no_sync(self, dispatch):
 
 ⚠️ 同时给**现有**会改昵称的用例(约 L121 的 PATCH 测试)补 `@patch("users.services._dispatch_async")` 装饰器 + 参数——否则会真的起线程打腾讯 REST。
 
-- [ ] **Step 2: 跑测试确认失败** — `python manage.py test users`
+- [x] **Step 2: 跑测试确认失败** — `python manage.py test users`
 
-- [ ] **Step 3: 实现服务层**(`chatapp/users/services.py` 末尾)
+- [x] **Step 3: 实现服务层**(`chatapp/users/services.py` 末尾)
 
 ```python
 import threading
@@ -140,7 +140,7 @@ def _dispatch_async(fn, *args) -> None:
     threading.Thread(target=fn, args=args, daemon=True).start()
 ```
 
-- [ ] **Step 4: 实现视图钩子**(`chatapp/users/views.py`)
+- [x] **Step 4: 实现视图钩子**(`chatapp/users/views.py`)
 
 import 行改为 `from .services import get_profile, sync_im_nickname`;`me()` 的 PATCH 分支:
 
@@ -161,9 +161,9 @@ import 行改为 `from .services import get_profile, sync_im_nickname`;`me()` �
             sync_im_nickname(profile.user)
 ```
 
-- [ ] **Step 5: 跑测试确认通过** — `python manage.py test users` 全绿;再全量 `python manage.py test` 全绿
+- [x] **Step 5: 跑测试确认通过** — `python manage.py test users` 全绿;再全量 `python manage.py test` 全绿
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/users/services.py chatapp/users/views.py chatapp/users/tests.py
@@ -182,7 +182,7 @@ git commit -m "feat(backend): 改昵称时后台同步到 IM 资料"
 - Consumes: Task 1 的 `set_profile_nick`
 - Produces: 管理命令(执行记录里手跑一次)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 @patch("im.management.commands.im_sync_nicknames.set_profile_nick", return_value=True)
@@ -202,9 +202,9 @@ def test_sync_nicknames_skips_empty(self, sync):
 
 (按现有 im/tests.py 的建用户方式准备 `self.user`;若已有同类 setUp 直接复用。)
 
-- [ ] **Step 2: 跑测试确认失败** — `python manage.py test im`
+- [x] **Step 2: 跑测试确认失败** — `python manage.py test im`
 
-- [ ] **Step 3: 实现**(参照 `im_setup_system_account.py` 风格)
+- [x] **Step 3: 实现**(参照 `im_setup_system_account.py` 风格)
 
 ```python
 """一次性/随时可跑:把本地昵称全量同步到腾讯 IM(幂等,失败只记日志)。
@@ -233,14 +233,14 @@ class Command(BaseCommand):
         self.stdout.write(style(f"昵称同步完成:成功 {ok},失败 {fail}"))
 ```
 
-- [ ] **Step 4: 跑测试确认通过** — `python manage.py test im`
+- [x] **Step 4: 跑测试确认通过** — `python manage.py test im`
 
-- [ ] **Step 5: 对开发库真跑一次**(补 u7/u8/u9)
+- [x] **Step 5: 对开发库真跑一次**(补 u7/u8/u9)
 
 Run: `cd chatapp && python manage.py im_sync_nicknames`
 Expected: `昵称同步完成:成功 3,失败 0`(看具体人数;失败>0 时查 IM 日志)
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/im/management/commands/im_sync_nicknames.py chatapp/im/tests.py
@@ -266,7 +266,7 @@ git commit -m "feat(backend): im_sync_nicknames 存量昵称补数命令"
   - `ImClient.resend(ChatMessage message) → Future<ChatMessage>`(抽象类里的**具体**方法:image 走 sendImage,其余走 sendText)
   - `FakeImClient.log` 新增流水格式:`sendImage:$peerId:$path` / `delete:$msgId`
 
-- [ ] **Step 1: 写失败测试**(`app/test/im/tencent_im_client_test.dart` 追加;复用文件里现有 `sdkMessage` 帮助函数)
+- [x] **Step 1: 写失败测试**(`app/test/im/tencent_im_client_test.dart` 追加;复用文件里现有 `sdkMessage` 帮助函数)
 
 ```dart
 Map<String, dynamic> imageElem({
@@ -297,9 +297,9 @@ test('图片消息:没有缩略图时 imageUrl 落回原图', () {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败** — `cd app && ../flutter/bin/flutter.bat test test/im/tencent_im_client_test.dart`
+- [x] **Step 2: 跑测试确认失败** — `cd app && ../flutter/bin/flutter.bat test test/im/tencent_im_client_test.dart`
 
-- [ ] **Step 3: 扩展领域模型与接口**(`app/lib/im/im_client.dart`)
+- [x] **Step 3: 扩展领域模型与接口**(`app/lib/im/im_client.dart`)
 
 ```dart
 enum ChatMessageKind { text, matchNotice, banNotice, image, other }
@@ -363,7 +363,7 @@ enum ChatMessageKind { text, matchNotice, banNotice, image, other }
   /// IM 侧的名字/头像:昵称已由后端同步(改昵称→profile_set_field),展示优先本地 matches 缓存。
 ```
 
-- [ ] **Step 4: 实现 SDK 映射**(`app/lib/im/tencent_im_client.dart`)
+- [x] **Step 4: 实现 SDK 映射**(`app/lib/im/tencent_im_client.dart`)
 
 import 区加:`import 'package:tencent_cloud_chat_sdk/enum/image_types.dart';`
 
@@ -430,7 +430,7 @@ String? _pickImageUrl(List<dynamic>? list, int type) {
   }
 ```
 
-- [ ] **Step 5: 补齐 FakeImClient**(`app/test/support/fake_im_client.dart`)
+- [x] **Step 5: 补齐 FakeImClient**(`app/test/support/fake_im_client.dart`)
 
 ```dart
   @override
@@ -451,9 +451,9 @@ String? _pickImageUrl(List<dynamic>? list, int type) {
   Future<void> deleteMessage(ChatMessage message) async => log.add('delete:${message.msgId}');
 ```
 
-- [ ] **Step 6: 跑测试与全量** — `../flutter/bin/flutter.bat test test/im` 通过;`../flutter/bin/flutter.bat test` 全绿(else 分支的 switch 若报穷尽性,按提示补 `ChatMessageKind.image` 分支——已知点在 `chats_page.dart` 的 `_previewOf`,补 `ChatMessageKind.image => '[图片]'`);`analyze` 零告警
+- [x] **Step 6: 跑测试与全量** — `../flutter/bin/flutter.bat test test/im` 通过;`../flutter/bin/flutter.bat test` 全绿(else 分支的 switch 若报穷尽性,按提示补 `ChatMessageKind.image` 分支——已知点在 `chats_page.dart` 的 `_previewOf`,补 `ChatMessageKind.image => '[图片]'`);`analyze` 零告警
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add app/lib/im app/test/support/fake_im_client.dart app/test/im app/lib/features/chat/chats_page.dart
@@ -475,7 +475,7 @@ git commit -m "feat(app): IM 抽象层支持图片消息与本地删除"
   - `sealed class ChatItem`;`ChatMessageItem(ChatMessage message)`;`ChatTimeItem(String label)`
   - `buildChatItems(List<ChatMessage> messages, {DateTime? now}) → List<ChatItem>`(输入正序,输出正序)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
@@ -514,9 +514,9 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败** — `../flutter/bin/flutter.bat test test/features/chat/chat_items_test.dart`
+- [x] **Step 2: 跑测试确认失败** — `../flutter/bin/flutter.bat test test/features/chat/chat_items_test.dart`
 
-- [ ] **Step 3: 实现**(`app/lib/core/format.dart` 追加)
+- [x] **Step 3: 实现**(`app/lib/core/format.dart` 追加)
 
 ```dart
 /// 聊天页时间条:今天 HH:mm / 昨天 HH:mm / 本年 M月d日 HH:mm / 跨年 yyyy年M月d日 HH:mm。
@@ -569,9 +569,9 @@ List<ChatItem> buildChatItems(List<ChatMessage> messages, {DateTime? now}) {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过** — 同上命令;`analyze` 零告警
+- [x] **Step 4: 跑测试确认通过** — 同上命令;`analyze` 零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/core/format.dart app/lib/features/chat/chat_items.dart app/test/features/chat/chat_items_test.dart
@@ -590,7 +590,7 @@ git commit -m "feat(app): 聊天时间分组纯函数与时间条格式"
 - Consumes: Task 4 的 ChatMessage 扩展
 - Produces:`MessageBubble({required ChatMessage message, String? peerName, String? peerAvatarUrl, String? selfAvatarUrl, VoidCallback? onLongPress, VoidCallback? onRetry, VoidCallback? onTapImage})`;组件内 Key:`'chat.retry'`(失败叹号)、`'chat.image'`(图片气泡)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 import 'dart:io';
@@ -643,9 +643,9 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败** — `../flutter/bin/flutter.bat test test/features/chat/message_bubble_test.dart`
+- [x] **Step 2: 跑测试确认失败** — `../flutter/bin/flutter.bat test test/features/chat/message_bubble_test.dart`
 
-- [ ] **Step 3: 实现**(整体重写 `message_bubble.dart`;灰条分支保持现状)
+- [x] **Step 3: 实现**(整体重写 `message_bubble.dart`;灰条分支保持现状)
 
 ```dart
 import 'dart:io';
@@ -819,9 +819,9 @@ class _SquareAvatar extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过** — 同上;再跑 `../flutter/bin/flutter.bat test test/features/chat` 看 chat_page 旧用例损伤(气泡结构变化:原「发送失败→SnackBar+气泡撤掉」用例会在 Task 7 改,若此刻红,先记录,Task 7 修复)
+- [x] **Step 4: 跑测试确认通过** — 同上;再跑 `../flutter/bin/flutter.bat test test/features/chat` 看 chat_page 旧用例损伤(气泡结构变化:原「发送失败→SnackBar+气泡撤掉」用例会在 Task 7 改,若此刻红,先记录,Task 7 修复)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/widgets/message_bubble.dart app/test/features/chat/message_bubble_test.dart
@@ -840,7 +840,7 @@ git commit -m "feat(app): 消息气泡改微信式(方头像/粉气泡/图片/�
 - Consumes: Task 4 的 `ImClient.sendImage/resend`、Task 6 的失败态气泡
 - Produces:`ChatController.send(String text)`、`sendImage(String path)`、`retry(ChatMessage message)`、`deleteLocal(ChatMessage message)`(send 不再抛异常)
 
-- [ ] **Step 1: 改失败测试**(`chat_page_test.dart` 把「发送失败 → SnackBar 提示,气泡撤掉」改为)
+- [x] **Step 1: 改失败测试**(`chat_page_test.dart` 把「发送失败 → SnackBar 提示,气泡撤掉」改为)
 
 ```dart
   testWidgets('发送失败 → 气泡保留 + 叹号;点叹号重发成功', (tester) async {
@@ -863,9 +863,9 @@ git commit -m "feat(app): 消息气泡改微信式(方头像/粉气泡/图片/�
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败** — `../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
+- [x] **Step 2: 跑测试确认失败** — `../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
 
-- [ ] **Step 3: 实现**(`chat_controller.dart`)
+- [x] **Step 3: 实现**(`chat_controller.dart`)
 
 ```dart
   Future<void> send(String text) => _sendOut(ChatMessage(
@@ -923,9 +923,9 @@ git commit -m "feat(app): 消息气泡改微信式(方头像/粉气泡/图片/�
 
 注意:`_sendOut` 里 pending → 成功时用返回消息替换;`send()` 不再 rethrow,`chat_page.dart::_send` 的 try/catch 与 SnackBar 同步删除(Task 8 一起做;本任务先把控制器与用例做绿,页面里残留的 catch 不会导致测试红)。
 
-- [ ] **Step 4: 跑测试确认通过** — 同上命令全绿;`analyze` 零告警
+- [x] **Step 4: 跑测试确认通过** — 同上命令全绿;`analyze` 零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/chat_controller.dart app/test/features/chat/chat_page_test.dart
@@ -944,7 +944,7 @@ git commit -m "feat(app): 发送失败保留气泡可重发,新增发图与本�
 - Consumes: Task 5 `buildChatItems`;Task 6 `MessageBubble`;Task 7 controller 方法
 - Produces:页面 Key:`'chat.title'`(保留)、`'chat.more'`(顶栏 ···)、`'chat.menu.copy'`/`'chat.menu.delete'`(长按菜单项);标题降级:matchCache → IM 会话名 → 裸 id
 
-- [ ] **Step 1: 写失败测试**(追加到 `chat_page_test.dart`)
+- [x] **Step 1: 写失败测试**(追加到 `chat_page_test.dart`)
 
 ```dart
   testWidgets('超过 5 分钟的两个消息之间出现时间条', (tester) async {
@@ -1012,9 +1012,9 @@ ChatMessage _textAt(String id, DateTime time, {required String text, bool isSelf
         timestamp: time.millisecondsSinceEpoch, kind: ChatMessageKind.text, text: text);
 ```
 
-- [ ] **Step 2: 跑测试确认失败** — `../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
+- [x] **Step 2: 跑测试确认失败** — `../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
 
-- [ ] **Step 3: 实现页面**(`chat_page.dart` 重写 build 与辅助)
+- [x] **Step 3: 实现页面**(`chat_page.dart` 重写 build 与辅助)
 
 要点(按此改):
 - 顶栏:`AppBar(title: InkWell(key: 'chat.title', ..., child: Text(displayNameFor(cache, widget.peerId, imName: _imNameOf(ref)))))`,actions 加 `IconButton(key: Key('chat.more'), icon: Icon(Icons.more_horiz), onPressed: _openProfile 同款跳转)`
@@ -1097,9 +1097,9 @@ class _TimeSeparator extends StatelessWidget {
 
 import 补:`package:flutter/services.dart`、`conversations_controller.dart`、`../../../core/format.dart`(经 chat_items)、`chat_items.dart`。
 
-- [ ] **Step 4: 跑测试确认通过** — 该文件全绿;`../flutter/bin/flutter.bat test test/features/chat` 全绿(旧「点标题进资料卡」用例应仍过;`find.text('小红')` 标题用例因缓存命中不受影响)
+- [x] **Step 4: 跑测试确认通过** — 该文件全绿;`../flutter/bin/flutter.bat test test/features/chat` 全绿(旧「点标题进资料卡」用例应仍过;`find.text('小红')` 标题用例因缓存命中不受影响)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/chat_page.dart app/test/features/chat/chat_page_test.dart
@@ -1117,7 +1117,7 @@ git commit -m "feat(app): 聊天页微信式版式(时间条/方头像长按菜�
 **Interfaces:**
 - Produces:`PhotoViewerPage({required List<String> urls, int initialIndex = 0})`,Key:`'viewer.page'`;静态帮助 `openPhotoViewer(BuildContext, {required List<String> urls, int initialIndex = 0})`(Navigator.push 封装,聊天页与资料页共用)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -1145,9 +1145,9 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```dart
 import 'package:flutter/material.dart';
@@ -1217,9 +1217,9 @@ void openPhotoViewer(BuildContext context, {required List<String> urls, int init
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过** — 同上;`analyze` 零告警
+- [x] **Step 4: 跑测试确认通过** — 同上;`analyze` 零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/widgets/photo_viewer.dart app/test/features/chat/photo_viewer_test.dart
@@ -1245,7 +1245,7 @@ git commit -m "feat(app): 全屏看图组件(聊天与相册共用)"
   - `MorePanel({required VoidCallback onPickImage})`,Key:`'chat.more.panel'`、`'chat.more.image'`
   - `ChatPage` 构造参数新增 `final PickImage pickImage;`(默认 `pickImageFromGallery`)
 
-- [ ] **Step 1: 写失败测试**(`chat_page_test.dart`;`pumpChat` 帮助函数增加 `pickImage` 参数并传进 `ChatPage`,默认 `() async => null`)
+- [x] **Step 1: 写失败测试**(`chat_page_test.dart`;`pumpChat` 帮助函数增加 `pickImage` 参数并传进 `ChatPage`,默认 `() async => null`)
 
 ```dart
   testWidgets('表情面板:点选插入输入框', (tester) async {
@@ -1285,9 +1285,9 @@ git commit -m "feat(app): 全屏看图组件(聊天与相册共用)"
 
 `XFile` import:`package:image_picker/image_picker.dart`(或 `package:cross_file/cross_file.dart`)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `core/image_pick.dart`:
 
@@ -1421,9 +1421,9 @@ class MorePanel extends StatelessWidget {
 
 - 图片气泡点击接 Task 9:`onTapImage: () => openPhotoViewer(context, urls: [message.imageLargeUrl ?? message.imageUrl ?? ''], initialIndex: 0)`(urls 里过滤空串)
 
-- [ ] **Step 4: 跑测试确认通过** — `test/features/chat` 全绿;`test/features/profile` 与全量 `flutter test` 全绿(photo_grid 挪 import 不应有行为变化);`analyze` 零告警
+- [x] **Step 4: 跑测试确认通过** — `test/features/chat` 全绿;`test/features/profile` 与全量 `flutter test` 全绿(photo_grid 挪 import 不应有行为变化);`analyze` 零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/widgets/emoji_panel.dart app/lib/features/chat/widgets/more_panel.dart app/lib/core/image_pick.dart app/lib/features/profile/widgets/photo_grid.dart app/lib/features/chat/chat_page.dart app/test/features/chat/chat_page_test.dart
@@ -1441,7 +1441,7 @@ git commit -m "feat(app): 输入栏表情/＋面板与图片消息发送查看"
 **Interfaces:**
 - 行 Key:`'my.row.avatar'`/`'my.row.nickname'`/`'my.row.id'`/`'my.row.gender'`/`'my.row.birthday'`/`'my.row.city'`/`'my.row.bio'`/`'my.row.tags'`/`'my.row.preference'`/`'my.row.settings'`;ID 文案 `u{Profile.id}`
 
-- [ ] **Step 1: 写失败测试**(沿用该文件现有 pump 方式;断言)
+- [x] **Step 1: 写失败测试**(沿用该文件现有 pump 方式;断言)
 
 ```dart
     expect(find.text('u7'), findsOneWidget);        // ID 行(测试用户 id=7)
@@ -1452,9 +1452,9 @@ git commit -m "feat(app): 输入栏表情/＋面板与图片消息发送查看"
 
 以及点行跳转:`tap(find.byKey(const Key('my.row.city')))` → 出现占位路由(参照现有编辑页路由测试写法)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
-- [ ] **Step 3: 实现页面**
+- [x] **Step 3: 实现页面**
 
 结构(替换现 body 的 data 分支;留顶部不完善 Card 与两条设置行):
 
@@ -1484,9 +1484,9 @@ git commit -m "feat(app): 输入栏表情/＋面板与图片消息发送查看"
 
 `_InfoRow` 与 `_Group` 为文件内私有组件:值左对齐(标签列 `SizedBox(width: 72)`)、`›` 最右、分隔线 `Color(0xFFF5F6F7)`;空值显示 `未填`;`_genderLabel`:`male→男 / female→女 / 其他→未填`。头像行 trailing 为 38x38 圆角 6 方图(`data.avatar`,网络图带 errorBuilder)。删除原「编辑资料」入口行、原居中大头像区块(即 `_Avatar` 类可删)。
 
-- [ ] **Step 4: 跑测试确认通过** — 该文件 + `flutter test` 全绿;`analyze` 零告警
+- [x] **Step 4: 跑测试确认通过** — 该文件 + `flutter test` 全绿;`analyze` 零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/profile/my_profile_page.dart app/test/features/profile
@@ -1504,7 +1504,7 @@ git commit -m "feat(app): 我的页改微信「个人信息」行版式"
 **Interfaces:**
 - Key:`'user.more'`(顶栏 ··· 菜单按钮)、菜单项沿用 `'user.report'`/`'user.block'`(现有用例只需在点击前多一步 `tap('user.more')`);相册 `'user.album'`、照片格 `'user.album.photo:{i}'`
 
-- [ ] **Step 1: 写/改失败测试**
+- [x] **Step 1: 写/改失败测试**
 
 ```dart
   testWidgets('··· 菜单:举报入口', (tester) async {
@@ -1525,9 +1525,9 @@ git commit -m "feat(app): 我的页改微信「个人信息」行版式"
 
 现有举报/拉黑全流程用例:改为先 `tap(find.byKey(const Key('user.more')))` + `pumpAndSettle()` 再点原按钮,其余断言不动。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 - AppBar:`title: Text('详细资料')`,`actions: [PopupMenuButton<String>(key: Key('user.more'), onSelected: (v) => v == 'report' ? _report(context, ref) : _block(context, ref), itemBuilder: ...)]`;菜单项:
 
@@ -1542,9 +1542,9 @@ git commit -m "feat(app): 我的页改微信「个人信息」行版式"
   - 相册:标题「相册」+ `GridView.count(crossAxisCount: 3)` 照片(`Image.network` + errorBuilder,`Key('user.album.photo:$i')`),`onTap: () => openPhotoViewer(context, urls: profile.photos.map((p) => p.url).toList(), initialIndex: i)`
   - 删除底部「举报/拉黑」Row;`_report`/`_block` 方法体保留不动(仅入口变)
 
-- [ ] **Step 4: 跑测试确认通过** — `grep -rl` 找到的测试文件全部更新并绿;全量 `flutter test`;`analyze` 零告警
+- [x] **Step 4: 跑测试确认通过** — `grep -rl` 找到的测试文件全部更新并绿;全量 `flutter test`;`analyze` 零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/profile/user_profile_page.dart app/test
@@ -1559,7 +1559,7 @@ git commit -m "feat(app): 别人的资料页改微信「详细资料」版式(·
 - Modify: `CLAUDE.md`(进度段与踩坑段)
 - Modify: 本计划(勾选执行记录)
 
-- [ ] **Step 1: 全量回归**
+- [x] **Step 1: 全量回归**
 
 ```bash
 cd chatapp && python manage.py test          # 期望:全绿(190+ 用例)
@@ -1569,7 +1569,7 @@ cd ../app && ../flutter/bin/flutter.bat test # 期望:全绿(120+ 用例)
 
 任何红:按 systematic-debugging 找根因再修,不许绕过。
 
-- [ ] **Step 2: 手测清单(双模拟器;后端 runserver 已起)**
+- [x] **Step 2: 手测清单(双模拟器;后端 runserver 已起)**
 
 1. 互发文本/图片:图片发送中方显示本地图,发出后对方收到,点开全屏可缩放
 2. 长按文本:复制;长按删除:本机消失,对方仍在
@@ -1580,16 +1580,16 @@ cd ../app && ../flutter/bin/flutter.bat test # 期望:全绿(120+ 用例)
 7. 改昵称后:另一端(重启 App 或重进会话)看到新昵称
 8. 我的页:行版式、ID 行、点行进编辑页;别人的资料页:···菜单举报/拉黑、相册大图
 
-- [ ] **Step 3: 更新 `CLAUDE.md`**:进度段(M3 后追加部分)加一行本次改版说明(设计/计划文档路径);「前端约定」段补新踩坑(图片消息字段映射、SDK 无重发 API 的重发实现、`deleteMessageFromLocalStorage`、时间条 Key);「腾讯云 IM」段补「昵称同步」条(profile_set_field/钩子/补数命令)
+- [x] **Step 3: 更新 `CLAUDE.md`**:进度段(M3 后追加部分)加一行本次改版说明(设计/计划文档路径);「前端约定」段补新踩坑(图片消息字段映射、SDK 无重发 API 的重发实现、`deleteMessageFromLocalStorage`、时间条 Key);「腾讯云 IM」段补「昵称同步」条(profile_set_field/钩子/补数命令)
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add CLAUDE.md docs/superpowers/plans/2026-09-12-chat-profile-wechat.md
 git commit -m "docs: 聊天/资料页微信式改版收尾(CLAUDE.md/计划勾选)"
 ```
 
-- [ ] **Step 5: 合回 master**(按项目惯例 `--no-ff`,合并后跑一次双端回归;分支名执行时定,建议 `wechat-redesign`)
+- [x] **Step 5: 合回 master**(按项目惯例 `--no-ff`,合并后跑一次双端回归;分支名执行时定,建议 `wechat-redesign`)
 
 ---
 
@@ -1598,3 +1598,20 @@ git commit -m "docs: 聊天/资料页微信式改版收尾(CLAUDE.md/计划勾�
 - **Spec 覆盖**:§3 视觉规范 → Task 6/7/8/11/12;§4 聊天页 7 项 → 头像气泡 6、时间分组 5+8、长按 8、发图 4+10、表情 10、＋面板 10、失败重发 7;§5 昵称同步 → 1/2/3 + 8(前端降级链);§6 我的页 → 11;§7 别人资料页 → 12;§8 测试口径 → 各任务内 + 13;§9 风险无遗漏。无缺口。
 - **占位扫描**:无 TBD/TODO;Task 8 的时间条断言已注明用 `chat.time` Key 写死(Task 8 Step 1 中较软的初稿断言已用括号说明替换为 Key 断言,执行时以 Key 为准)。
 - **类型一致性**:`ChatMessage` 新字段(localPath/imageUrl/imageLargeUrl/isFailed)、`ImClient.sendImage/deleteMessage/resend`、`buildChatItems/ChatItem/ChatMessageItem/ChatTimeItem`、`PhotoViewerPage/openPhotoViewer`、`PickImage` 在后续任务引用处签名一致;`chat_controller` 的 `_sendOut/_replace/retry/deleteLocal` 与 Task 8 页面调用一致。
+
+---
+
+## 执行记录(2026-09-12,分支 wechat-redesign)
+
+全部 13 任务完成,逐任务 TDD(红→绿)提交。回归口径:后端 **199** / 前端 **141** 测试全绿、`analyze` 零告警;**无数据库迁移**。
+
+与计划的偏差与踩坑:
+
+1. **Task 2**:实现先于测试落笔,用 `git stash` 补了一次「去掉实现必须红」的验证再恢复
+2. **Task 3 接口名实测更正**:设置资料是 **`profile/portrait_set`**(计划里写的 `profile_set_field` 不存在,腾讯返回 60008);开发库已跑 `im_sync_nicknames`,u7=Alice / u8=Bob / u9=test 生效(`portrait_get` 验证)
+3. **Task 4 两个 SDK 事实**:`V2TimImageElem.fromJson` 会读 `CommonUtils.appFileDir`(VM 测试需 mock path_provider 通道 + `CommonUtils.init()`);`implements ImClient` 不继承 `resend` 的具体实现 → 两个实现类改 `extends ImClient`
+4. **Task 7**:页面提前接线了 1 行 `onRetry`(完整版在 Task 8),否则重发用例无法绿
+5. **Task 8**:`ListView.builder` 的 itemBuilder context 拿不到气泡渲染对象(是 sliver)→ `Builder` 包一层做菜单定位;`profileProvider` 关掉 Riverpod 自动重试(聊天页新读它取自己头像,避免测试里 retry 定时器)
+6. **Task 11**:「编辑资料」独立入口删除,联动更新 3 处旧用例(home_shell / settings / profile_edit 的进入方式)
+
+手测清单(双模拟器,见 Task 13 Step 2)待用户执行。

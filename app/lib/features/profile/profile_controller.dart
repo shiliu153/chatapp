@@ -20,7 +20,11 @@ class ProfileController extends AsyncNotifier<Profile> {
 }
 
 final profileProvider =
-    AsyncNotifierProvider<ProfileController, Profile>(ProfileController.new);
+    AsyncNotifierProvider<ProfileController, Profile>(
+  ProfileController.new,
+  // 我的页有手动「重试」;关掉 Riverpod 3 自动重试(聊天页也读它取自己头像)
+  retry: (retryCount, error) => null,
+);
 
 final tagsProvider =
     FutureProvider<List<Tag>>((ref) => ref.watch(profileRepositoryProvider).fetchTags());

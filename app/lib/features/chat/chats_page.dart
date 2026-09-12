@@ -326,6 +326,7 @@ String _previewOf(ChatMessage? last) {
     ChatMessageKind.text => last.text,
     ChatMessageKind.matchNotice => last.text.isEmpty ? '你们已互相喜欢,开始聊天吧' : last.text,
     ChatMessageKind.banNotice => last.text.isEmpty ? '系统通知' : last.text,
+    ChatMessageKind.image => '[图片]',
     ChatMessageKind.other => '[消息]',
   };
 }

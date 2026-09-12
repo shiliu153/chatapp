@@ -1,10 +1,11 @@
+import io
 import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -12,7 +13,7 @@ from users.models import Profile, ProfileStatus
 
 from .client import (_request, black_list_add, black_list_delete, ensure_account,
                      import_account, kick_user, send_ban_lifted, send_ban_notice,
-                     send_custom_elem, send_match_notice, send_text)
+                     send_custom_elem, send_match_notice, send_text, set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 
 User = get_user_model()
@@ -129,6 +130,24 @@ class ImClientTests(SimpleTestCase):
         with patch("im.client._request", side_effect=Exception("boom")):
             self.assertFalse(kick_user("u5"))
 
+    def test_set_profile_nick_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(set_profile_nick("u1", "小明"))
+        args, _ = req.call_args
+        self.assertEqual(args[0], "profile")
+        self.assertEqual(args[1], "portrait_set")
+        self.assertEqual(args[2]["From_Account"], "u1")
+        self.assertEqual(args[2]["ProfileItem"],
+                         [{"Tag": "Tag_Profile_IM_Nick", "Value": "小明"}])
+
+    def test_set_profile_nick_error_returns_false(self):
+        with patch("im.client._request", return_value={"ErrorCode": 9999}):
+            self.assertFalse(set_profile_nick("u1", "小明"))
+
+    def test_set_profile_nick_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=Exception("boom")):
+            self.assertFalse(set_profile_nick("u1", "小明"))
+
     def test_black_list_add_payload(self):
         with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
             self.assertTrue(black_list_add("u1", "u2"))
@@ -234,6 +253,33 @@ class ImSetupSystemAccountCommandTests(SimpleTestCase):
                    return_value=False):
             with self.assertRaises(CommandError):
                 call_command("im_setup_system_account")
+
+
+class ImSyncNicknamesCommandTests(TestCase):
+    def test_syncs_all_nicknamed_profiles(self):
+        user = User.objects.create_user(phone="13800138000")
+        Profile.objects.update_or_create(user=user, defaults={"nickname": "小明"})
+        with patch("im.management.commands.im_sync_nicknames.set_profile_nick",
+                   return_value=True) as sync:
+            call_command("im_sync_nicknames")
+        sync.assert_any_call(user.im_user_id, "小明")
+
+    def test_skips_users_without_nickname(self):
+        user = User.objects.create_user(phone="13800138001")
+        Profile.objects.update_or_create(user=user, defaults={"nickname": ""})
+        with patch("im.management.commands.im_sync_nicknames.set_profile_nick",
+                   return_value=True) as sync:
+            call_command("im_sync_nicknames")
+        sync.assert_not_called()
+
+    def test_reports_failure_count(self):
+        user = User.objects.create_user(phone="13800138002")
+        Profile.objects.update_or_create(user=user, defaults={"nickname": "小红"})
+        out = io.StringIO()
+        with patch("im.management.commands.im_sync_nicknames.set_profile_nick",
+                   return_value=False):
+            call_command("im_sync_nicknames", stdout=out)
+        self.assertIn("失败 1", out.getvalue())
 
 
 @override_settings(**IM_TEST_SETTINGS)

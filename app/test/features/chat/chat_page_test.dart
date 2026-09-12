@@ -1,15 +1,17 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:chatapp_app/core/image_pick.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
-import 'package:chatapp_app/features/chat/widgets/message_bubble.dart';
 import 'package:chatapp_app/im/im_client.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
 import '../../support/fake_im_client.dart';
@@ -21,6 +23,16 @@ ChatMessage _text(String id, {required bool isSelf, required String text}) => Ch
       peerId: 'u9',
       isSelf: isSelf,
       timestamp: DateTime.now().millisecondsSinceEpoch,
+      kind: ChatMessageKind.text,
+      text: text,
+    );
+
+ChatMessage _textAt(String id, DateTime time, {required String text, bool isSelf = false}) =>
+    ChatMessage(
+      msgId: id,
+      peerId: 'u9',
+      isSelf: isSelf,
+      timestamp: time.millisecondsSinceEpoch,
       kind: ChatMessageKind.text,
       text: text,
     );
@@ -47,12 +59,14 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     adapter = ScriptedAdapter({
       'GET /matches': (options) => ok([matchJson(userId: 9, nickname: '小红')]),
+      'GET /users/me': (options) => ok(profileJson()),
     });
     fake = FakeImClient();
     addTearDown(fake.dispose);
   });
 
-  Future<void> pumpChat(WidgetTester tester, {String peerId = 'u9'}) async {
+  Future<void> pumpChat(WidgetTester tester,
+      {String peerId = 'u9', PickImage? pickImage}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
@@ -67,7 +81,10 @@ void main() {
       routes: [
         GoRoute(
           path: '/chat/:peerId',
-          builder: (context, state) => ChatPage(peerId: state.pathParameters['peerId']!),
+          builder: (context, state) => ChatPage(
+            peerId: state.pathParameters['peerId']!,
+            pickImage: pickImage ?? () async => null,
+          ),
         ),
         GoRoute(
           path: '/users/:id',
@@ -147,7 +164,7 @@ void main() {
     expect(tester.widget<TextField>(find.byKey(const Key('chat.input'))).controller!.text, isEmpty);
   });
 
-  testWidgets('发送失败 → SnackBar 提示,气泡撤掉', (tester) async {
+  testWidgets('发送失败 → 气泡保留 + 叹号;点叹号重发成功', (tester) async {
     fake.sendError = const ImException(6013, 'network');
     await pumpChat(tester);
 
@@ -155,9 +172,15 @@ void main() {
     await tester.tap(find.byKey(const Key('chat.send')));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('发送失败'), findsOneWidget);
-    // 气泡撤掉了(输入框里还留着原文,别用 find.text 断言)
-    expect(find.byType(MessageBubble), findsNothing);
+    expect(find.text('你好'), findsOneWidget); // 消息还在
+    expect(find.byKey(const Key('chat.retry')), findsOneWidget); // 有叹号
+
+    fake.sendError = null; // 网络恢复
+    await tester.tap(find.byKey(const Key('chat.retry')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('chat.retry')), findsNothing);
+    expect(fake.log.where((l) => l == 'send:u9:你好').length, 2); // 重发走了 send
   });
 
   testWidgets('收到实时消息 → 立即上屏', (tester) async {
@@ -176,5 +199,112 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('资料卡:9'), findsOneWidget);   // u9 → 用户 9
+  });
+
+  testWidgets('超过 5 分钟的两个消息之间出现时间条', (tester) async {
+    final base = DateTime.now().subtract(const Duration(hours: 1));
+    fake.history = {
+      'u9': [
+        _textAt('m1', base, text: '早'),
+        _textAt('m2', base.add(const Duration(minutes: 6)), text: '晚'),
+      ],
+    };
+    await pumpChat(tester);
+
+    expect(find.byKey(const Key('chat.time')), findsNWidgets(2));
+  });
+
+  testWidgets('长按消息 → 复制进剪贴板', (tester) async {
+    final calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform, (call) async {
+      calls.add(call);
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    fake.history = {
+      'u9': [_text('m1', isSelf: false, text: '你好')],
+    };
+    await pumpChat(tester);
+
+    await tester.longPress(find.text('你好'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat.menu.copy')));
+    await tester.pumpAndSettle();
+
+    expect(calls.any((c) => c.method == 'Clipboard.setData'), isTrue);
+  });
+
+  testWidgets('长按消息 → 删除本机', (tester) async {
+    fake.history = {
+      'u9': [_text('m1', isSelf: false, text: '再见')],
+    };
+    await pumpChat(tester);
+
+    await tester.longPress(find.text('再见'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat.menu.delete')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('再见'), findsNothing);
+    expect(fake.log, contains('delete:m1'));
+  });
+
+  testWidgets('缓存里没有对方时,标题降级用 IM 会话名', (tester) async {
+    adapter = ScriptedAdapter({
+      'GET /matches': (options) => ok([]),
+      'GET /users/me': (options) => ok(profileJson()),
+    });
+    fake.conversations = [
+      const ImConversation(peerId: 'u9', unreadCount: 0, showName: '小鹿'),
+    ];
+    await pumpChat(tester);
+
+    expect(find.text('小鹿'), findsOneWidget);
+  });
+
+  testWidgets('表情面板:点选插入输入框', (tester) async {
+    await pumpChat(tester);
+    await tester.tap(find.byKey(const Key('chat.emoji.button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('chat.emoji.panel')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('chat.emoji.😀')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(find.byKey(const Key('chat.input'))).controller!.text,
+        contains('😀'));
+  });
+
+  testWidgets('＋面板选图 → 发出图片消息', (tester) async {
+    await pumpChat(tester, pickImage: () async => XFile('fake.png'));
+    await tester.tap(find.byKey(const Key('chat.more.button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat.more.image')));
+    await tester.pumpAndSettle();
+
+    expect(fake.log, contains('sendImage:u9:fake.png'));
+    expect(find.byKey(const Key('chat.image')), findsWidgets);
+  });
+
+  testWidgets('点图片气泡 → 打开全屏查看', (tester) async {
+    fake.history = {
+      'u9': [
+        const ChatMessage(
+            msgId: 'i1',
+            peerId: 'u9',
+            isSelf: false,
+            timestamp: 1,
+            kind: ChatMessageKind.image,
+            imageUrl: 'https://x/1.png'),
+      ],
+    };
+    await pumpChat(tester);
+
+    await tester.tap(find.byKey(const Key('chat.image')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('viewer.page')), findsOneWidget);
   });
 }

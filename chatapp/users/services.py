@@ -1,4 +1,8 @@
+import threading
+
 from django.utils import timezone
+
+from im import client as im_client
 
 from .models import Preference, Profile
 
@@ -18,3 +22,16 @@ def review_photos(queryset, status, operator=None) -> int:
     for profile in Profile.objects.filter(user_id__in=user_ids):
         profile.refresh_status()
     return count
+
+
+def sync_im_nickname(user) -> None:
+    """昵称变更后同步到 IM 资料(后台线程;失败只记日志,不影响业务)。"""
+    nickname = getattr(getattr(user, "profile", None), "nickname", "")
+    if not nickname:
+        return
+    _dispatch_async(im_client.set_profile_nick, user.im_user_id, nickname)
+
+
+def _dispatch_async(fn, *args) -> None:
+    """IM 调用丢后台线程,接口响应不等腾讯 REST(同 moderation.services._dispatch_async)。"""
+    threading.Thread(target=fn, args=args, daemon=True).start()

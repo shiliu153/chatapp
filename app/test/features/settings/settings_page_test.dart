@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -18,7 +19,10 @@ void main() {
 
     await tester.tap(navTab('我的'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('设置'));
+    // 「设置」行在列表底部,可能折叠线以下;先滚到可见再点
+    await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('my.row.settings')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();

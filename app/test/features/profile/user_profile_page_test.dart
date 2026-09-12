@@ -61,16 +61,32 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('渲染公开资料:昵称/年龄/城市/标签/简介/两个按钮', (tester) async {
+  testWidgets('渲染公开资料:昵称·年龄/ID/地区/签名/标签 + ···菜单', (tester) async {
     adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(
         nickname: '小红', age: 25, city: '上海', bio: '喜欢爬山', tags: [tagJson(1, '运动')]));
     await pumpProfile(tester);
 
-    expect(find.text('小红 · 25 岁 · 上海'), findsOneWidget);
-    expect(find.text('运动'), findsOneWidget);
+    expect(find.text('小红 · 25 岁'), findsOneWidget);
+    expect(find.text('ID:u9'), findsOneWidget);
+    expect(find.text('上海'), findsOneWidget);
     expect(find.text('喜欢爬山'), findsOneWidget);
+    expect(find.text('运动'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('user.more')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('user.report')), findsOneWidget);
     expect(find.byKey(const Key('user.block')), findsOneWidget);
+  });
+
+  testWidgets('相册照片点开全屏查看', (tester) async {
+    adapter.routes['GET /users/9'] = (options) =>
+        ok(publicProfileJson(photos: [photoJson(900), photoJson(901)]));
+    await pumpProfile(tester);
+
+    await tester.tap(find.byKey(const Key('user.album.photo:0')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('viewer.page')), findsOneWidget);
   });
 
   testWidgets('404 → 「用户不存在」+ 重试按钮', (tester) async {
@@ -87,6 +103,8 @@ void main() {
         (options) => ok({'id': 1, 'type': 'harassment', 'status': 'pending'}, status: 201);
     await pumpProfile(tester);
 
+    await tester.tap(find.byKey(const Key('user.more')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('user.report')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('report.type.harassment')));
@@ -104,6 +122,8 @@ void main() {
     fake.conversations = [const ImConversation(peerId: 'u9', unreadCount: 2)];
     await pumpProfile(tester);
 
+    await tester.tap(find.byKey(const Key('user.more')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('user.block')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('user.block.confirm')));
@@ -152,6 +172,8 @@ void main() {
     expect(find.text('还没有拉黑任何人'), findsOneWidget);   // 预热:空态已缓存
 
     router.push('/users/9');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('user.more')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('user.block')));
     await tester.pumpAndSettle();

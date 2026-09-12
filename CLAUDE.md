@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **当前进度:M3 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流 + M2c IM 接入 + M3 合规收尾:moderation 三模型与 Django admin 审核台、举报/拉黑全链路(含 IM 黑名单同步与踢下线)、重封禁全域 403、首启协议弹窗与协议全文、Android 签名 APK;后端 153 测试、前端 115 测试全绿,analyze 零告警)。核心链路(登录/互滑/聊天/资料卡/举报/拉黑)已双端手测;协议、照片审核、封禁页等细节项待后续补验。
 
-**M3 后追加:运营审核台 `/ops/`**(独立 Django app `ops`,is_staff 登录;举报处理 / 照片审核(含 reviewed_by/at 审计)/ 用户封禁解封 / 操作日志;后端测试 180 全绿。设计: `specs/2026-09-11-moderation-console-design.md`;计划: `plans/2026-09-11-ops-console.md`)。**再追加:封禁系统消息 + 消息页改版**(封禁/解封以「系统通知」身份发 IM 消息说明原因与影响,重封先发后踢;App 底部「会话」改称「消息」并重构为抖音式版式;后端 190 / 前端 120 测试全绿。设计: `specs/2026-09-11-ban-notice-message-page-design.md`;计划: `plans/2026-09-11-ban-notice-message-page.md`)。
+**M3 后追加:运营审核台 `/ops/`**(独立 Django app `ops`,is_staff 登录;举报处理 / 照片审核(含 reviewed_by/at 审计)/ 用户封禁解封 / 操作日志;后端测试 180 全绿。设计: `specs/2026-09-11-moderation-console-design.md`;计划: `plans/2026-09-11-ops-console.md`)。**再追加:封禁系统消息 + 消息页改版**(封禁/解封以「系统通知」身份发 IM 消息说明原因与影响,重封先发后踢;App 底部「会话」改称「消息」并重构为抖音式版式;后端 190 / 前端 120 测试全绿。设计: `specs/2026-09-11-ban-notice-message-page-design.md`;计划: `plans/2026-09-11-ban-notice-message-page.md`)。**三追加:微信式改版 + IM 昵称同步**(聊天页改微信版式:方头像/品牌粉气泡/时间分组/长按复制删除/表情面板/＋面板发图片/失败重发;我的页与别人的资料页改微信行版式,ID 行 + ··· 菜单 + 相册大图;IM 昵称同步修掉「拉黑后会话名降级成裸 id」;后端 199 / 前端 141 测试全绿。设计: `specs/2026-09-12-chat-profile-wechat-design.md`;计划: `plans/2026-09-12-chat-profile-wechat.md`)。
 设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`;M2c: `plans/2026-09-10-m2c-im-chat.md`;M3 设计: `specs/2026-09-11-m3-compliance-design.md`;M3: `plans/2026-09-11-m3-compliance.md`)。**下一步 M4**(上线:服务器 + 域名部署;短信/内容安全/COS 接真;商店上架;iOS 打包决策;ICP 备案为并行事项)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
@@ -108,6 +108,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **Flutter 端 IM SDK 包是 `tencent_cloud_chat_sdk`(9.0.x,2026-06 发布)**:spec 早期写的 `tim_plus_flutter` 在 pub.dev 上**不存在**,已更正。只用它底层 API,不引 `tencent_cloud_chat_uikit`。支持 Android(x86_64 库有,模拟器能跑)/iOS/Web/Windows/macOS,Android minSdk 19。
 - **手测代发消息**(不用第二台设备):`python manage.py im_send --from uX --to uY --text "你好"` 或 `--notice`(发灰条事件);走 REST,账号须已导入。
 - **系统通知账号**:`system_notice`(昵称「系统通知」)是封禁/解封消息的发送方;新环境(含生产)跑一次 `python manage.py im_setup_system_account`(幂等,已存在 7015 视为成功;开发库 2026-09-11 已建)。账号缺失时封禁动作照常,只是消息发送失败记日志。
+- **昵称同步**:改昵称后后端把新昵称同步到 IM(`im/client.py::set_profile_nick` → **`profile/portrait_set`**;⚠️ 接口名写成 `profile_set_field` 之类的错名会返回 60008「request format error」)。存量补一次 `python manage.py im_sync_nicknames`(幂等)。会话列表 `showName` 与聊天页标题兜底都靠它——拉黑后被拉黑方仍能显示真名而不是裸 id(2026-09-12 修)。
 - **封禁/解封系统消息**:custom 消息 `type=ban_notice`(带 `level: light|heavy`)/`ban_lifted`,Desc 为完整中文说明;统一挂在 `moderation/services.py::log_ban_change` 的后台线程(admin 与 /ops/ 同源自动覆盖)。重封禁走 `_send_notice_then_kick`:同线程**先发消息再踢下线**。重封禁用户被封期间进不了消息页,消息留档、解封后可见。
 - 详细设计(配对灰条消息、会话列表数据源、审核合规)见 spec 文档,写 IM 相关代码前先读它。
 
@@ -152,6 +153,10 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **消息页(原「会话」页,2026-09-11 改版)**:底部 tab 与页头已改称「消息」;抖音式版式 = 最近联系人横滑条(取会话前 10,不含系统通知)+ 「系统通知」置顶行(蓝底铃铛 + 官方标)+ 会话行(48 头像 / 加粗昵称 / 预览灰 / 红角标 `#FF2C55`)。页面 keys:`chats.strip` / `chats.stripItem:{peerId}` / `chats.systemNotice` / `chats.tile:{peerId}`
 - **⚠️ ListTile trailing 里别用带 `alignment` 的 Container**:有界约束下它会撑满整格宽,ListTile 直接断言崩溃(实现角标时踩过);用 `Center(widthFactor: 1)` 或 SizedBox 包裹
 - **系统通知显示名**:`displayNameFor` 特判 `system_notice` → 「系统通知」;`systemNoticePeerId` 常量在 `im_client.dart`(与后端 `im/client.py::SYSTEM_NOTICE_IDENTIFIER` 是跨栈契约,两边都别单改);`ChatMessageKind.banNotice` 覆盖 ban_notice/ban_lifted 两种,渲染与 match_notice 同款灰条,文案取 Desc
+- **聊天页(2026-09-12 微信式改版)**:方头像+气泡、时间条(`chat_items.dart::buildChatItems` 纯函数,间隔>5 分钟插一条,格式 `formatChatTimestamp`)、长按菜单(复制/删除本机,`showMenu` 定位必须用气泡自己的 context——`Builder` 包一层,`ListView.builder` 的 itemBuilder context 是 sliver)、表情面板、＋面板发图、失败重发(不发 SnackBar 不撤消息,失败气泡旁红叹号 `chat.retry` 可点重发)。keys:`chat.time` / `chat.menu.copy|delete` / `chat.emoji.button|panel` / `chat.more.button|image` / `chat.retry` / `chat.image`
+- **图片消息**:`ChatMessageKind.image` + `localPath`(发送中本机文件)/`imageUrl`(缩略)/`imageLargeUrl`(全屏);`ImClient.sendImage/deleteMessage`;该 SDK **无原生重发 API**,`resend` 是 `ImClient` 里的默认实现(用原内容重发),所以实现类必须 `extends ImClient` 而不是 `implements`(implements 不继承具体方法)
+- ⚠️ **`V2TimImageElem.fromJson` 会读 `CommonUtils.appFileDir`**:VM 测试里构造图片消息前要 mock path_provider 通道 + `CommonUtils.init()`(见 `test/im/tencent_im_client_test.dart` 的 setUpAll);真机由 initSDK 初始化,无需处理
+- **标题降级链**:matchCache → IM 会话名(昵称同步后有效)→ 裸 id;聊天页 `chat_page.dart::_imNameOf` 从 `conversationsProvider` 取 `showName`
 
 ## 合规与审核(M3 已实测)
 
