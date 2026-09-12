@@ -1,8 +1,7 @@
 """腾讯云 IM REST 客户端。
 
-约定:业务函数(import_account / send_custom_elem / send_match_notice)对外
-**永不抛异常**,失败只记日志并返回 False —— IM 抖动不应该拖垮注册/配对主流程。
-上线前的改进方向是把这些调用丢进任务队列(Celery),开发期同步调用 + 短超时够用。
+约定:业务函数对外**永不抛异常**,失败只记日志并返回 False —— IM 抖动不应该拖垮主流程。
+跨系统副作用统一经 im/tasks.py 的 Celery 任务调用(带重试);这里保持纯 REST 封装。
 """
 
 import json

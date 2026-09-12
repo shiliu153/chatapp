@@ -10,15 +10,17 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from users.models import Profile, ProfileStatus
+from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 from .client import (_request, black_list_add, black_list_delete, ensure_account,
                      import_account, kick_user, send_ban_lifted, send_ban_notice,
                      send_custom_elem, send_match_notice, send_text, set_profile_avatar,
                      set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
-from .tasks import (import_account as import_account_task, kick_pending,
-                    kick_pending_key)
+from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
+                    import_account as import_account_task, kick_pending,
+                    kick_pending_key, sync_profile)
+from .tasks import send_match_notice as send_match_notice_task
 
 User = get_user_model()
 
@@ -373,3 +375,72 @@ class ImTaskTests(TestCase):
             with self.assertRaises(RuntimeError):
                 kick_pending.run(self.user.id)
         self.assertIsNotNone(cache.get(kick_pending_key(self.user.id)))
+
+
+class ImSideEffectTaskTests(TestCase):
+    """第 2 期:配对灰条 / 封禁通知 / 黑名单 / 资料同步的任务体。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.b, nickname="小红")
+
+    def test_send_match_notice_task(self):
+        with patch("im.client.send_match_notice", return_value=True) as send:
+            send_match_notice_task.run(self.a.id, self.b.id)
+        send.assert_called_once_with(self.a.im_user_id, self.b.im_user_id)
+
+    def test_blacklist_add_and_remove(self):
+        with patch("im.client.black_list_add", return_value=True) as add:
+            blacklist_add.run(self.a.id, self.b.id)
+        add.assert_called_once_with(self.a.im_user_id, self.b.im_user_id)
+        with patch("im.client.black_list_delete", return_value=True) as delete:
+            blacklist_remove.run(self.a.id, self.b.id)
+        delete.assert_called_once_with(self.a.im_user_id, self.b.im_user_id)
+
+    def test_ban_notice_light_only_sends(self):
+        with patch("im.client.send_ban_notice", return_value=True) as send, \
+                patch("im.client.kick_user") as kick:
+            ban_notice.run(self.b.id, "light", "骚扰他人")
+        send.assert_called_once_with(self.b.im_user_id, "light", "骚扰他人")
+        kick.assert_not_called()
+
+    def test_ban_notice_heavy_sends_then_kicks(self):
+        calls = []
+        with patch("im.client.send_ban_notice",
+                   side_effect=lambda *a: calls.append("send") or True), \
+                patch("im.client.kick_user",
+                      side_effect=lambda *a: calls.append("kick") or True):
+            ban_notice.run(self.b.id, "heavy", "严重违规")
+        self.assertEqual(calls, ["send", "kick"])   # 顺序不能反:先说明原因再断线
+
+    def test_ban_notice_failure_raises_so_celery_retries(self):
+        with patch("im.client.send_ban_notice", return_value=False):
+            with self.assertRaises(RuntimeError):
+                ban_notice.run(self.b.id, "light", "骚扰他人")
+
+    def test_ban_lifted_task(self):
+        with patch("im.client.send_ban_lifted", return_value=True) as send:
+            ban_lifted.run(self.b.id)
+        send.assert_called_once_with(self.b.im_user_id)
+
+    def test_sync_profile_nick(self):
+        with patch("im.client.set_profile_nick", return_value=True) as sync:
+            sync_profile.run(self.b.id, "nick")
+        sync.assert_called_once_with(self.b.im_user_id, "小红")
+
+    @override_settings(MEDIA_BASE_URL="http://cdn.test")
+    def test_sync_profile_avatar_uses_absolute_url(self):
+        Photo.objects.create(user=self.b, file="photos/a.png", status=PhotoStatus.APPROVED)
+        with patch("im.client.set_profile_avatar", return_value=True) as sync:
+            sync_profile.run(self.b.id, "avatar")
+        sync.assert_called_once_with(self.b.im_user_id, "http://cdn.test/media/photos/a.png")
+
+    def test_sync_profile_avatar_without_approved_photo_is_noop(self):
+        with patch("im.client.set_profile_avatar") as sync:
+            sync_profile.run(self.b.id, "avatar")
+        sync.assert_not_called()
+
+    def test_missing_user_is_noop(self):
+        send_match_notice_task.run(self.a.id, 999999)   # 不抛异常
+        sync_profile.run(999999, "nick")

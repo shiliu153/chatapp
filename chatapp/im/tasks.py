@@ -7,8 +7,11 @@ im/client.py 的函数对外永不抛异常(失败返回 False 只记日志);
 import logging
 
 from celery import shared_task
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+
+from users.models import PhotoStatus
 
 from . import client as im_client
 
@@ -28,6 +31,78 @@ def kick_pending_key(user_id: int) -> str:
 def _require(ok: bool, what: str) -> None:
     if not ok:
         raise RuntimeError(f"IM {what} 失败")
+
+
+def _user(user_id: int):
+    return get_user_model().objects.filter(id=user_id).first()
+
+
+@shared_task(**RETRY_POLICY)
+def send_match_notice(user_a_id: int, user_b_id: int) -> None:
+    a, b = _user(user_a_id), _user(user_b_id)
+    if a is None or b is None:
+        return
+    _require(im_client.send_match_notice(a.im_user_id, b.im_user_id), "send_match_notice")
+
+
+@shared_task(**RETRY_POLICY)
+def blacklist_add(owner_id: int, other_id: int) -> None:
+    owner, other = _user(owner_id), _user(other_id)
+    if owner is None or other is None:
+        return
+    _require(im_client.black_list_add(owner.im_user_id, other.im_user_id), "black_list_add")
+
+
+@shared_task(**RETRY_POLICY)
+def blacklist_remove(owner_id: int, other_id: int) -> None:
+    owner, other = _user(owner_id), _user(other_id)
+    if owner is None or other is None:
+        return
+    _require(im_client.black_list_delete(owner.im_user_id, other.im_user_id), "black_list_delete")
+
+
+@shared_task(**RETRY_POLICY)
+def ban_notice(user_id: int, level: str, reason: str = "") -> None:
+    """封禁说明;heavy 先发消息再踢下线(同一任务内串行,顺序不被多 worker 打乱)。"""
+    user = _user(user_id)
+    if user is None:
+        return
+    sent = im_client.send_ban_notice(user.im_user_id, level, reason)
+    kicked = True
+    if level == "heavy":
+        kicked = im_client.kick_user(user.im_user_id)
+    _require(sent and kicked, "ban_notice")
+
+
+@shared_task(**RETRY_POLICY)
+def ban_lifted(user_id: int) -> None:
+    user = _user(user_id)
+    if user is None:
+        return
+    _require(im_client.send_ban_lifted(user.im_user_id), "ban_lifted")
+
+
+@shared_task(**RETRY_POLICY)
+def sync_profile(user_id: int, kind: str) -> None:
+    """把资料同步到 IM(kind: nick|avatar);没有可同步的值时静默跳过。"""
+    user = _user(user_id)
+    if user is None:
+        return
+    profile = getattr(user, "profile", None)
+    if profile is None:
+        return
+    if kind == "nick":
+        if not profile.nickname:
+            return
+        _require(im_client.set_profile_nick(user.im_user_id, profile.nickname), "sync_profile:nick")
+    elif kind == "avatar":
+        photo = user.photos.filter(status=PhotoStatus.APPROVED).first()
+        if photo is None:
+            return
+        url = f"{settings.MEDIA_BASE_URL.rstrip('/')}{photo.file.url}"
+        _require(im_client.set_profile_avatar(user.im_user_id, url), "sync_profile:avatar")
+    else:
+        raise ValueError(f"未知的资料同步类型 kind={kind}")
 
 
 @shared_task(**RETRY_POLICY)

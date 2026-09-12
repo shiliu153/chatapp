@@ -244,4 +244,7 @@ PHOTO_MAX_BYTES = 5 * 1024 * 1024
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# IM 头像同步用:任务里没有 request,拿不到绝对 URL,配域名前缀(生产改成正式域名/CDN)
+MEDIA_BASE_URL = os.getenv("MEDIA_BASE_URL", "http://127.0.0.1:8000")
+
 LOGIN_REDIRECT_URL = "/ops/reports/"
