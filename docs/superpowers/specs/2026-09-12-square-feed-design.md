@@ -26,7 +26,7 @@
 | `PostImage` | post(FK, related_name="images")、file(ImageField, `posts/%Y/%m/`)、order | 最多 9 张、单张 ≤5MB(序列化器校验) |
 | `PostLike` | post(FK, related_name="likes")、user(FK)、created_at | 唯一约束 (post, user) |
 | `PostComment` | post(FK, related_name="comments")、author(FK)、text(≤200)、created_at | — |
-| `PostReport` | reporter(FK User, related_name="post_reports")、post(FK, related_name="reports")、type(复用 `moderation.ReportType`)、detail(≤200, 可空)、status(复用 `moderation.ReportStatus`, 默认 pending)、handled_note、handled_by(可空)、handled_at(可空)、created_at | 同人同动态仅一条 pending(接口层保证,与举报用户一致) |
+| `PostReport` | reporter(FK User, related_name="post_reports")、post(FK Post, **null=True, SET_NULL**, related_name="reports")、type(复用 `moderation.ReportType`)、detail(≤200, 可空)、status(复用 `moderation.ReportStatus`, 默认 pending)、handled_note、handled_by(可空)、handled_at(可空)、created_at | 同人同动态仅一条 pending(接口层保证);动态删除后举报行**留档**(post 置空,审核对账用) |
 
 沿用项目「一张图一行」模式(与 `users.Photo` 一致)。删除动态时显式删除图片文件(ImageField 删行不会自动删文件)。
 
@@ -93,12 +93,13 @@
 **动态举报规则:**
 - 举报自己的动态 → 400(纵深防御,UI 不提供入口);不可见动态(双向拉黑 / 作者重封禁)→ 404(与点赞评论同一可见性校验);type 必须在四类内 → 否则 400。
 - **先举报后审核,期间动态照常可见**;同人同动态已有 pending → 幂等返回已有记录(200),不新建。
-- 运营处理(ops):「删除动态」复用动态删除服务(删动态 + 图片文件 + 评论点赞),同时该动态**全部 pending 举报**一并标记 handled(handled_note「动态已删除」);「忽略」只标记该条 handled(可填备注)。两个动作都对相关举报者入队 `report_handled` 通知(复用 `moderation.services.notify_report_handled`,传 `PostReport` 同样成立——只取 `reporter_id`);**只在 pending → handled 迁移点入队**,重复处理不重发。
+- **删除动态服务收口**(`feed/services.py::delete_post`):先关闭该动态**全部 pending 举报**(标 handled,handled_note「动态已删除」,给各举报者入队通知),再删图片文件与动态行(级联评论点赞)。**作者自删(DELETE /posts/{id})与运营删除共用此服务**——否则作者自删后举报会在队列里悬空。
+- 运营处理(ops):「删除动态」= 调 `delete_post`;「忽略」= 只标记该条 handled(可填备注)并通知举报者。重复处理幂等(只在 pending → handled 迁移点入队,不重发)。
 
 **评论通知(全链):**
 - `im/client.py::send_post_commented(to_identifier, commenter_nickname, snippet) -> bool` — 以 `system_notice` 身份发 custom `{"type": "post_commented"}`,Desc = 「{昵称} 评论了你的动态:{摘要}」(摘要截断 50 字)。
-- `im/tasks.py::post_commented(comment_id: int)` — 任务参数一律 user_id 的既定约定在此用 comment_id(文案需要评论者与内容);任务内查库,评论/作者/评论者任一缺失静默返回;**评论者是作者本人时不发**(自己评自己不打扰)。
-- `feed/services.py::notify_post_commented(comment)` — `_enqueue(im_tasks.post_commented, comment.id)`,在评论创建后调用(on_commit + robust)。
+- `im/tasks.py::post_commented(comment_id: int)` — 任务参数一律 user_id 的既定约定在此用 comment_id(文案需要评论者与内容);任务内查库,评论/作者任一缺失静默返回。
+- `feed/services.py::notify_post_commented(comment)` — `_enqueue(im_tasks.post_commented, comment.id)`,在评论创建后调用(on_commit + robust);**评论者是动态作者本人时不入队**(自己评自己不打扰,放服务层便于接口测试断言)。
 - App 端在 `ChatMessageKind.banNotice` 白名单加 `post_commented`(与 `report_handled` 同款一行映射,灰条渲染)。
 
 ## 5. 前端设计(新 `features/square/`)
