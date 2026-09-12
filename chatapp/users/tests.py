@@ -2,6 +2,7 @@ import base64
 import shutil
 import tempfile
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -107,7 +108,8 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
         data.update(overrides)
         return data
 
-    def test_update_fields(self):
+    @patch("users.services._dispatch_async")
+    def test_update_fields(self, dispatch):
         tag = Tag.objects.first()
         resp = self.client.patch(self.url, {**self._full_profile(), "tag_ids": [tag.id]}, format="json")
         self.assertEqual(resp.status_code, 200)
@@ -117,11 +119,31 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
         self.assertEqual([t["id"] for t in data["tags"]], [tag.id])
         self.assertEqual(data["status"], "incomplete")   # 还差照片
 
-    def test_partial_update_keeps_other_fields(self):
+    @patch("users.services._dispatch_async")
+    def test_partial_update_keeps_other_fields(self, dispatch):
         self.client.patch(self.url, {"nickname": "小明"}, format="json")
         resp = self.client.patch(self.url, {"city": "北京"}, format="json")
         self.assertEqual(resp.json()["nickname"], "小明")
         self.assertEqual(resp.json()["city"], "北京")
+
+    @patch("users.services._dispatch_async")
+    def test_patch_nickname_triggers_im_sync(self, dispatch):
+        from im import client as im_client
+        resp = self.client.patch(self.url, {"nickname": "新名字"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        dispatch.assert_called_once_with(
+            im_client.set_profile_nick, self.user.im_user_id, "新名字")
+
+    @patch("users.services._dispatch_async")
+    def test_patch_same_nickname_no_sync(self, dispatch):
+        self.client.patch(self.url, {"nickname": "小明"}, format="json")
+        self.client.patch(self.url, {"nickname": "小明"}, format="json")
+        self.assertEqual(dispatch.call_count, 1)   # 只有第一次实际变化时同步
+
+    @patch("users.services._dispatch_async")
+    def test_patch_other_field_no_sync(self, dispatch):
+        self.client.patch(self.url, {"city": "杭州"}, format="json")
+        dispatch.assert_not_called()
 
     def test_underage_rejected_and_not_saved(self):
         too_young = f"{timezone.localdate().year - 17}-01-01"
@@ -164,10 +186,12 @@ class PhotoTests(AuthMixin, APITestCase):
                                 format="multipart")
 
     def fill_profile(self):
-        return self.client.patch("/api/v1/users/me", {
-            "nickname": "小明", "gender": "male", "birthday": "2000-01-01",
-            "city": "上海", "bio": "喜欢音乐",
-        }, format="json")
+        # 补全资料会改昵称 → 触发 IM 同步线程,测试里一律挡掉
+        with patch("users.services._dispatch_async"):
+            return self.client.patch("/api/v1/users/me", {
+                "nickname": "小明", "gender": "male", "birthday": "2000-01-01",
+                "city": "上海", "bio": "喜欢音乐",
+            }, format="json")
 
     def test_upload_auto_approved_in_dev(self):
         resp = self.upload()
