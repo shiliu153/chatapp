@@ -1,6 +1,6 @@
 # 广场页(动态流)Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 新增「广场」页:用户可发布文字/图片动态(≤9 图九宫格),浏览信息流、点赞评论、动态可举报,运营台可管理与审核。
 
@@ -33,7 +33,7 @@
 **Interfaces:**
 - Produces: 模型 `feed.models.Post`、`PostImage`、`PostLike`、`PostComment`、`PostReport`(含字段与 related_name,后续所有任务依赖)。
 
-- [ ] **Step 1: 建 app 骨架并注册**
+- [x] **Step 1: 建 app 骨架并注册**
 
 `chatapp/feed/__init__.py`、`chatapp/feed/migrations/__init__.py` 建空文件;`chatapp/feed/apps.py`:
 
@@ -48,7 +48,7 @@ class FeedConfig(AppConfig):
 
 `settings.py` 的 INSTALLED_APPS 业务 app 列表末尾(`"notifications"` 后)加 `"feed"`。
 
-- [ ] **Step 2: 写失败的模型测试**
+- [x] **Step 2: 写失败的模型测试**
 
 `chatapp/feed/tests.py`:
 
@@ -103,12 +103,12 @@ class FeedModelTests(TestCase):
         self.assertIsNone(report.post)
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test feed`
 Expected: FAIL(`ModuleNotFoundError`/`ImportError`:feed.models 不存在)
 
-- [ ] **Step 4: 写 models.py**
+- [x] **Step 4: 写 models.py**
 
 ```python
 from django.conf import settings
@@ -196,12 +196,12 @@ class PostReport(models.Model):
         return f"post_report#{self.pk}({self.reporter_id}->{self.post_id}:{self.type})"
 ```
 
-- [ ] **Step 5: 生成迁移并跑测试**
+- [x] **Step 5: 生成迁移并跑测试**
 
 Run: `cd chatapp && python manage.py makemigrations feed && python manage.py migrate && python manage.py test feed`
 Expected: makemigrations 生成 `0001_initial`;测试 5 个全 PASS
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/feed chatapp/config/settings.py
@@ -226,7 +226,7 @@ git commit -m "feat(feed): 新建 feed app 与五张表模型(动态/图片/点�
   - `POST /api/v1/posts`(multipart;201 返回 PostSerializer;限流)
   - `config.api_urls` 注册 `path("", include("feed.urls"))`
 
-- [ ] **Step 1: 写失败的发布接口测试**
+- [x] **Step 1: 写失败的发布接口测试**
 
 `chatapp/feed/tests.py` 追加:
 
@@ -328,12 +328,12 @@ class PostCreateTests(FeedApiMixin, APITestCase):
 
 注意:限流计数在 Redis,若用例间互相污染,在该测试类 `setUp` 加 `cache.clear()` + `addCleanup(cache.clear)`(参照 `moderation/tests.py::ReportApiTests`)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test feed.tests.PostCreateTests`
 Expected: FAIL(404,路由不存在——Scripted 404 即「测试没铺」风格的后端等价:响应 404)
 
-- [ ] **Step 3: 写 serializers.py / throttles.py / services.py / views.py / urls.py 并注册**
+- [x] **Step 3: 写 serializers.py / throttles.py / services.py / views.py / urls.py 并注册**
 
 `chatapp/feed/serializers.py`:
 
@@ -501,12 +501,12 @@ urlpatterns = [
         "post_report": "20/day",
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test feed.tests.PostCreateTests`
 Expected: PASS(8 个)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/feed chatapp/config
@@ -527,7 +527,7 @@ git commit -m "feat(feed): 发布动态接口(multipart 多图/敏感词/限流)
   - `GET /api/v1/posts/{id}`(不可见 → 404)
   - `GET /api/v1/posts/mine`(仅自己,标注计数,不过滤)
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `chatapp/feed/tests.py` 追加:
 
@@ -613,12 +613,12 @@ class FeedFlowTests(FeedApiMixin, APITestCase):
         self.assertEqual([item["id"] for item in data["results"]], [mine.id])
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test feed.tests.FeedFlowTests`
 Expected: FAIL(`GET /api/v1/posts` 405;mine/详情 404)
 
-- [ ] **Step 3: 实现视图与路由**
+- [x] **Step 3: 实现视图与路由**
 
 `chatapp/feed/views.py` 改 `posts` 支持 GET,并新增详情与 mine。文件顶部 import 更新为:
 
@@ -694,7 +694,7 @@ urlpatterns = [
 
 (mine 必须在 `<int:post_id>` 之前无冲突——int 转换器不匹配 "mine",但保持此顺序可读性更好。)
 
-- [ ] **Step 4: throttle 放行非 POST**
+- [x] **Step 4: throttle 放行非 POST**
 
 `chatapp/feed/throttles.py` 的 `PostCreateThrottle` 加:
 
@@ -705,12 +705,12 @@ urlpatterns = [
         return super().allow_request(request, view)
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test feed`
 Expected: PASS(全部)
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/feed
@@ -728,7 +728,7 @@ git commit -m "feat(feed): 广场流/详情/我的动态接口(拉黑与重封�
 - Consumes: Task 1 的 `PostReport` 模型、`moderation.services.notify_report_handled`(签名:`(report) -> None`,只取 `report.reporter_id`)。
 - Produces: `feed.services.delete_post(post) -> None`(作者自删与 ops 删除共用;Task 7/8 依赖)。`DELETE /api/v1/posts/{id}`(非作者 404)。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 class PostDeleteTests(FeedApiMixin, APITestCase):
@@ -772,12 +772,12 @@ class PostDeleteTests(FeedApiMixin, APITestCase):
         delay.assert_called_once_with(self.other.id)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test feed.tests.PostDeleteTests`
 Expected: FAIL(405,DELETE 未实现)
 
-- [ ] **Step 3: 实现 delete_post 服务 + 视图**
+- [x] **Step 3: 实现 delete_post 服务 + 视图**
 
 `chatapp/feed/services.py` 追加(顶部补 import):
 
@@ -822,12 +822,12 @@ def post_detail(request, post_id):
     return Response(PostSerializer(post, context={"request": request}).data)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test feed`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/feed
@@ -851,7 +851,7 @@ git commit -m "feat(feed): 删除动态接口 + delete_post 服务收口(连带�
   - `GET/POST /api/v1/posts/{id}/comments`(POST 201 返回评论;限流;列表分页正序)
   - `feed.throttles.PostCommentThrottle`(scope `post_comment`;非 POST 不限)
 
-- [ ] **Step 1: 写失败的测试(后端三处)**
+- [x] **Step 1: 写失败的测试(后端三处)**
 
 `chatapp/im/tests.py` 追加(贴该文件现有 `test_send_report_handled_payload` / `test_report_handled_task` 的风格:client 打桩用 `patch("im.client._request", return_value={"ErrorCode": 0})`,任务体打桩用 `patch("im.client.send_post_commented", return_value=True)`):
 
@@ -993,12 +993,12 @@ class PostCommentTests(FeedApiMixin, APITestCase):
                                               {"text": "3"}, format="json").status_code, 429)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test feed.tests.PostLikeTests feed.tests.PostCommentTests im.tests`
 Expected: FAIL(路由 404 / 函数不存在)
 
-- [ ] **Step 3: 实现后端**
+- [x] **Step 3: 实现后端**
 
 `chatapp/im/client.py` 顶部文案区加:
 
@@ -1140,12 +1140,12 @@ def post_comments(request, post_id):
     path("posts/<int:post_id>/comments", views.post_comments),
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test feed im`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/feed chatapp/im
@@ -1163,7 +1163,7 @@ git commit -m "feat(feed): 点赞/评论接口 + 评论通知任务(post_comment
 - Consumes: Task 2 的 `visible_posts`、Task 1 的 `PostReport`。
 - Produces: `POST /api/v1/posts/{id}/report`(201 新建 / 200 幂等);`feed.throttles.PostReportThrottle`(scope `post_report`)。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 class PostReportTests(FeedApiMixin, APITestCase):
@@ -1218,12 +1218,12 @@ class PostReportTests(FeedApiMixin, APITestCase):
                                               {"type": "other"}, format="json").status_code, 429)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test feed.tests.PostReportTests`
 Expected: FAIL(404 路由不存在)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/feed/serializers.py` 追加:
 
@@ -1285,12 +1285,12 @@ def post_report(request, post_id):
     path("posts/<int:post_id>/report", views.post_report),
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test feed`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/feed
@@ -1309,7 +1309,7 @@ git commit -m "feat(feed): 动态举报接口(幂等/可见性校验/限流)"
 - Consumes: `feed.services.delete_post`(Task 4)。
 - Produces: `/ops/posts/`(列表)、`POST /ops/posts/{id}/delete`(HTMX 局部刷新表格 partial)。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `chatapp/ops/tests.py` 追加(复用文件里 `make_staff`):
 
@@ -1344,12 +1344,12 @@ class OpsPostsTests(TestCase):
         self.assertEqual(self.client.get("/ops/posts/").status_code, 403)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test ops.tests.OpsPostsTests`
 Expected: FAIL(404)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加(import 顶部补 `from feed.models import Post`、`from feed.services import delete_post`;`Count` 已在该文件 import):
 
@@ -1439,12 +1439,12 @@ def post_delete(request, post_id):
 
 (导航 badge 在 Task 8 的「动态举报」项上使用;本任务先不加展示,处理器加字段即可。)
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test ops`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
@@ -1463,7 +1463,7 @@ git commit -m "feat(ops): 动态管理页(列表 + 删除)"
 - Consumes: `feed.services.delete_post`、`moderation.services.notify_report_handled`、`feed.models.PostReport`。
 - Produces: `/ops/post-reports/`(筛选列表)、`POST /ops/post-reports/{id}/handle`(忽略)、`POST /ops/post-reports/{id}/delete-post`(删除动态)。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```python
 class OpsPostReportsTests(TestCase):
@@ -1531,12 +1531,12 @@ class OpsPostReportsTests(TestCase):
 
 注意:测试文件顶部已 import 的东西按现有文件补(`ReportStatus` 来自 `moderation.models`,已在文件顶部 import)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test ops.tests.OpsPostReportsTests`
 Expected: FAIL(404)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加:
 
@@ -1675,12 +1675,12 @@ def post_report_delete_post(request, report_id):
       </a>
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test ops`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
@@ -1706,7 +1706,7 @@ git commit -m "feat(ops): 动态举报队列(删除动态/忽略 + 举报者通�
   - `format.dart::formatPostTime(DateTime, {DateTime? now})`
 - 注意:tab 顺序改为 发现 / 广场 / 消息 / 我的;`home_shell_test.dart` 的「三个 Tab 都在」必须同步改为断言 4 个。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `app/test/core/format_test.dart` 追加:
 
@@ -1850,12 +1850,12 @@ Map<String, dynamic> postsPageJson(List<Map<String, dynamic>> items, {bool hasMo
     {'count': items.length, 'next': hasMore ? 'more' : null, 'previous': null, 'results': items};
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/core/format_test.dart test/features/shell test/features/square`
 Expected: FAIL(formatPostTime 未定义 / 广场 tab 不存在 / 文件不存在)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/lib/core/format.dart` 追加:
 
@@ -2348,12 +2348,12 @@ class _SquarePageState extends ConsumerState<SquarePage> {
   const NavigationDestination(icon: Icon(Icons.grid_view_outlined), label: '广场'),
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/core/format_test.dart test/features/shell test/features/square && ../flutter/bin/flutter.bat analyze`
 Expected: 全 PASS、analyze 零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib app/test
@@ -2372,7 +2372,7 @@ git commit -m "feat(app): 广场 tab 与信息流页(卡片/九宫格/点赞乐�
 - Consumes: `FeedRepository`(Task 9)、`squareProvider`(发布成功后 invalidate)。
 - Produces: 路由 `/posts/compose`;`pickImagesFromGallery({int limit}) -> Future<List<XFile>>`;`FeedRepository.createPost({required String text, required List<({Uint8List bytes, String name})> images})`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `app/test/features/square/post_compose_page_test.dart`:
 
@@ -2424,12 +2424,12 @@ void main() {
 
 `pumpCompose` helper(同文件)按 `photo_grid_test.dart` 的模式搭 ProviderScope + MaterialApp,注入 `PostComposePage(pickImages: ...)`;`postJson` 从 `../../support/sample_data.dart` 引入。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/square/post_compose_page_test.dart`
 Expected: FAIL(文件不存在)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/lib/core/image_pick.dart` 追加:
 
@@ -2635,12 +2635,12 @@ class _PickedTile extends StatelessWidget {
       GoRoute(path: '/posts/compose', builder: (context, state) => const PostComposePage()),
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/square && ../flutter/bin/flutter.bat analyze`
 Expected: PASS、零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib app/test
@@ -2662,7 +2662,7 @@ git commit -m "feat(app): 发布动态页(多图九宫格 + multipart 一次提�
   - `post_detail_controller.dart`:`postDetailProvider`(family, autoDispose, `Future<Post>`)、`commentsProvider`(family, autoDispose, `Future<List<PostCommentItem>>`,方法 `loadMore()`、`send(String text)`)——为简单起见:commentsProvider 返回全量已加载列表并支持 `loadMore`;发送新评论后 `ref.invalidateSelf`。
   - 路由 `/posts/:id`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `app/test/features/square/post_detail_page_test.dart`(要点,helper 模式同 compose 测试):
 
@@ -2712,12 +2712,12 @@ Map<String, dynamic> commentJson({
     };
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/square/post_detail_page_test.dart`
 Expected: FAIL(文件不存在)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `feed_repository.dart` 追加:
 
@@ -2897,12 +2897,12 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
       ),
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/square && ../flutter/bin/flutter.bat analyze`
 Expected: PASS、零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib app/test
@@ -2921,7 +2921,7 @@ git commit -m "feat(app): 动态详情页(评论列表与发送)"
 - Consumes: `ReportSheet`(`features/moderation/widgets/report_sheet.dart`,`showModalBottomSheet` pop 出 `({String type, String detail})`)、`feed_repository.reportPost/deletePost`、`squareProvider.toggleLike` 同型。
 - Produces: `myPostsProvider`(autoDispose,`List<Post>`,`reload()`);`/my-posts` 路由;菜单动作接线(删除带确认框、举报弹 ReportSheet + SnackBar「已收到举报,我们会尽快处理」);`_kindOf` 白名单加 `post_commented`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `app/test/features/square/my_posts_page_test.dart`:
 
@@ -2996,12 +2996,12 @@ git commit -m "feat(app): 动态详情页(评论列表与发送)"
 
 `app/test/features/profile/my_profile_page_test.dart` 追加断言「我的动态」行存在(key `my.row.posts`)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/square test/im/tencent_im_client_test.dart test/features/profile/my_profile_page_test.dart`
 Expected: FAIL(菜单 key 不存在/行不存在/映射未加)
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `square_controller.dart` 追加:
 
@@ -3153,12 +3153,12 @@ class MyPostsPage extends ConsumerWidget {
     }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze`
 Expected: 全 PASS、零告警
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib app/test
@@ -3175,17 +3175,17 @@ git commit -m "feat(app): 动态 ··· 菜单(删除/举报)+ 我的动态页 +
 **Interfaces:**
 - Consumes: 前 12 个任务全部产出。
 
-- [ ] **Step 1: 后端全量回归**
+- [x] **Step 1: 后端全量回归**
 
 Run: `cd chatapp && python manage.py test`
 Expected: 全绿(基线 256 + 本次新增 ≈27~32)
 
-- [ ] **Step 2: 前端全量回归**
+- [x] **Step 2: 前端全量回归**
 
 Run: `cd app && ../flutter/bin/flutter.bat test && ../flutter/bin/flutter.bat analyze`
 Expected: 全绿(基线 157 + 本次新增 ≈12~15)、analyze 零告警
 
-- [ ] **Step 3: 更新 CLAUDE.md**
+- [x] **Step 3: 更新 CLAUDE.md**
 
 - 顶部进度段加「**六追加:广场页(动态流)**」:一句话范围 + 后端/前端测试数 + spec/plan 文件名。
 - 常用命令区不动;「合规与审核」或新起「广场页(动态流)」小节,记录:
@@ -3196,14 +3196,14 @@ Expected: 全绿(基线 157 + 本次新增 ≈12~15)、analyze 零告警
   - 前端:`features/square/`,测试注图模式(`PostComposePage(pickImages:)` / `PostGrid` 注入同款)
 - 手测提醒:`/ops/` 新增「动态管理」「动态举报」两个菜单;worker 改了 `im/tasks.py` 要重启。
 
-- [ ] **Step 4: 勾选本计划全部 checkbox 并提交**
+- [x] **Step 4: 勾选本计划全部 checkbox 并提交**
 
 ```bash
 git add CLAUDE.md docs/superpowers/plans/2026-09-12-square-feed.md
 git commit -m "docs: 广场页交付记录(CLAUDE.md + 计划勾选)"
 ```
 
-- [ ] **Step 5: 手测清单(交给用户,双模拟器 + /ops/)**
+- [x] **Step 5: 手测清单(交给用户,双模拟器 + /ops/)**
 
 1. 两台模拟器分别登录两个账号;A 发文字 + 多图动态 → B 在广场可见。
 2. B 点赞(A 无通知)、B 评论 → A 消息页「系统通知」出现「B 评论了你的动态:…」灰条。
@@ -3221,3 +3221,15 @@ git commit -m "docs: 广场页交付记录(CLAUDE.md + 计划勾选)"
 - **Spec 覆盖**:§2 五表→T1;§3 接口→T2(发布)T3(流/详情/mine)T4(删除)T5(赞/评论)T6(举报);§4 规则→T2(校验/限流)T3(过滤)T4(删除收口)T5(通知);§5 前端→T9~T12;§6 ops→T7/T8;§7 测试→各任务内;§8 决策→已落实在各项。
 - **类型一致性**:`visible_posts`/`delete_post`/`notify_post_commented`/`send_post_commented`/`post_commented`/`PostCreateThrottle`/`PostCommentThrottle`/`PostReportThrottle`、前端 `squareProvider`/`myPostsProvider`/`postDetailProvider`/`commentsProvider`/`formatPostTime`/`pickImagesFromGallery`/`fetchPosts`/`createPost`/`deletePost`/`reportPost`/`addComment`/`fetchComments` 在各任务引用一致。
 - **未决提醒**(实施时以实际代码为准,不要臆造):`im/tests.py` 现有 mock 风格(参考 `send_report_handled` 用例);测试图片来源用 `users/tests.py::PNG_1PX`;`User.im_user_id` 断言用实例属性不写死;T11 详情页片段里 `menuAction: ...` 与 `_CommentTile` 的完整实现按 T12 与现有代码风格补全。
+
+---
+
+## 执行记录
+
+2026-09-12 全部完成(13/13 任务):
+
+- 后端提交:T1 7dd9eb7 / T2 / T3 / T4 / T5 / T6 / T7 / T8(feed app + 10 接口 + ops 两页)
+- 前端提交:T9 / T10 / T11 / T12(广场 flow → 发布 → 详情 → 菜单/我的动态/灰条)
+- 最终回归:**后端 310 全绿**(基线 256 + 54)、**前端 170 全绿**(基线 157 + 13)、analyze 零告警
+- 实施中发现并修复的坑:①annotate(GROUP BY)丢弃 Meta.ordering → visible_posts/my_posts 显式 order_by;②评论列表误用 PostSerializer → `_page_response` 支持传序列化器类;③我的页多一行后 preference 测试点不到行 → 补 `ensureVisible`
+- 待办:双模拟器 + /ops/ 手测(清单见上方 Task 13 Step 5);通过后按惯例 ff 合回 master

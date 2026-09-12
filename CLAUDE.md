@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **当前进度:M3 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流 + M2c IM 接入 + M3 合规收尾:moderation 三模型与 Django admin 审核台、举报/拉黑全链路(含 IM 黑名单同步与踢下线)、重封禁全域 403、首启协议弹窗与协议全文、Android 签名 APK;后端 153 测试、前端 115 测试全绿,analyze 零告警)。核心链路(登录/互滑/聊天/资料卡/举报/拉黑)已双端手测;协议、照片审核、封禁页等细节项待后续补验。
 
-**M3 后追加:运营审核台 `/ops/`**(独立 Django app `ops`,is_staff 登录;举报处理 / 照片审核(含 reviewed_by/at 审计)/ 用户封禁解封 / 操作日志;后端测试 180 全绿。设计: `specs/2026-09-11-moderation-console-design.md`;计划: `plans/2026-09-11-ops-console.md`)。**再追加:封禁系统消息 + 消息页改版**(封禁/解封以「系统通知」身份发 IM 消息说明原因与影响,重封先发后踢;App 底部「会话」改称「消息」并重构为抖音式版式;后端 190 / 前端 120 测试全绿。设计: `specs/2026-09-11-ban-notice-message-page-design.md`;计划: `plans/2026-09-11-ban-notice-message-page.md`)。**三追加:微信式改版 + IM 昵称同步**(聊天页改微信版式:方头像/品牌粉气泡/时间分组/长按复制删除/表情面板/＋面板发图片/失败重发;我的页与别人的资料页改微信行版式,ID 行 + ··· 菜单 + 相册大图;IM 昵称同步修掉「拉黑后会话名降级成裸 id」;后端 199 / 前端 141 测试全绿。设计: `specs/2026-09-12-chat-profile-wechat-design.md`;计划: `plans/2026-09-12-chat-profile-wechat.md`)。**四追加:单设备登录 + 造数工具**(后登录的设备作废先登录设备的 access/refresh:User.session_version + JWT claim + 鉴权/刷新校验,401+code 40101;被顶设备经「IM 踢下线事件 / 心跳自检 / 下一次请求」三条路退出并提示原因;新增 `seed_fake_users` 批量造数命令与 IM 头像同步;后端 208 / 前端 150 测试全绿)。**五追加:举报处理通知**(举报被处理或快速封禁时,以「系统通知」给举报者发「举报已处理」灰条;admin 与 /ops/ 同源自动覆盖,重复处理不重发;后端 256 / 前端 157 测试全绿。设计: `specs/2026-09-12-report-notice-design.md`;计划: `plans/2026-09-12-report-notice.md`)。
+**M3 后追加:运营审核台 `/ops/`**(独立 Django app `ops`,is_staff 登录;举报处理 / 照片审核(含 reviewed_by/at 审计)/ 用户封禁解封 / 操作日志;后端测试 180 全绿。设计: `specs/2026-09-11-moderation-console-design.md`;计划: `plans/2026-09-11-ops-console.md`)。**再追加:封禁系统消息 + 消息页改版**(封禁/解封以「系统通知」身份发 IM 消息说明原因与影响,重封先发后踢;App 底部「会话」改称「消息」并重构为抖音式版式;后端 190 / 前端 120 测试全绿。设计: `specs/2026-09-11-ban-notice-message-page-design.md`;计划: `plans/2026-09-11-ban-notice-message-page.md`)。**三追加:微信式改版 + IM 昵称同步**(聊天页改微信版式:方头像/品牌粉气泡/时间分组/长按复制删除/表情面板/＋面板发图片/失败重发;我的页与别人的资料页改微信行版式,ID 行 + ··· 菜单 + 相册大图;IM 昵称同步修掉「拉黑后会话名降级成裸 id」;后端 199 / 前端 141 测试全绿。设计: `specs/2026-09-12-chat-profile-wechat-design.md`;计划: `plans/2026-09-12-chat-profile-wechat.md`)。**四追加:单设备登录 + 造数工具**(后登录的设备作废先登录设备的 access/refresh:User.session_version + JWT claim + 鉴权/刷新校验,401+code 40101;被顶设备经「IM 踢下线事件 / 心跳自检 / 下一次请求」三条路退出并提示原因;新增 `seed_fake_users` 批量造数命令与 IM 头像同步;后端 208 / 前端 150 测试全绿)。**五追加:举报处理通知**(举报被处理或快速封禁时,以「系统通知」给举报者发「举报已处理」灰条;admin 与 /ops/ 同源自动覆盖,重复处理不重发;后端 256 / 前端 157 测试全绿。设计: `specs/2026-09-12-report-notice-design.md`;计划: `plans/2026-09-12-report-notice.md`)。**六追加:广场页(动态流)**(底部第 4 个 tab「广场」:微博式信息流,发动态(文字 ≤500 + ≤9 图九宫格)/点赞/评论(评论给作者发系统通知)/动态举报 + 运营「动态管理」「动态举报」两个菜单;拉黑双向过滤 + 重封禁内容下架;后端 310 / 前端 170 测试全绿。设计: `specs/2026-09-12-square-feed-design.md`;计划: `plans/2026-09-12-square-feed.md`)。
 设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`;M2c: `plans/2026-09-10-m2c-im-chat.md`;M3 设计: `specs/2026-09-11-m3-compliance-design.md`;M3: `plans/2026-09-11-m3-compliance.md`)。**下一步 M4**(上线:服务器 + 域名部署;短信/内容安全/COS 接真;商店上架;iOS 打包决策;ICP 备案为并行事项)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
@@ -234,6 +234,16 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - 解封会 `refresh_status()` 重算 complete/incomplete(admin 是手改状态下拉,别混用)
 - 照片任何状态都可再审(已通过可「撤回并驳回」,用于事后处置);「已跳过」= 照片已被用户删除的陈旧页面
 - 测试纪律:任何触发 IM 的路径 mock `im.tasks.<任务名>.delay`(线程辅助函数已删)
+
+## 广场页(动态流)(2026-09-12 新增)
+
+- 后端新 app `feed`(五表:Post/PostImage/PostLike/PostComment/PostReport);接口 `/api/v1/posts`:`GET/POST`(流/发布 multipart)、`GET/DELETE /{id}`、`POST/DELETE /{id}/like`、`GET/POST /{id}/comments`、`POST /{id}/report`、`GET /mine`。限流 scope:`post_create 20/day`、`post_comment 60/day`、`post_report 20/day`(额度在 settings `DEFAULT_THROTTLE_RATES`;throttle 类对非 POST 放行)
+- ⚠️ **`visible_posts` 必须显式 `order_by`**:annotate 触发 GROUP BY 时 Django 会丢弃 Meta.ordering(SQL 里没有 ORDER BY,顺序随数据库),流/我的动态两个查询都踩过
+- **删除动态服务收口 `feed/services.py::delete_post`**:先关闭该动态全部 pending 举报(标 handled「动态已删除」+ 通知各举报者),再删图片文件与行;**作者自删(DELETE /posts/{id})、ops「删除动态」共用**——举报方对账不悬空。`PostReport.post` 是 **SET_NULL**:动态删除后举报行留档
+- **评论通知链**:评论创建 → `feed/services.py::notify_post_commented`(作者本人评论不入队)→ `im/tasks.py::post_commented`(任务内查库拼文案,模板在 `im/client.py::POST_COMMENTED_TEMPLATE`)→ 系统通知灰条;App 端 `tencent_im_client.dart::_kindOf` 白名单已加 `post_commented`。⚠️ 改了 `im/tasks.py` 后 **worker 要手动重启**
+- 运营台新增两菜单:**动态管理**(`/ops/posts/`,浏览 + 删除)、**动态举报**(`/ops/post-reports/`,「删除动态」/「忽略」,处理后给举报者发 `report_handled` 通知;待处理 badge 在 `ops/context_processors.py`)
+- 前端 `features/square/`:广场页(`square_page.dart`,卡片/九宫格/点赞乐观更新/滚底加载)、发布页(`/posts/compose`,相册多选 + 一次 multipart)、详情页(`/posts/:id`,评论正序 + 底部输入框)、我的动态(`/my-posts`,入口在「我的」页 `my.row.posts` 行);`post_actions.dart` 是共用删除确认框 + 举报弹窗(复用 moderation 的 `ReportSheet`)
+- 测试:`chatapp/feed/tests.py`(41;图片用 `PNG_1PX` + 临时 MEDIA_ROOT)、`app/test/features/square/`(发布页注入 `PostComposePage(pickImages:)`);⚠️ 我的页行变多后,点靠下的行(想找的人/设置)测试要先 `tester.ensureVisible`
 
 ## 后端测试注意事项
 
