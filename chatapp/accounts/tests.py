@@ -11,6 +11,7 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts import services, sms_codes
+from im import tasks as im_tasks
 from accounts.throttles import SmsSendThrottle
 from accounts.tokens import SessionRefreshToken
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -209,24 +210,27 @@ class ImImportOnRegisterTests(APITestCase):
         return self.client.post("/api/v1/auth/sms/verify",
                                 {"phone": self.phone, "code": self.issue_code()}, format="json")
 
-    def test_new_user_triggers_sync_login(self):
-        with patch("im.tasks.sync_login.delay") as delay:
+    def test_new_user_triggers_import(self):
+        with patch("im.tasks.import_account.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.verify()
         self.assertEqual(resp.status_code, 200)
         user = User.objects.get(phone=self.phone)
-        delay.assert_called_once_with(user.id, True)
+        delay.assert_called_once_with(user.id)
 
-    def test_existing_login_triggers_sync_login(self):
+    def test_existing_login_marks_kick_pending(self):
         self.verify()
-        with patch("im.tasks.sync_login.delay") as delay:
+        user = User.objects.get(phone=self.phone)
+        cache.delete(im_tasks.kick_pending_key(user.id))
+        with patch("im.tasks.kick_pending.apply_async") as enqueue:
             with self.captureOnCommitCallbacks(execute=True):
                 self.verify()
-        user = User.objects.get(phone=self.phone)
-        delay.assert_called_once_with(user.id, False)
+        self.assertEqual(cache.get(im_tasks.kick_pending_key(user.id)), 1)
+        enqueue.assert_called_once_with(args=[user.id],
+                                        countdown=im_tasks.KICK_BACKSTOP_DELAY)
 
     def test_enqueue_failure_does_not_break_login(self):
-        with patch("im.tasks.sync_login.delay", side_effect=Exception("broker down")):
+        with patch("im.tasks.import_account.delay", side_effect=Exception("broker down")):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.verify()
         self.assertEqual(resp.status_code, 200)   # on_commit(robust=True)兜住

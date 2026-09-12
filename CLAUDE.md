@@ -176,7 +176,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 **产品规则:一个账号同时只允许一台设备在线**,后登录的把先登录的顶下线。腾讯 IM 控制台侧的「单平台登录」实测**不可靠**(腾讯不下发踢信号),所以我们自己实现,不依赖腾讯:
 
 - **后端作废机制**:`User.session_version` 每次登录 +1,写进 access/refresh 的 JWT claim(令牌类在 `accounts/tokens.py`);`accounts/authentication.py::SessionJwtAuthentication` 鉴权时比对版本,不一致回 **401 + `code: 40101`**(message「账号已在其他设备登录」);`accounts/views.py::SessionTokenRefreshView` 刷新时同样校验。无 claim 的历史令牌按初始版本兼容(测试自造令牌不受影响)
-- **重新登录时踢旧 IM 会话(异步)**:登录提交后入队 `im.tasks.sync_login(user_id, created)`——新号建号,老号 `kick_user`(即 `im_open_login_svc/kick`;文档:+实测——**kick 会让该账号所有历史 userSig 失效**,旧实例必须拿新签名重登)。不踢的话新设备的 IM 登录会被服务端拒绝(实测表现为 **6206**);响应不再等它,靠前端 6206 自动重试兜时序差
+- **重新登录时踢旧 IM 会话(标记 + IM 登录边界同步执行)**:`verify` 老账号重登只写标记 `im:kick_pending:{uid}`(TTL 300s)并入队 20 秒延迟的兜底任务;`POST /im/user_sig` 见到标记先**同步踢**(`im_open_login_svc/kick`)再发新签名。⚠️ **踢必须早于新设备建立 IM 会话**:做成「响应后异步踢」会把新会话一起踢掉,客户端收到 `onKickedOffline` 误报「账号已在其他设备登录」(2026-09-12 手测回归:登录后 1 秒内出现两次 `user_sig` = 被踢后静默重登)。不踢的话新设备的 IM 登录会被服务端拒绝(实测表现为 **6206**)
 - **IM 6206/70001 自动重试**:`im_manager.dart` 对这两个码重拉签名重试一次(顶号的瞬时冲突,重试通常就过了)
 - **被顶设备的三条退出路径**(互为兜底):
   1. IM 踢下线事件(`ImKickedOffline`)→ 清凭证强退(即时,但腾讯下发不稳定)

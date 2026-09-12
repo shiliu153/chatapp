@@ -1,6 +1,7 @@
 import logging
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import transaction
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
@@ -61,7 +62,14 @@ def sms_verify(request):
 
     def _after_commit():
         # robust=True:broker 抖动不会把已提交的登录拖成 500
-        im_tasks.sync_login.delay(user.id, created)
+        if created:
+            im_tasks.import_account.delay(user.id)
+        else:
+            # 单设备:标记「待踢旧 IM 会话」,由新设备在 /im/user_sig 拉签名前同步踢
+            # (踢必须早于新会话建立;延迟任务只兜底 App 不来拉签名的情况)
+            cache.set(im_tasks.kick_pending_key(user.id), 1, im_tasks.KICK_PENDING_TTL)
+            im_tasks.kick_pending.apply_async(
+                args=[user.id], countdown=im_tasks.KICK_BACKSTOP_DELAY)
 
     transaction.on_commit(_after_commit, robust=True)
 

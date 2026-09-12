@@ -17,7 +17,8 @@ from .client import (_request, black_list_add, black_list_delete, ensure_account
                      send_custom_elem, send_match_notice, send_text, set_profile_avatar,
                      set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
-from .tasks import kick_user as kick_user_task, sync_login
+from .tasks import (import_account as import_account_task, kick_pending,
+                    kick_pending_key)
 
 User = get_user_model()
 
@@ -303,15 +304,26 @@ class UserSigApiTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
     def test_returns_sig_for_current_user(self):
-        with patch("im.views.ensure_account", return_value=True) as ensure:
+        with patch("im.views.ensure_account", return_value=True) as ensure, \
+                patch("im.views.kick_user") as kick:
             resp = self.client.post("/api/v1/im/user_sig")
         ensure.assert_called_once_with(self.user.im_user_id)
+        kick.assert_not_called()   # 没有待踢标记时不踢(否则会把本机会话踢掉)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertEqual(data["im_user_id"], f"u{self.user.id}")
         self.assertEqual(data["sdkappid"], "1400000000")
         self.assertEqual(data["expire"], 604800)
         self.assertEqual(decode_user_sig(data["user_sig"])["TLS.identifier"], f"u{self.user.id}")
+
+    def test_pending_kick_runs_before_issuing_sig(self):
+        cache.set(kick_pending_key(self.user.id), 1, 60)
+        with patch("im.views.ensure_account", return_value=True), \
+                patch("im.views.kick_user", return_value=True) as kick:
+            resp = self.client.post("/api/v1/im/user_sig")
+        self.assertEqual(resp.status_code, 200)
+        kick.assert_called_once_with(self.user.im_user_id)
+        self.assertIsNone(cache.get(kick_pending_key(self.user.id)))
 
     def test_requires_auth(self):
         self.client.credentials()
@@ -329,22 +341,35 @@ class ImTaskTests(TestCase):
     """IM 副作用任务:失败要抛异常(Celery 才会重试),查不到用户则静默跳过。"""
 
     def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
         self.user = User.objects.create_user(phone="13800138000")
 
-    def test_sync_login_imports_for_new_user(self):
+    def test_import_account_task_calls_client(self):
         with patch("im.client.import_account", return_value=True) as imp:
-            sync_login.run(self.user.id, True)
+            import_account_task.run(self.user.id)
         imp.assert_called_once_with(self.user.im_user_id)
 
-    def test_sync_login_kicks_for_existing_user(self):
-        with patch("im.client.kick_user", return_value=True) as kick:
-            sync_login.run(self.user.id, False)
-        kick.assert_called_once_with(self.user.im_user_id)
+    def test_import_failure_raises_so_celery_retries(self):
+        with patch("im.client.import_account", return_value=False):
+            with self.assertRaises(RuntimeError):
+                import_account_task.run(self.user.id)
 
-    def test_failure_raises_so_celery_retries(self):
+    def test_kick_pending_noop_without_flag(self):
+        with patch("im.client.kick_user") as kick:
+            kick_pending.run(self.user.id)
+        kick.assert_not_called()
+
+    def test_kick_pending_kicks_and_clears_flag(self):
+        cache.set(kick_pending_key(self.user.id), 1, 60)
+        with patch("im.client.kick_user", return_value=True) as kick:
+            kick_pending.run(self.user.id)
+        kick.assert_called_once_with(self.user.im_user_id)
+        self.assertIsNone(cache.get(kick_pending_key(self.user.id)))
+
+    def test_kick_pending_keeps_flag_and_raises_on_failure(self):
+        cache.set(kick_pending_key(self.user.id), 1, 60)
         with patch("im.client.kick_user", return_value=False):
             with self.assertRaises(RuntimeError):
-                sync_login.run(self.user.id, False)
-
-    def test_missing_user_is_noop(self):
-        kick_user_task.run(999999)   # 不抛异常
+                kick_pending.run(self.user.id)
+        self.assertIsNotNone(cache.get(kick_pending_key(self.user.id)))

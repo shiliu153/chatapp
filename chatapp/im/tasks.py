@@ -8,6 +8,7 @@ import logging
 
 from celery import shared_task
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 
 from . import client as im_client
 
@@ -15,6 +16,13 @@ logger = logging.getLogger(__name__)
 
 RETRY_POLICY = dict(autoretry_for=(Exception,), retry_backoff=True,
                     retry_jitter=True, max_retries=5)
+
+KICK_PENDING_TTL = 300        # 「待踢旧会话」标记有效期(秒)
+KICK_BACKSTOP_DELAY = 20      # 兜底任务延迟(秒):App 一直不拉签名时才补踢
+
+
+def kick_pending_key(user_id: int) -> str:
+    return f"im:kick_pending:{user_id}"
 
 
 def _require(ok: bool, what: str) -> None:
@@ -31,17 +39,20 @@ def import_account(user_id: int) -> None:
 
 
 @shared_task(**RETRY_POLICY)
-def kick_user(user_id: int) -> None:
+def kick_pending(user_id: int) -> None:
+    """兜底:登录后 App 没来拉签名(标记仍在)时,补踢一次旧 IM 会话。
+
+    正常路径由 im/views.user_sig 在签发签名前同步踢掉并清标记(顺序保证
+    踢的永远是新会话建立之前的旧会话);本任务只覆盖「App 压根没登 IM」的情况。
+    """
+    key = kick_pending_key(user_id)
+    if not cache.get(key):
+        return
     user = get_user_model().objects.filter(id=user_id).first()
     if user is None:
+        cache.delete(key)
         return
-    _require(im_client.kick_user(user.im_user_id), "kick")
-
-
-@shared_task(**RETRY_POLICY)
-def sync_login(user_id: int, created: bool) -> None:
-    """登录后的 IM 侧整理:新号建号;老号踢掉旧 IM 会话(单设备登录)。"""
-    if created:
-        import_account(user_id)
+    if im_client.kick_user(user.im_user_id):
+        cache.delete(key)
     else:
-        kick_user(user_id)
+        raise RuntimeError("IM kick 失败")
