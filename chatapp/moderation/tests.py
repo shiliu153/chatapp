@@ -8,11 +8,10 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from discovery.models import Match
-from im import client as im_client
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 from .models import BanAction, BanLog, Block, Report, ReportStatus, ReportType
-from .services import _send_notice_then_kick, log_ban_change
+from .services import log_ban_change
 from .text_check import find_blocked_word
 
 User = get_user_model()
@@ -120,48 +119,40 @@ class BanAuditServiceTests(TestCase):
         self.operator = User.objects.create_superuser(phone="13700137000", password="pw")
         self.target = User.objects.create_user(phone="13900139000")
 
-    def test_heavy_ban_dispatches_notice_then_kick(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            log_ban_change(self.target, ProfileStatus.COMPLETE, ProfileStatus.BANNED_HEAVY,
-                           "骚扰他人", self.operator)
+    def test_heavy_ban_enqueues_notice(self):
+        with patch("im.tasks.ban_notice.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                log_ban_change(self.target, ProfileStatus.COMPLETE, ProfileStatus.BANNED_HEAVY,
+                               "骚扰他人", self.operator)
         log = BanLog.objects.get(user=self.target)
         self.assertEqual(log.action, BanAction.BAN_HEAVY)
         self.assertEqual(log.reason, "骚扰他人")
         self.assertEqual(log.operator, self.operator)
-        dispatch.assert_called_once_with(_send_notice_then_kick,
-                                         self.target.im_user_id, "骚扰他人")
+        delay.assert_called_once_with(self.target.id, "heavy", "骚扰他人")
 
-    def test_light_ban_dispatches_notice_without_kick(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            log_ban_change(self.target, ProfileStatus.COMPLETE, ProfileStatus.BANNED_LIGHT,
-                           "轻度违规", self.operator)
+    def test_light_ban_enqueues_notice_without_kick(self):
+        with patch("im.tasks.ban_notice.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                log_ban_change(self.target, ProfileStatus.COMPLETE, ProfileStatus.BANNED_LIGHT,
+                               "轻度违规", self.operator)
         self.assertEqual(BanLog.objects.get(user=self.target).action, BanAction.BAN_LIGHT)
-        dispatch.assert_called_once_with(im_client.send_ban_notice,
-                                         self.target.im_user_id, "light", "轻度违规")
+        delay.assert_called_once_with(self.target.id, "light", "轻度违规")
 
-    def test_unban_dispatches_lifted_notice(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            log_ban_change(self.target, ProfileStatus.BANNED_HEAVY, ProfileStatus.COMPLETE,
-                           "申诉通过", self.operator)
+    def test_unban_enqueues_lifted_notice(self):
+        with patch("im.tasks.ban_lifted.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                log_ban_change(self.target, ProfileStatus.BANNED_HEAVY, ProfileStatus.COMPLETE,
+                               "申诉通过", self.operator)
         self.assertEqual(BanLog.objects.get(user=self.target).action, BanAction.UNBAN)
-        dispatch.assert_called_once_with(im_client.send_ban_lifted, self.target.im_user_id)
-
-    def test_send_notice_then_kick_sends_before_kick(self):
-        calls = []
-        with patch.object(im_client, "send_ban_notice",
-                          side_effect=lambda *a: calls.append("send")) as send, \
-             patch.object(im_client, "kick_user",
-                          side_effect=lambda *a: calls.append("kick")):
-            _send_notice_then_kick("u9", "骚扰他人")
-        self.assertEqual(calls, ["send", "kick"])
-        send.assert_called_once_with("u9", "heavy", "骚扰他人")
+        delay.assert_called_once_with(self.target.id)
 
     def test_non_ban_transition_writes_nothing(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            log_ban_change(self.target, ProfileStatus.INCOMPLETE, ProfileStatus.COMPLETE,
-                           "", self.operator)
+        with patch("im.tasks.ban_notice.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                log_ban_change(self.target, ProfileStatus.INCOMPLETE, ProfileStatus.COMPLETE,
+                               "", self.operator)
         self.assertFalse(BanLog.objects.exists())
-        dispatch.assert_not_called()
+        delay.assert_not_called()
 
 
 class ProfileAdminHookTests(TestCase):
@@ -184,7 +175,7 @@ class ProfileAdminHookTests(TestCase):
         obj = Profile.objects.get(user=self.target)
         obj.status = status
         obj.ban_reason = reason
-        with patch("moderation.services._dispatch_async"):
+        with patch("im.tasks.ban_notice.delay"), patch("im.tasks.ban_lifted.delay"):
             model_admin.save_model(request, obj, form=None, change=True)
 
     def test_heavy_ban_via_admin_writes_audit(self):
@@ -318,20 +309,21 @@ class BlockApiTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
 
     def test_block_creates_row_and_syncs_im(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            resp = self.client.post(self.URL, {"target_user_id": self.target.id}, format="json")
+        with patch("im.tasks.blacklist_add.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(self.URL, {"target_user_id": self.target.id}, format="json")
         self.assertEqual(resp.status_code, 201)
         self.assertTrue(Block.objects.filter(blocker=self.me, blocked=self.target).exists())
-        dispatch.assert_called_once_with(im_client.black_list_add,
-                                         self.me.im_user_id, self.target.im_user_id)
+        delay.assert_called_once_with(self.me.id, self.target.id)
 
     def test_duplicate_block_idempotent_without_resync(self):
         Block.objects.create(blocker=self.me, blocked=self.target)
-        with patch("moderation.services._dispatch_async") as dispatch:
-            resp = self.client.post(self.URL, {"target_user_id": self.target.id}, format="json")
+        with patch("im.tasks.blacklist_add.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(self.URL, {"target_user_id": self.target.id}, format="json")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(Block.objects.count(), 1)
-        dispatch.assert_not_called()
+        delay.assert_not_called()
 
     def test_cannot_block_self(self):
         resp = self.client.post(self.URL, {"target_user_id": self.me.id}, format="json")
@@ -356,18 +348,19 @@ class BlockApiTests(APITestCase):
 
     def test_unblock_removes_and_syncs_im(self):
         Block.objects.create(blocker=self.me, blocked=self.target)
-        with patch("moderation.services._dispatch_async") as dispatch:
-            resp = self.client.delete(f"{self.URL}/{self.target.id}")
+        with patch("im.tasks.blacklist_remove.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.delete(f"{self.URL}/{self.target.id}")
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(Block.objects.exists())
-        dispatch.assert_called_once_with(im_client.black_list_delete,
-                                         self.me.im_user_id, self.target.im_user_id)
+        delay.assert_called_once_with(self.me.id, self.target.id)
 
     def test_unblock_missing_is_idempotent(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            resp = self.client.delete(f"{self.URL}/{self.target.id}")
+        with patch("im.tasks.blacklist_remove.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.delete(f"{self.URL}/{self.target.id}")
         self.assertEqual(resp.status_code, 204)
-        dispatch.assert_not_called()
+        delay.assert_not_called()
 
     def test_requires_auth(self):
         self.client.credentials()

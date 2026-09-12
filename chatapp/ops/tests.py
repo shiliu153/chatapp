@@ -3,10 +3,8 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from accounts.models import User
-from im import client as im_client
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
-from moderation.services import _send_notice_then_kick
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
@@ -121,9 +119,10 @@ class ReportActionTests(TestCase):
         self.assertEqual(self.report.handled_note, "第一次")
 
     def test_quick_ban_heavy_bans_and_handles(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            resp = self.client.post(f"/ops/reports/{self.report.id}/ban",
-                                    {"level": "ban_heavy", "reason": "色情图片"})
+        with patch("im.tasks.ban_notice.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/ops/reports/{self.report.id}/ban",
+                                        {"level": "ban_heavy", "reason": "色情图片"})
         self.assertContains(resp, "已处理")
         profile = Profile.objects.get(user=self.target)
         self.assertEqual(profile.status, ProfileStatus.BANNED_HEAVY)
@@ -133,19 +132,19 @@ class ReportActionTests(TestCase):
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, ReportStatus.HANDLED)
         self.assertEqual(self.report.handled_note, "封禁处理")
-        dispatch.assert_called_once_with(_send_notice_then_kick,
-                                         self.target.im_user_id, "色情图片")
+        delay.assert_called_once_with(self.target.id, "heavy", "色情图片")
 
     def test_quick_ban_requires_reason(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            resp = self.client.post(f"/ops/reports/{self.report.id}/ban",
-                                    {"level": "ban_light", "reason": ""})
+        with patch("im.tasks.ban_notice.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/ops/reports/{self.report.id}/ban",
+                                        {"level": "ban_light", "reason": ""})
         self.assertContains(resp, "必须填写原因")
         profile = Profile.objects.get(user=self.target)
         self.assertEqual(profile.status, ProfileStatus.COMPLETE)
         self.report.refresh_from_db()
         self.assertEqual(self.report.status, ReportStatus.PENDING)
-        dispatch.assert_not_called()
+        delay.assert_not_called()
 
 
 class OpsPhotoReviewTests(TestCase):
@@ -241,43 +240,45 @@ class OpsUserBanTests(TestCase):
         Photo.objects.create(user=self.user, file="photos/a.png", status=PhotoStatus.APPROVED)
 
     def test_ban_light_dispatches_notice_no_kick(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            resp = self.client.post(f"/ops/users/{self.user.id}/ban",
-                                    {"action": "ban_light", "reason": "骚扰他人"})
+        with patch("im.tasks.ban_notice.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/ops/users/{self.user.id}/ban",
+                                        {"action": "ban_light", "reason": "骚扰他人"})
         self.assertEqual(resp.status_code, 200)
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.status, ProfileStatus.BANNED_LIGHT)
         self.assertEqual(self.profile.ban_reason, "骚扰他人")
         self.assertTrue(BanLog.objects.filter(user=self.user, action=BanAction.BAN_LIGHT,
                                               operator=self.staff).exists())
-        dispatch.assert_called_once_with(im_client.send_ban_notice,
-                                         self.user.im_user_id, "light", "骚扰他人")
+        delay.assert_called_once_with(self.user.id, "light", "骚扰他人")
 
     def test_ban_heavy_kicks_im(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            self.client.post(f"/ops/users/{self.user.id}/ban",
-                             {"action": "ban_heavy", "reason": "严重违规"})
+        with patch("im.tasks.ban_notice.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(f"/ops/users/{self.user.id}/ban",
+                                 {"action": "ban_heavy", "reason": "严重违规"})
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.status, ProfileStatus.BANNED_HEAVY)
-        dispatch.assert_called_once_with(_send_notice_then_kick,
-                                         self.user.im_user_id, "严重违规")
+        delay.assert_called_once_with(self.user.id, "heavy", "严重违规")
 
     def test_ban_requires_reason(self):
-        with patch("moderation.services._dispatch_async") as dispatch:
-            resp = self.client.post(f"/ops/users/{self.user.id}/ban",
-                                    {"action": "ban_heavy", "reason": "  "})
+        with patch("im.tasks.ban_notice.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/ops/users/{self.user.id}/ban",
+                                        {"action": "ban_heavy", "reason": "  "})
         self.assertContains(resp, "必须填写原因")
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)
-        dispatch.assert_not_called()
+        delay.assert_not_called()
 
     def test_unban_recomputes_status_and_clears_reason(self):
-        with patch("moderation.services._dispatch_async"):
-            self.client.post(f"/ops/users/{self.user.id}/ban",
-                             {"action": "ban_light", "reason": "先封"})
-        with patch("moderation.services._dispatch_async"):
-            resp = self.client.post(f"/ops/users/{self.user.id}/ban",
-                                    {"action": "unban", "reason": ""})
+        with patch("im.tasks.ban_notice.delay"), patch("im.tasks.ban_lifted.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(f"/ops/users/{self.user.id}/ban",
+                                 {"action": "ban_light", "reason": "先封"})
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/ops/users/{self.user.id}/ban",
+                                        {"action": "unban", "reason": ""})
         self.assertEqual(resp.status_code, 200)
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.status, ProfileStatus.COMPLETE)   # 资料齐全+有照片 → 重算回已完善
