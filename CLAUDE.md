@@ -47,6 +47,7 @@ python manage.py seed_fake_users --count 20                # 手测:批量建资
 docker compose -f docker-compose.dev.yml up -d             # Redis 容器(redis:7,6379);跑测试/接口前必须起
 python -m celery -A config worker -l info --pool=solo      # IM 副作用 worker(Windows 只能 solo 池);另开一个终端
 ```
+⚠️ **worker 不 autoreload**:改了 `im/tasks.py` 等任务代码后必须**手动重启 worker**,否则它跑旧代码、新任务报 unregistered task(2026-09-12 踩过:runserver 自动重载了新代码,worker 还是几小时前的旧进程)。
 ⚠️ `python manage.py test` 现在前置要求 Redis 在跑(测试自动用 DB15 缓存 / DB14 broker,不碰开发数据)。
 ⚠️ **Docker Hub 国内不可达**(实测 `docker compose up` 拉 redis 超时):用镜像源拉再打标签——
 `docker pull docker.m.daocloud.io/library/redis:7-alpine && docker tag docker.m.daocloud.io/library/redis:7-alpine redis:7-alpine`,之后 `docker compose up -d` 直接用本地镜像。
