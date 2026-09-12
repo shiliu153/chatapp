@@ -117,8 +117,8 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
         data.update(overrides)
         return data
 
-    @patch("users.services._dispatch_async")
-    def test_update_fields(self, dispatch):
+    @patch("im.tasks.sync_profile.delay")
+    def test_update_fields(self, delay):
         tag = Tag.objects.first()
         resp = self.client.patch(self.url, {**self._full_profile(), "tag_ids": [tag.id]}, format="json")
         self.assertEqual(resp.status_code, 200)
@@ -128,31 +128,32 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
         self.assertEqual([t["id"] for t in data["tags"]], [tag.id])
         self.assertEqual(data["status"], "incomplete")   # 还差照片
 
-    @patch("users.services._dispatch_async")
-    def test_partial_update_keeps_other_fields(self, dispatch):
+    @patch("im.tasks.sync_profile.delay")
+    def test_partial_update_keeps_other_fields(self, delay):
         self.client.patch(self.url, {"nickname": "小明"}, format="json")
         resp = self.client.patch(self.url, {"city": "北京"}, format="json")
         self.assertEqual(resp.json()["nickname"], "小明")
         self.assertEqual(resp.json()["city"], "北京")
 
-    @patch("users.services._dispatch_async")
-    def test_patch_nickname_triggers_im_sync(self, dispatch):
-        from im import client as im_client
-        resp = self.client.patch(self.url, {"nickname": "新名字"}, format="json")
+    @patch("im.tasks.sync_profile.delay")
+    def test_patch_nickname_triggers_im_sync(self, delay):
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.patch(self.url, {"nickname": "新名字"}, format="json")
         self.assertEqual(resp.status_code, 200)
-        dispatch.assert_called_once_with(
-            im_client.set_profile_nick, self.user.im_user_id, "新名字")
+        delay.assert_called_once_with(self.user.id, "nick")
 
-    @patch("users.services._dispatch_async")
-    def test_patch_same_nickname_no_sync(self, dispatch):
-        self.client.patch(self.url, {"nickname": "小明"}, format="json")
-        self.client.patch(self.url, {"nickname": "小明"}, format="json")
-        self.assertEqual(dispatch.call_count, 1)   # 只有第一次实际变化时同步
+    @patch("im.tasks.sync_profile.delay")
+    def test_patch_same_nickname_no_sync(self, delay):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.patch(self.url, {"nickname": "小明"}, format="json")
+            self.client.patch(self.url, {"nickname": "小明"}, format="json")
+        self.assertEqual(delay.call_count, 1)   # 只有第一次实际变化时同步
 
-    @patch("users.services._dispatch_async")
-    def test_patch_other_field_no_sync(self, dispatch):
-        self.client.patch(self.url, {"city": "杭州"}, format="json")
-        dispatch.assert_not_called()
+    @patch("im.tasks.sync_profile.delay")
+    def test_patch_other_field_no_sync(self, delay):
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.patch(self.url, {"city": "杭州"}, format="json")
+        delay.assert_not_called()
 
     def test_underage_rejected_and_not_saved(self):
         too_young = f"{timezone.localdate().year - 17}-01-01"
@@ -195,8 +196,8 @@ class PhotoTests(AuthMixin, APITestCase):
                                 format="multipart")
 
     def fill_profile(self):
-        # 补全资料会改昵称 → 触发 IM 同步线程,测试里一律挡掉
-        with patch("users.services._dispatch_async"):
+        # 补全资料会改昵称 → 触发 IM 同步任务,测试里一律挡掉
+        with patch("im.tasks.sync_profile.delay"):
             return self.client.patch("/api/v1/users/me", {
                 "nickname": "小明", "gender": "male", "birthday": "2000-01-01",
                 "city": "上海", "bio": "喜欢音乐",
@@ -208,6 +209,13 @@ class PhotoTests(AuthMixin, APITestCase):
         data = resp.json()
         self.assertEqual(data["status"], "approved")
         self.assertTrue(data["url"].startswith("http://testserver/media/"))
+
+    @patch("im.tasks.sync_profile.delay")
+    def test_upload_approved_photo_syncs_im_avatar(self, delay):
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.upload()
+        self.assertEqual(resp.status_code, 201)
+        delay.assert_called_once_with(self.user.id, "avatar")
 
     def test_upload_rejects_non_image(self):
         resp = self.upload(name="a.txt", content=b"not an image", content_type="text/plain")

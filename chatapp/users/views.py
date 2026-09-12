@@ -11,7 +11,7 @@ from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
 from .serializers import (PhotoSerializer, PhotoUploadSerializer, PreferenceSerializer,
                           ProfileSerializer, ProfileUpdateSerializer, PublicProfileSerializer,
                           TagSerializer)
-from .services import get_profile, sync_im_nickname
+from .services import get_profile, sync_im_avatar, sync_im_nickname
 
 User = get_user_model()
 
@@ -64,6 +64,8 @@ def upload_photo(request):
     photo = Photo.objects.create(user=request.user, file=serializer.validated_data["file"],
                                  order=count, status=status)
     get_profile(request.user).refresh_status()
+    if status == PhotoStatus.APPROVED:
+        sync_im_avatar(request.user.id)
     return Response(PhotoSerializer(photo, context={"request": request}).data, status=201)
 
 
