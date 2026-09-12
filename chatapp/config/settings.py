@@ -204,6 +204,7 @@ SMS_CODE_TTL = 300          # 验证码有效期(秒)
 SMS_RESEND_INTERVAL = 60    # 同一号码重发间隔(秒)
 SMS_MAX_ATTEMPTS = 5        # 连续错误次数上限
 SMS_LOCK_TTL = 900          # 触发上限后锁定时长(秒)
+SMS_REPLAY_TTL = 60         # 校验成功后的幂等重放窗口(秒):响应丢失时同码可再换令牌
 
 # --- 日志:开发期要能在终端看到验证码 ---
 LOGGING = {

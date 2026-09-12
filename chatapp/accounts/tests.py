@@ -1,14 +1,16 @@
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
+from django_redis import get_redis_connection
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
-from accounts import services
+from accounts import services, sms_codes
 from accounts.throttles import SmsSendThrottle
 from accounts.tokens import SessionRefreshToken
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -120,6 +122,45 @@ class SmsVerifyTests(APITestCase):
         self.assertEqual(resp.status_code, 429)
         resp = self.verify(code)       # 锁定期间即使码对也不行
         self.assertEqual(resp.status_code, 429)
+
+
+class SmsCodeStateTests(TestCase):
+    """验证码状态机:HMAC 存储 + Lua 原子校验 + 重放窗口。"""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.phone = "13800138000"
+
+    def test_store_then_verify_ok(self):
+        sms_codes.store(self.phone, "123456")
+        self.assertIs(sms_codes.verify(self.phone, "123456"), sms_codes.CodeResult.OK)
+
+    def test_verify_wrong_code(self):
+        sms_codes.store(self.phone, "123456")
+        self.assertIs(sms_codes.verify(self.phone, "000000"), sms_codes.CodeResult.WRONG)
+
+    def test_verify_without_code_is_expired(self):
+        self.assertIs(sms_codes.verify(self.phone, "123456"), sms_codes.CodeResult.EXPIRED)
+
+    def test_five_wrong_attempts_lock(self):
+        sms_codes.store(self.phone, "123456")
+        for _ in range(settings.SMS_MAX_ATTEMPTS - 1):
+            self.assertIs(sms_codes.verify(self.phone, "000000"), sms_codes.CodeResult.WRONG)
+        self.assertIs(sms_codes.verify(self.phone, "000000"), sms_codes.CodeResult.JUST_LOCKED)
+        self.assertIs(sms_codes.verify(self.phone, "123456"), sms_codes.CodeResult.LOCKED)
+
+    def test_success_shrinks_ttl_to_replay_window_and_allows_replay(self):
+        sms_codes.store(self.phone, "123456")
+        sms_codes.verify(self.phone, "123456")
+        ttl = get_redis_connection("default").ttl(f"sms:code:{self.phone}")
+        self.assertLessEqual(ttl, settings.SMS_REPLAY_TTL)
+        self.assertIs(sms_codes.verify(self.phone, "123456"), sms_codes.CodeResult.OK)
+
+    def test_code_is_not_stored_in_plaintext(self):
+        sms_codes.store(self.phone, "123456")
+        stored = get_redis_connection("default").hgetall(f"sms:code:{self.phone}")
+        self.assertNotIn(b"123456", stored.values())
 
 
 class ImUserIdTests(TestCase):
