@@ -101,17 +101,24 @@ void main() {
     expect(fake.log, contains('send:u9:你好呀'));
   });
 
-  test('发送失败:气泡撤掉并抛出', () async {
+  test('发送失败:气泡保留并标记 isFailed,重发后恢复', () async {
     final container = makeContainer();
     await container.read(imStatusProvider.notifier).login();
     await container.read(chatProvider('u9').future);
     fake.sendError = const ImException(6013, 'network');
 
-    await expectLater(
-      container.read(chatProvider('u9').notifier).send('你好'),
-      throwsA(isA<ImException>()),
-    );
+    await container.read(chatProvider('u9').notifier).send('你好');
 
-    expect(container.read(chatProvider('u9')).value, isEmpty);
+    var list = container.read(chatProvider('u9')).value!;
+    expect(list.single.isFailed, isTrue);
+    expect(list.single.isPending, isFalse);
+
+    fake.sendError = null;
+    await container.read(chatProvider('u9').notifier).retry(list.single);
+
+    list = container.read(chatProvider('u9')).value!;
+    expect(list.single.isFailed, isFalse);
+    expect(list.single.isPending, isFalse);
+    expect(fake.log.where((l) => l == 'send:u9:你好').length, 2);
   });
 }

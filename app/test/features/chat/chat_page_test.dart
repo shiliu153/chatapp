@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
-import 'package:chatapp_app/features/chat/widgets/message_bubble.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
@@ -147,7 +146,7 @@ void main() {
     expect(tester.widget<TextField>(find.byKey(const Key('chat.input'))).controller!.text, isEmpty);
   });
 
-  testWidgets('发送失败 → SnackBar 提示,气泡撤掉', (tester) async {
+  testWidgets('发送失败 → 气泡保留 + 叹号;点叹号重发成功', (tester) async {
     fake.sendError = const ImException(6013, 'network');
     await pumpChat(tester);
 
@@ -155,9 +154,15 @@ void main() {
     await tester.tap(find.byKey(const Key('chat.send')));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('发送失败'), findsOneWidget);
-    // 气泡撤掉了(输入框里还留着原文,别用 find.text 断言)
-    expect(find.byType(MessageBubble), findsNothing);
+    expect(find.text('你好'), findsOneWidget); // 消息还在
+    expect(find.byKey(const Key('chat.retry')), findsOneWidget); // 有叹号
+
+    fake.sendError = null; // 网络恢复
+    await tester.tap(find.byKey(const Key('chat.retry')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('chat.retry')), findsNothing);
+    expect(fake.log.where((l) => l == 'send:u9:你好').length, 2); // 重发走了 send
   });
 
   testWidgets('收到实时消息 → 立即上屏', (tester) async {

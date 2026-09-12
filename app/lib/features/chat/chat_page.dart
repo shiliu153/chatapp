@@ -84,8 +84,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       reverse: true, // 新消息在底部,进来就停在最新一条
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       itemCount: items.length,
-                      itemBuilder: (context, index) =>
-                          MessageBubble(message: items[items.length - 1 - index]),
+                      itemBuilder: (context, index) {
+                        final message = items[items.length - 1 - index];
+                        return MessageBubble(
+                          message: message,
+                          onRetry: () =>
+                              ref.read(chatProvider(widget.peerId).notifier).retry(message),
+                        );
+                      },
                     ),
             ),
           ),
