@@ -122,3 +122,42 @@ Map<String, dynamic> pageJson(List<dynamic> items, {bool hasNext = false}) => {
       'previous': null,
       'results': items,
     };
+
+/// 造一条动态(GET /posts 里的一条);字段可覆盖。
+Map<String, dynamic> postJson({
+  int id = 1,
+  int authorId = 9,
+  String nickname = 'Alice',
+  String? avatarUrl,
+  String text = '你好',
+  List<String> images = const [],
+  int likeCount = 0,
+  int commentCount = 0,
+  bool likedByMe = false,
+  String createdAt = '2026-09-12T20:00:00+08:00',
+}) =>
+    {
+      'id': id,
+      'author': {'user_id': authorId, 'nickname': nickname, 'avatar_url': avatarUrl},
+      'text': text,
+      'images': images,
+      'like_count': likeCount,
+      'comment_count': commentCount,
+      'liked_by_me': likedByMe,
+      'created_at': createdAt,
+    };
+
+/// 造一条评论;字段可覆盖。
+Map<String, dynamic> commentJson({
+  int id = 1,
+  int authorId = 9,
+  String nickname = 'Bob',
+  String text = '评论',
+  String createdAt = '2026-09-12T20:00:00+08:00',
+}) =>
+    {
+      'id': id,
+      'author': {'user_id': authorId, 'nickname': nickname, 'avatar_url': null},
+      'text': text,
+      'created_at': createdAt,
+    };

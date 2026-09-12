@@ -6,6 +6,7 @@ import '../chat/conversations_controller.dart';
 import '../discovery/discovery_page.dart';
 import '../profile/my_profile_page.dart';
 import '../profile/profile_controller.dart';
+import '../square/square_page.dart';
 import 'banned_page.dart';
 
 class HomeShell extends ConsumerStatefulWidget {
@@ -18,7 +19,7 @@ class HomeShell extends ConsumerStatefulWidget {
 class _HomeShellState extends ConsumerState<HomeShell> {
   int _index = 0;
 
-  static const _pages = [DiscoveryPage(), ChatsPage(), MyProfilePage()];
+  static const _pages = [DiscoveryPage(), SquarePage(), ChatsPage(), MyProfilePage()];
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +35,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         onDestinationSelected: (index) => setState(() => _index = index),
         destinations: [
           const NavigationDestination(icon: Icon(Icons.style_outlined), label: '发现'),
+          const NavigationDestination(icon: Icon(Icons.grid_view_outlined), label: '广场'),
           NavigationDestination(
             icon: Badge.count(
               count: unread,

@@ -28,3 +28,15 @@ String formatChatTimestamp(DateTime time, {DateTime? now}) {
   if (time.year == n.year) return '${time.month}月${time.day}日 $hm';
   return '${time.year}年${time.month}月${time.day}日 $hm';
 }
+
+/// 动态相对时间:刚刚 / x 分钟前 / x 小时前 / x 天前(7 天内)/ M 月 d 日 / yyyy 年 M 月 d 日。
+String formatPostTime(DateTime time, {DateTime? now}) {
+  final n = now ?? DateTime.now();
+  final diff = n.difference(time);
+  if (diff.inMinutes < 1) return '刚刚';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
+  if (diff.inHours < 24) return '${diff.inHours} 小时前';
+  if (diff.inDays < 7) return '${diff.inDays} 天前';
+  if (time.year == n.year) return '${time.month} 月 ${time.day} 日';
+  return '${time.year} 年 ${time.month} 月 ${time.day} 日';
+}

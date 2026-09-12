@@ -13,18 +13,24 @@ const _loggedIn = {'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7};
 ScriptedAdapter _adapter({required Map<String, dynamic> profile}) => ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
       'GET /users/me': (options) => ok(profile),
+      'GET /posts': (options) => ok(pageJson([])),
     });
 
 void main() {
-  testWidgets('三个 Tab 都在;「我的」显示昵称与资料入口', (tester) async {
+  testWidgets('四个 Tab 都在;广场可切换;「我的」显示昵称与资料入口', (tester) async {
     final adapter = _adapter(profile: profileJson(nickname: '小明'));
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(navTab('发现'), findsOneWidget);
+    expect(navTab('广场'), findsOneWidget);
     expect(navTab('消息'), findsOneWidget);
     expect(navTab('我的'), findsOneWidget);
+
+    await tester.tap(navTab('广场'));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有动态,发一条吧'), findsOneWidget);
 
     await tester.tap(navTab('我的'));
     await tester.pumpAndSettle();
