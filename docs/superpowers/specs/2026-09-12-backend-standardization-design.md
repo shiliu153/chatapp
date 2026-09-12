@@ -79,7 +79,7 @@
 1. 序列化校验号码(沿用 `PhoneSerializer`);
 2. Redis 原子占位:`cache.add("sms:send:{phone}", 1, SMS_RESEND_INTERVAL)` 失败 → 429(`42901`)+ `Retry-After`;
 3. 生成 6 位码(dev 固定 `123456`),**HMAC-SHA256 后**存 Redis hash(见 §5.2);
-4. 入队 `notifications.tasks.send_sms_code(phone, code)`;入队失败 → 503(`50301`,用户拿不到码,必须 fail-closed);
+4. 入队 `notifications.tasks.send_sms_code(phone, code)`;入队失败 → **回滚占位与码**(删 `sms:send`/`sms:code`,否则用户被 60s 间隔卡住却收不到码)并回 503(`50301`,必须 fail-closed);
 5. 响应 `{"status": "ok"}`。dev 下 `issue_code` 仍直接打日志(手测在 runserver 控制台可见码)。
 
 **`POST /auth/sms/verify`(目标 <100ms)**
@@ -93,7 +93,7 @@
 
 | 键 | 类型 | 内容 | TTL |
 |---|---|---|---|
-| `sms:code:{phone}` | Hash | `h`=HMAC(code)、`n`=失败次数、`c`=consumed 标记 | 初始 300s;成功消费后改写为 60s(重放窗口) |
+| `sms:code:{phone}` | Hash | `h`=HMAC(code)、`n`=失败次数、`c`=consumed 标记 | 初始 = `SMS_CODE_TTL`(300s);成功消费后改写为 `SMS_REPLAY_TTL`(新增配置,默认 60s) |
 | `sms:lock:{phone}` | String | 错误超限锁 | 900s |
 | `sms:send:{phone}` | String | 重发间隔占位 | 60s |
 
