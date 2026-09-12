@@ -169,3 +169,17 @@ def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
         logger.exception("IM 发消息失败 %s -> %s", from_identifier, to_identifier)
         return False
     return _check(result, "sendmsg")
+
+
+def set_profile_nick(identifier: str, nickname: str) -> bool:
+    """把昵称同步到 IM 资料(会话列表 showName 的来源,名字降级兜底的根)。"""
+    payload = {
+        "From_Account": identifier,
+        "ProfileItem": [{"Tag": "Tag_Profile_IM_Nick", "Value": nickname}],
+    }
+    try:
+        result = _request("profile", "profile_set_field", payload)
+    except Exception:
+        logger.exception("IM profile_set_field 调用失败 identifier=%s", identifier)
+        return False
+    return _check(result, "profile_set_field")

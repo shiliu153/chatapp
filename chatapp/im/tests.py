@@ -12,7 +12,7 @@ from users.models import Profile, ProfileStatus
 
 from .client import (_request, black_list_add, black_list_delete, ensure_account,
                      import_account, kick_user, send_ban_lifted, send_ban_notice,
-                     send_custom_elem, send_match_notice, send_text)
+                     send_custom_elem, send_match_notice, send_text, set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 
 User = get_user_model()
@@ -128,6 +128,24 @@ class ImClientTests(SimpleTestCase):
     def test_kick_user_network_error_returns_false(self):
         with patch("im.client._request", side_effect=Exception("boom")):
             self.assertFalse(kick_user("u5"))
+
+    def test_set_profile_nick_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(set_profile_nick("u1", "小明"))
+        args, _ = req.call_args
+        self.assertEqual(args[0], "profile")
+        self.assertEqual(args[1], "profile_set_field")
+        self.assertEqual(args[2]["From_Account"], "u1")
+        self.assertEqual(args[2]["ProfileItem"],
+                         [{"Tag": "Tag_Profile_IM_Nick", "Value": "小明"}])
+
+    def test_set_profile_nick_error_returns_false(self):
+        with patch("im.client._request", return_value={"ErrorCode": 9999}):
+            self.assertFalse(set_profile_nick("u1", "小明"))
+
+    def test_set_profile_nick_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=Exception("boom")):
+            self.assertFalse(set_profile_nick("u1", "小明"))
 
     def test_black_list_add_payload(self):
         with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
