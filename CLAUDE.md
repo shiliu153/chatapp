@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **当前进度:M3 已完成**(M0 地基 + M1 后端全量 + M2a 前端登录/引导 + M2b 发现卡片流 + M2c IM 接入 + M3 合规收尾:moderation 三模型与 Django admin 审核台、举报/拉黑全链路(含 IM 黑名单同步与踢下线)、重封禁全域 403、首启协议弹窗与协议全文、Android 签名 APK;后端 153 测试、前端 115 测试全绿,analyze 零告警)。核心链路(登录/互滑/聊天/资料卡/举报/拉黑)已双端手测;协议、照片审核、封禁页等细节项待后续补验。
 
-**M3 后追加:运营审核台 `/ops/`**(独立 Django app `ops`,is_staff 登录;举报处理 / 照片审核(含 reviewed_by/at 审计)/ 用户封禁解封 / 操作日志;后端测试 180 全绿。设计: `specs/2026-09-11-moderation-console-design.md`;计划: `plans/2026-09-11-ops-console.md`)。**再追加:封禁系统消息 + 消息页改版**(封禁/解封以「系统通知」身份发 IM 消息说明原因与影响,重封先发后踢;App 底部「会话」改称「消息」并重构为抖音式版式;后端 190 / 前端 120 测试全绿。设计: `specs/2026-09-11-ban-notice-message-page-design.md`;计划: `plans/2026-09-11-ban-notice-message-page.md`)。**三追加:微信式改版 + IM 昵称同步**(聊天页改微信版式:方头像/品牌粉气泡/时间分组/长按复制删除/表情面板/＋面板发图片/失败重发;我的页与别人的资料页改微信行版式,ID 行 + ··· 菜单 + 相册大图;IM 昵称同步修掉「拉黑后会话名降级成裸 id」;后端 199 / 前端 141 测试全绿。设计: `specs/2026-09-12-chat-profile-wechat-design.md`;计划: `plans/2026-09-12-chat-profile-wechat.md`)。
+**M3 后追加:运营审核台 `/ops/`**(独立 Django app `ops`,is_staff 登录;举报处理 / 照片审核(含 reviewed_by/at 审计)/ 用户封禁解封 / 操作日志;后端测试 180 全绿。设计: `specs/2026-09-11-moderation-console-design.md`;计划: `plans/2026-09-11-ops-console.md`)。**再追加:封禁系统消息 + 消息页改版**(封禁/解封以「系统通知」身份发 IM 消息说明原因与影响,重封先发后踢;App 底部「会话」改称「消息」并重构为抖音式版式;后端 190 / 前端 120 测试全绿。设计: `specs/2026-09-11-ban-notice-message-page-design.md`;计划: `plans/2026-09-11-ban-notice-message-page.md`)。**三追加:微信式改版 + IM 昵称同步**(聊天页改微信版式:方头像/品牌粉气泡/时间分组/长按复制删除/表情面板/＋面板发图片/失败重发;我的页与别人的资料页改微信行版式,ID 行 + ··· 菜单 + 相册大图;IM 昵称同步修掉「拉黑后会话名降级成裸 id」;后端 199 / 前端 141 测试全绿。设计: `specs/2026-09-12-chat-profile-wechat-design.md`;计划: `plans/2026-09-12-chat-profile-wechat.md`)。**四追加:单设备登录 + 造数工具**(后登录的设备作废先登录设备的 access/refresh:User.session_version + JWT claim + 鉴权/刷新校验,401+code 40101;被顶设备经「IM 踢下线事件 / 心跳自检 / 下一次请求」三条路退出并提示原因;新增 `seed_fake_users` 批量造数命令与 IM 头像同步;后端 208 / 前端 150 测试全绿)。
 设计与计划文档在 `docs/superpowers/`(spec: `specs/2026-09-09-dating-app-mvp-design.md`;M0: `plans/2026-09-09-m0-foundation.md`;M1a: `plans/2026-09-10-m1a-auth-profile.md`;M1b: `plans/2026-09-10-m1b-im-discovery.md`;M2a: `plans/2026-09-10-m2a-auth-onboarding.md`;M2b: `plans/2026-09-10-m2b-discovery-matching.md`;M2c: `plans/2026-09-10-m2c-im-chat.md`;M3 设计: `specs/2026-09-11-m3-compliance-design.md`;M3: `plans/2026-09-11-m3-compliance.md`)。**下一步 M4**(上线:服务器 + 域名部署;短信/内容安全/COS 接真;商店上架;iOS 打包决策;ICP 备案为并行事项)。
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
@@ -39,6 +39,7 @@ python manage.py runserver         # 开发服务器 :8000
 python manage.py makemigrations && python manage.py migrate
 python manage.py im_send --from u2 --to u3 --text "你好"   # 手测:代发消息(--notice 发灰条)
 python manage.py dev_reset_pair --a u8 --b u9              # 手测:清两人的滑卡/配对,重演配对流程
+python manage.py seed_fake_users --count 20                # 手测:批量建资料完善的女号(幂等;号码从已分配最大值续编)
 ```
 
 **前端**(cwd = `app/`):
@@ -109,6 +110,8 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **手测代发消息**(不用第二台设备):`python manage.py im_send --from uX --to uY --text "你好"` 或 `--notice`(发灰条事件);走 REST,账号须已导入。
 - **系统通知账号**:`system_notice`(昵称「系统通知」)是封禁/解封消息的发送方;新环境(含生产)跑一次 `python manage.py im_setup_system_account`(幂等,已存在 7015 视为成功;开发库 2026-09-11 已建)。账号缺失时封禁动作照常,只是消息发送失败记日志。
 - **昵称同步**:改昵称后后端把新昵称同步到 IM(`im/client.py::set_profile_nick` → **`profile/portrait_set`**;⚠️ 接口名写成 `profile_set_field` 之类的错名会返回 60008「request format error」)。存量补一次 `python manage.py im_sync_nicknames`(幂等)。会话列表 `showName` 与聊天页标题兜底都靠它——拉黑后被拉黑方仍能显示真名而不是裸 id(2026-09-12 修)。
+- **头像同步**:同接口、Tag 用 **`Tag_Profile_IM_Image`**(`set_profile_avatar`;⚠️ 猜成 `Tag_Profile_IM_Url` 会回 40009「Invalid field」,2026-09-12 实测)。造数命令会顺带同步。
+- **管理员 kick**:`im_open_login_svc/kick`(body `{"UserID": u}`)会让该账号**所有历史 userSig 失效**并断开在线连接;单设备登录靠它清旧实例(见「单设备登录」节)。⚠️ 没有 `…/logout` 这个接口(调用回 60008)。
 - **封禁/解封系统消息**:custom 消息 `type=ban_notice`(带 `level: light|heavy`)/`ban_lifted`,Desc 为完整中文说明;统一挂在 `moderation/services.py::log_ban_change` 的后台线程(admin 与 /ops/ 同源自动覆盖)。重封禁走 `_send_notice_then_kick`:同线程**先发消息再踢下线**。重封禁用户被封期间进不了消息页,消息留档、解封后可见。
 - 详细设计(配对灰条消息、会话列表数据源、审核合规)见 spec 文档,写 IM 相关代码前先读它。
 
@@ -157,6 +160,21 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **图片消息**:`ChatMessageKind.image` + `localPath`(发送中本机文件)/`imageUrl`(缩略)/`imageLargeUrl`(全屏);`ImClient.sendImage/deleteMessage`;该 SDK **无原生重发 API**,`resend` 是 `ImClient` 里的默认实现(用原内容重发),所以实现类必须 `extends ImClient` 而不是 `implements`(implements 不继承具体方法)
 - ⚠️ **`V2TimImageElem.fromJson` 会读 `CommonUtils.appFileDir`**:VM 测试里构造图片消息前要 mock path_provider 通道 + `CommonUtils.init()`(见 `test/im/tencent_im_client_test.dart` 的 setUpAll);真机由 initSDK 初始化,无需处理
 - **标题降级链**:matchCache → IM 会话名(昵称同步后有效)→ 裸 id;聊天页 `chat_page.dart::_imNameOf` 从 `conversationsProvider` 取 `showName`
+
+## 单设备登录(2026-09-12 新增,双模拟器实测)
+
+**产品规则:一个账号同时只允许一台设备在线**,后登录的把先登录的顶下线。腾讯 IM 控制台侧的「单平台登录」实测**不可靠**(腾讯不下发踢信号),所以我们自己实现,不依赖腾讯:
+
+- **后端作废机制**:`User.session_version` 每次登录 +1,写进 access/refresh 的 JWT claim(令牌类在 `accounts/tokens.py`);`accounts/authentication.py::SessionJwtAuthentication` 鉴权时比对版本,不一致回 **401 + `code: 40101`**(message「账号已在其他设备登录」);`accounts/views.py::SessionTokenRefreshView` 刷新时同样校验。无 claim 的历史令牌按初始版本兼容(测试自造令牌不受影响)
+- **重新登录时踢旧 IM 会话**:`accounts/views.py` 登录分支调 `im_client.kick_and_logout`(即 `im_open_login_svc/kick`;文档:+实测——**kick 会让该账号所有历史 userSig 失效**,旧实例必须拿新签名重登)。不踢的话新设备的 IM 登录会被服务端拒绝(实测表现为 **6206**)
+- **IM 6206/70001 自动重试**:`im_manager.dart` 对这两个码重拉签名重试一次(顶号的瞬时冲突,重试通常就过了)
+- **被顶设备的三条退出路径**(互为兜底):
+  1. IM 踢下线事件(`ImKickedOffline`)→ 清凭证强退(即时,但腾讯下发不稳定)
+  2. **登录态心跳**:`session.dart::SessionController._startHeartbeat`,登录后每 45 秒请求一次 `/users/me`,40101 即退出(静止时最长 45 秒退出;测试里 `heartbeatIntervalProvider` override 成 null 关掉)
+  3. 下一次业务请求 40101
+- **⚠️ 40101 不能一刀切强退**(踩过):登录竞态里,新设备带着旧令牌的在途请求会被拒——若被拒令牌 ≠ 本机当前令牌,说明本机已有新令牌,应**换新令牌重试**而不是强退;凭证已空时收到 401(被顶号后的孤儿请求)也要按被顶号收尾,否则前端兜底成「网络不给力」误导排查
+- **退出提示**:`TokenStore.forceLogout(reason)` 记一次性原因,登录页首帧 SnackBar 展示「账号已在其他设备登录,请重新登录」
+- 手测:两台模拟器先后登同一账号 → 后登录端正常,先登录端应即时/≤45s 退回登录页带提示
 
 ## 合规与审核(M3 已实测)
 
