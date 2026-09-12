@@ -116,7 +116,10 @@ DATABASES = {
 TESTING = sys.argv[1:2] == ["test"]
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/1")
+# ⚠️ 环境变量必须叫 BROKER_URL:celery/app/utils.py 的 broker_url 属性是
+# 「os.environ['CELERY_BROKER_URL'] 优先于本设置」——叫 CELERY_BROKER_URL 会
+# 让 .env 的值永远压过下面的 TESTING 覆盖(测试任务会漏进开发 broker)
+CELERY_BROKER_URL = os.getenv("BROKER_URL", "redis://127.0.0.1:6379/1")
 if TESTING:
     # 测试用独立 DB 序号:清库不误伤开发数据;任务只入队不执行(无 worker)
     REDIS_URL = "redis://127.0.0.1:6379/15"

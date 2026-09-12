@@ -29,3 +29,10 @@ class CacheBackendTests(TestCase):
 class CelerySkeletonTests(TestCase):
     def test_ping_task_returns_pong(self):
         self.assertEqual(ping.apply().get(), "pong")
+
+    def test_broker_uses_isolated_db_in_tests(self):
+        # ⚠️ Celery 的 broker_url 属性会优先读环境变量 CELERY_BROKER_URL,
+        # 所以 .env 里的键必须叫 BROKER_URL,否则测试任务会漏进开发 broker(DB1)
+        from config.celery import app
+        self.assertTrue(app.conf.broker_url.endswith("/14"),
+                        f"测试 broker 应指向 DB14,实际: {app.conf.broker_url}")
