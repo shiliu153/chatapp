@@ -11,7 +11,8 @@ from django.test import TestCase
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from moderation.models import ReportStatus, ReportType
+from moderation.models import Block, ReportStatus, ReportType
+from users.models import Profile, ProfileStatus
 
 from .models import Post, PostComment, PostImage, PostLike, PostReport
 
@@ -151,3 +152,80 @@ class PostCreateTests(FeedApiMixin, APITestCase):
                                               format="multipart").status_code, 201)
             self.assertEqual(self.client.post(self.URL, {"text": "3"},
                                               format="multipart").status_code, 429)
+
+
+class FeedFlowTests(FeedApiMixin, APITestCase):
+    def setUp(self):
+        self.use_temp_media()
+        self.me = self._make_user("13800138000", "我")
+        self.other = self._make_user("13900139000", "小红")
+        self.login(self.me)
+
+    def _make_user(self, phone, nickname):
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(user=user, nickname=nickname, status=ProfileStatus.COMPLETE)
+        return user
+
+    def test_flow_orders_newest_first(self):
+        old = Post.objects.create(author=self.other, text="旧")
+        new = Post.objects.create(author=self.other, text="新")
+        data = self.client.get("/api/v1/posts").json()
+        self.assertEqual([item["id"] for item in data["results"]], [new.id, old.id])
+        self.assertEqual(data["results"][0]["author"]["nickname"], "小红")
+
+    def test_flow_paginates(self):
+        for i in range(25):
+            Post.objects.create(author=self.other, text=f"p{i}")
+        data = self.client.get("/api/v1/posts").json()
+        self.assertEqual(data["count"], 25)
+        self.assertEqual(len(data["results"]), 20)
+        self.assertIsNotNone(data["next"])
+
+    def test_flow_excludes_blocked_both_ways(self):
+        Block.objects.create(blocker=self.me, blocked=self.other)
+        Post.objects.create(author=self.other, text="看不到")
+        self.assertEqual(self.client.get("/api/v1/posts").json()["results"], [])
+        Block.objects.all().delete()
+        Block.objects.create(blocker=self.other, blocked=self.me)
+        self.assertEqual(self.client.get("/api/v1/posts").json()["results"], [])
+
+    def test_flow_hides_heavy_banned_author(self):
+        Post.objects.create(author=self.other, text="封号内容")
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(self.client.get("/api/v1/posts").json()["results"], [])
+
+    def test_light_banned_still_visible(self):
+        Post.objects.create(author=self.other, text="轻封可见")
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_LIGHT)
+        self.assertEqual(len(self.client.get("/api/v1/posts").json()["results"]), 1)
+
+    def test_like_and_comment_counts_and_liked_by_me(self):
+        post = Post.objects.create(author=self.other, text="计数")
+        PostLike.objects.create(post=post, user=self.me)
+        PostComment.objects.create(post=post, author=self.other, text="评论")
+        item = self.client.get("/api/v1/posts").json()["results"][0]
+        self.assertEqual(item["like_count"], 1)
+        self.assertEqual(item["comment_count"], 1)
+        self.assertTrue(item["liked_by_me"])
+
+    def test_detail_visible_returns_post(self):
+        post = Post.objects.create(author=self.other, text="看详情")
+        resp = self.client.get(f"/api/v1/posts/{post.id}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["text"], "看详情")
+
+    def test_detail_invisible_returns_404(self):
+        post = Post.objects.create(author=self.other, text="拉黑后不可见")
+        Block.objects.create(blocker=self.other, blocked=self.me)
+        self.assertEqual(self.client.get(f"/api/v1/posts/{post.id}").status_code, 404)
+
+    def test_detail_heavy_banned_author_returns_404(self):
+        post = Post.objects.create(author=self.other, text="重封")
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(self.client.get(f"/api/v1/posts/{post.id}").status_code, 404)
+
+    def test_mine_only_shows_own(self):
+        mine = Post.objects.create(author=self.me, text="我的")
+        Post.objects.create(author=self.other, text="别人的")
+        data = self.client.get("/api/v1/posts/mine").json()
+        self.assertEqual([item["id"] for item in data["results"]], [mine.id])

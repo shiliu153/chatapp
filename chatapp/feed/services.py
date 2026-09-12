@@ -17,4 +17,6 @@ def visible_posts(viewer):
             .annotate(like_count=Count("likes", distinct=True),
                       comment_count=Count("comments", distinct=True),
                       liked_by_me=Exists(
-                          PostLike.objects.filter(post=OuterRef("pk"), user=viewer))))
+                          PostLike.objects.filter(post=OuterRef("pk"), user=viewer)))
+            # annotate 触发 GROUP BY 时 Meta.ordering 会被丢弃,必须显式排序
+            .order_by("-created_at", "-id"))
