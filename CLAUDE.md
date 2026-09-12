@@ -39,7 +39,7 @@ python manage.py runserver         # 开发服务器 :8000
 python manage.py makemigrations && python manage.py migrate
 python manage.py im_send --from u2 --to u3 --text "你好"   # 手测:代发消息(--notice 发灰条)
 python manage.py dev_reset_pair --a u8 --b u9              # 手测:清两人的滑卡/配对,重演配对流程
-python manage.py seed_fake_users --count 20                # 手测:批量建资料完善的女号(幂等;号码从已分配最大值续编)
+python manage.py seed_fake_users --count 20                # 手测:批量建资料完善的女号(幂等;号码从已分配最大值续编。命令内直调 IM 同步昵称/头像,不必等 worker)
 ```
 
 **Redis / Celery**(验证码、限流、异步 IM 副作用都靠它们;cwd = `chatapp/`):
@@ -115,15 +115,15 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - REST API 调用格式:`https://console.tim.qq.com/v4/{service}/{command}?sdkappid=&identifier=&usersig=&random=&contenttype=json`(usersig 需 URL 编码)。
 - ⚠️ **`openim/sendmsg` 的 `identifier` 必须是管理员**(`administrator`),发送方靠 body 的 `From_Account` 指定;错用发送方身份会报 `60010 set the identifier field ... to the admin account`。2026-09-10 实测修正。
 - ⚠️ **`im_open_login_svc/account_check` 别用来验签**:本应用下它对任何参数组合都返回 `70402 Invalid parameters`(与签名无关,同一签名调 `account_import` 返回 0)。验签一律用 `account_import`。
-- **配对灰条消息**:配对成功时 `send_match_notice(a, b)` 给**双方各发一条** `TIMCustomElem`,`MsgContent.Data` = `{"type":"match_notice"}`,`Desc` = "你们已互相喜欢,开始聊天吧"(M2 端拦截该类型渲染成居中灰条,会话随之创建)。⚠️ 2026-09-10 起**改在后台线程发**(`discovery/services.py::_notify_async`):同步发两条各 ~0.45s,「配对成功」弹窗被拖慢近 1 秒;后端测试 patch `discovery.services._notify_async`(别 patch `im_client.send_match_notice`,那是线程里的真实路径)。
+- **配对灰条消息**:配对成功时 `send_match_notice(a, b)` 给**双方各发一条** `TIMCustomElem`,`MsgContent.Data` = `{"type":"match_notice"}`,`Desc` = "你们已互相喜欢,开始聊天吧"(M2 端拦截该类型渲染成居中灰条,会话随之创建)。⚠️ 2026-09-12 第 2 期起**经任务队列发**(`im/tasks.py::send_match_notice`,参数是 user_id):同步发两条各 ~0.45s,「配对成功」弹窗被拖慢近 1 秒;后端测试 patch `im.tasks.send_match_notice.delay`。
 - 账号导入:**所有 IM 副作用(建号/踢人/黑名单/通知)统一走 `im/tasks.py` 的 Celery 任务**,由 `transaction.on_commit(..., robust=True)` 入队;登录路径不再同步调腾讯(响应路径禁止外部调用)。`/im/user_sig` 另有存在性保障:Redis 标记缺失时幂等补建(`ensure_account`,7015 视为成功)。
 - **Flutter 端 IM SDK 包是 `tencent_cloud_chat_sdk`(9.0.x,2026-06 发布)**:spec 早期写的 `tim_plus_flutter` 在 pub.dev 上**不存在**,已更正。只用它底层 API,不引 `tencent_cloud_chat_uikit`。支持 Android(x86_64 库有,模拟器能跑)/iOS/Web/Windows/macOS,Android minSdk 19。
 - **手测代发消息**(不用第二台设备):`python manage.py im_send --from uX --to uY --text "你好"` 或 `--notice`(发灰条事件);走 REST,账号须已导入。
 - **系统通知账号**:`system_notice`(昵称「系统通知」)是封禁/解封消息的发送方;新环境(含生产)跑一次 `python manage.py im_setup_system_account`(幂等,已存在 7015 视为成功;开发库 2026-09-11 已建)。账号缺失时封禁动作照常,只是消息发送失败记日志。
 - **昵称同步**:改昵称后后端把新昵称同步到 IM(`im/client.py::set_profile_nick` → **`profile/portrait_set`**;⚠️ 接口名写成 `profile_set_field` 之类的错名会返回 60008「request format error」)。存量补一次 `python manage.py im_sync_nicknames`(幂等)。会话列表 `showName` 与聊天页标题兜底都靠它——拉黑后被拉黑方仍能显示真名而不是裸 id(2026-09-12 修)。
-- **头像同步**:同接口、Tag 用 **`Tag_Profile_IM_Image`**(`set_profile_avatar`;⚠️ 猜成 `Tag_Profile_IM_Url` 会回 40009「Invalid field」,2026-09-12 实测)。造数命令会顺带同步。
+- **头像同步**:同接口、Tag 用 **`Tag_Profile_IM_Image`**(`set_profile_avatar`;⚠️ 猜成 `Tag_Profile_IM_Url` 会回 40009「Invalid field」,2026-09-12 实测)。造数命令会顺带同步;**照片过审(含 `AUTO_APPROVE=1` 上传即过审)也会经 `im/tasks.py::sync_profile(user, "avatar")` 同步**(绝对 URL 用 `MEDIA_BASE_URL` 拼)。
 - **管理员 kick**:`im_open_login_svc/kick`(body `{"UserID": u}`)会让该账号**所有历史 userSig 失效**并断开在线连接;单设备登录靠它清旧实例(见「单设备登录」节)。⚠️ 没有 `…/logout` 这个接口(调用回 60008)。
-- **封禁/解封系统消息**:custom 消息 `type=ban_notice`(带 `level: light|heavy`)/`ban_lifted`,Desc 为完整中文说明;统一挂在 `moderation/services.py::log_ban_change` 的后台线程(admin 与 /ops/ 同源自动覆盖)。重封禁走 `_send_notice_then_kick`:同线程**先发消息再踢下线**。重封禁用户被封期间进不了消息页,消息留档、解封后可见。
+- **封禁/解封系统消息**:custom 消息 `type=ban_notice`(带 `level: light|heavy`)/`ban_lifted`,Desc 为完整中文说明;统一由 `moderation/services.py::log_ban_change` 入队 `im/tasks.ban_notice|ban_lifted`(admin 与 /ops/ 同源自动覆盖)。重封禁在同一任务内**先发消息再踢下线**。重封禁用户被封期间进不了消息页,消息留档、解封后可见。
 - 详细设计(配对灰条消息、会话列表数据源、审核合规)见 spec 文档,写 IM 相关代码前先读它。
 
 ## 前端约定与踩坑(M2a 已实测)
@@ -188,14 +188,18 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **退出提示**:`TokenStore.forceLogout(reason)` 记一次性原因,登录页首帧 SnackBar 展示「账号已在其他设备登录,请重新登录」
 - 手测:两台模拟器先后登同一账号 → 后登录端正常,先登录端应即时/≤45s 退回登录页带提示
 
-## 接口标准化(2026-09-12 第 1 期:基建 + 登录链路)
+## 接口标准化(2026-09-12 第 1+2 期:登录链路 + 全后端对齐)
 
-设计见 `docs/superpowers/specs/2026-09-12-backend-standardization-design.md`,计划 `docs/superpowers/plans/2026-09-12-backend-standardization.md`(第 2 期:其余 IM 任务迁移 / request_id / 请求日志 / 限流维度 / 分页;第 3 期:部署形态)。
+设计见 `docs/superpowers/specs/2026-09-12-backend-standardization-design.md`;第 1 期计划 `docs/superpowers/plans/2026-09-12-backend-standardization.md`,第 2 期计划 `docs/superpowers/plans/2026-09-12-backend-standardization-phase2.md`(第 3 期:部署形态 gunicorn/nginx/systemd + `/readyz`)。
 
 - **铁律:HTTP 响应路径禁止任何第三方网络调用**(`requests`/腾讯 REST/短信商)。跨系统副作用一律经 Celery 任务,由 `transaction.on_commit(fn, robust=True)` 入队——⚠️ **`on_commit` 的语义是「DB 提交后」,不是「响应后」**(无 `ATOMIC_REQUESTS` 时不在事务里就立即同步执行,别再往里塞慢调用)。
 - **验证码状态机**(`accounts/sms_codes.py`):Redis hash `sms:code:{phone}`(`h`=HMAC 码/`n`=错误数/`c`=已消费)+ `sms:lock:{phone}`(15 分钟锁)+ `sms:send:{phone}`(60 秒重发占位);校验走**单个 Lua 脚本**原子完成,并发安全。校验成功不删码,TTL 缩短为 `SMS_REPLAY_TTL`(60s)= 幂等重放窗口。
 - **业务码目录**(`config/error_codes.py`):前 3 位=HTTP 状态,后 2 位序号(40101 单设备 / 40001 码过期 / 40002 码错 / 42901 发太频 / 42902 锁 / 50301 短信不可用);异常类带 `detail_code`,全局处理器透传。
-- **IM 副作用入口**:`im/tasks.py`(重试 5 次指数退避;`im/client.py` 仍永不抛异常,任务层把 False 转异常)。⚠️ moderation / discovery / users 目前**仍是旧的后台线程**(`_dispatch_async`/`_notify_async`),第 2 期统一迁到 tasks。
+- **IM 副作用入口**:`im/tasks.py` 是**唯一**入口(重试 5 次指数退避;`im/client.py` 仍永不抛异常,任务层把 False 转异常)。第 2 期起 moderation / discovery / users 的后台线程(`_dispatch_async`/`_notify_async`)已删除,全部任务化:`send_match_notice(a,b)` / `blacklist_add|remove(owner,other)` / `ban_notice(user,level,reason)`(heavy 任务内**先发后踢**)/ `ban_lifted(user)` / `sync_profile(user,kind)`(nick/avatar)。任务参数一律 **user_id**,任务内查库;**任务体内不查 request**,头像 URL 用 `settings.MEDIA_BASE_URL` 拼绝对地址。
+- **request_id 请求追踪**(`config/request_id.py` + `config/middleware.py`):响应带 `X-Request-Id`(客户端带了就回显,否则生成 uuid);日志每行 `[request_id]`(contextvar + `RequestIdFilter`),`chatapp.request` 记录「方法 路径 状态 耗时」,≥ `REQUEST_SLOW_MS`(默认 500)升 WARNING;入队时经 `before_task_publish` 信号把 request_id 塞进 Celery header,worker `task_prerun` 绑定;**错误体是 `{code, message, request_id}`**。`LOG_FILE` env 置路径则额外落盘(RotatingFileHandler,手测配 `--noreload`)。
+- **限流维度**:号码(60 秒重发占位 `sms:send:{phone}`,自有键)+ IP(DRF throttling,计数在 Redis):`sms_send` 与 `sms_verify` 各按 IP,额度走 env `SMS_SEND_IP_RATE` / `SMS_VERIFY_IP_RATE`(DEBUG 下默认放宽:200/600 per hour;生产 20/60);429 一律带 `Retry-After`(锁定时长 42902 也有)。
+- **列表分页约定**:`/matches`、`/blocks` 用 DRF `LimitOffsetPagination`(`config/pagination.py`,limit/offset,默认 20/上限 100),响应 `{count, next, previous, results}`;前端 `ApiClient.getAllPages()` 跟 `next` 拉全量(匹配缓存要全量才能翻译所有会话名)。候选卡片(`/discovery/candidates`)保持自己的 limit 语义,不在此列。
+- **头像同步**:照片过审(ops/admin 审核,或 `AUTO_APPROVE=1` 上传即过审)会入队 `sync_profile(user, "avatar")`,任务取第一张过审照片拼 `MEDIA_BASE_URL` 的绝对 URL 同步到 IM;改昵称仍走 `sync_profile(user, "nick")`。
 - **短信后端**:`notifications/backends.py`(dev 控制台打印;M4 接短信商时加实现)。开发时验证码打在 **worker 控制台**(runserver 终端另有 `[开发模式] 验证码` 一行)。
 - ⚠️ **`CELERY_` 前缀的键千万别放 `.env`**:Celery 的 `broker_url`/`result_backend` 属性是**环境变量优先**(`celery/app/utils.py`: `os.environ.get('CELERY_BROKER_URL') or 配置值`)。`load_dotenv` 一旦把 `CELERY_BROKER_URL` 灌进环境,就会压过 settings 里的一切覆盖(踩过:测试任务漏进开发 broker DB1,被 dev worker 真执行)。所以本项目的键叫 **`BROKER_URL`**;回归用例 `config.tests.CelerySkeletonTests.test_broker_uses_isolated_db_in_tests` 钉死这一点。
 
@@ -205,9 +209,9 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **admin 审核台**(`/admin/`,运营账号用 `createsuperuser` 建,登录字段是手机号):
   - 照片审核:users → 照片;列表有缩略图预览,勾选后选「通过所选照片/驳回所选照片」;动作会自动重算用户的资料完善状态(驳回可能让人掉回未完善)
   - 举报队列:moderation → 举报;把状态改成「已处理」时自动补处理人/时间;从举报点进被举报人 Profile 可直接封禁
-  - 封禁:users → 资料;改 `status` + 填 `ban_reason` 保存 → 自动写 `BanLog`(谁/何时/什么动作/原因);**重封禁会后台调 IM 踢下线**(已有 userSig 否则最长 7 天还能聊)
+  - 封禁:users → 资料;改 `status` + 填 `ban_reason` 保存 → 自动写 `BanLog`(谁/何时/什么动作/原因);**重封禁经任务队列踢 IM 下线**(已有 userSig 否则最长 7 天还能聊)
   - moderation → 拉黑/封禁日志是**只读对账页**(拉黑必须走 App 接口才会同步 IM,手工加会漏)
-- **拉黑链路**:`POST/GET /blocks`、`DELETE /blocks/{id}`;双向不可见由 `moderation.services.blocked_user_ids` 统一过滤(候选、`GET /matches`、`GET /users/{id}` 404 全靠它);IM 黑名单后台线程同步(**实测管理员 identifier 对 `sns/black_list_*` 与 `im_open_login_svc/kick` 均成立**);拉黑方本机会话由 App 端 `deleteConversation` 删除
+- **拉黑链路**:`POST/GET /blocks`、`DELETE /blocks/{id}`;双向不可见由 `moderation.services.blocked_user_ids` 统一过滤(候选、`GET /matches`、`GET /users/{id}` 404 全靠它);IM 黑名单经任务队列同步(**实测管理员 identifier 对 `sns/black_list_*` 与 `im_open_login_svc/kick` 均成立**);拉黑方本机会话由 App 端 `deleteConversation` 删除
 - **⚠️ 前端写操作后要失效相关缓存**:黑名单列表 provider 是全局缓存的,拉黑成功后必须 `ref.invalidate(blockedUsersProvider)`(M3 手测 bug:拉黑后黑名单页仍显示空)。以后加类似的「列表类」provider 写操作都要照此处理
 - **举报**:`POST /reports`,同一个人已有待处理举报 → 幂等返回已有记录(201 新建 / 200 已有);限流 20/天
 - **协议**:`app/lib/features/legal/legal_texts.dart` 存两份文本 + `legalVersion`;启动页检查本地 `legal.agreed_version`,未同意弹不可关的弹窗(不同意退出 App)。**改文案要把 legalVersion +1**,弹窗会重新出现一次;测试脚手架 `pumpApp` 默认「已同意」,协议用例传 `{'legal.agreed_version': 0}`
@@ -226,12 +230,12 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - 写操作与 admin 同源:`log_ban_change`(封禁审计+踢 IM)、`users/services.py::review_photos`(照片审核+资料状态重算+`reviewed_by/at` 审计)
 - 解封会 `refresh_status()` 重算 complete/incomplete(admin 是手改状态下拉,别混用)
 - 照片任何状态都可再审(已通过可「撤回并驳回」,用于事后处置);「已跳过」= 照片已被用户删除的陈旧页面
-- 测试纪律:任何触发 IM 的路径 mock `moderation.services._dispatch_async`
+- 测试纪律:任何触发 IM 的路径 mock `im.tasks.<任务名>.delay`(线程辅助函数已删)
 
 ## 后端测试注意事项
 
-- **测 on_commit**:`notify_match` / 登录后的 `sync_login` 入队都走 `transaction.on_commit`,测试里必须 `with self.captureOnCommitCallbacks(execute=True):` 包住请求,否则断言永远不触发。
+- **测 on_commit**:`notify_match` / 登录后的 `sync_login` / 拉黑/封禁/资料同步的入队都走 `transaction.on_commit`,测试里必须 `with self.captureOnCommitCallbacks(execute=True):` 包住请求,否则断言永远不触发。
 - **跑测试先起 Redis**(`docker compose -f docker-compose.dev.yml up -d`);测试自动用 DB15(缓存)/DB14(broker)。
-- **测试里 Celery 任务只入队、不执行**(无 worker):断言「入队了什么」用 `patch("im.tasks.sync_login.delay")` 之类;要测任务体直接 `task.run(...)`(此时 mock `im.client.*`,腾讯 REST 一次都不能真打)。
+- **测试里 Celery 任务只入队、不执行**(无 worker):断言「入队了什么」用 `patch("im.tasks.ban_notice.delay")` / `patch("im.tasks.sync_profile.delay")` 之类(第 2 期起全部 IM 副作用都在 `im/tasks.py`);要测任务体直接 `task.run(...)`(此时 mock `im.client.*`,腾讯 REST 一次都不能真打)。
 - **凡是会触发 IM 调用的用例都要 mock**:漏 mock 会真打腾讯云(用例仍会绿,因为业务函数吞异常 —— 靠跑测试时日志里有没有 `IM ... 返回错误` 来发现),且变慢、依赖网络。
 - 限流用例要 `cache.clear()`:限流计数存在 Redis 缓存里,跨用例残留会导致偶发 429(测试 DB15 与开发 DB0 隔离,clear 不会误伤)。
