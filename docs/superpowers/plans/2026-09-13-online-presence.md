@@ -1372,7 +1372,7 @@ cd ../app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat te
 Expected: 后端 326 绿;`flutter analyze` 零告警;前端 170 + 16 = 186 绿。
 若前端有别处用例因页面调了 `track` 而发 `/presence` 请求、又没铺该路由导致失败(404 兜底只影响断言请求数的用例),给对应测试文件补一行 `'GET /presence': (options) => ok({'results': []}),`。
 
-- [ ] **Step 2: 手测(双模拟器 + 后端已起)**(自动化部分已交付;手测由用户在模拟器上执行)
+- [x] **Step 2: 手测(双模拟器 + 后端已起)**(2026-09-13 双模拟器实测通过,无异常)
 
 前置:Redis 容器、runserver(:8000)、Celery worker 都在跑;两台模拟器(5554/5556)各登录一个账号(可用 `python manage.py seed_fake_users` 造的号;各自完善资料)。
 
