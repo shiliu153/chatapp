@@ -8,6 +8,7 @@ import 'package:chatapp_app/app.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/legal/legal_texts.dart';
+import 'package:chatapp_app/features/presence/presence_controller.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
 import 'fake_im_client.dart';
@@ -29,6 +30,8 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
       imClientProvider.overrideWithValue(fake),
       // 默认关掉登录态心跳:避免测试里周期性假请求干扰用例,心跳用例自己 override
       heartbeatIntervalProvider.overrideWithValue(null),
+      // 同样默认关掉在线状态的周期刷新;需要测定时的用例自己 override
+      presenceRefreshIntervalProvider.overrideWithValue(null),
     ],
     child: const ChatApp(),
   ));
