@@ -40,3 +40,12 @@ String formatPostTime(DateTime time, {DateTime? now}) {
   if (time.year == n.year) return '${time.month} 月 ${time.day} 日';
   return '${time.year} 年 ${time.month} 月 ${time.day} 日';
 }
+
+/// 最后活跃:刚刚 / x 分钟前 / x 小时前 / x 天前(在线状态文案用;7 天外数据已过期)。
+String formatLastActive(DateTime time, {DateTime? now}) {
+  final diff = (now ?? DateTime.now()).difference(time);
+  if (diff.inMinutes < 1) return '刚刚';
+  if (diff.inMinutes < 60) return '${diff.inMinutes} 分钟前';
+  if (diff.inHours < 24) return '${diff.inHours} 小时前';
+  return '${diff.inDays} 天前';
+}
