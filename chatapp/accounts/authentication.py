@@ -6,6 +6,8 @@
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from users.presence import touch
+
 from .exceptions import SingleDeviceSessionConflict
 from .models import SESSION_VERSION_DEFAULT
 
@@ -17,4 +19,5 @@ class SessionJwtAuthentication(JWTAuthentication):
         token_version = validated_token.get("session_version", SESSION_VERSION_DEFAULT)
         if token_version != user.session_version:
             raise SingleDeviceSessionConflict()
+        touch(user.id)   # 认证通过即刷新「最后活跃」;失败静默(内部兜底)
         return user

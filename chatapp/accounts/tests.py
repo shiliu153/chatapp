@@ -379,3 +379,33 @@ class SeedFakeUsersTests(TestCase):
         self.assertEqual(len(self.created(self.origin.id)), 2)
         self.im_mock.ensure_account.assert_not_called()
 
+
+
+class PresenceHookTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.user = User.objects.create_user(phone="13800138000")
+
+    def _login(self):
+        token = SessionRefreshToken.for_user(self.user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_authenticated_request_touches_presence(self):
+        self._login()
+        resp = self.client.get("/api/v1/users/me")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(cache.get(f"presence:{self.user.id}"))
+
+    def test_anonymous_request_does_not_touch(self):
+        self.client.get("/api/v1/health")
+        self.assertIsNone(cache.get(f"presence:{self.user.id}"))
+
+    def test_rejected_stale_token_does_not_touch(self):
+        # 被顶号的旧令牌(40101)不算一次「活跃」
+        self._login()
+        self.user.session_version += 1
+        self.user.save(update_fields=["session_version"])
+        resp = self.client.get("/api/v1/users/me")
+        self.assertEqual(resp.status_code, 401)
+        self.assertIsNone(cache.get(f"presence:{self.user.id}"))
