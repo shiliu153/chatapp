@@ -25,6 +25,14 @@ void main() {
 
   int presenceRequests() => adapter.log.where((r) => r.path == '/presence').length;
 
+  /// 轮询等条件成立(最多 ~1s):拉取走真实 dio,固定 sleep 在高负载下会 flake。
+  Future<void> waitFor(bool Function() condition) async {
+    for (var i = 0; i < 100 && !condition(); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(condition(), isTrue, reason: '等待超时:条件未在 1s 内成立');
+  }
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     adapter = ScriptedAdapter({
@@ -42,7 +50,7 @@ void main() {
 
     notifier.track('chats', [1, 2]);
     notifier.track('chat:u3', [2, 3]);
-    await Future<void>.delayed(const Duration(milliseconds: 50));   // 等合并后的那次拉取跑完
+    await waitFor(() => container.read(presenceProvider).containsKey(1));   // 等合并后的拉取跑完
 
     final requests = adapter.log.where((r) => r.path == '/presence').toList();
     expect(requests, hasLength(1));
@@ -55,7 +63,7 @@ void main() {
     final container = makeContainer();
     final notifier = container.read(presenceProvider.notifier);
     notifier.track('chats', [1]);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await waitFor(() => presenceRequests() >= 1);
     expect(presenceRequests(), 1);
 
     notifier.track('chats', [1]);   // 内容没变 → 无操作
@@ -67,8 +75,7 @@ void main() {
     final container = makeContainer();
     final notifier = container.read(presenceProvider.notifier);
     notifier.track('chats', [1]);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(container.read(presenceProvider)[1], isNotNull);
+    await waitFor(() => container.read(presenceProvider).containsKey(1));
 
     adapter.routes['GET /presence'] = offline;
     await notifier.refresh();   // 失败
@@ -79,8 +86,7 @@ void main() {
     final container = makeContainer();
     final notifier = container.read(presenceProvider.notifier);
     notifier.track('chats', [1]);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(container.read(presenceProvider)[1], isNotNull);
+    await waitFor(() => container.read(presenceProvider).containsKey(1));
 
     adapter.routes['GET /presence'] = (options) => ok({'results': []});
     await notifier.refresh();
@@ -90,7 +96,6 @@ void main() {
   test('周期定时器按间隔自动刷新', () async {
     final container = makeContainer(interval: const Duration(milliseconds: 30));
     container.read(presenceProvider.notifier).track('chats', [1]);
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    expect(presenceRequests(), greaterThanOrEqualTo(3));   // 立即一次 + 周期 ≥2 次
+    await waitFor(() => presenceRequests() >= 3);   // 立即一次 + 周期 ≥2 次
   });
 }
