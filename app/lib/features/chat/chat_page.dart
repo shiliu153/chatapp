@@ -128,6 +128,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return null;
   }
 
+  /// 头像降级链的第三级:IM 会话头像(同样来自后端同步的 IM 资料)。
+  String? _imFaceUrlOf(WidgetRef ref) {
+    final conversations = ref.watch(conversationsProvider).value;
+    if (conversations == null) return null;
+    for (final conversation in conversations) {
+      if (conversation.peerId == widget.peerId) return conversation.faceUrl;
+    }
+    return null;
+  }
+
   Future<void> _showMessageMenu(BuildContext context, ChatMessage message) async {
     final renderObject = context.findRenderObject();
     final overlay = Overlay.of(context).context.findRenderObject();
@@ -169,9 +179,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final selfAvatarUrl = ref.watch(profileProvider).value?.avatar?.url;
     final peerName = displayNameFor(cache, widget.peerId, imName: _imNameOf(ref));
-    final peerAvatarUrl = avatarUrlFor(cache, widget.peerId);
+    final peerAvatarUrl =
+        avatarUrlFor(cache, widget.peerId, imFaceUrl: _imFaceUrlOf(ref));
     final presenceById = ref.watch(presenceProvider);
-    final peerUserId = cache[widget.peerId]?.userId;
+    final peerUserId = userIdFromImId(widget.peerId);
     if (peerUserId != null) {
       ref.read(presenceProvider.notifier).track('chat:${widget.peerId}', [peerUserId]);
     }

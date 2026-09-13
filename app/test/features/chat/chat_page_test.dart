@@ -340,4 +340,16 @@ void main() {
     expect(find.text('● 在线'), findsNothing);
     expect(find.textContaining('分钟前在线'), findsNothing);
   });
+
+  testWidgets('没有配对缓存时标题仍显示在线状态(公开,不依赖配对)', (tester) async {
+    adapter.routes['GET /matches'] = (options) => ok(pageJson([]));   // 配对被清空
+    adapter.routes['GET /presence'] = (options) => ok({
+          'results': [
+            {'user_id': 9, 'online': true, 'last_active_at': '2026-09-13T14:30:00+08:00'},
+          ],
+        });
+    await pumpChat(tester);
+
+    expect(find.text('● 在线'), findsOneWidget);
+  });
 }

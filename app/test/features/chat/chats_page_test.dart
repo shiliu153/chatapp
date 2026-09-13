@@ -168,4 +168,24 @@ void main() {
 
     expect(find.byType(OnlineDot), findsNothing);
   });
+
+  testWidgets('配对缓存为空时在线状态照常显示(公开,不依赖配对)', (tester) async {
+    final fake = FakeImClient()..conversations = [_conversation()];
+    final adapter = _adapter();
+    adapter.routes['GET /matches'] = (options) => ok(pageJson([]));   // 配对被清空
+    adapter.routes['GET /presence'] = (options) => ok({
+          'results': [
+            {'user_id': 9, 'online': true, 'last_active_at': '2026-09-13T14:30:00+08:00'},
+          ],
+        });
+    await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('消息'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(OnlineDot), findsNWidgets(2));
+    // 查的就是会话对端 u9 → 账号 9(u{id} 约定)
+    final request = adapter.log.lastWhere((r) => r.path == '/presence');
+    expect(request.queryParameters['user_ids'], contains('9'));
+  });
 }

@@ -102,8 +102,8 @@ class _ConversationList extends ConsumerWidget {
         }
         final ids = <int>[];
         for (final item in others) {
-          final entry = cache[item.peerId];
-          if (entry != null) ids.add(entry.userId);
+          final uid = userIdFromImId(item.peerId);
+          if (uid != null) ids.add(uid);
         }
         ref.read(presenceProvider.notifier).track('chats', ids);
         return Column(
@@ -158,8 +158,8 @@ class _RecentStrip extends StatelessWidget {
               displayNameFor(cache, conversation.peerId, imName: conversation.showName);
           final avatar =
               avatarUrlFor(cache, conversation.peerId, imFaceUrl: conversation.faceUrl);
-          final entry = cache[conversation.peerId];
-          final online = entry != null && (presenceById[entry.userId]?.online ?? false);
+          final uid = userIdFromImId(conversation.peerId);
+          final online = uid != null && (presenceById[uid]?.online ?? false);
           return InkWell(
             key: Key('chats.stripItem:${conversation.peerId}'),
             onTap: () => context.push('/chat/${conversation.peerId}'),
@@ -241,8 +241,8 @@ class _ConversationTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = displayNameFor(cache, conversation.peerId, imName: conversation.showName);
     final avatar = avatarUrlFor(cache, conversation.peerId, imFaceUrl: conversation.faceUrl);
-    final entry = cache[conversation.peerId];
-    final online = entry != null && (presenceById[entry.userId]?.online ?? false);
+    final uid = userIdFromImId(conversation.peerId);
+    final online = uid != null && (presenceById[uid]?.online ?? false);
     return ListTile(
       key: Key('chats.tile:${conversation.peerId}'),
       onTap: () => context.push('/chat/${conversation.peerId}'),

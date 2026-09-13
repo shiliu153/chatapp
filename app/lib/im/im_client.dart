@@ -7,6 +7,13 @@ enum ChatMessageKind { text, matchNotice, banNotice, image, other }
 /// 「系统通知」固定 IM 账号(与后端 im/client.py::SYSTEM_NOTICE_IDENTIFIER 是跨栈契约)。
 const systemNoticePeerId = 'system_notice';
 
+/// IM id → 账号 id:'u' + user_id(与后端 `User.im_user_id` 是跨栈契约)。
+/// 在线状态等公开信息靠它解析,**不依赖配对缓存**;解析不出来(如系统通知)返回 null。
+int? userIdFromImId(String imUserId) {
+  if (!imUserId.startsWith('u')) return null;
+  return int.tryParse(imUserId.substring(1));
+}
+
 /// 账号在另一台设备登录(腾讯踢下线)时给用户的提示。
 const kickedOfflineMessage = '账号已在其他设备登录,请重新登录';
 
