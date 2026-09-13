@@ -105,8 +105,10 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - 模拟器设备:`emulator-5554`(sdk gphone16k x86_64,Android 17 / API 37)
 - 运行:`../flutter/bin/flutter.bat run -d emulator-5554 --dart-define=API_BASE=http://10.0.2.2:8000/api/v1`(模拟器里 `10.0.2.2` = 宿主机回环;`.env` 的 ALLOWED_HOSTS 已含它)
 - 截图验证:`"$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe" -s emulator-5554 exec-out screencap -p > shot.png`
+- **拉起 App**:`adb shell am start -n com.chatapp.chatapp_app/com.chatapp.chatapp_app.MainActivity`。⚠️ `monkey -p chatapp_app` 会**静默失败**(Android applicationId 是 `com.chatapp.chatapp_app`,不是 Flutter 包名 `chatapp_app`)
 - 模拟器相册默认是空的:要测照片上传,先 `adb push 本地图.png /sdcard/Pictures/x.png` 并触发媒体扫描(`adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/x.png`),或改用 `-d windows` 走文件选择
 - ⚠️ **只保留一个 runserver 进程**:Windows 下多个 runserver 可同时绑定 8000,旧进程会拿旧配置抢答(踩过:旧 ALLOWED_HOSTS 导致 400)。排查:`netstat -ano | grep :8000`,再用 `Get-CimInstance Win32_Process` 看 PID 的启动时间和命令行
+- ⚠️ **覆盖安装后行为仍像旧代码 → 怀疑装到了旧产物(2026-09-13 踩过)**:现象=新功能在模拟器上完全不生效但后端日志显示请求正常。排查:`adb shell dumpsys package com.chatapp.chatapp_app | grep lastUpdateTime` 对照安装时刻;**处理=重新 `flutter build apk` 再 `install -r`**(那次干净重打后两台立即恢复)。诊断手段参考:临时 `debugPrint` + release 包直接看 `adb logcat -d | grep "\[标签"`(release 里 debugPrint 仍输出)
 - ⚠️ **模拟器长跑数小时后 IM 长连接劣化(2026-09-12 实测)**:现象=消息不实时(最长隔 ~2 分钟才到)、聊天记录加载慢、偶发「网络不给力」;`adb logcat -d | grep -c ERR_CONNECTION_RESET` 数得到断连每 ~2 分钟一次(SDK 心跳 120s 踩线跑不过链路重置)。判据:同机裸 TCP 空闲连接不断、后端接口全 15~60ms、宿主直连腾讯 IP 正常 → 模拟器侧劣化,与后端/校园网无关。处理:**重启模拟器(冷启动 `-no-snapshot-load`)即恢复**
 
 ## 腾讯云 IM 集成要点(已实测)
