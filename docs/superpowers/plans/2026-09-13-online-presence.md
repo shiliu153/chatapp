@@ -36,7 +36,7 @@
   - `users.presence.get_presence(user_ids: list[int]) -> dict[int, dict]`,值形状 `{"online": bool, "last_active_at": str | None}`
   - 常量 `ONLINE_WINDOW_SECONDS = 120`、`PRESENCE_TTL_SECONDS = 7*24*3600`、`PRESENCE_MAX_IDS = 100`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/users/tests.py` 末尾追加(顶部若缺 `import time`、`from django.core.cache import cache` 请补上):
 
@@ -81,12 +81,12 @@ class PresenceServiceTests(TestCase):
 
 同文件顶部加 `from . import presence`(与既有 `from .models import ...` 并列)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test users.tests.PresenceServiceTests -v 1`
 Expected: FAIL(`ModuleNotFoundError` / `AttributeError: module 'users' has no attribute 'presence'`)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 新建 `chatapp/users/presence.py`:
 
@@ -151,12 +151,12 @@ def _iso(ts: int) -> str:
         datetime.fromtimestamp(ts, tz=dt_timezone.utc)).isoformat()
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test users.tests.PresenceServiceTests -v 1`
 Expected: PASS(6 个用例)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/users/presence.py chatapp/users/tests.py
@@ -175,7 +175,7 @@ git commit -m "feat(presence): Redis 最后活跃服务层(touch/批量查询/�
 - Consumes: `users.presence.touch(user_id)`(Task 1)
 - Produces: 无需显式接口 —— 效果是任何带 Bearer 的请求都会刷新 `presence:{user_id}`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/accounts/tests.py` 末尾追加(顶部补 `from django.core.cache import cache` 等缺失 import;`User`/`RefreshToken`/`APITestCase` 该文件已有):
 
@@ -209,12 +209,12 @@ class PresenceHookTests(APITestCase):
         self.assertIsNone(cache.get(f"presence:{self.user.id}"))
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test accounts.tests.PresenceHookTests -v 1`
 Expected: FAIL(`test_authenticated_request_touches_presence` 断言失败)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `chatapp/accounts/authentication.py` 顶部加 import,`get_user` 在版本校验通过后、`return user` 前 touch:
 
@@ -233,12 +233,12 @@ from users.presence import touch
         return user
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test accounts.tests.PresenceHookTests -v 1`
 Expected: PASS(3 个用例);再跑 `python manage.py test accounts` 确认该 app 无回归(既有用例的认证请求会多写一个 Redis 键,无断言冲突)。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/accounts/authentication.py chatapp/accounts/tests.py
@@ -261,7 +261,7 @@ git commit -m "feat(presence): 认证通过即刷新最后活跃(被顶号旧令
 - Consumes: `presence.get_presence`、`presence.PRESENCE_MAX_IDS`(Task 1);`moderation.services.blocked_user_ids`(已有)
 - Produces: `GET /api/v1/presence?user_ids=3,5,7` → `{"results": [{"user_id", "online", "last_active_at"}, ...]}`;`PresenceThrottle`(scope `presence`)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/users/tests.py` 末尾追加:
 
@@ -335,12 +335,12 @@ class PresenceApiTests(AuthMixin, APITestCase):
 
 同文件顶部补 `from . import presence`、`from .throttles import PresenceThrottle`(若放在用例内 import 则不必,按上面写法只需 `presence`;`ProfileStatus`/`Block`/`cache`/`patch` 该文件已有)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python manage.py test users.tests.PresenceApiTests -v 1`
 Expected: FAIL(404,路由不存在)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 新建 `chatapp/users/throttles.py`:
 
@@ -420,12 +420,12 @@ PRESENCE_RATE = os.getenv("PRESENCE_RATE", "600/hour")
 - 返回顺序与请求给出顺序一致;以下 id **直接从 results 省略**(不报错、不泄露关系):被拉黑(双向,复用 `moderation.services.blocked_user_ids`)、不存在、自己、重复项、被重封禁(与公开资料卡 404 语义一致)。
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python manage.py test users.tests.PresenceApiTests -v 1`
 Expected: PASS(7 个用例)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/users/throttles.py chatapp/users/views.py chatapp/config/api_urls.py chatapp/config/settings.py chatapp/users/tests.py docs/superpowers/specs/2026-09-13-online-presence-design.md
@@ -445,7 +445,7 @@ git commit -m "feat(presence): GET /presence 批量查询接口(拉黑/重封禁
 **Interfaces:**
 - Produces: `String formatLastActive(DateTime time, {DateTime? now})` → 刚刚 / x 分钟前 / x 小时前 / x 天前
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/core/format_test.dart` 的 `main()` 内追加:
 
@@ -459,12 +459,12 @@ git commit -m "feat(presence): GET /presence 批量查询接口(拉黑/重封禁
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run(cwd = `app/`): `../flutter/bin/flutter.bat test test/core/format_test.dart`
 Expected: FAIL(`formatLastActive` 未定义)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `app/lib/core/format.dart` 末尾追加:
 
@@ -479,12 +479,12 @@ String formatLastActive(DateTime time, {DateTime? now}) {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `../flutter/bin/flutter.bat test test/core/format_test.dart`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/core/format.dart app/test/core/format_test.dart
@@ -507,7 +507,7 @@ git commit -m "feat(presence): formatLastActive 相对时间文案"
   - `PresenceRepository.fetchPresence(List<int> userIds) -> Future<Map<int, Presence>>`
   - `presenceRepositoryProvider`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `app/test/features/presence/presence_repository_test.dart`:
 
@@ -570,12 +570,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `../flutter/bin/flutter.bat test test/features/presence/presence_repository_test.dart`
 Expected: FAIL(文件/类不存在)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 新建 `app/lib/features/presence/models.dart`:
 
@@ -638,12 +638,12 @@ final presenceRepositoryProvider = Provider<PresenceRepository>(
     (ref) => PresenceRepository(ref.watch(apiClientProvider)));
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `../flutter/bin/flutter.bat test test/features/presence/presence_repository_test.dart`
 Expected: PASS(3 个用例)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/presence/models.dart app/lib/features/presence/presence_repository.dart app/test/features/presence/presence_repository_test.dart
@@ -667,7 +667,7 @@ git commit -m "feat(presence): Presence 模型 + 批量查询 repository"
   - `PresenceController.track(String owner, List<int> userIds) -> void`、`PresenceController.refresh() -> Future<void>`
   - **不变量:`track()` 绝不同步改 state**(页面会在 build 里调用;state 只在异步拉取返回后写)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `app/test/features/presence/presence_controller_test.dart`:
 
@@ -769,12 +769,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `../flutter/bin/flutter.bat test test/features/presence/presence_controller_test.dart`
 Expected: FAIL(`presence_controller.dart` 不存在)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 新建 `app/lib/features/presence/presence_controller.dart`:
 
@@ -863,14 +863,14 @@ final presenceProvider =
       presenceRefreshIntervalProvider.overrideWithValue(null),
 ```
 
-- [ ] **Step 4: 跑测试确认通过 + 全量前端回归**
+- [x] **Step 4: 跑测试确认通过 + 全量前端回归**
 
 Run: `../flutter/bin/flutter.bat test test/features/presence/`
 Expected: PASS(5 个用例)
 Run: `../flutter/bin/flutter.bat test`
 Expected: 基线 170 全部仍绿(pumpApp 改了默认 overrides,若有用例断言请求条数需检查;已知纪律:断言用 `lastWhere((r) => r.method == 'POST')`,不受影响)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/presence/presence_controller.dart app/test/features/presence/presence_controller_test.dart app/test/support/harness.dart
@@ -890,7 +890,7 @@ git commit -m "feat(presence): 共享 PresenceController(登记合并/45s 刷新
 - Consumes: `presenceProvider`、`Presence`(Task 5/6);`matchCacheProvider` 的 `MatchEntry.userId`(已有)
 - Produces: `class OnlineDot extends StatelessWidget { const OnlineDot({super.key, this.size = 12}) }`(测试用 `find.byType(OnlineDot)` 断言)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/features/chat/chats_page_test.dart` 的 `_adapter()` 路由表里加(默认离线,个别用例覆盖):
 
@@ -930,12 +930,12 @@ git commit -m "feat(presence): 共享 PresenceController(登记合并/45s 刷新
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `../flutter/bin/flutter.bat test test/features/chat/chats_page_test.dart`
 Expected: FAIL(`OnlineDot` 不存在)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 新建 `app/lib/features/presence/online_dot.dart`:
 
@@ -1047,12 +1047,12 @@ build 整体改为(先算 avatar,再决定叠不叠绿点):
 
 `_Avatar(name: name, url: avatar, size: 48, online: online)` / `_Avatar(name: name, url: avatar, online: online)`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `../flutter/bin/flutter.bat test test/features/chat/chats_page_test.dart`
 Expected: PASS(含既有用例)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/presence/online_dot.dart app/lib/features/chat/chats_page.dart app/test/features/chat/chats_page_test.dart
@@ -1071,7 +1071,7 @@ git commit -m "feat(presence): 消息列表头像在线绿点(横滑条+会话�
 - Consumes: `presenceProvider`、`presenceLabel()`(Task 5/6);`matchCacheProvider` 的 `MatchEntry.userId`
 - Produces: 无新接口
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/features/chat/chat_page_test.dart` 的 setUp adapter 路由表里加:
 
@@ -1113,12 +1113,12 @@ git commit -m "feat(presence): 消息列表头像在线绿点(横滑条+会话�
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
 Expected: FAIL(`● 在线` 找不到)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `app/lib/features/chat/chat_page.dart`:import 加:
 
@@ -1166,12 +1166,12 @@ AppBar `title` 改为:
         ),
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
 Expected: PASS(含既有用例)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/chat_page.dart app/test/features/chat/chat_page_test.dart
@@ -1192,7 +1192,7 @@ git commit -m "feat(presence): 聊天页标题下在线小字(● 在线 / x 分
 - Consumes: `Presence`/`presenceLabel`(Task 5)、`presenceProvider`(Task 6)
 - Produces: `ProfileCard({required Candidate candidate, Presence? presence})`、`SwipeDeck({required List<Candidate> candidates, required DecideCallback onDecide, Map<int, Presence> presenceById = const {}})`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/features/discovery/profile_card_test.dart`:顶部 import 加
 `package:chatapp_app/features/presence/models.dart`;`_wrap` 改为:
@@ -1236,12 +1236,12 @@ Widget _wrap(Candidate candidate, {Presence? presence}) => MaterialApp(
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `../flutter/bin/flutter.bat test test/features/discovery/profile_card_test.dart`
 Expected: FAIL(`presence` 参数不存在 / 文案找不到)
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `profile_card.dart`:import 加 `../../presence/models.dart`;构造函数加参数:
 
@@ -1338,12 +1338,12 @@ build 里 `final photo = ...` 附近加:
 
 import 加 `../presence/presence_controller.dart`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `../flutter/bin/flutter.bat test test/features/discovery/`
 Expected: PASS(含既有用例)
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/discovery/widgets/profile_card.dart app/lib/features/discovery/widgets/swipe_deck.dart app/lib/features/discovery/discovery_page.dart app/test/features/discovery/profile_card_test.dart
@@ -1362,7 +1362,7 @@ git commit -m "feat(presence): 发现卡昵称旁在线标识"
 - Consumes: 全部前序任务
 - Produces: 交付记录
 
-- [ ] **Step 1: 双端全量回归**
+- [x] **Step 1: 双端全量回归**
 
 ```bash
 cd chatapp && python manage.py test          # 期望 310 + 16 = 326 全绿
@@ -1372,7 +1372,7 @@ cd ../app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat te
 Expected: 后端 326 绿;`flutter analyze` 零告警;前端 170 + 16 = 186 绿。
 若前端有别处用例因页面调了 `track` 而发 `/presence` 请求、又没铺该路由导致失败(404 兜底只影响断言请求数的用例),给对应测试文件补一行 `'GET /presence': (options) => ok({'results': []}),`。
 
-- [ ] **Step 2: 手测(双模拟器 + 后端已起)**
+- [ ] **Step 2: 手测(双模拟器 + 后端已起)**(自动化部分已交付;手测由用户在模拟器上执行)
 
 前置:Redis 容器、runserver(:8000)、Celery worker 都在跑;两台模拟器(5554/5556)各登录一个账号(可用 `python manage.py seed_fake_users` 造的号;各自完善资料)。
 
@@ -1382,7 +1382,7 @@ Expected: 后端 326 绿;`flutter analyze` 零告警;前端 170 + 16 = 186 绿�
 4. B 拉黑 A(或反向)→ B 端 A 的绿点/文案消失(接口省略)。
 5. 双设备登同一账号(顶号)→ 被顶端退登录页;另一端查看该账号 ≤2 分钟转离线。
 
-- [ ] **Step 3: 更新 CLAUDE.md**
+- [x] **Step 3: 更新 CLAUDE.md**
 
 在「## 广场页(动态流)(2026-09-12 新增)」之后新增一节(内容按交付实际情况微调):
 
@@ -1397,7 +1397,7 @@ Expected: 后端 326 绿;`flutter analyze` 零告警;前端 170 + 16 = 186 绿�
 - 测试:后端 +16(服务层/钩子/接口);前端 +16(repo/controller/三处 UI);手测:杀 App ≤2 分钟转离线、拉黑后不可见、顶号转离线。
 ```
 
-- [ ] **Step 4: 勾选本计划并提交**
+- [x] **Step 4: 勾选本计划并提交**
 
 ```bash
 git add CLAUDE.md docs/superpowers/plans/2026-09-13-online-presence.md
