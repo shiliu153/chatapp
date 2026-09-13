@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../chat/widgets/photo_viewer.dart';
+import '../presence/presence_controller.dart';
 import '../profile/profile_controller.dart';
 import 'feed_repository.dart';
 import 'models.dart';
@@ -67,6 +68,7 @@ class _SquarePageState extends ConsumerState<SquarePage> {
   @override
   Widget build(BuildContext context) {
     final posts = ref.watch(squareProvider);
+    final presenceById = ref.watch(presenceProvider);
     final myId = ref.watch(profileProvider).value?.userId;
     return Scaffold(
       appBar: AppBar(title: const Text('广场')),
@@ -91,44 +93,52 @@ class _SquarePageState extends ConsumerState<SquarePage> {
             ],
           ),
         ),
-        data: (items) => items.isEmpty
-            ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('还没有动态,发一条吧'),
-                    const SizedBox(height: 12),
-                    FilledButton(
-                      key: const Key('square.refresh'),
-                      onPressed: () => ref.invalidate(squareProvider),
-                      child: const Text('刷新'),
-                    ),
-                  ],
-                ),
-              )
-            : RefreshIndicator(
-                onRefresh: () => ref.read(squareProvider.notifier).reload(),
-                child: ListView.separated(
-                  key: const Key('square.list'),
-                  controller: _scroll,
-                  itemCount: items.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final post = items[index];
-                    return PostCard(
-                      post: post,
-                      isMine: post.author.userId == myId,
-                      onToggleLike: () => _toggleLike(post),
-                      onTap: () => context.push('/posts/${post.id}'),
-                      onOpenImage: (i) =>
-                          openPhotoViewer(context, urls: post.images, initialIndex: i),
-                      menuAction: (action) => action == 'delete'
-                          ? _deletePost(post)
-                          : reportPostFromSheet(context, ref, post.id),
-                    );
-                  },
-                ),
-              ),
+        data: (items) {
+          ref.read(presenceProvider.notifier).track(
+              'square', [for (final post in items) post.author.userId]);
+          return items.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('还没有动态,发一条吧'),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        key: const Key('square.refresh'),
+                        onPressed: () => ref.invalidate(squareProvider),
+                        child: const Text('刷新'),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: () => ref.read(squareProvider.notifier).reload(),
+                  child: ListView.separated(
+                    key: const Key('square.list'),
+                    controller: _scroll,
+                    itemCount: items.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final post = items[index];
+                      return PostCard(
+                        post: post,
+                        isMine: post.author.userId == myId,
+                        online: presenceById[post.author.userId]?.online == true,
+                        onTapAuthor: post.author.userId == myId
+                            ? null
+                            : () => context.push('/users/${post.author.userId}'),
+                        onToggleLike: () => _toggleLike(post),
+                        onTap: () => context.push('/posts/${post.id}'),
+                        onOpenImage: (i) =>
+                            openPhotoViewer(context, urls: post.images, initialIndex: i),
+                        menuAction: (action) => action == 'delete'
+                            ? _deletePost(post)
+                            : reportPostFromSheet(context, ref, post.id),
+                      );
+                    },
+                  ),
+                );
+        },
       ),
     );
   }

@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:chatapp_app/features/presence/online_dot.dart';
+
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
 
 const _loggedIn = {'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7};
 
-ScriptedAdapter _adapter(Map<String, dynamic> postsPage) => ScriptedAdapter({
+ScriptedAdapter _adapter(Map<String, dynamic> postsPage,
+        {Map<String, dynamic>? presence}) =>
+    ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
       'GET /users/me': (options) => ok(profileJson(nickname: '小明')),
       'GET /posts': (options) => ok(postsPage),
+      'GET /presence': (options) => ok(presence ?? {'results': []}),
     });
 
 Future<void> _openSquare(WidgetTester tester) async {
@@ -92,5 +97,87 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('post.menu.delete')), findsOneWidget);
     expect(find.byKey(const Key('post.menu.report')), findsNothing);
+  });
+
+  testWidgets('点头像打开公开资料页', (tester) async {
+    final adapter = _adapter(
+        pageJson([postJson(id: 1, authorId: 9, nickname: 'Alice', text: '你好')]));
+    adapter.routes['GET /users/9'] =
+        (options) => ok(publicProfileJson(userId: 9, nickname: 'Alice'));
+
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+    await _openSquare(tester);
+
+    await tester.tap(find.byKey(const Key('post.avatar.1')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('详细资料'), findsOneWidget);
+    expect(find.text('ID:u9'), findsOneWidget);
+  });
+
+  testWidgets('点昵称打开公开资料页', (tester) async {
+    final adapter = _adapter(
+        pageJson([postJson(id: 1, authorId: 9, nickname: 'Alice', text: '你好')]));
+    adapter.routes['GET /users/9'] =
+        (options) => ok(publicProfileJson(userId: 9, nickname: 'Alice'));
+
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+    await _openSquare(tester);
+
+    await tester.tap(find.byKey(const Key('post.nickname.1')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('详细资料'), findsOneWidget);
+  });
+
+  testWidgets('自己的动态点头像不打开资料页', (tester) async {
+    final adapter =
+        _adapter(pageJson([postJson(id: 3, authorId: 7, nickname: '小明', text: '我发的')]));
+
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+    await _openSquare(tester);
+
+    await tester.tap(find.byKey(const Key('post.avatar.3')));
+    await tester.pumpAndSettle();
+
+    // 完全没反应:既不进资料页,也不触发外层卡片进详情
+    expect(find.text('详细资料'), findsNothing);
+    expect(find.text('动态详情'), findsNothing);
+  });
+
+  testWidgets('作者在线时头像右下角显示绿点,离线不显示', (tester) async {
+    final adapter = _adapter(
+      pageJson([
+        postJson(id: 1, authorId: 9, nickname: 'Alice', text: '在线的人'),
+        postJson(id: 2, authorId: 10, nickname: 'Bob', text: '离线的人'),
+      ]),
+      presence: {
+        'results': [
+          {'user_id': 9, 'online': true, 'last_active_at': null},
+          {'user_id': 10, 'online': false, 'last_active_at': '2026-09-13T10:00:00+08:00'},
+        ],
+      },
+    );
+
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+    await _openSquare(tester);
+    await tester.pumpAndSettle();
+
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('post.avatar.1')), matching: find.byType(OnlineDot)),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('post.avatar.2')), matching: find.byType(OnlineDot)),
+        findsNothing);
+    // 查的正是两条动态的作者 id
+    final request = adapter.log.lastWhere((r) => r.path == '/presence');
+    expect(request.queryParameters['user_ids'], contains('9'));
+    expect(request.queryParameters['user_ids'], contains('10'));
   });
 }

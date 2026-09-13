@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/format.dart';
+import '../../presence/online_dot.dart';
 import '../models.dart';
 import 'post_images.dart';
 
@@ -10,6 +11,8 @@ class PostCard extends StatelessWidget {
     super.key,
     required this.post,
     required this.isMine,
+    this.online = false,
+    this.onTapAuthor,
     this.onTap,
     this.onToggleLike,
     this.onOpenImage,
@@ -20,6 +23,12 @@ class PostCard extends StatelessWidget {
 
   /// 是否自己的动态(决定 ··· 菜单是「删除」还是「举报」)。
   final bool isMine;
+
+  /// 作者是否在线 → 头像右下角绿点。
+  final bool online;
+
+  /// 点作者头像/昵称;null(自己/不关心)= 空回调吞掉点击。
+  final VoidCallback? onTapAuthor;
   final VoidCallback? onTap;
   final VoidCallback? onToggleLike;
   final void Function(int index)? onOpenImage;
@@ -38,7 +47,14 @@ class PostCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _Avatar(url: post.author.avatarUrl, name: post.author.nickname),
+            GestureDetector(
+              key: Key('post.avatar.${post.id}'),
+              behavior: HitTestBehavior.opaque,
+              // null(自己)= 空回调吞掉点击,不落到卡片的「进详情」
+              onTap: onTapAuthor ?? () {},
+              child: _Avatar(
+                  url: post.author.avatarUrl, name: post.author.nickname, online: online),
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -47,8 +63,17 @@ class PostCard extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(post.author.nickname,
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: GestureDetector(
+                            key: Key('post.nickname.${post.id}'),
+                            behavior: HitTestBehavior.opaque,
+                            onTap: onTapAuthor ?? () {},
+                            child: Text(post.author.nickname,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600, fontSize: 15)),
+                          ),
+                        ),
                       ),
                       if (menuAction != null)
                         SizedBox(
@@ -151,10 +176,11 @@ class _ActionIcon extends StatelessWidget {
 }
 
 class _Avatar extends StatelessWidget {
-  const _Avatar({this.url, required this.name});
+  const _Avatar({this.url, required this.name, this.online = false});
 
   final String? url;
   final String name;
+  final bool online;
 
   @override
   Widget build(BuildContext context) {
@@ -162,7 +188,7 @@ class _Avatar extends StatelessWidget {
       child: Text(name.isEmpty ? '?' : name.substring(0, 1),
           style: const TextStyle(color: Colors.white)),
     );
-    return Container(
+    final avatar = Container(
       width: 40,
       height: 40,
       decoration: BoxDecoration(
@@ -174,6 +200,14 @@ class _Avatar extends StatelessWidget {
           ? placeholder
           : Image.network(url!, fit: BoxFit.cover,
               errorBuilder: (c, e, s) => placeholder),
+    );
+    if (!online) return avatar;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        avatar,
+        const Positioned(right: 0, bottom: 0, child: OnlineDot(size: 11)),
+      ],
     );
   }
 }
