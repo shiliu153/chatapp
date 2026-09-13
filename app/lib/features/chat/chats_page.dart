@@ -6,6 +6,9 @@ import '../../core/format.dart';
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
 import '../../im/im_repository.dart';
+import '../presence/models.dart';
+import '../presence/online_dot.dart';
+import '../presence/presence_controller.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
 
@@ -70,6 +73,7 @@ class _ConversationList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final conversations = ref.watch(conversationsProvider);
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
+    final presenceById = ref.watch(presenceProvider);
     return conversations.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => Center(
@@ -96,9 +100,16 @@ class _ConversationList extends ConsumerWidget {
             others.add(item);
           }
         }
+        final ids = <int>[];
+        for (final item in others) {
+          final entry = cache[item.peerId];
+          if (entry != null) ids.add(entry.userId);
+        }
+        ref.read(presenceProvider.notifier).track('chats', ids);
         return Column(
           children: [
-            if (others.isNotEmpty) _RecentStrip(friends: others, cache: cache),
+            if (others.isNotEmpty)
+              _RecentStrip(friends: others, cache: cache, presenceById: presenceById),
             Expanded(
               child: ListView(
                 children: [
@@ -109,7 +120,8 @@ class _ConversationList extends ConsumerWidget {
                   for (var i = 0; i < others.length; i++) ...[
                     if (i > 0)
                       const Divider(height: 1, thickness: 1, color: Color(0xFFF5F6F7)),
-                    _ConversationTile(conversation: others[i], cache: cache),
+                    _ConversationTile(
+                        conversation: others[i], cache: cache, presenceById: presenceById),
                   ],
                 ],
               ),
@@ -123,10 +135,11 @@ class _ConversationList extends ConsumerWidget {
 
 /// 最近联系人横滑条(抖音式;不含系统通知)。
 class _RecentStrip extends StatelessWidget {
-  const _RecentStrip({required this.friends, required this.cache});
+  const _RecentStrip({required this.friends, required this.cache, required this.presenceById});
 
   final List<ImConversation> friends;
   final Map<String, MatchEntry> cache;
+  final Map<int, Presence> presenceById;
 
   @override
   Widget build(BuildContext context) {
@@ -145,13 +158,15 @@ class _RecentStrip extends StatelessWidget {
               displayNameFor(cache, conversation.peerId, imName: conversation.showName);
           final avatar =
               avatarUrlFor(cache, conversation.peerId, imFaceUrl: conversation.faceUrl);
+          final entry = cache[conversation.peerId];
+          final online = entry != null && (presenceById[entry.userId]?.online ?? false);
           return InkWell(
             key: Key('chats.stripItem:${conversation.peerId}'),
             onTap: () => context.push('/chat/${conversation.peerId}'),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _Avatar(name: name, url: avatar, size: 48),
+                _Avatar(name: name, url: avatar, size: 48, online: online),
                 const SizedBox(height: 4),
                 SizedBox(
                   width: 56,
@@ -215,19 +230,23 @@ class _SystemNoticeTile extends StatelessWidget {
 }
 
 class _ConversationTile extends StatelessWidget {
-  const _ConversationTile({required this.conversation, required this.cache});
+  const _ConversationTile(
+      {required this.conversation, required this.cache, required this.presenceById});
 
   final ImConversation conversation;
   final Map<String, MatchEntry> cache;
+  final Map<int, Presence> presenceById;
 
   @override
   Widget build(BuildContext context) {
     final name = displayNameFor(cache, conversation.peerId, imName: conversation.showName);
     final avatar = avatarUrlFor(cache, conversation.peerId, imFaceUrl: conversation.faceUrl);
+    final entry = cache[conversation.peerId];
+    final online = entry != null && (presenceById[entry.userId]?.online ?? false);
     return ListTile(
       key: Key('chats.tile:${conversation.peerId}'),
       onTap: () => context.push('/chat/${conversation.peerId}'),
-      leading: _Avatar(name: name, url: avatar),
+      leading: _Avatar(name: name, url: avatar, online: online),
       title: Text(name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -241,34 +260,42 @@ class _ConversationTile extends StatelessWidget {
   }
 }
 
-/// 圆头像:有图用图(失败静默),没图用昵称首字。
+/// 圆头像:有图用图(失败静默),没图用昵称首字;在线时右下角叠绿点。
 class _Avatar extends StatelessWidget {
-  const _Avatar({required this.name, this.url, this.size = 48});
+  const _Avatar({required this.name, this.url, this.size = 48, this.online = false});
 
   final String name;
   final String? url;
   final double size;
+  final bool online;
 
   @override
   Widget build(BuildContext context) {
     final radius = size / 2;
-    if (url != null && url!.isNotEmpty) {
-      return CircleAvatar(
-        radius: radius,
-        backgroundImage: NetworkImage(url!),
-        onBackgroundImageError: (error, stack) {},
-      );
-    }
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: const Color(0xFFD6E8FF),
-      child: Text(
-        name.isEmpty ? '?' : name.substring(0, 1),
-        style: TextStyle(
-            fontSize: size * 0.38,
-            fontWeight: FontWeight.w600,
-            color: const Color(0xFF40454C)),
-      ),
+    final Widget avatar = (url != null && url!.isNotEmpty)
+        ? CircleAvatar(
+            radius: radius,
+            backgroundImage: NetworkImage(url!),
+            onBackgroundImageError: (error, stack) {},
+          )
+        : CircleAvatar(
+            radius: radius,
+            backgroundColor: const Color(0xFFD6E8FF),
+            child: Text(
+              name.isEmpty ? '?' : name.substring(0, 1),
+              style: TextStyle(
+                  fontSize: size * 0.38,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF40454C)),
+            ),
+          );
+    if (!online) return avatar;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        avatar,
+        Positioned(right: 0, bottom: 0, child: OnlineDot(size: size * 0.28)),
+      ],
     );
   }
 }

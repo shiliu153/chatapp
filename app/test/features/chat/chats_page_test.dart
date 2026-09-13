@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:chatapp_app/features/presence/online_dot.dart';
 import 'package:chatapp_app/im/im_client.dart';
 
 import '../../support/fake_im_client.dart';
@@ -20,6 +21,7 @@ ScriptedAdapter _adapter() => ScriptedAdapter({
             'expire': 604800,
           }),
       'GET /matches': (options) => ok(pageJson([matchJson(userId: 9, nickname: '小红')])),
+      'GET /presence': (options) => ok({'results': []}),
     });
 
 ImConversation _conversation({int unread = 2, String text = '在吗'}) => ImConversation(
@@ -137,5 +139,33 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('chat.input')), findsOneWidget);
+  });
+
+  testWidgets('在线的人头像带绿点;离线与系统通知没有', (tester) async {
+    final fake = FakeImClient()..conversations = [_conversation(), _systemConversation()];
+    final adapter = _adapter();
+    adapter.routes['GET /presence'] = (options) => ok({
+          'results': [
+            {'user_id': 9, 'online': true, 'last_active_at': '2026-09-13T14:30:00+08:00'},
+          ],
+        });
+    await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('消息'));
+    await tester.pumpAndSettle();
+
+    // 横滑条 + 列表行各一个绿点;系统通知(非真人)没有
+    expect(find.byType(OnlineDot), findsNWidgets(2));
+  });
+
+  testWidgets('离线不显示绿点', (tester) async {
+    final fake = FakeImClient()..conversations = [_conversation()];
+    final adapter = _adapter();   // 默认 'GET /presence' 返回空
+    await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('消息'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(OnlineDot), findsNothing);
   });
 }
