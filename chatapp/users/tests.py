@@ -1,10 +1,12 @@
 import base64
 import shutil
 import tempfile
+import time
 from datetime import date
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -13,6 +15,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from moderation.models import Block
 
+from . import presence
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
 
 User = get_user_model()
@@ -382,3 +385,41 @@ class PublicProfileTests(AuthMixin, APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self._get().status_code, 401)
+
+
+class PresenceServiceTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_touch_then_online(self):
+        presence.touch(9)
+        data = presence.get_presence([9])
+        self.assertTrue(data[9]["online"])
+        self.assertIsNotNone(data[9]["last_active_at"])
+
+    def test_online_window_boundary(self):
+        # 119 秒内 = 在线;121 秒 = 离线但仍有最后活跃时间
+        cache.set("presence:9", int(time.time()) - 119)
+        cache.set("presence:10", int(time.time()) - 121)
+        data = presence.get_presence([9, 10])
+        self.assertTrue(data[9]["online"])
+        self.assertFalse(data[10]["online"])
+        self.assertIsNotNone(data[10]["last_active_at"])
+
+    def test_unknown_user_is_unknown(self):
+        self.assertEqual(presence.get_presence([404])[404],
+                         {"online": False, "last_active_at": None})
+
+    def test_iso_uses_local_timezone(self):
+        cache.set("presence:9", 1757745000)
+        text = presence.get_presence([9])[9]["last_active_at"]
+        self.assertRegex(text, r"\+08:00$")
+
+    @patch("users.presence.cache.get_many", side_effect=Exception("boom"))
+    def test_redis_down_query_degrades(self, _):
+        self.assertEqual(presence.get_presence([9])[9],
+                         {"online": False, "last_active_at": None})
+
+    @patch("users.presence.cache.set", side_effect=Exception("boom"))
+    def test_redis_down_touch_is_silent(self, _):
+        presence.touch(9)   # 不抛异常
