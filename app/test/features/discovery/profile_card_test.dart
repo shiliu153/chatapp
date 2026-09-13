@@ -3,13 +3,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/features/discovery/models.dart';
 import 'package:chatapp_app/features/discovery/widgets/profile_card.dart';
+import 'package:chatapp_app/features/presence/models.dart';
 
 import '../../support/sample_data.dart';
 
-Widget _wrap(Candidate candidate) => MaterialApp(
+Widget _wrap(Candidate candidate, {Presence? presence}) => MaterialApp(
       home: Scaffold(
         body: Center(
-          child: SizedBox(width: 360, height: 560, child: ProfileCard(candidate: candidate)),
+          child: SizedBox(
+              width: 360,
+              height: 560,
+              child: ProfileCard(candidate: candidate, presence: presence)),
         ),
       ),
     );
@@ -88,5 +92,29 @@ void main() {
     await tester.pump();
 
     expect(find.byIcon(Icons.person_outline), findsOneWidget);
+  });
+
+  testWidgets('在线 → 昵称旁「● 在线」', (tester) async {
+    final candidate = Candidate.fromJson(candidateJson(nickname: '小红', age: 25));
+
+    await tester.pumpWidget(_wrap(candidate, presence: const Presence(online: true)));
+    await tester.pump();
+
+    expect(find.text('● 在线'), findsOneWidget);
+  });
+
+  testWidgets('离线 → 「x 分钟前在线」;未知 → 不显示', (tester) async {
+    final candidate = Candidate.fromJson(candidateJson(nickname: '小红', age: 25));
+    final now = DateTime.now();
+
+    await tester.pumpWidget(_wrap(candidate,
+        presence: Presence(
+            online: false, lastActiveAt: now.subtract(const Duration(minutes: 5)))));
+    await tester.pump();
+    expect(find.text('5 分钟前在线'), findsOneWidget);
+
+    await tester.pumpWidget(_wrap(candidate));
+    await tester.pump();
+    expect(find.textContaining('在线'), findsNothing);
   });
 }

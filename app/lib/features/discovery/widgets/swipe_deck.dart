@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../presence/models.dart';
 import '../models.dart';
 import 'profile_card.dart';
 
@@ -8,10 +9,12 @@ typedef DecideCallback = Future<bool> Function(Candidate candidate, {required bo
 
 /// 卡组:顶层卡可拖拽,松手超出阈值 → 飞出并回调 [onDecide];没超出 → 弹回。
 class SwipeDeck extends StatefulWidget {
-  const SwipeDeck({super.key, required this.candidates, required this.onDecide});
+  const SwipeDeck({super.key, required this.candidates, required this.onDecide,
+      this.presenceById = const {}});
 
   final List<Candidate> candidates;
   final DecideCallback onDecide;
+  final Map<int, Presence> presenceById;
 
   @override
   State<SwipeDeck> createState() => _SwipeDeckState();
@@ -116,7 +119,11 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
               fit: StackFit.expand,
               children: [
                 if (second != null)
-                  Transform.scale(scale: 0.95, child: ProfileCard(candidate: second)),
+                  Transform.scale(
+                      scale: 0.95,
+                      child: ProfileCard(
+                          candidate: second,
+                          presence: widget.presenceById[second.userId])),
                 GestureDetector(
                   key: const Key('deck.topCard'),
                   // 必须 opaque:默认 deferToChild 时,照片区没有命中目标,按在照片上拖不动
@@ -127,7 +134,8 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
                     offset: _offset,
                     child: Transform.rotate(
                       angle: _offset.dx / _width * 0.3,
-                      child: ProfileCard(candidate: top),
+                      child: ProfileCard(
+                          candidate: top, presence: widget.presenceById[top.userId]),
                     ),
                   ),
                 ),

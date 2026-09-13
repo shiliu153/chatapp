@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../chat/match_cache.dart';
+import '../presence/presence_controller.dart';
 import '../profile/models.dart';
 import '../profile/profile_controller.dart';
 import 'discovery_controller.dart';
@@ -106,6 +107,7 @@ class _DeckView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final deck = ref.watch(discoveryProvider);
+    final presenceById = ref.watch(presenceProvider);
     return deck.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => Center(
@@ -120,14 +122,19 @@ class _DeckView extends ConsumerWidget {
           ],
         ),
       ),
-      data: (candidates) => candidates.isEmpty
-          ? _EmptyView(
-              onRefresh: () => ref.read(discoveryProvider.notifier).reload())
-          : SwipeDeck(
-              candidates: candidates,
-              onDecide: (candidate, {required like}) =>
-                  _decide(context, ref, candidate, like: like),
-            ),
+      data: (candidates) {
+        ref.read(presenceProvider.notifier).track(
+            'discovery', [for (final candidate in candidates) candidate.userId]);
+        return candidates.isEmpty
+            ? _EmptyView(
+                onRefresh: () => ref.read(discoveryProvider.notifier).reload())
+            : SwipeDeck(
+                candidates: candidates,
+                presenceById: presenceById,
+                onDecide: (candidate, {required like}) =>
+                    _decide(context, ref, candidate, like: like),
+              );
+      },
     );
   }
 }

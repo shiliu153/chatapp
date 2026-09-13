@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../presence/models.dart';
 import '../models.dart';
 
 /// 单张候选卡:照片区(多张时点左右两侧切换)+ 底部资料区。
 class ProfileCard extends StatefulWidget {
-  const ProfileCard({super.key, required this.candidate});
+  const ProfileCard({super.key, required this.candidate, this.presence});
 
   final Candidate candidate;
+  final Presence? presence;
 
   @override
   State<ProfileCard> createState() => _ProfileCardState();
@@ -33,6 +35,7 @@ class _ProfileCardState extends State<ProfileCard> {
     final candidate = widget.candidate;
     final photos = candidate.photos;
     final photo = photos.isEmpty ? null : photos[_photoIndex];
+    final statusLabel = presenceLabel(widget.presence);
     return Material(
       elevation: 2,
       borderRadius: BorderRadius.circular(16),
@@ -117,12 +120,32 @@ class _ProfileCardState extends State<ProfileCard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    candidate.age == null
-                        ? candidate.nickname
-                        : '${candidate.nickname},${candidate.age}',
-                    style: const TextStyle(
-                        color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          candidate.age == null
+                              ? candidate.nickname
+                              : '${candidate.nickname},${candidate.age}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      if (statusLabel != null) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          statusLabel,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: (widget.presence?.online ?? false)
+                                ? const Color(0xFF4CD964)
+                                : Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   if (candidate.city.isNotEmpty)
                     Text(candidate.city,
