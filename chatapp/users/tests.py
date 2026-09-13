@@ -423,3 +423,71 @@ class PresenceServiceTests(TestCase):
     @patch("users.presence.cache.set", side_effect=Exception("boom"))
     def test_redis_down_touch_is_silent(self, _):
         presence.touch(9)   # 不抛异常
+
+
+class PresenceApiTests(AuthMixin, APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.me = User.objects.create_user(phone="13800138000")
+        self.other = User.objects.create_user(phone="13800138001")
+        Profile.objects.get_or_create(user=self.other)
+        self.login(self.me)
+        self.url = "/api/v1/presence"
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get(self.url, {"user_ids": "1"}).status_code, 401)
+
+    def test_returns_online_and_last_active(self):
+        presence.touch(self.other.id)
+        data = self.client.get(self.url, {"user_ids": str(self.other.id)}).json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["user_id"], self.other.id)
+        self.assertTrue(data["results"][0]["online"])
+        self.assertRegex(data["results"][0]["last_active_at"], r"\+08:00$")
+
+    def test_omits_blocked_both_directions(self):
+        third = User.objects.create_user(phone="13800138002")
+        Block.objects.create(blocker=self.me, blocked=self.other)      # 我拉黑的
+        Block.objects.create(blocker=third, blocked=self.me)           # 拉黑我的
+        data = self.client.get(
+            self.url, {"user_ids": f"{self.other.id},{third.id}"}).json()
+        self.assertEqual(data["results"], [])
+
+    def test_omits_self_unknown_and_heavy_banned(self):
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_HEAVY)
+        data = self.client.get(
+            self.url,
+            {"user_ids": f"{self.me.id},{self.other.id},999999"}).json()
+        self.assertEqual(data["results"], [])
+
+    def test_dedupes_and_keeps_request_order(self):
+        data = self.client.get(
+            self.url,
+            {"user_ids": f"{self.other.id},{self.me.id},{self.other.id}"}).json()
+        # 自己去重省略后,只剩 other,顺序稳定
+        self.assertEqual([item["user_id"] for item in data["results"]], [self.other.id])
+
+    def test_bad_params(self):
+        self.assertEqual(self.client.get(self.url).status_code, 400)
+        self.assertEqual(self.client.get(self.url, {"user_ids": ""}).status_code, 400)
+        self.assertEqual(self.client.get(self.url, {"user_ids": "abc"}).status_code, 400)
+        too_many = ",".join(str(i) for i in range(1, 102))
+        self.assertEqual(self.client.get(self.url, {"user_ids": too_many}).status_code, 400)
+
+    def test_throttled(self):
+        from .throttles import PresenceThrottle
+
+        with patch.object(PresenceThrottle, "rate", "2/hour", create=True):
+            for _ in range(2):
+                self.assertEqual(
+                    self.client.get(self.url, {"user_ids": str(self.other.id)}).status_code, 200)
+            self.assertEqual(
+                self.client.get(self.url, {"user_ids": str(self.other.id)}).status_code, 429)
+
+    @patch("users.presence.cache.get_many", side_effect=Exception("boom"))
+    def test_redis_down_returns_null_instead_of_500(self, _):
+        resp = self.client.get(self.url, {"user_ids": str(self.other.id)})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["results"][0]["last_active_at"], None)

@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
@@ -8,10 +8,12 @@ from rest_framework.response import Response
 from moderation.services import blocked_user_ids
 
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
+from .presence import PRESENCE_MAX_IDS, get_presence
 from .serializers import (PhotoSerializer, PhotoUploadSerializer, PreferenceSerializer,
                           ProfileSerializer, ProfileUpdateSerializer, PublicProfileSerializer,
                           TagSerializer)
 from .services import get_profile, sync_im_avatar, sync_im_nickname
+from .throttles import PresenceThrottle
 
 User = get_user_model()
 
@@ -76,6 +78,35 @@ def delete_photo(request, photo_id):
     photo.delete()
     get_profile(request.user).refresh_status()
     return Response(status=204)
+
+
+@api_view(["GET"])
+@throttle_classes([PresenceThrottle])
+def presence_status(request):
+    """批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略。"""
+    raw = request.query_params.get("user_ids", "")
+    parts = [part.strip() for part in raw.split(",") if part.strip()]
+    if not parts:
+        return Response({"code": 400, "message": "user_ids 不能为空"}, status=400)
+    try:
+        ids = [int(part) for part in parts]
+    except ValueError:
+        return Response({"code": 400, "message": "user_ids 必须是数字"}, status=400)
+    seen: set[int] = set()
+    ids = [uid for uid in ids if not (uid in seen or seen.add(uid))]   # 去重保序
+    if len(ids) > PRESENCE_MAX_IDS:
+        return Response({"code": 400, "message": f"一次最多查询 {PRESENCE_MAX_IDS} 个用户"}, status=400)
+
+    hidden = blocked_user_ids(request.user)
+    visible = [uid for uid in ids if uid != request.user.id and uid not in hidden]
+    if visible:
+        existing = set(User.objects.filter(id__in=visible).values_list("id", flat=True))
+        banned = set(Profile.objects.filter(user_id__in=visible,
+                                            status=ProfileStatus.BANNED_HEAVY)
+                     .values_list("user_id", flat=True))
+        visible = [uid for uid in visible if uid in existing and uid not in banned]
+    data = get_presence(visible)
+    return Response({"results": [{"user_id": uid, **data[uid]} for uid in visible]})
 
 
 @api_view(["GET", "PATCH"])

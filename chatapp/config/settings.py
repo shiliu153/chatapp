@@ -188,6 +188,7 @@ AUTH_USER_MODEL = "accounts.User"
 # --- 限流额度(env 可调;DEBUG 下放宽,免得两台模拟器共享 127.0.0.1 触发 IP 限流) ---
 SMS_SEND_IP_RATE = os.getenv("SMS_SEND_IP_RATE", "200/hour" if DEBUG else "20/hour")
 SMS_VERIFY_IP_RATE = os.getenv("SMS_VERIFY_IP_RATE", "600/hour" if DEBUG else "60/hour")
+PRESENCE_RATE = os.getenv("PRESENCE_RATE", "600/hour")   # 在线状态轮询:一个前台页面 ≈ 80/h
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -207,6 +208,7 @@ REST_FRAMEWORK = {
         "post_create": "20/day",
         "post_comment": "60/day",
         "post_report": "20/day",
+        "presence": PRESENCE_RATE,
     },
 }
 

@@ -39,7 +39,7 @@ GET /api/v1/presence?user_ids=3,5,7     # 逗号分隔,去重后 ≤100 个
 ```
 
 **规则**:
-- 返回顺序与请求给出顺序一致;以下 id **直接从 results 省略**(不报错、不泄露关系):被拉黑(双向,复用 `moderation.services.blocked_user_ids`)、不存在、自己、重复项。
+- 返回顺序与请求给出顺序一致;以下 id **直接从 results 省略**(不报错、不泄露关系):被拉黑(双向,复用 `moderation.services.blocked_user_ids`)、不存在、自己、重复项、被重封禁(与公开资料卡 404 语义一致)。
 - 无记录(从未活跃/超 7 天)→ `online: false, last_active_at: null` → 前端不显示。
 - 参数不合法(缺失/空/非整数/超 100)→ 400 + 中文 message(全局异常处理器既有格式)。
 - Redis 不可用 → 全部 `last_active_at: null`,记日志,不 500。
