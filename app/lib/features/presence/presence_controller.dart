@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -54,18 +55,27 @@ class PresenceController extends Notifier<Map<int, Presence>> {
     });
   }
 
+  /// 后端单次查询上限(chatapp/users/presence.py::PRESENCE_MAX_IDS=100);
+  /// 广场按翻页登记作者,id 数会超过上限,故按片请求、合并后一次写 state。
+  static const _batchSize = 100;
+
   /// 拉一轮;失败保留旧值、下个周期再试(点缀信息,不弹提示)。
   Future<void> refresh() async {
     final ids = <int>{for (final list in _owners.values) ...list}.toList();
     if (ids.isEmpty) return;
     try {
-      final fresh = await ref.read(presenceRepositoryProvider).fetchPresence(ids);
+      final repo = ref.read(presenceRepositoryProvider);
+      final fresh = <int, Presence>{};
+      for (var start = 0; start < ids.length; start += _batchSize) {
+        final chunk = ids.sublist(start, math.min(start + _batchSize, ids.length));
+        fresh.addAll(await repo.fetchPresence(chunk));
+      }
       final next = Map<int, Presence>.from(state)
         ..removeWhere((id, _) => ids.contains(id));
       next.addAll(fresh);
       state = next;
     } catch (_) {
-      // 网络抖动:保持旧数据,别打扰用户
+      // 网络抖动/任一片失败:整轮放弃,保持旧数据,别打扰用户
     }
   }
 }

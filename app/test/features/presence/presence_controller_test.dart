@@ -98,4 +98,54 @@ void main() {
     container.read(presenceProvider.notifier).track('chats', [1]);
     await waitFor(() => presenceRequests() >= 3);   // 立即一次 + 周期 ≥2 次
   });
+
+  test('超过 100 个 id 拆片请求并合并结果', () async {
+    adapter.routes['GET /presence'] = (options) {
+      final ids = (options.queryParameters['user_ids'] as String).split(',');
+      return ok({
+        'results': [
+          for (final id in ids)
+            {'user_id': int.parse(id), 'online': true, 'last_active_at': null},
+        ],
+      });
+    };
+    final container = makeContainer();
+    final ids = List<int>.generate(150, (i) => i + 1);
+
+    container.read(presenceProvider.notifier).track('square', ids);
+    await waitFor(() => container.read(presenceProvider).length == 150);
+
+    final requests = adapter.log.where((r) => r.path == '/presence').toList();
+    expect(requests, hasLength(2));
+    expect((requests[0].queryParameters['user_ids'] as String).split(','),
+        hasLength(100));
+    expect((requests[1].queryParameters['user_ids'] as String).split(','),
+        hasLength(50));
+  });
+
+  test('分片中途失败:整轮放弃,保留旧值', () async {
+    final container = makeContainer();
+    final notifier = container.read(presenceProvider.notifier);
+    adapter.routes['GET /presence'] = (options) => ok({
+          'results': [
+            {'user_id': 1, 'online': true, 'last_active_at': null},
+          ],
+        });
+    notifier.track('chats', [1]);
+    await waitFor(() => container.read(presenceProvider).containsKey(1));
+
+    var calls = 0;
+    adapter.routes['GET /presence'] = (options) {
+      calls += 1;
+      if (calls == 1) return ok({'results': []});   // 第 1 片成功
+      return offline(options);                       // 第 2 片失败
+    };
+    notifier.track('square', List<int>.generate(150, (i) => i + 2));
+    await waitFor(() => calls >= 2);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final state = container.read(presenceProvider);
+    expect(state.containsKey(1), isTrue);    // 旧值还在
+    expect(state.containsKey(2), isFalse);   // 没有分片结果半更新进去
+  });
 }
