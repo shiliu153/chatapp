@@ -246,6 +246,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - 运营台新增两菜单:**动态管理**(`/ops/posts/`,浏览 + 删除)、**动态举报**(`/ops/post-reports/`,「删除动态」/「忽略」,处理后给举报者发 `report_handled` 通知;待处理 badge 在 `ops/context_processors.py`)
 - 前端 `features/square/`:广场页(`square_page.dart`,卡片/九宫格/点赞乐观更新/滚底加载)、发布页(`/posts/compose`,相册多选 + 一次 multipart)、详情页(`/posts/:id`,评论正序 + 底部输入框)、我的动态(`/my-posts`,入口在「我的」页 `my.row.posts` 行);`post_actions.dart` 是共用删除确认框 + 举报弹窗(复用 moderation 的 `ReportSheet`)
 - 测试:`chatapp/feed/tests.py`(41;图片用 `PNG_1PX` + 临时 MEDIA_ROOT)、`app/test/features/square/`(发布页注入 `PostComposePage(pickImages:)`);⚠️ 我的页行变多后,点靠下的行(想找的人/设置)测试要先 `tester.ensureVisible`
+- **作者入口与在线标识(2026-09-13 追加)**:动态卡片与评论的头像/昵称可点进公开资料页(`/users/{id}`;自己的走空回调吞掉点击,既不进资料页也不进详情);作者头像右下角在线绿点(仅在线时,`OnlineDot(size: 11)`),数据走 `presenceProvider.track('square', ids)` / `track('post:{id}', [作者])`;评论区**不带**绿点。⚠️ presence 接口单次上限 100 个 id(`users/presence.py::PRESENCE_MAX_IDS`),`PresenceController.refresh` 内部分片——新增「随翻页增长的登记源」不用再操心上限(2026-09-13 起)。测试 keys:`post.avatar.{id}` / `post.nickname.{id}` / `post.comment.avatar.{id}` / `post.comment.nickname.{id}`
 
 ## 在线状态(最后活跃)(2026-09-13 新增)
 
@@ -253,7 +254,7 @@ Google 源在国内不可直连,以下配置已就位(2026-09-10 `flutter build 
 - **「在线」判据**:最近 120 秒内有认证请求(`ONLINE_WINDOW_SECONDS`,45s 心跳 ×2 + 余量)。App 被杀/后台被冻结 → ≤2 分钟转离线并显示「x 分钟前在线」
 - **接口**:`GET /api/v1/presence?user_ids=3,5,7`(逗号分隔,去重后 ≤100);省略规则:被拉黑(双向)/不存在/自己/重封禁;Redis 挂 → 全部 null 不 500;限流 scope `presence`(env `PRESENCE_RATE`,默认 600/hour)
 - **前端**:`features/presence/`(模型 + repo + 共享 autoDispose `PresenceController`)。页面在 build 里 `track('owner', ids)` 登记,多页面**合并去重后一次请求**,45 秒周期刷新;⚠️ `track()` 绝不能同步改 state(页面在 build 里调,同步改会触发 Riverpod 断言);失败保留旧值不弹提示。间隔 `presenceRefreshIntervalProvider`(pumpApp 默认 override 成 null)
-- **三处展示**:消息列表头像右下角绿点(`OnlineDot`,`find.byType` 断言)、聊天页标题下小字、发现卡昵称旁;文案 `presenceLabel()`:在线「● 在线」/ 离线「x 分钟前在线」(`formatLastActive`:刚刚 / x 分钟前 / x 小时前 / x 天前)。⚠️ **在线状态是公开信息,不依赖配对关系**(2026-09-13 修订):IM id → 账号 id 用 `userIdFromImId()`(即 `u{id}` 跨栈约定,`accounts/models.py::im_user_id`),**不用 `matchCache` 翻译**——配对被清/未配对时旧实现会瞎;仅受拉黑过滤(接口侧)
+- **三处展示**(2026-09-13 追加第四处:广场动态卡片作者头像绿点):消息列表头像右下角绿点(`OnlineDot`,`find.byType` 断言)、聊天页标题下小字、发现卡昵称旁;文案 `presenceLabel()`:在线「● 在线」/ 离线「x 分钟前在线」(`formatLastActive`:刚刚 / x 分钟前 / x 小时前 / x 天前)。⚠️ **在线状态是公开信息,不依赖配对关系**(2026-09-13 修订):IM id → 账号 id 用 `userIdFromImId()`(即 `u{id}` 跨栈约定,`accounts/models.py::im_user_id`),**不用 `matchCache` 翻译**——配对被清/未配对时旧实现会瞎;仅受拉黑过滤(接口侧)
 - 测试:后端 +17(服务层/钩子/接口,共 327);前端 +16(共 186);手测已过(杀 App ≤2 分钟转离线、拉黑后不可见、顶号转离线)
 - ⚠️ **测试里等真实 dio 往返别用固定 `Future.delayed`**:高负载(双套件并行)下必 flake,改条件轮询(见 `presence_controller_test.dart::waitFor`,10ms 步进、上限 1s,超时断言给出原因)
 
