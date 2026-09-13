@@ -10,6 +10,7 @@ import 'package:chatapp_app/core/image_pick.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
+import 'package:chatapp_app/features/presence/presence_controller.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:chatapp_app/im/im_manager.dart';
@@ -60,6 +61,7 @@ void main() {
     adapter = ScriptedAdapter({
       'GET /matches': (options) => ok(pageJson([matchJson(userId: 9, nickname: '小红')])),
       'GET /users/me': (options) => ok(profileJson()),
+      'GET /presence': (options) => ok({'results': []}),
     });
     fake = FakeImClient();
     addTearDown(fake.dispose);
@@ -74,6 +76,7 @@ void main() {
       imClientProvider.overrideWithValue(fake),
       imStatusProvider.overrideWith(_LoggedInImManager.new),
       sessionProvider.overrideWith(_LoggedInSession.new),
+      presenceRefreshIntervalProvider.overrideWithValue(null),
     ]);
     addTearDown(container.dispose);
     final router = GoRouter(
@@ -306,5 +309,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('viewer.page')), findsOneWidget);
+  });
+
+  testWidgets('对方在线 → 标题下「● 在线」', (tester) async {
+    adapter.routes['GET /presence'] = (options) => ok({
+          'results': [
+            {'user_id': 9, 'online': true, 'last_active_at': '2026-09-13T14:30:00+08:00'},
+          ],
+        });
+    await pumpChat(tester);
+
+    expect(find.text('● 在线'), findsOneWidget);
+  });
+
+  testWidgets('对方离线 → 「x 分钟前在线」', (tester) async {
+    final fiveMinAgo = DateTime.now().subtract(const Duration(minutes: 5));
+    adapter.routes['GET /presence'] = (options) => ok({
+          'results': [
+            {'user_id': 9, 'online': false, 'last_active_at': fiveMinAgo.toIso8601String()},
+          ],
+        });
+    await pumpChat(tester);
+
+    expect(find.text('5 分钟前在线'), findsOneWidget);
+  });
+
+  testWidgets('拿不到状态 → 不显示小字', (tester) async {
+    await pumpChat(tester);   // 默认返回空 results
+
+    expect(find.text('● 在线'), findsNothing);
+    expect(find.textContaining('分钟前在线'), findsNothing);
   });
 }

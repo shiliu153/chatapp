@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/image_pick.dart';
 import '../../im/im_client.dart';
 import '../../im/im_repository.dart';
+import '../presence/models.dart';
+import '../presence/presence_controller.dart';
 import '../profile/profile_controller.dart';
 import 'chat_controller.dart';
 import 'chat_items.dart';
@@ -168,12 +170,36 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final selfAvatarUrl = ref.watch(profileProvider).value?.avatar?.url;
     final peerName = displayNameFor(cache, widget.peerId, imName: _imNameOf(ref));
     final peerAvatarUrl = avatarUrlFor(cache, widget.peerId);
+    final presenceById = ref.watch(presenceProvider);
+    final peerUserId = cache[widget.peerId]?.userId;
+    if (peerUserId != null) {
+      ref.read(presenceProvider.notifier).track('chat:${widget.peerId}', [peerUserId]);
+    }
+    final peerPresence = peerUserId == null ? null : presenceById[peerUserId];
+    final peerStatusLabel = presenceLabel(peerPresence);
     return Scaffold(
       appBar: AppBar(
         title: InkWell(
           key: const Key('chat.title'),
           onTap: () => _openProfile(context, cache),
-          child: Text(peerName),
+          child: peerStatusLabel == null
+              ? Text(peerName)
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(peerName),
+                    Text(
+                      peerStatusLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: peerPresence!.online
+                            ? const Color(0xFF34C759)
+                            : const Color(0xFF8A8F98),
+                      ),
+                    ),
+                  ],
+                ),
         ),
         actions: [
           IconButton(
