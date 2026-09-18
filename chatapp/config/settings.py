@@ -91,6 +91,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
+# 「跑测试」开关:提前定义,DATABASES 等后面几处都要用它区分测试/生产行为
+TESTING = sys.argv[1:2] == ["test"]
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -110,13 +113,14 @@ DATABASES = {
         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
         "PORT": os.getenv("DB_PORT", "3306"),
         "OPTIONS": _db_options,
+        # 持久连接:省掉每请求的 MySQL 建连/认证开销;测试期关闭以保持用例隔离
+        "CONN_MAX_AGE": 0 if TESTING else 60,
+        "CONN_HEALTH_CHECKS": True,   # 复用前 SELECT 1 探活,防 MySQL 重启后的坏连接
     }
 }
 
 
 # --- Redis / 缓存 / Celery(2026-09-12 标准化:共享状态不许再用 LocMem) ---
-TESTING = sys.argv[1:2] == ["test"]
-
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 # ⚠️ 环境变量必须叫 BROKER_URL:celery/app/utils.py 的 broker_url 属性是
 # 「os.environ['CELERY_BROKER_URL'] 优先于本设置」——叫 CELERY_BROKER_URL 会
