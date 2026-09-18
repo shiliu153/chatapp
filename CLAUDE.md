@@ -31,7 +31,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | **M4 第一步** | **服务器跑通**(宝塔全托管,IP:80 测试,双模拟器手测通过) |
 | 2026-09-18 | UI 整改批次①「底座+底栏」交付(Space Grotesk/主题 token/8 组件/悬浮胶囊底栏;220 测试绿) |
 
-**下一步(M4 续)**:域名 + 备案完成后切 HTTPS/安全加固 → 短信/内容安全/COS 接真 → 商店上架;iOS 打包决策;ICP 备案为并行事项。
+**下一步(M4 续)**:按 [上线执行流程表](docs/superpowers/plans/2026-09-18-launch-execution.md)(方案 A 双轨并行)推进——免费版 3~4 个月上架,ICP 证并行办理后开付费;预算/资质细节见 [上线总纲 spec](docs/superpowers/specs/2026-09-18-launch-compliance-budget-design.md)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
