@@ -40,6 +40,25 @@ class HealthTests(APITestCase):
         self.assertEqual(resp.json(), {"status": "ok"})
 
 
+class ReadyZTests(APITestCase):
+    def test_readyz_ok(self):
+        resp = self.client.get("/api/v1/readyz")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"status": "ok", "checks": {"db": "ok", "redis": "ok"}})
+
+    def test_readyz_db_down_returns_503(self):
+        with patch("accounts.views._probe_db", side_effect=RuntimeError("db down")):
+            resp = self.client.get("/api/v1/readyz")
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json()["checks"], {"db": "error", "redis": "ok"})
+
+    def test_readyz_redis_down_returns_503(self):
+        with patch("accounts.views._probe_redis", side_effect=RuntimeError("redis down")):
+            resp = self.client.get("/api/v1/readyz")
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json()["checks"], {"db": "ok", "redis": "error"})
+
+
 class SmsSendTests(APITestCase):
     def setUp(self):
         cache.clear()               # 缓存是进程级的,测试之间必须清

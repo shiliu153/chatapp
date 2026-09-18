@@ -1,11 +1,12 @@
 from django.urls import include, path
 
-from accounts.views import health
+from accounts.views import health, readyz
 from discovery import views as discovery_views
 from users import views as users_views
 
 urlpatterns = [
     path("health", health),
+    path("readyz", readyz),
     path("auth/", include("accounts.urls")),
     path("users/", include("users.urls")),
     path("im/", include("im.urls")),

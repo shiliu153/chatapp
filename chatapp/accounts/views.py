@@ -2,11 +2,12 @@ import logging
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.db import transaction
+from django.db import connection, transaction
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenRefreshView
+from django_redis import get_redis_connection
 
 from im import tasks as im_tasks
 from notifications.tasks import send_sms_code
@@ -26,6 +27,36 @@ logger = logging.getLogger(__name__)
 @permission_classes([AllowAny])
 def health(request):
     return Response({"status": "ok"})
+
+
+def _probe_db():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1")
+
+
+def _probe_redis():
+    conn = get_redis_connection("default")
+    conn.set("readyz:probe", "1", ex=10)
+    if conn.get("readyz:probe") != b"1":
+        raise RuntimeError("redis round-trip mismatch")
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def readyz(request):
+    checks = {}
+    for name, probe in (("db", _probe_db), ("redis", _probe_redis)):
+        try:
+            probe()
+            checks[name] = "ok"
+        except Exception:
+            logger.exception("readyz 探针失败: %s", name)
+            checks[name] = "error"
+    ok = all(v == "ok" for v in checks.values())
+    return Response(
+        {"status": "ok" if ok else "unavailable", "checks": checks},
+        status=200 if ok else 503,
+    )
 
 
 @api_view(["POST"])
