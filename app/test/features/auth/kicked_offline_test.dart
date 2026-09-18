@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:chatapp_app/features/shell/app_bottom_bar.dart';
 import 'package:chatapp_app/im/im_client.dart';
 
 import '../../support/harness.dart';
@@ -23,13 +24,13 @@ void main() {
     });
     final fake = await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
-    expect(find.byType(NavigationBar), findsOneWidget); // 已在主框架
+    expect(find.byType(AppBottomBar), findsOneWidget); // 已在主框架
 
     // 另一台设备登录同账号 → 腾讯踢下线事件
     fake.emit(const ImKickedOffline());
     await tester.pumpAndSettle();
 
-    expect(find.byType(NavigationBar), findsNothing); // 已退出主框架
+    expect(find.byType(AppBottomBar), findsNothing); // 已退出主框架
     expect(find.byKey(const Key('login.phone')), findsOneWidget); // 回登录页
     expect(find.textContaining('其他设备'), findsOneWidget); // 告知被踢原因
   });

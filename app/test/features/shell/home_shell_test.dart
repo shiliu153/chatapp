@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:chatapp_app/core/widgets/app_badge.dart';
+import 'package:chatapp_app/features/shell/app_bottom_bar.dart';
 import 'package:chatapp_app/im/im_client.dart';
 
 import '../../support/fake_im_client.dart';
@@ -22,7 +24,7 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(AppBottomBar), findsOneWidget);
     expect(navTab('发现'), findsOneWidget);
     expect(navTab('广场'), findsOneWidget);
     expect(navTab('消息'), findsOneWidget);
@@ -65,7 +67,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('3'), findsWidgets); // 角标数字
-    final badge = tester.widget<Badge>(find.byType(Badge));
-    expect(badge.backgroundColor, const Color(0xFFFF2C55)); // 抖音红
+    expect(find.byType(AppBadge), findsOneWidget); // 渐变角标(样式见 app_badge_test)
   });
 }

@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +8,7 @@ import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/legal/legal_texts.dart';
 import 'package:chatapp_app/features/presence/presence_controller.dart';
+import 'package:chatapp_app/features/shell/app_bottom_bar.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
 import 'fake_im_client.dart';
@@ -40,4 +40,4 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
 
 /// 底部导航栏里的 Tab 标签(避开与各页 AppBar 标题重名)。
 Finder navTab(String label) =>
-    find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
+    find.descendant(of: find.byType(AppBottomBar), matching: find.text(label));

@@ -7,6 +7,7 @@ import '../discovery/discovery_page.dart';
 import '../profile/my_profile_page.dart';
 import '../profile/profile_controller.dart';
 import '../square/square_page.dart';
+import 'app_bottom_bar.dart';
 import 'banned_page.dart';
 
 class HomeShell extends ConsumerStatefulWidget {
@@ -30,23 +31,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final unread = ref.watch(unreadTotalProvider);
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (index) => setState(() => _index = index),
-        destinations: [
-          const NavigationDestination(icon: Icon(Icons.style_outlined), label: '发现'),
-          const NavigationDestination(icon: Icon(Icons.grid_view_outlined), label: '广场'),
-          NavigationDestination(
-            icon: Badge.count(
-              count: unread,
-              isLabelVisible: unread > 0,
-              backgroundColor: const Color(0xFFFF2C55),
-              child: const Icon(Icons.chat_bubble_outline),
-            ),
-            label: '消息',
-          ),
-          const NavigationDestination(icon: Icon(Icons.person_outline), label: '我的'),
-        ],
+      bottomNavigationBar: AppBottomBar(
+        currentIndex: _index,
+        onTap: (index) => setState(() => _index = index),
+        unreadCount: unread,
       ),
     );
   }
