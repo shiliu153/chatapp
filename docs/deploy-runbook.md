@@ -14,7 +14,7 @@
 | 站点配置 | 宝塔「网站」→ <SERVER_IP>;nginx conf:`/www/server/panel/vhost/nginx/<SERVER_IP>.conf`(面板可编辑,已备份 `.bak.20260918`) |
 | 数据库 | MySQL 8.0.45,库 `chatapp` / 账号 `chatapp`(口令在 `chatapp/.env`) |
 | Redis | 7.4.11,`127.0.0.1:6379`(DB0 缓存 / DB1 任务队列) |
-| 进程 | 宝塔「进程守护管理器」两条:`chatapp-web`(gunicorn `127.0.0.1:8000`)/ `chatapp-celery`;supervisord 主进程配置 `/etc/supervisor/supervisord.conf` |
+| 进程 | 宝塔「进程守护管理器」两条:`chatapp-web`(gunicorn `127.0.0.1:8000`,`-w 2 --threads 4` = gthread)/ `chatapp-celery`;profile:`/www/server/panel/plugin/supervisor/profile/*.ini` |
 | 日志 | Django:`/www/wwwlogs/chatapp/app.log`;nginx:`/www/wwwlogs/<SERVER_IP>.log` / `.error.log` |
 
 ## 日常更新代码(六步)
@@ -42,7 +42,7 @@ ssh root@<SERVER_IP> 'cd /www/wwwroot/chatapp/chatapp && \
 - **连数据库**:面板「数据库」→ 管理;或 `mysql -u chatapp -p chatapp`。
 - **改 nginx 配置**:面板「网站」→ 设置 → 配置文件,改完保存即 reload;命令行验证 `nginx -t`。
 - **回滚代码**:`cd /www/wwwroot/chatapp && git log --oneline` 找目标版本 `git checkout <hash>`,然后重启两条进程。
-- **内存观察**:`free -h`;紧张时把 `chatapp-web` 的 `-w 2` 降为 `-w 1`(面板改启动命令后重启)。
+- **内存观察**:`free -h`;紧张时把 `chatapp-web` 的 `--threads 4` 降为 `2`(面板改启动命令后重启)。
 
 ### ⚠️ 运维坑(已踩过)
 
@@ -50,6 +50,20 @@ ssh root@<SERVER_IP> 'cd /www/wwwroot/chatapp/chatapp && \
 - **服务器本机 curl 用 `127.0.0.1` 测站点会 404**:nginx 按 `server_name` 分流,`127.0.0.1` 落到宝塔默认站点。本机自测要么带 Host:`curl -H "Host: <SERVER_IP>" http://127.0.0.1/...`,要么直连 `http://127.0.0.1:8000`(gunicorn)。
 - **放行端口要做两层**:主机 `firewalld` + 阿里云控制台防火墙,缺一层就不通。
 - **`git pull` 不受 `.env` 影响**(gitignored);但**改 `.env` 后必须重启两条进程**(env 只在进程启动时读)。
+- **supervisorctl 不在 PATH**:用 `/www/server/panel/pyenv/bin/supervisorctl -c /etc/supervisor/supervisord.conf`;重启单条程序要 `restart "chatapp-celery:*"`(带 `:*`,直接写 `chatapp-celery` 报 no such process);改 profile 后 `reread && update` 即等效面板保存重启。
+
+## 容量实测(2026-09-18)
+
+方式:本机多线程 HTTP 打公网接口(含 RTT ~60ms),并发 1→80 阶梯。`chatapp-web` 已从 2 个同步 worker 换为 gthread(`-w 2 --threads 4`),settings 已开 `CONN_MAX_AGE=60`。
+
+| 接口 | 延迟平稳区 | 饱和吞吐 | 说明 |
+|---|---|---|---|
+| `GET /readyz`(最轻) | 并发 ≤ 40 | ~200 req/s | 优化前(2 同步 worker)仅 ~143 req/s,拐点在并发 20 |
+| `GET /users/me`(登录态实读) | 并发 ≤ 10–20 | ~53 req/s | 瓶颈已是 2 核 CPU(≈30ms CPU/请求) |
+
+折算:混合流量稳定支撑约 **300–500 同时在线**;聊天走腾讯 IM 直连不占本机,**真正吃 CPU 的是刷卡片/广场**;图片流量会先撞带宽(若套餐 5 Mbps,≈6 张头像/秒)。
+
+调优备忘:**瓶颈已从 worker 数转为 CPU 核数**——再加线程无用,要提容量得升配(2C4G)或降单请求开销(缓存/查询)。
 
 ## 本阶段已知事项(「上线阶段」待办)
 

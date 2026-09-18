@@ -15,6 +15,7 @@
 - ⚠️ **`GET /users/me` 响应里 `id` 是 profile 表主键,账号 ID 看 `user_id`**(与公开资料卡同源;我的页 ID 行显示 `u{user_id}`——取错会差一位,u7 显示成 u6,2026-09-12 修)。
 - ⚠️ JWT 的 `user_id` claim 是**字符串**(SimpleJWT 行为),前端与自家 id 比对时转 int。
 - ⚠️ **Git Bash 里 curl 发中文会 400**:`curl -d '{"昵称":...}'` 按本地 GBK 码页发出,服务端 UTF-8 解析失败(**不是后端 bug**)。冒烟用纯 ASCII,或把 JSON 写成 UTF-8 文件后 `--data-binary @file`。
+- ⚠️ **Git Bash 会把 `/xxx` 形式的参数转成 Windows 路径**(MSYS 行为):给脚本传接口路径 `/users/me` 会变成 `C:/Program Files/Git/users/me`,请求全打空。对策:整条 URL 当一个参数传(含 `://` 不转),或前缀 `MSYS_NO_PATHCONV=1`。
 - ⚠️ **`CELERY_` 前缀的键千万别放 `.env`**:Celery 配置**环境变量优先**(`celery/app/utils.py`:`os.environ.get('CELERY_BROKER_URL') or 配置值`),`load_dotenv` 一灌进环境就压过 settings 的一切覆盖(踩过:测试任务漏进开发 broker DB1,被 dev worker 真执行)。本项目键名 **`BROKER_URL`**;回归用例 `config.tests.CelerySkeletonTests.test_broker_uses_isolated_db_in_tests` 钉死。
 - ⚠️ **`on_commit` 的语义是「DB 提交后」,不是「响应后」**(无 `ATOMIC_REQUESTS` 时不在事务里就立即同步执行)——别再往里塞慢调用。
 - 验证码状态机(`accounts/sms_codes.py`):Redis hash `sms:code:{phone}`(`h`=HMAC 码/`n`=错误数/`c`=已消费)+ `sms:lock:`(15min 锁)+ `sms:send:`(60s 重发占位);校验走**单个 Lua 脚本**原子完成;校验成功不删码,TTL 缩短为 `SMS_REPLAY_TTL`(60s)幂等重放窗口。历史坑(已修):LocMem 时代 autoreload 重启验证码「凭空过期」→ 已迁 Redis(2026-09-12)。
