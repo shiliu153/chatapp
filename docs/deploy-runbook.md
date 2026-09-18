@@ -51,6 +51,7 @@ ssh root@<SERVER_IP> 'cd /www/wwwroot/chatapp/chatapp && \
 - **放行端口要做两层**:主机 `firewalld` + 阿里云控制台防火墙,缺一层就不通。
 - **`git pull` 不受 `.env` 影响**(gitignored);但**改 `.env` 后必须重启两条进程**(env 只在进程启动时读)。
 - **supervisorctl 不在 PATH**:用 `/www/server/panel/pyenv/bin/supervisorctl -c /etc/supervisor/supervisord.conf`;重启单条程序要 `restart "chatapp-celery:*"`(带 `:*`,直接写 `chatapp-celery` 报 no such process);改 profile 后 `reread && update` 即等效面板保存重启。
+- **改启动命令要两处同步**:`plugin/supervisor/profile/chatapp-web.ini`(supervisord 实际读的)和面板数据源 `plugin/supervisor/config.json`——只改一处,以后在面板里一保存就会被另一边静默覆盖回去(2026-09-18 给 gunicorn 加 `--threads` 时发现)。
 
 ## 容量实测(2026-09-18)
 
