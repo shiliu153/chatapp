@@ -27,6 +27,7 @@ abstract final class AppText {
   static final caption = _sg(size: 13, weight: FontWeight.w400, height: 1.45);
   static final micro = _sg(size: 12, weight: FontWeight.w400);
   static final badge = _sg(size: 11, weight: FontWeight.w700); // 角标专用
+  static final emoji = _sg(size: 72, weight: FontWeight.w400); // 空态大号元素(§7,72–96 取下沿)
   static final navLabel = _sg(size: 10, weight: FontWeight.w400); // 底栏未选中(§7)
   static final navLabelSelected = _sg(size: 10, weight: FontWeight.w700); // 底栏选中(§7)
 }
