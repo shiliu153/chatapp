@@ -13,7 +13,7 @@ double _pingOpacity(WidgetTester tester, int index) => tester
     .opacity;
 
 void main() {
-  testWidgets('三圈同心环 + 中心光点 + 双波扩散(有限 pump,禁 pumpAndSettle)', (tester) async {
+  testWidgets('中心光点 + 双波扩散、无静态环(有限 pump,禁 pumpAndSettle)', (tester) async {
     await tester.pumpWidget(const MaterialApp(
       home: Scaffold(body: Center(child: HeartRipple())),
     ));
@@ -21,7 +21,7 @@ void main() {
     expect(find.byType(HeartRipple), findsOneWidget);
     expect(
       find.descendant(of: find.byType(HeartRipple), matching: find.byType(Container)),
-      findsNWidgets(4), // 3 环 + 中心点(波纹用 DecoratedBox,不算 Container)
+      findsNWidgets(1), // 只有中心光点;波纹是扩散环,不留静态底环
     );
     expect(find.byKey(const Key('ripple.ping0')), findsOneWidget);
     expect(find.byKey(const Key('ripple.ping1')), findsOneWidget);

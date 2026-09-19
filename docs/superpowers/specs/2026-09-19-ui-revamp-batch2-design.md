@@ -66,7 +66,7 @@
 
 | 文件 | 改动 |
 |---|---|
-| `core/widgets/heart_ripple.dart`(新增) | `HeartRipple({size = 96})`:三圈同心环(2px 描边,色从 token 派生:外 `heartOrange` 30%、中 `lerp(brand, heartOrange, .5)` 55%、内 `brand` 90%) + 中心 14px 渐变光点带光晕 + **循环涟漪**(双波错峰,0.35→1.2 倍扩散渐隐,2.4s;减弱动效时静止)——手测反馈后由静态升级为动效,可见它的测试改用有限 `pump`。 |
+| `core/widgets/heart_ripple.dart`(新增) | `HeartRipple({size = 96})`:中心渐变光点带光晕 + **双波循环扩散环**(自光点诞生、0.2→1.0 倍扩散渐隐,2.4s,无静态底环;减弱动效时仅剩光点)——两轮手测反馈定型(先由静态改为动效,再去掉静态底环避免重叠),可见它的测试用有限 `pump`。 |
 | `core/widgets/breathing_dot.dart`(新增) | 把批次① `AppAvatar` 私有的 `_BreathingDot` 提炼为共享组件 `BreathingDot({size, borderColor, key})`;AppAvatar 改用它(**`Key('avatar.onlineDot')` 由 AppAvatar 传 key 保持**,现有测试不动);发现卡在线点复用(传 `Key('card.onlineDot')`,白描边 2px,与头像在线点同规格)。 |
 | `core/widgets/app_empty_state.dart` | `emoji` 改可空 + 新增 `mark`(Widget?);渲染优先级 mark > emoji;两者皆空时不渲染元素(标题/说明/按钮照常)。现有调用处(emoji)零改动。 |
 | `core/theme/app_radius.dart` | +`discoveryCard = 24` |
