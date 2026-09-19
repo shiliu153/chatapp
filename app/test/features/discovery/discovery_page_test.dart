@@ -121,7 +121,11 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('discovery.like')));
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(); // 飞出动画 + 乐观移除(列表变空)
+    // 单卡场景:列表变空后 SwipeDeck 卸载、不再调度帧,pumpAndSettle 会提前静止;
+    // 而请求链里读凭证的平台通道往返在假时钟下需一次显式推进才放行(真实设备无此问题)
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle(); // 失败提示入场 + 卡片复位
 
     expect(find.text('操作太快了,休息一下吧'), findsOneWidget);
     expect(find.text('小红,25'), findsOneWidget);

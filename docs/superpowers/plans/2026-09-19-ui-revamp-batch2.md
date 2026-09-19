@@ -930,6 +930,7 @@ git commit -m "feat(ui): 发现卡面重做——R24/scrim 叠字新排版/胶�
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('discovery.like')));
+    await tester.pump(); // ticker 基线帧(首帧不推进动画)
     await tester.pump(const Duration(milliseconds: 110)); // 220 的中点 = 峰值
 
     double scaleOfPulse() => tester
@@ -939,7 +940,7 @@ git commit -m "feat(ui): 发现卡面重做——R24/scrim 叠字新排版/胶�
 
     expect(scaleOfPulse(), closeTo(1.25, 0.02));
 
-    await tester.pump(const Duration(milliseconds: 150)); // 脉冲走完
+    await tester.pump(const Duration(milliseconds: 110)); // 脉冲走完
     expect(scaleOfPulse(), closeTo(1.0, 0.02));
   });
 ```
@@ -1053,7 +1054,9 @@ class _DeckActionButtonState extends State<_DeckActionButton>
         child: AnimatedBuilder(
           animation: _pulse,
           builder: (context, child) => Transform.scale(
-            key: const Key('deck.pulse'),
+            // key 只给脉冲钮:两个按钮都会 build 这个 Transform,无条件挂 key 会撞出
+            // "Too many elements"(find.byKey 命中 2 个)
+            key: widget.pulse ? const Key('deck.pulse') : null,
             scale: 1 + 0.25 * math.sin(math.pi * _pulse.value),
             child: child,
           ),

@@ -1,5 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_gradients.dart';
+import '../../../core/theme/app_motion.dart';
+import '../../../core/theme/app_shadows.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../presence/models.dart';
 import '../models.dart';
 import 'profile_card.dart';
@@ -114,7 +121,8 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
       children: [
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageH, AppSpacing.sm, AppSpacing.pageH, 0),
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -143,28 +151,125 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 24),
+        SizedBox(
+          height: 88,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              IconButton.filledTonal(
-                key: const Key('discovery.pass'),
-                iconSize: 30,
+              _DeckActionButton(
+                buttonKey: const Key('discovery.pass'),
+                icon: Icons.close_rounded,
+                size: 56,
+                foreground: AppColors.text3,
+                background: AppColors.bgCard,
+                borderColor: AppColors.divider,
+                shadow: AppShadows.card,
                 onPressed: _flying ? null : () => _flyOut(like: false),
-                icon: const Icon(Icons.close),
               ),
-              const SizedBox(width: 48),
-              IconButton.filled(
-                key: const Key('discovery.like'),
-                iconSize: 30,
+              const SizedBox(width: 44),
+              _DeckActionButton(
+                buttonKey: const Key('discovery.like'),
+                icon: Icons.favorite_rounded,
+                size: 64,
+                foreground: Colors.white,
+                gradient: AppGradients.heart,
+                shadow: AppShadows.primaryButton,
+                pulse: true,
                 onPressed: _flying ? null : () => _flyOut(like: true),
-                icon: const Icon(Icons.favorite),
               ),
             ],
           ),
         ),
+        const SizedBox(height: AppSpacing.lg),
       ],
+    );
+  }
+}
+
+/// 附录 A.1 滑卡操作钮:圆钮 + 按压 .96;喜欢钮带心跳脉冲 1→1.25→1。
+class _DeckActionButton extends StatefulWidget {
+  const _DeckActionButton({
+    required this.buttonKey,
+    required this.icon,
+    required this.size,
+    required this.foreground,
+    this.background,
+    this.gradient,
+    this.borderColor,
+    required this.shadow,
+    this.pulse = false,
+    this.onPressed,
+  });
+
+  final Key buttonKey;
+  final IconData icon;
+  final double size;
+  final Color foreground;
+  final Color? background;
+  final Gradient? gradient;
+  final Color? borderColor;
+  final List<BoxShadow> shadow;
+  final bool pulse;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_DeckActionButton> createState() => _DeckActionButtonState();
+}
+
+class _DeckActionButtonState extends State<_DeckActionButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse =
+      AnimationController(vsync: this, duration: AppMotion.base);
+  var _pressed = false;
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    if (widget.onPressed == null) return;
+    if (widget.pulse) _pulse.forward(from: 0); // 与飞出并行,不阻塞
+    widget.onPressed!();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null;
+    return GestureDetector(
+      key: widget.buttonKey,
+      behavior: HitTestBehavior.opaque,
+      onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
+      onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
+      onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
+      onTap: _handleTap,
+      child: AnimatedScale(
+        scale: _pressed ? 0.96 : 1,
+        duration: AppMotion.fast,
+        child: AnimatedBuilder(
+          animation: _pulse,
+          builder: (context, child) => Transform.scale(
+            key: widget.pulse ? const Key('deck.pulse') : null,
+            scale: 1 + 0.25 * math.sin(math.pi * _pulse.value),
+            child: child,
+          ),
+          child: Container(
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: widget.background,
+              gradient: widget.gradient,
+              border: widget.borderColor == null
+                  ? null
+                  : Border.all(color: widget.borderColor!, width: 1.5),
+              boxShadow: widget.shadow,
+            ),
+            child: Icon(widget.icon, size: 24, color: widget.foreground),
+          ),
+        ),
+      ),
     );
   }
 }

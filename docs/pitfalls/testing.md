@@ -15,6 +15,7 @@
 - 脚手架:`test/support/harness.dart::pumpApp`(真实 provider + 假网络 + 假 IM,可传 `imClient:` 自定义);假网络按 `"METHOD path"` 铺响应,没铺的路由返回 404 提示你。
 - ⚠️ **widget 测试里别裸 `await` 走 dio 的 provider**(如 `container.read(xxxProvider.future)`):假时钟不推进 dio 内部定时器,测试直接**死锁**(曾挂 7 分钟,连超时都不触发)。要么让调用发生在 widget 树里(靠 `pumpAndSettle` 推进),要么把 provider override 成目标状态(见 `chat_page_test.dart` 的 `_LoggedInImManager`)。
 - ⚠️ **含无限动画的页面别 `pumpAndSettle`**(启动页转圈、倒计时):永不 settle 会超时;用有限次 `pump` 推进(见 `test/features/legal/agreement_gate_test.dart`),尾部 `await tester.pumpWidget(const SizedBox())` 卸载页面取消 Timer。
+- ⚠️ **异步请求链中途界面停止调度帧时,`pumpAndSettle` 会提前静止**:它只在「有新帧被调度」时继续推进假时钟;若请求链里有平台通道/定时器步骤(如读凭证 `SharedPreferences`),而此刻界面恰好没动画(例:单卡滑出去后列表变空、卡组被空态替换),时钟不再前进、请求冻在半路(SnackBar 不出现,还报 *A Timer is still pending*)。修法:先 `pumpAndSettle()` 走完动画,**再 `pump(100ms)` 显式推一次时钟放行**,最后 `pumpAndSettle()` 收敛(见 `discovery_page_test.dart` 的「滑卡失败」用例)。
 - ⚠️ 假网络对所有图片请求返回 400:网络图片必须自兜底(`Image.network(errorBuilder:)` / `CircleAvatar(onBackgroundImageError:)`),不兜底直接报错。
 - ⚠️ **等真实 dio 往返别用固定 `Future.delayed`**:高负载(双套件并行)下必 flake;改条件轮询(见 `presence_controller_test.dart::waitFor`,10ms 步进、上限 1s,超时断言给出原因)。
 - 有心跳/轮询定时器的页面:`heartbeatIntervalProvider` / `presenceRefreshIntervalProvider` 在 pumpApp 里默认 override 成 null(关掉定时器)。

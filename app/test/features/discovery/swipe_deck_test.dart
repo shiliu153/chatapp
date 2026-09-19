@@ -92,4 +92,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(decisions, ['9:like', '10:pass']);
   });
+
+  testWidgets('点喜欢:按钮脉冲 1→1.25→1(base 220ms)', (tester) async {
+    final decisions = <String>[];
+    await tester.pumpWidget(_Host(decisions: decisions));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('discovery.like')));
+    await tester.pump(); // ticker 基线帧(首帧不推进动画)
+    await tester.pump(const Duration(milliseconds: 110)); // 220 的中点 = 峰值
+
+    double scaleOfPulse() => tester
+        .widget<Transform>(find.byKey(const Key('deck.pulse')))
+        .transform
+        .getMaxScaleOnAxis();
+
+    expect(scaleOfPulse(), closeTo(1.25, 0.02));
+
+    await tester.pump(const Duration(milliseconds: 110)); // 脉冲走完
+    expect(scaleOfPulse(), closeTo(1.0, 0.02));
+  });
 }
