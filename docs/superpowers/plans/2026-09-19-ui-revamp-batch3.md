@@ -828,6 +828,13 @@ import 'package:chatapp_app/im/im_manager.dart';
 class _ConnectingImManager extends ImManager {
   @override
   ImStatus build() => const ImConnecting();
+
+  // 启动流程会调 login():压住不让真实登录把状态推进到已登录
+  @override
+  Future<void> login() async {}
+
+  @override
+  Future<void> retry() async {}
 }
 ```
 

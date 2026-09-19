@@ -2,7 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api_exception.dart';
 import '../../core/format.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_error_view.dart';
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
 import '../../im/im_repository.dart';
@@ -11,6 +17,8 @@ import '../presence/online_dot.dart';
 import '../presence/presence_controller.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
+import 'widgets/chat_bubbles_mark.dart';
+import 'widgets/chats_skeleton.dart';
 
 class ChatsPage extends ConsumerWidget {
   const ChatsPage({super.key});
@@ -20,20 +28,24 @@ class ChatsPage extends ConsumerWidget {
     final status = ref.watch(imStatusProvider);
     return Scaffold(
       body: SafeArea(
+        bottom: false,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 10, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('消息',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.md),
+              child: Text('消息',
+                  style: AppText.display.copyWith(color: AppColors.text1)),
             ),
             Expanded(
               child: switch (status) {
-                ImConnecting() => const Center(child: CircularProgressIndicator()),
-                ImFailed(:final message) => _FailedView(message: message),
+                ImConnecting() => const ChatsSkeleton(),
+                ImFailed(:final message) => AppErrorView(
+                    message: message,
+                    retryKey: const Key('chats.retry'),
+                    onRetry: () => ref.read(imStatusProvider.notifier).retry(),
+                  ),
                 _ => const _ConversationList(),
               },
             ),
@@ -42,28 +54,6 @@ class ChatsPage extends ConsumerWidget {
       ),
     );
   }
-}
-
-class _FailedView extends ConsumerWidget {
-  const _FailedView({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(message),
-            const SizedBox(height: 12),
-            FilledButton(
-              key: const Key('chats.retry'),
-              onPressed: () => ref.read(imStatusProvider.notifier).retry(),
-              child: const Text('重试'),
-            ),
-          ],
-        ),
-      );
 }
 
 class _ConversationList extends ConsumerWidget {
@@ -75,22 +65,22 @@ class _ConversationList extends ConsumerWidget {
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final presenceById = ref.watch(presenceProvider);
     return conversations.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('$error'),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: () => ref.read(conversationsProvider.notifier).reload(),
-              child: const Text('重试'),
-            ),
-          ],
-        ),
+      loading: () => const ChatsSkeleton(),
+      error: (error, _) => AppErrorView(
+        message: apiMessageOf(error),
+        retryKey: const Key('chats.retry'),
+        onRetry: () => ref.read(conversationsProvider.notifier).reload(),
       ),
       data: (items) {
-        if (items.isEmpty) return const _EmptyView();
+        if (items.isEmpty) {
+          return const Center(
+            child: AppEmptyState(
+              mark: ChatBubblesMark(),
+              title: '还没有消息',
+              description: '互相喜欢之后就能开聊了',
+            ),
+          );
+        }
         ImConversation? system;
         final others = <ImConversation>[];
         for (final item in items) {
@@ -358,20 +348,3 @@ String _previewOf(ChatMessage? last) {
   };
 }
 
-class _EmptyView extends StatelessWidget {
-  const _EmptyView();
-
-  @override
-  Widget build(BuildContext context) => const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.chat_bubble_outline, size: 48),
-            SizedBox(height: 12),
-            Text('还没有消息'),
-            SizedBox(height: 4),
-            Text('互相喜欢之后就能开聊了', style: TextStyle(color: Colors.black54, fontSize: 13)),
-          ],
-        ),
-      );
-}

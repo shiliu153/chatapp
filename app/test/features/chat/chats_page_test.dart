@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/features/presence/online_dot.dart';
+import 'package:chatapp_app/features/chat/widgets/chats_skeleton.dart';
 import 'package:chatapp_app/im/im_client.dart';
+import 'package:chatapp_app/im/im_manager.dart';
 
 import '../../support/fake_im_client.dart';
 import '../../support/harness.dart';
@@ -49,6 +51,19 @@ ImConversation _systemConversation({int unread = 1}) => ImConversation(
         text: '您的账号因「发布违规内容」被限制。',
       ),
     );
+
+/// IM 一直处于连接中,用来验证骨架态接线(不让登录完成)。
+class _ConnectingImManager extends ImManager {
+  @override
+  ImStatus build() => const ImConnecting();
+
+  // 启动流程会调 login():压住不让真实登录把状态推进到已登录
+  @override
+  Future<void> login() async {}
+
+  @override
+  Future<void> retry() async {}
+}
 
 void main() {
   testWidgets('消息页:昵称来自 matches 缓存,预览和未读都在', (tester) async {
@@ -187,5 +202,18 @@ void main() {
     // 查的就是会话对端 u9 → 账号 9(u{id} 约定)
     final request = adapter.log.lastWhere((r) => r.path == '/presence');
     expect(request.queryParameters['user_ids'], contains('9'));
+  });
+
+  testWidgets('IM 连接中 → 行骨架(有限 pump,不 settle)', (tester) async {
+    final fake = FakeImClient()..conversations = [_conversation()];
+    await pumpApp(tester, _adapter(),
+        prefs: _loggedIn,
+        imClient: fake,
+        overrides: [imStatusProvider.overrideWith(_ConnectingImManager.new)]);
+    await pumpFrames(tester);
+    await tester.tap(navTab('消息'));
+    await pumpFrames(tester);
+
+    expect(find.byType(ChatsSkeleton), findsOneWidget);
   });
 }

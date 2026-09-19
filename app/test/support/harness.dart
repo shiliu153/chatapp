@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,7 +18,9 @@ import 'scripted_adapter.dart';
 /// 起整个 App(真实 provider + 假网络 + 假 IM)。prefs 里塞 {'auth.refresh': 'r', ...} 模拟已登录。
 /// 返回注入的 FakeImClient,测试可用它铺数据/断言调用(想自定义就传 imClient)。
 Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
-    {Map<String, Object> prefs = const {}, FakeImClient? imClient}) async {
+    {Map<String, Object> prefs = const {},
+    FakeImClient? imClient,
+    List<Override> overrides = const []}) async {
   final fake = imClient ?? FakeImClient();
   // 默认已同意协议,绝大多数用例直接进 App;协议用例自己传 legal.agreed_version: 0
   SharedPreferences.setMockInitialValues({'legal.agreed_version': legalVersion, ...prefs});
@@ -32,6 +35,7 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
       heartbeatIntervalProvider.overrideWithValue(null),
       // 同样默认关掉在线状态的周期刷新;需要测定时的用例自己 override
       presenceRefreshIntervalProvider.overrideWithValue(null),
+      ...overrides,
     ],
     child: const ChatApp(),
   ));
