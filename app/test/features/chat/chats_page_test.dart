@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/features/presence/online_dot.dart';
+import 'package:chatapp_app/core/widgets/breathing_dot.dart';
 import 'package:chatapp_app/features/chat/widgets/chats_skeleton.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/im_manager.dart';
@@ -165,12 +165,12 @@ void main() {
           ],
         });
     await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
     await tester.tap(navTab('消息'));
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
 
-    // 横滑条 + 列表行各一个绿点;系统通知(非真人)没有
-    expect(find.byType(OnlineDot), findsNWidgets(2));
+    // 横滑条 + 列表行各一个呼吸点;系统通知(非真人)没有。呼吸点是无限动画,禁 settle。
+    expect(find.byType(BreathingDot), findsNWidgets(2));
   });
 
   testWidgets('离线不显示绿点', (tester) async {
@@ -181,7 +181,7 @@ void main() {
     await tester.tap(navTab('消息'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(OnlineDot), findsNothing);
+    expect(find.byType(BreathingDot), findsNothing);
   });
 
   testWidgets('配对缓存为空时在线状态照常显示(公开,不依赖配对)', (tester) async {
@@ -194,11 +194,11 @@ void main() {
           ],
         });
     await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
     await tester.tap(navTab('消息'));
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
 
-    expect(find.byType(OnlineDot), findsNWidgets(2));
+    expect(find.byType(BreathingDot), findsNWidgets(2));
     // 查的就是会话对端 u9 → 账号 9(u{id} 约定)
     final request = adapter.log.lastWhere((r) => r.path == '/presence');
     expect(request.queryParameters['user_ids'], contains('9'));

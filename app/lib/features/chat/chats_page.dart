@@ -5,15 +5,18 @@ import 'package:go_router/go_router.dart';
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_gradients.dart';
+import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_avatar.dart';
+import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
 import '../../im/im_repository.dart';
 import '../presence/models.dart';
-import '../presence/online_dot.dart';
 import '../presence/presence_controller.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
@@ -105,11 +108,11 @@ class _ConversationList extends ConsumerWidget {
                 children: [
                   if (system != null) ...[
                     _SystemNoticeTile(conversation: system),
-                    Container(height: 8, color: const Color(0xFFF7F8FA)),
+                    Container(height: AppSpacing.sm, color: AppColors.bgPage),
                   ],
                   for (var i = 0; i < others.length; i++) ...[
                     if (i > 0)
-                      const Divider(height: 1, thickness: 1, color: Color(0xFFF5F6F7)),
+                      const Divider(height: 1, thickness: 1, color: AppColors.divider),
                     _ConversationTile(
                         conversation: others[i], cache: cache, presenceById: presenceById),
                   ],
@@ -123,7 +126,7 @@ class _ConversationList extends ConsumerWidget {
   }
 }
 
-/// 最近联系人横滑条(抖音式;不含系统通知)。
+/// 最近联系人横滑条(附录 B.1;不含系统通知)。
 class _RecentStrip extends StatelessWidget {
   const _RecentStrip({required this.friends, required this.cache, required this.presenceById});
 
@@ -135,11 +138,12 @@ class _RecentStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final recent = friends.take(10).toList();
     return SizedBox(
-      height: 84,
+      height: 88,
       child: ListView.separated(
         key: const Key('chats.strip'),
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.pageH, AppSpacing.xs, AppSpacing.pageH, AppSpacing.md),
         itemCount: recent.length,
         separatorBuilder: (_, _) => const SizedBox(width: 14),
         itemBuilder: (context, index) {
@@ -156,8 +160,12 @@ class _RecentStrip extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _Avatar(name: name, url: avatar, size: 48, online: online),
-                const SizedBox(height: 4),
+                AppAvatar(
+                    imageUrl: avatar,
+                    size: 48,
+                    showOnlineDot: online,
+                    fallbackText: name),
+                const SizedBox(height: AppSpacing.xs),
                 SizedBox(
                   width: 56,
                   child: Text(
@@ -165,7 +173,7 @@ class _RecentStrip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 11, color: Color(0xFF555B63)),
+                    style: AppText.micro.copyWith(color: AppColors.text2),
                   ),
                 ),
               ],
@@ -177,7 +185,7 @@ class _RecentStrip extends StatelessWidget {
   }
 }
 
-/// 「系统通知」置顶行:蓝底铃铛 + 官方标。
+/// 「系统通知」置顶行:官方渐变头像 + 官方标(附录 B.5)。
 class _SystemNoticeTile extends StatelessWidget {
   const _SystemNoticeTile({required this.conversation});
 
@@ -189,31 +197,37 @@ class _SystemNoticeTile extends StatelessWidget {
     return ListTile(
       key: const Key('chats.systemNotice'),
       onTap: () => context.push('/chat/${conversation.peerId}'),
-      leading: const CircleAvatar(
-        radius: 24,
-        backgroundColor: Color(0xFFE8F0FE),
-        child: Icon(Icons.notifications_none, color: Color(0xFF2C7BE5)),
+      leading: Container(
+        width: 48,
+        height: 48,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: AppGradients.system,
+        ),
+        child: const Icon(Icons.notifications_rounded, color: Colors.white, size: 24),
       ),
       title: Row(
         children: [
-          const Text('系统通知',
-              style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
-          const SizedBox(width: 6),
+          Text('系统通知', style: AppText.subtitle),
+          const SizedBox(width: AppSpacing.sm),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             decoration: BoxDecoration(
-              border: Border.all(color: const Color(0xFF2C7BE5)),
-              borderRadius: BorderRadius.circular(3),
+              border: Border.all(color: AppColors.violet),
+              borderRadius: BorderRadius.circular(AppRadius.chip),
             ),
-            child: const Text('官方',
-                style: TextStyle(fontSize: 10, color: Color(0xFF2C7BE5))),
+            child: Text('官方',
+                style: AppText.micro.copyWith(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.violet)),
           ),
         ],
       ),
       subtitle: Text(_previewOf(last),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 13, color: Color(0xFF8A8F98))),
+          style: AppText.caption.copyWith(color: AppColors.text2)),
       trailing: _TimeBadge(last: last, unread: conversation.unreadCount),
     );
   }
@@ -236,56 +250,17 @@ class _ConversationTile extends StatelessWidget {
     return ListTile(
       key: Key('chats.tile:${conversation.peerId}'),
       onTap: () => context.push('/chat/${conversation.peerId}'),
-      leading: _Avatar(name: name, url: avatar, online: online),
+      leading: AppAvatar(
+          imageUrl: avatar, size: 48, showOnlineDot: online, fallbackText: name),
       title: Text(name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
+          style: AppText.subtitle.copyWith(color: AppColors.text1)),
       subtitle: Text(_previewOf(conversation.lastMessage),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 13, color: Color(0xFF8A8F98))),
+          style: AppText.caption.copyWith(color: AppColors.text2)),
       trailing: _TimeBadge(last: conversation.lastMessage, unread: conversation.unreadCount),
-    );
-  }
-}
-
-/// 圆头像:有图用图(失败静默),没图用昵称首字;在线时右下角叠绿点。
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.name, this.url, this.size = 48, this.online = false});
-
-  final String name;
-  final String? url;
-  final double size;
-  final bool online;
-
-  @override
-  Widget build(BuildContext context) {
-    final radius = size / 2;
-    final Widget avatar = (url != null && url!.isNotEmpty)
-        ? CircleAvatar(
-            radius: radius,
-            backgroundImage: NetworkImage(url!),
-            onBackgroundImageError: (error, stack) {},
-          )
-        : CircleAvatar(
-            radius: radius,
-            backgroundColor: const Color(0xFFD6E8FF),
-            child: Text(
-              name.isEmpty ? '?' : name.substring(0, 1),
-              style: TextStyle(
-                  fontSize: size * 0.38,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF40454C)),
-            ),
-          );
-    if (!online) return avatar;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        avatar,
-        Positioned(right: 0, bottom: 0, child: OnlineDot(size: size * 0.28)),
-      ],
     );
   }
 }
@@ -304,37 +279,12 @@ class _TimeBadge extends StatelessWidget {
           if (last != null)
             Text(
               formatMessageTime(DateTime.fromMillisecondsSinceEpoch(last!.timestamp)),
-              style: const TextStyle(fontSize: 11, color: Color(0xFF9AA0A8)),
+              style: AppText.micro.copyWith(color: AppColors.text3),
             ),
-          const SizedBox(height: 4),
-          _UnreadBadge(count: unread),
+          const SizedBox(height: AppSpacing.xs),
+          AppBadge(count: unread),
         ],
       );
-}
-
-class _UnreadBadge extends StatelessWidget {
-  const _UnreadBadge({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) => count <= 0
-      ? const SizedBox(height: 17)
-      : Container(
-          height: 17,
-          padding: const EdgeInsets.symmetric(horizontal: 5),
-          constraints: const BoxConstraints(minWidth: 17),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFF2C55),
-            borderRadius: BorderRadius.circular(9),
-          ),
-          // 不用 Container 的 alignment:有界约束下它会撑满整格宽(ListTile trailing 断言)
-          child: Center(
-            widthFactor: 1,
-            child: Text('$count',
-                style: const TextStyle(color: Colors.white, fontSize: 11)),
-          ),
-        );
 }
 
 String _previewOf(ChatMessage? last) {

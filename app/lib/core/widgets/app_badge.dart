@@ -16,15 +16,18 @@ class AppBadge extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
       padding: const EdgeInsets.symmetric(horizontal: 5),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
         gradient: AppGradients.heart,
         borderRadius: BorderRadius.circular(9),
         boxShadow: AppShadows.primaryButton,
       ),
-      child: Text(
-        count >= 100 ? '99+' : '$count',
-        style: AppText.badge.copyWith(color: Colors.white),
+      // 不用 Container.alignment:有界约束下会撑满整格(ListTile trailing 断言)
+      child: Center(
+        widthFactor: 1,
+        child: Text(
+          count >= 100 ? '99+' : '$count',
+          style: AppText.badge.copyWith(color: Colors.white),
+        ),
       ),
     );
   }
