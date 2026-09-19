@@ -3,11 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/api_exception.dart';
 import '../../core/image_pick.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_error_view.dart';
 import '../../core/widgets/breathing_dot.dart';
 import '../../im/im_client.dart';
 import '../../im/im_repository.dart';
@@ -18,6 +21,8 @@ import 'chat_controller.dart';
 import 'chat_items.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
+import 'widgets/chat_bubbles_mark.dart';
+import 'widgets/chat_skeleton.dart';
 import 'widgets/emoji_panel.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/more_panel.dart';
@@ -204,12 +209,20 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ),
           Expanded(
             child: messages.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (error, _) => Center(child: Text('$error')),
+              loading: () => const ChatSkeleton(),
+              error: (error, _) => AppErrorView(
+                message: apiMessageOf(error),
+                onRetry: () => ref.invalidate(chatProvider(widget.peerId)),
+              ),
               data: (items) {
                 if (items.isEmpty) {
                   return const Center(
-                      child: Text('打个招呼吧', style: TextStyle(color: Colors.black45)));
+                    child: AppEmptyState(
+                      mark: ChatBubblesMark(),
+                      title: '打个招呼吧',
+                      description: '发条消息,开始你们的故事',
+                    ),
+                  );
                 }
                 final chatItems = buildChatItems(items);
                 return ListView.builder(

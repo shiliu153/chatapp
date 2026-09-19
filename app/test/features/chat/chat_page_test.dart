@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -375,5 +377,43 @@ void main() {
     await tester.enterText(find.byKey(const Key('chat.input')), '');
     await tester.pump();
     expect(sendIcon().color, AppColors.text3);
+  });
+
+  testWidgets('没有消息 → 空态「打个招呼吧」+ 副文案', (tester) async {
+    await pumpChat(tester);
+
+    expect(find.text('打个招呼吧'), findsOneWidget);
+    expect(find.text('发条消息,开始你们的故事'), findsOneWidget);
+  });
+
+  testWidgets('历史加载中 → 气泡骨架(有限 pump,不 settle)', (tester) async {
+    fake.historyGate = Completer<void>();
+    fake.history = {
+      'u9': [_text('m1', isSelf: false, text: '你好')],
+    };
+    await pumpChat(tester, settle: false);
+
+    expect(find.byKey(const Key('chat.skeleton')), findsOneWidget);
+
+    fake.historyGate!.complete();
+    fake.historyGate = null;
+    await pumpFrames(tester);
+  });
+
+  testWidgets('历史加载失败 → 错误态;点重试恢复', (tester) async {
+    fake.historyError = Exception('boom');
+    fake.history = {
+      'u9': [_text('m1', isSelf: false, text: '你好')],
+    };
+    await pumpChat(tester);
+
+    expect(find.text('没能加载出来'), findsOneWidget);
+
+    fake.historyError = null;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('你好'), findsOneWidget);
+    expect(fake.log.where((l) => l == 'fetchHistory:u9').length, 2);
   });
 }

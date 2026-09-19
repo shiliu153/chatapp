@@ -16,6 +16,12 @@ class FakeImClient extends ImClient {
   Object? loginError;
   Object? sendError;
 
+  /// 置上就让 fetchHistory 抛这个错(测聊天页错误态)。
+  Object? historyError;
+
+  /// 置上则 fetchHistory 挂起直到 complete(测加载骨架)。
+  Completer<void>? historyGate;
+
   /// 置上则只让**下一次** login 抛错,之后恢复正常(测 6206 重试)。
   Object? loginErrorOnce;
 
@@ -55,6 +61,9 @@ class FakeImClient extends ImClient {
   @override
   Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50}) async {
     log.add('fetchHistory:$peerId');
+    if (historyError != null) throw historyError!;
+    final gate = historyGate;
+    if (gate != null) await gate.future;
     return history[peerId] ?? const [];
   }
 
