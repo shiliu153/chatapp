@@ -41,3 +41,12 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
 /// 底部导航栏里的 Tab 标签(避开与各页 AppBar 标题重名)。
 Finder navTab(String label) =>
     find.descendant(of: find.byType(AppBottomBar), matching: find.text(label));
+
+/// 页面含无限动画(涟漪/骨架/在线点)时,替代 pumpAndSettle 的「够用即停」推进:
+/// 假时钟步进若干帧,放行网络链与入场动画后即可断言。
+Future<void> pumpFrames(WidgetTester tester,
+    {int frames = 8, Duration step = const Duration(milliseconds: 100)}) async {
+  for (var i = 0; i < frames; i++) {
+    await tester.pump(step);
+  }
+}

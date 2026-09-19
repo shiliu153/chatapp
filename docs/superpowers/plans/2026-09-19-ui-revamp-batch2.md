@@ -1861,3 +1861,23 @@ git checkout master && git merge --ff-only ui/batch2 && git branch -d ui/batch2 
 - 配对:完整五段编排 + 粒子 + 点击跳过 + 减弱动效直达完成帧
 - core 层:+2 token、+BreathingDot(提炼)、+HeartRipple、+DeckSkeleton、AppEmptyState.mark、AppButton 内边距
 - 规则文档 v1.1 附录 A 落笔;测试全绿 + analyze 零告警;其他页面零改动
+
+---
+
+## 执行记录(2026-09-19,12 任务全部完成)
+
+分支 `ui/batch2`,逐任务 TDD 提交;基线 220 用例 → **233 用例全绿**,`flutter analyze` 零告警。
+
+**执行中的计划外修正(4 处)**:
+
+1. **`deck.pulse` key 条件化**(计划遗漏):两个按钮都会 build 同一个 Transform,无条件挂 key 会 `find.byKey` 命中 2 个报 "Too many elements";改为 `widget.pulse ? const Key('deck.pulse') : null`。
+2. **单卡场景 `pumpAndSettle` 提前静止**:乐观移除后列表变空 → SwipeDeck 卸载不再调度帧,而请求链里读凭证的平台通道往返在假时钟下需显式推进;「滑卡失败」用例改为 `pumpAndSettle → pump(100ms) → pumpAndSettle`。已记入 `docs/pitfalls/testing.md`。
+3. **AppButton 撑满整行**(手测发现):`Container.alignment` 内的 Align 在宽松约束下会展开到最大宽度,空态「刷新」被拉成通栏;改为 `Center(widthFactor: 1)` 收缩为内容宽度,并加防回归用例。
+4. **胶囊点浅色照片隐身**(手测发现):白色指示点在浅色照片上不可见;各点加轻微投影(黑 28%/blur 3/y+1),已同步规则附录 A.4。
+
+**用户手测反馈(当日修正)**:
+
+- 空态涟漪「静止」不符合「涟漪」语义 → HeartRipple 升级为**循环扩散波纹**(双波错峰 2.4s,减弱动效时静止);受影响测试(发现页空态/引导、onboarding 两例、home_shell 引导)改用 `pumpFrames` 有限推进,并在 harness 新增该辅助函数。
+- 手测流程改由用户本人执行(Claude 负责改码、重打包、覆盖安装与测试指引);配对测试账号:u8=13300133002(Bob)、u21=13900000010(可欣21),已 `dev_reset_pair` 重置,可互相看到卡片。
+
+**提交序列**(branch `ui/batch2`→master ff):规则 v1.1 → token → BreathingDot → HeartRipple → AppEmptyState → DeckSkeleton → 卡面 → 操作钮 → 配对编排 → 页壳 → 按钮宽度修复 → 涟漪动效 → 测试推进修复。

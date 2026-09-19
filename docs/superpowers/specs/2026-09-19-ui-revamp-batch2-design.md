@@ -66,7 +66,7 @@
 
 | 文件 | 改动 |
 |---|---|
-| `core/widgets/heart_ripple.dart`(新增) | `HeartRipple({size = 96})`:三圈同心环(2px 描边,色从 token 派生:外 `heartOrange` 30%、中 `lerp(brand, heartOrange, .5)` 55%、内 `brand` 90%) + 中心 14px 渐变光点带光晕。**纯静态,无动画**(测试约束)。 |
+| `core/widgets/heart_ripple.dart`(新增) | `HeartRipple({size = 96})`:三圈同心环(2px 描边,色从 token 派生:外 `heartOrange` 30%、中 `lerp(brand, heartOrange, .5)` 55%、内 `brand` 90%) + 中心 14px 渐变光点带光晕 + **循环涟漪**(双波错峰,0.35→1.2 倍扩散渐隐,2.4s;减弱动效时静止)——手测反馈后由静态升级为动效,可见它的测试改用有限 `pump`。 |
 | `core/widgets/breathing_dot.dart`(新增) | 把批次① `AppAvatar` 私有的 `_BreathingDot` 提炼为共享组件 `BreathingDot({size, borderColor, key})`;AppAvatar 改用它(**`Key('avatar.onlineDot')` 由 AppAvatar 传 key 保持**,现有测试不动);发现卡在线点复用(传 `Key('card.onlineDot')`,白描边 2px,与头像在线点同规格)。 |
 | `core/widgets/app_empty_state.dart` | `emoji` 改可空 + 新增 `mark`(Widget?);渲染优先级 mark > emoji;两者皆空时不渲染元素(标题/说明/按钮照常)。现有调用处(emoji)零改动。 |
 | `core/theme/app_radius.dart` | +`discoveryCard = 24` |
@@ -91,7 +91,7 @@
 | 切换指示 | 胶囊点(圆点 + 当前张拉长) | 位置感像圆点、辨识度像分段条;评审通过 |
 | 空态元素 | 渐变涟漪(不用爱心/emoji) | 与「心跳光晕」签名一脉相承,避开爱心滥调;Emoji 各机型字形不可控 |
 | 配对弹层深度 | 完整 cinematic(含粒子) | §6.2 全片唯一情感时刻;编排骨架两种方案都要写,完整版边际成本仅粒子层 |
-| 涟漪/弹层无循环动画 | 静态元素 + 有限编排 | 相关测试用 `pumpAndSettle`,无限动画会挂死;批次①已有此纪律 |
+| 涟漪动画 | 循环扩散波纹(弹层保持无循环) | 手测反馈:涟漪「不动的」名不副实,加双波循环;测试纪律随之改为有限 `pump`(见 pitfalls/testing.md) |
 | BreathingDot 提炼 | 从 AppAvatar 私有类提升为 core 组件 | 发现卡在线点需要同一视觉,避免复制 30 行呼吸逻辑;两处消费,非过早抽象 |
 | 距离显示 | 不做 | 后端候选接口无位置字段;模拟图中「距离你 3 公里」为示意,正式版 meta 行仅城市 |
 | AppEmptyState 扩展 | 保留 emoji 参数、新增 mark | 其他未改造页面仍用 emoji 形态,零迁移成本 |
@@ -112,7 +112,7 @@
 
 新增:
 
-- `HeartRipple`:渲染三环 + 中心点(结构断言);静态(连续两次 pump 无状态变化)。
+- `HeartRipple`:渲染三环 + 中心点(结构断言);波纹有限推进后不透明度变化;`disableAnimations` 时不渲染波纹。
 - `DeckSkeleton`:渲染冒烟(**有限 pump,禁 pumpAndSettle**)。
 - 配对弹层:「点击任意处 → 立即出现完成帧(文案 + 按钮)」;「`disableAnimations` → 初始即完成帧」;「正常编排结束后完成帧可见」。
 - 卡面:「在线点随 presence 出现/消失」;操作钮:「点击喜欢触发脉冲(峰值 1.25 后回落)」。

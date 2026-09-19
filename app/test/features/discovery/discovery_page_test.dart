@@ -79,12 +79,12 @@ void main() {
       },
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 空态涟漪是无限动画,不能 pumpAndSettle
 
     expect(find.text('附近暂时没有新的人了'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('discovery.refresh')));
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
 
     expect(find.text('小红,25'), findsOneWidget);
   });
@@ -140,7 +140,7 @@ void main() {
       'GET /discovery/candidates': (options) => ok([]),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 涟漪是无限动画,不能 pumpAndSettle
 
     expect(find.byType(HeartRipple), findsOneWidget);
     expect(find.text('附近暂时没有新的人了'), findsOneWidget);
@@ -153,7 +153,7 @@ void main() {
       'GET /users/me': (options) => ok(profileJson(missing: ['nickname', 'birthday'])),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 涟漪是无限动画,不能 pumpAndSettle
 
     expect(find.text('完善资料后就能开始滑卡'), findsOneWidget);
     expect(find.textContaining('还差:'), findsOneWidget);

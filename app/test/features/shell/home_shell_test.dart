@@ -45,7 +45,7 @@ void main() {
   testWidgets('资料未完善 → 发现页显示引导卡,点按钮去向导', (tester) async {
     final adapter = _adapter(profile: profileJson(missing: ['bio', 'photos']));
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 引导态的涟漪是无限动画,不能 pumpAndSettle
 
     expect(find.text('完善资料后就能开始滑卡'), findsOneWidget);
     await tester.tap(find.byKey(const Key('discovery.goOnboarding')));

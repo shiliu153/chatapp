@@ -35,7 +35,7 @@ void main() {
       'PATCH /users/me': (options) => ok(profileJson(missing: ['photos'])),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 发现页引导态涟漪是无限动画,不能 pumpAndSettle
 
     await tester.tap(find.byKey(const Key('discovery.goOnboarding')));
     await tester.pumpAndSettle();
@@ -61,7 +61,7 @@ void main() {
       'PATCH /users/me': (options) => ok(profileJson(missing: ['photos'])),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 发现页引导态涟漪是无限动画,不能 pumpAndSettle
 
     await tester.tap(find.byKey(const Key('discovery.goOnboarding')));
     await tester.pumpAndSettle();

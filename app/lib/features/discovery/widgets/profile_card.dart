@@ -116,6 +116,14 @@ class _ProfileCardState extends State<ProfileCard> {
                           color: i == _photoIndex
                               ? Colors.white
                               : Colors.white.withValues(alpha: 0.45),
+                          // 浅色照片上白点会隐身,加一圈轻微投影兜底可读性(手测发现)
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.28),
+                              blurRadius: 3,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
                         ),
                       ),
                   ],
