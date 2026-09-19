@@ -9,7 +9,7 @@ import '../theme/app_motion.dart';
 /// 「减弱动态效果」时仅剩光点。
 /// 无限动画:处于可见状态的测试只用有限 pump,禁 pumpAndSettle。
 class HeartRipple extends StatefulWidget {
-  const HeartRipple({super.key, this.size = 96});
+  const HeartRipple({super.key, this.size = 120});
 
   final double size;
 
