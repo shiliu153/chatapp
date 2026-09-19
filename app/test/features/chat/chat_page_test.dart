@@ -16,6 +16,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
 import '../../support/fake_im_client.dart';
+import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
 
@@ -68,7 +69,7 @@ void main() {
   });
 
   Future<void> pumpChat(WidgetTester tester,
-      {String peerId = 'u9', PickImage? pickImage}) async {
+      {String peerId = 'u9', PickImage? pickImage, bool settle = true}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
@@ -100,7 +101,11 @@ void main() {
       container: container,
       child: MaterialApp.router(routerConfig: router),
     ));
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await pumpFrames(tester); // 含无限动画(在线呼吸点)时用有限推进
+    }
   }
 
   testWidgets('历史消息上屏;标题用 matches 缓存里的昵称', (tester) async {
@@ -311,15 +316,16 @@ void main() {
     expect(find.byKey(const Key('viewer.page')), findsOneWidget);
   });
 
-  testWidgets('对方在线 → 标题下「● 在线」', (tester) async {
+  testWidgets('对方在线 → 标题下呼吸绿点 + 「在线」', (tester) async {
     adapter.routes['GET /presence'] = (options) => ok({
           'results': [
             {'user_id': 9, 'online': true, 'last_active_at': '2026-09-13T14:30:00+08:00'},
           ],
         });
-    await pumpChat(tester);
+    await pumpChat(tester, settle: false);
 
-    expect(find.text('● 在线'), findsOneWidget);
+    expect(find.byKey(const Key('chat.onlineDot')), findsOneWidget);
+    expect(find.text('在线'), findsOneWidget);
   });
 
   testWidgets('对方离线 → 「x 分钟前在线」', (tester) async {
@@ -337,7 +343,7 @@ void main() {
   testWidgets('拿不到状态 → 不显示小字', (tester) async {
     await pumpChat(tester);   // 默认返回空 results
 
-    expect(find.text('● 在线'), findsNothing);
+    expect(find.text('在线'), findsNothing);
     expect(find.textContaining('分钟前在线'), findsNothing);
   });
 
@@ -348,8 +354,8 @@ void main() {
             {'user_id': 9, 'online': true, 'last_active_at': '2026-09-13T14:30:00+08:00'},
           ],
         });
-    await pumpChat(tester);
+    await pumpChat(tester, settle: false);
 
-    expect(find.text('● 在线'), findsOneWidget);
+    expect(find.byKey(const Key('chat.onlineDot')), findsOneWidget);
   });
 }

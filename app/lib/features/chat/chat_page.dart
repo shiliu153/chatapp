@@ -4,6 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/image_pick.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/breathing_dot.dart';
 import '../../im/im_client.dart';
 import '../../im/im_repository.dart';
 import '../presence/models.dart';
@@ -187,41 +191,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ref.read(presenceProvider.notifier).track('chat:${widget.peerId}', [peerUserId]);
     }
     final peerPresence = peerUserId == null ? null : presenceById[peerUserId];
-    final peerStatusLabel = presenceLabel(peerPresence);
     return Scaffold(
-      appBar: AppBar(
-        title: InkWell(
-          key: const Key('chat.title'),
-          onTap: () => _openProfile(context, cache),
-          child: peerStatusLabel == null
-              ? Text(peerName)
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(peerName),
-                    Text(
-                      peerStatusLabel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: peerPresence!.online
-                            ? const Color(0xFF34C759)
-                            : const Color(0xFF8A8F98),
-                      ),
-                    ),
-                  ],
-                ),
-        ),
-        actions: [
-          IconButton(
-            key: const Key('chat.more'),
-            icon: const Icon(Icons.more_horiz),
-            onPressed: () => _openProfile(context, cache),
-          ),
-        ],
-      ),
-      body: Column(
+      body: SafeArea(
+        bottom: false,
+        child: Column(
         children: [
+          _ChatHeader(
+            name: peerName,
+            presence: peerPresence,
+            onTapTitle: () => _openProfile(context, cache),
+          ),
           Expanded(
             child: messages.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -273,6 +252,72 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             EmojiPanel(onSelect: _insertEmoji)
           else if (_showMore)
             MorePanel(onPickImage: _pickAndSendImage),
+        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 「心跳」附录 B.2:高 62;返回 22;标题两行居中(名字 + 状态行)。
+class _ChatHeader extends StatelessWidget {
+  const _ChatHeader({required this.name, required this.presence, required this.onTapTitle});
+
+  final String name;
+  final Presence? presence;
+  final VoidCallback onTapTitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final online = presence?.online ?? false;
+    // 在线单独组装(绿点 + 「在线」);离线才用 presenceLabel 的「x 分钟前在线」
+    final statusLabel = online ? '在线' : presenceLabel(presence);
+    return SizedBox(
+      height: 62,
+      child: Row(
+        children: [
+          IconButton(
+            key: const Key('chat.back'),
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                size: 22, color: AppColors.text1),
+          ),
+          Expanded(
+            child: GestureDetector(
+              key: const Key('chat.title'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onTapTitle,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.subtitle
+                          .copyWith(fontSize: 17, color: AppColors.text1)),
+                  if (statusLabel != null) ...[
+                    const SizedBox(height: 1),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (online) ...[
+                          const BreathingDot(
+                              key: Key('chat.onlineDot'),
+                              size: 8,
+                              borderColor: AppColors.bgPage),
+                          const SizedBox(width: AppSpacing.xs),
+                        ],
+                        Text(statusLabel,
+                            style: AppText.micro.copyWith(color: AppColors.text2)),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          // 与返回键等宽占位,保证名字视觉居中
+          const SizedBox(width: 52),
         ],
       ),
     );
