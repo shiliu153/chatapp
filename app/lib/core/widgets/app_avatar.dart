@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_gradients.dart';
-import '../theme/app_motion.dart';
+import 'breathing_dot.dart';
 
 /// 「心跳」规则 §5.3 头像:一律圆形;可选光晕环(可聊/新配对)与在线绿点。
 /// 尺寸档:28/32/40/48/56/96(自由传入,在线点按 ≥48 取 11、否则 8)。
@@ -57,7 +57,8 @@ class AppAvatar extends StatelessWidget {
           Positioned(
             right: 0,
             bottom: 0,
-            child: _BreathingDot(
+            child: BreathingDot(
+              key: const Key('avatar.onlineDot'),
               size: size >= 48 ? 11 : 8,
               borderColor: dotBorderColor,
             ),
@@ -72,46 +73,6 @@ class AppAvatar extends StatelessWidget {
         color: AppColors.divider,
         child: Center(
           child: Icon(Icons.person_rounded, color: AppColors.text3, size: size * 0.6),
-        ),
-      );
-}
-
-/// 在线点:green + 呼吸光晕(§5.3);描边色 = 所在背景色。
-class _BreathingDot extends StatefulWidget {
-  const _BreathingDot({required this.size, required this.borderColor});
-
-  final double size;
-  final Color borderColor;
-
-  @override
-  State<_BreathingDot> createState() => _BreathingDotState();
-}
-
-class _BreathingDotState extends State<_BreathingDot> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: AppMotion.loop)..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: _c,
-        builder: (context, _) => Opacity(
-          opacity: 0.55 + 0.45 * _c.value, // 呼吸:透明度 .55↔1
-          child: Container(
-            key: const Key('avatar.onlineDot'),
-            width: widget.size,
-            height: widget.size,
-            decoration: BoxDecoration(
-              color: AppColors.green,
-              shape: BoxShape.circle,
-              border: Border.all(color: widget.borderColor, width: 2),
-            ),
-          ),
         ),
       );
 }
