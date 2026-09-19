@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/image_pick.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/breathing_dot.dart';
@@ -357,42 +358,89 @@ class _InputBar extends StatelessWidget {
   final VoidCallback onToggleMore;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const Key('chat.input'),
-                  controller: controller,
-                  focusNode: focusNode,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => onSend(),
-                  decoration: const InputDecoration(
-                    hintText: '说点什么…',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(24))),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+  Widget build(BuildContext context) => Container(
+        color: AppColors.bgCard,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md, AppSpacing.sm, AppSpacing.xs, AppSpacing.sm),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ListenableBuilder(
+                    listenable: focusNode,
+                    builder: (context, child) => Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppRadius.input),
+                        boxShadow: focusNode.hasFocus
+                            ? [
+                                BoxShadow(
+                                  color: AppColors.brand.withValues(alpha: .12),
+                                  blurRadius: 12,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: child,
+                    ),
+                    child: SizedBox(
+                      height: 40,
+                      child: TextField(
+                        key: const Key('chat.input'),
+                        controller: controller,
+                        focusNode: focusNode,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => onSend(),
+                        textAlignVertical: TextAlignVertical.center,
+                        style: AppText.body.copyWith(color: AppColors.text1),
+                        decoration: InputDecoration(
+                          hintText: '说点什么…',
+                          hintStyle: AppText.body.copyWith(color: AppColors.text3),
+                          isDense: true,
+                          filled: true,
+                          fillColor: AppColors.bgCard,
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 14),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.input),
+                            borderSide: const BorderSide(color: AppColors.divider),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppRadius.input),
+                            borderSide:
+                                const BorderSide(color: AppColors.brand, width: 1.5),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              IconButton(
-                key: const Key('chat.emoji.button'),
-                onPressed: onToggleEmoji,
-                icon: const Icon(Icons.emoji_emotions_outlined),
-              ),
-              IconButton(
-                key: const Key('chat.more.button'),
-                onPressed: onToggleMore,
-                icon: const Icon(Icons.add_circle_outline),
-              ),
-              IconButton(
-                key: const Key('chat.send'),
-                onPressed: sending ? null : onSend,
-                icon: const Icon(Icons.send),
-              ),
-            ],
+                IconButton(
+                  key: const Key('chat.emoji.button'),
+                  onPressed: onToggleEmoji,
+                  icon: const Icon(Icons.emoji_emotions_rounded, color: AppColors.text2),
+                ),
+                IconButton(
+                  key: const Key('chat.more.button'),
+                  onPressed: onToggleMore,
+                  icon: const Icon(Icons.add_circle_rounded, color: AppColors.text2),
+                ),
+                IconButton(
+                  key: const Key('chat.send'),
+                  onPressed: sending ? null : onSend,
+                  icon: ListenableBuilder(
+                    listenable: controller,
+                    builder: (context, _) => Icon(
+                      Icons.send_rounded,
+                      color: controller.text.trim().isEmpty
+                          ? AppColors.text3
+                          : AppColors.brand,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+
 const chatEmojis = [
   '😀', '😄', '😁', '😊', '🥰', '😍', '😘', '😜', '🤗', '🤔',
   '😐', '😴', '😭', '😅', '😂', '🙈', '👍', '👎', '👏', '🙏',
@@ -17,10 +20,13 @@ class EmojiPanel extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         key: const Key('chat.emoji.panel'),
         height: 220,
-        color: const Color(0xFFF7F3F5),
+        decoration: const BoxDecoration(
+          color: AppColors.bgCard,
+          border: Border(top: BorderSide(color: AppColors.divider)),
+        ),
         child: GridView.count(
           crossAxisCount: 8,
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(AppSpacing.sm),
           children: [
             for (final emoji in chatEmojis)
               InkWell(

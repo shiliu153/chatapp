@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/image_pick.dart';
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
 import 'package:chatapp_app/features/presence/presence_controller.dart';
@@ -357,5 +358,22 @@ void main() {
     await pumpChat(tester, settle: false);
 
     expect(find.byKey(const Key('chat.onlineDot')), findsOneWidget);
+  });
+
+  testWidgets('发送钮:空输入 text3,有字变 brand', (tester) async {
+    await pumpChat(tester);
+
+    Icon sendIcon() => tester.widget<Icon>(find.descendant(
+        of: find.byKey(const Key('chat.send')), matching: find.byType(Icon)));
+
+    expect(sendIcon().color, AppColors.text3);
+
+    await tester.enterText(find.byKey(const Key('chat.input')), '在吗');
+    await tester.pump();
+    expect(sendIcon().color, AppColors.brand);
+
+    await tester.enterText(find.byKey(const Key('chat.input')), '');
+    await tester.pump();
+    expect(sendIcon().color, AppColors.text3);
   });
 }
