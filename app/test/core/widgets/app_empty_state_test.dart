@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/app_empty_state.dart';
 import 'package:chatapp_app/core/widgets/app_button.dart';
+import 'package:chatapp_app/core/widgets/heart_ripple.dart';
 
 void main() {
   testWidgets('四要素渲染,主按钮可点;禁灰色图标占位(§7)', (tester) async {
@@ -32,5 +33,26 @@ void main() {
     ));
     expect(find.text('✨'), findsOneWidget);
     expect(find.text('空空如也'), findsOneWidget);
+  });
+
+  testWidgets('mark 优先于 emoji;两者皆空不崩', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: AppEmptyState(
+            mark: HeartRipple(size: 60),
+            emoji: '✨',
+            title: '空空如也',
+          ),
+        ),
+      ),
+    ));
+    expect(find.byType(HeartRipple), findsOneWidget);
+    expect(find.text('✨'), findsNothing);
+
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: Center(child: AppEmptyState(title: '只有标题'))),
+    ));
+    expect(find.text('只有标题'), findsOneWidget);
   });
 }
