@@ -42,3 +42,7 @@ class ApiException implements Exception {
   @override
   String toString() => 'ApiException($statusCode/$code): $message';
 }
+
+/// 错误展示统一入口:ApiException 取其中文 message,其他异常兜底。
+String apiMessageOf(Object error) =>
+    error is ApiException ? error.message : '加载失败,稍后再试';

@@ -8,6 +8,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_error_view.dart';
 import '../../core/widgets/heart_ripple.dart';
 import '../chat/match_cache.dart';
 import '../presence/presence_controller.dart';
@@ -18,10 +19,6 @@ import 'models.dart';
 import 'widgets/deck_skeleton.dart';
 import 'widgets/match_overlay.dart';
 import 'widgets/swipe_deck.dart';
-
-/// 错误统一取 ApiException 的中文 message(不显示裸异常串)。
-String _messageOf(Object error) =>
-    error is ApiException ? error.message : '加载失败,稍后再试';
 
 class DiscoveryPage extends ConsumerWidget {
   const DiscoveryPage({super.key});
@@ -43,8 +40,8 @@ class DiscoveryPage extends ConsumerWidget {
             Expanded(
               child: profile.when(
                 loading: () => const DeckSkeleton(),
-                error: (error, _) => _ErrorView(
-                  message: _messageOf(error),
+                error: (error, _) => AppErrorView(
+                  message: apiMessageOf(error),
                   onRetry: () => ref.read(profileProvider.notifier).reload(),
                 ),
                 data: (data) =>
@@ -119,8 +116,8 @@ class _DeckView extends ConsumerWidget {
     final presenceById = ref.watch(presenceProvider);
     return deck.when(
       loading: () => const DeckSkeleton(),
-      error: (error, _) => _ErrorView(
-        message: _messageOf(error),
+      error: (error, _) => AppErrorView(
+        message: apiMessageOf(error),
         onRetry: () => ref.read(discoveryProvider.notifier).reload(),
       ),
       data: (candidates) {
@@ -165,37 +162,3 @@ class _EmptyView extends StatelessWidget {
   }
 }
 
-/// 加载失败:中文提示 + 次按钮重试(不显示裸异常串)。
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xxl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('没能加载出来', style: AppText.subtitle.copyWith(fontSize: 17)),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: AppText.caption.copyWith(color: AppColors.text2),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            AppButton(
-              label: '重试',
-              variant: AppButtonVariant.secondary,
-              onPressed: onRetry,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
