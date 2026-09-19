@@ -45,10 +45,15 @@ void main() {
     expect(find.byKey(const Key('ripple.ping1')), findsNothing);
   });
 
-  testWidgets('尺寸参数生效', (tester) async {
+  testWidgets('尺寸参数生效;中心光点不随尺寸缩放', (tester) async {
     await tester.pumpWidget(const MaterialApp(
-      home: Scaffold(body: Center(child: HeartRipple(size: 120))),
+      home: Scaffold(body: Center(child: HeartRipple(size: 180))),
     ));
-    expect(tester.getSize(find.byType(HeartRipple)), const Size(120, 120));
+    expect(tester.getSize(find.byType(HeartRipple)), const Size(180, 180));
+    expect(
+      tester.getSize(find.descendant(
+          of: find.byType(HeartRipple), matching: find.byType(Container))),
+      const Size(14, 14),
+    );
   });
 }

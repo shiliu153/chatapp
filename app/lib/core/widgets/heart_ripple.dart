@@ -18,6 +18,9 @@ class HeartRipple extends StatefulWidget {
 }
 
 class _HeartRippleState extends State<HeartRipple> with SingleTickerProviderStateMixin {
+  /// 中心光点固定尺寸:不随 [HeartRipple.size] 缩放(手测观感)。
+  static const _dotSize = 14.0;
+
   late final AnimationController _c =
       AnimationController(vsync: this, duration: AppMotion.loop * 2);
 
@@ -51,8 +54,8 @@ class _HeartRippleState extends State<HeartRipple> with SingleTickerProviderStat
             _ping(1, 0.5),
           ],
           Container(
-            width: size * 0.15,
-            height: size * 0.15,
+            width: _dotSize,
+            height: _dotSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: AppGradients.heart,
