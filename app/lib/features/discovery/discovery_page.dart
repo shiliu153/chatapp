@@ -3,14 +3,25 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/heart_ripple.dart';
 import '../chat/match_cache.dart';
 import '../presence/presence_controller.dart';
 import '../profile/models.dart';
 import '../profile/profile_controller.dart';
 import 'discovery_controller.dart';
 import 'models.dart';
+import 'widgets/deck_skeleton.dart';
 import 'widgets/match_overlay.dart';
 import 'widgets/swipe_deck.dart';
+
+/// 错误统一取 ApiException 的中文 message(不显示裸异常串)。
+String _messageOf(Object error) =>
+    error is ApiException ? error.message : '加载失败,稍后再试';
 
 class DiscoveryPage extends ConsumerWidget {
   const DiscoveryPage({super.key});
@@ -19,24 +30,29 @@ class DiscoveryPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('发现')),
-      body: profile.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$error'),
-              FilledButton(
-                onPressed: () => ref.read(profileProvider.notifier).reload(),
-                child: const Text('重试'),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.md),
+              child: Text('发现', style: AppText.display.copyWith(color: AppColors.text1)),
+            ),
+            Expanded(
+              child: profile.when(
+                loading: () => const DeckSkeleton(),
+                error: (error, _) => _ErrorView(
+                  message: _messageOf(error),
+                  onRetry: () => ref.read(profileProvider.notifier).reload(),
+                ),
+                data: (data) =>
+                    data.isComplete ? const _DeckView() : _IncompleteView(profile: data),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-        data: (data) => data.isComplete
-            ? const _DeckView()
-            : _IncompleteView(profile: data),
       ),
     );
   }
@@ -51,23 +67,16 @@ class _IncompleteView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Card(
-        margin: const EdgeInsets.all(24),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('完善资料后就能开始滑卡'),
-              const SizedBox(height: 8),
-              Text('还差:${profile.missingFields.map(missingFieldLabel).join('、')}'),
-              const SizedBox(height: 16),
-              FilledButton(
-                key: const Key('discovery.goOnboarding'),
-                onPressed: () => context.go('/onboarding'),
-                child: const Text('去完善'),
-              ),
-            ],
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        child: AppEmptyState(
+          mark: const HeartRipple(),
+          title: '完善资料后就能开始滑卡',
+          description: '还差:${profile.missingFields.map(missingFieldLabel).join('、')}',
+          action: AppButton(
+            key: const Key('discovery.goOnboarding'),
+            label: '去完善',
+            onPressed: () => context.go('/onboarding'),
           ),
         ),
       ),
@@ -109,18 +118,10 @@ class _DeckView extends ConsumerWidget {
     final deck = ref.watch(discoveryProvider);
     final presenceById = ref.watch(presenceProvider);
     return deck.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('$error'),
-            FilledButton(
-              onPressed: () => ref.read(discoveryProvider.notifier).reload(),
-              child: const Text('重试'),
-            ),
-          ],
-        ),
+      loading: () => const DeckSkeleton(),
+      error: (error, _) => _ErrorView(
+        message: _messageOf(error),
+        onRetry: () => ref.read(discoveryProvider.notifier).reload(),
       ),
       data: (candidates) {
         ref.read(presenceProvider.notifier).track(
@@ -147,22 +148,53 @@ class _EmptyView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.people_outline, size: 48),
-          const SizedBox(height: 12),
-          const Text('附近暂时没有新的人了'),
-          const SizedBox(height: 4),
-          const Text('过会儿再来看看吧',
-              style: TextStyle(color: Colors.black54, fontSize: 13)),
-          const SizedBox(height: 16),
-          FilledButton(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        child: AppEmptyState(
+          mark: const HeartRipple(),
+          title: '附近暂时没有新的人了',
+          description: '过会儿再来看看吧',
+          action: AppButton(
             key: const Key('discovery.refresh'),
+            label: '刷新',
             onPressed: onRefresh,
-            child: const Text('刷新'),
           ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 加载失败:中文提示 + 次按钮重试(不显示裸异常串)。
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xxl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('没能加载出来', style: AppText.subtitle.copyWith(fontSize: 17)),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppText.caption.copyWith(color: AppColors.text2),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            AppButton(
+              label: '重试',
+              variant: AppButtonVariant.secondary,
+              onPressed: onRetry,
+            ),
+          ],
+        ),
       ),
     );
   }

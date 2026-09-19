@@ -5,6 +5,7 @@ import '../theme/app_gradients.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_shadows.dart';
+import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
 enum AppButtonVariant { primary, secondary, text, danger }
@@ -77,6 +78,7 @@ class _AppButtonState extends State<AppButton> {
         child: Container(
           height: 52,
           alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
           decoration: decoration,
           child: Text(widget.label, style: textStyle),
         ),

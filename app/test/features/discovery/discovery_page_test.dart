@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:chatapp_app/core/widgets/heart_ripple.dart';
+
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
@@ -129,5 +131,32 @@ void main() {
 
     expect(find.text('操作太快了,休息一下吧'), findsOneWidget);
     expect(find.text('小红,25'), findsOneWidget);
+  });
+
+  testWidgets('空态用涟漪元素与主按钮「刷新」', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'GET /discovery/candidates': (options) => ok([]),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HeartRipple), findsOneWidget);
+    expect(find.text('附近暂时没有新的人了'), findsOneWidget);
+    expect(find.byKey(const Key('discovery.refresh')), findsOneWidget);
+  });
+
+  testWidgets('资料未完善 → 引导态展示欠缺项与「去完善」', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson(missing: ['nickname', 'birthday'])),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('完善资料后就能开始滑卡'), findsOneWidget);
+    expect(find.textContaining('还差:'), findsOneWidget);
+    expect(find.byKey(const Key('discovery.goOnboarding')), findsOneWidget);
   });
 }
