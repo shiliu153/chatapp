@@ -20,4 +20,11 @@ void main() {
     final bt = tester.widget<AppButton>(find.byType(AppButton));
     expect(bt.onPressed, isNull);
   });
+
+  testWidgets('宽松约束下收缩为内容宽度(不撑满整行)', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: Center(child: AppButton(label: '刷新', onPressed: () {}))),
+    ));
+    expect(tester.getSize(find.byType(AppButton)).width, lessThan(200));
+  });
 }

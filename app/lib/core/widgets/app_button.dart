@@ -77,10 +77,14 @@ class _AppButtonState extends State<AppButton> {
         duration: AppMotion.fast,
         child: Container(
           height: 52,
-          alignment: Alignment.center,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
           decoration: decoration,
-          child: Text(widget.label, style: textStyle),
+          // Center(widthFactor:1) 而非 alignment:相对宽松约束下收缩为内容宽度
+          // (Container.alignment 内部的 Align 会把按钮撑满整行)
+          child: Center(
+            widthFactor: 1,
+            child: Text(widget.label, style: textStyle),
+          ),
         ),
       ),
     );
