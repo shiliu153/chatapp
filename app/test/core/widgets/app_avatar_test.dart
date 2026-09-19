@@ -22,4 +22,15 @@ void main() {
     await tester.pumpWidget(wrap(const AppAvatar()));
     expect(find.byKey(const Key('avatar.onlineDot')), findsNothing);
   });
+
+  testWidgets('fallbackText:无图时显示首字、不显示人形图标', (tester) async {
+    await tester.pumpWidget(wrap(const AppAvatar(fallbackText: '小雨')));
+    expect(find.text('小'), findsOneWidget);
+    expect(find.byIcon(Icons.person_rounded), findsNothing);
+  });
+
+  testWidgets('不给 fallbackText 时仍是人形图标占位', (tester) async {
+    await tester.pumpWidget(wrap(const AppAvatar(imageUrl: null, fallbackText: null)));
+    expect(find.byIcon(Icons.person_rounded), findsOneWidget);
+  });
 }
