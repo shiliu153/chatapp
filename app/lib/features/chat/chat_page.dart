@@ -332,10 +332,9 @@ class _TimeSeparator extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
         key: const Key('chat.time'),
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
         child: Center(
-          child: Text(label,
-              style: const TextStyle(fontSize: 11, color: Color(0xFF9AA0A8))),
+          child: Text(label, style: AppText.micro.copyWith(color: AppColors.text3)),
         ),
       );
 }

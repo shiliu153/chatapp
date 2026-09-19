@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:chatapp_app/core/widgets/app_avatar.dart';
 import 'package:chatapp_app/features/chat/widgets/message_bubble.dart';
 import 'package:chatapp_app/im/im_client.dart';
 
@@ -54,5 +55,12 @@ void main() {
         MessageBubble(
             message: _m(kind: ChatMessageKind.matchNotice, text: '你们已互相喜欢,开始聊天吧')));
     expect(find.byKey(const Key('chat.notice')), findsOneWidget);
+  });
+
+  testWidgets('头像用圆形 AppAvatar + 首字', (tester) async {
+    await _pump(tester, MessageBubble(message: _m(), peerName: '小红'));
+
+    expect(find.byType(AppAvatar), findsOneWidget);
+    expect(find.text('小'), findsOneWidget);
   });
 }

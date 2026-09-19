@@ -6,5 +6,6 @@ abstract final class AppRadius {
   static const sheet = 24.0;
   static const discoveryCard = 24.0; // 发现页全屏大卡(§5.1,附录 A)
   static const bubble = 18.0; // 聊天气泡(附录 B.3)
+  static const image = 12.0; // 内容图(§5.3 相册/照片网格)
   static const full = 999.0;
 }
