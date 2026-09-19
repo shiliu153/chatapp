@@ -35,7 +35,7 @@
   - 发送失败:`Icons.error_rounded` 20 `danger`(key `chat.retry` 不变);pending 透明 .6 不变。
   - notice(配对/封禁,key `chat.notice` 不变):居中 pill = `divider` 底、`text2` 字、全圆角、padding 6×12、`AppText.micro`;文本不变。
 - **输入栏**(`_InputBar`):
-  - 输入框:高 40(聊天场景对 §7「输入框 52」的例外,记附录 B)、R16、1px `divider` 描边、聚焦 1.5px `brand` + 光晕;hint「说点什么…」、key `chat.input`、发送键/onSubmitted 行为全不变。
+  - 输入框:高 44(聊天场景对 §7「输入框 52」的例外,记附录 B;手测反馈由 40 上调)、R16、1px `divider` 描边、聚焦 1.5px `brand` + 光晕;hint「说点什么…」、key `chat.input`、发送键/onSubmitted 行为全不变。
   - 图标:`emoji_emotions_rounded` 24 `text2`(key `chat.emoji.button`)、`add_circle_rounded` 24 `text2`(key `chat.more.button`)。
   - **发送钮**:纯图标 `send_rounded` 24(无底),输入为空 `text3`、有字 `brand`;仍始终可点、空发无效(行为不变);key `chat.send` 不变。
 - **面板**:`emoji_panel.dart` / `more_panel.dart` 改白底 + 顶部分隔线(1px `divider`);表情面板高 220、8 列不变,emoji 24 不变;＋面板高 160 不变,「相册」块 = 56 R16、`brand` 12% 透明底、`photo_library_rounded` 26 `brand`、标签 `AppText.micro`/`text2`;切换逻辑与 key 全不变。
@@ -66,7 +66,7 @@
 - **B.1 最近联系人横滑条**:高 88;头像 48(首字占位 + 在线呼吸点 11 白描边);名字 12/`text2` 截断;间距 14;无会话整条隐藏
 - **B.2 聊天页顶栏**:高 **62**(§5.2 二级页 52 的例外);返回 22 `text1`;标题两行居中(名字 17/w600 + 状态行 12;在线 = 8 绿点 +「在线」,离线 = 「x 分钟前在线」,未知不显示);无右侧按钮
 - **B.3 聊天气泡**:自己 brand 实底白字 / 对方白底 `text1`;R18 + 靠头像侧上角 6;内边距 12/14;最大宽 **72%**;头像 40 圆形;图片 140×140 R12;失败 = `error_rounded` 20 `danger`
-- **B.4 聊天输入栏**:输入框高 **40**(§7 输入框 52 的聊天场景例外)、R16、1px `divider`、聚焦 1.5px `brand` + 光晕;发送 = 纯图标 24(空 `text3` → 有字 `brand`);emoji/＋ = rounded 24 `text2`
+- **B.4 聊天输入栏**:布局 `[表情] [输入框] [＋] [发送]`(表情在输入框左侧),四元素同为 44 方块同高对齐;输入框高 **44**(§7 输入框 52 的聊天场景例外)、R16、1px `divider`、聚焦 1.5px `brand` + 光晕;发送 = 纯图标 24(空 `text3` → 有字 `brand`);emoji/＋ = rounded 24 `text2`
 - **B.5 时间条与灰条**:时间条 12 `text3` 上下 12;灰条(配对/封禁)= `divider` 底 + `text2` + 全圆 + 6×12
 - **B.6 空态插画「渐变双气泡」**(ChatBubblesMark):≈118,渐变大气泡 + 白色小气泡 + 双小尾,静态;消息/聊天空态默认
 - **B.7 系统通知行**:圆头像 `gradientSystem` + 白铃铛 24;「官方」标 = `violet` 描边、10/w500、R8
@@ -117,6 +117,6 @@
 - **无限动画与 `pumpAndSettle`**:骨架屏、在线呼吸点均为无限循环;涉及的用例一律有限 `pump`(见 `docs/pitfalls/testing.md`,批次②已有先例)。
 - **`OnlineDot` 仍有其他消费方**(广场 `post_card`,批次⑤才改),本批只迁移 `chats_page`,不删组件。
 - **头像首字取色稳定性**:按名字内容映射(不依赖 `hashCode` 跨版本稳定性,如 codeUnits 求和取模),保证同一人始终同色。
-- **顶栏 62 / 输入框 40 与规则正文的数值差异**:均属 §9 边界,先回填附录 B 再写代码。
+- **顶栏 62 / 输入框 44 与规则正文的数值差异**:均属 §9 边界,先回填附录 B 再写代码。
 - **发送钮变色依赖输入状态**:包 `ValueListenableBuilder(_input)` 即可,不得改变「始终可点、空发无效」的行为与 key。
 - **窄屏(360dp)**:横滑条 10 人与顶栏两行在长昵称下的表现,手测确认;必要时名字行 `maxLines: 1 + ellipsis`。
