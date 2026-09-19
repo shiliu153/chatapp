@@ -26,4 +26,9 @@ void main() {
     expect(AppMotion.fast.inMilliseconds, 150);
     expect(AppMotion.medium.inMilliseconds, 320);
   });
+
+  test('发现卡圆角与照片 scrim(附录 A)', () {
+    expect(AppRadius.discoveryCard, 24);
+    expect(AppColors.photoScrim, const Color(0xDE101114));
+  });
 }

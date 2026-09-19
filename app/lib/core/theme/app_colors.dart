@@ -17,4 +17,7 @@ abstract final class AppColors {
   static const warning = amber;
   static const heartOrange = Color(0xFFFF7A45); // 渐变终点(§2.2 可微调)
   static const systemBlue = Color(0xFF4F8CFF);
+
+  /// 照片叠字 scrim:发现卡底部渐变终点 rgba(16,17,20,.87),起点用 Colors.transparent(附录 A.2)。
+  static const photoScrim = Color(0xDE101114);
 }
