@@ -1,3 +1,6 @@
+import tempfile
+from pathlib import Path
+
 from django.conf import settings
 from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -93,3 +96,66 @@ class CeleryRequestIdTests(SimpleTestCase):
 
         _bind_request_id(task=FakeTask())
         self.assertEqual(current_request_id(), "rid-2")
+
+
+class ApiDocCoverageLogicTests(SimpleTestCase):
+    """检查模块自身的单元测试(用临时目录,不依赖真实文档)。"""
+
+    def test_normalize_route_params(self):
+        from config.api_doc_coverage import normalize_route
+
+        self.assertEqual(normalize_route("me/photos/<int:photo_id>"),
+                         "me/photos/{photo_id}")
+        self.assertEqual(normalize_route("blocks/<int:user_id>"),
+                         "blocks/{user_id}")
+
+    def test_endpoints_from_urlconf_covers_api_v1(self):
+        from config.api_doc_coverage import endpoints_from_urlconf
+
+        found = endpoints_from_urlconf()
+        self.assertIn(("GET", "/api/v1/users/me"), found)
+        self.assertIn(("PATCH", "/api/v1/users/me"), found)
+        self.assertIn(("DELETE", "/api/v1/users/me/photos/{photo_id}"), found)
+        self.assertIn(("POST", "/api/v1/auth/token/refresh"), found)
+        # ops/admin 不在 /api/v1 下,不应被枚举到
+        self.assertFalse(any(p.startswith("/ops") for _, p in found))
+
+    def test_endpoints_from_docs_parses_info_line(self):
+        from config.api_doc_coverage import endpoints_from_docs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "demo.md"
+            path.write_text(
+                "# 演示分册\n\n"
+                "### 1.1 演示接口\n\n"
+                "> `POST` `/api/v1/demo/thing` · 需要鉴权 · 无额外限流\n\n"
+                "正文里提到 `GET /api/v1/other` 不算信息行。\n",
+                encoding="utf-8")
+            found = endpoints_from_docs(Path(tmp))
+        self.assertEqual(set(found), {("POST", "/api/v1/demo/thing")})
+
+    def test_fenced_code_blocks_are_ignored(self):
+        """代码围栏里的示例(如 README 的模板样例)不算文档标记。"""
+        from config.api_doc_coverage import endpoints_from_docs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "demo.md").write_text(
+                "# 模板说明\n\n"
+                "```markdown\n"
+                "> `POST` `/api/v1/example/thing` · 需要鉴权 · 无额外限流\n"
+                "```\n",
+                encoding="utf-8")
+            found = endpoints_from_docs(Path(tmp))
+        self.assertEqual(found, {})
+
+    def test_find_problems_reports_both_directions(self):
+        from config.api_doc_coverage import find_problems
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "demo.md").write_text(
+                "> `GET` `/api/v1/demo/gone` · 需要鉴权 · 无额外限流\n",
+                encoding="utf-8")
+            problems = find_problems(Path(tmp))
+        joined = "\n".join(problems)
+        self.assertIn("未写文档", joined)            # URLconf 有、文档没有
+        self.assertIn("/api/v1/demo/gone", joined)   # 文档有、URLconf 没有
