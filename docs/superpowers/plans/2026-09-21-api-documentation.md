@@ -142,7 +142,8 @@ git checkout -b docs/api-docs
 ```bash
 cd D:/pycharmproject/chat_app
 grep -c '^| \(GET\|POST\|PATCH\|DELETE\) |' docs/api/README.md      # 期望 32
-grep -c '^> `' docs/api/README.md docs/api/conventions.md docs/api/errors.md   # 期望 0(总则里不放信息行)
+grep -c '^> `' docs/api/conventions.md docs/api/errors.md           # 期望 0
+grep -c '^> `' docs/api/README.md                                   # 期望 1——维护规则里的模板样例(在代码围栏内,检查器会跳过)
 ```
 
 - [ ] **Step 6: 提交**
@@ -210,6 +211,20 @@ class ApiDocCoverageLogicTests(SimpleTestCase):
             found = endpoints_from_docs(Path(tmp))
         self.assertEqual(set(found), {("POST", "/api/v1/demo/thing")})
 
+    def test_fenced_code_blocks_are_ignored(self):
+        """代码围栏里的示例(如 README 的模板样例)不算文档标记。"""
+        from config.api_doc_coverage import endpoints_from_docs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "demo.md").write_text(
+                "# 模板说明\n\n"
+                "```markdown\n"
+                "> `POST` `/api/v1/example/thing` · 需要鉴权 · 无额外限流\n"
+                "```\n",
+                encoding="utf-8")
+            found = endpoints_from_docs(Path(tmp))
+        self.assertEqual(found, {})
+
     def test_find_problems_reports_both_directions(self):
         from config.api_doc_coverage import find_problems
 
@@ -262,6 +277,8 @@ INFO_LINE_RE = re.compile(r"^(GET|POST|PATCH|DELETE) (/api/v1/\S+)")
 ROUTE_PARAM_RE = re.compile(r"<(?:\w+:)?(\w+)>")
 # 行首的 markdown 装饰:引用符、空白、加粗/斜体星号
 LINE_DECORATION_RE = re.compile(r"^[\s>*]+")
+# 代码围栏:围栏内的示例代码不算文档标记(README 的模板样例就放在围栏里)
+FENCE_RE = re.compile(r"^\s*```")
 
 
 def normalize_route(route: str) -> str:
@@ -293,10 +310,21 @@ def endpoints_from_urlconf() -> set[tuple[str, str]]:
     return found
 
 
+def _iter_doc_lines(text: str):
+    """产出 (行号, 行内容);跳过 ``` 代码围栏内的内容。"""
+    in_fence = False
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            yield lineno, line
+
+
 def endpoints_from_docs(docs_dir: Path = DOCS_DIR) -> dict[tuple[str, str], str]:
     documented: dict[tuple[str, str], str] = {}
     for md in sorted(Path(docs_dir).rglob("*.md")):
-        for lineno, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+        for lineno, line in _iter_doc_lines(md.read_text(encoding="utf-8")):
             stripped = LINE_DECORATION_RE.sub("", line).replace("`", "").strip()
             match = INFO_LINE_RE.match(stripped)
             if match:
@@ -325,7 +353,7 @@ def find_problems(docs_dir: Path | None = None) -> list[str]:
 python manage.py test config.tests.ApiDocCoverageLogicTests -v 2
 ```
 
-Expected:4 个用例全 PASS
+Expected:5 个用例全 PASS
 
 - [ ] **Step 5: 打印当前缺口(给后面写分册时当进度条用)**
 
@@ -339,7 +367,7 @@ Expected:输出 `32 个真实接口`,后跟 32 行「未写文档」(此刻文�
 
 ```bash
 git add chatapp/config/api_doc_coverage.py chatapp/config/tests.py
-git commit -m "test(config): api_doc_coverage 检查模块——URLconf/文档信息行解析与双向比对(4 用例)"
+git commit -m "test(config): api_doc_coverage 检查模块——URLconf/文档信息行解析与双向比对(5 用例)"
 ```
 
 ---
@@ -847,7 +875,7 @@ cd D:/pycharmproject/chat_app/chatapp
 python manage.py test -v 1
 ```
 
-Expected:全绿——基线 327 个用例 + 本计划新增 6 个(检查模块 4 + 门禁 2),约 333 通过、**0 失败**(以实际输出为准,只认「0 失败」)
+Expected:全绿——基线 327 个用例 + 本计划新增 7 个(检查模块 5 + 门禁 2),约 334 通过、**0 失败**(以实际输出为准,只认「0 失败」)
 
 - [ ] **Step 4: 提交文档与纪律**
 
