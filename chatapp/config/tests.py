@@ -159,3 +159,26 @@ class ApiDocCoverageLogicTests(SimpleTestCase):
         joined = "\n".join(problems)
         self.assertIn("未写文档", joined)            # URLconf 有、文档没有
         self.assertIn("/api/v1/demo/gone", joined)   # 文档有、URLconf 没有
+
+
+class ApiDocsCoverageTests(SimpleTestCase):
+    """接口文档门禁:URLconf ↔ docs/api 信息行双向比对(漏写/残留即红)。"""
+
+    def test_docs_cover_every_endpoint(self):
+        from config.api_doc_coverage import endpoints_from_docs, endpoints_from_urlconf
+
+        missing = sorted(endpoints_from_urlconf() - set(endpoints_from_docs()))
+        self.assertEqual(
+            missing, [],
+            "以下接口未写文档,请补到 docs/api/ 对应分册:\n" +
+            "\n".join(f"  {m} {p}" for m, p in missing))
+
+    def test_docs_have_no_stale_endpoints(self):
+        from config.api_doc_coverage import endpoints_from_docs, endpoints_from_urlconf
+
+        real = endpoints_from_urlconf()
+        stale = sorted(set(endpoints_from_docs()) - real)
+        self.assertEqual(
+            stale, [],
+            "以下文档信息行在 URLconf 中已不存在,请删除或修正:\n" +
+            "\n".join(f"  {m} {p}" for m, p in stale))
