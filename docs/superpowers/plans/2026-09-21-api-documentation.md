@@ -875,7 +875,7 @@ cd D:/pycharmproject/chat_app/chatapp
 python manage.py test -v 1
 ```
 
-Expected:全绿——基线 327 个用例 + 本计划新增 7 个(检查模块 5 + 门禁 2),约 334 通过、**0 失败**(以实际输出为准,只认「0 失败」)
+Expected:全绿——实测基线 330 个用例(master 上实跑)+ 本计划新增 7 个(检查模块 5 + 门禁 2)= **337 通过、0 失败**(2026-09-21 实测值;注:此前 CLAUDE.md 记的 327 已过时)
 
 - [ ] **Step 4: 提交文档与纪律**
 
