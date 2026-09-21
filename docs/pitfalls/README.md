@@ -12,4 +12,4 @@
 | 测试 | [testing.md](testing.md) | 写 / 跑前后端测试 |
 | 部署与运维 | [`../deploy-runbook.md`](../deploy-runbook.md) | 部署、更新服务器、看日志、服务器排障 |
 
-另:设计与计划在 `docs/superpowers/{specs,plans}/`;UI 规范在 `specs/2026-09-15-ui-design-language-design.md`(强制)。
+另:设计与计划在 `docs/superpowers/{specs,plans}/`;UI 规范在 `specs/2026-09-15-ui-design-language-design.md`(强制);接口文档在 [`../api/README.md`](../api/README.md)。
