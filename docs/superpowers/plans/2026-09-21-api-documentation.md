@@ -568,7 +568,7 @@ curl -s -X POST $B/discovery/swipe -H "Authorization: Bearer $TOKEN" -H "Content
 
 3 节(`5.1`~`5.3`)。必写点:
 
-1. **candidates**:`limit` 默认 10、上限 20(非法值回落默认);**筛选规则**——排除自己/划过的人/已配对/**双向拉黑的人**;只推「资料完善(complete)且有已过审照片」的人;按 `preference` 的目标性别/城市/年龄区间过滤;返回随机顺序;响应字段照 `CandidateSerializer`(含照片、标签、`im_user_id`)
+1. **candidates**:`limit` 默认 10、上限 20(非法值回落默认);**筛选规则**——排除自己/划过的人/已配对/**双向拉黑的人**;只推「资料完善(complete)且有已过审照片」的人;按 `preference` 的目标性别/城市/年龄区间过滤;返回随机顺序;响应字段照 `CandidateSerializer`(实测字段:`user_id`/`nickname`/`gender`/`age`/`city`/`bio`/`tags`/`photos`,**不含** `im_user_id`)
 2. **swipe**:参数 `target_user_id`、`action`(`like`/`pass`);**幂等**——重复提交保留第一次的动作与结果;互喜时 `matched: true` 且双方各收到一条系统灰条消息;轻封禁用户调用 403(账号已被限制,暂时无法滑卡);不能划自己 / 对方资料不完整 → 400;限流 300 次/小时
 3. **matches**:分页(`count/next/previous/results`);每项字段 `user_id`/`im_user_id`/`nickname`/`avatar_url`/`matched_at`;被拉黑的人不出现在列表
 
