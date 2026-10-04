@@ -117,6 +117,13 @@ DATABASES = {
         # 持久连接:省掉每请求的 MySQL 建连/认证开销;测试期关闭以保持用例隔离
         "CONN_MAX_AGE": 0 if TESTING else 60,
         "CONN_HEALTH_CHECKS": True,   # 复用前 SELECT 1 探活,防 MySQL 重启后的坏连接
+        # 显式钉住测试库的字符集/排序规则:否则取 MySQL 服务器默认值
+        # (MySQL 8 是 utf8mb4_0900_ai_ci,与 db_setup.sql 建的 utf8mb4_unicode_ci 不一致,
+        #  会让"本地全绿、CI 红"这类环境差异变得难以复现)
+        "TEST": {
+            "CHARSET": "utf8mb4",
+            "COLLATION": "utf8mb4_unicode_ci",
+        },
     }
 }
 

@@ -28,10 +28,11 @@ jobs:
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=10
+          --health-retries=12
+          --health-start-period=30s
 
       redis:
         image: redis:7-alpine
@@ -79,29 +80,55 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 等待 MySQL 就绪
+      # mysqladmin ping 是「未认证探测」:容器刚起来时会先应答,但此时带认证的
+      # 连接仍可能被服务器关闭(表现为 PyMySQL 的 'NoneType' has no attribute
+      # 'is_auth_switch_request')。这里改成真正建立一次 Django 连接才算就绪。
+      #
+      # 注意:这里刻意不用 heredoc —— YAML 块标量会把定界符一起缩进,而 bash 要求
+      # 定界符顶格,一旦缩进就是"heredoc 不结束"的静默坑。改用单引号包裹的 -c 字符串。
+      - name: 等待 MySQL 可认证连接
         run: |
-          for i in $(seq 1 30); do
-            if mysqladmin ping -h 127.0.0.1 -P 3306 -uchatapp -pchatapp_ci --silent; then
-              echo "MySQL 就绪"; exit 0
-            fi
-            sleep 2
-          done
-          echo "MySQL 超时未就绪" >&2; exit 1
+          python -c '
+          import os, sys, time
+          sys.path.insert(0, os.getcwd())          # python -c 不会把当前目录放进 sys.path
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:6379/0")
+          import django
+          django.setup()
+          from django.db import connections
+
+          last = None
+          for attempt in range(1, 31):
+              try:
+                  connections["default"].ensure_connection()
+                  with connections["default"].cursor() as cur:
+                      cur.execute("SELECT 1")
+                      cur.fetchone()
+                  print("MySQL 可认证连接就绪(第 %d 次尝试)" % attempt)
+                  sys.exit(0)
+              except Exception as exc:
+                  last = exc
+                  print("  第 %d 次: %s: %s" % (attempt, type(exc).__name__, exc), flush=True)
+                  time.sleep(5)
+          print("MySQL 在超时前始终无法建立可认证连接", file=sys.stderr)
+          raise SystemExit(1) from last
+          '
 
       # Django 测试运行器会自行 CREATE DATABASE test_<DB_NAME>,而 service container
       # 用 MYSQL_USER 建出的账号只有 MYSQL_DATABASE 一个库的权限,建库会 1044 被拒。
       # 与 chatapp/db_setup.sql 保持一致:用 root 给测试库单独授权。
-      # SQL 走 stdin heredoc(而非命令行参数),避免 shell 反引号/百分号的转义问题。
+      # 库名不加反引号(test_chatapp_dev 是合法标识符),免去 shell 转义问题;
+      # mysql 客户端即使 SQL 失败也返回 0,所以再查一次 SHOW GRANTS 确认真的生效。
       - name: 给测试库授权
         run: |
-          mysql -h 127.0.0.1 -P 3306 -uroot -proot <<'SQL'
-          GRANT ALL PRIVILEGES ON `test_chatapp_dev`.* TO 'chatapp'@'%';
-          FLUSH PRIVILEGES;
-          SQL
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot \
+            -e "GRANT ALL PRIVILEGES ON test_chatapp_dev.* TO 'chatapp'@'%'; FLUSH PRIVILEGES;"
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot -N -B \
+            -e "SHOW GRANTS FOR 'chatapp'@'%'" | grep -q test_chatapp_dev \
+            || { echo "测试库授权未生效" >&2; exit 1; }
 
       - name: 迁移
-        run: python manage.py migrate --noinput
+        run: python manage.py migrate --noinput --verbosity=2
 
       - name: 跑测试
         run: python manage.py test --noinput --verbosity=2
