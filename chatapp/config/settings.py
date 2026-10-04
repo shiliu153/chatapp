@@ -129,8 +129,11 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 CELERY_BROKER_URL = os.getenv("BROKER_URL", "redis://127.0.0.1:6379/1")
 if TESTING:
     # 测试用独立 DB 序号:清库不误伤开发数据;任务只入队不执行(无 worker)
-    REDIS_URL = "redis://127.0.0.1:6379/15"
-    CELERY_BROKER_URL = "redis://127.0.0.1:6379/14"
+    # 端口/主机同样允许覆盖:CI 或本机 6379 被占用时,用 TEST_REDIS_HOST/PORT 指到别处
+    _test_host = os.getenv("TEST_REDIS_HOST", "127.0.0.1")
+    _test_port = os.getenv("TEST_REDIS_PORT", "6379")
+    REDIS_URL = f"redis://{_test_host}:{_test_port}/15"
+    CELERY_BROKER_URL = f"redis://{_test_host}:{_test_port}/14"
 
 CACHES = {
     "default": {

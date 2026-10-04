@@ -1,0 +1,28 @@
+# 二进制与归属标记
+#
+# 注意:这里刻意不做全局换行归一化(不加 `* text=auto eol=lf`)。
+# 仓库在 Windows 上开发、现有文件以 CRLF 入库,强行归一化会制造
+# 一次"每个文件全量重写"的巨型 diff,收益却接近于零。
+
+# 明确二进制,避免 Git 对它们做文本 diff
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.ttf  binary
+*.otf  binary
+*.woff binary
+*.woff2 binary
+*.jks  binary
+*.keystore binary
+*.jar  binary
+*.apk  binary
+*.pbxproj -text
+
+# vendored Flutter SDK 不参与 diff 与语言统计
+flutter/** -diff -text linguist-vendored
+
+# 文档不参与 GitHub 语言统计(避免 Markdown 稀释真实代码占比)
+docs/** linguist-documentation

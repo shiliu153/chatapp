@@ -1,0 +1,96 @@
+name: Backend (Django)
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'chatapp/**'
+      - '.github/workflows/backend.yml'
+  pull_request:
+    paths:
+      - 'chatapp/**'
+      - '.github/workflows/backend.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # 测试前置:MySQL 业务库 + Redis(验证码/限流/缓存都依赖它)
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: chatapp_dev
+          MYSQL_USER: chatapp
+          MYSQL_PASSWORD: chatapp_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      SECRET_KEY: ci-only-not-a-real-secret
+      DEBUG: '1'
+      DB_NAME: chatapp_dev
+      DB_USER: chatapp
+      DB_PASSWORD: chatapp_ci
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_SSL_DISABLED: '1'
+      # Celery broker 的环境变量必须叫 BROKER_URL(不能用 CELERY_ 前缀)
+      BROKER_URL: redis://127.0.0.1:6379/1
+      REDIS_URL: redis://127.0.0.1:6379/0
+      # IM 凭据在 CI 里是假值:测试全程 mock 掉 IM 副作用,不会真的调腾讯云
+      IM_SDKAPPID: '1400000000'
+      IM_SECRETKEY: ci-fake-key
+      SMS_DEV_MODE: '1'
+      AUTO_APPROVE: '1'
+
+    defaults:
+      run:
+        working-directory: chatapp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: chatapp/requirements.txt
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 等待 MySQL 就绪
+        run: |
+          for i in $(seq 1 30); do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -uchatapp -pchatapp_ci --silent; then
+              echo "MySQL 就绪"; exit 0
+            fi
+            sleep 2
+          done
+          echo "MySQL 超时未就绪" >&2; exit 1
+
+      - name: 迁移
+        run: python manage.py migrate --noinput
+
+      - name: 跑测试
+        run: python manage.py test --verbosity=2
