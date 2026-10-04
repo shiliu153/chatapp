@@ -52,7 +52,12 @@ jobs:
       DB_PASSWORD: chatapp_ci
       DB_HOST: 127.0.0.1
       DB_PORT: '3306'
-      DB_SSL_DISABLED: '1'
+      # 走 TLS 连接。理由:MySQL 8 的用户默认是 caching_sha2_password,在「非 TLS」
+      # 连接上做完整认证需要 RSA 公钥交换,这一步在 CI 上会失败(PyMySQL 读到空包:
+      # AttributeError 'NoneType' has no attribute 'is_auth_switch_request')。
+      # 走 TLS 时密码直接在加密通道内发送,不依赖 RSA 交换。
+      # 本地开发保持 DB_SSL_DISABLED=1(见 .env.example):省掉约 250ms/次的 TLS 握手。
+      DB_SSL_DISABLED: '0'
       # Celery broker 的环境变量必须叫 BROKER_URL(不能用 CELERY_ 前缀)
       BROKER_URL: redis://127.0.0.1:6379/1
       REDIS_URL: redis://127.0.0.1:6379/0
@@ -126,6 +131,38 @@ jobs:
           mysql -h 127.0.0.1 -P 3306 -uroot -proot -N -B \
             -e "SHOW GRANTS FOR 'chatapp'@'%'" | grep -q test_chatapp_dev \
             || { echo "测试库授权未生效" >&2; exit 1; }
+
+      - name: 连接诊断(环境差异排查用)
+        run: |
+          python -c '
+          import os, sys, pymysql
+          sys.path.insert(0, os.getcwd())
+          print("pymysql =", pymysql.__version__)
+          try:
+              import cryptography
+              print("cryptography =", cryptography.__version__)
+          except ImportError:
+              print("cryptography = 缺失!")
+          print("DB_SSL_DISABLED =", os.environ.get("DB_SSL_DISABLED"))
+          try:
+              c = pymysql.connect(
+                  host=os.environ["DB_HOST"], port=int(os.environ["DB_PORT"]),
+                  user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"],
+                  database=os.environ["DB_NAME"], connect_timeout=10,
+                  ssl_disabled=os.environ.get("DB_SSL_DISABLED") == "1",
+              )
+              with c.cursor() as cur:
+                  cur.execute("SELECT VERSION()")
+                  print("服务器版本 =", cur.fetchone()[0])
+                  cur.execute("SHOW SESSION STATUS LIKE \"Ssl_cipher\"")
+                  print("本次连接 TLS =", cur.fetchone()[1] or "(未加密)")
+              c.close()
+              print("诊断连接成功")
+          except Exception as exc:
+              import traceback
+              traceback.print_exc()
+              print("诊断连接失败:", type(exc).__name__, exc)
+          '
 
       - name: 迁移
         run: python manage.py migrate --noinput --verbosity=2
