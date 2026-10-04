@@ -54,7 +54,7 @@
 - 改昵称 → `im/client.py::set_profile_nick`(portrait_set);存量补 `python manage.py im_sync_nicknames`(幂等)。会话列表 `showName` 与聊天页标题兜底都靠它。
 - 头像:照片过审(含 `AUTO_APPROVE=1` 上传即过审)→ `im/tasks.py::sync_profile(user, "avatar")`,绝对 URL 用 `MEDIA_BASE_URL` 拼。
 - ⚠️ **改 `.env` / `im/tasks.py` 后 worker 必须重启**(env 与代码都只在进程启动时加载;踩过:runserver 自动重载而 worker 跑旧代码)。
-- ⚠️ 换服务器/换域名后:改 `MEDIA_BASE_URL` → 重启进程 → 对全部有已过审照片的用户重刷一次头像(批量命令见 `docs/deploy-runbook.md`)。
+- ⚠️ 换服务器/换域名后:改 `MEDIA_BASE_URL` → 重启进程 → 对全部有已过审照片的用户重刷一次头像(批量脚本见本节命令)。
 - 系统通知账号 `system_notice`(昵称「系统通知」):新环境跑一次 `python manage.py im_setup_system_account`(幂等,已存在 7015 视为成功);缺失时封禁动作照常,只是消息发送失败记日志。
 
 ## 消息页 / 聊天页(前端细节)
@@ -67,3 +67,15 @@
 
 - 代发消息:`python manage.py im_send --from uX --to uY --text "..."`(灰条 `--notice`,账号须已导入);重演配对 `dev_reset_pair --a u8 --b u12`(清滑卡+配对,**不清** IM 聊天记录)。
 - 单设备登录手测:两台模拟器先后登同一账号 → 后登录端正常,先登录端应即时/≤45s 退回登录页带提示。
+- 批量重刷 IM 头像(换服务器/换域名后 `MEDIA_BASE_URL` 变了才需要):直接调任务函数,不必等 Celery worker。
+
+```bash
+python manage.py shell -c "
+from django.contrib.auth import get_user_model
+from im.tasks import sync_profile
+ids = list(get_user_model().objects.filter(photos__status='approved').distinct().values_list('id', flat=True))
+for uid in ids:
+    sync_profile.run(uid, 'avatar')
+print('done', len(ids))
+"
+```

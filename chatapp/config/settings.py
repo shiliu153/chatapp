@@ -109,7 +109,8 @@ DATABASES = {
         "ENGINE": "django.db.backends.mysql",
         "NAME": os.getenv("DB_NAME", "chatapp_dev"),
         "USER": os.getenv("DB_USER", "chatapp"),
-        "PASSWORD": os.getenv("DB_PASSWORD", "<YOUR_DB_PASSWORD>"),
+        # 口令一律来自 .env,代码里不留兜底值(避免把它当成"默认可用"的弱口令)
+        "PASSWORD": os.getenv("DB_PASSWORD", ""),
         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
         "PORT": os.getenv("DB_PORT", "3306"),
         "OPTIONS": _db_options,

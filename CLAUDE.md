@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 文档导航(按需读取)
 
-本文件只放核心内容。**写代码 / 排障前,先看 [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选踩坑文档**(IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包含 → android-emulator.md;测试 → testing.md)。部署与运维 → [docs/deploy-runbook.md](docs/deploy-runbook.md)。设计/计划 → `docs/superpowers/{specs,plans}/`(进度以文件内 checkbox 为准)。接口文档(对外交付级)→ [docs/api/README.md](docs/api/README.md)。
+本文件只放核心内容。**写代码 / 排障前,先看 [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选踩坑文档**(IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包含 → android-emulator.md;测试 → testing.md)。部署与运维 → [README.md](README.md)「部署」一节。设计/计划 → `docs/superpowers/{specs,plans}/`(进度以文件内 checkbox 为准)。接口文档(对外交付级)→ [docs/api/README.md](docs/api/README.md)。
 
 ## 里程碑
 
@@ -34,7 +34,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-09-19 | UI 整改批次③「消息/聊天」交付(消息页四态/横滑条/通知行/会话行;聊天页顶栏 62/气泡/输入栏/双气泡空态/骨架/错误重试;提炼 AppErrorView 与 AppAvatar 首字占位;247 测试绿) |
 | 2026-09-21 | 接口文档体系交付(`docs/api/` 十册 · 32 接口 · 腾讯云风格;`ApiDocsCoverageTests` 双向门禁强制「改接口必改文档」) |
 
-**下一步(M4 续)**:按 [上线执行流程表](docs/superpowers/plans/2026-09-18-launch-execution.md)(方案 A 双轨并行)推进——免费版 3~4 个月上架,ICP 证并行办理后开付费;预算/资质细节见 [上线总纲 spec](docs/superpowers/specs/2026-09-18-launch-compliance-budget-design.md)。
+**下一步(M4 续)**:按 `2026-09-18-launch-execution.md` 推进(上线流程表含商业化/资质细节,已从开源仓库移出,仅本地保留)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -55,7 +55,6 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
 | `docs/superpowers/` | 设计 spec 与实施计划 | 计划的执行进度以文件内 checkbox 为准 |
 | `docs/pitfalls/` | 踩坑手册(按主题分册) | 写代码/排障前按需读取 |
-| `docs/deploy-runbook.md` | 服务器部署与运维手册 | 更新六步 / 常见操作 / 上线待办 |
 | `.remember/` | Claude 会话记忆日志(内部机制) | 勿改动、勿提交 |
 
 根目录是 git 仓库;`master` 为主线,功能开发走短生命周期分支后合回。
@@ -92,7 +91,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 ```
 产物 `app/build/app/outputs/flutter-apk/app-release.apk`。
 
-**服务器**:`ssh root@<SERVER_IP>`(免密);更新流程、看日志、排障一律先看 `docs/deploy-runbook.md`。
+**服务器**:`ssh root@<SERVER_IP>`(免密);部署形态与更新流程见 [README.md](README.md)「部署」。服务器私有的运维手册(面板口令/路径/端口)不入库,本地保留。
 
 ## 核心契约与纪律
 

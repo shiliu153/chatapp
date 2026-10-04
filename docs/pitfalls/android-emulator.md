@@ -1,6 +1,6 @@
 # 踩坑手册 · 模拟器与 Android 构建
 
-> 索引见 [README.md](README.md)。打服务器包见 `CLAUDE.md`「常用命令」;服务器侧见 [`../deploy-runbook.md`](../deploy-runbook.md)。
+> 索引见 [README.md](README.md)。打服务器包见 `CLAUDE.md`「常用命令」;部署形态见 [项目 README](../../README.md)「部署」。
 
 ## 国内镜像(已配置,勿删)
 

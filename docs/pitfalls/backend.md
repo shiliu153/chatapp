@@ -1,6 +1,6 @@
 # 踩坑手册 · 后端(Django / 接口 / 数据)
 
-> 索引见 [README.md](README.md)。铁律级契约见 `CLAUDE.md`「核心契约与纪律」;部署运维见 [`../deploy-runbook.md`](../deploy-runbook.md)。
+> 索引见 [README.md](README.md)。铁律级契约见 `CLAUDE.md`「核心契约与纪律」;部署形态见 [项目 README](../../README.md)「部署」。
 
 ## 环境与本地开发
 
