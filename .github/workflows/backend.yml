@@ -89,8 +89,19 @@ jobs:
           done
           echo "MySQL 超时未就绪" >&2; exit 1
 
+      # Django 测试运行器会自行 CREATE DATABASE test_<DB_NAME>,而 service container
+      # 用 MYSQL_USER 建出的账号只有 MYSQL_DATABASE 一个库的权限,建库会 1044 被拒。
+      # 与 chatapp/db_setup.sql 保持一致:用 root 给测试库单独授权。
+      # SQL 走 stdin heredoc(而非命令行参数),避免 shell 反引号/百分号的转义问题。
+      - name: 给测试库授权
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot <<'SQL'
+          GRANT ALL PRIVILEGES ON `test_chatapp_dev`.* TO 'chatapp'@'%';
+          FLUSH PRIVILEGES;
+          SQL
+
       - name: 迁移
         run: python manage.py migrate --noinput
 
       - name: 跑测试
-        run: python manage.py test --verbosity=2
+        run: python manage.py test --noinput --verbosity=2
