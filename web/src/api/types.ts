@@ -72,3 +72,25 @@ export interface Page<T> {
   previous: string | null
   results: T[]
 }
+
+export interface Candidate {
+  user_id: number
+  nickname: string
+  gender: Gender | ''
+  age: number | null
+  city: string
+  bio: string
+  tags: Tag[]
+  /** 只含已过审(discovery.md §3.1) */
+  photos: Photo[]
+}
+
+export interface MatchSummary {
+  user_id: number
+  /** 形如 u9,聊天时用它 */
+  im_user_id: string
+  nickname: string
+  avatar_url: string | null
+  /** ISO 8601 */
+  matched_at: string
+}
