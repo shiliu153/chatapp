@@ -17,6 +17,13 @@ import {
 
 export const SYSTEM_NOTICE_PEER_ID = 'system_notice'
 
+/**
+ * 配对灰条的兜底文案。
+ * 后端发的自定义消息里只有 `{type:'match_notice'}`,**没有 text** ——
+ * App 同样用固定文案兜底(见 app/lib/features/chat/widgets/message_bubble.dart 的 noticeFallback)。
+ */
+export const MATCH_NOTICE_FALLBACK = '你们已互相喜欢,开始聊天吧'
+
 /** 除 match_notice 之外的系统灰条类型(与后端 im/client.py 的 type 取值一一对应)。 */
 const NOTICE_TYPES = ['ban_notice', 'ban_lifted', 'report_handled', 'post_commented']
 
@@ -82,7 +89,11 @@ function textOf(message: TimMessageLike, kind: ChatMessageKind): string {
     const text = (message.payload as { text?: unknown } | null)?.text
     return typeof text === 'string' ? text : ''
   }
-  if (kind === ChatMessageKind.matchNotice || kind === ChatMessageKind.banNotice) {
+  if (kind === ChatMessageKind.matchNotice) {
+    // 后端只发 {type:'match_notice'},正文靠本地兜底(与 App 一致)
+    return customTextOf(message.payload) || MATCH_NOTICE_FALLBACK
+  }
+  if (kind === ChatMessageKind.banNotice) {
     return customTextOf(message.payload)
   }
   return ''
@@ -101,6 +112,8 @@ export function chatMessageFromTim(message: TimMessageLike): ChatMessage {
     timestamp: (message.time ?? 0) * 1000, // SDK 给的是秒
     kind,
     text: textOf(message, kind),
+    senderName: message.nick ?? '',
+    senderAvatar: message.avatar ?? null,
     isPending: message.status === 'unSend' || message.status === 'sending',
     isFailed: message.status === 'fail',
     // 列表用小图、点开用大图;缺哪张就退回另一张,避免空图
@@ -119,11 +132,14 @@ export function conversationFromTim(conversation: TimConversationLike): ImConver
   return {
     peerId,
     unreadCount: conversation.unreadCount ?? 0,
-    // 对端昵称取自 userProfile(SDK 拉的 IM 资料);lastMessage.nick 不可靠(实测过)
+    // 对端昵称优先取 userProfile;新建会话的 userProfile 可能还没填,
+    // 此时退回 lastMessage.nick —— 实测 C2C 会话里它就是对方的昵称。
+    // 两边都没有时返回空串:**由 store 决定兜底**(合并时才能保住本地已知的名字)。
     showName:
       conversation.userProfile?.nick ||
-      (peerId === SYSTEM_NOTICE_PEER_ID ? '系统通知' : peerId),
-    faceUrl: conversation.userProfile?.avatar || null,
+      conversation.lastMessage?.nick ||
+      (peerId === SYSTEM_NOTICE_PEER_ID ? '系统通知' : ''),
+    faceUrl: conversation.userProfile?.avatar || conversation.lastMessage?.avatar || null,
     lastMessage: conversation.lastMessage ? chatMessageFromTim(conversation.lastMessage) : null,
   }
 }

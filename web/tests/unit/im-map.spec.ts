@@ -93,6 +93,17 @@ describe('chatMessageFromTim', () => {
     expect(ban.kind).toBe(ChatMessageKind.banNotice)
   })
 
+  it('配对灰条:后端不带 text,用与 App 相同的固定文案兜底', () => {
+    const match = chatMessageFromTim({
+      ...base,
+      type: 'TIMCustomElem',
+      flow: 'in',
+      payload: { data: JSON.stringify({ type: 'match_notice' }) },
+    })
+    expect(match.kind).toBe(ChatMessageKind.matchNotice)
+    expect(match.text).toBe('你们已互相喜欢,开始聊天吧')
+  })
+
   it('自定义消息负载坏掉时不抛异常,归为 other', () => {
     const broken = chatMessageFromTim({
       ...base,
@@ -126,6 +137,30 @@ describe('conversationFromTim', () => {
       faceUrl: 'https://cdn/a.jpg',
     })
     expect(conversation?.lastMessage?.text).toBe('在吗')
+  })
+
+  it('会话 userProfile 还没填时,用 lastMessage.nick 兜底显示对端昵称', () => {
+    // 真机实测:新建会话的 userProfile 可能为空,名字要先落到「u18」再由 SDK 补全,
+    // 而 lastMessage.nick 在 C2C 里就是对方的昵称,可以直接用来显示。
+    const conversation = conversationFromTim({
+      conversationID: 'C2Cu18',
+      type: 'C2C',
+      unreadCount: 4,
+      userProfile: { userID: 'u18', nick: '', avatar: '' },
+      lastMessage: {
+        ...base,
+        nick: '婉婷18',
+        avatar: 'https://cdn/p.jpg',
+        type: 'TIMTextElem',
+        payload: { text: '在吗' },
+        flow: 'in',
+      },
+    })
+    expect(conversation).toMatchObject({
+      peerId: 'u18',
+      showName: '婉婷18',
+      faceUrl: 'https://cdn/p.jpg',
+    })
   })
 
   it('非单聊会话被过滤掉(返回 null)', () => {

@@ -22,6 +22,9 @@ export interface ChatMessage {
   timestamp: number
   kind: ChatMessageKind
   text: string
+  /** 发送者昵称(SDK 消息自带,新会话首次收到消息时靠它显示名字) */
+  senderName: string
+  senderAvatar: string | null
   isPending: boolean
   isFailed: boolean
   /** 缩略图 */
@@ -130,6 +133,9 @@ export interface TimChatLike {
   }): Promise<{ data: { messageList: TimMessageLike[]; nextReqMessageID?: string } }>
   setMessageRead(options: { conversationID: string }): Promise<unknown>
   getConversationList(): Promise<{ data: { conversationList: TimConversationLike[] } }>
+  getUserProfile?(options: {
+    userIDList: string[]
+  }): Promise<{ data?: { userID?: string; nick?: string; avatar?: string }[] }>
   deleteConversation(
     options: string | { conversationIDList: string[]; clearHistoryMessage?: boolean },
   ): Promise<unknown>

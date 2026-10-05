@@ -15,6 +15,8 @@ function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
     timestamp: 1_700_000_000_000,
     kind: ChatMessageKind.text,
     text: '你好',
+    senderName: '小雨',
+    senderAvatar: null,
     isPending: false,
     isFailed: false,
     imageUrl: null,
@@ -31,6 +33,8 @@ function mountPage(messages: ChatMessage[] = [msg()]) {
   const pinia = freshPinia()
   const store = useChatStore()
   store.messages = { u8: messages }
+  store.connect = vi.fn(async () => {})
+  store.loadConversations = vi.fn(async () => {})
   store.openConversation = vi.fn(async () => messages)
   store.sendText = vi.fn(async () => msg({ isSelf: true }))
   const w = mount(ChatPage, {

@@ -17,6 +17,8 @@ const loading = computed(
 )
 const failed = computed(() => store.status === 'error' && store.conversations.length === 0)
 const showEmpty = computed(() => !loading.value && !failed.value && store.conversations.length === 0)
+/** 同端另一个窗口接管了连接:只提示 + 手动接管,不自动抢(否则两个窗口互相踢) */
+const inactive = computed(() => store.status === 'inactive')
 
 /** 最近联系人:有最后一条消息的前 10 个会话 */
 const recent = computed(() => store.conversations.filter((item) => item.lastMessage).slice(0, 10))
@@ -31,6 +33,11 @@ function summaryOf(message: ChatMessage | null): string {
   if (message.isFailed) return '发送失败'
   if (message.kind === ChatMessageKind.image) return '[图片]'
   return message.text || '[消息]'
+}
+
+/** 服务端资料还没补全时,名字先落到 peerId,不要留空 */
+function nameOf(conversation: ImConversation): string {
+  return conversation.showName || conversation.peerId
 }
 
 function timeOf(conversation: ImConversation): string {
@@ -64,6 +71,11 @@ function timeOf(conversation: ImConversation): string {
 
     <AppSkeleton v-if="loading" height="64px" />
 
+    <p v-if="inactive" class="chats__inactive">
+      账号已在另一个窗口连接。
+      <button type="button" class="chats__takeover" @click="store.reconnect()">在此窗口接管</button>
+    </p>
+
     <AppErrorView
       v-else-if="failed"
       :message="store.error || '消息加载失败'"
@@ -86,8 +98,8 @@ function timeOf(conversation: ImConversation): string {
           class="chats__recent-item"
           :to="{ name: 'chat', params: { peerId: item.peerId } }"
         >
-          <AppAvatar :src="item.faceUrl" :name="item.showName" :size="52" />
-          <span class="chats__recent-name">{{ item.showName }}</span>
+          <AppAvatar :src="item.faceUrl" :name="nameOf(item)" :size="52" />
+          <span class="chats__recent-name">{{ nameOf(item) }}</span>
         </RouterLink>
       </div>
 
@@ -97,10 +109,10 @@ function timeOf(conversation: ImConversation): string {
             class="chats__row"
             :to="{ name: 'chat', params: { peerId: item.peerId } }"
           >
-            <AppAvatar :src="item.faceUrl" :name="item.showName" :size="48" />
+            <AppAvatar :src="item.faceUrl" :name="nameOf(item)" :size="48" />
             <div class="chats__main">
               <div class="chats__line">
-                <span class="chats__name">{{ item.showName }}</span>
+                <span class="chats__name">{{ nameOf(item) }}</span>
                 <span class="chats__time">{{ timeOf(item) }}</span>
               </div>
               <p class="chats__summary">{{ summaryOf(item.lastMessage) }}</p>
@@ -124,6 +136,23 @@ function timeOf(conversation: ImConversation): string {
   margin: 0;
   font-size: var(--text-display);
   font-weight: var(--weight-extrabold);
+}
+.chats__inactive {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-chip);
+  background: var(--tint-brand);
+  color: var(--color-brand);
+  font-size: var(--text-caption);
+}
+.chats__takeover {
+  border: none;
+  background: none;
+  color: var(--color-brand);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  text-decoration: underline;
+  cursor: pointer;
 }
 .chats__recent {
   display: flex;

@@ -80,6 +80,10 @@ async function scrollToBottom() {
 }
 
 onMounted(async () => {
+  // 深链直接进聊天页时,IM 可能还没连(connect 幂等,已在连/已连会直接返回)
+  await store.connect().catch(() => {})
+  // 会话列表里没有这个人(例如从配对列表点进来)→ 先拉一次,免得标题只剩 u41
+  if (!conversation.value) await store.loadConversations().catch(() => {})
   await store.openConversation(props.peerId).catch(() => {})
   await scrollToBottom()
 })
@@ -87,6 +91,7 @@ onMounted(async () => {
 watch(
   () => props.peerId,
   async () => {
+    if (!conversation.value) await store.loadConversations().catch(() => {})
     await store.openConversation(props.peerId).catch(() => {})
     await scrollToBottom()
   },
@@ -137,6 +142,8 @@ async function onPickImage(event: Event) {
     timestamp: Date.now(),
     kind: ChatMessageKind.image,
     text: '',
+    senderName: '',
+    senderAvatar: null,
     isPending: true,
     isFailed: false,
     imageUrl: null,
@@ -147,10 +154,9 @@ async function onPickImage(event: Event) {
 
   try {
     const sent = await store.sendImage(props.peerId, file)
-    // 用真实消息替换占位
-    store.messages[props.peerId] = messages.value
-      .filter((item) => item.msgId !== placeholderId)
-      .concat(sent)
+    // store.sendImage 已经把真实消息追加进列表了,这里只把占位删掉(别再 concat,会重复一条)
+    store.messages[props.peerId] = messages.value.filter((item) => item.msgId !== placeholderId)
+    void sent
   } catch {
     store.messages[props.peerId] = messages.value.map((item) =>
       item.msgId === placeholderId ? { ...item, isPending: false, isFailed: true } : item,

@@ -143,10 +143,33 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
     sdkAppId = appId
   }
 
+  /**
+   * 等 SDK 真正就绪。
+   * ⚠️ spike 实测:login 的 Promise resolve 时 `isReady()` 仍是 false,
+   * 此时调其它 API 会拿到「SDK 未就绪」错误(真机上表现为聊天历史永远空白)。
+   */
+  async function waitForReady(instance: TimChatLike, timeoutMs = 10_000): Promise<void> {
+    if (instance.isReady()) return
+    await new Promise<void>((resolve) => {
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        instance.off(names.ready, handler)
+        resolve()
+      }
+      const handler = () => finish()
+      const timer = setTimeout(finish, timeoutMs)
+      instance.on(names.ready, handler)
+    })
+  }
+
   async function login(userId: string, userSig: string): Promise<void> {
     const instance = await ensureSdk()
     wire(instance)
     await instance.login({ userID: userId, userSig })
+    await waitForReady(instance)
   }
 
   async function logout(): Promise<void> {
@@ -158,9 +181,25 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
     const instance = await ensureSdk()
     const res = await instance.getConversationList()
     const list = res?.data?.conversationList ?? []
-    return list
+    const conversations = list
       .map((conversation) => conversationFromTim(conversation))
       .filter((conversation): conversation is ImConversation => conversation !== null)
+
+    // ⚠️ 实测:新建会话的服务端摘要可能不带昵称/头像,而 SDK **不会**自己补全
+    //   (等 8 秒也没变),所以这里主动补拉一次用户资料。
+    const unknown = conversations
+      .filter((item) => !item.showName && item.peerId !== 'system_notice')
+      .map((item) => item.peerId)
+    if (unknown.length && instance.getUserProfile) {
+      const profiles = await instance.getUserProfile({ userIDList: unknown }).catch(() => null)
+      for (const profile of profiles?.data ?? []) {
+        const target = conversations.find((item) => item.peerId === profile.userID)
+        if (!target) continue
+        target.showName = profile.nick ?? ''
+        target.faceUrl = target.faceUrl ?? profile.avatar ?? null
+      }
+    }
+    return conversations
   }
 
   async function fetchHistory(peerId: string, count = 20): Promise<ChatMessage[]> {

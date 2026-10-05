@@ -57,6 +57,18 @@ describe('ChatsPage', () => {
     expect(w.find('.app-skeleton').exists()).toBe(true)
   })
 
+  it('同端被另一个窗口接管时,提示并提供手动接管', async () => {
+    const { store, pinia } = stubChatStore([], 'inactive')
+    store.reconnect = vi.fn(async () => {})
+    const w = mountPage(pinia)
+    await flushPromises()
+
+    expect(w.find('.chats__inactive').exists()).toBe(true)
+    expect(w.find('.app-skeleton').exists()).toBe(false) // 不能一直转圈
+    await w.find('.chats__takeover').trigger('click')
+    expect(store.reconnect).toHaveBeenCalled()
+  })
+
   it('出错时给出重试入口', async () => {
     const { store, pinia } = stubChatStore([], 'error')
     const w = mountPage(pinia)

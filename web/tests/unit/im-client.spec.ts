@@ -29,6 +29,7 @@ function fakeSdk() {
     getMessageList: vi.fn(async () => ({ data: { messageList: [] } })),
     setMessageRead: vi.fn(async () => ({})),
     getConversationList: vi.fn(async () => ({ data: { conversationList: [] } })),
+    getUserProfile: vi.fn(async () => ({ data: [] })),
     deleteConversation: vi.fn(async () => ({})),
   }
   return {
@@ -95,6 +96,28 @@ describe('im client', () => {
     expect((sent[0] as { payload: { file: File } }).payload.file).toBe(file)
   })
 
+  it('login 要等 SDK really ready 才 resolve', async () => {
+    // spike 实测:login 的 Promise 先 resolve,isReady() 还是 false;
+    // 不等就调其它 API 会拿到「SDK 未就绪」的错误(真机上表现为聊天历史永远空白)。
+    const { client, sdk, emit } = makeClient()
+    let ready = false
+    sdk.isReady = () => ready
+    let resolved = false
+
+    const loginPromise = client.login('u9', 'sig').then(() => {
+      resolved = true
+    })
+    // 用真实定时器排空微任务:否则「恰好还没轮到」会让断言假绿(修不修都过)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(resolved).toBe(false) // 还没 ready
+
+    ready = true
+    emit('sdkStateReady', undefined)
+    await loginPromise
+
+    expect(resolved).toBe(true)
+  })
+
   it('踢下线事件带上原因', async () => {
     const { client, emit } = makeClient({ kickedOut: 'kickedOut' })
     const events: { type: string; reason?: string }[] = []
@@ -135,6 +158,33 @@ describe('im client', () => {
 
     expect(conversations).toHaveLength(1)
     expect(conversations[0]).toMatchObject({ peerId: 'u8', showName: '小雨', unreadCount: 1 })
+  })
+
+  it('昵称未知的会话会补拉一次 IM 用户资料(真机实测 SDK 不会自己补)', async () => {
+    const { client, sdk } = makeClient()
+    sdk.getConversationList = vi.fn(async () => ({
+      data: {
+        conversationList: [
+          {
+            conversationID: 'C2Cu18',
+            type: 'C2C',
+            unreadCount: 4,
+            userProfile: { userID: 'u18', nick: '', avatar: '' },
+            lastMessage: { ID: 'x', type: 'TIMTextElem', payload: { text: '你好' } },
+          },
+        ],
+      },
+    }))
+    const seen: string[][] = []
+    sdk.getUserProfile = vi.fn(async ({ userIDList }) => {
+      seen.push(userIDList)
+      return { data: [{ userID: 'u18', nick: '婉婷18', avatar: 'https://cdn/p.jpg' }] }
+    })
+
+    const conversations = await client.fetchConversations()
+
+    expect(seen).toEqual([['u18']])
+    expect(conversations[0]).toMatchObject({ showName: '婉婷18', faceUrl: 'https://cdn/p.jpg' })
   })
 
   it('markConversationRead / deleteConversation 用 C2C 前缀拼会话 ID', async () => {

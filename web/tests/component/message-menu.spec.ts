@@ -11,6 +11,8 @@ const message: ChatMessage = {
   timestamp: 1,
   kind: ChatMessageKind.text,
   text: '你好',
+  senderName: '小雨',
+  senderAvatar: null,
   isPending: false,
   isFailed: false,
   imageUrl: null,

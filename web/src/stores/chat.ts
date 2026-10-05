@@ -7,7 +7,7 @@ import { getImClient } from '@/im/client'
 import { SYSTEM_NOTICE_PEER_ID } from '@/im/map'
 import type { ChatMessage, ImConversation } from '@/im/types'
 
-export type ChatStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting' | 'error'
+export type ChatStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting' | 'inactive' | 'error'
 
 /** 按时间排序 + 去重(同 msgId 以新的为准,保证本地乐观消息被服务端版本替换)。 */
 function mergeMessages(oldList: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
@@ -26,6 +26,8 @@ export const useChatStore = defineStore('chat', () => {
   const error = ref('')
   /** 发送失败/待发送的图片文件,供「重发」用 */
   const pendingFiles = new Map<string, File>()
+  /** 进行中的连接(并发调用复用它) */
+  let inFlight: Promise<void> | null = null
 
   const unreadTotal = computed(() =>
     conversations.value.reduce((sum, item) => sum + item.unreadCount, 0),
@@ -51,8 +53,12 @@ export const useChatStore = defineStore('chat', () => {
         {
           peerId: message.peerId,
           unreadCount: message.isSelf ? 0 : 1,
-          showName: message.peerId === SYSTEM_NOTICE_PEER_ID ? '系统通知' : message.peerId,
-          faceUrl: null,
+          // 新会话首次收到消息时,名字/头像就用消息自带的(SDK 已带上发送者资料)
+          showName:
+            message.peerId === SYSTEM_NOTICE_PEER_ID
+              ? '系统通知'
+              : message.senderName || message.peerId,
+          faceUrl: message.senderAvatar,
           lastMessage: message,
         },
       ]
@@ -89,13 +95,16 @@ export const useChatStore = defineStore('chat', () => {
       return
     }
     if (event.type === 'kickedOffline') {
-      // ⚠️ 分流:同端第二个标签页被顶时**绝不能清凭证** —— localStorage 是共享的,
-      //    清掉会把所有标签页一起登出(spec §5.3)。
+      // ⚠️ 分流一:被同端的另一个标签页顶掉。
+      //    绝不能清凭证(localStorage 共享,清掉会把所有标签页一起登出,
+      //    违反 spec §5.3 / T9.4 的验收);也**不能自动重连** ——
+      //    两个标签页会自动互相踢,实测 10 秒内打了 27 次 user_sig 并被 IM 限流。
+      //    正确做法:置为 inactive,等用户显式接管(reconnect)。
       if (event.reason === 'multiAccount') {
-        status.value = 'reconnecting'
-        void reconnect()
+        status.value = 'inactive'
         return
       }
+      // 分流二:真的被别的设备顶掉 → 全屏提示 + 清凭证
       sessionEvents.emitKickedOffline()
     }
   })
@@ -116,23 +125,55 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function connect(): Promise<void> {
-    if (status.value === 'connecting' || status.value === 'ready') return
-    status.value = 'connecting'
-    await doConnect()
+    if (status.value === 'ready') return
+    // 已在连/重连中:复用同一个 Promise,避免并发建两个实例
+    if (inFlight) return inFlight
+    status.value = status.value === 'reconnecting' ? 'reconnecting' : 'connecting'
+    inFlight = doConnect().finally(() => {
+      inFlight = null
+    })
+    return inFlight
   }
 
-  /** 同端多实例被顶后的重连(状态值不同,UI 上显示「重连中」而不是「连接中」)。 */
+  /**
+   * 所有 IM 操作前都要先确保已连接 —— 否则会在 `init()` 之前就用 SDKAppID=0
+   * 建出实例,之后所有调用都返回 `No SDKAppID`(真机踩到过)。
+   */
+  async function ensureConnected(): Promise<void> {
+    await connect()
+  }
+
+  /** 被同端顶掉后由用户显式接管(见 multiAccount 分流注释)。 */
   async function reconnect(): Promise<void> {
     status.value = 'reconnecting'
     await doConnect()
   }
 
   async function loadConversations(): Promise<void> {
-    conversations.value = await client.fetchConversations()
+    await ensureConnected()
+    const fresh = await client.fetchConversations()
+    // ⚠️ 服务端对新会话返回的摘要可能是**残缺**的(实测:lastMessage 只有 payload.text,
+    //    from/time/nick 全空;userProfile 也空)。整体替换会把本地已经知道的名字、
+    //    头像与完整摘要冲掉,所以按 peerId 合并、只认服务端更完整的字段。
+    const previous = new Map(conversations.value.map((item) => [item.peerId, item]))
+    conversations.value = fresh.map((item) => {
+      const old = previous.get(item.peerId)
+      if (!old) return item
+      const serverMessage = item.lastMessage
+      const serverSummaryComplete = Boolean(serverMessage && serverMessage.timestamp > 0)
+      return {
+        ...item,
+        showName: item.showName || old.showName,
+        faceUrl: item.faceUrl ?? old.faceUrl,
+        lastMessage: serverSummaryComplete ? serverMessage : old.lastMessage,
+        unreadCount: item.unreadCount,
+      }
+    })
     sortConversations()
   }
 
   async function loadHistory(peerId: string): Promise<ChatMessage[]> {
+    await ensureConnected()
     const history = await client.fetchHistory(peerId)
     const merged = mergeMessages(messagesOf(peerId), history)
     messages.value = { ...messages.value, [peerId]: merged }
@@ -147,6 +188,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function sendText(peerId: string, text: string): Promise<ChatMessage> {
+    await ensureConnected()
     const message = await client.sendText(peerId, text)
     appendMessage(peerId, message)
     upsertConversation({ ...message, isSelf: true })
@@ -154,6 +196,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function sendImage(peerId: string, file: File): Promise<ChatMessage> {
+    await ensureConnected()
     const message = await client.sendImage(peerId, file)
     pendingFiles.set(message.msgId, file)
     appendMessage(peerId, message)
@@ -181,10 +224,12 @@ export const useChatStore = defineStore('chat', () => {
       [message.peerId]: messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId),
     }
     pendingFiles.delete(message.msgId)
+    await ensureConnected()
     await client.deleteMessage(message.msgId)
   }
 
   async function deleteConversation(peerId: string): Promise<void> {
+    await ensureConnected()
     await client.deleteConversation(peerId)
     conversations.value = conversations.value.filter((item) => item.peerId !== peerId)
     const rest = { ...messages.value }
