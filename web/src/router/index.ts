@@ -12,6 +12,18 @@ export const router = createRouter({
   routes: [
     { path: '/', component: { template: '<div />' } },
     { path: '/login', name: 'login', component: () => import('@/features/auth/LoginPage.vue') },
+    {
+      path: '/legal/agreement',
+      name: 'legal-agreement',
+      component: () => import('@/features/legal/LegalPage.vue'),
+      props: { kind: 'agreement' },
+    },
+    {
+      path: '/legal/privacy',
+      name: 'legal-privacy',
+      component: () => import('@/features/legal/LegalPage.vue'),
+      props: { kind: 'privacy' },
+    },
     ...devRoutes(),
   ],
 })
