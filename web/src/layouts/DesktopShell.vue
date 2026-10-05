@@ -1,9 +1,21 @@
 <script setup lang="ts">
-// Task 3.4 会替换为「可拖拽侧栏 + 内容区」的正式版;这里先保证路由可解析。
+import AppSidebar from '@/components/AppSidebar.vue'
+import { useSidebar } from '@/layout'
+import { useChatStore } from '@/stores/chat'
+
+const sidebar = useSidebar()
+const chat = useChatStore()
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ 'shell--dragging': sidebar.isDragging.value }">
+    <AppSidebar
+      :width="sidebar.width.value"
+      :icon-only="sidebar.isIconOnly.value"
+      :unread-total="chat.unreadTotal"
+      @resize-start="sidebar.beginDrag"
+      @resize-reset="sidebar.resetToDefault"
+    />
     <main class="shell__content">
       <RouterView />
     </main>
@@ -15,6 +27,10 @@
   display: flex;
   height: 100vh;
   overflow: hidden;
+}
+/* 拖拽时禁止选中文本,否则会把侧栏文字一起框选 */
+.shell--dragging {
+  user-select: none;
 }
 .shell__content {
   flex: 1;
