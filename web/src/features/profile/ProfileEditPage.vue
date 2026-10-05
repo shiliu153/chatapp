@@ -4,6 +4,7 @@ import { parseApiError } from '@/api/error'
 import AppButton from '@/components/AppButton.vue'
 import AppInput from '@/components/AppInput.vue'
 import FormCard from '@/features/auth/FormCard.vue'
+import PhotoGrid from './PhotoGrid.vue'
 import TagPicker from './TagPicker.vue'
 import { useProfileStore } from '@/stores/profile'
 
@@ -81,6 +82,7 @@ async function onSubmit() {
       <AppInput v-model="city" placeholder="城市" :maxlength="50" />
       <AppInput v-model="bio" placeholder="一句话介绍自己(最多 200 字)" :maxlength="200" />
       <TagPicker v-model="tagIds" />
+      <PhotoGrid />
     </div>
     <p v-if="saved" class="profile-edit__saved">已保存</p>
     <AppButton
