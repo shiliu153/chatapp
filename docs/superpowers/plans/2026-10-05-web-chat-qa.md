@@ -1711,6 +1711,40 @@ git commit -m "docs: 网页端落纪律(token 双份维护)与导航"
 
 > 执行时在此追加实际偏差,以及 **Task 6.1 的 API 事实清单**(10 条实测结论)。
 
+### 组 T6 执行记录(2026-10-05,分支 `feat/web-frontend`)
+
+**计划自身的疏漏(执行时修正)**
+
+1. **顺序倒置**:6.2 的 `client.ts` 依赖 6.3 的 `map.ts` → 按 T3 的先例**先做 6.3 再做 6.2**。
+2. 6.4 的 `SettingsPage` TODO 兑现(Step 5)落空:该页此时还是空壳,`onLogout` 一并挪到 **T8.1** 实现。
+3. 6.5 的用例用了 6.4 **未定义**的状态值 `'loading'`(6.4 的状态机是 `idle/connecting/ready/reconnecting/error`)→ 用例改用 `'connecting'`;另为「同端被接管」新增 `inactive` 状态(见下)。
+4. 6.6/6.7/6.8 的组件用例同样漏了 `freshPinia()`,且未隔离会打网络的动作(`connect`/`loadConversations`/`openConversation`)→ 统一改为「共享 pinia + 假动作」。
+5. 图片映射**按实测重写**(计划原文按 `type` 1/2/3 选图):改为按 `sizeType`、URL 取 `imageUrl || url` 并跳过空值,`type` 仅作回退。
+
+**真机联调抓到的 5 个真 bug(单测全绿也照样存在)**
+
+1. **`login()` 的 Promise 早于 SDK ready**:紧接着调 `getMessageList` 会拿到「未就绪」错误 → 真机上表现为**聊天历史永远空白**。修法:`client.login()` 内 `waitForReady()`(监听 `sdkStateReady` + 10s 兜底)。已补单测(第一版用例用 `await Promise.resolve()` 计数会假绿,改成真实定时器才钉住)。
+2. **直接进聊天页(深链)从不连 IM**:`ChatPage.onMounted` 只拉历史没 `connect()` → 房间永远空。修法:页面挂载先 `await store.connect()`;`loadConversations/loadHistory/send*/delete*` 也统一走 `ensureConnected()`。
+3. **`connect()` 与 `loadConversations()` 并发时用 SDKAppID=0 建实例** → 消息页整页报 `No SDKAppID`。修法:所有 IM 操作前先 `await connect()`(并发复用同一个 in-flight Promise)。
+4. **同端第二个标签页造成「互踢风暴」**:按计划的「multiAccount → 只重连」实现后,两个标签页会互相踢,实测 10 秒内打了 **27 次 `POST /im/user_sig`** 并被 IM 限流(`over rate limit`)。修法:multiAccount 只置 `inactive` 并**停止自动重连**,由消息页给出「账号已在另一个窗口连接 / 在此窗口接管」的手动入口(清凭证仍然绝不发生)。复测:user_sig 只调 1 次。
+5. **发送的图片重复一条**(store 已追加 + 页面又 `concat` 一次)、**配对灰条文本为空**(后端 `match_notice` 的自定义消息里本来就没有 text)—— 前者去掉重复 concat,后者按 App 的固定文案兜底(`你们已互相喜欢,开始聊天吧`,出处 `app/lib/features/chat/widgets/message_bubble.dart:34`)。
+
+**另外两处数据/环境问题(不是代码 bug,但会影响观感)**
+
+- 会话列表里对端昵称/头像来自 **IM 资料**,而造数用户从没同步过 → 显示成 `u18`。已跑后端自带的 `python manage.py im_sync_nicknames`(成功 25 个)修正;并在 `client.fetchConversations()` 里补了「昵称未知就拉一次 `getUserProfile`」的兜底(实测 SDK 自己不会补全,等 8 秒也没变)。
+- 新建会话的服务端摘要**可能是残缺的**(实测 `lastMessage` 只有 `payload.text`,`from/time/nick` 全空;`userProfile` 也空)→ `loadConversations()` 改为**按 peerId 合并**,不用残缺摘要覆盖本地已知的昵称与完整摘要。遗留:这种情况下会话行的**时间**暂时为空,等下一条消息或 SDK 补全后出现。
+- `.env` 里 IM 头像同步用的绝对地址是安卓模拟器地址(`http://10.0.2.2:8000/...`)→ 网页端头像会加载失败。上线前应改成对外可访问的地址(部署阶段处理)。
+- **Celery worker 必须起着**(计划 6.1 Step 1 就写了):配对灰条、昵称/头像同步都靠它;本次之前一直没起,导致积压任务在启动瞬间被一次性消费。
+
+**T6 检查点(真机,两个账号)**
+
+- 账号 A=`u41`(小晴)/ B=`u18`(婉婷18,手机号 `13900000007`),用**隔离上下文**登录,避免共享 localStorage。
+- 文本:B 发「网页端联调:你好呀」→ A 的消息页**实时**出现该会话与未读角标(侧栏未读合计 4);打开会话后未读清零 ✓
+- 图片:A 选图 → 本地 blob 预览 → 上传成功换成 CDN 地址;B 侧历史里也能看到 ✓
+- 灰条:配对时排队的 `match_notice` 由 worker 送达,渲染成居中 pill ✓
+- 被顶号:另一个会话用同账号登录后,本标签页下一次请求收到 `401 + 40101` → **全屏「账号已在其他设备登录」+ 凭证清空**(运行时路径与刷新路径都验过)✓
+- 同端第二个标签页:第一个标签页转 `inactive`、**不自动重连**、**凭证仍在**、无全屏提示 ✓
+
 ### Task 6.1:IM 通路 spike 事实清单(2026-10-05,实测于 `http://localhost:5173`)
 
 **环境**:后端 `runserver`(IM 已配 `IM_SDKAPPID=1600161711`)+ Vite dev;登录账号 `u41`;SDK `@tencentcloud/chat` 3.6.7。spike 用的临时模块**已删除**(`web/im-spike.ts`,不提交)。10 条逐条结论如下 —— **后续 7 个任务以本清单为准**。
