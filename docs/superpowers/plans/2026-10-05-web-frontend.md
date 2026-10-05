@@ -3824,7 +3824,7 @@ T1–T3 已写到「可直接照着敲」的粒度。T4 起**暂不预先写死�
 | 8.1 | 设置页 + 退出登录(先登出 IM 再清凭证) | `src/features/settings/SettingsPage.vue` | 退出后 localStorage 清空、路由回 `/login` |
 | 8.2 | 黑名单(分页 + 解除拉黑) | `src/features/settings/BlockedUsersPage.vue` | 解除后从列表移除;空态 |
 | 8.3 | 举报弹窗(用户/动态共用) | `src/features/moderation/ReportDialog.vue` | 必选理由;提交后提示「已收到举报」;**举报后拉黑可选** |
-| 8.4 | 在线状态(45 秒心跳 + 可见性规则) | `src/composables/useHeartbeat.ts`、`src/stores/presence.ts` | 可见时 45s 一次;`document.hidden` 暂停;重新可见立即补一次;在线光接入各列表 |
+| 8.4 | 在线状态(45 秒心跳 + 可见性规则) | `src/stores/presence.ts`(**轮询即心跳,不拆 `useHeartbeat.ts`;以计划二 Task 8.4 为准**) | 可见时 45s 一次;`document.hidden` 暂停;重新可见立即补一次;在线光接入各列表 |
 
 ### T9 测试补齐 / 端到端 / CI(5 个任务)
 
@@ -3833,7 +3833,7 @@ T1–T3 已写到「可直接照着敲」的粒度。T4 起**暂不预先写死�
 | 9.1 | 覆盖补齐 + `vitest --coverage` 门槛(阈值先定 70%,可在执行时与用户确认) | 401 通道、token 一致性、侧栏几何、各 store |
 | 9.2 | Playwright 配置(`webServer` 起 `vite preview`;真实后端可切换) | 冒烟一条能跑通 |
 | 9.3 | 主干场景脚本 | 登录 → 完善资料 → 滑卡 → 互喜配对 → 聊天发文本与图片 → 广场发布与评论 → 拉黑 |
-| 9.4 | 边界场景脚本 | 深链直开与 F5;中文渲染自检;窄窗口仍是 PC 壳层;UA 移动端进引导页;被顶号全屏提示;多标签页不互顶 |
+| 9.4 | 边界场景脚本 | 深链直开与 F5;中文渲染自检;窄窗口仍是 PC 壳层;UA 移动端进引导页;被顶号全屏提示;**第二个标签页登录不清掉第一个标签页的登录态**(踢出原因分流) |
 | 9.5 | `.github/workflows/web.yml` | `npm ci` + `type-check` + `lint` + `test:run` + `build` |
 
 ### T10 部署与文档(3 个任务)
