@@ -9,5 +9,9 @@ function devRoutes(): RouteRecordRaw[] {
 
 export const router = createRouter({
   history: createWebHistory(),
-  routes: [{ path: '/', component: { template: '<div />' } }, ...devRoutes()],
+  routes: [
+    { path: '/', component: { template: '<div />' } },
+    { path: '/login', name: 'login', component: () => import('@/features/auth/LoginPage.vue') },
+    ...devRoutes(),
+  ],
 })
