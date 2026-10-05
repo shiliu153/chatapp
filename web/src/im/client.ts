@@ -31,6 +31,21 @@ export const DEFAULT_EVENT_NAMES: ImEventNames = {
 // 使用方(含测试)从本模块取类型,不必知道文件布局
 export type { TimChatLike, ImClient, ImEvent } from './types'
 
+/**
+ * 全局单例入口。Pinia 的 `useXxxStore()` 不接受参数,所以 store 只能通过这个工厂拿客户端;
+ * 测试用 `setImClientFactory` 换成假实现(`useChatStore()` 之前调用)。
+ */
+let factory: () => ImClient = () => createImClient()
+
+/** 仅供测试替换;生产路径不要调用。 */
+export function setImClientFactory(fn: () => ImClient): void {
+  factory = fn
+}
+
+export function getImClient(): ImClient {
+  return factory()
+}
+
 /** 踢出原因:同端多实例 vs 多端登录,处理方式不同(同端多实例绝不能清凭证)。 */
 export function kickReasonOf(raw: unknown): KickReason {
   const type = (raw as { type?: string } | null)?.type ?? ''
