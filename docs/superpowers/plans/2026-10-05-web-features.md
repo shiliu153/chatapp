@@ -4951,7 +4951,18 @@ git commit -m "feat(web): 在线状态(轮询即心跳,隐藏时暂停)"
 
 > 执行时在此追加实际偏差。
 
-- (待填)
+### T4 引导与资料(2026-10-05,分支 `feat/web-frontend`)
+
+**计划自身的疏漏(执行时修正)**
+
+1. **`load()` 抛不抛异常,计划自相矛盾**:4.1 的 store 实现既写 `error` 又 `rethrow`,而同一任务自带的用例是 `await store.load()`(没有 catch)→ 用例必红。定为「**错误只进 state,不抛**」,调用方读 `store.error`/`profile===null` 决定渲染;`save/uploadPhoto/...` 仍抛(页面要 catch 后展示后端文案)。守卫里的 `load().catch(()=>{})` 随之简化。
+2. **组件测试的 pinia 用错**:4.1 自己写明「本任务起所有组件测试都用 `freshPinia()`」,但 4.3/4.4 的示例仍写 `plugins: [createPinia()]` —— 那会新建一个与预置状态无关的 pinia,组件读到空 store(4.3 首条用例必红)。全部改为 `freshPinia()` 并在同一实例上预置 + 挂载。
+3. **multipart 用例断言了环境产物**:计划断言 `receivedName === 'me.jpg'`。实测必红,根因不是我们的代码 —— MSW 用 undici 序列化 FormData,而 undici 用 `instanceof File`(Node 的 File)取文件名,jsdom 的 `File` 不是同一个类 → 回落成 `filename="blob"`。**真浏览器已抓包复核**:请求体含 `Content-Disposition: form-data; name="file"; filename="me.jpg"`,后端 201 存为 `media/photos/2026/10/me.jpg`。用例改为只断言我们控制的契约(multipart、字段名 `file`、字节送达),并把这段原因写进注释,避免后人误判「上传文件名坏了」。
+4. **页面 CSS 里的裸色值**:计划 4.6 用了 `rgb(255 44 85 / 8%)`(另有 T5/T7/T8 共 4 处同类)→ 按 token 纪律提为 Web 专属变量 `--tint-brand` / `--glow-online` / `--overlay-on-photo` / `--scrim-strong`(无 Dart 对照,放在「Web 新增维度」区;token 对账测试只从 Dart 侧正向要求,新增变量不影响)。
+5. **`MyProfilePage` 的定宽写法**:计划用 `max-width: clamp(560px,56%,760px)`,在窄容器里会被内容撑开 → 改 `width: clamp(...)` + `max-width: 100%`,符合「宽度跟窗口自适应」的既定要求。
+
+**真环境检查点(T4)**:门禁全绿(33 文件 / 146 用例 · `vue-tsc` 0 · `eslint` 0)。真后端手测通过:登录(新号,开发码 `123456`)→ 编辑资料填昵称/性别/生日/城市/简介 + 勾 2 个标签 → 「已保存」→ 上传真 JPEG → 我的页显示完整资料与照片「已通过」徽标;`GET /users/me` 复核为 `status:"complete"`、`tags:["旅行","咖啡"]`、`photos:1`,`GET /users/me/preference` 复核为 `{target_gender:"male",age_min:24,age_max:34,city:"上海"}`(不限/数值/城市三条契约都对)。
+
 
 
 
