@@ -1711,5 +1711,27 @@ git commit -m "docs: 网页端落纪律(token 双份维护)与导航"
 
 > 执行时在此追加实际偏差,以及 **Task 6.1 的 API 事实清单**(10 条实测结论)。
 
-- (待填)
+### Task 6.1:IM 通路 spike 事实清单(2026-10-05,实测于 `http://localhost:5173`)
+
+**环境**:后端 `runserver`(IM 已配 `IM_SDKAPPID=1600161711`)+ Vite dev;登录账号 `u41`;SDK `@tencentcloud/chat` 3.6.7。spike 用的临时模块**已删除**(`web/im-spike.ts`,不提交)。10 条逐条结论如下 —— **后续 7 个任务以本清单为准**。
+
+1. **create**:`TencentCloudChat.create({ SDKAppID })` 可用;接口返回的 `sdkappid` 是**字符串** `"1600161711"`,必须 `Number()` 转换。**实例按 SDKAppID 单例缓存**(SDK 内部 `Ir[n]`):同一页面重复 `create` 拿到的是同一个实例,`destroy()` 才会释放。
+2. **login**:`chat.login({ userID: 'u41', userSig })` → **`code: 0`**,`data` 含 `a2Key/tinyID/instanceID/helloInterval/purchaseBits/authKey`。注意 **login 的 Promise resolve 时 `isReady()` 仍是 `false`**,要等 `sdkStateReady`(`SDK_READY`)事件;未就绪时调其它 API 会返回 `{code: getNotReadyReason(), message: '... | <api> | ...'}`(SDK 内部统一守卫)。
+3. **收消息事件**:`EVENT.MESSAGE_RECEIVED === 'onMessageReceived'`;**`event.data` 是数组**。Message 字段实测:`ID / type / conversationID / conversationType / time(秒) / sequence / nick / avatar / from / to / flow('in'|'out') / status('success') / isRead / cloudCustomData / payload`。
+4. **发文本**:`createTextMessage({ to, conversationType: TYPES.CONV_C2C, payload: { text } })` + `sendMessage` → `code: 0`;返回的 `data.message` 带 `flow:'out'`、`status:'success'`。`TYPES.CONV_C2C === 'C2C'`。
+5. **正文位置**:**`payload.text`** ✅(与预期一致)。
+6. **图片消息(有坑,详见下)**:
+   - `@tencentcloud/upload-plugin` **在 npm 上不存在(404)**;官方包是 **`tim-upload-plugin`**(1.4.3,UMD,默认导出即插件,带 `getVersion()`,且**自带 `index.d.ts`**)→ 已 `npm install tim-upload-plugin`。
+   - 注册方式 `chat.registerPlugin({ 'tim-upload-plugin': TIMUploadPlugin })`,**必须在 `login()` 之前调用**:上传模块在构造时就缓存了插件引用,登录后再注册会一直报 `code 2040 未检测到上传插件`(实测踩到过)。
+   - `createImageMessage({ to, conversationType, payload: { file } })` + `sendMessage` → `code: 0`,type `TIMImageElem`,payload 键为 `imageFormat / uuid / imageInfoArray`。
+   - **收到方向的权威结构**(用后端 REST 发一条 `TIMImageElem` 给 u41 后实测):`payload.imageInfoArray[]`,每项 `{ instanceID, sizeType, type, size, width, height, imageUrl, url }`。**`type` 是 0/1/2 且不可靠**(实测 type=1 那条 URL 为空);原图/缩略/大图的区分在 **`sizeType`:1=原图 / 2=缩略 / 3=大图**。URL **有两个字段**(`imageUrl` 是 https、`url` 是 http)→ 映射必须取 `imageUrl || url` 并**跳过空 URL 的项**。发送侧本地副本的 URL 先是 `blob:`,不能当最终值。
+   - ⇒ **Task 6.7 的映射按 `sizeType` 选图,不按 `type`**;这条是对计划原文的修正。
+7. **会话列表/历史结构**:`getConversationList()` → `{ code, data: { conversationList, isSyncCompleted } }`;会话项含 `conversationID('C2Cu18') / type('C2C') / unreadCount / lastMessage{ lastTime, lastSequence, fromAccount, messageForShow, payload, type, nick, isPeerRead } / userProfile{ userID, nick, avatar, ... } / remark / isPinned / draftText / subType / markList`。**对端昵称头像要取 `userProfile`**(SDK 会拉 IM 资料),`lastMessage.nick` 不可靠(实测最后一条是我发的,`nick` 仍是对方昵称)。
+   `getMessageList({ conversationID })` → `{ code, data: { messageList, nextReqMessageID, isCompleted } }`,**messageList 是最旧 → 最新**(分页要按 `nextReqMessageID` 往前翻)。
+8. **未读数**:`getTotalUnreadMessageCount()` **直接 resolve 一个 number**(不是 `{code,data}`)⇒ 类型是 `Promise<number>`;`onTotalUnreadMessageCountUpdated` 事件的 `data` 也是 number。
+9. **踢出原因实测**:**同账号在第二个标签页登录** → 第一个标签页收到 `kickedOut { type: 'multipleAccount' }` 紧随 `sdkStateNotReady`,`isReady()` 变 false;后端 REST 踢人(`client.kick_user`)→ `{ type: 'REST_API_Kick' }`。`multipleDevice` / `userSigExpired` 本机无法制造,**未实测**(Web 侧以 JWT `40101` 为主信号,IM 踢出为辅)。
+10. **控制台「在线 Web 实例数」**:需要登录腾讯云控制台才能看到,**代码侧读不到**;但行为上「同账号同时只有 1 个实例」已被第 9 条证实。若将来要做多标签页共存,需在控制台确认该配额。
+
+**结论**:登录、收、发、会话列表、未读、图片上传、踢出分流**全部跑通**,Task 6.1 **通过**,继续 T6。
+
 
