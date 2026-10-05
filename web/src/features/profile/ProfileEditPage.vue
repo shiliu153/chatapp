@@ -4,6 +4,7 @@ import { parseApiError } from '@/api/error'
 import AppButton from '@/components/AppButton.vue'
 import AppInput from '@/components/AppInput.vue'
 import FormCard from '@/features/auth/FormCard.vue'
+import TagPicker from './TagPicker.vue'
 import { useProfileStore } from '@/stores/profile'
 
 const store = useProfileStore()
@@ -13,6 +14,7 @@ const gender = ref<'' | 'male' | 'female'>('')
 const birthday = ref('')
 const city = ref('')
 const bio = ref('')
+const tagIds = ref<number[]>([])
 const error = ref('')
 const saved = ref(false)
 const submitting = ref(false)
@@ -24,6 +26,7 @@ onMounted(async () => {
   birthday.value = store.profile?.birthday ?? ''
   city.value = store.profile?.city ?? ''
   bio.value = store.profile?.bio ?? ''
+  tagIds.value = store.profile?.tags.map((t) => t.id) ?? []
 })
 
 async function onSubmit() {
@@ -37,6 +40,8 @@ async function onSubmit() {
       birthday: birthday.value || undefined,
       city: city.value,
       bio: bio.value,
+      // 空数组 = 清空标签,不能用 undefined —— 否则后端不替换(users.md §2.2)
+      tag_ids: tagIds.value,
     })
     saved.value = true
   } catch (e) {
@@ -75,6 +80,7 @@ async function onSubmit() {
       <AppInput v-model="birthday" type="date" placeholder="生日" />
       <AppInput v-model="city" placeholder="城市" :maxlength="50" />
       <AppInput v-model="bio" placeholder="一句话介绍自己(最多 200 字)" :maxlength="200" />
+      <TagPicker v-model="tagIds" />
     </div>
     <p v-if="saved" class="profile-edit__saved">已保存</p>
     <AppButton
