@@ -1,18 +1,33 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppEmpty from '@/components/AppEmpty.vue'
 import AppErrorView from '@/components/AppErrorView.vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useDiscoveryStore } from '@/stores/discovery'
+import { usePresenceStore } from '@/stores/presence'
 import MatchesList from './MatchesList.vue'
 import MatchMoment from './MatchMoment.vue'
 import SwipeDeck from './SwipeDeck.vue'
 
 const store = useDiscoveryStore()
+const presence = usePresenceStore()
 const router = useRouter()
 
 const showEmpty = computed(() => !store.loading && !store.error && store.exhausted)
+const currentOnline = computed(() => {
+  const id = store.current?.user_id
+  return id ? presence.isOnline(id) : false
+})
+
+// 只关心当前这张卡:在线状态每 45 秒由 presence store 自己刷新
+watch(
+  () => store.current?.user_id,
+  (id) => {
+    if (id) presence.track('candidates', [id])
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   store.loadCandidates()
@@ -55,6 +70,7 @@ function onChat() {
       v-else
       :candidate="store.current"
       :submitting="store.submitting"
+      :online="currentOnline"
       @decide="onDecide"
     />
 

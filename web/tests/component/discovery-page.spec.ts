@@ -74,6 +74,24 @@ describe('DiscoveryPage', () => {
     expect(w.find('.swipe-deck').exists()).toBe(true)
   })
 
+  it('候选人在线时显示在线光(在线状态接线)', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.get('/api/v1/presence', () =>
+        HttpResponse.json({ results: [{ user_id: 8, online: true, last_active_at: null }] }),
+      ),
+    )
+    const w = mountPage()
+    await flushPromises()
+    // presence 的拉取是「微任务合并 + 异步请求」,多冲几次
+    await new Promise((r) => setTimeout(r, 30))
+    await flushPromises()
+
+    expect(w.find('.candidate-card__online').exists()).toBe(true)
+    w.unmount()
+  })
+
   it('互相喜欢时弹出情感时刻', async () => {
     server.use(
       mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),

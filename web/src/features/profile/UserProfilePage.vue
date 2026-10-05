@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { parseApiError } from '@/api/error'
 import * as moderationApi from '@/api/moderation'
 import * as usersApi from '@/api/users'
 import AppAvatar from '@/components/AppAvatar.vue'
 import AppButton from '@/components/AppButton.vue'
 import AppCard from '@/components/AppCard.vue'
+import OnlineDot from '@/components/OnlineDot.vue'
 import ReportDialog from '@/features/moderation/ReportDialog.vue'
+import { usePresenceStore } from '@/stores/presence'
 import type { PublicProfile, ReportType } from '@/api/types'
 
 const props = defineProps<{ id: string }>()
+
+const presence = usePresenceStore()
+const numericId = computed(() => Number(props.id))
+const isOnline = computed(() => presence.isOnline(numericId.value))
 
 const profile = ref<PublicProfile | null>(null)
 const error = ref('')
@@ -23,6 +29,7 @@ async function load() {
   fatal.value = false
   try {
     profile.value = await usersApi.fetchUserProfile(Number(props.id))
+    presence.track('profile', [Number(props.id)])
   } catch (e) {
     const apiError = parseApiError(e)
     error.value = apiError.message
@@ -65,6 +72,7 @@ async function onBlock() {
             {{ profile.age ? `${profile.age} 岁 · ` : '' }}{{ profile.city || '未填城市' }}
           </p>
         </div>
+        <OnlineDot class="user-profile__online" :online="isOnline" />
       </div>
       <p v-if="profile.bio" class="user-profile__bio">{{ profile.bio }}</p>
       <div v-if="profile.tags.length" class="user-profile__tags">
@@ -112,6 +120,9 @@ async function onBlock() {
   display: flex;
   align-items: center;
   gap: var(--space-lg);
+}
+.user-profile__online {
+  margin-left: auto;
 }
 .user-profile__name {
   margin: 0;

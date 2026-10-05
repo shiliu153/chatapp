@@ -5,8 +5,8 @@ import CandidateCard from './CandidateCard.vue'
 import { swipeDirection } from './swipe'
 
 const props = withDefaults(
-  defineProps<{ candidate: Candidate | null; submitting?: boolean }>(),
-  { submitting: false },
+  defineProps<{ candidate: Candidate | null; submitting?: boolean; online?: boolean }>(),
+  { submitting: false, online: false },
 )
 const emit = defineEmits<{ decide: ['like' | 'pass'] }>()
 
@@ -78,7 +78,7 @@ const cardStyle = computed(() => ({
       :style="cardStyle"
       @pointerdown="onPointerDown"
     >
-      <CandidateCard :candidate="props.candidate" />
+      <CandidateCard :candidate="props.candidate" :online="props.online" />
     </div>
 
     <div v-if="props.candidate" class="swipe-deck__actions">

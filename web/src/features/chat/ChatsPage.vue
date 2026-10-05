@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import AppAvatar from '@/components/AppAvatar.vue'
 import AppBadge from '@/components/AppBadge.vue'
 import AppEmpty from '@/components/AppEmpty.vue'
 import AppErrorView from '@/components/AppErrorView.vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
+import OnlineDot from '@/components/OnlineDot.vue'
 import { ChatMessageKind } from '@/im/types'
 import { useChatStore } from '@/stores/chat'
+import { usePresenceStore } from '@/stores/presence'
 import type { ChatMessage, ImConversation } from '@/im/types'
 
 const store = useChatStore()
+const presence = usePresenceStore()
 
 /** 连接中/重连中且还没有内容 → 骨架 */
 const loading = computed(
@@ -27,6 +30,24 @@ onMounted(() => {
   void store.connect()
   void store.loadConversations().catch(() => {})
 })
+
+/** 会话对端(`u9`)→ 数字用户 id;系统通知不是真人,不查在线状态 */
+function peerUserId(peerId: string): number | null {
+  if (peerId === 'system_notice' || !peerId.startsWith('u')) return null
+  const id = Number(peerId.slice(1))
+  return Number.isFinite(id) ? id : null
+}
+
+const peerIds = computed(() =>
+  store.conversations.map((item) => peerUserId(item.peerId)).filter((id): id is number => id !== null),
+)
+
+watch(peerIds, (ids) => presence.track('chats', ids), { immediate: true, deep: true })
+
+function isOnline(conversation: ImConversation): boolean {
+  const id = peerUserId(conversation.peerId)
+  return id !== null && presence.isOnline(id)
+}
 
 function summaryOf(message: ChatMessage | null): string {
   if (!message) return '打个招呼吧'
@@ -110,6 +131,7 @@ function timeOf(conversation: ImConversation): string {
             :to="{ name: 'chat', params: { peerId: item.peerId } }"
           >
             <AppAvatar :src="item.faceUrl" :name="nameOf(item)" :size="48" />
+            <OnlineDot :online="isOnline(item)" />
             <div class="chats__main">
               <div class="chats__line">
                 <span class="chats__name">{{ nameOf(item) }}</span>
