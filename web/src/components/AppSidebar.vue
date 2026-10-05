@@ -1,13 +1,23 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import AppAvatar from './AppAvatar.vue'
 import AppBadge from './AppBadge.vue'
+import { useProfileStore } from '@/stores/profile'
 
 const props = defineProps<{ width: number; iconOnly: boolean; unreadTotal?: number }>()
 const emit = defineEmits<{ 'resize-start': [PointerEvent]; 'resize-reset': [] }>()
 
 const route = useRoute()
+const profile = useProfileStore()
+
+// 侧栏底部的「我」显示真实头像与昵称(资料只在首次进入时拉一次)
+onMounted(() => {
+  if (!profile.profile) profile.load().catch(() => {})
+})
+
+const myName = computed(() => profile.profile?.nickname || '我的资料')
+const myAvatar = computed(() => profile.profile?.photos[0]?.url ?? null)
 
 type NavName = 'discovery' | 'chats' | 'square' | 'mine'
 
@@ -62,9 +72,9 @@ const currentSection = computed(() => {
         <span class="app-sidebar__icon">⚙️</span>
         <span v-if="!props.iconOnly" class="app-sidebar__label">设置</span>
       </RouterLink>
-      <RouterLink class="app-sidebar__me" :to="{ name: 'mine' }" title="我的资料">
-        <AppAvatar :size="28" />
-        <span v-if="!props.iconOnly" class="app-sidebar__label">我的资料</span>
+      <RouterLink class="app-sidebar__me" :to="{ name: 'mine' }" :title="myName">
+        <AppAvatar :src="myAvatar" :name="myName" :size="28" />
+        <span v-if="!props.iconOnly" class="app-sidebar__label">{{ myName }}</span>
       </RouterLink>
     </div>
 
