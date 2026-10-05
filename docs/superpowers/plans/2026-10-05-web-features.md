@@ -4951,6 +4951,26 @@ git commit -m "feat(web): 在线状态(轮询即心跳,隐藏时暂停)"
 
 > 执行时在此追加实际偏差。
 
+### T8 设置 / 拉黑 / 举报 / 在线状态(2026-10-05,分支 `feat/web-frontend`)
+
+**计划自身的疏漏(执行时修正)**
+
+1. 8.1 里那条「**唯一允许的 TODO(Task 6.2)**」已经过期 —— T6 早就做完了,直接实现「先 `await chat.close()`(登出 IM)再 `session.logout()`」,并补了「IM 登出确实被调用」的断言。
+2. `SettingsPage` / `BlockedUsersPage` / `UserProfilePage` 的容器用 `width: clamp(...)` 而非 `max-width: clamp(...)`(与 T4/T7 一致)。
+3. **在线状态的用例有三个坑(计划原文都是错的)**:
+   - `vi.runOnlyPendingTimers()` 会把**已排队的 45 秒 interval 也立刻触发一次**(sinon 语义:它把当前所有 pending 定时器各触发一次),于是每个用例都多打一轮请求,计数断言全红 → 改成 `await vi.advanceTimersByTimeAsync(0)`(只冲「微任务合并」那一步);只有「45 秒后自动再拉一轮」才 `advanceTimersByTimeAsync(45_000)`。
+   - 用例之间必须清理:store 的 interval 与全局 `visibilitychange` 监听都挂在实例上,不清理就会跨用例互相抢请求 → `afterEach` 里 `stop()` + `disposePinia()` + `clearAllTimers()`(**Pinia 4 的 dispose 是从包导出的 `disposePinia(pinia)`,不是 `pinia.dispose()`**)。
+   - `expect(...).resolves.toBeUndefined()` 在 vitest 5 下不成立(该 API 返回对象)→ 改成「await 不抛即通过」,意图不变。
+   - 顺带把 store 做成不漏监听:加 `onScopeDispose` 摘掉 `visibilitychange` 并停表。
+4. 抽了共用组件 `OnlineDot.vue`,三处接线(发现页只看当前卡 / 资料页 / 消息页会话行);**系统通知不查在线状态**(它不是真人)。
+
+**T8 检查点(真后端手测)**
+
+- **拉黑**:`/users/18` 点拉黑 → 二次确认「拉黑后你们将互相看不到对方,确定吗?」→「已拉黑」;`GET /blocks` 复核 1 条 `[18, 婉婷18]` ✓
+- **黑名单**:`/settings/blocks` 显示「婉婷18 解除」→ 点解除 → 列表清空并出现空态「黑名单是空的」✓
+- **在线光**:u18 在**隔离上下文**登录并停在消息页(它自己的 45 秒轮询既取别人状态、也把自己标成在线)→ u41 的消息页里该会话行渲染出 `.online-dot`;`GET /presence?user_ids=18,41` 复核 `{user_id:18, online:true, last_active_at:...}` ✓
+- 一个观察(非 bug):`/presence` 对「请求者自己」的 id 不返回结果(实测请求 18,41 只回 18),不影响 UI —— 自己不需要看自己的在线光。
+
 ### T7 广场(2026-10-05,分支 `feat/web-frontend`)
 
 **计划自身的疏漏(执行时修正)**
