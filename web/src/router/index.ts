@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { isMobileDevice } from '@/composables/useDevice'
+import { useProfileStore } from '@/stores/profile'
 import { useSessionStore } from '@/stores/session'
 import { routes } from './routes'
 
@@ -38,6 +39,16 @@ export function createAppRouter() {
     }
 
     if (session.status !== 'loggedIn') return { name: 'login' }
+
+    // 4) 封禁:重封禁全域拦截(spec §5.1)。
+    //    资料只在首次进入时拉一次,避免每次路由跳转都打接口。
+    const profile = useProfileStore()
+    if (!profile.profile) {
+      await profile.load()
+    }
+    if (profile.isBannedHeavy && to.name !== 'banned') {
+      return { name: 'banned' }
+    }
     return true
   })
 

@@ -82,6 +82,11 @@
   --hover-overlay-strong: rgb(22 24 29 / 8%);
   /* brand 的透明度派生值(输入框聚焦光晕),提升为变量以免页面里出现裸 rgb */
   --focus-glow: 0 0 0 3px rgb(255 44 85 / 12%);
+  /* 以下四个同样是「派生色」,页面里禁止写裸 rgb,统一在这里定义 */
+  --tint-brand: rgb(255 44 85 / 8%); /* brand 淡底:完善度提示条等 */
+  --glow-online: rgb(18 196 139 / 35%); /* 在线点外光晕 */
+  --overlay-on-photo: rgb(255 255 255 / 22%); /* 照片叠字上的浅色 chip */
+  --scrim-strong: rgb(22 24 29 / 55%); /* 需要压暗底下内容的遮罩 */
 
   /* 自适应布局比例(spec §6.2/§6.3;Web 专属,无 Dart 对照) */
   --sidebar-ratio: 16%;
