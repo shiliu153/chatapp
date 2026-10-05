@@ -4,8 +4,10 @@ import AppAvatar from '@/components/AppAvatar.vue'
 import AppButton from '@/components/AppButton.vue'
 import AppInput from '@/components/AppInput.vue'
 import { useChatStore } from '@/stores/chat'
+import EmojiPanel from './EmojiPanel.vue'
 import ImageViewer from './ImageViewer.vue'
 import MessageBubble from './MessageBubble.vue'
+import MessageMenu from './MessageMenu.vue'
 import { formatTime, shouldShowTime } from './time'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
@@ -20,6 +22,34 @@ const picker = ref<HTMLInputElement | null>(null)
 /** 发送中的图片本地预览(blob 还没变成服务端 URL) */
 const localFiles = ref<Record<string, File>>({})
 const viewer = ref<{ urls: string[]; index: number } | null>(null)
+const menu = ref<{ message: ChatMessage; x: number; y: number } | null>(null)
+const showEmoji = ref(false)
+const copied = ref(false)
+
+function openMenu(message: ChatMessage, event: MouseEvent) {
+  menu.value = { message, x: event.clientX, y: event.clientY }
+}
+
+async function onMenuAction(action: 'copy' | 'delete' | 'retry') {
+  const target = menu.value?.message
+  menu.value = null
+  if (!target) return
+  if (action === 'copy') {
+    await navigator.clipboard?.writeText(target.text).catch(() => {})
+    copied.value = true
+    setTimeout(() => (copied.value = false), 1500)
+    return
+  }
+  if (action === 'delete') {
+    await store.deleteMessage(target).catch(() => {})
+    return
+  }
+  await store.resend(target).catch(() => {})
+}
+
+function pickEmoji(emoji: string) {
+  draft.value += emoji
+}
 
 const messages = computed(() => store.messagesOf(props.peerId))
 const conversation = computed(() =>
@@ -147,6 +177,7 @@ async function onPickImage(event: Event) {
           :local-file="localFiles[row.message.msgId] ?? null"
           @retry="onRetry(row.message)"
           @open-image="onOpenImage"
+          @menu="openMenu(row.message, $event)"
         />
       </template>
     </div>
@@ -167,6 +198,14 @@ async function onPickImage(event: Event) {
       >
         🖼️
       </button>
+      <button
+        type="button"
+        class="chat__image"
+        aria-label="表情"
+        @click="showEmoji = !showEmoji"
+      >
+        😊
+      </button>
       <AppInput
         v-model="draft"
         placeholder="说点什么…"
@@ -175,6 +214,19 @@ async function onPickImage(event: Event) {
       />
       <AppButton class="chat__send" :loading="sending" @click="onSend">发送</AppButton>
     </footer>
+
+    <EmojiPanel v-if="showEmoji" @pick="pickEmoji" @close="showEmoji = false" />
+
+    <p v-if="copied" class="chat__toast">已复制</p>
+
+    <MessageMenu
+      v-if="menu"
+      :message="menu.message"
+      :x="menu.x"
+      :y="menu.y"
+      @close="menu = null"
+      @action="onMenuAction"
+    />
 
     <ImageViewer
       v-if="viewer"
@@ -251,5 +303,17 @@ async function onPickImage(event: Event) {
 }
 .chat__image:hover {
   background: var(--hover-overlay);
+}
+.chat__toast {
+  position: fixed;
+  bottom: 88px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-full);
+  background: var(--color-text1);
+  color: var(--color-bg-card);
+  font-size: var(--text-badge);
 }
 </style>

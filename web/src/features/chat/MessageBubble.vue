@@ -14,7 +14,7 @@ const props = withDefaults(
   }>(),
   { peerName: '', peerAvatar: null, localFile: null },
 )
-defineEmits<{ retry: []; openImage: [ChatMessage] }>()
+defineEmits<{ retry: []; openImage: [ChatMessage]; menu: [MouseEvent] }>()
 
 const isNotice = computed(
   () =>
@@ -33,6 +33,7 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
     v-else
     class="message-bubble"
     :class="props.message.isSelf ? 'message-bubble--self' : 'message-bubble--peer'"
+    @contextmenu.prevent="$emit('menu', $event)"
   >
     <AppAvatar
       v-if="!props.message.isSelf"
@@ -40,6 +41,16 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
       :name="props.peerName"
       :size="36"
     />
+
+    <!-- 悬停出现的 ⋯:与右键菜单是同一组件、同一入口函数(spec §6.4) -->
+    <button
+      type="button"
+      class="message-bubble__more"
+      aria-label="消息操作"
+      @click="$emit('menu', $event)"
+    >
+      ⋯
+    </button>
 
     <div class="message-bubble__body">
       <MessageImage
@@ -119,6 +130,24 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
   color: var(--color-bg-card);
   font-size: var(--text-badge);
   cursor: pointer;
+}
+/* 只有悬停/聚焦时才露出,平时不干扰阅读 */
+.message-bubble__more {
+  flex: none;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--color-text3);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+.message-bubble:hover .message-bubble__more,
+.message-bubble__more:focus-visible {
+  opacity: 1;
 }
 .message-bubble__pending {
   flex: none;
