@@ -44,4 +44,19 @@ describe('isMobileDevice', () => {
     fakeNavigator('Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0')
     expect(isMobileDevice()).toBe(false)
   })
+
+  it('platform 不可靠但 UA 是 iPhone 时仍判为移动端(内嵌 WebView / UA 覆写)', () => {
+    fakeNavigator('Win32', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)')
+    expect(isMobileDevice()).toBe(true)
+  })
+
+  it('platform 不可靠但 UA 是 iPad 时仍判为移动端', () => {
+    fakeNavigator('Win32', 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)')
+    expect(isMobileDevice()).toBe(true)
+  })
+
+  it('真 Mac 的 UA 不含 iPhone/iPad,不受宽松判定影响', () => {
+    fakeNavigator('MacIntel', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15', 0)
+    expect(isMobileDevice()).toBe(false)
+  })
 })

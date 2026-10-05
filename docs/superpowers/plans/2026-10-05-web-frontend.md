@@ -3875,7 +3875,40 @@ T1–T3 已写到「可直接照着敲」的粒度。T4 起**暂不预先写死�
 
 > 执行本计划时在此追加实际偏差(项目既有惯例:计划里的执行记录用来沉淀与计划的差异)。
 
-- (待填)
+### T1–T3 执行记录(2026-10-05,分支 `feat/web-frontend`)
+
+**环境与版本**
+
+- 依赖装到的版本比计划假设新一个 major:vue 3.5.43 / **vue-router 5.3.1** / **pinia 4.0.3** / vite 8.3.2 / vitest 5.0.3 / **typescript 6.0.3** / eslint 10.12 / vue-tsc 3.3.12。
+  已核实计划用到的 API 全部存在(`createRouter`/`createWebHistory`/`createMemoryHistory`/`setActivePinia`/`freshPinia` 依赖的 `setActivePinia`)。
+- **TS 6 废弃 `baseUrl`**(直接报 TS5101 错误)→ tsconfig 去掉它,`paths` 用相对路径。
+- **TS 6 要求副作用式 CSS import 有类型声明**(TS2882)→ 新增 `src/vite-env.d.ts`(`/// <reference types="vite/client" />` + `ImportMetaEnv`)。
+
+**计划自身的疏漏(执行时修正)**
+
+1. `tests/support/server.ts` 用 `import.meta.url` 定位文件在 vitest+jsdom 下会抛 `The URL must be of scheme file` → 统一改用 `process.cwd()`。
+2. token 对照测试的 CSS 数值解析只认 `px`,而动效时长是 `ms` → 解析器同时认两者。
+3. 色板断言原为「整体容差 1/255」,**实测会让「改一个色阶」蒙混过关**(把 `#ff2c55` 改成 `#ff2c56` 仍绿)→ 改为 RGB 逐通道精确 + alpha 才给 1/255 容差;并补条数断言(14/9/8/6)防解析失败导致空跑假绿。
+4. **Task 3.1 的原注释「页面组件未创建不影响单测」是错的**:vue-router 在导航时会加载懒加载组件以收集组件内守卫,组件文件不存在则导航直接失败 → 因此执行顺序改为 3.2 → 页面骨架 → 3.1。
+5. Plan B 的 `tests/support/pinia.ts`(`freshPinia()`)提前到 T2.4 建立:预置 store 状态与 `mount` 必须用同一个 pinia。
+6. eslint 的 `vue/flat/recommended` 两条纯排版规则(每属性一行、短标签必须换行)与项目写法冲突且会挡住「零告警」→ 显式放宽并写明理由。
+
+**真环境目检抓到的两个真 bug(单测抓不到)**
+
+1. **登录后跳转失败**:`No match for {"name":"home"}` —— 我给 `/home` 漏起名;且把它起在父级上会触发 Vue Router 正式警告 **R0103**(名字必须给空路径子路由)。已改 `{ path: '', name: 'home', redirect: { name: 'discovery' } }`,并新增「代码里跳转用到的路由名都必须能解析」的防回归用例(组件测试里自建 router 无法覆盖这类问题)。
+2. **iPhone UA 被误判为桌面端**:原判定先看 `navigator.platform`、UA 只看 Android;Playwright 只覆写 UA 时 platform 仍是 `Win32`,于是进了登录页而不是引导页。真机 iPhone 的 platform 是 `iPhone` 所以线上不受影响,但内嵌 WebView / platform 被冻结或伪造时会误判 → 判定加固为「platform 与 UA 都看」,并补 3 条用例(不破坏真 Mac 判为桌面端的语义)。
+
+**Redis 环境问题(非代码)**
+
+本机 `chatapp-redis` 容器的端口映射是 `6379→16379`,与 `docker-compose.dev.yml` 和 `chatapp/.env`(均为 6379)不一致,导致后端 `sms/verify` 500(连不上 Redis)。已按 compose 文件重建容器(数据卷 `chatapp_redis-data` 保留),`python manage.py runserver` 起来后登录链路正常。
+
+**已知缺口(不在计划范围,未擅自扩)**
+
+- 未匹配的路径没有 404 兜底,会渲染空白壳(nginx `try_files` 会把未知路径也交给 index.html)。
+- 侧栏「我的」区的真实头像/昵称待 T4 的 profile store 就位后接入,目前是首字占位。
+
+**T1–T3 交付状态**:26 个测试文件 / 125 个用例全绿;`vue-tsc` 0 错误;`eslint --max-warnings 0` 零告警;`vite build` 通过(157KB / gzip 60KB,路由级懒加载已生效)。
+
 
 <!-- PLAN-ANCHOR:文件末尾 -->
 

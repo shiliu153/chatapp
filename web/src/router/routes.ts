@@ -43,7 +43,9 @@ export const routes: RouteRecordRaw[] = [
     path: '/home',
     component: () => import('@/layouts/DesktopShell.vue'),
     children: [
-      { path: '', redirect: { name: 'discovery' } },
+      // 名字给「空路径子路由」而不是父级:否则 Vue Router 报 R0103 ——
+      // 用父级的名字跳转不会渲染这个空路径子路由
+      { path: '', name: 'home', redirect: { name: 'discovery' } },
       {
         path: 'discovery',
         name: 'discovery',
