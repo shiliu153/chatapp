@@ -94,3 +94,31 @@ export interface MatchSummary {
   /** ISO 8601 */
   matched_at: string
 }
+
+export interface PostAuthor {
+  user_id: number
+  nickname: string
+  avatar_url: string | null
+}
+
+export interface Post {
+  id: number
+  author: PostAuthor
+  text: string
+  /** 完整 URL,最多 9 张 */
+  images: string[]
+  like_count: number
+  comment_count: number
+  liked_by_me: boolean
+  /** ISO 8601 */
+  created_at: string
+}
+
+export interface Comment {
+  id: number
+  author: PostAuthor
+  text: string
+  created_at: string
+}
+
+export type ReportType = 'harassment' | 'porn' | 'fraud' | 'other'
