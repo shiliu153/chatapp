@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AppAvatar from '@/components/AppAvatar.vue'
+import MessageImage from './MessageImage.vue'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
 
 const props = withDefaults(
-  defineProps<{ message: ChatMessage; peerName?: string; peerAvatar?: string | null }>(),
-  { peerName: '', peerAvatar: null },
+  defineProps<{
+    message: ChatMessage
+    peerName?: string
+    peerAvatar?: string | null
+    localFile?: File | null
+  }>(),
+  { peerName: '', peerAvatar: null, localFile: null },
 )
 defineEmits<{ retry: []; openImage: [ChatMessage] }>()
 
@@ -36,14 +42,12 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
     />
 
     <div class="message-bubble__body">
-      <img
-        v-if="isImage && props.message.imageUrl"
-        class="message-bubble__image"
-        :src="props.message.imageUrl"
-        alt="图片消息"
-        @click="$emit('openImage', props.message)"
+      <MessageImage
+        v-if="isImage"
+        :message="props.message"
+        :local-file="props.localFile"
+        @open="$emit('openImage', props.message)"
       />
-      <span v-else-if="isImage" class="message-bubble__text">[图片]</span>
       <span v-else-if="isUnsupported" class="message-bubble__text">[暂不支持的消息类型]</span>
       <span v-else class="message-bubble__text">{{ props.message.text }}</span>
 
@@ -93,6 +97,12 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
 }
 .message-bubble__text {
   white-space: pre-wrap;
+}
+.message-bubble__image {
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: var(--radius-image);
+  cursor: zoom-in;
 }
 .message-bubble__image {
   max-width: 240px;
