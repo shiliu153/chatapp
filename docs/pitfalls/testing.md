@@ -5,6 +5,7 @@
 ## 后端(Django)
 
 - 前置:本地 Redis 在跑(`docker compose -f docker-compose.dev.yml up -d`);测试自动用 DB15(缓存)/ DB14(broker),不碰开发数据。
+- ⚠️ **别并发跑两套后端测试**:两个测试进程会抢同一个测试库名 `test_chatapp_dev`,清理失败后,下一次 `manage.py test` 会停在 `Type 'yes' if you would like to try deleting the test database ...` 并因 stdin 不是终端抛 `EOFError` 退出(实测 2026-10-09)。脚本/CI 里一律加 `--noinput`,会自动丢弃旧测试库。
 - ⚠️ **测 `on_commit`**:`notify_match` / 登录后 `sync_login` / 拉黑/封禁/资料同步的入队都走 `transaction.on_commit`,测试必须 `with self.captureOnCommitCallbacks(execute=True):` 包住请求,否则断言永远不触发。
 - ⚠️ **测试里 Celery 任务只入队、不执行**(无 worker):断言「入队了什么」用 `patch("im.tasks.ban_notice.delay")` / `patch("im.tasks.sync_profile.delay")` 之类;要测任务体直接 `task.run(...)`,此时 mock `im.client.*`,腾讯 REST 一次都不能真打。
 - ⚠️ **凡会触发 IM 调用的用例都要 mock**:漏 mock 会真打腾讯云(用例仍绿,因为业务函数吞异常——靠跑测试时日志里有没有 `IM ... 返回错误` 发现),且变慢、依赖网络。
