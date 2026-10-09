@@ -7,7 +7,20 @@
 
 ## 0. 怎么用这份文档
 
-1. 按批次**顺序**推进，不要跳批。P0–P3 是地基，跳过后面的批次会变成"看天书"。
+**每一批都有一册配套指导书**（读前必建概念 + 精确行号清单 + 可复制实验与预期结果 + 自查题参考答案），开工前先打开对应那一册。用法见 [backend-guide/README.md](backend-guide/README.md)。
+
+| 批次 | 指导书 | 批次 | 指导书 |
+|---|---|---|---|
+| P00 | [P00-环境与反馈回路.md](backend-guide/P00-环境与反馈回路.md) | P08 | [P08-滑卡与配对.md](backend-guide/P08-滑卡与配对.md) |
+| P01 | [P01-请求怎么进门.md](backend-guide/P01-请求怎么进门.md) | P09 | [P09-IM抽象层与签名.md](backend-guide/P09-IM抽象层与签名.md) |
+| P02 | [P02-settings逐行.md](backend-guide/P02-settings逐行.md) | P10 | [P10-Celery异步副作用.md](backend-guide/P10-Celery异步副作用.md) |
+| P03 | [P03-请求怎么出门.md](backend-guide/P03-请求怎么出门.md) | P11 | [P11-合规与封禁两级.md](backend-guide/P11-合规与封禁两级.md) |
+| P04 | [P04-登录上-发验证码.md](backend-guide/P04-登录上-发验证码.md) | P12 | [P12-广场feed.md](backend-guide/P12-广场feed.md) |
+| P05 | [P05-登录下-JWT与单设备.md](backend-guide/P05-登录下-JWT与单设备.md) | P13 | [P13-运维台ops.md](backend-guide/P13-运维台ops.md) |
+| P06 | [P06-资料上-模型与在线状态.md](backend-guide/P06-资料上-模型与在线状态.md) | P14 | [P14-收尾横扫.md](backend-guide/P14-收尾横扫.md) |
+| P07 | [P07-资料下-序列化与照片.md](backend-guide/P07-资料下-序列化与照片.md) | | |
+
+1. 按批次**顺序**推进，不要跳批。P00–P03 是地基，跳过后面的批次会变成"看天书"。
 2. 每批严格走第 3 节的**五步法**，其中第 4 步（改一行做实验）**不许省**。
 3. 每批写一份笔记，模板见第 5 节，存到 `docs/learning/backend-notes/`。
 4. 当场没懂的东西写进笔记的「存疑清单」，**不要停下来死磕**，攒到 P14 集中解决。
@@ -58,9 +71,9 @@
 
 ## 4. 批次表
 
-### 阶段一 · 地基（P0–P3）
+### 阶段一 · 地基（P00–P03）
 
-- [ ] **P0 · 把反馈回路建起来**（不读代码，纯实操）
+- [ ] **P00 · 把反馈回路建起来**（不读代码，纯实操）
   - 目标：建立"改一行 → 立刻看到结果"的完整回路。没有这一步，后面全部是纸上谈兵。
   - 步骤：
     1. 启动 Docker Desktop（开始菜单搜索，等托盘鲸鱼图标变绿）。
@@ -72,14 +85,14 @@
     7. 认识三个进程的分工：**MySQL**（数据）、**Redis**（验证码缓存 + Celery 队列）、**Django**（HTTP）。Celery worker 本批不起，P10 再起。
   - 自查：为什么跑测试必须先把 Redis 起来？（提示：看 `.env.example` 第 18–21 行的注释）
 
-- [ ] **P1 · 请求怎么进门**（94 行）
+- [ ] **P01 · 请求怎么进门**（94 行）
   - 文件：`manage.py`(22)、`config/__init__.py`(7)、`config/urls.py`(15)、`config/api_urls.py`(18)、`config/wsgi.py`(16)、`config/asgi.py`(16)
   - 概念：WSGI vs ASGI、URLconf 匹配、`include()` 拼接、`settings.DEBUG` 与静态文件
   - 导读：`docs/api/health.md`
   - 实验：在 `config/api_urls.py` 里自己加一条 `path("ping", ...)` 返回 JSON，用 curl 打通，再删掉。
   - 自查：一个请求打 `/api/v1/users/me`，Django 依次经过哪几个 urls.py？
 
-- [ ] **P2 · settings.py 逐行（分 2 次读）**（308 行）
+- [ ] **P02 · settings.py 逐行（分 2 次读）**（308 行）
   - 文件：`config/settings.py`
   - 第一次：第 1–140 行（INSTALLED_APPS / MIDDLEWARE / DATABASES / CACHES / `CELERY_BROKER_URL`）
   - 第二次：第 141–308 行（`AUTH_USER_MODEL` / REST_FRAMEWORK / JWT 时长 / 限流 / `SMS_DEV_MODE` / `AUTO_APPROVE` / 日志）
@@ -88,49 +101,49 @@
   - 自查：`.env` 里为什么**禁用** `CELERY_` 前缀的键？（提示：见 CLAUDE.md 核心契约）
   - ⚠️ 这是新手最容易崩的一批（一段 300 行的配置没有"剧情"）。**允许分两次读，但不要跳过。**
 
-- [ ] **P3 · 请求怎么出门**（约 107 行）
+- [ ] **P03 · 请求怎么出门**（约 107 行）
   - 文件：`config/middleware.py`(33)、`config/request_id.py`(22)、`config/exceptions.py`(36)、`config/error_codes.py`(8)、`config/pagination.py`(8)
   - 概念：中间件洋葱模型、`contextvars`、DRF 异常处理器、统一错误契约、业务码 = HTTP 前 3 位 + 2 位序号
   - 导读：`docs/api/conventions.md`、`docs/api/errors.md`
   - 实验：在某个视图里 `raise` 一个自定义异常，观察返回 JSON 与响应头 `X-Request-Id`。
   - 自查：为什么失败响应里要有 `request_id`？它和中间件、日志三者的关系是什么？
 
-### 阶段二 · 八条业务链路（P4–P13）
+### 阶段二 · 八条业务链路（P04–P13）
 
-- [ ] **P4 · 登录（上）：发验证码**（约 250 行）
+- [ ] **P04 · 登录（上）：发验证码**（约 250 行）
   - 文件：`accounts/urls.py`(9)、`accounts/views.py` 前段、`accounts/sms_codes.py`(83)、`accounts/throttles.py`(20)、`accounts/services.py`(41)、`accounts/exceptions.py`(45)
   - 概念：DRF 视图、Redis 缓存、60 秒重发间隔、IP 限流、入队失败回滚 503
   - 导读：`docs/api/auth.md`
   - 实验：连续发两次验证码，拿到 42901 并读响应头 `Retry-After`。
   - 自查：验证码到底存在哪里？为什么开发期固定是 `123456`？
 
-- [ ] **P5 · 登录（下）：校验、JWT、单设备登录**（约 180 行）
+- [ ] **P05 · 登录（下）：校验、JWT、单设备登录**（约 180 行）
   - 文件：`accounts/views.py` 后段、`accounts/serializers.py`(19)、`accounts/models.py`(47)、`accounts/tokens.py`(25)、`accounts/authentication.py`(23)
   - 概念：自定义 User 模型、继承 simplejwt 的 Token 类、自定义 claim（`session_version`）、60 秒幂等重放、连错 5 次锁 15 分钟
   - 实验：手动把令牌里的 `session_version` 改掉，观察 401 + 业务码 40101。
   - 自查：JWT 的 `user_id` claim 为什么是**字符串**？`GET /users/me` 里的 `id` 和 `user_id` 分别是什么？
 
-- [ ] **P6 · 资料（上）：模型与在线状态**（约 230 行）
+- [ ] **P06 · 资料（上）：模型与在线状态**（约 230 行）
   - 文件：`users/models.py`(133)、`users/presence.py`(58)、`users/services.py`(39)
   - 概念：ORM 字段/索引/外键、迁移文件是怎么生成的、120 秒在线窗口、45 秒心跳
   - 导读：`docs/api/users.md`、`docs/superpowers/specs/2026-09-13-online-presence-design.md`
   - 实验：在 `python manage.py shell` 里查一个用户的 presence 返回值。
   - 自查：「在线」的判定为什么放在请求链路里，而不是靠 WebSocket？
 
-- [ ] **P7 · 资料（下）：序列化、视图、照片**（约 302 行）
+- [ ] **P07 · 资料（下）：序列化、视图、照片**（约 302 行）
   - 文件：`users/serializers.py`(110)、`users/views.py`(120)、`users/urls.py`(12)、`users/admin.py`(60)
   - 概念：Serializer 校验、multipart 上传、照片过审（`AUTO_APPROVE`）、资料"完善度"判定
   - 实验：PATCH `/users/me` 触发"未满 18 岁 400"。
   - 自查：`complete` / `incomplete` 的判定条件一共几项？
 
-- [ ] **P8 · 滑卡与配对**（约 276 行）
+- [ ] **P08 · 滑卡与配对**（约 276 行）
   - 文件：`discovery/models.py`(49)、`discovery/services.py`(12)、`discovery/serializers.py`(26)、`discovery/views.py`(121)、`discovery/throttles.py`(10)、`discovery/urls.py`(8)、`discovery/management/commands/dev_reset_pair.py`(50)
   - 概念：候选查询的排除逻辑（自己/划过/已配对/资料未完善/无过审照片）、ORM 查询优化、swipe 幂等、`transaction.on_commit(fn, robust=True)`、互喜配对与灰条
   - 导读：`docs/api/discovery.md`
   - 实验：`python manage.py dev_reset_pair --a u8 --b u9` 重演一次配对。
   - 自查：`on_commit` 到底在什么时刻执行？为什么 IM 副作用必须放在它里面？
 
-- [ ] **P9 · IM 抽象层与签名**（约 311 行）
+- [ ] **P09 · IM 抽象层与签名**（约 311 行）
   - 文件：`im/models.py`(3)、`im/signature.py`(55)、`im/client.py`(211)、`im/views.py`(35)、`im/urls.py`(7)
   - 概念：第三方 REST 封装、"对外永不抛异常"、userSig 的 HMAC 签名、超时与降级
   - 导读：`docs/api/im.md`、`docs/pitfalls/im.md`
@@ -254,16 +267,16 @@ python -m celery -A config worker -l info --pool=solo
 
 | 批次 | 状态 | 完成日期 | 笔记 |
 |---|---|---|---|
-| P0 | 未开始 | | |
-| P1 | 未开始 | | |
-| P2 | 未开始 | | |
-| P3 | 未开始 | | |
-| P4 | 未开始 | | |
-| P5 | 未开始 | | |
-| P6 | 未开始 | | |
-| P7 | 未开始 | | |
-| P8 | 未开始 | | |
-| P9 | 未开始 | | |
+| P00 | 环境已就绪（2026-10-09 实测） | — | |
+| P01 | 未开始 | | |
+| P02 | 未开始 | | |
+| P03 | 未开始 | | |
+| P04 | 未开始 | | |
+| P05 | 未开始 | | |
+| P06 | 未开始 | | |
+| P07 | 未开始 | | |
+| P08 | 未开始 | | |
+| P09 | 未开始 | | |
 | P10 | 未开始 | | |
 | P11 | 未开始 | | |
 | P12 | 未开始 | | |
