@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/widgets/app_button.dart';
 
 void main() {
@@ -26,5 +27,28 @@ void main() {
       home: Scaffold(body: Center(child: AppButton(label: '刷新', onPressed: () {}))),
     ));
     expect(tester.getSize(find.byType(AppButton)).width, lessThan(200));
+  });
+
+  testWidgets('dangerFilled:danger 实底 + 白字 w700', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: AppButton(
+          label: '删除',
+          variant: AppButtonVariant.dangerFilled,
+          onPressed: () {},
+        ),
+      ),
+    ));
+
+    final container = tester.widget<Container>(find.descendant(
+      of: find.byType(AppButton),
+      matching: find.byType(Container),
+    ));
+    final decoration = container.decoration! as BoxDecoration;
+    expect(decoration.color, AppColors.danger);
+    expect(decoration.gradient, isNull);
+    final text = tester.widget<Text>(find.text('删除'));
+    expect(text.style!.color, Colors.white);
+    expect(text.style!.fontWeight, FontWeight.w700);
   });
 }
