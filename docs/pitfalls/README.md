@@ -10,5 +10,6 @@
 | 后端 Django / 接口 / 数据 | [backend.md](backend.md) | 改接口、模型、任务、限流、合规、feed、presence |
 | 模拟器与 Android 构建 | [android-emulator.md](android-emulator.md) | 跑模拟器手测、打 APK、模拟器排障 |
 | 测试 | [testing.md](testing.md) | 写 / 跑前后端测试 |
+| Web 端(Vue 网页端、构建与部署) | [web.md](web.md) | 改网页端、跑 e2e、部署静态站与反代 |
 
 另:设计与计划在 `docs/superpowers/{specs,plans}/`;UI 规范在 `specs/2026-09-15-ui-design-language-design.md`(强制);接口文档在 [`../api/README.md`](../api/README.md)。
