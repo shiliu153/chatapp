@@ -31,9 +31,10 @@ void main() {
     expect(patch['nickname'], '新昵称');
     expect(patch['tag_ids'], isEmpty);
     expect(find.text('已保存'), findsOneWidget);
+    await drainToast(tester); // AppToast 2s Timer 收尾
   });
 
-  testWidgets('后端 400(如违规词)→ SnackBar 显示中文提示', (tester) async {
+  testWidgets('后端 400(如违规词)→ AppToast 显示中文提示', (tester) async {
     final adapter = ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
       'GET /users/me': (options) => ok(profileJson()),
@@ -52,5 +53,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('昵称包含违规内容,请修改'), findsOneWidget);
+    await drainToast(tester); // AppToast 2s Timer 收尾
   });
 }

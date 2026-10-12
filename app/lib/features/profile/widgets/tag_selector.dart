@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api_exception.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/app_chip_group.dart';
+import '../../../core/widgets/app_option_group.dart';
+import '../../../core/widgets/app_skeleton.dart';
 import '../profile_controller.dart';
 
 class TagSelector extends ConsumerWidget {
@@ -14,30 +21,26 @@ class TagSelector extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final tags = ref.watch(tagsProvider);
     return tags.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.all(8),
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (error, _) => Text(error is ApiException ? error.message : '标签加载失败'),
-      data: (list) => Wrap(
-        spacing: 8,
-        runSpacing: 8,
+      // 三个胶囊骨架;AppSkeleton 是无限动画,可见它的用例只用有限 pump
+      loading: () => const Row(
         children: [
-          for (final tag in list)
-            FilterChip(
-              label: Text(tag.name),
-              selected: selectedIds.contains(tag.id),
-              onSelected: (selected) {
-                final next = {...selectedIds};
-                if (selected) {
-                  next.add(tag.id);
-                } else {
-                  next.remove(tag.id);
-                }
-                onChanged(next);
-              },
-            ),
+          AppSkeleton(width: 64, height: 34, radius: AppRadius.full),
+          SizedBox(width: AppSpacing.sm),
+          AppSkeleton(width: 64, height: 34, radius: AppRadius.full),
+          SizedBox(width: AppSpacing.sm),
+          AppSkeleton(width: 64, height: 34, radius: AppRadius.full),
         ],
+      ),
+      error: (error, _) => Text(
+        error is ApiException ? error.message : '标签加载失败',
+        style: AppText.caption.copyWith(color: AppColors.text2),
+      ),
+      data: (list) => AppChipGroup<int>(
+        items: [
+          for (final tag in list) AppOption(value: tag.id, label: tag.name),
+        ],
+        selected: selectedIds,
+        onChanged: onChanged,
       ),
     );
   }
