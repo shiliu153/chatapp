@@ -39,6 +39,7 @@ void main() {
     fake.emit(const ImKickedOffline());
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('login.phone')), findsOneWidget);
+    await drainToast(tester); // 被顶号原因提示走 AppToast
 
     await tester.enterText(find.byKey(const Key('login.phone')), '13300133002');
     await tester.enterText(find.byKey(const Key('login.code')), '123456');
