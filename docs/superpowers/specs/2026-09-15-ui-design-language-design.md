@@ -1,7 +1,7 @@
 # UI 设计规则(设计语言「心跳」)
 
 日期:2026-09-15
-状态:**v1.4(2026-10-12 增补附录 D:广场页落地补充,并修订 B.4 适用范围),设计内容已获用户批准**;本文件是**常驻规则文档**
+状态:**v1.5(2026-10-12 增补附录 E:二级页/表单控件落地补充),设计内容已获用户批准**;本文件是**常驻规则文档**
 性质:以后所有 App 端 UI 开发(改版/新页面/新组件/新动效)一律以本文件为准。与历史视觉专项文档(微信式聊天、抖音式消息页、微博式广场)冲突的部分,**旧文档作废,以本文件为准**。
 背景:用户提出「App 端 UI 不美观、单调、布局丑陋、无动效、图标单色,不能作为商业产品面向大众」。逐轮澄清定下四个基准(见 §11 决策记录):风格=年轻潮流派;主色=保留品牌粉 #FF2C55 做锚点 + 辅助色/渐变体系;字体=混排(中文系统 + 拉丁 Space Grotesk);整改顺序=先主界面后低频页。**本轮只定规则,页面改造另行立项。**
 上游:原始 spec `2026-09-09-dating-app-mvp-design.md`;被本文件取代的视觉决策:`2026-09-12-chat-profile-wechat-design.md`(微信式版式)、`2026-09-11-ban-notice-message-page-design.md`(抖音式消息页)、`2026-09-12-square-feed-design.md`(微博式信息流)中与本文冲突的部分。
@@ -181,7 +181,7 @@
 - 通用组件 `app/lib/core/widgets/`(新增):`AppButton`、`AppAvatar`(光晕环/在线点内置)、`AppBadge`、`AppCard`、`GradientIcon`、`AppSkeleton`、`AppEmptyState`、`AppToast`。
 - 字体资源:`app/assets/fonts/SpaceGrotesk-{Regular,Medium,Bold}.ttf` + `OFL.txt`;`pubspec.yaml` 声明 `family: SpaceGrotesk`。
 - **迁移纪律**:逐页改造只动视觉层,不改行为与测试断言语义;每页完成后 `flutter analyze` 零告警 + 该页既有测试全绿 + 模拟器手测;顺手清掉该页裸硬编码(照 §2.3 对照表)。
-- **实施顺序**(另行立项):① 底座(tokens/theme/widgets)+ 底栏 shell → ② 发现页 → ③ 消息页 + 聊天页 → ④ 我的 + 资料页 → ⑤ 广场 → ⑥ 二级页(登录/引导/设置/编辑等)。每批完成后用户模拟器验收。
+- **实施顺序**(另行立项):① 底座(tokens/theme/widgets)+ 底栏 shell → ② 发现页 → ③ 消息页 + 聊天页 → ④ 我的 + 资料页 → ⑤ 广场 → ⑥ 二级页(登录/引导/设置/编辑等)。每批完成后用户模拟器验收。**①–⑥ 已全部交付**(2026-10-12);本文件后续只随新页面/新场景继续加附录。
 
 ## 9. 规则边界
 
@@ -375,5 +375,45 @@
 
 ### D.6 提示通道(Toast 接入口径)
 
-- 页面内操作反馈(删除成功/点赞失败/举报结果)一律 `AppToast`(§7);`AlertDialog` 确认弹窗不在此列(⑥统一)
+- 页面内操作反馈(删除成功/点赞失败/举报结果)一律 `AppToast`(§7);`AlertDialog` 确认弹窗在批次⑥ 已统一为 `AppDialog`(见附录 E.4)
 - `AppToast` 的 2s 自动消失 Timer:触发过 Toast 的 widget 测试收尾须推时钟(见 `docs/pitfalls/testing.md`)
+
+## 附录 E:二级页/表单控件落地补充(2026-10-12,批次⑥)
+
+### E.1 表单控件规范(core 组件)
+
+| 组件 | 规格 |
+|---|---|
+| `AppSubPageBar` | §5.2 二级页顶栏:高 52、返回 22 `text1`、标题 17/w600 居中;`trailing` 为右侧动作槽(Stack 定位,不影响标题居中) |
+| `AppBrandMark` | 品牌 mark:72 圆角方 `gradientHeart` + 白 `favorite_rounded`;**静态无动画**(见 E.3) |
+| `AppTextAction` | §7 文字按钮的**紧凑形态**:`brand` 15/w600,无 52 高、无 24 水平内边距;禁用 `text3`。用于输入框内嵌动作(`AppTextField.suffix`)与二级页顶栏动作 |
+| `AppTextField` | §7 输入框:白底 R16、描边 1px `divider`、聚焦 1.5px `brand` + 光晕 `brand@12%`;单行盒高 **52**;label 渲染在盒子**上方**;`maxLength` 的 `x/y` 计数自绘;`borderless` 变体给正文(发动态) |
+| `AppOption<T>` / `AppOptionGroup<T>` | 单选分段:整体高 52(4 内边距 + 44 段),与输入框对齐;选中 `gradientHeart` + 白字 15/w600;未选透明 + `text2`;点已选中项不取消(同旧 `SegmentedButton` 语义) |
+| `AppChipGroup<T>` | 多选标签:胶囊 R-full、描边 `divider`;选中 `brand@12%` 底 + 1px `brand` 描边 + `brand` 15/w600 |
+| `AppPickerField` | 选择框:外观同输入框,盒高 52,右侧 `expand_more_rounded` |
+| `AppRangeField` | 区间:标题 `subtitle` + 双滑块;轨道高 4,选中段 `gradientHeart`(自绘 `RangeSliderTrackShape`),滑块白底圆 24 |
+| `AppSectionCard` | **表单**分组卡:白卡 R20 + 阴影 + 内边距 16;分组标题 `subtitle`/`text1`(与字段 label `caption`/`text2` 形成层级);子项按 `gap` 竖排 |
+| `AppRowGroup` | **行式**分组卡:白卡 R20 + 阴影 + 无内边距(行自带 16 水平内边距);行间 1px `divider` |
+| `AppListRow` | §5.2 列表行:高 64;图标 20 `text2` 或头像;`trailing` 或 chevron;`danger` / `centerTitle` 变体;按压 scale .98。**`GestureDetector` 必须 `behavior: opaque`**,否则右侧空白区点不动 |
+| `AppDialog` / `showConfirmDialog` | 统一对话框:白底 R24、标题 17/w600、正文 `caption`/`text2`、按钮行等宽(次在左);`showConfirmDialog` 是「确认/取消」两键的便捷入口,危险动作用 `dangerFilled` |
+| `AppProgressBar` | 分段进度:高 4 胶囊,第 `i` 段填充 iff `i <= current`;已过段 `gradientHeart` |
+| `AppFormSkeleton` | 表单页加载骨架:每组「标签条 64×12 + 输入框块 通栏×52」 |
+
+**新增按钮变体**:`AppButtonVariant.dangerFilled` —— §7「危险按钮:`danger` 描边或实底(二次确认后)」的实底形态(danger 实底 + 白字 w700,不带阴影)。
+
+### E.2 二级页统一形态
+
+顶栏一律 `AppSubPageBar`;内容一律 `bgPage` 底 + 分组卡流(**表单**用 `AppSectionCard`,**行式**用 `AppRowGroup`),水平外边距 `AppSpacing.pageH`、卡间 `AppSpacing.cardGap`;主操作(保存/发布)放顶栏右侧 `AppTextAction`。
+
+批次⑤ 在我的动态页与详情页各留的 `_SubPageBar` / `_DetailBar` 两份私有副本,批次⑥ 已统一为 `AppSubPageBar`。
+
+### E.3 常驻动画禁令(登录/启动路径)
+
+登录页与启动页的品牌区**必须是静态的**:这两页在 `login_page_test` / `startup_flow_test` / `account_switch_test` / `kicked_offline_test` / `agreement_gate_test` 里被 `pumpAndSettle` 驱动,常驻无限动画会让这些用例永不收敛(批次⑤实测坑)。启动页原有的 `CircularProgressIndicator` 已随之移除。骨架屏只在 loading 态短暂出现,不受此限。
+
+### E.4 提示与弹窗口径
+
+- 页面内操作反馈(校验失败/保存成功/接口 message)一律 `AppToast`;
+- 二次确认一律 `showConfirmDialog`;需要自定义内容的弹窗(首启协议)用 `AppDialog` 传 `content`;
+- 举报底部弹层(`ReportSheet`)不在此列(bottom sheet,§7 已合规);
+- `AppTheme` 的 `snackBarTheme` 保留(未整改页仍在用),但**新代码不得再直接调 `ScaffoldMessenger.showSnackBar`**。
