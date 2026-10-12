@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/core/widgets/app_text_action.dart';
 import 'package:chatapp_app/features/square/post_compose_page.dart';
 
 import '../../support/sample_data.dart';
@@ -41,11 +42,11 @@ void main() {
     await pumpCompose(tester, adapter, pickImages: () async => const []);
 
     final button = find.byKey(const Key('compose.submit'));
-    expect(tester.widget<FilledButton>(button).onPressed, isNull);   // 置灰
+    expect(tester.widget<AppTextAction>(button).onPressed, isNull);   // 置灰
 
     await tester.enterText(find.byKey(const Key('compose.text')), '你好');
     await tester.pump();
-    expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+    expect(tester.widget<AppTextAction>(button).onPressed, isNotNull);
   });
 
   testWidgets('选图后发布带 multipart', (tester) async {

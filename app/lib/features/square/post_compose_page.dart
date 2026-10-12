@@ -5,15 +5,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/image_pick.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/widgets/app_sub_page_bar.dart';
+import '../../core/widgets/app_text_action.dart';
+import '../../core/widgets/app_text_field.dart';
+import '../../core/widgets/app_toast.dart';
 import 'feed_repository.dart';
 import 'square_controller.dart';
+import 'widgets/compose_photo_grid.dart';
 
 const _maxBytes = 5 * 1024 * 1024;
 const _maxCount = 9;
 
 typedef _Picked = ({Uint8List bytes, String name});
 
-/// 发布动态:文字(≤500)+ 九宫格选图(≤9);两者至少其一。
+/// 发布动态(附录 E):顶栏「发布」文字按钮 + 无边框正文 + 三列选图。
 class PostComposePage extends ConsumerStatefulWidget {
   const PostComposePage({super.key, this.pickImages = pickImagesFromGallery});
 
@@ -35,23 +42,19 @@ class _PostComposePageState extends ConsumerState<PostComposePage> {
     super.dispose();
   }
 
-  void _show(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
   Future<void> _pick() async {
     final files = await widget.pickImages();
-    if (!mounted || files.isEmpty) return;
+    if (!mounted) return;
+    if (files.isEmpty) return;
     for (final file in files) {
       if (_images.length >= _maxCount) {
-        _show('最多 9 张图片');
+        AppToast.show(context, '最多 9 张图片');
         break;
       }
       final bytes = await file.readAsBytes();
+      if (!mounted) return;
       if (bytes.length > _maxBytes) {
-        _show('单张图片不能超过 5MB');
+        AppToast.show(context, '单张图片不能超过 5MB');
         continue;
       }
       _images.add((bytes: bytes, name: file.name));
@@ -67,7 +70,7 @@ class _PostComposePageState extends ConsumerState<PostComposePage> {
       ref.invalidate(squareProvider);
       if (mounted) Navigator.of(context).pop(true);
     } on ApiException catch (error) {
-      if (mounted) _show(error.message);
+      if (mounted) AppToast.show(context, error.message);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -75,96 +78,51 @@ class _PostComposePageState extends ConsumerState<PostComposePage> {
 
   @override
   Widget build(BuildContext context) {
-    final canSubmit = !_submitting && (_text.text.trim().isNotEmpty || _images.isNotEmpty);
+    final canSubmit =
+        !_submitting && (_text.text.trim().isNotEmpty || _images.isNotEmpty);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('发布动态'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FilledButton(
-              key: const Key('compose.submit'),
-              onPressed: canSubmit ? _submit : null,
-              child: const Text('发布'),
-            ),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          TextField(
-            key: const Key('compose.text'),
-            controller: _text,
-            maxLength: 500,
-            maxLines: 6,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: '分享新鲜事…',
-              border: InputBorder.none,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (var i = 0; i < _images.length; i++)
-                _PickedTile(
-                  key: Key('compose.picked.$i'),
-                  bytes: _images[i].bytes,
-                  onRemove: () => setState(() => _images.removeAt(i)),
-                ),
-              if (_images.length < _maxCount)
-                InkWell(
-                  key: const Key('compose.add'),
-                  onTap: _pick,
-                  child: Container(
-                    width: 88,
-                    height: 88,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.black26),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.add_a_photo_outlined),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PickedTile extends StatelessWidget {
-  const _PickedTile({super.key, required this.bytes, required this.onRemove});
-
-  final Uint8List bytes;
-  final VoidCallback onRemove;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        width: 88,
-        height: 88,
-        child: Stack(
-          fit: StackFit.expand,
+      backgroundColor: AppColors.bgPage,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Image.memory(bytes, fit: BoxFit.cover,
-                  errorBuilder: (c, e, s) => Container(color: Colors.black12)),
+            AppSubPageBar(
+              title: '发布动态',
+              trailing: AppTextAction(
+                key: const Key('compose.submit'),
+                label: '发布',
+                onPressed: canSubmit ? _submit : null,
+              ),
             ),
-            Positioned(
-              right: 0,
-              top: 0,
-              child: IconButton(
-                onPressed: onRemove,
-                iconSize: 18,
-                icon: const CircleAvatar(radius: 11, child: Icon(Icons.close, size: 14)),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(AppSpacing.pageH,
+                    AppSpacing.md, AppSpacing.pageH, AppSpacing.xxl),
+                children: [
+                  AppTextField(
+                    key: const Key('compose.text'),
+                    controller: _text,
+                    hint: '分享新鲜事…',
+                    borderless: true,
+                    maxLines: 6,
+                    minLines: 6,
+                    maxLength: 500,
+                    counterKey: const Key('compose.counter'),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  ComposePhotoGrid(
+                    images: [for (final item in _images) item.bytes],
+                    onAdd: _pick,
+                    onRemove: (index) =>
+                        setState(() => _images.removeAt(index)),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
 }
