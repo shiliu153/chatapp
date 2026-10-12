@@ -11,6 +11,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_avatar.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/app_sub_page_bar.dart';
 import '../../core/widgets/app_toast.dart';
 import '../../core/widgets/avatar_hero.dart';
 import '../../core/widgets/card_hero.dart';
@@ -102,8 +103,9 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
         bottom: false,
         child: Column(
           children: [
-            _DetailBar(
-              backKey: const Key('post.back'),
+            const AppSubPageBar(
+              title: '动态详情',
+              backKey: Key('post.back'),
             ),
             Expanded(
               child: post.when(
@@ -266,39 +268,6 @@ class _Body extends StatelessWidget {
       ],
     );
   }
-}
-
-/// 详情页顶栏(§5.2,同我的动态页 _SubPageBar 规格)。
-class _DetailBar extends StatelessWidget {
-  const _DetailBar({required this.backKey});
-
-  final Key backKey;
-
-  static const _height = 52.0;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        height: _height,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Text('动态详情',
-                style: AppText.subtitle
-                    .copyWith(fontSize: 17, color: AppColors.text1)),
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              child: IconButton(
-                key: backKey,
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                    size: 22, color: AppColors.text1),
-              ),
-            ),
-          ],
-        ),
-      );
 }
 
 /// 评论行(附录 D):28 圆头像 + 昵称 13/w600 text2 + 正文 + 时间;行间 1px divider。
