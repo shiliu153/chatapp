@@ -1,6 +1,6 @@
 # UI 整改批次⑤:广场(设计)
 
-日期:2026-10-12 · 状态:设计已获用户批准(逐节确认);spec 自审后修正 4 处(见文末「自审更正记录」)
+日期:2026-10-12 · 状态:设计已获用户批准(逐节确认);spec 自审后修正 4 处(见文末「自审更正记录」);整卡 Hero 机制经实现前 SDK 核查修正(§5,用户确认「状态切换双保」)
 上游:「心跳」设计规则 `2026-09-15-ui-design-language-design.md`(**常驻规则,一切视觉细节以它为准,本文件不重复抄录**);批次①②③④已交付(278 测试绿);本批执行实施顺序 **⑤ 广场**。
 
 ## 背景与目标
@@ -67,13 +67,25 @@
 - 空态 → `AppEmptyState` + emoji(`📝`)+「还没发过动态」文案**保留** + 次按钮「去发布」→ `/posts/compose`(**行为新增**:原空态无动作;既有测试只断言文案,不断言无按钮,零断言改动)。
 - 加载 → 复用 `SquareSkeleton`(key `myPosts.skeleton` 独立,避免 IndexedStack/栈下共存时 `findsOneWidget` 撞 key);错误 → `AppErrorView`(key `myPosts.retry`);SnackBar → `AppToast`。
 
-### 5) 整卡 Hero(§6.2 第二处转场)
+### 5) 整卡 Hero(§6.2 第二处转场;机制经实现前核查修正)
 
-- **机制**(沿用批次④体系):列表侧 `PostCard` 外层包新组件 `CardHero`(tag `card-post-{postId}`);进详情经 go_router `extra` 传 tag(路由 `/posts/:id` 增加 `heroCardTag: state.extra as String?`);详情页顶部卡以**相同 tag** 包 `CardHero` → 整卡飞行。
-- **两端同构,无圆角插值**:列表卡与详情顶卡同为 `AppCard`(R20 白卡、同水平边距),shuttle 直接渲染**目标侧 child**(Hero 自带尺寸/位置插值),观感近似无缝;无需 `AvatarHero` 那样的圆角插值(那是「圆头像 → 直角头图」的特殊需求)。
-- **新组件 `CardHero`**(`core/widgets/card_hero.dart`):与 `AvatarHero` 并列的通用包装(参数 `tag` / `child`),`tag == null` 或 `MediaQuery.disableAnimationsOf` → 直接返回 child;shuttle 逻辑封在组件内,页面不感知。
-- **同页双 Hero 不冲突**:卡内头像 Hero(`avatar-post-{id}`)与整卡 Hero tag 命名空间独立,Flutter 允许嵌套;飞行中头像随整卡一起动。
-- **纪律**(附录 C.7 同款):`extra == null`(我的动态/深链进入)→ 两端都不包 Hero,静默不飞;tag 派生自 postId,同屏多卡零碰撞(**不用** `card-post-{userId}`,理由同 C.7)。
+**两个 SDK 硬约束(实现前核查 `flutter/packages/flutter/lib/src/widgets/heroes.dart` 得出,设计定稿时不知道):**
+
+1. **Hero 不可嵌套**(`heroes.dart:412` 运行时断言 `A Hero widget cannot be the descendant of another Hero widget.`):整卡 Hero 包在卡外、卡内头像 Hero 在其内 → debug 直接崩。**同一张卡同一时刻只能有一个 Hero**。
+2. **扫描时机只此一次**(`heroes.dart:961-973`):push 后仅在**下一帧末**扫描一次目标路由找配对 Hero;`postDetailProvider` 是 autoDispose,详情页首帧必然是骨架屏 → 目标侧没有 Hero → **push 不会飞**。
+
+**修正后的机制(用户确认「状态切换双保」):**
+
+- **点卡身时状态切换**:广场页维护 `_cardHeroPostId`(当前处于整卡 Hero 态的动态 id)。点卡 → `setState` 把该卡切到整卡态(**头像 Hero 让位**:卡内 `heroTag` 传 null、卡外套 `CardHero`)→ `await context.push('/posts/{id}', extra: PostDetailArgs(...))` → pop 完成后 `finally` 还原普通态(头像 Hero 回归)。飞行源四处(批次④三处头像 + 本批整卡)全部保留。
+- **extra 携带 seed**:`PostDetailArgs { String heroTag; Post seed }` 经 go_router `extra` 传入;详情页在 provider 仍 loading 且有 seed 时**直接用 seed 渲染真卡**(首帧即有带相同 tag 的 `CardHero`)→ push 必飞;fetch 完成后切到服务器数据(内容一致)。深链/我的动态进入 `extra == null` → 无 Hero、骨架起步(附录 C.7 同款纪律)。
+- **Hero 互斥不变式**(每张卡任意时刻至多一个 Hero):
+  - 广场列表普通态:`PostCard(heroTag: 'avatar-post-{id}', cardHeroTag: null)`;
+  - 广场列表整卡态(仅其详情在栈顶期间):`PostCard(heroTag: null, cardHeroTag: 'card-post-{id}')`;
+  - 详情页顶卡:`CardHero(tag: heroCardTag)` 内 `PostCard(heroTag: null)`(**必须 null**,否则嵌套断言崩);
+  - 我的动态/深链:两端都无 Hero。
+- **新组件 `CardHero`**(`core/widgets/card_hero.dart`):与 `AvatarHero` 并列(参数 `tag` / `child`),`tag == null` 或 `MediaQuery.disableAnimationsOf` → 直接返回 child;shuttle 用 Hero 默认实现(飞行中渲染目标侧 child = seed 真卡,位置/尺寸由框架插值)——两端同为 R20 白卡、同水平边距,无需 `AvatarHero` 那样的圆角插值。
+- **快速连点防护**:`_openDetail` 入口 `if (_cardHeroPostId != null) return;`(整卡态进行中忽略新点击,避免飞行中卸载 Hero)。
+- tag 规约:`card-post-{postId}`(**不用** `card-post-{userId}`,同作者多卡会同屏重复,理由同 C.7);详情页顶栏返回键行为不变(`context.pop()`),pop 飞行由同一对 tag 自动反向发生。
 
 ### 6) 顺手清理(§2.3 对照表)
 
@@ -125,3 +137,5 @@ cd app
 2. **在线点类型波及补录**:设计呈现漏了「`AppAvatar` 内部是 `BreathingDot`」与既有 `OnlineDot` 类型断言的冲突,补为断言改动 B,并决定删除孤儿类 `OnlineDot`(顺带清裸 hex 违规);
 3. **点赞图标变体波及补录**:测试内两处 `byIcon(Icons.favorite*)` 需随 §4 rounded 化同步(断言改动 C);
 4. **空态 HeartRipple 的测试代价补录**:HeartRipple 无限动画会让空态用例的 `pumpAndSettle` 永不收敛,补为断言改动 A 的有限推进部分(批次②先例)。
+
+5. **整卡 Hero 机制修正(用户确认「状态切换双保」)**:设计呈现时称「同页双 Hero 嵌套不冲突」——SDK 源码核查证伪(运行时断言禁止 Hero 嵌套,`heroes.dart:412`);且 Hero 扫描只在 push 后下一帧末进行一次(`heroes.dart:961-973`),详情页首帧是骨架屏、目标侧无 Hero,原机制 push 时根本不会飞。修正为「点卡时状态切换 + extra 携带 seed」,详见 §5。
