@@ -1,0 +1,44 @@
+name: Web (Vue)
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+
+jobs:
+  # 端到端要真后端 + Redis + 腾讯云,不进 CI;CI 只守类型/规范/单测/构建
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 拉依赖
+        run: npm ci
+
+      - name: 类型检查(必须零错误)
+        run: npm run type-check
+
+      - name: 代码规范(必须零告警)
+        run: npm run lint
+
+      - name: 单元/组件测试
+        run: npm run test:run
+
+      - name: 构建
+        run: npm run build
