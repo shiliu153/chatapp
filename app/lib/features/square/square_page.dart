@@ -19,6 +19,7 @@ import '../profile/profile_controller.dart';
 import 'feed_repository.dart';
 import 'models.dart';
 import 'post_actions.dart';
+import 'post_detail_args.dart';
 import 'square_controller.dart';
 import 'widgets/post_card.dart';
 import 'widgets/square_skeleton.dart';
@@ -34,6 +35,10 @@ class SquarePage extends ConsumerStatefulWidget {
 class _SquarePageState extends ConsumerState<SquarePage> {
   final _scroll = ScrollController();
 
+  /// 正在飞整卡 Hero 的动态 id;null = 无飞行。
+  /// 互斥不变式见 spec §5:飞行期间该卡头像 Hero 让位,返回后还原。
+  int? _cardHeroPostId;
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +53,23 @@ class _SquarePageState extends ConsumerState<SquarePage> {
   void dispose() {
     _scroll.dispose();
     super.dispose();
+  }
+
+  Future<void> _openDetail(Post post) async {
+    // 飞行中忽略新点击(防快速连点把飞行中的 Hero 卸载)
+    if (_cardHeroPostId != null) return;
+    setState(() => _cardHeroPostId = post.id);
+    try {
+      await context.push(
+        '/posts/${post.id}',
+        extra: PostDetailArgs(
+          heroTag: 'card-post-${post.id}',
+          seed: post,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _cardHeroPostId = null);
+    }
   }
 
   Future<void> _toggleLike(Post post) async {
@@ -139,10 +161,14 @@ class _SquarePageState extends ConsumerState<SquarePage> {
                                 const SizedBox(height: AppSpacing.cardGap),
                             itemBuilder: (context, index) {
                               final post = items[index];
+                              // Hero 互斥(附录 D.4):整卡飞行期间该卡头像让位,
+                              // 其余卡(与返回后的自己)保持头像 Hero 态
+                              final inCardFlight = _cardHeroPostId == post.id;
                               return PostCard(
                                 post: post,
                                 // tag 按 postId 派生(不是 userId):同作者多卡各得不同 tag
-                                heroTag: 'avatar-post-${post.id}',
+                                heroTag:
+                                    inCardFlight ? null : 'avatar-post-${post.id}',
                                 isMine: post.author.userId == myId,
                                 online:
                                     presenceById[post.author.userId]?.online == true,
@@ -151,7 +177,10 @@ class _SquarePageState extends ConsumerState<SquarePage> {
                                     : () => context.push('/users/${post.author.userId}',
                                         extra: 'avatar-post-${post.id}'),
                                 onToggleLike: () => _toggleLike(post),
-                                onTap: () => context.push('/posts/${post.id}'),
+                                onTap: () => _openDetail(post),
+                                cardHeroTag: inCardFlight
+                                    ? 'card-post-${post.id}'
+                                    : null,
                                 onOpenImage: (i) => openPhotoViewer(context,
                                     urls: post.images, initialIndex: i),
                                 menuAction: (action) => action == 'delete'

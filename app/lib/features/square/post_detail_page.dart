@@ -13,12 +13,15 @@ import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
 import '../../core/widgets/app_toast.dart';
 import '../../core/widgets/avatar_hero.dart';
+import '../../core/widgets/card_hero.dart';
 import '../chat/widgets/photo_viewer.dart';
+import '../presence/models.dart';
 import '../presence/presence_controller.dart';
 import '../profile/profile_controller.dart';
 import 'feed_repository.dart';
 import 'models.dart';
 import 'post_actions.dart';
+import 'post_detail_args.dart';
 import 'post_detail_controller.dart';
 import 'square_controller.dart';
 import 'widgets/post_card.dart';
@@ -26,9 +29,12 @@ import 'widgets/post_detail_skeleton.dart';
 
 /// 动态详情(附录 D):自绘顶栏 + 动态卡 + 评论流 + 底部紧凑输入栏(44)。
 class PostDetailPage extends ConsumerStatefulWidget {
-  const PostDetailPage({super.key, required this.postId});
+  const PostDetailPage({super.key, required this.postId, this.args});
 
   final int postId;
+
+  /// 整卡 Hero 载荷(附录 D);null(我的动态/深链)时无 Hero、骨架起步。
+  final PostDetailArgs? args;
 
   @override
   ConsumerState<PostDetailPage> createState() => _PostDetailPageState();
@@ -89,6 +95,7 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
     final comments = ref.watch(commentsProvider(widget.postId));
     final presenceById = ref.watch(presenceProvider);
     final myId = ref.watch(profileProvider).value?.userId;
+    final args = widget.args;
     return Scaffold(
       backgroundColor: AppColors.bgPage,
       body: SafeArea(
@@ -100,10 +107,34 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
             ),
             Expanded(
               child: post.when(
-                loading: () => const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: AppSpacing.pageH),
-                  child: PostDetailSkeleton(),
-                ),
+                loading: () {
+                  final seed = args?.seed;
+                  if (seed != null) {
+                    // Hero 只在 push 后下一帧末扫描一次:loading 也要用 seed
+                    // 直出真卡(顶卡带 tag),否则目标侧没 Hero、不飞(附录 D.4)
+                    ref.read(presenceProvider.notifier).track(
+                        'post:${widget.postId}', [seed.author.userId]);
+                    return _Body(
+                      post: seed,
+                      heroCardTag: args!.heroTag,
+                      presenceById: presenceById,
+                      myId: myId,
+                      comments: comments,
+                      onToggleLike: _toggleLike,
+                      onOpenImage: (post, i) => openPhotoViewer(context,
+                          urls: post.images, initialIndex: i),
+                      onMenu: (post, action) => action == 'delete'
+                          ? _deletePost()
+                          : reportPostFromSheet(context, ref, post.id),
+                      onRetryComments: () =>
+                          ref.invalidate(commentsProvider(widget.postId)),
+                    );
+                  }
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: AppSpacing.pageH),
+                    child: PostDetailSkeleton(),
+                  );
+                },
                 error: (error, _) => AppErrorView(
                   message: apiMessageOf(error),
                   retryKey: const Key('post.retry'),
@@ -112,72 +143,20 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                 data: (data) {
                   ref.read(presenceProvider.notifier).track(
                       'post:${widget.postId}', [data.author.userId]);
-                  return ListView(
-                    padding: const EdgeInsets.fromLTRB(AppSpacing.pageH,
-                        AppSpacing.xs, AppSpacing.pageH, AppSpacing.xxl),
-                    children: [
-                      PostCard(
-                        post: data,
-                        // 批次④行为保留:详情页作者头像参与「头像→资料页」转场
-                        heroTag: 'avatar-post-${data.id}',
-                        isMine: data.author.userId == myId,
-                        online: presenceById[data.author.userId]?.online == true,
-                        onTapAuthor: data.author.userId == myId
-                            ? null
-                            : () => context.push('/users/${data.author.userId}',
-                                extra: 'avatar-post-${data.id}'),
-                        onToggleLike: _toggleLike,
-                        onOpenImage: (i) => openPhotoViewer(context,
-                            urls: data.images, initialIndex: i),
-                        menuAction: (action) => action == 'delete'
-                            ? _deletePost()
-                            : reportPostFromSheet(context, ref, data.id),
-                        // 详情页里点卡不该再进详情
-                        onTap: null,
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      comments.when(
-                        loading: () => const Padding(
-                          padding: EdgeInsets.all(AppSpacing.xxl),
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                        error: (error, _) => Padding(
-                          padding: const EdgeInsets.all(AppSpacing.xxl),
-                          child: AppErrorView(
-                            message: apiMessageOf(error),
-                            onRetry: () =>
-                                ref.invalidate(commentsProvider(widget.postId)),
-                          ),
-                        ),
-                        data: (items) => Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (items.isEmpty)
-                              const Center(
-                                child: AppEmptyState(
-                                  emoji: '💬',
-                                  title: '还没有评论',
-                                  description: '来抢沙发',
-                                ),
-                              ),
-                            for (var i = 0; i < items.length; i++) ...[
-                              if (i > 0)
-                                const Divider(
-                                    height: 1, color: AppColors.divider),
-                              _CommentTile(
-                                comment: items[i],
-                                heroTag: 'avatar-comment-${items[i].id}',
-                                onTapAuthor: items[i].author.userId == myId
-                                    ? null
-                                    : () => context.push(
-                                        '/users/${items[i].author.userId}',
-                                        extra: 'avatar-comment-${items[i].id}'),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
+                  return _Body(
+                    post: data,
+                    heroCardTag: args?.heroTag,
+                    presenceById: presenceById,
+                    myId: myId,
+                    comments: comments,
+                    onToggleLike: _toggleLike,
+                    onOpenImage: (post, i) => openPhotoViewer(context,
+                        urls: post.images, initialIndex: i),
+                    onMenu: (post, action) => action == 'delete'
+                        ? _deletePost()
+                        : reportPostFromSheet(context, ref, post.id),
+                    onRetryComments: () =>
+                        ref.invalidate(commentsProvider(widget.postId)),
                   );
                 },
               ),
@@ -191,6 +170,100 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 详情页正文(seed/data 共用):顶卡 + 评论流。
+class _Body extends StatelessWidget {
+  const _Body({
+    required this.post,
+    required this.heroCardTag,
+    required this.presenceById,
+    required this.myId,
+    required this.comments,
+    required this.onToggleLike,
+    required this.onOpenImage,
+    required this.onMenu,
+    required this.onRetryComments,
+  });
+
+  final Post post;
+  final String? heroCardTag;
+  final Map<int, Presence> presenceById;
+  final int? myId;
+  final AsyncValue<List<PostCommentItem>> comments;
+  final VoidCallback onToggleLike;
+  final void Function(Post post, int index) onOpenImage;
+  final void Function(Post post, String action) onMenu;
+  final VoidCallback onRetryComments;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.pageH, AppSpacing.xs, AppSpacing.pageH, AppSpacing.xxl),
+      children: [
+        CardHero(
+          tag: heroCardTag,
+          child: PostCard(
+            post: post,
+            // Hero 互斥(spec §5):整卡态下头像 Hero 必须让位(SDK 禁嵌套);
+            // 无整卡 Hero(我的动态/深链进入)时保留批次④的「头像→资料页」转场
+            heroTag:
+                heroCardTag == null ? 'avatar-post-${post.id}' : null,
+            isMine: post.author.userId == myId,
+            online: presenceById[post.author.userId]?.online == true,
+            onTapAuthor: post.author.userId == myId
+                ? null
+                : () => context.push('/users/${post.author.userId}',
+                    extra: 'avatar-post-${post.id}'),
+            onToggleLike: onToggleLike,
+            onOpenImage: (i) => onOpenImage(post, i),
+            menuAction: (action) => onMenu(post, action),
+            // 详情页里点卡不该再进详情
+            onTap: null,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        comments.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.all(AppSpacing.xxl),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (error, _) => Padding(
+            padding: const EdgeInsets.all(AppSpacing.xxl),
+            child: AppErrorView(
+              message: apiMessageOf(error),
+              onRetry: onRetryComments,
+            ),
+          ),
+          data: (items) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (items.isEmpty)
+                const Center(
+                  child: AppEmptyState(
+                    emoji: '💬',
+                    title: '还没有评论',
+                    description: '来抢沙发',
+                  ),
+                ),
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) const Divider(height: 1, color: AppColors.divider),
+                _CommentTile(
+                  comment: items[i],
+                  heroTag: 'avatar-comment-${items[i].id}',
+                  onTapAuthor: items[i].author.userId == myId
+                      ? null
+                      : () => context.push('/users/${items[i].author.userId}',
+                          extra: 'avatar-comment-${items[i].id}'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
