@@ -65,8 +65,9 @@ async function onSubmit() {
   }
   submitting.value = true
   try {
-    await session.verify(phone.value, code.value)
-    await router.push({ name: 'home' })
+    const { isNewUser } = await session.verify(phone.value, code.value)
+    // 新号先去完善资料(与 App 一致):资料不全会永远进不了别人的候选卡
+    await router.push(isNewUser ? { name: 'onboarding' } : { name: 'home' })
   } catch (e) {
     error.value = parseApiError(e).message
   } finally {

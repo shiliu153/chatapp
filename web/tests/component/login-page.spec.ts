@@ -15,6 +15,7 @@ async function mountLogin() {
     routes: [
       { path: '/', component: { template: '<div/>' } },
       { path: '/home', name: 'home', component: { template: '<div/>' } },
+      { path: '/onboarding', name: 'onboarding', component: { template: '<div/>' } },
       { path: '/login', name: 'login', component: { template: '<div/>' } },
     ],
   })
@@ -108,6 +109,21 @@ describe('LoginPage', () => {
 
     expect(tokenStore.access).toBe('a1')
     expect(router.currentRoute.value.path).toBe('/home')
+  })
+
+  it('新用户登录后先去 /onboarding 完善资料(与 App 一致)', async () => {
+    server.use(
+      mswHttp.post('/api/v1/auth/sms/verify', () =>
+        HttpResponse.json({ access: 'a1', refresh: 'r1', is_new_user: true, user_id: 9 }),
+      ),
+    )
+    const { w, router } = await mountLogin()
+    await w.find('input[type="tel"]').setValue('13800000001')
+    await w.find('input[inputmode="numeric"]').setValue('123456')
+    await w.find('.login__submit').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/onboarding')
   })
 
   it('连错锁定(42902)时展示后端文案', async () => {

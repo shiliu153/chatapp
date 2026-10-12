@@ -34,6 +34,30 @@ describe('session store', () => {
     expect(tokenStore.refresh).toBe('r1')
   })
 
+  it('verify 把 isNewUser 交给调用方(新用户要先去完善资料,与 App 一致)', async () => {
+    server.use(
+      mswHttp.post('/api/v1/auth/sms/verify', () =>
+        HttpResponse.json({ access: 'a1', refresh: 'r1', is_new_user: true, user_id: 9 }),
+      ),
+    )
+
+    const result = await useSessionStore().verify('13800000001', '123456')
+
+    expect(result.isNewUser).toBe(true)
+  })
+
+  it('verify 对老用户返回 isNewUser=false(不该被再拉去引导页)', async () => {
+    server.use(
+      mswHttp.post('/api/v1/auth/sms/verify', () =>
+        HttpResponse.json({ access: 'a1', refresh: 'r1', is_new_user: false, user_id: 9 }),
+      ),
+    )
+
+    const result = await useSessionStore().verify('13800000001', '123456')
+
+    expect(result.isNewUser).toBe(false)
+  })
+
   it('verify 失败时不改变登录态', async () => {
     server.use(
       mswHttp.post('/api/v1/auth/sms/verify', () =>

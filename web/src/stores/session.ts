@@ -28,13 +28,18 @@ export const useSessionStore = defineStore('session', () => {
     await authApi.sendCode(phone)
   }
 
-  async function verify(phone: string, code: string): Promise<void> {
+  /**
+   * 校验验证码并登录。**返回 `isNewUser`** —— 新用户要先去 `/onboarding` 完善资料
+   * (与 App 的 `login_page.dart` 一致:新号不完善资料就永远进不了别人的候选卡)。
+   */
+  async function verify(phone: string, code: string): Promise<{ isNewUser: boolean }> {
     const result = await authApi.verify(phone, code)
     tokenStore.access = result.access
     tokenStore.refresh = result.refresh
     tokenStore.userId = result.userId
     userId.value = result.userId
     status.value = 'loggedIn'
+    return { isNewUser: result.isNewUser }
   }
 
   function logout(): void {
