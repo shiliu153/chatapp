@@ -14,4 +14,9 @@ abstract final class AppGradients {
     end: Alignment.bottomRight,
     colors: [AppColors.violet, AppColors.systemBlue],
   );
+
+  /// 附录 C.2 完成度环的进度弧:与 heart 同色,但沿圆周扫过(SweepGradient)。
+  static const heartSweep = SweepGradient(
+    colors: [AppColors.brand, AppColors.heartOrange],
+  );
 }
