@@ -54,3 +54,8 @@ Future<void> pumpFrames(WidgetTester tester,
     await tester.pump(step);
   }
 }
+
+/// AppToast 的 2s 自动消失 Timer 会让 testWidgets 以 pending timer 失败:
+/// 触发过 Toast 的用例收尾调用,把假时钟推过超时点。
+Future<void> drainToast(WidgetTester tester) =>
+    tester.pump(const Duration(seconds: 3));

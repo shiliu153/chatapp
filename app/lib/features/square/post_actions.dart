@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
+import '../../core/widgets/app_toast.dart';
 import '../moderation/widgets/report_sheet.dart';
 import 'feed_repository.dart';
 
@@ -32,12 +33,7 @@ Future<void> reportPostFromSheet(BuildContext context, WidgetRef ref, int postId
     builder: (context) => const ReportSheet(),
   );
   if (result == null || !context.mounted) return;
-  final messenger = ScaffoldMessenger.of(context);
-  void show(String message) {
-    messenger
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
+  void show(String message) => AppToast.show(context, message);
 
   try {
     await ref

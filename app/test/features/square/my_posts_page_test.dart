@@ -19,9 +19,9 @@ void main() {
       'DELETE /posts/7': (options) => ok({}, status: 204),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 广场空态涟漪在 IndexedStack 隐藏页一直跑,禁 settle
     await tester.tap(navTab('我的'));
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
 
     await tester.tap(find.byKey(const Key('my.row.posts')));
     await tester.pumpAndSettle();
@@ -33,6 +33,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('post.delete.confirm')));
     await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3)); // AppToast「已删除」Timer 收尾
 
     expect(adapter.log.where((r) => r.method == 'DELETE' && r.path == '/posts/7'),
         hasLength(1));
@@ -47,9 +48,9 @@ void main() {
       'GET /posts/mine': (options) => ok(pageJson([])),
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 广场空态涟漪在 IndexedStack 隐藏页一直跑,禁 settle
     await tester.tap(navTab('我的'));
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
 
     await tester.tap(find.byKey(const Key('my.row.posts')));
     await tester.pumpAndSettle();
