@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/features/presence/online_dot.dart';
+import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/widgets/breathing_dot.dart';
 import 'package:chatapp_app/features/profile/user_profile_page.dart';
 
 import '../../support/harness.dart';
@@ -58,10 +59,12 @@ void main() {
 
     await tester.tap(find.byKey(const Key('post.like.1')));
     await tester.pump();   // 乐观:马上变红
-    expect(tester.widget<Icon>(find.byIcon(Icons.favorite)).color,
-        const Color(0xFFFF2C55));
+    expect(tester.widget<Icon>(find.byIcon(Icons.favorite_rounded)).color,
+        AppColors.brand);
     await tester.pumpAndSettle();   // 请求失败 → 回滚
-    expect(find.byIcon(Icons.favorite_border), findsOneWidget);
+    expect(find.byIcon(Icons.favorite_border_rounded), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3)); // Task 4 起 AppToast 有 2s Timer,
+    // 先内联推时钟防 pending timer;Task 4 换 drainToast
   });
 
   testWidgets('别人的动态菜单是举报,提交后提示', (tester) async {
@@ -164,17 +167,19 @@ void main() {
     );
 
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
-    await _openSquare(tester);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 呼吸点是无限动画,不能 pumpAndSettle
+    await tester.tap(navTab('广场'));
+    await pumpFrames(tester);
 
     expect(
         find.descendant(
-            of: find.byKey(const Key('post.avatar.1')), matching: find.byType(OnlineDot)),
+            of: find.byKey(const Key('post.avatar.1')),
+            matching: find.byType(BreathingDot)),
         findsOneWidget);
     expect(
         find.descendant(
-            of: find.byKey(const Key('post.avatar.2')), matching: find.byType(OnlineDot)),
+            of: find.byKey(const Key('post.avatar.2')),
+            matching: find.byType(BreathingDot)),
         findsNothing);
     // 查的正是两条动态的作者 id
     final request = adapter.log.lastWhere((r) => r.path == '/presence');
