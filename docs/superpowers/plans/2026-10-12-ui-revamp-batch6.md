@@ -5065,3 +5065,51 @@ git branch -d ui/batch6 && git push origin --delete ui/batch6
 9. **协议页**:长文滚动;返回键。
 10. **封禁页**:重封禁账号整屏提示 + 退出登录。
 11. **系统「减弱动态效果」**开启后各页正常;窄屏(360dp)表单不溢出;键盘弹出不遮输入框。
+
+---
+
+## 执行记录(2026-10-12,分支 `ui/batch6`)
+
+**交付结果**
+
+| 门禁 | 结果 |
+|---|---|
+| `flutter analyze` | 0 告警 |
+| `flutter test` | **329 全绿**(基线 296,本批 +33) |
+| `npm run test:run`(web) | 303 全绿(未动 `tokens.css` / `app_colors.dart`,纯回归;含 `tokens.spec.ts` 双向比对) |
+| release APK | 已打包并覆盖安装到 `emulator-5554`,启动无异常(71.0MB,`API_BASE=http://10.0.2.2:8000/api/v1` 本地开发服) |
+| 模拟器手测 | ⏳ **待用户手测**(清单见文末) |
+| 合回 master | ⏳ 待手测通过 |
+
+**任务与提交**
+
+| 任务 | 提交 | 内容 |
+|---|---|---|
+| Task 1 | `6aa0a87` | `AppSubPageBar` + 取代两处私有顶栏副本 |
+| Task 2 | `3cee7e4` | `AppBrandMark`(静态)+ `AppTextAction` |
+| Task 3 | `8e27b19` | `AppTextField`(R16 描边/聚焦光晕/自绘计数/suffix) |
+| Task 4 | `3309367` | `AppOptionGroup` + `AppChipGroup` |
+| Task 5 | `76dd588` | `AppPickerField` + `AppRangeField`(自绘渐变轨道) |
+| Task 6 | `1152d27` | `AppSectionCard` + `AppRowGroup` + `AppListRow` |
+| Task 7 | `10ebbce` | `AppDialog`/`showConfirmDialog` + `AppButton.dangerFilled` + 删除动态确认接入 |
+| Task 8 | `faf85db` | `AppProgressBar` + `AppFormSkeleton` |
+| Task 9 | `46c6812` | 编辑资料页 + 表单字段 + 标签 + 照片网格 3 列 R12 |
+| Task 10 | `c1eb8c7` | 想找的人页 |
+| Task 11 | `828c2e1` | 引导页(顶栏/分段进度/三步分组卡) |
+| Task 12 | `342f8d0` | 登录页(静态品牌区 + 表单卡 + 内嵌验证码按钮) |
+| Task 13 | `c25a218` | 启动页去常驻转圈 + 协议弹窗换 `AppDialog` |
+| Task 14 | `b368e4b` | 设置页(两张行分组卡 + 居中危险退出行) |
+| Task 15 | `47dd5df` | 黑名单页(骨架/空态/错误三态) |
+| Task 16 | `ab84f88` | 发动态页 + `ComposePhotoGrid` |
+| Task 17 | `567f8e0` | 协议页 + 封禁页 |
+| Task 18 | `9bd1816` | 文档同步(规则 v1.5 附录 E + 踩坑册 + CLAUDE.md) |
+
+**执行中的实测发现(已回填规则文档附录 E / 踩坑册)**
+
+1. **`AppListRow` 的 `GestureDetector` 必须 `behavior: opaque`**:默认 `deferToChild` 时,整行右侧空白区(标题文字之外)点不动 —— 单测里表现为「按 key 取中心点 tap 落空、回调不触发」。设置页/黑名单行都会中招。
+2. **表单组件的外层 `Column` 在宽松高度约束下撑满整屏**:`AppTextField` / `AppPickerField` 的根是 `Column(mainAxisSize.max)`,直接放进 `Scaffold(body:)` 时高度 = 整屏,`tester.getSize(find.byKey(...))` 拿到整屏、`tester.tap(find.byKey(...))` 落到盒子外。按 key 取尺寸/坐标做断言或点击时要点内部子件;放进 `ListView`/`Card` 等有界约束里则正常收缩。
+3. **`AppToast.show(context, …)` 写在 async gap 之后会触发 `use_build_context_synchronously`**:`if (!mounted || files.isEmpty) return;` 这种复合守卫 analyzer 不认,要拆成两句,并在每个 `await` 之后补 `if (!mounted) return;`(见 `post_compose_page.dart::_pick`)。
+4. **`AppToast` 收尾清单比预估多一处**:`photo_grid_test` 的『图片不能超过 5MB』也是 Toast(7 文件 12 例 → **8 文件 13 例**)。
+5. **测试文件缺 `support/harness.dart` 会连带拖垮同目录其他文件**:`photo_grid_test.dart` 用了 `drainToast` 但没 import,报错时 `completion_ring_test.dart` 也一起显示 "loading" 失败 —— 排查时以 `flutter analyze` 的 `undefined_function` 为准,别被连带失败误导。
+
+**尚未完成**:用户模拟器手测、合回 master(Task 19)。
