@@ -2420,6 +2420,39 @@ git branch -d ui/batch5 && git push origin --delete ui/batch5
 
 ---
 
-## 执行记录(执行时回填)
+## 执行记录(2026-10-12,分支 `ui/batch5`)
 
-(空 — 按 Task 0 → 8 顺序执行,每任务提交后在此回填一行)
+**交付结果**
+
+| 门禁 | 结果 |
+|---|---|
+| `flutter analyze` | 0 告警 |
+| `flutter test` | **296 全绿**(基线 278,本批 +18) |
+| `npm run test:run`(web) | 303 全绿(未动 `tokens.css`,纯回归) |
+| release APK | 已打包并覆盖安装到 `emulator-5554`,启动无异常(71.2MB,API_BASE=测试服) |
+| 模拟器手测 | ⬜ **待用户执行**(见 Task 8 Step 4 清单) |
+| 合回 master | ⬜ 待手测通过 |
+
+**任务与提交**
+
+| 任务 | 提交 | 内容 |
+|---|---|---|
+| Task 1 | `c8a9613` | `CardHero` 组件(禁嵌套/降级纪律内置)+ 3 例单测 |
+| Task 2 | `a4c821c` | 九宫格:1 张通栏 240 高、2–9 张统一 3 列 R12 + 4 例单测 |
+| Task 3 | `fb751be` | 动态卡重构(圆头像/字阶/rounded 图标/点赞脉冲)+ 删 `OnlineDot` + 脉冲单测 |
+| Task 4 | `733f8e5` | 广场页壳(大标题/涟漪空态/骨架/错误重试/渐变 FAB/AppToast)+ `PostDetailArgs` |
+| Task 5 | `f0cb8f3` | 我的动态页(顶栏/空态发布按钮/骨架/错误/AppToast) |
+| Task 6 | `bb533c4` | 详情页(顶栏/评论流/44 紧凑输入栏/骨架/AppToast) |
+| Task 7 | `497b273` | 整卡 Hero 接线(seed 直出 + 状态切换双保)+ 端到端 4 例 |
+| Task 8 | `4b10fbd` | 文档同步(规则 v1.4 附录 D + 踩坑册 + CLAUDE.md)+ 打包上模拟器 |
+
+**执行中的实测发现(已回填规则文档附录 D / 踩坑册)**
+
+1. **Hero 不可嵌套**:`heroes.dart:412` 运行时断言 —— 实现前核查时发现,设计阶段「同页双 Hero 不冲突」的判断被证伪,改用「状态切换双保」(点卡时该卡头像 Hero 让位,`await push` 返回后还原)。**详情页顶卡在整卡态下 `heroTag` 必须 null**。
+2. **Hero 只扫一次**:`heroes.dart:961-973` push 后仅下一帧末扫描目标路由;详情 provider 是 autoDispose → 首帧必为骨架屏,故 `extra` 带 `PostDetailArgs(heroTag, seed)` 用列表快照直出真卡。
+3. **IndexedStack 隐藏页也跑动画**:广场空态 `HeartRipple` 会让「消息 Tab 角标」等无关用例 `pumpAndSettle` 超时(实测),相关用例改 `pumpFrames`。
+4. **`find.byX` 默认 `skipOffstage: true`**:被 push 盖住的路由默认找不到,需显式 `skipOffstage: false`;`CardHero`/`AvatarHero` 是恒在包装(tag null 时只返回 child),判断「有没有 Hero」要看 `tag != null`。
+5. **`AppToast` 的 2s Timer**:触发过 Toast 的用例收尾要推时钟(harness 新增 `drainToast`)。
+6. **`SquareSkeleton` 溢出**:3 张卡总高 864 > 一屏,外包 `SingleChildScrollView` 免疫小屏。
+7. 详情页无整卡 Hero 来源(深链/我的动态)时,**保留**批次④的「作者头像 → 资料页」转场(仅整卡态让位)。
+
