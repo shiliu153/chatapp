@@ -8,7 +8,8 @@ import '../../support/harness.dart';
 import '../../support/scripted_adapter.dart';
 
 void main() {
-  // 协议弹窗期间启动页在转圈(无限动画),pumpAndSettle 会超时;只用有限次 pump。
+  // 协议弹窗在 _start 的 prefs 读取之后才出现,固定推两帧最省。
+  // (启动页自批次⑥ 起已无转圈动画,这里保持有限 pump,不依赖弹窗之外的动画行为。)
   Future<void> pumpUntilDialog(WidgetTester tester) async {
     await tester.pump();                                    // 跑 _start 的 prefs 读取
     await tester.pump(const Duration(milliseconds: 300));   // 弹窗动画

@@ -3,10 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_brand_mark.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_error_view.dart';
 import '../legal/agreement_dialog.dart';
 import '../legal/legal_gate.dart';
 import 'session.dart';
 
+/// 启动页(附录 E):静态品牌区 + 状态文案。
+/// **去掉原 CircularProgressIndicator** —— 常驻无限动画会让 pumpAndSettle 用例不收敛。
 class SplashPage extends ConsumerStatefulWidget {
   const SplashPage({super.key});
 
@@ -34,7 +42,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
         setState(() => _agreementDeclined = true);
         if (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS) {
-          SystemNavigator.pop();   // 移动端直接退出;上面的提示页只是兜底
+          SystemNavigator.pop(); // 移动端直接退出;上面的提示页只是兜底
         }
         return;
       }
@@ -48,40 +56,48 @@ class _SplashPageState extends ConsumerState<SplashPage> {
   Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
     return Scaffold(
+      backgroundColor: AppColors.bgPage,
       body: Center(
-        child: switch (session) {
-          SessionBootFailed(:final message) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(message),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: () => ref.read(sessionProvider.notifier).bootstrap(),
-                  child: const Text('重试'),
-                ),
-              ],
-            ),
-          _ when _agreementDeclined => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('需要同意《用户协议》与《隐私政策》才能使用本应用'),
-                const SizedBox(height: 12),
-                FilledButton(
-                  key: const Key('splash.reread'),
-                  onPressed: _start,
-                  child: const Text('重新阅读'),
-                ),
-              ],
-            ),
-          _ => const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 12),
-                Text('正在启动…'),
-              ],
-            ),
-        },
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xxl),
+          child: switch (session) {
+            SessionBootFailed(:final message) => AppErrorView(
+                message: message,
+                retryKey: const Key('splash.retry'),
+                onRetry: () => ref.read(sessionProvider.notifier).bootstrap(),
+              ),
+            _ when _agreementDeclined => Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const AppBrandMark(key: Key('splash.brand')),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    '需要同意《用户协议》与《隐私政策》才能使用本应用',
+                    textAlign: TextAlign.center,
+                    style: AppText.caption.copyWith(color: AppColors.text2),
+                  ),
+                  const SizedBox(height: AppSpacing.xxl),
+                  AppButton(
+                    key: const Key('splash.reread'),
+                    label: '重新阅读',
+                    onPressed: _start,
+                  ),
+                ],
+              ),
+            _ => Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const AppBrandMark(key: Key('splash.brand')),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('交友 Chat',
+                      style: AppText.title.copyWith(color: AppColors.text1)),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text('正在启动…',
+                      style: AppText.caption.copyWith(color: AppColors.text2)),
+                ],
+              ),
+          },
+        ),
       ),
     );
   }
