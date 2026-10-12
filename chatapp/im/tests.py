@@ -184,22 +184,65 @@ class ImClientTests(SimpleTestCase):
         with patch("im.client._request", side_effect=Exception("boom")):
             self.assertFalse(black_list_add("u1", "u2"))
 
-    def test_ensure_account_existing_is_success(self):
-        with patch("im.client._request", return_value={"ErrorCode": 7015, "ErrorInfo": "exist"}):
-            self.assertTrue(ensure_account("system_notice", "系统通知"))
+    def test_ensure_account_existing_account_is_not_reimported(self):
+        """⚠️ 回归:对已存在的账号再调 account_import 会把昵称/头像**清空**。
+
+        实测(2026-10-12):account_import 对已存在账号返回 `ErrorCode: 0`(不是文档说的 7015),
+        并且把 Nick/FaceUrl 覆盖成传入值 —— 于是 `POST /im/user_sig` 的首次 ensure_account
+        会把刚同步好的昵称和头像抹掉,会话列表只剩 `u43`。
+        所以已存在时必须**跳过**导入。
+        """
+        def fake_request(service, command, payload=None, identifier=None):
+            if command == "account_check":
+                return {"ErrorCode": 0, "ResultItem": [
+                    {"UserID": "u9", "ResultCode": 0, "AccountStatus": "Imported"}]}
+            raise AssertionError(f"不该调用 {command}(会把昵称/头像清空)")
+
+        with patch("im.client._request", side_effect=fake_request):
+            self.assertTrue(ensure_account("u9", "小雨"))
+
+    def test_ensure_account_missing_account_imports(self):
+        calls = []
+
+        def fake_request(service, command, payload=None, identifier=None):
+            calls.append(command)
+            if command == "account_check":
+                return {"ErrorCode": 0, "ResultItem": [
+                    {"UserID": "u9", "ResultCode": 0, "AccountStatus": "NotImported"}]}
+            return {"ErrorCode": 0}
+
+        with patch("im.client._request", side_effect=fake_request):
+            self.assertTrue(ensure_account("u9", "小雨"))
+
+        self.assertEqual(calls, ["account_check", "account_import"])
+
+    def test_ensure_account_check_failure_returns_false(self):
+        """查不到状态时不敢盲目导入(导入是破坏性的),交给上层重试。"""
+        with patch("im.client._request", side_effect=Exception("boom")):
+            self.assertFalse(ensure_account("u9", "小雨"))
 
     def test_ensure_account_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+        def fake_request(service, command, payload=None, identifier=None):
+            if command == "account_check":
+                return {"ErrorCode": 0, "ResultItem": [
+                    {"UserID": "system_notice", "AccountStatus": "NotImported"}]}
+            self.assertEqual(command, "account_import")
+            self.assertEqual(payload["Identifier"], "system_notice")
+            self.assertEqual(payload["Nick"], "系统通知")
+            return {"ErrorCode": 0}
+
+        with patch("im.client._request", side_effect=fake_request):
             self.assertTrue(ensure_account("system_notice", "系统通知"))
-        args = req.call_args[0]
-        self.assertEqual(args[0], "im_open_login_svc")
-        self.assertEqual(args[1], "account_import")
-        self.assertEqual(args[2]["Identifier"], "system_notice")
-        self.assertEqual(args[2]["Nick"], "系统通知")
 
     def test_ensure_account_other_error_returns_false(self):
-        with patch("im.client._request", return_value={"ErrorCode": 9999}):
-            self.assertFalse(ensure_account("system_notice"))
+        def fake_request(service, command, payload=None, identifier=None):
+            if command == "account_check":
+                return {"ErrorCode": 0, "ResultItem": [
+                    {"UserID": "u9", "AccountStatus": "NotImported"}]}
+            return {"ErrorCode": 9999}
+
+        with patch("im.client._request", side_effect=fake_request):
+            self.assertFalse(ensure_account("u9"))
 
     def test_send_ban_notice_light_payload(self):
         with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
