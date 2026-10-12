@@ -34,5 +34,6 @@ void main() {
     expect(patch['target_gender'], 'female');
     expect(patch['age_min'], 18);
     expect(patch['age_max'], 99);
+    await drainToast(tester); // 『已保存』走 AppToast(挂根 Overlay,pop 后仍存活)
   });
 }

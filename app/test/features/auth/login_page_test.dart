@@ -36,6 +36,7 @@ void main() {
 
     expect(find.text('请输入正确的手机号'), findsOneWidget);
     expect(adapter.log, isEmpty);
+    await drainToast(tester); // 『请输入正确的手机号』走 AppToast
   });
 
   testWidgets('老用户登录成功 → 进入主框架', (tester) async {
@@ -90,6 +91,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('网络超时,可直接再次点击「登录」重试'), findsOneWidget);
+    await drainToast(tester); // AppToast 2s Timer 收尾
   });
 
   testWidgets('verify 业务错误(码过期)不重试', (tester) async {
@@ -110,5 +112,6 @@ void main() {
 
     expect(calls, 1);
     expect(find.text('验证码已过期,请重新获取'), findsOneWidget);
+    await drainToast(tester); // AppToast 2s Timer 收尾
   });
 }

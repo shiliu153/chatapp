@@ -29,13 +29,27 @@
 
 ## 广场(`features/square/`)
 
-- 页面:广场流 `square_page.dart`(白卡流/九宫格/点赞乐观更新+脉冲/滚底加载/**整卡 Hero**)、发布 `/posts/compose`(批次⑥改)、详情 `/posts/:id`(自绘顶栏 + 评论流 + 44 紧凑输入栏)、我的动态 `/my-posts`(复用动态卡,不参与 Hero);共用 `post_actions.dart`(删除确认 + 举报,提示走 `AppToast`)。
+- 页面:广场流 `square_page.dart`(白卡流/九宫格/点赞乐观更新+脉冲/滚底加载/**整卡 Hero**)、发布 `/posts/compose`(批次⑥ 已改:顶栏发布文字按钮 + 无边框正文 + 三列选图)、详情 `/posts/:id`(自绘顶栏 + 评论流 + 44 紧凑输入栏)、我的动态 `/my-posts`(复用动态卡,不参与 Hero);共用 `post_actions.dart`(删除确认 + 举报,提示走 `AppToast`)。
 - ⚠️ **整卡 Hero 与头像 Hero 互斥**(SDK 硬断言禁 Hero 嵌套,`heroes.dart:412`,debug 直接崩):列表卡普通态带头像 Hero;点卡进详情时该卡切整卡态(头像 Hero 让位),`await push` 返回后还原。**详情页顶卡在整卡态下 `PostCard.heroTag` 必须 null**。
 - ⚠️ **Hero 扫描只在 push 后下一帧末进行一次**(`heroes.dart:961-973`):目标页首帧必须已有同 tag 的 Hero 才会飞 —— 详情页 `postDetailProvider` 是 autoDispose,首帧必为骨架屏,所以进详情的 `extra` 要带 `PostDetailArgs(heroTag, seed)`,provider loading 时用 seed 直出真卡。深链/我的动态(无 extra)不包 Hero。
 - ⚠️ **在线点统一走 `AppAvatar(showOnlineDot:)`**(内部 `BreathingDot` 呼吸动画):旧 `OnlineDot` 静态点已删(它的 `#34C759` 也违反 §2.1 `green`);呼吸点可见的用例禁 `pumpAndSettle`。
 - ⚠️ **`find.byX` 默认 `skipOffstage: true`**:被 push 盖住的页面在测试里默认找不到(要 `skipOffstage: false`);`CardHero`/`AvatarHero` 是恒在的包装 widget(tag 为 null 时只返回 child),判断「有没有 Hero」要看 `tag != null`,不能看 widget 类型。
 - 测试 keys:`post.card.{id}` / `post.avatar.{id}` / `post.nickname.{id}` / `post.comment.avatar.{id}` / `post.comment.nickname.{id}` / `square.fab` / `square.compose` / `square.retry` / `post.back` / `myPosts.back` / `myPosts.compose`。
 - ⚠️ 我的页行变多后,点靠下行的测试(想找的人/设置)要先 `tester.ensureVisible`。
+
+## 二级页与表单控件(`features/auth,onboarding,profile,settings,legal,shell`)
+
+- 页面:登录 `login_page.dart`(静态品牌区 + 表单卡)、启动 `splash_page.dart`(静态品牌区,无转圈)、引导 `onboarding_page.dart`(三步向导 + `AppProgressBar`)、编辑资料 `profile_edit_page.dart`(三张 `AppSectionCard`)、想找的人 `preference_page.dart`、设置 `settings_page.dart` + 黑名单 `blocked_users_page.dart`(两张 `AppRowGroup`)、发动态 `post_compose_page.dart`、协议 `legal_page.dart`、封禁 `banned_page.dart`。
+- ⚠️ **品牌区禁常驻动画**:登录/启动页有 `pumpAndSettle` 用例(`login_page_test`/`startup_flow_test`/`account_switch_test`/`kicked_offline_test`/`agreement_gate_test`),`AppBrandMark` 做成纯静态;启动页原 `CircularProgressIndicator` 已移除。
+- ⚠️ **表单组件的外层 `Column` 在宽松高度约束下会撑满整屏**:`AppTextField`/`AppPickerField` 的根是 `Column(mainAxisSize.max)`,直接放进 `Scaffold(body:)` 时高度 = 整屏,`tester.getSize(find.byKey(...))` 拿到的是整屏、`tester.tap(find.byKey(...))` 会落到盒子外(实测踩坑)。**按 key 取尺寸/坐标做断言或点击时,要点内部子件**(如 `find.text('请选择')`),或把尺寸断言指向内部盒子。放进 `ListView`/`Card` 等有界约束里则正常收缩。
+- ⚠️ **`AppListRow` 的 `GestureDetector` 必须 `behavior: HitTestBehavior.opaque`**:默认 `deferToChild` 时,整行右侧空白区(标题文字之外)点不动 —— 设置页/黑名单行都会中招。
+- ⚠️ **`AppTextField` 的 key 放包装件**:`tester.enterText(find.byKey(...))` 内部走 `find.descendant(..., matchRoot: true)`,能穿透到内部 `EditableText`;但**别在包装件和内部 `TextField` 上挂同一个 key**,否则 `find.byKey` 命中两个。
+- ⚠️ **计数别用 `InputDecoration.counterText`**:会被 Material 默认样式接管,`AppTextField` 自己画 `x/y`(带 `counterKey`)。
+- ⚠️ **`AppToast` 收尾**:触发过 Toast 的用例必须 `await drainToast(tester)`。容易漏的三处:① 登录页 `initState` 的「被顶下线原因」提示(`kicked_offline_test`/`account_switch_test`);② 保存成功后 pop 的页面 —— Toast 挂在根 Overlay,pop 不会取消它的 2s Timer(`preference_page_test`/`profile_edit_page_test`);③ `photo_grid` 的『图片不能超过 5MB』。
+- ⚠️ **`AppToast.show(context, …)` 写在 async gap 之后会触发 `use_build_context_synchronously`**:`if (!mounted || files.isEmpty) return;` 这种**复合守卫 analyzer 不认**,要拆成两句 `if (!mounted) return;` + `if (files.isEmpty) return;`,并在每个 `await` 之后补 `if (!mounted) return;`(见 `post_compose_page.dart::_pick`)。
+- ⚠️ **分组卡两种内边距**:表单内容用 `AppSectionCard`(内边距 16),行式列表用 `AppRowGroup`(无内边距、行自带 16、行间 divider),不要混用。
+- 测试 keys:登录 `login.phone`/`login.code`/`login.sendCode`/`login.submit`/`login.brand`、启动 `splash.brand`/`splash.reread`/`splash.retry`、引导 `onboarding.next`/`onboarding.progress`/`onboarding.retry`、编辑资料 `edit.nickname`/`edit.birthday`/`edit.city`/`edit.bio`/`edit.save`/`edit.skeleton`/`edit.retry`、想找的人 `preference.city`/`preference.save`/`preference.retry`、设置 `settings.row.blocks`/`settings.row.agreement`/`settings.row.privacy`/`settings.logout`、黑名单 `unblock.{id}`/`unblock.confirm`/`blocked.empty`/`blocked.skeleton`/`blocked.retry`、照片 `photo.add`/`photo.delete.{id}`、发动态 `compose.text`/`compose.submit`/`compose.add`/`compose.picked.{i}`/`compose.counter`、协议 `legal.back`、封禁 `banned.logout`、弹窗 `agreement.accept`/`agreement.decline`/`post.delete.confirm`。
+- 规则细则见 [设计规则附录 E](../superpowers/specs/2026-09-15-ui-design-language-design.md)。
 
 ## 在线状态前端(`features/presence/`)
 

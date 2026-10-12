@@ -7,9 +7,20 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/providers.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_brand_mark.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_section_card.dart';
+import '../../core/widgets/app_text_action.dart';
+import '../../core/widgets/app_text_field.dart';
+import '../../core/widgets/app_toast.dart';
 import 'auth_repository.dart';
 import 'session.dart';
 
+/// 登录页(附录 E):静态品牌区 + 表单卡 + 渐变主按钮。
+/// 品牌区**静态无动画** —— 本页有大量 pumpAndSettle 用例(附录 E.3)。
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
 
@@ -34,7 +45,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final reason = ref.read(tokenStoreProvider).takeForceLogoutReason();
-      if (reason != null) _show(reason);
+      if (reason != null) AppToast.show(context, reason);
     });
   }
 
@@ -46,16 +57,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     super.dispose();
   }
 
-  void _show(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
   Future<void> _sendCode() async {
     final phone = _phoneController.text.trim();
     if (!_phonePattern.hasMatch(phone)) {
-      _show('请输入正确的手机号');
+      AppToast.show(context, '请输入正确的手机号');
       return;
     }
     setState(() => _sending = true);
@@ -63,9 +68,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       await ref.read(authRepositoryProvider).sendSms(phone);
       if (!mounted) return;
       _startCountdown();
-      _show('验证码已发送,请查看短信');
+      AppToast.show(context, '验证码已发送,请查看短信');
     } on ApiException catch (error) {
-      if (mounted) _show(error.message);
+      if (mounted) AppToast.show(context, error.message);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -92,11 +97,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final phone = _phoneController.text.trim();
     final code = _codeController.text.trim();
     if (!_phonePattern.hasMatch(phone)) {
-      _show('请输入正确的手机号');
+      AppToast.show(context, '请输入正确的手机号');
       return;
     }
     if (code.length != 6) {
-      _show('请输入 6 位验证码');
+      AppToast.show(context, '请输入 6 位验证码');
       return;
     }
     setState(() => _submitting = true);
@@ -106,7 +111,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       context.go(result.isNewUser ? '/onboarding' : '/home');
     } on ApiException catch (error) {
       if (mounted) {
-        _show(error.statusCode == null ? '网络超时,可直接再次点击「登录」重试' : error.message);
+        AppToast.show(
+          context,
+          error.statusCode == null ? '网络超时,可直接再次点击「登录」重试' : error.message,
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -116,66 +124,56 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.bgPage,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(AppSpacing.xxl),
           children: [
-            const SizedBox(height: 60),
+            const SizedBox(height: AppSpacing.xxl),
+            const Center(child: AppBrandMark(key: Key('login.brand'))),
+            const SizedBox(height: AppSpacing.lg),
             Text('交友 Chat',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 8),
-            const Text('手机号登录 / 注册', textAlign: TextAlign.center),
-            const SizedBox(height: 40),
-            TextField(
-              key: const Key('login.phone'),
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              maxLength: 11,
-              decoration: const InputDecoration(
-                labelText: '手机号',
-                counterText: '',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
+                style: AppText.display.copyWith(color: AppColors.text1)),
+            const SizedBox(height: AppSpacing.xs),
+            Text('手机号登录 / 注册',
+                textAlign: TextAlign.center,
+                style: AppText.caption.copyWith(color: AppColors.text2)),
+            const SizedBox(height: AppSpacing.xxl),
+            AppSectionCard(
               children: [
-                Expanded(
-                  child: TextField(
-                    key: const Key('login.code'),
-                    controller: _codeController,
-                    keyboardType: TextInputType.number,
-                    maxLength: 6,
-                    decoration: const InputDecoration(
-                      labelText: '验证码',
-                      counterText: '',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
+                AppTextField(
+                  key: const Key('login.phone'),
+                  controller: _phoneController,
+                  label: '手机号',
+                  keyboardType: TextInputType.phone,
+                  maxLength: 11,
                 ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: 130,
-                  height: 56,
-                  child: OutlinedButton(
+                AppTextField(
+                  key: const Key('login.code'),
+                  controller: _codeController,
+                  label: '验证码',
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  suffix: AppTextAction(
                     key: const Key('login.sendCode'),
+                    label: _countdown > 0 ? '$_countdown 秒后重发' : '获取验证码',
                     onPressed: (_sending || _countdown > 0) ? null : _sendCode,
-                    child: Text(_countdown > 0 ? '$_countdown 秒后重发' : '获取验证码'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            FilledButton(
+            const SizedBox(height: AppSpacing.xxl),
+            AppButton(
               key: const Key('login.submit'),
+              label: _submitting ? '登录中…' : '登录 / 注册',
               onPressed: _submitting ? null : _submit,
-              child: Text(_submitting ? '登录中…' : '登录 / 注册'),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.lg),
             if (kDebugMode)
-              const Text('开发模式:验证码固定 123456',
-                  textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+              Text('开发模式:验证码固定 123456',
+                  textAlign: TextAlign.center,
+                  style: AppText.micro.copyWith(color: AppColors.text3)),
           ],
         ),
       ),

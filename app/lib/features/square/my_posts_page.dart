@@ -5,10 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../core/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/app_sub_page_bar.dart';
 import '../../core/widgets/app_toast.dart';
 import '../chat/widgets/photo_viewer.dart';
 import 'models.dart';
@@ -65,7 +65,7 @@ class _MyPostsPageState extends ConsumerState<MyPostsPage> {
         bottom: false,
         child: Column(
           children: [
-            _SubPageBar(
+            AppSubPageBar(
               title: '我的动态',
               backKey: const Key('myPosts.back'),
             ),
@@ -124,42 +124,4 @@ class _MyPostsPageState extends ConsumerState<MyPostsPage> {
       ),
     );
   }
-}
-
-/// 二级页顶栏(§5.2):高 52,返回 + 居中标题。
-/// Task 6 的详情页会复制同款(两页各自私有,不抽共享组件——两处共 20 行)。
-class _SubPageBar extends StatelessWidget {
-  const _SubPageBar({
-    required this.title,
-    required this.backKey,
-  });
-
-  final String title;
-  final Key backKey;
-
-  static const _height = 52.0;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        height: _height,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Text(title,
-                style: AppText.subtitle.copyWith(
-                    fontSize: 17, color: AppColors.text1)), // 17/w600(§5.2)
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              child: IconButton(
-                key: backKey,
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                    size: 22, color: AppColors.text1),
-              ),
-            ),
-          ],
-        ),
-      );
 }

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/profile/widgets/photo_grid.dart';
 
+import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
 
@@ -62,5 +63,6 @@ void main() {
 
     expect(find.text('图片不能超过 5MB'), findsOneWidget);
     expect(adapter.log.where((r) => r.path == '/users/me/photos'), isEmpty);
+    await drainToast(tester); // 『图片不能超过 5MB』走 AppToast,2s Timer 收尾
   });
 }

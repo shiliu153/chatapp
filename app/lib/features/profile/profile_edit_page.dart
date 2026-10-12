@@ -3,12 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/app_form_skeleton.dart';
+import '../../core/widgets/app_section_card.dart';
+import '../../core/widgets/app_sub_page_bar.dart';
+import '../../core/widgets/app_text_action.dart';
+import '../../core/widgets/app_toast.dart';
 import 'models.dart';
 import 'profile_controller.dart';
 import 'widgets/photo_grid.dart';
 import 'widgets/profile_form_fields.dart';
 import 'widgets/tag_selector.dart';
 
+/// 编辑资料(附录 E):二级页顶栏 + 三张分组卡(基本信息 / 关于我 / 照片)。
 class ProfileEditPage extends ConsumerStatefulWidget {
   const ProfileEditPage({super.key});
 
@@ -45,20 +55,14 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
     _tagIds = profile.tags.map((tag) => tag.id).toSet();
   }
 
-  void _show(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
   Future<void> _save() async {
     final nickname = _nickname.text.trim();
     if (nickname.isEmpty) {
-      _show('请填写昵称');
+      AppToast.show(context, '请填写昵称');
       return;
     }
     if (_birthday != null && !isAtLeast18(_birthday!)) {
-      _show('未满 18 周岁,无法使用本应用');
+      AppToast.show(context, '未满 18 周岁,无法使用本应用');
       return;
     }
 
@@ -75,10 +79,10 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
     try {
       await ref.read(profileProvider.notifier).save(patch);
       if (!mounted) return;
-      _show('已保存');
+      AppToast.show(context, '已保存');
       Navigator.of(context).pop();
     } on ApiException catch (error) {
-      if (mounted) _show(error.message);
+      if (mounted) AppToast.show(context, error.message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -88,58 +92,86 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('编辑资料'),
-        actions: [
-          TextButton(
-            key: const Key('edit.save'),
-            onPressed: _saving ? null : _save,
-            child: Text(_saving ? '保存中…' : '保存'),
-          ),
-        ],
-      ),
-      body: profile.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$error'),
-              FilledButton(
-                onPressed: () => ref.read(profileProvider.notifier).reload(),
-                child: const Text('重试'),
+      backgroundColor: AppColors.bgPage,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            AppSubPageBar(
+              title: '编辑资料',
+              trailing: AppTextAction(
+                key: const Key('edit.save'),
+                label: _saving ? '保存中…' : '保存',
+                onPressed: _saving ? null : _save,
               ),
-            ],
-          ),
+            ),
+            Expanded(
+              child: profile.when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.all(AppSpacing.pageH),
+                  child: AppFormSkeleton(key: Key('edit.skeleton')),
+                ),
+                error: (error, _) => AppErrorView(
+                  message: apiMessageOf(error),
+                  retryKey: const Key('edit.retry'),
+                  onRetry: () => ref.read(profileProvider.notifier).reload(),
+                ),
+                data: (data) {
+                  _prefill(data);
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.pageH,
+                        AppSpacing.md, AppSpacing.pageH, AppSpacing.xxl),
+                    children: [
+                      AppSectionCard(
+                        title: '基本信息',
+                        children: [
+                          NicknameField(controller: _nickname),
+                          GenderSelector(
+                            value: _gender,
+                            onChanged: (value) =>
+                                setState(() => _gender = value),
+                          ),
+                          BirthdayField(
+                            value: _birthday,
+                            onChanged: (value) =>
+                                setState(() => _birthday = value),
+                          ),
+                          CityField(controller: _city),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.cardGap),
+                      AppSectionCard(
+                        title: '关于我',
+                        children: [
+                          BioField(controller: _bio),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('标签',
+                                  style: AppText.caption
+                                      .copyWith(color: AppColors.text2)),
+                              const SizedBox(height: AppSpacing.sm),
+                              TagSelector(
+                                selectedIds: _tagIds,
+                                onChanged: (ids) =>
+                                    setState(() => _tagIds = ids),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.cardGap),
+                      const AppSectionCard(
+                        title: '照片',
+                        children: [PhotoGrid()],
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-        data: (data) {
-          _prefill(data);
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              NicknameField(controller: _nickname),
-              const SizedBox(height: 16),
-              GenderSelector(
-                  value: _gender, onChanged: (value) => setState(() => _gender = value)),
-              const SizedBox(height: 16),
-              BirthdayField(
-                  value: _birthday, onChanged: (value) => setState(() => _birthday = value)),
-              const SizedBox(height: 16),
-              CityField(controller: _city),
-              const SizedBox(height: 16),
-              BioField(controller: _bio),
-              const SizedBox(height: 16),
-              Text('标签', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              TagSelector(
-                  selectedIds: _tagIds, onChanged: (ids) => setState(() => _tagIds = ids)),
-              const SizedBox(height: 24),
-              Text('照片', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              const PhotoGrid(),
-            ],
-          );
-        },
       ),
     );
   }

@@ -2,10 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/app_form_skeleton.dart';
+import '../../core/widgets/app_option_group.dart';
+import '../../core/widgets/app_range_field.dart';
+import '../../core/widgets/app_section_card.dart';
+import '../../core/widgets/app_sub_page_bar.dart';
+import '../../core/widgets/app_text_action.dart';
+import '../../core/widgets/app_text_field.dart';
+import '../../core/widgets/app_toast.dart';
 import 'models.dart';
 import 'profile_controller.dart';
 import 'profile_repository.dart';
 
+/// 想找的人(附录 E):目标性别 / 年龄区间 / 城市。
 class PreferencePage extends ConsumerStatefulWidget {
   const PreferencePage({super.key});
 
@@ -37,12 +49,6 @@ class _PreferencePageState extends ConsumerState<PreferencePage> {
     _city.text = preference.city;
   }
 
-  void _show(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
@@ -53,10 +59,10 @@ class _PreferencePageState extends ConsumerState<PreferencePage> {
         'city': _city.text.trim(),
       });
       if (!mounted) return;
-      _show('已保存');
+      AppToast.show(context, '已保存');
       Navigator.of(context).pop();
     } on ApiException catch (error) {
-      if (mounted) _show(error.message);
+      if (mounted) AppToast.show(context, error.message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -66,75 +72,84 @@ class _PreferencePageState extends ConsumerState<PreferencePage> {
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('想找的人'),
-        actions: [
-          TextButton(
-            key: const Key('preference.save'),
-            onPressed: _saving ? null : _save,
-            child: Text(_saving ? '保存中…' : '保存'),
-          ),
-        ],
-      ),
-      body: profile.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$error'),
-              FilledButton(
-                onPressed: () => ref.read(profileProvider.notifier).reload(),
-                child: const Text('重试'),
+      backgroundColor: AppColors.bgPage,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            AppSubPageBar(
+              title: '想找的人',
+              trailing: AppTextAction(
+                key: const Key('preference.save'),
+                label: _saving ? '保存中…' : '保存',
+                onPressed: _saving ? null : _save,
               ),
-            ],
-          ),
-        ),
-        data: (data) {
-          _prefill(data.preference);
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Text('我想找', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'any', label: Text('不限')),
-                  ButtonSegment(value: 'male', label: Text('男')),
-                  ButtonSegment(value: 'female', label: Text('女')),
-                ],
-                selected: {_targetGender ?? 'any'},
-                onSelectionChanged: (selection) => setState(() {
-                  final value = selection.first;
-                  _targetGender = value == 'any' ? null : value;
-                }),
-              ),
-              const SizedBox(height: 24),
-              Text('年龄 ${_ageRange.start.round()} – ${_ageRange.end.round()} 岁',
-                  style: Theme.of(context).textTheme.titleMedium),
-              RangeSlider(
-                values: _ageRange,
-                min: 18,
-                max: 99,
-                divisions: 81,
-                labels: RangeLabels(_ageRange.start.round().toString(),
-                    _ageRange.end.round().toString()),
-                onChanged: (values) => setState(() => _ageRange = values),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                key: const Key('preference.city'),
-                controller: _city,
-                maxLength: 50,
-                decoration: const InputDecoration(
-                  labelText: '城市(留空 = 不限)',
-                  counterText: '',
-                  border: OutlineInputBorder(),
+            ),
+            Expanded(
+              child: profile.when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.all(AppSpacing.pageH),
+                  child: AppFormSkeleton(key: Key('preference.skeleton')),
                 ),
+                error: (error, _) => AppErrorView(
+                  message: apiMessageOf(error),
+                  retryKey: const Key('preference.retry'),
+                  onRetry: () => ref.read(profileProvider.notifier).reload(),
+                ),
+                data: (data) {
+                  _prefill(data.preference);
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.pageH,
+                        AppSpacing.md, AppSpacing.pageH, AppSpacing.xxl),
+                    children: [
+                      AppSectionCard(
+                        title: '我想找',
+                        children: [
+                          AppOptionGroup<String>(
+                            options: const [
+                              AppOption(value: 'any', label: '不限'),
+                              AppOption(value: 'male', label: '男'),
+                              AppOption(value: 'female', label: '女'),
+                            ],
+                            value: _targetGender ?? 'any',
+                            onChanged: (value) => setState(() =>
+                                _targetGender = value == 'any' ? null : value),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.cardGap),
+                      AppSectionCard(
+                        children: [
+                          AppRangeField(
+                            title:
+                                '年龄 ${_ageRange.start.round()} – ${_ageRange.end.round()} 岁',
+                            values: _ageRange,
+                            min: 18,
+                            max: 99,
+                            divisions: 81,
+                            onChanged: (values) =>
+                                setState(() => _ageRange = values),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.cardGap),
+                      AppSectionCard(
+                        children: [
+                          AppTextField(
+                            key: const Key('preference.city'),
+                            controller: _city,
+                            label: '城市(留空 = 不限)',
+                            maxLength: 50,
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
               ),
-            ],
-          );
-        },
+            ),
+          ],
+        ),
       ),
     );
   }

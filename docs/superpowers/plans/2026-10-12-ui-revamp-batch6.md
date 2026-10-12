@@ -35,7 +35,7 @@
 **Interfaces:**
 - Produces: 分支 `ui/batch6`(后续全部任务在此分支提交)
 
-- [ ] **Step 1: 建分支**
+- [x] **Step 1: 建分支**
 
 ```bash
 git checkout master && git merge --ff-only origin/master
@@ -43,7 +43,7 @@ git checkout -b ui/batch6
 git log --oneline -2   # 应含 7f18181(spec)
 ```
 
-- [ ] **Step 2: 基线全绿**
+- [x] **Step 2: 基线全绿**
 
 ```bash
 cd app
@@ -67,7 +67,7 @@ Expected: analyze 零告警;296 全绿。红了先停下排查,别带病开工�
 - Consumes: `AppText` / `AppColors`
 - Produces: `class AppSubPageBar extends StatelessWidget`,构造 `const AppSubPageBar({super.key, required String title, Key? backKey, VoidCallback? onBack, Widget? trailing, bool showBack = true})`;静态常量 `AppSubPageBar.height = 52.0`。Task 9–17 的全部二级页依赖这个签名。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/app_sub_page_bar_test.dart
@@ -117,7 +117,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -126,7 +126,7 @@ cd app
 
 Expected: FAIL,`app_sub_page_bar.dart` 不存在(编译错误)。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```dart
 // app/lib/core/widgets/app_sub_page_bar.dart
@@ -198,7 +198,7 @@ class AppSubPageBar extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_sub_page_bar_test.dart
@@ -206,7 +206,7 @@ class AppSubPageBar extends StatelessWidget {
 
 Expected: 3 例 PASS。
 
-- [ ] **Step 5: 替换两处私有副本**
+- [x] **Step 5: 替换两处私有副本**
 
 `app/lib/features/square/my_posts_page.dart`:
 
@@ -232,7 +232,7 @@ Expected: 3 例 PASS。
 
 删掉 `:271-302` 整个 `_DetailBar` 类(含注释);import 区加 `import '../../core/widgets/app_sub_page_bar.dart';`(按字母序插在 `app_toast.dart` 之后)。
 
-- [ ] **Step 6: 跑两页既有测试确认零回归**
+- [x] **Step 6: 跑两页既有测试确认零回归**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/my_posts_page_test.dart test/features/square/post_detail_page_test.dart test/features/square/hero_transition_test.dart test/features/square/card_hero_flow_test.dart
@@ -240,7 +240,7 @@ Expected: 3 例 PASS。
 
 Expected: 全 PASS(纯替换,视觉与行为不变)。
 
-- [ ] **Step 7: 全量门槛 + 提交**
+- [x] **Step 7: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -265,7 +265,7 @@ git commit -m "refactor(ui): 抽出 AppSubPageBar,取代我的动态/详情页�
   - `class AppBrandMark extends StatelessWidget`,构造 `const AppBrandMark({super.key, double size = 72})`;根 `Container` 带 `Key` 由调用方传(login 传 `login.brand`、splash 传 `splash.brand`)。
   - `class AppTextAction extends StatelessWidget`,构造 `const AppTextAction({super.key, required String label, VoidCallback? onPressed, bool danger = false})`;`onPressed == null` 时文字 `text3`(禁用),否则 `brand`(或 `danger`)。**§7 文字按钮的紧凑形态**(无 52 高、无水平大内边距),用于输入框内嵌动作与二级页顶栏动作。Task 3 的 `AppTextField.suffix`、Task 9–17 的顶栏 trailing 依赖它。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/app_brand_mark_test.dart
@@ -352,7 +352,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_brand_mark_test.dart test/core/widgets/app_text_action_test.dart
@@ -360,7 +360,7 @@ void main() {
 
 Expected: FAIL,两个文件都不存在(编译错误)。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```dart
 // app/lib/core/widgets/app_brand_mark.dart
@@ -441,7 +441,7 @@ class AppTextAction extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_brand_mark_test.dart test/core/widgets/app_text_action_test.dart
@@ -449,7 +449,7 @@ class AppTextAction extends StatelessWidget {
 
 Expected: 4 例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -494,7 +494,7 @@ const AppTextField({
 
   单行盒高恒为 **52**(`AppTextField.singleLineHeight`);`maxLength != null` 时渲染 `x/y` 计数(有 `counterKey` 则挂上去);`borderless: true` 去掉底色/描边/圆角(发动态正文用)。Task 9–17 全部表单页依赖它。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/app_text_field_test.dart
@@ -609,7 +609,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_text_field_test.dart
@@ -617,7 +617,7 @@ void main() {
 
 Expected: FAIL,`app_text_field.dart` 不存在(编译错误)。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```dart
 // app/lib/core/widgets/app_text_field.dart
@@ -819,7 +819,7 @@ class _AppTextFieldState extends State<AppTextField> {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_text_field_test.dart
@@ -827,7 +827,7 @@ class _AppTextFieldState extends State<AppTextField> {
 
 Expected: 5 例 PASS。若「聚焦描边」例找不到 `AnimatedContainer`(边框动画被合并),把断言目标换成 `find.byType(AnimatedContainer).first` 并把 `_focused` 初值确认无误——实现里盒子必须包在 `AnimatedContainer` 内。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -854,7 +854,7 @@ git commit -m "feat(ui): AppTextField — R16 描边/聚焦光晕/自绘计数/�
   - `class AppChipGroup<T> extends StatelessWidget`,构造 `const AppChipGroup({super.key, required List<AppOption<T>> items, required Set<T> selected, required ValueChanged<Set<T>> onChanged})`。
   - Task 9(编辑资料性别)、Task 10(想找的人)、Task 11(引导页性别)、Task 9/11(标签)依赖。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/app_option_group_test.dart
@@ -965,7 +965,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_option_group_test.dart test/core/widgets/app_chip_group_test.dart
@@ -973,7 +973,7 @@ void main() {
 
 Expected: FAIL,两个文件都不存在(编译错误)。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```dart
 // app/lib/core/widgets/app_option_group.dart
@@ -1132,7 +1132,7 @@ class AppChipGroup<T> extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_option_group_test.dart test/core/widgets/app_chip_group_test.dart
@@ -1140,7 +1140,7 @@ class AppChipGroup<T> extends StatelessWidget {
 
 Expected: 3 例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -1166,7 +1166,7 @@ git commit -m "feat(ui): AppOptionGroup(渐变选中分段)+ AppChipGroup(多选
   - `class AppRangeField extends StatelessWidget`,构造 `const AppRangeField({super.key, required String title, required RangeValues values, required double min, required double max, int? divisions, required ValueChanged<RangeValues> onChanged})`;选中轨道用 `gradientHeart` 着色(自绘 `_GradientRangeTrackShape`)。
   - Task 9 / Task 11 的生日字段、Task 10 的年龄区间依赖。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/app_picker_field_test.dart
@@ -1261,7 +1261,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_picker_field_test.dart test/core/widgets/app_range_field_test.dart
@@ -1269,7 +1269,7 @@ void main() {
 
 Expected: FAIL,两个文件都不存在(编译错误)。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```dart
 // app/lib/core/widgets/app_picker_field.dart
@@ -1461,7 +1461,7 @@ class _GradientRangeTrackShape extends RangeSliderTrackShape
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_picker_field_test.dart test/core/widgets/app_range_field_test.dart
@@ -1469,7 +1469,7 @@ class _GradientRangeTrackShape extends RangeSliderTrackShape
 
 Expected: 3 例 PASS。若 `RoundRangeSliderThumbShape` 的 `elevation` 参数在当前 Flutter 版本不存在,删掉 `elevation`/`pressedElevation` 两个具名参数(保留 `enabledThumbRadius`)——以 `flutter analyze` 报错为准。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -1498,7 +1498,7 @@ git commit -m "feat(ui): AppPickerField(选择框)+ AppRangeField(渐变轨道�
   - `class AppListRow extends StatefulWidget`,构造 `const AppListRow({super.key, IconData? icon, Widget? avatar, required String title, String? subtitle, Widget? trailing, VoidCallback? onTap, bool danger = false, bool showChevron = true, bool centerTitle = false})`;静态常量 `AppListRow.height = 64.0`。
   - Task 9–17 全部分组卡片与列表行依赖。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/app_section_card_test.dart
@@ -1639,7 +1639,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_section_card_test.dart test/core/widgets/app_row_group_test.dart test/core/widgets/app_list_row_test.dart
@@ -1647,7 +1647,7 @@ void main() {
 
 Expected: FAIL,三个文件都不存在(编译错误)。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```dart
 // app/lib/core/widgets/app_section_card.dart
@@ -1869,7 +1869,7 @@ class _AppListRowState extends State<AppListRow> {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_section_card_test.dart test/core/widgets/app_row_group_test.dart test/core/widgets/app_list_row_test.dart
@@ -1877,7 +1877,7 @@ class _AppListRowState extends State<AppListRow> {
 
 Expected: 5 例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -1905,7 +1905,7 @@ git commit -m "feat(ui): AppSectionCard / AppRowGroup / AppListRow(分组卡与�
   - `Future<bool> showConfirmDialog(BuildContext context, {required String title, String? message, String cancelLabel = '取消', required String confirmLabel, bool danger = false, Key? confirmKey, bool barrierDismissible = true})`。
   - Task 12–17 的确认框与协议弹窗依赖。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/app_dialog_test.dart
@@ -2010,7 +2010,7 @@ void main() {
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_dialog_test.dart test/core/widgets/app_button_test.dart
@@ -2018,7 +2018,7 @@ void main() {
 
 Expected: FAIL —— `app_dialog.dart` 不存在;`dangerFilled` 未定义。
 
-- [ ] **Step 3: 给 `AppButton` 加 `dangerFilled`**
+- [x] **Step 3: 给 `AppButton` 加 `dangerFilled`**
 
 `app/lib/core/widgets/app_button.dart`,把枚举与 switch 各加一支:
 
@@ -2045,7 +2045,7 @@ enum AppButtonVariant { primary, secondary, text, danger, dangerFilled }
         ),
 ```
 
-- [ ] **Step 4: 写 `AppDialog`**
+- [x] **Step 4: 写 `AppDialog`**
 
 ```dart
 // app/lib/core/widgets/app_dialog.dart
@@ -2159,7 +2159,7 @@ Future<bool> showConfirmDialog(
 }
 ```
 
-- [ ] **Step 5: 接入删除动态确认**
+- [x] **Step 5: 接入删除动态确认**
 
 `app/lib/features/square/post_actions.dart`,把 `confirmDeletePost` 整段替换(其余不动):
 
@@ -2176,7 +2176,7 @@ Future<bool> confirmDeletePost(BuildContext context) => showConfirmDialog(
 
 import 区:`import '../../core/widgets/app_toast.dart';` 之后加 `import '../../core/widgets/app_dialog.dart';`(按字母序 `app_dialog` 在 `app_toast` 之前,请放前面)。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_dialog_test.dart test/core/widgets/app_button_test.dart test/features/square/square_page_test.dart test/features/square/my_posts_page_test.dart test/features/square/post_detail_page_test.dart
@@ -2184,7 +2184,7 @@ import 区:`import '../../core/widgets/app_toast.dart';` 之后加 `import '../.
 
 Expected: 全 PASS。`square_page_test` 的删除用例断言 `post.delete.confirm` key,保留不变。
 
-- [ ] **Step 7: 全量门槛 + 提交**
+- [x] **Step 7: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -2210,7 +2210,7 @@ git commit -m "feat(ui): AppDialog/showConfirmDialog + AppButton.dangerFilled;�
   - `class AppFormSkeleton extends StatelessWidget`,构造 `const AppFormSkeleton({super.key, int fields = 3})`;每段 = 标签条(64×12)+ 输入框块(通栏×52,`AppRadius.input`)。**含无限呼吸动画,相关用例只用有限 pump。**
   - Task 11(引导页进度)、Task 9/10/11(表单骨架)依赖。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/app_progress_bar_test.dart
@@ -2282,7 +2282,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_progress_bar_test.dart test/core/widgets/app_form_skeleton_test.dart
@@ -2290,7 +2290,7 @@ void main() {
 
 Expected: FAIL,两个文件都不存在(编译错误)。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```dart
 // app/lib/core/widgets/app_progress_bar.dart
@@ -2367,7 +2367,7 @@ class AppFormSkeleton extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/app_progress_bar_test.dart test/core/widgets/app_form_skeleton_test.dart
@@ -2375,7 +2375,7 @@ class AppFormSkeleton extends StatelessWidget {
 
 Expected: 3 例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -2400,7 +2400,7 @@ git commit -m "feat(ui): AppProgressBar(分段进度)+ AppFormSkeleton(表单骨
 - Consumes: Task 1–8 的全部组件
 - Produces: `NicknameField` / `GenderSelector` / `BirthdayField` / `CityField` / `BioField` 对外构造签名**不变**(引导页共用);`TagSelector({required Set<int> selectedIds, required ValueChanged<Set<int>> onChanged})` 不变;`PhotoGrid({PickImage pickImage, int maxCount = 6})` 不变。Task 11 复用前四个字段组件与 `TagSelector`/`PhotoGrid`。
 
-- [ ] **Step 1: 改既有断言(让现状红)**
+- [x] **Step 1: 改既有断言(让现状红)**
 
 `app/test/features/profile/profile_edit_page_test.dart`:
 
@@ -2421,7 +2421,7 @@ git commit -m "feat(ui): AppProgressBar(分段进度)+ AppFormSkeleton(表单骨
     await drainToast(tester); // 『图片不能超过 5MB』走 AppToast,2s Timer 收尾
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/profile/profile_edit_page_test.dart test/features/profile/photo_grid_test.dart
@@ -2429,7 +2429,7 @@ git commit -m "feat(ui): AppProgressBar(分段进度)+ AppFormSkeleton(表单骨
 
 Expected: 先 FAIL —— 当前还是 `SnackBar`,没有 2s Timer,`drainToast` 不会报错但用例名/断言仍过;真正的红来自 Task 9 Step 5 改完提示通道后的行为变化。**此步的目的只是先把收尾脚手架放好**,若此时全绿属正常。
 
-- [ ] **Step 3: 重写 `profile_form_fields.dart`**
+- [x] **Step 3: 重写 `profile_form_fields.dart`**
 
 ```dart
 // app/lib/features/profile/widgets/profile_form_fields.dart 整文件替换
@@ -2546,7 +2546,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 ```
 
-- [ ] **Step 4: 重写 `tag_selector.dart`**
+- [x] **Step 4: 重写 `tag_selector.dart`**
 
 ```dart
 // app/lib/features/profile/widgets/tag_selector.dart 整文件替换
@@ -2599,7 +2599,7 @@ class TagSelector extends ConsumerWidget {
 }
 ```
 
-- [ ] **Step 5: 重写 `photo_grid.dart`**
+- [x] **Step 5: 重写 `photo_grid.dart`**
 
 ```dart
 // app/lib/features/profile/widgets/photo_grid.dart 整文件替换
@@ -2808,7 +2808,7 @@ class _AddTileState extends State<_AddTile> {
 }
 ```
 
-- [ ] **Step 6: 重写 `profile_edit_page.dart`**
+- [x] **Step 6: 重写 `profile_edit_page.dart`**
 
 ```dart
 // app/lib/features/profile/profile_edit_page.dart 整文件替换
@@ -2992,7 +2992,7 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
 }
 ```
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/profile/
@@ -3000,7 +3000,7 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
 
 Expected: 全 PASS。若「加载中骨架」让某个 `pumpAndSettle` 超时,把该用例的 `pumpAndSettle` 换 `pumpFrames(tester)`(profileProvider 在真实链路里已预加载,通常不会触发)。
 
-- [ ] **Step 8: 全量门槛 + 提交**
+- [x] **Step 8: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -3021,7 +3021,7 @@ git commit -m "feat(ui): 编辑资料页 — 二级页顶栏/三张分组卡/表
 - Consumes: `AppSubPageBar` / `AppTextAction` / `AppSectionCard` / `AppOptionGroup` / `AppRangeField` / `AppTextField` / `AppFormSkeleton` / `AppErrorView` / `AppToast` / `apiMessageOf`
 - Produces: 页面级改动,无对外接口。key `preference.city` / `preference.save` 保留;新增 `preference.skeleton` / `preference.retry`。
 
-- [ ] **Step 1: 改既有断言**
+- [x] **Step 1: 改既有断言**
 
 `app/test/features/profile/preference_page_test.dart`,`:36` 之后补:
 
@@ -3029,7 +3029,7 @@ git commit -m "feat(ui): 编辑资料页 — 二级页顶栏/三张分组卡/表
     await drainToast(tester); // 『已保存』走 AppToast(挂根 Overlay,pop 后仍存活)
 ```
 
-- [ ] **Step 2: 重写页面**
+- [x] **Step 2: 重写页面**
 
 ```dart
 // app/lib/features/profile/preference_page.dart 整文件替换
@@ -3191,7 +3191,7 @@ class _PreferencePageState extends ConsumerState<PreferencePage> {
 }
 ```
 
-- [ ] **Step 3: 跑测试确认通过**
+- [x] **Step 3: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/profile/preference_page_test.dart
@@ -3199,7 +3199,7 @@ class _PreferencePageState extends ConsumerState<PreferencePage> {
 
 Expected: PASS(`find.text('女')` 命中 `AppOptionGroup` 的段文字;`preference.save` 命中 `AppTextAction`)。
 
-- [ ] **Step 4: 全量门槛 + 提交**
+- [x] **Step 4: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -3220,7 +3220,7 @@ git commit -m "feat(ui): 想找的人页 — 分组卡 + 渐变分段 + 渐变�
 - Consumes: Task 9 的 `NicknameField` / `GenderSelector` / `BirthdayField` / `CityField` / `BioField` / `TagSelector` / `PhotoGrid`;`AppSubPageBar` / `AppTextAction` / `AppProgressBar` / `AppSectionCard` / `AppButton` / `AppErrorView` / `AppToast`
 - Produces: 纯函数 `validateBasicStep` / `validateAboutStep` 签名与返回值**零变化**(既有单测不动);key `onboarding.next` 保留;新增 `onboarding.progress` / `onboarding.retry`。
 
-- [ ] **Step 1: 改既有断言**
+- [x] **Step 1: 改既有断言**
 
 `app/test/features/onboarding/onboarding_page_test.dart`,`:74` 之后补:
 
@@ -3228,7 +3228,7 @@ git commit -m "feat(ui): 想找的人页 — 分组卡 + 渐变分段 + 渐变�
     await drainToast(tester); // 『请填写城市』走 AppToast,2s Timer 收尾
 ```
 
-- [ ] **Step 2: 重写页面**
+- [x] **Step 2: 重写页面**
 
 ```dart
 // app/lib/features/onboarding/onboarding_page.dart 整文件替换
@@ -3567,7 +3567,7 @@ class _StepPhotos extends StatelessWidget {
 
 **注意**:`AppProgressBar` 的 `current` 必须随 `_step` 变(上面已是 `current: _step`,不要再加 `const`)。
 
-- [ ] **Step 3: 跑测试确认通过**
+- [x] **Step 3: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/onboarding/onboarding_page_test.dart
@@ -3575,7 +3575,7 @@ class _StepPhotos extends StatelessWidget {
 
 Expected: 3 例 PASS(「第 1 步 / 共 3 步」「第 2 步 / 共 3 步」文案保留、`onboarding.next` key 保留、校验纯函数未动)。
 
-- [ ] **Step 4: 全量门槛 + 提交**
+- [x] **Step 4: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -3598,7 +3598,7 @@ git commit -m "feat(ui): 引导页 — 顶栏/分段进度/三步分组卡表单
 - Consumes: `AppBrandMark` / `AppSectionCard` / `AppTextField` / `AppTextAction` / `AppButton` / `AppToast`
 - Produces: 页面级改动,无对外接口。key `login.phone` / `login.code` / `login.sendCode` / `login.submit` 保留;新增 `login.brand`。**品牌区必须静态**(Global Constraints)。
 
-- [ ] **Step 1: 改既有断言**
+- [x] **Step 1: 改既有断言**
 
 `app/test/features/auth/login_page_test.dart`:在三个用例的末尾断言之后各补一行。
 
@@ -3631,7 +3631,7 @@ git commit -m "feat(ui): 引导页 — 顶栏/分段进度/三步分组卡表单
     await drainToast(tester); // 被顶号原因提示走 AppToast
 ```
 
-- [ ] **Step 2: 重写页面**
+- [x] **Step 2: 重写页面**
 
 ```dart
 // app/lib/features/auth/login_page.dart 整文件替换
@@ -3819,7 +3819,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 }
 ```
 
-- [ ] **Step 3: 跑测试确认通过**
+- [x] **Step 3: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/auth/ test/features/legal/agreement_gate_test.dart
@@ -3827,7 +3827,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
 Expected: 全 PASS。
 
-- [ ] **Step 4: 全量门槛 + 提交**
+- [x] **Step 4: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -3849,7 +3849,7 @@ git commit -m "feat(ui): 登录页 — 静态品牌区 + 表单卡 + 输入框�
 - Consumes: `AppBrandMark` / `AppButton` / `AppErrorView` / `AppDialog` / `AppTextAction`
 - Produces: `showAgreementDialog(BuildContext) → Future<bool?>` 签名与返回值**不变**;key `splash.reread` / `agreement.accept` / `agreement.decline` 保留;新增 `splash.brand` / `splash.retry`。
 
-- [ ] **Step 1: 更新过期注释**
+- [x] **Step 1: 更新过期注释**
 
 `app/test/features/legal/agreement_gate_test.dart:11`:
 
@@ -3859,7 +3859,7 @@ git commit -m "feat(ui): 登录页 — 静态品牌区 + 表单卡 + 输入框�
   Future<void> pumpUntilDialog(WidgetTester tester) async {
 ```
 
-- [ ] **Step 2: 重写协议弹窗**
+- [x] **Step 2: 重写协议弹窗**
 
 ```dart
 // app/lib/features/legal/agreement_dialog.dart 整文件替换
@@ -3909,7 +3909,7 @@ Future<bool?> showAgreementDialog(BuildContext context) => showDialog<bool>(
     );
 ```
 
-- [ ] **Step 3: 重写启动页**
+- [x] **Step 3: 重写启动页**
 
 ```dart
 // app/lib/features/auth/splash_page.dart 整文件替换
@@ -4019,7 +4019,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/legal/ test/features/auth/
@@ -4027,7 +4027,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 
 Expected: 全 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -4048,7 +4048,7 @@ git commit -m "feat(ui): 启动页静态品牌区(去常驻转圈)+ 协议弹窗
 - Consumes: `AppSubPageBar` / `AppRowGroup` / `AppListRow` / `showConfirmDialog`
 - Produces: 页面级改动,无对外接口。新增 key `settings.row.blocks` / `settings.row.agreement` / `settings.row.privacy` / `settings.logout`。
 
-- [ ] **Step 1: 加断言**
+- [x] **Step 1: 加断言**
 
 `app/test/features/settings/settings_page_test.dart`,`:26`(`await tester.pumpAndSettle();` 进设置页之后)插入:
 
@@ -4059,7 +4059,7 @@ git commit -m "feat(ui): 启动页静态品牌区(去常驻转圈)+ 协议弹窗
     expect(find.byKey(const Key('settings.logout')), findsOneWidget);
 ```
 
-- [ ] **Step 2: 重写页面**
+- [x] **Step 2: 重写页面**
 
 ```dart
 // app/lib/features/settings/settings_page.dart 整文件替换
@@ -4148,7 +4148,7 @@ class SettingsPage extends ConsumerWidget {
 }
 ```
 
-- [ ] **Step 3: 跑测试确认通过**
+- [x] **Step 3: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/settings/settings_page_test.dart
@@ -4156,7 +4156,7 @@ class SettingsPage extends ConsumerWidget {
 
 Expected: PASS(`find.text('退出登录')` 命中居中行,`find.text('退出')` 命中 `AppDialog` 的确认按钮)。
 
-- [ ] **Step 4: 全量门槛 + 提交**
+- [x] **Step 4: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -4178,7 +4178,7 @@ git commit -m "feat(ui): 设置页 — 二级页顶栏 + 行分组卡 + 居中�
 - Consumes: `AppSubPageBar` / `AppListRow` / `AppAvatar` / `AppTextAction` / `AppEmptyState` / `AppErrorView` / `AppSkeleton` / `showConfirmDialog` / `AppToast` / `apiMessageOf`
 - Produces: `class BlockedUsersSkeleton extends StatelessWidget`,构造 `const BlockedUsersSkeleton({super.key})`,根 key `blocked.skeleton`。页面新增 key `blocked.empty` / `blocked.retry`;`unblock.{id}` / `unblock.confirm` 保留。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/features/settings/blocked_users_page_test.dart`:
 
@@ -4209,7 +4209,7 @@ git commit -m "feat(ui): 设置页 — 二级页顶栏 + 行分组卡 + 居中�
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/settings/blocked_users_page_test.dart
@@ -4217,7 +4217,7 @@ git commit -m "feat(ui): 设置页 — 二级页顶栏 + 行分组卡 + 居中�
 
 Expected: FAIL(`blocked.retry` / `blocked.empty` 不存在)。
 
-- [ ] **Step 3: 写骨架组件**
+- [x] **Step 3: 写骨架组件**
 
 ```dart
 // app/lib/features/settings/widgets/blocked_users_skeleton.dart
@@ -4262,7 +4262,7 @@ class BlockedUsersSkeleton extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 重写页面**
+- [x] **Step 4: 重写页面**
 
 ```dart
 // app/lib/features/settings/blocked_users_page.dart 整文件替换
@@ -4380,7 +4380,7 @@ String _dateLabel(DateTime? time) {
 }
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/settings/blocked_users_page_test.dart
@@ -4388,7 +4388,7 @@ String _dateLabel(DateTime? time) {
 
 Expected: 4 例 PASS。
 
-- [ ] **Step 6: 全量门槛 + 提交**
+- [x] **Step 6: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -4411,7 +4411,7 @@ git commit -m "feat(ui): 黑名单页 — 骨架/空态/错误三态 + 圆头像
 - Consumes: `AppSubPageBar` / `AppTextAction` / `AppTextField` / `AppToast`
 - Produces: `class ComposePhotoGrid extends StatelessWidget`,构造 `const ComposePhotoGrid({super.key, required List<Uint8List> images, required ValueChanged<int> onRemove, required VoidCallback onAdd, int maxCount = 9})`;key `compose.add` / `compose.picked.{i}`。页面保留 `compose.text` / `compose.submit`,新增 `compose.counter`。
 
-- [ ] **Step 1: 改既有断言**
+- [x] **Step 1: 改既有断言**
 
 `app/test/features/square/post_compose_page_test.dart`:
 
@@ -4433,7 +4433,7 @@ import 'package:chatapp_app/core/widgets/app_text_action.dart';
     expect(find.text('发布动态'), findsOneWidget); // 发布页顶栏标题
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/post_compose_page_test.dart
@@ -4441,7 +4441,7 @@ import 'package:chatapp_app/core/widgets/app_text_action.dart';
 
 Expected: FAIL —— 当前顶栏是 `FilledButton`,`tester.widget<AppTextAction>` 类型不符抛错。
 
-- [ ] **Step 3: 写选图网格**
+- [x] **Step 3: 写选图网格**
 
 ```dart
 // app/lib/features/square/widgets/compose_photo_grid.dart
@@ -4579,7 +4579,7 @@ class _AddTileState extends State<_AddTile> {
 }
 ```
 
-- [ ] **Step 4: 重写页面**
+- [x] **Step 4: 重写页面**
 
 ```dart
 // app/lib/features/square/post_compose_page.dart 整文件替换
@@ -4711,7 +4711,7 @@ class _PostComposePageState extends ConsumerState<PostComposePage> {
 }
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/post_compose_page_test.dart test/features/square/square_page_test.dart
@@ -4719,7 +4719,7 @@ class _PostComposePageState extends ConsumerState<PostComposePage> {
 
 Expected: 全 PASS。
 
-- [ ] **Step 6: 全量门槛 + 提交**
+- [x] **Step 6: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -4742,7 +4742,7 @@ git commit -m "feat(ui): 发动态页 — 顶栏发布文字按钮/无边框正�
 - Consumes: `AppSubPageBar` / `AppSectionCard` / `AppButton` / `AppText` / `AppColors`
 - Produces: `LegalPage.agreement` / `LegalPage.privacy` 构造不变;新增 key `legal.back`;`banned.logout` 保留。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/features/legal/legal_page_test.dart 新建
@@ -4776,7 +4776,7 @@ void main() {
     expect(find.byIcon(Icons.block_rounded), findsOneWidget);
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/legal/legal_page_test.dart test/features/shell/banned_page_test.dart
@@ -4784,7 +4784,7 @@ void main() {
 
 Expected: FAIL(`legal.back` 不存在;`block_rounded` 未使用,当前是 `Icons.block`)。
 
-- [ ] **Step 3: 重写协议页**
+- [x] **Step 3: 重写协议页**
 
 ```dart
 // app/lib/features/legal/legal_page.dart 整文件替换
@@ -4839,7 +4839,7 @@ class LegalPage extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 重写封禁页**
+- [x] **Step 4: 重写封禁页**
 
 ```dart
 // app/lib/features/shell/banned_page.dart 整文件替换
@@ -4908,7 +4908,7 @@ class BannedPage extends ConsumerWidget {
 }
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/legal/ test/features/shell/
@@ -4916,7 +4916,7 @@ class BannedPage extends ConsumerWidget {
 
 Expected: 全 PASS。
 
-- [ ] **Step 6: 全量门槛 + 提交**
+- [x] **Step 6: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -4938,7 +4938,7 @@ git commit -m "feat(ui): 协议页(白卡长文)+ 封禁页(danger 圆底大号�
 - Consumes: 前 17 个任务的全部产物
 - Produces: 文档与代码一致;release APK 覆盖安装到模拟器,交用户手测
 
-- [ ] **Step 1: 规则文档升 v1.5**
+- [x] **Step 1: 规则文档升 v1.5**
 
 在 `2026-09-15-ui-design-language-design.md` 的版本行改 `v1.5`,变更记录追加一条;正文 §8 实施顺序那句「⑥ 二级页(登录/引导/设置/编辑等)」标注**已落地(见附录 E)**;§6.2 无需改动(本批无新转场);文件末尾追加附录 E:
 
@@ -4983,7 +4983,7 @@ git commit -m "feat(ui): 协议页(白卡长文)+ 封禁页(danger 圆底大号�
 - 举报底部弹层(`ReportSheet`)不在此列(bottom sheet,§7 已合规)。
 ```
 
-- [ ] **Step 2: 踩坑册新增分节**
+- [x] **Step 2: 踩坑册新增分节**
 
 `docs/pitfalls/frontend.md` 在「## 广场(`features/square/`)」之后插入:
 
@@ -4998,7 +4998,7 @@ git commit -m "feat(ui): 协议页(白卡长文)+ 封禁页(danger 圆底大号�
 - **分组卡两种内边距**:表单内容用 `AppSectionCard`(内边距 16),行式列表用 `AppRowGroup`(无内边距、行自带 16、行间 divider),不要混用。
 ```
 
-- [ ] **Step 3: CLAUDE.md 里程碑与下一步**
+- [x] **Step 3: CLAUDE.md 里程碑与下一步**
 
 里程碑表追加一行(放在批次⑤行之后):
 
@@ -5014,7 +5014,7 @@ git commit -m "feat(ui): 协议页(白卡长文)+ 封禁页(danger 圆底大号�
 
 **注意**:`N` 以 Task 18 Step 4 实测的测试数为准,别写占位符。`<SERVER_IP>` 是测试服地址(私有运维手册里,本地保留、不入库),执行时按 `README.md`「部署」一节取值。
 
-- [ ] **Step 4: 全量门槛 + 打包上模拟器**
+- [x] **Step 4: 全量门槛 + 打包上模拟器**
 
 ```bash
 cd app
@@ -5026,7 +5026,7 @@ adb -s emulator-5554 install -r build/app/outputs/flutter-apk/app-release.apk
 
 Expected: analyze 零告警;全量测试绿(记录实际数字,回填 Step 3 与执行记录);APK 覆盖安装成功。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add -A
@@ -5037,7 +5037,7 @@ git commit -m "docs: 规则文档 v1.5 附录 E + 踩坑册二级页分册 + CLA
 
 ### Task 19: 待用户手测通过后收尾(另一步执行)
 
-- [ ] **Step 1: 回填本文件执行记录**(测试数、任务提交表、手测结果)
+- [x] **Step 1: 回填本文件执行记录**(测试数、任务提交表、手测结果)
 
 - [ ] **Step 2: 合回 master**
 
@@ -5065,3 +5065,53 @@ git branch -d ui/batch6 && git push origin --delete ui/batch6
 9. **协议页**:长文滚动;返回键。
 10. **封禁页**:重封禁账号整屏提示 + 退出登录。
 11. **系统「减弱动态效果」**开启后各页正常;窄屏(360dp)表单不溢出;键盘弹出不遮输入框。
+
+---
+
+## 执行记录(2026-10-12,分支 `ui/batch6`)
+
+**交付结果**
+
+| 门禁 | 结果 |
+|---|---|
+| `flutter analyze` | 0 告警 |
+| `flutter test` | **329 全绿**(基线 296,本批 +33) |
+| `npm run test:run`(web) | 303 全绿(未动 `tokens.css` / `app_colors.dart`,纯回归;含 `tokens.spec.ts` 双向比对) |
+| release APK | 已打包并覆盖安装到 `emulator-5554`,启动无异常(71.0MB,`API_BASE=http://10.0.2.2:8000/api/v1` 本地开发服) |
+| 模拟器手测 | ✅ **用户亲测通过**(登录/启动+协议/引导/编辑资料/想找的人/设置/黑名单/发动态/协议/封禁;手测期间 Django 日志全 2xx) |
+| 合回 master | ⏳ 进行中(PR → CI → squash) |
+
+**任务与提交**
+
+| 任务 | 提交 | 内容 |
+|---|---|---|
+| Task 1 | `6aa0a87` | `AppSubPageBar` + 取代两处私有顶栏副本 |
+| Task 2 | `3cee7e4` | `AppBrandMark`(静态)+ `AppTextAction` |
+| Task 3 | `8e27b19` | `AppTextField`(R16 描边/聚焦光晕/自绘计数/suffix) |
+| Task 4 | `3309367` | `AppOptionGroup` + `AppChipGroup` |
+| Task 5 | `76dd588` | `AppPickerField` + `AppRangeField`(自绘渐变轨道) |
+| Task 6 | `1152d27` | `AppSectionCard` + `AppRowGroup` + `AppListRow` |
+| Task 7 | `10ebbce` | `AppDialog`/`showConfirmDialog` + `AppButton.dangerFilled` + 删除动态确认接入 |
+| Task 8 | `faf85db` | `AppProgressBar` + `AppFormSkeleton` |
+| Task 9 | `46c6812` | 编辑资料页 + 表单字段 + 标签 + 照片网格 3 列 R12 |
+| Task 10 | `c1eb8c7` | 想找的人页 |
+| Task 11 | `828c2e1` | 引导页(顶栏/分段进度/三步分组卡) |
+| Task 12 | `342f8d0` | 登录页(静态品牌区 + 表单卡 + 内嵌验证码按钮) |
+| Task 13 | `c25a218` | 启动页去常驻转圈 + 协议弹窗换 `AppDialog` |
+| Task 14 | `b368e4b` | 设置页(两张行分组卡 + 居中危险退出行) |
+| Task 15 | `47dd5df` | 黑名单页(骨架/空态/错误三态) |
+| Task 16 | `ab84f88` | 发动态页 + `ComposePhotoGrid` |
+| Task 17 | `567f8e0` | 协议页 + 封禁页 |
+| Task 18 | `9bd1816` | 文档同步(规则 v1.5 附录 E + 踩坑册 + CLAUDE.md) |
+
+**执行中的实测发现(已回填规则文档附录 E / 踩坑册)**
+
+1. **`AppListRow` 的 `GestureDetector` 必须 `behavior: opaque`**:默认 `deferToChild` 时,整行右侧空白区(标题文字之外)点不动 —— 单测里表现为「按 key 取中心点 tap 落空、回调不触发」。设置页/黑名单行都会中招。
+2. **表单组件的外层 `Column` 在宽松高度约束下撑满整屏**:`AppTextField` / `AppPickerField` 的根是 `Column(mainAxisSize.max)`,直接放进 `Scaffold(body:)` 时高度 = 整屏,`tester.getSize(find.byKey(...))` 拿到整屏、`tester.tap(find.byKey(...))` 落到盒子外。按 key 取尺寸/坐标做断言或点击时要点内部子件;放进 `ListView`/`Card` 等有界约束里则正常收缩。
+3. **`AppToast.show(context, …)` 写在 async gap 之后会触发 `use_build_context_synchronously`**:`if (!mounted || files.isEmpty) return;` 这种复合守卫 analyzer 不认,要拆成两句,并在每个 `await` 之后补 `if (!mounted) return;`(见 `post_compose_page.dart::_pick`)。
+4. **`AppToast` 收尾清单比预估多一处**:`photo_grid_test` 的『图片不能超过 5MB』也是 Toast(7 文件 12 例 → **8 文件 13 例**)。
+5. **测试文件缺 `support/harness.dart` 会连带拖垮同目录其他文件**:`photo_grid_test.dart` 用了 `drainToast` 但没 import,报错时 `completion_ring_test.dart` 也一起显示 "loading" 失败 —— 排查时以 `flutter analyze` 的 `undefined_function` 为准,别被连带失败误导。
+
+**尚未完成**:合回 master(Task 19 Step 2:PR → CI → squash)。
+
+**手测期运行期证据(2026-10-12,本地开发服 `10.0.2.2:8000`)**:App 侧请求全部 2xx —— `auth/sms/send` → `auth/sms/verify` → `users/me` → `posts` → `discovery/candidates` → `presence`×2 → `im/user_sig` → `matches` → `users/tags` → `PATCH /users/me`×2;无 4xx/5xx。App 进程 logcat 无 Dart 异常(只有模拟器自身的 `uwb-service`/`nfc` 崩溃噪声,以及 IM SDK 的 `community group not open (11000)` 能力探测 —— 均与批次⑥ 无关)。

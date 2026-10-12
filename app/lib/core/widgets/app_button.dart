@@ -8,7 +8,7 @@ import '../theme/app_shadows.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
-enum AppButtonVariant { primary, secondary, text, danger }
+enum AppButtonVariant { primary, secondary, text, danger, dangerFilled }
 
 /// 「心跳」规则 §7 按钮:高 52 胶囊;按压 scale .96。
 class AppButton extends StatefulWidget {
@@ -61,6 +61,15 @@ class _AppButtonState extends State<AppButton> {
             border: Border.all(color: AppColors.danger),
           ),
           AppText.body.copyWith(color: AppColors.danger, fontWeight: FontWeight.w600),
+        ),
+      // §7「危险按钮:danger 描边或实底(二次确认后)」的实底形态。
+      // 不带阴影:同屏阴影层级不超过 2 种(§5.1),且 primaryButton 阴影是 brand 色。
+      AppButtonVariant.dangerFilled => (
+          BoxDecoration(
+            color: disabled ? AppColors.divider : AppColors.danger,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+          ),
+          AppText.body.copyWith(color: Colors.white, fontWeight: FontWeight.w700),
         ),
     };
     if (disabled) {

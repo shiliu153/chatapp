@@ -2,89 +2,104 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/widgets/app_avatar.dart';
+import '../../core/widgets/app_dialog.dart';
+import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/app_list_row.dart';
+import '../../core/widgets/app_sub_page_bar.dart';
+import '../../core/widgets/app_text_action.dart';
+import '../../core/widgets/app_toast.dart';
 import '../moderation/models.dart';
 import '../moderation/moderation_controller.dart';
 import '../moderation/moderation_repository.dart';
+import 'widgets/blocked_users_skeleton.dart';
 
+/// 黑名单(附录 E):二级页顶栏 + 圆头像列表行 + 解除确认。
 class BlockedUsersPage extends ConsumerWidget {
   const BlockedUsersPage({super.key});
 
-  Future<void> _unblock(BuildContext context, WidgetRef ref, BlockedUser user) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('解除对 ${user.nickname} 的拉黑?'),
-        content: const Text('解除后你们将重新互相可见'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
-          FilledButton(
-            key: const Key('unblock.confirm'),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('解除'),
-          ),
-        ],
-      ),
+  Future<void> _unblock(
+      BuildContext context, WidgetRef ref, BlockedUser user) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: '解除对 ${user.nickname} 的拉黑?',
+      message: '解除后你们将重新互相可见',
+      confirmLabel: '解除',
+      confirmKey: const Key('unblock.confirm'),
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     try {
       await ref.read(moderationRepositoryProvider).unblock(user.userId);
       await ref.read(blockedUsersProvider.notifier).reload();
-      if (context.mounted) _snack(context, '已解除拉黑');
+      if (context.mounted) AppToast.show(context, '已解除拉黑');
     } on ApiException catch (error) {
-      if (context.mounted) _snack(context, error.message);
+      if (context.mounted) AppToast.show(context, error.message);
     }
-  }
-
-  void _snack(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final blocked = ref.watch(blockedUsersProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('黑名单')),
-      body: blocked.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(error is ApiException ? error.message : '加载失败,请重试'),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: () => ref.read(blockedUsersProvider.notifier).reload(),
-                child: const Text('重试'),
+      backgroundColor: AppColors.bgPage,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            const AppSubPageBar(title: '黑名单'),
+            Expanded(
+              child: blocked.when(
+                loading: () => const BlockedUsersSkeleton(),
+                error: (error, _) => AppErrorView(
+                  message:
+                      error is ApiException ? error.message : '加载失败,请重试',
+                  retryKey: const Key('blocked.retry'),
+                  onRetry: () =>
+                      ref.read(blockedUsersProvider.notifier).reload(),
+                ),
+                data: (items) => items.isEmpty
+                    ? const Center(
+                        child: AppEmptyState(
+                          key: Key('blocked.empty'),
+                          emoji: '🙈',
+                          title: '还没有拉黑任何人',
+                          description: '被你拉黑的人不会再出现在发现页',
+                        ),
+                      )
+                    : ListView.separated(
+                        padding:
+                            const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                        itemCount: items.length,
+                        separatorBuilder: (_, _) => const Divider(
+                          height: 1,
+                          indent: 72,
+                          color: AppColors.divider,
+                        ),
+                        itemBuilder: (context, index) {
+                          final user = items[index];
+                          return AppListRow(
+                            avatar: AppAvatar(
+                              size: 44,
+                              imageUrl: user.avatarUrl,
+                              fallbackText: user.nickname,
+                            ),
+                            title: user.nickname,
+                            subtitle: _dateLabel(user.blockedAt),
+                            trailing: AppTextAction(
+                              key: Key('unblock.${user.userId}'),
+                              label: '解除',
+                              onPressed: () => _unblock(context, ref, user),
+                            ),
+                          );
+                        },
+                      ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-        data: (items) => items.isEmpty
-            ? const Center(child: Text('还没有拉黑任何人'))
-            : ListView.separated(
-                itemCount: items.length,
-                separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
-                itemBuilder: (context, index) {
-                  final user = items[index];
-                  final avatar = user.avatarUrl;
-                  return ListTile(
-                    leading: CircleAvatar(
-                      backgroundImage: avatar == null ? null : NetworkImage(avatar),
-                      onBackgroundImageError: avatar == null ? null : (error, stack) {},
-                      child: avatar == null ? const Icon(Icons.person) : null,
-                    ),
-                    title: Text(user.nickname),
-                    subtitle: Text(_dateLabel(user.blockedAt)),
-                    trailing: TextButton(
-                      key: Key('unblock.${user.userId}'),
-                      onPressed: () => _unblock(context, ref, user),
-                      child: const Text('解除'),
-                    ),
-                  );
-                },
-              ),
       ),
     );
   }

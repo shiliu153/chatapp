@@ -33,6 +33,7 @@ void main() {
     expect(find.byType(AppBottomBar), findsNothing); // 已退出主框架
     expect(find.byKey(const Key('login.phone')), findsOneWidget); // 回登录页
     expect(find.textContaining('其他设备'), findsOneWidget); // 告知被踢原因
+    await drainToast(tester); // 登录页首帧的「被顶下线原因」走 AppToast
   });
 
   testWidgets('冷启动时本地令牌已被作废(40101)→ 回登录页并提示', (tester) async {
@@ -47,5 +48,6 @@ void main() {
 
     expect(find.byKey(const Key('login.phone')), findsOneWidget);
     expect(find.textContaining('其他设备'), findsOneWidget);
+    await drainToast(tester); // 同上
   });
 }

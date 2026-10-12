@@ -4,6 +4,17 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/app_form_skeleton.dart';
+import '../../core/widgets/app_progress_bar.dart';
+import '../../core/widgets/app_section_card.dart';
+import '../../core/widgets/app_sub_page_bar.dart';
+import '../../core/widgets/app_text_action.dart';
+import '../../core/widgets/app_toast.dart';
 import '../profile/models.dart';
 import '../profile/profile_controller.dart';
 import '../profile/widgets/photo_grid.dart';
@@ -25,6 +36,7 @@ String? validateAboutStep({required String city, required String bio}) {
   return null;
 }
 
+/// 完善资料向导(附录 E):二级页顶栏 + 分段进度 + 三步表单 + 底部按钮行。
 class OnboardingPage extends ConsumerStatefulWidget {
   const OnboardingPage({super.key});
 
@@ -64,12 +76,6 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     _tagIds = profile.tags.map((tag) => tag.id).toSet();
   }
 
-  void _show(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
   void _goToStep(int step) {
     setState(() => _step = step);
     _pageController.animateToPage(step,
@@ -82,7 +88,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
       final error = validateBasicStep(
           nickname: _nickname.text.trim(), gender: _gender, birthday: _birthday);
       if (error != null) {
-        _show(error);
+        AppToast.show(context, error);
         return;
       }
       patch = {
@@ -93,7 +99,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     } else if (_step == 1) {
       final error = validateAboutStep(city: _city.text.trim(), bio: _bio.text.trim());
       if (error != null) {
-        _show(error);
+        AppToast.show(context, error);
         return;
       }
       patch = {
@@ -112,7 +118,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
       if (!mounted) return;
       _goToStep(_step + 1);
     } on ApiException catch (error) {
-      if (mounted) _show(error.message);
+      if (mounted) AppToast.show(context, error.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -125,12 +131,12 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
       if (!mounted) return;
       final profile = ref.read(profileProvider).value;
       if (profile == null || profile.photos.where((photo) => photo.isApproved).isEmpty) {
-        _show('至少上传一张照片');
+        AppToast.show(context, '至少上传一张照片');
         return;
       }
       context.go('/home');
     } on ApiException catch (error) {
-      if (mounted) _show(error.message);
+      if (mounted) AppToast.show(context, error.message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -140,81 +146,97 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
   Widget build(BuildContext context) {
     final profile = ref.watch(profileProvider);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('完善资料'),
-        actions: [
-          TextButton(
-            onPressed: () => context.go('/home'),
-            child: const Text('稍后再说'),
+      backgroundColor: AppColors.bgPage,
+      body: SafeArea(
+        bottom: false,
+        child: profile.when(
+          loading: () => const Padding(
+            padding: EdgeInsets.all(AppSpacing.pageH),
+            child: AppFormSkeleton(key: Key('onboarding.skeleton')),
           ),
-        ],
-      ),
-      body: profile.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$error'),
-              FilledButton(
-                onPressed: () => ref.read(profileProvider.notifier).reload(),
-                child: const Text('重试'),
-              ),
-            ],
+          error: (error, _) => AppErrorView(
+            message: apiMessageOf(error),
+            retryKey: const Key('onboarding.retry'),
+            onRetry: () => ref.read(profileProvider.notifier).reload(),
           ),
-        ),
-        data: (data) {
-          _prefill(data);
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: LinearProgressIndicator(value: (_step + 1) / 3),
-              ),
-              Text('第 ${_step + 1} 步 / 共 3 步'),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _StepBasic(
-                      nickname: _nickname,
-                      gender: _gender,
-                      birthday: _birthday,
-                      onGenderChanged: (value) => setState(() => _gender = value),
-                      onBirthdayChanged: (value) => setState(() => _birthday = value),
-                    ),
-                    _StepAbout(
-                      city: _city,
-                      bio: _bio,
-                      tagIds: _tagIds,
-                      onTagsChanged: (ids) => setState(() => _tagIds = ids),
-                    ),
-                    const _StepPhotos(),
-                  ],
+          data: (data) {
+            _prefill(data);
+            return Column(
+              children: [
+                AppSubPageBar(
+                  title: '完善资料',
+                  trailing: AppTextAction(
+                    label: '稍后再说',
+                    onPressed: () => context.go('/home'),
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    if (_step > 0)
-                      OutlinedButton(
-                        onPressed: _busy ? null : () => _goToStep(_step - 1),
-                        child: const Text('上一步'),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.pageH,
+                      AppSpacing.sm, AppSpacing.pageH, AppSpacing.md),
+                  child: Column(
+                    children: [
+                      AppProgressBar(
+                        key: const Key('onboarding.progress'),
+                        steps: 3,
+                        current: _step,
                       ),
-                    const Spacer(),
-                    FilledButton(
-                      key: const Key('onboarding.next'),
-                      onPressed: _busy ? null : _next,
-                      child: Text(_step == 2 ? '完成' : '下一步'),
-                    ),
-                  ],
+                      const SizedBox(height: AppSpacing.sm),
+                      Text('第 ${_step + 1} 步 / 共 3 步',
+                          style:
+                              AppText.caption.copyWith(color: AppColors.text2)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          );
-        },
+                Expanded(
+                  child: PageView(
+                    controller: _pageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: [
+                      _StepBasic(
+                        nickname: _nickname,
+                        gender: _gender,
+                        birthday: _birthday,
+                        onGenderChanged: (value) =>
+                            setState(() => _gender = value),
+                        onBirthdayChanged: (value) =>
+                            setState(() => _birthday = value),
+                      ),
+                      _StepAbout(
+                        city: _city,
+                        bio: _bio,
+                        tagIds: _tagIds,
+                        onTagsChanged: (ids) => setState(() => _tagIds = ids),
+                      ),
+                      const _StepPhotos(),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Row(
+                    children: [
+                      if (_step > 0) ...[
+                        AppButton(
+                          label: '上一步',
+                          variant: AppButtonVariant.secondary,
+                          onPressed: _busy ? null : () => _goToStep(_step - 1),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                      ],
+                      Expanded(
+                        child: AppButton(
+                          key: const Key('onboarding.next'),
+                          label: _step == 2 ? '完成' : '下一步',
+                          onPressed: _busy ? null : _next,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -236,18 +258,19 @@ class _StepBasic extends StatelessWidget {
   final ValueChanged<DateTime> onBirthdayChanged;
 
   @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        NicknameField(controller: nickname),
-        const SizedBox(height: 16),
-        GenderSelector(value: gender, onChanged: onGenderChanged),
-        const SizedBox(height: 16),
-        BirthdayField(value: birthday, onChanged: onBirthdayChanged),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.all(AppSpacing.pageH),
+        children: [
+          AppSectionCard(
+            title: '基本信息',
+            children: [
+              NicknameField(controller: nickname),
+              GenderSelector(value: gender, onChanged: onGenderChanged),
+              BirthdayField(value: birthday, onChanged: onBirthdayChanged),
+            ],
+          ),
+        ],
+      );
 }
 
 class _StepAbout extends StatelessWidget {
@@ -264,34 +287,45 @@ class _StepAbout extends StatelessWidget {
   final ValueChanged<Set<int>> onTagsChanged;
 
   @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        CityField(controller: city),
-        const SizedBox(height: 16),
-        BioField(controller: bio),
-        const SizedBox(height: 16),
-        Text('标签(可多选)', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        TagSelector(selectedIds: tagIds, onChanged: onTagsChanged),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.all(AppSpacing.pageH),
+        children: [
+          AppSectionCard(
+            title: '关于我',
+            children: [
+              CityField(controller: city),
+              BioField(controller: bio),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('标签(可多选)',
+                      style: AppText.caption.copyWith(color: AppColors.text2)),
+                  const SizedBox(height: AppSpacing.sm),
+                  TagSelector(selectedIds: tagIds, onChanged: onTagsChanged),
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
 }
 
 class _StepPhotos extends StatelessWidget {
   const _StepPhotos();
 
   @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: const [
-        Text('上传至少 1 张照片(最多 6 张),让别人认识你'),
-        SizedBox(height: 16),
-        PhotoGrid(),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => ListView(
+        padding: const EdgeInsets.all(AppSpacing.pageH),
+        children: [
+          AppSectionCard(
+            title: '照片',
+            children: [
+              Text('上传至少 1 张照片(最多 6 张),让别人认识你',
+                  style: AppText.caption.copyWith(color: AppColors.text2)),
+              const SizedBox(height: AppSpacing.md),
+              const PhotoGrid(),
+            ],
+          ),
+        ],
+      );
 }

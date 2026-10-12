@@ -54,7 +54,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('square.compose')));
     await pumpFrames(tester);
-    expect(find.text('发布动态'), findsOneWidget); // 发布页 AppBar 标题(⑥才改)
+    expect(find.text('发布动态'), findsOneWidget); // 发布页顶栏标题
   });
 
   testWidgets('加载失败 → AppErrorView,square.retry 重试成功', (tester) async {
