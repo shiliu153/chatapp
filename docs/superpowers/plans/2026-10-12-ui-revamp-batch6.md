@@ -5037,7 +5037,7 @@ git commit -m "docs: 规则文档 v1.5 附录 E + 踩坑册二级页分册 + CLA
 
 ### Task 19: 待用户手测通过后收尾(另一步执行)
 
-- [ ] **Step 1: 回填本文件执行记录**(测试数、任务提交表、手测结果)
+- [x] **Step 1: 回填本文件执行记录**(测试数、任务提交表、手测结果)
 
 - [ ] **Step 2: 合回 master**
 
@@ -5078,8 +5078,8 @@ git branch -d ui/batch6 && git push origin --delete ui/batch6
 | `flutter test` | **329 全绿**(基线 296,本批 +33) |
 | `npm run test:run`(web) | 303 全绿(未动 `tokens.css` / `app_colors.dart`,纯回归;含 `tokens.spec.ts` 双向比对) |
 | release APK | 已打包并覆盖安装到 `emulator-5554`,启动无异常(71.0MB,`API_BASE=http://10.0.2.2:8000/api/v1` 本地开发服) |
-| 模拟器手测 | ⏳ **待用户手测**(清单见文末) |
-| 合回 master | ⏳ 待手测通过 |
+| 模拟器手测 | ✅ **用户亲测通过**(登录/启动+协议/引导/编辑资料/想找的人/设置/黑名单/发动态/协议/封禁;手测期间 Django 日志全 2xx) |
+| 合回 master | ⏳ 进行中(PR → CI → squash) |
 
 **任务与提交**
 
@@ -5112,4 +5112,6 @@ git branch -d ui/batch6 && git push origin --delete ui/batch6
 4. **`AppToast` 收尾清单比预估多一处**:`photo_grid_test` 的『图片不能超过 5MB』也是 Toast(7 文件 12 例 → **8 文件 13 例**)。
 5. **测试文件缺 `support/harness.dart` 会连带拖垮同目录其他文件**:`photo_grid_test.dart` 用了 `drainToast` 但没 import,报错时 `completion_ring_test.dart` 也一起显示 "loading" 失败 —— 排查时以 `flutter analyze` 的 `undefined_function` 为准,别被连带失败误导。
 
-**尚未完成**:用户模拟器手测、合回 master(Task 19)。
+**尚未完成**:合回 master(Task 19 Step 2:PR → CI → squash)。
+
+**手测期运行期证据(2026-10-12,本地开发服 `10.0.2.2:8000`)**:App 侧请求全部 2xx —— `auth/sms/send` → `auth/sms/verify` → `users/me` → `posts` → `discovery/candidates` → `presence`×2 → `im/user_sig` → `matches` → `users/tags` → `PATCH /users/me`×2;无 4xx/5xx。App 进程 logcat 无 Dart 异常(只有模拟器自身的 `uwb-service`/`nfc` 崩溃噪声,以及 IM SDK 的 `community group not open (11000)` 能力探测 —— 均与批次⑥ 无关)。
