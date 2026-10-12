@@ -36,7 +36,7 @@
 **Interfaces:**
 - Produces: 分支 `ui/batch5`(后续全部任务在此分支提交)
 
-- [ ] **Step 1: 建分支**
+- [x] **Step 1: 建分支**
 
 ```bash
 git checkout master && git merge --ff-only origin/master
@@ -44,7 +44,7 @@ git checkout -b ui/batch5
 git log --oneline -3   # 应含 0624899(spec 修正)与 926e8f4(spec)
 ```
 
-- [ ] **Step 2: 基线全绿**
+- [x] **Step 2: 基线全绿**
 
 ```bash
 cd app
@@ -66,7 +66,7 @@ Expected: analyze 零告警;278 全绿。红了先停下排查,别带病开工�
 - Consumes: 无(与 `AvatarHero` 并列,不依赖它)
 - Produces: `class CardHero extends StatelessWidget`,构造 `const CardHero({super.key, required this.tag, required this.child})`,`tag: String?`,`child: Widget`;`tag == null` 或 `MediaQuery.disableAnimationsOf(context)` 为真时直接返回 child,否则包 `Hero`(用框架默认 shuttle 与 `MaterialRectArcTween` 默认插值,不写 flightShuttleBuilder)。Task 7 的广场页/详情页依赖这个签名。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/core/widgets/card_hero_test.dart
@@ -109,7 +109,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -118,7 +118,7 @@ cd app
 
 Expected: FAIL,`card_hero.dart` 不存在(编译错误)。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 ```dart
 // app/lib/core/widgets/card_hero.dart
@@ -147,7 +147,7 @@ class CardHero extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/core/widgets/card_hero_test.dart
@@ -155,7 +155,7 @@ class CardHero extends StatelessWidget {
 
 Expected: 3 例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -176,7 +176,7 @@ git commit -m "feat(ui): CardHero 整卡 Hero 组件(禁嵌套/降级纪律内�
 - Consumes: `AppColors` / `AppRadius` / `AppSpacing`(token);`postJson(images: [...])` 造数
 - Produces: `PostImages({required urls, onTap})` 对外签名不变,key `post.image.{i}` 不变;1 张 = 通栏固定高 **240**、R12;2–9 张 = 统一 3 列正方格、间距 8、R12;失败占位 `divider` 底 + `image_rounded`。Task 3 的 PostCard 与 Task 6 的详情页直接复用,无需再改。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/features/square/post_images_test.dart
@@ -232,7 +232,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/post_images_test.dart
@@ -240,7 +240,7 @@ void main() {
 
 Expected: FAIL(1 张现是 200×200、R6;2 张现是 2 列)。
 
-- [ ] **Step 3: 重写实现**
+- [x] **Step 3: 重写实现**
 
 ```dart
 // app/lib/features/square/widgets/post_images.dart 整文件替换
@@ -313,7 +313,7 @@ class PostImages extends StatelessWidget {
 
 注意:key 在两个分支都挂 GestureDetector(`post.image.{i}` 命中不变;单图分支是**新增** key——原代码单图没有 key,测试既已断言就补齐);R12 挪进 ClipRRect。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/post_images_test.dart
@@ -321,7 +321,7 @@ class PostImages extends StatelessWidget {
 
 Expected: 4 例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -344,7 +344,7 @@ git commit -m "feat(ui): 九宫格改版 — 1 张通栏 240 高、2-9 张统一
 - Consumes: `AppCard`、`AppAvatar(showOnlineDot:, fallbackText:)`、`AvatarHero`、`PostImages`(Task 2)、`AppText`/`AppColors`/`AppSpacing`/token
 - Produces: `PostCard` 对外签名不变,新增可选参数 `cardHeroTag: String?`(Task 7 用;本任务先不传);内部删除 `_Avatar` 私有类;头像 Hero `fromRadius` 改 `AppRadius.full`(圆头像);点赞图标 `favorite_rounded`/`favorite_border_rounded`、评论 `mode_comment_rounded`(描边语义用同色 text3 表达,rounded 无 outlined 变体对);新增内部 `_PulseIcon`(脉冲封装)。全仓 `OnlineDot` 引用清零。
 
-- [ ] **Step 1: 先改既有断言(让现状红)**
+- [x] **Step 1: 先改既有断言(让现状红)**
 
 `app/test/features/square/square_page_test.dart` 适配(本任务只做 C 组——图标变体,与在线点 B 组——类型替换;A 组空态文案属 Task 4):
 
@@ -402,7 +402,7 @@ Future<void> _openSquareWithFrames(WidgetTester tester) async {
 
 注意:在线作者的呼吸点在 `pumpAndSettle` 下永不收敛,所以该用例从 `_openSquare`(settle)改走 `_openSquareWithFrames`;`_openSquare` 本身其他用例继续用(无在线点时 settle 安全)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/square_page_test.dart
@@ -410,7 +410,7 @@ Future<void> _openSquareWithFrames(WidgetTester tester) async {
 
 Expected: FAIL —— `favorite_rounded` 找不到(图标没换)、`BreathingDot` 找不到(头像没换)。
 
-- [ ] **Step 3: 重写 PostCard**
+- [x] **Step 3: 重写 PostCard**
 
 ```dart
 // app/lib/features/square/widgets/post_card.dart 整文件替换
@@ -688,7 +688,7 @@ class _PulseIconState extends State<_PulseIcon>
 git rm app/lib/features/presence/online_dot.dart
 ```
 
-- [ ] **Step 4: 跑 square 测试确认通过**
+- [x] **Step 4: 跑 square 测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/square_page_test.dart
@@ -697,7 +697,7 @@ git rm app/lib/features/presence/online_dot.dart
 
 Expected: 全 PASS(含改过的点赞/在线点断言;详情页测试暂不动——`post_detail_page_test` 不 import OnlineDot,不受影响;hero_transition_test 不受影响)。
 
-- [ ] **Step 5: 新增脉冲测试(TDD 补确认)**
+- [x] **Step 5: 新增脉冲测试(TDD 补确认)**
 
 ```dart
 // app/test/core/widgets/like_pulse_test.dart
@@ -783,7 +783,7 @@ void main() {
 
 Expected: 2 例 PASS。
 
-- [ ] **Step 6: 全量门槛 + 提交**
+- [x] **Step 6: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -808,7 +808,7 @@ git commit -m "feat(ui): 动态卡重构 — 圆形头像/字阶/rounded 图标/
 - Consumes: Task 3 的 `PostCard`、`AppEmptyState`/`HeartRipple`/`AppErrorView`/`AppSkeleton`/`AppToast`/`AppButton`、`apiMessageOf`
 - Produces: `SquareSkeleton`(`const SquareSkeleton({super.key})`,根 key `square.skeleton`);`harness.dart` 新增 `Future<void> drainToast(WidgetTester tester) => tester.pump(const Duration(seconds: 3));`;`post_actions.dart` 的 `confirmDeletePost` / `reportPostFromSheet` 对外签名不变、内部提示走 `AppToast.show(context, message)`。Task 5 复用 `SquareSkeleton` 与 `drainToast`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/support/harness.dart` 尾部追加:
 
@@ -881,7 +881,7 @@ home_shell_test.dart:35:
     expect(find.byKey(const Key('square.fab')), findsOneWidget);
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/square_page_test.dart test/features/shell/home_shell_test.dart
@@ -889,7 +889,7 @@ home_shell_test.dart:35:
 
 Expected: FAIL(文案仍旧、`square.compose`/`square.retry` 不存在)。
 
-- [ ] **Step 3: 写 SquareSkeleton**
+- [x] **Step 3: 写 SquareSkeleton**
 
 ```dart
 // app/lib/features/square/widgets/square_skeleton.dart
@@ -953,7 +953,7 @@ class SquareSkeleton extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 重写广场页**
+- [x] **Step 4: 重写广场页**
 
 ```dart
 // app/lib/features/square/square_page.dart 整文件替换
@@ -1167,7 +1167,7 @@ class _ComposeFab extends StatelessWidget {
 
 (import 区补 `../../core/widgets/app_toast.dart`,删掉 `ScaffoldMessenger` 相关。)
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/square_page_test.dart test/features/shell/home_shell_test.dart
@@ -1175,7 +1175,7 @@ class _ComposeFab extends StatelessWidget {
 
 Expected: 全 PASS。若「自己的动态点头像不打开资料页」(原 :136)失败:它用 `pumpAndSettle` + 数据页(无在线点)应该仍绿;若有「教练卡/底部溢出」报错,给列表 `padding.bottom` 保持 96 不变即可,报「A Timer is still pending」时检查是否漏了 `drainToast`。
 
-- [ ] **Step 6: 全量门槛 + 提交**
+- [x] **Step 6: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -1196,7 +1196,7 @@ git commit -m "feat(ui): 广场页壳改版 — 大标题/涟漪空态/骨架/�
 - Consumes: Task 3 `PostCard`(heroTag 恒 null)、Task 4 `SquareSkeleton`/`drainToast`、`AppErrorView`/`AppToast`/`AppButton`
 - Produces: 页面级改动,无对外接口。返回键 key `myPosts.back`(Navigator.maybePop)。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `my_posts_page_test.dart` 空态用例替换:
 
@@ -1250,7 +1250,7 @@ git commit -m "feat(ui): 广场页壳改版 — 大标题/涟漪空态/骨架/�
     await drainToast(tester);   // 删除成功弹 AppToast「已删除」
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/my_posts_page_test.dart
@@ -1258,7 +1258,7 @@ git commit -m "feat(ui): 广场页壳改版 — 大标题/涟漪空态/骨架/�
 
 Expected: FAIL(`myPosts.compose`/`myPosts.back` 不存在)。
 
-- [ ] **Step 3: 重写页面**
+- [x] **Step 3: 重写页面**
 
 ```dart
 // app/lib/features/square/my_posts_page.dart 整文件替换
@@ -1430,7 +1430,7 @@ class _SubPageBar extends StatelessWidget {
 
 `_SubPageBar` 是本页私有实现;Task 6 的详情页会复制同款顶栏(两页各自私有,不抽共享组件——两处共 20 行,避免过早抽象)。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/my_posts_page_test.dart
@@ -1438,7 +1438,7 @@ class _SubPageBar extends StatelessWidget {
 
 Expected: 全 PASS(删除用例的行消失断言不变)。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -1460,7 +1460,7 @@ git commit -m "feat(ui): 我的动态页改版 — 顶栏/空态发布按钮/骨
 - Consumes: Task 3 `PostCard`、Task 2 `PostImages`(卡内)、`AppAvatar`/`AppText`/token、`AppSkeleton`
 - Produces: `PostDetailPage({required postId})` 签名**本任务不变**;Task 7 会加可选参数 `args`。页面内部:自绘顶栏(key `post.back`)、评论区(`post.comment.avatar.{id}` 圆形 28)、输入栏(高 44,R16 聚焦 1.5 brand + 光晕)、`PostDetailSkeleton`(key `post.skeleton`)、错误 `AppErrorView`(key `post.retry`)。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `post_detail_page_test.dart` 首个用例后追加:
 
@@ -1492,7 +1492,7 @@ git commit -m "feat(ui): 我的动态页改版 — 顶栏/空态发布按钮/骨
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/post_detail_page_test.dart
@@ -1500,7 +1500,7 @@ git commit -m "feat(ui): 我的动态页改版 — 顶栏/空态发布按钮/骨
 
 Expected: 新增 2 例 FAIL(无 `post.back` / 无空态文案)。
 
-- [ ] **Step 3: 写 PostDetailSkeleton**
+- [x] **Step 3: 写 PostDetailSkeleton**
 
 ```dart
 // app/lib/features/square/widgets/post_detail_skeleton.dart
@@ -1572,7 +1572,7 @@ class PostDetailSkeleton extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 重写详情页**
+- [x] **Step 4: 重写详情页**
 
 ```dart
 // app/lib/features/square/post_detail_page.dart 整文件替换
@@ -1958,7 +1958,7 @@ class _CommentBar extends StatelessWidget {
 
 (`formatPostTime` 的 import:`../../core/format.dart`,已在上方整文件替换的 import 区补入;此处核对勿漏。)
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/post_detail_page_test.dart test/features/square/hero_transition_test.dart
@@ -1966,7 +1966,7 @@ class _CommentBar extends StatelessWidget {
 
 Expected: 全 PASS。`hero_transition_test` 的「作者与评论头像 tag」用例此时仍应绿(本任务详情页作者卡带 `heroTag: 'avatar-post-{id}'`、评论头像带 `avatar-comment-{id}`,与批次④行为一致);`post_detail_page_test` 首个用例的输入框断言(TextField controller text 为空)与 `post.comment.input` key 不变,照常成立。若「渲染动态与评论」用例因聚焦光晕相关 ListenableBuilder 报 pending timer,在用例尾部补 `await tester.pump(const Duration(milliseconds: 100))` 并 `focus.unfocus()`(通过测试内 `_CommentBar` 无引用——直接 `tester.tap` 页面空白处失焦即可,或给 TextField 加 `onSubmitted` 已有路径)。
 
-- [ ] **Step 6: 全量门槛 + 提交**
+- [x] **Step 6: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -1995,7 +1995,7 @@ git commit -m "feat(ui): 动态详情页改版 — 顶栏/评论流/紧凑输入
   - 广场页 `_openDetail(post)`:`_cardHeroPostId` 互斥状态 + `await push` + `finally` 还原
   - Hero 互斥不变式(全局约束)在广场页/详情页落地
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/features/square/card_hero_flow_test.dart
@@ -2113,7 +2113,7 @@ void main() {
   });
 }
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/card_hero_flow_test.dart
@@ -2121,7 +2121,7 @@ void main() {
 
 Expected: FAIL(`post_detail_args.dart` 不存在;`post.card.1` 点击后无 seed 直出)。
 
-- [ ] **Step 3: 写 PostDetailArgs + 路由**
+- [x] **Step 3: 写 PostDetailArgs + 路由**
 
 ```dart
 // app/lib/features/square/post_detail_args.dart
@@ -2157,7 +2157,7 @@ class PostDetailArgs {
 
 (import 区补 `features/square/post_detail_args.dart`。)
 
-- [ ] **Step 4: 详情页接 seed 与 CardHero**
+- [x] **Step 4: 详情页接 seed 与 CardHero**
 
 `PostDetailPage` 构造加可选参数:
 
@@ -2199,7 +2199,7 @@ class PostDetailArgs {
 
 `avatar-comment-{id}` 评论头像 Hero 保持不变(评论区在卡外,无嵌套)。
 
-- [ ] **Step 5: 广场页状态切换**
+- [x] **Step 5: 广场页状态切换**
 
 `square_page.dart` 加状态与方法(import 区补 `post_detail_args.dart`;替换原 `onTap: () => context.push('/posts/${post.id}')` 调用点):
 
@@ -2237,7 +2237,7 @@ class PostDetailArgs {
 
 注意:头像/昵称的 `onTapAuthor` 不走 `_openDetail`(点头像仍直接进资料页,头像 Hero 不受影响)——现有 onTapAuthor 代码不动。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 ../flutter/bin/flutter.bat test test/features/square/card_hero_flow_test.dart test/features/square/hero_transition_test.dart test/features/square/square_page_test.dart test/features/square/post_detail_page_test.dart
@@ -2260,7 +2260,7 @@ Expected: 全 PASS。重点看:① `hero_transition_test` 的「头像→资料�
     expect(tester.takeException(), isNull);
 ```
 
-- [ ] **Step 7: 全量门槛 + 提交**
+- [x] **Step 7: 全量门槛 + 提交**
 
 ```bash
 ../flutter/bin/flutter.bat analyze
@@ -2284,7 +2284,7 @@ git commit -m "feat(ui): 整卡 Hero 落地 — PostDetailArgs seed 直出 + 状
 - Consumes: Task 1–7 全部落地
 - Produces: 文档与代码一致;release APK 上模拟器;手测清单(下方 Step 4)
 
-- [ ] **Step 1: 规则文档升 v1.4**
+- [x] **Step 1: 规则文档升 v1.4**
 
 头部状态行改 `v1.4(2026-10-12 增补附录 D:广场页落地补充,并修订 B.4 适用范围)…`;文末(附录 C 之后)追加:
 
@@ -2332,7 +2332,7 @@ git commit -m "feat(ui): 整卡 Hero 落地 — PostDetailArgs seed 直出 + 状
 2. **结构动效**:列表入场「上移 12px + 淡入」、逐项错峰 40ms(medium);页面 push 右滑入;Hero 转场 —— 头像→他人资料页、动态卡→动态详情(均已落地,见附录 C.7 / D.4)。
 ```
 
-- [ ] **Step 2: 踩坑手册与 CLAUDE.md**
+- [x] **Step 2: 踩坑手册与 CLAUDE.md**
 
 `docs/pitfalls/frontend.md` 广场分节(:30-35)改写:
 
@@ -2360,7 +2360,7 @@ git commit -m "feat(ui): 整卡 Hero 落地 — PostDetailArgs seed 直出 + 状
 
 (N 以实测为准。)「下一步」段改为:批次⑤已交付,接下来 **⑥ 二级页**(编辑资料/想找的人/设置/登录/引导/发动态,表单控件规范在此批一次定)或启动上线合规轨。
 
-- [ ] **Step 3: 全门槛 + 回归**
+- [x] **Step 3: 全门槛 + 回归**
 
 ```bash
 cd app
@@ -2372,7 +2372,7 @@ npm run test:run     # 不动 tokens.css,预期 303 全绿(纯回归确认)
 
 Expected: analyze 零告警;flutter 全绿;web 303 全绿。
 
-- [ ] **Step 4: 打包 + 装模拟器 + 手测清单**
+- [x] **Step 4: 打包 + 装模拟器 + 手测清单**
 
 ```bash
 cd app
@@ -2395,7 +2395,7 @@ python manage.py seed_fake_users --count 20    # 幂等,备手测数据
 - 封禁账号:广场整屏不受影响(回归)
 - 顺手检查:全 app 圆头像一致性(消息/聊天/广场/我的)
 
-- [ ] **Step 5: 提交文档**
+- [x] **Step 5: 提交文档**
 
 ```bash
 git add -A
@@ -2406,17 +2406,19 @@ git commit -m "docs: 规则文档 v1.4 附录 D + 踩坑册/CLAUDE.md 批次⑤�
 
 ### Task 9: 待用户手测通过后收尾(另一步执行)
 
-- [ ] **Step 1: 回填本文件执行记录**(测试数、任务提交表、手测结果)
+- [x] **Step 1: 回填本文件执行记录**(测试数、任务提交表、手测结果)
 
-- [ ] **Step 2: 合回 master**
+- [x] **Step 2: 合回 master**
 
 ```bash
-git checkout master && git merge --ff-only ui/batch5
-git push origin master
+# 实际走 PR 流程(用户要求):push 分支 → PR #4 → CI analyze-and-test 通过 → squash 合并
+git push -u origin ui/batch5
+# PR: https://github.com/shiliu153/chatapp/pull/4 → squash 合并 c34a20b
+git fetch origin && git reset --hard origin/master   # squash 后本地 master 对齐
 git branch -d ui/batch5 && git push origin --delete ui/batch5
 ```
 
-- [ ] **Step 3: 更新会话记忆**(remember 流程)
+- [x] **Step 3: 更新会话记忆**(`.remember/` 由 harness 的 remember 机制维护,不手改——CLAUDE.md 明示「勿改动、勿提交」)
 
 ---
 
@@ -2430,8 +2432,8 @@ git branch -d ui/batch5 && git push origin --delete ui/batch5
 | `flutter test` | **296 全绿**(基线 278,本批 +18) |
 | `npm run test:run`(web) | 303 全绿(未动 `tokens.css`,纯回归) |
 | release APK | 已打包并覆盖安装到 `emulator-5554`,启动无异常(71.2MB,API_BASE=测试服) |
-| 模拟器手测 | ⬜ **待用户执行**(见 Task 8 Step 4 清单) |
-| 合回 master | ⬜ 待手测通过 |
+| 模拟器手测 | ✅ 用户亲测通过(页壳 / 动态卡 / 整卡 Hero 飞行与返回 / 详情输入栏 / 我的动态 / 减弱动态效果) |
+| 合回 master | ✅ PR [#4](https://github.com/shiliu153/chatapp/pull/4) squash 合并(`c34a20b`);CI `analyze-and-test` 通过;分支已删 |
 
 **任务与提交**
 
