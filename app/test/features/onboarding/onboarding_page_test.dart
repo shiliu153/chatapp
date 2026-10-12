@@ -74,5 +74,6 @@ void main() {
     expect(find.text('请填写城市'), findsOneWidget);
     expect(adapter.log.where((r) => r.method == 'PATCH'), hasLength(1)); // 只有第 1 步那次
     expect(find.text('第 2 步 / 共 3 步'), findsOneWidget); // 没翻页
+    await drainToast(tester); // 『请填写城市』走 AppToast,2s Timer 收尾
   });
 }
