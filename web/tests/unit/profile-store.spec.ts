@@ -96,6 +96,35 @@ describe('profile store', () => {
     expect(store.profile?.photos).toHaveLength(1)
   })
 
+  it('删除照片:DELETE 到 /users/me/photos/{id} 并从列表移除', async () => {
+    let method = ''
+    let url = ''
+    server.use(
+      mswHttp.get('/api/v1/users/me', () =>
+        HttpResponse.json({
+          ...mePayload,
+          photos: [
+            { id: 3, url: 'https://cdn/a.jpg', status: 'approved', order: 0 },
+            { id: 4, url: 'https://cdn/b.jpg', status: 'pending', order: 1 },
+          ],
+        }),
+      ),
+      mswHttp.delete('/api/v1/users/me/photos/:id', ({ request }) => {
+        method = request.method
+        url = new URL(request.url).pathname
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const store = useProfileStore()
+    await store.load()
+
+    await store.removePhoto(3)
+
+    expect(method).toBe('DELETE')
+    expect(url).toBe('/api/v1/users/me/photos/3')
+    expect(store.profile?.photos.map((p) => p.id)).toEqual([4])
+  })
+
   it('加载失败时记录错误文案', async () => {
     server.use(
       mswHttp.get('/api/v1/users/me', () =>

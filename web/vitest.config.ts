@@ -10,5 +10,12 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['tests/**/*.spec.ts'],
     exclude: ['tests/e2e/**'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      include: ['src/**/*.{ts,vue}'],
+      exclude: ['src/features/dev/**', 'src/main.ts'],
+      thresholds: { lines: 70, functions: 70, branches: 60, statements: 70 },
+    },
   },
 })
