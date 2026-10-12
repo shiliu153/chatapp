@@ -386,6 +386,36 @@ chat_app/
 不占本机资源;**真正吃 CPU 的是刷卡片和广场**。当时的结论是"瓶颈已经从 worker 数
 转为 CPU 核数"——再加线程无用,要提容量得升配或降单请求开销。
 
+### 网页端(PC Web)
+
+网页端与 App **共用同一套 Django 接口**,部署上只多一个静态站点:
+
+```
+浏览器 → nginx:80(静态直出 + try_files 回退)
+              ├─ /api/v1/ → 127.0.0.1:8000(gunicorn,与 App 同一个后端)
+              └─ /media/  → chatapp/media/(照片)
+```
+
+**同域**是关键:网页端与接口同源,所以**不需要 CORS**,也**不需要**为它单开后端进程。
+
+```bash
+cd web && npm ci && npm run build     # 产物 web/dist
+# 拷到服务器部署目录(如 /www/wwwroot/chatapp-web),然后 nginx -t && nginx -s reload
+```
+
+nginx 三条硬要求:
+
+1. **深链回退**:`location / { try_files $uri $uri/ /index.html; }`
+   (vue-router 用 history 模式,漏了它 F5 与直接访问 `/settings` 都会 404)
+2. **反代 `/api/v1/` 与 `/media/`**(同域,故无需 CORS)
+3. **`index.html` 不能缓存**(带哈希的 js/css 反而应长缓存)
+
+> ⚠️ 两个容易忽略的点:① `/media/` 直出**每个站点都要配**,漏了就是照片 404;
+> ② 若用宝塔「反向代理」,它生成的 `proxy_cache` **键不含 `Authorization`** 且忽略 `Vary`,
+> 会造成**跨用户缓存泄漏** —— 要么不开页面缓存,要么把 `Authorization` 加进 `proxy_cache_key`。
+
+备案前可直接用 IP 访问(移动端浏览器会进引导页,不提供手机网页版)。
+
 > 具体服务器地址、面板端口与运维命令属于部署私有信息,已从本开源仓库移除。
 > 更新流程本身很简单:`git pull` → 装依赖 → `migrate` → `collectstatic` → 重启 web 与 worker 两条进程。
 
