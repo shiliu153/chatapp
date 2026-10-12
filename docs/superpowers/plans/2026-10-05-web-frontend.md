@@ -90,7 +90,7 @@ web/
 **Interfaces:**
 - Produces: `APP_NAME`(常量,值为 `'心跳'`)、`DOWNLOADS_ENABLED = false`(下载入口开关,商店上架后改 `true`)、脚本 `dev` / `build` / `preview` / `type-check` / `lint` / `test` / `test:run`
 
-- [ ] **Step 1:建目录与配置文件**
+- [x] **Step 1:建目录与配置文件**
 
 `web/package.json`(先写脚本与元信息,依赖下一步装):
 
@@ -187,7 +187,7 @@ VITE_API_BASE=/api/v1
 </html>
 ```
 
-- [ ] **Step 2:安装依赖**
+- [x] **Step 2:安装依赖**
 
 ```bash
 cd web
@@ -197,7 +197,7 @@ npm install -D vite @vitejs/plugin-vue typescript vue-tsc vitest @vue/test-utils
 
 装完后**核对 `package.json` 里各依赖的 major 版本**,若有与计划假设不符(例如 Vite 8、Vitest 4)以实际安装为准,并在本任务提交信息里写明。
 
-- [ ] **Step 3:写失败的冒烟测试**
+- [x] **Step 3:写失败的冒烟测试**
 
 `web/tests/unit/smoke.spec.ts`:
 
@@ -235,12 +235,12 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 4:跑测试确认失败**
+- [x] **Step 4:跑测试确认失败**
 
 Run: `cd web && npm run test:run`
 Expected: FAIL —— 找不到模块 `@/constants`
 
-- [ ] **Step 5:写最小实现**
+- [x] **Step 5:写最小实现**
 
 `web/src/constants.ts`:
 
@@ -289,12 +289,12 @@ export const router = createRouter({
 })
 ```
 
-- [ ] **Step 6:跑测试确认通过**
+- [x] **Step 6:跑测试确认通过**
 
 Run: `cd web && npm run test:run && npm run type-check`
 Expected: 2 passed;type-check 无输出(零错误)
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 git add web
@@ -313,7 +313,7 @@ git commit -m "feat(web): 初始化 Vue3+Vite+TS 工程与测试骨架"
 
 **权威来源**:`app/lib/core/theme/{app_colors,app_gradients,app_typography,app_spacing,app_radius,app_motion,app_shadows}.dart`(已读,数值照抄)。
 
-- [ ] **Step 1:写失败的对照测试**
+- [x] **Step 1:写失败的对照测试**
 
 `web/tests/unit/tokens.spec.ts`——它把 Dart 常量与 CSS 变量两边都解析出来比对,是「双份纪律」的机器兜底:
 
@@ -415,12 +415,12 @@ describe('心跳 token:Web 与 App 数值必须一致', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败**
+- [x] **Step 2:跑测试确认失败**
 
 Run: `cd web && npm run test:run tests/unit/tokens.spec.ts`
 Expected: FAIL —— 读不到 `src/styles/tokens.css`
 
-- [ ] **Step 3:写 tokens.css(数值从 Dart 照抄)**
+- [x] **Step 3:写 tokens.css(数值从 Dart 照抄)**
 
 ```css
 /* 「心跳」设计语言 token —— 权威来源 app/lib/core/theme/*.dart
@@ -524,12 +524,12 @@ Expected: FAIL —— 读不到 `src/styles/tokens.css`
 }
 ```
 
-- [ ] **Step 4:跑测试确认通过**
+- [x] **Step 4:跑测试确认通过**
 
 Run: `cd web && npm run test:run tests/unit/tokens.spec.ts`
 Expected: 4 passed(色板/间距/圆角/动效)
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/styles/tokens.css web/tests/unit/tokens.spec.ts
@@ -546,7 +546,7 @@ git commit -m "feat(web): 心跳 token 移植为 CSS 变量 + Dart 对照测试"
 - Consumes: Task 1.2 的 token 变量。
 - Produces: 全局字体栈、`*:focus-visible` 焦点圈、滚动条样式;`tests/unit/fonts.spec.ts` 守字体同步。
 
-- [ ] **Step 1:复制字体并写失败的同步测试**
+- [x] **Step 1:复制字体并写失败的同步测试**
 
 ```bash
 mkdir -p web/public/fonts
@@ -574,12 +574,12 @@ describe('字体文件与 App 同源', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认通过(文件已复制)**
+- [x] **Step 2:跑测试确认通过(文件已复制)**
 
 Run: `cd web && npm run test:run tests/unit/fonts.spec.ts`
 Expected: 3 passed。**故意改坏一个字节会红** —— 这就是这道门禁的意义。
 
-- [ ] **Step 3:写 base.css**
+- [x] **Step 3:写 base.css**
 
 ```css
 /* 全局重置、字体、焦点圈。数值只引用 tokens.css 的变量。 */
@@ -646,7 +646,7 @@ a { color: inherit; text-decoration: none; }
 }
 ```
 
-- [ ] **Step 4:挂到入口**
+- [x] **Step 4:挂到入口**
 
 `web/src/main.ts` 顶部加两行(顺序:token 在前):
 
@@ -655,7 +655,7 @@ import './styles/tokens.css'
 import './styles/base.css'
 ```
 
-- [ ] **Step 5:验证并提交**
+- [x] **Step 5:验证并提交**
 
 Run: `cd web && npm run type-check && npm run test:run`
 Expected: 零错误;测试全绿
@@ -678,7 +678,7 @@ git commit -m "feat(web): 全局样式与字体(含与 App 的字体同步测试
   - `AppInput`:props `modelValue: string`、`type?`(默认 text)、`inputmode?`、`placeholder?`、`maxlength?`、`disabled?`、`error?: string`;emits `update:modelValue`、`enter`
   - `AppCard`:props `padding?: 'md'|'lg'`(默认 md)、`hoverable?`;默认插槽为内容
 
-- [ ] **Step 1:写失败的组件测试**
+- [x] **Step 1:写失败的组件测试**
 
 `web/tests/component/app-button.spec.ts`:
 
@@ -767,12 +767,12 @@ describe('AppCard', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败**
+- [x] **Step 2:跑测试确认失败**
 
 Run: `cd web && npm run test:run tests/component`
 Expected: FAIL —— 组件文件不存在
 
-- [ ] **Step 3:实现三个组件**
+- [x] **Step 3:实现三个组件**
 
 `web/src/components/AppButton.vue`:
 
@@ -962,12 +962,12 @@ const props = withDefaults(defineProps<{ padding?: 'md' | 'lg'; hoverable?: bool
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过**
+- [x] **Step 4:跑测试确认通过**
 
 Run: `cd web && npm run test:run tests/component && npm run type-check`
 Expected: 10 passed;零类型错误
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/components web/tests/component
@@ -986,7 +986,7 @@ git commit -m "feat(web): 基础组件 AppButton/AppInput/AppCard"
   - `AppBadge`:props `count: number`、`max?: number`(默认 99);`count <= 0` 时不渲染;`count > max` 显示 `${max}+`
   - `AppSkeleton`:props `width?: string`(默认 `100%`)、`height?: string`(默认 `16px`)、`radius?: string`(默认 `--radius-image`)
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/component/app-avatar.spec.ts`:
 
@@ -1053,12 +1053,12 @@ describe('AppSkeleton', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败**
+- [x] **Step 2:跑测试确认失败**
 
 Run: `cd web && npm run test:run tests/component`
 Expected: FAIL —— 组件不存在
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `web/src/components/AppAvatar.vue`:
 
@@ -1175,12 +1175,12 @@ const style = computed(() => ({
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过**
+- [x] **Step 4:跑测试确认通过**
 
 Run: `cd web && npm run test:run tests/component && npm run type-check`
 Expected: 17 passed
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/components web/tests/component
@@ -1198,7 +1198,7 @@ git commit -m "feat(web): 基础组件 AppAvatar/AppBadge/AppSkeleton"
   - `AppEmpty`:props `emoji?: string`(默认 `'💫'`)、`title: string`、`description?: string`
   - `AppErrorView`:props `message?: string`(默认 `'出了点问题'`)、`retryLabel?: string`(默认 `'重试'`);emits `retry`
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/component/app-empty.spec.ts`:
 
@@ -1234,9 +1234,9 @@ describe('AppErrorView', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `web/src/components/AppEmpty.vue`:
 
@@ -1319,9 +1319,9 @@ const emit = defineEmits<{ retry: [] }>()
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/component && npm run type-check`;Expected: 19 passed
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/component && npm run type-check`;Expected: 19 passed
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/components web/tests/component
@@ -1338,7 +1338,7 @@ git commit -m "feat(web): 状态组件 AppEmpty/AppErrorView"
 - Consumes: Task 1.4–1.6 的 8 个组件。
 - Produces: 目检入口 `http://localhost:5173/dev/components`。
 
-- [ ] **Step 1:写组件展示页**
+- [x] **Step 1:写组件展示页**
 
 `web/src/features/dev/ComponentsPage.vue`(把 8 个组件按变体铺开,便于肉眼比对「心跳」规则;纯展示,无测试):
 
@@ -1422,7 +1422,7 @@ const phone = ref('13800000001')
 </style>
 ```
 
-- [ ] **Step 2:加开发期路由**
+- [x] **Step 2:加开发期路由**
 
 `web/src/router/index.ts` 改为:
 
@@ -1447,18 +1447,18 @@ export const router = createRouter({
 })
 ```
 
-- [ ] **Step 3:目检**
+- [x] **Step 3:目检**
 
 Run: `cd web && npm run dev`,浏览器打开 `http://localhost:5173/dev/components`
 Expected: 8 个组件全部正常渲染;按钮有渐变与阴影;头像无图时显示首字/♥;骨架有呼吸动效
 **用 DevTools 把 `prefers-reduced-motion` 打开复核:动效应当停止。**
 
-- [ ] **Step 4:检查没有裸值**
+- [x] **Step 4:检查没有裸值**
 
 用 grep 工具(ripgrep)在 `web/src/components` 与 `web/src/features` 下搜 `#[0-9A-Fa-f]{3,6}|font-size:\s*\d+px|padding:\s*\d+px`
 Expected: 无命中(或仅命中注释)。**注意**:`AppInput.vue` 的聚焦光晕 `rgb(255 44 85 / 12%)` 是 brand 的透明度派生值;若被命中,把它提升为 tokens.css 的 `--focus-glow` 变量再引用。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/dev web/src/router
@@ -1484,7 +1484,7 @@ git commit -m "feat(web): 开发期组件目检页 /dev/components"
   - `tokenStore`:`access` / `refresh` / `userId` 的 getter+setter 与 `clear()`(localStorage 键 `hb.access` / `hb.refresh` / `hb.userId`)
 - Consumes: 后端错误契约 `{"code", "message", "request_id"}`(Global Constraints)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/api-error.spec.ts`:
 
@@ -1586,9 +1586,9 @@ describe('tokenStore', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit`;Expected: FAIL,找不到 `@/api/error`
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit`;Expected: FAIL,找不到 `@/api/error`
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `web/src/api/error.ts`:
 
@@ -1709,9 +1709,9 @@ export const tokenStore = {
 }
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/api web/tests/unit
@@ -1731,7 +1731,7 @@ git commit -m "feat(web): 错误契约解析与令牌存储"
   - `sessionEvents`:`onKickedOffline(cb)`、`onSessionExpired(cb)`、`emitKickedOffline()`、`emitSessionExpired()`(回调注册用,避免 `http` 反向依赖 Pinia)
   - 刷新语义:同一时刻**只刷一次**;刷新成功重放原请求;刷新失败清空 `tokenStore` 并 `emitSessionExpired`
 
-- [ ] **Step 1:补 `.env.test`(vitest 的 mode 是 `test`,不读 `.env.development`)**
+- [x] **Step 1:补 `.env.test`(vitest 的 mode 是 `test`,不读 `.env.development`)**
 
 `web/.env.test`:
 
@@ -1755,7 +1755,7 @@ afterEach(() => {
 afterAll(() => server.close())
 ```
 
-- [ ] **Step 2:写失败的测试**
+- [x] **Step 2:写失败的测试**
 
 `web/tests/unit/http-refresh.spec.ts`:
 
@@ -1861,9 +1861,9 @@ describe('401 刷新通道', () => {
 })
 ```
 
-- [ ] **Step 3:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/http-refresh.spec.ts`;Expected: FAIL,找不到 `@/api/http`
+- [x] **Step 3:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/http-refresh.spec.ts`;Expected: FAIL,找不到 `@/api/http`
 
-- [ ] **Step 4:实现**
+- [x] **Step 4:实现**
 
 `web/src/api/session-events.ts`:
 
@@ -1965,9 +1965,9 @@ http.interceptors.response.use(
 export type { AxiosRequestConfig }
 ```
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit && npm run type-check`;Expected: 全绿(含 Task 2.1 的用例)
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit && npm run type-check`;Expected: 全绿(含 Task 2.1 的用例)
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/api web/tests/support web/tests/unit web/.env.test
@@ -1987,7 +1987,7 @@ git commit -m "feat(web): axios 实例与 401 刷新通道(并发去重)"
   - `api/auth.ts`:`sendCode(phone): Promise<void>`、`verify(phone, code): Promise<{ access, refresh, isNewUser, userId }>`
 - 说明:`status` 三态对应 App 的 `SessionLoading / SessionLoggedOut / SessionLoggedIn`;`kicked` 驱动全屏提示(Task 2.4)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/session-store.spec.ts`:
 
@@ -2070,9 +2070,9 @@ describe('session store', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/session-store.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/session-store.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `web/src/api/types.ts`(本任务只放会话相关,后续任务逐组追加):
 
@@ -2176,9 +2176,9 @@ export const useSessionStore = defineStore('session', () => {
 })
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/stores web/src/api web/tests/unit
@@ -2196,7 +2196,7 @@ git commit -m "feat(web): 会话 store 与登录/登出/启动恢复"
 - Consumes: `useSessionStore().kicked` / `acknowledgeKicked()`。
 - Produces:`AppKickedOverlay`(无 props;由 store 驱动显隐) —— **浏览器没有推送渠道,被顶必须全屏可见,不能只闪一个 toast**(spec §9.1)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/component/app-kicked-overlay.spec.ts`:
 
@@ -2228,9 +2228,9 @@ describe('AppKickedOverlay', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/app-kicked-overlay.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/app-kicked-overlay.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `web/src/components/AppKickedOverlay.vue`:
 
@@ -2303,9 +2303,9 @@ import AppKickedOverlay from '@/components/AppKickedOverlay.vue'
 </template>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/component && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/component && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/components/AppKickedOverlay.vue web/src/App.vue web/tests/component
@@ -2325,7 +2325,7 @@ git commit -m "feat(web): 被顶号全屏提示"
   - `FormCard.vue`:props `title: string`、`description?: string`;默认插槽为表单 —— **PC 上所有「一次填完就走」的页面共用这个居中卡片**(宽度 = 窗口宽 × 32%,夹 420–520px)
   - `LoginPage.vue`:路由 `/login`;手机号 11 位校验、发码后 60 秒倒计时、42902 锁定提示、登录成功跳 `/onboarding`(新用户)或 `/home`
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/component/login-page.spec.ts`:
 
@@ -2435,9 +2435,9 @@ describe('LoginPage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/login-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/login-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `FormCard.vue`**
+- [x] **Step 3:实现 `FormCard.vue`**
 
 ```vue
 <script setup lang="ts">
@@ -2490,7 +2490,7 @@ defineProps<{ title: string; description?: string }>()
 </style>
 ```
 
-- [ ] **Step 4:实现 `LoginPage.vue`**
+- [x] **Step 4:实现 `LoginPage.vue`**
 
 ```vue
 <script setup lang="ts">
@@ -2607,7 +2607,7 @@ async function onSubmit() {
 </style>
 ```
 
-- [ ] **Step 5:补路由**
+- [x] **Step 5:补路由**
 
 `web/src/router/index.ts` 的 `routes` 数组加:
 
@@ -2615,9 +2615,9 @@ async function onSubmit() {
 { path: '/login', component: () => import('@/features/auth/LoginPage.vue') },
 ```
 
-- [ ] **Step 6:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 6:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 git add web/src/features/auth web/src/router web/src/api/error.ts web/tests/component
@@ -2639,7 +2639,7 @@ git commit -m "feat(web): 登录页(验证码倒计时/限流/锁定提示)"
   - `agreed.ts`:`isAgreed(): boolean`(路由守卫与弹窗共用)—— **必须独立成模块**:`<script setup>` 不能对外导出函数,写成 SFC 里的 `export function` 是无效的
 - 说明:`/legal/*` 未登录也可访问(spec §5.1)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/component/legal-gate.spec.ts`:
 
@@ -2679,16 +2679,16 @@ describe('LegalGate', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/legal-gate.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/legal-gate.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:抄协议文案**
+- [x] **Step 3:抄协议文案**
 
 从 App 里逐字复制正文:
 - `app/lib/features/legal/` 下的协议与隐私政策正文 → `web/src/features/legal/agreement.ts` / `privacy.ts`
 - 每个文件导出一个默认字符串 `export const agreementText = \`...\``(保留段落换行)
 - **文案必须逐字一致**(商店审核会比对 App 与网页版本,spec §1 硬约束)
 
-- [ ] **Step 4:实现 `LegalPage.vue` 与 `LegalGate.vue`**
+- [x] **Step 4:实现 `LegalPage.vue` 与 `LegalGate.vue`**
 
 `LegalPage.vue`:
 
@@ -2819,7 +2819,7 @@ function onAgree() {
 </style>
 ```
 
-- [ ] **Step 5:挂到 App.vue 与路由**
+- [x] **Step 5:挂到 App.vue 与路由**
 
 `web/src/App.vue` 模板加 `<LegalGate />`(放在 `RouterView` 之后、`AppKickedOverlay` 之前);`/legal/*` 路由:
 
@@ -2836,12 +2836,12 @@ function onAgree() {
 },
 ```
 
-- [ ] **Step 6:目检 + 测试**
+- [x] **Step 6:目检 + 测试**
 
 Run: `cd web && npm run test:run && npm run type-check && npm run dev`
 目检:清空 localStorage 刷新 → 弹窗出现;点协议链接新标签打开全文;勾选同意后弹窗消失且刷新不再出现。
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 git add web/src/features/legal web/src/router web/src/App.vue web/tests/component
@@ -2867,7 +2867,7 @@ git commit -m "feat(web): 用户协议/隐私政策页与首启弹窗"
   `/login` · `/onboarding` · `/home`(子路由 `discovery`(默认)/`square`/`chats`/`mine`)· `/chat/:peerId` · `/users/:id` · `/posts/:id` · `/posts/compose` · `/my-posts` · `/settings` · `/settings/blocks` · `/profile/edit` · `/preference` · `/legal/agreement` · `/legal/privacy` · `/mobile-guard`
   每条路由 `meta`: `{ public?: boolean }`(无需登录,仅 `/login` 与 `/legal/*`)
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/router-guard.spec.ts`:
 
@@ -2919,9 +2919,9 @@ describe('路由守卫', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/router-guard.spec.ts`;Expected: FAIL,`createAppRouter` 不存在
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/router-guard.spec.ts`;Expected: FAIL,`createAppRouter` 不存在
 
-- [ ] **Step 3:实现路由**
+- [x] **Step 3:实现路由**
 
 `web/src/router/routes.ts`:
 
@@ -3010,10 +3010,10 @@ export function createAppRouter() {
 export const router = createAppRouter()
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/router-guard.spec.ts && npm run type-check`
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/router-guard.spec.ts && npm run type-check`
 Expected: 4 passed。此时尚未创建的页面组件会在**运行**时报错(懒加载),不影响单测;Task 3.6 会把它们补齐。
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/router web/tests/unit
@@ -3030,7 +3030,7 @@ git commit -m "feat(web): 路由表与守卫(会话态/移动端/公开路由)"
 - Produces:`isMobileDevice(): boolean` —— 读 `navigator.platform` + UA + `maxTouchPoints`(**不读窗口宽度**;iPad 伪装成 Mac 时按 `maxTouchPoints > 2` 判为移动端,与 Flutter 同判据)
 - `MobileGuard.vue`:居中引导页;下载按钮按 `DOWNLOADS_ENABLED` 决定可用或「敬请期待」禁用态
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/use-device.spec.ts`:
 
@@ -3102,9 +3102,9 @@ describe('MobileGuard', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/use-device.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/use-device.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `web/src/composables/useDevice.ts`:
 
@@ -3178,9 +3178,9 @@ import { APP_NAME, DOWNLOADS_ENABLED } from '@/constants'
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/composables web/src/layouts web/tests
@@ -3199,7 +3199,7 @@ git commit -m "feat(web): 设备判定与移动端引导页"
   - `useSidebar()`:返回 `{ width, isIconOnly, isDragging, beginDrag(event), resetToDefault() }`;宽度持久化到 localStorage 键 `hb.sidebarWidth`
 - **两个真相源的问题与解法**:CSS 需要这些数值做样式,JS 需要它们做拖拽数学。`tokens.css` 与 `layout.ts` 各存一份,由 `layout-consistency.spec.ts` 断言两边一致(与 Dart↔CSS 的 token 测试同一套纪律)。
 
-- [ ] **Step 1:写失败的一致性测试**
+- [x] **Step 1:写失败的一致性测试**
 
 `web/tests/unit/layout-consistency.spec.ts`:
 
@@ -3287,9 +3287,9 @@ describe('useSidebar', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/use-sidebar.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/use-sidebar.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `layout.ts`(行为参数与 useSidebar 同文件,便于测试)**
+- [x] **Step 3:实现 `layout.ts`(行为参数与 useSidebar 同文件,便于测试)**
 
 `web/src/layout.ts`:
 
@@ -3379,10 +3379,10 @@ export function useSidebar(): SidebarState {
 }
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit && npm run type-check`
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit && npm run type-check`
 Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/layout.ts web/tests/unit
@@ -3402,7 +3402,7 @@ git commit -m "feat(web): 侧栏几何(拖拽/阈值/记忆)与 JS-CSS 一致性
   - `DesktopShell.vue`:左栏 + 右内容区(`<RouterView />`);侧栏选中项由**当前路由名**驱动
 - 导航四项:`discovery` 发现 / `chats` 消息(带未读角标)/ `square` 广场 / `mine` 我的;底部 `settings` 设置 + 当前用户头像昵称
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/component/app-sidebar.spec.ts`:
 
@@ -3453,9 +3453,9 @@ describe('AppSidebar', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/app-sidebar.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/app-sidebar.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `AppSidebar.vue`**
+- [x] **Step 3:实现 `AppSidebar.vue`**
 
 ```vue
 <script setup lang="ts">
@@ -3587,7 +3587,7 @@ const currentSection = computed(() => {
 </style>
 ```
 
-- [ ] **Step 4:实现 `DesktopShell.vue`**
+- [x] **Step 4:实现 `DesktopShell.vue`**
 
 ```vue
 <script setup lang="ts">
@@ -3639,9 +3639,9 @@ export const useChatStore = defineStore('chat', () => {
 })
 ```
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/layouts web/src/components/AppSidebar.vue web/src/stores/chat.ts web/tests/component
@@ -3657,7 +3657,7 @@ git commit -m "feat(web): DesktopShell 与可拖拽侧栏"
 **Interfaces:**
 - Produces:每个文件一个最小页面(标题 + 一句占位说明),后续组逐个替换为真实实现。**目的是让路由全表可跳转**,先把壳层跑起来。
 
-- [ ] **Step 1:写失败的路由可解析测试**
+- [x] **Step 1:写失败的路由可解析测试**
 
 `web/tests/unit/routes-resolve.spec.ts`:
 
@@ -3699,9 +3699,9 @@ describe('路由表', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/routes-resolve.spec.ts`;Expected: FAIL(多个文件不存在)
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/routes-resolve.spec.ts`;Expected: FAIL(多个文件不存在)
 
-- [ ] **Step 3:批量创建空壳页**
+- [x] **Step 3:批量创建空壳页**
 
 每个页面用同一套最小结构(以 `DiscoveryPage.vue` 为例,其余照此替换标题):
 
@@ -3735,9 +3735,9 @@ describe('路由表', () => {
 </template>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:端到端目检(壳层通)**
+- [x] **Step 5:端到端目检(壳层通)**
 
 Run: `cd chatapp && python manage.py runserver`(另开一个终端)+ `cd web && npm run dev`
 浏览器:
@@ -3747,7 +3747,7 @@ Run: `cd chatapp && python manage.py runserver`(另开一个终端)+ `cd web && 
 4. 刷新页面 → 侧栏宽度仍是刚才拖的
 5. 用 DevTools 把设备切到 iPhone → 刷新 → 进引导页
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/features web/src/layouts web/tests

@@ -98,7 +98,7 @@ export interface Page<T> {
 - `useProfileStore()`:state `profile` / `tags` / `loading` / `error`;actions `load()`、`loadTags()`、`save(patch)`、`uploadPhoto(file)`、`removePhoto(id)`、`savePreference(patch)`
 - 便捷判定:`isBannedHeavy`、`isBannedLight`、`isIncomplete`(computed)
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/profile-store.spec.ts`:
 
@@ -202,9 +202,9 @@ describe('profile store', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/profile-store.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/profile-store.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `api/users.ts`**
+- [x] **Step 3:实现 `api/users.ts`**
 
 ```ts
 import { http } from './http'
@@ -255,7 +255,7 @@ export async function fetchUserProfile(userId: number): Promise<PublicProfile> {
 export type { Page }
 ```
 
-- [ ] **Step 4:实现 `stores/profile.ts`**
+- [x] **Step 4:实现 `stores/profile.ts`**
 
 ```ts
 import { defineStore } from 'pinia'
@@ -332,10 +332,10 @@ export const useProfileStore = defineStore('profile', () => {
 })
 ```
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/profile-store.spec.ts && npm run type-check`
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/profile-store.spec.ts && npm run type-check`
 Expected: 5 passed
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/api web/src/stores web/tests/unit
@@ -352,7 +352,7 @@ git commit -m "feat(web): 资料 API 与 store(含缺项提示与封禁判定)"
 - Consumes: `useProfileStore()`、`FormCard`、`AppInput`、`AppButton`。
 - Produces:`ProfileEditPage`(路由 `/profile/edit`),提交昵称/性别/生日/城市/简介;**未满 18 岁由后端 400 拒绝,前端展示后端文案**。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -437,9 +437,9 @@ describe('ProfileEditPage', () => {
 
 > 注意:每个用例都新建了 Pinia,但 `store.load()` 在 `server.use` 之后调用 —— 顺序不能反,否则会打到上一个用例的 handler。
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/profile-edit-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/profile-edit-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -535,9 +535,9 @@ async function onSubmit() {
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/profile web/tests/component
@@ -555,7 +555,7 @@ git commit -m "feat(web): 编辑资料页"
 - Consumes: `useProfileStore().tags` / `loadTags()`、`save({ tag_ids })`。
 - Produces:`TagPicker.vue` —— props `{ modelValue: number[] }`,emits `update:modelValue`;多选,选中态用 brand 描边;提交时 `tag_ids` **全量替换**(users.md §2.2)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -614,9 +614,9 @@ describe('TagPicker', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/tag-picker.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/tag-picker.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `TagPicker.vue`**
+- [x] **Step 3:实现 `TagPicker.vue`**
 
 ```vue
 <script setup lang="ts">
@@ -672,13 +672,13 @@ function toggle(id: number) {
 </style>
 ```
 
-- [ ] **Step 4:接进编辑页**
+- [x] **Step 4:接进编辑页**
 
 `ProfileEditPage.vue` 里:引入 `TagPicker`,加 `const tagIds = ref<number[]>([])`,`onMounted` 里 `tagIds.value = store.profile?.tags.map(t => t.id) ?? []`,模板中放在简介下方,提交时带上 `tag_ids: tagIds.value`(空数组表示清空,**不要**用 `undefined`,否则后端不替换)。
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/features/profile web/tests/component
@@ -696,7 +696,7 @@ git commit -m "feat(web): 标签选择(全量替换 tag_ids)"
 - Consumes: `useProfileStore().profile.photos` / `uploadPhoto(file)` / `removePhoto(id)`。
 - Produces:`PhotoGrid.vue` —— props `{ editable?: boolean }`(默认 true);前端拦截:单张 ≤5MB、最多 6 张(users.md §2.4 的 400 文案是兜底);每张显示审核徽标(`pending` 黄 / `approved` 绿 / `rejected` 红)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -772,9 +772,9 @@ describe('PhotoGrid', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/photo-grid.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/photo-grid.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -918,14 +918,14 @@ async function onRemove(id: number) {
 
 > 后端 `400` 文案(「最多上传 6 张照片」「图片不能超过 5MB」)是最终兜底:前端拦截只是省一次往返,`catch` 里仍要展示后端 `message`。
 
-- [ ] **Step 4:接入我的页与编辑页**
+- [x] **Step 4:接入我的页与编辑页**
 
 - `ProfileEditPage.vue`:简介下方加 `<PhotoGrid />`(可编辑)
 - `MyProfilePage.vue`(Task 4.6 实现)里用 `<PhotoGrid :editable="false" />`
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/features/profile web/tests/component
@@ -942,7 +942,7 @@ git commit -m "feat(web): 照片网格(上传/删除/审核状态/前端拦截)"
 - Consumes: `useProfileStore().profile.preference` / `savePreference(patch)`。
 - Produces:`PreferencePage`(路由 `/preference`);目标性别三选(**不限 = `null`**)、年龄区间(最小不能小于 18)、城市(空 = 不限);错误文案用后端返回。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -1017,9 +1017,9 @@ describe('PreferencePage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/preference-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/preference-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -1129,9 +1129,9 @@ async function onSubmit() {
 
 > `FormCard` 的插槽里有多个根节点,注意 `FormCard` 内部用的是默认插槽(计划一 Task 2.5 已定义),多个子节点是允许的。
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/profile web/tests/component
@@ -1152,7 +1152,7 @@ git commit -m "feat(web): 择偶偏好页(不限性别用 null)"
   - `OnboardingPage`(路由 `/onboarding`):复用编辑资料 + 标签 + 照片;完善后跳 `/home/discovery`
   - 守卫:**`banned_heavy` → `/banned`**(spec §5.1)
 
-- [ ] **Step 1:写失败的封禁守卫测试**
+- [x] **Step 1:写失败的封禁守卫测试**
 
 `web/tests/unit/banned-guard.spec.ts`:
 
@@ -1202,9 +1202,9 @@ describe('封禁守卫', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/banned-guard.spec.ts`;Expected: FAIL(当前守卫不检查封禁)
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/banned-guard.spec.ts`;Expected: FAIL(当前守卫不检查封禁)
 
-- [ ] **Step 3:在守卫里补封禁分支**
+- [x] **Step 3:在守卫里补封禁分支**
 
 `web/src/router/index.ts` 的 `beforeEach` 中,在「非公开路由」判定之后追加:
 
@@ -1222,7 +1222,7 @@ describe('封禁守卫', () => {
 
 同步在文件顶部 `import { useProfileStore } from '@/stores/profile'`;`/banned` 路由已带 `meta.public`(计划一 Task 3.1),故不会被「未登录」分支拦掉。
 
-- [ ] **Step 4:写「我的页」测试**
+- [x] **Step 4:写「我的页」测试**
 
 `web/tests/component/my-profile-page.spec.ts`:
 
@@ -1279,7 +1279,7 @@ describe('MyProfilePage', () => {
 })
 ```
 
-- [ ] **Step 5:实现 `MyProfilePage.vue`**
+- [x] **Step 5:实现 `MyProfilePage.vue`**
 
 ```vue
 <script setup lang="ts">
@@ -1363,7 +1363,7 @@ onMounted(() => {
 </style>
 ```
 
-- [ ] **Step 6:实现 `OnboardingPage.vue`(替换空壳)**
+- [x] **Step 6:实现 `OnboardingPage.vue`(替换空壳)**
 
 复用编辑页的三个部件(资料表单 / 标签 / 照片),提交后跳发现页:
 
@@ -1458,9 +1458,9 @@ async function onSubmit() {
 </style>
 ```
 
-- [ ] **Step 7:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 7:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 8:提交**
+- [x] **Step 8:提交**
 
 ```bash
 git add web/src/features/profile web/src/features/onboarding web/src/router web/tests
@@ -1514,7 +1514,7 @@ export interface MatchSummary {
   - `404`(目标不存在)→ **跳过该卡**继续下一张
   - `429`(300 次/小时)→ 展示后端文案并停住
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/discovery-store.spec.ts`:
 
@@ -1651,9 +1651,9 @@ describe('discovery store', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/discovery-store.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/discovery-store.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `api/discovery.ts`**
+- [x] **Step 3:实现 `api/discovery.ts`**
 
 ```ts
 import { http } from './http'
@@ -1682,7 +1682,7 @@ export async function fetchMatches(limit = 20, offset = 0): Promise<Page<MatchSu
 }
 ```
 
-- [ ] **Step 4:实现 `stores/discovery.ts`**
+- [x] **Step 4:实现 `stores/discovery.ts`**
 
 ```ts
 import { defineStore } from 'pinia'
@@ -1764,9 +1764,9 @@ export const useDiscoveryStore = defineStore('discovery', () => {
 })
 ```
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/discovery-store.spec.ts && npm run type-check`;Expected: 7 passed
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/discovery-store.spec.ts && npm run type-check`;Expected: 7 passed
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/api web/src/stores web/tests/unit
@@ -1783,7 +1783,7 @@ git commit -m "feat(web): 发现与配对 API/store(403 停住、404 跳过、42
 - Consumes: `Candidate`(Task 5.1)、`AppAvatar`。
 - Produces:`CandidateCard.vue` —— props `{ candidate: Candidate; online?: boolean }`(默认 `false`,在线光在 Task 8.4 接线);照片全出血 + 底部 scrim 叠字(心跳附录 A.2);标签最多显示 3 个。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { mount } from '@vue/test-utils'
@@ -1824,9 +1824,9 @@ describe('CandidateCard', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/candidate-card.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/candidate-card.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -1919,9 +1919,9 @@ const meta = computed(() =>
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/discovery web/tests/component
@@ -1940,7 +1940,7 @@ git commit -m "feat(web): 候选卡组件(照片全出血 + scrim 叠字)"
   - `swipe.ts`:`SWIPE_THRESHOLD = 120`(px)、`swipeDirection(dx: number): 'like' | 'pass' | null`(超过阈值才判定,`dx > 0` 为 like)**纯函数,单独单测** —— 拖拽的指针事件在 jsdom 里不可靠,把判定逻辑抽出来才测得准
   - `SwipeDeck.vue`:props `{ candidate: Candidate | null; submitting?: boolean }`;emits `decide: ['like' | 'pass']`;**三种操作入口共用 `decide`**:拖拽过阈值、键盘 `←`/`→`、两个圆钮
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/swipe.spec.ts`:
 
@@ -2010,9 +2010,9 @@ describe('SwipeDeck', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/swipe.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/swipe.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `swipe.ts` 与 `SwipeDeck.vue`**
+- [x] **Step 3:实现 `swipe.ts` 与 `SwipeDeck.vue`**
 
 `web/src/features/discovery/swipe.ts`:
 
@@ -2166,9 +2166,9 @@ const cardStyle = computed(() => ({
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/discovery web/tests
@@ -2185,7 +2185,7 @@ git commit -m "feat(web): 滑卡台(拖拽阈值/键盘/圆钮共用判定)"
 - Consumes: `useDiscoveryStore().matches` / `matchesCount` / `loadMatches(reset)`、`AppAvatar`。
 - Produces:`MatchesList.vue` —— 横滑头像条 + 「加载更多」;点某人 → `/chat/:peerId`(**注意用 `im_user_id` 作为 `peerId`**,与 App 的会话主键一致)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -2252,9 +2252,9 @@ describe('MatchesList', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/matches-list.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/matches-list.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -2340,9 +2340,9 @@ async function loadMore() {
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/discovery web/tests/component
@@ -2362,7 +2362,7 @@ git commit -m "feat(web): 配对列表(横滑条 + 分页加载)"
   - `MatchMoment.vue`:props `{ candidate: Candidate }`;emits `close`、`chat`;心跳渐变背景 + 「你们互相喜欢」+ 两个按钮(去聊天 → `/chat/:im_user_id`、继续滑 → close)
   - `DiscoveryPage.vue`:顶部配对列表 + 中部滑卡台 + 四态(加载/空/错误/正常)+ 轻封禁提示
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/component/match-moment.spec.ts`:
 
@@ -2481,9 +2481,9 @@ describe('DiscoveryPage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/match-moment.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/match-moment.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `MatchMoment.vue`**
+- [x] **Step 3:实现 `MatchMoment.vue`**
 
 ```vue
 <script setup lang="ts">
@@ -2557,7 +2557,7 @@ defineEmits<{ close: []; chat: [] }>()
 </style>
 ```
 
-- [ ] **Step 4:实现 `DiscoveryPage.vue`(替换空壳)**
+- [x] **Step 4:实现 `DiscoveryPage.vue`(替换空壳)**
 
 ```vue
 <script setup lang="ts">
@@ -2636,14 +2636,14 @@ function onChat() {
 </style>
 ```
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 6:真后端目检**
+- [x] **Step 6:真后端目检**
 
 Run: `cd chatapp && python manage.py runserver` + `cd web && npm run dev`
 目检:滑卡三种操作都能用;右滑喜欢 + 对方也喜欢过你 → 弹出「你们互相喜欢」;点「去聊天」跳到聊天页(此时聊天页还是空壳)。
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 git add web/src/features/discovery web/tests
@@ -2688,7 +2688,7 @@ export type ReportType = 'harassment' | 'porn' | 'fraud' | 'other'
 - `useFeedStore()`:state `posts` / `count` / `loading` / `loadingMore` / `error`;getters `hasMore`;
   actions `load(reset)`、`loadMine(reset)`、`toggleLike(post)`、`removePost(id)`、`prepend(post)`、`create(text, images)`
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/feed-store.spec.ts`:
 
@@ -2793,9 +2793,9 @@ describe('feed store', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/feed-store.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/feed-store.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `api/feed.ts`**
+- [x] **Step 3:实现 `api/feed.ts`**
 
 ```ts
 import { http } from './http'
@@ -2852,7 +2852,7 @@ export async function reportPost(postId: number, type: ReportType, detail = ''):
 }
 ```
 
-- [ ] **Step 4:实现 `stores/feed.ts`**
+- [x] **Step 4:实现 `stores/feed.ts`**
 
 ```ts
 import { defineStore } from 'pinia'
@@ -2940,9 +2940,9 @@ export const useFeedStore = defineStore('feed', () => {
 })
 ```
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/feed-store.spec.ts && npm run type-check`;Expected: 5 passed
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/feed-store.spec.ts && npm run type-check`;Expected: 5 passed
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/api web/src/stores web/tests/unit
@@ -2967,7 +2967,7 @@ justify-content: center;
 
 > jsdom 不做真实排版,**列数只能靠目检/Playwright 验证**;组件测试只断言「渲染了几条动态」与四态。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -3041,9 +3041,9 @@ describe('SquarePage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/square-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/square-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**(PostCard 在 Task 7.3 创建;本步骤先按下面的 props 约定引用 `{ post }` + `@like` + `@delete`)
+- [x] **Step 3:实现**(PostCard 在 Task 7.3 创建;本步骤先按下面的 props 约定引用 `{ post }` + `@like` + `@delete`)
 
 ```vue
 <script setup lang="ts">
@@ -3131,9 +3131,9 @@ onMounted(() => {
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → 先完成 Task 7.3 的 `PostCard.vue`,再回到本任务跑测试。Run: `cd web && npm run test:run tests/component/square-page.spec.ts`;Expected: 4 passed
+- [x] **Step 4:跑测试确认通过** → 先完成 Task 7.3 的 `PostCard.vue`,再回到本任务跑测试。Run: `cd web && npm run test:run tests/component/square-page.spec.ts`;Expected: 4 passed
 
-- [ ] **Step 5:提交(与 Task 7.3 一起提交亦可,但不要跨组)**
+- [x] **Step 5:提交(与 Task 7.3 一起提交亦可,但不要跨组)**
 
 ```bash
 git add web/src/features/square web/tests/component
@@ -3150,7 +3150,7 @@ git commit -m "feat(web): 广场流页(列数自适应 + 四态)"
 - Consumes: `Post`(Task 7.1)、`AppAvatar`、`AppButton`。
 - Produces:`PostCard.vue` —— props `{ post: Post; mine?: boolean }`;emits `like`、`delete`、`report`;图片按 1/2/3+ 三种网格排布;`mine` 时显示删除按钮。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { mount } from '@vue/test-utils'
@@ -3210,9 +3210,9 @@ describe('PostCard', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/post-card.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/post-card.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -3322,9 +3322,9 @@ const createdAtText = computed(() => {
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿(含 Task 7.2 的用例)
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿(含 Task 7.2 的用例)
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/square web/tests/component
@@ -3341,7 +3341,7 @@ git commit -m "feat(web): 动态卡片与点赞"
 - Consumes: `useFeedStore().create(text, images)`、`parseApiError`、`FormCard`。
 - Produces:`PostComposePage`(路由 `/posts/compose`):正文 ≤500 字、图片 ≤9 张且单张 ≤5MB;正文与图片**至少填一个**;成功后回广场。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -3419,9 +3419,9 @@ describe('PostComposePage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/post-compose-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/post-compose-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -3558,9 +3558,9 @@ async function onSubmit() {
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/square web/tests/component
@@ -3577,7 +3577,7 @@ git commit -m "feat(web): 发布动态(多图预览与前端拦截)"
 - Consumes: `api/feed.ts` 的 `fetchPost` / `fetchComments` / `createComment`、`PostCard`、`AppInput`。
 - Produces:`PostDetailPage`(路由 `/posts/:id`):详情 + 评论区(分页 + 发表);发表后插入列表并把 `comment_count` +1。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -3661,9 +3661,9 @@ describe('PostDetailPage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/post-detail-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/post-detail-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `CommentList.vue`:
 
@@ -3837,9 +3837,9 @@ function onCommentAdded(comment: Comment) {
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/square web/tests/component
@@ -3859,7 +3859,7 @@ git commit -m "feat(web): 动态详情与评论"
   - `ReportDialog.vue`:props `{ open: boolean; target: 'user' | 'post' }`;emits `close`、`submitted`;理由四选(`harassment` 骚扰 / `porn` 色情 / `fraud` 诈骗 / `other` 其他)+ 可选补充说明(≤200 字)
   - `MyPostsPage`(路由 `/my-posts`):我的动态列表 + 删除(二次确认)+ 举报
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { mount } from '@vue/test-utils'
@@ -3903,9 +3903,9 @@ describe('ReportDialog', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/report-dialog.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/report-dialog.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `ReportDialog.vue`**
+- [x] **Step 3:实现 `ReportDialog.vue`**
 
 ```vue
 <script setup lang="ts">
@@ -4030,7 +4030,7 @@ function onClose() {
 </style>
 ```
 
-- [ ] **Step 4:实现 `MyPostsPage.vue`(替换空壳)**
+- [x] **Step 4:实现 `MyPostsPage.vue`(替换空壳)**
 
 ```vue
 <script setup lang="ts">
@@ -4119,9 +4119,9 @@ async function onReport(type: ReportType, detail: string) {
 </style>
 ```
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/features/square web/src/features/moderation web/tests/component
@@ -4146,7 +4146,7 @@ git commit -m "feat(web): 我的动态/删除,举报弹窗(用户与动态共用
 
 > **退出顺序**:先 `im.logout()`(Task 6.2 提供)再 `session.logout()`。本任务先只做 `session.logout()`,并在代码里留 TODO 注释指向 Task 6.2 —— **这是计划内唯一允许的 TODO**,因为 IM 层在 T6 才存在。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -4213,9 +4213,9 @@ describe('SettingsPage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/settings-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/settings-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -4287,9 +4287,9 @@ async function onLogout() {
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/settings web/tests/component
@@ -4320,7 +4320,7 @@ export interface BlockedUser {
 - `api/moderation.ts`:`fetchBlocks(limit, offset)`、`blockUser(targetUserId)`、`unblockUser(userId)`、`reportUser(targetUserId, type, detail)`
 - `useBlocksStore()`:state `blocks` / `count`;actions `load(reset)`、`unblock(userId)`、`block(targetUserId)`
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 `web/tests/unit/blocks-store.spec.ts`:
 
@@ -4381,9 +4381,9 @@ describe('blocks store', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/blocks-store.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/blocks-store.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `api/moderation.ts`**
+- [x] **Step 3:实现 `api/moderation.ts`**
 
 ```ts
 import { http } from './http'
@@ -4414,7 +4414,7 @@ export async function reportUser(targetUserId: number, type: ReportType, detail 
 }
 ```
 
-- [ ] **Step 4:实现 `stores/blocks.ts` 与页面**
+- [x] **Step 4:实现 `stores/blocks.ts` 与页面**
 
 `web/src/stores/blocks.ts`:
 
@@ -4458,9 +4458,9 @@ export const useBlocksStore = defineStore('blocks', () => {
 
 `BlockedUsersPage.vue`(替换空壳):列表 + 每条「解除」按钮 + 空态 + 「加载更多」。
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/api web/src/stores web/src/features/settings web/tests/unit
@@ -4477,7 +4477,7 @@ git commit -m "feat(web): 黑名单分页与解除拉黑"
 - Consumes: `api/users.ts` 的 `fetchUserProfile(userId)`、`ReportDialog`(Task 7.6)、`api/moderation.ts` 的 `reportUser` / `blockUser`。
 - Produces:`UserProfilePage`(路由 `/users/:id`):对方公开资料 + 「举报」+「拉黑」两个操作;拉黑前二次确认;`404` 时不重试(对方已不可见)。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -4570,9 +4570,9 @@ describe('UserProfilePage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/user-profile-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/user-profile-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```vue
 <script setup lang="ts">
@@ -4687,9 +4687,9 @@ async function onBlock() {
 </style>
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/profile web/tests/component
@@ -4720,7 +4720,7 @@ export interface PresenceItem { user_id: number; online: boolean; last_active_at
 
 > 与计划一的差异说明:计划一 T8.4 曾写 `useHeartbeat.ts` + `stores/presence.ts` 两个文件;实际把轮询与数据都收进 `stores/presence.ts` 一个文件更直(轮询本身就是心跳,拆开只是多一层转发)。计划一的 T8.4 行以本条为准。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { createPinia, setActivePinia } from 'pinia'
@@ -4842,9 +4842,9 @@ describe('presence store', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/presence-store.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/presence-store.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 ```ts
 import { defineStore } from 'pinia'
@@ -4928,15 +4928,15 @@ export const usePresenceStore = defineStore('presence', () => {
 })
 ```
 
-- [ ] **Step 4:接线到卡片与资料页**
+- [x] **Step 4:接线到卡片与资料页**
 
 - `CandidateCard`:把 `online` 传进去(`<CandidateCard :candidate="store.current" :online="presence.isOnline(store.current.user_id)" />`),并在 `DiscoveryPage` 里 `presence.track('candidates', [store.current?.user_id].filter(Boolean))`
 - `UserProfilePage`:资料卡右上角同样加在线光
 - `ChatsPage`(T6)在会话行上接线
 
-- [ ] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 5:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/stores web/src/features web/tests/unit

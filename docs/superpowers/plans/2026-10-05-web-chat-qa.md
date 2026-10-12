@@ -47,7 +47,7 @@
 9. 同账号在第二个标签页登录时,第一个标签页收到的 `KICKED_OUT` 的**具体原因值**
 10. 控制台「在线 Web 实例数」当前值(决定多标签页行为;默认 1)
 
-- [ ] **Step 1:起后端与前端**
+- [x] **Step 1:起后端与前端**
 
 ```bash
 # 终端 1:后端(需要 Redis 在跑)
@@ -58,7 +58,7 @@ cd chatapp && python -m celery -A config worker -l info --pool=solo
 cd web && npm run dev
 ```
 
-- [ ] **Step 2:在浏览器控制台做最小验证**
+- [x] **Step 2:在浏览器控制台做最小验证**
 
 先登录网页端(`http://localhost:5173/login`,验证码 `123456`),然后在 DevTools 控制台:
 
@@ -79,7 +79,7 @@ await chat.login({ userID: sig.im_user_id, userSig: sig.user_sig })
 console.log('ready?', chat.isReady())
 ```
 
-- [ ] **Step 3:用后端代发一条消息验证收取**
+- [x] **Step 3:用后端代发一条消息验证收取**
 
 ```bash
 cd chatapp
@@ -88,7 +88,7 @@ python manage.py im_send --from u<你的账号ID> --to u<对方账号ID> --text 
 
 Expected: 控制台打印 `RECV [...]`,数组元素里能看到正文**具体在哪个字段**。
 
-- [ ] **Step 4:验证发送**
+- [x] **Step 4:验证发送**
 
 ```js
 const msg = chat.createTextMessage({
@@ -102,7 +102,7 @@ console.log('SENT', res)
 
 Expected: 对方(用 `im_send` 反向验证或另一个账号登录)能收到。
 
-- [ ] **Step 5:验证图片消息与插件**
+- [x] **Step 5:验证图片消息与插件**
 
 ```js
 // 按实测结果注册上传插件(官方为 @tencentcloud/upload-plugin;若需要则 npm install 后:
@@ -119,7 +119,7 @@ console.log(await chat.sendMessage(img))
 
 Expected: 发出成功;收到的图片消息里能找到 URL 数组字段名与 type 取值。**若报错提示缺少上传插件,把插件包名与注册方式写进事实清单。**
 
-- [ ] **Step 6:写事实清单并提交**
+- [x] **Step 6:写事实清单并提交**
 
 把 10 条的实测结论写进本文件「执行记录」,然后:
 
@@ -208,7 +208,7 @@ type TimChat = {
 }
 ```
 
-- [ ] **Step 1:写失败的测试(用假 SDK,不碰真腾讯云)**
+- [x] **Step 1:写失败的测试(用假 SDK,不碰真腾讯云)**
 
 `web/tests/unit/im-client.spec.ts`:
 
@@ -303,9 +303,9 @@ describe('im client', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/im-client.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/im-client.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `im/types.ts` 与 `im/client.ts`**
+- [x] **Step 3:实现 `im/types.ts` 与 `im/client.ts`**
 
 `im/types.ts`:照抄上面的接口定义(含 `TimMessageLike` / `TimConversationLike` / `TimChatLike` 的结构化最小类型)。
 
@@ -345,9 +345,9 @@ export function createImClient(options?: { sdk?: TimChatLike; events?: EventName
 - `deleteConversation(peerId)` → `chat.deleteConversation('C2C' + peerId)`。
 - `deleteMessage(msgId)` 需要消息对象,故按 `getMessageList` 结果里 `ID` 匹配后调用 `chat.deleteMessage([message])`。
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/im-client.spec.ts && npm run type-check`;Expected: 4 passed
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run tests/unit/im-client.spec.ts && npm run type-check`;Expected: 4 passed
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/im web/tests/unit
@@ -365,7 +365,7 @@ git commit -m "feat(web): IM 客户端封装(可注入假 SDK)"
 - Produces:`chatMessageFromTim(message)`、`conversationFromTim(conversation)`、`SYSTEM_NOTICE_PEER_ID = 'system_notice'`。
 - **与 App 的差异**(必须在文件头注释里写清):Web SDK 把内容放在 `message.payload` 里,而 Flutter 插件是 `message.textElem` / `message.imageElem` / `message.customElem` 平铺字段 —— 这也是为什么 App 的 `chatMessageFromSdk` **不能**复用。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { describe, expect, it } from 'vitest'
@@ -446,9 +446,9 @@ describe('conversationFromTim', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/im-map.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/im-map.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `im/map.ts`**
+- [x] **Step 3:实现 `im/map.ts`**
 
 ```ts
 /**
@@ -538,9 +538,9 @@ export function conversationFromTim(conversation: TimConversationLike): ImConver
 }
 ```
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/im web/tests/unit
@@ -580,7 +580,7 @@ store 在 setup 里 `const client = getImClient()` 取一次(整个应用共用�
 | `multiDevice` / `restApi` / `sigExpired` | 视为**真的被别的设备顶掉**:`sessionEvents.emitKickedOffline()`(触发全屏提示 + 清凭证) |
 | `multiAccount`(**同端第二个标签页**) | **只重连 IM,绝不清凭证** —— 否则两个标签页会一起被登出(localStorage 是共享的) |
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { createPinia, setActivePinia } from 'pinia'
@@ -689,9 +689,9 @@ describe('chat store', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/chat-store.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/chat-store.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现(要点)**
+- [x] **Step 3:实现(要点)**
 
 - store 工厂接收可选的 `{ client }` 以便测试注入(生产路径用 `createImClient()`);`defineStore` 的 setup 里读注入或建默认。
 - `conversations` 排序:**`system_notice` 永远第一**,其余按 `lastMessage.timestamp` 倒序。
@@ -700,13 +700,13 @@ describe('chat store', () => {
 - `openConversation(peerId)`:加载历史(若未加载)→ `markConversationRead` → 本地把该会话未读清零。
 - `close()`:`client.logout()`(退出登录时在 `SettingsPage` 里先调它,兑现 Task 8.1 的 TODO)。
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:把 Task 8.1 的 TODO 兑现**
+- [x] **Step 5:把 Task 8.1 的 TODO 兑现**
 
 `SettingsPage.vue` 的 `onLogout` 改为先 `await useChatStore().close().catch(() => {})` 再 `session.logout()`,并删掉那行 TODO 注释。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/stores web/src/features/settings web/tests/unit
@@ -723,7 +723,7 @@ git commit -m "feat(web): 聊天 store(踢下线分流:同端多实例不清凭�
 - Consumes: `useChatStore()`、`usePresenceStore().track('chats', ids)`、`AppAvatar` / `AppBadge` / `AppSkeleton` / `AppEmpty` / `AppErrorView`。
 - Produces:`ChatsPage`(路由 `/home/chats`):四态(骨架/空/错误重试/正常)+ **最近联系人横滑条** + 系统通知行置顶 + 未读角标 + 在线光。
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { flushPromises, mount } from '@vue/test-utils'
@@ -788,17 +788,17 @@ describe('ChatsPage', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/chats-page.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/chats-page.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 要点:`onMounted` 时 `store.connect()`(幂等)→ `loadConversations()`;`store.status` 驱动四态;列表行显示头像(带在线光)、昵称、最后一条消息摘要、时间与未读角标;顶部横滑条只显示最近 10 个会话。点击行 → `router.push({ name: 'chat', params: { peerId } })`。
 
 > 由于 `store.connect()` 会真的连腾讯云,组件测试里统一 `vi.spyOn(store, 'connect').mockResolvedValue()`。
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/chat web/tests/component
@@ -819,7 +819,7 @@ git commit -m "feat(web): 消息页(四态/通知置顶/横滑条/未读)"
   - `MessageBubble.vue`:props `{ message: ChatMessage; peerName?: string }`;系统灰条(`matchNotice` / `banNotice`)渲染成居中 pill;自己消息 = brand 实底白字(渐变的**唯一**高音),对方 = 白底;圆角 `--radius-bubble`
   - `ChatPage.vue`(路由 `/chat/:peerId`):按 `peerId` 拉历史、倒序渲染、回车发送、失败重发
 
-- [ ] **Step 1:写失败的时间条测试**
+- [x] **Step 1:写失败的时间条测试**
 
 `web/tests/unit/chat-time.spec.ts`:
 
@@ -863,9 +863,9 @@ describe('formatTime', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/chat-time.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/unit/chat-time.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现 `time.ts`**
+- [x] **Step 3:实现 `time.ts`**
 
 ```ts
 const FIVE_MINUTES = 5 * 60 * 1000
@@ -890,7 +890,7 @@ export function formatTime(ms: number, now: Date = new Date()): string {
 }
 ```
 
-- [ ] **Step 4:写聊天页组件测试**
+- [x] **Step 4:写聊天页组件测试**
 
 `web/tests/component/chat-page.spec.ts`:
 
@@ -958,7 +958,7 @@ describe('ChatPage', () => {
 })
 ```
 
-- [ ] **Step 5:实现 `MessageBubble.vue` 与 `ChatPage.vue`**
+- [x] **Step 5:实现 `MessageBubble.vue` 与 `ChatPage.vue`**
 
 实现要点:
 - 自己的气泡:背景 `var(--gradient-heart)`、白字、右下角(上角 6px)圆角;对方:白底 `--color-bg-card`、`--radius-bubble`;
@@ -968,9 +968,9 @@ describe('ChatPage', () => {
 - 失败消息右下角显示重发按钮(`.message-bubble__retry`);
 - 输入框回车发送,空内容不发;发送中禁用。
 
-- [ ] **Step 6:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 6:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 7:提交**
+- [x] **Step 7:提交**
 
 ```bash
 git add web/src/features/chat web/tests
@@ -990,7 +990,7 @@ git commit -m "feat(web): 聊天页(历史/气泡/时间条/发送/重发)"
   - `MessageImage.vue`:props `{ message: ChatMessage }`;发送中显示占位骨架,加载失败显示兜底
   - `ImageViewer.vue`:props `{ urls: string[]; index: number }`;emits `close`;**点遮罩或 `Esc` 关闭**(spec §6.4)
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { mount } from '@vue/test-utils'
@@ -1024,9 +1024,9 @@ describe('ImageViewer', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/image-viewer.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/image-viewer.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现**
+- [x] **Step 3:实现**
 
 `ImageViewer.vue` 要点:全屏遮罩 `--color-photo-scrim`;`onMounted` 注册 `keydown`、`onUnmounted` 移除;`.image-viewer__mask` 覆盖整屏且**在图片之下**(`z-index` 分层),这样点图片不会冒泡到遮罩。
 
@@ -1034,14 +1034,14 @@ describe('ImageViewer', () => {
 
 `ChatPage.vue` 接线:`<input type="file" accept="image/*">` 选图 → 立即本地预览上屏 → `store.sendImage(peerId, file)`;点击图片 → `viewer = { urls, index }`。
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:真机目检(要两个账号)**
+- [x] **Step 5:真机目检(要两个账号)**
 
 Run: 两个浏览器窗口分别登录不同账号 → 互相配对 → 互发文本与图片
 Expected: 图片能发能收能全屏;`Esc` 与点遮罩都能关。
 
-- [ ] **Step 6:提交**
+- [x] **Step 6:提交**
 
 ```bash
 git add web/src/features/chat web/tests/component
@@ -1061,7 +1061,7 @@ git commit -m "feat(web): 图片消息与灯箱(Esc/点遮罩关闭)"
   - `EmojiPanel.vue`:固定一组表情(与 App 的面板一致即可,不引入第三方库);点选后插入输入框;`Esc` 或再点按钮收起
   - `MessageMenu.vue`:props `{ message: ChatMessage; x: number; y: number }`;emits `close` / `action: ['copy' | 'delete' | 'retry']`;**悬停 ⋯ 按钮与右键菜单是两个入口、同一个组件**(spec §6.4)
 
-- [ ] **Step 1:写失败的测试**
+- [x] **Step 1:写失败的测试**
 
 ```ts
 import { mount } from '@vue/test-utils'
@@ -1102,15 +1102,15 @@ describe('MessageMenu', () => {
 })
 ```
 
-- [ ] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/message-menu.spec.ts`;Expected: FAIL
+- [x] **Step 2:跑测试确认失败** → Run: `cd web && npm run test:run tests/component/message-menu.spec.ts`;Expected: FAIL
 
-- [ ] **Step 3:实现并接线**
+- [x] **Step 3:实现并接线**
 
 要点:菜单用 `position: fixed` + `left/top`(来自事件坐标),**靠近右/下边缘时向内收**(用 `Math.min(x, window.innerWidth - 160)`);`copy` 用 `navigator.clipboard.writeText(message.text)` 并提示「已复制」;`delete` 调 `store.deleteMessage`;`retry` 调 `store.resend`。聊天页给每条气泡绑定 `@contextmenu.prevent` 与悬停按钮。
 
-- [ ] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
+- [x] **Step 4:跑测试确认通过** → Run: `cd web && npm run test:run && npm run type-check`;Expected: 全绿
 
-- [ ] **Step 5:提交**
+- [x] **Step 5:提交**
 
 ```bash
 git add web/src/features/chat web/tests/component
@@ -1139,7 +1139,7 @@ git commit -m "feat(web): 表情面板与消息菜单(悬停/右键同一组件)
 cd web && npm run test:coverage
 ```
 
-- [ ] **Step 1:装覆盖率依赖并配置**
+- [x] **Step 1:装覆盖率依赖并配置**
 
 ```bash
 cd web && npm install -D @vitest/coverage-v8
@@ -1159,7 +1159,7 @@ cd web && npm install -D @vitest/coverage-v8
 
 `package.json` 脚本加 `"test:coverage": "vitest run --coverage"`。
 
-- [ ] **Step 2:补齐以下必测清单(缺哪补哪)**
+- [x] **Step 2:补齐以下必测清单(缺哪补哪)**
 
 | 模块 | 必测行为 |
 |---|---|
@@ -1178,7 +1178,7 @@ cd web && npm install -D @vitest/coverage-v8
 | `constants.ts` | `APP_NAME`、`DOWNLOADS_ENABLED` |
 | token 对照 | Dart ↔ CSS 数值一致;字体哈希一致 |
 
-- [ ] **Step 3:跑到门槛以上并提交**
+- [x] **Step 3:跑到门槛以上并提交**
 
 Run: `cd web && npm run test:coverage`
 Expected: 四个阈值全部通过(不通过就把缺口补到通过,**不要**为了过而调低阈值;若确有必要调整,先找用户确认)
@@ -1198,7 +1198,7 @@ git commit -m "test(web): 覆盖率门槛与缺口补齐"
 - Consumes: `npm run build` 产物。
 - Produces:`npm run e2e` 跑端到端;默认打**真后端** `http://127.0.0.1:8000`。
 
-- [ ] **Step 1:补 `preview.proxy`**
+- [x] **Step 1:补 `preview.proxy`**
 
 `vite.config.ts` 增加(与 `server.proxy` 相同的两条规则):
 
@@ -1212,7 +1212,7 @@ git commit -m "test(web): 覆盖率门槛与缺口补齐"
   },
 ```
 
-- [ ] **Step 2:写 `playwright.config.ts`**
+- [x] **Step 2:写 `playwright.config.ts`**
 
 ```ts
 import { defineConfig, devices } from '@playwright/test'
@@ -1242,7 +1242,7 @@ export default defineConfig({
 
 `package.json` 脚本加 `"e2e": "playwright test"`。
 
-- [ ] **Step 3:写账号辅助(两个账号互滑要用)**
+- [x] **Step 3:写账号辅助(两个账号互滑要用)**
 
 `web/tests/e2e/support/account.ts`:
 
@@ -1288,7 +1288,7 @@ export function freshPhone(suffix: number): string {
 }
 ```
 
-- [ ] **Step 4:冒烟一条并提交**
+- [x] **Step 4:冒烟一条并提交**
 
 ```ts
 // web/tests/e2e/smoke.spec.ts
@@ -1318,7 +1318,7 @@ git commit -m "test(web): Playwright 配置与端到端辅助"
 - Consumes: `support/account.ts`。
 - Produces:一条跑通「登录 → 完善资料 → 滑卡 → 互喜配对 → 聊天(文本+图片)→ 广场发布与评论 → 拉黑」的脚本。
 
-- [ ] **Step 1:写脚本**
+- [x] **Step 1:写脚本**
 
 ```ts
 import { expect, test } from '@playwright/test'
@@ -1383,7 +1383,7 @@ test('主干流程:注册 → 配对 → 聊天 → 广场 → 拉黑', async ({
 })
 ```
 
-- [ ] **Step 2:跑通并提交**
+- [x] **Step 2:跑通并提交**
 
 Run(前置:Redis + `python manage.py runserver` + Celery worker):`cd web && npm run e2e`
 Expected: 1 passed。**失败时读 `playwright-report/` 里的 trace**,不要靠猜。
@@ -1403,7 +1403,7 @@ git commit -m "test(web): 主干流程端到端脚本"
 - Consumes: `support/account.ts`。
 - Produces:覆盖 spec §16 的边界项。
 
-- [ ] **Step 1:写脚本**
+- [x] **Step 1:写脚本**
 
 ```ts
 import { expect, test } from '@playwright/test'
@@ -1477,7 +1477,7 @@ test('第二个标签页登录不会把第一个标签页登出(同端多实例�
 })
 ```
 
-- [ ] **Step 2:跑通并提交**
+- [x] **Step 2:跑通并提交**
 
 Run: `cd web && npm run e2e`
 Expected: 6 passed。**「多标签」这条若失败**:说明踢出类型没分流对,回 Task 6.4 修 `kickReasonOf` 的映射(这是 spec 修正里的关键行为,不能靠放宽断言糊过去)。
@@ -1497,7 +1497,7 @@ git commit -m "test(web): 边界场景端到端(深链/中文/窄窗/UA/多标�
 - Consumes: 计划一定义的脚本。
 - Produces:前端 CI 四件事:类型检查、lint、单测、构建。
 
-- [ ] **Step 1:写 workflow(照 `.github/workflows/app.yml` 的风格)**
+- [x] **Step 1:写 workflow(照 `.github/workflows/app.yml` 的风格)**
 
 ```yaml
 name: Web (Vue)
@@ -1546,12 +1546,12 @@ jobs:
         run: npm run build
 ```
 
-- [ ] **Step 2:本地先复现 CI 的四步**
+- [x] **Step 2:本地先复现 CI 的四步**
 
 Run: `cd web && npm ci && npm run type-check && npm run lint && npm run test:run && npm run build`
 Expected: 四步全过(`npm ci` 需要 `package-lock.json` 已入库)
 
-- [ ] **Step 3:提交并推分支验证**
+- [x] **Step 3:提交并推分支验证**
 
 ```bash
 git add .github/workflows/web.yml
@@ -1575,7 +1575,7 @@ Expected: GitHub Actions 上 `Web (Vue)` 变绿。
 - Consumes: `npm run build` 产物 `web/dist`。
 - Produces:nginx 站点配置样例 + 上线核对单。
 
-- [ ] **Step 1:写 nginx 配置(静态直出 + 深链回退 + 反代)**
+- [x] **Step 1:写 nginx 配置(静态直出 + 深链回退 + 反代)**
 
 记入本地运维手册:
 
@@ -1617,7 +1617,7 @@ server {
 }
 ```
 
-- [ ] **Step 2:写核对单(记入本地运维手册)**
+- [x] **Step 2:写核对单(记入本地运维手册)**
 
 1. 本地 `npm run build` → 产物拷到服务器部署目录
 2. `nginx -t` → 重载
@@ -1627,7 +1627,7 @@ server {
 6. 后端进程:`python manage.py test` 仍全绿(证明零改动没被破坏)
 7. 档案:`.env` 的 `ALLOWED_HOSTS` 含当前访问域名/IP;CORS 保持默认(同域不需要)
 
-- [ ] **Step 3:更新 README 部署一节并提交**
+- [x] **Step 3:更新 README 部署一节并提交**
 
 补「网页端」小节:技术栈、启动命令、构建产物、nginx 要求(直出 + try_files + 反代 `/api/v1` 与 `/media/`)、备案前用 IP 访问的说明。
 
@@ -1645,7 +1645,7 @@ git commit -m "docs: 部署一节补网页端(nginx 要求与核对单)"
 **Interfaces:**
 - Produces:Web 端踩坑分册,至少收录本计划已知的 6 条。
 
-- [ ] **Step 1:写分册(照现有分册的格式:现象 / 原因 / 处置 / 出处)**
+- [x] **Step 1:写分册(照现有分册的格式:现象 / 原因 / 处置 / 出处)**
 
 必须收录:
 
@@ -1656,11 +1656,11 @@ git commit -m "docs: 部署一节补网页端(nginx 要求与核对单)"
 5. **IM 踢下线是 `KICKED_OUT` 且要按原因分流**:`multiAccount`(同端多标签)只重连、**不能清凭证**(localStorage 共享,清了会把所有标签页一起登出)
 6. **图片消息要先 `registerPlugin` 上传插件**,否则 `sendImage` 失败
 
-- [ ] **Step 2:接导航**
+- [x] **Step 2:接导航**
 
 `docs/pitfalls/README.md` 的主题表加一行:`Web 端(Vue 网页端、构建与部署)→ web.md`。
 
-- [ ] **Step 3:提交**
+- [x] **Step 3:提交**
 
 ```bash
 git add docs/pitfalls
@@ -1675,7 +1675,7 @@ git commit -m "docs(pitfalls): 新增 web 分册(6 条实测坑)"
 **Interfaces:**
 - Produces:后续任何人在本项目里改视觉/改前端时,都能从 `CLAUDE.md` 看到必须遵守的规则。
 
-- [ ] **Step 1:改 `CLAUDE.md`**
+- [x] **Step 1:改 `CLAUDE.md`**
 
 1. 「目录结构」表加一行:
    | `web/` | 网页端(Vue 3 SPA) | `src/{api,stores,im,components,layouts,features}`;开发 `npm run dev`(代理到 :8000),构建 `npm run build`;**只服务 PC 浏览器**,移动端按 UA 进引导页 |
@@ -1689,14 +1689,14 @@ git commit -m "docs(pitfalls): 新增 web 分册(6 条实测坑)"
    ```
 4. 「文档导航」的行尾补 `docs/pitfalls/web.md`。
 
-- [ ] **Step 2:改 `README.md`**
+- [x] **Step 2:改 `README.md`**
 
 - 功能一览加「网页端」小节(PC 浏览器可用、与 App 同后端、移动端引导页)
 - 目录结构加 `web/`
 - 测试策略加前端网页端的门禁(vue-tsc / eslint / vitest / playwright)与用例数
 - 徽章与「测试徽章数字」按实测更新(数字必须来自真实运行结果)
 
-- [ ] **Step 3:提交**
+- [x] **Step 3:提交**
 
 ```bash
 git add CLAUDE.md README.md
@@ -1767,5 +1767,71 @@ git commit -m "docs: 网页端落纪律(token 双份维护)与导航"
 10. **控制台「在线 Web 实例数」**:需要登录腾讯云控制台才能看到,**代码侧读不到**;但行为上「同账号同时只有 1 个实例」已被第 9 条证实。若将来要做多标签页共存,需在控制台确认该配额。
 
 **结论**:登录、收、发、会话列表、未读、图片上传、踢出分流**全部跑通**,Task 6.1 **通过**,继续 T6。
+
+---
+
+### 组 T9/T10 执行记录(2026-10-12,分支 `feat/web-frontend`)
+
+**交付结果**
+
+| 门禁 | 结果 |
+|---|---|
+| `vue-tsc --noEmit` | 0 错误 |
+| `eslint --max-warnings 0` | 0 告警 |
+| `npm run test:run` | **303 用例 / 63 文件**全绿(收尾前 269) |
+| `npm run test:coverage` | **85.62 / 81.02 / 81.19 / 87.37**(门槛 70/60/70/70) |
+| `npm run e2e` | **8 passed**(主干 1 + 边界 6 + 冒烟 1) |
+| `python manage.py test` | **339** 全绿 |
+
+**T9.1 覆盖率与缺口**
+
+- 基线 79.03/73.48/73.98/80.6 —— **一次就过门槛**,但报告暴露了 5 个用户可见页面几乎零覆盖:
+  `MyPostsPage` 3.4% / `BlockedUsersPage` 7.4% / `EmojiPanel` 8.3% / `MessageImage` 0% / `OnboardingPage` 2.4%。
+  逐个补了用例(共 +34),并把 `profile store` 缺的「删除照片」补上(计划必测清单里点名的「照片增删」只有「增」)。
+- 覆盖率提到 **85.6/81.0/81.2/87.4**;没为了过门槛调低阈值。
+
+**T9.2–T9.4 端到端:计划原文的 8 处偏差(全部实测修正)**
+
+1. **`getByText('心跳')` 撞 strict mode**:首启弹窗里也有「欢迎来到心跳」→ 改
+   `getByRole('heading', { name: '心跳', exact: true })`。
+2. **手机号拼成 10 位**:后端 `PHONE_RE` 要 `^1[3-9]\d{9}$` → `freshPhone` 改成取时间戳后 7 位。
+3. **完善资料漏填「简介」**:后端完善判定含 `bio`,漏了资料永远 `incomplete`、
+   **永远不会进别人的候选卡**,主干流程会卡在滑卡那一步。
+4. **不能假设「第一张卡就是对方」**:候选接口是 `order_by("?")`,且库里已有 23 个已完善账号
+   → 用「双方都把想找的城市设成同一个本用例专属城市」把候选池收窄到 1 人。
+5. **首启协议弹窗会盖住登录表单**:每个新 context 都是干净 localStorage,必然出现
+   → `login()` 里先 `acceptLegalGate()`;它还是**挂载时**读 localStorage 的,
+   所以「未同意协议」那条测试改用全新 context(计划原文的「清 localStorage 再 reload」也对,但更绕)。
+6. **中文渲染断言写错**:`toContain('隐私政策')` 命中不了 —— 标题在 `.legal__title`、
+   正文里是「本政策」→ 标题与正文分开断言。
+7. **`preview.proxy` 已在 T3 就补好**(计划 T9.2 Step 1 要做的其实已经做了)。
+8. **`@playwright/test` 装了但浏览器没装**:首次 `npm run e2e` 报
+   `Executable doesn't exist ... chrome-headless-shell` → 需要 `npx playwright install chromium`。
+
+**期间抓到 2 个真 bug(单测全绿也照样存在)**
+
+1. **新用户永远进不了引导页(前端)**:`stores/session.ts` 的 `verify()` 把后端的
+   `is_new_user` **丢掉了**,登录页一律 `push({name:'home'})` —— 于是新用户直奔发现页,
+   资料一直是 `incomplete`。App 是 `result.isNewUser ? '/onboarding' : '/home'`。
+   修:`verify()` 返回 `{ isNewUser }`,登录页据此分流(补 2 条 store 用例 + 1 条页面用例)。
+2. **`account_import` 清空已同步的 IM 昵称与头像(后端,见 `docs/pitfalls/web.md` 第 11 条)**:
+   腾讯 `account_import` 对**已存在**账号返回 `ErrorCode: 0`(**不是**文档说的 7015),
+   并把 `Nick`/`FaceUrl` **覆盖**成传入值 → 每次 `POST /im/user_sig` 的首次 `ensure_account`
+   都把刚同步好的昵称清成空串,网页端会话列表显示成 `u43`(E2E 抓到的现象)。
+   修:`ensure_account` 先 `account_check`,已存在直接成功、不存在才导入;查询失败不盲目导入。
+   真机复验:ensure 前后昵称/头像不变,且不存在的账号仍能正常导入。
+
+**T10 文档**
+
+- `docs/pitfalls/web.md` 新建(20 条;计划要求 6 条 + 本次实测 14 条),已接进 `docs/pitfalls/README.md`。
+- `README.md`:部署一节补「网页端(PC Web)」;概览/功能/技术栈/目录结构/测试策略同步(数字全部实测)。
+- `CLAUDE.md`:目录结构加 `web/`;常用命令加网页端五条;核心纪律加「网页端 401 通道」
+  「token 双份维护」「网页端测试纪律」;里程碑补两行;「下一步」改为二选一。
+- **nginx 配置与九步核对单记入本地运维手册**(不入库):用户指定写进
+  `chat_app-backup-20261004-202516/deploy-runbook.md`(该手册在开源清洗时已移出仓库)。
+
+**▶ 组 T9/T10 检查点**:CI 四道门禁本地全过(推分支后 GitHub Actions 待验);
+`npm run e2e` 8 条全过;**服务器 IP 阶段未执行**(网页端尚未部署到服务器,核对单已就绪);
+`CLAUDE.md`/`README.md`/`docs/pitfalls/web.md` 全部更新完毕。
 
 
