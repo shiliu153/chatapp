@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 文档导航(按需读取)
 
-本文件只放核心内容。**写代码 / 排障前,先看 [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选踩坑文档**(IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包含 → android-emulator.md;测试 → testing.md)。部署与运维 → [README.md](README.md)「部署」一节。设计/计划 → `docs/superpowers/{specs,plans}/`(进度以文件内 checkbox 为准)。接口文档(对外交付级)→ [docs/api/README.md](docs/api/README.md)。
+本文件只放核心内容。**写代码 / 排障前,先看 [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选踩坑文档**(IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包含 → android-emulator.md;测试 → testing.md;网页端 → web.md)。部署与运维 → [README.md](README.md)「部署」一节。设计/计划 → `docs/superpowers/{specs,plans}/`(进度以文件内 checkbox 为准)。接口文档(对外交付级)→ [docs/api/README.md](docs/api/README.md)。
 
 ## 里程碑
 
@@ -33,8 +33,12 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-09-19 | UI 整改批次②「发现页」交付(页壳/卡面/圆钮/配对情感时刻/涟漪空态;233 测试绿) |
 | 2026-09-19 | UI 整改批次③「消息/聊天」交付(消息页四态/横滑条/通知行/会话行;聊天页顶栏 62/气泡/输入栏/双气泡空态/骨架/错误重试;提炼 AppErrorView 与 AppAvatar 首字占位;247 测试绿) |
 | 2026-09-21 | 接口文档体系交付(`docs/api/` 十册 · 32 接口 · 腾讯云风格;`ApiDocsCoverageTests` 双向门禁强制「改接口必改文档」) |
+| 2026-10-05 | 网页端(PC Web)立项:实测否决 Flutter Web → 改 Vue 3;T1–T8 交付(壳层/鉴权/资料/发现配对/聊天/广场/设置) |
+| 2026-10-12 | 网页端收尾 T9–T10:覆盖率门槛(85.6/81.0/81.2/87.4)、Playwright 端到端 8 条、Web CI、web 踩坑分册、部署核对单;期间修两个真 bug(新用户不进引导页 / `account_import` 清空 IM 昵称头像) |
 
-**下一步(M4 续)**:按 `2026-09-18-launch-execution.md` 推进(上线流程表含商业化/资质细节,已从开源仓库移出,仅本地保留)。
+**下一步(M4 续)**:网页端已收尾(T1–T10 全交付)。接下来二选一:
+① 继续 App 端「心跳」UI 整改批次④我的/资料 → ⑤广场 → ⑥二级页(顺序见下节);
+② 启动上线合规轨,按 `2026-09-18-launch-execution.md` 推进(上线流程表含商业化/资质细节,已从开源仓库移出,仅本地保留)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -53,6 +57,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | `app/` | Flutter 应用 | `lib/core/`(网络/错误/凭证)、`lib/im/`(IM 抽象层)、`lib/router.dart`(go_router 路由表)、`lib/features/{auth,onboarding,discovery,chat,profile,settings,shell,square,presence,legal}`;测试是"真实 provider + 假网络 + 假 IM":`test/support/scripted_adapter.dart` + `test/support/harness.dart` 的 `pumpApp` + `test/support/fake_im_client.dart` |
 | `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 业务 app:`accounts users discovery im moderation ops feed notifications`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
+| `web/` | 网页端(Vue 3 SPA) | `src/{api,stores,im,components,layouts,features}`;开发 `npm run dev`(代理到 :8000),构建 `npm run build`;**只服务 PC 浏览器**,移动端按 UA 进引导页 |
 | `docs/superpowers/` | 设计 spec 与实施计划 | 计划的执行进度以文件内 checkbox 为准 |
 | `docs/pitfalls/` | 踩坑手册(按主题分册) | 写代码/排障前按需读取 |
 | `.remember/` | Claude 会话记忆日志(内部机制) | 勿改动、勿提交 |
@@ -85,6 +90,15 @@ python -m celery -A config worker -l info --pool=solo      # IM 副作用 worker
 ../flutter/bin/flutter.bat run -d emulator-5554 --dart-define=API_BASE=http://10.0.2.2:8000/api/v1
 ```
 
+**网页端**(cwd = `web/`;端到端需要后端 + Redis + Celery 都在跑):
+```bash
+npm run dev          # 开发(代理到 :8000)
+npm run test:run     # 单元/组件测试(vitest)
+npm run test:coverage # 带覆盖率门槛(70/60/70/70)
+npm run e2e          # 端到端(Playwright;自建 build + preview)
+npm run type-check && npm run lint   # 必须零错误 / 零告警
+```
+
 **出签名包**(keystore `C:\Users\you\chatapp-release.jks`,口令在 `app/android/key.properties`;两个文件都不入库,务必备份):
 ```bash
 cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=http://<SERVER_IP>/api/v1
@@ -104,7 +118,10 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **封禁两级**:`banned_light` 只禁滑卡;`banned_heavy` 全域 403——全局权限类自动覆盖新接口,白名单仅 `GET /users/me`、`GET /users/tags`
 - **在线状态是公开信息**(不依赖配对);「在线」= 120 秒内有认证请求(45s 心跳)
 - **前端**:401 只走 `AuthInterceptor` 刷新通道;错误统一 `ApiException`;写操作后检查相关 provider 失效
+- **网页端**:401 只走 `api/http.ts` 的刷新通道(并发去重);错误统一 `ApiError`;页面只碰 store、不直接调 `http`
+- **「心跳」token 双份维护**:改任何视觉 token 或字体,**必须在同一次改动内同时改** `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css`(`web/public/fonts/*` 与 `app/assets/fonts/*` 保持一致);`web/tests/unit/tokens.spec.ts` 与 `fonts.spec.ts` 会双向比对,漏改即红
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步
+- **网页端测试纪律**:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + vitest 全绿(覆盖率门槛 70/60/70/70);`npm run e2e` 需后端 + Redis + Celery 都在跑,不进 CI
 - **接口文档**:`docs/api/` 是接口的对外交付文档;新增/修改/删除任何 `/api/v1` 接口,**同一次改动内**必须同步更新对应分册;`python manage.py test` 会跑 `ApiDocsCoverageTests` 双向比对,漏写即红。模板与维护规则见 `docs/api/README.md`
 
 ## 后端接口

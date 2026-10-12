@@ -49,7 +49,8 @@
 |---|---|
 | 后端 | Django 5.2 LTS + DRF,8 个业务 app,约 **8.0k 行 Python** |
 | 前端 | Flutter 3.47,11 个 feature 模块,约 **8.8k 行 Dart** |
-| 测试 | **337** 个后端用例 + **247** 个 Flutter 用例(63 个测试文件),测试代码约 **8.5k 行** |
+| 网页端 | Vue 3 + TypeScript,PC 浏览器端,约 **6.5k 行 TS/Vue** |
+| 测试 | **339** 个后端用例 + **247** 个 Flutter 用例 + **303** 个网页端用例(63 个文件)+ **8** 条端到端场景 |
 | 接口 | **32** 个 REST 接口,配 **10 册**对外交付级接口文档 |
 | 文档 | 设计 spec + 实施计划 + 踩坑手册共 **50+ 篇** |
 
@@ -90,6 +91,16 @@
 - **运营审核台**:举报队列、照片审核、封禁操作(服务端渲染页面,浏览器直接登录使用)
 - 合规:用户协议 / 隐私政策弹窗、年龄门槛
 
+### 网页端(PC 浏览器)
+
+与 App **共用同一套后端接口**,覆盖同样的业务能力,但按桌面场景重新组织:
+
+- **PC 壳层**:可拖拽侧栏(宽度记忆、图标态阈值),内容区吃满剩余宽度;窄窗口**不降级**成手机版
+- 完整链路:登录 → 完善资料 → 滑卡配对 → 聊天(文本/图片/表情/长按菜单)→ 广场发布评论 → 设置/拉黑/举报
+- 复用「心跳」设计语言:token 以 CSS 变量承载,并与 Dart 侧**双向比对**(改一边漏另一边即测试红)
+- **只服务 PC 浏览器**:移动端按 UA 判定,一律进引导页(不提供手机网页版)
+- 端到端用 Playwright 打**真后端**跑通主干与边界场景
+
 ---
 
 ## 技术栈与选型理由
@@ -97,6 +108,8 @@
 | 层 | 选型 | 为什么是它 |
 |---|---|---|
 | 客户端 | **Flutter 3.47** | 一套代码出双端;自定义 UI 密度高("心跳"设计语言),Flutter 的绘制控制力比 WebView 方案更合适 |
+| 网页端 | **Vue 3 + TypeScript + Pinia** | Flutter Web 实测走不通(IM 插件依赖 `dart:ffi`,编译出 5147 条错误)→ 改用 Vue;PC 场景下生态与构建链路更顺 |
+| 网页端测试 | **Vitest + MSW + Playwright** | 组件/store 用 MSW 在网络层挡请求;端到端打真后端跑主干与边界 |
 | 状态管理 | **Riverpod** | 编译期安全、无需 BuildContext、provider 之间可组合;测试时能直接覆写依赖(见测试策略) |
 | 路由 | **go_router** | 声明式路由表,深链与重定向(未登录→登录页)集中在一处可读 |
 | 网络 | **dio** + 自定义 Interceptor | 401 统一走刷新通道,是单设备登录能落地的前提 |
@@ -226,7 +239,7 @@ flutter build apk --release --dart-define=API_BASE=https://your-domain/api/v1
 
 ## 测试策略
 
-**后端**:`python manage.py test` —— **337 个用例全绿**(需要 Redis 在跑)。
+**后端**:`python manage.py test` —— **339 个用例全绿**(需要 Redis 在跑)。
 关键业务不靠人工点:配对并发(唯一约束 + CheckConstraint)、限流窗口、
 验证码锁定、封禁分级、单设备登录的三条退出路径,都有对应用例。
 所有 IM 副作用一律 mock(`im.tasks.*.delay`),测试不依赖腾讯云。
@@ -243,7 +256,18 @@ flutter build apk --release --dart-define=API_BASE=https://your-domain/api/v1
 也就是说 UI 测试跑的是**真实的 Riverpod provider 树和真实的路由**,只把外部世界换成假的——
 这样测出来的行为才和线上一致,而不是测了一堆 mock。
 
-**质量门禁**:`flutter analyze` 必须零告警;后端全量测试必须绿。
+**网页端**:`npm run test:run` —— **303 个用例全绿**(63 个文件),另加 `npm run e2e` 的
+**8 条端到端场景**(Playwright,打真后端 + Redis + Celery)。
+
+单元/组件测试用 MSW 在网络层挡请求,**组件与 store 都是真实的**;
+端到端跑的是 `npm run build` 的产物 + `vite preview`,不是 dev server(否则测不到构建后的行为)。
+
+**质量门禁**:
+- 后端:全量测试必须绿
+- App:`flutter analyze` 必须零告警
+- 网页端:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + 覆盖率门槛(70/60/70/70)
+
+三条前端门禁都进了 CI(`.github/workflows/`),端到端因为依赖真实后端与腾讯云 IM,不进 CI。
 
 ---
 
@@ -314,6 +338,17 @@ chat_app/
 │   ├── db_setup.sql            #   本地建库脚本
 │   └── .env.example            #   环境变量模板(.env 不入库)
 │
+├── web/                        # 网页端(Vue 3 + TS,PC 浏览器)
+│   ├── src/
+│   │   ├── api/                #   纯请求层(错误契约解析 / 401 刷新通道 / 令牌存储)
+│   │   ├── stores/             #   Pinia:会话 / 资料 / 发现 / 聊天 / 广场 / 在线状态
+│   │   ├── im/                 #   腾讯云 IM 浏览器 SDK 封装 + 消息映射(纯函数)
+│   │   ├── components/         #   基础组件(按钮/输入/头像/骨架/空态/错误态)
+│   │   ├── layouts/            #   DesktopShell(可拖拽侧栏)/ MobileGuard(移动端引导)
+│   │   └── features/           #   auth onboarding discovery chat square profile settings
+│   ├── tests/                  #   unit/ component/(vitest + MSW)、e2e/(Playwright)
+│   └── public/fonts/           #   与 App 同源的 Space Grotesk
+│
 ├── docs/
 │   ├── api/                    #   对外交付级接口文档(10 册 / 32 接口)
 │   ├── pitfalls/               #   踩坑手册(按主题分册)
@@ -321,6 +356,7 @@ chat_app/
 │       ├── specs/              #   设计文档(先定规则再写代码)
 │       └── plans/              #   实施计划(带 checkbox,进度以文件为准)
 │
+├── .github/workflows/          #   CI:App(Flutter)/ Backend(Django)/ Web(Vue)三道门禁
 ├── tools/sanitize.py           #   开源前的隐私脱敏脚本(工作区与 git 历史同源规则)
 ├── CLAUDE.md                   #   给 AI 协作者的项目上下文与硬性纪律
 └── LICENSE
