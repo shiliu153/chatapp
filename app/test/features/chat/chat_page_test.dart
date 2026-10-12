@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chatapp_app/core/image_pick.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/widgets/avatar_hero.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
 import 'package:chatapp_app/features/presence/presence_controller.dart';
@@ -123,6 +124,13 @@ void main() {
     expect(find.text('小红'), findsOneWidget);
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('嗨'), findsOneWidget);
+  });
+
+  testWidgets('顶栏头像带 Hero(tag avatar-chat-{peerId}),附录 C.8', (tester) async {
+    await pumpChat(tester);
+
+    final hero = tester.widget<AvatarHero>(find.byType(AvatarHero));
+    expect(hero.tag, 'avatar-chat-u9');
   });
 
   testWidgets('match_notice → 居中灰条', (tester) async {

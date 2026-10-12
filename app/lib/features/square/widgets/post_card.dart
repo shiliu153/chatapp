@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/format.dart';
+import '../../../core/widgets/avatar_hero.dart';
 import '../../presence/online_dot.dart';
 import '../models.dart';
 import 'post_images.dart';
@@ -17,6 +18,7 @@ class PostCard extends StatelessWidget {
     this.onToggleLike,
     this.onOpenImage,
     this.menuAction,
+    this.heroTag,
   });
 
   final Post post;
@@ -36,6 +38,9 @@ class PostCard extends StatelessWidget {
   /// 菜单动作:'delete' | 'report';为 null 时不显示 ··· 菜单。
   final void Function(String action)? menuAction;
 
+  /// Hero tag(附录 C.7);为 null(如「我的动态」复用)时不包 Hero。
+  final String? heroTag;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -47,13 +52,17 @@ class PostCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            GestureDetector(
-              key: Key('post.avatar.${post.id}'),
-              behavior: HitTestBehavior.opaque,
-              // null(自己)= 空回调吞掉点击,不落到卡片的「进详情」
-              onTap: onTapAuthor ?? () {},
-              child: _Avatar(
-                  url: post.author.avatarUrl, name: post.author.nickname, online: online),
+            AvatarHero(
+              tag: heroTag,
+              imageUrl: post.author.avatarUrl,
+              child: GestureDetector(
+                key: Key('post.avatar.${post.id}'),
+                behavior: HitTestBehavior.opaque,
+                // null(自己)= 空回调吞掉点击,不落到卡片的「进详情」
+                onTap: onTapAuthor ?? () {},
+                child: _Avatar(
+                    url: post.author.avatarUrl, name: post.author.nickname, online: online),
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
