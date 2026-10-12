@@ -22,7 +22,8 @@ void main() {
   testWidgets('四个 Tab 都在;广场可切换;「我的」显示昵称与资料入口', (tester) async {
     final adapter = _adapter(profile: profileJson(nickname: '小明'));
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    await tester.pumpAndSettle();
+    // 广场空态的 HeartRipple 在 IndexedStack 隐藏页也一直跑(pumpAndSettle 永不收敛)
+    await pumpFrames(tester);
 
     expect(find.byType(AppBottomBar), findsOneWidget);
     expect(navTab('发现'), findsOneWidget);
@@ -31,11 +32,11 @@ void main() {
     expect(navTab('我的'), findsOneWidget);
 
     await tester.tap(navTab('广场'));
-    await tester.pumpAndSettle();
-    expect(find.text('还没有动态,发一条吧'), findsOneWidget);
+    await pumpFrames(tester); // 空态涟漪无限动画(原 pumpAndSettle)
+    expect(find.text('还没有动态'), findsOneWidget);
 
     await tester.tap(navTab('我的'));
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
     expect(find.text('小明'), findsOneWidget);
     expect(find.byKey(const Key('my.card.identity')), findsOneWidget); // 身份卡即编辑入口
     expect(find.text('想找的人'), findsOneWidget);
@@ -64,7 +65,7 @@ void main() {
           });
 
     await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester); // 广场空态涟漪在隐藏页一直跑,禁 settle
 
     expect(find.text('3'), findsWidgets); // 角标数字
     expect(find.byType(AppBadge), findsOneWidget); // 渐变角标(样式见 app_badge_test)

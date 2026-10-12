@@ -98,7 +98,44 @@ void main() {
             of: find.byType(PostDetailPage), matching: find.byType(AvatarHero)))
         .map((hero) => hero.tag)
         .toSet();
-    expect(tags, containsAll(<String>['avatar-post-1', 'avatar-comment-5']));
+    // 批次⑤整卡 Hero:经广场点卡进详情走「整卡态」,作者头像 Hero 让位
+    // (SDK 禁 Hero 嵌套),评论头像 tag 不受影响;返回列表后作者头像 Hero 恢复
+    // (互斥还原,见 card_hero_flow_test 的「返回后」用例)。
+    // 深链/我的动态进详情(无整卡 Hero)时作者头像 Hero 仍在 —— 见下方用例。
+    expect(tags, contains('avatar-comment-5'));
+    expect(tags, isNot(contains('avatar-post-1')));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('动态详情(无整卡 Hero 来源):作者头像 Hero 仍在', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'GET /posts': (options) => ok(pageJson([])),
+      'GET /posts/mine': (options) => ok(pageJson([
+            postJson(id: 7, authorId: 9, nickname: 'Alice', text: '正文'),
+          ])),
+      'GET /posts/7': (options) =>
+          ok(postJson(id: 7, authorId: 9, nickname: 'Alice', text: '正文')),
+      'GET /posts/7/comments': (options) => ok(pageJson([])),
+      'GET /presence': (options) => ok({'results': []}),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await pumpFrames(tester); // 广场空态涟漪在 IndexedStack 隐藏页一直跑,禁 settle
+
+    await tester.tap(navTab('我的'));
+    await pumpFrames(tester);
+    await tester.tap(find.byKey(const Key('my.row.posts')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('post.card.7')));
+    await tester.pumpAndSettle();
+
+    final tags = tester
+        .widgetList<AvatarHero>(find.descendant(
+            of: find.byType(PostDetailPage), matching: find.byType(AvatarHero)))
+        .map((hero) => hero.tag)
+        .toSet();
+    expect(tags, contains('avatar-post-7'));
     expect(tester.takeException(), isNull);
   });
 }

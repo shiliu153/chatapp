@@ -16,6 +16,7 @@ import 'features/settings/settings_page.dart';
 import 'features/shell/home_shell.dart';
 import 'features/square/my_posts_page.dart';
 import 'features/square/post_compose_page.dart';
+import 'features/square/post_detail_args.dart';
 import 'features/square/post_detail_page.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -52,8 +53,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/my-posts', builder: (context, state) => const MyPostsPage()),
       GoRoute(
         path: '/posts/:id',
-        builder: (context, state) =>
-            PostDetailPage(postId: int.parse(state.pathParameters['id']!)),
+        builder: (context, state) {
+          final args = state.extra is PostDetailArgs
+              ? state.extra as PostDetailArgs
+              : null; // 深链/无来源:extra 不是 PostDetailArgs(或为 null)
+          return PostDetailPage(
+            postId: int.parse(state.pathParameters['id']!),
+            args: args,
+          );
+        },
       ),
       GoRoute(path: '/legal/agreement', builder: (context, state) => const LegalPage.agreement()),
       GoRoute(path: '/legal/privacy', builder: (context, state) => const LegalPage.privacy()),

@@ -71,6 +71,32 @@ void main() {
         '');
   });
 
+  testWidgets('顶栏:标题居中 + 返回键存在', (tester) async {
+    final adapter = ScriptedAdapter({
+      'GET /posts/1': (options) =>
+          ok(postJson(id: 1, nickname: 'Alice', text: '正文')),
+      'GET /posts/1/comments': (options) => ok(pageJson([])),
+    });
+    await pumpDetail(tester, adapter, postId: 1);
+    await tester.pumpAndSettle();
+
+    expect(find.text('动态详情'), findsOneWidget);
+    expect(find.byKey(const Key('post.back')), findsOneWidget);
+  });
+
+  testWidgets('空评论:emoji 空态', (tester) async {
+    final adapter = ScriptedAdapter({
+      'GET /posts/1': (options) =>
+          ok(postJson(id: 1, nickname: 'Alice', text: '正文')),
+      'GET /posts/1/comments': (options) => ok(pageJson([])),
+    });
+    await pumpDetail(tester, adapter, postId: 1);
+    await tester.pumpAndSettle();
+
+    expect(find.text('还没有评论'), findsOneWidget);
+    expect(find.text('来抢沙发'), findsOneWidget);
+  });
+
   testWidgets('动态不存在 → 显示错误态', (tester) async {
     final adapter = ScriptedAdapter({
       'GET /posts/404': (options) => jsonError(404, '动态不存在'),

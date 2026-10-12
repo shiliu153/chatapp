@@ -29,9 +29,12 @@
 
 ## 广场(`features/square/`)
 
-- 页面:广场流 `square_page.dart`(卡片/九宫格/点赞乐观更新/滚底加载)、发布 `/posts/compose`(相册多选 + 一次 multipart)、详情 `/posts/:id`、我的动态 `/my-posts`(入口在「我的」页 `my.row.posts`);共用 `post_actions.dart`(删除确认 + 举报,复用 moderation 的 `ReportSheet`)。
-- 作者可点:卡片与评论的头像/昵称 → 公开资料页(`/users/{id}`;自己的走空回调吞掉点击);作者头像在线绿点 `OnlineDot(size: 11)`,评论区**不带**绿点。
-- 测试 keys:`post.avatar.{id}` / `post.nickname.{id}` / `post.comment.avatar.{id}` / `post.comment.nickname.{id}`。
+- 页面:广场流 `square_page.dart`(白卡流/九宫格/点赞乐观更新+脉冲/滚底加载/**整卡 Hero**)、发布 `/posts/compose`(批次⑥改)、详情 `/posts/:id`(自绘顶栏 + 评论流 + 44 紧凑输入栏)、我的动态 `/my-posts`(复用动态卡,不参与 Hero);共用 `post_actions.dart`(删除确认 + 举报,提示走 `AppToast`)。
+- ⚠️ **整卡 Hero 与头像 Hero 互斥**(SDK 硬断言禁 Hero 嵌套,`heroes.dart:412`,debug 直接崩):列表卡普通态带头像 Hero;点卡进详情时该卡切整卡态(头像 Hero 让位),`await push` 返回后还原。**详情页顶卡在整卡态下 `PostCard.heroTag` 必须 null**。
+- ⚠️ **Hero 扫描只在 push 后下一帧末进行一次**(`heroes.dart:961-973`):目标页首帧必须已有同 tag 的 Hero 才会飞 —— 详情页 `postDetailProvider` 是 autoDispose,首帧必为骨架屏,所以进详情的 `extra` 要带 `PostDetailArgs(heroTag, seed)`,provider loading 时用 seed 直出真卡。深链/我的动态(无 extra)不包 Hero。
+- ⚠️ **在线点统一走 `AppAvatar(showOnlineDot:)`**(内部 `BreathingDot` 呼吸动画):旧 `OnlineDot` 静态点已删(它的 `#34C759` 也违反 §2.1 `green`);呼吸点可见的用例禁 `pumpAndSettle`。
+- ⚠️ **`find.byX` 默认 `skipOffstage: true`**:被 push 盖住的页面在测试里默认找不到(要 `skipOffstage: false`);`CardHero`/`AvatarHero` 是恒在的包装 widget(tag 为 null 时只返回 child),判断「有没有 Hero」要看 `tag != null`,不能看 widget 类型。
+- 测试 keys:`post.card.{id}` / `post.avatar.{id}` / `post.nickname.{id}` / `post.comment.avatar.{id}` / `post.comment.nickname.{id}` / `square.fab` / `square.compose` / `square.retry` / `post.back` / `myPosts.back` / `myPosts.compose`。
 - ⚠️ 我的页行变多后,点靠下行的测试(想找的人/设置)要先 `tester.ensureVisible`。
 
 ## 在线状态前端(`features/presence/`)
