@@ -122,11 +122,14 @@ class _SquarePageState extends ConsumerState<SquarePage> {
                       final post = items[index];
                       return PostCard(
                         post: post,
+                        // tag 按 postId 派生(不是 userId):同作者多卡各得不同 tag,不会重复
+                        heroTag: 'avatar-post-${post.id}',
                         isMine: post.author.userId == myId,
                         online: presenceById[post.author.userId]?.online == true,
                         onTapAuthor: post.author.userId == myId
                             ? null
-                            : () => context.push('/users/${post.author.userId}'),
+                            : () => context.push('/users/${post.author.userId}',
+                                extra: 'avatar-post-${post.id}'),
                         onToggleLike: () => _toggleLike(post),
                         onTap: () => context.push('/posts/${post.id}'),
                         onOpenImage: (i) =>

@@ -3,6 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_error_view.dart';
 import '../../im/im_manager.dart';
 import '../chat/conversations_controller.dart';
 import '../chat/widgets/photo_viewer.dart';
@@ -10,11 +16,17 @@ import '../moderation/models.dart';
 import '../moderation/moderation_controller.dart';
 import '../moderation/moderation_repository.dart';
 import '../moderation/widgets/report_sheet.dart';
+import '../presence/presence_controller.dart';
+import 'widgets/profile_photo_header.dart';
+import 'widgets/user_profile_skeleton.dart';
 
 class UserProfilePage extends ConsumerWidget {
-  const UserProfilePage({super.key, required this.userId});
+  const UserProfilePage({super.key, required this.userId, this.heroTag});
 
   final int userId;
+
+  /// Hero tag(附录 C.7);来自路由 extra。null(深链/无来源)时不包 Hero。
+  final String? heroTag;
 
   void _snack(BuildContext context, String message) {
     ScaffoldMessenger.of(context)
@@ -77,134 +89,175 @@ class UserProfilePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userProfileProvider(userId));
+    // 在线状态是公开信息(不依赖配对):与广场/动态详情同款写法
+    ref.read(presenceProvider.notifier).track('user:$userId', [userId]);
+    final online = ref.watch(presenceProvider)[userId]?.online ?? false;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('详细资料'),
-        actions: [
-          PopupMenuButton<String>(
-            key: const Key('user.more'),
-            icon: const Icon(Icons.more_horiz),
-            onSelected: (value) =>
-                value == 'report' ? _report(context, ref) : _block(context, ref),
-            itemBuilder: (context) => const [
-              PopupMenuItem(key: Key('user.report'), value: 'report', child: Text('举报')),
-              PopupMenuItem(key: Key('user.block'), value: 'block', child: Text('拉黑')),
-            ],
-          ),
-        ],
-      ),
-      backgroundColor: const Color(0xFFF7F3F5),
       body: profile.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(error is ApiException ? error.message : '加载失败,请重试'),
-              const SizedBox(height: 12),
-              FilledButton(
-                key: const Key('user.retry'),
-                onPressed: () => ref.invalidate(userProfileProvider(userId)),
-                child: const Text('重试'),
-              ),
-            ],
+        loading: () => const UserProfileSkeleton(),
+        error: (error, _) => SafeArea(
+          child: AppErrorView(
+            message: apiMessageOf(error),
+            retryKey: const Key('user.retry'),
+            onRetry: () => ref.invalidate(userProfileProvider(userId)),
           ),
         ),
-        data: (data) => _ProfileBody(profile: data),
+        data: (data) => _ProfileBody(
+          profile: data,
+          heroTag: heroTag,
+          online: online,
+          onBack: () => Navigator.of(context).maybePop(),
+          onMore: (value) =>
+              value == 'report' ? _report(context, ref) : _block(context, ref),
+        ),
       ),
     );
   }
 }
 
 class _ProfileBody extends StatelessWidget {
-  const _ProfileBody({required this.profile});
+  const _ProfileBody({
+    required this.profile,
+    required this.heroTag,
+    required this.online,
+    required this.onBack,
+    required this.onMore,
+  });
 
   final UserProfile profile;
+  final String? heroTag;
+  final bool online;
+  final VoidCallback onBack;
+  final ValueChanged<String> onMore;
+
+  static const _topBarHeight = 52.0; // §5.2 二级页
 
   @override
   Widget build(BuildContext context) {
     final photos = profile.photos.map((photo) => photo.url).toList();
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
+    return Stack(
       children: [
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              _SquareAvatar(
-                  name: profile.nickname, url: photos.isEmpty ? null : photos.first),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${profile.nickname}'
-                      '${profile.age == null ? '' : ' · ${profile.age} 岁'}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text('ID:u${profile.userId}',
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF999999))),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          color: Colors.white,
-          child: Column(
-            children: [
-              _InfoLine(label: '地区', value: profile.city),
-              _InfoLine(label: '个性签名', value: profile.bio),
-              _InfoLine(
-                  label: '标签', value: profile.tags.map((tag) => tag.name).join(' ')),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('相册', style: TextStyle(fontSize: 13, color: Color(0xFF666666))),
-              const SizedBox(height: 10),
-              if (photos.isEmpty)
-                const Text('还没有照片', style: TextStyle(fontSize: 13, color: Color(0xFF999999)))
-              else
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 6,
-                  crossAxisSpacing: 6,
-                  children: [
-                    for (var i = 0; i < photos.length; i++)
-                      GestureDetector(
-                        key: Key('user.album.photo:$i'),
-                        onTap: () =>
-                            openPhotoViewer(context, urls: photos, initialIndex: i),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: Image.network(
-                            photos[i],
-                            fit: BoxFit.cover,
-                            errorBuilder: (c, e, s) => Container(
-                              color: const Color(0xFFEFE3E7),
-                              child: const Icon(Icons.image_outlined,
-                                  color: Colors.white70),
-                            ),
+        ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            ProfilePhotoHeader(
+              photoUrl: photos.isEmpty ? null : photos.first,
+              nickname: profile.nickname,
+              age: profile.age,
+              city: profile.city,
+              online: online,
+              heroTag: heroTag,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageH, AppSpacing.md, AppSpacing.pageH, AppSpacing.xxl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ID:u${profile.userId}',
+                            style: AppText.micro.copyWith(color: AppColors.text3)),
+                        const SizedBox(height: AppSpacing.md),
+                        _LabeledBlock(label: '个性签名', value: profile.bio),
+                        if (profile.tags.isNotEmpty) ...[
+                          const SizedBox(height: AppSpacing.lg),
+                          // 纯标签用 _FieldLabel:不能用 _LabeledBlock(它会在空值时补「未填」)
+                          const _FieldLabel(label: '标签'),
+                          const SizedBox(height: AppSpacing.sm),
+                          Wrap(
+                            spacing: AppSpacing.sm,
+                            runSpacing: AppSpacing.sm,
+                            children: [
+                              for (final tag in profile.tags)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: AppSpacing.sm, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.divider,
+                                    borderRadius: BorderRadius.circular(AppRadius.chip),
+                                  ),
+                                  child: Text(tag.name,
+                                      style:
+                                          AppText.micro.copyWith(color: AppColors.text1)),
+                                ),
+                            ],
                           ),
-                        ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (photos.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel(label: '相册'),
+                          const SizedBox(height: AppSpacing.md),
+                          GridView.count(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            crossAxisCount: 3,
+                            mainAxisSpacing: AppSpacing.sm,
+                            crossAxisSpacing: AppSpacing.sm,
+                            children: [
+                              for (var i = 0; i < photos.length; i++)
+                                GestureDetector(
+                                  key: Key('user.album.photo:$i'),
+                                  onTap: () => openPhotoViewer(context,
+                                      urls: photos, initialIndex: i),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(AppRadius.image),
+                                    child: Image.network(
+                                      photos[i],
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (c, e, s) => const ColoredBox(
+                                        color: AppColors.divider,
+                                        child: Icon(Icons.image_rounded,
+                                            color: AppColors.text3),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
                       ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        // 透明顶栏浮在照片上(附录 C.5)
+        SafeArea(
+          bottom: false,
+          child: SizedBox(
+            height: _topBarHeight,
+            child: Row(
+              children: [
+                IconButton(
+                  key: const Key('user.back'),
+                  onPressed: onBack,
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded,
+                      size: 22, color: Colors.white),
+                ),
+                const Spacer(),
+                PopupMenuButton<String>(
+                  key: const Key('user.more'),
+                  icon: const Icon(Icons.more_horiz_rounded, size: 24, color: Colors.white),
+                  onSelected: onMore,
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(key: Key('user.report'), value: 'report', child: Text('举报')),
+                    PopupMenuItem(key: Key('user.block'), value: 'block', child: Text('拉黑')),
                   ],
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       ],
@@ -212,61 +265,32 @@ class _ProfileBody extends StatelessWidget {
   }
 }
 
-/// 微信「详细资料」式行:标签定宽,取值左对齐。
-class _InfoLine extends StatelessWidget {
-  const _InfoLine({required this.label, required this.value});
+/// 白卡里的「标签 + 取值」块;取值为空显示「未填」。
+class _LabeledBlock extends StatelessWidget {
+  const _LabeledBlock({required this.label, required this.value});
 
   final String label;
   final String value;
 
   @override
-  Widget build(BuildContext context) {
-    final text = value.isEmpty ? '未填' : value;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFF5F6F7))),
-      ),
-      child: Row(
+  Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 72, child: Text(label, style: const TextStyle(fontSize: 15))),
-          Expanded(
-            child: Text(text,
-                style: const TextStyle(fontSize: 15, color: Color(0xFF888888))),
-          ),
+          _FieldLabel(label: label),
+          const SizedBox(height: AppSpacing.xs),
+          Text(value.isEmpty ? '未填' : value,
+              style: AppText.body.copyWith(color: AppColors.text1)),
         ],
-      ),
-    );
-  }
+      );
 }
 
-/// 方形圆角头像(微信式);无图显示首字。
-class _SquareAvatar extends StatelessWidget {
-  const _SquareAvatar({required this.name, this.url});
+/// 只有标签、内容自带渲染的块(如标签 chip 组):**不会**在空值时补「未填」。
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel({required this.label});
 
-  final String name;
-  final String? url;
+  final String label;
 
   @override
-  Widget build(BuildContext context) {
-    final image = url;
-    final placeholder = Center(
-      child: Text(name.isEmpty ? '?' : name.substring(0, 1),
-          style: const TextStyle(color: Colors.white, fontSize: 24)),
-    );
-    return Container(
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        color: const Color(0xFFC9CDD4),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: image == null || image.isEmpty
-          ? placeholder
-          : Image.network(image, fit: BoxFit.cover,
-              errorBuilder: (c, e, s) => placeholder),
-    );
-  }
+  Widget build(BuildContext context) =>
+      Text(label, style: AppText.caption.copyWith(color: AppColors.text2));
 }

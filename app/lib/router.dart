@@ -42,8 +42,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/users/:id',
-        builder: (context, state) =>
-            UserProfilePage(userId: int.parse(state.pathParameters['id']!)),
+        builder: (context, state) => UserProfilePage(
+          userId: int.parse(state.pathParameters['id']!),
+          // Hero tag(附录 C.7);深链/无来源时为 null,两端都不包 Hero
+          heroTag: state.extra as String?,
+        ),
       ),
       GoRoute(path: '/posts/compose', builder: (context, state) => const PostComposePage()),
       GoRoute(path: '/my-posts', builder: (context, state) => const MyPostsPage()),

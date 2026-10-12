@@ -21,6 +21,8 @@
   /* 渐变 app_gradients.dart(135° = 左上→右下) */
   --gradient-heart: linear-gradient(135deg, var(--color-brand), var(--color-heart-orange));
   --gradient-system: linear-gradient(135deg, var(--color-violet), var(--color-system-blue));
+  /* heartSweep:完成度环进度弧(App 用 SweepGradient;Web 侧等价表达,附录 C.2) */
+  --gradient-heart-sweep: conic-gradient(var(--color-brand), var(--color-heart-orange), var(--color-brand));
 
   /* 间距 app_spacing.dart */
   --space-xs: 4px;

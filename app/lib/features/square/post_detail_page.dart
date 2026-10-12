@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
+import '../../core/widgets/avatar_hero.dart';
 import '../chat/widgets/photo_viewer.dart';
 import '../presence/presence_controller.dart';
 import '../profile/profile_controller.dart';
@@ -101,11 +102,13 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                 children: [
                   PostCard(
                     post: data,
+                    heroTag: 'avatar-post-${data.id}',
                     isMine: data.author.userId == myId,
                     online: presenceById[data.author.userId]?.online == true,
                     onTapAuthor: data.author.userId == myId
                         ? null
-                        : () => context.push('/users/${data.author.userId}'),
+                        : () => context.push('/users/${data.author.userId}',
+                            extra: 'avatar-post-${data.id}'),
                     onToggleLike: _toggleLike,
                     onOpenImage: (i) =>
                         openPhotoViewer(context, urls: data.images, initialIndex: i),
@@ -130,10 +133,12 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                         for (final comment in items)
                           _CommentTile(
                             comment: comment,
+                            heroTag: 'avatar-comment-${comment.id}',
                             onTapAuthor: comment.author.userId == myId
                                 ? null
-                                : () => context
-                                    .push('/users/${comment.author.userId}'),
+                                : () => context.push(
+                                    '/users/${comment.author.userId}',
+                                    extra: 'avatar-comment-${comment.id}'),
                           ),
                         if (items.isEmpty)
                           const Padding(
@@ -184,12 +189,15 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
 }
 
 class _CommentTile extends StatelessWidget {
-  const _CommentTile({required this.comment, this.onTapAuthor});
+  const _CommentTile({required this.comment, this.onTapAuthor, this.heroTag});
 
   final PostCommentItem comment;
 
   /// 点评论者的头像/昵称;null(自己)=> 空回调吞掉点击。
   final VoidCallback? onTapAuthor;
+
+  /// Hero tag(附录 C.7);按评论 id 派生,同页多条评论不会撞。
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context) {
@@ -200,28 +208,33 @@ class _CommentTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GestureDetector(
-            key: Key('post.comment.avatar.${comment.id}'),
-            behavior: HitTestBehavior.opaque,
-            onTap: onTapAuthor ?? () {},
-            child: Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: const Color(0xFFC9CDD4),
-                borderRadius: BorderRadius.circular(4),
+          AvatarHero(
+            tag: heroTag,
+            imageUrl: comment.author.avatarUrl,
+            fromRadius: 4,
+            child: GestureDetector(
+              key: Key('post.comment.avatar.${comment.id}'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onTapAuthor ?? () {},
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFC9CDD4),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: comment.author.avatarUrl == null
+                    ? Center(
+                        child: Text(
+                            comment.author.nickname.isEmpty
+                                ? '?'
+                                : comment.author.nickname.substring(0, 1),
+                            style: const TextStyle(color: Colors.white, fontSize: 12)))
+                    : Image.network(comment.author.avatarUrl!, fit: BoxFit.cover,
+                        errorBuilder: (c, e, s) =>
+                            const Icon(Icons.person, color: Colors.white, size: 16)),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: comment.author.avatarUrl == null
-                  ? Center(
-                      child: Text(
-                          comment.author.nickname.isEmpty
-                              ? '?'
-                              : comment.author.nickname.substring(0, 1),
-                          style: const TextStyle(color: Colors.white, fontSize: 12)))
-                  : Image.network(comment.author.avatarUrl!, fit: BoxFit.cover,
-                      errorBuilder: (c, e, s) =>
-                          const Icon(Icons.person, color: Colors.white, size: 16)),
             ),
           ),
           const SizedBox(width: 8),

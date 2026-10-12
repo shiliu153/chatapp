@@ -9,8 +9,10 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_avatar.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/avatar_hero.dart';
 import '../../core/widgets/breathing_dot.dart';
 import '../../im/im_client.dart';
 import '../../im/im_repository.dart';
@@ -83,7 +85,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final userId =
         cache[widget.peerId]?.userId ?? int.tryParse(widget.peerId.replaceFirst('u', ''));
     if (userId == null) return;
-    context.push('/users/$userId');
+    context.push('/users/$userId', extra: 'avatar-chat-${widget.peerId}');
   }
 
   void _toggleEmoji() {
@@ -205,6 +207,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           _ChatHeader(
             name: peerName,
             presence: peerPresence,
+            avatarUrl: peerAvatarUrl,
+            heroTag: 'avatar-chat-${widget.peerId}',
             onTapTitle: () => _openProfile(context, cache),
           ),
           Expanded(
@@ -273,13 +277,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 }
 
-/// 「心跳」附录 B.2:高 62;返回 22;标题两行居中(名字 + 状态行)。
+/// 「心跳」附录 B.2 + C.8:高 62;返回 22;头像 32(带 Hero);标题两行居中(名字 + 状态行)。
 class _ChatHeader extends StatelessWidget {
-  const _ChatHeader({required this.name, required this.presence, required this.onTapTitle});
+  const _ChatHeader({
+    required this.name,
+    required this.presence,
+    required this.onTapTitle,
+    this.avatarUrl,
+    this.heroTag,
+  });
 
   final String name;
   final Presence? presence;
   final VoidCallback onTapTitle;
+  final String? avatarUrl;
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context) {
@@ -301,37 +313,54 @@ class _ChatHeader extends StatelessWidget {
               key: const Key('chat.title'),
               behavior: HitTestBehavior.opaque,
               onTap: onTapTitle,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Row(
                 children: [
-                  Text(name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.subtitle
-                          .copyWith(fontSize: 17, color: AppColors.text1)),
-                  if (statusLabel != null) ...[
-                    const SizedBox(height: 1),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
+                  AvatarHero(
+                    tag: heroTag,
+                    imageUrl: avatarUrl,
+                    fromRadius: AppRadius.full,
+                    child: AppAvatar(
+                      imageUrl: avatarUrl,
+                      size: 32,
+                      fallbackText: name,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        if (online) ...[
-                          const BreathingDot(
-                              key: Key('chat.onlineDot'),
-                              size: 8,
-                              borderColor: AppColors.bgPage),
-                          const SizedBox(width: AppSpacing.xs),
+                        Text(name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.subtitle
+                                .copyWith(fontSize: 17, color: AppColors.text1)),
+                        if (statusLabel != null) ...[
+                          const SizedBox(height: 1),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (online) ...[
+                                const BreathingDot(
+                                    key: Key('chat.onlineDot'),
+                                    size: 8,
+                                    borderColor: AppColors.bgPage),
+                                const SizedBox(width: AppSpacing.xs),
+                              ],
+                              Text(statusLabel,
+                                  style: AppText.micro.copyWith(color: AppColors.text2)),
+                            ],
+                          ),
                         ],
-                        Text(statusLabel,
-                            style: AppText.micro.copyWith(color: AppColors.text2)),
                       ],
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),
           ),
-          // 与返回键等宽占位,保证名字视觉居中
-          const SizedBox(width: 52),
+          // 与左侧返回键(48)等宽,保证「头像 + 名字」整块在屏幕上居中
+          const SizedBox(width: 48),
         ],
       ),
     );
