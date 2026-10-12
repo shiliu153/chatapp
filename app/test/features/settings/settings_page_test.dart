@@ -24,6 +24,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('my.row.settings')));
     await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('settings.row.blocks')), findsOneWidget);
+    expect(find.byKey(const Key('settings.row.agreement')), findsOneWidget);
+    expect(find.byKey(const Key('settings.row.privacy')), findsOneWidget);
+    expect(find.byKey(const Key('settings.logout')), findsOneWidget);
+
     await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('退出'));
