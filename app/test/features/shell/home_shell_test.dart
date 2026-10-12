@@ -37,7 +37,7 @@ void main() {
     await tester.tap(navTab('我的'));
     await tester.pumpAndSettle();
     expect(find.text('小明'), findsOneWidget);
-    expect(find.byKey(const Key('my.row.nickname')), findsOneWidget); // 资料行即编辑入口
+    expect(find.byKey(const Key('my.card.identity')), findsOneWidget); // 身份卡即编辑入口
     expect(find.text('想找的人'), findsOneWidget);
     expect(find.text('设置'), findsOneWidget);
   });
