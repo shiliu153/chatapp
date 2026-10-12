@@ -60,7 +60,7 @@ cd app
 **Interfaces:**
 - Produces: 附录 C 条款(后续任务所有新数值的规则依据:C.1 头像 72 / C.2 身份卡 / C.3 我的页行版式 / C.4 照片头图 / C.5 透明顶栏 / C.6 相册网格 / C.7 Hero tag 规约 / C.8 聊天顶栏补头像)
 
-- [ ] **Step 1: 改头部状态行**
+- [x] **Step 1: 改头部状态行**
 
 第 4 行原文:
 
@@ -74,7 +74,7 @@ cd app
 状态:**v1.3(2026-10-12 增补附录 C:我的/资料页落地补充,并修订 B.2),设计内容已获用户批准**;本文件是**常驻规则文档**
 ```
 
-- [ ] **Step 2: 修订附录 B.2(聊天页顶栏补头像)**
+- [x] **Step 2: 修订附录 B.2(聊天页顶栏补头像)**
 
 把 B.2 第一条原文:
 
@@ -88,7 +88,7 @@ cd app
 - 高 **62**(§5.2 二级页 52 的**例外**,为「名字 + 状态」两行留空间);返回箭头 22 `text1`;**头像 32 圆形**(2026-10-12 批次④ 增补,承载 Hero 转场,见 C.8);右侧无按钮(资料入口 = 点头像或名字)
 ```
 
-- [ ] **Step 3: 文末追加附录 C(整段粘贴)**
+- [x] **Step 3: 文末追加附录 C(整段粘贴)**
 
 ```markdown
 ## 附录 C:我的/资料页落地补充(2026-10-12,批次④)
@@ -139,7 +139,7 @@ cd app
 - 标题区仍两行居中;右侧仍无按钮;为保持名字视觉居中,左右两侧占位等宽
 ```
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add docs/superpowers/specs/2026-09-15-ui-design-language-design.md
@@ -163,7 +163,7 @@ EOF
 - Consumes: `AppRadius.chip`(8)
 - Produces: `AvatarHero({Key? key, required String? tag, required String? imageUrl, required Widget child, double fromRadius = AppRadius.chip})` —— 后续 Task 7/8 消费
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `app/test/core/widgets/avatar_hero_test.dart`:
 
@@ -228,7 +228,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -237,7 +237,7 @@ cd app
 
 Expected: 编译失败 `Target of URI doesn't exist: 'package:chatapp_app/core/widgets/avatar_hero.dart'`。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 创建 `app/lib/core/widgets/avatar_hero.dart`:
 
@@ -299,7 +299,7 @@ class AvatarHero extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app
@@ -308,7 +308,7 @@ cd app
 
 Expected: 4 用例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 cd app
@@ -335,7 +335,7 @@ EOF
 - Consumes: `AppColors`、`AppGradients.heart`、`AppText.micro`
 - Produces: `CompletionRing({Key? key, required int done, required int total, double size = 44})` —— Task 6 消费
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `app/test/features/profile/completion_ring_test.dart`:
 
@@ -378,7 +378,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -387,7 +387,7 @@ cd app
 
 Expected: 编译失败 `Target of URI doesn't exist`。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 创建 `app/lib/features/profile/widgets/completion_ring.dart`:
 
@@ -470,7 +470,7 @@ class _RingPainter extends CustomPainter {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app
@@ -479,7 +479,7 @@ cd app
 
 Expected: 5 用例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 cd app
@@ -507,7 +507,7 @@ EOF
 - Consumes: `AppSkeleton({width, height, radius})`、`AppRadius.full` / `AppRadius.card`、`AppSpacing`
 - Produces: `ProfileSkeleton({Key? key})`(key `profile.skeleton`)、`UserProfileSkeleton({Key? key})`(key `user.skeleton`) —— Task 6/7 消费
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `app/test/features/profile/profile_skeleton_test.dart`:
 
@@ -543,7 +543,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -552,7 +552,7 @@ cd app
 
 Expected: 编译失败 `Target of URI doesn't exist`。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 创建 `app/lib/features/profile/widgets/profile_skeleton.dart`:
 
@@ -645,7 +645,7 @@ class UserProfileSkeleton extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app
@@ -654,7 +654,7 @@ cd app
 
 Expected: 2 用例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 cd app
@@ -681,7 +681,7 @@ EOF
 - Consumes: `AvatarHero`(Task 2)、`BreathingDot`、`AppColors.photoScrim`、`AppText.display/caption/micro`
 - Produces: `ProfilePhotoHeader({Key? key, required String? photoUrl, required String nickname, int? age, String city = '', bool online = false, String? heroTag})` —— Task 7 消费
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `app/test/features/profile/profile_photo_header_test.dart`:
 
@@ -769,7 +769,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -778,7 +778,7 @@ cd app
 
 Expected: 编译失败 `Target of URI doesn't exist`。
 
-- [ ] **Step 3: 写最小实现**
+- [x] **Step 3: 写最小实现**
 
 创建 `app/lib/features/profile/widgets/profile_photo_header.dart`:
 
@@ -920,7 +920,7 @@ class ProfilePhotoHeader extends StatelessWidget {
 
 **注意**:`Color(0x73000000)` 是「黑 45%」。§2.1 无对应 token 且 A.2 的先例是「起点直接用 `Colors.transparent`」;此处为新增半透明黑,按 §9 已在附录 C.4 登记,故允许就地写具名常量。若审查要求零裸 hex,可改为 `Colors.black.withValues(alpha: _topScrimAlpha)` —— **实现时用后者**(`_topScrimAlpha` 常量已定义)。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app
@@ -929,7 +929,7 @@ cd app
 
 Expected: 6 用例 PASS。
 
-- [ ] **Step 5: 全量门槛 + 提交**
+- [x] **Step 5: 全量门槛 + 提交**
 
 ```bash
 cd app
@@ -958,7 +958,7 @@ EOF
 - Consumes: `CompletionRing`(T3)、`ProfileSkeleton`(T4)、`AppAvatar`、`AppErrorView`、`apiMessageOf`、`missingFieldLabel`
 - Produces: 页面 key `my.card.identity` / `my.ring` / `my.goOnboarding`;行 key 同前
 
-- [ ] **Step 1: 先改既有测试(它们描述新契约)**
+- [x] **Step 1: 先改既有测试(它们描述新契约)**
 
 `app/test/features/profile/my_profile_page_test.dart` 第 28、32 行:
 
@@ -998,7 +998,7 @@ EOF
 
 `app/test/features/profile/profile_edit_page_test.dart` 第 23 与 48 行的 `find.byKey(const Key('my.row.nickname'))` 均改为 `find.byKey(const Key('my.card.identity'))`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -1007,7 +1007,7 @@ cd app
 
 Expected: FAIL —— `my.card.identity` 找不到(`findsNothing`)。
 
-- [ ] **Step 3: 重写页面**
+- [x] **Step 3: 重写页面**
 
 整体替换 `app/lib/features/profile/my_profile_page.dart`:
 
@@ -1293,7 +1293,7 @@ class _InfoRow extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app
@@ -1302,7 +1302,7 @@ cd app
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: 补新增用例**
+- [x] **Step 5: 补新增用例**
 
 在 `app/test/features/profile/my_profile_page_test.dart` 末尾(`main()` 内)追加:
 
@@ -1359,7 +1359,7 @@ Expected: 全部 PASS。
   });
 ```
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 cd app
@@ -1368,7 +1368,7 @@ cd app
 
 Expected: 6 用例 PASS(3 既有 + 3 新增)。
 
-- [ ] **Step 7: 全量门槛 + 提交**
+- [x] **Step 7: 全量门槛 + 提交**
 
 ```bash
 cd app
@@ -1397,7 +1397,7 @@ EOF
 - Consumes: `ProfilePhotoHeader`(T5)、`UserProfileSkeleton`(T4)、`AppErrorView`、`presenceProvider`、`openPhotoViewer`
 - Produces: 页面 key `user.back` / `user.more` / `user.retry` / `user.album.photo:{i}`;新增构造参数 `heroTag`
 
-- [ ] **Step 1: 先改既有测试(删标题的直接后果 + 新契约)**
+- [x] **Step 1: 先改既有测试(删标题的直接后果 + 新契约)**
 
 **`app/test/features/square/square_page_test.dart`**:第 115 行 `expect(find.text('详细资料'), findsOneWidget);` → `expect(find.byType(UserProfilePage), findsOneWidget);`;第 132 行同样改;第 147 行 `expect(find.text('详细资料'), findsNothing);` → `expect(find.byType(UserProfilePage), findsNothing);`。
 
@@ -1409,7 +1409,7 @@ import 'package:chatapp_app/features/profile/user_profile_page.dart';
 
 **`app/test/features/square/post_detail_page_test.dart`**:第 98、117、135 行同样替换(`findsOneWidget` ×2、`findsNothing` ×1),并加同样的 import。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -1418,7 +1418,7 @@ cd app
 
 Expected: FAIL —— `UserProfilePage` 未找到 / 类型不匹配(页面仍是旧结构)。
 
-- [ ] **Step 3: 重写页面**
+- [x] **Step 3: 重写页面**
 
 整体替换 `app/lib/features/profile/user_profile_page.dart`:
 
@@ -1719,7 +1719,7 @@ class _FieldLabel extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app
@@ -1728,7 +1728,7 @@ cd app
 
 Expected: 全部 PASS。
 
-- [ ] **Step 5: 补新增用例**
+- [x] **Step 5: 补新增用例**
 
 在 `app/test/features/profile/user_profile_page_test.dart` 的 `pumpProfile` 之后追加参数支持与用例。把 `pumpProfile` 签名改为:
 
@@ -1836,7 +1836,7 @@ import 'package:chatapp_app/core/widgets/avatar_hero.dart';
 
 (import `package:chatapp_app/features/presence/presence_controller.dart`。)
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 cd app
@@ -1845,7 +1845,7 @@ cd app
 
 Expected: 13 用例 PASS(6 既有 + 7 新增)。
 
-- [ ] **Step 7: 全量门槛 + 提交**
+- [x] **Step 7: 全量门槛 + 提交**
 
 ```bash
 cd app
@@ -1878,7 +1878,7 @@ EOF
 - Consumes: `AvatarHero`(T2)、`UserProfilePage.heroTag`(T7)
 - Produces: tag 命名 `avatar-post-{postId}` / `avatar-comment-{commentId}` / `avatar-chat-{peerId}`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `app/test/features/square/hero_transition_test.dart`:
 
@@ -1989,7 +1989,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -1998,7 +1998,7 @@ cd app
 
 Expected: FAIL —— 找不到 `AvatarHero`(尚未接入)。
 
-- [ ] **Step 3: 路由读 extra**
+- [x] **Step 3: 路由读 extra**
 
 `app/lib/router.dart` 第 43-47 行改为:
 
@@ -2012,7 +2012,7 @@ Expected: FAIL —— 找不到 `AvatarHero`(尚未接入)。
       ),
 ```
 
-- [ ] **Step 4: `PostCard` 加 `heroTag`**
+- [x] **Step 4: `PostCard` 加 `heroTag`**
 
 `app/lib/features/square/widgets/post_card.dart`:
 
@@ -2046,7 +2046,7 @@ Expected: FAIL —— 找不到 `AvatarHero`(尚未接入)。
 import '../../../core/widgets/avatar_hero.dart';
 ```
 
-- [ ] **Step 5: 广场与动态详情传 tag**
+- [x] **Step 5: 广场与动态详情传 tag**
 
 `app/lib/features/square/square_page.dart` 第 123-137 行的 `PostCard(...)`:
 
@@ -2114,7 +2114,7 @@ class _CommentTile extends StatelessWidget {
 
 调用处加 `heroTag: 'avatar-comment-${comment.id}',`。
 
-- [ ] **Step 6: 聊天页顶栏加头像 + Hero**
+- [x] **Step 6: 聊天页顶栏加头像 + Hero**
 
 `app/lib/features/chat/chat_page.dart`:
 
@@ -2229,7 +2229,7 @@ import '../../core/widgets/app_avatar.dart';
 import '../../core/widgets/avatar_hero.dart';
 ```
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 ```bash
 cd app
@@ -2238,7 +2238,7 @@ cd app
 
 Expected: 全部 PASS(含新增 Hero 用例)。
 
-- [ ] **Step 8: 全量门槛 + 提交**
+- [x] **Step 8: 全量门槛 + 提交**
 
 ```bash
 cd app
@@ -2264,7 +2264,7 @@ EOF
 **Interfaces:**
 - Consumes: 前 8 个任务全部产出
 
-- [ ] **Step 1: 全量门槛**
+- [x] **Step 1: 全量门槛**
 
 ```bash
 cd app
@@ -2274,7 +2274,7 @@ cd app
 
 Expected: analyze 零告警;全量用例绿(247 基线 + 本批新增)。
 
-- [ ] **Step 2: 打 release 包(连测试服务器)**
+- [x] **Step 2: 打 release 包(连测试服务器)**
 
 ```bash
 cd app
@@ -2311,7 +2311,52 @@ python manage.py seed_fake_users --count 20    # 幂等
 
 ---
 
-## 计划自查记录
+## 执行记录(2026-10-12,分支 `ui/batch4`)
+
+**交付结果**
+
+| 门禁 | 结果 |
+|---|---|
+| `flutter analyze` | 0 告警 |
+| `flutter test` | **278 全绿**(基线 247,本批 +31) |
+| `npm run test:run`(web) | 303 全绿(本批改过 `tokens.css`,已回归) |
+| 模拟器手测 | ⬜ **待用户执行**(见 Task 9 Step 5 清单) |
+| 合回 master | ⬜ 待手测通过 |
+
+**任务与提交**
+
+| 任务 | 提交 | 内容 |
+|---|---|---|
+| T1 | `a6e9bbf` | 规则文档 v1.3 + 附录 C(8 条)+ 修订 B.2 |
+| T2 | `c2581e3` | `AvatarHero`(4 用例) |
+| T3 | `cc7a9c6` | `CompletionRing`(5 用例)+ `AppGradients.heartSweep` 与 web token 双份同步 |
+| T4 | `85785ee` | `ProfileSkeleton` / `UserProfileSkeleton`(2 用例) |
+| T5 | `0052450` | `ProfilePhotoHeader`(6 用例) |
+| T6 | `1068483` | 我的页重排(6 用例) |
+| T7 | `098136a` | 他人资料页重排(13 用例) |
+| T8 | `1e365d7` | Hero 四处接入 + 路由 extra(3 + 1 用例) |
+
+(spec `10f195d`、计划 `e700a62` 为前置两份文档提交。)
+
+**执行时偏离计划的地方(如实记录)**
+
+1. **T3 多改了 token 与 web**:计划里 `CompletionRing` 直接用裸 `SweepGradient`,实现时 `flutter analyze` 报 `unused_import`(我 import 了 `app_gradients.dart` 却没用)。改为在 `AppGradients` 新增 `heartSweep` 具名 token,并按项目「token 双份维护」纪律同步 `web/src/styles/tokens.css` 的 `--gradient-heart-sweep`(web 303 用例已回归)。
+2. **T7 必须补 `ID:u9`**:计划的重写稿把 ID 漏掉了,而 `square_page_test` / `post_detail_page_test` / `user_profile_page_test` 三处断言 `ID:u9`/`ID:u11`。实现时在资料卡顶部补回 ID 行(12 `text3`)。
+3. **T7 昵称格式**:计划写「昵称,年龄」,既有用例断言的是旧的「小红 · 25 岁」→ 按 spec 改成 `小红,25`(与发现卡统一),同步改该断言。
+4. **T7 三个测试坑(计划未预见)**:
+   - 页面新增 `presenceProvider.track()` 会留 45s 周期定时器 → 测试必须 override `presenceRefreshIntervalProvider` 为 `null`,否则报 `A Timer is still pending even after the widget tree was disposed`;
+   - 头图约一屏高,相册落到折叠线以下 → 点相册前要 `ensureVisible`;
+   - 在线态有呼吸点(无限动画)→ 那条用例只能有限 `pump`(该文件原先没有 `pumpFrames`,需补 import harness)。
+5. **T6 一处 `pumpAndSettle` 超时**:「资料不完整」用例里,`IndexedStack` 中活着的发现页会渲染 `HeartRipple`(无限动画)→ 该段改用 `pumpFrames`(与 `home_shell_test` 同款处理)。
+6. **T8 聊天顶栏右侧占位**:计划写 88,实际按「与返回键等宽」取 48(头像是 `Expanded` 内部的一部分,不参与配平)。
+7. **T8 新增 `hero_transition_test.dart`**(计划里是并入既有文件):独立成文件更清晰,含 3 条(跨页 tag 一致 / 同作者多卡不重复 / 详情页作者与评论 tag 独立);聊天顶栏那条并入 `chat_page_test`。
+
+**计划自查阶段抓到并修正的 4 处缺陷**(见「计划自查记录」,已在写代码前修掉)
+
+`_LabeledBlock` 误用、`AppColors.page` 笔误、T8 Step 5 自相矛盾、T8 两条空壳用例。
+
+---
+
 
 **Spec 覆盖**
 
