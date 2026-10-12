@@ -95,7 +95,7 @@ void main() {
     await tester.tap(find.byKey(const Key('post.comment.avatar.5')));
     await tester.pumpAndSettle();
 
-    expect(find.text('详细资料'), findsOneWidget);
+    expect(find.byType(UserProfilePage), findsOneWidget);
     expect(find.text('ID:u11'), findsOneWidget);
   });
 
@@ -114,7 +114,7 @@ void main() {
     await tester.tap(find.byKey(const Key('post.comment.nickname.5')));
     await tester.pumpAndSettle();
 
-    expect(find.text('详细资料'), findsOneWidget);
+    expect(find.byType(UserProfilePage), findsOneWidget);
   });
 
   testWidgets('点自己的评论不打开资料页', (tester) async {
@@ -132,6 +132,6 @@ void main() {
     await tester.tap(find.byKey(const Key('post.comment.avatar.5')));
     await tester.pumpAndSettle();
 
-    expect(find.text('详细资料'), findsNothing);
+    expect(find.byType(UserProfilePage), findsNothing);
   });
 }

@@ -6,12 +6,15 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/core/widgets/avatar_hero.dart';
+import 'package:chatapp_app/features/presence/presence_controller.dart';
 import 'package:chatapp_app/features/profile/user_profile_page.dart';
 import 'package:chatapp_app/features/settings/blocked_users_page.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
 import '../../support/fake_im_client.dart';
+import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
 
@@ -32,13 +35,15 @@ void main() {
   });
 
   /// 从 '/' push 进资料卡,pop 才有得可退。
-  Future<void> pumpProfile(WidgetTester tester, {int userId = 9}) async {
+  Future<void> pumpProfile(WidgetTester tester, {int userId = 9, String? heroTag}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     final container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
       refreshDioProvider.overrideWithValue(dio),
       imClientProvider.overrideWithValue(fake),
       imStatusProvider.overrideWith(_LoggedInImManager.new),
+      // 页面会 track 在线状态;关掉周期刷新,否则测试结束时有 pending Timer
+      presenceRefreshIntervalProvider.overrideWithValue(null),
     ]);
     addTearDown(container.dispose);
     final router = GoRouter(
@@ -47,8 +52,10 @@ void main() {
         GoRoute(path: '/', builder: (context, state) => const Scaffold(body: Text('首页'))),
         GoRoute(
           path: '/users/:id',
-          builder: (context, state) =>
-              UserProfilePage(userId: int.parse(state.pathParameters['id']!)),
+          builder: (context, state) => UserProfilePage(
+            userId: int.parse(state.pathParameters['id']!),
+            heroTag: state.extra as String?,
+          ),
         ),
       ],
     );
@@ -57,7 +64,7 @@ void main() {
       child: MaterialApp.router(routerConfig: router),
     ));
     await tester.pumpAndSettle();
-    router.push('/users/$userId');
+    router.push('/users/$userId', extra: heroTag);
     await tester.pumpAndSettle();
   }
 
@@ -66,7 +73,7 @@ void main() {
         nickname: '小红', age: 25, city: '上海', bio: '喜欢爬山', tags: [tagJson(1, '运动')]));
     await pumpProfile(tester);
 
-    expect(find.text('小红 · 25 岁'), findsOneWidget);
+    expect(find.text('小红,25'), findsOneWidget); // 与发现卡同款格式(无「· 岁」)
     expect(find.text('ID:u9'), findsOneWidget);
     expect(find.text('上海'), findsOneWidget);
     expect(find.text('喜欢爬山'), findsOneWidget);
@@ -83,6 +90,9 @@ void main() {
         ok(publicProfileJson(photos: [photoJson(900), photoJson(901)]));
     await pumpProfile(tester);
 
+    // 头图占了约一屏高,相册在折叠线以下,先滚到可见
+    await tester.ensureVisible(find.byKey(const Key('user.album.photo:0')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('user.album.photo:0')));
     await tester.pumpAndSettle();
 
@@ -182,5 +192,103 @@ void main() {
 
     // 拉黑成功会 pop 回黑名单页;缓存若没失效,这里仍是空态(手测踩到的 bug)
     expect(find.text('小红'), findsOneWidget);
+  });
+
+  testWidgets('照片头图:渲染昵称·年龄/城市,不显示「详细资料」标题', (tester) async {
+    adapter.routes['GET /users/9'] =
+        (options) => ok(publicProfileJson(nickname: '小红', age: 25, city: '上海'));
+    await pumpProfile(tester);
+
+    expect(find.text('小红,25'), findsOneWidget);
+    expect(find.text('上海'), findsOneWidget);
+    expect(find.text('详细资料'), findsNothing); // 标题已删(身份由头图承载)
+    expect(find.byKey(const Key('user.back')), findsOneWidget);
+  });
+
+  testWidgets('无照片:头图走 person 占位且不渲染相册', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(photos: const []));
+    await pumpProfile(tester);
+
+    expect(find.byIcon(Icons.person_rounded), findsOneWidget);
+    expect(find.text('相册'), findsNothing);
+    expect(find.byKey(const Key('user.album.photo:0')), findsNothing);
+  });
+
+  testWidgets('在线 → 头图显示呼吸点与「在线」', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson());
+    adapter.routes['GET /presence'] = (options) => ok({
+          'results': [
+            {'user_id': 9, 'online': true, 'last_active_at': null}
+          ]
+        });
+    // 在线时头图有呼吸点(无限动画),不能 pumpAndSettle —— 这里自己铺一遍流程
+    final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
+    final container = ProviderContainer(overrides: [
+      baseDioProvider.overrideWithValue(dio),
+      refreshDioProvider.overrideWithValue(dio),
+      imClientProvider.overrideWithValue(fake),
+      imStatusProvider.overrideWith(_LoggedInImManager.new),
+      presenceRefreshIntervalProvider.overrideWithValue(null),
+    ]);
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(path: '/', builder: (context, state) => const Scaffold(body: Text('首页'))),
+        GoRoute(
+          path: '/users/:id',
+          builder: (context, state) => UserProfilePage(
+            userId: int.parse(state.pathParameters['id']!),
+            heroTag: state.extra as String?,
+          ),
+        ),
+      ],
+    );
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    await tester.pumpAndSettle();
+    router.push('/users/9');
+    await pumpFrames(tester);
+
+    expect(find.text('在线'), findsOneWidget);
+    expect(find.byKey(const Key('user.onlineDot')), findsOneWidget);
+  });
+
+  testWidgets('离线 → 不显示在线行', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson());
+    adapter.routes['GET /presence'] = (options) => ok({
+          'results': [
+            {'user_id': 9, 'online': false, 'last_active_at': null}
+          ]
+        });
+    await pumpProfile(tester);
+
+    expect(find.text('在线'), findsNothing);
+  });
+
+  testWidgets('heroTag 由路由 extra 传入 → 头图包 Hero', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson());
+    await pumpProfile(tester, heroTag: 'avatar-post-1');
+
+    final hero = tester.widget<AvatarHero>(find.byType(AvatarHero));
+    expect(hero.tag, 'avatar-post-1');
+  });
+
+  testWidgets('无 heroTag(深链)→ 不包 Hero', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson());
+    await pumpProfile(tester);
+
+    expect(find.byType(Hero), findsNothing);
+  });
+
+  testWidgets('点返回键 → 回到上一页', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson());
+    await pumpProfile(tester);
+
+    await tester.tap(find.byKey(const Key('user.back')));
+    await tester.pumpAndSettle();
+    expect(find.text('首页'), findsOneWidget);
   });
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/features/presence/online_dot.dart';
+import 'package:chatapp_app/features/profile/user_profile_page.dart';
 
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
@@ -112,7 +113,7 @@ void main() {
     await tester.tap(find.byKey(const Key('post.avatar.1')));
     await tester.pumpAndSettle();
 
-    expect(find.text('详细资料'), findsOneWidget);
+    expect(find.byType(UserProfilePage), findsOneWidget);
     expect(find.text('ID:u9'), findsOneWidget);
   });
 
@@ -129,7 +130,7 @@ void main() {
     await tester.tap(find.byKey(const Key('post.nickname.1')));
     await tester.pumpAndSettle();
 
-    expect(find.text('详细资料'), findsOneWidget);
+    expect(find.byType(UserProfilePage), findsOneWidget);
   });
 
   testWidgets('自己的动态点头像不打开资料页', (tester) async {
@@ -144,7 +145,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 完全没反应:既不进资料页,也不触发外层卡片进详情
-    expect(find.text('详细资料'), findsNothing);
+    expect(find.byType(UserProfilePage), findsNothing);
     expect(find.text('动态详情'), findsNothing);
   });
 
