@@ -130,16 +130,31 @@ def kick_user(identifier: str) -> bool:
 
 
 def ensure_account(identifier: str, nickname: str = "") -> bool:
-    """幂等建号:已存在(ErrorCode 7015)视为成功。"""
-    payload = {"Identifier": identifier, "Nick": nickname, "FaceUrl": ""}
+    """幂等建号:已存在就**不动它**,不存在才导入。
+
+    ⚠️ 实测坑(2026-10-12):腾讯的 `account_import` 对**已存在**账号并不返回 7015,
+    而是返回 `ErrorCode: 0` 并把 `Nick`/`FaceUrl` **覆盖**成传入值。之前「先导入、
+    7015 当成功」的写法会带来两个后果:
+      1. 每次 `POST /im/user_sig` 的首次 ensure 都把已同步的昵称/头像清成空串
+         (会话列表于是显示成 `u43` 而不是昵称);
+      2. 7015 分支实际上永远走不到,是个假兜底。
+    所以这里先 `account_check` 问状态,已存在直接返回成功;查询失败不敢盲目导入
+    (导入是破坏性的),返回 False 让上层重试。
+    """
     try:
-        result = _request("im_open_login_svc", "account_import", payload)
+        result = _request("im_open_login_svc", "account_check",
+                          {"CheckItem": [{"UserID": identifier}]})
+        if result.get("ErrorCode") != 0:
+            logger.warning("IM account_check 返回错误: %s", result)
+            return False
+        items = result.get("ResultItem") or []
+        if items and items[0].get("AccountStatus") == "Imported":
+            return True
     except Exception:
-        logger.exception("IM account_import 调用失败 identifier=%s", identifier)
+        logger.exception("IM account_check 调用失败 identifier=%s", identifier)
         return False
-    if result.get("ErrorCode") == 7015:
-        return True
-    return _check(result, "account_import")
+
+    return import_account(identifier, nickname)
 
 
 def send_ban_notice(to_identifier: str, level: str, reason: str) -> bool:

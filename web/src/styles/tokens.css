@@ -1,0 +1,106 @@
+/* 「心跳」设计语言 token —— 权威来源 app/lib/core/theme/*.dart
+   ⚠️ 改这里必须同一次改动内改 Dart 那边(由 tests/unit/tokens.spec.ts 兜底)。 */
+:root {
+  /* 色板 app_colors.dart */
+  --color-brand: #ff2c55;
+  --color-violet: #7c5cff;
+  --color-green: #12c48b;
+  --color-amber: #ffb020;
+  --color-text1: #16181d;
+  --color-text2: #8a8f9e;
+  --color-text3: #b3b7c0;
+  --color-divider: #eef0f4;
+  --color-bg-page: #f6f7fb;
+  --color-bg-card: #ffffff;
+  --color-danger: #fa5151;
+  --color-heart-orange: #ff7a45;
+  --color-system-blue: #4f8cff;
+  /* photoScrim = Color(0xDE101114):alpha 222/255 = 87% */
+  --color-photo-scrim: rgb(16 17 20 / 87%);
+
+  /* 渐变 app_gradients.dart(135° = 左上→右下) */
+  --gradient-heart: linear-gradient(135deg, var(--color-brand), var(--color-heart-orange));
+  --gradient-system: linear-gradient(135deg, var(--color-violet), var(--color-system-blue));
+
+  /* 间距 app_spacing.dart */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-xxl: 24px;
+  --space-page-h: 16px;
+  --space-card-gap: 12px;
+  --space-section-gap: 24px;
+
+  /* 圆角 app_radius.dart */
+  --radius-card: 20px;
+  --radius-input: 16px;
+  --radius-chip: 8px;
+  --radius-sheet: 24px;
+  --radius-discovery-card: 24px;
+  --radius-bubble: 18px;
+  --radius-image: 12px;
+  --radius-full: 999px;
+
+  /* 动效 app_motion.dart(曲线取 Flutter 同名曲线的 CSS 等价) */
+  --motion-fast: 150ms;
+  --motion-base: 220ms;
+  --motion-medium: 320ms;
+  --motion-hero: 380ms;
+  --motion-cinematic: 1200ms;
+  --motion-loop: 1200ms;
+  --ease-out: cubic-bezier(0.215, 0.61, 0.355, 1); /* easeOutCubic */
+  --ease-out-back: cubic-bezier(0.175, 0.885, 0.32, 1.275); /* easeOutBack */
+
+  /* 阴影 app_shadows.dart */
+  --shadow-card: 0 6px 18px rgb(22 24 29 / 6%);
+  --shadow-floating-bar: 0 10px 24px rgb(22 24 29 / 10%);
+  --shadow-primary-button: 0 10px 24px rgb(255 44 85 / 35%);
+
+  /* 字阶 app_typography.dart 的 size/weight/letter-spacing/line-height */
+  --font-latin: 'Space Grotesk', 'PingFang SC', 'MiSans', 'HarmonyOS Sans', sans-serif;
+  --text-display: 32px;
+  --text-title: 20px;
+  --text-subtitle: 16px;
+  --text-body: 15px;
+  --text-caption: 13px;
+  --text-micro: 12px;
+  --text-badge: 11px;
+  --text-emoji: 72px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+  --leading-tight: 1.2;
+  --leading-body: 1.45;
+
+  /* Web 新增维度(spec §6.4):焦点圈用中性色,避免一屏两个高音 */
+  --color-focus-ring: rgb(22 24 29 / 45%);
+  --hover-overlay: rgb(22 24 29 / 4%);
+  --hover-overlay-strong: rgb(22 24 29 / 8%);
+  /* brand 的透明度派生值(输入框聚焦光晕),提升为变量以免页面里出现裸 rgb */
+  --focus-glow: 0 0 0 3px rgb(255 44 85 / 12%);
+  /* 以下四个同样是「派生色」,页面里禁止写裸 rgb,统一在这里定义 */
+  --tint-brand: rgb(255 44 85 / 8%); /* brand 淡底:完善度提示条等 */
+  --glow-online: rgb(18 196 139 / 35%); /* 在线点外光晕 */
+  --overlay-on-photo: rgb(255 255 255 / 22%); /* 照片叠字上的浅色 chip */
+  --scrim-strong: rgb(22 24 29 / 55%); /* 需要压暗底下内容的遮罩 */
+
+  /* 自适应布局比例(spec §6.2/§6.3;Web 专属,无 Dart 对照) */
+  --sidebar-ratio: 16%;
+  --sidebar-min: 208px;
+  --sidebar-max: 264px;
+  --sidebar-drag-min: 72px;
+  --sidebar-drag-max: 360px;
+  --sidebar-icon-threshold: 176px;
+  --chatlist-ratio: 22%;
+  --chatlist-min: 264px;
+  --chatlist-max: 360px;
+  --bubble-max-ratio: 72%;
+  --feed-card-max: 520px;
+  --form-card-ratio: 32%;
+  --form-card-min: 420px;
+  --form-card-max: 520px;
+}
