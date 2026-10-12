@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/settings/blocked_users_page.dart';
 
+import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
 
@@ -59,5 +60,25 @@ void main() {
     expect(delete.path, '/blocks/9');
     expect(find.text('还没有拉黑任何人'), findsOneWidget);   // reload 后空了
     expect(find.text('已解除拉黑'), findsOneWidget);
+    await drainToast(tester); // 『已解除拉黑』走 AppToast
+  });
+
+  testWidgets('加载失败 → AppErrorView,blocked.retry 重试成功', (tester) async {
+    adapter.routes['GET /blocks'] = offline;
+    await pumpBlocked(tester);
+    expect(find.byKey(const Key('blocked.retry')), findsOneWidget);
+
+    adapter.routes['GET /blocks'] =
+        (options) => ok(pageJson([blockedUserJson(userId: 9, nickname: '小红')]));
+    await tester.tap(find.byKey(const Key('blocked.retry')));
+    await tester.pumpAndSettle();
+    expect(find.text('小红'), findsOneWidget);
+  });
+
+  testWidgets('空态带 blocked.empty key', (tester) async {
+    adapter.routes['GET /blocks'] = (options) => ok(pageJson([]));
+    await pumpBlocked(tester);
+    expect(find.byKey(const Key('blocked.empty')), findsOneWidget);
+    expect(find.text('还没有拉黑任何人'), findsOneWidget);
   });
 }
