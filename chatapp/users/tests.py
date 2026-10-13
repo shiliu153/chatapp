@@ -8,6 +8,8 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -18,6 +20,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from accounts import sms_codes
 from discovery.models import Match, Swipe
 from feed.models import Post, PostComment, PostImage
+from im import tasks as im_tasks
 from moderation.models import BanLog, Block, Report
 
 from . import presence
@@ -576,6 +579,50 @@ class DeleteAccountTests(AuthMixin, APITestCase):
         self.assertFalse(Block.objects.filter(Q(blocker_id=user_id) | Q(blocked_id=user_id)).exists())
         self.assertFalse(Report.objects.filter(Q(reporter_id=user_id) | Q(target_id=user_id)).exists())
         self.assertFalse(BanLog.objects.filter(user_id=user_id).exists())
+
+    def test_deletes_photo_and_post_image_files_on_disk(self):
+        photo = Photo.objects.create(user=self.user)
+        photo.file.save("a.png", ContentFile(PNG_1PX), save=True)
+        post = Post.objects.create(author=self.user, text="动态")
+        image = PostImage.objects.create(post=post)
+        image.file.save("b.png", ContentFile(PNG_1PX), save=True)
+        photo_name, image_name = photo.file.name, image.file.name
+        self.assertTrue(default_storage.exists(photo_name))
+        self.assertTrue(default_storage.exists(image_name))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self._delete()
+
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(default_storage.exists(photo_name))
+        self.assertFalse(default_storage.exists(image_name))
+
+    def test_clears_presence_and_kick_pending_flag(self):
+        user_id = self.user.id
+        presence.touch(user_id)
+        cache.set(im_tasks.kick_pending_key(user_id), 1, 60)
+        self.assertIsNotNone(presence.get_presence([user_id])[user_id]["last_active_at"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._delete()
+
+        self.assertIsNone(presence.get_presence([user_id])[user_id]["last_active_at"])
+        self.assertIsNone(cache.get(im_tasks.kick_pending_key(user_id)))
+
+    @patch("im.tasks.delete_account.delay")
+    def test_enqueues_im_delete_with_im_user_id_after_commit(self, delay):
+        user_id = self.user.id          # ⚠️ 必须在注销前取,删完 user.id 会是 None
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self._delete()
+        self.assertEqual(resp.status_code, 204)
+        delay.assert_called_once_with(f"u{user_id}")
+
+    @patch("im.tasks.delete_account.delay")
+    def test_nothing_enqueued_when_phone_mismatch(self, delay):
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self._delete(phone="13900139000")
+        self.assertEqual(resp.status_code, 400)
+        delay.assert_not_called()
 
     def test_other_users_data_untouched(self):
         other = User.objects.create_user(phone="13900139000")

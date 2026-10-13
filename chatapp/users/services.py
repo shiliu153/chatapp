@@ -1,10 +1,13 @@
 import logging
 
+from django.core.cache import cache
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
 
 from im import tasks as im_tasks
 
+from . import presence
 from .models import PhotoStatus, Preference, Profile
 
 logger = logging.getLogger(__name__)
@@ -44,12 +47,32 @@ def sync_im_avatar(user_id: int) -> None:
 
 
 def delete_account(user) -> None:
-    """注销账号:删除该用户的全部数据。
+    """注销账号:删除该用户的全部数据,并清理磁盘文件 / 缓存 / IM 账号。
 
-    本函数只负责数据层(事务内);磁盘文件 / Redis / IM 删号等副作用
-    由后续任务补在 `transaction.on_commit` 里。
-
-    ⚠️ 调用前必须取好 `user.id` / `user.im_user_id` —— `user.delete()` 之后
-    Django 会把实例的主键置为 None(见 users/tests.py 的回归用例)。
+    顺序有讲究:
+      1. 事务内先**收集**待删文件路径与 im_user_id(删行之后就取不到了,
+         且 `user.delete()` 会把实例主键置为 None);
+      2. 事务内删 User 行(CASCADE 清掉全部关联数据);
+      3. 事务提交后(on_commit)删磁盘文件、清 Redis、入队 IM 删号 ——
+         响应路径禁止外部调用,且入队必须晚于提交(否则事务回滚了 IM 号却没了)。
     """
+    from feed.models import PostImage   # 延迟导入,避免 app 加载顺序问题(同 im/tasks.py)
+
+    file_names = list(user.photos.values_list("file", flat=True))
+    file_names += list(PostImage.objects.filter(post__author=user).values_list("file", flat=True))
+    user_id = user.id
+    im_user_id = user.im_user_id
+
     user.delete()
+
+    def _cleanup():
+        for name in file_names:
+            try:
+                default_storage.delete(name)
+            except Exception:
+                logger.warning("注销删文件失败 name=%s", name, exc_info=True)
+        presence.clear(user_id)
+        cache.delete(im_tasks.kick_pending_key(user_id))
+        im_tasks.delete_account.delay(im_user_id)
+
+    transaction.on_commit(_cleanup, robust=True)
