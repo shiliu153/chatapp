@@ -143,4 +143,34 @@ describe('session store', () => {
 
     expect(store.kicked).toBe(false)
   })
+
+  it('deleteAccount 只调接口,不自己清会话(清会话由页面编排)', async () => {
+    tokenStore.access = 'a'
+    tokenStore.refresh = 'r'
+    tokenStore.userId = 5
+    server.use(
+      mswHttp.delete('/api/v1/users/me', () => new HttpResponse(null, { status: 204 })),
+    )
+    const store = useSessionStore()
+
+    await store.deleteAccount('13800138000')
+
+    expect(store.status).toBe('loading') // 未被自己改掉
+    expect(tokenStore.access).toBe('a')
+  })
+
+  it('deleteAccount 失败向上抛(手机号不匹配)', async () => {
+    server.use(
+      mswHttp.delete('/api/v1/users/me', () =>
+        HttpResponse.json(
+          { code: 400, message: '手机号与当前账号不一致', request_id: 'r' },
+          { status: 400 },
+        ),
+      ),
+    )
+
+    await expect(useSessionStore().deleteAccount('13900139000')).rejects.toMatchObject({
+      code: 400,
+    })
+  })
 })

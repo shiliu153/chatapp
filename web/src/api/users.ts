@@ -43,4 +43,9 @@ export async function fetchUserProfile(userId: number): Promise<PublicProfile> {
   return data as PublicProfile
 }
 
+/** 注销账号(不可恢复)。后端要求带上当前账号的完整手机号做二次确认。 */
+export async function deleteAccount(phone: string): Promise<void> {
+  await http.delete('/users/me', { data: { phone } })
+}
+
 export type { Page }
