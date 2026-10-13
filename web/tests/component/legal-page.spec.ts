@@ -21,4 +21,10 @@ describe('LegalPage', () => {
     expect(agreement).toContain('本协议为开发阶段草稿,最终版本以正式上架时的文本为准。')
     expect(privacy).toContain('如对本政策有疑问或需要投诉,请通过应用商店页面提供的联系方式与我们联系。')
   })
+
+  it('隐私政策写明账号注销路径(商店与 App 备案材料会比对)', () => {
+    const privacy = mount(LegalPage, { props: { kind: 'privacy' } }).find('.legal__body').text()
+    expect(privacy).toContain('注销账号')
+    expect(privacy).toContain('永久删除')
+  })
 })
