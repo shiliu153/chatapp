@@ -28,6 +28,14 @@ def touch(user_id: int) -> None:
         logger.warning("presence 写入失败 user_id=%s", user_id, exc_info=True)
 
 
+def clear(user_id: int) -> None:
+    """注销账号时抹掉在线痕迹;失败只记日志。"""
+    try:
+        cache.delete(_key(user_id))
+    except Exception:
+        logger.warning("presence 清理失败 user_id=%s", user_id, exc_info=True)
+
+
 def get_presence(user_ids: list[int]) -> dict[int, dict]:
     """批量查:{user_id: {"online": bool, "last_active_at": iso|None}}。
 

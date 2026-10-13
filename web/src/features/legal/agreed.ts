@@ -2,7 +2,7 @@
  * 协议同意状态。
  * 与 App 的 legalVersion 语义一致:改文案时把 LEGAL_VERSION +1,启动弹窗会重新出现一次。
  */
-export const LEGAL_VERSION = 1
+export const LEGAL_VERSION = 2
 
 const AGREED_KEY = 'hb.legalAgreed'
 

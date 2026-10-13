@@ -5,15 +5,23 @@ import time
 from datetime import date
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from moderation.models import Block
+from accounts import sms_codes
+from discovery.models import Match, Swipe
+from feed.models import Post, PostComment, PostImage
+from im import tasks as im_tasks
+from moderation.models import BanLog, Block, Report
 
 from . import presence
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
@@ -491,3 +499,155 @@ class PresenceApiTests(AuthMixin, APITestCase):
         resp = self.client.get(self.url, {"user_ids": str(self.other.id)})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["results"][0]["last_active_at"], None)
+
+
+class DeleteAccountTests(AuthMixin, APITestCase):
+    """注销账号:立即硬删除 + 手机号二次确认 + 重封禁 403(防注销洗白)。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)   # 别把测试图片写进真 media/
+        override.enable()
+        self.addCleanup(override.disable)
+        # 清掉别的用例留下的 IP 限流计数 / 验证码 / presence 残留
+        # (本类末尾要真调一次 /auth/sms/verify,不清会被别处的限流计数连累)
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.user = User.objects.create_user(phone="13800138000")
+        self.login(self.user)
+        self.url = "/api/v1/users/me"
+
+    def _delete(self, phone="13800138000"):
+        return self.client.delete(self.url, {"phone": phone}, format="json")
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        resp = self._delete()
+        self.assertEqual(resp.status_code, 401)
+
+    def test_phone_mismatch_rejected_and_data_kept(self):
+        resp = self._delete(phone="13900139000")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], 400)
+        self.assertEqual(resp.json()["message"], "手机号与当前账号不一致")
+        self.assertTrue(User.objects.filter(id=self.user.id).exists())
+
+    def test_phone_missing_rejected(self):
+        resp = self.client.delete(self.url, {}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], 400)
+        self.assertTrue(User.objects.filter(id=self.user.id).exists())
+
+    def test_heavy_banned_cannot_delete(self):
+        Profile.objects.create(user=self.user, status=ProfileStatus.BANNED_HEAVY)
+        resp = self._delete()
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(User.objects.filter(id=self.user.id).exists())
+
+    def test_light_banned_can_delete(self):
+        Profile.objects.create(user=self.user, status=ProfileStatus.BANNED_LIGHT)
+        self.assertEqual(self._delete().status_code, 204)
+
+    def test_success_deletes_user_and_all_related_rows(self):
+        user_id = self.user.id
+        other = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.user, nickname="小明")
+        Photo.objects.create(user=self.user, file="photos/a.png")
+        Swipe.objects.create(swiper=self.user, target=other, action="like")
+        Swipe.objects.create(swiper=other, target=self.user, action="like")
+        Match.objects.create(**Match.pair_kwargs(self.user, other))
+        post = Post.objects.create(author=self.user, text="动态")
+        PostImage.objects.create(post=post, file="posts/a.png")
+        PostComment.objects.create(post=post, author=other, text="评论")
+        Block.objects.create(blocker=self.user, blocked=other)
+        Report.objects.create(reporter=other, target=self.user, type="harassment")
+        BanLog.objects.create(user=self.user, action="ban_light", reason="x")
+
+        resp = self._delete()
+
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(resp.content, b"")
+        self.assertFalse(User.objects.filter(id=user_id).exists())
+        self.assertFalse(Profile.objects.filter(user_id=user_id).exists())
+        self.assertFalse(Photo.objects.filter(user_id=user_id).exists())
+        self.assertFalse(Swipe.objects.filter(Q(swiper_id=user_id) | Q(target_id=user_id)).exists())
+        self.assertFalse(Match.objects.filter(Q(user_a_id=user_id) | Q(user_b_id=user_id)).exists())
+        self.assertFalse(Post.objects.filter(author_id=user_id).exists())
+        self.assertFalse(PostImage.objects.filter(post__author_id=user_id).exists())
+        self.assertFalse(PostComment.objects.filter(author_id=user_id).exists())
+        self.assertFalse(Block.objects.filter(Q(blocker_id=user_id) | Q(blocked_id=user_id)).exists())
+        self.assertFalse(Report.objects.filter(Q(reporter_id=user_id) | Q(target_id=user_id)).exists())
+        self.assertFalse(BanLog.objects.filter(user_id=user_id).exists())
+
+    def test_deletes_photo_and_post_image_files_on_disk(self):
+        photo = Photo.objects.create(user=self.user)
+        photo.file.save("a.png", ContentFile(PNG_1PX), save=True)
+        post = Post.objects.create(author=self.user, text="动态")
+        image = PostImage.objects.create(post=post)
+        image.file.save("b.png", ContentFile(PNG_1PX), save=True)
+        photo_name, image_name = photo.file.name, image.file.name
+        self.assertTrue(default_storage.exists(photo_name))
+        self.assertTrue(default_storage.exists(image_name))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self._delete()
+
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(default_storage.exists(photo_name))
+        self.assertFalse(default_storage.exists(image_name))
+
+    def test_clears_presence_and_kick_pending_flag(self):
+        user_id = self.user.id
+        presence.touch(user_id)
+        cache.set(im_tasks.kick_pending_key(user_id), 1, 60)
+        self.assertIsNotNone(presence.get_presence([user_id])[user_id]["last_active_at"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._delete()
+
+        self.assertIsNone(presence.get_presence([user_id])[user_id]["last_active_at"])
+        self.assertIsNone(cache.get(im_tasks.kick_pending_key(user_id)))
+
+    @patch("im.tasks.delete_account.delay")
+    def test_enqueues_im_delete_with_im_user_id_after_commit(self, delay):
+        user_id = self.user.id          # ⚠️ 必须在注销前取,删完 user.id 会是 None
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self._delete()
+        self.assertEqual(resp.status_code, 204)
+        delay.assert_called_once_with(f"u{user_id}")
+
+    @patch("im.tasks.delete_account.delay")
+    def test_nothing_enqueued_when_phone_mismatch(self, delay):
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self._delete(phone="13900139000")
+        self.assertEqual(resp.status_code, 400)
+        delay.assert_not_called()
+
+    def test_other_users_data_untouched(self):
+        other = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=other, nickname="小红")
+        Photo.objects.create(user=other, file="photos/b.png")
+        self.assertEqual(self._delete().status_code, 204)
+        self.assertTrue(User.objects.filter(id=other.id).exists())
+        self.assertTrue(Profile.objects.filter(user=other).exists())
+        self.assertTrue(Photo.objects.filter(user=other).exists())
+
+    def test_old_token_rejected_after_delete(self):
+        self.assertEqual(self._delete().status_code, 204)
+        # 同一个 access token:用户行没了 → 鉴权失败
+        self.assertEqual(self.client.get("/api/v1/users/me").status_code, 401)
+
+    def test_same_phone_can_register_again_as_new_user(self):
+        old_id = self.user.id
+        self.assertEqual(self._delete().status_code, 204)
+
+        self.client.credentials()   # 旧令牌已失效,换匿名请求
+        cache.delete("sms:send:13800138000")
+        sms_codes.store("13800138000", settings.SMS_DEV_CODE)
+        resp = self.client.post("/api/v1/auth/sms/verify",
+                                {"phone": "13800138000", "code": settings.SMS_DEV_CODE},
+                                format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["is_new_user"])
+        self.assertNotEqual(resp.json()["user_id"], old_id)

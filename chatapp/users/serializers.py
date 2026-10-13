@@ -108,3 +108,15 @@ class PhotoUploadSerializer(serializers.Serializer):
         if value.size > settings.PHOTO_MAX_BYTES:
             raise serializers.ValidationError("图片不能超过 5MB")
         return value
+
+
+class DeleteAccountSerializer(serializers.Serializer):
+    """注销账号:要求输入完整手机号做二次确认(不可恢复操作)。"""
+
+    phone = serializers.CharField(max_length=20)
+
+    def validate_phone(self, value):
+        request = self.context.get("request")
+        if request is None or value.strip() != request.user.phone:
+            raise serializers.ValidationError("手机号与当前账号不一致")
+        return value.strip()

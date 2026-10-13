@@ -129,6 +129,22 @@ def kick_user(identifier: str) -> bool:
     return _check(result, "kick")
 
 
+def delete_account(identifier: str) -> bool:
+    """删除 IM 账号(注销账号用)。
+
+    ⚠️ 参数形状实施时用真凭据实测:本仓库已有两处同类前车之鉴 ——
+    `sendmsg` 的 identifier 必须是管理员(否则 60010)、`account_import`
+    对已存在账号会**覆盖** Nick/FaceUrl 而不是返回 7015。
+    """
+    payload = {"DeleteItem": [{"UserID": identifier}]}
+    try:
+        result = _request("im_open_login_svc", "account_delete", payload)
+    except Exception:
+        logger.exception("IM account_delete 调用失败 identifier=%s", identifier)
+        return False
+    return _check(result, "account_delete")
+
+
 def ensure_account(identifier: str, nickname: str = "") -> bool:
     """幂等建号:已存在就**不动它**,不存在才导入。
 

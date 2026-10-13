@@ -4,6 +4,7 @@ import * as authApi from '@/api/auth'
 import { http } from '@/api/http'
 import { sessionEvents } from '@/api/session-events'
 import { tokenStore } from '@/api/token-store'
+import * as usersApi from '@/api/users'
 
 export type SessionStatus = 'loading' | 'loggedOut' | 'loggedIn'
 
@@ -46,6 +47,14 @@ export const useSessionStore = defineStore('session', () => {
     resetSession(false)
   }
 
+  /**
+   * 注销账号:**只调接口**,失败向上抛。
+   * 清会话与跳转留在页面编排(与 onLogout 同一条路径:先断 IM 再清会话)。
+   */
+  async function deleteAccount(phone: string): Promise<void> {
+    await usersApi.deleteAccount(phone)
+  }
+
   async function restore(): Promise<void> {
     if (!tokenStore.access || !tokenStore.refresh) {
       status.value = 'loggedOut'
@@ -65,5 +74,5 @@ export const useSessionStore = defineStore('session', () => {
     kicked.value = false
   }
 
-  return { status, userId, kicked, sendCode, verify, logout, restore, acknowledgeKicked }
+  return { status, userId, kicked, sendCode, verify, deleteAccount, logout, restore, acknowledgeKicked }
 })

@@ -9,17 +9,24 @@ from moderation.services import blocked_user_ids
 
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
 from .presence import PRESENCE_MAX_IDS, get_presence
-from .serializers import (PhotoSerializer, PhotoUploadSerializer, PreferenceSerializer,
-                          ProfileSerializer, ProfileUpdateSerializer, PublicProfileSerializer,
-                          TagSerializer)
-from .services import get_profile, sync_im_avatar, sync_im_nickname
+from .serializers import (DeleteAccountSerializer, PhotoSerializer, PhotoUploadSerializer,
+                          PreferenceSerializer, ProfileSerializer, ProfileUpdateSerializer,
+                          PublicProfileSerializer, TagSerializer)
+from .services import delete_account, get_profile, sync_im_avatar, sync_im_nickname
 from .throttles import PresenceThrottle
 
 User = get_user_model()
 
 
-@api_view(["GET", "PATCH"])
+@api_view(["GET", "PATCH", "DELETE"])
 def me(request):
+    if request.method == "DELETE":
+        # 手机号二次确认:不可恢复操作,body 必须带上当前账号的手机号。
+        # 重封禁用户由全局 IsNotHeavyBanned 拦成 403(白名单只放行 GET),防「注销洗白」。
+        serializer = DeleteAccountSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        delete_account(request.user)
+        return Response(status=204)
     profile = get_profile(request.user)
     if request.method == "PATCH":
         serializer = ProfileUpdateSerializer(data=request.data)

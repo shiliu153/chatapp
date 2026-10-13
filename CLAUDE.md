@@ -38,8 +38,9 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-12 | UI 整改批次④「我的 + 他人资料页」交付(我的页身份卡+完成度环/行数 8→5;资料页照片头图+透明顶栏+相册 R12;**首次落地 §6.2 Hero 转场**——tag 按来源自身 id 派生经路由 `extra` 传递,接入广场卡/详情作者/详情评论/聊天顶栏四处;聊天顶栏补头像 32 修订附录 B.2;资料页接入在线状态;规则文档升 v1.3 附录 C;278 测试绿) |
 | 2026-10-12 | UI 整改批次⑤「广场」交付(页壳大标题+涟漪空态+骨架+渐变 FAB/动态卡圆头像+九宫格 3 列+点赞脉冲/详情页自绘顶栏+44 评论栏/我的动态;**落地 §6.2 第二处 Hero「动态卡→动态详情」**——SDK 禁 Hero 嵌套 + 扫描只一次 → 状态切换双保 + `extra` 带 seed 直出真卡;删孤儿 `OnlineDot`;规则文档升 v1.4 附录 D;296 测试绿) |
 | 2026-10-12 | UI 整改批次⑥「二级页」交付(**表单控件规范一次定死**:14 个 core 组件 + 2 个 feature 组件;10 页 = 登录/启动/引导/设置/黑名单/编辑资料/想找的人/发动态/协议/封禁;`AlertDialog`→`AppDialog`、`SnackBar`→`AppToast` 全量统一;抽共享 `AppSubPageBar` 取代两份私有顶栏副本;规则文档升 v1.5 附录 E;329 测试绿) |
+| 2026-10-13 | 上线合规轨 T-17「账号注销入口」交付(`DELETE /users/me` = 手机号二次确认 + 立即硬删除全部数据 + 释放手机号;IM 侧新增 `account_delete` 与删号任务;App/Web 双端入口;隐私政策补注销路径、双端协议版本升 2;336 App 测试绿) |
 
-**下一步**:App 端「心跳」UI 整改 ①–⑥ 已全部交付(设计规则 §8 实施顺序收官)。接下来启动上线合规轨,按 `2026-09-18-launch-execution.md` 推进(上线流程表含商业化/资质细节,已从开源仓库移出,仅本地保留)。
+**下一步**:上线合规轨继续推进 —— 按 `2026-09-18-launch-execution.md` 走 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -113,7 +114,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **错误契约**:成功 2xx + 资源 JSON;失败一律 `{"code": <HTTP状态码>, "message": "<中文>", "request_id": ...}`;业务码=前 3 位 HTTP + 2 位序号(`config/error_codes.py`)
 - **鉴权**:Bearer JWT(access 30min / refresh 30d,刷新即轮换、旧进黑名单);JWT `user_id` claim 是**字符串**;`GET /users/me` 响应 `id` 是 **profile 表主键**,账号 ID 看 `user_id`
 - **响应路径禁止任何第三方网络调用**(requests/腾讯 REST/短信商);跨系统副作用一律走 Celery 任务;`transaction.on_commit(fn, robust=True)` 的语义是「DB 提交后」
-- **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)
+- **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
 - **跨栈约定**:IM 账号 = `u{user_id}`(`accounts/models.py::im_user_id`);`system_notice` 相关常量两边别单改
 - **单设备登录**:一个账号同时只允许一台设备在线;被顶设备收 **401 + `40101`**(三条退出路径互为兜底,细节见 pitfalls)
 - **封禁两级**:`banned_light` 只禁滑卡;`banned_heavy` 全域 403——全局权限类自动覆盖新接口,白名单仅 `GET /users/me`、`GET /users/tags`
@@ -134,7 +135,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `POST /auth/sms/send` | 发验证码;同号 60 秒重发间隔(42901,带 Retry-After);IP 限流;入队失败回滚并 503(50301) |
 | `POST /auth/sms/verify` | 校验并登录(号码没注册过自动建号)→ `{access, refresh, is_new_user, user_id}`;连错 5 次锁 15 分钟(42902);60 秒幂等重放窗口 |
 | `POST /auth/token/refresh` | 刷新 access(响应同时给新 refresh) |
-| `GET/PATCH /users/me` | 我的资料(昵称/性别/生日/城市/简介/`tag_ids`);未满 18 岁 400;`id`=profile 主键 |
+| `GET/PATCH/DELETE /users/me` | 我的资料(昵称/性别/生日/城市/简介/`tag_ids`);未满 18 岁 400;`id`=profile 主键。**DELETE = 注销账号**:body 带 `phone` 二次确认,立即硬删除全部数据 + 释放手机号(同号可重注册为全新账号);重封禁 403 |
 | `GET /users/tags` | 标签池(12 个,数据迁移写入) |
 | `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB);`AUTO_APPROVE=1` 上传即过审 |
 | `GET/PATCH /users/me/preference` | 想找的人:目标性别(可空=不限)/ 年龄区间 / 城市 |
