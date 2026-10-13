@@ -1,13 +1,19 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/AppButton.vue'
 import AppCard from '@/components/AppCard.vue'
+import { parseApiError } from '@/api/error'
 import { useChatStore } from '@/stores/chat'
 import { useSessionStore } from '@/stores/session'
+import DeleteAccountDialog from './DeleteAccountDialog.vue'
 
 const router = useRouter()
 const session = useSessionStore()
 const chat = useChatStore()
+
+const deleteOpen = ref(false)
+const deleteError = ref('')
 
 const entries = [
   { name: 'profile-edit', label: '编辑资料' },
@@ -21,6 +27,32 @@ const entries = [
 async function onLogout() {
   if (!window.confirm('确定退出登录?')) return
   // 顺序不能反:先登出 IM,再清本地会话(否则 IM 还挂着旧账号的长连接)
+  await chat.close().catch(() => {})
+  session.logout()
+  await router.push({ name: 'login' })
+}
+
+function onDeleteAccount() {
+  if (
+    !window.confirm(
+      '注销后,你的资料、照片、配对关系、聊天关系与广场动态将被永久删除,且无法恢复。确定继续?',
+    )
+  ) {
+    return
+  }
+  deleteError.value = ''
+  deleteOpen.value = true
+}
+
+async function onDeleteSubmitted(phone: string) {
+  try {
+    await session.deleteAccount(phone)
+  } catch (e) {
+    deleteError.value = parseApiError(e).message
+    return
+  }
+  deleteOpen.value = false
+  // 顺序与 onLogout 一致:先登出 IM,再清本地会话
   await chat.close().catch(() => {})
   session.logout()
   await router.push({ name: 'login' })
@@ -42,14 +74,31 @@ async function onLogout() {
     </AppCard>
 
     <AppButton
-      class="settings__logout"
+      class="settings__delete"
       variant="danger"
+      block
+      size="lg"
+      @click="onDeleteAccount"
+    >
+      注销账号
+    </AppButton>
+
+    <AppButton
+      class="settings__logout"
+      variant="ghost"
       block
       size="lg"
       @click="onLogout"
     >
       退出登录
     </AppButton>
+    <p v-if="deleteError" class="settings__error">{{ deleteError }}</p>
+
+    <DeleteAccountDialog
+      :open="deleteOpen"
+      @close="deleteOpen = false"
+      @submitted="onDeleteSubmitted"
+    />
   </section>
 </template>
 
@@ -87,5 +136,11 @@ async function onLogout() {
 }
 .settings__item:hover {
   color: var(--color-brand);
+}
+.settings__error {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--color-danger);
+  text-align: center;
 }
 </style>
