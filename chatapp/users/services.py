@@ -1,9 +1,13 @@
+import logging
+
 from django.db import transaction
 from django.utils import timezone
 
 from im import tasks as im_tasks
 
 from .models import PhotoStatus, Preference, Profile
+
+logger = logging.getLogger(__name__)
 
 
 def get_profile(user):
@@ -37,3 +41,15 @@ def sync_im_nickname(user) -> None:
 def sync_im_avatar(user_id: int) -> None:
     """照片过审后把头像同步到 IM(任务内部取第一张过审照片的绝对 URL)。"""
     transaction.on_commit(lambda: im_tasks.sync_profile.delay(user_id, "avatar"), robust=True)
+
+
+def delete_account(user) -> None:
+    """注销账号:删除该用户的全部数据。
+
+    本函数只负责数据层(事务内);磁盘文件 / Redis / IM 删号等副作用
+    由后续任务补在 `transaction.on_commit` 里。
+
+    ⚠️ 调用前必须取好 `user.id` / `user.im_user_id` —— `user.delete()` 之后
+    Django 会把实例的主键置为 None(见 users/tests.py 的回归用例)。
+    """
+    user.delete()
