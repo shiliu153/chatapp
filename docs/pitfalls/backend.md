@@ -58,3 +58,14 @@
 ## 管理命令(补漏)
 
 - `im_setup_system_account`(建「系统通知」账号,新环境跑一次,幂等);`im_sync_nicknames`(昵称全量同步,幂等);`seed_fake_users --count N`(造数,幂等、直调 IM 不必等 worker)。
+
+## 账号注销(T-17)
+
+- **`user.delete()` 之后 `user.id` 会变成 `None`** —— Django 的 Collector 会把被删实例的主键置空。所有要在 `transaction.on_commit` 里用到的值(`user_id`、`user.im_user_id`)必须在 `delete()` **之前**取好,否则会拼出 `uNone`,而且**不报错、静默错**。`users/services.py::delete_account` 里 `user_id` / `im_user_id` 都在删行前取。
+- **`on_commit` 回调在 `APITestCase` 里默认不执行**(整个用例包在事务里且最终回滚)。要测副作用必须 `with self.captureOnCommitCallbacks(execute=True):` 包住请求。
+- **IM 删号任务的参数是 `im_user_id` 而不是 `user_id`** —— 全项目唯一一处例外。原因:该任务在用户行删除**之后**入队,任务内查库必然拿到 `None`,沿用 `_user()` 兜底会静默跳过、删号永不发生。`im/tasks.py::delete_account` 的 docstring 有完整说明。
+- **重封禁用户的注销天然被 403 挡住** —— `moderation/permissions.py::BAN_EXEMPT` 白名单只含 `("GET", "/api/v1/users/me")` 与 `("GET", "/api/v1/users/tags")`,`DELETE` 不在内。这是「防注销洗白」的屏障,**不要**为了「让被封禁的人也能注销」把 DELETE 加进白名单。
+- **`feed.PostReport` 是 `post=SET_NULL`**:注销用户时,「别人举报他动态」的那些举报行会保留(`post` 置 NULL,运营留档),而「他举报别人」的行随 `reporter` 级联删除。这是既有模型行为,不是 bug。
+- **给 `@api_view` 加方法会让文档门禁立刻变红** —— `ApiDocsCoverageTests` 双向比对 URLconf 与 `docs/api/*.md` 的信息行,新增 `DELETE /api/v1/users/me` 必须在同一次改动内写进 `docs/api/users.md`(分册首段的「含 N 个接口」计数也要改)。
+- **DRF 的权限检查在方法分发之前**:给 `me` 加 DELETE 后,匿名请求拿 401、重封禁拿 403,都不会落到 405 —— 所以 `test_requires_auth` / 重封禁用例在实现前就是绿的,别被「实现前只有 7 例红」误导。
+- **测试里别断言 refresh token 的具体值**:App 启动 `bootstrap()` 会静默刷新一次令牌,存的 refresh 已经不是登录时那个了。要断言「凭证没被清」就用 `isNotNull`。
