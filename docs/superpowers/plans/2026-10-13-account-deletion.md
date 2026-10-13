@@ -1945,6 +1945,47 @@ git commit -m "docs: 注销踩坑册分节 + CLAUDE.md 接口/纪律/里程碑�
 
 ---
 
-## 执行记录
+## 执行记录(2026-10-13,分支 `feat/account-deletion`)
 
-(执行时回填:各任务提交号、测试数量、手测结果、实测发现。)
+**交付结果**
+
+| 门禁 | 基线 | 交付后 |
+|---|---|---|
+| 后端 `python manage.py test` | 339 OK | **359 OK**(+20) |
+| App `flutter analyze` | 0 告警 | **0 告警** |
+| App `flutter test` | 329 | **336**(+7) |
+| Web `vue-tsc` / `eslint --max-warnings 0` | 零错误 / 零告警 | **零错误 / 零告警** |
+| Web `npm run test:coverage` | 303 例 | **308 例**(+5),总覆盖 85.68 / 81.27 / 81.16 / 87.39 |
+
+**任务与提交**
+
+| 任务 | 提交 | 内容 |
+|---|---|---|
+| Task 1 | `b46cff5` | `im/client.py::delete_account`(account_delete 封装,3 例) |
+| Task 2 | `ac9c845` | `im/tasks.py::delete_account`(先踢后删 + 不查库回归,4 例) |
+| Task 3 | `97fecc5` | `DELETE /users/me` 契约层 + 硬删除 + `docs/api/users.md` §2.10(9 例) |
+| Task 4 | `129c7e5` | 注销副作用:磁盘文件 / presence / IM 入队(4 例) |
+| Task 5 | `80138f4` | App `ApiClient.delete` 支持 body + `SettingsRepository`(2 例) |
+| Task 6 | `c8c34f8` | App `DeleteAccountDialog`(3 例) |
+| Task 7 | `b8acc48` | App 设置页注销入口(2 例) |
+| Task 8 | `d02c340` | Web `api/users.ts` + `stores/session.ts`(2 例) |
+| Task 9 | `3cf73c4` | Web `DeleteAccountDialog.vue` + 设置页接入(2 例) |
+| Task 10 | `b0c7081` | 隐私政策补注销路径 + 双端版本升 2(1 例) |
+| Task 11 | `6747779` | 踩坑册「账号注销」分节 + CLAUDE.md 三处同步 |
+
+**执行中的实测发现**
+
+1. **基线数字是估值,实测才对**:计划写「后端 337 / 新增后 ≈357」,实测基线 **339**、交付 **359**。已把计划里的 337 就地改成 339。
+2. **DRF 的权限检查在方法分发之前**:给 `@api_view(["GET","PATCH"])` 加 DELETE 之前跑测试,9 例里只有 **7 例红** —— `test_requires_auth`(匿名 401)与 `test_heavy_banned_cannot_delete`(重封禁 403)在实现前就是绿的,405 根本轮不到它们。已写进踩坑册,免得后来人以为漏测。
+3. **`test_nothing_enqueued_when_phone_mismatch` 同理**:手机号不匹配时压根走不到入队,这条守卫用例实现前即绿(属于「守住不回归」而非「驱动实现」)。
+4. **测试里别断言 refresh token 的具体值**:App 启动 `bootstrap()` 会静默刷新一次令牌,存进 SharedPreferences 的 refresh 已经是新的(`r2` 而非登录时的 `r`)。我第一版断言 `'r'` 直接红了 —— 意图是「凭证没被清」,改成 `isNotNull` 才对。已写进踩坑册。
+5. **`web/tests/support/server.ts` 是 `onUnhandledRequest: 'error'`**:计划初稿想靠「不铺 msw handler = 请求失败」来测 400 分支,实际会直接抛。两例都改成显式铺 handler(204 / 400)。
+6. **`vue/max-attributes-per-line` 会卡住多属性单行标签**:新弹窗里 `<div v-if class role aria-modal>` 与 `<AppButton class variant block @click>` 各触发 1 条告警,`eslint --max-warnings 0` 直接红。属性一律换行。
+7. **`npm run test:coverage` 的 stderr 有既有 MSW 噪声**(`profile-edit-page` / `user-profile-page` / `discovery-page` 等老用例故意走失败路径,`[MSW] Error: intercepted a request without a matching request handler`),与本次改动无关;用 `Select-String` 抓汇总行时别把 `ERROR` 当过滤词,否则会被这批噪声淹掉。
+8. **`edit` 工具要求先「读」过目标文件**:本会话里用 `Get-Content` 看过的文件不算,必须用 read 工具读过才能改;改 `docs/pitfalls/backend.md`、`app/lib/features/legal/legal_texts.dart`、`web/src/stores/session.ts` 时各撞了一次。
+
+**协议文案一致性(程序化校验,非肉眼)**
+
+`app/lib/features/legal/legal_texts.dart::privacyPolicyText` 与 `web/src/features/legal/privacy.ts::privacyText` 抽出后逐字符比对:**各 517 字符,`-ceq` 判定 IDENTICAL**。
+
+**待用户手测**(见上方手测清单 1–7;模拟器 release 包 + Web 端各跑一遍)
