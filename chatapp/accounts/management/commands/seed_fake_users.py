@@ -17,6 +17,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from im import client as im_client
 from users.models import Photo, PhotoStatus, Preference, Profile, ProfileStatus, Tag
@@ -140,8 +141,14 @@ class Command(BaseCommand):
     def _random_birthday(self):
         # 18–45 覆盖默认偏好(18–99)和常见自设区间;太窄的偏好区间会把号全过滤掉
         age = random.randint(18, 45)
-        today = date.today()
-        try:
-            return date(today.year - age, random.randint(1, 12), random.randint(1, 28))
-        except ValueError:
-            return date(today.year - age, 1, 1)
+        # 与 calculate_age 同源:不能用 date.today()(那是**系统时区**,CI 跑在 UTC 上,
+        # 跨过 UTC/CST 的午夜差一天时同样会算错一岁)
+        today = timezone.localdate()
+        # ⚠️ 月/日必须**不晚于今天**:否则「今年的生日还没过」,calculate_age 会算出 age-1,
+        #    抽到 age=18 时就造出 17 岁的账号 —— 平台明令禁止(2026-10-13 CI 实测红,
+        #    概率约 2%/轮:1/28 抽到 18 × 71/336 抽到「晚于今天」的月日 × 3 个用户)。
+        month = random.randint(1, today.month)
+        day = random.randint(1, 28)          # 每月都有 28 号,不会 ValueError
+        if month == today.month:
+            day = random.randint(1, min(today.day, 28))
+        return date(today.year - age, month, day)

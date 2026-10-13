@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import patch
 
 from django.conf import settings
@@ -11,10 +12,11 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts import services, sms_codes
+from accounts.management.commands.seed_fake_users import Command
 from im import tasks as im_tasks
 from accounts.throttles import SmsSendThrottle
 from accounts.tokens import SessionRefreshToken
-from users.models import Photo, PhotoStatus, Profile, ProfileStatus
+from users.models import Photo, PhotoStatus, Profile, ProfileStatus, calculate_age
 
 User = get_user_model()
 
@@ -377,6 +379,27 @@ class SeedFakeUsersTests(TestCase):
             self.im_mock.ensure_account.assert_any_call(user.im_user_id, profile.nickname)
             self.im_mock.set_profile_nick.assert_any_call(user.im_user_id, profile.nickname)
             self.im_mock.set_profile_avatar.assert_any_call(user.im_user_id, photos[0].file.url)
+
+    def test_random_birthday_never_yields_under_18(self):
+        """回归(2026-10-13 CI 实测红):抽到 age=18 且月/日取到「晚于今天」的最坏值时,算出来是 17。
+
+        造数命令承诺 18–45,但「age 年前的随机月/日」在**今年的生日还没过**时会被
+        `calculate_age` 算成 age-1 —— 于是可能造出未满 18 岁的账号(平台明令禁止)。
+        这里把随机源钉在「最坏组合」:年龄取下界 18,月与日都取各自上界。
+        """
+        cmd = Command()
+        today = date(2026, 10, 13)
+
+        def worst_case(a, b):
+            return 18 if (a, b) == (18, 45) else b   # 年龄取下界;其余一律取上界
+
+        with patch("accounts.management.commands.seed_fake_users.random.randint",
+                   side_effect=worst_case), \
+                patch("django.utils.timezone.localdate", return_value=today):
+            birthday = cmd._random_birthday()
+
+        self.assertEqual(calculate_age(birthday, today=today), 18,
+                         msg=f"birthday={birthday}")
 
     def test_rerun_continues_after_existing_numbers(self):
         # 号码从「已分配的最大序号 + 1」续编;跑满 99 后再跑 = 号码段耗尽

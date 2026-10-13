@@ -1989,3 +1989,55 @@ git commit -m "docs: 注销踩坑册分节 + CLAUDE.md 接口/纪律/里程碑�
 `app/lib/features/legal/legal_texts.dart::privacyPolicyText` 与 `web/src/features/legal/privacy.ts::privacyText` 抽出后逐字符比对:**各 517 字符,`-ceq` 判定 IDENTICAL**。
 
 **待用户手测**(见上方手测清单 1–7;模拟器 release 包 + Web 端各跑一遍)
+
+---
+
+## CI 首轮红:根因与修复(2026-10-13)
+
+**现象**:PR #6 的 Backend CI 红,`Ran 359 tests` + `FAILED (failures=1)`。App / Web 两条 CI 绿。
+
+**排障过程(逐条排除,不是猜)**:
+
+| 嫌疑 | 结论 | 依据 |
+|---|---|---|
+| 依赖漂移(本地 Django 5.2.9 vs CI 5.2.18) | ❌ 排除 | 临时 venv 装 `requirements.txt` 最新版(Django 5.2.18 / DRF 3.18.3 / PyMySQL 1.2.3),**359 OK** |
+| MySQL 版本 / `sql_mode` | ❌ 排除 | 本地 8.0.42,与 CI `mysql:8.0` 同系;`sql_mode` 逐字一致 |
+| MySQL 驱动(mysqlclient vs PyMySQL) | ❌ 排除 | `config/__init__.py` 的 `install_as_MySQLdb()` 两边都把 `MySQLdb` 指向 PyMySQL |
+| Redis / broker 库号、`DEBUG` / `AUTO_APPROVE` / `SMS_DEV_MODE` | ❌ 排除 | `settings.py` 在 `TESTING` 下强制 `/15`、`/14`;其余开关两边等价 |
+| 时区(CI UTC vs 本地 CST) | ❌ 排除 | `USE_TZ=True` + `TIME_ZONE=Asia/Shanghai`,Django 走 zoneinfo,不吃系统时区 |
+| Linux + Python 3.11 | ❌ 排除 | 三容器复刻(`mysql:8.0` + `redis:7-alpine` + `python:3.11`)、CI 环境变量逐条照抄、CI 逐字命令 `--noinput --verbosity=2`,**连跑 3 遍全绿** |
+| 套件没跑完 | ❌ 排除 | CI 24s / 复刻 14–15s,耗时吻合 = 套件跑完了 |
+
+**真凶(用户从 CI 页面取回的 FAILURES 块)**:
+
+```
+FAIL: accounts.tests.SeedFakeUsersTests.test_creates_complete_female_profiles_with_photos
+  File "chatapp/accounts/tests.py", line 365
+    self.assertGreaterEqual(profile.age, 18)
+AssertionError: 17 not greater than or equal to 18
+```
+
+**根因**:`seed_fake_users.py::_random_birthday` 把生日定成「`age` 年前的**随机月/日**」:
+
+```python
+age = random.randint(18, 45)
+return date(date.today().year - age, random.randint(1, 12), random.randint(1, 28))
+```
+
+`calculate_age` 的判据是「今年生日过没过」。当随机到的月/日**晚于今天**时,实际年龄 = `age - 1` —— 抽到 `age=18` 就造出 **17 岁账号**(平台明令禁止)。
+
+**这是一个既有偶发,master 上同样存在**,与账号注销改动无关:概率 ≈ `(1/28) × (71/336) × 3 个用户` ≈ **2.2%/轮**,master 之前绿只是没抽中。今天(10 月)恰好让 11/12 月与 10 月 14–28 日全部落在「晚于今天」区间。
+
+**修复**(`chatapp/accounts/management/commands/seed_fake_users.py`):
+
+- `date.today()` → `timezone.localdate()`:与 `calculate_age` 同源,顺带消除「CI 跑 UTC、跨午夜差一天」的第二个隐患;
+- 月/日限制为**不晚于今天**(`month ∈ [1, today.month]`;当月则 `day ≤ min(today.day, 28)`),保证算出来的年龄就是抽到的 `age`。
+
+**验证(四重)**:
+
+1. **确定性复现**:固定随机源,`age=18 + (12,28)` → `calculate_age=17` ❌;`(10,01)`/`(03,15)` → 18 ✅ —— 与 CI 报错完全一致;
+2. **破坏性验证**:把命令文件临时 `git checkout HEAD --` 回退到旧实现 → 新回归测试**必红**(`AssertionError: 17 != 18 : birthday=2008-12-28`);恢复修复后绿,且文件与备份逐字节一致;
+3. **蒙特卡洛**:固定种子抽 3000 次,`age < 18` 违规 **0 次**,年龄区间正好 **18–45**;
+4. **全量回归**:后端 **360 OK**(359 + 1 新回归测试)。
+
+**过程事故与恢复(已复原)**:排障中我执行 `git stash push -- <单文件>`,该命令**失败**却打印了 `Did you forget to 'git add'?`;紧随其后的 `git stash pop` 因此弹出了一个**此前就存在的 stash**(消息:`On feat/web-frontend: stray sanitize leftovers (api_urls/db_setup/discovery)`,内容是 sanitize 脚本误删的一行空行 + 两行注释),把它应用到了工作区并被 drop。已通过 `git fsck --unreachable` 找到该提交 `20256e15`,用 `git stash store` 按原消息复原 `stash@{0}`,并 `git checkout --` 把三处误伤还原 —— `git stash list` 与工作区均已回到事故前状态。**教训:单文件 stash 失败时不要接着 `git stash pop`,它会弹出别人的 stash;应改用 `git stash create` + `store`。**
