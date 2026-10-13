@@ -92,7 +92,7 @@ cd chatapp
 python manage.py test
 ```
 
-Expected: 全绿(基线 337,含 `ApiDocsCoverageTests`)。红了先停下排查,别带病开工。
+Expected: 全绿(**基线 339**,含 `ApiDocsCoverageTests`)。红了先停下排查,别带病开工。
 
 - [ ] **Step 4: App 基线全绿**
 
@@ -1901,7 +1901,7 @@ cd chatapp
 python manage.py test
 ```
 
-Expected: 全绿(基线 337 + 本批新增 ≈ 20,含 `ApiDocsCoverageTests`)。
+Expected: 全绿(基线 339 + 本批新增 ≈ 20,含 `ApiDocsCoverageTests`)。
 
 - [ ] **Step 4: App 全量回归**
 

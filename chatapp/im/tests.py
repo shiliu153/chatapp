@@ -14,10 +14,10 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 from feed.models import Post, PostComment
 
-from .client import (_request, black_list_add, black_list_delete, ensure_account,
-                     import_account, kick_user, send_ban_lifted, send_ban_notice,
-                     send_custom_elem, send_match_notice, send_post_commented,
-                     send_report_handled, send_text,
+from .client import (_request, black_list_add, black_list_delete, delete_account,
+                     ensure_account, import_account, kick_user, send_ban_lifted,
+                     send_ban_notice, send_custom_elem, send_match_notice,
+                     send_post_commented, send_report_handled, send_text,
                      set_profile_avatar, set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
@@ -139,6 +139,23 @@ class ImClientTests(SimpleTestCase):
     def test_kick_user_network_error_returns_false(self):
         with patch("im.client._request", side_effect=Exception("boom")):
             self.assertFalse(kick_user("u5"))
+
+    def test_delete_account_payload(self):
+        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+            self.assertTrue(delete_account("u9"))
+        args, _ = req.call_args
+        self.assertEqual(args[0], "im_open_login_svc")
+        self.assertEqual(args[1], "account_delete")
+        self.assertEqual(args[2], {"DeleteItem": [{"UserID": "u9"}]})
+
+    def test_delete_account_error_code_returns_false(self):
+        with patch("im.client._request",
+                   return_value={"ErrorCode": 7011, "ErrorInfo": "account not exist"}):
+            self.assertFalse(delete_account("u9"))
+
+    def test_delete_account_network_error_returns_false(self):
+        with patch("im.client._request", side_effect=Exception("boom")):
+            self.assertFalse(delete_account("u9"))
 
     def test_set_profile_nick_payload(self):
         with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
