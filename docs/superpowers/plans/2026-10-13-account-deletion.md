@@ -1989,7 +1989,7 @@ git commit -m "docs: 注销踩坑册分节 + CLAUDE.md 接口/纪律/里程碑�
 
 `app/lib/features/legal/legal_texts.dart::privacyPolicyText` 与 `web/src/features/legal/privacy.ts::privacyText` 抽出后逐字符比对:**各 517 字符,`-ceq` 判定 IDENTICAL**。
 
-**待用户手测**(见上方手测清单 1–7;模拟器 release 包 + Web 端各跑一遍)
+**手测**(清单 1–7;模拟器 release 包 + Web 端):✅ **用户亲测通过**(2026-10-13)
 
 ---
 
@@ -1998,7 +1998,7 @@ git commit -m "docs: 注销踩坑册分节 + CLAUDE.md 接口/纪律/里程碑�
 - **PR [#6](https://github.com/shiliu153/chatapp/pull/6) squash 合并** → master `f686bc2`;远端与本地 `feat/account-deletion` 已删。
 - **CI 三条全绿**(Backend `test` / App `analyze-and-test` / Web `check`);首轮 Backend 红的原因与修复见下节。
 - 合并后已核对 master:新端点文档行(`DELETE /api/v1/users/me`)、`users/services.py`、seed 修复(`timezone.localdate()`)均在树上。
-- **尚未完成**:用户手测(清单 1–7)。按批次⑥惯例,手测通过即视为本批彻底交付。
+- **用户手测通过**(2026-10-13):清单 1–7 全过 —— 注销全流程 / 同号重注册为全新账号 / 重封禁被拦 / 数据确实消失 / Web 同流程 / 协议升版重弹 / 对方发消息失败。**本批彻底交付。**
 
 ---
 
