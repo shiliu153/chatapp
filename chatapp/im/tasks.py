@@ -158,3 +158,18 @@ def kick_pending(user_id: int) -> None:
         cache.delete(key)
     else:
         raise RuntimeError("IM kick 失败")
+
+
+@shared_task(**RETRY_POLICY)
+def delete_account(im_user_id: str) -> None:
+    """注销账号:先踢下线,再删 IM 账号。
+
+    🔴 参数是 **im_user_id 字符串**,不是 user_id —— 这是全项目唯一一处
+    「任务参数不是 user_id」的例外:本任务由注销流程在**用户行已删除之后**入队,
+    任务内查库必然拿到 None,沿用 `_user()` 兜底会静默跳过、删号永不发生。
+    调用方在事务提交后传入注销前取好的 `user.im_user_id`(即 f"u{user.id}")。
+
+    踢失败不阻塞删号(删号才是目的);删号失败抛异常交给 RETRY_POLICY 重试。
+    """
+    im_client.kick_user(im_user_id)
+    _require(im_client.delete_account(im_user_id), "delete_account")

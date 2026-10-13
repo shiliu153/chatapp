@@ -21,6 +21,7 @@ from .client import (_request, black_list_add, black_list_delete, delete_account
                      set_profile_avatar, set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
+                    delete_account as delete_account_task,
                     import_account as import_account_task, kick_pending,
                     kick_pending_key, post_commented as post_commented_task,
                     report_handled as report_handled_task, sync_profile)
@@ -579,3 +580,38 @@ class ImSideEffectTaskTests(TestCase):
     def test_missing_user_is_noop(self):
         send_match_notice_task.run(self.a.id, 999999)   # 不抛异常
         sync_profile.run(999999, "nick")
+
+
+class ImDeleteAccountTaskTests(TestCase):
+    """注销删号:先踢后删;踢失败不阻塞删号;删号失败抛异常让 Celery 重试。
+
+    回归重点:任务**不查库** —— 调用时用户行已经删掉了,参数是 im_user_id。
+    """
+
+    def test_kicks_then_deletes(self):
+        calls = []
+        with patch("im.client.kick_user",
+                   side_effect=lambda *a: calls.append("kick") or True), \
+                patch("im.client.delete_account",
+                      side_effect=lambda *a: calls.append("delete") or True):
+            delete_account_task.run("u9")
+        self.assertEqual(calls, ["kick", "delete"])   # 顺序不能反:先断在线会话再删号
+
+    def test_kick_failure_does_not_block_delete(self):
+        with patch("im.client.kick_user", return_value=False), \
+                patch("im.client.delete_account", return_value=True) as delete:
+            delete_account_task.run("u9")   # 不抛异常
+        delete.assert_called_once_with("u9")
+
+    def test_delete_failure_raises_so_celery_retries(self):
+        with patch("im.client.kick_user", return_value=True), \
+                patch("im.client.delete_account", return_value=False):
+            with self.assertRaises(RuntimeError):
+                delete_account_task.run("u9")
+
+    def test_does_not_touch_database(self):
+        with patch("im.client.kick_user", return_value=True), \
+                patch("im.client.delete_account", return_value=True), \
+                patch("im.tasks._user") as user_lookup:
+            delete_account_task.run("u9")
+        user_lookup.assert_not_called()
