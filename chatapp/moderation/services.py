@@ -1,3 +1,14 @@
+"""合规领域服务:拉黑关系查询、封禁审计与 IM 副作用入队。
+
+设计要点:
+    1. ``blocked_user_ids`` 返回**双向并集**(我拉黑的 ∪ 拉黑我的),是候选池、
+       配对列表、他人资料卡、在线状态查询共用的唯一可见性口径;
+    2. 封禁状态跨越边界时才写审计并发通知(``new_status != old_status``),
+       重复保存同一个状态不会产生重复通知;
+    3. 所有 IM 副作用统一经 ``_enqueue`` 走 ``transaction.on_commit`` ——
+       响应路径不等腾讯,且入队必须晚于事务提交。
+"""
+
 import logging
 
 from django.db import transaction
@@ -51,6 +62,16 @@ def notify_report_handled(report) -> None:
 
 
 def _write_log(user, action, reason, operator) -> None:
+    """写一条封禁审计;失败只记日志,不向上抛。
+
+    审计写失败不该炸掉运营的保存动作 —— 此时 ``Profile`` 已经保存成功了。
+
+    Args:
+        user: 被封禁/解封的用户。
+        action: ``BanAction`` 取值。
+        reason: 原因文本,可为空。
+        operator: 执行操作的运营账号,可为 ``None``。
+    """
     try:
         BanLog.objects.create(user=user, action=action, reason=reason or "", operator=operator)
     except Exception:
