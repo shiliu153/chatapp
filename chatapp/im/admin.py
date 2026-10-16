@@ -1,3 +1,3 @@
-from django.contrib import admin
+"""IM 应用的 admin 注册占位:本应用没有本地模型可注册。"""
 
-# Register your models here.
+from django.contrib import admin
