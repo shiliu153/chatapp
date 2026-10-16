@@ -1,3 +1,9 @@
+"""配对相关的领域服务。
+
+目前只有一件事:配对成功后给双方发 IM 灰条。之所以独立成模块而不是写在视图里,
+是为了让「配对成功」这件事的副作用只有一个入口,便于后续追加(如推送、埋点)。
+"""
+
 from django.db import transaction
 
 from im import tasks as im_tasks
