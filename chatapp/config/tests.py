@@ -282,3 +282,20 @@ class CommentCoverageLogicTests(SimpleTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._write(tmp, "x = 1\n")
             self.assertTrue(all(p.startswith("demo.py:") for p in check_file(path)))
+
+    def test_pitfalls_reference_is_not_a_tone_warning(self):
+        """「踩坑记录:docs/pitfalls/...」是规范模板要求的写法,不能被口语词黑名单误报。"""
+        from config.comment_coverage import find_tone_warnings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。\n\n关联文档:\n'
+                             '    - 踩坑记录:docs/pitfalls/backend.md「管理命令」\n"""\n')
+            self.assertEqual(find_tone_warnings(root=Path(tmp)), [])
+
+    def test_casual_word_is_still_reported(self):
+        """黑名单本身仍然生效(豁免只针对「踩坑」这个复合词)。"""
+        from config.comment_coverage import find_tone_warnings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。这里有个坑,数据量小时够用。"""\n')
+            self.assertTrue(find_tone_warnings(root=Path(tmp)))

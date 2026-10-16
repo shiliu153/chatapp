@@ -21,7 +21,8 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {"migrations", "__pycache__"}
 
 DECORATION_RE = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u26A0]")
-CASUAL_RE = re.compile(r"(别用|别在|别把|别出|够用|我们|压根|悄悄|顺手|其实|干脆|偷懒|坑)")
+# 「坑」前若为「踩」则不算口语 —— 「踩坑记录:docs/pitfalls/...」是规范模板要求的写法
+CASUAL_RE = re.compile(r"(别用|别在|别把|别出|够用|我们|压根|悄悄|顺手|其实|干脆|偷懒|(?<!踩)坑)")
 
 # unittest / Django 的测试生命周期钩子:由框架调用,不是对外 API
 LIFECYCLE_NAMES = frozenset({"setUp", "tearDown", "setUpClass", "tearDownClass",
