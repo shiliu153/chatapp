@@ -188,6 +188,15 @@ class CommentCoverageLogicTests(SimpleTestCase):
     """注释门禁检查模块自身的单元测试(用临时目录,不依赖真实代码)。"""
 
     def _write(self, tmp, body):
+        """把源码写进临时目录的 demo.py,返回其路径。
+
+        Args:
+            tmp: 临时目录路径。
+            body: 要写入的 Python 源码。
+
+        Returns:
+            写好的 demo.py 路径。
+        """
         path = Path(tmp) / "demo.py"
         path.write_text(body, encoding="utf-8")
         return path
