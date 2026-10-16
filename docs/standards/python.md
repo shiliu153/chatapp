@@ -27,7 +27,10 @@ python manage.py test config.tests.CommentCoverageTests
 > 这是本规范要解决的最大缺口,但它**不进硬门禁**(见 §7),靠 review 与本文档约束。
 
 **已豁免**(不计入上表):12 个 0 字节的 `__init__.py`、`migrations/` 目录、451 个 `test_*`
-用例、54 个 `setUp` 类生命周期钩子、10 处函数内闭包与局部类。
+用例、54 个 `setUp` 类生命周期钩子、10 处函数内闭包与局部类、93 个 `Meta` 声明式内部类。
+
+> 上表是**规范化开始前**的原始缺口。截至 Task 2 完成,`config/` 与 `accounts/` 已清零,
+> 全量剩余 349 处。门禁上线时该数字必须归零。
 
 ---
 
@@ -153,7 +156,9 @@ def issue_code(phone: str) -> str:
 | `test_*` 函数与方法 | **是** | 用例名已是完整句子,补 docstring 是纯噪音 |
 | `setUp` / `tearDown` / `setUpClass` / `tearDownClass` / `setUpTestData` | **是** | 框架调用的生命周期钩子,不是对外 API;全项目 54 处,补 docstring 纯属噪音 |
 | 嵌套在函数体内的函数与类(闭包、局部类) | **是** | 所属函数的实现细节。测试里大量 `fake_request` / `FakeTask` 这类 3 行打桩属于此类 |
+| `Meta` 等声明式内部类 | **是** | 框架读取的配置,给 `model` + `fields` 写 docstring 只是样板;全项目 93 处 |
 | 测试类 | **否** | 场景分组,一行说明价值高;且让门禁不必按文件名特判 |
+| `AppConfig` 子类 | **否** | 顶层类,有明确职责(说明该 app 管什么) |
 | 非 `test_*` 的顶层辅助方法(`_make_user`、`login` 等) | 否 | 按正常规则写 |
 | 私有函数 / `@property` | 部分 | 允许只写首行,不强制 `Args`/`Returns` |
 

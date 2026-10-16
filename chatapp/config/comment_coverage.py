@@ -28,6 +28,9 @@ CASUAL_RE = re.compile(r"(别用|别在|别把|别出|够用|我们|压根|悄�
 LIFECYCLE_NAMES = frozenset({"setUp", "tearDown", "setUpClass", "tearDownClass",
                              "setUpTestData", "asyncSetUp", "asyncTearDown"})
 
+# 框架读取的声明式内部类:给 model+fields 这类配置写 docstring 只是样板
+DECLARATIVE_CLASS_NAMES = frozenset({"Meta"})
+
 
 def _is_exempt(node: ast.AST, inside_function: bool) -> bool:
     """判断节点是否豁免 docstring 要求(规则见 docs/standards/python.md §6)。
@@ -41,6 +44,8 @@ def _is_exempt(node: ast.AST, inside_function: bool) -> bool:
     """
     if inside_function:
         return True          # 闭包与局部类:所属函数的实现细节,不是对外 API
+    if isinstance(node, ast.ClassDef) and node.name in DECLARATIVE_CLASS_NAMES:
+        return True          # Meta 等声明式内部类:框架读取,docstring 是样板
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         if node.name.startswith("test_") or node.name in LIFECYCLE_NAMES:
             return True

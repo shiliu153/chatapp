@@ -299,3 +299,14 @@ class CommentCoverageLogicTests(SimpleTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self._write(tmp, '"""演示模块。这里有个坑,数据量小时够用。"""\n')
             self.assertTrue(find_tone_warnings(root=Path(tmp)))
+
+    def test_meta_class_is_exempt(self):
+        """Meta 是框架读取的声明式内部类,不强制 docstring。"""
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。"""\n\n\nclass Foo:\n'
+                                    '    """演示序列化器。"""\n\n'
+                                    "    class Meta:\n"
+                                    "        model = object\n")
+            self.assertEqual(check_file(path), [])

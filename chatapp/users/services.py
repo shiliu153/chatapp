@@ -1,3 +1,16 @@
+"""资料相关的领域服务:资料懒创建、照片审核、IM 资料同步、账号注销。
+
+设计要点:
+    1. **资料是懒创建的**:第一次访问时才建空 ``Profile`` 与空 ``Preference``,
+       避免注册路径上多做两次写库;
+    2. **IM 副作用一律走 Celery 且挂在 ``transaction.on_commit`` 上**:响应路径不做
+       外部调用,入队也必须晚于提交,否则事务回滚了 IM 侧却已经改了;
+    3. **账号注销的顺序不可调换**,详见 ``delete_account`` 的说明。
+
+关联文档:
+    - 踩坑记录:docs/pitfalls/backend.md「账号注销」
+"""
+
 import logging
 
 from django.core.cache import cache

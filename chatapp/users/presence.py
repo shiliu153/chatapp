@@ -1,6 +1,13 @@
 """在线状态(最后活跃):Redis 时间戳,认证请求即刷新。
 
-不依赖腾讯 IM 在线状态能力(需付费套餐,且没有「最后活跃时间」)。
+设计要点:
+    不依赖腾讯 IM 的在线状态能力(需付费套餐,且没有「最后活跃时间」)。
+    「在线」= 最近 ``ONLINE_WINDOW_SECONDS`` 秒内有过认证请求 —— 客户端 45 秒一次
+    心跳,窗口取 2 倍多一点留余量。
+
+注意事项:
+    在线状态是**公开信息**,不依赖配对关系,任何登录用户都能查询他人。
+    所有读写都吞异常只记日志:presence 是点缀,绝不能拖累业务请求。
 """
 import logging
 import time
@@ -17,6 +24,14 @@ PRESENCE_MAX_IDS = 100                 # 单次批量查询上限
 
 
 def _key(user_id: int) -> str:
+    """拼出该用户的在线状态缓存键。
+
+    Args:
+        user_id: 账号 id。
+
+    Returns:
+        Redis 键名。
+    """
     return f"presence:{user_id}"
 
 
