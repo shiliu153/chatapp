@@ -1,3 +1,10 @@
+"""审核台的路由表(挂在 ``/ops/`` 下,不在 ``/api/v1`` 内)。
+
+设计要点:
+    以 ``/`` 结尾的是整页,不带结尾斜杠的是 HTMX 局部刷新端点
+    (``handle`` / ``ban`` / ``review`` / ``delete``),两者返回的模板粒度不同。
+"""
+
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
