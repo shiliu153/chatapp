@@ -182,3 +182,94 @@ class ApiDocsCoverageTests(SimpleTestCase):
             stale, [],
             "以下文档信息行在 URLconf 中已不存在,请删除或修正:\n" +
             "\n".join(f"  {m} {p}" for m, p in stale))
+
+
+class CommentCoverageLogicTests(SimpleTestCase):
+    """注释门禁检查模块自身的单元测试(用临时目录,不依赖真实代码)。"""
+
+    def _write(self, tmp, body):
+        path = Path(tmp) / "demo.py"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_clean_file_passes(self):
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。"""\n\n\ndef foo() -> None:\n'
+                                    '    """做一件事。"""\n')
+            self.assertEqual(check_file(path), [])
+
+    def test_missing_module_docstring_is_reported(self):
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "x = 1\n")
+            self.assertTrue(any("缺少模块 docstring" in p for p in check_file(path)))
+
+    def test_missing_function_docstring_is_reported(self):
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。"""\n\n\ndef foo() -> None:\n    pass\n')
+            self.assertTrue(any("foo 缺少 docstring" in p for p in check_file(path)))
+
+    def test_missing_class_docstring_is_reported(self):
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。"""\n\n\nclass Foo:\n    pass\n')
+            self.assertTrue(any("Foo 缺少 docstring" in p for p in check_file(path)))
+
+    def test_test_functions_are_exempt(self):
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。"""\n\n\ndef test_foo():\n    pass\n')
+            self.assertEqual(check_file(path), [])
+
+    def test_lifecycle_hooks_are_exempt(self):
+        """setUp 等框架钩子豁免(全项目 54 处,补 docstring 是噪音)。"""
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。"""\n\n\nclass FooTests:\n'
+                                    '    """演示测试类。"""\n\n'
+                                    "    def setUp(self):\n        pass\n\n"
+                                    "    def tearDown(self):\n        pass\n")
+            self.assertEqual(check_file(path), [])
+
+    def test_nested_functions_are_exempt(self):
+        """函数体内的闭包与局部类豁免(测试里大量 3 行打桩属于此类)。"""
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。"""\n\n\ndef outer():\n'
+                                    '    """外层函数。"""\n\n'
+                                    "    def fake_request():\n        pass\n\n"
+                                    "    class FakeTask:\n        pass\n\n"
+                                    "    return fake_request, FakeTask\n")
+            self.assertEqual(check_file(path), [])
+
+    def test_top_level_helper_still_requires_docstring(self):
+        """豁免不能过宽:非 test_ 的顶层辅助函数仍必须有 docstring。"""
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。"""\n\n\ndef _make_user():\n    pass\n')
+            self.assertTrue(any("_make_user 缺少 docstring" in p for p in check_file(path)))
+
+    def test_decoration_symbol_is_reported(self):
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, '"""演示模块。⚠️"""\n')
+            self.assertTrue(any("含装饰符号" in p for p in check_file(path)))
+
+    def test_display_path_falls_back_outside_backend_root(self):
+        """临时目录不在 chatapp/ 下,展示路径必须降级为文件名而不是抛 ValueError。"""
+        from config.comment_coverage import check_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "x = 1\n")
+            self.assertTrue(all(p.startswith("demo.py:") for p in check_file(path)))
