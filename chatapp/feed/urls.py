@@ -1,3 +1,9 @@
+"""广场动态接口的路由。
+
+本文件挂在 ``/api/v1/`` 根前缀下(见 ``config/api_urls.py``);
+接口契约见 docs/api/feed.md。
+"""
+
 from django.urls import path
 
 from . import views

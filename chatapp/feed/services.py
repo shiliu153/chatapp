@@ -1,3 +1,12 @@
+"""广场动态的领域服务:可见性查询、删除与评论通知。
+
+设计要点:
+    1. ``visible_posts`` 是广场**唯一的可见性口径**:排除双向拉黑与重封禁作者,
+       并统一注解赞数/评数与「我是否已赞」,避免各处各写一份查询;
+    2. ``delete_post`` 同时服务作者自删与运营删除,因此必须先关闭待处理举报,
+       否则作者自删后举报会在审核台里悬空。
+"""
+
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone

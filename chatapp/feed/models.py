@@ -1,3 +1,13 @@
+"""广场动态的数据模型:动态、配图、点赞、评论与动态举报。
+
+设计要点:
+    1. ``PostLike`` 对 ``(post, user)`` 有唯一约束,点赞天然幂等;
+    2. ``PostReport.post`` 用 ``SET_NULL``:动态被删后举报行仍留档,便于运营对账
+       (因此读举报时 ``post`` 可能为 ``None``);
+    3. 动态列表依赖 ``Post.Meta.ordering``,但一旦 ``annotate`` 触发 GROUP BY,
+       Django 会丢弃 Meta 排序,必须显式 ``order_by`` —— 见 ``services.visible_posts``。
+"""
+
 from django.conf import settings
 from django.db import models
 
@@ -5,6 +15,8 @@ from moderation.models import ReportStatus, ReportType
 
 
 class Post(models.Model):
+    """一条广场动态。"""
+
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                related_name="posts")
     text = models.TextField("正文", max_length=500, blank=True)
@@ -14,10 +26,17 @@ class Post(models.Model):
         ordering = ["-created_at", "-id"]
 
     def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``post#主键(作者 id)``。
+        """
         return f"post#{self.pk}({self.author_id})"
 
 
 class PostImage(models.Model):
+    """动态的配图(单条最多 9 张,由序列化器校验)。"""
+
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="images")
     file = models.ImageField("图片", upload_to="posts/%Y/%m/")
     order = models.PositiveSmallIntegerField("排序", default=0)
@@ -26,10 +45,17 @@ class PostImage(models.Model):
         ordering = ["order", "id"]
 
     def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``post_image#主键(post=动态 id)``。
+        """
         return f"post_image#{self.pk}(post={self.post_id})"
 
 
 class PostLike(models.Model):
+    """一条点赞记录。"""
+
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="likes")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                              related_name="post_likes")
@@ -41,10 +67,17 @@ class PostLike(models.Model):
         ]
 
     def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``post_like(动态 id:用户 id)``。
+        """
         return f"post_like({self.post_id}:{self.user_id})"
 
 
 class PostComment(models.Model):
+    """一条动态评论。"""
+
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                related_name="post_comments")
@@ -55,6 +88,11 @@ class PostComment(models.Model):
         ordering = ["created_at", "id"]
 
     def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``post_comment#主键(post=动态 id)``。
+        """
         return f"post_comment#{self.pk}(post={self.post_id})"
 
 
@@ -80,4 +118,9 @@ class PostReport(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``post_report#主键(举报人->动态:类型)``。
+        """
         return f"post_report#{self.pk}({self.reporter_id}->{self.post_id}:{self.type})"
