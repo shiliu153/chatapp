@@ -331,6 +331,55 @@ class CommentCoverageLogicTests(SimpleTestCase):
                                     "        model = object\n")
             self.assertEqual(check_file(path), [])
 
+    def test_public_function_with_params_needs_args_section(self):
+        """公开函数带参数却没写 Args 小节时,结构提示必须点名。"""
+        from config.comment_coverage import find_structure_warnings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。"""\n\n\ndef greet(name):\n'
+                             '    """向某人问好。"""\n')
+            warnings = find_structure_warnings(root=Path(tmp))
+        self.assertTrue(any("greet" in w and "Args" in w for w in warnings))
+
+    def test_function_with_args_section_passes_structure_check(self):
+        """写了 Args 小节的公开函数不再出现在结构提示里。"""
+        from config.comment_coverage import find_structure_warnings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。"""\n\n\ndef greet(name):\n'
+                             '    """向某人问好。\n\n'
+                             "    Args:\n"
+                             "        name: 被问候者的名字。\n"
+                             '    """\n')
+            self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
+
+    def test_private_function_is_exempt_from_args_section(self):
+        """私有函数允许只写首行,不要求 Args 小节。"""
+        from config.comment_coverage import find_structure_warnings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。"""\n\n\ndef _greet(name):\n'
+                             '    """向某人问好。"""\n')
+            self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
+
+    def test_test_function_is_exempt_from_args_section(self):
+        """test_* 用例豁免 Args 小节(用例名即文档)。"""
+        from config.comment_coverage import find_structure_warnings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。"""\n\n\ndef test_greet(name):\n'
+                             '    """验证问候语。"""\n')
+            self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
+
+    def test_function_without_params_is_exempt_from_args_section(self):
+        """没有参数的函数不需要 Args 小节。"""
+        from config.comment_coverage import find_structure_warnings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。"""\n\n\ndef greet():\n'
+                             '    """返回问候语。"""\n')
+            self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
+
 
 class CommentCoverageTests(SimpleTestCase):
     """注释规范门禁:模块头与函数/类 docstring 必须齐全(规则见 docs/standards/python.md)。"""

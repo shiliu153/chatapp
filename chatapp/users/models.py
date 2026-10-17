@@ -36,7 +36,15 @@ def calculate_age(birthday, today=None):
 
 
 def shift_years(day, years):
-    """把日期往前推 N 年;2 月 29 日退化成 2 月 28 日。"""
+    """把日期往前推 N 年;2 月 29 日退化成 2 月 28 日。
+
+    Args:
+        day: 起始日期。
+        years: 往前推的年数。
+
+    Returns:
+        推后得到的日期。
+    """
     try:
         return day.replace(year=day.year - years)
     except ValueError:
@@ -48,6 +56,14 @@ def birthday_bounds(age_min, age_max, today=None):
 
     推导:age >= age_min ⇔ 生日不晚于"今天减 age_min 年";
          age <= age_max ⇔ 生日晚于"今天减 (age_max+1) 年"。
+
+    Args:
+        age_min: 年龄下限(含)。
+        age_max: 年龄上限(含)。
+        today: 参照日期;``None`` 表示取本地时区的今天。
+
+    Returns:
+        ``(upper, lower)`` 二元组,对应上面两个比较边界。
     """
     today = today or timezone.localdate()
     return shift_years(today, age_min), shift_years(today, age_max + 1)

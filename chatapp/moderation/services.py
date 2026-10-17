@@ -22,7 +22,14 @@ logger = logging.getLogger(__name__)
 
 
 def blocked_user_ids(user) -> set[int]:
-    """与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的);候选/配对/资料卡统一用它。"""
+    """与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的);候选/配对/资料卡统一用它。
+
+    Args:
+        user: 当前用户。
+
+    Returns:
+        对方用户 id 的集合(双向并集)。
+    """
     made = Block.objects.filter(blocker=user).values_list("blocked_id", flat=True)
     received = Block.objects.filter(blocked=user).values_list("blocker_id", flat=True)
     return set(made) | set(received)
@@ -32,6 +39,13 @@ def log_ban_change(user, old_status, new_status, reason, operator) -> None:
     """admin 保存 Profile / ops 封禁时调用:状态跨封禁边界就写审计 + 发系统通知。
 
     通知与踢下线经任务队列(ban_notice 任务内保证 heavy 先发后踢);响应路径不等腾讯。
+
+    Args:
+        user: 状态被修改的用户。
+        old_status: 修改前的资料状态。
+        new_status: 修改后的资料状态。
+        reason: 封禁/解封原因,可为空。
+        operator: 执行操作的运营账号,可为 ``None``。
     """
     if new_status == old_status:
         return
@@ -47,7 +61,13 @@ def log_ban_change(user, old_status, new_status, reason, operator) -> None:
 
 
 def sync_im_blacklist(blocker, blocked, *, add: bool) -> None:
-    """拉黑/解除后同步 IM 黑名单(经任务队列;UI 侧还有双向不可见兜底)。"""
+    """拉黑/解除后同步 IM 黑名单(经任务队列;UI 侧还有双向不可见兜底)。
+
+    Args:
+        blocker: 拉黑发起方。
+        blocked: 被拉黑方。
+        add: ``True`` 表示加入黑名单,``False`` 表示移除。
+    """
     task = im_tasks.blacklist_add if add else im_tasks.blacklist_remove
     _enqueue(task, blocker.id, blocked.id)
 
@@ -57,6 +77,9 @@ def notify_report_handled(report) -> None:
 
     只在处理状态从 pending 变为 handled 的那一刻调用;重复处理不要再调,
     否则举报者会收到多条同样的通知。
+
+    Args:
+        report: 刚被标记为已处理的举报记录。
     """
     _enqueue(im_tasks.report_handled, report.reporter_id)
 

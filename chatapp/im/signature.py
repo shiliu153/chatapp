@@ -97,5 +97,12 @@ def gen_user_sig(identifier: str, expire: int | None = None, now: int | None = N
 
 
 def decode_user_sig(sig: str) -> dict:
-    """调试用:把 userSig 还原成明文,方便在日志/测试里核对内容与有效期。"""
+    """调试用:把 userSig 还原成明文,方便在日志/测试里核对内容与有效期。
+
+    Args:
+        sig: ``gen_user_sig`` 生成的 userSig 字符串。
+
+    Returns:
+        含 ``TLS.identifier`` / ``TLS.expire`` / ``TLS.time`` 等字段的字典。
+    """
     return json.loads(zlib.decompress(_b64_variant_decode(sig)).decode("utf-8"))

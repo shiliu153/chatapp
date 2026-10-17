@@ -64,7 +64,15 @@ class Match(models.Model):
 
     @classmethod
     def pair_kwargs(cls, user1, user2):
-        """配对一律按 id 排序存储,保证 (1,2) 与 (2,1) 是同一行。"""
+        """配对一律按 id 排序存储,保证 (1,2) 与 (2,1) 是同一行。
+
+        Args:
+            user1: 配对中的一方。
+            user2: 配对中的另一方。
+
+        Returns:
+            ``get_or_create`` 用的关键字参数,``user_a`` 恒为 id 较小的一方。
+        """
         a, b = (user1, user2) if user1.id < user2.id else (user2, user1)
         return {"user_a": a, "user_b": b}
 

@@ -162,7 +162,14 @@ def delete_photo(request, photo_id):
 @api_view(["GET"])
 @throttle_classes([PresenceThrottle])
 def presence_status(request):
-    """批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略。"""
+    """批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略。
+
+    Args:
+        request: DRF 请求对象,``user_ids`` 为逗号分隔的账号 id,单次上限 100。
+
+    Returns:
+        ``{"results": [{"user_id", "online", "last_active_at"}]}``。
+    """
     raw = request.query_params.get("user_ids", "")
     parts = [part.strip() for part in raw.split(",") if part.strip()]
     if not parts:

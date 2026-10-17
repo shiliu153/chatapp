@@ -115,7 +115,13 @@ def blacklist_remove(owner_id: int, other_id: int) -> None:
 
 @shared_task(**RETRY_POLICY)
 def ban_notice(user_id: int, level: str, reason: str = "") -> None:
-    """封禁说明;heavy 先发消息再踢下线(同一任务内串行,顺序不被多 worker 打乱)。"""
+    """封禁说明;heavy 先发消息再踢下线(同一任务内串行,顺序不被多 worker 打乱)。
+
+    Args:
+        user_id: 被封禁用户的账号 id。
+        level: ``heavy`` 为全域封禁,其余按轻度限制处理。
+        reason: 封禁原因,可为空。
+    """
     user = _user(user_id)
     if user is None:
         return
@@ -141,7 +147,11 @@ def ban_lifted(user_id: int) -> None:
 
 @shared_task(**RETRY_POLICY)
 def report_handled(reporter_id: int) -> None:
-    """举报处理完成:告知举报者(收件人是举报者,不是被举报人)。"""
+    """举报处理完成:告知举报者(收件人是举报者,不是被举报人)。
+
+    Args:
+        reporter_id: 举报者的账号 id。
+    """
     user = _user(reporter_id)
     if user is None:
         return
@@ -150,7 +160,11 @@ def report_handled(reporter_id: int) -> None:
 
 @shared_task(**RETRY_POLICY)
 def post_commented(comment_id: int) -> None:
-    """动态被评论:告知动态作者(自己评自己不打扰;内容缺失静默)。"""
+    """动态被评论:告知动态作者(自己评自己不打扰;内容缺失静默)。
+
+    Args:
+        comment_id: 新评论的主键;任务内再查库取作者与内容。
+    """
     from feed.models import PostComment   # 延迟导入,避免 app 加载顺序问题
 
     comment = (PostComment.objects.filter(id=comment_id)
@@ -168,7 +182,15 @@ def post_commented(comment_id: int) -> None:
 
 @shared_task(**RETRY_POLICY)
 def sync_profile(user_id: int, kind: str) -> None:
-    """把资料同步到 IM(kind: nick|avatar);没有可同步的值时静默跳过。"""
+    """把资料同步到 IM(kind: nick|avatar);没有可同步的值时静默跳过。
+
+    Args:
+        user_id: 目标用户账号 id。
+        kind: ``nick`` 同步昵称,``avatar`` 同步第一张已过审照片。
+
+    Raises:
+        ValueError: ``kind`` 不是 ``nick`` / ``avatar``。
+    """
     user = _user(user_id)
     if user is None:
         return
@@ -211,6 +233,12 @@ def kick_pending(user_id: int) -> None:
 
     正常路径由 ``im/views.user_sig`` 在签发签名前同步踢掉并清标记(顺序保证
     踢的永远是新会话建立之前的旧会话);本任务只覆盖「App 从未登 IM」的情况。
+
+    Args:
+        user_id: 刚登录用户的账号 id。
+
+    Raises:
+        RuntimeError: 踢下线失败,交给 ``RETRY_POLICY`` 重试。
     """
     key = kick_pending_key(user_id)
     if not cache.get(key):
@@ -235,6 +263,12 @@ def delete_account(im_user_id: str) -> None:
     调用方在事务提交后传入注销前取好的 ``user.im_user_id``(即 ``f"u{user.id}"``)。
 
     踢失败不阻塞删号(删号才是目的);删号失败抛异常交给 ``RETRY_POLICY`` 重试。
+
+    Args:
+        im_user_id: 注销前取好的 IM 账号字符串,如 ``u12``。
+
+    Raises:
+        RuntimeError: 删号失败,交给 ``RETRY_POLICY`` 重试。
     """
     im_client.kick_user(im_user_id)
     _require(im_client.delete_account(im_user_id), "delete_account")

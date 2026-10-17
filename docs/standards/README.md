@@ -7,7 +7,7 @@
 
 | 分册 | 适用范围 | 检查入口 |
 |---|---|---|
-| [python.md](python.md) | `chatapp/` 下全部 Python 代码 | `python config/comment_coverage.py` + `CommentCoverageTests` |
+| [python.md](python.md) | `chatapp/` 下全部 Python 代码 | `python config/comment_coverage.py`(`--structure` 看 Args 提示)+ `CommentCoverageTests` |
 | Dart 分册 | `app/lib/` | 待立项 |
 | TypeScript / Vue 分册 | `web/src/` | 待立项 |
 

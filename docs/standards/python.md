@@ -9,6 +9,7 @@ cd chatapp
 python config/comment_coverage.py              # 全量检查,通过时打印「无缺口」
 python config/comment_coverage.py --app im     # 只检查某个 app
 python config/comment_coverage.py --warnings   # 附带口语词提示(不拦截)
+python config/comment_coverage.py --structure  # 附带公开函数 Args 小节提示(不拦截)
 python manage.py test config.tests.CommentCoverageTests
 ```
 
@@ -23,8 +24,10 @@ python manage.py test config.tests.CommentCoverageTests
 > 「符号 docstring 缺失」与「装饰符号」互斥:一个函数要么没 docstring,要么有 docstring
 > 但里面带了 emoji,不会同时命中。5 处装饰符号全部位于生产代码的 docstring 内。
 > `--warnings` 另会报出口语词命中项(不拦截)。
-> 另有 118 个已有 docstring 中**没有一个**用过 `Args`/`Returns`/`Raises` 结构化小节——
-> 这是本规范要解决的最大缺口,但它**不进硬门禁**(见 §7),靠 review 与本文档约束。
+> `--structure` 另会报出「公开函数带参数却没有 `Args:` 小节」的提示(不拦截)。
+> 规范化前,118 个已有 docstring 中**没有一个**用过 `Args`/`Returns`/`Raises` 结构化小节;
+> 该缺口已按 §3 补齐(当前 229 个 docstring 带 `Args:` 小节),但仍**不进硬门禁**(见 §7),
+> 靠 `--structure` 提示与 review 维持。
 
 **已豁免**(不计入上表):12 个 0 字节的 `__init__.py`、`migrations/` 目录、451 个 `test_*`
 用例、54 个 `setUp` 类生命周期钩子、10 处函数内闭包与局部类、93 个 `Meta` 声明式内部类。
@@ -116,6 +119,8 @@ def issue_code(phone: str) -> str:
 - 首行**一句话动宾结构**,句末 `。`,不写「本函数」「该方法」。
 - 首行与后续小节之间**空一行**。
 - `Args:` 每个参数一行,格式 `参数名: 说明。`。类型已在类型注解里,**不重复写类型**。
+  公开函数**只要带参数就必须写** `Args:` 小节(私有函数、`test_*` 用例、无参函数除外);
+  本地用 `--structure` 自查,命中项不进硬门禁。
 - `Returns:` 仅在返回值语义非显然时写;返回 `None` 时省略整节。
 - `Raises:` 只列**本函数主动抛出**的异常,不含被调用方穿透上来的。
 - **私有函数**(`_` 前缀)、`@property`、`@override` 装饰的方法:**允许只写首行**,
@@ -178,15 +183,17 @@ def issue_code(phone: str) -> str:
 2. 每个 `FunctionDef` / `AsyncFunctionDef` / `ClassDef` 必须有 docstring,`test_*` 名称除外;
 3. 模块 docstring 与函数 / 类 docstring 中不得出现 emoji 或 `⚠` 类装饰符号。
 
-**只报告不拦截**(`--warnings` 输出):
+**只报告不拦截**(`--warnings` / `--structure` 输出):
 
 4. 口语词黑名单命中项。该黑名单**必然有误报**——「兜底」在技术语境里是合法用词,
    做成硬门禁会逼后人写 `# noqa`,反而降低规范的权威性。人工在 review 时看。
+5. 公开函数带参数却没有 `Args:` 小节(`--structure`)。AST 只能判断「有没有 `Args:`」,
+   无法判断参数是否显然到可以不写,因此同样不做硬门禁。
 
 **明确不检查:**
 
-5. `Args`/`Returns`/`Raises` 小节是否齐全。AST 无法判断「这个函数该不该有 `Args` 节」,
-   强做必然误报。这一条靠 review 与本文档约束。
+6. `Args` 内容是否准确,以及 `Returns`/`Raises` 小节该不该写。AST 无法判断
+   「这个返回值是否显然」,强做必然误报。这一条靠 review 与本文档约束。
 
 ---
 

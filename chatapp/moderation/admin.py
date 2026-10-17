@@ -51,15 +51,38 @@ class BlockAdmin(admin.ModelAdmin):
     search_fields = ("blocker__phone", "blocked__phone")
 
     def has_add_permission(self, request):
-        """禁止手工新增:拉黑必须走 App 接口才能同步 IM 黑名单。"""
+        """禁止手工新增:拉黑必须走 App 接口才能同步 IM 黑名单。
+
+        Args:
+            request: Django admin 传入的请求对象。
+
+        Returns:
+            恒为 ``False``。
+        """
         return False
 
     def has_change_permission(self, request, obj=None):
-        """禁止编辑:黑名单记录只读。"""
+        """禁止编辑:黑名单记录只读。
+
+        Args:
+            request: Django admin 传入的请求对象。
+            obj: 目标对象;新增场景为 ``None``。
+
+        Returns:
+            恒为 ``False``。
+        """
         return False
 
     def has_delete_permission(self, request, obj=None):
-        """禁止删除:解除拉黑必须走 App 接口才能同步 IM 黑名单。"""
+        """禁止删除:解除拉黑必须走 App 接口才能同步 IM 黑名单。
+
+        Args:
+            request: Django admin 传入的请求对象。
+            obj: 目标对象;新增场景为 ``None``。
+
+        Returns:
+            恒为 ``False``。
+        """
         return False
 
 
@@ -72,13 +95,36 @@ class BanLogAdmin(admin.ModelAdmin):
     search_fields = ("user__phone",)
 
     def has_add_permission(self, request):
-        """禁止手工新增:审计记录只能由封禁流程写入。"""
+        """禁止手工新增:审计记录只能由封禁流程写入。
+
+        Args:
+            request: Django admin 传入的请求对象。
+
+        Returns:
+            恒为 ``False``。
+        """
         return False
 
     def has_change_permission(self, request, obj=None):
-        """禁止编辑:审计记录不可篡改。"""
+        """禁止编辑:审计记录不可篡改。
+
+        Args:
+            request: Django admin 传入的请求对象。
+            obj: 目标对象;新增场景为 ``None``。
+
+        Returns:
+            恒为 ``False``。
+        """
         return False
 
     def has_delete_permission(self, request, obj=None):
-        """禁止删除:审计记录不可抹除。"""
+        """禁止删除:审计记录不可抹除。
+
+        Args:
+            request: Django admin 传入的请求对象。
+            obj: 目标对象;新增场景为 ``None``。
+
+        Returns:
+            恒为 ``False``。
+        """
         return False

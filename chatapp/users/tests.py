@@ -593,7 +593,7 @@ class DeleteAccountTests(AuthMixin, APITestCase):
     def setUp(self):
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
-        override = self.settings(MEDIA_ROOT=self.media_dir)   # 别把测试图片写进真 media/
+        override = self.settings(MEDIA_ROOT=self.media_dir)   # 测试图片不写入真实 media/
         override.enable()
         self.addCleanup(override.disable)
         # 清掉别的用例留下的 IP 限流计数 / 验证码 / presence 残留

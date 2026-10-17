@@ -5,6 +5,7 @@
     python config/comment_coverage.py              # 全量检查
     python config/comment_coverage.py --app im     # 只检查某个 app
     python config/comment_coverage.py --warnings   # 附带口语词提示(不拦截)
+    python config/comment_coverage.py --structure  # 附带 Args 小节提示(不拦截)
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {"migrations", "__pycache__"}
 
 DECORATION_RE = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u26A0]")
-# 「坑」前若为「踩」则不算口语 —— 「踩坑记录:docs/pitfalls/...」是规范模板要求的写法
+# 单字口语词仅在其前一字为「踩」时豁免 —— 「踩坑记录:docs/pitfalls/...」是规范模板要求的写法
 CASUAL_RE = re.compile(r"(别用|别在|别把|别出|够用|我们|压根|悄悄|顺手|其实|干脆|偷懒|(?<!踩)坑)")
 
 # unittest / Django 的测试生命周期钩子:由框架调用,不是对外 API
@@ -205,6 +206,46 @@ def find_tone_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -> lis
     return warnings
 
 
+def find_structure_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -> list[str]:
+    """汇总公开函数的 Args 小节缺失项(只提示,不参与门禁断言)。
+
+    AST 无法判断「这个参数是否显然到可以不写」,因此不做硬门禁;命中项供
+    review 与 ``docs/standards/python.md`` 的人工检查使用。私有函数、``test_*``
+    用例、无参函数、``@property`` 与函数内闭包不在检查范围内。
+
+    Args:
+        root: 后端根目录,默认 chatapp/。
+        app: 只检查该 app 子目录;None 表示全量。
+
+    Returns:
+        形如 ``相对路径:行号 函数名 缺少 Args 小节`` 的提示列表。
+    """
+    warnings: list[str] = []
+    for path in iter_target_files(root, app):
+        rel = _display_path(path)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node, inside_function in _iter_symbols(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if _is_exempt(node, inside_function) or node.name.startswith("_"):
+                continue
+            if any(isinstance(item, ast.Name) and item.id == "property"
+                   for item in node.decorator_list):
+                continue
+            params = [arg.arg for arg in node.args.posonlyargs + node.args.args
+                      + node.args.kwonlyargs if arg.arg not in ("self", "cls")]
+            if node.args.vararg:
+                params.append(node.args.vararg.arg)
+            if node.args.kwarg:
+                params.append(node.args.kwarg.arg)
+            if not params:
+                continue
+            doc = ast.get_docstring(node)
+            if doc and "Args:" not in doc:
+                warnings.append(f"{rel}:{node.lineno} {node.name} 缺少 Args 小节")
+    return warnings
+
+
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
@@ -218,11 +259,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--app", default=None, help="只检查指定 app 子目录")
     parser.add_argument("--warnings", action="store_true",
                         help="附带口语词提示(不拦截)")
+    parser.add_argument("--structure", action="store_true",
+                        help="附带公开函数 Args 小节提示(不拦截)")
     args = parser.parse_args(argv)
 
     if args.warnings:
         for warning in find_tone_warnings(app=args.app):
             print(f"[提示] {warning}")
+    if args.structure:
+        for warning in find_structure_warnings(app=args.app):
+            print(f"[结构] {warning}")
 
     problems = find_problems(app=args.app)
     if problems:

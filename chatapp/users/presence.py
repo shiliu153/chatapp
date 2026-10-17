@@ -36,7 +36,11 @@ def _key(user_id: int) -> str:
 
 
 def touch(user_id: int) -> None:
-    """记一次活跃;失败只记日志 —— presence 是点缀,绝不拖累业务请求。"""
+    """记一次活跃;失败只记日志 —— presence 是点缀,绝不拖累业务请求。
+
+    Args:
+        user_id: 账号 id。
+    """
     try:
         cache.set(_key(user_id), int(time.time()), timeout=PRESENCE_TTL_SECONDS)
     except Exception:
@@ -44,7 +48,11 @@ def touch(user_id: int) -> None:
 
 
 def clear(user_id: int) -> None:
-    """注销账号时抹掉在线痕迹;失败只记日志。"""
+    """注销账号时抹掉在线痕迹;失败只记日志。
+
+    Args:
+        user_id: 账号 id。
+    """
     try:
         cache.delete(_key(user_id))
     except Exception:
@@ -55,6 +63,12 @@ def get_presence(user_ids: list[int]) -> dict[int, dict]:
     """批量查:{user_id: {"online": bool, "last_active_at": iso|None}}。
 
     无记录 / Redis 不可用 → online=False、last_active_at=None(前端不显示)。
+
+    Args:
+        user_ids: 待查询的账号 id 列表。
+
+    Returns:
+        以账号 id 为键的在线状态字典;每个 id 都有条目。
     """
     now_ts = int(time.time())
     result = {uid: {"online": False, "last_active_at": None} for uid in user_ids}

@@ -27,14 +27,30 @@ logger = logging.getLogger(__name__)
 
 
 def get_profile(user):
-    """取当前用户资料;没有就建空 Profile + 空 Preference(资料是懒创建的)。"""
+    """取当前用户资料;没有就建空 Profile + 空 Preference(资料是懒创建的)。
+
+    Args:
+        user: 当前用户。
+
+    Returns:
+        该用户的 ``Profile`` 实例。
+    """
     profile, _ = Profile.objects.get_or_create(user=user)
     Preference.objects.get_or_create(profile=profile)
     return profile
 
 
 def review_photos(queryset, status, operator=None) -> int:
-    """通过/驳回照片:落审核审计 + 重算资料完善状态;过审时把头像同步到 IM。admin 与 ops 共用。"""
+    """通过/驳回照片:落审核审计 + 重算资料完善状态;过审时把头像同步到 IM。admin 与 ops 共用。
+
+    Args:
+        queryset: 待审核照片的查询集。
+        status: 目标审核状态(``PhotoStatus`` 取值)。
+        operator: 执行审核的运营账号,可为 ``None``。
+
+    Returns:
+        实际更新的照片条数。
+    """
     user_ids = set(queryset.values_list("user_id", flat=True))
     count = queryset.update(status=status, reviewed_by=operator, reviewed_at=timezone.now())
     # 照片数量变化会影响「资料完善」判定(掉回未完善 = 失去候选资格),必须重算
@@ -47,7 +63,11 @@ def review_photos(queryset, status, operator=None) -> int:
 
 
 def sync_im_nickname(user) -> None:
-    """昵称变更后同步到 IM 资料(经任务队列;失败可重试,不影响业务)。"""
+    """昵称变更后同步到 IM 资料(经任务队列;失败可重试,不影响业务)。
+
+    Args:
+        user: 昵称已变更的用户。
+    """
     nickname = getattr(getattr(user, "profile", None), "nickname", "")
     if not nickname:
         return
@@ -55,7 +75,11 @@ def sync_im_nickname(user) -> None:
 
 
 def sync_im_avatar(user_id: int) -> None:
-    """照片过审后把头像同步到 IM(任务内部取第一张过审照片的绝对 URL)。"""
+    """照片过审后把头像同步到 IM(任务内部取第一张过审照片的绝对 URL)。
+
+    Args:
+        user_id: 目标用户账号 id。
+    """
     transaction.on_commit(lambda: im_tasks.sync_profile.delay(user_id, "avatar"), robust=True)
 
 
@@ -68,6 +92,9 @@ def delete_account(user) -> None:
       2. 事务内删 User 行(CASCADE 清掉全部关联数据);
       3. 事务提交后(on_commit)删磁盘文件、清 Redis、入队 IM 删号 ——
          响应路径禁止外部调用,且入队必须晚于提交(否则事务回滚了 IM 号却没了)。
+
+    Args:
+        user: 待注销的用户实例。
     """
     from feed.models import PostImage   # 延迟导入,避免 app 加载顺序问题(同 im/tasks.py)
 

@@ -27,7 +27,15 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
 def make_staff(phone="13700137000", password="ops-pass-123"):
-    """运营账号 = is_staff 用户(create_user 默认不设密码,必须显式 set_password)。"""
+    """运营账号 = is_staff 用户(create_user 默认不设密码,必须显式 set_password)。
+
+    Args:
+        phone: 运营账号手机号。
+        password: 登录密码。
+
+    Returns:
+        建好的运营账号。
+    """
     user = User.objects.create_user(phone=phone, is_staff=True)
     user.set_password(password)
     user.save(update_fields=["password"])

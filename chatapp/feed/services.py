@@ -20,7 +20,14 @@ from .models import Post, PostLike, PostReport
 
 
 def visible_posts(viewer):
-    """广场可见动态:排除双向拉黑与重封禁作者;命中注解赞/评数与「我是否已赞」。"""
+    """广场可见动态:排除双向拉黑与重封禁作者;命中注解赞/评数与「我是否已赞」。
+
+    Args:
+        viewer: 当前浏览者。
+
+    Returns:
+        已注解 ``like_count`` / ``comment_count`` / ``liked_by_me`` 的查询集。
+    """
     blocked = blocked_user_ids(viewer)
     return (Post.objects
             .exclude(author_id__in=blocked)
@@ -39,6 +46,9 @@ def delete_post(post) -> None:
     """删除动态:先关闭该动态全部待处理举报(标记 + 通知),再删图片文件与行。
 
     作者自删与运营删除共用:否则作者自删后举报会在 ops 队列里悬空。
+
+    Args:
+        post: 待删除的动态。
     """
     pending = list(PostReport.objects.filter(post=post, status=ReportStatus.PENDING))
     for report in pending:
@@ -56,6 +66,9 @@ def notify_post_commented(comment) -> None:
     """评论创建后调用:给动态作者发通知(经任务队列)。
 
     评论者是作者本人时不入队(自己评自己不打扰)。
+
+    Args:
+        comment: 刚创建的评论。
     """
     if comment.post.author_id == comment.author_id:
         return

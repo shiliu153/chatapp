@@ -165,7 +165,15 @@ def send_custom_elem(from_identifier: str, to_identifier: str, data: dict, desc:
 
 
 def send_match_notice(identifier_a: str, identifier_b: str) -> bool:
-    """双方各发一条 TIMCustomElem:两个人的会话列表都会出现这个会话(M2 渲染成居中灰条)。"""
+    """双方各发一条 TIMCustomElem:两个人的会话列表都会出现这个会话(M2 渲染成居中灰条)。
+
+    Args:
+        identifier_a: 配对一方 IM 账号。
+        identifier_b: 配对另一方 IM 账号。
+
+    Returns:
+        两条消息都成功才返回 ``True``;任一条失败返回 ``False``。
+    """
     data = {"type": "match_notice"}
     ok_a = send_custom_elem(identifier_a, identifier_b, data, MATCH_NOTICE_TEXT)
     ok_b = send_custom_elem(identifier_b, identifier_a, data, MATCH_NOTICE_TEXT)
@@ -220,7 +228,14 @@ def _black_list(command: str, owner_identifier: str, other_identifier: str) -> b
 
 
 def kick_user(identifier: str) -> bool:
-    """把账号的在线 IM 会话踢下线(重封禁用;不然已有 userSig 最长 7 天还能聊)。"""
+    """把账号的在线 IM 会话踢下线(重封禁用;不然已有 userSig 最长 7 天还能聊)。
+
+    Args:
+        identifier: 目标 IM 账号。
+
+    Returns:
+        成功返回 ``True``,失败返回 ``False``。
+    """
     try:
         result = _request("im_open_login_svc", "kick", {"UserID": identifier})
     except Exception:
@@ -288,33 +303,74 @@ def ensure_account(identifier: str, nickname: str = "") -> bool:
 
 
 def send_ban_notice(to_identifier: str, level: str, reason: str) -> bool:
-    """封禁说明:以「系统通知」身份发一条自定义消息(level 取 light/heavy)。"""
+    """封禁说明:以「系统通知」身份发一条自定义消息(level 取 light/heavy)。
+
+    Args:
+        to_identifier: 被处理用户的 IM 账号。
+        level: ``heavy`` 为全域封禁,其余按轻度限制处理。
+        reason: 封禁原因;为空时用 ``BAN_REASON_FALLBACK``。
+
+    Returns:
+        成功返回 ``True``,失败返回 ``False``。
+    """
     data = {"type": "ban_notice", "level": level}
     return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier, data,
                             _ban_notice_text(level, reason))
 
 
 def send_ban_lifted(to_identifier: str) -> bool:
-    """解封通知:以「系统通知」身份发一条自定义消息。"""
+    """解封通知:以「系统通知」身份发一条自定义消息。
+
+    Args:
+        to_identifier: 被解封用户的 IM 账号。
+
+    Returns:
+        成功返回 ``True``,失败返回 ``False``。
+    """
     return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
                             {"type": "ban_lifted"}, BAN_LIFTED_TEXT)
 
 
 def send_report_handled(to_identifier: str) -> bool:
-    """举报处理结果通知:以「系统通知」身份告知举报者(固定文案,不披露处罚细节)。"""
+    """举报处理结果通知:以「系统通知」身份告知举报者(固定文案,不披露处罚细节)。
+
+    Args:
+        to_identifier: 举报者的 IM 账号。
+
+    Returns:
+        成功返回 ``True``,失败返回 ``False``。
+    """
     return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
                             {"type": "report_handled"}, REPORT_HANDLED_TEXT)
 
 
 def send_post_commented(to_identifier: str, commenter_nickname: str, snippet: str) -> bool:
-    """动态被评论通知:以「系统通知」身份发给动态作者。"""
+    """动态被评论通知:以「系统通知」身份发给动态作者。
+
+    Args:
+        to_identifier: 动态作者的 IM 账号。
+        commenter_nickname: 评论者昵称,用于通知正文。
+        snippet: 评论内容摘要(由调用方截断)。
+
+    Returns:
+        成功返回 ``True``,失败返回 ``False``。
+    """
     desc = POST_COMMENTED_TEMPLATE.format(nickname=commenter_nickname, snippet=snippet)
     return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
                             {"type": "post_commented"}, desc)
 
 
 def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
-    """发一条普通文本消息;手测/联调用(业务消息都从 App 端走 SDK)。"""
+    """发一条普通文本消息;手测/联调用(业务消息都从 App 端走 SDK)。
+
+    Args:
+        from_identifier: 发送方 IM 账号。
+        to_identifier: 接收方 IM 账号。
+        text: 文本内容。
+
+    Returns:
+        成功返回 ``True``,失败返回 ``False``。
+    """
     payload = {
         "SyncOtherMachine": 2,
         "From_Account": from_identifier,
