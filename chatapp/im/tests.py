@@ -1,3 +1,16 @@
+"""IM 应用的测试:userSig 算法、REST 客户端、Celery 副作用任务、命令与接口。
+
+覆盖场景:
+    - userSig:编码后能还原、sig 字段符合官方 HMAC 公式、外层用腾讯 base64 变体;
+    - REST 客户端:请求参数拼装、各接口的 payload 形状、错误码与网络异常一律返回 False,
+      ``ensure_account`` 对已存在账号不重复导入(覆盖会清空昵称/头像的回归点);
+    - 动态评论通知:客户端 payload 与任务侧收件人、自己评自己不发送、评论已删则静默;
+    - 管理命令:``im_send``(文本与灰条互斥)、``im_setup_system_account``、
+      ``im_sync_nicknames``(含失败计数);
+    - userSig 接口:签发、重封禁 403、踢旧会话必须先于签发;
+    - 副作用任务:``False`` 转异常以触发重试、缺用户时静默、注销删号不查库。
+"""
+
 import io
 import json
 from unittest.mock import patch
@@ -41,6 +54,8 @@ IM_TEST_SETTINGS = dict(
 
 @override_settings(**IM_TEST_SETTINGS)
 class UserSigTests(SimpleTestCase):
+    """userSig 算法:可还原、sig 字段公式正确、外层编码是腾讯变体。"""
+
     def test_encode_then_decode_keeps_fields(self):
         sig = gen_user_sig("u1", now=1700000000)
         doc = decode_user_sig(sig)
@@ -64,6 +79,8 @@ class UserSigTests(SimpleTestCase):
 
 @override_settings(**IM_TEST_SETTINGS)
 class ImClientTests(SimpleTestCase):
+    """REST 客户端:参数拼装、各接口 payload、错误与异常都返回 False。"""
+
     def test_request_builds_tencent_params(self):
         with patch("im.client.requests.post") as post:
             post.return_value.json.return_value = {"ErrorCode": 0}
@@ -312,6 +329,8 @@ class ImClientTests(SimpleTestCase):
 
 
 class PostCommentedClientTests(TestCase):
+    """动态评论通知的客户端层:以系统通知身份发出,文案带评论者昵称与摘要。"""
+
     def test_send_post_commented_payload(self):
         with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
             self.assertTrue(send_post_commented("u9", "小红", "好漂亮"))
@@ -330,6 +349,8 @@ class PostCommentedClientTests(TestCase):
 
 
 class PostCommentedTaskTests(TestCase):
+    """动态评论通知的任务层:收件人是作者,自己评自己不打扰,评论已删则静默。"""
+
     def setUp(self):
         self.author = User.objects.create_user(phone="13800138000")
         self.commenter = User.objects.create_user(phone="13900139000")
@@ -354,6 +375,8 @@ class PostCommentedTaskTests(TestCase):
 
 
 class ImSendCommandTests(SimpleTestCase):
+    """``im_send`` 命令:文本与灰条互斥,发送失败要抛 CommandError。"""
+
     def test_text_and_notice_are_mutually_exclusive(self):
         with self.assertRaises(CommandError):
             call_command("im_send", sender="u1", receiver="u2", text="hi", notice=True)
@@ -379,6 +402,8 @@ class ImSendCommandTests(SimpleTestCase):
 
 
 class ImSetupSystemAccountCommandTests(SimpleTestCase):
+    """``im_setup_system_account`` 命令:建「系统通知」账号,失败要抛 CommandError。"""
+
     def test_command_creates_system_account(self):
         with patch("im.management.commands.im_setup_system_account.ensure_account",
                    return_value=True) as ensure:
@@ -393,6 +418,8 @@ class ImSetupSystemAccountCommandTests(SimpleTestCase):
 
 
 class ImSyncNicknamesCommandTests(TestCase):
+    """``im_sync_nicknames`` 命令:同步全部非空昵称,并汇总失败数。"""
+
     def test_syncs_all_nicknamed_profiles(self):
         user = User.objects.create_user(phone="13800138000")
         Profile.objects.update_or_create(user=user, defaults={"nickname": "小明"})
@@ -421,6 +448,8 @@ class ImSyncNicknamesCommandTests(TestCase):
 
 @override_settings(**IM_TEST_SETTINGS)
 class UserSigApiTests(APITestCase):
+    """``POST /im/user_sig``:签发内容、重封禁 403、踢旧会话先于签发。"""
+
     def setUp(self):
         cache.clear()   # 清 im:imported 标记,否则第二次跑测试时 ensure_account 不会被调用
         self.addCleanup(cache.clear)

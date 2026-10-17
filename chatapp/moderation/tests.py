@@ -1,3 +1,19 @@
+"""合规应用的测试:违规词、模型约束、封禁权限、审计、admin 钩子与举报/拉黑接口。
+
+覆盖场景:
+    - 违规词:去空格后仍能命中,正常文本与空文本放行;
+    - 模型约束:拉黑对唯一、不能拉黑自己、举报默认待处理、审计记录动作;
+    - 重封禁权限:业务接口全域 403,白名单只放行读自己的资料与标签池,
+      轻封禁只挡滑卡;
+    - 封禁审计:重封禁发通知并踢下线、轻封禁只发通知、解封发解封通知、
+      非封禁状态变化不写审计;
+    - admin 钩子:保存资料时记录审计、举报首次处理补处理人与时间且不重复通知、
+      黑名单与审计页只读;
+    - 举报接口:建待处理、重复幂等、处理后可再报、不能举报自己、非法类型、限流;
+    - 拉黑接口:建行并同步 IM、重复拉黑不重复同步、列表带昵称头像、解除拉黑同步 IM;
+    - 拉黑可见性:候选与配对双向剔除,解除后恢复。
+"""
+
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -18,6 +34,8 @@ User = get_user_model()
 
 
 class TextCheckTests(SimpleTestCase):
+    """违规词匹配:去空白后仍能命中,正常与空文本放行。"""
+
     def test_detects_blocked_word_even_with_spaces(self):
         self.assertEqual(find_blocked_word("专业代 开发票"), "代开发票")
 
@@ -29,6 +47,8 @@ class TextCheckTests(SimpleTestCase):
 
 
 class ModerationModelTests(TestCase):
+    """合规模型约束:拉黑唯一且不能拉黑自己,举报默认待处理,审计记录动作。"""
+
     def setUp(self):
         self.a = User.objects.create_user(phone="13800138000")
         self.b = User.objects.create_user(phone="13900139000")
@@ -73,6 +93,11 @@ class IsNotHeavyBannedTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
 
     def _ban(self, status):
+        """把当前用户资料直接改成指定状态,模拟已被封禁。
+
+        Args:
+            status: 目标 ``ProfileStatus`` 取值。
+        """
         Profile.objects.filter(user=self.me).update(status=status)
 
     def test_heavy_banned_blocked_across_business_endpoints(self):
@@ -115,6 +140,8 @@ class IsNotHeavyBannedTests(APITestCase):
 
 
 class BanAuditServiceTests(TestCase):
+    """封禁审计服务:跨封禁边界才写审计并入队对应通知。"""
+
     def setUp(self):
         self.operator = User.objects.create_superuser(phone="13700137000", password="pw")
         self.target = User.objects.create_user(phone="13900139000")
@@ -164,6 +191,12 @@ class ProfileAdminHookTests(TestCase):
         Profile.objects.get_or_create(user=self.target)
 
     def _save(self, status, reason):
+        """模拟在 admin 里保存一次资料(封禁状态由参数指定)。
+
+        Args:
+            status: 目标 ``ProfileStatus`` 取值。
+            reason: 封禁原因。
+        """
         from django.contrib import admin as django_admin
         from django.test import RequestFactory
 
@@ -192,6 +225,8 @@ class ProfileAdminHookTests(TestCase):
 
 
 class ReportAdminTests(TestCase):
+    """举报 admin 钩子:首次处理补处理人与时间且只通知一次;只读页确实只读。"""
+
     def setUp(self):
         self.staff = User.objects.create_superuser(phone="13700137000", password="pw")
         self.reporter = User.objects.create_user(phone="13800138000")
@@ -254,6 +289,8 @@ class ReportAdminTests(TestCase):
 
 
 class ReportApiTests(APITestCase):
+    """举报接口:建待处理、重复幂等、处理后可再报、拒绝自举报、非法类型与限流。"""
+
     URL = "/api/v1/reports"
 
     def setUp(self):
@@ -265,6 +302,16 @@ class ReportApiTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
 
     def report(self, target_id=None, type_="harassment", detail=""):
+        """提交一次举报。
+
+        Args:
+            target_id: 被举报人账号 id;``None`` 表示用 ``self.target``。
+            type_: 举报类型。
+            detail: 补充说明。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
         return self.client.post(self.URL, {
             "target_user_id": self.target.id if target_id is None else target_id,
             "type": type_,
@@ -317,6 +364,8 @@ class ReportApiTests(APITestCase):
 
 
 class BlockApiTests(APITestCase):
+    """拉黑接口:建行并同步 IM、重复拉黑不重复同步、列表带昵称头像、解除拉黑同步 IM。"""
+
     URL = "/api/v1/blocks"
 
     def setUp(self):
@@ -398,6 +447,14 @@ class BlockVisibilityTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
 
     def _make_user(self, phone):
+        """造一个资料完善、带已过审照片的用户。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+
+        Returns:
+            新建的用户实例。
+        """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=phone, gender="female", birthday="2000-01-01",
                                city="上海", bio="你好", status=ProfileStatus.COMPLETE)

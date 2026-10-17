@@ -1,3 +1,15 @@
+"""发现页应用的测试:滑卡/配对模型约束、候选池规则、滑卡接口与配对列表。
+
+覆盖场景:
+    - 模型约束:同一对用户只能滑一次(反向是另一条)、配对按 id 升序且拒绝重复与逆序;
+    - 候选池:排除自己/未完善/无过审照片/已划过/已配对,按偏好过滤,年龄边界含端点,
+      只返回已过审照片,``limit`` 默认值与上限,未登录 401;
+    - 滑卡:幂等、互喜只建一条配对且只发一次灰条、pass 不配对、入队失败不影响结果、
+      不能划自己、目标不存在/未完善/被轻封禁的处理、非法动作、限流;
+    - 配对列表:双向都能列出、无过审照片时头像为 null、只列自己的、分页;
+    - ``dev_reset_pair`` 命令:只清这一对、不动其他对、非法 IM id 报错。
+"""
+
 from datetime import date
 from unittest.mock import patch
 
@@ -19,6 +31,15 @@ User = get_user_model()
 
 
 def _years_ago(today, years):
+    """取 ``years`` 年前的今天;2 月 29 日退化成 2 月 28 日。
+
+    Args:
+        today: 参照日期。
+        years: 往前推的年数。
+
+    Returns:
+        推算出的日期。
+    """
     try:
         return date(today.year - years, today.month, today.day)
     except ValueError:      # 2 月 29 日
@@ -26,6 +47,8 @@ def _years_ago(today, years):
 
 
 class SwipeModelTests(TestCase):
+    """滑卡模型:``(swiper, target)`` 唯一,反向是另一条记录。"""
+
     def setUp(self):
         self.a = User.objects.create_user(phone="13800138000")
         self.b = User.objects.create_user(phone="13900139000")
@@ -43,6 +66,8 @@ class SwipeModelTests(TestCase):
 
 
 class MatchModelTests(TestCase):
+    """配对模型:按 id 升序存储,重复配对与逆序写入都被约束挡住。"""
+
     def setUp(self):
         self.a = User.objects.create_user(phone="13800138000")
         self.b = User.objects.create_user(phone="13900139000")
@@ -69,6 +94,8 @@ class MatchModelTests(TestCase):
 
 
 class CandidateTests(APITestCase):
+    """候选池:排除规则、偏好过滤、年龄边界、照片过滤与分页上限。"""
+
     URL = "/api/v1/discovery/candidates"
 
     def setUp(self):
@@ -76,6 +103,18 @@ class CandidateTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
 
     def _make_user(self, phone, gender="female", birthday="2000-01-01", city="上海", complete=True):
+        """造一个用户,可选地补齐资料并加一张已过审照片。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+            gender: 性别。
+            birthday: 生日。
+            city: 城市。
+            complete: 为 ``True`` 时资料置为完善并附一张已过审照片。
+
+        Returns:
+            新建的用户实例。
+        """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(
             user=user, nickname=phone, gender=gender, birthday=birthday, city=city, bio="你好",
@@ -86,6 +125,14 @@ class CandidateTests(APITestCase):
         return user
 
     def _ids(self, resp):
+        """从候选响应里取出 ``user_id`` 列表。
+
+        Args:
+            resp: 接口响应。
+
+        Returns:
+            候选人的账号 id 列表,保持响应顺序。
+        """
         return [item["user_id"] for item in resp.json()]
 
     def test_excludes_self_incomplete_and_no_photo(self):
@@ -151,6 +198,8 @@ class CandidateTests(APITestCase):
 
 
 class SwipeApiTests(APITestCase):
+    """滑卡接口:幂等、互喜配对与通知、各类拒绝分支、限流。"""
+
     URL = "/api/v1/discovery/swipe"
 
     def setUp(self):
@@ -161,6 +210,15 @@ class SwipeApiTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
 
     def _make_user(self, phone, gender="female"):
+        """造一个资料完善、带已过审照片的用户。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+            gender: 性别。
+
+        Returns:
+            新建的用户实例。
+        """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=phone, gender=gender, birthday="2000-01-01",
                                city="上海", bio="你好", status=ProfileStatus.COMPLETE)
@@ -168,6 +226,15 @@ class SwipeApiTests(APITestCase):
         return user
 
     def swipe(self, target_id, action="like"):
+        """提交一次滑卡。
+
+        Args:
+            target_id: 目标账号 id。
+            action: ``like`` 或 ``pass``。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
         return self.client.post(self.URL, {"target_user_id": target_id, "action": action}, format="json")
 
     def test_like_creates_swipe(self):
@@ -245,6 +312,8 @@ class SwipeApiTests(APITestCase):
 
 
 class MatchListTests(APITestCase):
+    """配对列表:双向可见、头像降级、只看自己的、分页与鉴权。"""
+
     URL = "/api/v1/matches"
 
     def setUp(self):
@@ -252,6 +321,16 @@ class MatchListTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
 
     def _make_user(self, phone, nickname=None, with_photo=True):
+        """造一个资料完善的用户,可选是否带已过审照片。
+
+        Args:
+            phone: 手机号。
+            nickname: 昵称;``None`` 表示用手机号。
+            with_photo: 是否加一张已过审照片。
+
+        Returns:
+            新建的用户实例。
+        """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=nickname or phone, gender="female",
                                birthday="2000-01-01", city="上海", bio="你好",
@@ -310,6 +389,7 @@ class DevResetPairCommandTests(TestCase):
         self.b = User.objects.create_user(phone="13900139000")
 
     def _seed(self):
+        """给这一对用户造出双向滑卡与一条配对记录。"""
         Swipe.objects.create(swiper=self.a, target=self.b, action=SwipeAction.LIKE)
         Swipe.objects.create(swiper=self.b, target=self.a, action=SwipeAction.PASS)
         Match.objects.create(**Match.pair_kwargs(self.a, self.b))

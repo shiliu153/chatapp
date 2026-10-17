@@ -1,3 +1,23 @@
+"""用户资料应用的测试:年龄换算、资料完善度、资料/照片/偏好、在线状态与账号注销。
+
+覆盖场景:
+    - 年龄换算:生日当天恰好 18 岁、差一天算 17;年龄区间换算成生日区间、闰日退化;
+    - 资料完善度:新资料默认未完善、``refresh_status`` 不覆盖封禁状态;
+    - 标签池由数据迁移写入;
+    - 我的资料:鉴权、懒创建、``user_id`` 是账号 id 而非资料主键、标签池;
+    - 编辑资料:局部更新、昵称变化才同步 IM、未满 18 拒绝、违禁词、非法标签与性别;
+    - 照片:开发期上传即过审、过审同步头像、非图片拒绝、6 张上限、删自己的照片与文件、
+      不能删别人的、状态随照片增减在完善/未完善间流转;
+    - 偏好:默认值、更新、区间非法、未满 18 下限、目标性别为空表示不限;
+    - admin 审核动作:驳回与通过时的状态重算、记录审核人与时间;
+    - 他人资料卡:只返回公开字段、重封禁不可见、轻封禁可见、拉黑双向不可见、404;
+    - 在线状态服务:写入后在线、窗口边界、未知用户、本地时区 ISO、Redis 故障降级;
+    - 在线状态接口:鉴权、返回在线与最后活跃、剔除拉黑/自己/未知/重封禁、去重保序、
+      参数校验、限流、Redis 故障返回 null 而非 500;
+    - 账号注销:鉴权、手机号不一致或缺失拒绝、重封禁禁止注销、删除全部关联数据与磁盘文件、
+      清理在线状态与待踢标记、提交后按 im_user_id 入队删号、旧令牌失效、同号可重注册。
+"""
+
 import base64
 import shutil
 import tempfile
@@ -30,6 +50,8 @@ User = get_user_model()
 
 
 class AgeTests(SimpleTestCase):
+    """周岁换算:生日当天恰好满岁,差一天仍算上一岁。"""
+
     def test_calculate_age_boundary(self):
         today = date(2026, 9, 10)
         self.assertEqual(calculate_age(date(2008, 9, 11), today), 17)   # 差一天
@@ -37,6 +59,8 @@ class AgeTests(SimpleTestCase):
 
 
 class BirthdayBoundsTests(SimpleTestCase):
+    """年龄区间换算成生日区间,含闰日退化的边界。"""
+
     def test_bounds(self):
         upper, lower = birthday_bounds(18, 30, today=date(2026, 9, 10))
         self.assertEqual(upper, date(2008, 9, 10))   # 生在这天 = 刚好 18 岁
@@ -48,6 +72,8 @@ class BirthdayBoundsTests(SimpleTestCase):
 
 
 class ProfileModelTests(TestCase):
+    """资料模型:默认未完善,重算状态时不会覆盖封禁状态。"""
+
     def setUp(self):
         self.user = User.objects.create_user(phone="13800138000")
 
@@ -64,17 +90,28 @@ class ProfileModelTests(TestCase):
 
 
 class SeedTagTests(TestCase):
+    """标签池:由数据迁移写入,数量不少于 10 个。"""
+
     def test_tags_seeded_by_migration(self):
         self.assertGreaterEqual(Tag.objects.count(), 10)
 
 
 class AuthMixin:
+    """接口用例公共设施:给测试客户端装上指定用户的令牌。"""
+
     def login(self, user):
+        """把指定用户的 access token 装到测试客户端。
+
+        Args:
+            user: 目标用户。
+        """
         refresh = RefreshToken.for_user(user)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
 
 
 class MeTests(AuthMixin, APITestCase):
+    """我的资料:鉴权、懒创建、``user_id`` 语义与标签池。"""
+
     def setUp(self):
         self.user = User.objects.create_user(phone="13800138000")
 
@@ -112,12 +149,22 @@ class MeTests(AuthMixin, APITestCase):
 
 
 class ProfileUpdateTests(AuthMixin, APITestCase):
+    """编辑资料:局部更新、昵称变化才同步 IM、未满 18 与各类非法输入。"""
+
     def setUp(self):
         self.user = User.objects.create_user(phone="13800138000")
         self.login(self.user)
         self.url = "/api/v1/users/me"
 
     def _full_profile(self, **overrides):
+        """拼一份完整的资料提交体。
+
+        Args:
+            **overrides: 需要覆盖的字段。
+
+        Returns:
+            可直接作为 PATCH body 的字典。
+        """
         data = {
             "nickname": "小明",
             "gender": "male",
@@ -192,10 +239,12 @@ PNG_1PX = base64.b64decode(
 
 
 class PhotoTests(AuthMixin, APITestCase):
+    """照片:开发期上传即过审、过审同步头像、上限与格式、删除与状态流转。"""
+
     def setUp(self):
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
-        override = self.settings(MEDIA_ROOT=self.media_dir)   # 别把测试图片写进真 media/
+        override = self.settings(MEDIA_ROOT=self.media_dir)   # 测试图片必须写入临时目录,不能落到真实 media/
         override.enable()
         self.addCleanup(override.disable)
         self.user = User.objects.create_user(phone="13800138000")
@@ -203,10 +252,25 @@ class PhotoTests(AuthMixin, APITestCase):
         self.url = "/api/v1/users/me/photos"
 
     def upload(self, name="a.png", content=PNG_1PX, content_type="image/png"):
+        """上传一张图片到相册。
+
+        Args:
+            name: 文件名。
+            content: 文件字节内容。
+            content_type: MIME 类型。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
         return self.client.post(self.url, {"file": SimpleUploadedFile(name, content, content_type=content_type)},
                                 format="multipart")
 
     def fill_profile(self):
+        """补全资料(会触发昵称同步任务,测试里挡掉)。
+
+        Returns:
+            PATCH 资料接口的响应对象。
+        """
         # 补全资料会改昵称 → 触发 IM 同步任务,测试里一律挡掉
         with patch("im.tasks.sync_profile.delay"):
             return self.client.patch("/api/v1/users/me", {
@@ -269,6 +333,8 @@ class PhotoTests(AuthMixin, APITestCase):
 
 
 class PreferenceTests(AuthMixin, APITestCase):
+    """择偶偏好:默认值、更新、区间与年龄下限校验、目标性别为空表示不限。"""
+
     def setUp(self):
         self.user = User.objects.create_user(phone="13800138000")
         self.login(self.user)
@@ -320,6 +386,15 @@ class PhotoAdminActionTests(TestCase):
         self.client.force_login(self.staff)
 
     def _run_action(self, action, *photos):
+        """通过 admin 的批量动作接口对指定照片执行审核。
+
+        Args:
+            action: admin action 名称(``approve_photos`` / ``reject_photos``)。
+            *photos: 要处理的照片对象。
+
+        Returns:
+            admin 接口的响应对象。
+        """
         return self.client.post("/admin/users/photo/", {
             "action": action,
             "_selected_action": [p.pk for p in photos],
@@ -350,6 +425,8 @@ class PhotoAdminActionTests(TestCase):
 
 
 class PublicProfileTests(AuthMixin, APITestCase):
+    """他人资料卡:只返回公开字段、封禁与拉黑下的可见性、404 与鉴权。"""
+
     def setUp(self):
         self.me = User.objects.create_user(phone="13800138000")
         self.login(self.me)
@@ -361,6 +438,11 @@ class PublicProfileTests(AuthMixin, APITestCase):
         Photo.objects.create(user=self.other, file="photos/b.png", status=PhotoStatus.PENDING)
 
     def _get(self):
+        """请求他人资料卡。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
         return self.client.get(f"/api/v1/users/{self.other.id}")
 
     def test_returns_public_fields_only(self):
@@ -396,6 +478,8 @@ class PublicProfileTests(AuthMixin, APITestCase):
 
 
 class PresenceServiceTests(TestCase):
+    """在线状态服务:写入即在线、窗口边界、未知用户、时区与 Redis 故障降级。"""
+
     def setUp(self):
         cache.clear()
 
@@ -434,6 +518,8 @@ class PresenceServiceTests(TestCase):
 
 
 class PresenceApiTests(AuthMixin, APITestCase):
+    """在线状态接口:返回在线与最后活跃、剔除不可见对象、去重保序、限流与降级。"""
+
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
@@ -519,6 +605,14 @@ class DeleteAccountTests(AuthMixin, APITestCase):
         self.url = "/api/v1/users/me"
 
     def _delete(self, phone="13800138000"):
+        """调用账号注销接口。
+
+        Args:
+            phone: 二次确认用的手机号。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
         return self.client.delete(self.url, {"phone": phone}, format="json")
 
     def test_requires_auth(self):
