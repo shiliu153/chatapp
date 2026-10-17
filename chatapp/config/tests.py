@@ -1,3 +1,13 @@
+"""config 项目的测试:错误信封、缓存、Celery 接线、请求 ID 与两套门禁。
+
+覆盖场景:
+    - 错误响应统一成 ``{code, message, request_id}`` 信封;
+    - 缓存与 Celery broker 在测试期走独立 Redis DB(绝不写开发库);
+    - 请求 ID 的生成、透传、写进错误体与日志,以及跨进程随消息 header 传递;
+    - 接口文档门禁(``ApiDocsCoverageTests``)与注释规范门禁
+      (``CommentCoverageTests``)及其检查模块自身的单元测试。
+"""
+
 import tempfile
 from pathlib import Path
 
@@ -11,6 +21,8 @@ from config.celery import ping
 
 
 class ErrorEnvelopeTests(APITestCase):
+    """错误响应信封:失败一律带 ``code`` / ``message`` / ``request_id``。"""
+
     def test_error_response_uses_code_message_envelope(self):
         resp = self.client.post("/api/v1/health")  # health 只允许 GET,触发 405
         self.assertEqual(resp.status_code, 405)
@@ -19,6 +31,8 @@ class ErrorEnvelopeTests(APITestCase):
 
 
 class CacheBackendTests(TestCase):
+    """默认缓存必须是 Redis,且测试期落在独立 DB。"""
+
     def test_default_cache_is_redis_and_roundtrips(self):
         self.assertIn("django_redis", settings.CACHES["default"]["BACKEND"])
         cache.set("cache:smoke", "ok", 10)
@@ -30,11 +44,13 @@ class CacheBackendTests(TestCase):
 
 
 class CelerySkeletonTests(TestCase):
+    """Celery 接线:任务可达,broker 在测试期指向独立 DB。"""
+
     def test_ping_task_returns_pong(self):
         self.assertEqual(ping.apply().get(), "pong")
 
     def test_broker_uses_isolated_db_in_tests(self):
-        # ⚠️ Celery 的 broker_url 属性会优先读环境变量 CELERY_BROKER_URL,
+        # 注意:Celery 的 broker_url 属性会优先读环境变量 CELERY_BROKER_URL,
         # 所以 .env 里的键必须叫 BROKER_URL,否则测试任务会漏进开发 broker(DB1)
         from config.celery import app
         self.assertTrue(app.conf.broker_url.endswith("/14"),
@@ -42,6 +58,8 @@ class CelerySkeletonTests(TestCase):
 
 
 class RequestIdTests(APITestCase):
+    """请求 ID:透传或生成,并回写响应头、写进错误体与日志。"""
+
     def test_response_echoes_provided_request_id(self):
         resp = self.client.get("/api/v1/health", HTTP_X_REQUEST_ID="rid-123")
         self.assertEqual(resp["X-Request-Id"], "rid-123")
@@ -65,6 +83,8 @@ class RequestIdTests(APITestCase):
 
 
 class CeleryRequestIdTests(SimpleTestCase):
+    """请求 ID 跨进程传递:入队注入 header,worker 侧绑定与清理。"""
+
     def test_inject_request_id_reads_context_var(self):
         from config.celery import _inject_request_id
         from config.request_id import set_request_id

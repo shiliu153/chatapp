@@ -1,3 +1,17 @@
+"""账号与鉴权应用的测试。
+
+覆盖场景:
+    - 建号管理器(手机号建号、admin 建号);
+    - 健康检查与就绪探针(数据库/Redis 任一不可用时返回 503);
+    - 发码:落码、60 秒重发间隔、入队失败回滚、手机号格式、IP 限流;
+    - 校验登录:自动建号、幂等重放、错误/过期、连错锁定、IP 限流、响应头;
+    - 验证码状态机(HMAC 存储、重放窗口、锁定、不存明文);
+    - IM 账号约定 ``u{id}``、新用户导入与老用户「待踢旧会话」标记;
+    - 令牌刷新与单设备登录(第二次登录作废第一个设备的两类令牌);
+    - 造数命令(资料完善、生日不小于 18 岁、号码续编、号池耗尽);
+    - 认证通过时刷新在线状态。
+"""
+
 from datetime import date
 from unittest.mock import patch
 
@@ -24,6 +38,8 @@ JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32   # 最小假 JPEG 内容(不校验格
 
 
 class UserManagerTests(TestCase):
+    """建号管理器:普通用户无可用密码,超级用户有真实密码。"""
+
     def test_create_user_requires_phone(self):
         user = User.objects.create_user(phone="13800138000")
         self.assertEqual(user.phone, "13800138000")
@@ -36,6 +52,8 @@ class UserManagerTests(TestCase):
 
 
 class HealthTests(APITestCase):
+    """存活探针:不触碰数据库与 Redis,恒定返回 ok。"""
+
     def test_health_ok(self):
         resp = self.client.get("/api/v1/health")
         self.assertEqual(resp.status_code, 200)
@@ -43,6 +61,8 @@ class HealthTests(APITestCase):
 
 
 class ReadyZTests(APITestCase):
+    """就绪探针:逐项探测数据库与 Redis,任一不可用即 503。"""
+
     def test_readyz_ok(self):
         resp = self.client.get("/api/v1/readyz")
         self.assertEqual(resp.status_code, 200)
@@ -62,6 +82,8 @@ class ReadyZTests(APITestCase):
 
 
 class SmsSendTests(APITestCase):
+    """发送验证码:落码、重发间隔、入队失败回滚、格式校验与 IP 限流。"""
+
     def setUp(self):
         cache.clear()               # 缓存是进程级的,测试之间必须清
         self.addCleanup(cache.clear)
@@ -108,18 +130,37 @@ class SmsSendTests(APITestCase):
 
 
 class SmsVerifyTests(APITestCase):
+    """校验验证码并登录:建号、令牌、错误分支、锁定、重放与限流。"""
+
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800138000"
 
     def issue_code(self, phone=None):
+        """直接往 Redis 里放一个验证码,绕开 60 秒重发间隔。
+
+        Args:
+            phone: 目标手机号;``None`` 表示用 ``self.phone``。
+
+        Returns:
+            写入的验证码(开发模式下固定为 ``settings.SMS_DEV_CODE``)。
+        """
         phone = phone or self.phone
         cache.delete(f"sms:send:{phone}")   # 测试里绕过 60 秒重发间隔的服务端占位
         sms_codes.store(phone, settings.SMS_DEV_CODE)
         return settings.SMS_DEV_CODE
 
     def verify(self, code, phone=None):
+        """调用校验接口。
+
+        Args:
+            code: 提交的验证码。
+            phone: 目标手机号;``None`` 表示用 ``self.phone``。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
         return self.client.post("/api/v1/auth/sms/verify",
                                 {"phone": phone or self.phone, "code": code}, format="json")
 
@@ -237,23 +278,37 @@ class SmsCodeStateTests(TestCase):
 
 
 class ImUserIdTests(TestCase):
+    """IM 账号约定:一律是 ``u{账号 id}``。"""
+
     def test_im_user_id_is_u_prefixed_id(self):
         user = User.objects.create_user(phone="13800138000")
         self.assertEqual(user.im_user_id, f"u{user.id}")
 
 
 class ImImportOnRegisterTests(APITestCase):
+    """登录时的 IM 副作用:新用户导入、老用户标记待踢、入队失败不阻断登录。"""
+
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800138000"
 
     def issue_code(self):
+        """直接落一个验证码,绕开重发间隔。
+
+        Returns:
+            写入的验证码。
+        """
         cache.delete(f"sms:send:{self.phone}")
         sms_codes.store(self.phone, settings.SMS_DEV_CODE)
         return settings.SMS_DEV_CODE
 
     def verify(self):
+        """走一次完整的校验登录流程。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
         return self.client.post("/api/v1/auth/sms/verify",
                                 {"phone": self.phone, "code": self.issue_code()}, format="json")
 
@@ -284,6 +339,8 @@ class ImImportOnRegisterTests(APITestCase):
 
 
 class TokenRefreshTests(APITestCase):
+    """刷新令牌:换发新的 access + refresh,旧 refresh 立即进黑名单。"""
+
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
@@ -310,6 +367,11 @@ class SingleDeviceSessionTests(APITestCase):
         self.phone = "13800138000"
 
     def login(self):
+        """走一次完整的校验登录,返回响应。
+
+        Returns:
+            DRF 测试客户端的响应对象,``json()`` 内含 access / refresh。
+        """
         cache.delete(f"sms:send:{self.phone}")   # 绕过 60 秒重发间隔的服务端占位
         code = settings.SMS_DEV_CODE
         sms_codes.store(self.phone, code)
@@ -347,9 +409,22 @@ class SeedFakeUsersTests(TestCase):
         self.addCleanup(self.dl.stop)
 
     def seed(self, count):
+        """跑一次造数命令。
+
+        Args:
+            count: 要创建的人数。
+        """
         call_command("seed_fake_users", count=count, stdout=None)
 
     def created(self, origin_id):
+        """取出本次造数新建的用户。
+
+        Args:
+            origin_id: 造数前已存在的最大用户 id。
+
+        Returns:
+            新建的用户列表,按 id 升序。
+        """
         return list(User.objects.filter(id__gt=origin_id).order_by("id"))
 
     def test_creates_complete_female_profiles_with_photos(self):
@@ -424,12 +499,15 @@ class SeedFakeUsersTests(TestCase):
 
 
 class PresenceHookTests(APITestCase):
+    """在线状态钩子:认证通过即刷新,匿名与被顶号的旧令牌都不算活跃。"""
+
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
         self.user = User.objects.create_user(phone="13800138000")
 
     def _login(self):
+        """给测试客户端装上当前用户的令牌。"""
         token = SessionRefreshToken.for_user(self.user).access_token
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
