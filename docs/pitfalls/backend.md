@@ -69,3 +69,13 @@
 - **给 `@api_view` 加方法会让文档门禁立刻变红** —— `ApiDocsCoverageTests` 双向比对 URLconf 与 `docs/api/*.md` 的信息行,新增 `DELETE /api/v1/users/me` 必须在同一次改动内写进 `docs/api/users.md`(分册首段的「含 N 个接口」计数也要改)。
 - **DRF 的权限检查在方法分发之前**:给 `me` 加 DELETE 后,匿名请求拿 401、重封禁拿 403,都不会落到 405 —— 所以 `test_requires_auth` / 重封禁用例在实现前就是绿的,别被「实现前只有 7 例红」误导。
 - **测试里别断言 refresh token 的具体值**:App 启动 `bootstrap()` 会静默刷新一次令牌,存的 refresh 已经不是登录时那个了。要断言「凭证没被清」就用 `isNotNull`。
+
+## 注释规范
+
+- **规则文档**:`docs/standards/python.md` 是 Python 注释的单一事实来源(模块头模板、`Args`/`Returns`/`Raises` 写法、行内注释禁令、豁免清单)。改注释前先看它,不要自创格式。
+- **门禁在哪**:`chatapp/config/comment_coverage.py`(纯标准库 AST 检查)+ `config/tests.py::CommentCoverageTests`。`python manage.py test` 会跑,漏写即红;本地秒级自查 `cd chatapp && python config/comment_coverage.py`(不依赖 Django,不必等测试框架启动)。
+- **为什么 `test_*` 用例豁免**:用例名本身就是完整句子(`test_testing_uses_isolated_redis_db`),再补一句 docstring 是纯噪音。同理豁免 `setUp`/`tearDown` 等框架生命周期钩子、`Meta` 这类声明式内部类、函数内的闭包与局部类(测试里大量 `fake_request`/`FakeTask` 打桩属于此类)。
+- **为什么口语词只提示不拦截**:`--warnings` 的词典必然误报 —— 「兜底」在技术语境里合法,「踩坑记录」更是规范模板自己要求的写法(所以黑名单对「坑」做了 `(?<!踩)` 排除)。做成硬门禁会逼后人写 `# noqa`,反而降低规范权威性。硬拦的只有三项:模块头缺失、函数/类 docstring 缺失、emoji/`⚠` 类装饰符号。
+- **豁免规则一律按名称与嵌套形态判定,不按文件路径**。基于文件名的特判(判断 `test*.py` 还是 `*tests.py`、路径分隔符、大小写)是门禁脚本最容易出错的地方,值得为它放弃几十行注释的「整齐」。
+- **改写注释时信息只增不减**:本项目大量注释承载踩坑结论(踢人顺序、`BROKER_URL` 前缀、`account_import` 覆盖行为)。清理语气与格式可以,**技术结论一条都不能丢**。
+- **验证「只改了注释」的土办法**:用 `ast.dump` 剥离 docstring 后比对改动前后的 AST,两边一致即证明代码零改动。本次规范化全程用它兜底,抓到过一次补 docstring 时误删函数体的事故。

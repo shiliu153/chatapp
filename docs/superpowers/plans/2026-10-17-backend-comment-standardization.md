@@ -1,6 +1,6 @@
 # 后端 Python 注释规范化(腾讯风格)实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 >
 > 本项目全局约定:**一律内联执行,不派发子 agent**(见 `~/.dsh/AGENTS.md`)。
 
@@ -201,7 +201,7 @@ def issue_code(phone: str) -> str:
   - CLI:`python config/comment_coverage.py [--app <name>] [--warnings]`,通过时打印 `无缺口`,有缺口时逐行打印并以退出码 1 结束
 - 后续 Task 1~10 全部依赖这些签名,不要改名。
 
-- [ ] **Step 1: 写规范文档**
+- [x] **Step 1: 写规范文档**
 
 把上文「规范正文」第 0~5 节原样复制到 `docs/standards/python.md`,并在文件末尾补一节「正反例」,内容为下面这份完整的 golden sample。
 
@@ -306,7 +306,7 @@ def candidates(request):                                     ← 缺 docstring
 
 再写 `docs/standards/README.md`:一节索引(说明 `python.md` 是本项目 Python 注释的单一事实来源、门禁在 `config/comment_coverage.py`,后续 Dart/TypeScript 分册待立项)+ 一节「三条通用原则」(注释解释为什么;信息不丢失;规范由门禁而非自觉维持)。
 
-- [ ] **Step 2: 写缺口检查脚本**
+- [x] **Step 2: 写缺口检查脚本**
 
 创建 `chatapp/config/comment_coverage.py`。要点:
 
@@ -518,7 +518,7 @@ if __name__ == "__main__":
 1. `check_file` 里**不能**直接写 `path.relative_to(BACKEND_ROOT)` —— Step 4 的单元测试传的是临时目录路径,会抛 `ValueError`;必须走 `_display_path()` 降级。
 2. `iter_target_files` 的 `SKIP_DIRS & set(path.parts)` 依赖 `path` 是**绝对路径**(`rglob` 在绝对 `base` 下产出的就是绝对路径),因此不能用相对路径调用。
 
-- [ ] **Step 3: 跑脚本,记录当前缺口基线**
+- [x] **Step 3: 跑脚本,记录当前缺口基线**
 
 Run:
 ```bash
@@ -533,7 +533,7 @@ Expected: 缺口总数 = 66(模块头)+ 371(符号 docstring)+ 5(装饰符号)= 
 > **注意:** 本计划初稿在这里写的预期是 336,那是错的(只算了生产代码)。真实基线 442。
 > 若实际数字与 442 不符,**先查脚本判定逻辑**,不要开始改写。
 
-- [ ] **Step 4: 给脚本写单元测试**
+- [x] **Step 4: 给脚本写单元测试**
 
 在 `chatapp/config/tests.py` 追加一个测试类(不要动既有类):
 
@@ -629,12 +629,12 @@ class CommentCoverageLogicTests(SimpleTestCase):
             self.assertTrue(all(p.startswith("demo.py:") for p in check_file(path)))
 ```
 
-- [ ] **Step 5: 跑测试确认全绿**
+- [x] **Step 5: 跑测试确认全绿**
 
 Run: `python manage.py test config`
 Expected: OK(`config/tests.py` 原有 19 个用例 + 本任务新增 10 个)
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add docs/standards/ chatapp/config/comment_coverage.py chatapp/config/tests.py
@@ -666,12 +666,12 @@ git commit -m "docs: 立 Python 注释规范(腾讯风格)+ AST 缺口检查脚�
 - Consumes: `config/comment_coverage.py::check_file`、`find_problems`(Task 0)
 - Produces: 无(纯注释改动)
 
-- [ ] **Step 1: 通读该 app 全部文件**
+- [x] **Step 1: 通读该 app 全部文件**
 
 Run: `python config/comment_coverage.py --app config`
 Expected: 列出本 app 全部缺口(约 3 + 11 + 1 = 15 行),作为本任务的验收清单。
 
-- [ ] **Step 2: 改写模块 docstring**
+- [x] **Step 2: 改写模块 docstring**
 
 按「规范正文 §1」逐个改写。要点提示:
 
@@ -679,11 +679,11 @@ Expected: 列出本 app 全部缺口(约 3 + 11 + 1 = 15 行),作为本任务的
 - `config/celery.py` 必须保留原第 22 行那条结论:「注册信号用 `signal.connect(函数)` 显式调用,不能用 `@装饰器`」,改写成 `注意事项:` 条目并去掉 `⚠️`。
 - `config/api_doc_coverage.py` 已有一行模块头,按模板扩成「职责 + 设计要点(双向比对)」,不要推翻重写。
 
-- [ ] **Step 3: 补函数与类 docstring**
+- [x] **Step 3: 补函数与类 docstring**
 
 按「规范正文 §2、§3」。`config/settings.py` 无函数,跳过。
 
-- [ ] **Step 4: 改写行内注释**
+- [x] **Step 4: 改写行内注释**
 
 本 app 的 3 处:
 
@@ -695,17 +695,17 @@ Expected: 列出本 app 全部缺口(约 3 + 11 + 1 = 15 行),作为本任务的
 
 `config/tests.py:37` 的 `⚠️` 归 Task 9 处理。
 
-- [ ] **Step 5: 验收缺口清零**
+- [x] **Step 5: 验收缺口清零**
 
 Run: `python config/comment_coverage.py --app config`
 Expected: `无缺口`
 
-- [ ] **Step 6: 回归测试**
+- [x] **Step 6: 回归测试**
 
 Run: `python manage.py test config`
 Expected: OK(360 基线中 config 部分不变)
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add chatapp/config/
@@ -735,16 +735,16 @@ git commit -m "docs(config): 注释规范化(模块头/函数 docstring/去装�
 | `accounts/management/commands/seed_fake_users.py` | 154 | 有 | 1/6 | 0/1 | 5 函数 + 1 类 + **行内 147 行 emoji** |
 | `accounts/__init__.py` | 0 | 空 | — | — | 豁免 |
 
-- [ ] **Step 1: 通读并取缺口清单**
+- [x] **Step 1: 通读并取缺口清单**
 
 Run: `python config/comment_coverage.py --app accounts`
 Expected: 约 9 + 35 + 15 = 59 行缺口。
 
-- [ ] **Step 2: 落地 `services.py` 为 golden sample**
+- [x] **Step 2: 落地 `services.py` 为 golden sample**
 
 直接采用 Task 0 规范文档里给出的完整形态(逐字),确认与文档一致。
 
-- [ ] **Step 3: 改写其余文件模块 docstring**
+- [x] **Step 3: 改写其余文件模块 docstring**
 
 重点:
 
@@ -752,25 +752,25 @@ Expected: 约 9 + 35 + 15 = 59 行缺口。
 - `accounts/models.py`:说明 `User` 是自定义用户模型、手机号是登录标识,并保留 `im_user_id` 属性「IM 账号 = `u{user_id}`」这条跨栈约定。
 - `accounts/exceptions.py`:说明这是短信验证码相关的业务异常族,与 `config/exceptions.py` 的错误信封如何配合。
 
-- [ ] **Step 4: 补函数与类 docstring**
+- [x] **Step 4: 补函数与类 docstring**
 
 按模板。`accounts/throttles.py` 的限流类要写清限流维度与阈值。
 
-- [ ] **Step 5: 改写行内注释**
+- [x] **Step 5: 改写行内注释**
 
 | 位置 | 处理 |
 |---|---|
 | `accounts/management/commands/seed_fake_users.py:147` | `# ⚠️ 月/日必须**不晚于今天**:...` → 去掉 `⚠️`,保留「否则 `calculate_age` 会算出 age-1」这条结论 |
 | `accounts/authentication.py`、`accounts/models.py`、`accounts/views.py` 各 1 处口语 | 按 §4 改为书面语 |
 
-- [ ] **Step 6: 验收 + 回归**
+- [x] **Step 6: 验收 + 回归**
 
 ```bash
 python config/comment_coverage.py --app accounts    # 期望:无缺口
 python manage.py test accounts                      # 期望:OK
 ```
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add chatapp/accounts/
@@ -796,21 +796,21 @@ git commit -m "docs(accounts): 注释规范化(模块头/函数 docstring/去装
 | `users/apps.py` | 6 | 缺 | 0/0 | 0/1 | 模块头 + 1 类 |
 | `users/__init__.py` | 0 | 空 | — | — | 豁免 |
 
-- [ ] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app users`(约 8 + 31 + 24 = 63 行)
-- [ ] **Step 2: 改写模块 docstring** — 重点:
+- [x] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app users`(约 8 + 31 + 24 = 63 行)
+- [x] **Step 2: 改写模块 docstring** — 重点:
   - `users/models.py`:说明 `Profile` 与 `User` 的分工(账号 vs 资料)、`ProfileStatus` 的「完善」判定口径(昵称/性别/生日/城市/简介非空 + ≥1 张过审照片)、`birthday_bounds` 的年龄换算口径。
   - `users/presence.py`:必须保留「在线 = 120 秒内有认证请求(45 秒心跳)」这条定义,并说明它是**公开信息**、不依赖配对。
   - `users/views.py`:`DELETE /users/me` 是账号注销,要在模块头点出「立即硬删除 + 释放手机号」。
-- [ ] **Step 3: 补函数与类 docstring** — 按模板。
-- [ ] **Step 4: 改写行内注释** — `users/tests.py` 的两处归 Task 9;本 app 生产代码无 emoji,只处理 1 处口语。
-- [ ] **Step 5: 验收 + 回归**
+- [x] **Step 3: 补函数与类 docstring** — 按模板。
+- [x] **Step 4: 改写行内注释** — `users/tests.py` 的两处归 Task 9;本 app 生产代码无 emoji,只处理 1 处口语。
+- [x] **Step 5: 验收 + 回归**
 
 ```bash
 python config/comment_coverage.py --app users    # 期望:无缺口
 python manage.py test users                      # 期望:OK
 ```
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/users/
@@ -836,26 +836,26 @@ git commit -m "docs(users): 注释规范化(模块头/函数 docstring/去装饰
 | `discovery/management/commands/dev_reset_pair.py` | 50 | 有 | 0/3 | 0/1 | 3 函数 + 1 类 |
 | `discovery/__init__.py`、`management/__init__.py`、`management/commands/__init__.py` | 0 | 空 | — | — | 豁免 |
 
-- [ ] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app discovery`(约 8 + 12 + 12 = 32 行)
-- [ ] **Step 2: 改写模块 docstring** — 重点:
+- [x] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app discovery`(约 8 + 12 + 12 = 32 行)
+- [x] **Step 2: 改写模块 docstring** — 重点:
   - `discovery/views.py`:说明候选池的四条排除规则(自己/划过/已配对/已拉黑)与「只推有已过审照片的人」;保留原第 39 行「用子查询而非 JOIN,避免重复行与 distinct + 随机排序冲突」的结论(移到 `设计要点`)。
   - `discovery/services.py`:`notify_match` 的双方灰条语义。
-- [ ] **Step 3: 补函数与类 docstring** — `Swipe` / `Match` 模型说明幂等性与唯一约束。
-- [ ] **Step 4: 改写行内注释**
+- [x] **Step 3: 补函数与类 docstring** — `Swipe` / `Match` 模型说明幂等性与唯一约束。
+- [x] **Step 4: 改写行内注释**
 
 | 位置 | 现状 | 目标 |
 |---|---|---|
 | `discovery/views.py:39` | `# 有过审照片的人才进候选(用子查询而不是 JOIN,避免出重复行、也避免 distinct + 随机排序的坑)` | `# 只让有已过审照片的人进候选。用子查询而非 JOIN,避免产生重复行,也避免 distinct 与随机排序冲突。` |
 | `discovery/views.py:60` | `# order_by("?") 在数据量大时会慢,MVP 阶段(几百人)够用,将来换成预计算随机列` | `# order_by("?") 在数据量大时性能下降。当前用户规模(数百人)可接受,后续改为预计算随机列。` |
 
-- [ ] **Step 5: 验收 + 回归**
+- [x] **Step 5: 验收 + 回归**
 
 ```bash
 python config/comment_coverage.py --app discovery    # 期望:无缺口
 python manage.py test discovery                      # 期望:OK
 ```
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/discovery/
@@ -885,16 +885,16 @@ git commit -m "docs(discovery): 注释规范化(模块头/函数 docstring/去�
 | `im/models.py` | 3 | 缺 | 0/0 | 0/0 | 模块头 |
 | `im/__init__.py`、`management/__init__.py`、`management/commands/__init__.py` | 0 | 空 | — | — | 豁免 |
 
-- [ ] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app im`(约 5 + 27 + 4 = 36 行)
-- [ ] **Step 2: 改写模块 docstring** — **必须逐条保留下列既有结论**:
+- [x] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app im`(约 5 + 27 + 4 = 36 行)
+- [x] **Step 2: 改写模块 docstring** — **必须逐条保留下列既有结论**:
   - `im/client.py`:`对外永不抛异常(失败返回 False 只记日志)`、`超时/重试口径`、`identifier 语义待真凭据实测`。
   - `im/tasks.py`:`im/client.py` 返回 False 时这里转异常,让 Celery 重试策略生效;`任务参数一律 user_id,任务内查库`。
   - `im/views.py`:踢旧会话必须在签发新签名**之前**完成的顺序约束。
   - `im/signature.py`:userSig 的生成口径与有效期。
-- [ ] **Step 3: 补函数与类 docstring** — 重点:
+- [x] **Step 3: 补函数与类 docstring** — 重点:
   - `im/tasks.py::delete_account` 的 docstring 是**全项目唯一「任务参数不是 user_id」的例外**,必须完整保留原因(用户行已删除 → 任务内查库必为 None → 沿用 `_user()` 兜底会静默跳过、删号永不发生),只把 `🔴` 换成 `注意:`。
   - `im/client.py::ensure_account`、`set_profile_nick`、`set_profile_avatar`、`delete_account` 的 docstring 去掉装饰符号,保留业务语义。
-- [ ] **Step 4: 改写行内注释**
+- [x] **Step 4: 改写行内注释**
 
 | 位置 | 处理 |
 |---|---|
@@ -902,14 +902,14 @@ git commit -m "docs(discovery): 注释规范化(模块头/函数 docstring/去�
 | `im/views.py:24` | 去 `⚠️`,保留「顺序不能反:踢必须发生在新会话建立之前,否则会把本机刚建的会话一起踢掉」 |
 | `im/tasks.py:144`(`kick_pending` docstring)、`im/signature.py:1`(模块头) | 去口语,保留「正常路径由 `views.user_sig` 同步踢并清标记,本任务只覆盖 App 未登 IM 的情况」 |
 
-- [ ] **Step 5: 验收 + 回归**
+- [x] **Step 5: 验收 + 回归**
 
 ```bash
 python config/comment_coverage.py --app im    # 期望:无缺口
 python manage.py test im                      # 期望:OK
 ```
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/im/
@@ -936,18 +936,18 @@ git commit -m "docs(im): 注释规范化(保留踢人顺序/删号参数例外�
 | `moderation/apps.py` | 6 | 缺 | 0/0 | 0/1 | 模块头 + 1 类 |
 | `moderation/__init__.py` | 0 | 空 | — | — | 豁免 |
 
-- [ ] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app moderation`(约 9 + 19 + 16 = 44 行)
-- [ ] **Step 2: 改写模块 docstring** — 重点:封禁两级语义(`banned_light` 只禁滑卡 / `banned_heavy` 全域 403)、全局权限类自动覆盖新接口、白名单仅 `GET /users/me` 与 `GET /users/tags`;`blocked_user_ids` 被 discovery 复用的边界。
-- [ ] **Step 3: 补函数与类 docstring** — 审核台相关的 Model 要写清状态流转。
-- [ ] **Step 4: 改写行内注释** — 本 app 生产代码无 emoji/口语命中,只做一致性核对。
-- [ ] **Step 5: 验收 + 回归**
+- [x] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app moderation`(约 9 + 19 + 16 = 44 行)
+- [x] **Step 2: 改写模块 docstring** — 重点:封禁两级语义(`banned_light` 只禁滑卡 / `banned_heavy` 全域 403)、全局权限类自动覆盖新接口、白名单仅 `GET /users/me` 与 `GET /users/tags`;`blocked_user_ids` 被 discovery 复用的边界。
+- [x] **Step 3: 补函数与类 docstring** — 审核台相关的 Model 要写清状态流转。
+- [x] **Step 4: 改写行内注释** — 本 app 生产代码无 emoji/口语命中,只做一致性核对。
+- [x] **Step 5: 验收 + 回归**
 
 ```bash
 python config/comment_coverage.py --app moderation    # 期望:无缺口
 python manage.py test moderation                      # 期望:OK
 ```
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/moderation/
@@ -971,18 +971,18 @@ git commit -m "docs(moderation): 注释规范化(模块头/函数 docstring)"
 | `feed/apps.py` | 6 | 缺 | 0/0 | 0/1 | 模块头 + 1 类 |
 | `feed/__init__.py` | 0 | 空 | — | — | 豁免 |
 
-- [ ] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app feed`(约 7 + 25 + 20 = 52 行)
-- [ ] **Step 2: 改写模块 docstring** — 动态/评论/点赞的数据模型关系,配图数量与尺寸限制,点赞幂等口径。
-- [ ] **Step 3: 补函数与类 docstring** — 按模板;`feed/views.py` 的视图首行注明接口路径。
-- [ ] **Step 4: 改写行内注释** — `feed/tests.py:41` 的 `# 别把测试图片写进真 media/` 归 Task 9。
-- [ ] **Step 5: 验收 + 回归**
+- [x] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app feed`(约 7 + 25 + 20 = 52 行)
+- [x] **Step 2: 改写模块 docstring** — 动态/评论/点赞的数据模型关系,配图数量与尺寸限制,点赞幂等口径。
+- [x] **Step 3: 补函数与类 docstring** — 按模板;`feed/views.py` 的视图首行注明接口路径。
+- [x] **Step 4: 改写行内注释** — `feed/tests.py:41` 的 `# 别把测试图片写进真 media/` 归 Task 9。
+- [x] **Step 5: 验收 + 回归**
 
 ```bash
 python config/comment_coverage.py --app feed    # 期望:无缺口
 python manage.py test feed                      # 期望:OK
 ```
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/feed/
@@ -1011,10 +1011,10 @@ git commit -m "docs(feed): 注释规范化(模块头/函数 docstring)"
 
 > `ops/` 的 `/ops/*` 路由**不在** `/api/v1` 下,不受 `ApiDocsCoverageTests` 约束;但注释仍按同一规范写。
 
-- [ ] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app ops` 与 `--app notifications`(合计约 8 + 27 + 2 = 37 行)
-- [ ] **Step 2: 改写模块 docstring** — `ops/views.py` 22 个函数、296 行,是本批次最大的单文件:模块头要说明审核台的鉴权方式(`ops/decorators.py` 的装饰器)与它为什么用 Django 模板而非 DRF。
-- [ ] **Step 3: 补函数与类 docstring** — 逐个补;审核动作类函数要写清对用户状态的影响。
-- [ ] **Step 4: 验收 + 回归**
+- [x] **Step 1: 取缺口清单** — `python config/comment_coverage.py --app ops` 与 `--app notifications`(合计约 8 + 27 + 2 = 37 行)
+- [x] **Step 2: 改写模块 docstring** — `ops/views.py` 22 个函数、296 行,是本批次最大的单文件:模块头要说明审核台的鉴权方式(`ops/decorators.py` 的装饰器)与它为什么用 Django 模板而非 DRF。
+- [x] **Step 3: 补函数与类 docstring** — 逐个补;审核动作类函数要写清对用户状态的影响。
+- [x] **Step 4: 验收 + 回归**
 
 ```bash
 python config/comment_coverage.py --app ops              # 期望:无缺口
@@ -1022,7 +1022,7 @@ python config/comment_coverage.py --app notifications    # 期望:无缺口
 python manage.py test ops notifications                  # 期望:OK
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops/ chatapp/notifications/
@@ -1053,8 +1053,8 @@ git commit -m "docs(ops,notifications): 注释规范化(模块头/函数 docstri
 - 66 个测试类是场景分组,一行说明价值高 → **必须补**。
 - 非 `test_*` 的辅助函数(`setUp`、`make_user` 等)按正常规则补。
 
-- [ ] **Step 1: 取缺口清单** — `python config/comment_coverage.py`(全量;此时除 9 个测试模块头外应已清零)
-- [ ] **Step 2: 给每个测试文件写模块头**
+- [x] **Step 1: 取缺口清单** — `python config/comment_coverage.py`(全量;此时除 9 个测试模块头外应已清零)
+- [x] **Step 2: 给每个测试文件写模块头**
 
 模板(测试文件专用,比生产代码轻):
 
@@ -1068,7 +1068,7 @@ git commit -m "docs(ops,notifications): 注释规范化(模块头/函数 docstri
 
 每个文件的模块头必须**列出该文件覆盖的场景清单**(用中文短句枚举,如「发码限流 / 校验成功 / 连错锁定 / 重放窗口」),这是测试代码最重要的文档。
 
-- [ ] **Step 3: 改写测试代码的行内注释**
+- [x] **Step 3: 改写测试代码的行内注释**
 
 | 位置 | 现状 | 目标 |
 |---|---|---|
@@ -1078,14 +1078,14 @@ git commit -m "docs(ops,notifications): 注释规范化(模块头/函数 docstri
 | `im/tests.py:205` | docstring 内 `⚠️ 回归:...` | 去 `⚠️`,保留「对已存在的账号再调 account_import 会把昵称/头像清空」这条回归结论 |
 | `discovery/tests.py`、`accounts/tests.py`、`im/tests.py` 的零散口语 | 按 §4 改为书面语 |
 
-- [ ] **Step 4: 验收 + 全量回归**
+- [x] **Step 4: 验收 + 全量回归**
 
 ```bash
 python config/comment_coverage.py     # 期望:无缺口(全量)
 python manage.py test                 # 期望:Ran 360 tests ... OK
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/*/tests.py
@@ -1105,7 +1105,7 @@ git commit -m "docs(tests): 测试模块头补场景说明 + 行内注释去装�
 - Consumes: `config/comment_coverage.py::find_problems`(Task 0 定义)
 - Produces: 无
 
-- [ ] **Step 1: 加门禁测试**
+- [x] **Step 1: 加门禁测试**
 
 在 `chatapp/config/tests.py` 追加(与既有 `ApiDocsCoverageTests` 并列):
 
@@ -1123,7 +1123,7 @@ class CommentCoverageTests(SimpleTestCase):
             "\n".join(f"  {p}" for p in problems))
 ```
 
-- [ ] **Step 2: 验证门禁真的会红(反向验证)**
+- [x] **Step 2: 验证门禁真的会红(反向验证)**
 
 临时把 `chatapp/notifications/tasks.py` 的模块 docstring 删掉,运行:
 
@@ -1137,12 +1137,12 @@ Expected: **OK**
 
 > 这一步不能省。没有反向验证的门禁,很可能因为路径写错而永远绿。
 
-- [ ] **Step 3: 全量回归**
+- [x] **Step 3: 全量回归**
 
 Run: `python manage.py test`
 Expected: `Ran 36x tests ... OK`(360 基线 + Task 0 的 5 个 + 本任务 1 个)
 
-- [ ] **Step 4: 更新项目纪律文档**
+- [x] **Step 4: 更新项目纪律文档**
 
 `CLAUDE.md` 的「核心契约与纪律」一节追加一条(放在「接口文档」那条之后):
 
@@ -1152,15 +1152,15 @@ Expected: `Ran 36x tests ... OK`(360 基线 + Task 0 的 5 个 + 本任务 1 个
 
 `docs/pitfalls/backend.md` 追加一节「注释规范」,3~5 行说清:规则文档在哪、门禁在哪、为什么测试用例豁免、口语词黑名单为什么只提示不拦截。
 
-- [ ] **Step 5: 统计成果并回填本计划**
+- [x] **Step 5: 统计成果并回填本计划**
 
 Run:
 ```bash
 python config/comment_coverage.py
 ```
-Expected: `无缺口`。把 Task 0 记录的三项基线(缺模块头 57 / 缺函数 docstring 185 / 缺类 docstring 94)与最终 0 的对比写进本计划文件末尾的「成果」一节,并把所有 `- [ ]` 勾成 `- [x]`。
+Expected: `无缺口`。把 Task 0 记录的三项基线(缺模块头 57 / 缺函数 docstring 185 / 缺类 docstring 94)与最终 0 的对比写进本计划文件末尾的「成果」一节,并把所有 `- [x]` 勾成 `- [x]`。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/config/tests.py CLAUDE.md docs/pitfalls/backend.md docs/superpowers/plans/2026-10-17-backend-comment-standardization.md
@@ -1171,12 +1171,12 @@ git commit -m "docs: 注释规范门禁落地(CommentCoverageTests)+ 纪律文�
 
 ## 验收标准(全部满足才算完成)
 
-1. `python config/comment_coverage.py` 输出 `无缺口`;
-2. `python manage.py test` 全绿,用例数 = 基线 360 + 新增 6;
-3. `git diff` 中**没有一行是非注释改动**(用 `git diff --stat` 看行数变化应远小于总行数;逐文件 review 确认未改签名与逻辑);
-4. `docs/standards/python.md` 存在且与代码实际风格一致;
-5. `CLAUDE.md` 与 `docs/pitfalls/backend.md` 已回填门禁信息;
-6. `im/tasks.py::delete_account`、`im/views.py` 踢人顺序、`config/settings.py` 的 `BROKER_URL` 前缀这三处**关键结论一条不少**。
+1. `python config/comment_coverage.py` 输出 `无缺口`;✅
+2. `python manage.py test` 全绿,用例数 = 基线 360 + 新增 14 = **374**;✅
+3. `git diff` 中**没有一行是非注释改动**(用「剥离 docstring 后比对 AST」逐文件验证,72 个文件全部 `SAME`);✅
+4. `docs/standards/python.md` 存在且与代码实际风格一致;✅
+5. `CLAUDE.md` 与 `docs/pitfalls/backend.md` 已回填门禁信息;✅
+6. `im/tasks.py::delete_account`、`im/views.py` 踢人顺序、`config/settings.py` 的 `BROKER_URL` 前缀这三处**关键结论一条不少**。✅(抽查表见「成果」节)
 
 ---
 
@@ -1193,19 +1193,58 @@ git commit -m "docs: 注释规范门禁落地(CommentCoverageTests)+ 纪律文�
 
 > 执行过程中发现的代码问题记在这里,由用户决定是否单独立项。
 
-- (待填)
+**已在本次修正的:**
+
+1. **`im/views.py` 的陈旧注释与代码矛盾** —— 原注释写「幂等,7015 视为成功」,但 `ensure_account`
+   早已改成 `account_check` 先查后建(7015 分支根本走不到)。已改为描述当前实现。
+2. **Django 自动生成的英文样板文件头** —— `config/settings.py`、`config/urls.py` 的文件头是
+   `django-admin startproject` 生成的英文说明;`im/models.py`、`im/admin.py` 是
+   `# Create your models here.` / `# Register your models here.`。已全部替换为项目化中文说明
+   (其中 `im/` 两个文件明确写了「本应用没有本地表」)。
+3. **检查脚本的假阳性** —— `CASUAL_RE` 会把「踩**坑**记录」判为口语,而这是规范模板本身
+   要求的写法。已改为 `(?<!踩)坑`,并补单测锁住。
+4. **计划初稿的算术错误** —— Task 0 预期「336 处缺口」只算了生产代码,漏了测试文件;
+   真实基线 442。已在计划内留修正记录。
+
+**尚未处理、建议单独立项的:**
+
+5. **`im/models.py` 与 `im/admin.py` 有未使用的 import** —— 前者 `from django.db import models`、
+   后者 `from django.contrib import admin`,但该应用既无模型也无 admin 注册。无害,但
+   `ruff` 的 F401 会报。建议随「引入 ruff + black」那一次一并清掉。
+6. **`Args`/`Returns` 小节的实际质量没有自动化校验** —— 本次只保证了「有 docstring」,
+   小节是否齐全靠 review。若要强制,需要更强的静态分析(如 `pydocstyle` + 自定义规则)。
+7. **App 端与 Web 端尚未规范化** —— 见「后续立项」。本次只覆盖 `chatapp/`。
 
 ---
 
 ## 成果
 
-> Task 10 Step 5 回填。
+> Task 10 Step 5 回填(2026-10-17)。
 
 | 指标 | 动手前 | 完成后 |
 |---|---|---|
-| 缺模块 docstring(生产代码) | 57 | 待填 |
-| 函数 docstring 覆盖(生产代码) | 54 / 239 | 待填 |
-| 类 docstring 覆盖(生产代码) | 18 / 112 | 待填 |
-| 测试文件模块头 | 0 / 9 | 待填 |
-| 行内注释装饰符号 | 13 处 | 待填 |
-| 后端用例数 | 360 | 待填 |
+| 缺模块 docstring(生产代码) | 57 | **0**(83 个非空生产文件 100% 覆盖) |
+| 函数 docstring 覆盖(生产代码) | 54 / 239 | **245 / 248** |
+| 类 docstring 覆盖(生产代码) | 18 / 112 | **91 / 112** |
+| 测试文件模块头 | 0 / 9 | **9 / 9** |
+| 行内注释装饰符号 | 13 处(8 行内 + 5 docstring) | **0** |
+| 后端用例数 | 360 | **374**(+14:规范检查模块 13 个单测 + 1 个门禁) |
+| 全量缺口(`comment_coverage.py`) | 442 | **0** |
+
+**那 3 个函数与 21 个类为什么还是 0 docstring**:全部是**规则明确豁免**的对象 ——
+3 个函数是函数体内的闭包(`accounts/views.py::_after_commit`、`config/api_doc_coverage.py::walk`、
+`users/services.py::_cleanup`),21 个类全是 `Meta` 声明式内部类。即**非豁免符号覆盖率 100%**。
+
+**关键结论保全抽查**(计划验收标准第 6 条):
+
+| 结论 | 位置 | 状态 |
+|---|---|---|
+| 任务参数是 `im_user_id` 而非 `user_id` 的唯一例外 | `im/tasks.py::delete_account` | 保留 |
+| 踢旧会话必须先于签发新签名(2026-09-12 手测回归) | `im/views.py` 模块头 + `user_sig` | 保留 |
+| `BROKER_URL` 不能带 `CELERY_` 前缀 | `config/settings.py` 行内 + 模块头 | 保留 |
+| `account_import` 会覆盖已存在账号的昵称/头像 | `im/client.py::ensure_account` | 保留 |
+| 造数生日不得晚于今天(2026-10-13 CI 实测红) | `seed_fake_users.py::_random_birthday` | 保留 |
+
+**过程质量数据**:每个任务都用「剥离 docstring 后比对 AST」验证代码零改动,共覆盖
+**72 个文件、9 次提交**,全部 `SAME`。该手段在 `feed/views.py` 上抓到过一次真实事故
+(补 docstring 时误删 `_page_response` 函数体),已当场修复。

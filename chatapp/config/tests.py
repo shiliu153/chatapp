@@ -330,3 +330,17 @@ class CommentCoverageLogicTests(SimpleTestCase):
                                     "    class Meta:\n"
                                     "        model = object\n")
             self.assertEqual(check_file(path), [])
+
+
+class CommentCoverageTests(SimpleTestCase):
+    """注释规范门禁:模块头与函数/类 docstring 必须齐全(规则见 docs/standards/python.md)。"""
+
+    def test_every_module_and_symbol_is_documented(self):
+        """全量代码必须零缺口,否则列出所有待补位置。"""
+        from config.comment_coverage import find_problems
+
+        problems = find_problems()
+        self.assertEqual(
+            problems, [],
+            "以下位置缺少注释或含装饰符号,请按 docs/standards/python.md 修正:\n" +
+            "\n".join(f"  {p}" for p in problems))

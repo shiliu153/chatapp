@@ -125,6 +125,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步
 - **网页端测试纪律**:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + vitest 全绿(覆盖率门槛 70/60/70/70);`npm run e2e` 需后端 + Redis + Celery 都在跑,不进 CI
 - **接口文档**:`docs/api/` 是接口的对外交付文档;新增/修改/删除任何 `/api/v1` 接口,**同一次改动内**必须同步更新对应分册;`python manage.py test` 会跑 `ApiDocsCoverageTests` 双向比对,漏写即红。模板与维护规则见 `docs/api/README.md`
+- **注释规范**:`docs/standards/python.md` 是 Python 注释的单一事实来源;新增/修改任何 `.py` 文件,**同一次改动内**必须补齐模块 docstring 与函数/类 docstring(`test_*` 用例、`setUp` 等生命周期钩子、`Meta` 声明式内部类、函数内闭包豁免);`python manage.py test` 会跑 `CommentCoverageTests` 比对,漏写即红。本地快速自查:`cd chatapp && python config/comment_coverage.py`(秒级,不依赖 Django),`--warnings` 可看口语词提示(不拦截)
 
 ## 后端接口
 
