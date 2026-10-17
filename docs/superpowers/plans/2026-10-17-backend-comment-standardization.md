@@ -1245,6 +1245,10 @@ git commit -m "docs: 注释规范门禁落地(CommentCoverageTests)+ 纪律文�
 | `account_import` 会覆盖已存在账号的昵称/头像 | `im/client.py::ensure_account` | 保留 |
 | 造数生日不得晚于今天(2026-10-13 CI 实测红) | `seed_fake_users.py::_random_birthday` | 保留 |
 
-**过程质量数据**:每个任务都用「剥离 docstring 后比对 AST」验证代码零改动,共覆盖
-**72 个文件、9 次提交**,全部 `SAME`。该手段在 `feed/views.py` 上抓到过一次真实事故
-(补 docstring 时误删 `_page_response` 函数体),已当场修复。
+**过程质量数据**:整条分支共 **12 次提交**、改动 **88 个 `.py` 文件**。其中
+**86 个是纯注释改动**(剥离 docstring 后 AST 与 `master` 完全一致)、**1 个是新建**
+(`config/comment_coverage.py`,Task 0 的产出)、**1 个含新增代码**(`config/tests.py`,
+按计划新增 13 个检查模块单测 + 1 个门禁;相对 `master` 只删了 1 行,且是注释)。
+
+该手段在 `feed/views.py` 上抓到过一次真实事故:补 docstring 时误删了 `_page_response`
+的函数体,AST 比对报 `DIFF`,当场修复后才提交。
