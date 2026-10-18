@@ -1,6 +1,13 @@
 """在线状态(最后活跃):Redis 时间戳,认证请求即刷新。
 
-不依赖腾讯 IM 在线状态能力(需付费套餐,且没有「最后活跃时间」)。
+设计要点:
+    不依赖腾讯 IM 的在线状态能力(需付费套餐,且没有「最后活跃时间」)。
+    「在线」= 最近 ``ONLINE_WINDOW_SECONDS`` 秒内有过认证请求 —— 客户端 45 秒一次
+    心跳,窗口取 2 倍多一点留余量。
+
+注意事项:
+    在线状态是**公开信息**,不依赖配对关系,任何登录用户都能查询他人。
+    所有读写都吞异常只记日志:presence 是点缀,绝不能拖累业务请求。
 """
 import logging
 import time
@@ -17,11 +24,23 @@ PRESENCE_MAX_IDS = 100                 # 单次批量查询上限
 
 
 def _key(user_id: int) -> str:
+    """拼出该用户的在线状态缓存键。
+
+    Args:
+        user_id: 账号 id。
+
+    Returns:
+        Redis 键名。
+    """
     return f"presence:{user_id}"
 
 
 def touch(user_id: int) -> None:
-    """记一次活跃;失败只记日志 —— presence 是点缀,绝不拖累业务请求。"""
+    """记一次活跃;失败只记日志 —— presence 是点缀,绝不拖累业务请求。
+
+    Args:
+        user_id: 账号 id。
+    """
     try:
         cache.set(_key(user_id), int(time.time()), timeout=PRESENCE_TTL_SECONDS)
     except Exception:
@@ -29,7 +48,11 @@ def touch(user_id: int) -> None:
 
 
 def clear(user_id: int) -> None:
-    """注销账号时抹掉在线痕迹;失败只记日志。"""
+    """注销账号时抹掉在线痕迹;失败只记日志。
+
+    Args:
+        user_id: 账号 id。
+    """
     try:
         cache.delete(_key(user_id))
     except Exception:
@@ -40,6 +63,12 @@ def get_presence(user_ids: list[int]) -> dict[int, dict]:
     """批量查:{user_id: {"online": bool, "last_active_at": iso|None}}。
 
     无记录 / Redis 不可用 → online=False、last_active_at=None(前端不显示)。
+
+    Args:
+        user_ids: 待查询的账号 id 列表。
+
+    Returns:
+        以账号 id 为键的在线状态字典;每个 id 都有条目。
     """
     now_ts = int(time.time())
     result = {uid: {"online": False, "last_active_at": None} for uid in user_ids}

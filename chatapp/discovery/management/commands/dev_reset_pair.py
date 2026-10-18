@@ -1,6 +1,7 @@
 """开发用手测脚本:清掉一对用户之间的滑卡与配对记录,好重演配对流程。
 
-用法:
+用法::
+
     python manage.py dev_reset_pair --a u8 --b u9
 
 清完后两人会重新出现在彼此的候选卡组里,可以再演一遍
@@ -17,13 +18,29 @@ User = get_user_model()
 
 
 class Command(BaseCommand):
+    """重置一对用户之间的滑卡与配对记录。"""
+
     help = "清掉两个用户之间的滑卡与配对记录(开发手测用)"
 
     def add_arguments(self, parser):
+        """声明命令行参数。
+
+        Args:
+            parser: argparse 的参数解析器。
+        """
         parser.add_argument("--a", required=True, help="IM id,如 u8")
         parser.add_argument("--b", required=True, help="IM id,如 u9")
 
     def handle(self, *args, **options):
+        """执行重置:删除两人之间双向的滑卡与配对记录。
+
+        Args:
+            *args: 位置参数,未使用。
+            **options: 已解析的命令行参数(``a`` / ``b``,均为 IM id)。
+
+        Raises:
+            CommandError: 两个 IM id 指向同一个人,或格式非法、用户不存在。
+        """
         user_a = self._user_by_im_id(options["a"])
         user_b = self._user_by_im_id(options["b"])
         if user_a == user_b:
@@ -40,6 +57,17 @@ class Command(BaseCommand):
             f"已重置 u{user_a.id} <-> u{user_b.id}:滑卡 {swipes} 条、配对 {matches} 条"))
 
     def _user_by_im_id(self, raw: str):
+        """把 IM id(如 ``u8``)解析成用户。
+
+        Args:
+            raw: 命令行传入的 IM id。
+
+        Returns:
+            对应的用户实例。
+
+        Raises:
+            CommandError: 格式不是 ``u<数字>``,或该用户不存在。
+        """
         try:
             user_id = int(raw.lstrip("u"))
         except ValueError:

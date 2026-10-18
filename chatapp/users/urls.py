@@ -1,3 +1,9 @@
+"""用户资料相关接口的路由。
+
+本文件挂载在 ``/api/v1/users/`` 前缀下;``me`` 系列是当前用户自身资源,
+``<int:user_id>`` 是他人公开资料卡。接口契约见 docs/api/users.md。
+"""
+
 from django.urls import path
 
 from . import views

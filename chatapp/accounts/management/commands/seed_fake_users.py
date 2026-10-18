@@ -1,12 +1,18 @@
-"""开发/手测造数:建一批「资料已完善 + 有已过审照片」的女号。
+"""开发与手测造数:批量创建「资料已完善 + 有已过审照片」的女号。
 
-用法:
-    python manage.py seed_fake_users                 # 20 个
+用法::
+
+    python manage.py seed_fake_users                 # 默认 20 个
     python manage.py seed_fake_users --count 8
     python manage.py seed_fake_users --skip-im       # 不调腾讯 IM(离线环境)
 
-号码段 13900000001 起按序分配;已存在的号码直接跳过(幂等,可反复执行)。
-照片从 randomuser.me 拉(免费人像图源),不存在库里重复上传的问题。
+设计要点:
+    1. 号码从 ``13900000001`` 起按序分配,已存在的号码直接跳过 —— 幂等,可反复执行;
+    2. 照片从 randomuser.me 拉取(免费人像图源),按序号命名后落库,不会重复上传;
+    3. 造数会直调 IM 同步昵称与头像,不必等 Celery worker 起来。
+
+关联文档:
+    - 踩坑记录:docs/pitfalls/backend.md「管理命令(补漏)」
 """
 
 import random
@@ -62,13 +68,29 @@ def _download(url: str) -> bytes:
 
 
 class Command(BaseCommand):
+    """批量创建手测用女号的 Django 管理命令。"""
+
     help = "建一批资料完善的女号(开发手测用),幂等可重复执行"
 
     def add_arguments(self, parser):
+        """声明命令行参数。
+
+        Args:
+            parser: argparse 的参数解析器。
+        """
         parser.add_argument("--count", type=int, default=20, help="要建的人数(默认 20)")
         parser.add_argument("--skip-im", action="store_true", help="跳过 IM 导入/资料同步")
 
     def handle(self, *args, **options):
+        """执行造数:续编号码、逐个建号并补齐资料与照片。
+
+        Args:
+            *args: 位置参数,未使用。
+            **options: 已解析的命令行参数(``count`` / ``skip_im``)。
+
+        Raises:
+            CommandError: ``--count`` 小于 1,或号码段已用完,或照片下载失败。
+        """
         count = options["count"]
         if count < 1:
             raise CommandError("--count 至少为 1")
@@ -92,7 +114,7 @@ class Command(BaseCommand):
                 user = User.objects.create_user(phone=phone)
                 self._fill_profile(user, i, tag_ids)
             except Exception:
-                # 照片下载失败等中断:别留半截账号(会变成永远无人能滑的空壳)
+                # 照片下载失败等中断场景必须回滚,避免留下永远无人能滑的半截账号
                 User.objects.filter(phone=phone).delete()
                 raise
             if not options["skip_im"]:
@@ -109,6 +131,13 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"完成:新建 {created} 个资料完善的女号"))
 
     def _fill_profile(self, user, index, tag_ids):
+        """为新建用户补齐资料、偏好与两张已过审照片。
+
+        Args:
+            user: 刚创建的用户。
+            index: 该用户在本次批次中的序号,用于轮流取用昵称/城市/简介。
+            tag_ids: 全量标签主键,从中随机挑 2~4 个挂到资料上。
+        """
         birthday = self._random_birthday()
         profile = Profile.objects.create(
             user=user,
@@ -129,6 +158,14 @@ class Command(BaseCommand):
         profile.refresh_status()
 
     def _fetch_photo(self):
+        """下载一张头像图,失败时换一张重试。
+
+        Returns:
+            图片二进制内容。
+
+        Raises:
+            CommandError: 连续三次下载均失败。
+        """
         # randomuser 偶发某张图 404,换一张重试
         last_error = None
         for _ in range(3):
@@ -139,14 +176,22 @@ class Command(BaseCommand):
         raise CommandError(f"头像下载失败: {last_error}")
 
     def _random_birthday(self):
+        """随机造一个 18~45 岁的生日。
+
+        年龄区间覆盖默认偏好(18~99)与常见自设区间;区间太窄会把号全部过滤掉。
+        月/日必须**不晚于今天** —— 否则「今年的生日还没过」,``calculate_age`` 会算出
+        age-1,抽到 age=18 时就造出 17 岁的账号(平台明令禁止)。2026-10-13 CI 实测红,
+        概率约 2%/轮:1/28 抽到 18 × 71/336 抽到「晚于今天」的月日 × 3 个用户。
+
+        Returns:
+            一个能算出目标年龄的 ``date``。
+        """
         # 18–45 覆盖默认偏好(18–99)和常见自设区间;太窄的偏好区间会把号全过滤掉
         age = random.randint(18, 45)
         # 与 calculate_age 同源:不能用 date.today()(那是**系统时区**,CI 跑在 UTC 上,
         # 跨过 UTC/CST 的午夜差一天时同样会算错一岁)
         today = timezone.localdate()
-        # ⚠️ 月/日必须**不晚于今天**:否则「今年的生日还没过」,calculate_age 会算出 age-1,
-        #    抽到 age=18 时就造出 17 岁的账号 —— 平台明令禁止(2026-10-13 CI 实测红,
-        #    概率约 2%/轮:1/28 抽到 18 × 71/336 抽到「晚于今天」的月日 × 3 个用户)。
+        # 月/日不得晚于今天,否则 calculate_age 会算出 age-1(详见上方说明)
         month = random.randint(1, today.month)
         day = random.randint(1, 28)          # 每月都有 28 号,不会 ValueError
         if month == today.month:

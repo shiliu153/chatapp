@@ -1,3 +1,17 @@
+"""发现页的候选卡片、滑卡与配对列表接口。
+
+设计要点:
+    1. **候选池的排除规则**:排除自己、划过的人、已配对的人、双向拉黑的人,
+       并且只收 ``status=COMPLETE``(资料完善)且**至少有一张已过审照片**的人;
+    2. **滑卡幂等**:同一对 ``(我, 他)`` 只有一条记录,重复提交保留第一次的动作,
+       因此重试不会把「喜欢」翻成「跳过」;
+    3. **配对是互喜的结果**:只有双方都是 ``like`` 才建 ``Match``,并在事务提交后
+       给双方各发一条 IM 灰条。
+
+关联文档:
+    - 接口契约:docs/api/discovery.md
+"""
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
@@ -24,6 +38,16 @@ MAX_LIMIT = 20
 
 @api_view(["GET"])
 def candidates(request):
+    """候选卡片列表(GET /api/v1/discovery/candidates)。
+
+    按「想找的人」偏好过滤(性别、城市、年龄区间),再套用候选池的排除规则。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` 查询参数(默认 10,上限 20)。
+
+    Returns:
+        候选卡片数组,字段见 ``CandidateSerializer``。
+    """
     me = request.user
     preference = get_profile(me).preference
 
@@ -36,7 +60,8 @@ def candidates(request):
         if other_id != me.id
     ]
 
-    # 有过审照片的人才进候选(用子查询而不是 JOIN,避免出重复行、也避免 distinct + 随机排序的坑)
+    # 只让有已过审照片的人进候选。用子查询而非 JOIN,避免产生重复行,
+    # 也避免 distinct 与随机排序互相冲突。
     blocked_ids = blocked_user_ids(me)
     with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
     qs = (Profile.objects.filter(status=ProfileStatus.COMPLETE, user_id__in=with_photos)
@@ -57,7 +82,8 @@ def candidates(request):
     except ValueError:
         limit = DEFAULT_LIMIT
 
-    # order_by("?") 在数据量大时会慢,MVP 阶段(几百人)够用,将来换成预计算随机列
+    # order_by("?") 在数据量大时性能下降。当前用户规模(数百人)可接受,
+    # 后续改为预计算随机列。
     qs = qs.prefetch_related("tags", "user__photos").order_by("?")[:limit]
     return Response(CandidateSerializer(qs, many=True, context={"request": request}).data)
 
@@ -65,6 +91,21 @@ def candidates(request):
 @api_view(["POST"])
 @throttle_classes([SwipeThrottle])
 def swipe(request):
+    """提交一次滑卡(POST /api/v1/discovery/swipe)。
+
+    幂等:同一对用户重复提交保留第一次的动作;若本次形成互喜则创建配对,
+    并在事务提交后给双方发 IM 灰条。
+
+    Args:
+        request: DRF 请求对象,body 需带 ``target_user_id`` 与 ``action``。
+
+    Returns:
+        ``{"matched": bool}``,表示本次是否配对成功。
+
+    Raises:
+        PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
+        ValidationError: 划自己,或对方资料不完整。
+    """
     me = request.user
     serializer = SwipeSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -97,6 +138,16 @@ def swipe(request):
 
 @api_view(["GET"])
 def match_list(request):
+    """我的配对列表(GET /api/v1/matches)。
+
+    与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的)从列表中剔除;按配对时间倒序分页。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` / ``offset``。
+
+    Returns:
+        分页后的配对条目数组。
+    """
     me = request.user
     blocked_ids = blocked_user_ids(me)
     matches = (Match.objects.filter(Q(user_a=me) | Q(user_b=me))
@@ -110,6 +161,19 @@ def match_list(request):
 
 
 def _match_entry(match, me, request):
+    """把一条配对记录整理成列表项。
+
+    头像取对方第一张已过审照片,并转成绝对 URL(IM 与会话列表需要可直接访问的地址)。
+
+    Args:
+        match: 配对记录。
+        me: 当前用户,用于确定「对方」是谁。
+        request: 当前请求,用于构造绝对 URL。
+
+    Returns:
+        列表项字典(``user_id`` / ``im_user_id`` / ``nickname`` / ``avatar_url`` /
+        ``matched_at``)。
+    """
     other = match.other_user(me)
     profile = getattr(other, "profile", None)
     approved = [p for p in other.photos.all() if p.status == PhotoStatus.APPROVED]

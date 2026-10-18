@@ -1,3 +1,17 @@
+"""广场应用的测试:模型约束、发布、可见性、删除、点赞、评论与举报。
+
+覆盖场景:
+    - 模型:动态默认值与排序、点赞唯一、评论按时间正序、举报默认待处理、
+      动态删除后举报行保留(``post`` 置空);
+    - 发布:纯文字、配图保序、空内容拒绝、违禁词、图片数量与大小上限、鉴权、限流;
+    - 可见性:最新在前、分页、双向拉黑都不可见、重封禁作者隐藏而轻封禁仍可见、
+      赞/评数与「我是否已赞」、详情 404 分支、``mine`` 只列自己;
+    - 删除:作者可删(含图片文件与子行)、非作者 404、删除时关闭待处理举报并通知;
+    - 点赞与取消点赞都幂等、不可见动态 404;
+    - 评论:通知作者、自己评自己不通知、违禁词、正序分页、隐藏被拉黑评论者、限流;
+    - 举报动态:建待处理、重复幂等、不能举报自己、不可见 404、非法类型、限流。
+"""
+
 import base64
 import os
 import shutil
@@ -28,25 +42,42 @@ class FeedApiMixin:
     """接口用例公共设施:JWT 登录、临时 MEDIA_ROOT、造图、限流缓存清理。"""
 
     def clear_throttle_cache(self):
+        """清空限流计数(计数在 Redis,跨用例残留会误报 429)。"""
         cache.clear()   # 限流计数在 Redis,跨用例残留会误报 429
         self.addCleanup(cache.clear)
 
     def login(self, user):
+        """给测试客户端装上指定用户的令牌。
+
+        Args:
+            user: 目标用户。
+        """
         self.client.credentials(
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
 
     def use_temp_media(self):
+        """把 ``MEDIA_ROOT`` 临时指向新建目录,避免测试图片落进真实 media/。"""
         media_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, media_dir, ignore_errors=True)
-        override = self.settings(MEDIA_ROOT=media_dir)   # 别把测试图片写进真 media/
+        override = self.settings(MEDIA_ROOT=media_dir)   # 测试图片必须写入临时目录,不能落到真实 media/
         override.enable()
         self.addCleanup(override.disable)
 
     def image(self, name="a.png"):
+        """造一个 1x1 的 PNG 上传对象。
+
+        Args:
+            name: 文件名。
+
+        Returns:
+            可直接塞进 multipart 的上传文件。
+        """
         return SimpleUploadedFile(name, PNG_1PX, content_type="image/png")
 
 
 class FeedModelTests(TestCase):
+    """广场模型:默认值、排序与各类唯一约束。"""
+
     def setUp(self):
         self.a = User.objects.create_user(phone="13800138000")
         self.b = User.objects.create_user(phone="13900139000")
@@ -86,6 +117,8 @@ class FeedModelTests(TestCase):
 
 
 class PostCreateTests(FeedApiMixin, APITestCase):
+    """发布动态:纯文字、配图保序、空内容与各类越界输入、鉴权与限流。"""
+
     URL = "/api/v1/posts"
 
     def setUp(self):
@@ -156,6 +189,8 @@ class PostCreateTests(FeedApiMixin, APITestCase):
 
 
 class FeedFlowTests(FeedApiMixin, APITestCase):
+    """广场列表与详情:排序、分页、可见性规则与互动计数。"""
+
     def setUp(self):
         self.use_temp_media()
         self.me = self._make_user("13800138000", "我")
@@ -163,6 +198,15 @@ class FeedFlowTests(FeedApiMixin, APITestCase):
         self.login(self.me)
 
     def _make_user(self, phone, nickname):
+        """造一个资料完善的用户。
+
+        Args:
+            phone: 手机号。
+            nickname: 昵称。
+
+        Returns:
+            新建的用户实例。
+        """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=nickname, status=ProfileStatus.COMPLETE)
         return user
@@ -233,6 +277,8 @@ class FeedFlowTests(FeedApiMixin, APITestCase):
 
 
 class PostDeleteTests(FeedApiMixin, APITestCase):
+    """删除动态:作者可删(连带图片文件与子行)、非作者 404、同时关闭待处理举报。"""
+
     def setUp(self):
         self.use_temp_media()
         self.me = User.objects.create_user(phone="13800138000")
@@ -273,6 +319,8 @@ class PostDeleteTests(FeedApiMixin, APITestCase):
 
 
 class PostLikeTests(FeedApiMixin, APITestCase):
+    """点赞:点赞与取消点赞都幂等,不可见动态一律 404。"""
+
     def setUp(self):
         self.me = User.objects.create_user(phone="13800138000")
         self.other = User.objects.create_user(phone="13900139000")
@@ -298,6 +346,8 @@ class PostLikeTests(FeedApiMixin, APITestCase):
 
 
 class PostCommentTests(FeedApiMixin, APITestCase):
+    """评论:通知作者、自己评自己不通知、违禁词、正序分页、隐藏被拉黑评论者、限流。"""
+
     def setUp(self):
         self.clear_throttle_cache()
         self.me = User.objects.create_user(phone="13800138000")
@@ -362,6 +412,8 @@ class PostCommentTests(FeedApiMixin, APITestCase):
 
 
 class PostReportTests(FeedApiMixin, APITestCase):
+    """举报动态:建待处理、重复幂等、不能举报自己、不可见 404、非法类型与限流。"""
+
     def setUp(self):
         self.clear_throttle_cache()
         self.me = User.objects.create_user(phone="13800138000")

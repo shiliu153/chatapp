@@ -1,3 +1,20 @@
+"""运营审核台的测试:鉴权、举报处理、照片审核、用户管理与广场治理。
+
+覆盖场景:
+    - 鉴权:匿名跳登录、非运营 403、运营可进,登录表单拒绝非运营账号;
+    - 举报列表与详情:默认只看待处理、状态过滤、详情展示双方;
+    - 举报处理:标记已处理、重复处理保留首次结果、快捷封禁(必须填原因)、
+      处理与封禁都只通知举报者一次;
+    - 照片审核:默认只看待审核、通过记录审核人、驳回已过审照片会掉回未完善、
+      页面陈旧的照片 id 记入跳过数;
+    - 用户搜索与详情:手机号精确匹配、昵称模糊匹配、部分手机号不匹配;
+    - 用户封禁:轻封禁只发通知、重封禁发通知并踢 IM、必须填原因、
+      解封重算状态并清空原因;
+    - 封禁日志:展示历史、按动作过滤;
+    - 广场治理:动态列表与删除、非运营 403;
+    - 动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知。
+"""
+
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -10,7 +27,15 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
 def make_staff(phone="13700137000", password="ops-pass-123"):
-    """运营账号 = is_staff 用户(create_user 默认不设密码,必须显式 set_password)。"""
+    """运营账号 = is_staff 用户(create_user 默认不设密码,必须显式 set_password)。
+
+    Args:
+        phone: 运营账号手机号。
+        password: 登录密码。
+
+    Returns:
+        建好的运营账号。
+    """
     user = User.objects.create_user(phone=phone, is_staff=True)
     user.set_password(password)
     user.save(update_fields=["password"])
@@ -18,6 +43,8 @@ def make_staff(phone="13700137000", password="ops-pass-123"):
 
 
 class OpsAuthTests(TestCase):
+    """审核台鉴权:匿名跳登录、非运营 403、运营可进,登录表单拒绝非运营。"""
+
     def setUp(self):
         self.staff = make_staff()
         self.plain = User.objects.create_user(phone="13800138001")
@@ -54,6 +81,8 @@ class OpsAuthTests(TestCase):
 
 
 class ReportListTests(TestCase):
+    """举报列表页:默认只看待处理,支持按状态过滤。"""
+
     def setUp(self):
         self.client.force_login(make_staff())
         self.a = User.objects.create_user(phone="13800138000")
@@ -78,6 +107,8 @@ class ReportListTests(TestCase):
 
 
 class ReportDetailTests(TestCase):
+    """举报详情页:同时展示举报人与被举报人的信息。"""
+
     def setUp(self):
         self.client.force_login(make_staff())
         self.a = User.objects.create_user(phone="13800138000")
@@ -94,6 +125,8 @@ class ReportDetailTests(TestCase):
 
 
 class ReportActionTests(TestCase):
+    """举报处理动作:标记已处理、重复处理保留首次、快捷封禁与通知次数。"""
+
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -172,6 +205,8 @@ class ReportActionTests(TestCase):
 
 
 class OpsPhotoReviewTests(TestCase):
+    """照片审核:默认只看待审核、通过记录审核人、驳回会掉回未完善、陈旧 id 计跳过。"""
+
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -218,6 +253,8 @@ class OpsPhotoReviewTests(TestCase):
 
 
 class OpsUserSearchTests(TestCase):
+    """用户搜索:手机号精确匹配、昵称模糊匹配,部分手机号不匹配。"""
+
     def setUp(self):
         self.client.force_login(make_staff())
         self.alice = User.objects.create_user(phone="13800138000")
@@ -237,6 +274,8 @@ class OpsUserSearchTests(TestCase):
 
 
 class OpsUserDetailTests(TestCase):
+    """用户详情页:展示资料、举报与拉黑关系。"""
+
     def setUp(self):
         self.client.force_login(make_staff())
         self.alice = User.objects.create_user(phone="13800138000")
@@ -254,6 +293,8 @@ class OpsUserDetailTests(TestCase):
 
 
 class OpsUserBanTests(TestCase):
+    """用户封禁动作:轻封禁只发通知、重封禁发通知并踢 IM、必填原因、解封重算状态。"""
+
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -311,6 +352,8 @@ class OpsUserBanTests(TestCase):
 
 
 class OpsLogsTests(TestCase):
+    """封禁日志页:展示历史记录,支持按动作过滤。"""
+
     def setUp(self):
         self.client.force_login(make_staff())
         self.user = User.objects.create_user(phone="13900139000")
@@ -330,6 +373,8 @@ class OpsLogsTests(TestCase):
 
 
 class OpsPostsTests(TestCase):
+    """广场治理:动态列表展示与删除,非运营账号 403。"""
+
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)
@@ -356,6 +401,8 @@ class OpsPostsTests(TestCase):
 
 
 class OpsPostReportsTests(TestCase):
+    """动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知。"""
+
     def setUp(self):
         self.staff = make_staff()
         self.client.force_login(self.staff)

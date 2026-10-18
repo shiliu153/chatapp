@@ -1,4 +1,12 @@
-"""接口文档覆盖率:URLconf 与 docs/api 信息行的双向比对(逻辑层,门禁测试在 tests.py)。"""
+"""接口文档覆盖率:URLconf 与 ``docs/api`` 信息行的双向比对。
+
+本模块只负责解析与比对逻辑,门禁断言在 ``config/tests.py::ApiDocsCoverageTests``。
+
+设计要点:
+    「信息行」指 ``> `GET` `/api/v1/...` · ...`` 形式的引用行。解析时会剥离
+    markdown 装饰符(``>``、反引号、加粗星号)并跳过 ``` 代码围栏,避免
+    ``docs/api/README.md`` 里的模板样例被误当成真实接口记录。
+"""
 
 from __future__ import annotations
 
@@ -23,6 +31,14 @@ FENCE_RE = re.compile(r"^\s*```")
 
 
 def normalize_route(route: str) -> str:
+    """把 Django 路径参数统一成文档里使用的 ``{name}`` 写法。
+
+    Args:
+        route: URLconf 里的原始路径,如 ``me/photos/<int:photo_id>``。
+
+    Returns:
+        归一化后的路径,如 ``me/photos/{photo_id}``。
+    """
     return ROUTE_PARAM_RE.sub(r"{\1}", route)
 
 
@@ -35,6 +51,11 @@ def _methods_of(view) -> list[str]:
 
 
 def endpoints_from_urlconf() -> set[tuple[str, str]]:
+    """枚举 URLconf 中全部可调用的接口。
+
+    Returns:
+        ``{(HTTP 方法, 归一化路径)}`` 集合,仅含 ``/api/v1`` 下的接口。
+    """
     from config import api_urls
 
     found: set[tuple[str, str]] = set()
@@ -63,6 +84,14 @@ def _iter_doc_lines(text: str):
 
 
 def endpoints_from_docs(docs_dir: Path = DOCS_DIR) -> dict[tuple[str, str], str]:
+    """从 ``docs/api`` 各分册里解析出已记录的接口信息行。
+
+    Args:
+        docs_dir: 文档目录,默认 ``docs/api``。
+
+    Returns:
+        ``{(HTTP 方法, 路径): "文件名:行号"}``,保留位置信息以便报错时直接定位。
+    """
     documented: dict[tuple[str, str], str] = {}
     for md in sorted(Path(docs_dir).rglob("*.md")):
         for lineno, line in _iter_doc_lines(md.read_text(encoding="utf-8")):
@@ -74,6 +103,14 @@ def endpoints_from_docs(docs_dir: Path = DOCS_DIR) -> dict[tuple[str, str], str]
 
 
 def find_problems(docs_dir: Path | None = None) -> list[str]:
+    """双向比对 URLconf 与文档,列出全部不一致。
+
+    Args:
+        docs_dir: 文档目录;``None`` 表示使用默认的 ``docs/api``。
+
+    Returns:
+        问题描述列表;空列表表示文档与接口完全对齐。
+    """
     real = endpoints_from_urlconf()
     documented = endpoints_from_docs(docs_dir or DOCS_DIR)
 
