@@ -16,7 +16,7 @@ from moderation.models import ReportStatus
 from moderation.services import blocked_user_ids, notify_report_handled
 from users.models import ProfileStatus
 
-from .models import Post, PostLike, PostReport
+from .models import Post, PostComment, PostLike, PostReport
 
 
 def visible_posts(viewer):
@@ -62,7 +62,7 @@ def delete_post(post) -> None:
     post.delete()
 
 
-def notify_post_commented(comment) -> None:
+def notify_comment_created(comment) -> None:
     """评论创建后调用:给动态作者发通知(经任务队列)。
 
     评论者是作者本人时不入队(自己评自己不打扰)。
@@ -73,3 +73,41 @@ def notify_post_commented(comment) -> None:
     if comment.post.author_id == comment.author_id:
         return
     transaction.on_commit(lambda: im_tasks.post_commented.delay(comment.id), robust=True)
+
+
+def visible_comments(post, viewer):
+    """某条动态下对 ``viewer`` 可见的评论与回复,按时间正序。
+
+    Args:
+        post: 目标动态。
+        viewer: 当前浏览者。
+
+    Returns:
+        排除双向拉黑与重封禁作者后的评论查询集;作者与被回复者已预取。
+    """
+    blocked = blocked_user_ids(viewer)
+    return (post.comments
+            .exclude(author_id__in=blocked)
+            .exclude(author__profile__status=ProfileStatus.BANNED_HEAVY)
+            .select_related("author__profile", "reply_to__profile")
+            .prefetch_related("author__photos"))
+
+
+def create_comment(post, author, text, parent=None):
+    """创建评论或回复,并把层级归一到两级。
+
+    Args:
+        post: 被评论的动态。
+        author: 评论者。
+        text: 已通过校验的正文。
+        parent: 被回复的评论(调用方已确认它属于 ``post``);``None`` 表示顶级评论。
+
+    Returns:
+        新建的 ``PostComment``;回复的 ``parent`` 一定是顶级评论,
+        ``reply_to`` 是真正被回复的那个人。
+    """
+    if parent is None:
+        return PostComment.objects.create(post=post, author=author, text=text)
+    root = parent.parent or parent
+    return PostComment.objects.create(post=post, author=author, text=text,
+                                      parent=root, reply_to=parent.author)

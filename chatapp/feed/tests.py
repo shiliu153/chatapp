@@ -477,3 +477,66 @@ class PostReportTests(FeedApiMixin, APITestCase):
                                               format="json").status_code, 201)
             self.assertEqual(self.client.post(f"/api/v1/posts/{other.id}/report",
                                               {"type": "other"}, format="json").status_code, 429)
+
+
+class PostCommentThreadTests(FeedApiMixin, APITestCase):
+    """楼中楼:归一化、内嵌回复、展开接口、删除与提醒分流。"""
+
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.author = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.author, nickname="楼主")
+        self.third = User.objects.create_user(phone="13700137000")
+        Profile.objects.create(user=self.third, nickname="路人")
+        self.post = Post.objects.create(author=self.author, text="楼中楼")
+        self.login(self.me)
+        self.url = f"/api/v1/posts/{self.post.id}/comments"
+
+    def _comment(self, text, author=None, parent=None):
+        """直接落一条评论/回复,跳过接口(构造场景用)。
+
+        Args:
+            text: 正文。
+            author: 作者,默认 ``self.me``。
+            parent: 父评论,``None`` 表示顶级评论。
+
+        Returns:
+            新建的评论实例。
+        """
+        return PostComment.objects.create(
+            post=self.post, author=author or self.me, text=text, parent=parent,
+            reply_to=parent.author if parent is not None else None)
+
+    def test_reply_to_top_level_sets_parent_and_reply_to(self):
+        root = self._comment("一楼", author=self.author)
+        resp = self.client.post(self.url, {"text": "回复一楼", "parent_id": root.id},
+                                format="json")
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["parent_id"], root.id)
+        created = PostComment.objects.get(id=resp.json()["id"])
+        self.assertEqual(created.parent_id, root.id)
+        self.assertEqual(created.reply_to_id, self.author.id)
+
+    def test_reply_to_reply_is_normalized_to_root(self):
+        root = self._comment("一楼", author=self.author)
+        reply = self._comment("二楼", author=self.third, parent=root)
+        resp = self.client.post(self.url, {"text": "回复二楼", "parent_id": reply.id},
+                                format="json")
+        self.assertEqual(resp.status_code, 201)
+        created = PostComment.objects.get(id=resp.json()["id"])
+        self.assertEqual(created.parent_id, root.id)          # 归一到顶级评论
+        self.assertEqual(created.reply_to_id, self.third.id)  # 提醒被回复者
+        self.assertEqual(root.replies.count(), 2)
+
+    def test_parent_from_another_post_404(self):
+        other_post = Post.objects.create(author=self.author, text="别的")
+        foreign = PostComment.objects.create(post=other_post, author=self.author, text="外")
+        resp = self.client.post(self.url, {"text": "x", "parent_id": foreign.id},
+                                format="json")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_missing_parent_404(self):
+        resp = self.client.post(self.url, {"text": "x", "parent_id": 999999}, format="json")
+        self.assertEqual(resp.status_code, 404)

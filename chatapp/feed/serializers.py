@@ -78,10 +78,11 @@ class PostCommentSerializer(serializers.ModelSerializer):
     """评论的对外表示,作者信息与动态卡同源。"""
 
     author = serializers.SerializerMethodField()
+    parent_id = serializers.IntegerField(read_only=True, allow_null=True)
 
     class Meta:
         model = PostComment
-        fields = ["id", "author", "text", "created_at"]
+        fields = ["id", "author", "text", "parent_id", "created_at"]
 
     def get_author(self, comment):
         """取评论作者的简要信息。
@@ -143,9 +144,10 @@ class PostCreateSerializer(serializers.Serializer):
 
 
 class PostCommentCreateSerializer(serializers.Serializer):
-    """发表评论的入参。"""
+    """发表评论的入参;``parent_id`` 非空表示这是一条回复。"""
 
     text = serializers.CharField(max_length=200)
+    parent_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
     def validate_text(self, value):
         """校验评论内容:违禁词检查、去空白、非空。
