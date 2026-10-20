@@ -30,7 +30,7 @@ function openMenu(message: ChatMessage, event: MouseEvent) {
   menu.value = { message, x: event.clientX, y: event.clientY }
 }
 
-async function onMenuAction(action: 'copy' | 'delete' | 'retry') {
+async function onMenuAction(action: 'copy' | 'delete' | 'retry' | 'recall') {
   const target = menu.value?.message
   menu.value = null
   if (!target) return
@@ -38,6 +38,10 @@ async function onMenuAction(action: 'copy' | 'delete' | 'retry') {
     await navigator.clipboard?.writeText(target.text).catch(() => {})
     copied.value = true
     setTimeout(() => (copied.value = false), 1500)
+    return
+  }
+  if (action === 'recall') {
+    await store.revokeMessage(target).catch(() => {})
     return
   }
   if (action === 'delete') {

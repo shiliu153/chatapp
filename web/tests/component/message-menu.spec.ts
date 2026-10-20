@@ -40,6 +40,23 @@ describe('MessageMenu', () => {
     expect(w.find('.message-menu__retry').exists()).toBe(true)
   })
 
+  it('自己 2 分钟内的消息显示「撤回」', async () => {
+    const w = mount(MessageMenu, {
+      props: { message: { ...message, timestamp: Date.now() - 1000 }, x: 0, y: 0 },
+    })
+    expect(w.find('.message-menu__recall').exists()).toBe(true)
+
+    await w.find('.message-menu__recall').trigger('click')
+    expect(w.emitted('action')?.[0]).toEqual(['recall'])
+  })
+
+  it('超过 2 分钟不显示「撤回」', () => {
+    const w = mount(MessageMenu, {
+      props: { message: { ...message, timestamp: Date.now() - 3 * 60 * 1000 }, x: 0, y: 0 },
+    })
+    expect(w.find('.message-menu__recall').exists()).toBe(false)
+  })
+
   it('按 Esc 关闭', async () => {
     const w = mount(MessageMenu, {
       props: { message, x: 0, y: 0 },

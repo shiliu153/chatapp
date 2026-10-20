@@ -2,9 +2,10 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
+import { canRecall } from './recall'
 
 const props = defineProps<{ message: ChatMessage; x: number; y: number }>()
-const emit = defineEmits<{ close: []; action: ['copy' | 'delete' | 'retry'] }>()
+const emit = defineEmits<{ close: []; action: ['copy' | 'delete' | 'retry' | 'recall'] }>()
 
 const MENU_WIDTH = 160
 
@@ -32,6 +33,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <div class="message-menu" :style="style" role="menu">
+    <button
+      v-if="canRecall(props.message)"
+      type="button"
+      class="message-menu__recall"
+      role="menuitem"
+      @click="emit('action', 'recall')"
+    >
+      撤回
+    </button>
     <button
       v-if="canCopy"
       type="button"

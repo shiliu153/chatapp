@@ -81,4 +81,22 @@ describe('ChatPage', () => {
     await w.find('.message-bubble__retry').trigger('click')
     expect(store.resend).toHaveBeenCalled()
   })
+
+  it('自己 2 分钟内的消息:菜单点「撤回」→ 调 store', async () => {
+    const { w, store } = mountPage([msg({ isSelf: true, timestamp: Date.now() })])
+    store.revokeMessage = vi.fn(async () => {})
+    await flushPromises()
+
+    await w.find('.message-bubble__more').trigger('click')
+    await w.find('.message-menu__recall').trigger('click')
+    await flushPromises()
+
+    expect(store.revokeMessage).toHaveBeenCalledWith(expect.objectContaining({ msgId: 'm1' }))
+  })
+
+  it('已撤回的消息渲染成居中灰字', async () => {
+    const { w } = mountPage([msg({ isRevoked: true, isSelf: true })])
+    await flushPromises()
+    expect(w.text()).toContain('你撤回了一条消息')
+  })
 })
