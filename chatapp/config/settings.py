@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "ops",
     "notifications",
     "feed",
+    "feedback",
 ]
 
 MIDDLEWARE = [
@@ -201,6 +202,7 @@ AUTH_USER_MODEL = "accounts.User"
 SMS_SEND_IP_RATE = os.getenv("SMS_SEND_IP_RATE", "200/hour" if DEBUG else "20/hour")
 SMS_VERIFY_IP_RATE = os.getenv("SMS_VERIFY_IP_RATE", "600/hour" if DEBUG else "60/hour")
 PRESENCE_RATE = os.getenv("PRESENCE_RATE", "600/hour")   # 在线状态轮询:一个前台页面 ≈ 80/h
+FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -221,6 +223,7 @@ REST_FRAMEWORK = {
         "post_comment": "60/day",
         "post_report": "20/day",
         "presence": PRESENCE_RATE,
+        "feedback": FEEDBACK_RATE,
     },
 }
 
