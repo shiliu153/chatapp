@@ -6,13 +6,13 @@
 
 [![Backend CI](https://github.com/yourname/chatapp/actions/workflows/backend.yml/badge.svg?branch=master)](../../actions/workflows/backend.yml)
 [![App CI](https://github.com/yourname/chatapp/actions/workflows/app.yml/badge.svg?branch=master)](../../actions/workflows/app.yml)
-[![Backend Tests](https://img.shields.io/badge/backend%20tests-392%20passed-brightgreen)](#测试策略)
-[![Flutter Tests](https://img.shields.io/badge/flutter%20tests-347%20passed-brightgreen)](#测试策略)
+[![Backend Tests](https://img.shields.io/badge/backend%20tests-409%20passed-brightgreen)](#测试策略)
+[![Flutter Tests](https://img.shields.io/badge/flutter%20tests-355%20passed-brightgreen)](#测试策略)
 [![Flutter Analyze](https://img.shields.io/badge/flutter%20analyze-0%20issues-brightgreen)](#测试策略)
 [![API Docs](https://img.shields.io/badge/API%20docs-34%20endpoints-blue)](docs/api/README.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-<sub>测试徽章数字为交付时的实测值:后端 `Ran 392 tests ... OK` · Flutter `All tests passed! (+347)` · `flutter analyze` No issues found</sub>
+<sub>测试徽章数字为交付时的实测值:后端 `Ran 409 tests ... OK` · Flutter `All tests passed! (+355)` · `flutter analyze` No issues found</sub>
 
 **中文** · [English Abstract](#english-abstract)
 
@@ -47,11 +47,11 @@
 
 | 维度 | 规模 |
 |---|---|
-| 后端 | Django 5.2 LTS + DRF,8 个业务 app,约 **8.0k 行 Python** |
+| 后端 | Django 5.2 LTS + DRF,9 个业务 app,约 **8.0k 行 Python** |
 | 前端 | Flutter 3.47,11 个 feature 模块,约 **8.8k 行 Dart** |
 | 网页端 | Vue 3 + TypeScript,PC 浏览器端,约 **6.5k 行 TS/Vue** |
-| 测试 | **392** 个后端用例 + **347** 个 Flutter 用例 + **315** 个网页端用例(65 个文件)+ **8** 条端到端场景 |
-| 接口 | **34** 个 REST 接口,配 **10 册**对外交付级接口文档 |
+| 测试 | **409** 个后端用例 + **355** 个 Flutter 用例(96 个文件)+ **320** 个网页端用例(68 个文件)+ **8** 条端到端场景 |
+| 接口 | **35** 个 REST 接口,配 **11 册**对外交付级接口文档 |
 | 文档 | 设计 spec + 实施计划 + 踩坑手册共 **50+ 篇** |
 
 **为什么值得一看**:除了功能本身,这个项目里比较少见的是
@@ -89,8 +89,9 @@
 - 广场动态流:发布、点赞、评论
 - **在线状态是公开信息**(不依赖配对):120 秒内有认证请求即视为在线(客户端 45 秒心跳)
 - 举报与拉黑;两级封禁:`banned_light` 只禁滑卡,`banned_heavy` 全域 `403`(全局权限类自动覆盖新接口)
-- **运营审核台**:举报队列、照片审核、封禁操作(服务端渲染页面,浏览器直接登录使用)
+- **运营审核台**:举报队列、照片审核、意见反馈、封禁操作(服务端渲染页面,浏览器直接登录使用)
 - 合规:用户协议 / 隐私政策弹窗、年龄门槛
+- **设置页**:意见反馈(落库 + 运营台标记处理)、关于/版本、通知设置骨架(推送上线前只读)
 
 ### 网页端(PC 浏览器)
 
@@ -245,7 +246,7 @@ flutter build apk --release --dart-define=API_BASE=https://your-domain/api/v1
 验证码锁定、封禁分级、单设备登录的三条退出路径,都有对应用例。
 所有 IM 副作用一律 mock(`im.tasks.*.delay`),测试不依赖腾讯云。
 
-**前端**:`flutter test` —— **247 个用例全绿**,分布在 63 个测试文件里。
+**前端**:`flutter test` —— **355 个用例全绿**,分布在 96 个测试文件里。
 测试形态是 **「真实 provider + 假网络 + 假 IM」**:
 
 | 替身 | 文件 | 作用 |
@@ -323,7 +324,7 @@ chat_app/
 │   │   ├── router.dart         #   go_router 路由表
 │   │   └── features/           #   auth onboarding discovery chat
 │   │                           #   square profile moderation presence settings shell legal
-│   ├── test/                   #   63 个测试文件 + support/(假网络、假 IM、harness)
+│   ├── test/                   #   96 个测试文件 + support/(假网络、假 IM、harness)
 │   └── assets/fonts/           #   Space Grotesk + OFL 许可
 │
 ├── chatapp/                    # Django 后端
@@ -351,7 +352,7 @@ chat_app/
 │   └── public/fonts/           #   与 App 同源的 Space Grotesk
 │
 ├── docs/
-│   ├── api/                    #   对外交付级接口文档(10 册 / 32 接口)
+│   ├── api/                    #   对外交付级接口文档(11 册 / 35 接口)
 │   ├── pitfalls/               #   踩坑手册(按主题分册)
 │   └── superpowers/
 │       ├── specs/              #   设计文档(先定规则再写代码)
@@ -522,8 +523,8 @@ enforced across the whole stack and backed by tests:
 - **UI as a written design language** ("Heartbeat"): a token-only palette/type/spacing system
   where the brand pink and gradient are rationed to one focal point per screen.
 
-Testing follows the same philosophy: **~8.5k lines of tests** (392 backend cases, 347 Flutter cases
-across 65 test files) where UI tests run the **real Riverpod provider tree and real router** against
+Testing follows the same philosophy: **~8.5k lines of tests** (409 backend cases, 355 Flutter cases
+across 96 test files) where UI tests run the **real Riverpod provider tree and real router** against
 fake network and fake IM adapters — so the tests exercise production wiring, not mocks of it.
 
 The repository was sanitized before being open-sourced: server addresses, credentials, personal

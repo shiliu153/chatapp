@@ -1,6 +1,6 @@
 # 设置页补齐 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 本项目全局约定:superpowers 类任务一律内联执行,不派发子 agent。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking. 本项目全局约定:superpowers 类任务一律内联执行,不派发子 agent。
 
 **Goal:** 补齐设置页的意见反馈、通知设置骨架与关于页,并让反馈真正落库、可被运营处理。
 
@@ -43,7 +43,7 @@
 - Produces: `POST /api/v1/feedback` → `201 {id, type, content, contact, created_at}`
 - Produces: `FeedbackThrottle`(scope `feedback`)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `chatapp/feedback/tests.py`:
 
@@ -159,7 +159,7 @@ class FeedbackCreateTests(APITestCase):
         self.assertEqual(Feedback.objects.count(), 0)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd chatapp
@@ -168,7 +168,7 @@ python manage.py test feedback
 
 Expected: FAIL(`ModuleNotFoundError: No module named 'feedback'`)。
 
-- [ ] **Step 3: 建 app 骨架与模型**
+- [x] **Step 3: 建 app 骨架与模型**
 
 新建 `chatapp/feedback/__init__.py`(空文件)、`chatapp/feedback/migrations/__init__.py`(空文件)。
 
@@ -251,7 +251,7 @@ class Feedback(models.Model):
         return f"feedback#{self.pk}({self.user_id}:{self.type})"
 ```
 
-- [ ] **Step 4: 注册 app 并生成迁移**
+- [x] **Step 4: 注册 app 并生成迁移**
 
 `chatapp/config/settings.py` 的 `INSTALLED_APPS` 末尾追加:
 
@@ -279,7 +279,7 @@ python manage.py makemigrations feedback
 python manage.py migrate
 ```
 
-- [ ] **Step 5: 实现序列化器、限流、视图与路由**
+- [x] **Step 5: 实现序列化器、限流、视图与路由**
 
 新建 `chatapp/feedback/serializers.py`:
 
@@ -397,7 +397,7 @@ urlpatterns = [
     path("", include("feedback.urls")),
 ```
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 cd chatapp
@@ -406,7 +406,7 @@ python manage.py test feedback
 
 Expected: PASS(12 条)。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add chatapp/feedback chatapp/config/settings.py chatapp/config/api_urls.py
@@ -425,7 +425,7 @@ git commit -m "feat(feedback): 意见反馈模型与提交接口"
 **Interfaces:**
 - Consumes: Task 1 的 `POST /api/v1/feedback`。
 
-- [ ] **Step 1: 新建 `docs/api/feedback.md`**
+- [x] **Step 1: 新建 `docs/api/feedback.md`**
 
 ```markdown
 # 意见反馈
@@ -498,7 +498,7 @@ curl -X POST "http://<域名>/api/v1/feedback" \
 | 429 | 429 | 提交过于频繁(5 次/小时) | 稍后再试 |
 ```
 
-- [ ] **Step 2: 更新 `docs/api/README.md`**
+- [x] **Step 2: 更新 `docs/api/README.md`**
 
 目录表在 `moderation.md` 后插入:
 
@@ -512,7 +512,7 @@ curl -X POST "http://<域名>/api/v1/feedback" \
 | POST | `/api/v1/feedback` | 提交意见反馈 | [feedback](feedback.md) |
 ```
 
-- [ ] **Step 3: 更新 `CLAUDE.md` 接口表**
+- [x] **Step 3: 更新 `CLAUDE.md` 接口表**
 
 在 `/posts` 系列那行前插入:
 
@@ -520,7 +520,7 @@ curl -X POST "http://<域名>/api/v1/feedback" \
 | `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
 ```
 
-- [ ] **Step 4: 跑文档门禁**
+- [x] **Step 4: 跑文档门禁**
 
 ```bash
 cd chatapp
@@ -529,7 +529,7 @@ python manage.py test config.tests.ApiDocsCoverageTests
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add docs/api/feedback.md docs/api/README.md CLAUDE.md
@@ -553,7 +553,7 @@ git commit -m "docs(api): 补意见反馈接口"
 - Consumes: Task 1 的 `Feedback` / `FeedbackStatus` / `FeedbackType`。
 - Produces: `GET /ops/feedback/`、`POST /ops/feedback/<id>/handle`、`pending_feedback_count`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/ops/tests.py` 末尾追加(顶部导入补 `from feedback.models import Feedback, FeedbackStatus, FeedbackType`):
 
@@ -607,7 +607,7 @@ class FeedbackOpsTests(TestCase):
         self.assertEqual(self.client.get("/ops/feedback/").status_code, 403)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd chatapp
@@ -616,7 +616,7 @@ python manage.py test ops.tests.FeedbackOpsTests
 
 Expected: FAIL(404)。
 
-- [ ] **Step 3: 实现视图与路由**
+- [x] **Step 3: 实现视图与路由**
 
 `chatapp/ops/views.py` 顶部补导入:
 
@@ -697,7 +697,7 @@ def feedback_handle(request, feedback_id):
          name="feedback_handle"),
 ```
 
-- [ ] **Step 4: 实现角标与模板**
+- [x] **Step 4: 实现角标与模板**
 
 `chatapp/ops/context_processors.py` 顶部导入:
 
@@ -781,7 +781,7 @@ from feedback.models import Feedback, FeedbackStatus
 </article>
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 cd chatapp
@@ -790,7 +790,7 @@ python manage.py test ops.tests.FeedbackOpsTests
 
 Expected: PASS(5 条)。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/ops
@@ -816,7 +816,7 @@ git commit -m "feat(ops): 意见反馈队列与标记已处理"
 - Produces: `appDisplayName` / `appVersion` / `appIcpNumber`
 - Produces: 路由 `/settings/notifications`、`/settings/about`;设置页 key `settings.row.notifications` / `settings.row.feedback` / `settings.row.about`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `app/test/core/app_info_test.dart`:
 
@@ -889,7 +889,7 @@ void main() {
     expect(find.byKey(const Key('settings.row.about')), findsOneWidget);
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -898,7 +898,7 @@ cd app
 
 Expected: FAIL(`app_info.dart` / 页面不存在)。
 
-- [ ] **Step 3: 实现版本常量与两个静态页**
+- [x] **Step 3: 实现版本常量与两个静态页**
 
 新建 `app/lib/core/app_info.dart`:
 
@@ -1087,7 +1087,7 @@ class AboutPage extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 4: 设置页重排与路由**
+- [x] **Step 4: 设置页重排与路由**
 
 `app/lib/features/settings/settings_page.dart` 的第一张 `AppRowGroup` 改为:
 
@@ -1148,7 +1148,7 @@ import 'features/settings/notification_settings_page.dart';
 
 > `FeedbackPage` 与反馈入口在 Task 5 加入;本 Task 只做通知与关于,保证每个 Task 结束时能编译、能跑通。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 cd app
@@ -1157,7 +1157,7 @@ cd app
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add app/lib/core/app_info.dart app/lib/features/settings/notification_settings_page.dart app/lib/features/settings/about_page.dart app/lib/features/settings/settings_page.dart app/lib/router.dart app/test/core/app_info_test.dart app/test/features/settings/notification_settings_page_test.dart app/test/features/settings/about_page_test.dart app/test/features/settings/settings_page_test.dart
@@ -1182,7 +1182,7 @@ git commit -m "feat(app): 设置页三段式 + 通知骨架 + 关于页"
 - Produces: `SettingsRepository.submitFeedback({required String type, required String content, String contact})`
 - Produces: `FeedbackPage` / 路由 `/settings/feedback`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `app/test/features/settings/settings_repository_test.dart` 末尾追加:
 
@@ -1277,7 +1277,7 @@ void main() {
     await tester.tap(find.text('问题反馈'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.byKey(const Key('feedback.content')), '消息偶尔重复出现');
+        find.byKey(const Key('feedback.content')), '消息偶尔重复出现两次');
     await tester.enterText(find.byKey(const Key('feedback.contact')), 'a@b.com');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('feedback.submit')));
@@ -1288,7 +1288,7 @@ void main() {
     expect(request.path, '/feedback');
     expect(request.data, {
       'type': 'bug',
-      'content': '消息偶尔重复出现',
+      'content': '消息偶尔重复出现两次',
       'contact': 'a@b.com',
     });
 
@@ -1301,20 +1301,20 @@ void main() {
     await pumpPage(tester);
 
     await tester.enterText(
-        find.byKey(const Key('feedback.content')), '消息偶尔重复出现');
+        find.byKey(const Key('feedback.content')), '消息偶尔重复出现两次');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('feedback.submit')));
     await tester.pumpAndSettle();
 
     expect(find.text('操作太快了,休息一下吧'), findsOneWidget);
-    expect(find.text('消息偶尔重复出现'), findsOneWidget);
+    expect(find.text('消息偶尔重复出现两次'), findsOneWidget);
 
     await drainToast(tester);
   });
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -1323,7 +1323,7 @@ cd app
 
 Expected: FAIL(`FeedbackPage` / `submitFeedback` 未定义)。
 
-- [ ] **Step 3: 实现仓库方法与页面**
+- [x] **Step 3: 实现仓库方法与页面**
 
 `app/lib/features/settings/settings_repository.dart` 追加:
 
@@ -1493,7 +1493,7 @@ import 'features/settings/feedback_page.dart';
     expect(find.byKey(const Key('settings.row.feedback')), findsOneWidget);
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app
@@ -1502,7 +1502,7 @@ cd app
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/settings/settings_repository.dart app/lib/features/settings/feedback_page.dart app/lib/features/settings/settings_page.dart app/lib/router.dart app/test/features/settings/feedback_page_test.dart app/test/features/settings/settings_repository_test.dart app/test/features/settings/settings_page_test.dart
@@ -1516,6 +1516,7 @@ git commit -m "feat(app): 意见反馈页与提交仓库方法"
 **Files:**
 - Modify: `web/package.json`
 - Modify: `web/vite.config.ts`
+- Modify: `web/vitest.config.ts`
 - Modify: `web/src/vite-env.d.ts`
 - Create: `web/src/features/settings/appInfo.ts`
 - Create: `web/src/features/settings/NotificationSettingsPage.vue`
@@ -1530,7 +1531,7 @@ git commit -m "feat(app): 意见反馈页与提交仓库方法"
 - Produces: `APP_NAME` / `APP_VERSION` / `APP_ICP`
 - Produces: 路由 `settings-notifications`、`settings-about`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `web/tests/component/notification-settings-page.spec.ts`:
 
@@ -1598,7 +1599,7 @@ describe('AboutPage', () => {
   })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd web
@@ -1607,7 +1608,7 @@ npm run test:run -- tests/component/notification-settings-page.spec.ts tests/com
 
 Expected: FAIL(组件不存在)。
 
-- [ ] **Step 3: 版本注入**
+- [x] **Step 3: 版本注入**
 
 `web/package.json` 的 `"version"` 改为 `"1.0.0"`。
 
@@ -1625,6 +1626,21 @@ const pkg = JSON.parse(
 
 ```ts
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+```
+
+`web/vitest.config.ts` 同样补(测试用独立配置,不加会在 Vitest 里报 `__APP_VERSION__ is not defined`):
+
+```ts
+import { readFileSync } from 'node:fs'
+
+const pkg = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf-8'),
+) as { version: string }
+
+export default defineConfig({
+  plugins: [vue()],
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+  // ...原有配置
 ```
 
 `web/src/vite-env.d.ts` 末尾追加:
@@ -1645,7 +1661,7 @@ export const APP_VERSION = __APP_VERSION__
 export const APP_ICP = ''
 ```
 
-- [ ] **Step 4: 实现两个静态页**
+- [x] **Step 4: 实现两个静态页**
 
 新建 `web/src/features/settings/NotificationSettingsPage.vue`:
 
@@ -1898,7 +1914,7 @@ import { APP_ICP, APP_NAME, APP_VERSION } from './appInfo'
 </style>
 ```
 
-- [ ] **Step 5: 设置页重排与路由**
+- [x] **Step 5: 设置页重排与路由**
 
 `web/src/features/settings/SettingsPage.vue` 把 `entries` 替换为:
 
@@ -1970,7 +1986,7 @@ const groups = [
 
 > 「意见反馈」路由在 Task 7 加入,保证本 Task 结束时可编译、无死链。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 cd web
@@ -1979,7 +1995,7 @@ npm run test:run -- tests/component/notification-settings-page.spec.ts tests/com
 
 Expected: PASS。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add web/package.json web/vite.config.ts web/src/vite-env.d.ts web/src/features/settings/appInfo.ts web/src/features/settings/NotificationSettingsPage.vue web/src/features/settings/AboutPage.vue web/src/features/settings/SettingsPage.vue web/src/router/routes.ts web/tests/component/notification-settings-page.spec.ts web/tests/component/about-page.spec.ts web/tests/component/settings-page.spec.ts
@@ -2000,7 +2016,7 @@ git commit -m "feat(web): 设置页三段式 + 通知骨架 + 关于页"
 - Consumes: `http`、`parseApiError`。
 - Produces: `submitFeedback(payload)` / 路由 `settings-feedback`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `web/tests/component/feedback-page.spec.ts`:
 
@@ -2052,17 +2068,17 @@ describe('FeedbackPage', () => {
     const { w } = await mountPage()
 
     await w.findAll('.feedback__type')[1].trigger('click')
-    await w.find('.feedback__content').setValue('消息偶尔重复出现')
+    await w.find('.feedback__content').setValue('消息偶尔重复出现两次')
     await w.find('.feedback__contact input').setValue('a@b.com')
     await w.find('.feedback__submit').trigger('click')
     await flushPromises()
 
     expect(body).toEqual({
       type: 'bug',
-      content: '消息偶尔重复出现',
+      content: '消息偶尔重复出现两次',
       contact: 'a@b.com',
     })
-    expect(w.find('.feedback__done').exists()).toBe(true)
+    expect(w.find('.feedback--done').exists()).toBe(true)
     expect(w.text()).toContain('已收到你的反馈')
   })
 
@@ -2077,19 +2093,19 @@ describe('FeedbackPage', () => {
     )
     const { w } = await mountPage()
 
-    await w.find('.feedback__content').setValue('消息偶尔重复出现')
+    await w.find('.feedback__content').setValue('消息偶尔重复出现两次')
     await w.find('.feedback__submit').trigger('click')
     await flushPromises()
 
     expect(w.find('.feedback__error').text()).toContain('操作太快了')
     expect((w.find('.feedback__content').element as HTMLTextAreaElement).value).toBe(
-      '消息偶尔重复出现',
+      '消息偶尔重复出现两次',
     )
   })
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd web
@@ -2098,7 +2114,7 @@ npm run test:run -- tests/component/feedback-page.spec.ts
 
 Expected: FAIL(`FeedbackPage.vue` 不存在)。
 
-- [ ] **Step 3: 实现 api 与页面**
+- [x] **Step 3: 实现 api 与页面**
 
 新建 `web/src/api/settings.ts`:
 
@@ -2357,7 +2373,7 @@ async function onSubmit() {
       '意见反馈',
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd web
@@ -2366,7 +2382,7 @@ npm run test:run -- tests/component/feedback-page.spec.ts
 
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/api/settings.ts web/src/features/settings/FeedbackPage.vue web/src/router/routes.ts web/tests/component/feedback-page.spec.ts
@@ -2380,7 +2396,7 @@ git commit -m "feat(web): 意见反馈页与提交 api"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-10-20-settings-completion.md`(勾选全部 checkbox,补执行记录)
 
-- [ ] **Step 1: 后端全量**
+- [x] **Step 1: 后端全量**
 
 ```bash
 cd chatapp
@@ -2389,7 +2405,7 @@ python manage.py test
 
 Expected: 全绿(前置:Redis 在跑)。
 
-- [ ] **Step 2: App 门禁**
+- [x] **Step 2: App 门禁**
 
 ```bash
 cd app
@@ -2399,7 +2415,7 @@ cd app
 
 Expected:`No issues found!` + `All tests passed!`。
 
-- [ ] **Step 3: Web 门禁**
+- [x] **Step 3: Web 门禁**
 
 ```bash
 cd web
@@ -2410,18 +2426,15 @@ npm run test:run
 
 Expected:零错误、零告警、全绿。
 
-- [ ] **Step 4: 回填计划并提交**
+- [x] **Step 4: 回填计划并提交**
 
-把本文件所有 `- [ ]` 改为 `- [x]`,在末尾补:
-
-```markdown
 ## 执行记录
 
 - 2026-10-20:反馈后端 + 运营台 + App/Web 双端设置页补齐;三端门禁通过。
-- 后端:`python manage.py test` → `<填写实际输出>`。
-- App:`flutter analyze` → `No issues found!`;`flutter test` → `<填写实际输出>`。
-- Web:`vue-tsc` 零错误;`eslint --max-warnings 0` 零告警;`vitest run` → `<填写实际输出>`。
-```
+- 后端:`python manage.py test` → `Ran 409 tests in 34.188s` / `OK`(新增 12 条 feedback + 5 条 ops)。
+- App:`flutter analyze` → `No issues found!`;`flutter test` → `All tests passed! (+355)`(新增 8 条)。
+- Web:`vue-tsc` 零错误;`eslint --max-warnings 0` 零告警;`vitest run` → `68 files / 320 tests passed`(新增 5 条)。
+- 说明:本机 Redis 容器映射在 `16379`,后端测试用 `TEST_REDIS_PORT=16379`;本批未新增 Playwright 端到端(需真后端 + Redis + Celery),反馈链路由接口测试 + 双端组件测试覆盖。
 
 ```bash
 git add docs/superpowers/plans/2026-10-20-settings-completion.md
@@ -2439,3 +2452,5 @@ git commit -m "docs(plan): 设置页补齐执行记录与 checkbox 回填"
 - [x] spec §7 测试与门禁 → 每个 Task 的测试步骤 + Task 8;
 - [x] 无 TBD / TODO /「类似 Task N」;
 - [x] 名称一致:`Feedback` / `FeedbackType` / `FeedbackStatus` / `submitFeedback` / `FeedbackPage` / `APP_VERSION` / `appVersion`。
+
+

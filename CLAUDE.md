@@ -39,8 +39,10 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-12 | UI 整改批次⑤「广场」交付(页壳大标题+涟漪空态+骨架+渐变 FAB/动态卡圆头像+九宫格 3 列+点赞脉冲/详情页自绘顶栏+44 评论栏/我的动态;**落地 §6.2 第二处 Hero「动态卡→动态详情」**——SDK 禁 Hero 嵌套 + 扫描只一次 → 状态切换双保 + `extra` 带 seed 直出真卡;删孤儿 `OnlineDot`;规则文档升 v1.4 附录 D;296 测试绿) |
 | 2026-10-12 | UI 整改批次⑥「二级页」交付(**表单控件规范一次定死**:14 个 core 组件 + 2 个 feature 组件;10 页 = 登录/启动/引导/设置/黑名单/编辑资料/想找的人/发动态/协议/封禁;`AlertDialog`→`AppDialog`、`SnackBar`→`AppToast` 全量统一;抽共享 `AppSubPageBar` 取代两份私有顶栏副本;规则文档升 v1.5 附录 E;329 测试绿) |
 | 2026-10-13 | 上线合规轨 T-17「账号注销入口」交付(`DELETE /users/me` = 手机号二次确认 + 立即硬删除全部数据 + 释放手机号;IM 侧新增 `account_delete` 与删号任务;App/Web 双端入口;隐私政策补注销路径、双端协议版本升 2;后端 360 / App 336 / Web 308 测试绿;PR #6 squash 合并 `f686bc2`;用户模拟器 + Web 手测通过)。同批顺带修既有偶发:`seed_fake_users` 会造出未满 18 岁账号(生日取「age 年前的随机月/日」,今年生日未过时 `calculate_age` 算成 age-1;概率约 2.2%/轮,曾把 CI 卡红) |
+| 2026-10-20 | P1-1「喜欢我的人」交付(`GET /discovery/likes` + `/count`,口径与候选池共用 `likes_received_queryset`;App 发现页入口+列表页,Web `/likes` + store;回喜欢复用 `swipe`;接口 32→34,后端 392 / App 347 / Web 315 测试绿;PR #8 squash 合并 `b606f3e`) |
+| 2026-10-20 | P1-2「设置页补齐」交付(新 `feedback` app + `POST /feedback` + ops 意见反馈队列;App/Web 设置页三段式 + 意见反馈页 + 通知设置只读骨架 + 关于页;版本号 App 常量守卫 / Web Vite 注入;接口 34→35,后端 409 / App 355 / Web 320 测试绿) |
 
-**下一步**:上线合规轨继续推进 —— 按 `2026-09-18-launch-execution.md` 走 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
+**下一步**:P1 留存闭环还剩 P1-3 关系出口(解除配对/撤回消息/已读回执,依赖腾讯 IM SDK + 真机)与 P1-4 推送(厂商账号/证书);上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -57,7 +59,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 路径 | 内容 | 说明 |
 |---|---|---|
 | `app/` | Flutter 应用 | `lib/core/`(网络/错误/凭证)、`lib/im/`(IM 抽象层)、`lib/router.dart`(go_router 路由表)、`lib/features/{auth,onboarding,discovery,chat,profile,settings,shell,square,presence,legal}`;测试是"真实 provider + 假网络 + 假 IM":`test/support/scripted_adapter.dart` + `test/support/harness.dart` 的 `pumpApp` + `test/support/fake_im_client.dart` |
-| `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 业务 app:`accounts users discovery im moderation ops feed notifications`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
+| `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 业务 app:`accounts users discovery im moderation ops feed notifications feedback`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
 | `web/` | 网页端(Vue 3 SPA) | `src/{api,stores,im,components,layouts,features}`;开发 `npm run dev`(代理到 :8000),构建 `npm run build`;**只服务 PC 浏览器**,移动端按 UA 进引导页 |
 | `docs/superpowers/` | 设计 spec 与实施计划 | 计划的执行进度以文件内 checkbox 为准 |
