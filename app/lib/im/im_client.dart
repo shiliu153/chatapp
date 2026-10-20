@@ -30,6 +30,7 @@ class ChatMessage {
     this.localPath,
     this.imageUrl,
     this.imageLargeUrl,
+    this.isRevoked = false,
   });
 
   final String msgId;
@@ -58,7 +59,11 @@ class ChatMessage {
   /// 远程原图(全屏查看用)。
   final String? imageLargeUrl;
 
-  ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl}) => ChatMessage(
+  /// 已被撤回(自己撤回或对方撤回):界面渲染成居中灰字,不再显示内容。
+  final bool isRevoked;
+
+  ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl, bool? isRevoked}) =>
+      ChatMessage(
         msgId: msgId,
         peerId: peerId,
         isSelf: isSelf,
@@ -70,6 +75,7 @@ class ChatMessage {
         localPath: localPath,
         imageUrl: imageUrl ?? this.imageUrl,
         imageLargeUrl: imageLargeUrl,
+        isRevoked: isRevoked ?? this.isRevoked,
       );
 }
 
@@ -103,6 +109,12 @@ class ImNewMessage extends ImEvent {
 /// 会话列表有变化(新会话/新消息/已读/删除)。
 class ImConversationsChanged extends ImEvent {
   const ImConversationsChanged();
+}
+
+/// 消息被撤回(自己撤回或对方撤回都走这里)。
+class ImMessageRevoked extends ImEvent {
+  const ImMessageRevoked(this.msgId);
+  final String msgId;
 }
 
 class ImSigExpired extends ImEvent {
@@ -147,6 +159,9 @@ abstract class ImClient {
 
   /// 删除本地消息(对方不受影响);本地未发出的消息可直接忽略此调用。
   Future<void> deleteMessage(ChatMessage message);
+
+  /// 撤回已发送消息(腾讯默认时限 2 分钟,超时抛 [ImException])。
+  Future<void> revokeMessage(String msgId);
 
   /// 该 SDK 版本无原生重发:等价于用原内容重新发送。
   Future<ChatMessage> resend(ChatMessage message) {

@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/im/im_client.dart';
 
+import '../support/fake_im_client.dart';
+
 void main() {
   test('userIdFromImId:u{id} 约定解析,非账号 id 返回 null', () {
     expect(userIdFromImId('u7'), 7);
@@ -10,5 +12,22 @@ void main() {
     expect(userIdFromImId('u'), isNull);
     expect(userIdFromImId('uabc'), isNull);
     expect(userIdFromImId('7'), isNull);
+  });
+
+  test('撤回:调用流水 + 事件可编排', () async {
+    final fake = FakeImClient();
+    addTearDown(fake.dispose);
+
+    final events = <ImEvent>[];
+    final sub = fake.events.listen(events.add);
+    addTearDown(sub.cancel);
+
+    await fake.revokeMessage('sent-1');
+    expect(fake.log, contains('revoke:sent-1'));
+
+    fake.emitRevoked('sent-1');
+    await Future<void>.delayed(Duration.zero);
+    expect(events.single, isA<ImMessageRevoked>());
+    expect((events.single as ImMessageRevoked).msgId, 'sent-1');
   });
 }

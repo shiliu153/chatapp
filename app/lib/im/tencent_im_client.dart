@@ -116,6 +116,7 @@ class TencentImClient extends ImClient {
     manager.getMessageManager().addAdvancedMsgListener(
           listener: V2TimAdvancedMsgListener(
             onRecvNewMessage: (message) => _events.add(ImNewMessage(chatMessageFromSdk(message))),
+            onRecvMessageRevoked: (msgId) => _events.add(ImMessageRevoked(msgId)),
           ),
         );
     manager.getConversationManager().addConversationListener(
@@ -206,8 +207,15 @@ class TencentImClient extends ImClient {
   }
 
   @override
-  Future<void> markConversationRead(String peerId) async {
-    final manager = TencentImSDKPlugin.v2TIMManager.getConversationManager();
+  Future<void> revokeMessage(String msgId) async {
+    final result = await TencentImSDKPlugin.v2TIMManager
+        .getMessageManager()
+        .revokeMessage(msgID: msgId);
+    _check(result.code, result.desc);
+  }
+
+  @override
+  Future<void> markConversationRead(String peerId) async {    final manager = TencentImSDKPlugin.v2TIMManager.getConversationManager();
     final conversationID = 'c2c_$peerId';
     final fetched = await manager.getConversation(conversationID: conversationID);
     final last = fetched.data?.lastMessage;
