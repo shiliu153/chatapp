@@ -161,3 +161,17 @@ Map<String, dynamic> commentJson({
       'text': text,
       'created_at': createdAt,
     };
+
+/// 造一份 GET /discovery/likes 里的一条。
+Map<String, dynamic> likeReceivedJson({
+  int userId = 9,
+  String nickname = '小红',
+  int? age = 25,
+  String city = '上海',
+  List<Map<String, dynamic>> tags = const [],
+  String likedAt = '2026-10-20T10:00:00+08:00',
+}) =>
+    {
+      ...candidateJson(userId: userId, nickname: nickname, age: age, city: city, tags: tags),
+      'liked_at': likedAt,
+    };
