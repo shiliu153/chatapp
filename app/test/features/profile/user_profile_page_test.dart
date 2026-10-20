@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/core/widgets/avatar_hero.dart';
+import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/presence/presence_controller.dart';
 import 'package:chatapp_app/features/profile/user_profile_page.dart';
 import 'package:chatapp_app/features/settings/blocked_users_page.dart';
@@ -21,6 +22,12 @@ import '../../support/scripted_adapter.dart';
 class _LoggedInImManager extends ImManager {
   @override
   ImStatus build() => const ImLoggedIn('u3');
+}
+
+/// 配对缓存依赖登录态才会去拉 /matches(与真实 App 一致)。
+class _LoggedInSession extends SessionController {
+  @override
+  SessionState build() => const SessionLoggedIn();
 }
 
 void main() {
@@ -42,6 +49,7 @@ void main() {
       refreshDioProvider.overrideWithValue(dio),
       imClientProvider.overrideWithValue(fake),
       imStatusProvider.overrideWith(_LoggedInImManager.new),
+      sessionProvider.overrideWith(_LoggedInSession.new),
       // 页面会 track 在线状态;关掉周期刷新,否则测试结束时有 pending Timer
       presenceRefreshIntervalProvider.overrideWithValue(null),
     ]);
@@ -83,6 +91,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('user.report')), findsOneWidget);
     expect(find.byKey(const Key('user.block')), findsOneWidget);
+  });
+
+  testWidgets('未配对时菜单没有「解除配对」', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(nickname: '小红'));
+    adapter.routes['GET /matches'] = (options) => ok(pageJson([]));
+    await pumpProfile(tester);
+
+    await tester.tap(find.byKey(const Key('user.more')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('user.unmatch')), findsNothing);
+  });
+
+  testWidgets('已配对时菜单有「解除配对」', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(nickname: '小红'));
+    adapter.routes['GET /matches'] =
+        (options) => ok(pageJson([matchJson(userId: 9, nickname: '小红')]));
+    await pumpProfile(tester);
+
+    await tester.tap(find.byKey(const Key('user.more')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('user.unmatch')), findsOneWidget);
   });
 
   testWidgets('相册照片点开全屏查看', (tester) async {
@@ -160,6 +189,7 @@ void main() {
       refreshDioProvider.overrideWithValue(dio),
       imClientProvider.overrideWithValue(fake),
       imStatusProvider.overrideWith(_LoggedInImManager.new),
+      sessionProvider.overrideWith(_LoggedInSession.new),
     ]);
     addTearDown(container.dispose);
     // 首页 = 黑名单页(先看过一次,空列表进缓存),可 push 资料卡
@@ -228,6 +258,7 @@ void main() {
       refreshDioProvider.overrideWithValue(dio),
       imClientProvider.overrideWithValue(fake),
       imStatusProvider.overrideWith(_LoggedInImManager.new),
+      sessionProvider.overrideWith(_LoggedInSession.new),
       presenceRefreshIntervalProvider.overrideWithValue(null),
     ]);
     addTearDown(container.dispose);
