@@ -50,4 +50,33 @@ void main() {
       throwsA(isA<ApiException>().having((e) => e.statusCode, 'statusCode', 400)),
     );
   });
+
+  test('submitFeedback 提交类型/内容/联系方式', () async {
+    adapter.routes['POST /feedback'] = (options) => ok({'id': 1}, status: 201);
+
+    await makeContainer().read(settingsRepositoryProvider).submitFeedback(
+          type: 'bug', content: '消息偶尔重复', contact: 'a@b.com');
+
+    final request = adapter.log.single;
+    expect(request.method, 'POST');
+    expect(request.path, '/feedback');
+    expect(request.data, {
+      'type': 'bug',
+      'content': '消息偶尔重复',
+      'contact': 'a@b.com',
+    });
+  });
+
+  test('submitFeedback 联系方式为空时不传 contact', () async {
+    adapter.routes['POST /feedback'] = (options) => ok({'id': 1}, status: 201);
+
+    await makeContainer()
+        .read(settingsRepositoryProvider)
+        .submitFeedback(type: 'feature', content: '希望增加夜间模式开关');
+
+    expect(adapter.log.single.data, {
+      'type': 'feature',
+      'content': '希望增加夜间模式开关',
+    });
+  });
 }

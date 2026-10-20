@@ -8,3 +8,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+/** 构建期注入的应用版本(来源:web/package.json)。 */
+declare const __APP_VERSION__: string

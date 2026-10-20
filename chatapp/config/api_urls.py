@@ -24,6 +24,7 @@ urlpatterns = [
     path("discovery/", include("discovery.urls")),
     path("", include("moderation.urls")),
     path("", include("feed.urls")),
+    path("", include("feedback.urls")),
     path("matches", discovery_views.match_list),
     path("presence", users_views.presence_status),
 ]

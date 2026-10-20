@@ -22,6 +22,7 @@ from django.views.decorators.http import require_POST
 from accounts.models import User
 from feed.models import Post, PostReport
 from feed.services import delete_post
+from feedback.models import Feedback, FeedbackStatus, FeedbackType
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
 from moderation.services import log_ban_change, notify_report_handled
@@ -501,3 +502,66 @@ def post_report_delete_post(request, report_id):
             report.save(update_fields=["status", "handled_note", "handled_by", "handled_at"])
             notify_report_handled(report)
     return _render_post_reports(request)
+
+
+def _feedback_queryset(request):
+    """按筛选参数取反馈列表(列表页与 HTMX 局部共用)。
+
+    Args:
+        request: Django 请求对象,支持 ``status`` 与 ``type``。
+
+    Returns:
+        ``(queryset, status, ftype)``;``status=all`` 时不按状态过滤。
+    """
+    status = request.GET.get("status", FeedbackStatus.PENDING)
+    ftype = request.GET.get("type", "")
+    qs = Feedback.objects.select_related("user__profile", "handled_by")
+    if status in FeedbackStatus.values:
+        qs = qs.filter(status=status)
+    if ftype in FeedbackType.values:
+        qs = qs.filter(type=ftype)
+    return qs.order_by("-created_at")[:200], status, ftype
+
+
+@staff_required
+def feedback_list(request):
+    """意见反馈列表页,默认只看待处理。
+
+    Args:
+        request: Django 请求对象,支持 ``status`` 与 ``type`` 查询参数。
+
+    Returns:
+        渲染后的反馈列表页;最多展示 200 条。
+    """
+    qs, status, ftype = _feedback_queryset(request)
+    return render(request, "ops/feedback.html", {
+        "feedbacks": qs, "status": status, "ftype": ftype,
+        "types": FeedbackType.choices,
+    })
+
+
+@require_POST
+@staff_required
+def feedback_handle(request, feedback_id):
+    """把一条反馈标记为已处理。
+
+    已处理的反馈不会重复改写备注与处理人。
+
+    Args:
+        request: Django 请求对象,POST 可带 ``note`` 作为处理备注。
+        feedback_id: 反馈主键。
+
+    Returns:
+        反馈表格的 HTMX 局部片段。
+    """
+    feedback = get_object_or_404(Feedback, pk=feedback_id)
+    if feedback.status == FeedbackStatus.PENDING:
+        feedback.status = FeedbackStatus.HANDLED
+        feedback.handled_note = request.POST.get("note", "").strip()[:200]
+        feedback.handled_by = request.user
+        feedback.handled_at = timezone.now()
+        feedback.save(update_fields=["status", "handled_note", "handled_by", "handled_at"])
+    qs, status, ftype = _feedback_queryset(request)
+    return render(request, "ops/partials/feedback_table.html", {
+        "feedbacks": qs, "status": status, "ftype": ftype,
+    })

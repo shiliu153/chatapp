@@ -26,6 +26,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('settings.row.blocks')), findsOneWidget);
+    expect(find.byKey(const Key('settings.row.notifications')), findsOneWidget);
+    expect(find.byKey(const Key('settings.row.feedback')), findsOneWidget);
+    expect(find.byKey(const Key('settings.row.about')), findsOneWidget);
     expect(find.byKey(const Key('settings.row.agreement')), findsOneWidget);
     expect(find.byKey(const Key('settings.row.privacy')), findsOneWidget);
     expect(find.byKey(const Key('settings.logout')), findsOneWidget);

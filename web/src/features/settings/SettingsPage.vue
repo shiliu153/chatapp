@@ -15,13 +15,26 @@ const chat = useChatStore()
 const deleteOpen = ref(false)
 const deleteError = ref('')
 
-const entries = [
-  { name: 'profile-edit', label: '编辑资料' },
-  { name: 'preference', label: '想找的人' },
-  { name: 'settings-blocks', label: '黑名单' },
-  { name: 'my-posts', label: '我的动态' },
-  { name: 'legal-agreement', label: '用户协议' },
-  { name: 'legal-privacy', label: '隐私政策' },
+const groups = [
+  {
+    title: '账号与隐私',
+    entries: [
+      { name: 'profile-edit', label: '编辑资料' },
+      { name: 'preference', label: '想找的人' },
+      { name: 'my-posts', label: '我的动态' },
+      { name: 'settings-blocks', label: '黑名单' },
+      { name: 'settings-notifications', label: '通知设置' },
+    ],
+  },
+  {
+    title: '帮助与关于',
+    entries: [
+      { name: 'settings-feedback', label: '意见反馈' },
+      { name: 'settings-about', label: '关于' },
+      { name: 'legal-agreement', label: '用户协议' },
+      { name: 'legal-privacy', label: '隐私政策' },
+    ],
+  },
 ] as const
 
 async function onLogout() {
@@ -63,9 +76,10 @@ async function onDeleteSubmitted(phone: string) {
   <section class="settings">
     <h1 class="settings__title">设置</h1>
 
-    <AppCard padding="lg">
+    <AppCard v-for="group in groups" :key="group.title" padding="lg">
+      <h2 class="settings__group">{{ group.title }}</h2>
       <ul class="settings__list">
-        <li v-for="entry in entries" :key="entry.name">
+        <li v-for="entry in group.entries" :key="entry.name">
           <RouterLink class="settings__item" :to="{ name: entry.name }">
             {{ entry.label }}
           </RouterLink>
@@ -116,6 +130,12 @@ async function onDeleteSubmitted(phone: string) {
   margin: 0;
   font-size: var(--text-display);
   font-weight: var(--weight-extrabold);
+}
+.settings__group {
+  margin: 0 0 var(--space-xs);
+  color: var(--color-text3);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
 }
 .settings__list {
   display: flex;

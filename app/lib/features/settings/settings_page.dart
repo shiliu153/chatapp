@@ -81,6 +81,29 @@ class SettingsPage extends ConsumerWidget {
                           onTap: () => context.push('/settings/blocks'),
                         ),
                         AppListRow(
+                          key: const Key('settings.row.notifications'),
+                          icon: Icons.notifications_rounded,
+                          title: '通知设置',
+                          onTap: () => context.push('/settings/notifications'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.cardGap),
+                    AppRowGroup(
+                      children: [
+                        AppListRow(
+                          key: const Key('settings.row.feedback'),
+                          icon: Icons.feedback_rounded,
+                          title: '意见反馈',
+                          onTap: () => context.push('/settings/feedback'),
+                        ),
+                        AppListRow(
+                          key: const Key('settings.row.about'),
+                          icon: Icons.info_rounded,
+                          title: '关于',
+                          onTap: () => context.push('/settings/about'),
+                        ),
+                        AppListRow(
                           key: const Key('settings.row.agreement'),
                           icon: Icons.description_rounded,
                           title: '用户协议',

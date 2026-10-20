@@ -60,7 +60,17 @@ describe('SettingsPage', () => {
   it('列出全部设置入口', async () => {
     stubIm()
     const { w } = await mountPage()
-    for (const label of ['编辑资料', '想找的人', '黑名单', '我的动态', '用户协议', '隐私政策']) {
+    for (const label of [
+      '编辑资料',
+      '想找的人',
+      '黑名单',
+      '我的动态',
+      '通知设置',
+      '意见反馈',
+      '关于',
+      '用户协议',
+      '隐私政策',
+    ]) {
       expect(w.text()).toContain(label)
     }
   })

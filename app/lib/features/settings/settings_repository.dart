@@ -14,6 +14,19 @@ class SettingsRepository {
   Future<void> deleteAccount(String phone) async {
     await _api.delete('/users/me', data: {'phone': phone});
   }
+
+  /// 提交意见反馈;``type`` 取 feature / bug / account / other。
+  Future<void> submitFeedback({
+    required String type,
+    required String content,
+    String contact = '',
+  }) async {
+    await _api.post('/feedback', data: {
+      'type': type,
+      'content': content,
+      if (contact.isNotEmpty) 'contact': contact,
+    });
+  }
 }
 
 final settingsRepositoryProvider = Provider<SettingsRepository>(
