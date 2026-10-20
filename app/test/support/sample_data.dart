@@ -147,20 +147,32 @@ Map<String, dynamic> postJson({
       'created_at': createdAt,
     };
 
-/// 造一条评论;字段可覆盖。
+/// 造一条评论/回复;字段可覆盖。
 Map<String, dynamic> commentJson({
   int id = 1,
   int authorId = 9,
   String nickname = 'Bob',
   String text = '评论',
   String createdAt = '2026-09-12T20:00:00+08:00',
+  int? parentId,
+  Map<String, dynamic>? replyTo,
+  int replyCount = 0,
+  List<Map<String, dynamic>> replies = const [],
 }) =>
     {
       'id': id,
       'author': {'user_id': authorId, 'nickname': nickname, 'avatar_url': null},
       'text': text,
       'created_at': createdAt,
+      'parent_id': parentId,
+      'reply_to': replyTo,
+      'reply_count': replyCount,
+      'replies': replies,
     };
+
+/// 造一个「被回复者」摘要(评论对象里的 `reply_to`)。
+Map<String, dynamic> replyToJson({int userId = 7, String nickname = '阿哲'}) =>
+    {'user_id': userId, 'nickname': nickname};
 
 /// 造一份 GET /discovery/likes 里的一条。
 Map<String, dynamic> likeReceivedJson({

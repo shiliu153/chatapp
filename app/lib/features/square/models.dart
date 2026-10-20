@@ -62,6 +62,10 @@ class PostCommentItem {
     required this.author,
     required this.text,
     required this.createdAt,
+    this.parentId,
+    this.replyTo,
+    this.replyCount = 0,
+    this.replies = const [],
   });
 
   final int id;
@@ -69,10 +73,30 @@ class PostCommentItem {
   final String text;
   final DateTime createdAt;
 
+  /// 顶级评论为 null;回复为所属顶级评论的 id。
+  final int? parentId;
+
+  /// 被回复者;顶级评论为 null。
+  final FeedAuthor? replyTo;
+
+  /// 该楼层的可见回复总数(回复对象恒为 0)。
+  final int replyCount;
+
+  /// 内嵌的前两条回复(回复对象恒为空)。
+  final List<PostCommentItem> replies;
+
   factory PostCommentItem.fromJson(Map<String, dynamic> json) => PostCommentItem(
         id: json['id'] as int,
         author: FeedAuthor.fromJson(json['author'] as Map<String, dynamic>),
         text: json['text'] as String,
         createdAt: DateTime.parse(json['created_at'] as String),
+        parentId: json['parent_id'] as int?,
+        replyTo: json['reply_to'] == null
+            ? null
+            : FeedAuthor.fromJson(json['reply_to'] as Map<String, dynamic>),
+        replyCount: json['reply_count'] as int? ?? 0,
+        replies: (json['replies'] as List<dynamic>? ?? [])
+            .map((item) => PostCommentItem.fromJson(item as Map<String, dynamic>))
+            .toList(),
       );
 }
