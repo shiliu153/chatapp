@@ -2760,6 +2760,10 @@ git commit -m "docs: P1-4 推送收尾回填(验收结果与里程碑)"
    `settings_page_test` 的 DELETE 断言改为按路径过滤(推送解绑也是 DELETE)。
 5. **Web 动效 token 是 `--motion-fast`**,没有 `--motion-micro`,页面里已改用前者。
 6. **本机 Redis 映射在 16379**,后端测试统一用 `$env:TEST_REDIS_PORT="16379"` 跑。
+7. **登出再登录收不到推送(真 bug)**:`JPushPushService` 的 `_started` 在 `stop()` 后没复位,
+   重新登录时 `start()` 直接 return,`stopPush()` 后永远不 `resumePush()`。修复:SDK 初始化与
+   「本次登录是否启动」拆成 `_initialized` / `_started`,登出复位 `_started`,重新登录调
+   `resumePush()`;补「重新登录后再次启动推送」测试。
 
 **待用户执行(真机)**
 
