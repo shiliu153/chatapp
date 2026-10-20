@@ -121,6 +121,7 @@ export function chatMessageFromTim(message: TimMessageLike): ChatMessage {
     imageLargeUrl: isImage
       ? (pickImageUrl(message.payload, 1) ?? pickImageUrl(message.payload, 3))
       : null,
+    isRevoked: false,
   }
 }
 

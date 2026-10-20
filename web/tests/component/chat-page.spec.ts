@@ -21,6 +21,7 @@ function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
     isFailed: false,
     imageUrl: null,
     imageLargeUrl: null,
+    isRevoked: false,
     ...overrides,
   }
 }

@@ -26,6 +26,7 @@ function fakeSdk() {
       return { data: { message } }
     }),
     deleteMessage: vi.fn(async () => ({})),
+    revokeMessage: vi.fn(async () => ({})),
     getMessageList: vi.fn(async () => ({ data: { messageList: [] } })),
     setMessageRead: vi.fn(async () => ({})),
     getConversationList: vi.fn(async () => ({ data: { conversationList: [] } })),
@@ -210,6 +211,26 @@ describe('im client', () => {
     expect((sdk.deleteMessage as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0]).toEqual([
       expect.objectContaining({ ID: 'zz' }),
     ])
+  })
+
+  it('撤回:找到消息对象交给 SDK,并广播 messageRevoked', async () => {
+    const { client, sdk, emit } = makeClient({ messageRevoked: 'onMessageRevoked' })
+    sdk.getMessageList = vi.fn(async () => ({
+      data: {
+        messageList: [{ ID: 'zz', type: 'TIMTextElem', payload: { text: 'x' }, flow: 'out' }],
+      },
+    }))
+    const revoked: string[] = []
+    client.onEvent((e) => {
+      if (e.type === 'messageRevoked') revoked.push(e.msgId)
+    })
+    await client.fetchHistory('u8')
+
+    await client.revokeMessage('zz')
+    emit('onMessageRevoked', { msgID: 'zz' })
+
+    expect(sdk.revokeMessage).toHaveBeenCalledWith(expect.objectContaining({ ID: 'zz' }))
+    expect(revoked).toEqual(['zz'])
   })
 })
 

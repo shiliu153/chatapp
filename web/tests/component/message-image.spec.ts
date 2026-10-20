@@ -16,6 +16,7 @@ const message = (overrides: Partial<ChatMessage> = {}): ChatMessage => ({
   isFailed: false,
   imageUrl: 'https://cdn/thumb.jpg',
   imageLargeUrl: 'https://cdn/large.jpg',
+  isRevoked: false,
   ...overrides,
 })
 

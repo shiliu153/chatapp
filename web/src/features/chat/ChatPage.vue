@@ -148,6 +148,7 @@ async function onPickImage(event: Event) {
     isFailed: false,
     imageUrl: null,
     imageLargeUrl: null,
+    isRevoked: false,
   }
   localFiles.value = { ...localFiles.value, [placeholderId]: file }
   store.messages[props.peerId] = [...messages.value, message]

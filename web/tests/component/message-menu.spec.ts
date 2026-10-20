@@ -17,6 +17,7 @@ const message: ChatMessage = {
   isFailed: false,
   imageUrl: null,
   imageLargeUrl: null,
+  isRevoked: false,
 }
 
 describe('MessageMenu', () => {

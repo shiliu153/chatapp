@@ -31,6 +31,8 @@ export interface ChatMessage {
   imageUrl: string | null
   /** 原图 */
   imageLargeUrl: string | null
+  /** 已撤回:渲染成居中灰字,不再显示内容 */
+  isRevoked: boolean
 }
 
 export interface ImConversation {
@@ -46,6 +48,7 @@ export type KickReason = 'multiDevice' | 'multiAccount' | 'sigExpired' | 'restAp
 export type ImEvent =
   | { type: 'newMessage'; message: ChatMessage }
   | { type: 'conversationsChanged' }
+  | { type: 'messageRevoked'; msgId: string }
   | { type: 'kickedOffline'; reason: KickReason }
   | { type: 'ready' }
 
@@ -59,6 +62,7 @@ export interface ImClient {
   sendText(peerId: string, text: string): Promise<ChatMessage>
   sendImage(peerId: string, file: File): Promise<ChatMessage>
   deleteMessage(msgId: string): Promise<void>
+  revokeMessage(msgId: string): Promise<void>
   markConversationRead(peerId: string): Promise<void>
   deleteConversation(peerId: string): Promise<void>
 }
@@ -126,6 +130,7 @@ export interface TimChatLike {
   createImageMessage(options: TimMessageOptions): TimMessageLike
   sendMessage(message: TimMessageLike): Promise<unknown>
   deleteMessage(messages: TimMessageLike[]): Promise<unknown>
+  revokeMessage(message: TimMessageLike): Promise<unknown>
   getMessageList(options: {
     conversationID: string
     nextReqMessageID?: string
@@ -145,6 +150,7 @@ export interface TimChatLike {
 export interface ImEventNames {
   messageReceived: string
   conversationListUpdated: string
+  messageRevoked: string
   kickedOut: string
   ready: string
 }
