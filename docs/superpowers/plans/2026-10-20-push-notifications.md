@@ -1,6 +1,6 @@
 # 推送:新的喜欢 / 配对成功 / 系统通知 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 让用户在 App 不在前台时也能收到「有人喜欢了你 / 配对成功 / 系统通知」,点击通知直达对应页面。
 
@@ -96,7 +96,7 @@
   - `NotificationPreference.for_user(user) -> NotificationPreference`
   - `NotificationPreference.allows(kind: str) -> bool`(`like` / `match` / `system`)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/notifications/tests.py` 顶部补 import,并在文件末尾追加:
 
@@ -161,7 +161,7 @@ class NotificationPreferenceModelTests(TestCase):
         self.assertFalse(NotificationPreference.objects.exists())
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```powershell
 cd chatapp
@@ -171,7 +171,7 @@ python manage.py test notifications
 
 预期:`ModuleNotFoundError: No module named 'notifications.models'`。
 
-- [ ] **Step 3: 写模型**
+- [x] **Step 3: 写模型**
 
 创建 `chatapp/notifications/models.py`:
 
@@ -264,7 +264,7 @@ class NotificationPreference(models.Model):
         }.get(kind, False)
 ```
 
-- [ ] **Step 4: 生成迁移并检查**
+- [x] **Step 4: 生成迁移并检查**
 
 ```powershell
 cd chatapp
@@ -273,7 +273,7 @@ python manage.py makemigrations notifications
 
 预期:生成 `0001_initial.py`,包含 `PushDevice` 与 `NotificationPreference` 两张表。打开确认没有意外改动其他 app。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```powershell
 cd chatapp
@@ -283,7 +283,7 @@ python manage.py test notifications
 
 预期:全部通过(含原有短信测试)。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add chatapp/notifications/models.py chatapp/notifications/migrations chatapp/notifications/tests.py
@@ -307,7 +307,7 @@ git commit -m "feat(push): PushDevice + NotificationPreference 模型与迁移"
   - `POST /api/v1/push/devices` → `200 {"registration_id": str, "platform": str}`
   - `DELETE /api/v1/push/devices/{registration_id}` → `204`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/notifications/tests.py` 追加(顶部补 `from rest_framework.test import APITestCase` 与 `from rest_framework_simplejwt.tokens import RefreshToken`):
 
@@ -390,7 +390,7 @@ class PushDeviceApiTests(APITestCase):
         self.assertEqual(self._register().status_code, 401)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```powershell
 cd chatapp
@@ -400,7 +400,7 @@ python manage.py test notifications.tests.PushDeviceApiTests
 
 预期:全部 404(路由不存在)。
 
-- [ ] **Step 3: 写序列化、视图与路由**
+- [x] **Step 3: 写序列化、视图与路由**
 
 创建 `chatapp/notifications/serializers.py`:
 
@@ -544,7 +544,7 @@ urlpatterns = [
     path("push/", include("notifications.urls")),
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```powershell
 cd chatapp
@@ -554,7 +554,7 @@ python manage.py test notifications.tests.PushDeviceApiTests
 
 预期:全部通过。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```powershell
 git add chatapp/notifications/serializers.py chatapp/notifications/views.py chatapp/notifications/urls.py chatapp/config/api_urls.py chatapp/notifications/tests.py
@@ -573,7 +573,7 @@ git commit -m "feat(push): 设备上报与解绑接口"
 - Consumes: Task 1 的 `NotificationPreference.for_user`、Task 2 的 `preferences` 视图
 - Produces: `GET/PATCH /api/v1/push/preferences`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```python
 class PushPreferenceApiTests(APITestCase):
@@ -605,7 +605,7 @@ class PushPreferenceApiTests(APITestCase):
         self.assertEqual(self.client.get("/api/v1/push/preferences").status_code, 401)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```powershell
 cd chatapp
@@ -615,7 +615,7 @@ python manage.py test notifications.tests.PushPreferenceApiTests
 
 预期:如果 Task 2 的视图已经写好,这一组会**直接通过**;若未通过,按报错修 `preferences` 视图。保留测试即可。
 
-- [ ] **Step 3: 跑测试确认通过**
+- [x] **Step 3: 跑测试确认通过**
 
 ```powershell
 cd chatapp
@@ -625,7 +625,7 @@ python manage.py test notifications.tests.PushPreferenceApiTests
 
 预期:全部通过。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```powershell
 git add chatapp/notifications/tests.py
@@ -652,7 +652,7 @@ git commit -m "test(push): 通知偏好接口测试"
   - `send_push` Celery 任务(`.delay(user_id, kind, title, alert, extras)`)
   - `like_cooldown_key(user_id: int) -> str`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/notifications/tests.py` 追加(顶部补 `from unittest.mock import patch`、`from django.test import SimpleTestCase, override_settings`、`import requests`):
 
@@ -762,7 +762,7 @@ from notifications.push import JPushClient, LogPushClient, get_push_client
 from notifications.tasks import like_cooldown_key, send_push
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```powershell
 cd chatapp
@@ -772,7 +772,7 @@ python manage.py test notifications.tests.PushClientTests notifications.tests.Se
 
 预期:`ModuleNotFoundError: No module named 'notifications.push'`。
 
-- [ ] **Step 3: 写配置**
+- [x] **Step 3: 写配置**
 
 在 `chatapp/config/settings.py` 的「腾讯云 IM REST」段之后插入:
 
@@ -795,7 +795,7 @@ JPUSH_MASTER_SECRET=
 # PUSH_LIKE_COOLDOWN_SECONDS=1800
 ```
 
-- [ ] **Step 4: 写推送客户端**
+- [x] **Step 4: 写推送客户端**
 
 创建 `chatapp/notifications/push.py`:
 
@@ -941,7 +941,7 @@ def get_push_client() -> PushClient:
     return LogPushClient()
 ```
 
-- [ ] **Step 5: 写入队服务与任务**
+- [x] **Step 5: 写入队服务与任务**
 
 创建 `chatapp/notifications/services.py`:
 
@@ -1038,7 +1038,7 @@ def send_push(user_id: int, kind: str, title: str, alert: str, extras: dict) -> 
 
 > `tasks.py` 现有的 `send_sms_code` 与 import 保持不动,新 import 放在文件顶部。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```powershell
 cd chatapp
@@ -1048,7 +1048,7 @@ python manage.py test notifications
 
 预期:全部通过。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```powershell
 git add chatapp/notifications/push.py chatapp/notifications/services.py chatapp/notifications/tasks.py chatapp/config/settings.py chatapp/.env.example chatapp/notifications/tests.py
@@ -1073,7 +1073,7 @@ git commit -m "feat(push): 极光/日志推送客户端 + 入队服务 + 发送�
   - swipe 新建 like 时入队 `kind="like"`
   - 举报处理 / 封禁 / 解封入队 `kind="system"`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/discovery/tests.py` 追加:
 
@@ -1170,7 +1170,7 @@ class ModerationPushTests(TestCase):
 
 > 若 `moderation/tests.py` 里 `Report` 的必填字段不同,以该文件现有构造方式为准(照抄同文件里创建 Report 的代码);`log_ban_change` 与 `notify_report_handled` 的 import 也从该文件现有 import 补齐。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```powershell
 cd chatapp
@@ -1180,7 +1180,7 @@ python manage.py test discovery.tests.SwipePushTests moderation.tests.Moderation
 
 预期:断言失败(`delay` 未被调用)。
 
-- [ ] **Step 3: 接入触发点**
+- [x] **Step 3: 接入触发点**
 
 `chatapp/discovery/views.py`:
 
@@ -1276,7 +1276,7 @@ from notifications.services import enqueue_push
                  extras={"deeplink": "/chat/system_notice", "type": "system"})
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```powershell
 cd chatapp
@@ -1286,7 +1286,7 @@ python manage.py test discovery.tests.SwipePushTests moderation.tests.Moderation
 
 预期:全部通过。
 
-- [ ] **Step 5: 跑受影响 app 的全量测试**
+- [x] **Step 5: 跑受影响 app 的全量测试**
 
 ```powershell
 cd chatapp
@@ -1296,7 +1296,7 @@ python manage.py test discovery moderation notifications
 
 预期:全绿(原有测试不能因 `notify_match` 签名变化而红)。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add chatapp/discovery/views.py chatapp/discovery/services.py chatapp/moderation/services.py chatapp/discovery/tests.py chatapp/moderation/tests.py
@@ -1316,7 +1316,7 @@ git commit -m "feat(push): 喜欢/配对/举报/封禁四类事件接入推送"
 - Consumes: Task 2/3 的四个接口
 - Produces: `ApiDocsCoverageTests` 绿
 
-- [ ] **Step 1: 先跑门禁确认会红**
+- [x] **Step 1: 先跑门禁确认会红**
 
 ```powershell
 cd chatapp
@@ -1326,7 +1326,7 @@ python manage.py test config.tests.ApiDocsCoverageTests
 
 预期:失败,提示 4 个接口未写文档。
 
-- [ ] **Step 2: 启动后端,抓真实响应**
+- [x] **Step 2: 启动后端,抓真实响应**
 
 ```powershell
 cd chatapp
@@ -1349,7 +1349,7 @@ Invoke-RestMethod -Method Delete -Uri http://127.0.0.1:8000/api/v1/push/devices/
 
 预期:`POST` 返回 `registration_id` + `platform`;`GET` 三个 `true`;`PATCH` 后 `likes=false`;`DELETE` 204 无 body。
 
-- [ ] **Step 3: 写 `docs/api/push.md`**
+- [x] **Step 3: 写 `docs/api/push.md`**
 
 按 `docs/api/README.md` 的 7 元素模板写四个小节(编号 `1.1`–`1.4`),内容:
 
@@ -1374,7 +1374,7 @@ Invoke-RestMethod -Method Delete -Uri http://127.0.0.1:8000/api/v1/push/devices/
   - 描述:局部更新,只改传入字段;返回更新后的完整对象;
   - 请求参数表(三个布尔,均可选)+ 响应表 + 示例;错误码 `400` / `401` / `403`。
 
-- [ ] **Step 4: 更新 `docs/api/README.md`**
+- [x] **Step 4: 更新 `docs/api/README.md`**
 
 1. 目录表加一行:`| [push.md](push.md) | 推送:设备上报与通知偏好 |`
 2. 接口一览表加四行(按方法 + 路径排序放在 `presence` 之后、`reports` 之前):
@@ -1388,7 +1388,7 @@ Invoke-RestMethod -Method Delete -Uri http://127.0.0.1:8000/api/v1/push/devices/
 
 3. 「共 **36** 个接口」改为「共 **40** 个接口」。
 
-- [ ] **Step 5: 跑门禁**
+- [x] **Step 5: 跑门禁**
 
 ```powershell
 cd chatapp
@@ -1398,7 +1398,7 @@ python manage.py test config.tests.ApiDocsCoverageTests
 
 预期:通过。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add docs/api/push.md docs/api/README.md
@@ -1425,7 +1425,7 @@ git commit -m "docs(api): 新增推送分册(4 个接口,36→40)"
   - `JPushPushService` / `FakePushService`
   - `jpushAppKey` 常量
 
-- [ ] **Step 1: 加依赖并拉包**
+- [x] **Step 1: 加依赖并拉包**
 
 `app/pubspec.yaml` 的 `tencent_cloud_chat_sdk` 之后加:
 
@@ -1440,7 +1440,7 @@ cd app
 
 预期:解析成功(若与 Flutter 3.47 冲突,按报错锁到 3.5.x 最新可用版本并在提交信息里注明)。
 
-- [ ] **Step 2: 写抽象接口**
+- [x] **Step 2: 写抽象接口**
 
 创建 `app/lib/core/push/push_service.dart`:
 
@@ -1469,7 +1469,7 @@ abstract class PushService {
 }
 ```
 
-- [ ] **Step 3: 写极光实现**
+- [x] **Step 3: 写极光实现**
 
 创建 `app/lib/core/push/jpush_push_service.dart`:
 
@@ -1561,7 +1561,7 @@ class JPushPushService implements PushService {
 const String jpushAppKey = String.fromEnvironment('JPUSH_APP_KEY');
 ```
 
-- [ ] **Step 4: 写测试替身**
+- [x] **Step 4: 写测试替身**
 
 创建 `app/test/support/fake_push_service.dart`:
 
@@ -1624,7 +1624,7 @@ import 'fake_push_service.dart';
 
 > `pushServiceProvider` 在 Task 8 创建;本步骤先建测试替身与 harness 参数,`pushServiceProvider` 的 import 在 Task 8 落地后编译通过。为避免中间态红,Task 7 与 Task 8 连续执行,Task 7 末尾不单独跑全量。
 
-- [ ] **Step 5: Android 配置**
+- [x] **Step 5: Android 配置**
 
 `app/android/app/build.gradle.kts` 的 `defaultConfig` 内(`versionName` 之后)加:
 
@@ -1652,7 +1652,7 @@ import 'fake_push_service.dart';
                 android:value="false" />
 ```
 
-- [ ] **Step 6: 本地填 key(不进仓库)**
+- [x] **Step 6: 本地填 key(不进仓库)**
 
 在 `app/android/key.properties` 追加(值从极光控制台取;没有就先留空):
 
@@ -1671,7 +1671,7 @@ JPUSH_MASTER_SECRET=
 
 > 两个文件都已 gitignore;空值时后端走日志后端、App 初始化失败也不报错。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```powershell
 git add app/pubspec.yaml app/pubspec.lock app/lib/core/config.dart app/lib/core/push/push_service.dart app/lib/core/push/jpush_push_service.dart app/test/support/fake_push_service.dart app/android/app/build.gradle.kts app/android/app/src/main/AndroidManifest.xml
@@ -1697,7 +1697,7 @@ git commit -m "feat(app/push): 极光插件 + PushService 抽象与测试替身"
   - `pushServiceProvider` / `pushRepositoryProvider` / `pushControllerProvider`
   - `pushDeeplinkHandlerProvider`(`void Function(String)`,测试可替换成记录器)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `app/test/core/push/push_controller_test.dart`:
 
@@ -1821,7 +1821,7 @@ void main() {
 > `ScriptedAdapter` 的构造是 `ScriptedAdapter({...})`,请求记录在 `log` 里,响应助手是顶层
 > `ok()` / `jsonError()` / `offline()`;断言点按上面的写法即可。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```powershell
 cd app
@@ -1830,7 +1830,7 @@ cd app
 
 预期:编译失败(`push_controller.dart` 不存在)。
 
-- [ ] **Step 3: 写仓库与控制器**
+- [x] **Step 3: 写仓库与控制器**
 
 创建 `app/lib/core/push/push_repository.dart`:
 
@@ -2007,7 +2007,7 @@ final pushControllerProvider =
 import 'core/push/push_controller.dart';
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```powershell
 cd app
@@ -2016,7 +2016,7 @@ cd app
 
 预期:4 个用例通过。
 
-- [ ] **Step 5: 跑 analyze**
+- [x] **Step 5: 跑 analyze**
 
 ```powershell
 cd app
@@ -2025,7 +2025,7 @@ cd app
 
 预期:No issues found。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add app/lib/core/push/push_repository.dart app/lib/core/push/push_controller.dart app/lib/app.dart app/test/core/push/push_controller_test.dart app/test/support/harness.dart
@@ -2044,7 +2044,7 @@ git commit -m "feat(app/push): 登录上报/登出解绑/点击深链"
 - Consumes: `PushRepository` / `PushPreferences`(Task 8)、`pushServiceProvider`(Task 8)
 - Produces: 三项真开关 + 权限提示
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 重写 `app/test/features/settings/notification_settings_page_test.dart`:
 
@@ -2143,7 +2143,7 @@ void main() {
 > `_FakePushRepository` 用 `implements PushRepository` 覆盖全部方法,测试不碰网络;
 > `ApiException` 从 `package:chatapp_app/core/api_exception.dart` import。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```powershell
 cd app
@@ -2152,7 +2152,7 @@ cd app
 
 预期:失败(页面还是旧的两项只读骨架)。
 
-- [ ] **Step 3: 重写页面**
+- [x] **Step 3: 重写页面**
 
 `app/lib/features/settings/notification_settings_page.dart` 改为 `ConsumerStatefulWidget`:
 
@@ -2334,7 +2334,7 @@ class _NotifyRow extends StatelessWidget {
 
 > `AppErrorView` 的构造参数与 `AppColors.primary` 名称以现有组件为准(`app/lib/core/widgets/app_error_view.dart`、`app/lib/core/theme/app_colors.dart`);若颜色 token 叫 `brandPrimary` 之类,改用实际名字。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```powershell
 cd app
@@ -2343,7 +2343,7 @@ cd app
 
 预期:2 个用例通过。
 
-- [ ] **Step 5: 跑 analyze + 全量测试**
+- [x] **Step 5: 跑 analyze + 全量测试**
 
 ```powershell
 cd app
@@ -2353,7 +2353,7 @@ cd app
 
 预期:零告警、全绿(原有 375 个用例 + 新增)。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add app/lib/features/settings/notification_settings_page.dart app/test/features/settings/notification_settings_page_test.dart
@@ -2374,7 +2374,7 @@ git commit -m "feat(app/settings): 通知设置三项真开关 + 权限提示"
 - Consumes: `GET/PATCH /api/v1/push/preferences`
 - Produces: 三个可点开关 + 说明文案
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 重写 `web/tests/component/notification-settings-page.spec.ts`:
 
@@ -2449,7 +2449,7 @@ describe('NotificationSettingsPage', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```powershell
 cd web
@@ -2458,7 +2458,7 @@ npm run test:run -- tests/component/notification-settings-page.spec.ts
 
 预期:失败(`@/api/push` 不存在)。
 
-- [ ] **Step 3: 写 api 与 store**
+- [x] **Step 3: 写 api 与 store**
 
 创建 `web/src/api/push.ts`:
 
@@ -2527,7 +2527,7 @@ export const usePushStore = defineStore('push', () => {
 })
 ```
 
-- [ ] **Step 4: 重写页面**
+- [x] **Step 4: 重写页面**
 
 `web/src/features/settings/NotificationSettingsPage.vue`:
 
@@ -2608,7 +2608,7 @@ onMounted(() => {
 
 > 样式沿用现有 `.notify__*` 规则(本文件原有 scoped 样式保留,只追加三条);token 名以 `web/src/styles/tokens.css` 为准(`--color-brand` / `--color-danger` 若不存在,换成实际名称,例如 `--color-primary`)。
 
-- [ ] **Step 5: 跑测试**
+- [x] **Step 5: 跑测试**
 
 ```powershell
 cd web
@@ -2617,7 +2617,7 @@ npm run test:run -- tests/component/notification-settings-page.spec.ts
 
 预期:3 个用例通过。
 
-- [ ] **Step 6: type-check 与 lint**
+- [x] **Step 6: type-check 与 lint**
 
 ```powershell
 cd web
@@ -2627,7 +2627,7 @@ npm run lint
 
 预期:零错误、零告警。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```powershell
 git add web/src/api/push.ts web/src/stores/push.ts web/src/features/settings/NotificationSettingsPage.vue web/tests/component/notification-settings-page.spec.ts
@@ -2644,7 +2644,7 @@ git commit -m "feat(web/settings): 通知设置三项开关(可编辑,注明仅�
 - Modify: `CLAUDE.md`(里程碑 + 下一步)
 - Modify: `README.md`(如接口表/下一步有对应描述)
 
-- [ ] **Step 1: 后端全量**
+- [x] **Step 1: 后端全量**
 
 ```powershell
 cd chatapp
@@ -2654,7 +2654,7 @@ python manage.py test
 
 预期:全绿(含 `ApiDocsCoverageTests` / `CommentCoverageTests`)。
 
-- [ ] **Step 2: App 全量**
+- [x] **Step 2: App 全量**
 
 ```powershell
 cd app
@@ -2664,7 +2664,7 @@ cd app
 
 预期:零告警、全绿。
 
-- [ ] **Step 3: Web 全量**
+- [x] **Step 3: Web 全量**
 
 ```powershell
 cd web
@@ -2675,7 +2675,7 @@ npm run test:coverage
 
 预期:零错误、零告警、覆盖率达标(70/60/70/70)。
 
-- [ ] **Step 4: 真机/日志后端验证**
+- [x] **Step 4: 真机/日志后端验证**
 
 没有极光 key 时:
 
@@ -2686,7 +2686,7 @@ npm run test:coverage
 
 有 key 时按 spec §9 的 7 条清单走真机。
 
-- [ ] **Step 5: 回填文档**
+- [x] **Step 5: 回填文档**
 
 1. spec 第 3 行状态改为 `已交付(2026-10-2X)`;若真机未完成,写 `已交付(代码与门禁;真机待 key)`;
 2. plan 全部 `- [x]`,末尾加「执行记录」段:测试数、commit、与计划的偏差;
@@ -2698,7 +2698,7 @@ npm run test:coverage
 
 4. `CLAUDE.md`「下一步」改为:P1 留存闭环收官;P1-4b 聊天消息推送待 HTTPS 域名或厂商证书;上线合规轨继续。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```powershell
 git add docs/superpowers/specs/2026-10-20-push-notifications-design.md docs/superpowers/plans/2026-10-20-push-notifications.md CLAUDE.md README.md
@@ -2715,3 +2715,55 @@ git commit -m "docs: P1-4 推送收尾回填(验收结果与里程碑)"
 - [x] 类型一致:`enqueue_push(user_id, kind, *, title, alert, extras)` 在 Task 4/5 中同名同参;
       `PushService` 五个方法在 Task 7/8/9 中同名;
 - [x] 没有「TBD / 类似 Task N / 自行补充」类占位。
+
+---
+
+## 执行记录(2026-10-20)
+
+**结果**:11 个任务全部完成,分支 `feat/p1-4-push`;代码、三端门禁与接口文档全绿,真机推送待极光 key。
+
+**门禁**
+
+| 套件 | 结果 |
+|---|---|
+| 后端 `python manage.py test` | 454 tests OK(含 `ApiDocsCoverageTests` / `CommentCoverageTests`) |
+| App `flutter analyze` | No issues found |
+| App `flutter test` | 381 tests passed |
+| Web `vue-tsc` / `eslint --max-warnings 0` | 零错误 / 零告警 |
+| Web `npm run test:coverage` | 338 tests passed;覆盖率 86.68 / 82.31 / 82.02 / 88.72(门槛 70/60/70/70) |
+
+**提交**
+
+1. `docs(spec): P1-4 推送设计(极光 JPush + 设备/偏好/三类通知)`
+2. `docs(plan): P1-4 推送实施计划(11 任务)`
+3. `feat(push): PushDevice + NotificationPreference 模型与迁移`
+4. `feat(push): 设备上报与解绑接口`
+5. `test(push): 通知偏好接口测试`
+6. `feat(push): 极光/日志推送客户端 + 入队服务 + 发送任务(含喜欢冷却)`
+7. `feat(push): 喜欢/配对/举报/封禁四类事件接入推送`
+8. `docs(api): 新增推送分册(4 个接口,36→40)`
+9. `feat(app/push): 极光接入 + 设备上报/深链 + 通知设置三项真开关`
+10. `feat(web/settings): 通知设置三项开关(可编辑,注明仅影响 App)`
+
+**与计划的偏差 / 踩到的坑**
+
+1. **`flutter pub add` 的符号链接提示**:命令末尾报「Building with plugins requires symlink support」,
+   但 `flutter pub get`、`analyze`、`test` 都正常;若之后打 APK 遇到同类报错,需在 Windows
+   设置里开启「开发者模式」。
+2. **极光 `EventHandler` 返回 `Future<dynamic>`**:`onOpenNotification` 回调必须写成 `async`,
+   否则编译报「A non-null value must be returned」。
+3. **`swipe` 里 `created` 是配对分支的局部变量**:推送判断最初直接用它,报
+   `UnboundLocalError`;把滑卡记录的返回值改名为 `swipe_created` 后才正确。
+4. **登录态测试都会触发推送注册**:`pumpApp` 默认注入
+   `FakePushService(registrationIdValue: null)`,避免每个用例多打一次 `/push/devices` 404;
+   `settings_page_test` 的 DELETE 断言改为按路径过滤(推送解绑也是 DELETE)。
+5. **Web 动效 token 是 `--motion-fast`**,没有 `--motion-micro`,页面里已改用前者。
+6. **本机 Redis 映射在 16379**,后端测试统一用 `$env:TEST_REDIS_PORT="16379"` 跑。
+
+**待用户执行(真机)**
+
+1. 注册极光账号 → 创建应用(包名 `com.chatapp.chatapp_app`)→ 拿 AppKey / MasterSecret;
+2. `app/android/key.properties` 填 `jpush.appKey`;`chatapp/.env` 填 `JPUSH_APP_KEY` 与
+   `JPUSH_MASTER_SECRET`(并把 `PUSH_ENABLED=1`);重新打 APK;
+3. 按 spec §9 的 7 条清单验收:三类推送各收一条、点击跳对页面、关开关后不再收到、
+   被顶号后旧设备不再收到。

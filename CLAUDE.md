@@ -42,8 +42,9 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-20 | P1-1「喜欢我的人」交付(`GET /discovery/likes` + `/count`,口径与候选池共用 `likes_received_queryset`;App 发现页入口+列表页,Web `/likes` + store;回喜欢复用 `swipe`;接口 32→34,后端 392 / App 347 / Web 315 测试绿;PR #8 squash 合并 `b606f3e`) |
 | 2026-10-20 | P1-2「设置页补齐」交付(新 `feedback` app + `POST /feedback` + ops 意见反馈队列;App/Web 设置页三段式 + 意见反馈页 + 通知设置只读骨架 + 关于页;版本号 App 常量守卫 / Web Vite 注入;接口 34→35,后端 409 / App 355 / Web 320 测试绿) |
 | 2026-10-20 | P1-3「关系出口」交付(`DELETE /matches/{user_id}` = `Match` 软删除 + `unmatch_blacklist` 双向 IM 拉黑 + 滑卡防复活;App/Web 聊天页「⋯」+ 资料页入口 + 被解除后横幅/输入禁用;2 分钟内撤回消息(SDK 原生,双方置灰);接口 35→36,后端 420 / App 375 / Web 336 测试绿。**已读回执挂起**:腾讯 IM 旗舰版专享,当前体验版做不了) |
+| 2026-10-20 | P1-4「推送」交付(极光 JPush;`PushDevice` + `NotificationPreference` + 四个接口;喜欢/配对/举报/封禁四类事件入队,喜欢 30 分钟冷却;App 登录上报/登出解绑/点击深链 + 通知设置三项真开关;Web 设置可编辑;接口 36→40,后端 454 / App 381 / Web 338 测试绿。**聊天消息推送挂起为 P1-4b**:需 HTTPS 回调域名或厂商证书) |
 
-**下一步**:P1 留存闭环只剩 P1-4 推送(厂商账号/证书/深链);已读回执待 IM 升旗舰版后单独立项。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
+**下一步**:P1 留存闭环收官。P1-4b 聊天消息推送待「备案域名 + HTTPS」或「应用上架 + 厂商证书」后单独立项;已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -151,6 +152,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `GET /matches` | 配对列表(分页);预热 userId→昵称头像缓存 |
 | `DELETE /matches/{user_id}` | 解除配对:幂等 204;软删除 + 双向 IM 拉黑,不可恢复 |
 | `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
+| `POST /push/devices`、`DELETE /push/devices/{registration_id}`、`GET/PATCH /push/preferences` | 推送设备与三类通知开关(极光;无 key 时走日志后端) |
 | `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见各 spec 与 pitfalls |
 
 资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`(否则 `incomplete`,`missing_fields` 列出缺项);`banned_light` / `banned_heavy` 为封禁状态。
