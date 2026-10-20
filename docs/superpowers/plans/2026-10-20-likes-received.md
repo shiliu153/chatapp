@@ -2049,7 +2049,7 @@ Expected:零错误、零告警、全绿。
 
 ## 执行记录
 
-- 2026-10-20:后端接口 + App/Web 双端页面交付;全量门禁通过。
+- 2026-10-20:后端接口 + App/Web 双端页面交付;全量门禁通过;PR #8 已创建。
 - 后端:`python manage.py test` → `Ran 392 tests in 67.071s` / `OK`(含新增 13 条 `LikesReceivedTests`)。
 - App:`flutter analyze` → `No issues found!`;`flutter test` → `All tests passed! (+347)`(含新增 7 条)。
 - Web:`vue-tsc` 零错误;`eslint --max-warnings 0` 零告警;`vitest run` → `65 passed / 315 tests`(含新增 12 条)。
