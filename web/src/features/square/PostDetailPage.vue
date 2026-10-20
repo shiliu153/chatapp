@@ -37,6 +37,26 @@ function onCommentAdded(comment: Comment) {
   comments.value = [comment, ...comments.value]
   if (post.value) post.value.comment_count += 1
 }
+
+function onCommentDeleted(comment: Comment) {
+  if (comment.parent_id === null) {
+    comments.value = comments.value.filter((item) => item.id !== comment.id)
+  } else {
+    comments.value = comments.value.map((item) =>
+      item.id === comment.parent_id
+        ? {
+            ...item,
+            replies: item.replies.filter((reply) => reply.id !== comment.id),
+            reply_count: Math.max(0, item.reply_count - 1),
+          }
+        : item,
+    )
+  }
+  if (post.value) {
+    const removed = comment.parent_id === null ? 1 + comment.reply_count : 1
+    post.value.comment_count = Math.max(0, post.value.comment_count - removed)
+  }
+}
 </script>
 
 <template>
@@ -54,6 +74,7 @@ function onCommentAdded(comment: Comment) {
         :comments="comments"
         :count="post.comment_count"
         @added="onCommentAdded"
+        @deleted="onCommentDeleted"
       />
     </AppCard>
   </section>

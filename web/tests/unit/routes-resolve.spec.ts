@@ -47,7 +47,9 @@ describe('路由表', () => {
     }
   })
 
-  it('每个懒加载组件都能真实加载(路径没写错)', async () => {
+  it('每个懒加载组件都能真实加载(路径没写错)', { timeout: 15000 }, async () => {
+    // 全量套件并行跑时,逐个 import 全部页面会超过默认 5s;这里只放宽超时,
+    // 断言仍是「每个组件都能真实加载」
     expect(entries.length).toBeGreaterThanOrEqual(REQUIRED_ROUTES.length)
     for (const entry of entries) {
       await expect(entry.load(), `${entry.name} 加载失败`).resolves.toBeTruthy()

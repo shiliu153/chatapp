@@ -42,9 +42,30 @@ export async function fetchComments(postId: number, limit = 20, offset = 0): Pro
   return data as Page<Comment>
 }
 
-export async function createComment(postId: number, text: string): Promise<Comment> {
-  const { data } = await http.post(`/posts/${postId}/comments`, { text })
+export async function createComment(
+  postId: number,
+  text: string,
+  parentId?: number,
+): Promise<Comment> {
+  const body = parentId === undefined ? { text } : { text, parent_id: parentId }
+  const { data } = await http.post(`/posts/${postId}/comments`, body)
   return data as Comment
+}
+
+export async function fetchReplies(
+  postId: number,
+  commentId: number,
+  limit = 100,
+  offset = 0,
+): Promise<Page<Comment>> {
+  const { data } = await http.get(`/posts/${postId}/comments/${commentId}/replies`, {
+    params: { limit, offset },
+  })
+  return data as Page<Comment>
+}
+
+export async function deleteComment(postId: number, commentId: number): Promise<void> {
+  await http.delete(`/posts/${postId}/comments/${commentId}`)
 }
 
 export async function reportPost(postId: number, type: ReportType, detail = ''): Promise<void> {

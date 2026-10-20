@@ -1,6 +1,6 @@
 # 广场动态
 
-本分册含 10 个接口:动态流(列表/发布)、我的动态、详情/删除、点赞/取消、评论(列表/发表)、举报动态。
+本分册含 12 个接口:动态流(列表/发布)、我的动态、详情/删除、点赞/取消、评论(列表/发表/回复列表/删除)、举报动态。
 
 **可见性规则**(贯穿全分册):被双向拉黑或被重封禁的作者,其动态与评论对你看不到(列表过滤、详情 404)。动态作者本人是唯一能删除该动态的人。
 
@@ -388,7 +388,7 @@ HTTP/1.1 204 No Content
 
 **接口描述**
 
-分页拉取某条动态的评论。作者被双向拉黑或被重封禁的评论不会返回。
+分页拉取某条动态的**顶级评论**(回复不单独分页,内嵌在每条评论里)。作者被双向拉黑或被重封禁的评论不会返回;`reply_count` 与 `replies` 同样按可见性过滤。
 
 **请求参数**
 
@@ -407,6 +407,10 @@ HTTP/1.1 204 No Content
 | id | Integer | 评论 ID |
 | author | Object | 评论者摘要(`user_id` / `nickname` / `avatar_url`,同 5.1) |
 | text | String | 评论内容 |
+| parent_id | Integer / null | 顶级评论为 `null`;回复为所属顶级评论 ID |
+| reply_to | Object / null | 被回复者摘要 `{user_id, nickname}`;顶级评论为 `null` |
+| reply_count | Integer | 该楼层的可见回复总数(回复对象恒为 0) |
+| replies | Object[] | 内嵌的前 2 条回复,结构同本表(回复对象恒为空数组) |
 | created_at | String | 评论时间(ISO 8601) |
 
 **请求示例**
@@ -432,6 +436,25 @@ curl "http://<域名>/api/v1/posts/9/comments?limit=20&offset=0" \
         "avatar_url": "http://<域名>/media/photos/2026/09/seed_12_0.jpg"
       },
       "text": "好看!",
+      "parent_id": null,
+      "reply_to": null,
+      "reply_count": 1,
+      "replies": [
+        {
+          "id": 4,
+          "author": {
+            "user_id": 7,
+            "nickname": "阿哲",
+            "avatar_url": "http://<域名>/media/photos/2026/09/seed_7_0.jpg"
+          },
+          "text": "同问",
+          "parent_id": 3,
+          "reply_to": {"user_id": 12, "nickname": "小雨12"},
+          "reply_count": 0,
+          "replies": [],
+          "created_at": "2026-10-20T10:05:00+08:00"
+        }
+      ],
       "created_at": "2026-09-21T18:25:27.828229+08:00"
     }
   ]
@@ -453,7 +476,7 @@ curl "http://<域名>/api/v1/posts/9/comments?limit=20&offset=0" \
 
 **接口描述**
 
-给动态发表一条评论。评论成功后动态作者会收到一条系统通知(自己评论自己的动态除外)。
+给动态发表评论或回复。`parent_id` 为空时是顶级评论,评论成功后动态作者会收到一条系统通知;`parent_id` 非空时是回复,被回复者会收到「X 回复了你」的系统通知(自己回复自己不提醒)。层级恒为两级:回复一条回复时,新回复仍挂在同一楼层,`reply_to` 记录真正被回复的人。
 
 **请求参数**
 
@@ -461,6 +484,7 @@ curl "http://<域名>/api/v1/posts/9/comments?limit=20&offset=0" \
 |----------|------|------|------|
 | post_id | 是 | Integer | 动态 ID(路径参数) |
 | text | 是 | String | 评论内容,最长 200 字,不能为空(纯空白视为空);含违规词返回 400(Body,`application/json`) |
+| parent_id | 否 | Integer | 被回复的评论 ID;不传 = 发表顶级评论。指向回复时服务端自动归到其顶级评论 |
 
 **响应参数**(HTTP 201)
 
@@ -469,6 +493,10 @@ curl "http://<域名>/api/v1/posts/9/comments?limit=20&offset=0" \
 | id | Integer | 评论 ID |
 | author | Object | 评论者摘要,同 5.1 |
 | text | String | 评论内容 |
+| parent_id | Integer / null | 顶级评论为 `null`;回复为所属顶级评论 ID |
+| reply_to | Object / null | 被回复者摘要 `{user_id, nickname}`;顶级评论为 `null` |
+| reply_count | Integer | 该楼层的可见回复总数(新回复恒为 0) |
+| replies | Object[] | 内嵌的前 2 条回复(新回复恒为空数组) |
 | created_at | String | 评论时间 |
 
 **请求示例**
@@ -491,6 +519,10 @@ curl -X POST http://<域名>/api/v1/posts/9/comments \
     "avatar_url": "http://<域名>/media/photos/2026/09/seed_12_0.jpg"
   },
   "text": "好看!",
+  "parent_id": null,
+  "reply_to": null,
+  "reply_count": 0,
+  "replies": [],
   "created_at": "2026-09-21T18:25:27.828229+08:00"
 }
 ```
@@ -565,4 +597,108 @@ curl -X POST http://<域名>/api/v1/posts/9/report \
 | 400 | 400 | “xxx” 不是合法选项。(`type` 取值非法) | 使用 harassment/porn/fraud/other 之一 |
 | 404 | 404 | 动态不存在或不可见 | 从列表移除该条 |
 | 429 | 429 | 触发限流(20 次/天) | 按 `Retry-After` 等待 |
+| 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+
+---
+
+### 5.11 回复列表
+
+> `GET` `/api/v1/posts/{post_id}/comments/{comment_id}/replies` · 需要鉴权 · 无额外限流
+
+**接口描述**
+
+分页拉取某条顶级评论下的全部回复,按时间正序(早 → 晚)。作者被双向拉黑或被重封禁的回复不会返回。`comment_id` 不存在、不属于该动态、或本身就是一条回复时返回 404。
+
+**请求参数**
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|----------|------|------|------|
+| post_id | 是 | Integer | 动态 ID(路径参数) |
+| comment_id | 是 | Integer | 顶级评论 ID(路径参数) |
+| limit | 否 | Integer | 每页条数,默认 20,上限 100(Query) |
+| offset | 否 | Integer | 偏移量,默认 0(Query) |
+
+**响应参数**
+
+分页对象,`results[]` 为回复对象,字段见 5.8(其中 `replies` 恒为空数组、`reply_count` 恒为 0)。
+
+**请求示例**
+
+```bash
+curl "http://<域名>/api/v1/posts/9/comments/3/replies?limit=20&offset=0" \
+  -H "Authorization: Bearer <access>"
+```
+
+**响应示例**
+
+```json
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 5,
+      "author": {
+        "user_id": 12,
+        "nickname": "小雨12",
+        "avatar_url": "http://<域名>/media/photos/2026/09/seed_12_0.jpg"
+      },
+      "text": "同问",
+      "parent_id": 3,
+      "reply_to": {"user_id": 7, "nickname": "阿哲"},
+      "reply_count": 0,
+      "replies": [],
+      "created_at": "2026-10-20T10:05:00+08:00"
+    }
+  ]
+}
+```
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 404 | 404 | 动态不可见,或评论不存在 / 不属于该动态 / 本身是回复 | 从列表移除该楼层,不要重试 |
+| 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+
+---
+
+### 5.12 删除评论
+
+> `DELETE` `/api/v1/posts/{post_id}/comments/{comment_id}` · 需要鉴权 · 无额外限流
+
+**接口描述**
+
+删除自己发表的评论。**只有作者本人能删**:非作者、评论不存在、不属于该动态一律返回 404。删除顶级评论会**连带删除该楼全部回复**;删除回复只删这一条。删除后动态的 `comment_count` 相应减少。
+
+**请求参数**
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|----------|------|------|------|
+| post_id | 是 | Integer | 动态 ID(路径参数) |
+| comment_id | 是 | Integer | 评论 ID(路径参数) |
+
+**响应参数**
+
+无(HTTP 204,响应体为空)。
+
+**请求示例**
+
+```bash
+curl -X DELETE "http://<域名>/api/v1/posts/9/comments/3" \
+  -H "Authorization: Bearer <access>"
+```
+
+**响应示例**
+
+```
+HTTP/1.1 204 No Content
+```
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 404 | 404 | 动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的 | 刷新评论列表后重试 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |

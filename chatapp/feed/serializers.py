@@ -75,13 +75,22 @@ class PostSerializer(serializers.ModelSerializer):
 
 
 class PostCommentSerializer(serializers.ModelSerializer):
-    """评论的对外表示,作者信息与动态卡同源。"""
+    """评论的对外表示:作者摘要、被回复者、回复数与内嵌前两条回复。
+
+    回复不再递归:回复对象的 ``replies`` 恒为空、``reply_count`` 恒为 0,
+    避免响应随层级膨胀。
+    """
 
     author = serializers.SerializerMethodField()
+    parent_id = serializers.IntegerField(read_only=True, allow_null=True)
+    reply_to = serializers.SerializerMethodField()
+    reply_count = serializers.SerializerMethodField()
+    replies = serializers.SerializerMethodField()
 
     class Meta:
         model = PostComment
-        fields = ["id", "author", "text", "created_at"]
+        fields = ["id", "author", "text", "parent_id", "reply_to",
+                  "reply_count", "replies", "created_at"]
 
     def get_author(self, comment):
         """取评论作者的简要信息。
@@ -93,6 +102,65 @@ class PostCommentSerializer(serializers.ModelSerializer):
             ``author_brief`` 的结果。
         """
         return author_brief(comment.author, self.context["request"])
+
+    def _visible_replies(self, comment):
+        """取该评论下的可见回复(优先用视图预取的结果)。
+
+        Args:
+            comment: 顶级评论。
+
+        Returns:
+            按时间正序的回复列表;结果会缓存在实例上,避免重复查询。
+        """
+        cached = getattr(comment, "visible_replies", None)
+        if cached is not None:
+            return cached
+        cached = list(comment.replies.select_related("author__profile", "reply_to__profile")
+                      .prefetch_related("author__photos"))
+        comment.visible_replies = cached
+        return cached
+
+    def get_reply_to(self, comment):
+        """取被回复者的简要信息。
+
+        Args:
+            comment: 评论对象。
+
+        Returns:
+            ``{user_id, nickname}``;顶级评论或被回复者已注销时为 ``None``。
+        """
+        user = comment.reply_to
+        if user is None:
+            return None
+        profile = getattr(user, "profile", None)
+        return {"user_id": user.id, "nickname": profile.nickname if profile else ""}
+
+    def get_reply_count(self, comment):
+        """取该楼层可见回复的总数(回复对象恒为 0)。
+
+        Args:
+            comment: 评论对象。
+
+        Returns:
+            可见回复条数。
+        """
+        if comment.parent_id is not None:
+            return 0
+        return len(self._visible_replies(comment))
+
+    def get_replies(self, comment):
+        """取该楼层内嵌的前两条回复(回复对象恒为空)。
+
+        Args:
+            comment: 评论对象。
+
+        Returns:
+            回复对象列表,最多 2 条。
+        """
+        if comment.parent_id is not None:
+            return []
+        replies = self._visible_replies(comment)[:2]
+        return PostCommentSerializer(replies, many=True, context=self.context).data
 
 
 class PostCreateSerializer(serializers.Serializer):
@@ -143,9 +211,10 @@ class PostCreateSerializer(serializers.Serializer):
 
 
 class PostCommentCreateSerializer(serializers.Serializer):
-    """发表评论的入参。"""
+    """发表评论的入参;``parent_id`` 非空表示这是一条回复。"""
 
     text = serializers.CharField(max_length=200)
+    parent_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
 
     def validate_text(self, value):
         """校验评论内容:违禁词检查、去空白、非空。

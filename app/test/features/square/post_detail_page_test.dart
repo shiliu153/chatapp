@@ -160,4 +160,88 @@ void main() {
 
     expect(find.byType(UserProfilePage), findsNothing);
   });
+
+  testWidgets('楼层:内嵌前两条回复 + 查看全部按钮', (tester) async {
+    final adapter = ScriptedAdapter({
+      'GET /posts/1': (options) => ok(postJson(id: 1, text: '正文', commentCount: 3)),
+      'GET /posts/1/comments': (options) => ok(pageJson([
+            commentJson(
+              id: 5,
+              nickname: 'Bob',
+              text: '一楼',
+              replyCount: 3,
+              replies: [
+                commentJson(
+                    id: 6,
+                    nickname: 'Carol',
+                    text: '回复一',
+                    parentId: 5,
+                    replyTo: replyToJson(userId: 9, nickname: 'Bob')),
+                commentJson(
+                    id: 7,
+                    nickname: 'Dave',
+                    text: '回复二',
+                    parentId: 5,
+                    replyTo: replyToJson(userId: 9, nickname: 'Bob')),
+              ],
+            ),
+          ])),
+      'GET /presence': (options) => ok({'results': []}),
+    });
+    await pumpDetail(tester, adapter, postId: 1);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('回复一'), findsOneWidget);
+    expect(find.textContaining('回复二'), findsOneWidget);
+    expect(find.textContaining('回复 @Bob'), findsWidgets);
+    expect(find.byKey(const Key('post.comment.replies.more.5')), findsOneWidget);
+  });
+
+  testWidgets('点「回复」进入回复态,发送带 parent_id', (tester) async {
+    final adapter = ScriptedAdapter({
+      'GET /posts/1': (options) => ok(postJson(id: 1, text: '正文', commentCount: 1)),
+      'GET /posts/1/comments': (options) => ok(pageJson([
+            commentJson(id: 5, nickname: 'Bob', text: '一楼'),
+          ])),
+      'POST /posts/1/comments': (options) =>
+          ok(commentJson(id: 8, nickname: '我', text: '回你', parentId: 5), status: 201),
+      'GET /presence': (options) => ok({'results': []}),
+    });
+    await pumpDetail(tester, adapter, postId: 1);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('post.comment.reply.5')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('回复 @Bob'), findsWidgets);
+
+    await tester.enterText(find.byKey(const Key('post.comment.input')), '回你');
+    await tester.tap(find.byKey(const Key('post.comment.send')));
+    await tester.pumpAndSettle();
+
+    final sent = adapter.log
+        .firstWhere((r) => r.method == 'POST' && r.path == '/posts/1/comments');
+    expect(sent.data, {'text': '回你', 'parent_id': 5});
+  });
+
+  testWidgets('删除自己的评论需二次确认', (tester) async {
+    final adapter = ScriptedAdapter({
+      'GET /users/me': (options) => ok(profileJson(nickname: '小明', userId: 7)),
+      'GET /posts/1': (options) => ok(postJson(id: 1, text: '正文', commentCount: 1)),
+      'GET /posts/1/comments': (options) => ok(pageJson([
+            commentJson(id: 5, authorId: 7, nickname: '小明', text: '我评的'),
+          ])),
+      'DELETE /posts/1/comments/5': (options) async => ResponseBody.fromString('', 204),
+      'GET /presence': (options) => ok({'results': []}),
+    });
+    await pumpDetail(tester, adapter, postId: 1);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('post.comment.delete.5')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('post.comment.delete.confirm')));
+    await tester.pumpAndSettle();
+
+    expect(adapter.log.where((r) => r.method == 'DELETE' && r.path == '/posts/1/comments/5'),
+        hasLength(1));
+  });
 }

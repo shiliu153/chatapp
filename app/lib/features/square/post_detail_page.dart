@@ -3,17 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/format.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/widgets/app_avatar.dart';
-import '../../core/widgets/app_empty_state.dart';
+import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_error_view.dart';
 import '../../core/widgets/app_sub_page_bar.dart';
 import '../../core/widgets/app_toast.dart';
-import '../../core/widgets/avatar_hero.dart';
 import '../../core/widgets/card_hero.dart';
 import '../chat/widgets/photo_viewer.dart';
 import '../presence/models.dart';
@@ -25,6 +22,7 @@ import 'post_actions.dart';
 import 'post_detail_args.dart';
 import 'post_detail_controller.dart';
 import 'square_controller.dart';
+import 'widgets/comment_thread.dart';
 import 'widgets/post_card.dart';
 import 'widgets/post_detail_skeleton.dart';
 
@@ -45,6 +43,7 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
   final _input = TextEditingController();
   final _focus = FocusNode();
   bool _sending = false;
+  PostCommentItem? _replyTo;
 
   @override
   void dispose() {
@@ -58,14 +57,43 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
     if (text.isEmpty) return;
     setState(() => _sending = true);
     try {
-      await ref.read(commentsProvider(widget.postId).notifier).send(text);
+      await ref
+          .read(commentsProvider(widget.postId).notifier)
+          .send(text, parentId: _replyTo?.id);
       _input.clear();
+      setState(() => _replyTo = null);
       ref.invalidate(commentsProvider(widget.postId));      // 评论列表刷新
       ref.invalidate(postDetailProvider(widget.postId));    // 评论数 +1
     } on ApiException catch (error) {
       if (mounted) AppToast.show(context, error.message);
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  void _startReply(PostCommentItem comment) {
+    setState(() => _replyTo = comment);
+    _focus.requestFocus();
+  }
+
+  Future<void> _deleteComment(PostCommentItem comment) async {
+    final extra = comment.replyCount > 0 ? '连同 ${comment.replyCount} 条回复一起删除,' : '';
+    final confirmed = await showConfirmDialog(
+      context,
+      title: '删除这条评论?',
+      message: '$extra删除后不可恢复',
+      confirmLabel: '删除',
+      confirmKey: const Key('post.comment.delete.confirm'),
+      danger: true,
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await ref.read(commentsProvider(widget.postId).notifier).delete(comment.id);
+      ref.invalidate(commentsProvider(widget.postId));
+      ref.invalidate(repliesProvider);
+      ref.invalidate(postDetailProvider(widget.postId));
+    } on ApiException catch (error) {
+      if (mounted) AppToast.show(context, error.message);
     }
   }
 
@@ -130,6 +158,8 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                           : reportPostFromSheet(context, ref, post.id),
                       onRetryComments: () =>
                           ref.invalidate(commentsProvider(widget.postId)),
+                      onReply: _startReply,
+                      onDelete: _deleteComment,
                     );
                   }
                   return const Padding(
@@ -159,6 +189,8 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                         : reportPostFromSheet(context, ref, post.id),
                     onRetryComments: () =>
                         ref.invalidate(commentsProvider(widget.postId)),
+                    onReply: _startReply,
+                    onDelete: _deleteComment,
                   );
                 },
               ),
@@ -167,6 +199,8 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
               input: _input,
               focus: _focus,
               sending: _sending,
+              replyTo: _replyTo,
+              onCancelReply: () => setState(() => _replyTo = null),
               onSend: _send,
             ),
           ],
@@ -188,6 +222,8 @@ class _Body extends StatelessWidget {
     required this.onOpenImage,
     required this.onMenu,
     required this.onRetryComments,
+    required this.onReply,
+    required this.onDelete,
   });
 
   final Post post;
@@ -199,6 +235,8 @@ class _Body extends StatelessWidget {
   final void Function(Post post, int index) onOpenImage;
   final void Function(Post post, String action) onMenu;
   final VoidCallback onRetryComments;
+  final void Function(PostCommentItem comment) onReply;
+  final void Function(PostCommentItem comment) onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -228,105 +266,15 @@ class _Body extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        comments.when(
-          loading: () => const Padding(
-            padding: EdgeInsets.all(AppSpacing.xxl),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-          error: (error, _) => Padding(
-            padding: const EdgeInsets.all(AppSpacing.xxl),
-            child: AppErrorView(
-              message: apiMessageOf(error),
-              onRetry: onRetryComments,
-            ),
-          ),
-          data: (items) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (items.isEmpty)
-                const Center(
-                  child: AppEmptyState(
-                    emoji: '💬',
-                    title: '还没有评论',
-                    description: '来抢沙发',
-                  ),
-                ),
-              for (var i = 0; i < items.length; i++) ...[
-                if (i > 0) const Divider(height: 1, color: AppColors.divider),
-                _CommentTile(
-                  comment: items[i],
-                  heroTag: 'avatar-comment-${items[i].id}',
-                  onTapAuthor: items[i].author.userId == myId
-                      ? null
-                      : () => context.push('/users/${items[i].author.userId}',
-                          extra: 'avatar-comment-${items[i].id}'),
-                ),
-              ],
-            ],
-          ),
+        CommentThread(
+          postId: post.id,
+          comments: comments,
+          myId: myId,
+          onReply: onReply,
+          onDelete: onDelete,
+          onRetry: onRetryComments,
         ),
       ],
-    );
-  }
-}
-
-/// 评论行(附录 D):28 圆头像 + 昵称 13/w600 text2 + 正文 + 时间;行间 1px divider。
-class _CommentTile extends StatelessWidget {
-  const _CommentTile({required this.comment, this.onTapAuthor, this.heroTag});
-
-  final PostCommentItem comment;
-  final VoidCallback? onTapAuthor;
-
-  /// Hero tag(附录 C.7);按评论 id 派生,同页多条评论不会撞。
-  final String? heroTag;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: Key('post.comment.${comment.id}'),
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AvatarHero(
-            tag: heroTag,
-            imageUrl: comment.author.avatarUrl,
-            fromRadius: AppRadius.full,
-            child: GestureDetector(
-              key: Key('post.comment.avatar.${comment.id}'),
-              behavior: HitTestBehavior.opaque,
-              onTap: onTapAuthor ?? () {},
-              child: AppAvatar(
-                imageUrl: comment.author.avatarUrl,
-                size: 28,
-                fallbackText: comment.author.nickname,
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  key: Key('post.comment.nickname.${comment.id}'),
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onTapAuthor ?? () {},
-                  child: Text(comment.author.nickname,
-                      style: AppText.caption.copyWith(
-                          fontWeight: FontWeight.w600, color: AppColors.text2)),
-                ),
-                const SizedBox(height: 2),
-                Text(comment.text,
-                    style: AppText.body.copyWith(color: AppColors.text1)),
-                const SizedBox(height: 2),
-                Text(formatPostTime(comment.createdAt),
-                    style: AppText.micro.copyWith(color: AppColors.text3)),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -338,12 +286,16 @@ class _CommentBar extends StatelessWidget {
     required this.input,
     required this.focus,
     required this.sending,
+    required this.replyTo,
+    required this.onCancelReply,
     required this.onSend,
   });
 
   final TextEditingController input;
   final FocusNode focus;
   final bool sending;
+  final PostCommentItem? replyTo;
+  final VoidCallback onCancelReply;
   final VoidCallback onSend;
 
   static const _barHeight = 44.0; // 紧凑输入场景(附录 D 修订 B.4)
@@ -358,8 +310,30 @@ class _CommentBar extends StatelessWidget {
             decoration: const BoxDecoration(
               border: Border(top: BorderSide(color: AppColors.divider)),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (replyTo != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text('回复 @${replyTo!.author.nickname}',
+                              style: AppText.micro.copyWith(color: AppColors.text2)),
+                        ),
+                        GestureDetector(
+                          key: const Key('post.comment.reply.cancel'),
+                          behavior: HitTestBehavior.opaque,
+                          onTap: onCancelReply,
+                          child: Icon(Icons.close_rounded,
+                              size: 16, color: AppColors.text3),
+                        ),
+                      ],
+                    ),
+                  ),
+                Row(
+                  children: [
                 Expanded(
                   child: ListenableBuilder(
                     listenable: Listenable.merge([focus, input]),
@@ -391,7 +365,9 @@ class _CommentBar extends StatelessWidget {
                       maxLength: 200,
                       style: AppText.body.copyWith(color: AppColors.text1),
                       decoration: InputDecoration(
-                        hintText: '说点什么…',
+                        hintText: replyTo == null
+                            ? '说点什么…'
+                            : '回复 @${replyTo!.author.nickname}…',
                         hintStyle: AppText.body.copyWith(color: AppColors.text3),
                         counterText: '',
                         border: InputBorder.none,
@@ -414,6 +390,8 @@ class _CommentBar extends StatelessWidget {
                             ? AppColors.text3
                             : AppColors.brand),
                   ),
+                ),
+                  ],
                 ),
               ],
             ),

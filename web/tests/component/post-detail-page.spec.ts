@@ -19,6 +19,10 @@ const comment = {
   id: 1,
   author: { user_id: 4, nickname: '阿哲', avatar_url: null },
   text: '不错',
+  parent_id: null,
+  reply_to: null,
+  reply_count: 0,
+  replies: [],
   created_at: '2026-10-01T11:00:00Z',
 }
 const paged = (results: unknown[]) => ({
@@ -70,6 +74,10 @@ describe('PostDetailPage', () => {
           id: 2,
           author: { user_id: 9, nickname: '我', avatar_url: null },
           text: '沙发',
+          parent_id: null,
+          reply_to: null,
+          reply_count: 0,
+          replies: [],
           created_at: '2026-10-01T12:00:00Z',
         }),
       ),

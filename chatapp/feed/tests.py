@@ -100,6 +100,22 @@ class FeedModelTests(TestCase):
         second = PostComment.objects.create(post=post, author=self.b, text="二")
         self.assertEqual(list(post.comments.all()), [first, second])
 
+    def test_top_level_comment_has_no_parent(self):
+        post = Post.objects.create(author=self.a, text="你好")
+        comment = PostComment.objects.create(post=post, author=self.a, text="一")
+        self.assertIsNone(comment.parent)
+        self.assertIsNone(comment.reply_to)
+        self.assertEqual(comment.replies.count(), 0)
+
+    def test_reply_defaults(self):
+        post = Post.objects.create(author=self.a, text="你好")
+        root = PostComment.objects.create(post=post, author=self.a, text="楼")
+        reply = PostComment.objects.create(post=post, author=self.b, text="回",
+                                           parent=root, reply_to=self.a)
+        self.assertEqual(reply.parent, root)
+        self.assertEqual(reply.reply_to, self.a)
+        self.assertEqual(list(root.replies.all()), [reply])
+
     def test_post_report_defaults_to_pending(self):
         post = Post.objects.create(author=self.a, text="你好")
         report = PostReport.objects.create(reporter=self.b, post=post,
@@ -461,3 +477,191 @@ class PostReportTests(FeedApiMixin, APITestCase):
                                               format="json").status_code, 201)
             self.assertEqual(self.client.post(f"/api/v1/posts/{other.id}/report",
                                               {"type": "other"}, format="json").status_code, 429)
+
+
+class PostCommentThreadTests(FeedApiMixin, APITestCase):
+    """楼中楼:归一化、内嵌回复、展开接口、删除与提醒分流。"""
+
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.author = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.author, nickname="楼主")
+        self.third = User.objects.create_user(phone="13700137000")
+        Profile.objects.create(user=self.third, nickname="路人")
+        self.post = Post.objects.create(author=self.author, text="楼中楼")
+        self.login(self.me)
+        self.url = f"/api/v1/posts/{self.post.id}/comments"
+
+    def _comment(self, text, author=None, parent=None):
+        """直接落一条评论/回复,跳过接口(构造场景用)。
+
+        Args:
+            text: 正文。
+            author: 作者,默认 ``self.me``。
+            parent: 父评论,``None`` 表示顶级评论。
+
+        Returns:
+            新建的评论实例。
+        """
+        return PostComment.objects.create(
+            post=self.post, author=author or self.me, text=text, parent=parent,
+            reply_to=parent.author if parent is not None else None)
+
+    def test_reply_to_top_level_sets_parent_and_reply_to(self):
+        root = self._comment("一楼", author=self.author)
+        resp = self.client.post(self.url, {"text": "回复一楼", "parent_id": root.id},
+                                format="json")
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["parent_id"], root.id)
+        created = PostComment.objects.get(id=resp.json()["id"])
+        self.assertEqual(created.parent_id, root.id)
+        self.assertEqual(created.reply_to_id, self.author.id)
+
+    def test_reply_to_reply_is_normalized_to_root(self):
+        root = self._comment("一楼", author=self.author)
+        reply = self._comment("二楼", author=self.third, parent=root)
+        resp = self.client.post(self.url, {"text": "回复二楼", "parent_id": reply.id},
+                                format="json")
+        self.assertEqual(resp.status_code, 201)
+        created = PostComment.objects.get(id=resp.json()["id"])
+        self.assertEqual(created.parent_id, root.id)          # 归一到顶级评论
+        self.assertEqual(created.reply_to_id, self.third.id)  # 提醒被回复者
+        self.assertEqual(root.replies.count(), 2)
+
+    def test_parent_from_another_post_404(self):
+        other_post = Post.objects.create(author=self.author, text="别的")
+        foreign = PostComment.objects.create(post=other_post, author=self.author, text="外")
+        resp = self.client.post(self.url, {"text": "x", "parent_id": foreign.id},
+                                format="json")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_missing_parent_404(self):
+        resp = self.client.post(self.url, {"text": "x", "parent_id": 999999}, format="json")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_list_only_top_level_with_two_embedded_replies(self):
+        root = self._comment("一楼", author=self.author)
+        for i in range(3):
+            self._comment(f"回复{i}", author=self.third, parent=root)
+        data = self.client.get(self.url).json()
+        self.assertEqual(data["count"], 1)                 # 只分页顶级评论
+        item = data["results"][0]
+        self.assertEqual(item["id"], root.id)
+        self.assertEqual(item["reply_count"], 3)
+        self.assertEqual([r["text"] for r in item["replies"]], ["回复0", "回复1"])
+        self.assertEqual(item["replies"][0]["reply_to"]["nickname"], "楼主")
+        self.assertEqual(item["replies"][0]["parent_id"], root.id)
+
+    def test_reply_count_skips_hidden_replies(self):
+        root = self._comment("一楼", author=self.author)
+        self._comment("可见", author=self.third, parent=root)
+        Block.objects.create(blocker=self.me, blocked=self.third)
+        self._comment("被拉黑", author=self.third, parent=root)
+        item = self.client.get(self.url).json()["results"][0]
+        self.assertEqual(item["reply_count"], 0)
+        self.assertEqual(item["replies"], [])
+
+    def test_comment_count_includes_replies(self):
+        root = self._comment("一楼", author=self.author)
+        self._comment("回复", author=self.third, parent=root)
+        post = self.client.get(f"/api/v1/posts/{self.post.id}").json()
+        self.assertEqual(post["comment_count"], 2)
+
+    def test_create_response_includes_reply_meta(self):
+        root = self._comment("一楼", author=self.author)
+        resp = self.client.post(self.url, {"text": "回复", "parent_id": root.id},
+                                format="json")
+        data = resp.json()
+        self.assertEqual(data["reply_to"]["user_id"], self.author.id)
+        self.assertEqual(data["reply_to"]["nickname"], "楼主")
+        self.assertEqual(data["reply_count"], 0)
+        self.assertEqual(data["replies"], [])
+
+    def test_replies_endpoint_paginates_oldest_first(self):
+        root = self._comment("一楼", author=self.author)
+        for i in range(25):
+            self._comment(f"r{i}", author=self.third, parent=root)
+        resp = self.client.get(
+            f"/api/v1/posts/{self.post.id}/comments/{root.id}/replies")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["count"], 25)
+        self.assertEqual(len(data["results"]), 20)
+        self.assertEqual(data["results"][0]["text"], "r0")
+        self.assertIsNotNone(data["next"])
+
+    def test_replies_endpoint_404_for_reply_id(self):
+        root = self._comment("一楼", author=self.author)
+        reply = self._comment("回复", author=self.third, parent=root)
+        resp = self.client.get(
+            f"/api/v1/posts/{self.post.id}/comments/{reply.id}/replies")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_replies_endpoint_404_for_other_post_comment(self):
+        other_post = Post.objects.create(author=self.author, text="别的")
+        foreign = PostComment.objects.create(post=other_post, author=self.author, text="外")
+        resp = self.client.get(
+            f"/api/v1/posts/{self.post.id}/comments/{foreign.id}/replies")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_delete_top_level_comment_cascades_replies(self):
+        root = self._comment("一楼", author=self.me)
+        self._comment("回复", author=self.third, parent=root)
+        resp = self.client.delete(
+            f"/api/v1/posts/{self.post.id}/comments/{root.id}")
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(PostComment.objects.count(), 0)
+
+    def test_delete_reply_only_removes_itself(self):
+        root = self._comment("一楼", author=self.author)
+        mine = self._comment("我的回复", author=self.me, parent=root)
+        other = self._comment("别人的回复", author=self.third, parent=root)
+        resp = self.client.delete(
+            f"/api/v1/posts/{self.post.id}/comments/{mine.id}")
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(list(PostComment.objects.values_list("id", flat=True)),
+                         [root.id, other.id])
+
+    def test_delete_others_comment_404(self):
+        other = self._comment("别人的", author=self.third)
+        resp = self.client.delete(
+            f"/api/v1/posts/{self.post.id}/comments/{other.id}")
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(PostComment.objects.filter(pk=other.id).exists())
+
+    def test_delete_comment_of_other_post_404(self):
+        other_post = Post.objects.create(author=self.author, text="别的")
+        foreign = PostComment.objects.create(post=other_post, author=self.me, text="外")
+        resp = self.client.delete(
+            f"/api/v1/posts/{self.post.id}/comments/{foreign.id}")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_top_level_comment_still_notifies_post_author(self):
+        with patch("im.tasks.post_commented.delay") as commented, \
+                patch("im.tasks.post_replied.delay") as replied:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(self.url, {"text": "沙发"}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        commented.assert_called_once_with(resp.json()["id"])
+        replied.assert_not_called()
+
+    def test_reply_notifies_replied_user(self):
+        root = self._comment("一楼", author=self.author)
+        with patch("im.tasks.post_commented.delay") as commented, \
+                patch("im.tasks.post_replied.delay") as replied:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(
+                    self.url, {"text": "回你", "parent_id": root.id}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        replied.assert_called_once_with(resp.json()["id"])
+        commented.assert_not_called()
+
+    def test_self_reply_does_not_notify(self):
+        root = self._comment("一楼", author=self.me)
+        with patch("im.tasks.post_replied.delay") as replied:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(self.url, {"text": "自回", "parent_id": root.id},
+                                 format="json")
+        replied.assert_not_called()

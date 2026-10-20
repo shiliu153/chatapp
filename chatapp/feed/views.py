@@ -12,7 +12,7 @@
 """
 
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef
+from django.db.models import Count, Exists, OuterRef, Prefetch
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
@@ -20,14 +20,13 @@ from rest_framework.response import Response
 
 from config.pagination import DefaultLimitOffsetPagination
 from moderation.models import ReportStatus
-from moderation.services import blocked_user_ids
-from users.models import ProfileStatus
 
 from .models import Post, PostComment, PostImage, PostLike, PostReport
 from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
                           PostCreateSerializer, PostReportCreateSerializer,
                           PostSerializer)
-from .services import delete_post, notify_post_commented, visible_posts
+from .services import (create_comment, delete_comment, delete_post,
+                       notify_comment_created, visible_comments, visible_posts)
 from .throttles import PostCommentThrottle, PostCreateThrottle, PostReportThrottle
 
 
@@ -158,31 +157,81 @@ def post_like(request, post_id):
 def post_comments(request, post_id):
     """评论列表与发表评论(GET/POST /api/v1/posts/{post_id}/comments)。
 
-    GET 会额外过滤掉被拉黑与被重封禁作者发的评论;POST 在事务提交后给动态作者
-    发通知(自己评自己不打扰,见 ``services.notify_post_commented``)。
+    GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
+    层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
 
     Args:
-        request: DRF 请求对象;POST 时 body 需带 ``text``。
+        request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
         post_id: 动态主键。
 
     Returns:
-        GET 返回分页后的评论列表;POST 返回 201 + 新评论。
+        GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
     """
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     if request.method == "POST":
         serializer = PostCommentCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        comment = PostComment.objects.create(post=post, author=request.user,
-                                             text=serializer.validated_data["text"])
-        notify_post_commented(comment)
+        parent = None
+        parent_id = serializer.validated_data.get("parent_id")
+        if parent_id is not None:
+            parent = get_object_or_404(visible_comments(post, request.user), pk=parent_id)
+        comment = create_comment(post, request.user,
+                                 serializer.validated_data["text"], parent)
+        notify_comment_created(comment)
         return Response(PostCommentSerializer(comment, context={"request": request}).data,
                         status=201)
-    blocked = blocked_user_ids(request.user)
-    comments = (post.comments
-                .exclude(author_id__in=blocked)
-                .exclude(author__profile__status=ProfileStatus.BANNED_HEAVY)
-                .select_related("author__profile").prefetch_related("author__photos"))
-    return _page_response(request, comments, PostCommentSerializer)
+    top = visible_comments(post, request.user).filter(parent__isnull=True)
+    top = top.prefetch_related(
+        Prefetch("replies",
+                 queryset=visible_comments(post, request.user).filter(parent__isnull=False),
+                 to_attr="visible_replies"))
+    return _page_response(request, top, PostCommentSerializer)
+
+
+@api_view(["GET"])
+def post_comment_replies(request, post_id, comment_id):
+    """某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` / ``offset``。
+        post_id: 动态主键。
+        comment_id: 顶级评论主键。
+
+    Returns:
+        分页后的回复列表,按时间正序。
+
+    Raises:
+        Http404: 动态不可见、评论不存在/不属于该动态/本身是回复。
+    """
+    post = get_object_or_404(visible_posts(request.user), pk=post_id)
+    root = get_object_or_404(
+        visible_comments(post, request.user).filter(parent__isnull=True), pk=comment_id)
+    replies = visible_comments(post, request.user).filter(parent=root)
+    return _page_response(request, replies, PostCommentSerializer)
+
+
+@api_view(["DELETE"])
+def post_comment_detail(request, post_id, comment_id):
+    """删除自己的评论(DELETE /api/v1/posts/{post_id}/comments/{comment_id})。
+
+    删顶级评论会连带删除该楼全部回复;非作者一律 404(不暴露存在性)。
+
+    Args:
+        request: DRF 请求对象。
+        post_id: 动态主键。
+        comment_id: 评论主键。
+
+    Returns:
+        204 空响应。
+
+    Raises:
+        Http404: 动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的。
+    """
+    post = get_object_or_404(visible_posts(request.user), pk=post_id)
+    comment = get_object_or_404(PostComment, pk=comment_id, post=post,
+                                author=request.user)
+    delete_comment(comment)
+    return Response(status=204)
 
 
 @api_view(["POST"])

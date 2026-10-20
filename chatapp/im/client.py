@@ -36,6 +36,7 @@ BAN_REASON_FALLBACK = "违反社区规范"
 BAN_LIFTED_TEXT = "您的账号限制已解除,所有功能已恢复。请遵守社区规范。"
 REPORT_HANDLED_TEXT = "您提交的举报已处理,感谢您对社区安全的支持。"
 POST_COMMENTED_TEMPLATE = "{nickname} 评论了你的动态:{snippet}"
+POST_REPLIED_TEMPLATE = "{nickname} 回复了你:{snippet}"
 
 
 def _ban_notice_text(level: str, reason: str) -> str:
@@ -358,6 +359,22 @@ def send_post_commented(to_identifier: str, commenter_nickname: str, snippet: st
     desc = POST_COMMENTED_TEMPLATE.format(nickname=commenter_nickname, snippet=snippet)
     return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
                             {"type": "post_commented"}, desc)
+
+
+def send_post_replied(to_identifier: str, replier_nickname: str, snippet: str) -> bool:
+    """被回复通知:以「系统通知」身份发给被回复者。
+
+    Args:
+        to_identifier: 被回复者的 IM 账号。
+        replier_nickname: 回复者昵称,用于通知正文。
+        snippet: 回复内容摘要(由调用方截断)。
+
+    Returns:
+        成功返回 ``True``,失败返回 ``False``。
+    """
+    desc = POST_REPLIED_TEMPLATE.format(nickname=replier_nickname, snippet=snippet)
+    return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
+                            {"type": "post_replied"}, desc)
 
 
 def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
