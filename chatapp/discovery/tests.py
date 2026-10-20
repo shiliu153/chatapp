@@ -94,6 +94,28 @@ class MatchModelTests(TestCase):
         self.assertEqual(match.other_user(self.b), self.a)
 
 
+class MatchUnmatchModelTests(TestCase):
+    """解除配对是软删除:行还在,但 is_active 变 False。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+
+    def test_new_match_is_active(self):
+        match = Match.objects.create(**Match.pair_kwargs(self.a, self.b))
+        self.assertIsNone(match.unmatched_at)
+        self.assertTrue(match.is_active)
+
+    def test_marked_match_is_inactive(self):
+        match = Match.objects.create(**Match.pair_kwargs(self.a, self.b))
+        match.unmatched_at = timezone.now()
+        match.unmatched_by = self.a
+        match.save(update_fields=["unmatched_at", "unmatched_by"])
+        match.refresh_from_db()
+        self.assertFalse(match.is_active)
+        self.assertEqual(match.unmatched_by, self.a)
+
+
 class CandidateTests(APITestCase):
     """候选池:排除规则、偏好过滤、年龄边界、照片过滤与分页上限。"""
 
