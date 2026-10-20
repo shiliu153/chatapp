@@ -21,7 +21,7 @@
 
 ## 接口一览
 
-共 **36** 个接口(按「方法 + 路径」计)。
+共 **38** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -58,6 +58,8 @@
 | DELETE | `/api/v1/posts/{post_id}/like` | 取消点赞 | [feed](feed.md) |
 | GET | `/api/v1/posts/{post_id}/comments` | 评论列表(分页) | [feed](feed.md) |
 | POST | `/api/v1/posts/{post_id}/comments` | 发表评论 | [feed](feed.md) |
+| GET | `/api/v1/posts/{post_id}/comments/{comment_id}/replies` | 回复列表(分页) | [feed](feed.md) |
+| DELETE | `/api/v1/posts/{post_id}/comments/{comment_id}` | 删除我的评论 | [feed](feed.md) |
 | POST | `/api/v1/posts/{post_id}/report` | 举报动态 | [feed](feed.md) |
 | GET | `/api/v1/health` | 存活探针 | [health](health.md) |
 | GET | `/api/v1/readyz` | 就绪探针(DB/Redis) | [health](health.md) |
