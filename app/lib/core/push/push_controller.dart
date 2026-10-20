@@ -17,6 +17,7 @@ final pushServiceProvider = Provider<PushService>((ref) => JPushPushService());
 
 class PushController extends Notifier<PushStatus> {
   String? _registrationId;
+  String? _pendingPath;
   bool _started = false;
 
   @override
@@ -24,7 +25,7 @@ class PushController extends Notifier<PushStatus> {
     ref.listen(sessionProvider, (_, next) {
       switch (next) {
         case SessionLoggedIn():
-          unawaited(_register());
+          unawaited(_register().then((_) => _flushPending()));
         case SessionLoggedOut():
           unawaited(_unregister());
         default:
@@ -32,7 +33,7 @@ class PushController extends Notifier<PushStatus> {
       }
     });
     if (ref.read(sessionProvider) is SessionLoggedIn) {
-      unawaited(_register());
+      unawaited(_register().then((_) => _flushPending()));
     }
     return PushStatus.idle;
   }
@@ -61,6 +62,7 @@ class PushController extends Notifier<PushStatus> {
   Future<void> _unregister() async {
     final id = _registrationId;
     _registrationId = null;
+    _pendingPath = null;   // 换号后不能沿用上一个账号的待跳转路径
     _started = false;
     try {
       if (id != null) await ref.read(pushRepositoryProvider).unregisterDevice(id);
@@ -76,8 +78,23 @@ class PushController extends Notifier<PushStatus> {
   }
 
   void _openDeeplink(String path) {
-    if (ref.read(sessionProvider) is! SessionLoggedIn) return;
     if (!path.startsWith('/')) return;
+    if (ref.read(sessionProvider) is! SessionLoggedIn) {
+      // 冷启动时登录态还在恢复:先记下,登录成功后补跳
+      _pendingPath = path;
+      return;
+    }
+    ref.read(pushDeeplinkHandlerProvider)(path);
+  }
+
+  void _flushPending() {
+    final path = _pendingPath;
+    if (path == null) return;
+    _pendingPath = null;
+    if (ref.read(sessionProvider) is! SessionLoggedIn) {
+      _pendingPath = path;
+      return;
+    }
     ref.read(pushDeeplinkHandlerProvider)(path);
   }
 }

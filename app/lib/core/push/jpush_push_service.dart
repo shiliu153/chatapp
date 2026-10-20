@@ -32,6 +32,12 @@ class JPushPushService implements PushService {
         if (path is String && path.isNotEmpty) onOpen(path);
       });
       _jpush.requestRequiredPermission();
+      // 冷启动兜底:iOS 会把「点通知启动 App」的那条缓存起来(Android 一般由
+      // onOpenNotification 直接回调),取到就按 deeplink 打开。
+      final launch = await _jpush.getLaunchAppNotification();
+      final launchExtras = launch['extras'];
+      final launchPath = launchExtras is Map ? launchExtras['deeplink'] : null;
+      if (launchPath is String && launchPath.isNotEmpty) onOpen(launchPath);
     } catch (error) {
       debugPrint('推送初始化失败: $error');
     }
