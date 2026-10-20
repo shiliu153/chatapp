@@ -58,6 +58,22 @@
 - 展示四处:消息列表头像绿点 / 聊天页标题小字 / 发现卡昵称旁 / 广场作者头像。
 - 服务端语义、上限与分片细节见 [backend.md](backend.md)。
 
+## 推送(极光 JPush)
+
+- ⚠️ **`jpush_flutter` 的 `EventHandler` 返回 `Future<dynamic>`**:`addEventHandler` 的回调必须写成
+  `async`(或显式返回 Future),同步闭包会编译报 "A non-null value must be returned"。
+- **AppKey 有两处**:`android/key.properties` 的 `jpush.appKey` 经 Gradle `manifestPlaceholders`
+  进原生;`--dart-define=JPUSH_APP_KEY` 给 Dart 侧 `setup()`。两处填同一个值,缺任一处不会崩,
+  但收不到推送。
+- ⚠️ **Flutter 3.29+ 默认开启深链**:点厂商通道通知时,intent 里的 URI 会被当成路由,打开白屏。
+  主 Activity 必须加 `flutter_deeplinking_enabled=false`(极光 README 的已知坑)。
+- **前台不弹通知栏**:`setUnShowAtTheForeground(true)`,正在用 App 时靠页面自身刷新,避免系统通知打断。
+- **测试**:原生插件在 `flutter test` 跑不起来,`PushService` 抽象 + `FakePushService`;
+  `pumpApp` 默认注入 `registrationIdValue: null` 的替身,避免每个登录态用例多打一次 `/push/devices`。
+- **没有 key 时**:后端 `PUSH_ENABLED=0` 走日志后端;App 初始化异常被吞掉,不影响其他功能。
+- **能力边界**:极光自有通道在进程被系统杀掉后,部分国内 ROM 收不到;要稳必须配厂商通道
+  (需应用上架 + 各厂商开发者账号)。
+
 ## UI 与构建环境(Windows)
 
 - ⚠️ 照片上传用 `readAsBytes` + `MultipartFile.fromBytes`(Web 上 `XFile.path` 是 blob URL,不能用 `fromFile`);单张 ≤5MB 前端先拦。

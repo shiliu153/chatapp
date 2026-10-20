@@ -1,10 +1,22 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { storeToRefs } from 'pinia'
+import { usePushStore } from '@/stores/push'
+import type { PushPreferences } from '@/api/push'
 
-const rows = [
-  { title: '新配对提醒', desc: '有人和你互相喜欢时提醒你' },
-  { title: '新消息提醒', desc: '收到新消息时提醒你' },
+const store = usePushStore()
+const { prefs, loading, error } = storeToRefs(store)
+
+const rows: { key: keyof PushPreferences; title: string; desc: string }[] = [
+  { key: 'likes', title: '新的喜欢', desc: '有人喜欢你时提醒你' },
+  { key: 'matches', title: '配对成功', desc: '互相喜欢时提醒你' },
+  { key: 'system', title: '系统通知', desc: '举报处理、账号限制等通知' },
 ]
+
+onMounted(() => {
+  void store.load()
+})
 </script>
 
 <template>
@@ -12,21 +24,25 @@ const rows = [
     <header class="notify__header">
       <RouterLink class="notify__back" :to="{ name: 'settings' }">← 返回</RouterLink>
       <h1 class="notify__title">通知设置</h1>
+      <p class="notify__hint">网页端不接收推送,这里的设置只影响 App。</p>
     </header>
 
-    <ul class="notify__list">
-      <li v-for="row in rows" :key="row.title" class="notify__row">
+    <p v-if="loading" class="notify__hint">加载中…</p>
+    <p v-else-if="error" class="notify__error">{{ error }}</p>
+
+    <ul v-if="prefs" class="notify__list">
+      <li v-for="row in rows" :key="row.key" class="notify__row">
         <span class="notify__meta">
           <span class="notify__name">{{ row.title }}</span>
           <span class="notify__desc">{{ row.desc }}</span>
         </span>
-        <span class="notify__soon">即将上线</span>
         <button
           type="button"
           class="notify__switch"
+          :class="{ 'notify__switch--on': prefs[row.key] }"
           role="switch"
-          aria-checked="false"
-          disabled
+          :aria-checked="prefs[row.key]"
+          @click="store.toggle(row.key, !prefs[row.key])"
         >
           <span class="notify__knob" />
         </button>
@@ -34,7 +50,7 @@ const rows = [
     </ul>
 
     <p class="notify__hint">
-      推送功能将在后续版本上线,届时可以分别控制这两类提醒。当前开关仅为占位,不会保存任何设置。
+      新消息提醒需要接入离线推送,将在后续版本开放。
     </p>
   </section>
 </template>
@@ -98,10 +114,6 @@ const rows = [
   color: var(--color-text2);
   font-size: var(--text-caption);
 }
-.notify__soon {
-  color: var(--color-text3);
-  font-size: var(--text-micro);
-}
 .notify__switch {
   position: relative;
   width: 44px;
@@ -110,7 +122,11 @@ const rows = [
   border: none;
   border-radius: var(--radius-full);
   background: var(--color-divider);
-  cursor: not-allowed;
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+.notify__switch--on {
+  background: var(--color-brand);
 }
 .notify__knob {
   position: absolute;
@@ -120,6 +136,10 @@ const rows = [
   height: 20px;
   border-radius: var(--radius-full);
   background: var(--color-bg-card);
+  transition: left var(--motion-fast);
+}
+.notify__switch--on .notify__knob {
+  left: 21px;
 }
 .notify__hint {
   margin: 0;
@@ -127,4 +147,10 @@ const rows = [
   font-size: var(--text-caption);
   line-height: 1.6;
 }
+.notify__error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-caption);
+}
 </style>
+

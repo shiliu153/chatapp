@@ -36,6 +36,14 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // 极光推送:AppKey 从 key.properties(不入库)注入;没有配置时留空,
+        // SDK 初始化失败会被 App 侧吞掉,不影响其他功能。
+        manifestPlaceholders["JPUSH_PKGNAME"] = applicationId!!
+        manifestPlaceholders["JPUSH_APPKEY"] =
+            (keystoreProperties["jpush.appKey"] as String?) ?: ""
+        manifestPlaceholders["JPUSH_CHANNEL"] =
+            (keystoreProperties["jpush.channel"] as String?) ?: "developer-default"
     }
 
     signingConfigs {

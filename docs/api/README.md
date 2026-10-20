@@ -2,7 +2,7 @@
 
 本目录是 chat_app 后端 `/api/v1` 接口的**对外交付文档**:每个接口包含功能说明、请求/响应参数表、请求示例与响应示例(取自真实响应)、该接口会出现的错误码。页面结构与腾讯云 API 文档一致。
 
-> 最后更新:2026-09-21 · 适用版本:M4(测试环境)
+> 最后更新:2026-10-20 · 适用版本:M4(测试环境)
 
 ## 目录
 
@@ -17,11 +17,12 @@
 | [feedback.md](feedback.md) | 意见反馈 |
 | [feed.md](feed.md) | 广场动态 |
 | [im.md](im.md) | IM 会话凭证 |
+| [push.md](push.md) | 推送:设备上报与通知偏好 |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
 
 ## 接口一览
 
-共 **36** 个接口(按「方法 + 路径」计)。
+共 **40** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -37,6 +38,10 @@
 | PATCH | `/api/v1/users/me/preference` | 修改择偶偏好 | [users](users.md) |
 | GET | `/api/v1/users/{user_id}` | 获取他人公开资料 | [users](users.md) |
 | GET | `/api/v1/presence` | 批量查询在线状态 | [users](users.md) |
+| POST | `/api/v1/push/devices` | 上报推送设备 | [push](push.md) |
+| DELETE | `/api/v1/push/devices/{registration_id}` | 解绑推送设备 | [push](push.md) |
+| GET | `/api/v1/push/preferences` | 获取通知偏好 | [push](push.md) |
+| PATCH | `/api/v1/push/preferences` | 修改通知偏好 | [push](push.md) |
 | GET | `/api/v1/discovery/candidates` | 拉取候选卡 | [discovery](discovery.md) |
 | POST | `/api/v1/discovery/swipe` | 提交滑卡动作 | [discovery](discovery.md) |
 | GET | `/api/v1/discovery/likes` | 喜欢我的人列表(分页) | [discovery](discovery.md) |

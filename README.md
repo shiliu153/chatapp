@@ -50,8 +50,8 @@
 | 后端 | Django 5.2 LTS + DRF,9 个业务 app,约 **8.0k 行 Python** |
 | 前端 | Flutter 3.47,11 个 feature 模块,约 **8.8k 行 Dart** |
 | 网页端 | Vue 3 + TypeScript,PC 浏览器端,约 **6.5k 行 TS/Vue** |
-| 测试 | **409** 个后端用例 + **355** 个 Flutter 用例(96 个文件)+ **320** 个网页端用例(68 个文件)+ **8** 条端到端场景 |
-| 接口 | **35** 个 REST 接口,配 **11 册**对外交付级接口文档 |
+| 测试 | **459** 个后端用例 + **382** 个 Flutter 用例 + **338** 个网页端用例 + **8** 条端到端场景 |
+| 接口 | **40** 个 REST 接口,配 **12 册**对外交付级接口文档 |
 | 文档 | 设计 spec + 实施计划 + 踩坑手册共 **50+ 篇** |
 
 **为什么值得一看**:除了功能本身,这个项目里比较少见的是
@@ -288,6 +288,7 @@ flutter build apk --release --dart-define=API_BASE=https://your-domain/api/v1
 | [moderation.md](docs/api/moderation.md) | 举报与拉黑 |
 | [feed.md](docs/api/feed.md) | 广场动态 |
 | [im.md](docs/api/im.md) | IM 会话凭证 |
+| [push.md](docs/api/push.md) | 推送设备与通知偏好 |
 | [health.md](docs/api/health.md) | 运维探针 |
 
 **文档不会过期**:测试里有一个 `ApiDocsCoverageTests`,双向比对「实际注册的路由」与

@@ -10,21 +10,33 @@ from django.db import transaction
 
 from im import tasks as im_tasks
 from moderation.services import blocked_user_ids
+from notifications.services import enqueue_push
 from users.models import Photo, PhotoStatus, ProfileStatus
 
 from .models import Swipe, SwipeAction
 
 
-def notify_match(match):
-    """配对成功后给双方各发一条 IM 灰条消息(经任务队列,失败可重试)。
+def notify_match(match, actor_id=None):
+    """配对成功后给双方发 IM 灰条,并给「先喜欢的一方」发推送。
 
     on_commit:配对真正落库后才入队;robust=True:broker 抖动不影响配对结果。
 
     Args:
         match: 刚创建的配对记录,双方 id 从它上面取。
+        actor_id: 本次触发配对的用户 id(正在滑卡的人);``None`` 表示不推配对通知。
     """
     a_id, b_id = match.user_a_id, match.user_b_id
     transaction.on_commit(lambda: im_tasks.send_match_notice.delay(a_id, b_id), robust=True)
+    if actor_id is None:
+        return
+    receiver_id = b_id if actor_id == a_id else a_id
+    other = match.user_b if receiver_id == a_id else match.user_a
+    nickname = getattr(getattr(other, "profile", None), "nickname", "") or "对方"
+    enqueue_push(
+        receiver_id, "match",
+        title="配对成功", alert=f"你和{nickname}互相喜欢,快去打招呼吧",
+        extras={"deeplink": f"/chat/{actor_id}", "type": "match"},
+    )
 
 
 def likes_received_queryset(me):
