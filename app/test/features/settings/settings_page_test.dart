@@ -75,7 +75,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('获取验证码'), findsOneWidget); // 回到登录页
-    final delete = adapter.log.lastWhere((r) => r.method == 'DELETE');
+    final delete = adapter.log.lastWhere(
+        (r) => r.method == 'DELETE' && r.path == '/users/me');
     expect(delete.path, '/users/me');
     expect(delete.data, {'phone': '13800138000'});
     final prefs = await SharedPreferences.getInstance();
