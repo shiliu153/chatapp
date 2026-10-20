@@ -54,7 +54,7 @@ class ImManager extends Notifier<ImStatus> {
         // (产品规则是单设备在线,被顶下线的这台不能继续用旧会话)。IM 登出由强退通道统一做。
         state = const ImLoggedOut();
         unawaited(ref.read(tokenStoreProvider).forceLogout(kickedOfflineMessage));
-      case ImNewMessage() || ImConversationsChanged():
+      case ImNewMessage() || ImConversationsChanged() || ImMessageRevoked():
         break; // 会话/聊天控制器各自消费
     }
   }

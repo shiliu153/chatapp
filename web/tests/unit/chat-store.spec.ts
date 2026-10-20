@@ -20,6 +20,7 @@ const msg = (overrides: Partial<ChatMessage>): ChatMessage => ({
   isFailed: false,
   imageUrl: null,
   imageLargeUrl: null,
+  isRevoked: false,
   ...overrides,
 })
 
@@ -41,6 +42,7 @@ function fakeClient() {
     sendText: vi.fn(async (peerId: string, text: string) => msg({ msgId: 'm1', peerId, isSelf: true, text })),
     sendImage: vi.fn(async (peerId: string) => msg({ msgId: 'm2', peerId, isSelf: true })),
     deleteMessage: vi.fn(async () => {}),
+    revokeMessage: vi.fn(async () => {}),
     markConversationRead: vi.fn(async () => {}),
     deleteConversation: vi.fn(async () => {}),
   }
@@ -187,5 +189,29 @@ describe('chat store', () => {
 
     expect(client.markConversationRead).toHaveBeenCalledWith('u8')
     expect(store.conversations.find((c) => c.peerId === 'u8')?.unreadCount).toBe(0)
+  })
+
+  it('收到 messageRevoked 事件:对应消息标记 isRevoked', () => {
+    const { client, emit } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    emit({ type: 'newMessage', message: msg({ msgId: 'm7', peerId: 'u8', text: '打错了' }) })
+
+    emit({ type: 'messageRevoked', msgId: 'm7' })
+
+    expect(store.messagesOf('u8')[0].isRevoked).toBe(true)
+  })
+
+  it('revokeMessage 调 IM 并置灰', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    const message = msg({ msgId: 'm8', peerId: 'u8', isSelf: true, text: '打错了' })
+    store.messages = { u8: [message] }
+
+    await store.revokeMessage(message)
+
+    expect(client.revokeMessage).toHaveBeenCalledWith('m8')
+    expect(store.messagesOf('u8')[0].isRevoked).toBe(true)
   })
 })

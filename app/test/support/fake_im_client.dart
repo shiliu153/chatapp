@@ -19,6 +19,9 @@ class FakeImClient extends ImClient {
   /// 置上就让 fetchHistory 抛这个错(测聊天页错误态)。
   Object? historyError;
 
+  /// 置上就让 revokeMessage 抛这个错(测失败提示)。
+  Object? revokeError;
+
   /// 置上则 fetchHistory 挂起直到 complete(测加载骨架)。
   Completer<void>? historyGate;
 
@@ -99,6 +102,12 @@ class FakeImClient extends ImClient {
   Future<void> deleteMessage(ChatMessage message) async => log.add('delete:${message.msgId}');
 
   @override
+  Future<void> revokeMessage(String msgId) async {
+    log.add('revoke:$msgId');
+    if (revokeError != null) throw revokeError!;
+  }
+
+  @override
   Future<void> markConversationRead(String peerId) async => log.add('read:$peerId');
 
   @override
@@ -123,6 +132,9 @@ class FakeImClient extends ImClient {
     emit(ImNewMessage(message));
     return message;
   }
+
+  /// 模拟「消息被撤回」事件。
+  void emitRevoked(String msgId) => emit(ImMessageRevoked(msgId));
 
   void dispose() => _events.close();
 }

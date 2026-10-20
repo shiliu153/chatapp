@@ -13,6 +13,8 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   const matches = ref<MatchSummary[]>([])
   const matchesCount = ref(0)
   const matchesOffset = ref(0)
+  /** 配对列表至少成功拉过一次:聊天页据此判断「不在列表里 = 已被解除」 */
+  const matchesLoaded = ref(false)
   const loading = ref(false)
   const submitting = ref(false)
   const error = ref('')
@@ -70,6 +72,14 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     matches.value = [...matches.value, ...page.results]
     matchesCount.value = page.count
     matchesOffset.value += page.results.length
+    matchesLoaded.value = true
+  }
+
+  /** 解除配对:后端软删除 + 双向拉黑;本地立刻从配对列表移除。 */
+  async function unmatch(userId: number): Promise<void> {
+    await discoveryApi.unmatch(userId)
+    matches.value = matches.value.filter((item) => item.user_id !== userId)
+    matchesCount.value = Math.max(matchesCount.value - 1, 0)
   }
 
   return {
@@ -78,6 +88,7 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     matched,
     matches,
     matchesCount,
+    matchesLoaded,
     loading,
     submitting,
     error,
@@ -87,5 +98,6 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     decide,
     dismissMatched,
     loadMatches,
+    unmatch,
   }
 })

@@ -5,7 +5,9 @@
        这是接口幂等的基础(重复提交保留第一次的动作);
     2. ``Match`` 一律按 **id 升序**存储(``pair_kwargs``),并配 ``user_a < user_b`` 的
        检查约束,保证 (1,2) 与 (2,1) 是同一行,不会出现重复配对;
-    3. 配对不是「谁喜欢了谁」的记录,而是「互喜」的结果,查询时要同时看两个方向。
+    3. 配对不是「谁喜欢了谁」的记录,而是「互喜」的结果,查询时要同时看两个方向;
+    4. **解除配对是软删除**:``unmatched_at`` 非空即失效,行保留用于审计与防复活
+       (已解除的配对不会被再次滑卡复活)。
 """
 
 from django.conf import settings
@@ -49,11 +51,19 @@ class Match(models.Model):
     Attributes:
         user_a: 恒为 id 较小的一方(由检查约束强制)。
         user_b: 恒为 id 较大的一方。
+        unmatched_at: 解除配对时间;``None`` 表示配对仍然有效。
+        unmatched_by: 发起解除的一方;账号注销后置空。
     """
 
     user_a = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="matches_as_a")
     user_b = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="matches_as_b")
     created_at = models.DateTimeField(auto_now_add=True)
+    unmatched_at = models.DateTimeField("解除配对时间", null=True, blank=True, db_index=True)
+    unmatched_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="matches_unmatched",
+        verbose_name="解除操作人",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -75,6 +85,15 @@ class Match(models.Model):
         """
         a, b = (user1, user2) if user1.id < user2.id else (user2, user1)
         return {"user_a": a, "user_b": b}
+
+    @property
+    def is_active(self) -> bool:
+        """配对是否仍然有效(未解除)。
+
+        Returns:
+            ``True`` 表示正常配对;``False`` 表示已被任一方解除。
+        """
+        return self.unmatched_at is None
 
     def other_user(self, user):
         """取配对中的另一方。

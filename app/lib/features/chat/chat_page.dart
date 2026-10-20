@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,11 +12,14 @@ import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_avatar.dart';
+import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/app_toast.dart';
 import '../../core/widgets/avatar_hero.dart';
 import '../../core/widgets/breathing_dot.dart';
 import '../../im/im_client.dart';
+import '../../im/im_manager.dart';
 import '../../im/im_repository.dart';
 import '../presence/models.dart';
 import '../presence/presence_controller.dart';
@@ -23,6 +28,7 @@ import 'chat_controller.dart';
 import 'chat_items.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
+import 'recall.dart';
 import 'widgets/chat_bubbles_mark.dart';
 import 'widgets/chat_skeleton.dart';
 import 'widgets/emoji_panel.dart';
@@ -53,6 +59,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void initState() {
     super.initState();
+    // 被对方解除配对时,本地缓存还是登录时的旧数据;进聊天页刷一次才能发现
+    unawaited(ref.read(matchCacheProvider.notifier).refresh());
     // 键盘弹起时收起表情/＋面板
     _focusNode.addListener(() {
       if (_focusNode.hasFocus && (_showEmoji || _showMore)) {
@@ -167,6 +175,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       context: context,
       position: position,
       items: [
+        if (canRecall(message))
+          const PopupMenuItem(
+              key: Key('chat.menu.recall'), value: 'recall', child: Text('撤回')),
         if (message.kind == ChatMessageKind.text)
           const PopupMenuItem(
               key: Key('chat.menu.copy'), value: 'copy', child: Text('复制')),
@@ -180,9 +191,44 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制')));
       }
+    } else if (action == 'recall') {
+      try {
+        await ref.read(chatProvider(widget.peerId).notifier).revoke(message);
+        if (context.mounted) AppToast.show(context, '已撤回');
+      } on ImException catch (error) {
+        if (context.mounted) AppToast.show(context, error.message);
+      }
     } else if (action == 'delete') {
       await ref.read(chatProvider(widget.peerId).notifier).deleteLocal(message);
     }
+  }
+
+  Future<void> _unmatch() async {
+    final userId = userIdFromImId(widget.peerId);
+    if (userId == null) return;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: '解除配对?',
+      message: '解除后双方将无法再聊天,且无法恢复。',
+      confirmLabel: '解除配对',
+      danger: true,
+      confirmKey: const Key('chat.unmatch.confirm'),
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await ref.read(imRepositoryProvider).unmatch(userId);
+    } on ApiException catch (error) {
+      if (mounted) AppToast.show(context, error.message);
+      return;
+    }
+    try {
+      await ref.read(imClientProvider).deleteConversation(widget.peerId);
+    } catch (_) {}
+    ref.invalidate(matchCacheProvider);
+    unawaited(ref.read(conversationsProvider.notifier).reload());
+    if (!mounted) return;
+    AppToast.show(context, '已解除配对');
+    Navigator.of(context).maybePop();
   }
 
   @override
@@ -199,6 +245,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ref.read(presenceProvider.notifier).track('chat:${widget.peerId}', [peerUserId]);
     }
     final peerPresence = peerUserId == null ? null : presenceById[peerUserId];
+    // 配对缓存已加载且没有这个人 → 已被对方解除(系统通知不是配对,排除)
+    final matchesAsync = ref.watch(matchCacheProvider);
+    final cacheReady = matchesAsync.value != null;
+    final unmatched = cacheReady &&
+        widget.peerId != systemNoticePeerId &&
+        !matchesAsync.value!.containsKey(widget.peerId);
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -210,7 +262,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             avatarUrl: peerAvatarUrl,
             heroTag: 'avatar-chat-${widget.peerId}',
             onTapTitle: () => _openProfile(context, cache),
+            onMore: _unmatch,
           ),
+          if (unmatched)
+            Container(
+              key: const Key('chat.unmatchedBanner'),
+              width: double.infinity,
+              color: AppColors.divider,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.pageH, vertical: AppSpacing.sm),
+              child: Text('你们已解除配对',
+                  textAlign: TextAlign.center,
+                  style: AppText.micro.copyWith(color: AppColors.text2)),
+            ),
           Expanded(
             child: messages.when(
               loading: () => const ChatSkeleton(),
@@ -262,6 +326,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             controller: _input,
             focusNode: _focusNode,
             sending: _sending,
+            enabled: !unmatched,
             onSend: _send,
             onToggleEmoji: _toggleEmoji,
             onToggleMore: _toggleMore,
@@ -283,6 +348,7 @@ class _ChatHeader extends StatelessWidget {
     required this.name,
     required this.presence,
     required this.onTapTitle,
+    required this.onMore,
     this.avatarUrl,
     this.heroTag,
   });
@@ -290,6 +356,7 @@ class _ChatHeader extends StatelessWidget {
   final String name;
   final Presence? presence;
   final VoidCallback onTapTitle;
+  final VoidCallback onMore;
   final String? avatarUrl;
   final String? heroTag;
 
@@ -360,7 +427,25 @@ class _ChatHeader extends StatelessWidget {
             ),
           ),
           // 与左侧返回键(48)等宽,保证「头像 + 名字」整块在屏幕上居中
-          const SizedBox(width: 48),
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: PopupMenuButton<String>(
+              key: const Key('chat.more'),
+              icon: const Icon(Icons.more_horiz_rounded, size: 22, color: AppColors.text1),
+              padding: EdgeInsets.zero,
+              onSelected: (value) {
+                if (value == 'unmatch') onMore();
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  key: Key('chat.menu.unmatch'),
+                  value: 'unmatch',
+                  child: Text('解除配对', style: TextStyle(color: AppColors.danger)),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -387,6 +472,7 @@ class _InputBar extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.sending,
+    required this.enabled,
     required this.onSend,
     required this.onToggleEmoji,
     required this.onToggleMore,
@@ -395,6 +481,9 @@ class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool sending;
+
+  /// 已解除配对时整栏禁用(历史仍可读,但不能再发消息)。
+  final bool enabled;
   final VoidCallback onSend;
   final VoidCallback onToggleEmoji;
   final VoidCallback onToggleMore;
@@ -428,7 +517,7 @@ class _InputBar extends StatelessWidget {
                   key: const Key('chat.emoji.button'),
                   icon: Icons.emoji_emotions_rounded,
                   color: AppColors.text2,
-                  onPressed: onToggleEmoji,
+                  onPressed: enabled ? onToggleEmoji : null,
                 ),
                 Expanded(
                   child: ListenableBuilder(
@@ -461,6 +550,7 @@ class _InputBar extends StatelessWidget {
                       key: const Key('chat.input'),
                       controller: controller,
                       focusNode: focusNode,
+                      enabled: enabled,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => onSend(),
                       expands: true,
@@ -482,17 +572,17 @@ class _InputBar extends StatelessWidget {
                   key: const Key('chat.more.button'),
                   icon: Icons.add_circle_rounded,
                   color: AppColors.text2,
-                  onPressed: onToggleMore,
+                  onPressed: enabled ? onToggleMore : null,
                 ),
                 ListenableBuilder(
                   listenable: controller,
                   builder: (context, _) => _iconButton(
                     key: const Key('chat.send'),
                     icon: Icons.send_rounded,
-                    color: controller.text.trim().isEmpty
+                    color: controller.text.trim().isEmpty || !enabled
                         ? AppColors.text3
                         : AppColors.brand,
-                    onPressed: sending ? null : onSend,
+                    onPressed: sending || !enabled ? null : onSend,
                   ),
                 ),
               ],

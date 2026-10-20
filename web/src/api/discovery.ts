@@ -23,6 +23,11 @@ export async function fetchMatches(limit = 20, offset = 0): Promise<Page<MatchSu
   return data as Page<MatchSummary>
 }
 
+/** 解除配对:幂等(没配对也 204);解除后双方 IM 互相拉黑。 */
+export async function unmatch(userId: number): Promise<void> {
+  await http.delete(`/matches/${userId}`)
+}
+
 export async function fetchLikesReceived(
   limit = 20,
   offset = 0,

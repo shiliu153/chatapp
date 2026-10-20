@@ -24,6 +24,7 @@ import {
 export const DEFAULT_EVENT_NAMES: ImEventNames = {
   messageReceived: 'onMessageReceived',
   conversationListUpdated: 'onConversationListUpdated',
+  messageRevoked: 'onMessageRevoked',
   kickedOut: 'kickedOut',
   ready: 'sdkStateReady',
 }
@@ -117,6 +118,11 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
       for (const message of messages) emit({ type: 'newMessage', message: chatMessageFromTim(message) })
     })
     instance.on(names.conversationListUpdated, () => emit({ type: 'conversationsChanged' }))
+    instance.on(names.messageRevoked, (event) => {
+      const data = event.data as { msgID?: string } | string | null
+      const msgId = typeof data === 'string' ? data : data?.msgID
+      if (msgId) emit({ type: 'messageRevoked', msgId })
+    })
     instance.on(names.ready, () => emit({ type: 'ready' }))
     instance.on(names.kickedOut, (event) => {
       emit({ type: 'kickedOffline', reason: kickReasonOf(event.data) })
@@ -258,6 +264,14 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
     known.delete(msgId)
   }
 
+  async function revokeMessage(msgId: string): Promise<void> {
+    const instance = await ensureSdk()
+    const message = known.get(msgId)
+    if (!message) return // 没见过的消息(不在本地缓存里)无需撤回
+    await instance.revokeMessage(message)
+    known.delete(msgId)
+  }
+
   async function markConversationRead(peerId: string): Promise<void> {
     const instance = await ensureSdk()
     await instance.setMessageRead({ conversationID: `C2C${peerId}` })
@@ -284,6 +298,7 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
     sendText,
     sendImage,
     deleteMessage,
+    revokeMessage,
     markConversationRead,
     deleteConversation,
   }

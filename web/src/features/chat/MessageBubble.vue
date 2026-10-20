@@ -26,8 +26,13 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
 </script>
 
 <template>
+  <!-- 撤回:居中弱化,不显示原内容 -->
+  <p v-if="props.message.isRevoked" class="message-bubble message-bubble--notice">
+    {{ props.message.isSelf ? '你撤回了一条消息' : '对方撤回了一条消息' }}
+  </p>
+
   <!-- 系统灰条:居中 pill,不属于任何一方 -->
-  <p v-if="isNotice" class="message-bubble message-bubble--notice">{{ props.message.text }}</p>
+  <p v-else-if="isNotice" class="message-bubble message-bubble--notice">{{ props.message.text }}</p>
 
   <div
     v-else

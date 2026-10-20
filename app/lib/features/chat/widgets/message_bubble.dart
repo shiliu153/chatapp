@@ -35,6 +35,18 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (message.isRevoked) {
+      return Padding(
+        key: const Key('chat.revoked'),
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        child: Center(
+          child: Text(
+            message.isSelf ? '你撤回了一条消息' : '对方撤回了一条消息',
+            style: AppText.micro.copyWith(color: AppColors.text3),
+          ),
+        ),
+      );
+    }
     if (message.kind != ChatMessageKind.text && message.kind != ChatMessageKind.image) {
       final label = switch (message.kind) {
         ChatMessageKind.matchNotice => message.text.isEmpty ? noticeFallback : message.text,

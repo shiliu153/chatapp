@@ -90,6 +90,10 @@ export const useChatStore = defineStore('chat', () => {
       void loadConversations().catch(() => {})
       return
     }
+    if (event.type === 'messageRevoked') {
+      markRevoked(event.msgId)
+      return
+    }
     if (event.type === 'ready') {
       status.value = 'ready'
       return
@@ -228,8 +232,26 @@ export const useChatStore = defineStore('chat', () => {
     await client.deleteMessage(message.msgId)
   }
 
-  async function deleteConversation(peerId: string): Promise<void> {
+  /** 撤回成功/收到撤回事件:把对应消息标成已撤回(气泡变居中灰字)。 */
+  function markRevoked(msgId: string): void {
+    const next = { ...messages.value }
+    for (const [peerId, list] of Object.entries(next)) {
+      if (list.some((item) => item.msgId === msgId)) {
+        next[peerId] = list.map((item) =>
+          item.msgId === msgId ? { ...item, isRevoked: true } : item,
+        )
+      }
+    }
+    messages.value = next
+  }
+
+  async function revokeMessage(message: ChatMessage): Promise<void> {
     await ensureConnected()
+    await client.revokeMessage(message.msgId)
+    markRevoked(message.msgId)
+  }
+
+  async function deleteConversation(peerId: string): Promise<void> {    await ensureConnected()
     await client.deleteConversation(peerId)
     conversations.value = conversations.value.filter((item) => item.peerId !== peerId)
     const rest = { ...messages.value }
@@ -259,6 +281,7 @@ export const useChatStore = defineStore('chat', () => {
     sendImage,
     resend,
     deleteMessage,
+    revokeMessage,
     deleteConversation,
     messagesOf,
     close,

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,9 +10,12 @@ import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_card.dart';
+import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_error_view.dart';
 import '../../im/im_manager.dart';
+import '../../im/im_repository.dart';
 import '../chat/conversations_controller.dart';
+import '../chat/match_cache.dart';
 import '../chat/widgets/photo_viewer.dart';
 import '../moderation/models.dart';
 import '../moderation/moderation_controller.dart';
@@ -86,12 +91,42 @@ class UserProfilePage extends ConsumerWidget {
     }
   }
 
+  Future<void> _unmatch(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: '解除配对?',
+      message: '解除后双方将无法再聊天,且无法恢复。',
+      confirmLabel: '解除配对',
+      danger: true,
+      confirmKey: const Key('user.unmatch.confirm'),
+    );
+    if (!confirmed || !context.mounted) return;
+    try {
+      await ref.read(imRepositoryProvider).unmatch(userId);
+    } on ApiException catch (error) {
+      if (context.mounted) _snack(context, error.message);
+      return;
+    }
+    try {
+      await ref.read(imClientProvider).deleteConversation('u$userId');
+    } catch (_) {}
+    ref.invalidate(matchCacheProvider);
+    unawaited(ref.read(conversationsProvider.notifier).reload());
+    if (context.mounted) {
+      _snack(context, '已解除配对');
+      context.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(userProfileProvider(userId));
     // 在线状态是公开信息(不依赖配对):与广场/动态详情同款写法
     ref.read(presenceProvider.notifier).track('user:$userId', [userId]);
     final online = ref.watch(presenceProvider)[userId]?.online ?? false;
+    // 「解除配对」只在确实配对时出现;缓存未加载完不显示(避免误判)
+    final matches = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
+    final isMatched = matches.containsKey('u$userId');
     return Scaffold(
       body: profile.when(
         loading: () => const UserProfileSkeleton(),
@@ -106,9 +141,13 @@ class UserProfilePage extends ConsumerWidget {
           profile: data,
           heroTag: heroTag,
           online: online,
+          isMatched: isMatched,
           onBack: () => Navigator.of(context).maybePop(),
-          onMore: (value) =>
-              value == 'report' ? _report(context, ref) : _block(context, ref),
+          onMore: (value) => switch (value) {
+            'unmatch' => _unmatch(context, ref),
+            'report' => _report(context, ref),
+            _ => _block(context, ref),
+          },
         ),
       ),
     );
@@ -120,6 +159,7 @@ class _ProfileBody extends StatelessWidget {
     required this.profile,
     required this.heroTag,
     required this.online,
+    required this.isMatched,
     required this.onBack,
     required this.onMore,
   });
@@ -127,6 +167,9 @@ class _ProfileBody extends StatelessWidget {
   final UserProfile profile;
   final String? heroTag;
   final bool online;
+
+  /// 当前是否与这位用户处于配对关系(决定菜单里是否出现「解除配对」)。
+  final bool isMatched;
   final VoidCallback onBack;
   final ValueChanged<String> onMore;
 
@@ -251,9 +294,12 @@ class _ProfileBody extends StatelessWidget {
                   key: const Key('user.more'),
                   icon: const Icon(Icons.more_horiz_rounded, size: 24, color: Colors.white),
                   onSelected: onMore,
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(key: Key('user.report'), value: 'report', child: Text('举报')),
-                    PopupMenuItem(key: Key('user.block'), value: 'block', child: Text('拉黑')),
+                  itemBuilder: (context) => [
+                    if (isMatched)
+                      const PopupMenuItem(
+                          key: Key('user.unmatch'), value: 'unmatch', child: Text('解除配对')),
+                    const PopupMenuItem(key: Key('user.report'), value: 'report', child: Text('举报')),
+                    const PopupMenuItem(key: Key('user.block'), value: 'block', child: Text('拉黑')),
                   ],
                 ),
               ],

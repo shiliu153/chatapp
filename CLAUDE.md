@@ -41,8 +41,9 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-13 | 上线合规轨 T-17「账号注销入口」交付(`DELETE /users/me` = 手机号二次确认 + 立即硬删除全部数据 + 释放手机号;IM 侧新增 `account_delete` 与删号任务;App/Web 双端入口;隐私政策补注销路径、双端协议版本升 2;后端 360 / App 336 / Web 308 测试绿;PR #6 squash 合并 `f686bc2`;用户模拟器 + Web 手测通过)。同批顺带修既有偶发:`seed_fake_users` 会造出未满 18 岁账号(生日取「age 年前的随机月/日」,今年生日未过时 `calculate_age` 算成 age-1;概率约 2.2%/轮,曾把 CI 卡红) |
 | 2026-10-20 | P1-1「喜欢我的人」交付(`GET /discovery/likes` + `/count`,口径与候选池共用 `likes_received_queryset`;App 发现页入口+列表页,Web `/likes` + store;回喜欢复用 `swipe`;接口 32→34,后端 392 / App 347 / Web 315 测试绿;PR #8 squash 合并 `b606f3e`) |
 | 2026-10-20 | P1-2「设置页补齐」交付(新 `feedback` app + `POST /feedback` + ops 意见反馈队列;App/Web 设置页三段式 + 意见反馈页 + 通知设置只读骨架 + 关于页;版本号 App 常量守卫 / Web Vite 注入;接口 34→35,后端 409 / App 355 / Web 320 测试绿) |
+| 2026-10-20 | P1-3「关系出口」交付(`DELETE /matches/{user_id}` = `Match` 软删除 + `unmatch_blacklist` 双向 IM 拉黑 + 滑卡防复活;App/Web 聊天页「⋯」+ 资料页入口 + 被解除后横幅/输入禁用;2 分钟内撤回消息(SDK 原生,双方置灰);接口 35→36,后端 420 / App 375 / Web 336 测试绿。**已读回执挂起**:腾讯 IM 旗舰版专享,当前体验版做不了) |
 
-**下一步**:P1 留存闭环还剩 P1-3 关系出口(解除配对/撤回消息/已读回执,依赖腾讯 IM SDK + 真机)与 P1-4 推送(厂商账号/证书);上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
+**下一步**:P1 留存闭环只剩 P1-4 推送(厂商账号/证书/深链);已读回执待 IM 升旗舰版后单独立项。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -148,6 +149,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `GET /discovery/likes` | 喜欢我的人(分页);口径与候选池一致,排除我已划过/双向拉黑/资料不全/无过审照片 |
 | `GET /discovery/likes/count` | 喜欢我的人数(入口角标);与列表同口径 |
 | `GET /matches` | 配对列表(分页);预热 userId→昵称头像缓存 |
+| `DELETE /matches/{user_id}` | 解除配对:幂等 204;软删除 + 双向 IM 拉黑,不可恢复 |
 | `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
 | `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见各 spec 与 pitfalls |
 

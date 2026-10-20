@@ -71,4 +71,13 @@ void main() {
       throwsA(isA<ApiException>().having((e) => e.message, 'message', '账号已被封禁')),
     );
   });
+
+  test('unmatch 打 DELETE /matches/{id}', () async {
+    adapter.routes['DELETE /matches/9'] = (options) => ok({}, status: 204);
+
+    await repository.unmatch(9);
+
+    final request = adapter.log.lastWhere((item) => item.method == 'DELETE');
+    expect(request.path, '/matches/9');
+  });
 }

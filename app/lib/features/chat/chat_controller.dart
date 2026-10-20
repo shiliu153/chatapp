@@ -20,6 +20,8 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
       if (event is ImNewMessage && event.message.peerId == peerId) {
         _append(event.message);
         _markRead(client); // 正看着这个会话,来了就算已读
+      } else if (event is ImMessageRevoked) {
+        _markRevoked(event.msgId);
       }
     });
     ref.onDispose(sub.cancel);
@@ -84,8 +86,20 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     state = AsyncValue.data(current.where((item) => item.msgId != message.msgId).toList());
   }
 
-  void _upsert(ChatMessage message) {
+  /// 撤回:成功才置灰;失败让异常冒到页面提示,不改本地状态。
+  Future<void> revoke(ChatMessage message) async {
+    await ref.read(imClientProvider).revokeMessage(message.msgId);
+    _markRevoked(message.msgId);
+  }
+
+  void _markRevoked(String msgId) {
     final current = state.value ?? const <ChatMessage>[];
+    if (!current.any((item) => item.msgId == msgId)) return;
+    state = AsyncValue.data(
+        [for (final item in current) if (item.msgId == msgId) item.copyWith(isRevoked: true) else item]);
+  }
+
+  void _upsert(ChatMessage message) {    final current = state.value ?? const <ChatMessage>[];
     if (current.any((item) => item.msgId == message.msgId)) {
       _replace(message.msgId, message);
     } else {
