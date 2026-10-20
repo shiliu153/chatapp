@@ -482,4 +482,19 @@ void main() {
     expect(delete.path, '/matches/9');
     expect(fake.log, contains('deleteConversation:u9'));
   });
+
+  testWidgets('配对缓存里没有对方:显示横幅且输入框禁用', (tester) async {
+    adapter.routes['GET /matches'] = (options) => ok(pageJson([]));
+    await pumpChat(tester);
+
+    expect(find.byKey(const Key('chat.unmatchedBanner')), findsOneWidget);
+    final input = tester.widget<TextField>(find.byKey(const Key('chat.input')));
+    expect(input.enabled, isFalse);
+  });
+
+  testWidgets('系统通知会话不显示解除横幅', (tester) async {
+    adapter.routes['GET /matches'] = (options) => ok(pageJson([]));
+    await pumpChat(tester, peerId: 'system_notice');
+    expect(find.byKey(const Key('chat.unmatchedBanner')), findsNothing);
+  });
 }

@@ -59,6 +59,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   void initState() {
     super.initState();
+    // 被对方解除配对时,本地缓存还是登录时的旧数据;进聊天页刷一次才能发现
+    unawaited(ref.read(matchCacheProvider.notifier).refresh());
     // 键盘弹起时收起表情/＋面板
     _focusNode.addListener(() {
       if (_focusNode.hasFocus && (_showEmoji || _showMore)) {
@@ -243,6 +245,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ref.read(presenceProvider.notifier).track('chat:${widget.peerId}', [peerUserId]);
     }
     final peerPresence = peerUserId == null ? null : presenceById[peerUserId];
+    // 配对缓存已加载且没有这个人 → 已被对方解除(系统通知不是配对,排除)
+    final matchesAsync = ref.watch(matchCacheProvider);
+    final cacheReady = matchesAsync.value != null;
+    final unmatched = cacheReady &&
+        widget.peerId != systemNoticePeerId &&
+        !matchesAsync.value!.containsKey(widget.peerId);
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -256,6 +264,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             onTapTitle: () => _openProfile(context, cache),
             onMore: _unmatch,
           ),
+          if (unmatched)
+            Container(
+              key: const Key('chat.unmatchedBanner'),
+              width: double.infinity,
+              color: AppColors.divider,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.pageH, vertical: AppSpacing.sm),
+              child: Text('你们已解除配对',
+                  textAlign: TextAlign.center,
+                  style: AppText.micro.copyWith(color: AppColors.text2)),
+            ),
           Expanded(
             child: messages.when(
               loading: () => const ChatSkeleton(),
@@ -307,6 +326,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             controller: _input,
             focusNode: _focusNode,
             sending: _sending,
+            enabled: !unmatched,
             onSend: _send,
             onToggleEmoji: _toggleEmoji,
             onToggleMore: _toggleMore,
@@ -452,6 +472,7 @@ class _InputBar extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.sending,
+    required this.enabled,
     required this.onSend,
     required this.onToggleEmoji,
     required this.onToggleMore,
@@ -460,6 +481,9 @@ class _InputBar extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool sending;
+
+  /// 已解除配对时整栏禁用(历史仍可读,但不能再发消息)。
+  final bool enabled;
   final VoidCallback onSend;
   final VoidCallback onToggleEmoji;
   final VoidCallback onToggleMore;
@@ -493,7 +517,7 @@ class _InputBar extends StatelessWidget {
                   key: const Key('chat.emoji.button'),
                   icon: Icons.emoji_emotions_rounded,
                   color: AppColors.text2,
-                  onPressed: onToggleEmoji,
+                  onPressed: enabled ? onToggleEmoji : null,
                 ),
                 Expanded(
                   child: ListenableBuilder(
@@ -526,6 +550,7 @@ class _InputBar extends StatelessWidget {
                       key: const Key('chat.input'),
                       controller: controller,
                       focusNode: focusNode,
+                      enabled: enabled,
                       textInputAction: TextInputAction.send,
                       onSubmitted: (_) => onSend(),
                       expands: true,
@@ -547,17 +572,17 @@ class _InputBar extends StatelessWidget {
                   key: const Key('chat.more.button'),
                   icon: Icons.add_circle_rounded,
                   color: AppColors.text2,
-                  onPressed: onToggleMore,
+                  onPressed: enabled ? onToggleMore : null,
                 ),
                 ListenableBuilder(
                   listenable: controller,
                   builder: (context, _) => _iconButton(
                     key: const Key('chat.send'),
                     icon: Icons.send_rounded,
-                    color: controller.text.trim().isEmpty
+                    color: controller.text.trim().isEmpty || !enabled
                         ? AppColors.text3
                         : AppColors.brand,
-                    onPressed: sending ? null : onSend,
+                    onPressed: sending || !enabled ? null : onSend,
                   ),
                 ),
               ],
