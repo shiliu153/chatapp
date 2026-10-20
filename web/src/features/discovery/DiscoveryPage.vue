@@ -6,6 +6,7 @@ import AppErrorView from '@/components/AppErrorView.vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useDiscoveryStore } from '@/stores/discovery'
 import { usePresenceStore } from '@/stores/presence'
+import LikesEntry from './LikesEntry.vue'
 import MatchesList from './MatchesList.vue'
 import MatchMoment from './MatchMoment.vue'
 import SwipeDeck from './SwipeDeck.vue'
@@ -47,6 +48,7 @@ function onChat() {
 
 <template>
   <section class="discovery">
+    <LikesEntry />
     <MatchesList />
 
     <p v-if="store.error" class="discovery__error">{{ store.error }}</p>
