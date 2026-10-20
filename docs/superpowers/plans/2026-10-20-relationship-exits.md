@@ -2194,7 +2194,7 @@ git commit -m "docs: P1-3 关系出口收尾回填(验收结果与里程碑)"
 
 ## 执行记录(2026-10-20)
 
-**结果**:13 个任务全部完成,分支 `feat/p1-3-relationship-exits`。
+**结果**:13 个任务全部完成,分支 `feat/p1-3-relationship-exits`,PR [#10](https://github.com/shiliu153/chatapp/pull/10)。
 
 **门禁**
 
