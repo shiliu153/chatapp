@@ -155,14 +155,15 @@ def unmatch_blacklist(user_a_id: int, user_b_id: int) -> None:
 3. 成功:
    - `imClient.deleteConversation(peerId)`(失败吞掉,不阻断);
    - `ref.invalidate(matchesProvider)` + `ref.read(conversationsProvider.notifier).reload()`;
-   - 聊天页入口:`context.go('/chats')` + Toast「已解除配对」;
+   - 聊天页入口:`Navigator.maybePop()`(回到消息页;App 没有 `/chats` 路由,消息页是 HomeShell 的 tab)+ Toast「已解除配对」;
    - 资料页入口:`context.pop()` + Toast「已解除配对」。
 
 ### 4.3 对方视角兜底
 
 腾讯 IM **无法远程删除对方设备上的会话**,所以对方仍能看到历史消息。兜底策略:
 
-- 聊天页读取 `matchCacheProvider`;当「缓存已加载(`value != null`)且 peer 不在缓存里」时:
+- 聊天页进入时**主动刷新一次** `matchCacheProvider`(否则缓存是登录时的旧数据,永远发现不了「被解除」);`system_notice` 除外(它不是配对);
+- 当「缓存已加载(`value != null`)且 peer 不在缓存里」时:
   - 顶栏下方显示一条横幅「你们已解除配对」(key `chat.unmatchedBanner`),文案中性、不指责;
   - 输入栏禁用(不可输入、不可发图),发送按钮置灰;
   - 历史消息仍可滚动阅读。
