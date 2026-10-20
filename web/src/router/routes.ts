@@ -99,6 +99,16 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/features/settings/BlockedUsersPage.vue'),
   },
   {
+    path: '/settings/notifications',
+    name: 'settings-notifications',
+    component: () => import('@/features/settings/NotificationSettingsPage.vue'),
+  },
+  {
+    path: '/settings/about',
+    name: 'settings-about',
+    component: () => import('@/features/settings/AboutPage.vue'),
+  },
+  {
     path: '/likes',
     name: 'likes',
     component: () => import('@/features/discovery/LikesPage.vue'),
