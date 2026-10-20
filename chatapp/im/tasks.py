@@ -114,6 +114,28 @@ def blacklist_remove(owner_id: int, other_id: int) -> None:
 
 
 @shared_task(**RETRY_POLICY)
+def unmatch_blacklist(user_a_id: int, user_b_id: int) -> None:
+    """解除配对:双向拉黑,双方都收不到、也发不出消息。
+
+    这是「解除配对 = 彻底断开」的唯一实现点:腾讯 IM 只能由管理员侧
+    REST 把对方加进黑名单,客户端只能拉黑自己这侧。
+
+    Args:
+        user_a_id: 配对一方(通常是发起解除的人)的账号 id。
+        user_b_id: 另一方的账号 id。
+
+    Raises:
+        RuntimeError: 任一方向拉黑失败,交给 ``RETRY_POLICY`` 重试。
+    """
+    a, b = _user(user_a_id), _user(user_b_id)
+    if a is None or b is None:
+        return
+    ok_ab = im_client.black_list_add(a.im_user_id, b.im_user_id)
+    ok_ba = im_client.black_list_add(b.im_user_id, a.im_user_id)
+    _require(ok_ab and ok_ba, "unmatch_blacklist")
+
+
+@shared_task(**RETRY_POLICY)
 def ban_notice(user_id: int, level: str, reason: str = "") -> None:
     """封禁说明;heavy 先发消息再踢下线(同一任务内串行,顺序不被多 worker 打乱)。
 

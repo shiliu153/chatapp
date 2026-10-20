@@ -8,7 +8,8 @@
     - 管理命令:``im_send``(文本与灰条互斥)、``im_setup_system_account``、
       ``im_sync_nicknames``(含失败计数);
     - userSig 接口:签发、重封禁 403、踢旧会话必须先于签发;
-    - 副作用任务:``False`` 转异常以触发重试、缺用户时静默、注销删号不查库。
+    - 副作用任务:``False`` 转异常以触发重试、缺用户时静默、注销删号不查库、
+      解除配对时双向拉黑。
 """
 
 import io
@@ -37,7 +38,8 @@ from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
                     delete_account as delete_account_task,
                     import_account as import_account_task, kick_pending,
                     kick_pending_key, post_commented as post_commented_task,
-                    report_handled as report_handled_task, sync_profile)
+                    report_handled as report_handled_task, sync_profile,
+                    unmatch_blacklist)
 from .tasks import send_match_notice as send_match_notice_task
 
 User = get_user_model()
@@ -549,6 +551,26 @@ class ImSideEffectTaskTests(TestCase):
         with patch("im.client.black_list_delete", return_value=True) as delete:
             blacklist_remove.run(self.a.id, self.b.id)
         delete.assert_called_once_with(self.a.im_user_id, self.b.im_user_id)
+
+    def test_unmatch_blacklist_blocks_both_directions(self):
+        calls = []
+        with patch("im.client.black_list_add",
+                   side_effect=lambda *args: calls.append(args) or True):
+            unmatch_blacklist.run(self.a.id, self.b.id)
+        self.assertEqual(calls, [
+            (self.a.im_user_id, self.b.im_user_id),
+            (self.b.im_user_id, self.a.im_user_id),
+        ])
+
+    def test_unmatch_blacklist_failure_raises_so_celery_retries(self):
+        with patch("im.client.black_list_add", return_value=False):
+            with self.assertRaises(RuntimeError):
+                unmatch_blacklist.run(self.a.id, self.b.id)
+
+    def test_unmatch_blacklist_missing_user_is_noop(self):
+        with patch("im.client.black_list_add") as add:
+            unmatch_blacklist.run(self.a.id, 999999)
+        add.assert_not_called()
 
     def test_ban_notice_light_only_sends(self):
         with patch("im.client.send_ban_notice", return_value=True) as send, \
