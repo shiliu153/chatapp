@@ -1,6 +1,6 @@
 # 喜欢我的人 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 本项目全局约定:superpowers 类任务一律内联执行,不派发子 agent。
+> **For agentic workers:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking. 本项目全局约定:superpowers 类任务一律内联执行,不派发子 agent。
 
 **Goal:** 让「收到的喜欢」在 App 与 Web 双端可见、可回喜欢、可直接转化为配对,并保持与候选池完全一致的数据口径。
 
@@ -35,7 +35,7 @@
 - Produces: `LikeReceivedSerializer`(字段 `user_id` / `im_user_id` / `nickname` / `gender` / `age` / `city` / `bio` / `tags` / `photos` / `liked_at`)
 - Produces: `GET /api/v1/discovery/likes`(分页)、`GET /api/v1/discovery/likes/count`(`{"count": N}`)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/discovery/tests.py` 顶部导入 `Block`:
 
@@ -204,7 +204,7 @@ class LikesReceivedTests(APITestCase):
         self.assertIsNone(self.client.get(self.URL).json()["results"][0]["age"])
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd chatapp
@@ -213,7 +213,7 @@ python manage.py test discovery.tests.LikesReceivedTests
 
 Expected: FAIL(`404` 或 `likes_received_queryset` 不存在)。
 
-- [ ] **Step 3: 实现 queryset helper**
+- [x] **Step 3: 实现 queryset helper**
 
 在 `chatapp/discovery/services.py` 顶部补导入,并在文件末尾追加:
 
@@ -247,7 +247,7 @@ def likes_received_queryset(me):
             .order_by("-created_at", "-id"))
 ```
 
-- [ ] **Step 4: 实现序列化器**
+- [x] **Step 4: 实现序列化器**
 
 在 `chatapp/discovery/serializers.py` 中:
 
@@ -293,7 +293,7 @@ class LikeReceivedSerializer(serializers.ModelSerializer):
         return PhotoSerializer(approved, many=True, context=self.context).data
 ```
 
-- [ ] **Step 5: 实现视图与路由**
+- [x] **Step 5: 实现视图与路由**
 
 在 `chatapp/discovery/views.py` 中把 `.services` 的导入改为:
 
@@ -347,7 +347,7 @@ def likes_received_count(request):
 from .serializers import CandidateSerializer, LikeReceivedSerializer, SwipeSerializer
 ```
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 cd chatapp
@@ -356,7 +356,7 @@ python manage.py test discovery
 
 Expected: PASS(全部 discovery 用例)。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add chatapp/discovery/services.py chatapp/discovery/serializers.py chatapp/discovery/views.py chatapp/discovery/urls.py chatapp/discovery/tests.py
@@ -374,7 +374,7 @@ git commit -m "feat(discovery): 喜欢我的人列表与计数接口"
 **Interfaces:**
 - Consumes: Task 1 的两个接口。
 
-- [ ] **Step 1: 在 `docs/api/discovery.md` 末尾追加两节**
+- [x] **Step 1: 在 `docs/api/discovery.md` 末尾追加两节**
 
 ```markdown
 ---
@@ -501,7 +501,7 @@ curl "http://<域名>/api/v1/discovery/likes/count" \
 | 403 | 403 | 账号已被封禁(重封禁) | 提示用户账号受限 |
 ```
 
-- [ ] **Step 2: 更新 `docs/api/README.md`**
+- [x] **Step 2: 更新 `docs/api/README.md`**
 
 把「共 **32** 个接口」改为「共 **34** 个接口」,并在接口一览表 `discovery/swipe` 行后插入:
 
@@ -510,7 +510,7 @@ curl "http://<域名>/api/v1/discovery/likes/count" \
 | GET | `/api/v1/discovery/likes/count` | 喜欢我的人数 | [discovery](discovery.md) |
 ```
 
-- [ ] **Step 3: 跑文档门禁**
+- [x] **Step 3: 跑文档门禁**
 
 ```bash
 cd chatapp
@@ -519,7 +519,7 @@ python manage.py test config.tests.ApiDocsCoverageTests
 
 Expected: PASS。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add docs/api/discovery.md docs/api/README.md
@@ -547,7 +547,7 @@ git commit -m "docs(api): 补喜欢我的人列表与计数接口"
 - Produces: `likesReceivedCountProvider`(`FutureProvider<int>`)
 - Produces: `LikesReceivedController.accept(LikeReceived) -> Future<Candidate?>`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `app/test/support/sample_data.dart` 末尾追加:
 
@@ -719,7 +719,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -728,7 +728,7 @@ cd app
 
 Expected: FAIL(`LikeReceived` / `likesReceivedProvider` 未定义)。
 
-- [ ] **Step 3: 实现 model 与 repository**
+- [x] **Step 3: 实现 model 与 repository**
 
 在 `app/lib/features/discovery/models.dart` 末尾追加:
 
@@ -768,7 +768,7 @@ class LikeReceived {
   }
 ```
 
-- [ ] **Step 4: 实现 controller**
+- [x] **Step 4: 实现 controller**
 
 新建 `app/lib/features/discovery/likes_received_controller.dart`:
 
@@ -897,7 +897,7 @@ final likesReceivedCountProvider = FutureProvider<int>((ref) async =>
     ref.watch(discoveryRepositoryProvider).fetchLikesReceivedCount());
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 cd app
@@ -906,7 +906,7 @@ cd app
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add app/lib/features/discovery/models.dart app/lib/features/discovery/discovery_repository.dart app/lib/features/discovery/likes_received_controller.dart app/test/support/sample_data.dart app/test/features/discovery/likes_received_repository_test.dart app/test/features/discovery/likes_received_controller_test.dart
@@ -929,7 +929,7 @@ git commit -m "feat(app): 喜欢我的人数据层(分页 + 回喜欢编排)"
 - Consumes: Task 3 的 `likesReceivedProvider` / `likesReceivedCountProvider` / `LikeReceived`。
 - Produces: 路由 `/likes`;发现页入口 key `discovery.likes`;页面 key `likes.empty` / `likes.retry` / `likes.row.{id}` / `likes.accept.{id}`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `app/test/features/discovery/likes_received_page_test.dart`:
 
@@ -1045,7 +1045,7 @@ void main() {
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app
@@ -1054,7 +1054,7 @@ cd app
 
 Expected: FAIL(`LikesReceivedPage` 未定义 / 路由不存在)。
 
-- [ ] **Step 3: 实现骨架与页面**
+- [x] **Step 3: 实现骨架与页面**
 
 新建 `app/lib/features/discovery/widgets/likes_skeleton.dart`:
 
@@ -1252,7 +1252,7 @@ String _subtitle(LikeReceived item) {
 }
 ```
 
-- [ ] **Step 4: 接入发现页入口与路由**
+- [x] **Step 4: 接入发现页入口与路由**
 
 `app/lib/router.dart`:
 
@@ -1330,7 +1330,7 @@ class _LikesEntry extends StatelessWidget {
 import '../../core/theme/app_radius.dart';
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 cd app
@@ -1339,7 +1339,7 @@ cd app
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add app/lib/features/discovery/widgets/likes_skeleton.dart app/lib/features/discovery/likes_received_page.dart app/lib/features/discovery/discovery_page.dart app/lib/router.dart app/test/features/discovery/likes_received_page_test.dart app/test/features/discovery/discovery_page_test.dart
@@ -1362,7 +1362,7 @@ git commit -m "feat(app): 喜欢我的人页面与发现页入口"
 - Produces: `fetchLikesReceivedCount() -> Promise<number>`
 - Produces: `useLikesStore()`:`items` / `count` / `loading` / `error` / `busyUserId` / `matched` / `load(reset)` / `loadCount()` / `accept(userId)` / `dismissMatched()`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `web/tests/unit/likes-store.spec.ts`:
 
@@ -1441,7 +1441,7 @@ describe('likes store', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd web
@@ -1450,7 +1450,7 @@ npm run test:run -- tests/unit/likes-store.spec.ts
 
 Expected: FAIL(`@/stores/likes` 不存在)。
 
-- [ ] **Step 3: 实现 types 与 api**
+- [x] **Step 3: 实现 types 与 api**
 
 在 `web/src/api/types.ts` 末尾追加:
 
@@ -1485,7 +1485,7 @@ export async function fetchLikesReceivedCount(): Promise<number> {
 }
 ```
 
-- [ ] **Step 4: 实现 store**
+- [x] **Step 4: 实现 store**
 
 新建 `web/src/stores/likes.ts`:
 
@@ -1562,7 +1562,7 @@ export const useLikesStore = defineStore('likes', () => {
 })
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 cd web
@@ -1571,7 +1571,7 @@ npm run test:run -- tests/unit/likes-store.spec.ts
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add web/src/api/types.ts web/src/api/discovery.ts web/src/stores/likes.ts web/tests/unit/likes-store.spec.ts
@@ -1594,7 +1594,7 @@ git commit -m "feat(web): 喜欢我的人数据层(store + api)"
 - Consumes: Task 5 的 `useLikesStore`。
 - Produces: 路由 `/likes`(`name: 'likes'`);入口 class `.likes-entry`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 新建 `web/tests/component/likes-page.spec.ts`:
 
@@ -1701,7 +1701,7 @@ describe('LikesPage', () => {
   })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd web
@@ -1710,7 +1710,7 @@ npm run test:run -- tests/component/likes-page.spec.ts
 
 Expected: FAIL(`LikesPage.vue` 不存在)。
 
-- [ ] **Step 3: 实现入口与页面**
+- [x] **Step 3: 实现入口与页面**
 
 新建 `web/src/features/discovery/LikesEntry.vue`:
 
@@ -1964,7 +1964,7 @@ function formatLikedAt(iso: string): string {
 </style>
 ```
 
-- [ ] **Step 4: 接入发现页与路由**
+- [x] **Step 4: 接入发现页与路由**
 
 `web/src/features/discovery/DiscoveryPage.vue`:
 
@@ -1990,7 +1990,7 @@ import LikesEntry from './LikesEntry.vue'
   },
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 cd web
@@ -1999,7 +1999,7 @@ npm run test:run -- tests/component/likes-page.spec.ts tests/component/discovery
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add web/src/features/discovery/LikesEntry.vue web/src/features/discovery/LikesPage.vue web/src/features/discovery/DiscoveryPage.vue web/src/router/routes.ts web/tests/component/likes-page.spec.ts web/tests/component/discovery-page.spec.ts
@@ -2013,7 +2013,7 @@ git commit -m "feat(web): 喜欢我的人页面与发现页入口"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-10-20-likes-received.md`(勾选全部 checkbox,补执行记录)
 
-- [ ] **Step 1: 后端全量**
+- [x] **Step 1: 后端全量**
 
 ```bash
 cd chatapp
@@ -2022,7 +2022,7 @@ python manage.py test
 
 Expected: 全绿(前置:Redis 在跑)。
 
-- [ ] **Step 2: App 门禁**
+- [x] **Step 2: App 门禁**
 
 ```bash
 cd app
@@ -2032,7 +2032,7 @@ cd app
 
 Expected:`No issues found!` + `All tests passed!`。
 
-- [ ] **Step 3: Web 门禁**
+- [x] **Step 3: Web 门禁**
 
 ```bash
 cd web
@@ -2043,18 +2043,17 @@ npm run test:run
 
 Expected:零错误、零告警、全绿。
 
-- [ ] **Step 4: 回填计划并提交**
+- [x] **Step 4: 回填计划并提交**
 
 把本文件所有 `- [ ]` 改为 `- [x]`,在末尾补:
 
-```markdown
 ## 执行记录
 
 - 2026-10-20:后端接口 + App/Web 双端页面交付;全量门禁通过。
-- 后端:`python manage.py test`(待填实测数)
-- App:`flutter analyze` 0 issues;`flutter test`(待填实测数)
-- Web:`vue-tsc` / eslint / vitest(待填实测数)
-```
+- 后端:`python manage.py test` → `Ran 392 tests in 67.071s` / `OK`(含新增 13 条 `LikesReceivedTests`)。
+- App:`flutter analyze` → `No issues found!`;`flutter test` → `All tests passed! (+347)`(含新增 7 条)。
+- Web:`vue-tsc` 零错误;`eslint --max-warnings 0` 零告警;`vitest run` → `65 passed / 315 tests`(含新增 12 条)。
+- 说明:本批未新增 Playwright 端到端(需真后端 + Redis + Celery);「回喜欢 → 配对」由 App 页面测试与 Web 组件测试覆盖。
 
 ```bash
 git add docs/superpowers/plans/2026-10-20-likes-received.md
@@ -2065,10 +2064,10 @@ git commit -m "docs(plan): 喜欢我的人执行记录与 checkbox 回填"
 
 ## 自检清单(计划写完后逐条核对)
 
-- [ ] spec §3 数据口径 → Task 1 的 `likes_received_queryset` 与 7 条测试;
-- [ ] spec §4 两个接口 → Task 1 视图/路由 + Task 2 文档;
-- [ ] spec §5 App 入口/页面/四态/回喜欢 → Task 4;
-- [ ] spec §6 Web 入口/页面/路由 → Task 6;
-- [ ] spec §8 测试与门禁 → Task 1/3/4/5/6/7;
-- [ ] 无 TBD / TODO /「类似 Task N」;
-- [ ] 名称一致:`likes_received_queryset` / `LikeReceivedSerializer` / `likesReceivedProvider` / `likesReceivedCountProvider` / `useLikesStore` / `LikesPage.vue` / `LikesReceivedPage`。
+- [x] spec §3 数据口径 → Task 1 的 `likes_received_queryset` 与 7 条测试;
+- [x] spec §4 两个接口 → Task 1 视图/路由 + Task 2 文档;
+- [x] spec §5 App 入口/页面/四态/回喜欢 → Task 4;
+- [x] spec §6 Web 入口/页面/路由 → Task 6;
+- [x] spec §8 测试与门禁 → Task 1/3/4/5/6/7;
+- [x] 无 TBD / TODO /「类似 Task N」;
+- [x] 名称一致:`likes_received_queryset` / `LikeReceivedSerializer` / `likesReceivedProvider` / `likesReceivedCountProvider` / `useLikesStore` / `LikesPage.vue` / `LikesReceivedPage`。

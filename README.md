@@ -6,13 +6,13 @@
 
 [![Backend CI](https://github.com/yourname/chatapp/actions/workflows/backend.yml/badge.svg?branch=master)](../../actions/workflows/backend.yml)
 [![App CI](https://github.com/yourname/chatapp/actions/workflows/app.yml/badge.svg?branch=master)](../../actions/workflows/app.yml)
-[![Backend Tests](https://img.shields.io/badge/backend%20tests-337%20passed-brightgreen)](#测试策略)
-[![Flutter Tests](https://img.shields.io/badge/flutter%20tests-247%20passed-brightgreen)](#测试策略)
+[![Backend Tests](https://img.shields.io/badge/backend%20tests-392%20passed-brightgreen)](#测试策略)
+[![Flutter Tests](https://img.shields.io/badge/flutter%20tests-347%20passed-brightgreen)](#测试策略)
 [![Flutter Analyze](https://img.shields.io/badge/flutter%20analyze-0%20issues-brightgreen)](#测试策略)
-[![API Docs](https://img.shields.io/badge/API%20docs-32%20endpoints-blue)](docs/api/README.md)
+[![API Docs](https://img.shields.io/badge/API%20docs-34%20endpoints-blue)](docs/api/README.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-<sub>测试徽章数字为交付时的实测值:后端 `Ran 337 tests ... OK` · Flutter `All tests passed! (+247)` · `flutter analyze` No issues found</sub>
+<sub>测试徽章数字为交付时的实测值:后端 `Ran 392 tests ... OK` · Flutter `All tests passed! (+347)` · `flutter analyze` No issues found</sub>
 
 **中文** · [English Abstract](#english-abstract)
 
@@ -50,8 +50,8 @@
 | 后端 | Django 5.2 LTS + DRF,8 个业务 app,约 **8.0k 行 Python** |
 | 前端 | Flutter 3.47,11 个 feature 模块,约 **8.8k 行 Dart** |
 | 网页端 | Vue 3 + TypeScript,PC 浏览器端,约 **6.5k 行 TS/Vue** |
-| 测试 | **339** 个后端用例 + **247** 个 Flutter 用例 + **303** 个网页端用例(63 个文件)+ **8** 条端到端场景 |
-| 接口 | **32** 个 REST 接口,配 **10 册**对外交付级接口文档 |
+| 测试 | **392** 个后端用例 + **347** 个 Flutter 用例 + **315** 个网页端用例(65 个文件)+ **8** 条端到端场景 |
+| 接口 | **34** 个 REST 接口,配 **10 册**对外交付级接口文档 |
 | 文档 | 设计 spec + 实施计划 + 踩坑手册共 **50+ 篇** |
 
 **为什么值得一看**:除了功能本身,这个项目里比较少见的是
@@ -76,6 +76,7 @@
 ### 发现与配对
 - 候选卡按偏好过滤,自动排除自己 / 划过 / 已配对 / 资料未完善者,**只推有已过审照片的人**
 - 滑卡动作幂等;**互相喜欢 → 配对成功**,事务提交后给双方各发一条系统消息(聊天页渲染为居中灰条)
+- **喜欢我的人**:收到的喜欢按时间倒序展示,可直接回喜欢;口径与候选池完全一致,互喜即配对
 - 滑卡限流 300 次/小时;配对列表分页并预热昵称头像缓存
 
 ### 聊天(腾讯云 IM)
@@ -505,7 +506,7 @@ The feature set covers the full loop — phone/SMS authentication with rotating 
 **single-device login**, profile and photo management, swipe-based discovery with **mutual-like
 matching**, 1-on-1 chat, a social feed, reporting/blocking, a two-tier ban system, a
 server-rendered **operations console** for moderation, and a self-built **presence** service.
-It is documented as **32 REST endpoints across 10 API reference volumes**.
+It is documented as **34 REST endpoints across 10 API reference volumes**.
 
 What distinguishes the project is its emphasis on **constraints before code**. A few rules are
 enforced across the whole stack and backed by tests:
@@ -521,8 +522,8 @@ enforced across the whole stack and backed by tests:
 - **UI as a written design language** ("Heartbeat"): a token-only palette/type/spacing system
   where the brand pink and gradient are rationed to one focal point per screen.
 
-Testing follows the same philosophy: **~8.5k lines of tests** (337 backend cases, 247 Flutter cases
-across 63 test files) where UI tests run the **real Riverpod provider tree and real router** against
+Testing follows the same philosophy: **~8.5k lines of tests** (392 backend cases, 347 Flutter cases
+across 65 test files) where UI tests run the **real Riverpod provider tree and real router** against
 fake network and fake IM adapters — so the tests exercise production wiring, not mocks of it.
 
 The repository was sanitized before being open-sourced: server addresses, credentials, personal
