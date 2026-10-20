@@ -599,3 +599,79 @@ class LikesReceivedTests(APITestCase):
         a = self._make_user("13900139000", birthday=None)
         self._like_me(a)
         self.assertIsNone(self.client.get(self.URL).json()["results"][0]["age"])
+
+
+class UnmatchApiTests(APITestCase):
+    """解除配对:204 幂等、列表过滤、滑卡不复活、IM 双向拉黑入队。"""
+
+    def setUp(self):
+        self.me = self._make_user("13800138000", "我")
+        self.other = self._make_user("13900139000", "小红")
+        self.match = Match.objects.create(**Match.pair_kwargs(self.me, self.other))
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make_user(self, phone, nickname):
+        """造一个资料完善的用户(带一张已过审照片)。
+
+        Args:
+            phone: 手机号。
+            nickname: 昵称。
+
+        Returns:
+            新建的用户实例。
+        """
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(user=user, nickname=nickname, gender="female",
+                               birthday="2000-01-01", city="上海", bio="你好",
+                               status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        return user
+
+    def test_unmatch_marks_row_and_enqueues_im(self):
+        with patch("im.tasks.unmatch_blacklist.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.delete(f"/api/v1/matches/{self.other.id}")
+        self.assertEqual(resp.status_code, 204)
+        self.match.refresh_from_db()
+        self.assertIsNotNone(self.match.unmatched_at)
+        self.assertEqual(self.match.unmatched_by, self.me)
+        delay.assert_called_once_with(self.me.id, self.other.id)
+
+    def test_unmatch_is_idempotent(self):
+        self.match.unmatched_at = timezone.now()
+        self.match.save(update_fields=["unmatched_at"])
+        with patch("im.tasks.unmatch_blacklist.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.delete(f"/api/v1/matches/{self.other.id}")
+        self.assertEqual(resp.status_code, 204)
+        delay.assert_not_called()
+
+    def test_unmatch_without_match_is_204(self):
+        stranger = self._make_user("13900139001", "路人")
+        resp = self.client.delete(f"/api/v1/matches/{stranger.id}")
+        self.assertEqual(resp.status_code, 204)
+
+    def test_match_list_hides_unmatched(self):
+        self.match.unmatched_at = timezone.now()
+        self.match.save(update_fields=["unmatched_at"])
+        self.assertEqual(self.client.get("/api/v1/matches").json()["count"], 0)
+
+    def test_swipe_after_unmatch_does_not_revive(self):
+        self.match.unmatched_at = timezone.now()
+        self.match.save(update_fields=["unmatched_at"])
+        # 双方原本就互相 like,这里再点一次喜欢不应复活
+        Swipe.objects.create(swiper=self.other, target=self.me, action=SwipeAction.LIKE)
+        with patch("discovery.services.notify_match") as notify:
+            resp = self.client.post("/api/v1/discovery/swipe",
+                                    {"target_user_id": self.other.id, "action": "like"},
+                                    format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["matched"])
+        notify.assert_not_called()
+        self.match.refresh_from_db()
+        self.assertIsNotNone(self.match.unmatched_at)
+
+    def test_unmatch_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.delete(f"/api/v1/matches/{self.other.id}").status_code, 401)
