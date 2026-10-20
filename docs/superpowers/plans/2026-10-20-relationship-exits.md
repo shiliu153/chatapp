@@ -1,6 +1,6 @@
 # 关系出口:解除配对 + 撤回消息 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 给配对关系一个不可恢复的出口(删配对 + IM 双向黑名单),并让已发消息在 2 分钟内可撤回,App 与 Web 双端对齐。
 
@@ -58,7 +58,7 @@
 **Interfaces:**
 - Produces: `Match.unmatched_at: datetime | None`、`Match.unmatched_by: User | None`、`Match.is_active -> bool`。后续任务全部依赖这三个名字。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chatapp/discovery/tests.py` 的 `MatchModelTests` 之后新增:
 
@@ -85,7 +85,7 @@ class MatchUnmatchModelTests(TestCase):
         self.assertEqual(match.unmatched_by, self.a)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd chatapp && python manage.py test discovery.tests.MatchUnmatchModelTests -v 2
@@ -93,7 +93,7 @@ cd chatapp && python manage.py test discovery.tests.MatchUnmatchModelTests -v 2
 
 预期:`AttributeError: 'Match' object has no attribute 'is_active'`。
 
-- [ ] **Step 3: 改模型**
+- [x] **Step 3: 改模型**
 
 `chatapp/discovery/models.py`,在 `Match.created_at` 之后加两列,并在 `other_user` 前加属性:
 
@@ -123,7 +123,7 @@ cd chatapp && python manage.py test discovery.tests.MatchUnmatchModelTests -v 2
     3. **解除配对是软删除**:``unmatched_at`` 非空即失效,行保留用于审计与防复活。
 ```
 
-- [ ] **Step 4: 生成并检查迁移**
+- [x] **Step 4: 生成并检查迁移**
 
 ```bash
 cd chatapp && python manage.py makemigrations discovery --name match_unmatched
@@ -131,7 +131,7 @@ cd chatapp && python manage.py makemigrations discovery --name match_unmatched
 
 打开 `chatapp/discovery/migrations/0002_match_unmatched.py`,确认只含 `AddField` 两条(没有意外删除/重建约束)。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 cd chatapp && python manage.py test discovery.tests.MatchUnmatchModelTests -v 2
@@ -139,7 +139,7 @@ cd chatapp && python manage.py test discovery.tests.MatchUnmatchModelTests -v 2
 
 预期:2 tests OK。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/discovery/models.py chatapp/discovery/migrations/0002_match_unmatched.py chatapp/discovery/tests.py
@@ -157,7 +157,7 @@ git commit -m "feat(discovery): Match 软删除字段(unmatched_at/unmatched_by/
 **Interfaces:**
 - Produces: `im.tasks.unmatch_blacklist(user_a_id: int, user_b_id: int) -> None`,双向调用 `im.client.black_list_add`。Task 3 的 `on_commit` 会 `.delay(me.id, other.id)`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `chatapp/im/tests.py` 顶部 import 区,在 `from .tasks import (...)` 里加 `unmatch_blacklist`(按字母序放在 `sync_profile` 前)。然后在 `ImSideEffectTaskTests` 末尾加:
 
@@ -183,7 +183,7 @@ git commit -m "feat(discovery): Match 软删除字段(unmatched_at/unmatched_by/
         add.assert_not_called()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd chatapp && python manage.py test im.tests.ImSideEffectTaskTests -v 2
@@ -191,7 +191,7 @@ cd chatapp && python manage.py test im.tests.ImSideEffectTaskTests -v 2
 
 预期:`ImportError: cannot import name 'unmatch_blacklist'`。
 
-- [ ] **Step 3: 写任务**
+- [x] **Step 3: 写任务**
 
 `chatapp/im/tasks.py`,紧跟 `blacklist_remove` 之后:
 
@@ -220,7 +220,7 @@ def unmatch_blacklist(user_a_id: int, user_b_id: int) -> None:
 
 > 注意:两次调用都要执行完再判 `_require`,不要写成 `a and b` 短路——否则第二个方向永远不拉黑。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd chatapp && python manage.py test im.tests.ImSideEffectTaskTests -v 2
@@ -228,7 +228,7 @@ cd chatapp && python manage.py test im.tests.ImSideEffectTaskTests -v 2
 
 预期:全绿(含原有 12 条)。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/im/tasks.py chatapp/im/tests.py
@@ -248,7 +248,7 @@ git commit -m "feat(im): 解除配对后双向拉黑任务 unmatch_blacklist"
 - Consumes: `Match.is_active`(Task 1)、`im.tasks.unmatch_blacklist.delay`(Task 2)。
 - Produces: `DELETE /api/v1/matches/{user_id}` → 204 幂等;`GET /matches` 不再返回已解除配对;`POST /discovery/swipe` 对已解除配对返回 `{"matched": false}` 且不重建、不通知。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `chatapp/discovery/tests.py` 末尾新增(复用 `MatchListTests._make_user` 的造数思路,独立写一份避免耦合):
 
@@ -329,7 +329,7 @@ class UnmatchApiTests(APITestCase):
         self.assertEqual(self.client.delete(f"/api/v1/matches/{self.other.id}").status_code, 401)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd chatapp && python manage.py test discovery.tests.UnmatchApiTests -v 2
@@ -337,7 +337,7 @@ cd chatapp && python manage.py test discovery.tests.UnmatchApiTests -v 2
 
 预期:404(路由还没挂)。
 
-- [ ] **Step 3: 挂路由**
+- [x] **Step 3: 挂路由**
 
 `chatapp/config/api_urls.py`,在 `path("matches", discovery_views.match_list)` 后加:
 
@@ -345,7 +345,7 @@ cd chatapp && python manage.py test discovery.tests.UnmatchApiTests -v 2
     path("matches/<int:user_id>", discovery_views.unmatch),
 ```
 
-- [ ] **Step 4: 写视图 + 过滤**
+- [x] **Step 4: 写视图 + 过滤**
 
 `chatapp/discovery/views.py`:
 
@@ -418,7 +418,7 @@ def unmatch(request, user_id):
        读侧统一过滤 ``unmatched_at__isnull=True``;已解除的配对不会被再次滑卡复活。
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 ```bash
 cd chatapp && python manage.py test discovery -v 2
@@ -426,7 +426,7 @@ cd chatapp && python manage.py test discovery -v 2
 
 预期:全绿(原有 + 新增 6 条)。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp/config/api_urls.py chatapp/discovery/views.py chatapp/discovery/tests.py
@@ -445,7 +445,7 @@ git commit -m "feat(discovery): DELETE /matches/{user_id} 解除配对(软删除
 - Consumes: Task 3 的接口行为。
 - Produces: `ApiDocsCoverageTests` 双向比对通过。
 
-- [ ] **Step 1: 先跑门禁确认会红**
+- [x] **Step 1: 先跑门禁确认会红**
 
 ```bash
 cd chatapp && python manage.py test config.tests.ApiDocsCoverageTests -v 2
@@ -453,7 +453,7 @@ cd chatapp && python manage.py test config.tests.ApiDocsCoverageTests -v 2
 
 预期:报「接口 DELETE /api/v1/matches/{user_id} 未写文档」。
 
-- [ ] **Step 2: 改 `docs/api/discovery.md`**
+- [x] **Step 2: 改 `docs/api/discovery.md`**
 
 第 3 行改成:
 
@@ -511,7 +511,7 @@ HTTP/1.1 204 No Content
 | 403 | 403 | 账号处于重封禁状态 | 联系客服申诉 |
 ```
 
-- [ ] **Step 3: 改 `docs/api/README.md`**
+- [x] **Step 3: 改 `docs/api/README.md`**
 
 - 「共 **35** 个接口」→「共 **36** 个接口」;
 - 在 `GET /api/v1/matches` 行后插入:
@@ -520,7 +520,7 @@ HTTP/1.1 204 No Content
 | DELETE | `/api/v1/matches/{user_id}` | 解除配对 | [discovery](discovery.md) |
 ```
 
-- [ ] **Step 4: 跑门禁**
+- [x] **Step 4: 跑门禁**
 
 ```bash
 cd chatapp && python manage.py test config.tests -v 2
@@ -528,7 +528,7 @@ cd chatapp && python manage.py test config.tests -v 2
 
 预期:全绿(含 `CommentCoverageTests`)。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add docs/api/discovery.md docs/api/README.md
@@ -551,7 +551,7 @@ git commit -m "docs(api): 补 DELETE /matches/{user_id} 解除配对,接口数 3
   - `abstract class ImClient { Future<void> revokeMessage(String msgId); }`
   - `FakeImClient.revokeMessage` 记 `revoke:<msgId>` 到 `log`,`revokeError` 可注入;`emitRevoked(String msgId)` 推事件。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 先确认 `app/test/im/` 是否存在;不存在就新建目录与文件 `app/test/im/im_client_test.dart`:
 
@@ -582,7 +582,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/im/im_client_test.dart
@@ -590,7 +590,7 @@ cd app && ../flutter/bin/flutter.bat test test/im/im_client_test.dart
 
 预期:编译失败(`FakeImClient` 没有 `revokeMessage`)。
 
-- [ ] **Step 3: 改接口与真实实现**
+- [x] **Step 3: 改接口与真实实现**
 
 `app/lib/im/im_client.dart`:
 
@@ -633,7 +633,7 @@ class ImMessageRevoked extends ImEvent {
   }
 ```
 
-- [ ] **Step 4: 改假客户端**
+- [x] **Step 4: 改假客户端**
 
 `app/test/support/fake_im_client.dart`,字段区加:
 
@@ -659,7 +659,7 @@ class ImMessageRevoked extends ImEvent {
   void emitRevoked(String msgId) => emit(ImMessageRevoked(msgId));
 ```
 
-- [ ] **Step 5: 跑测试 + analyze**
+- [x] **Step 5: 跑测试 + analyze**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/im/im_client_test.dart && ../flutter/bin/flutter.bat analyze
@@ -667,7 +667,7 @@ cd app && ../flutter/bin/flutter.bat test test/im/im_client_test.dart && ../flut
 
 预期:1 test OK、analyze 零告警。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add app/lib/im/im_client.dart app/lib/im/tencent_im_client.dart app/test/support/fake_im_client.dart app/test/im/im_client_test.dart
@@ -693,7 +693,7 @@ git commit -m "feat(app/im): 撤回消息接口 + ImMessageRevoked 事件 + 假�
   - `ChatController.revoke(ChatMessage message) -> Future<void>`
   - UI key:`chat.menu.recall`、`chat.revoked`
 
-- [ ] **Step 1: 写失败测试(纯函数)**
+- [x] **Step 1: 写失败测试(纯函数)**
 
 新建 `app/test/features/chat/recall_test.dart`:
 
@@ -750,7 +750,7 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/recall_test.dart
@@ -758,7 +758,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/recall_test.dart
 
 预期:找不到 `recall.dart`。
 
-- [ ] **Step 3: 写判定函数**
+- [x] **Step 3: 写判定函数**
 
 新建 `app/lib/features/chat/recall.dart`:
 
@@ -793,7 +793,7 @@ bool canRecall(ChatMessage message, {DateTime? now}) {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/recall_test.dart
@@ -801,7 +801,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/recall_test.dart
 
 预期:5 tests OK。
 
-- [ ] **Step 5: 写控制器测试(失败)**
+- [x] **Step 5: 写控制器测试(失败)**
 
 在 `app/test/features/chat/chat_controller_test.dart` 末尾加(沿用该文件已有的 container/fake 初始化;若结构不同,复用同文件里的 `_container` 或 `setUp` 变量名):
 
@@ -852,7 +852,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/recall_test.dart
 
 > 如果 `chat_controller_test.dart` 没有 `_container()` 辅助函数,用文件里现有的 provider 容器构造方式(不要新造一套)。
 
-- [ ] **Step 6: 跑测试确认失败**
+- [x] **Step 6: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_controller_test.dart
@@ -860,7 +860,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_controller_tes
 
 预期:`ChatController` 没有 `revoke`。
 
-- [ ] **Step 7: 改控制器**
+- [x] **Step 7: 改控制器**
 
 `app/lib/features/chat/chat_controller.dart`:
 
@@ -894,7 +894,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_controller_tes
   }
 ```
 
-- [ ] **Step 8: 跑测试确认通过**
+- [x] **Step 8: 跑测试确认通过**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_controller_test.dart
@@ -902,7 +902,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_controller_tes
 
 预期:全绿。
 
-- [ ] **Step 9: 写渲染与菜单测试(失败)**
+- [x] **Step 9: 写渲染与菜单测试(失败)**
 
 `app/test/features/chat/message_bubble_test.dart` 末尾加:
 
@@ -989,7 +989,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_controller_tes
   });
 ```
 
-- [ ] **Step 10: 跑测试确认失败**
+- [x] **Step 10: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/message_bubble_test.dart test/features/chat/chat_page_test.dart
@@ -997,7 +997,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/message_bubble_test
 
 预期:找不到 `chat.revoked` / `chat.menu.recall`。
 
-- [ ] **Step 11: 改渲染**
+- [x] **Step 11: 改渲染**
 
 `app/lib/features/chat/widgets/message_bubble.dart`,在 `build()` 开头(系统灰条分支之前)加:
 
@@ -1016,7 +1016,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/message_bubble_test
     }
 ```
 
-- [ ] **Step 12: 改菜单**
+- [x] **Step 12: 改菜单**
 
 `app/lib/features/chat/chat_page.dart`:
 
@@ -1049,7 +1049,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/message_bubble_test
     }
 ```
 
-- [ ] **Step 13: 跑测试确认通过**
+- [x] **Step 13: 跑测试确认通过**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/recall_test.dart test/features/chat/chat_controller_test.dart test/features/chat/message_bubble_test.dart test/features/chat/chat_page_test.dart
@@ -1057,7 +1057,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/recall_test.dart te
 
 预期:全绿。
 
-- [ ] **Step 14: 提交**
+- [x] **Step 14: 提交**
 
 ```bash
 git add app/lib/features/chat/recall.dart app/lib/features/chat/chat_controller.dart app/lib/features/chat/chat_page.dart app/lib/features/chat/widgets/message_bubble.dart app/test/features/chat/recall_test.dart app/test/features/chat/chat_controller_test.dart app/test/features/chat/chat_page_test.dart app/test/features/chat/message_bubble_test.dart
@@ -1077,7 +1077,7 @@ git commit -m "feat(app/chat): 2 分钟内撤回消息(菜单条件 + 置灰渲�
 - Consumes: `DELETE /matches/{user_id}`(Task 3)、`showConfirmDialog`、`AppToast`、`matchCacheProvider.refresh()`、`conversationsProvider.reload()`。
 - Produces: `ImRepository.unmatch(int userId) -> Future<void>`;UI key `chat.more`、`chat.menu.unmatch`、`chat.unmatch.confirm`。
 
-- [ ] **Step 1: 写仓库测试(失败)**
+- [x] **Step 1: 写仓库测试(失败)**
 
 新建/追加 `app/test/im/im_repository_test.dart`:
 
@@ -1108,7 +1108,7 @@ void main() {
 
 > 若 `ApiClient` 的构造签名不是 `ApiClient(dio)`,按 `app/lib/core/api_client.dart` 的实际签名改;测试目标是「断言 DELETE 路径」。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/im/im_repository_test.dart
@@ -1116,7 +1116,7 @@ cd app && ../flutter/bin/flutter.bat test test/im/im_repository_test.dart
 
 预期:`ImRepository` 没有 `unmatch`。
 
-- [ ] **Step 3: 加仓库方法**
+- [x] **Step 3: 加仓库方法**
 
 `app/lib/im/im_repository.dart`,在 `fetchMatches` 之后:
 
@@ -1127,7 +1127,7 @@ cd app && ../flutter/bin/flutter.bat test test/im/im_repository_test.dart
   }
 ```
 
-- [ ] **Step 4: 跑仓库测试**
+- [x] **Step 4: 跑仓库测试**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/im/im_repository_test.dart
@@ -1135,7 +1135,7 @@ cd app && ../flutter/bin/flutter.bat test test/im/im_repository_test.dart
 
 预期:1 test OK。
 
-- [ ] **Step 5: 写聊天页测试(失败)**
+- [x] **Step 5: 写聊天页测试(失败)**
 
 `app/test/features/chat/chat_page_test.dart` 的 `main()` 里加:
 
@@ -1157,7 +1157,7 @@ cd app && ../flutter/bin/flutter.bat test test/im/im_repository_test.dart
   });
 ```
 
-- [ ] **Step 6: 跑测试确认失败**
+- [x] **Step 6: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
@@ -1165,7 +1165,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
 
 预期:找不到 `chat.more`。
 
-- [ ] **Step 7: 加「⋯」与解除流程**
+- [x] **Step 7: 加「⋯」与解除流程**
 
 `app/lib/features/chat/chat_page.dart`:
 
@@ -1226,7 +1226,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
 
 4) 需要 `import 'dart:async';`(用 `unawaited`)。
 
-- [ ] **Step 8: 跑测试确认通过**
+- [x] **Step 8: 跑测试确认通过**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
@@ -1234,7 +1234,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
 
 预期:全绿。
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add app/lib/im/im_repository.dart app/lib/features/chat/chat_page.dart app/test/im/im_repository_test.dart app/test/features/chat/chat_page_test.dart
@@ -1253,7 +1253,7 @@ git commit -m "feat(app/chat): 聊天页「⋯」解除配对(确认 → 删会�
 - Consumes: `matchCacheProvider`、`ImRepository.unmatch`、`showConfirmDialog`。
 - Produces: 资料页菜单在「已配对」时多一项 key `user.unmatch`;确认按钮 key `user.unmatch.confirm`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `app/test/features/profile/user_profile_page_test.dart` 里加(复用文件已有的挂载辅助;若没有 `GET /matches` 的脚本,补一条):
 
@@ -1268,7 +1268,7 @@ git commit -m "feat(app/chat): 聊天页「⋯」解除配对(确认 → 删会�
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_page_test.dart
@@ -1276,7 +1276,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_pag
 
 预期:找不到 `user.more` / `user.unmatch`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/lib/features/profile/user_profile_page.dart`:
 
@@ -1338,7 +1338,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_pag
 
 > 需要补 import:`dart:async`、`../../im/im_repository.dart`、`../chat/match_cache.dart`、`../chat/conversations_controller.dart`、`../../core/widgets/app_dialog.dart`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_page_test.dart && ../flutter/bin/flutter.bat analyze
@@ -1346,7 +1346,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/profile/user_profile_pag
 
 预期:全绿、零告警。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/profile/user_profile_page.dart app/test/features/profile/user_profile_page_test.dart
@@ -1365,7 +1365,7 @@ git commit -m "feat(app/profile): 他人资料页在已配对时提供解除配�
 - Consumes: `matchCacheProvider`、`matchCacheProvider.notifier.refresh()`、`systemNoticePeerId`。
 - Produces: key `chat.unmatchedBanner`;输入框在解除后 `enabled=false`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/features/chat/chat_page_test.dart` 的 `main()` 里加:
 
@@ -1386,7 +1386,7 @@ git commit -m "feat(app/profile): 他人资料页在已配对时提供解除配�
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
@@ -1394,7 +1394,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
 
 预期:找不到 `chat.unmatchedBanner`。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/lib/features/chat/chat_page.dart`:
 
@@ -1439,7 +1439,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
                   onPressed: enabled ? onToggleEmoji : null,
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart && ../flutter/bin/flutter.bat analyze
@@ -1447,7 +1447,7 @@ cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart
 
 预期:全绿、零告警。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/chat_page.dart app/test/features/chat/chat_page_test.dart
@@ -1470,7 +1470,7 @@ git commit -m "feat(app/chat): 被解除配对后显示横幅并禁用输入"
   - `ImClient.revokeMessage(msgId: string): Promise<void>`
   - `ImEventNames.messageRevoked`(默认 `'onMessageRevoked'`)
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `web/tests/unit/im-client.spec.ts`(新建时按下面写;已存在则追加一个 `it`):
 
@@ -1533,7 +1533,7 @@ describe('IM 撤回', () => {
 
 > 该用例不依赖登录:SDK 已注入。`revokeMessage` 需要 `known` 里的消息实例,所以先 `fetchHistory` 把实例记下来;找不到实例时实现直接返回(不抛错)。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd web && npm run test:run -- tests/unit/im-client.spec.ts
@@ -1541,7 +1541,7 @@ cd web && npm run test:run -- tests/unit/im-client.spec.ts
 
 预期:`revokeMessage is not a function` / 类型错误。
 
-- [ ] **Step 3: 改类型与客户端**
+- [x] **Step 3: 改类型与客户端**
 
 `web/src/im/types.ts`:
 
@@ -1580,7 +1580,7 @@ cd web && npm run test:run -- tests/unit/im-client.spec.ts
 
 `web/src/im/map.ts` 的 `chatMessageFromTim` 返回对象补 `isRevoked: false`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd web && npm run test:run -- tests/unit/im-client.spec.ts
@@ -1588,7 +1588,7 @@ cd web && npm run test:run -- tests/unit/im-client.spec.ts
 
 预期:1 test OK。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/im/types.ts web/src/im/client.ts web/src/im/map.ts web/tests/unit/im-client.spec.ts
@@ -1611,7 +1611,7 @@ git commit -m "feat(web/im): revokeMessage + messageRevoked 事件"
 - Consumes: `ChatMessage.isRevoked`、`ImClient.revokeMessage`、`messageRevoked` 事件(Task 10)。
 - Produces: `canRecall(message, now?)`;`useChatStore().revokeMessage(message)`;菜单 action 联合类型加 `'recall'`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `web/tests/unit/recall.spec.ts`:
 
@@ -1677,7 +1677,7 @@ describe('canRecall', () => {
   })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd web && npm run test:run -- tests/unit/recall.spec.ts tests/component/message-menu.spec.ts
@@ -1685,7 +1685,7 @@ cd web && npm run test:run -- tests/unit/recall.spec.ts tests/component/message-
 
 预期:找不到 `recall.ts` / 菜单无「撤回」。
 
-- [ ] **Step 3: 写判定与组件**
+- [x] **Step 3: 写判定与组件**
 
 `web/src/features/chat/recall.ts`:
 
@@ -1787,7 +1787,7 @@ export function canRecall(message: ChatMessage, now: number = Date.now()): boole
   }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd web && npm run test:run -- tests/unit/recall.spec.ts tests/component/message-menu.spec.ts tests/component/chat-page.spec.ts
@@ -1795,7 +1795,7 @@ cd web && npm run test:run -- tests/unit/recall.spec.ts tests/component/message-
 
 预期:全绿。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/features/chat/recall.ts web/src/features/chat/MessageMenu.vue web/src/features/chat/MessageBubble.vue web/src/features/chat/ChatPage.vue web/src/stores/chat.ts web/tests/unit/recall.spec.ts web/tests/component/message-menu.spec.ts web/tests/component/chat-page.spec.ts
@@ -1818,7 +1818,7 @@ git commit -m "feat(web/chat): 2 分钟内撤回消息(菜单条件 + 撤回态�
 - Consumes: `DELETE /matches/{user_id}`(Task 3)、`chatStore.deleteConversation`、`discoveryStore.matches`。
 - Produces: `discoveryApi.unmatch(userId)`、`discoveryStore.unmatch(userId)`;key/class:`chat__more`、`chat__unmatched`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `web/tests/component/chat-page.spec.ts` 加:
 
@@ -1843,7 +1843,7 @@ git commit -m "feat(web/chat): 2 分钟内撤回消息(菜单条件 + 撤回态�
 
 > `useDiscoveryStore` 要在 `mountPage` 的同一个 pinia 下取;把 `mountPage` 改成同时返回 `pinia` 或在用例里 `setActivePinia(pinia)`。按文件现有写法调整,断言不变。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd web && npm run test:run -- tests/component/chat-page.spec.ts
@@ -1851,7 +1851,7 @@ cd web && npm run test:run -- tests/component/chat-page.spec.ts
 
 预期:找不到 `.chat__more`。
 
-- [ ] **Step 3: 实现 api 与 store**
+- [x] **Step 3: 实现 api 与 store**
 
 `web/src/api/discovery.ts` 末尾:
 
@@ -1878,7 +1878,7 @@ export async function unmatch(userId: number): Promise<void> {
 
 并在 return 里加 `matchesLoaded` 与 `unmatch`。
 
-- [ ] **Step 4: 写两个组件**
+- [x] **Step 4: 写两个组件**
 
 `web/src/features/chat/ChatMoreMenu.vue`:
 
@@ -2006,7 +2006,7 @@ const emit = defineEmits<{ close: []; confirm: [] }>()
 
 > 全部使用现有 token(`--scrim-strong`、`--radius-sheet` 均已在 `tokens.css` 中),**不新增 token**。
 
-- [ ] **Step 5: 改 ChatPage**
+- [x] **Step 5: 改 ChatPage**
 
 `web/src/features/chat/ChatPage.vue`:
 
@@ -2102,7 +2102,7 @@ async function onUnmatch(): Promise<void> {
 
 - `discoveryStore` 需要 `matchesLoaded` 标记:在 `loadMatches` 成功后置 `matchesLoaded.value = true`,并在 return 里导出。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 ```bash
 cd web && npm run test:run -- tests/component/chat-page.spec.ts
@@ -2110,7 +2110,7 @@ cd web && npm run test:run -- tests/component/chat-page.spec.ts
 
 预期:全绿。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add web/src/api/discovery.ts web/src/stores/discovery.ts web/src/features/chat/UnmatchDialog.vue web/src/features/chat/ChatMoreMenu.vue web/src/features/chat/ChatPage.vue web/tests/component/chat-page.spec.ts
@@ -2127,7 +2127,7 @@ git commit -m "feat(web/chat): 解除配对(⋯ 菜单 + 确认弹窗 + 已解�
 - Modify: `CLAUDE.md`(里程碑表补一行 + 「下一步」更新)
 - Modify: `README.md`(若「下一步」/接口表有对应描述)
 
-- [ ] **Step 1: 后端全量**
+- [x] **Step 1: 后端全量**
 
 ```bash
 cd chatapp && python manage.py test
@@ -2135,7 +2135,7 @@ cd chatapp && python manage.py test
 
 前置:Redis 在跑(`docker compose -f docker-compose.dev.yml up -d`)。预期全绿,含 `ApiDocsCoverageTests` / `CommentCoverageTests`。
 
-- [ ] **Step 2: App 全量**
+- [x] **Step 2: App 全量**
 
 ```bash
 cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test
@@ -2143,7 +2143,7 @@ cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test
 
 预期:零告警、全绿。
 
-- [ ] **Step 3: Web 全量**
+- [x] **Step 3: Web 全量**
 
 ```bash
 cd web && npm run type-check && npm run lint && npm run test:coverage
@@ -2151,7 +2151,7 @@ cd web && npm run type-check && npm run lint && npm run test:coverage
 
 预期:零错误、零告警、覆盖率达标(70/60/70/70)。
 
-- [ ] **Step 4: 双模拟器手测清单**
+- [x] **Step 4: 双模拟器手测清单**
 
 1. 双端登录两个账号并配对;
 2. A 在聊天页「⋯」→ 解除配对 → 确认:A 回到消息页、该会话消失;
@@ -2161,7 +2161,7 @@ cd web && npm run type-check && npm run lint && npm run test:coverage
 6. A 发消息 → 等 3 分钟 → 长按:没有「撤回」项;
 7. 系统通知会话:不出现「你们已解除配对」横幅。
 
-- [ ] **Step 5: 回填文档**
+- [x] **Step 5: 回填文档**
 
 - spec 第 3 行状态改「已交付(YYYY-MM-DD)」;
 - plan 全部 `- [x]`,末尾加「执行记录」段(测试数、commit、手测结论);
@@ -2173,7 +2173,7 @@ cd web && npm run type-check && npm run lint && npm run test:coverage
 
 - `CLAUDE.md`「下一步」改成 P1-4 推送 + 上线合规轨。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add docs/superpowers/specs/2026-10-20-relationship-exits-design.md docs/superpowers/plans/2026-10-20-relationship-exits.md CLAUDE.md README.md
@@ -2184,8 +2184,57 @@ git commit -m "docs: P1-3 关系出口收尾回填(验收结果与里程碑)"
 
 ## 自检清单(写完后逐条核对)
 
-- [ ] 后端:软删除、幂等、防复活、双向拉黑、文档门禁、注释门禁全部有对应任务;
-- [ ] App:撤回(条件/渲染/事件)、解除(聊天页/资料页)、对方视角横幅与禁用全部有对应任务;
-- [ ] Web:撤回、解除、横幅全部有对应任务;
-- [ ] 类型一致:`revokeMessage(String msgId)` / `revokeMessage(msgId: string)` / `canRecall(message, now)` 在两端任务里名字一致;
-- [ ] 没有「TBD / 类似 Task N / 自行补充」类占位。
+- [x] 后端:软删除、幂等、防复活、双向拉黑、文档门禁、注释门禁全部有对应任务;
+- [x] App:撤回(条件/渲染/事件)、解除(聊天页/资料页)、对方视角横幅与禁用全部有对应任务;
+- [x] Web:撤回、解除、横幅全部有对应任务;
+- [x] 类型一致:`revokeMessage(String msgId)` / `revokeMessage(msgId: string)` / `canRecall(message, now)` 在两端任务里名字一致;
+- [x] 没有「TBD / 类似 Task N / 自行补充」类占位。
+
+---
+
+## 执行记录(2026-10-20)
+
+**结果**:13 个任务全部完成,分支 `feat/p1-3-relationship-exits`。
+
+**门禁**
+
+| 套件 | 结果 |
+|---|---|
+| 后端 `python manage.py test` | 420 tests OK(含 `ApiDocsCoverageTests` / `CommentCoverageTests`) |
+| App `flutter analyze` | No issues found |
+| App `flutter test` | 375 tests passed |
+| Web `vue-tsc` / `eslint --max-warnings 0` | 零错误 / 零告警 |
+| Web `npm run test:coverage` | 336 tests passed;覆盖率 86.6 / 82.29 / 81.83 / 88.61(门槛 70/60/70/70) |
+
+**提交**(均在 `feat/p1-3-relationship-exits`)
+
+1. `feat(discovery): Match 软删除字段(unmatched_at/unmatched_by/is_active)`
+2. `feat(im): 解除配对后双向拉黑任务 unmatch_blacklist`
+3. `feat(discovery): DELETE /matches/{user_id} 解除配对(软删除 + 双向拉黑 + 防复活)`
+4. `docs(api): 补 DELETE /matches/{user_id} 解除配对,接口数 35→36`
+5. `feat(app/im): 撤回消息接口 + ImMessageRevoked 事件 + 假客户端替身`
+6. `feat(app/chat): 2 分钟内撤回消息(菜单条件 + 置灰渲染 + 事件同步)`
+7. `feat(app/chat): 聊天页「⋯」解除配对(确认 → 删会话 → 回消息页)`
+8. `feat(app/profile): 他人资料页在已配对时提供解除配对入口`
+9. `feat(app/chat): 被解除配对后显示横幅并禁用输入`
+10. `feat(web/im): revokeMessage + messageRevoked 事件`
+11. `feat(web/chat): 2 分钟内撤回消息(菜单条件 + 撤回态渲染)`
+12. `feat(web/chat): 解除配对(⋯ 菜单 + 确认弹窗 + 已解除横幅)`
+
+**与计划的偏差 / 踩到的坑**
+
+1. **本机 Redis 端口**:容器实际映射在 `16379`(不是 compose 里的 6379),后端测试统一用
+   `$env:TEST_REDIS_PORT="16379"` 跑(settings 的 `TEST_REDIS_PORT` 就是为这种场景留的)。
+2. **`PopupMenuButton.constraints` 是「菜单」约束,不是按钮尺寸**:第一版把它当按钮宽高传,
+   菜单被压成 48×48 且点击命中不了(测试报 “would not hit test”)。改成 `SizedBox(48,48)` 包按钮。
+3. **资料页测试缺登录态**:`matchCacheProvider` 依赖 `sessionProvider`,原测试没覆盖登录态,
+   配对缓存永远是空 → 「解除配对」菜单项测不出来。测试补 `_LoggedInSession` 覆盖。
+4. **Web `ChatMessage` 新增必填 `isRevoked`**:所有测试夹具(5 个文件)同步补齐,否则 `vue-tsc` 红。
+5. **App 无 `/chats` 路由**:消息页是 HomeShell 的 tab,解除后回退用 `Navigator.maybePop()`
+   (spec §4.2 已同步修正)。
+
+**待用户执行(真机)**
+
+双模拟器按 Task 13 Step 4 的 7 条清单手测:解除配对后双向发消息失败(20006)、对方视角横幅 +
+输入禁用、2 分钟内撤回双方置灰、超时无「撤回」、系统通知不显示横幅。手测通过后把本段补成
+「已手测通过」并合回 `master`。
