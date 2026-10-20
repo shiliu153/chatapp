@@ -605,3 +605,35 @@ class PostCommentThreadTests(FeedApiMixin, APITestCase):
         resp = self.client.get(
             f"/api/v1/posts/{self.post.id}/comments/{foreign.id}/replies")
         self.assertEqual(resp.status_code, 404)
+
+    def test_delete_top_level_comment_cascades_replies(self):
+        root = self._comment("一楼", author=self.me)
+        self._comment("回复", author=self.third, parent=root)
+        resp = self.client.delete(
+            f"/api/v1/posts/{self.post.id}/comments/{root.id}")
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(PostComment.objects.count(), 0)
+
+    def test_delete_reply_only_removes_itself(self):
+        root = self._comment("一楼", author=self.author)
+        mine = self._comment("我的回复", author=self.me, parent=root)
+        other = self._comment("别人的回复", author=self.third, parent=root)
+        resp = self.client.delete(
+            f"/api/v1/posts/{self.post.id}/comments/{mine.id}")
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(list(PostComment.objects.values_list("id", flat=True)),
+                         [root.id, other.id])
+
+    def test_delete_others_comment_404(self):
+        other = self._comment("别人的", author=self.third)
+        resp = self.client.delete(
+            f"/api/v1/posts/{self.post.id}/comments/{other.id}")
+        self.assertEqual(resp.status_code, 404)
+        self.assertTrue(PostComment.objects.filter(pk=other.id).exists())
+
+    def test_delete_comment_of_other_post_404(self):
+        other_post = Post.objects.create(author=self.author, text="别的")
+        foreign = PostComment.objects.create(post=other_post, author=self.me, text="外")
+        resp = self.client.delete(
+            f"/api/v1/posts/{self.post.id}/comments/{foreign.id}")
+        self.assertEqual(resp.status_code, 404)

@@ -111,3 +111,12 @@ def create_comment(post, author, text, parent=None):
     root = parent.parent or parent
     return PostComment.objects.create(post=post, author=author, text=text,
                                       parent=root, reply_to=parent.author)
+
+
+def delete_comment(comment) -> None:
+    """删除一条评论;删顶级评论时回复由数据库 CASCADE 一并删除。
+
+    Args:
+        comment: 待删除的评论(调用方已校验作者身份)。
+    """
+    comment.delete()

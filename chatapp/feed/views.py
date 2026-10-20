@@ -25,8 +25,8 @@ from .models import Post, PostComment, PostImage, PostLike, PostReport
 from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
                           PostCreateSerializer, PostReportCreateSerializer,
                           PostSerializer)
-from .services import (create_comment, delete_post, notify_comment_created,
-                       visible_comments, visible_posts)
+from .services import (create_comment, delete_comment, delete_post,
+                       notify_comment_created, visible_comments, visible_posts)
 from .throttles import PostCommentThrottle, PostCreateThrottle, PostReportThrottle
 
 
@@ -208,6 +208,30 @@ def post_comment_replies(request, post_id, comment_id):
         visible_comments(post, request.user).filter(parent__isnull=True), pk=comment_id)
     replies = visible_comments(post, request.user).filter(parent=root)
     return _page_response(request, replies, PostCommentSerializer)
+
+
+@api_view(["DELETE"])
+def post_comment_detail(request, post_id, comment_id):
+    """删除自己的评论(DELETE /api/v1/posts/{post_id}/comments/{comment_id})。
+
+    删顶级评论会连带删除该楼全部回复;非作者一律 404(不暴露存在性)。
+
+    Args:
+        request: DRF 请求对象。
+        post_id: 动态主键。
+        comment_id: 评论主键。
+
+    Returns:
+        204 空响应。
+
+    Raises:
+        Http404: 动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的。
+    """
+    post = get_object_or_404(visible_posts(request.user), pk=post_id)
+    comment = get_object_or_404(PostComment, pk=comment_id, post=post,
+                                author=request.user)
+    delete_comment(comment)
+    return Response(status=204)
 
 
 @api_view(["POST"])
