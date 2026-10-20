@@ -2435,7 +2435,7 @@ Expected:零错误、零告警、全绿。
 - App:`flutter analyze` → `No issues found!`;`flutter test` → `All tests passed! (+355)`(新增 8 条)。
 - Web:`vue-tsc` 零错误;`eslint --max-warnings 0` 零告警;`vitest run` → `68 files / 320 tests passed`(新增 5 条)。
 - 说明:本机 Redis 容器映射在 `16379`,后端测试用 `TEST_REDIS_PORT=16379`;本批未新增 Playwright 端到端(需真后端 + Redis + Celery),反馈链路由接口测试 + 双端组件测试覆盖。
-- PR #9 已创建(https://github.com/shiliu153/chatapp/pull/9),待 CI 与手测。
+- PR #9 已创建(https://github.com/shiliu153/chatapp/pull/9),CI 三项(backend / app / web)全绿,待手测与合并。
 
 ```bash
 git add docs/superpowers/plans/2026-10-20-settings-completion.md
