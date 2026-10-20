@@ -540,3 +540,41 @@ class PostCommentThreadTests(FeedApiMixin, APITestCase):
     def test_missing_parent_404(self):
         resp = self.client.post(self.url, {"text": "x", "parent_id": 999999}, format="json")
         self.assertEqual(resp.status_code, 404)
+
+    def test_list_only_top_level_with_two_embedded_replies(self):
+        root = self._comment("一楼", author=self.author)
+        for i in range(3):
+            self._comment(f"回复{i}", author=self.third, parent=root)
+        data = self.client.get(self.url).json()
+        self.assertEqual(data["count"], 1)                 # 只分页顶级评论
+        item = data["results"][0]
+        self.assertEqual(item["id"], root.id)
+        self.assertEqual(item["reply_count"], 3)
+        self.assertEqual([r["text"] for r in item["replies"]], ["回复0", "回复1"])
+        self.assertEqual(item["replies"][0]["reply_to"]["nickname"], "楼主")
+        self.assertEqual(item["replies"][0]["parent_id"], root.id)
+
+    def test_reply_count_skips_hidden_replies(self):
+        root = self._comment("一楼", author=self.author)
+        self._comment("可见", author=self.third, parent=root)
+        Block.objects.create(blocker=self.me, blocked=self.third)
+        self._comment("被拉黑", author=self.third, parent=root)
+        item = self.client.get(self.url).json()["results"][0]
+        self.assertEqual(item["reply_count"], 0)
+        self.assertEqual(item["replies"], [])
+
+    def test_comment_count_includes_replies(self):
+        root = self._comment("一楼", author=self.author)
+        self._comment("回复", author=self.third, parent=root)
+        post = self.client.get(f"/api/v1/posts/{self.post.id}").json()
+        self.assertEqual(post["comment_count"], 2)
+
+    def test_create_response_includes_reply_meta(self):
+        root = self._comment("一楼", author=self.author)
+        resp = self.client.post(self.url, {"text": "回复", "parent_id": root.id},
+                                format="json")
+        data = resp.json()
+        self.assertEqual(data["reply_to"]["user_id"], self.author.id)
+        self.assertEqual(data["reply_to"]["nickname"], "楼主")
+        self.assertEqual(data["reply_count"], 0)
+        self.assertEqual(data["replies"], [])

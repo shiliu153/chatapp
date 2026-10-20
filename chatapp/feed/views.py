@@ -12,7 +12,7 @@
 """
 
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef
+from django.db.models import Count, Exists, OuterRef, Prefetch
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
@@ -181,6 +181,10 @@ def post_comments(request, post_id):
         return Response(PostCommentSerializer(comment, context={"request": request}).data,
                         status=201)
     top = visible_comments(post, request.user).filter(parent__isnull=True)
+    top = top.prefetch_related(
+        Prefetch("replies",
+                 queryset=visible_comments(post, request.user).filter(parent__isnull=False),
+                 to_attr="visible_replies"))
     return _page_response(request, top, PostCommentSerializer)
 
 
