@@ -92,6 +92,12 @@ class SettingsPage extends ConsumerWidget {
                     AppRowGroup(
                       children: [
                         AppListRow(
+                          key: const Key('settings.row.feedback'),
+                          icon: Icons.feedback_rounded,
+                          title: '意见反馈',
+                          onTap: () => context.push('/settings/feedback'),
+                        ),
+                        AppListRow(
                           key: const Key('settings.row.about'),
                           icon: Icons.info_rounded,
                           title: '关于',

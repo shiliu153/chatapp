@@ -14,6 +14,7 @@ import 'features/profile/profile_edit_page.dart';
 import 'features/profile/user_profile_page.dart';
 import 'features/settings/about_page.dart';
 import 'features/settings/blocked_users_page.dart';
+import 'features/settings/feedback_page.dart';
 import 'features/settings/notification_settings_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/shell/home_shell.dart';
@@ -43,6 +44,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/settings/notifications',
           builder: (context, state) => const NotificationSettingsPage()),
       GoRoute(path: '/settings/about', builder: (context, state) => const AboutPage()),
+      GoRoute(path: '/settings/feedback',
+          builder: (context, state) => const FeedbackPage()),
       GoRoute(path: '/likes', builder: (context, state) => const LikesReceivedPage()),
       GoRoute(
         path: '/chat/:peerId',
