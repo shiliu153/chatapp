@@ -167,3 +167,32 @@ class PushDeviceApiTests(APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self._register().status_code, 401)
+
+
+class PushPreferenceApiTests(APITestCase):
+    """通知偏好:默认全开、局部更新、非法值 400。"""
+
+    def setUp(self):
+        self.me = User.objects.create_user(phone="13800138000")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def test_get_returns_defaults(self):
+        resp = self.client.get("/api/v1/push/preferences")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, {"likes": True, "matches": True, "system": True})
+
+    def test_patch_updates_only_given_field(self):
+        resp = self.client.patch("/api/v1/push/preferences", {"likes": False}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, {"likes": False, "matches": True, "system": True})
+        self.assertFalse(NotificationPreference.for_user(self.me).likes)
+
+    def test_patch_rejects_non_boolean(self):
+        resp = self.client.patch("/api/v1/push/preferences", {"likes": "maybe"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(NotificationPreference.for_user(self.me).likes)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get("/api/v1/push/preferences").status_code, 401)
