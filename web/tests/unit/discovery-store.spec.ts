@@ -143,5 +143,33 @@ describe('discovery store', () => {
 
     expect(store.matches.map((m) => m.user_id)).toEqual([1, 2])
     expect(store.matchesCount).toBe(3)
+    expect(store.matchesLoaded).toBe(true)
+  })
+
+  it('unmatch 调 DELETE 并从本地列表移除', async () => {
+    const page = {
+      count: 1,
+      next: null,
+      previous: null,
+      results: [
+        { user_id: 8, im_user_id: 'u8', nickname: 'A', avatar_url: null, matched_at: '2026-10-01T00:00:00Z' },
+      ],
+    }
+    let deleted = ''
+    server.use(
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(page)),
+      mswHttp.delete('/api/v1/matches/8', () => {
+        deleted = '8'
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const store = useDiscoveryStore()
+    await store.loadMatches()
+
+    await store.unmatch(8)
+
+    expect(deleted).toBe('8')
+    expect(store.matches).toEqual([])
+    expect(store.matchesCount).toBe(0)
   })
 })
