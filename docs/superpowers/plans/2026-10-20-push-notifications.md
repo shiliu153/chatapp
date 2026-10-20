@@ -2728,7 +2728,7 @@ git commit -m "docs: P1-4 推送收尾回填(验收结果与里程碑)"
 |---|---|
 | 后端 `python manage.py test` | 459 tests OK(含 `ApiDocsCoverageTests` / `CommentCoverageTests`) |
 | App `flutter analyze` | No issues found |
-| App `flutter test` | 381 tests passed |
+| App `flutter test` | 382 tests passed |
 | Web `vue-tsc` / `eslint --max-warnings 0` | 零错误 / 零告警 |
 | Web `npm run test:coverage` | 338 tests passed;覆盖率 86.68 / 82.31 / 82.02 / 88.72(门槛 70/60/70/70) |
 

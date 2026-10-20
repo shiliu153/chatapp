@@ -88,6 +88,34 @@ void main() {
         isTrue);
   });
 
+  test('重新登录后再次启动推送', () async {
+    adapter.routes['POST /push/devices'] =
+        (options) => ok({'registration_id': 'rid-test', 'platform': 'android'});
+    adapter.routes['DELETE /push/devices/rid-test'] = (options) => ok({}, status: 204);
+    adapter.routes['POST /auth/sms/verify'] = (options) => ok({
+          'access': 'a3',
+          'refresh': 'r3',
+          'is_new_user': false,
+          'user_id': 1,
+        });
+    buildContainer();
+    await login();
+    container.read(pushControllerProvider);
+    await pumpEventQueue();
+    expect(fakePush.startCalls, 1);
+
+    await container.read(sessionProvider.notifier).logout();
+    await pumpEventQueue();
+    await container.read(sessionProvider.notifier).login('13800138000', '123456');
+    await pumpEventQueue();
+
+    expect(fakePush.startCalls, 2);
+    final registers = adapter.log
+        .where((r) => r.method == 'POST' && r.path == '/push/devices')
+        .toList();
+    expect(registers, hasLength(2));
+  });
+
   test('registration_id 为空时不上报', () async {
     fakePush = FakePushService(registrationIdValue: null);
     buildContainer();

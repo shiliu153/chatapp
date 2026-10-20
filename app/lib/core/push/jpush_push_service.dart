@@ -11,6 +11,11 @@ class JPushPushService implements PushService {
 
   final String _appKey;
   final JPushFlutterInterface _jpush = JPush.newJPush();
+
+  /// SDK 是否已经初始化(setup + 事件回调只做一次)。
+  bool _initialized = false;
+
+  /// 本次登录态是否已经启动;登出后复位,重新登录才能 resumePush。
   bool _started = false;
 
   @override
@@ -18,28 +23,34 @@ class JPushPushService implements PushService {
     if (_started) return;
     _started = true;
     try {
-      _jpush.setup(
-        appKey: _appKey,
-        channel: 'developer-default',
-        production: !kDebugMode,
-        debug: kDebugMode,
-      );
-      // 前台不弹通知栏:正在用 App 时,页面自身的刷新比系统通知更合适
-      _jpush.setUnShowAtTheForeground(unShow: true);
-      _jpush.addEventHandler(onOpenNotification: (Map<String, dynamic> message) async {
-        final extras = message['extras'];
-        final path = extras is Map ? extras['deeplink'] : null;
-        if (path is String && path.isNotEmpty) onOpen(path);
-      });
-      _jpush.requestRequiredPermission();
-      // 冷启动兜底:iOS 会把「点通知启动 App」的那条缓存起来(Android 一般由
-      // onOpenNotification 直接回调),取到就按 deeplink 打开。
-      final launch = await _jpush.getLaunchAppNotification();
-      final launchExtras = launch['extras'];
-      final launchPath = launchExtras is Map ? launchExtras['deeplink'] : null;
-      if (launchPath is String && launchPath.isNotEmpty) onOpen(launchPath);
+      if (!_initialized) {
+        _jpush.setup(
+          appKey: _appKey,
+          channel: 'developer-default',
+          production: !kDebugMode,
+          debug: kDebugMode,
+        );
+        // 前台不弹通知栏:正在用 App 时,页面自身的刷新比系统通知更合适
+        _jpush.setUnShowAtTheForeground(unShow: true);
+        _jpush.addEventHandler(onOpenNotification: (Map<String, dynamic> message) async {
+          final extras = message['extras'];
+          final path = extras is Map ? extras['deeplink'] : null;
+          if (path is String && path.isNotEmpty) onOpen(path);
+        });
+        _initialized = true;
+        _jpush.requestRequiredPermission();
+        // 冷启动兜底:iOS 会把「点通知启动 App」的那条缓存起来(Android 一般由
+        // onOpenNotification 直接回调),取到就按 deeplink 打开。
+        final launch = await _jpush.getLaunchAppNotification();
+        final launchExtras = launch['extras'];
+        final launchPath = launchExtras is Map ? launchExtras['deeplink'] : null;
+        if (launchPath is String && launchPath.isNotEmpty) onOpen(launchPath);
+      }
+      // 登出时 stopPush 过;重新登录必须 resumePush,否则「登出再登录收不到推送」
+      await _jpush.resumePush();
     } catch (error) {
       debugPrint('推送初始化失败: $error');
+      _started = false;   // 允许下次登录重试
     }
   }
 
@@ -80,5 +91,6 @@ class JPushPushService implements PushService {
     } catch (error) {
       debugPrint('停止推送失败: $error');
     }
+    _started = false;   // 重新登录时要能再次 start(resumePush)
   }
 }
