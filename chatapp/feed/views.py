@@ -188,6 +188,28 @@ def post_comments(request, post_id):
     return _page_response(request, top, PostCommentSerializer)
 
 
+@api_view(["GET"])
+def post_comment_replies(request, post_id, comment_id):
+    """某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` / ``offset``。
+        post_id: 动态主键。
+        comment_id: 顶级评论主键。
+
+    Returns:
+        分页后的回复列表,按时间正序。
+
+    Raises:
+        Http404: 动态不可见、评论不存在/不属于该动态/本身是回复。
+    """
+    post = get_object_or_404(visible_posts(request.user), pk=post_id)
+    root = get_object_or_404(
+        visible_comments(post, request.user).filter(parent__isnull=True), pk=comment_id)
+    replies = visible_comments(post, request.user).filter(parent=root)
+    return _page_response(request, replies, PostCommentSerializer)
+
+
 @api_view(["POST"])
 @throttle_classes([PostReportThrottle])
 def post_report(request, post_id):

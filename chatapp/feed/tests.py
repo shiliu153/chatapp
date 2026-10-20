@@ -578,3 +578,30 @@ class PostCommentThreadTests(FeedApiMixin, APITestCase):
         self.assertEqual(data["reply_to"]["nickname"], "楼主")
         self.assertEqual(data["reply_count"], 0)
         self.assertEqual(data["replies"], [])
+
+    def test_replies_endpoint_paginates_oldest_first(self):
+        root = self._comment("一楼", author=self.author)
+        for i in range(25):
+            self._comment(f"r{i}", author=self.third, parent=root)
+        resp = self.client.get(
+            f"/api/v1/posts/{self.post.id}/comments/{root.id}/replies")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["count"], 25)
+        self.assertEqual(len(data["results"]), 20)
+        self.assertEqual(data["results"][0]["text"], "r0")
+        self.assertIsNotNone(data["next"])
+
+    def test_replies_endpoint_404_for_reply_id(self):
+        root = self._comment("一楼", author=self.author)
+        reply = self._comment("回复", author=self.third, parent=root)
+        resp = self.client.get(
+            f"/api/v1/posts/{self.post.id}/comments/{reply.id}/replies")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_replies_endpoint_404_for_other_post_comment(self):
+        other_post = Post.objects.create(author=self.author, text="别的")
+        foreign = PostComment.objects.create(post=other_post, author=self.author, text="外")
+        resp = self.client.get(
+            f"/api/v1/posts/{self.post.id}/comments/{foreign.id}/replies")
+        self.assertEqual(resp.status_code, 404)
