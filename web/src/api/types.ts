@@ -120,10 +120,23 @@ export interface Post {
   created_at: string
 }
 
+export interface ReplyTo {
+  user_id: number
+  nickname: string
+}
+
 export interface Comment {
   id: number
   author: PostAuthor
   text: string
+  /** 顶级评论为 null;回复为所属顶级评论 ID */
+  parent_id: number | null
+  /** 被回复者;顶级评论为 null */
+  reply_to: ReplyTo | null
+  /** 该楼层的可见回复总数(回复对象恒为 0) */
+  reply_count: number
+  /** 内嵌的前 2 条回复(回复对象恒为空) */
+  replies: Comment[]
   created_at: string
 }
 
