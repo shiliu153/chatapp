@@ -109,6 +109,11 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/features/settings/AboutPage.vue'),
   },
   {
+    path: '/settings/feedback',
+    name: 'settings-feedback',
+    component: () => import('@/features/settings/FeedbackPage.vue'),
+  },
+  {
     path: '/likes',
     name: 'likes',
     component: () => import('@/features/discovery/LikesPage.vue'),

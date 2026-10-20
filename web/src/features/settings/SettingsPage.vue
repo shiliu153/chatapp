@@ -29,6 +29,7 @@ const groups = [
   {
     title: '帮助与关于',
     entries: [
+      { name: 'settings-feedback', label: '意见反馈' },
       { name: 'settings-about', label: '关于' },
       { name: 'legal-agreement', label: '用户协议' },
       { name: 'legal-privacy', label: '隐私政策' },
