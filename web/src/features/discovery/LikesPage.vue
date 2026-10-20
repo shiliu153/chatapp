@@ -74,7 +74,7 @@ function formatLikedAt(iso: string): string {
       <h1 class="likes__title">喜欢我的人</h1>
     </header>
 
-    <p v-if="store.error" class="likes__error">{{ store.error }}</p>
+    <p v-if="store.error && store.items.length > 0" class="likes__error">{{ store.error }}</p>
 
     <div v-if="store.loading && store.items.length === 0" class="likes__skeleton">
       <AppSkeleton v-for="i in 3" :key="i" height="64px" />
