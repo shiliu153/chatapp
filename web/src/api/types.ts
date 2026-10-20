@@ -95,6 +95,12 @@ export interface MatchSummary {
   matched_at: string
 }
 
+/** 「喜欢我的人」列表项:公开资料 + 喜欢时间(discovery.md §3.4)。 */
+export interface LikeReceived extends Candidate {
+  /** ISO 8601 */
+  liked_at: string
+}
+
 export interface PostAuthor {
   user_id: number
   nickname: string

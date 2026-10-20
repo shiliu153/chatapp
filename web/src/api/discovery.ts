@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { Candidate, MatchSummary, Page } from './types'
+import type { Candidate, LikeReceived, MatchSummary, Page } from './types'
 
 export async function fetchCandidates(limit = 10): Promise<Candidate[]> {
   const { data } = await http.get('/discovery/candidates', { params: { limit } })
@@ -21,4 +21,17 @@ export async function swipe(
 export async function fetchMatches(limit = 20, offset = 0): Promise<Page<MatchSummary>> {
   const { data } = await http.get('/matches', { params: { limit, offset } })
   return data as Page<MatchSummary>
+}
+
+export async function fetchLikesReceived(
+  limit = 20,
+  offset = 0,
+): Promise<Page<LikeReceived>> {
+  const { data } = await http.get('/discovery/likes', { params: { limit, offset } })
+  return data as Page<LikeReceived>
+}
+
+export async function fetchLikesReceivedCount(): Promise<number> {
+  const { data } = await http.get('/discovery/likes/count')
+  return Number(data.count)
 }
