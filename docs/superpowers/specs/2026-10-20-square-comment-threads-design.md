@@ -1,6 +1,6 @@
 # 广场评论:楼中楼与回复提醒(设计)
 
-日期:2026-10-20 · 状态:设计已确认,待实施
+日期:2026-10-20 · 状态:已交付(2026-10-20;三端门禁全绿)
 上游:P1「留存闭环」收官后的新功能批次(用户选定:广场评论楼中楼 + @ 提醒)。
 下游:实施计划 `docs/superpowers/plans/2026-10-20-square-comment-threads.md`。
 
@@ -63,10 +63,6 @@ class PostComment(models.Model):
 
     class Meta:
         ordering = ["created_at", "id"]
-        constraints = [
-            models.CheckConstraint(condition=~Q(id=F("parent_id")),
-                                   name="post_comment_not_self_parent"),
-        ]
 ```
 
 要点:
@@ -75,7 +71,10 @@ class PostComment(models.Model):
   数据库无法跨行约束);
 - `on_delete=CASCADE`:删顶级评论连带删回复;注销作者连带删其评论(与现状一致);
 - `reply_to` 用 `SET_NULL`:被回复者注销后评论仍留档,只是不再显示「回复 @某人」;
-- 自引用检查 `~Q(id=F("parent_id"))` 与项目既有写法一致(`match_user_a_before_b`)。
+- **不做 `CheckConstraint(~Q(id=F("parent_id")))`**:MySQL 8 明确拒绝
+  「CHECK 约束引用自增列」(`(3818) Check constraint ... cannot refer to an
+  auto-increment column`)。自引用在接口层本来就不可能发生(新评论的 id 在插入前不存在),
+  两级约束由服务层保证。
 
 ### 3.2 归一化规则(唯一一处)
 
@@ -111,7 +110,7 @@ class PostComment(models.Model):
 ### 3.5 迁移
 
 新增 `feed/migrations/0002_postcomment_parent_reply_to.py`(以实际最新编号为准),
-只加两列 + 一条 CheckConstraint,无数据迁移。
+只加两列,无数据迁移。
 
 ## 4. 接口设计(36 → 38 个;P1-4 合入 master 后为 42)
 

@@ -64,28 +64,28 @@
 
 ---
 
-### Task 1: 模型两列 + 自引用约束
+### Task 1: 模型两列(✅ 已完成,见执行记录)
 
 **Files:**
 - Modify: `chatapp/feed/models.py`
-- Create: `chatapp/feed/migrations/0002_postcomment_parent_reply_to.py`(由 `makemigrations` 生成)
+- Create: `chatapp/feed/migrations/0002_postcomment_parent_postcomment_reply_to.py`(由 `makemigrations` 生成)
 - Test: `chatapp/feed/tests.py`
 
 **Interfaces:**
 - Consumes: 无
-- Produces: `PostComment.parent`(FK self, null)、`PostComment.reply_to`(FK User, null)、约束名 `post_comment_not_self_parent`
+- Produces: `PostComment.parent`(FK self, null)、`PostComment.reply_to`(FK User, null)
 
 - [ ] **Step 1: 写失败的模型测试**
 
 在 `chatapp/feed/tests.py` 的 `FeedModelTests` 里追加:
 
 ```python
-    def test_comment_cannot_be_own_parent(self):
+    def test_top_level_comment_has_no_parent(self):
         post = Post.objects.create(author=self.a, text="你好")
         comment = PostComment.objects.create(post=post, author=self.a, text="一")
-        with self.assertRaises(IntegrityError):
-            with transaction.atomic():
-                PostComment.objects.filter(pk=comment.pk).update(parent_id=comment.pk)
+        self.assertIsNone(comment.parent)
+        self.assertIsNone(comment.reply_to)
+        self.assertEqual(comment.replies.count(), 0)
 
     def test_reply_defaults(self):
         post = Post.objects.create(author=self.a, text="你好")
@@ -114,7 +114,6 @@ Expected: FAIL —— `TypeError: PostComment() got unexpected keyword arguments
 ```python
 from django.conf import settings
 from django.db import models
-from django.db.models import F, Q
 ```
 
 `PostComment` 整段替换为:
@@ -141,10 +140,6 @@ class PostComment(models.Model):
 
     class Meta:
         ordering = ["created_at", "id"]
-        constraints = [
-            models.CheckConstraint(condition=~Q(id=F("parent_id")),
-                                   name="post_comment_not_self_parent"),
-        ]
 
     def __str__(self):
         """后台与日志中的可读表示。
@@ -164,7 +159,11 @@ $env:TEST_REDIS_PORT="16379"
 python manage.py test feed.tests.FeedModelTests -v 2
 ```
 
-Expected: `feed/migrations/0002_postcomment_parent_reply_to.py` 生成(只含 `parent`、`reply_to` 与 `AddConstraint`);测试 PASS。
+Expected: `feed/migrations/0002_postcomment_parent_postcomment_reply_to.py` 生成(只含 `parent`、`reply_to`);测试 PASS。
+
+> **偏差记录(已发生)**:原计划加一条 `CheckConstraint(~Q(id=F("parent_id")))`,
+> MySQL 8 直接拒绝(`(3818) Check constraint ... cannot refer to an auto-increment column`),
+> 已改为不加数据库约束,两级关系由服务层保证。
 
 - [ ] **Step 5: 提交**
 
@@ -2661,3 +2660,31 @@ git push -u origin feat/square-comment-threads
       `notify_comment_created(comment)` 在 Task 2/3/6 中同名同参;
       `CommentThread` 的参数在 Task 9 前后一致;
 - [ ] 没有「TBD / 类似 Task N / 自行补充」类占位。
+
+---
+
+## 执行记录(2026-10-20)
+
+**结果**:11 个任务全部完成,分支 `feat/square-comment-threads`;三端门禁全绿。
+
+| 套件 | 结果 |
+|---|---|
+| 后端 `python manage.py test` | 440 tests OK(含 `ApiDocsCoverageTests` / `CommentCoverageTests`) |
+| App `flutter analyze` | No issues found |
+| App `flutter test` | 380 tests passed |
+| Web `vue-tsc` / `eslint --max-warnings 0` | 零错误 / 零告警 |
+| Web `npm run test:coverage` | 340 tests passed;覆盖率 86.13 / 81.57 / 81.19 / 88.11(门槛 70/60/70/70) |
+
+**与计划的偏差 / 踩到的坑**
+
+1. **MySQL 8 拒绝 CHECK 约束引用自增列**:原计划的 `~Q(id=F("parent_id"))`
+   在建表时报 `(3818) Check constraint 'post_comment_not_self_parent' cannot refer to
+   an auto-increment column`,已删掉该约束(两级关系由服务层保证),spec §3.1 同步更正。
+2. **`conda run` 偶尔崩**(报 "unexpected error")且会吞掉 Django 的 stderr:
+   改用 `C:\Users\<user>\anaconda3\envs\Django\python.exe manage.py test` 直接跑,
+   并把输出重定向到文件再 grep。
+3. **测试库残留会让 `manage.py test` 交互式询问**:统一加 `--noinput`(自动删旧测试库)。
+4. **`routes-resolve.spec.ts` 在全量并行下超时**(单独跑 2.6s,全量时 > 5s):
+   给该用例放宽到 15s,断言不变。
+5. **Dart lint `use_null_aware_elements`**:`{'parent_id': if (parentId != null) ...}`
+   改为 `'parent_id': ?parentId`。
