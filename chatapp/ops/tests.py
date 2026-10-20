@@ -21,6 +21,7 @@ from django.test import TestCase
 
 from accounts.models import User
 from feed.models import Post, PostLike, PostReport
+from feedback.models import Feedback, FeedbackStatus, FeedbackType
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -457,3 +458,52 @@ class OpsPostReportsTests(TestCase):
         plain = User.objects.create_user(phone="13800138001")
         self.client.force_login(plain)
         self.assertEqual(self.client.get("/ops/post-reports/").status_code, 403)
+
+
+class FeedbackOpsTests(TestCase):
+    """意见反馈队列:默认待处理、筛选、标记已处理与权限。"""
+
+    def setUp(self):
+        self.staff = make_staff("13700137001")
+        self.client.force_login(self.staff)
+        self.user = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.user, nickname="反馈用户")
+        self.pending = Feedback.objects.create(
+            user=self.user, type=FeedbackType.FEATURE, content="希望增加夜间模式开关",
+            contact="a@b.com")
+        self.handled = Feedback.objects.create(
+            user=self.user, type=FeedbackType.BUG, content="消息偶尔重复",
+            status=FeedbackStatus.HANDLED)
+
+    def test_lists_pending_by_default(self):
+        resp = self.client.get("/ops/feedback/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "希望增加夜间模式开关")
+        self.assertNotContains(resp, "消息偶尔重复")
+
+    def test_filters_by_status_and_type(self):
+        resp = self.client.get("/ops/feedback/?status=handled")
+        self.assertContains(resp, "消息偶尔重复")
+        resp = self.client.get("/ops/feedback/?status=all&type=feature")
+        self.assertContains(resp, "希望增加夜间模式开关")
+        self.assertNotContains(resp, "消息偶尔重复")
+
+    def test_handle_marks_handled(self):
+        resp = self.client.post(f"/ops/feedback/{self.pending.id}/handle",
+                                {"note": "已记录"})
+        self.assertEqual(resp.status_code, 200)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, FeedbackStatus.HANDLED)
+        self.assertEqual(self.pending.handled_note, "已记录")
+        self.assertEqual(self.pending.handled_by, self.staff)
+        self.assertIsNotNone(self.pending.handled_at)
+
+    def test_handle_is_idempotent(self):
+        self.client.post(f"/ops/feedback/{self.pending.id}/handle", {"note": "第一次"})
+        self.client.post(f"/ops/feedback/{self.pending.id}/handle", {"note": "第二次"})
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.handled_note, "第一次")
+
+    def test_non_staff_forbidden(self):
+        self.client.force_login(User.objects.create_user(phone="13900139000"))
+        self.assertEqual(self.client.get("/ops/feedback/").status_code, 403)

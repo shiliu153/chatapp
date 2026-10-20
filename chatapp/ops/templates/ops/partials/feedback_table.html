@@ -1,0 +1,35 @@
+<article>
+<table id="feedback-table">
+  <thead><tr><th>时间</th><th>用户</th><th>类型</th><th>内容</th><th>联系方式</th><th>状态</th><th></th></tr></thead>
+  <tbody>
+  {% for f in feedbacks %}
+    <tr>
+      <td>{{ f.created_at|date:"m-d H:i" }}</td>
+      <td>{{ f.user.phone }}{% if f.user.profile.nickname %}({{ f.user.profile.nickname }}){% endif %}</td>
+      <td>{{ f.get_type_display }}</td>
+      <td>{{ f.content }}</td>
+      <td>{{ f.contact|default:"—" }}</td>
+      <td>
+        {% if f.status == 'pending' %}
+          <span class="tag tag-orange">待处理</span>
+        {% else %}
+          <span class="tag tag-green">已处理</span>
+          {% if f.handled_note %}({{ f.handled_note }}){% endif %}
+        {% endif %}
+      </td>
+      <td>
+        {% if f.status == 'pending' %}
+        <form hx-post="{% url 'ops:feedback_handle' f.id %}?status={{ status }}{% if ftype %}&type={{ ftype }}{% endif %}"
+              hx-target="#feedback-table" hx-swap="outerHTML" style="display:inline">
+          <input type="text" name="note" maxlength="200" placeholder="备注(可选)">
+          <button type="submit" class="secondary">标记已处理</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="7">没有符合条件的反馈</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</article>

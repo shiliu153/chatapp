@@ -1,0 +1,14 @@
+{% extends "ops/base.html" %}
+{% block page_title %}意见反馈{% endblock %}
+{% block content %}
+<p class="ops-tabs">
+  <a href="?status=pending" class="{% if status == 'pending' %}active{% endif %}">待处理</a>
+  <a href="?status=handled" class="{% if status == 'handled' %}active{% endif %}">已处理</a>
+  <a href="?status=all" class="{% if status == 'all' %}active{% endif %}">全部</a>
+  <span class="ops-tabs-sep">|</span>
+  {% for value, label in types %}
+    <a href="?status={{ status }}&type={{ value }}" class="{% if ftype == value %}active{% endif %}">{{ label }}</a>
+  {% endfor %}
+</p>
+{% include "ops/partials/feedback_table.html" %}
+{% endblock %}
