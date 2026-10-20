@@ -17,11 +17,12 @@
 | [feedback.md](feedback.md) | 意见反馈 |
 | [feed.md](feed.md) | 广场动态 |
 | [im.md](im.md) | IM 会话凭证 |
+| [push.md](push.md) | 推送:设备上报与通知偏好 |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
 
 ## 接口一览
 
-共 **36** 个接口(按「方法 + 路径」计)。
+共 **40** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -37,6 +38,10 @@
 | PATCH | `/api/v1/users/me/preference` | 修改择偶偏好 | [users](users.md) |
 | GET | `/api/v1/users/{user_id}` | 获取他人公开资料 | [users](users.md) |
 | GET | `/api/v1/presence` | 批量查询在线状态 | [users](users.md) |
+| POST | `/api/v1/push/devices` | 上报推送设备 | [push](push.md) |
+| DELETE | `/api/v1/push/devices/{registration_id}` | 解绑推送设备 | [push](push.md) |
+| GET | `/api/v1/push/preferences` | 获取通知偏好 | [push](push.md) |
+| PATCH | `/api/v1/push/preferences` | 修改通知偏好 | [push](push.md) |
 | GET | `/api/v1/discovery/candidates` | 拉取候选卡 | [discovery](discovery.md) |
 | POST | `/api/v1/discovery/swipe` | 提交滑卡动作 | [discovery](discovery.md) |
 | GET | `/api/v1/discovery/likes` | 喜欢我的人列表(分页) | [discovery](discovery.md) |
