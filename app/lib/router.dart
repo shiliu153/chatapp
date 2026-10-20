@@ -6,6 +6,7 @@ import 'features/auth/login_page.dart';
 import 'features/auth/session.dart';
 import 'features/auth/splash_page.dart';
 import 'features/chat/chat_page.dart';
+import 'features/discovery/likes_received_page.dart';
 import 'features/legal/legal_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/profile/preference_page.dart';
@@ -37,6 +38,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/preference', builder: (context, state) => const PreferencePage()),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsPage()),
       GoRoute(path: '/settings/blocks', builder: (context, state) => const BlockedUsersPage()),
+      GoRoute(path: '/likes', builder: (context, state) => const LikesReceivedPage()),
       GoRoute(
         path: '/chat/:peerId',
         builder: (context, state) => ChatPage(peerId: state.pathParameters['peerId']!),

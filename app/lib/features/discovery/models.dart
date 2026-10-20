@@ -35,3 +35,16 @@ class Candidate {
   final List<Tag> tags;
   final List<Photo> photos;
 }
+
+/// 收到的一次喜欢;字段与 GET /discovery/likes 的单项一一对应。
+class LikeReceived {
+  const LikeReceived({required this.candidate, required this.likedAt});
+
+  factory LikeReceived.fromJson(Map<String, dynamic> json) => LikeReceived(
+        candidate: Candidate.fromJson(json),
+        likedAt: DateTime.parse(json['liked_at'] as String),
+      );
+
+  final Candidate candidate;
+  final DateTime likedAt;
+}

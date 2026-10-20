@@ -159,4 +159,26 @@ void main() {
     expect(find.textContaining('还差:'), findsOneWidget);
     expect(find.byKey(const Key('discovery.goOnboarding')), findsOneWidget);
   });
+
+  testWidgets('发现页显示喜欢我的人数,点入口进列表', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'GET /discovery/candidates': (options) => ok([candidateJson(userId: 9)]),
+      'GET /discovery/likes/count': (options) => ok({'count': 3}),
+      'GET /discovery/likes': (options) => ok(pageJson([
+            likeReceivedJson(userId: 10, nickname: '小刚'),
+          ])),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('3'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('discovery.likes')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('喜欢我的人'), findsWidgets);
+    expect(find.text('小刚'), findsOneWidget);
+  });
 }

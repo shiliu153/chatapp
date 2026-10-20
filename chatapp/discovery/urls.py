@@ -11,4 +11,6 @@ from . import views
 urlpatterns = [
     path("candidates", views.candidates),
     path("swipe", views.swipe),
+    path("likes", views.likes_received),
+    path("likes/count", views.likes_received_count),
 ]

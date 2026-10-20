@@ -20,7 +20,7 @@
 
 ## 接口一览
 
-共 **32** 个接口(按「方法 + 路径」计)。
+共 **34** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -38,6 +38,8 @@
 | GET | `/api/v1/presence` | 批量查询在线状态 | [users](users.md) |
 | GET | `/api/v1/discovery/candidates` | 拉取候选卡 | [discovery](discovery.md) |
 | POST | `/api/v1/discovery/swipe` | 提交滑卡动作 | [discovery](discovery.md) |
+| GET | `/api/v1/discovery/likes` | 喜欢我的人列表(分页) | [discovery](discovery.md) |
+| GET | `/api/v1/discovery/likes/count` | 喜欢我的人数 | [discovery](discovery.md) |
 | GET | `/api/v1/matches` | 配对列表(分页) | [discovery](discovery.md) |
 | POST | `/api/v1/im/user_sig` | 获取 IM userSig | [im](im.md) |
 | POST | `/api/v1/reports` | 举报用户 | [moderation](moderation.md) |

@@ -106,4 +106,17 @@ describe('DiscoveryPage', () => {
 
     expect(w.find('.match-moment').exists()).toBe(true)
   })
+
+  it('显示喜欢我的人入口与数量', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.get('/api/v1/discovery/likes/count', () => HttpResponse.json({ count: 3 })),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    expect(w.find('.likes-entry').exists()).toBe(true)
+    expect(w.text()).toContain('3')
+  })
 })

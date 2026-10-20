@@ -23,6 +23,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from moderation.models import Block
 from users.models import Photo, PhotoStatus, Preference, Profile, ProfileStatus
 
 from .models import Match, Swipe, SwipeAction
@@ -419,3 +420,160 @@ class DevResetPairCommandTests(TestCase):
     def test_same_id_raises(self):
         with self.assertRaises(CommandError):
             call_command("dev_reset_pair", a=f"u{self.a.id}", b=f"u{self.a.id}")
+
+class LikesReceivedTests(APITestCase):
+    """喜欢我的人:口径、排序、分页、计数、权限与字段脱敏。"""
+
+    URL = "/api/v1/discovery/likes"
+    COUNT_URL = "/api/v1/discovery/likes/count"
+
+    def setUp(self):
+        self.me = self._make_user("13800138000", gender="male")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make_user(self, phone, gender="female", birthday="2000-01-01",
+                   city="上海", complete=True, photo=True, status=None):
+        """造一个用户;默认资料完善并带一张已过审照片。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+            gender: 性别。
+            birthday: 生日;``None`` 表示未填。
+            city: 城市。
+            complete: 是否把资料置为完善。
+            photo: 是否加一张已过审照片。
+            status: 显式指定资料状态(用于封禁场景)。
+
+        Returns:
+            新建的用户实例。
+        """
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(
+            user=user, nickname=phone, gender=gender, birthday=birthday, city=city,
+            bio="你好",
+            status=status or (ProfileStatus.COMPLETE if complete else ProfileStatus.INCOMPLETE),
+        )
+        if photo:
+            Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        return user
+
+    def _like_me(self, user):
+        """让对方喜欢我。
+
+        Args:
+            user: 发起喜欢的用户。
+        """
+        Swipe.objects.create(swiper=user, target=self.me, action=SwipeAction.LIKE)
+
+    def _ids(self, resp):
+        """取出列表响应里的 ``user_id``。
+
+        Args:
+            resp: 接口响应。
+
+        Returns:
+            user_id 列表,保持响应顺序。
+        """
+        return [item["user_id"] for item in resp.json()["results"]]
+
+    def test_lists_only_incoming_likes(self):
+        a = self._make_user("13900139000")
+        b = self._make_user("13900139001")
+        self._like_me(a)
+        Swipe.objects.create(swiper=b, target=self.me, action=SwipeAction.PASS)
+        resp = self.client.get(self.URL)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._ids(resp), [a.id])
+
+    def test_excludes_people_i_already_swiped(self):
+        a = self._make_user("13900139000")
+        self._like_me(a)
+        Swipe.objects.create(swiper=self.me, target=a, action=SwipeAction.PASS)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+
+    def test_matched_people_disappear(self):
+        a = self._make_user("13900139000")
+        self._like_me(a)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [a.id])
+        self.client.post("/api/v1/discovery/swipe",
+                         {"target_user_id": a.id, "action": "like"}, format="json")
+        self.assertTrue(Match.objects.filter(**Match.pair_kwargs(self.me, a)).exists())
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+
+    def test_excludes_blocked_both_ways(self):
+        a = self._make_user("13900139000")
+        b = self._make_user("13900139001")
+        self._like_me(a)
+        self._like_me(b)
+        Block.objects.create(blocker=self.me, blocked=a)
+        Block.objects.create(blocker=b, blocked=self.me)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+
+    def test_excludes_incomplete_no_photo_and_banned(self):
+        users = [
+            self._make_user("13900139000", complete=False),
+            self._make_user("13900139001", photo=False),
+            self._make_user("13900139002", status=ProfileStatus.BANNED_LIGHT),
+            self._make_user("13900139003", status=ProfileStatus.BANNED_HEAVY),
+        ]
+        for user in users:
+            self._like_me(user)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+
+    def test_newest_like_first(self):
+        a = self._make_user("13900139000")
+        b = self._make_user("13900139001")
+        self._like_me(a)
+        self._like_me(b)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [b.id, a.id])
+
+    def test_pagination(self):
+        users = [self._make_user(f"1390013900{i}") for i in range(3)]
+        for user in users:
+            self._like_me(user)
+        first = self.client.get(self.URL, {"limit": 2})
+        self.assertEqual(first.json()["count"], 3)
+        self.assertEqual(len(first.json()["results"]), 2)
+        self.assertIsNotNone(first.json()["next"])
+        second = self.client.get(self.URL, {"limit": 2, "offset": 2})
+        self.assertEqual(len(second.json()["results"]), 1)
+
+    def test_count_uses_same_rules(self):
+        a = self._make_user("13900139000")
+        b = self._make_user("13900139001")
+        self._like_me(a)
+        self._like_me(b)
+        Block.objects.create(blocker=self.me, blocked=b)
+        self.assertEqual(self.client.get(self.COUNT_URL).json(), {"count": 1})
+        self.assertEqual(self.client.get(self.URL).json()["count"], 1)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get(self.URL).status_code, 401)
+
+    def test_heavy_banned_forbidden(self):
+        self.me.profile.status = ProfileStatus.BANNED_HEAVY
+        self.me.profile.save(update_fields=["status"])
+        self.assertEqual(self.client.get(self.URL).status_code, 403)
+
+    def test_light_banned_can_read(self):
+        self.me.profile.status = ProfileStatus.BANNED_LIGHT
+        self.me.profile.save(update_fields=["status"])
+        self.assertEqual(self.client.get(self.URL).status_code, 200)
+
+    def test_serializer_hides_private_fields_and_filters_photos(self):
+        a = self._make_user("13900139000")
+        Photo.objects.create(user=a, file="photos/pending.png", status=PhotoStatus.PENDING)
+        self._like_me(a)
+        item = self.client.get(self.URL).json()["results"][0]
+        self.assertEqual(item["im_user_id"], f"u{a.id}")
+        self.assertIn("liked_at", item)
+        for hidden in ("phone", "birthday", "ban_reason", "missing_fields"):
+            self.assertNotIn(hidden, item)
+        self.assertEqual([photo["status"] for photo in item["photos"]], ["approved"])
+
+    def test_age_is_null_when_birthday_missing(self):
+        a = self._make_user("13900139000", birthday=None)
+        self._like_me(a)
+        self.assertIsNone(self.client.get(self.URL).json()["results"][0]["age"])

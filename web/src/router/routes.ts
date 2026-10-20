@@ -99,6 +99,11 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/features/settings/BlockedUsersPage.vue'),
   },
   {
+    path: '/likes',
+    name: 'likes',
+    component: () => import('@/features/discovery/LikesPage.vue'),
+  },
+  {
     path: '/profile/edit',
     name: 'profile-edit',
     component: () => import('@/features/profile/ProfileEditPage.vue'),

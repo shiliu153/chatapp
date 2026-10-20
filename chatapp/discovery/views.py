@@ -26,8 +26,8 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bo
 from users.services import get_profile
 
 from .models import Match, Swipe, SwipeAction
-from .serializers import CandidateSerializer, SwipeSerializer
-from .services import notify_match
+from .serializers import CandidateSerializer, LikeReceivedSerializer, SwipeSerializer
+from .services import likes_received_queryset, notify_match
 from .throttles import SwipeThrottle
 
 User = get_user_model()
@@ -184,3 +184,33 @@ def _match_entry(match, me, request):
         "avatar_url": request.build_absolute_uri(approved[0].file.url) if approved else None,
         "matched_at": match.created_at,
     }
+
+
+@api_view(["GET"])
+def likes_received(request):
+    """喜欢我的人列表(GET /api/v1/discovery/likes)。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` / ``offset``。
+
+    Returns:
+        分页后的「喜欢我的人」列表,字段见 ``LikeReceivedSerializer``。
+    """
+    qs = likes_received_queryset(request.user)
+    paginator = DefaultLimitOffsetPagination()
+    page = paginator.paginate_queryset(qs, request)
+    return paginator.get_paginated_response(
+        LikeReceivedSerializer(page, many=True, context={"request": request}).data)
+
+
+@api_view(["GET"])
+def likes_received_count(request):
+    """喜欢我的人数(GET /api/v1/discovery/likes/count)。
+
+    Args:
+        request: DRF 请求对象。
+
+    Returns:
+        ``{"count": N}``,与列表同口径,供入口角标使用。
+    """
+    return Response({"count": likes_received_queryset(request.user).count()})
