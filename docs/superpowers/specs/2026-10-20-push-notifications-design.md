@@ -352,6 +352,18 @@ Provider:`pushServiceProvider` 默认 `JPushPushService`;`test/support/harness.d
 6. 同账号在第二台设备登录 → 第一台不再收到推送(设备记录被删);
 7. 登出后再收不到;重新登录恢复。
 
+**快速自检(不依赖业务事件)**
+
+填完 key、重装 APK 并在 App 登录过一次后,可以直接给这台设备发三类测试推送:
+
+```powershell
+cd chatapp
+python manage.py push_test --user 3 --kind all --peer 9
+```
+
+`--user` 是接收者账号 id,`--peer` 是「配对成功」通知点进去要打开的聊天对象;
+`--force` 可忽略「新的喜欢」30 分钟冷却。命令会打印设备数、通道是否开启,以及每条通知的深链。
+
 **没有 key 时**
 
 - 后端日志出现 `[推送-日志]` 行,App 不报错(初始化跳过),其余功能不受影响。

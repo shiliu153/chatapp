@@ -2726,7 +2726,7 @@ git commit -m "docs: P1-4 推送收尾回填(验收结果与里程碑)"
 
 | 套件 | 结果 |
 |---|---|
-| 后端 `python manage.py test` | 454 tests OK(含 `ApiDocsCoverageTests` / `CommentCoverageTests`) |
+| 后端 `python manage.py test` | 459 tests OK(含 `ApiDocsCoverageTests` / `CommentCoverageTests`) |
 | App `flutter analyze` | No issues found |
 | App `flutter test` | 381 tests passed |
 | Web `vue-tsc` / `eslint --max-warnings 0` | 零错误 / 零告警 |
@@ -2744,6 +2744,7 @@ git commit -m "docs: P1-4 推送收尾回填(验收结果与里程碑)"
 8. `docs(api): 新增推送分册(4 个接口,36→40)`
 9. `feat(app/push): 极光接入 + 设备上报/深链 + 通知设置三项真开关`
 10. `feat(web/settings): 通知设置三项开关(可编辑,注明仅影响 App)`
+11. `feat(push): push_test 管理命令(真机验收自检三类推送)`
 
 **与计划的偏差 / 踩到的坑**
 
@@ -2765,5 +2766,8 @@ git commit -m "docs: P1-4 推送收尾回填(验收结果与里程碑)"
 1. 注册极光账号 → 创建应用(包名 `com.chatapp.chatapp_app`)→ 拿 AppKey / MasterSecret;
 2. `app/android/key.properties` 填 `jpush.appKey`;`chatapp/.env` 填 `JPUSH_APP_KEY` 与
    `JPUSH_MASTER_SECRET`(并把 `PUSH_ENABLED=1`);重新打 APK;
-3. 按 spec §9 的 7 条清单验收:三类推送各收一条、点击跳对页面、关开关后不再收到、
+3. 先在 App 登录一次(登记设备),再跑
+   `python manage.py push_test --user <账号id> --kind all --peer <聊天对象id>`,
+   确认三类推送都能收到、点击跳转正确;
+4. 按 spec §9 的 7 条清单验收:三类推送各收一条、点击跳对页面、关开关后不再收到、
    被顶号后旧设备不再收到。

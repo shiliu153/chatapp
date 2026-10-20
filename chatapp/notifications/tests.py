@@ -1,4 +1,4 @@
-"""通知应用的测试:覆盖短信后端、发送任务、推送模型、客户端与接口。
+"""通知应用的测试:覆盖短信后端、发送任务、推送模型、客户端、接口与测试命令。
 
 覆盖场景:
     - 控制台后端把验证码写进日志;
@@ -6,7 +6,8 @@
     - 推送设备:registration_id 全局唯一、随用户删除级联清理;
     - 通知偏好:默认全开、只建一行、未知类型一律不发;
     - 推送客户端:日志后端不触网、极光载荷正确、网络错误不抛;
-    - 推送任务:偏好/设备/冷却/失败重试的边界。
+    - 推送任务:偏好/设备/冷却/失败重试的边界;
+    - push_test 命令:三类各发一条、缺设备/缺 peer 报错。
 """
 
 from unittest.mock import patch
@@ -14,6 +15,8 @@ from unittest.mock import patch
 import requests
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APITestCase
@@ -295,3 +298,40 @@ class SendPushTaskTests(TestCase):
             with self.assertRaises(RuntimeError):
                 send_push.run(self.user.id, "like", "t", "a", {})
         self.assertIsNone(cache.get(like_cooldown_key(self.user.id)))
+
+
+class PushTestCommandTests(TestCase):
+    """push_test 命令:三类各发一条;缺设备 / 缺 peer 明确报错。"""
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(phone="13800138000")
+        PushDevice.objects.create(user=self.user, registration_id="rid-1",
+                                  platform=PushPlatform.ANDROID)
+
+    def test_sends_all_three_with_peer(self):
+        with patch("notifications.tasks.get_push_client") as factory:
+            call_command("push_test", user=self.user.id, kind="all", peer=99, force=True)
+        client = factory.return_value
+        self.assertEqual(client.send.call_count, 3)
+        deeplinks = [call.kwargs["extras"]["deeplink"] for call in client.send.call_args_list]
+        self.assertEqual(deeplinks, ["/likes", "/chat/99", "/chat/system_notice"])
+
+    def test_requires_registered_device(self):
+        PushDevice.objects.all().delete()
+        with self.assertRaises(CommandError):
+            call_command("push_test", user=self.user.id, kind="system")
+
+    def test_match_requires_peer(self):
+        with self.assertRaises(CommandError):
+            call_command("push_test", user=self.user.id, kind="match")
+
+    def test_unknown_user_is_rejected(self):
+        with self.assertRaises(CommandError):
+            call_command("push_test", user=999999, kind="system")
+
+    def test_disabled_preference_is_skipped(self):
+        NotificationPreference.objects.create(user=self.user, system=False)
+        with patch("notifications.tasks.get_push_client") as factory:
+            call_command("push_test", user=self.user.id, kind="system")
+        factory.assert_not_called()

@@ -42,7 +42,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-20 | P1-1「喜欢我的人」交付(`GET /discovery/likes` + `/count`,口径与候选池共用 `likes_received_queryset`;App 发现页入口+列表页,Web `/likes` + store;回喜欢复用 `swipe`;接口 32→34,后端 392 / App 347 / Web 315 测试绿;PR #8 squash 合并 `b606f3e`) |
 | 2026-10-20 | P1-2「设置页补齐」交付(新 `feedback` app + `POST /feedback` + ops 意见反馈队列;App/Web 设置页三段式 + 意见反馈页 + 通知设置只读骨架 + 关于页;版本号 App 常量守卫 / Web Vite 注入;接口 34→35,后端 409 / App 355 / Web 320 测试绿) |
 | 2026-10-20 | P1-3「关系出口」交付(`DELETE /matches/{user_id}` = `Match` 软删除 + `unmatch_blacklist` 双向 IM 拉黑 + 滑卡防复活;App/Web 聊天页「⋯」+ 资料页入口 + 被解除后横幅/输入禁用;2 分钟内撤回消息(SDK 原生,双方置灰);接口 35→36,后端 420 / App 375 / Web 336 测试绿。**已读回执挂起**:腾讯 IM 旗舰版专享,当前体验版做不了) |
-| 2026-10-20 | P1-4「推送」交付(极光 JPush;`PushDevice` + `NotificationPreference` + 四个接口;喜欢/配对/举报/封禁四类事件入队,喜欢 30 分钟冷却;App 登录上报/登出解绑/点击深链 + 通知设置三项真开关;Web 设置可编辑;接口 36→40,后端 454 / App 381 / Web 338 测试绿。**聊天消息推送挂起为 P1-4b**:需 HTTPS 回调域名或厂商证书) |
+| 2026-10-20 | P1-4「推送」交付(极光 JPush;`PushDevice` + `NotificationPreference` + 四个接口;喜欢/配对/举报/封禁四类事件入队,喜欢 30 分钟冷却;App 登录上报/登出解绑/点击深链 + 通知设置三项真开关;Web 设置可编辑;接口 36→40,后端 459 / App 381 / Web 338 测试绿。**聊天消息推送挂起为 P1-4b**:需 HTTPS 回调域名或厂商证书) |
 
 **下一步**:P1 留存闭环收官。P1-4b 聊天消息推送待「备案域名 + HTTPS」或「应用上架 + 厂商证书」后单独立项;已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
@@ -81,6 +81,7 @@ python manage.py makemigrations && python manage.py migrate
 python manage.py im_send --from u2 --to u3 --text "你好"   # 手测:代发消息(--notice 发灰条)
 python manage.py dev_reset_pair --a u8 --b u9              # 手测:清滑卡/配对重演(不清聊天记录)
 python manage.py seed_fake_users --count 20                # 造数(幂等;直调 IM 同步,不必等 worker)
+python manage.py push_test --user 3 --kind all --peer 9    # 手测:发三类测试推送(需已配极光 key)
 ```
 
 **Redis / Celery**(cwd = `chatapp/`;验证码、限流、异步 IM 副作用都靠它们):
