@@ -4,8 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
@@ -15,6 +17,7 @@ import '../presence/presence_controller.dart';
 import '../profile/models.dart';
 import '../profile/profile_controller.dart';
 import 'discovery_controller.dart';
+import 'likes_received_controller.dart';
 import 'models.dart';
 import 'widgets/deck_skeleton.dart';
 import 'widgets/match_overlay.dart';
@@ -35,7 +38,13 @@ class DiscoveryPage extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(
                   AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.md),
-              child: Text('发现', style: AppText.display.copyWith(color: AppColors.text1)),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('发现', style: AppText.display.copyWith(color: AppColors.text1)),
+                  _LikesEntry(count: ref.watch(likesReceivedCountProvider).value ?? 0),
+                ],
+              ),
             ),
             Expanded(
               child: profile.when(
@@ -162,3 +171,34 @@ class _EmptyView extends StatelessWidget {
   }
 }
 
+
+/// 发现页右上角入口:心形 + 收到喜欢的数量。
+class _LikesEntry extends StatelessWidget {
+  const _LikesEntry({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        key: const Key('discovery.likes'),
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        onTap: () => context.push('/likes'),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.favorite_rounded, size: 20, color: AppColors.brand),
+              const SizedBox(width: AppSpacing.xs),
+              Text('喜欢我的人',
+                  style: AppText.caption.copyWith(color: AppColors.text2)),
+              if (count > 0) ...[
+                const SizedBox(width: AppSpacing.xs),
+                AppBadge(count: count),
+              ],
+            ],
+          ),
+        ),
+      );
+}
