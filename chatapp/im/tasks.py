@@ -203,6 +203,27 @@ def post_commented(comment_id: int) -> None:
 
 
 @shared_task(**RETRY_POLICY)
+def post_replied(comment_id: int) -> None:
+    """回复通知:告知被回复者(自己回复自己不发;内容缺失静默)。
+
+    Args:
+        comment_id: 新回复的主键;任务内再查库取被回复者与作者昵称。
+    """
+    from feed.models import PostComment   # 延迟导入,避免 app 加载顺序问题
+
+    comment = (PostComment.objects.filter(id=comment_id)
+               .select_related("author__profile", "reply_to__profile").first())
+    if comment is None or comment.reply_to_id is None:
+        return
+    if comment.reply_to_id == comment.author_id:
+        return
+    profile = getattr(comment.author, "profile", None)
+    nickname = (profile.nickname if profile else "") or f"u{comment.author_id}"
+    _require(im_client.send_post_replied(comment.reply_to.im_user_id, nickname,
+                                         comment.text[:50]), "post_replied")
+
+
+@shared_task(**RETRY_POLICY)
 def sync_profile(user_id: int, kind: str) -> None:
     """把资料同步到 IM(kind: nick|avatar);没有可同步的值时静默跳过。
 

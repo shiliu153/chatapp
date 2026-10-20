@@ -63,16 +63,22 @@ def delete_post(post) -> None:
 
 
 def notify_comment_created(comment) -> None:
-    """评论创建后调用:给动态作者发通知(经任务队列)。
+    """评论创建后调用:顶级评论通知动态作者,回复通知被回复者。
 
-    评论者是作者本人时不入队(自己评自己不打扰)。
+    自己评论自己的动态、自己回复自己都不入队(不打扰)。
 
     Args:
-        comment: 刚创建的评论。
+        comment: 刚创建的评论或回复。
     """
-    if comment.post.author_id == comment.author_id:
+    if comment.parent_id is None:
+        if comment.post.author_id == comment.author_id:
+            return
+        transaction.on_commit(lambda: im_tasks.post_commented.delay(comment.id),
+                              robust=True)
         return
-    transaction.on_commit(lambda: im_tasks.post_commented.delay(comment.id), robust=True)
+    if comment.reply_to_id is None or comment.reply_to_id == comment.author_id:
+        return
+    transaction.on_commit(lambda: im_tasks.post_replied.delay(comment.id), robust=True)
 
 
 def visible_comments(post, viewer):

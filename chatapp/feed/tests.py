@@ -637,3 +637,31 @@ class PostCommentThreadTests(FeedApiMixin, APITestCase):
         resp = self.client.delete(
             f"/api/v1/posts/{self.post.id}/comments/{foreign.id}")
         self.assertEqual(resp.status_code, 404)
+
+    def test_top_level_comment_still_notifies_post_author(self):
+        with patch("im.tasks.post_commented.delay") as commented, \
+                patch("im.tasks.post_replied.delay") as replied:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(self.url, {"text": "沙发"}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        commented.assert_called_once_with(resp.json()["id"])
+        replied.assert_not_called()
+
+    def test_reply_notifies_replied_user(self):
+        root = self._comment("一楼", author=self.author)
+        with patch("im.tasks.post_commented.delay") as commented, \
+                patch("im.tasks.post_replied.delay") as replied:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(
+                    self.url, {"text": "回你", "parent_id": root.id}, format="json")
+        self.assertEqual(resp.status_code, 201)
+        replied.assert_called_once_with(resp.json()["id"])
+        commented.assert_not_called()
+
+    def test_self_reply_does_not_notify(self):
+        root = self._comment("一楼", author=self.me)
+        with patch("im.tasks.post_replied.delay") as replied:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(self.url, {"text": "自回", "parent_id": root.id},
+                                 format="json")
+        replied.assert_not_called()
