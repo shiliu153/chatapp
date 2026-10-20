@@ -27,7 +27,7 @@ from discovery.models import Match
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 from .models import BanAction, BanLog, Block, Report, ReportStatus, ReportType
-from .services import log_ban_change
+from .services import log_ban_change, notify_report_handled
 from .text_check import find_blocked_word
 
 User = get_user_model()
@@ -478,3 +478,32 @@ class BlockVisibilityTests(APITestCase):
     def test_removing_block_restores_visibility(self):
         Block.objects.create(blocker=self.me, blocked=self.other).delete()
         self.assertEqual(len(self.client.get("/api/v1/discovery/candidates").json()), 1)
+
+
+class ModerationPushTests(TestCase):
+    """举报处理与封禁:各自入队一条 system 推送。"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(phone="13800138000")
+        self.reporter = User.objects.create_user(phone="13900139000")
+
+    def test_report_handled_enqueues_system_push(self):
+        report = Report.objects.create(reporter=self.reporter, target=self.user,
+                                       type=ReportType.HARASSMENT, status=ReportStatus.HANDLED)
+        with patch("notifications.services.send_push.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                notify_report_handled(report)
+        delay.assert_called_once()
+        args = delay.call_args.args
+        self.assertEqual((args[0], args[1]), (self.reporter.id, "system"))
+        self.assertEqual(args[4]["deeplink"], "/chat/system_notice")
+
+    def test_ban_enqueues_system_push(self):
+        with patch("notifications.services.send_push.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                log_ban_change(self.user, ProfileStatus.COMPLETE, ProfileStatus.BANNED_HEAVY,
+                               "违规", operator=None)
+        delay.assert_called_once()
+        args = delay.call_args.args
+        self.assertEqual((args[0], args[1]), (self.user.id, "system"))
+        self.assertEqual(args[4]["deeplink"], "/chat/system_notice")

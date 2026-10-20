@@ -26,6 +26,7 @@ from rest_framework.response import Response
 from config.pagination import DefaultLimitOffsetPagination
 from im import tasks as im_tasks
 from moderation.services import blocked_user_ids
+from notifications.services import enqueue_push
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bounds
 from users.services import get_profile
 
@@ -126,7 +127,8 @@ def swipe(request):
         raise ValidationError("对方资料不完整,无法操作")
 
     # 幂等:重复提交保留第一次的动作与结果
-    swipe_obj, _ = Swipe.objects.get_or_create(swiper=me, target=target, defaults={"action": action})
+    swipe_obj, swipe_created = Swipe.objects.get_or_create(
+        swiper=me, target=target, defaults={"action": action})
 
     matched = False
     if swipe_obj.action == SwipeAction.LIKE and Swipe.objects.filter(
@@ -138,8 +140,15 @@ def swipe(request):
                 matched = False
             else:
                 if created:
-                    notify_match(match)
+                    notify_match(match, actor_id=me.id)
                 matched = True
+
+    if swipe_created and swipe_obj.action == SwipeAction.LIKE and not matched:
+        enqueue_push(
+            target.id, "like",
+            title="有人喜欢了你", alert="去看看是谁",
+            extras={"deeplink": "/likes", "type": "like"},
+        )
 
     return Response({"matched": matched})
 

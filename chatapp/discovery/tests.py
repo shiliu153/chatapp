@@ -675,3 +675,61 @@ class UnmatchApiTests(APITestCase):
     def test_unmatch_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.delete(f"/api/v1/matches/{self.other.id}").status_code, 401)
+
+
+class SwipePushTests(APITestCase):
+    """滑卡推送:新建 like 才推、幂等重放不推、配对只推先喜欢的一方。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+        for user in (self.a, self.b):
+            Profile.objects.create(user=user, nickname=f"用户{user.id}", gender="male",
+                                   birthday="1995-01-01", city="上海", bio="hi",
+                                   status=ProfileStatus.COMPLETE)
+            Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.a).access_token}")
+
+    def _like(self, user):
+        """以当前登录身份喜欢某人。
+
+        Args:
+            user: 目标用户。
+
+        Returns:
+            DRF 响应对象。
+        """
+        return self.client.post("/api/v1/discovery/swipe",
+                                {"target_user_id": user.id, "action": "like"}, format="json")
+
+    def test_new_like_enqueues_push_to_target(self):
+        with patch("notifications.services.send_push.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self._like(self.b)
+        self.assertEqual(resp.status_code, 200)
+        delay.assert_called_once()
+        args = delay.call_args.args
+        self.assertEqual(args[0], self.b.id)
+        self.assertEqual(args[1], "like")
+        self.assertEqual(args[4]["deeplink"], "/likes")
+
+    def test_repeated_swipe_does_not_push_again(self):
+        self._like(self.b)
+        with patch("notifications.services.send_push.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._like(self.b)
+        delay.assert_not_called()
+
+    def test_mutual_like_pushes_match_to_first_liker_only(self):
+        with patch("notifications.services.send_push.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._like(self.b)          # A → B:一条 like 推送给 B
+                self.client.credentials(
+                    HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.b).access_token}")
+                self._like(self.a)          # B → A:配对成功,推给先喜欢的 A
+        self.assertEqual(delay.call_count, 2)
+        first, second = delay.call_args_list
+        self.assertEqual((first.args[0], first.args[1]), (self.b.id, "like"))
+        self.assertEqual((second.args[0], second.args[1]), (self.a.id, "match"))
+        self.assertEqual(second.args[4]["deeplink"], f"/chat/{self.b.id}")

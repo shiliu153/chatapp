@@ -14,6 +14,7 @@ import logging
 from django.db import transaction
 
 from im import tasks as im_tasks
+from notifications.services import enqueue_push
 from users.models import Profile, ProfileStatus
 
 from .models import BanAction, BanLog, Block
@@ -52,12 +53,21 @@ def log_ban_change(user, old_status, new_status, reason, operator) -> None:
     if new_status == ProfileStatus.BANNED_LIGHT:
         _write_log(user, BanAction.BAN_LIGHT, reason, operator)
         _enqueue(im_tasks.ban_notice, user.id, "light", reason or "")
+        enqueue_push(user.id, "system", title="账号受限",
+                     alert=f"你的账号已被限制:{reason}" if reason else "你的账号已被限制,暂时无法滑卡",
+                     extras={"deeplink": "/chat/system_notice", "type": "system"})
     elif new_status == ProfileStatus.BANNED_HEAVY:
         _write_log(user, BanAction.BAN_HEAVY, reason, operator)
         _enqueue(im_tasks.ban_notice, user.id, "heavy", reason or "")
+        enqueue_push(user.id, "system", title="账号受限",
+                     alert=f"你的账号已被限制:{reason}" if reason else "你的账号已被限制,暂时无法使用",
+                     extras={"deeplink": "/chat/system_notice", "type": "system"})
     elif old_status in Profile.BANNED_STATUSES:
         _write_log(user, BanAction.UNBAN, reason, operator)
         _enqueue(im_tasks.ban_lifted, user.id)
+        enqueue_push(user.id, "system", title="限制已解除",
+                     alert="你的账号限制已解除",
+                     extras={"deeplink": "/chat/system_notice", "type": "system"})
 
 
 def sync_im_blacklist(blocker, blocked, *, add: bool) -> None:
@@ -82,6 +92,9 @@ def notify_report_handled(report) -> None:
         report: 刚被标记为已处理的举报记录。
     """
     _enqueue(im_tasks.report_handled, report.reporter_id)
+    enqueue_push(report.reporter_id, "system",
+                 title="举报已处理", alert="你提交的举报已处理完成",
+                 extras={"deeplink": "/chat/system_notice", "type": "system"})
 
 
 def _write_log(user, action, reason, operator) -> None:
