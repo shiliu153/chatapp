@@ -76,11 +76,21 @@ class PostLike(models.Model):
 
 
 class PostComment(models.Model):
-    """一条动态评论。"""
+    """一条动态评论;``parent`` 非空表示它是某条顶级评论下的回复。
+
+    层级恒为两级:回复的回复由 ``services.create_comment`` 归一到顶级评论,
+    ``parent`` 永远指向顶级评论;``reply_to`` 记录"回复的是谁",用于渲染
+    「回复 @昵称」与发送提醒。
+    """
 
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="comments")
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                related_name="post_comments")
+    parent = models.ForeignKey("self", null=True, blank=True,
+                               on_delete=models.CASCADE, related_name="replies")
+    reply_to = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                 on_delete=models.SET_NULL,
+                                 related_name="comment_replies_received")
     text = models.CharField("内容", max_length=200)
     created_at = models.DateTimeField(auto_now_add=True)
 

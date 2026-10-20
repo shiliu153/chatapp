@@ -100,6 +100,22 @@ class FeedModelTests(TestCase):
         second = PostComment.objects.create(post=post, author=self.b, text="二")
         self.assertEqual(list(post.comments.all()), [first, second])
 
+    def test_top_level_comment_has_no_parent(self):
+        post = Post.objects.create(author=self.a, text="你好")
+        comment = PostComment.objects.create(post=post, author=self.a, text="一")
+        self.assertIsNone(comment.parent)
+        self.assertIsNone(comment.reply_to)
+        self.assertEqual(comment.replies.count(), 0)
+
+    def test_reply_defaults(self):
+        post = Post.objects.create(author=self.a, text="你好")
+        root = PostComment.objects.create(post=post, author=self.a, text="楼")
+        reply = PostComment.objects.create(post=post, author=self.b, text="回",
+                                           parent=root, reply_to=self.a)
+        self.assertEqual(reply.parent, root)
+        self.assertEqual(reply.reply_to, self.a)
+        self.assertEqual(list(root.replies.all()), [reply])
+
     def test_post_report_defaults_to_pending(self):
         post = Post.objects.create(author=self.a, text="你好")
         report = PostReport.objects.create(reporter=self.b, post=post,
