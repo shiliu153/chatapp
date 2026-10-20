@@ -2732,6 +2732,9 @@ git commit -m "docs: P1-4 推送收尾回填(验收结果与里程碑)"
 | Web `vue-tsc` / `eslint --max-warnings 0` | 零错误 / 零告警 |
 | Web `npm run test:coverage` | 338 tests passed;覆盖率 86.68 / 82.31 / 82.02 / 88.72(门槛 70/60/70/70) |
 
+**命令自检**:`push_test --user 64 --kind all --peer 1 --force` 在日志后端跑通,输出三条
+(`/likes`、`/chat/1`、`/chat/system_notice`),与预期深链一致。
+
 **提交**
 
 1. `docs(spec): P1-4 推送设计(极光 JPush + 设备/偏好/三类通知)`
