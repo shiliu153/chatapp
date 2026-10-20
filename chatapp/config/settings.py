@@ -293,6 +293,12 @@ IM_REST_BASE = "https://console.tim.qq.com/v4"
 IM_SIG_EXPIRE = 7 * 24 * 3600   # userSig 有效期(秒),腾讯上限 180 天
 IM_TIMEOUT = 5                  # REST 超时(秒)
 
+# --- 推送(极光 JPush;没有 key 时自动落到日志后端,本地/CI 不会误发) ---
+PUSH_ENABLED = os.getenv("PUSH_ENABLED", "0") == "1"
+JPUSH_APP_KEY = os.getenv("JPUSH_APP_KEY", "")
+JPUSH_MASTER_SECRET = os.getenv("JPUSH_MASTER_SECRET", "")
+PUSH_LIKE_COOLDOWN_SECONDS = int(os.getenv("PUSH_LIKE_COOLDOWN_SECONDS", "1800"))
+
 # --- 照片 ---
 AUTO_APPROVE = os.getenv("AUTO_APPROVE", "1") == "1"   # 开发期自动过审;上线接内容安全 API 后置 0
 PHOTO_MAX_COUNT = 6

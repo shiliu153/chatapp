@@ -1,23 +1,28 @@
-"""通知应用的测试:覆盖短信后端、发送任务、推送模型与接口。
+"""通知应用的测试:覆盖短信后端、发送任务、推送模型、客户端与接口。
 
 覆盖场景:
     - 控制台后端把验证码写进日志;
     - 发送任务把调用透传给后端(不真的发短信);
     - 推送设备:registration_id 全局唯一、随用户删除级联清理;
-    - 通知偏好:默认全开、只建一行、未知类型一律不发。
+    - 通知偏好:默认全开、只建一行、未知类型一律不发;
+    - 推送客户端:日志后端不触网、极光载荷正确、网络错误不抛;
+    - 推送任务:偏好/设备/冷却/失败重试的边界。
 """
 
 from unittest.mock import patch
 
+import requests
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from notifications.backends import ConsoleSmsBackend
 from notifications.models import NotificationPreference, PushDevice, PushPlatform
-from notifications.tasks import send_sms_code
+from notifications.push import JPushClient, LogPushClient, get_push_client
+from notifications.tasks import like_cooldown_key, send_push, send_sms_code
 
 User = get_user_model()
 
@@ -196,3 +201,97 @@ class PushPreferenceApiTests(APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get("/api/v1/push/preferences").status_code, 401)
+
+
+class PushClientTests(SimpleTestCase):
+    """推送客户端:日志后端不触网;极光载荷正确;网络错误不抛。"""
+
+    def test_log_client_returns_true_and_logs(self):
+        with self.assertLogs("notifications", level="INFO") as captured:
+            ok = LogPushClient().send(["rid-1"], title="t", alert="a", extras={})
+        self.assertTrue(ok)
+        self.assertIn("推送-日志", captured.output[0])
+
+    @override_settings(PUSH_ENABLED=True, JPUSH_APP_KEY="k", JPUSH_MASTER_SECRET="s")
+    def test_enabled_with_keys_returns_jpush_client(self):
+        self.assertIsInstance(get_push_client(), JPushClient)
+
+    @override_settings(PUSH_ENABLED=False)
+    def test_disabled_returns_log_client(self):
+        self.assertIsInstance(get_push_client(), LogPushClient)
+
+    @patch("notifications.push.requests.post")
+    def test_jpush_client_posts_expected_payload(self, post):
+        post.return_value.status_code = 200
+        client = JPushClient("key", "secret")
+        ok = client.send(["rid-1"], title="有人喜欢了你", alert="去看看是谁",
+                         extras={"deeplink": "/likes"})
+        self.assertTrue(ok)
+        args, kwargs = post.call_args
+        self.assertEqual(args[0], "https://api.jpush.cn/v3/push")
+        self.assertEqual(kwargs["json"]["audience"]["registration_id"], ["rid-1"])
+        self.assertEqual(kwargs["json"]["notification"]["android"]["extras"]["deeplink"], "/likes")
+        self.assertTrue(kwargs["headers"]["Authorization"].startswith("Basic "))
+
+    @patch("notifications.push.requests.post",
+           side_effect=requests.RequestException("boom"))
+    def test_jpush_client_swallows_network_error(self, _post):
+        self.assertFalse(JPushClient("key", "secret").send(
+            ["rid-1"], title="t", alert="a", extras={}))
+
+    @patch("notifications.push.requests.post")
+    def test_jpush_client_reports_non_2xx(self, post):
+        post.return_value.status_code = 401
+        post.return_value.text = "unauthorized"
+        self.assertFalse(JPushClient("key", "secret").send(
+            ["rid-1"], title="t", alert="a", extras={}))
+
+
+class SendPushTaskTests(TestCase):
+    """推送任务:偏好、设备、冷却、失败重试的边界。"""
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(phone="13800138000")
+        PushDevice.objects.create(user=self.user, registration_id="rid-1",
+                                  platform=PushPlatform.ANDROID)
+
+    def test_skips_when_preference_disabled(self):
+        NotificationPreference.objects.create(user=self.user, likes=False)
+        with patch("notifications.tasks.get_push_client") as factory:
+            send_push.run(self.user.id, "like", "t", "a", {})
+        factory.assert_not_called()
+
+    def test_skips_without_devices(self):
+        PushDevice.objects.all().delete()
+        with patch("notifications.tasks.get_push_client") as factory:
+            send_push.run(self.user.id, "match", "t", "a", {})
+        factory.assert_not_called()
+
+    def test_skips_unknown_user(self):
+        with patch("notifications.tasks.get_push_client") as factory:
+            send_push.run(999999, "match", "t", "a", {})
+        factory.assert_not_called()
+
+    def test_sends_to_all_devices(self):
+        PushDevice.objects.create(user=self.user, registration_id="rid-2",
+                                  platform=PushPlatform.IOS)
+        with patch("notifications.tasks.get_push_client") as factory:
+            send_push.run(self.user.id, "match", "配对成功", "你们互相喜欢了", {"deeplink": "/chat/2"})
+        client = factory.return_value
+        client.send.assert_called_once()
+        ids = client.send.call_args.args[0]
+        self.assertEqual(set(ids), {"rid-1", "rid-2"})
+
+    def test_like_cooldown_blocks_second_send(self):
+        with patch("notifications.tasks.get_push_client") as factory:
+            send_push.run(self.user.id, "like", "t", "a", {})
+            send_push.run(self.user.id, "like", "t", "a", {})
+        self.assertEqual(factory.return_value.send.call_count, 1)
+
+    def test_failed_send_releases_cooldown_and_raises(self):
+        with patch("notifications.tasks.get_push_client") as factory:
+            factory.return_value.send.return_value = False
+            with self.assertRaises(RuntimeError):
+                send_push.run(self.user.id, "like", "t", "a", {})
+        self.assertIsNone(cache.get(like_cooldown_key(self.user.id)))
