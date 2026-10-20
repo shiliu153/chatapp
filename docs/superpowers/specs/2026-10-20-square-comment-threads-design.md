@@ -113,7 +113,7 @@ class PostComment(models.Model):
 新增 `feed/migrations/0002_postcomment_parent_reply_to.py`(以实际最新编号为准),
 只加两列 + 一条 CheckConstraint,无数据迁移。
 
-## 4. 接口设计(40 → 42 个)
+## 4. 接口设计(36 → 38 个;P1-4 合入 master 后为 42)
 
 ### 4.1 评论对象(新结构)
 
@@ -287,7 +287,8 @@ IM 客户端对外永不抛异常;任务失败走既有 `RETRY_POLICY`。
 ### 8.4 文档
 
 - `docs/api/feed.md`:5.8 / 5.9 补字段与 `parent_id`,新增 5.11 回复列表、5.12 删除评论;
-- 接口总数 **40 → 42**,`ApiDocsCoverageTests` 双向比对必须绿;
+- 接口总数 **36 → 38**(本分支基线;P1-4 合入 master 后为 42),
+  `ApiDocsCoverageTests` 双向比对必须绿;
 - 所有新增/修改的 `.py` 补 docstring(`CommentCoverageTests` 门禁);
 - 收尾回填 `CLAUDE.md` 里程碑表与「下一步」、`README.md` 功能清单。
 
