@@ -59,6 +59,11 @@ class ImRepository {
     final data = await _api.getAllPages('/matches');
     return data.map((item) => MatchEntry.fromJson(item as Map<String, dynamic>)).toList();
   }
+
+  /// 解除配对:后端软删除 + 双向拉黑 IM;幂等(没配对也 204)。
+  Future<void> unmatch(int userId) async {
+    await _api.delete('/matches/$userId');
+  }
 }
 
 final imRepositoryProvider =

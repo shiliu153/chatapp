@@ -466,4 +466,20 @@ void main() {
     expect(fake.log, contains('revoke:sent-1'));
     expect(find.text('你撤回了一条消息'), findsOneWidget);
   });
+
+  testWidgets('「⋯」→ 解除配对 → 删会话并返回', (tester) async {
+    adapter.routes['DELETE /matches/9'] = (options) => ok({}, status: 204);
+    await pumpChat(tester);
+
+    await tester.tap(find.byKey(const Key('chat.more')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('解除配对'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat.unmatch.confirm')));
+    await tester.pumpAndSettle();
+
+    final delete = adapter.log.lastWhere((item) => item.method == 'DELETE');
+    expect(delete.path, '/matches/9');
+    expect(fake.log, contains('deleteConversation:u9'));
+  });
 }

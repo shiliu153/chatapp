@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,12 +12,14 @@ import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_avatar.dart';
+import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
 import '../../core/widgets/app_toast.dart';
 import '../../core/widgets/avatar_hero.dart';
 import '../../core/widgets/breathing_dot.dart';
 import '../../im/im_client.dart';
+import '../../im/im_manager.dart';
 import '../../im/im_repository.dart';
 import '../presence/models.dart';
 import '../presence/presence_controller.dart';
@@ -197,6 +201,34 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
   }
 
+  Future<void> _unmatch() async {
+    final userId = userIdFromImId(widget.peerId);
+    if (userId == null) return;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: '解除配对?',
+      message: '解除后双方将无法再聊天,且无法恢复。',
+      confirmLabel: '解除配对',
+      danger: true,
+      confirmKey: const Key('chat.unmatch.confirm'),
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await ref.read(imRepositoryProvider).unmatch(userId);
+    } on ApiException catch (error) {
+      if (mounted) AppToast.show(context, error.message);
+      return;
+    }
+    try {
+      await ref.read(imClientProvider).deleteConversation(widget.peerId);
+    } catch (_) {}
+    ref.invalidate(matchCacheProvider);
+    unawaited(ref.read(conversationsProvider.notifier).reload());
+    if (!mounted) return;
+    AppToast.show(context, '已解除配对');
+    Navigator.of(context).maybePop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(chatProvider(widget.peerId));
@@ -222,6 +254,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             avatarUrl: peerAvatarUrl,
             heroTag: 'avatar-chat-${widget.peerId}',
             onTapTitle: () => _openProfile(context, cache),
+            onMore: _unmatch,
           ),
           Expanded(
             child: messages.when(
@@ -295,6 +328,7 @@ class _ChatHeader extends StatelessWidget {
     required this.name,
     required this.presence,
     required this.onTapTitle,
+    required this.onMore,
     this.avatarUrl,
     this.heroTag,
   });
@@ -302,6 +336,7 @@ class _ChatHeader extends StatelessWidget {
   final String name;
   final Presence? presence;
   final VoidCallback onTapTitle;
+  final VoidCallback onMore;
   final String? avatarUrl;
   final String? heroTag;
 
@@ -372,7 +407,25 @@ class _ChatHeader extends StatelessWidget {
             ),
           ),
           // 与左侧返回键(48)等宽,保证「头像 + 名字」整块在屏幕上居中
-          const SizedBox(width: 48),
+          SizedBox(
+            width: 48,
+            height: 48,
+            child: PopupMenuButton<String>(
+              key: const Key('chat.more'),
+              icon: const Icon(Icons.more_horiz_rounded, size: 22, color: AppColors.text1),
+              padding: EdgeInsets.zero,
+              onSelected: (value) {
+                if (value == 'unmatch') onMore();
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  key: Key('chat.menu.unmatch'),
+                  value: 'unmatch',
+                  child: Text('解除配对', style: TextStyle(color: AppColors.danger)),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
