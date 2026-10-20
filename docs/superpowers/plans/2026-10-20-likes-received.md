@@ -2051,8 +2051,8 @@ Expected:零错误、零告警、全绿。
 
 - 2026-10-20:后端接口 + App/Web 双端页面交付;全量门禁通过;PR #8 已创建。
 - 后端:`python manage.py test` → `Ran 392 tests in 67.071s` / `OK`(含新增 13 条 `LikesReceivedTests`)。
-- App:`flutter analyze` → `No issues found!`;`flutter test` → `All tests passed! (+347)`(含新增 7 条)。
-- Web:`vue-tsc` 零错误;`eslint --max-warnings 0` 零告警;`vitest run` → `65 passed / 315 tests`(含新增 12 条)。
+- App:`flutter analyze` → `No issues found!`;`flutter test` → `All tests passed! (+347)`(新增 11 条 likes 相关用例)。
+- Web:`vue-tsc` 零错误;`eslint --max-warnings 0` 零告警;`vitest run` → `65 passed / 315 tests`(新增 7 条 likes 相关用例)。
 - 说明:本批未新增 Playwright 端到端(需真后端 + Redis + Celery);「回喜欢 → 配对」由 App 页面测试与 Web 组件测试覆盖。
 
 ```bash
