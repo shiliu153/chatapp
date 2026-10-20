@@ -424,4 +424,46 @@ void main() {
     expect(find.text('你好'), findsOneWidget);
     expect(fake.log.where((l) => l == 'fetchHistory:u9').length, 2);
   });
+
+  testWidgets('自己 2 分钟内的消息菜单有「撤回」', (tester) async {
+    fake.history = {
+      'u9': [_text('sent-1', isSelf: true, text: '打错了')],
+    };
+    await pumpChat(tester);
+    await tester.longPress(find.text('打错了'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('chat.menu.recall')), findsOneWidget);
+  });
+
+  testWidgets('超过 2 分钟不显示「撤回」', (tester) async {
+    fake.history = {
+      'u9': [
+        ChatMessage(
+          msgId: 'sent-1',
+          peerId: 'u9',
+          isSelf: true,
+          timestamp: DateTime.now().subtract(const Duration(minutes: 3)).millisecondsSinceEpoch,
+          kind: ChatMessageKind.text,
+          text: '打错了',
+        ),
+      ],
+    };
+    await pumpChat(tester);
+    await tester.longPress(find.text('打错了'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('chat.menu.recall')), findsNothing);
+  });
+
+  testWidgets('点撤回:调 IM 并置灰', (tester) async {
+    fake.history = {
+      'u9': [_text('sent-1', isSelf: true, text: '打错了')],
+    };
+    await pumpChat(tester);
+    await tester.longPress(find.text('打错了'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat.menu.recall')));
+    await tester.pumpAndSettle();
+    expect(fake.log, contains('revoke:sent-1'));
+    expect(find.text('你撤回了一条消息'), findsOneWidget);
+  });
 }

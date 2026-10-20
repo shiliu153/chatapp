@@ -12,6 +12,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_avatar.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
+import '../../core/widgets/app_toast.dart';
 import '../../core/widgets/avatar_hero.dart';
 import '../../core/widgets/breathing_dot.dart';
 import '../../im/im_client.dart';
@@ -23,6 +24,7 @@ import 'chat_controller.dart';
 import 'chat_items.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
+import 'recall.dart';
 import 'widgets/chat_bubbles_mark.dart';
 import 'widgets/chat_skeleton.dart';
 import 'widgets/emoji_panel.dart';
@@ -167,6 +169,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       context: context,
       position: position,
       items: [
+        if (canRecall(message))
+          const PopupMenuItem(
+              key: Key('chat.menu.recall'), value: 'recall', child: Text('撤回')),
         if (message.kind == ChatMessageKind.text)
           const PopupMenuItem(
               key: Key('chat.menu.copy'), value: 'copy', child: Text('复制')),
@@ -179,6 +184,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       await Clipboard.setData(ClipboardData(text: message.text));
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制')));
+      }
+    } else if (action == 'recall') {
+      try {
+        await ref.read(chatProvider(widget.peerId).notifier).revoke(message);
+        if (context.mounted) AppToast.show(context, '已撤回');
+      } on ImException catch (error) {
+        if (context.mounted) AppToast.show(context, error.message);
       }
     } else if (action == 'delete') {
       await ref.read(chatProvider(widget.peerId).notifier).deleteLocal(message);

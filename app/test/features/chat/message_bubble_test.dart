@@ -10,6 +10,7 @@ ChatMessage _m({
   String text = '你好',
   bool isFailed = false,
   String? localPath,
+  bool isRevoked = false,
 }) =>
     ChatMessage(
       msgId: 'm1',
@@ -20,6 +21,7 @@ ChatMessage _m({
       text: text,
       isFailed: isFailed,
       localPath: localPath,
+      isRevoked: isRevoked,
     );
 
 Future<void> _pump(WidgetTester tester, Widget child) =>
@@ -62,5 +64,17 @@ void main() {
 
     expect(find.byType(AppAvatar), findsOneWidget);
     expect(find.text('小'), findsOneWidget);
+  });
+
+  testWidgets('撤回态:自己 → 居中「你撤回了一条消息」', (tester) async {
+    await _pump(tester, MessageBubble(message: _m(isSelf: true, isRevoked: true)));
+    expect(find.byKey(const Key('chat.revoked')), findsOneWidget);
+    expect(find.text('你撤回了一条消息'), findsOneWidget);
+    expect(find.text('你好'), findsNothing);
+  });
+
+  testWidgets('撤回态:对方 → 「对方撤回了一条消息」', (tester) async {
+    await _pump(tester, MessageBubble(message: _m(isRevoked: true)));
+    expect(find.text('对方撤回了一条消息'), findsOneWidget);
   });
 }

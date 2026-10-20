@@ -151,4 +151,35 @@ void main() {
     expect(list.single.isPending, isFalse);
     expect(fake.log.where((l) => l == 'send:u9:你好').length, 2);
   });
+
+  test('撤回成功:本地立即置 isRevoked', () async {
+    fake.history = {
+      'u9': [msg('sent-1', isSelf: true, text: '打错了')],
+    };
+    final container = makeContainer();
+    openChat(container);
+    await container.read(imStatusProvider.notifier).login();
+    await container.read(chatProvider('u9').future);
+
+    await container.read(chatProvider('u9').notifier).revoke(
+        container.read(chatProvider('u9')).value!.single);
+
+    expect(fake.log, contains('revoke:sent-1'));
+    expect(container.read(chatProvider('u9')).value!.single.isRevoked, isTrue);
+  });
+
+  test('收到 ImMessageRevoked:对应消息置灰', () async {
+    fake.history = {
+      'u9': [msg('in-1', isSelf: false, text: '在吗')],
+    };
+    final container = makeContainer();
+    openChat(container);
+    await container.read(imStatusProvider.notifier).login();
+    await container.read(chatProvider('u9').future);
+
+    fake.emitRevoked('in-1');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(container.read(chatProvider('u9')).value!.single.isRevoked, isTrue);
+  });
 }
