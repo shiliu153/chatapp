@@ -44,11 +44,11 @@ Flutter / Web
    │  https://host/im/api/*   历史消息、会话列表
    ▼
 Nginx ──/api/v1/──▶ gunicorn :8000 (Django)
-   └──/im/───────▶ imserver 127.0.0.1:9100
+   └──/im/───────▶ imserver 127.0.0.1:9100(WS) / 9101(HTTP)
                       ├─ MySQL 8  库 chatapp_im（im_* 表，独立账号）
                       └─ Redis 7  DB2（在线表/封禁标记/限流）
 
-Django ──HMAC 内部调用──▶ http://127.0.0.1:9100/internal/*
+Django ──HMAC 内部调用──▶ http://127.0.0.1:9101/internal/*
 Celery ──同上──▶ 系统通知 / 资料同步 / 踢人 / 删号
 ```
 
@@ -299,7 +299,7 @@ X-IM-Signature: hex(HMAC-SHA256(internal_secret, ts + "\n" + METHOD + "\n" + pat
 | 键 | 示例 | 说明 |
 |---|---|---|
 | `IM_BACKEND` | `tencent` / `self` | 总开关；回退只改它 |
-| `IM_SELF_URL` | `http://127.0.0.1:9100` | 内部 API 基址 |
+| `IM_SELF_URL` | `http://127.0.0.1:9101` | 内部 API 基址 |
 | `IM_SELF_WS_URL` | `wss://<host>/im/ws` | 客户端 WS 地址 |
 | `IM_SELF_HTTP_URL` | `https://<host>/im/api` | 客户端历史接口基址 |
 | `IM_SELF_SECRET` | 32+ 字节随机串 | IM token 的 HS256 密钥 |
@@ -314,10 +314,10 @@ X-IM-Signature: hex(HMAC-SHA256(internal_secret, ts + "\n" + METHOD + "\n" + pat
 
 | 文件 | 改动 |
 |---|---|
-| `im/tencent_client.py` | 现有 `client.py` 原样迁入 |
 | `im/self_client.py` | 内部 API 客户端：HMAC、5 秒超时、**永不抛异常只返回 False** |
+| `im/backend.py` | `use_self_im(user)`（登录灰度判定）与 `self_enabled_for(identifier)`（副作用按收件人/操作者判定） |
 | `im/token.py` | HS256 签发/校验；claims `sub`（`u9`）、`uid`、`iat`、`exp`、`jti` |
-| `im/client.py` | 门面：按 `IM_BACKEND` 分发；函数名不变，仅 `kick_user` 增加可选 `block` 参数 |
+| `im/client.py` | 保留腾讯实现；每个公开函数入口按账号灰度分发到 `self_client` |
 | `im/tasks.py` | 仅 `ban_notice` 一处改为 `kick_user(..., block=True)`；其余零改动 |
 | `im/views.py` | `user_sig` 分支返回 `backend/token/ws_url/http_url`；保留「先踢旧会话再发签名」顺序 |
 
@@ -381,6 +381,8 @@ def use_self_im(user) -> bool:
 ### 8.3 Web
 
 - `web/src/im/self/{client,map,transport}.ts`，原生 `WebSocket`；
+- **Web 永远走同源**：忽略后端返回的绝对 `ws_url`/`http_url`（可能是 App 用的
+  `10.0.2.2`），固定 `ws(s)://location.host/im/ws` 与 `/im/api`；
 - `getImClient()` 返回 `RoutingImClient`；`init(bootstrap)` 替换 `init(sdkAppId)`；
 - `sendImage` 在 self 后端抛 `ImException(42202,"当前聊天服务暂不支持图片")`；
   聊天页按 `capabilities.image` 隐藏图片按钮，抛错分支只作兜底（二期补图片后移除）；
@@ -472,7 +474,8 @@ def use_self_im(user) -> bool:
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `IM_LISTEN` | `127.0.0.1:9100` | 监听地址，绝不监听公网 |
+| `IM_LISTEN_WS` | `127.0.0.1:9100` | WebSocket 监听地址，绝不监听公网 |
+| `IM_LISTEN_HTTP` | `127.0.0.1:9101` | HTTP（客户端历史 + 内部管理）监听地址 |
 | `IM_MYSQL_DSN` | — | `mysql://imserver:***@127.0.0.1:3306/chatapp_im` |
 | `IM_REDIS_URL` | `redis://127.0.0.1:6379/2` | 在线态与封禁键 |
 | `IM_JWT_SECRET` | — | 与 Django `IM_SELF_SECRET` 一致 |
@@ -493,7 +496,7 @@ location /im/ws {
     proxy_read_timeout 90s;
 }
 location /im/api/ {
-    proxy_pass http://127.0.0.1:9100;
+    proxy_pass http://127.0.0.1:9101;
     proxy_set_header X-Real-IP $remote_addr;
 }
 ```
@@ -505,11 +508,12 @@ location /im/api/ {
 
 ### 12.3 本地开发
 
-- imserver 监听 `127.0.0.1:9100`，Django 仍跑 `:8000`；
+- imserver 的 WS 监听 `127.0.0.1:9100`、HTTP 监听 `127.0.0.1:9101`，Django 仍跑 `:8000`；
 - `chatapp/.env` 配 `IM_SELF_WS_URL=ws://10.0.2.2:9100/im/ws`、
-  `IM_SELF_HTTP_URL=http://10.0.2.2:9100/im/api`，由 `/im/user_sig` 原样返回给 App；
-- Web：Vite 增加 `/im` 代理到 `http://127.0.0.1:9100`（`ws: true`），
-  浏览器端用同源相对地址；开发时 `IM_ALLOWED_ORIGINS=http://localhost:5173`；
+  `IM_SELF_HTTP_URL=http://10.0.2.2:9101/im/api`，由 `/im/user_sig` 原样返回给 App；
+- Web：Vite 增加 `/im/ws` → `ws://127.0.0.1:9100`、`/im/api` → `http://127.0.0.1:9101`
+  两条代理，浏览器端用同源相对地址；开发时
+  `IM_ALLOWED_ORIGINS=http://localhost:5173`；
 - 集成测试用 `docker compose -f imserver/docker-compose.test.yml` 起 MySQL/Redis，
   与线上同版本。
 
@@ -592,7 +596,7 @@ CPU 主要花在 JSON 解析与 TLS（TLS 在 Nginx），imserver 预计 < 10% �
 ## 16. 交付物清单
 
 - `imserver/`：C++ 服务端、迁移 SQL、部署文件、单测与集成测试；
-- `chatapp/im/{token,self_client}.py`、`client.py` 门面化、`views.py` 分支、
+- `chatapp/im/{token,self_client,backend}.py`、`client.py` 入口分发、`views.py` 分支、
   settings 配置；
 - `app/lib/im/{routing_im_client,self_im_client,im_bootstrap}.dart` 与测试；
 - `web/src/im/self/*` 与测试；
