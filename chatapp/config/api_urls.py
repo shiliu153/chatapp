@@ -25,6 +25,7 @@ urlpatterns = [
     path("", include("moderation.urls")),
     path("", include("feed.urls")),
     path("", include("feedback.urls")),
+    path("push/", include("notifications.urls")),
     path("matches", discovery_views.match_list),
     path("matches/<int:user_id>", discovery_views.unmatch),
     path("presence", users_views.presence_status),
