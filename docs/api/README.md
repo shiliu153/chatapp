@@ -14,13 +14,14 @@
 | [users.md](users.md) | 用户资料 / 照片 / 择偶偏好 / 标签 / 他人资料 / 在线状态 |
 | [discovery.md](discovery.md) | 发现与配对 |
 | [moderation.md](moderation.md) | 举报与拉黑 |
+| [feedback.md](feedback.md) | 意见反馈 |
 | [feed.md](feed.md) | 广场动态 |
 | [im.md](im.md) | IM 会话凭证 |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
 
 ## 接口一览
 
-共 **34** 个接口(按「方法 + 路径」计)。
+共 **35** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -43,6 +44,7 @@
 | GET | `/api/v1/matches` | 配对列表(分页) | [discovery](discovery.md) |
 | POST | `/api/v1/im/user_sig` | 获取 IM userSig | [im](im.md) |
 | POST | `/api/v1/reports` | 举报用户 | [moderation](moderation.md) |
+| POST | `/api/v1/feedback` | 提交意见反馈 | [feedback](feedback.md) |
 | GET | `/api/v1/blocks` | 拉黑列表(分页) | [moderation](moderation.md) |
 | POST | `/api/v1/blocks` | 拉黑用户 | [moderation](moderation.md) |
 | DELETE | `/api/v1/blocks/{user_id}` | 解除拉黑 | [moderation](moderation.md) |

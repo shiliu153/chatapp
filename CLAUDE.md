@@ -146,6 +146,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `GET /discovery/likes` | 喜欢我的人(分页);口径与候选池一致,排除我已划过/双向拉黑/资料不全/无过审照片 |
 | `GET /discovery/likes/count` | 喜欢我的人数(入口角标);与列表同口径 |
 | `GET /matches` | 配对列表(分页);预热 userId→昵称头像缓存 |
+| `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
 | `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见各 spec 与 pitfalls |
 
 资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`(否则 `incomplete`,`missing_fields` 列出缺项);`banned_light` / `banned_heavy` 为封禁状态。
