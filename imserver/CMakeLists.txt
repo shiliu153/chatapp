@@ -14,6 +14,7 @@ pkg_check_modules(MYSQLCLIENT REQUIRED mysqlclient)
 pkg_check_modules(HIREDIS REQUIRED hiredis)
 
 add_library(imcore STATIC
+  src/auth/token.cpp
   src/config.cpp
   src/migrate.cpp
   src/store/mysql_pool.cpp

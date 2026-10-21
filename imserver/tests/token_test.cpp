@@ -1,0 +1,87 @@
+#include <gtest/gtest.h>
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+
+#include <array>
+#include <string>
+
+#include <nlohmann/json.hpp>
+
+#include "auth/token.h"
+
+namespace {
+
+constexpr int64_t kNow = 1760000000000;
+constexpr const char* kSecret = "0123456789abcdef0123456789abcdef";
+
+std::string b64url(const std::string& input) {
+  std::string out;
+  out.resize(4 * ((input.size() + 2) / 3) + 1);
+  const int length = EVP_EncodeBlock(
+      reinterpret_cast<unsigned char*>(out.data()),
+      reinterpret_cast<const unsigned char*>(input.data()),
+      static_cast<int>(input.size()));
+  out.resize(static_cast<std::size_t>(length));
+  for (char& ch : out) {
+    if (ch == '+') {
+      ch = '-';
+    } else if (ch == '/') {
+      ch = '_';
+    }
+  }
+  while (!out.empty() && out.back() == '=') {
+    out.pop_back();
+  }
+  return out;
+}
+
+std::string hmac_b64(const std::string& data) {
+  std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+  unsigned int length = 0;
+  HMAC(EVP_sha256(), kSecret, static_cast<int>(std::string(kSecret).size()),
+       reinterpret_cast<const unsigned char*>(data.data()), data.size(),
+       digest.data(), &length);
+  return b64url(std::string(reinterpret_cast<const char*>(digest.data()), length));
+}
+
+std::string forge_token_with_sub(const std::string& sub, uint64_t uid) {
+  nlohmann::json header = {{"alg", "HS256"}, {"typ", "JWT"}};
+  nlohmann::json payload = {{"sub", sub}, {"uid", uid}, {"iat", kNow / 1000},
+                            {"exp", kNow / 1000 + 3600}, {"jti", "forged"}};
+  const auto signing_input = b64url(header.dump()) + "." + b64url(payload.dump());
+  return signing_input + "." + hmac_b64(signing_input);
+}
+
+}  // namespace
+
+TEST(TokenTest, MintThenVerify) {
+  const auto token = mint_token(9, kSecret, kNow, 3600);
+  const auto claims = verify_token(token, kSecret, kNow + 1000);
+  ASSERT_TRUE(claims.has_value());
+  EXPECT_EQ(claims->uid, 9u);
+  EXPECT_EQ(claims->sub, "u9");
+  EXPECT_EQ(claims->exp, kNow / 1000 + 3600);
+}
+
+TEST(TokenTest, RejectsExpired) {
+  const auto token = mint_token(9, kSecret, kNow, 60);
+  EXPECT_FALSE(verify_token(token, kSecret, kNow + 61000).has_value());
+}
+
+TEST(TokenTest, RejectsTamperedPayload) {
+  auto token = mint_token(9, kSecret, kNow, 3600);
+  const auto dot = token.find('.');
+  ASSERT_NE(dot, std::string::npos);
+  token[dot + 2] = token[dot + 2] == 'A' ? 'B' : 'A';
+  EXPECT_FALSE(verify_token(token, kSecret, kNow).has_value());
+}
+
+TEST(TokenTest, RejectsWrongSecret) {
+  const auto token = mint_token(9, kSecret, kNow, 3600);
+  EXPECT_FALSE(verify_token(token, "ffffffffffffffffffffffffffffffff", kNow).has_value());
+}
+
+TEST(TokenTest, RejectsSubUidMismatch) {
+  const auto forged = forge_token_with_sub("u10", 9);
+  EXPECT_FALSE(verify_token(forged, kSecret, kNow).has_value());
+}
