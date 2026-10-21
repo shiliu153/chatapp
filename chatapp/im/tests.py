@@ -707,3 +707,35 @@ class SelfBackendTests(SimpleTestCase):
     def test_tencent_still_default(self, request):
         request.return_value = {"ErrorCode": 0}
         self.assertTrue(send_custom_elem("u1", "u2", {"type": "x"}, "hi"))
+
+
+class UserSigSelfTests(APITestCase):
+    """``/im/user_sig`` 的双分支与灰度。"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(phone="13800000001")
+
+    @override_settings(
+        IM_BACKEND="self",
+        IM_SELF_GRAYLIST="all",
+        IM_SELF_WS_URL="wss://im.example/ws",
+        IM_SELF_HTTP_URL="https://im.example/api",
+        IM_SELF_SECRET="t" * 32,
+        IM_SELF_TOKEN_TTL=86400,
+    )
+    @patch("im.views.ensure_account", return_value=True)
+    def test_self_branch_returns_token(self, _):
+        self.client.force_authenticate(self.user)
+        response = self.client.post("/api/v1/im/user_sig")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["backend"], "self")
+        self.assertEqual(response.data["ws_url"], "wss://im.example/ws")
+        self.assertTrue(response.data["token"])
+
+    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="")
+    @patch("im.views.gen_user_sig", return_value="tencent-sig")
+    def test_not_in_graylist_falls_back(self, _):
+        self.client.force_authenticate(self.user)
+        response = self.client.post("/api/v1/im/user_sig")
+        self.assertEqual(response.data["backend"], "tencent")
+        self.assertEqual(response.data["user_sig"], "tencent-sig")

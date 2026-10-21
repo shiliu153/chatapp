@@ -17,9 +17,11 @@ from django.core.cache import cache
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from .backend import use_self_im
 from .client import ensure_account, kick_user
 from .signature import gen_user_sig
 from .tasks import kick_pending_key
+from .token import mint_im_token
 
 IMPORTED_FLAG_TTL = 30 * 24 * 3600   # 30 天;Redis 清空后下次调用会幂等重建
 
@@ -34,7 +36,8 @@ def user_sig(request):
         request: DRF 请求对象。
 
     Returns:
-        ``{user_sig, sdkappid, im_user_id, expire}``。
+        ``{backend, ...}``;腾讯分支含 ``user_sig/sdkappid``,自建分支含
+        ``token/ws_url/http_url``。
     """
     # 重封禁由全局权限类 IsNotHeavyBanned 拦下,这里不再重复检查
     user = request.user
@@ -52,7 +55,20 @@ def user_sig(request):
     if cache.get(kick_flag) and kick_user(user.im_user_id):
         cache.delete(kick_flag)
 
+    if use_self_im(user):
+        nickname = getattr(getattr(user, "profile", None), "nickname", "") or ""
+        ensure_account(user.im_user_id, nickname)   # 失败不阻断签发
+        return Response({
+            "backend": "self",
+            "token": mint_im_token(user.id, settings.IM_SELF_TOKEN_TTL),
+            "im_user_id": user.im_user_id,
+            "ws_url": settings.IM_SELF_WS_URL,
+            "http_url": settings.IM_SELF_HTTP_URL,
+            "expire": settings.IM_SELF_TOKEN_TTL,
+        })
+
     return Response({
+        "backend": "tencent",
         "user_sig": gen_user_sig(user.im_user_id),
         "sdkappid": settings.IM_SDKAPPID,
         "im_user_id": user.im_user_id,
