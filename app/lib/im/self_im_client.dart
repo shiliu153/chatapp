@@ -101,6 +101,9 @@ class SelfImClient extends ImClient {
         final code = data['code'] as int? ?? 0;
         if (code == 40101) {
           _stopped = true;
+          if (!(_auth?.isCompleted ?? true)) {
+            _auth!.completeError(const ImException(40101, 'IM 登录已过期'));
+          }
           _events.add(const ImSigExpired());
           unawaited(_transport?.close());
         } else {

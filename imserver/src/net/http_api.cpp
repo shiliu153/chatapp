@@ -170,6 +170,9 @@ void HttpApi::stop() {
 }
 
 void HttpApi::do_accept() {
+  if (!acceptor_.is_open()) {
+    return;
+  }
   acceptor_.async_accept(net::make_strand(io_), [this](beast::error_code ec, tcp::socket socket) {
     if (!ec) {
       std::make_shared<HttpSession>(std::move(socket), *this)->run();
@@ -364,7 +367,8 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     if (!loopback) {
       return error_response(req, http::status::forbidden, 40301, "forbidden");
     }
-    if (!verify_internal(req)) {
+    if (target.path != "/internal/healthz" && target.path != "/internal/readyz" &&
+        !verify_internal(req)) {
       return error_response(req, http::status::unauthorized, 40101, "bad signature");
     }
     return internal_route(req, target);

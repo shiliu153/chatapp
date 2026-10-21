@@ -604,6 +604,9 @@ void WsServer::stop() {
 }
 
 void WsServer::do_accept() {
+  if (!acceptor_.is_open()) {
+    return;
+  }
   acceptor_.async_accept(net::make_strand(io_), [this](error_code ec, tcp::socket socket) {
     if (!ec) {
       std::make_shared<WsSession>(std::move(socket), cfg_, registry_, redis_, ip_counter_,
