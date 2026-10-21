@@ -1,0 +1,29 @@
+name: imserver
+
+on:
+  push:
+    paths:
+      - "imserver/**"
+      - "tools/im_*.py"
+      - ".github/workflows/imserver.yml"
+  pull_request:
+    paths:
+      - "imserver/**"
+      - "tools/im_*.py"
+      - ".github/workflows/imserver.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: |
+          docker build -f imserver/Dockerfile.dev -t imserver-dev imserver
+          docker run --rm -v "$PWD/imserver:/src" imserver-dev bash /src/scripts/test.sh
+      - name: Integration tests
+        run: |
+          docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_integration.sh
+      - name: HTTP + e2e
+        run: |
+          docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh

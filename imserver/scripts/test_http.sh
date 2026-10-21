@@ -15,3 +15,6 @@ done
 export IM_TEST_HTTP="http://127.0.0.1:19101/im/api"
 python3 /src/tests/integration/test_history.py
 python3 /src/tests/integration/test_internal.py
+export IM_BASE_WS="ws://127.0.0.1:19100/im/ws"
+export IM_BASE_HTTP="http://127.0.0.1:19101/im/api"
+python3 /repo/tools/im_e2e.py
