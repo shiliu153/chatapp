@@ -150,7 +150,7 @@ def ban_notice(user_id: int, level: str, reason: str = "") -> None:
     sent = im_client.send_ban_notice(user.im_user_id, level, reason)
     kicked = True
     if level == "heavy":
-        kicked = im_client.kick_user(user.im_user_id)
+        kicked = im_client.kick_user(user.im_user_id, block=True)
     _require(sent and kicked, "ban_notice")
 
 

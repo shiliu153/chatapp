@@ -739,3 +739,25 @@ class UserSigSelfTests(APITestCase):
         response = self.client.post("/api/v1/im/user_sig")
         self.assertEqual(response.data["backend"], "tencent")
         self.assertEqual(response.data["user_sig"], "tencent-sig")
+
+
+class SelfNoticeTests(SimpleTestCase):
+    """自建后端下的封禁/解封通知。"""
+
+    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="9")
+    @patch("im.client.self_client.send_custom_elem", return_value=True)
+    @patch("im.client.self_client.kick_user", return_value=True)
+    def test_heavy_ban_blocks_and_notifies(self, kick, send):
+        with patch("im.tasks._user") as user:
+            user.return_value.im_user_id = "u9"
+            ban_notice.run(9, "heavy", "违规")
+        send.assert_called_once()
+        kick.assert_called_once_with("u9", True)
+
+    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="9")
+    @patch("im.client.self_client.send_ban_lifted", return_value=True)
+    def test_ban_lifted_unblocks(self, lifted):
+        with patch("im.tasks._user") as user:
+            user.return_value.im_user_id = "u9"
+            ban_lifted.run(9)
+        lifted.assert_called_once_with("u9")
