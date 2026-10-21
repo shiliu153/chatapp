@@ -5,7 +5,7 @@ import { parseApiError } from '@/api/error'
 import { sessionEvents } from '@/api/session-events'
 import { getImClient } from '@/im/client'
 import { SYSTEM_NOTICE_PEER_ID } from '@/im/map'
-import type { ChatMessage, ImConversation } from '@/im/types'
+import type { ChatMessage, ImBootstrap, ImConversation } from '@/im/types'
 
 export type ChatStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting' | 'inactive' | 'error'
 
@@ -118,9 +118,26 @@ export const useChatStore = defineStore('chat', () => {
     error.value = ''
     try {
       const { data } = await http.post('/im/user_sig')
-      const payload = data as { user_sig: string; sdkappid: string | number; im_user_id: string }
-      client.init(Number(payload.sdkappid))
-      await client.login(payload.im_user_id, payload.user_sig)
+      const raw = data as {
+        backend?: 'tencent' | 'self'
+        sdkappid?: string | number
+        im_user_id: string
+        token?: string
+        user_sig?: string
+      }
+      // Web 永远走同源:忽略后端返回的绝对地址(可能是 App 用的 10.0.2.2)
+      const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/im/ws`
+      const httpUrl = new URL('/im/api', location.origin).toString()
+      const bootstrap: ImBootstrap = {
+        backend: raw.backend === 'self' ? 'self' : 'tencent',
+        sdkAppId: Number(raw.sdkappid ?? 0),
+        token: raw.token ?? '',
+        wsUrl,
+        httpUrl,
+        imUserId: raw.im_user_id,
+      }
+      await client.init(bootstrap)
+      await client.login(raw.im_user_id, raw.token || raw.user_sig || '')
       status.value = 'ready'
     } catch (e) {
       error.value = parseApiError(e).message

@@ -8,9 +8,11 @@
  * 3. 事件名默认值写死为 spike 实测值(见计划三执行记录 Task 6.1),测试可注入假名。
  */
 import { chatMessageFromTim, conversationFromTim } from './map'
+import { RoutingImClient } from './routing'
 import {
   ChatMessageKind,
   type ChatMessage,
+  type ImBootstrap,
   type ImClient,
   type ImConversation,
   type ImEvent,
@@ -36,7 +38,7 @@ export type { TimChatLike, ImClient, ImEvent } from './types'
  * 全局单例入口。Pinia 的 `useXxxStore()` 不接受参数,所以 store 只能通过这个工厂拿客户端;
  * 测试用 `setImClientFactory` 换成假实现(`useChatStore()` 之前调用)。
  */
-let factory: () => ImClient = () => createImClient()
+let factory: () => ImClient = () => new RoutingImClient()
 
 /** 仅供测试替换;生产路径不要调用。 */
 export function setImClientFactory(fn: () => ImClient): void {
@@ -145,8 +147,8 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
     return pendingSdk
   }
 
-  function init(appId: number): void {
-    sdkAppId = appId
+  function init(bootstrap: ImBootstrap): void {
+    sdkAppId = bootstrap.sdkAppId
   }
 
   /**
@@ -290,6 +292,7 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
 
   return {
     onEvent,
+    capabilities: { image: true },
     init,
     login,
     logout,

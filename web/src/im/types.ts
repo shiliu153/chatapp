@@ -45,6 +45,19 @@ export interface ImConversation {
 
 export type KickReason = 'multiDevice' | 'multiAccount' | 'sigExpired' | 'restApi'
 
+export interface ImBootstrap {
+  backend: 'tencent' | 'self'
+  sdkAppId: number
+  token: string
+  wsUrl: string
+  httpUrl: string
+  imUserId: string
+}
+
+export interface ImCapabilities {
+  image: boolean
+}
+
 export type ImEvent =
   | { type: 'newMessage'; message: ChatMessage }
   | { type: 'conversationsChanged' }
@@ -54,7 +67,8 @@ export type ImEvent =
 
 export interface ImClient {
   onEvent(listener: (event: ImEvent) => void): void
-  init(sdkAppId: number): void
+  capabilities: ImCapabilities
+  init(bootstrap: ImBootstrap): void | Promise<void>
   login(userId: string, userSig: string): Promise<void>
   logout(): Promise<void>
   fetchConversations(): Promise<ImConversation[]>

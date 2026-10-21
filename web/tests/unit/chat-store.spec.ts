@@ -72,7 +72,9 @@ describe('chat store', () => {
 
     await store.loadConversations()
 
-    expect(client.init).toHaveBeenCalledWith(1600161711)
+    expect(client.init).toHaveBeenCalledWith(
+      expect.objectContaining({ sdkAppId: 1600161711, imUserId: 'u41' }),
+    )
     expect(client.login).toHaveBeenCalled()
     expect((client.init as unknown as { mock: { invocationCallOrder: number[] } }).mock.invocationCallOrder[0])
       .toBeLessThan(
