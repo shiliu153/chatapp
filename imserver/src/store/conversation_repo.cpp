@@ -171,6 +171,21 @@ void ConversationRepo::set_deleted(MysqlPool::Lease& lease, uint64_t owner, uint
   stmt.execute();
 }
 
+void ConversationRepo::delete_for_user(MysqlPool::Lease& lease, uint64_t uid) {
+  {
+    Stmt states(lease.get(), "DELETE FROM im_conversation_state WHERE owner_id=?");
+    states.bind_uint(0, uid);
+    states.execute();
+  }
+  {
+    Stmt conversations(lease.get(),
+                       "DELETE FROM im_conversation WHERE user_a=? OR user_b=?");
+    conversations.bind_uint(0, uid);
+    conversations.bind_uint(1, uid);
+    conversations.execute();
+  }
+}
+
 std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, uint64_t owner,
                                                      int limit) {
   limit = std::clamp(limit, 1, 200);

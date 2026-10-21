@@ -55,3 +55,10 @@ bool BlacklistRepo::exists_either(uint64_t a, uint64_t b) {
   auto lease = pool_.acquire();
   return exists_either(lease, a, b);
 }
+
+void BlacklistRepo::delete_for_user(MysqlPool::Lease& lease, uint64_t uid) {
+  Stmt stmt(lease.get(), "DELETE FROM im_blacklist WHERE owner_id=? OR peer_id=?");
+  stmt.bind_uint(0, uid);
+  stmt.bind_uint(1, uid);
+  stmt.execute();
+}

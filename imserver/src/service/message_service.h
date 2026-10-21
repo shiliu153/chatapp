@@ -38,6 +38,12 @@ class MessageService {
   bool mark_read(uint64_t uid, uint64_t peer, uint64_t seq);
   std::variant<RevokeResult, int> revoke(uint64_t uid, uint64_t msg_id);
   bool delete_conversation(uint64_t uid, uint64_t peer);
+  bool delete_account(uint64_t uid);
+  bool update_profile(uint64_t uid, const std::optional<std::string>& nickname,
+                      const std::optional<std::string>& avatar);
+  void blacklist_add(uint64_t owner, uint64_t peer);
+  void blacklist_remove(uint64_t owner, uint64_t peer);
+  bool ready();
 
   UserRepo& users() { return users_; }
   ConversationRepo& conversations() { return conversations_; }

@@ -263,7 +263,7 @@ void WsSession::on_frame(const std::string& payload) {
     if (type != "auth") {
       send_raw(error_frame(40001, "请先发送 auth 帧"));
       close_code_ = 4002;
-      do_write();
+
       return;
     }
     handle_auth(frame);
@@ -299,7 +299,7 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
   if (!ip_counter_.allow_auth(client_ip_, now_ms())) {
     send_raw(error_frame(42901, "认证过于频繁"));
     close_code_ = 4002;
-    do_write();
+
     return;
   }
   std::string token;
@@ -308,7 +308,7 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
   } catch (const std::exception&) {
     send_raw(error_frame(40101, "缺少 token"));
     close_code_ = 4002;
-    do_write();
+
     return;
   }
 
@@ -316,13 +316,13 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
   if (!claims.has_value()) {
     send_raw(error_frame(40101, "登录已过期"));
     close_code_ = 4002;
-    do_write();
+
     return;
   }
   if (redis_.get("im:block:" + std::to_string(claims->uid)).has_value()) {
     send_raw(error_frame(40301, "账号已被封禁"));
     close_code_ = 4003;
-    do_write();
+
     return;
   }
 

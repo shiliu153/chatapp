@@ -9,9 +9,13 @@
 #include <stdexcept>
 #include <string>
 
+#include <openssl/crypto.h>
 #include <nlohmann/json.hpp>
 
 #include "auth/token.h"
+#include "net/frames.h"
+#include "util/hmac.h"
+#include "util/uuid.h"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -19,11 +23,6 @@ namespace net = boost::asio;
 using tcp = net::ip::tcp;
 
 namespace {
-
-struct Target {
-  std::string path;
-  std::map<std::string, std::string> query;
-};
 
 Target parse_target(const std::string& target) {
   Target parsed;
@@ -124,7 +123,10 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
     if (ec) {
       return;
     }
-    auto response = std::make_shared<HttpApi::response_type>(api_.handle(request_));
+    boost::system::error_code endpoint_error;
+    const auto endpoint = socket_.remote_endpoint(endpoint_error);
+    const bool loopback = !endpoint_error && endpoint.address().is_loopback();
+    auto response = std::make_shared<HttpApi::response_type>(api_.handle(request_, loopback));
     auto self = shared_from_this();
     http::async_write(socket_, *response,
                       [self, response](beast::error_code error, std::size_t written) {
@@ -143,8 +145,9 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
 };
 
 HttpApi::HttpApi(net::io_context& io, const Config& cfg, MessageService& messages,
-                 RedisClient& redis)
-    : io_(io), acceptor_(io), cfg_(cfg), messages_(messages), redis_(redis) {}
+                 SessionRegistry& registry, RedisClient& redis)
+    : io_(io), acceptor_(io), cfg_(cfg), messages_(messages), registry_(registry),
+      redis_(redis) {}
 
 void HttpApi::start() {
   const auto colon = cfg_.listen_http.rfind(':');
@@ -207,19 +210,164 @@ HttpApi::response_type HttpApi::error_response(
   return response;
 }
 
+HttpApi::response_type HttpApi::json_response(
+    const http::request<http::string_body>& req, http::status status,
+    const nlohmann::json& body) {
+  response_type response(status, req.version());
+  response.set(http::field::content_type, "application/json");
+  response.body() = body.dump();
+  response.prepare_payload();
+  return response;
+}
+
 HttpApi::response_type HttpApi::handle(
-    const http::request<http::string_body>& req) {
+    const http::request<http::string_body>& req, bool loopback) {
   try {
-    return route(req);
+    return route(req, loopback);
   } catch (const std::exception&) {
     return error_response(req, http::status::internal_server_error, 50001, "内部错误");
   }
 }
 
-HttpApi::response_type HttpApi::route(const http::request<http::string_body>& req) {
+bool HttpApi::verify_internal(const http::request<http::string_body>& req) {
+  const auto timestamp = std::string(req["X-IM-Timestamp"]);
+  const auto signature = std::string(req["X-IM-Signature"]);
+  if (timestamp.empty() || signature.empty()) {
+    return false;
+  }
+  int64_t ts = 0;
+  try {
+    ts = std::stoll(timestamp);
+  } catch (const std::exception&) {
+    return false;
+  }
+  const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+  if (ts < now - 60 || ts > now + 60) {
+    return false;
+  }
+  const std::string data = timestamp + "\n" + std::string(req.method_string()) + "\n" +
+                           std::string(req.target()) + "\n" + req.body();
+  const auto expected = hmac_sha256_hex(cfg_.internal_secret, data);
+  return expected.size() == signature.size() &&
+         CRYPTO_memcmp(expected.data(), signature.data(), expected.size()) == 0;
+}
+
+HttpApi::response_type HttpApi::internal_route(
+    const http::request<http::string_body>& req, const Target& target) {
+  if (target.path == "/internal/healthz") {
+    return json_response(req, http::status::ok, {{"ok", true}});
+  }
+  if (target.path == "/internal/readyz") {
+    const bool ready = messages_.ready() && redis_.ping();
+    return json_response(req, ready ? http::status::ok : http::status::service_unavailable,
+                         {{"ok", ready}});
+  }
+  if (target.path == "/internal/stats") {
+    return json_response(req, http::status::ok,
+                         {{"online", registry_.online_count()}});
+  }
+
+  nlohmann::json body;
+  try {
+    body = req.body().empty() ? nlohmann::json::object()
+                              : nlohmann::json::parse(req.body());
+  } catch (const std::exception&) {
+    return error_response(req, http::status::unprocessable_entity, 42201, "body 不合法");
+  }
+
+  try {
+    if (target.path == "/internal/accounts/ensure") {
+      messages_.users().ensure(body.at("uid").get<uint64_t>(),
+                               body.value("nickname", std::string()));
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
+    if (target.path == "/internal/profile") {
+      std::optional<std::string> nickname;
+      std::optional<std::string> avatar;
+      if (body.contains("nickname")) {
+        nickname = body["nickname"].get<std::string>();
+      }
+      if (body.contains("avatar")) {
+        avatar = body["avatar"].get<std::string>();
+      }
+      messages_.update_profile(body.at("uid").get<uint64_t>(), nickname, avatar);
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
+    if (target.path == "/internal/send") {
+      SendRequest request;
+      request.from = body.at("from").get<uint64_t>();
+      request.to = body.at("to").get<uint64_t>();
+      request.client_msg_id = "sys-" + random_uuid();
+      const auto kind = body.value("kind", std::string("text"));
+      nlohmann::json custom = nlohmann::json::object();
+      if (kind == "text") {
+        request.text = body.value("text", std::string());
+      } else {
+        custom = body.at("custom");
+        request.text = custom.value("desc", std::string());
+      }
+      const auto result = messages_.send(request);
+      if (const auto* ok = std::get_if<SendResult>(&result)) {
+        registry_.send_to(request.to,
+                          build_message_frame(*ok, request.from, request.to, kind,
+                                              request.text, custom));
+        return json_response(req, http::status::ok,
+                             {{"ok", true},
+                              {"msg_id", std::to_string(ok->msg_id)},
+                              {"seq", ok->seq}});
+      }
+      return error_response(req, http::status::bad_request, std::get<int>(result),
+                            "发送失败");
+    }
+    if (target.path == "/internal/blacklist") {
+      const auto owner = body.at("owner").get<uint64_t>();
+      const auto peer = body.at("peer").get<uint64_t>();
+      if (body.value("action", std::string("add")) == "add") {
+        messages_.blacklist_add(owner, peer);
+      } else {
+        messages_.blacklist_remove(owner, peer);
+      }
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
+    if (target.path == "/internal/kick") {
+      const auto uid = body.at("uid").get<uint64_t>();
+      registry_.kick(uid, "banned");
+      if (body.value("block", false)) {
+        redis_.setex("im:block:" + std::to_string(uid), 86400, "1");
+      }
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
+    if (target.path == "/internal/unblock") {
+      redis_.del("im:block:" + std::to_string(body.at("uid").get<uint64_t>()));
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
+    if (target.path == "/internal/delete_account") {
+      const auto uid = body.at("uid").get<uint64_t>();
+      registry_.kick(uid, "deleted");
+      redis_.setex("im:block:" + std::to_string(uid), 86400, "1");
+      const bool ok = messages_.delete_account(uid);
+      return json_response(req, ok ? http::status::ok : http::status::internal_server_error,
+                           {{"ok", ok}});
+    }
+  } catch (const std::exception&) {
+    return error_response(req, http::status::unprocessable_entity, 42201, "参数不合法");
+  }
+  return error_response(req, http::status::not_found, 40401, "not found");
+}
+
+HttpApi::response_type HttpApi::route(const http::request<http::string_body>& req,
+                                      bool loopback) {
   const auto target = parse_target(std::string(req.target()));
   if (target.path.rfind("/internal/", 0) == 0) {
-    return error_response(req, http::status::not_found, 40401, "not found");
+    if (!loopback) {
+      return error_response(req, http::status::forbidden, 40301, "forbidden");
+    }
+    if (!verify_internal(req)) {
+      return error_response(req, http::status::unauthorized, 40101, "bad signature");
+    }
+    return internal_route(req, target);
   }
   if (target.path != "/im/api/conversations" && target.path != "/im/api/messages") {
     return error_response(req, http::status::not_found, 40401, "not found");

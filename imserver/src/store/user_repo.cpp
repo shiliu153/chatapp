@@ -55,6 +55,12 @@ std::optional<UserRow> UserRepo::get(uint64_t uid) {
   return get(lease, uid);
 }
 
+void UserRepo::remove(MysqlPool::Lease& lease, uint64_t uid) {
+  Stmt stmt(lease.get(), "DELETE FROM im_user WHERE user_id=?");
+  stmt.bind_uint(0, uid);
+  stmt.execute();
+}
+
 void UserRepo::update_profile(MysqlPool::Lease& lease, uint64_t uid,
                               const std::optional<std::string>& nickname,
                               const std::optional<std::string>& avatar, int64_t now) {

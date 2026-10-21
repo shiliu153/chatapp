@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
     boost::asio::thread_pool db_pool(static_cast<std::size_t>(cfg.db_threads));
     WsServer server(io, cfg, registry, redis, message_service, db_pool);
     server.start();
-    HttpApi http(io, cfg, message_service, redis);
+    HttpApi http(io, cfg, message_service, registry, redis);
     http.start();
 
     boost::asio::signal_set signals(io, SIGINT, SIGTERM);

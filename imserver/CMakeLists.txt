@@ -28,8 +28,10 @@ add_library(imcore STATIC
   src/store/redis_client.cpp
   src/store/stmt.cpp
   src/store/user_repo.cpp
+  src/util/hmac.cpp
   src/util/log.cpp
   src/util/ratelimit.cpp
+  src/util/uuid.cpp
 )
 target_include_directories(imcore PUBLIC src ${MYSQLCLIENT_INCLUDE_DIRS} ${HIREDIS_INCLUDE_DIRS})
 target_link_libraries(imcore PUBLIC

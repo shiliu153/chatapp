@@ -17,6 +17,7 @@ class UserRepo {
   void update_profile(MysqlPool::Lease& lease, uint64_t uid,
                       const std::optional<std::string>& nickname,
                       const std::optional<std::string>& avatar, int64_t now_ms);
+  void remove(MysqlPool::Lease& lease, uint64_t uid);
 
  private:
   MysqlPool& pool_;

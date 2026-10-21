@@ -128,6 +128,56 @@ bool MessageService::delete_conversation(uint64_t uid, uint64_t peer) {
   return true;
 }
 
+bool MessageService::delete_account(uint64_t uid) {
+  auto lease = pool_.acquire();
+  try {
+    lease.begin();
+    messages_.delete_for_user(lease, uid);
+    conversations_.delete_for_user(lease, uid);
+    blacklist_.delete_for_user(lease, uid);
+    users_.remove(lease, uid);
+    lease.commit();
+    return true;
+  } catch (const std::exception& error) {
+    try {
+      lease.rollback();
+    } catch (const std::exception&) {
+    }
+    log_error("delete_account_failed", {{"uid", std::to_string(uid)}, {"error", error.what()}});
+    return false;
+  }
+}
+
+bool MessageService::update_profile(uint64_t uid,
+                                    const std::optional<std::string>& nickname,
+                                    const std::optional<std::string>& avatar) {
+  auto lease = pool_.acquire();
+  users_.update_profile(lease, uid, nickname, avatar, now_ms());
+  return true;
+}
+
+void MessageService::blacklist_add(uint64_t owner, uint64_t peer) {
+  blacklist_.add(owner, peer);
+}
+
+void MessageService::blacklist_remove(uint64_t owner, uint64_t peer) {
+  auto lease = pool_.acquire();
+  blacklist_.remove(lease, owner, peer);
+}
+
+bool MessageService::ready() {
+  try {
+    auto lease = pool_.acquire();
+    auto* result = lease.query("SELECT 1");
+    if (result != nullptr) {
+      mysql_free_result(result);
+    }
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
 std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
   const auto text = trim(request.text);
   if (request.to == 0 || request.from == request.to || text.empty() ||

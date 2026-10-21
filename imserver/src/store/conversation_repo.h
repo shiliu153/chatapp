@@ -22,6 +22,7 @@ class ConversationRepo {
                  int64_t now_ms);
   void set_deleted(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer, int64_t now_ms);
   std::vector<ConversationView> list(MysqlPool::Lease& lease, uint64_t owner, int limit);
+  void delete_for_user(MysqlPool::Lease& lease, uint64_t uid);
 
  private:
   MysqlPool& pool_;
