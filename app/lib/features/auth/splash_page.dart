@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/app_config.dart';
+import '../../core/app_info.dart';
+import '../../core/providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -22,8 +25,39 @@ class SplashPage extends ConsumerStatefulWidget {
   ConsumerState<SplashPage> createState() => _SplashPageState();
 }
 
+class _ForceUpdateView extends StatelessWidget {
+  const _ForceUpdateView({required this.config});
+
+  final AppConfig config;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        key: const Key('splash.forceUpdate'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const AppBrandMark(key: Key('splash.brand')),
+          const SizedBox(height: AppSpacing.lg),
+          Text('需要更新后才能继续使用',
+              style: AppText.title.copyWith(color: AppColors.text1)),
+          const SizedBox(height: AppSpacing.sm),
+          Text('当前版本 $appVersion,最低要求 ${config.minAppVersion}',
+              textAlign: TextAlign.center,
+              style: AppText.caption.copyWith(color: AppColors.text2)),
+          if (config.downloadUrl.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.xxl),
+            AppButton(
+              key: const Key('splash.download'),
+              label: '复制下载地址',
+              onPressed: () => Clipboard.setData(ClipboardData(text: config.downloadUrl)),
+            ),
+          ],
+        ],
+      );
+}
+
 class _SplashPageState extends ConsumerState<SplashPage> {
   bool _agreementDeclined = false;
+  AppConfig? _forceUpdate;
 
   @override
   void initState() {
@@ -34,6 +68,12 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 
   Future<void> _start() async {
     if (_agreementDeclined) setState(() => _agreementDeclined = false);
+    final config = await fetchAppConfig(ref.read(apiClientProvider));
+    if (!mounted) return;
+    if (config != null && isOutdated(current: appVersion, min: config.minAppVersion)) {
+      setState(() => _forceUpdate = config);
+      return;
+    }
     if (!await hasAgreedToLegal()) {
       if (!mounted) return;
       final accepted = await showAgreementDialog(context);
@@ -61,6 +101,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.xxl),
           child: switch (session) {
+            _ when _forceUpdate != null => _ForceUpdateView(config: _forceUpdate!),
             SessionBootFailed(:final message) => AppErrorView(
                 message: message,
                 retryKey: const Key('splash.retry'),

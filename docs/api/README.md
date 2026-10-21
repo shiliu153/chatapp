@@ -17,11 +17,12 @@
 | [feedback.md](feedback.md) | 意见反馈 |
 | [feed.md](feed.md) | 广场动态 |
 | [im.md](im.md) | IM 会话凭证 |
+| [app.md](app.md) | 应用版本配置(启动时最小版本拦截) |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
 
 ## 接口一览
 
-共 **38** 个接口(按「方法 + 路径」计)。
+共 **39** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -44,6 +45,7 @@
 | GET | `/api/v1/matches` | 配对列表(分页) | [discovery](discovery.md) |
 | DELETE | `/api/v1/matches/{user_id}` | 解除配对 | [discovery](discovery.md) |
 | POST | `/api/v1/im/user_sig` | 获取 IM userSig | [im](im.md) |
+| GET | `/api/v1/app/config` | 获取应用最低版本配置 | [app](app.md) |
 | POST | `/api/v1/reports` | 举报用户 | [moderation](moderation.md) |
 | POST | `/api/v1/feedback` | 提交意见反馈 | [feedback](feedback.md) |
 | GET | `/api/v1/blocks` | 拉黑列表(分页) | [moderation](moderation.md) |

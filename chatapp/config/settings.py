@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "notifications",
     "feed",
     "feedback",
+    "appconfig",
 ]
 
 MIDDLEWARE = [
@@ -308,6 +309,11 @@ IM_SELF_GRAYLIST = os.getenv("IM_SELF_GRAYLIST", "")
 if IM_BACKEND == "self" and not (IM_SELF_SECRET and IM_SELF_INTERNAL_SECRET
                                  and IM_SELF_WS_URL and IM_SELF_HTTP_URL):
     raise ImproperlyConfigured("IM_BACKEND=self 需要完整的 IM_SELF_* 配置")
+
+# --- 客户端最小版本(全量切换前必须能挡住旧版本)---
+MIN_APP_VERSION = os.getenv("MIN_APP_VERSION", "1.0.0")
+LATEST_APP_VERSION = os.getenv("LATEST_APP_VERSION", "1.0.0")
+APP_DOWNLOAD_URL = os.getenv("APP_DOWNLOAD_URL", "")
 
 # --- 照片 ---
 AUTO_APPROVE = os.getenv("AUTO_APPROVE", "1") == "1"   # 开发期自动过审;上线接内容安全 API 后置 0
