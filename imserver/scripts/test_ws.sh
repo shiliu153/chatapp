@@ -13,3 +13,4 @@ for i in $(seq 1 30); do
   sleep 0.2
 done
 python3 /src/tests/integration/test_ws.py
+python3 /src/tests/integration/test_send.py

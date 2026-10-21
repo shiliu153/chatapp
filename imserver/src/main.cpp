@@ -1,5 +1,6 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
+#include <boost/asio/thread_pool.hpp>
 
 #include <csignal>
 #include <iostream>
@@ -10,8 +11,14 @@
 #include "config.h"
 #include "migrate.h"
 #include "net/ws_server.h"
+#include "service/message_service.h"
 #include "service/session_registry.h"
+#include "store/blacklist_repo.h"
+#include "store/conversation_repo.h"
+#include "store/message_repo.h"
+#include "store/mysql_pool.h"
 #include "store/redis_client.h"
+#include "store/user_repo.h"
 #include "util/log.h"
 
 int main(int argc, char** argv) {
@@ -25,10 +32,19 @@ int main(int argc, char** argv) {
       return 0;
     }
 
+    MysqlPool mysql(parse_mysql_dsn(cfg.mysql_dsn), cfg.db_pool);
+    UserRepo users(mysql);
+    ConversationRepo conversations(mysql);
+    MessageRepo messages(mysql);
+    BlacklistRepo blacklist(mysql);
+    MessageService message_service(mysql, users, conversations, messages, blacklist,
+                                   cfg.text_max);
+
     RedisClient redis(cfg.redis_url);
     SessionRegistry registry(redis);
     boost::asio::io_context io;
-    WsServer server(io, cfg, registry, redis);
+    boost::asio::thread_pool db_pool(static_cast<std::size_t>(cfg.db_threads));
+    WsServer server(io, cfg, registry, redis, message_service, db_pool);
     server.start();
 
     boost::asio::signal_set signals(io, SIGINT, SIGTERM);
@@ -47,6 +63,7 @@ int main(int argc, char** argv) {
     for (auto& thread : threads) {
       thread.join();
     }
+    db_pool.join();
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "fatal: " << error.what() << "\n";

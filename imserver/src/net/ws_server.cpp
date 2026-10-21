@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "auth/token.h"
+#include "net/frames.h"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -65,12 +66,15 @@ bool IpCounter::allow_auth(const std::string& ip, int64_t now_ms) {
 }
 
 WsSession::WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
-                     RedisClient& redis, IpCounter& ip_counter)
+                     RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
+                     boost::asio::thread_pool& db_pool)
     : ws_(std::move(socket)),
       cfg_(cfg),
       registry_(registry),
       redis_(redis),
       ip_counter_(ip_counter),
+      messages_(messages),
+      db_pool_(db_pool),
       auth_timer_(ws_.get_executor()),
       idle_timer_(ws_.get_executor()) {}
 
@@ -253,7 +257,7 @@ void WsSession::on_frame(const std::string& payload) {
     return;
   }
   if (type == "send") {
-    send_raw(error_frame(50001, "发送功能尚未启用"));
+    handle_send(frame);
     return;
   }
   send_raw(error_frame(42201, "未知帧类型"));
@@ -300,6 +304,67 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
                                     {"server_time", now_ms()},
                                     {"heartbeat_sec", 25}}}}
                .dump());
+}
+
+void WsSession::handle_send(const nlohmann::json& frame) {
+  if (!send_bucket_.allow(now_ms())) {
+    send_raw(error_frame(42901, "发送过快"));
+    return;
+  }
+  try {
+    const auto data = frame.at("data");
+    const auto to = data.value("to", std::string());
+    if (to.size() < 2 || to[0] != 'u') {
+      send_raw(error_frame(42201, "接收方不合法"));
+      return;
+    }
+    const uint64_t to_uid = std::stoull(to.substr(1));
+    if (data.value("kind", std::string("text")) != "text") {
+      send_raw(error_frame(42201, "暂不支持该消息类型"));
+      return;
+    }
+    SendRequest request;
+    request.from = uid_;
+    request.to = to_uid;
+    request.client_msg_id = data.value("client_msg_id", frame.value("id", std::string()));
+    request.text = data.value("text", std::string());
+
+    auto self = shared_from_this();
+    boost::asio::post(db_pool_, [self, request] {
+      const auto result = self->messages_.send(request);
+      boost::asio::post(self->ws_.get_executor(),
+                        [self, result, request] { self->on_send_result(result, request); });
+    });
+  } catch (const std::exception&) {
+    send_raw(error_frame(42201, "发送参数错误"));
+  }
+}
+
+void WsSession::on_send_result(const std::variant<SendResult, int>& result,
+                               const SendRequest& request) {
+  if (const auto* ok = std::get_if<SendResult>(&result)) {
+    registry_.send_to(request.to,
+                      build_message_frame(*ok, request.from, request.to, "text",
+                                          request.text, nlohmann::json::object()));
+    send_raw(nlohmann::json{{"v", 1},
+                            {"type", "ack"},
+                            {"id", request.client_msg_id},
+                            {"data", {{"msg_id", std::to_string(ok->msg_id)},
+                                      {"seq", ok->seq},
+                                      {"ts", ok->ts}}}}
+                 .dump());
+    return;
+  }
+  const int code = std::get<int>(result);
+  std::string message = "发送失败";
+  if (code == 40302) {
+    message = "无法发送";
+  } else if (code == 42201) {
+    message = "内容不合法";
+  } else if (code == 42901) {
+    message = "发送过快";
+  }
+  send_raw(error_frame(code, message));
 }
 
 void WsSession::send_raw(std::string frame) {
@@ -399,8 +464,15 @@ void WsSession::kick(const std::string& reason) {
 }
 
 WsServer::WsServer(net::io_context& io, const Config& cfg, SessionRegistry& registry,
-                   RedisClient& redis)
-    : io_(io), acceptor_(io), cfg_(cfg), registry_(registry), redis_(redis) {}
+                   RedisClient& redis, MessageService& messages,
+                   boost::asio::thread_pool& db_pool)
+    : io_(io),
+      acceptor_(io),
+      cfg_(cfg),
+      registry_(registry),
+      redis_(redis),
+      messages_(messages),
+      db_pool_(db_pool) {}
 
 void WsServer::start() {
   const auto colon = cfg_.listen_ws.rfind(':');
@@ -425,7 +497,8 @@ void WsServer::stop() {
 void WsServer::do_accept() {
   acceptor_.async_accept(net::make_strand(io_), [this](error_code ec, tcp::socket socket) {
     if (!ec) {
-      std::make_shared<WsSession>(std::move(socket), cfg_, registry_, redis_, ip_counter_)
+      std::make_shared<WsSession>(std::move(socket), cfg_, registry_, redis_, ip_counter_,
+                                  messages_, db_pool_)
           ->run();
     }
     do_accept();

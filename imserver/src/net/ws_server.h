@@ -2,6 +2,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/thread_pool.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
@@ -16,8 +17,10 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 
 #include "config.h"
+#include "service/message_service.h"
 #include "service/session_registry.h"
 #include "store/redis_client.h"
 #include "util/ratelimit.h"
@@ -40,7 +43,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   using WsStream = boost::beast::websocket::stream<boost::beast::tcp_stream>;
 
   WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
-            RedisClient& redis, IpCounter& ip_counter);
+            RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
+            boost::asio::thread_pool& db_pool);
 
   void run();
   void kick(const std::string& reason);
@@ -53,6 +57,9 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   void on_read(boost::beast::error_code ec, std::size_t bytes);
   void on_frame(const std::string& payload);
   void handle_auth(const nlohmann::json& frame);
+  void handle_send(const nlohmann::json& frame);
+  void on_send_result(const std::variant<SendResult, int>& result,
+                      const SendRequest& request);
   void send_json(const std::string& payload);
   void do_write();
   void on_write(boost::beast::error_code ec, std::size_t bytes);
@@ -83,6 +90,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   SessionRegistry& registry_;
   RedisClient& redis_;
   IpCounter& ip_counter_;
+  MessageService& messages_;
+  boost::asio::thread_pool& db_pool_;
   boost::asio::steady_timer auth_timer_;
   boost::asio::steady_timer idle_timer_;
   std::chrono::steady_clock::time_point last_frame_;
@@ -92,7 +101,7 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
 class WsServer {
  public:
   WsServer(boost::asio::io_context& io, const Config& cfg, SessionRegistry& registry,
-           RedisClient& redis);
+           RedisClient& redis, MessageService& messages, boost::asio::thread_pool& db_pool);
   void start();
   void stop();
 
@@ -104,5 +113,7 @@ class WsServer {
   Config cfg_;
   SessionRegistry& registry_;
   RedisClient& redis_;
+  MessageService& messages_;
+  boost::asio::thread_pool& db_pool_;
   IpCounter ip_counter_;
 };
