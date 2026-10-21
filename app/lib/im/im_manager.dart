@@ -6,10 +6,10 @@ import '../core/api_exception.dart';
 import '../core/providers.dart';
 import 'im_client.dart';
 import 'im_repository.dart';
-import 'tencent_im_client.dart';
+import 'routing_im_client.dart';
 
 /// 真实 IM 客户端(全局单例语义);测试里 override 成 FakeImClient。
-final imClientProvider = Provider<ImClient>((ref) => TencentImClient());
+final imClientProvider = Provider<ImClient>((ref) => RoutingImClient());
 
 sealed class ImStatus {
   const ImStatus();
@@ -106,8 +106,11 @@ class ImManager extends Notifier<ImStatus> {
   Future<void> _loginOnce() async {
     final sig = await ref.read(imRepositoryProvider).fetchUserSig();
     final client = ref.read(imClientProvider);
-    await client.init(sdkAppId: sig.sdkAppId);
-    await client.login(userId: sig.imUserId, userSig: sig.userSig);
+    await client.init(sig.bootstrap);
+    await client.login(
+      userId: sig.imUserId,
+      userSig: sig.token.isNotEmpty ? sig.token : sig.userSig,
+    );
     state = ImLoggedIn(sig.imUserId);
   }
 

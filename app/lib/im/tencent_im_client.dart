@@ -12,6 +12,7 @@ import 'package:tencent_cloud_chat_sdk/models/v2_tim_message.dart'
     if (dart.library.html) 'package:tencent_cloud_chat_sdk/web/compatible_models/v2_tim_message.dart';
 import 'package:tencent_cloud_chat_sdk/tencent_im_sdk_plugin.dart';
 
+import 'im_bootstrap.dart';
 import 'im_client.dart';
 
 /// SDK 消息对象 → 领域模型。纯函数,单测直接构造 SDK 对象就能测。
@@ -99,11 +100,14 @@ class TencentImClient extends ImClient {
   Stream<ImEvent> get events => _events.stream;
 
   @override
-  Future<void> init({required int sdkAppId}) async {
+  ImCapabilities get capabilities => const ImCapabilities(image: true);
+
+  @override
+  Future<void> init(ImBootstrap bootstrap) async {
     if (_initialized) return;
     final manager = TencentImSDKPlugin.v2TIMManager;
     final result = await manager.initSDK(
-      sdkAppID: sdkAppId,
+      sdkAppID: bootstrap.sdkAppId,
       loglevel: LogLevelEnum.V2TIM_LOG_INFO,
       listener: V2TimSDKListener(
         onUserSigExpired: () => _events.add(const ImSigExpired()),
@@ -163,7 +167,8 @@ class TencentImClient extends ImClient {
   }
 
   @override
-  Future<ChatMessage> sendText({required String peerId, required String text}) async {
+  Future<ChatMessage> sendText({required String peerId, required String text,
+      String? clientMsgId}) async {
     final manager = TencentImSDKPlugin.v2TIMManager.getMessageManager();
     final created = await manager.createTextMessage(text: text);
     _check(created.code, created.desc);

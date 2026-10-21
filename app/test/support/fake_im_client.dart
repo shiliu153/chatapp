@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:chatapp_app/im/im_bootstrap.dart';
 import 'package:chatapp_app/im/im_client.dart';
 
 /// 测试用假 IM 客户端:不碰原生插件,行为可编排,调用有流水可断言。
@@ -35,10 +36,13 @@ class FakeImClient extends ImClient {
   Stream<ImEvent> get events => _events.stream;
 
   @override
-  Future<void> init({required int sdkAppId}) async {
+  ImCapabilities get capabilities => const ImCapabilities(image: true);
+
+  @override
+  Future<void> init(ImBootstrap bootstrap) async {
     if (_initialized) return; // 接口约定 init 幂等,和真实实现保持一致
     _initialized = true;
-    log.add('init:$sdkAppId');
+    log.add('init:${bootstrap.sdkAppId}');
   }
 
   @override
@@ -71,7 +75,8 @@ class FakeImClient extends ImClient {
   }
 
   @override
-  Future<ChatMessage> sendText({required String peerId, required String text}) async {
+  Future<ChatMessage> sendText({required String peerId, required String text,
+      String? clientMsgId}) async {
     log.add('send:$peerId:$text');
     if (sendError != null) throw sendError!;
     return ChatMessage(

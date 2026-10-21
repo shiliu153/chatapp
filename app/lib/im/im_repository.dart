@@ -2,21 +2,47 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api_client.dart';
 import '../core/providers.dart';
+import 'im_bootstrap.dart';
 
 /// POST /im/user_sig 的响应:登录 IM 需要的一组信息。
 class UserSig {
-  const UserSig({required this.userSig, required this.sdkAppId, required this.imUserId});
+  const UserSig({
+    required this.backend,
+    required this.userSig,
+    required this.sdkAppId,
+    required this.token,
+    required this.wsUrl,
+    required this.httpUrl,
+    required this.imUserId,
+  });
 
   factory UserSig.fromJson(Map<String, dynamic> json) => UserSig(
-        userSig: json['user_sig'] as String,
+        backend: (json['backend'] ?? 'tencent') as String,
+        userSig: (json['user_sig'] ?? '') as String,
         // 后端配置里 sdkappid 是字符串,统一转成 int 给 SDK 用
-        sdkAppId: int.parse('${json['sdkappid']}'),
+        sdkAppId: int.tryParse('${json['sdkappid'] ?? 0}') ?? 0,
+        token: (json['token'] ?? '') as String,
+        wsUrl: (json['ws_url'] ?? '') as String,
+        httpUrl: (json['http_url'] ?? '') as String,
         imUserId: json['im_user_id'] as String,
       );
 
+  final String backend;
   final String userSig;
   final int sdkAppId;
+  final String token;
+  final String wsUrl;
+  final String httpUrl;
   final String imUserId;
+
+  ImBootstrap get bootstrap => ImBootstrap(
+        backend: backend == 'self' ? ImBackend.self : ImBackend.tencent,
+        sdkAppId: sdkAppId,
+        token: token,
+        wsUrl: wsUrl,
+        httpUrl: httpUrl,
+        imUserId: imUserId,
+      );
 }
 
 /// GET /matches 的一条:用来把 IM 的 userId 翻译成昵称/头像。

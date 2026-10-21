@@ -1,7 +1,11 @@
 /// IM 领域模型与客户端接口。
 ///
-/// 真实实现在 tencent_im_client.dart(全项目唯一 import 腾讯 SDK 的文件);
-/// 测试用 test/support/fake_im_client.dart —— 原生插件在 flutter test 里跑不起来。
+/// 真实实现:腾讯在 tencent_im_client.dart,自建在 self_im_client.dart;
+/// 登录时由 routing_im_client.dart 按服务端引导包选择。
+library;
+
+import 'im_bootstrap.dart';
+
 enum ChatMessageKind { text, matchNotice, banNotice, image, other }
 
 /// 「系统通知」固定 IM 账号(与后端 im/client.py::SYSTEM_NOTICE_IDENTIFIER 是跨栈契约)。
@@ -136,12 +140,20 @@ class ImException implements Exception {
   String toString() => 'ImException($code, $message)';
 }
 
+class ImCapabilities {
+  const ImCapabilities({required this.image});
+  final bool image;
+}
+
 abstract class ImClient {
   /// 消息/会话/登录态事件流,ImManager 与聊天控制器都订阅它。
   Stream<ImEvent> get events;
 
-  /// 初始化 SDK;重复调用要幂等。
-  Future<void> init({required int sdkAppId});
+  /// 当前后端支持的能力(自建暂不支持图片)。
+  ImCapabilities get capabilities;
+
+  /// 初始化 SDK/连接参数;重复调用要幂等。
+  Future<void> init(ImBootstrap bootstrap);
 
   Future<void> login({required String userId, required String userSig});
 
@@ -153,7 +165,8 @@ abstract class ImClient {
   /// 单聊历史消息,按时间正序(旧 → 新)。
   Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50});
 
-  Future<ChatMessage> sendText({required String peerId, required String text});
+  Future<ChatMessage> sendText({required String peerId, required String text,
+      String? clientMsgId});
 
   Future<ChatMessage> sendImage({required String peerId, required String imagePath});
 
