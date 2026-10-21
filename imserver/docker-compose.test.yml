@@ -32,7 +32,7 @@ services:
     environment:
       IM_MYSQL_DSN: mysql://imserver:imserver@mysql:3306/chatapp_im
       IM_REDIS_URL: redis://redis:6379/2
-      IM_JWT_SECRET: test-jwt-secret
+      IM_JWT_SECRET: test-jwt-secret-0123456789abcdef
       IM_INTERNAL_SECRET: test-internal-secret
       IM_MIGRATIONS_DIR: /src/migrations
     command: bash /src/scripts/test_integration.sh

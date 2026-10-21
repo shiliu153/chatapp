@@ -17,12 +17,16 @@ add_library(imcore STATIC
   src/auth/token.cpp
   src/config.cpp
   src/migrate.cpp
+  src/net/ws_server.cpp
+  src/service/session_registry.cpp
   src/store/mysql_pool.cpp
   src/store/redis_client.cpp
   src/util/log.cpp
+  src/util/ratelimit.cpp
 )
 target_include_directories(imcore PUBLIC src ${MYSQLCLIENT_INCLUDE_DIRS} ${HIREDIS_INCLUDE_DIRS})
 target_link_libraries(imcore PUBLIC
+  Boost::system
   OpenSSL::Crypto
   nlohmann_json::nlohmann_json
   Threads::Threads

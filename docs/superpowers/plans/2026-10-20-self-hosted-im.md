@@ -496,7 +496,7 @@ services:
     environment:
       IM_MYSQL_DSN: mysql://imserver:imserver@mysql:3306/chatapp_im
       IM_REDIS_URL: redis://redis:6379/2
-      IM_JWT_SECRET: test-jwt-secret
+      IM_JWT_SECRET: test-jwt-secret-0123456789abcdef
       IM_INTERNAL_SECRET: test-internal-secret
       IM_MIGRATIONS_DIR: /src/migrations
     command: bash /src/scripts/test_integration.sh
@@ -771,9 +771,13 @@ TEST(RateLimitTest, BurstThenRefill) {
     if (bucket.allow(0)) ++allowed;
   }
   EXPECT_EQ(allowed, 40);
-  EXPECT_TRUE(bucket.allow(1000));   // 1 秒补 20 个
-  EXPECT_TRUE(bucket.allow(1000));
-  EXPECT_FALSE(bucket.allow(1000));
+  int refilled = 0;
+  for (int i = 0; i < 25; ++i) {
+    if (bucket.allow(1000)) {
+      ++refilled;
+    }
+  }
+  EXPECT_EQ(refilled, 20);   // 1 秒补 20 个
 }
 ```
 
