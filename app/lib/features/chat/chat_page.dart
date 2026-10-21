@@ -234,6 +234,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   @override
   Widget build(BuildContext context) {
     final messages = ref.watch(chatProvider(widget.peerId));
+    final imageEnabled = ref.read(imClientProvider).capabilities.image;
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final selfAvatarUrl = ref.watch(profileProvider).value?.avatar?.url;
     final peerName = displayNameFor(cache, widget.peerId, imName: _imNameOf(ref));
@@ -327,13 +328,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             focusNode: _focusNode,
             sending: _sending,
             enabled: !unmatched,
+            showMore: imageEnabled,
             onSend: _send,
             onToggleEmoji: _toggleEmoji,
             onToggleMore: _toggleMore,
           ),
           if (_showEmoji)
             EmojiPanel(onSelect: _insertEmoji)
-          else if (_showMore)
+          else if (_showMore && imageEnabled)
             MorePanel(onPickImage: _pickAndSendImage),
         ],
         ),
@@ -473,6 +475,7 @@ class _InputBar extends StatelessWidget {
     required this.focusNode,
     required this.sending,
     required this.enabled,
+    this.showMore = true,
     required this.onSend,
     required this.onToggleEmoji,
     required this.onToggleMore,
@@ -484,6 +487,9 @@ class _InputBar extends StatelessWidget {
 
   /// 已解除配对时整栏禁用(历史仍可读,但不能再发消息)。
   final bool enabled;
+
+  /// 当前后端是否支持图片;自建后端隐藏「＋」入口。
+  final bool showMore;
   final VoidCallback onSend;
   final VoidCallback onToggleEmoji;
   final VoidCallback onToggleMore;
@@ -568,12 +574,13 @@ class _InputBar extends StatelessWidget {
                     ),
                   ),
                 ),
-                _iconButton(
-                  key: const Key('chat.more.button'),
-                  icon: Icons.add_circle_rounded,
-                  color: AppColors.text2,
-                  onPressed: enabled ? onToggleMore : null,
-                ),
+                if (showMore)
+                  _iconButton(
+                    key: const Key('chat.more.button'),
+                    icon: Icons.add_circle_rounded,
+                    color: AppColors.text2,
+                    onPressed: enabled ? onToggleMore : null,
+                  ),
                 ListenableBuilder(
                   listenable: controller,
                   builder: (context, _) => _iconButton(

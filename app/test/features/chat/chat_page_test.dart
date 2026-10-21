@@ -307,6 +307,12 @@ void main() {
     expect(find.byKey(const Key('chat.image')), findsWidgets);
   });
 
+  testWidgets('自建后端隐藏图片入口', (tester) async {
+    fake.imageCapability = false;
+    await pumpChat(tester);
+    expect(find.byKey(const Key('chat.more.button')), findsNothing);
+  });
+
   testWidgets('点图片气泡 → 打开全屏查看', (tester) async {
     fake.history = {
       'u9': [

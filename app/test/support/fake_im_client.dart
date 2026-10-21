@@ -35,8 +35,11 @@ class FakeImClient extends ImClient {
   @override
   Stream<ImEvent> get events => _events.stream;
 
+  /// 自建后端下置 false,用来测图片入口隐藏。
+  bool imageCapability = true;
+
   @override
-  ImCapabilities get capabilities => const ImCapabilities(image: true);
+  ImCapabilities get capabilities => ImCapabilities(image: imageCapability);
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {

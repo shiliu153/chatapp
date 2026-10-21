@@ -15,12 +15,15 @@ import UnmatchDialog from './UnmatchDialog.vue'
 import { formatTime, shouldShowTime } from './time'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
+import { getImClient } from '@/im/client'
 
 const props = defineProps<{ peerId: string }>()
 
 const store = useChatStore()
 const discovery = useDiscoveryStore()
 const router = useRouter()
+const client = getImClient()
+const imageEnabled = computed(() => client.capabilities.image)
 const draft = ref('')
 const sending = ref(false)
 const scroller = ref<HTMLElement | null>(null)
@@ -245,6 +248,7 @@ async function onPickImage(event: Event) {
 
     <footer class="chat__composer">
       <input
+        v-if="imageEnabled"
         ref="picker"
         type="file"
         accept="image/*"
@@ -252,6 +256,7 @@ async function onPickImage(event: Event) {
         @change="onPickImage"
       />
       <button
+        v-if="imageEnabled"
         type="button"
         class="chat__image"
         aria-label="发送图片"
