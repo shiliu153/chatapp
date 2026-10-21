@@ -58,6 +58,9 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   void on_frame(const std::string& payload);
   void handle_auth(const nlohmann::json& frame);
   void handle_send(const nlohmann::json& frame);
+  void handle_read(const nlohmann::json& frame);
+  void handle_revoke(const nlohmann::json& frame);
+  void handle_delete(const nlohmann::json& frame);
   void on_send_result(const std::variant<SendResult, int>& result,
                       const SendRequest& request);
   void send_json(const std::string& payload);

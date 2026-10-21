@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "migrate.h"
+#include "net/http_api.h"
 #include "net/ws_server.h"
 #include "service/message_service.h"
 #include "service/session_registry.h"
@@ -46,11 +47,14 @@ int main(int argc, char** argv) {
     boost::asio::thread_pool db_pool(static_cast<std::size_t>(cfg.db_threads));
     WsServer server(io, cfg, registry, redis, message_service, db_pool);
     server.start();
+    HttpApi http(io, cfg, message_service, redis);
+    http.start();
 
     boost::asio::signal_set signals(io, SIGINT, SIGTERM);
-    signals.async_wait([&server, &io](const boost::system::error_code& ec, int) {
+    signals.async_wait([&server, &http, &io](const boost::system::error_code& ec, int) {
       if (!ec) {
         server.stop();
+        http.stop();
         io.stop();
       }
     });

@@ -79,6 +79,18 @@ std::optional<MessageRow> MessageRepo::find_by_client(uint64_t from_id,
   return find_by_client(lease, from_id, client_msg_id);
 }
 
+std::optional<MessageRow> MessageRepo::get(MysqlPool::Lease& lease, uint64_t msg_id) {
+  auto* result = lease.query(std::string(kSelect) + "WHERE msg_id=" + std::to_string(msg_id));
+  std::optional<MessageRow> row;
+  if (result != nullptr) {
+    if (MYSQL_ROW values = mysql_fetch_row(result)) {
+      row = parse_row(values);
+    }
+    mysql_free_result(result);
+  }
+  return row;
+}
+
 std::vector<MessageRow> MessageRepo::list(MysqlPool::Lease& lease, uint64_t conv_id,
                                           uint64_t before_seq, int limit) {
   limit = std::clamp(limit, 1, 100);

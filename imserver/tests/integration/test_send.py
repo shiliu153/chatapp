@@ -36,8 +36,10 @@ async def recv_until(ws, type_):
 
 
 async def main():
-    sender = await auth(101)
-    receiver = await auth(102)
+    base = 1000 + (int(time.time() * 1000) + os.getpid()) % 100000
+    sender_uid, receiver_uid = base, base + 1
+    sender = await auth(sender_uid)
+    receiver = await auth(receiver_uid)
 
     await sender.send(
         json.dumps(
@@ -45,7 +47,7 @@ async def main():
                 "v": 1,
                 "type": "send",
                 "id": "c-1",
-                "data": {"to": "u102", "kind": "text", "text": "你好"},
+                "data": {"to": f"u{receiver_uid}", "kind": "text", "text": "你好"},
             }
         )
     )
@@ -55,7 +57,7 @@ async def main():
 
     push = await recv_until(receiver, "message")
     assert push["data"]["text"] == "你好"
-    assert push["data"]["from"] == "u101"
+    assert push["data"]["from"] == f"u{sender_uid}"
     assert push["data"]["seq"] == 1
 
     await sender.send(
@@ -64,7 +66,7 @@ async def main():
                 "v": 1,
                 "type": "send",
                 "id": "c-1",
-                "data": {"to": "u102", "kind": "text", "text": "你好"},
+                "data": {"to": f"u{receiver_uid}", "kind": "text", "text": "你好"},
             }
         )
     )

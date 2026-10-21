@@ -17,6 +17,7 @@ class MessageRepo {
   std::optional<MessageRow> find_by_client(MysqlPool::Lease& lease, uint64_t from_id,
                                            const std::string& client_msg_id);
   std::optional<MessageRow> find_by_client(uint64_t from_id, const std::string& client_msg_id);
+  std::optional<MessageRow> get(MysqlPool::Lease& lease, uint64_t msg_id);
   std::vector<MessageRow> list(MysqlPool::Lease& lease, uint64_t conv_id, uint64_t before_seq,
                                int limit);
   void revoke(MysqlPool::Lease& lease, uint64_t msg_id, int64_t now_ms);

@@ -17,6 +17,7 @@ add_library(imcore STATIC
   src/auth/token.cpp
   src/config.cpp
   src/migrate.cpp
+  src/net/http_api.cpp
   src/net/ws_server.cpp
   src/service/message_service.cpp
   src/service/session_registry.cpp

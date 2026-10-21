@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include "store/models.h"
 #include "store/mysql_pool.h"
@@ -20,6 +21,7 @@ class ConversationRepo {
   void mark_read(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer, uint64_t seq,
                  int64_t now_ms);
   void set_deleted(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer, int64_t now_ms);
+  std::vector<ConversationView> list(MysqlPool::Lease& lease, uint64_t owner, int limit);
 
  private:
   MysqlPool& pool_;

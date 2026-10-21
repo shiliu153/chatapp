@@ -72,6 +72,62 @@ MessageService::MessageService(MysqlPool& pool, UserRepo& users,
       blacklist_(blacklist),
       text_max_(text_max) {}
 
+std::vector<ConversationView> MessageService::list_conversations(uint64_t uid, int limit) {
+  auto lease = pool_.acquire();
+  return conversations_.list(lease, uid, limit);
+}
+
+std::vector<MessageRow> MessageService::list_messages(uint64_t uid, uint64_t peer,
+                                                      uint64_t before_seq, int limit) {
+  auto lease = pool_.acquire();
+  const auto conversation = conversations_.find_pair(lease, uid, peer);
+  if (!conversation.has_value()) {
+    return {};
+  }
+  return messages_.list(lease, conversation->id, before_seq, limit);
+}
+
+bool MessageService::mark_read(uint64_t uid, uint64_t peer, uint64_t seq) {
+  auto lease = pool_.acquire();
+  const auto conversation = conversations_.find_pair(lease, uid, peer);
+  if (!conversation.has_value()) {
+    return false;
+  }
+  const uint64_t target = seq == 0 ? conversation->last_seq : seq;
+  conversations_.mark_read(lease, uid, peer, target, now_ms());
+  return true;
+}
+
+std::variant<RevokeResult, int> MessageService::revoke(uint64_t uid, uint64_t msg_id) {
+  auto lease = pool_.acquire();
+  const auto message = messages_.get(lease, msg_id);
+  if (!message.has_value() || message->from_id != uid || message->revoked_at.has_value()) {
+    return 41001;
+  }
+  const int64_t now = now_ms();
+  if (now - message->created_at > 120000) {
+    return 41001;
+  }
+  messages_.revoke(lease, msg_id, now);
+  RevokeResult result;
+  result.msg_id = message->msg_id;
+  result.seq = message->seq;
+  result.from_id = message->from_id;
+  result.to_id = message->to_id;
+  result.ts = now;
+  return result;
+}
+
+bool MessageService::delete_conversation(uint64_t uid, uint64_t peer) {
+  auto lease = pool_.acquire();
+  const auto conversation = conversations_.find_pair(lease, uid, peer);
+  if (!conversation.has_value()) {
+    return false;
+  }
+  conversations_.set_deleted(lease, uid, peer, now_ms());
+  return true;
+}
+
 std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
   const auto text = trim(request.text);
   if (request.to == 0 || request.from == request.to || text.empty() ||
@@ -83,6 +139,9 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
   try {
     lease.begin();
     users_.ensure(lease, request.to, "");
+    if (request.from != 0) {
+      users_.ensure(lease, request.from, "");
+    }
     if (request.from != 0 && blacklist_.exists_either(lease, request.from, request.to)) {
       lease.rollback();
       return 40302;

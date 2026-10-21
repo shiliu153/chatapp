@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <variant>
+#include <vector>
 
 #include "store/blacklist_repo.h"
 #include "store/conversation_repo.h"
@@ -31,6 +32,12 @@ class MessageService {
                  std::size_t text_max = 2000);
 
   std::variant<SendResult, int> send(const SendRequest& request);
+  std::vector<ConversationView> list_conversations(uint64_t uid, int limit);
+  std::vector<MessageRow> list_messages(uint64_t uid, uint64_t peer, uint64_t before_seq,
+                                        int limit);
+  bool mark_read(uint64_t uid, uint64_t peer, uint64_t seq);
+  std::variant<RevokeResult, int> revoke(uint64_t uid, uint64_t msg_id);
+  bool delete_conversation(uint64_t uid, uint64_t peer);
 
   UserRepo& users() { return users_; }
   ConversationRepo& conversations() { return conversations_; }

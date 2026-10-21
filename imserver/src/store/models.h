@@ -39,3 +39,20 @@ struct MessageRow {
   int64_t created_at = 0;
   std::optional<int64_t> revoked_at;
 };
+
+struct ConversationView {
+  UserRow peer;
+  bool has_last = false;
+  MessageRow last;
+  uint32_t unread = 0;
+  uint64_t last_seq = 0;
+  int64_t updated_at = 0;
+};
+
+struct RevokeResult {
+  uint64_t msg_id = 0;
+  uint64_t seq = 0;
+  uint64_t from_id = 0;
+  uint64_t to_id = 0;
+  int64_t ts = 0;
+};

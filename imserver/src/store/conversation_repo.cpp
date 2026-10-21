@@ -170,3 +170,56 @@ void ConversationRepo::set_deleted(MysqlPool::Lease& lease, uint64_t owner, uint
   stmt.bind_uint(3, user_b);
   stmt.execute();
 }
+
+std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, uint64_t owner,
+                                                     int limit) {
+  limit = std::clamp(limit, 1, 200);
+  const std::string sql =
+      "SELECT u.user_id,u.nickname,u.avatar_url,"
+      "IFNULL(m.msg_id,0),IFNULL(m.conv_id,0),IFNULL(m.seq,0),IFNULL(m.from_id,0),"
+      "IFNULL(m.to_id,0),IFNULL(m.kind,1),IFNULL(m.body,''),"
+      "IFNULL(m.client_msg_id,''),IFNULL(m.created_at,0),m.revoked_at,"
+      "s.unread,c.last_seq,s.updated_at "
+      "FROM im_conversation_state s "
+      "JOIN im_conversation c ON c.id=s.conv_id "
+      "JOIN im_user u ON u.user_id=IF(c.user_a=" + std::to_string(owner) +
+      ",c.user_b,c.user_a) "
+      "LEFT JOIN im_message m ON m.msg_id=c.last_msg_id "
+      "WHERE s.owner_id=" + std::to_string(owner) +
+      " AND s.deleted=0 ORDER BY c.last_msg_at DESC LIMIT " + std::to_string(limit);
+
+  std::vector<ConversationView> rows;
+  auto* result = lease.query(sql);
+  if (result == nullptr) {
+    return rows;
+  }
+  while (MYSQL_ROW values = mysql_fetch_row(result)) {
+    ConversationView view;
+    view.peer.id = std::stoull(values[0]);
+    view.peer.nickname = values[1] == nullptr ? "" : values[1];
+    view.peer.avatar = values[2] == nullptr ? "" : values[2];
+
+    const uint64_t msg_id = std::stoull(values[3]);
+    view.has_last = msg_id != 0;
+    if (view.has_last) {
+      view.last.msg_id = msg_id;
+      view.last.conv_id = std::stoull(values[4]);
+      view.last.seq = std::stoull(values[5]);
+      view.last.from_id = std::stoull(values[6]);
+      view.last.to_id = std::stoull(values[7]);
+      view.last.kind = std::stoi(values[8]);
+      view.last.body = values[9] == nullptr ? "" : values[9];
+      view.last.client_msg_id = values[10] == nullptr ? "" : values[10];
+      view.last.created_at = std::stoll(values[11]);
+      if (values[12] != nullptr) {
+        view.last.revoked_at = std::stoll(values[12]);
+      }
+    }
+    view.unread = static_cast<uint32_t>(std::stoul(values[13]));
+    view.last_seq = std::stoull(values[14]);
+    view.updated_at = std::stoll(values[15]);
+    rows.push_back(std::move(view));
+  }
+  mysql_free_result(result);
+  return rows;
+}

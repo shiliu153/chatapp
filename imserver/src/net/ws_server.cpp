@@ -35,6 +35,26 @@ std::string error_frame(int code, const std::string& message) {
       .dump();
 }
 
+std::optional<uint64_t> parse_uid(const std::string& value) {
+  if (value.size() < 2 || value[0] != 'u') {
+    return std::nullopt;
+  }
+  try {
+    return std::stoull(value.substr(1));
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+}
+
+std::string ack_frame(const std::string& id, bool ok) {
+  return nlohmann::json{{"v", 1}, {"type", "ack"}, {"id", id}, {"data", {{"ok", ok}}}}
+      .dump();
+}
+
+std::string peer_id(uint64_t uid) {
+  return uid == 0 ? "system_notice" : "u" + std::to_string(uid);
+}
+
 }  // namespace
 
 bool IpCounter::acquire(const std::string& ip) {
@@ -260,6 +280,18 @@ void WsSession::on_frame(const std::string& payload) {
     handle_send(frame);
     return;
   }
+  if (type == "read") {
+    handle_read(frame);
+    return;
+  }
+  if (type == "revoke") {
+    handle_revoke(frame);
+    return;
+  }
+  if (type == "conversation_delete") {
+    handle_delete(frame);
+    return;
+  }
   send_raw(error_frame(42201, "未知帧类型"));
 }
 
@@ -297,6 +329,7 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
   uid_ = claims->uid;
   authed_ = true;
   auth_timer_.cancel();
+  messages_.users().ensure(uid_, "");
   registry_.register_session(uid_, shared_from_this());
   send_raw(nlohmann::json{{"v", 1},
                           {"type", "auth_ok"},
@@ -365,6 +398,82 @@ void WsSession::on_send_result(const std::variant<SendResult, int>& result,
     message = "发送过快";
   }
   send_raw(error_frame(code, message));
+}
+
+void WsSession::handle_read(const nlohmann::json& frame) {
+  try {
+    const auto data = frame.at("data");
+    const auto peer = parse_uid(data.value("peer", std::string()));
+    if (!peer.has_value()) {
+      send_raw(error_frame(42201, "peer 不合法"));
+      return;
+    }
+    const uint64_t seq = data.value("seq", 0ULL);
+    const std::string id = frame.value("id", std::string());
+    auto self = shared_from_this();
+    boost::asio::post(db_pool_, [self, peer = *peer, seq, id] {
+      const bool ok = self->messages_.mark_read(self->uid_, peer, seq);
+      boost::asio::post(self->ws_.get_executor(),
+                        [self, ok, id] { self->send_raw(ack_frame(id, ok)); });
+    });
+  } catch (const std::exception&) {
+    send_raw(error_frame(42201, "read 参数错误"));
+  }
+}
+
+void WsSession::handle_revoke(const nlohmann::json& frame) {
+  try {
+    const auto data = frame.at("data");
+    const uint64_t msg_id = std::stoull(data.value("msg_id", std::string()));
+    const std::string id = frame.value("id", std::string());
+    auto self = shared_from_this();
+    boost::asio::post(db_pool_, [self, msg_id, id] {
+      const auto result = self->messages_.revoke(self->uid_, msg_id);
+      boost::asio::post(self->ws_.get_executor(), [self, result, id] {
+        if (const auto* revoked = std::get_if<RevokeResult>(&result)) {
+          const auto frame_for = [&](uint64_t other) {
+            return nlohmann::json{
+                {"v", 1},
+                {"type", "revoked"},
+                {"data", {{"msg_id", std::to_string(revoked->msg_id)},
+                          {"seq", revoked->seq},
+                          {"peer", peer_id(other)},
+                          {"ts", revoked->ts}}}}
+                .dump();
+          };
+          self->registry_.send_to(revoked->from_id,
+                                  frame_for(revoked->to_id));
+          self->registry_.send_to(revoked->to_id,
+                                  frame_for(revoked->from_id));
+          self->send_raw(ack_frame(id, true));
+        } else {
+          self->send_raw(error_frame(std::get<int>(result), "撤回失败"));
+        }
+      });
+    });
+  } catch (const std::exception&) {
+    send_raw(error_frame(41001, "撤回参数错误"));
+  }
+}
+
+void WsSession::handle_delete(const nlohmann::json& frame) {
+  try {
+    const auto data = frame.at("data");
+    const auto peer = parse_uid(data.value("peer", std::string()));
+    if (!peer.has_value()) {
+      send_raw(error_frame(42201, "peer 不合法"));
+      return;
+    }
+    const std::string id = frame.value("id", std::string());
+    auto self = shared_from_this();
+    boost::asio::post(db_pool_, [self, peer = *peer, id] {
+      const bool ok = self->messages_.delete_conversation(self->uid_, peer);
+      boost::asio::post(self->ws_.get_executor(),
+                        [self, ok, id] { self->send_raw(ack_frame(id, ok)); });
+    });
+  } catch (const std::exception&) {
+    send_raw(error_frame(42201, "删除参数错误"));
+  }
 }
 
 void WsSession::send_raw(std::string frame) {
