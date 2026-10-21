@@ -21,6 +21,7 @@ class MysqlPool {
 
     MYSQL* get() const { return conn_; }
     MYSQL_RES* query(const std::string& sql);
+    std::string escape(const std::string& input) const;
     void begin();
     void commit();
     void rollback();

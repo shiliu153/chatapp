@@ -18,9 +18,15 @@ add_library(imcore STATIC
   src/config.cpp
   src/migrate.cpp
   src/net/ws_server.cpp
+  src/service/message_service.cpp
   src/service/session_registry.cpp
+  src/store/blacklist_repo.cpp
+  src/store/conversation_repo.cpp
+  src/store/message_repo.cpp
   src/store/mysql_pool.cpp
   src/store/redis_client.cpp
+  src/store/stmt.cpp
+  src/store/user_repo.cpp
   src/util/log.cpp
   src/util/ratelimit.cpp
 )

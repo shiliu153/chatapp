@@ -109,8 +109,15 @@ MYSQL_RES* MysqlPool::Lease::query(const std::string& sql) {
   return mysql_store_result(conn_);
 }
 
-void MysqlPool::Lease::begin() { query("START TRANSACTION"); }
+std::string MysqlPool::Lease::escape(const std::string& input) const {
+  std::string output(input.size() * 2 + 1, '\0');
+  const auto length = mysql_real_escape_string(
+      conn_, output.data(), input.data(), static_cast<unsigned long>(input.size()));
+  output.resize(length);
+  return output;
+}
 
+void MysqlPool::Lease::begin() { query("START TRANSACTION"); }
 void MysqlPool::Lease::commit() { query("COMMIT"); }
 
 void MysqlPool::Lease::rollback() { query("ROLLBACK"); }
