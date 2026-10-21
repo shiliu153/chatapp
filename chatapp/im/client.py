@@ -1,11 +1,12 @@
-"""腾讯云 IM REST 客户端。
+"""腾讯云 IM REST 客户端(自建后端的分发入口)。
 
 设计要点:
     1. **业务函数对外永不抛异常**:失败只记日志并返回 ``False``。IM 抖动不应该拖垮
        主流程;把 ``False`` 转成异常、交给 Celery 重试是 ``im/tasks.py`` 的职责;
     2. **REST 调用的 identifier 必须是应用管理员**(否则腾讯返回 60010),而消息的
        发送方由 body 里的 ``From_Account`` 决定 —— 所以对外仍是「双方各自发的」;
-    3. **建号必须幂等**:``ensure_account`` 先查后建,绝不盲目调用 ``account_import``。
+    3. **建号必须幂等**:``ensure_account`` 先查后建,绝不盲目调用 ``account_import``;
+    4. 命中灰度时在函数入口分发到 ``self_client``,决策主体见 ``backend.py``。
 
 注意事项:
     ``account_import`` 对**已存在**的账号不会返回 7015,而是返回 ``ErrorCode: 0``
@@ -23,6 +24,8 @@ import random
 import requests
 from django.conf import settings
 
+from . import self_client
+from .backend import self_enabled_for
 from .signature import gen_user_sig
 
 logger = logging.getLogger(__name__)
@@ -145,6 +148,8 @@ def send_custom_elem(from_identifier: str, to_identifier: str, data: dict, desc:
     Returns:
         成功返回 ``True``;调用异常或腾讯返回非 0 错误码时返回 ``False``。
     """
+    if self_enabled_for(to_identifier):
+        return self_client.send_custom_elem(from_identifier, to_identifier, data, desc)
     payload = {
         "SyncOtherMachine": 2,
         "From_Account": from_identifier,
@@ -191,6 +196,8 @@ def black_list_add(owner_identifier: str, other_identifier: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
+    if self_enabled_for(owner_identifier):
+        return self_client.black_list_add(owner_identifier, other_identifier)
     return _black_list("black_list_add", owner_identifier, other_identifier)
 
 
@@ -204,6 +211,8 @@ def black_list_delete(owner_identifier: str, other_identifier: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
+    if self_enabled_for(owner_identifier):
+        return self_client.black_list_delete(owner_identifier, other_identifier)
     return _black_list("black_list_delete", owner_identifier, other_identifier)
 
 
@@ -228,15 +237,18 @@ def _black_list(command: str, owner_identifier: str, other_identifier: str) -> b
     return _check(result, command)
 
 
-def kick_user(identifier: str) -> bool:
+def kick_user(identifier: str, block: bool = False) -> bool:
     """把账号的在线 IM 会话踢下线(重封禁用;不然已有 userSig 最长 7 天还能聊)。
 
     Args:
         identifier: 目标 IM 账号。
+        block: 自建后端是否同时写封禁键;腾讯后端忽略该参数。
 
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
+    if self_enabled_for(identifier):
+        return self_client.kick_user(identifier, block)
     try:
         result = _request("im_open_login_svc", "kick", {"UserID": identifier})
     except Exception:
@@ -258,6 +270,8 @@ def delete_account(identifier: str) -> bool:
     Returns:
         成功返回 ``True``;调用异常或腾讯返回非 0 错误码时返回 ``False``。
     """
+    if self_enabled_for(identifier):
+        return self_client.delete_account(identifier)
     payload = {"DeleteItem": [{"UserID": identifier}]}
     try:
         result = _request("im_open_login_svc", "account_delete", payload)
@@ -287,6 +301,8 @@ def ensure_account(identifier: str, nickname: str = "") -> bool:
     Returns:
         账号已存在或新建成功返回 ``True``;状态查询失败、导入失败返回 ``False``。
     """
+    if self_enabled_for(identifier):
+        return self_client.ensure_account(identifier, nickname)
     try:
         result = _request("im_open_login_svc", "account_check",
                           {"CheckItem": [{"UserID": identifier}]})
@@ -328,6 +344,8 @@ def send_ban_lifted(to_identifier: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
+    if self_enabled_for(to_identifier):
+        return self_client.send_ban_lifted(to_identifier)
     return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
                             {"type": "ban_lifted"}, BAN_LIFTED_TEXT)
 
@@ -388,6 +406,8 @@ def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
+    if self_enabled_for(to_identifier):
+        return self_client.send_text(from_identifier, to_identifier, text)
     payload = {
         "SyncOtherMachine": 2,
         "From_Account": from_identifier,
@@ -415,6 +435,8 @@ def set_profile_nick(identifier: str, nickname: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
+    if self_enabled_for(identifier):
+        return self_client.set_profile_nick(identifier, nickname)
     return _portrait_set(identifier, [{"Tag": "Tag_Profile_IM_Nick", "Value": nickname}], "portrait_set")
 
 
@@ -430,6 +452,8 @@ def set_profile_avatar(identifier: str, avatar_url: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
+    if self_enabled_for(identifier):
+        return self_client.set_profile_avatar(identifier, avatar_url)
     return _portrait_set(identifier, [{"Tag": "Tag_Profile_IM_Image", "Value": avatar_url}], "portrait_set")
 
 

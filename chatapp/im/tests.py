@@ -34,6 +34,7 @@ from .client import (_request, black_list_add, black_list_delete, delete_account
                      send_post_commented, send_report_handled, send_text,
                      set_profile_avatar, set_profile_nick)
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
+from .token import mint_im_token, verify_im_token
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
                     delete_account as delete_account_task,
                     import_account as import_account_task, kick_pending,
@@ -666,3 +667,43 @@ class ImDeleteAccountTaskTests(TestCase):
                 patch("im.tasks._user") as user_lookup:
             delete_account_task.run("u9")
         user_lookup.assert_not_called()
+
+
+class ImTokenTests(SimpleTestCase):
+    """自建 IM token 的签发与校验。"""
+
+    @override_settings(IM_SELF_SECRET="t" * 32)
+    def test_mint_and_verify(self):
+        token = mint_im_token(9, 3600)
+        claims = verify_im_token(token)
+        self.assertIsNotNone(claims)
+        self.assertEqual(claims["uid"], 9)
+        self.assertEqual(claims["sub"], "u9")
+
+    @override_settings(IM_SELF_SECRET="t" * 32)
+    def test_reject_tampered(self):
+        token = mint_im_token(9, 3600)
+        self.assertIsNone(verify_im_token(token[:-1] + ("A" if token[-1] != "A" else "B")))
+
+
+class SelfBackendTests(SimpleTestCase):
+    """门面按账号灰度分发,未命中时仍走腾讯。"""
+
+    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="2")
+    @patch("im.client.self_client.send_custom_elem", return_value=True)
+    def test_gray_recipient_dispatches(self, mocked):
+        self.assertTrue(send_custom_elem("u1", "u2", {"type": "match_notice"}, "hi"))
+        mocked.assert_called_once()
+
+    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="1")
+    @patch("im.client._request")
+    def test_non_gray_recipient_stays_tencent(self, request):
+        request.return_value = {"ErrorCode": 0}
+        self.assertTrue(send_custom_elem("u1", "u2", {"type": "x"}, "hi"))
+        request.assert_called_once()
+
+    @override_settings(IM_BACKEND="tencent")
+    @patch("im.client._request")
+    def test_tencent_still_default(self, request):
+        request.return_value = {"ErrorCode": 0}
+        self.assertTrue(send_custom_elem("u1", "u2", {"type": "x"}, "hi"))

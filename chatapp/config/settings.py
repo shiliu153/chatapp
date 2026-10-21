@@ -19,6 +19,8 @@ import sys
 
 from dotenv import load_dotenv
 
+from django.core.exceptions import ImproperlyConfigured
+
 # 项目根目录,即仓库的 chatapp/(settings.py 位于 config/ 下一级)
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -292,6 +294,20 @@ IM_ADMIN_IDENTIFIER = os.getenv("IM_ADMIN_IDENTIFIER", "administrator")
 IM_REST_BASE = "https://console.tim.qq.com/v4"
 IM_SIG_EXPIRE = 7 * 24 * 3600   # userSig 有效期(秒),腾讯上限 180 天
 IM_TIMEOUT = 5                  # REST 超时(秒)
+
+# --- 自建 IM(IM_BACKEND=self 时生效) ---
+IM_BACKEND = os.getenv("IM_BACKEND", "tencent")
+IM_SELF_URL = os.getenv("IM_SELF_URL", "http://127.0.0.1:9101")
+IM_SELF_WS_URL = os.getenv("IM_SELF_WS_URL", "")
+IM_SELF_HTTP_URL = os.getenv("IM_SELF_HTTP_URL", "")
+IM_SELF_SECRET = os.getenv("IM_SELF_SECRET", "")
+IM_SELF_INTERNAL_SECRET = os.getenv("IM_SELF_INTERNAL_SECRET", "")
+IM_SELF_TOKEN_TTL = int(os.getenv("IM_SELF_TOKEN_TTL", "86400"))
+IM_SELF_GRAYLIST = os.getenv("IM_SELF_GRAYLIST", "")
+
+if IM_BACKEND == "self" and not (IM_SELF_SECRET and IM_SELF_INTERNAL_SECRET
+                                 and IM_SELF_WS_URL and IM_SELF_HTTP_URL):
+    raise ImproperlyConfigured("IM_BACKEND=self 需要完整的 IM_SELF_* 配置")
 
 # --- 照片 ---
 AUTO_APPROVE = os.getenv("AUTO_APPROVE", "1") == "1"   # 开发期自动过审;上线接内容安全 API 后置 0
