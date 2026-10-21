@@ -1,0 +1,15 @@
+[Unit]
+Description=Self-hosted IM server
+After=network.target mysql.service redis-server.service
+
+[Service]
+Type=simple
+EnvironmentFile=/www/server/imserver/imserver.env
+ExecStart=/usr/local/bin/imserver
+Restart=always
+RestartSec=2
+LimitNOFILE=65535
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

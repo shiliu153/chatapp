@@ -44,8 +44,12 @@ target_link_libraries(imcore PUBLIC
 )
 target_compile_options(imcore PRIVATE -Wall -Wextra -Wpedantic)
 
+option(IM_BUILD_TESTS "Build unit/integration test binaries" ON)
+
 add_executable(imserver src/main.cpp)
 target_link_libraries(imserver PRIVATE imcore)
 
-enable_testing()
-add_subdirectory(tests)
+if(IM_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
