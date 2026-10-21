@@ -2,6 +2,7 @@
 #include <string>
 
 #include "config.h"
+#include "migrate.h"
 #include "util/log.h"
 
 int main(int argc, char** argv) {
@@ -11,8 +12,8 @@ int main(int argc, char** argv) {
                          {"listen_http", cfg.listen_http},
                          {"io_threads", std::to_string(cfg.io_threads)}});
     if (argc > 1 && std::string(argv[1]) == "--migrate") {
-      std::cerr << "migrate not implemented yet\n";
-      return 2;
+      run_migrations(cfg);
+      return 0;
     }
     return 0;
   } catch (const std::exception& error) {

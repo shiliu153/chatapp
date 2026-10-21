@@ -19,7 +19,7 @@
 - 内部 API 只监听 `127.0.0.1`，HMAC-SHA256 覆盖 `ts + "\n" + METHOD + "\n" + path + "\n" + body`，时间偏差 ≤ 60 秒。
 - 所有 SQL 用**预处理语句**；日志**禁止**记录 token、消息正文、手机号。
 - 消息幂等键 `UNIQUE(from_id, client_msg_id)`；会话顺序键 `UNIQUE(conv_id, seq)`。
-- 测试用 Docker Compose：MySQL `127.0.0.1:13306`、Redis `127.0.0.1:16379`；不得复用开发库。
+- 测试用 Docker Compose：`test` 服务与 `mysql:3306` / `redis:6379` 同网络；**不映射宿主机端口**，避免与本地开发 Redis 冲突。
 - 新增/修改 `.py` 必须补模块与函数/类 docstring，公开函数带参数写 `Args:`（`CommentCoverageTests`）。
 - 任何 `/api/v1` 接口改动必须在同一次改动内更新 `docs/api/`（`ApiDocsCoverageTests`）。
 - Flutter `flutter analyze` 零告警；Web `vue-tsc` 零错误、`eslint --max-warnings 0` 零告警。
@@ -470,14 +470,14 @@ services:
       MYSQL_DATABASE: chatapp_im
       MYSQL_USER: imserver
       MYSQL_PASSWORD: imserver
-    ports: ["13306:3306"]
+    expose: ["3306"]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
       interval: 3s
       retries: 20
   redis:
-    image: redis:7
-    ports: ["16379:6379"]
+    image: redis:7-alpine
+    expose: ["6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s

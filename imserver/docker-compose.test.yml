@@ -1,0 +1,38 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: chatapp_im
+      MYSQL_USER: imserver
+      MYSQL_PASSWORD: imserver
+    expose: ["3306"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    expose: ["6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/src
+      - ..:/repo
+    working_dir: /src
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment:
+      IM_MYSQL_DSN: mysql://imserver:imserver@mysql:3306/chatapp_im
+      IM_REDIS_URL: redis://redis:6379/2
+      IM_JWT_SECRET: test-jwt-secret
+      IM_INTERNAL_SECRET: test-internal-secret
+      IM_MIGRATIONS_DIR: /src/migrations
+    command: bash /src/scripts/test_integration.sh

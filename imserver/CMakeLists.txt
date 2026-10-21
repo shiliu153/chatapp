@@ -8,16 +8,26 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(Boost 1.83 REQUIRED COMPONENTS system)
 find_package(OpenSSL REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MYSQLCLIENT REQUIRED mysqlclient)
 pkg_check_modules(HIREDIS REQUIRED hiredis)
 
 add_library(imcore STATIC
   src/config.cpp
+  src/migrate.cpp
+  src/store/mysql_pool.cpp
+  src/store/redis_client.cpp
   src/util/log.cpp
 )
-target_include_directories(imcore PUBLIC src)
-target_link_libraries(imcore PUBLIC OpenSSL::Crypto nlohmann_json::nlohmann_json)
+target_include_directories(imcore PUBLIC src ${MYSQLCLIENT_INCLUDE_DIRS} ${HIREDIS_INCLUDE_DIRS})
+target_link_libraries(imcore PUBLIC
+  OpenSSL::Crypto
+  nlohmann_json::nlohmann_json
+  Threads::Threads
+  ${MYSQLCLIENT_LIBRARIES}
+  ${HIREDIS_LIBRARIES}
+)
 target_compile_options(imcore PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(imserver src/main.cpp)
