@@ -408,10 +408,17 @@ chat_app/
 
 ```
 用户 → nginx(443/80,静态直出 + 反代)
-        └→ gunicorn (127.0.0.1:8000, gthread)
-             └→ Django ── MySQL 8 (本机)
-                       └─ Redis 7 (DB0 缓存 / DB1 队列) ── Celery worker
+        ├→ gunicorn (127.0.0.1:8000, gthread)
+        │    └→ Django ── MySQL 8 (本机)
+        │              └─ Redis 7 (DB0 缓存 / DB1 队列) ── Celery worker
+        └→ imserver (127.0.0.1:9100 WS / 9101 HTTP)
+             ├─ MySQL 8 库 chatapp_im
+             └─ Redis 7 DB2
 ```
+
+聊天可走腾讯云 IM(默认)或自建 `imserver`(见 `docs/ops/imserver.md`);
+切换只改 Django `.env` 的 `IM_BACKEND`,客户端按 `/im/user_sig` 返回的
+`backend` 自动选择实现。
 
 容量实测(阿里云轻量 2C2G,含公网 RTT):
 
@@ -420,8 +427,9 @@ chat_app/
 | `GET /readyz`(最轻) | 并发 ≤ 40 | ~200 req/s |
 | `GET /users/me`(登录态实读) | 并发 ≤ 10–20 | ~53 req/s |
 
-折算混合流量约可支撑 **300–500 同时在线**。聊天的消息链路走腾讯云 IM 直连,
-不占本机资源;**真正吃 CPU 的是刷卡片和广场**。当时的结论是"瓶颈已经从 worker 数
+折算混合流量约可支撑 **300–500 同时在线**。聊天走腾讯云 IM 直连时不占本机资源;
+切到自建 imserver 后,500 连接常驻内存约 20–40 MB,文本消息是单行 INSERT,
+2C2G 足够。**真正吃 CPU 的是刷卡片和广场**。当时的结论是"瓶颈已经从 worker 数
 转为 CPU 核数"——再加线程无用,要提容量得升配或降单请求开销。
 
 ### 网页端(PC Web)

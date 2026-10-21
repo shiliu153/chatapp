@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **前端**: Flutter(`app/`,包名 `chatapp_app`,Flutter 3.47.2)
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL 8 + Redis + Celery)
-- **聊天**: 腾讯云 IM SDK(消息走腾讯云 IM,业务数据存 Django)
+- **聊天**: 腾讯云 IM 与自建 C++ IM 双后端(`IM_BACKEND` 开关;自建见 `imserver/`)
 - **部署**:阿里云轻量 2C2G + 宝塔全托管(`http://<SERVER_IP>`,测试期未备案)
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
@@ -43,6 +43,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-20 | P1-2「设置页补齐」交付(新 `feedback` app + `POST /feedback` + ops 意见反馈队列;App/Web 设置页三段式 + 意见反馈页 + 通知设置只读骨架 + 关于页;版本号 App 常量守卫 / Web Vite 注入;接口 34→35,后端 409 / App 355 / Web 320 测试绿) |
 | 2026-10-20 | P1-3「关系出口」交付(`DELETE /matches/{user_id}` = `Match` 软删除 + `unmatch_blacklist` 双向 IM 拉黑 + 滑卡防复活;App/Web 聊天页「⋯」+ 资料页入口 + 被解除后横幅/输入禁用;2 分钟内撤回消息(SDK 原生,双方置灰);接口 35→36,后端 420 / App 375 / Web 336 测试绿。**已读回执挂起**:腾讯 IM 旗舰版专享,当前体验版做不了) |
 | 2026-10-20 | 广场评论「楼中楼」交付(`PostComment` 自引用 `parent` + `reply_to`,服务层把「回复的回复」归一到顶级评论;列表内嵌前 2 条回复 + `GET …/replies` 展开 + `DELETE …/comments/{id}` 删楼;回复即 @,IM 灰条提醒被回复者(`post_replied` 任务);App 楼层/回复态/删除 + Web 组件同步;接口 36→38,后端 440 / App 380 / Web 340 测试绿;PR #12 squash 合并 `8c428c3`;用户模拟器 + Web 手测通过) |
+| 2026-10-21 | 自建 IM 交付(C++20 `imserver/`:WS 首帧 JWT 鉴权 + 会话级 seq + 幂等 + 离线补拉 + 已读/撤回/拉黑 + 内部 HMAC API;Django `IM_BACKEND` 双跑与按账号灰度;App/Web 双实现与图片入口隐藏;`GET /app/config` 最小版本拦截;接口 38→39,后端 450 / App 385 / Web 341 测试绿) |
 
 **下一步**:广场评论楼中楼已交付。P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
@@ -64,6 +65,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 业务 app:`accounts users discovery im moderation ops feed notifications feedback`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
 | `web/` | 网页端(Vue 3 SPA) | `src/{api,stores,im,components,layouts,features}`;开发 `npm run dev`(代理到 :8000),构建 `npm run build`;**只服务 PC 浏览器**,移动端按 UA 进引导页 |
+| `imserver/` | 自建 IM(C++20) | WS :9100 + HTTP :9101;MySQL `chatapp_im` + Redis DB2;测试 `docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh` |
 | `docs/superpowers/` | 设计 spec 与实施计划 | 计划的执行进度以文件内 checkbox 为准 |
 | `docs/pitfalls/` | 踩坑手册(按主题分册) | 写代码/排障前按需读取 |
 | `.remember/` | Claude 会话记忆日志(内部机制) | 勿改动、勿提交 |
@@ -118,7 +120,8 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **错误契约**:成功 2xx + 资源 JSON;失败一律 `{"code": <HTTP状态码>, "message": "<中文>", "request_id": ...}`;业务码=前 3 位 HTTP + 2 位序号(`config/error_codes.py`)
 - **鉴权**:Bearer JWT(access 30min / refresh 30d,刷新即轮换、旧进黑名单);JWT `user_id` claim 是**字符串**;`GET /users/me` 响应 `id` 是 **profile 表主键**,账号 ID 看 `user_id`
 - **响应路径禁止任何第三方网络调用**(requests/腾讯 REST/短信商);跨系统副作用一律走 Celery 任务;`transaction.on_commit(fn, robust=True)` 的语义是「DB 提交后」
-- **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
+- **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 与 `im/self_client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
+- **自建 IM**:`IM_BACKEND=tencent|self`;`im/client.py` 按账号灰度分发到 `im/self_client.py`;灰度名单只能放隔离测试号(跨后端消息不通);`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致
 - **跨栈约定**:IM 账号 = `u{user_id}`(`accounts/models.py::im_user_id`);`system_notice` 相关常量两边别单改
 - **单设备登录**:一个账号同时只允许一台设备在线;被顶设备收 **401 + `40101`**(三条退出路径互为兜底,细节见 pitfalls)
 - **封禁两级**:`banned_light` 只禁滑卡;`banned_heavy` 全域 403——全局权限类自动覆盖新接口,白名单仅 `GET /users/me`、`GET /users/tags`
@@ -144,7 +147,8 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `GET /users/tags` | 标签池(12 个,数据迁移写入) |
 | `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB);`AUTO_APPROVE=1` 上传即过审 |
 | `GET/PATCH /users/me/preference` | 想找的人:目标性别(可空=不限)/ 年龄区间 / 城市 |
-| `POST /im/user_sig` | 取 IM userSig;`banned_heavy` 403 |
+| `POST /im/user_sig` | 取 IM 登录凭证(腾讯 `user_sig` / 自建 `token` 双分支);`banned_heavy` 403 |
+| `GET /app/config` | 公开;最低版本配置(启动时拦截旧版本) |
 | `GET /discovery/candidates` | 候选卡(默认 10、上限 20);排除自己/划过/已配对/资料未完善;**只推有已过审照片的人** |
 | `POST /discovery/swipe` | `{target_user_id, action: like\|pass}`;幂等;互喜 → `{"matched": true}` + 双方灰条;限流 300/小时 |
 | `GET /discovery/likes` | 喜欢我的人(分页);口径与候选池一致,排除我已划过/双向拉黑/资料不全/无过审照片 |

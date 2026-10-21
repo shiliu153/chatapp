@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **执行记录（2026-10-21）：** Task 1–19 已在当前会话内联完成并逐任务提交；
+> Task 20（腾讯历史导入）为条件任务，未触发。全量门禁：后端 450、Flutter 385、
+> Web 341 全绿；C++ 单测 10 + DB 集成 5 + WS/HTTP/E2E 全绿。
+
 **Goal:** 用 C++ 自建 IM 服务端替换腾讯云 IM，覆盖文本单聊、离线补拉、会话/未读/已读、撤回、拉黑、系统通知，并让 Flutter/Web/Django 在一个开关下双跑、可回退。
 
 **Architecture:** 单个 C++ 进程同时提供 WebSocket（实时帧）与 HTTP（历史/会话/内部管理 API），消息落 MySQL（会话级 `seq` 保证顺序与幂等），Redis 存在线态与封禁键。Django 只签发 IM token、按开关决定后端、通过 HMAC 内部 API 触发副作用；客户端按 `/im/user_sig` 返回的 `backend` 选择腾讯或自建实现。

@@ -585,7 +585,7 @@ class ImSideEffectTaskTests(TestCase):
         with patch("im.client.send_ban_notice",
                    side_effect=lambda *a: calls.append("send") or True), \
                 patch("im.client.kick_user",
-                      side_effect=lambda *a: calls.append("kick") or True):
+                      side_effect=lambda *a, **k: calls.append("kick") or True):
             ban_notice.run(self.b.id, "heavy", "严重违规")
         self.assertEqual(calls, ["send", "kick"])   # 顺序不能反:先说明原因再断线
 

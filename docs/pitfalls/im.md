@@ -79,3 +79,14 @@ for uid in ids:
 print('done', len(ids))
 "
 ```
+
+## 自建 IM(2026-10-20 起)
+
+- **协议**:WS 首帧必须是 `auth`(token 放帧里,不放 URL);`send` 必须带 `client_msg_id`(1–64 字符),重发复用同一个,服务端靠 `UNIQUE(from_id, client_msg_id)` 去重。
+- **seq 语义**:`seq` 是「一对会话」共享的单调序号,不是全局、也不是每用户;客户端按 `seq` 排序,不要用时间戳。
+- **单设备互踢**:新连接先踢旧连接;被踢端收到 `kicked` 后**必须停止重连并强退**,否则两台设备会互相顶号。
+- **灰度不能跨后端**:A 在自建、B 在腾讯时双方消息都收不到;灰度名单只能放隔离测试号,真实用户一次性全量。
+- **Redis 不可用时鉴权 fail closed**:在线态可降级到进程内 Map,但封禁键查不到时拒绝新连接,避免封禁被绕过。
+- **图片**:自建后端暂不支持,客户端按 `capabilities.image` 隐藏入口;不要只靠 `sendImage` 抛错兜底。
+- **Nginx**:`/im/ws` 必须 `Upgrade` + `Connection: upgrade`,并设 `X-Real-IP`(服务端用它做限流);`proxy_read_timeout` ≥ 90s。
+- **回退**:改 `IM_BACKEND=tencent` 只影响下一次登录;要立刻止血先停 imserver,再让用户重启 App。

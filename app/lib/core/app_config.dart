@@ -1,4 +1,9 @@
-import '../core/api_client.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'api_client.dart';
+
+/// 测试里默认关闭启动版本检查(避免每个用例都多一次 /app/config 请求)。
+final appConfigCheckEnabledProvider = Provider<bool>((ref) => true);
 
 /// GET /app/config 的响应。
 class AppConfig {

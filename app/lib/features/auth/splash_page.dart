@@ -68,11 +68,13 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 
   Future<void> _start() async {
     if (_agreementDeclined) setState(() => _agreementDeclined = false);
-    final config = await fetchAppConfig(ref.read(apiClientProvider));
-    if (!mounted) return;
-    if (config != null && isOutdated(current: appVersion, min: config.minAppVersion)) {
-      setState(() => _forceUpdate = config);
-      return;
+    if (ref.read(appConfigCheckEnabledProvider)) {
+      final config = await fetchAppConfig(ref.read(apiClientProvider));
+      if (!mounted) return;
+      if (config != null && isOutdated(current: appVersion, min: config.minAppVersion)) {
+        setState(() => _forceUpdate = config);
+        return;
+      }
     }
     if (!await hasAgreedToLegal()) {
       if (!mounted) return;
