@@ -232,7 +232,7 @@ python bench_ws.py --uri ws://<SERVER_IP>/im/ws --n 500 --interval 10 --duration
 | 版本 | 1000 条耗时 | 吞吐 |
 |---|---|---|
 | 初版 | 9.4s | 106/s |
-| 预编译缓存 + 合并 unread + 画像缓存 + `IM_DB_THREADS=16` | 4.7s | 215/s |
+| 预编译缓存 + 合并 unread + 画像缓存 + `IM_DB_THREADS=32` | 4.7s | 215/s |
 
 做法:
 1. **按连接缓存 prepared statement**(`stmt.cpp`):每条写语句原本
