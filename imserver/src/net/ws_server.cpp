@@ -60,7 +60,7 @@ std::string peer_id(uint64_t uid) {
 bool IpCounter::acquire(const std::string& ip) {
   const std::lock_guard<std::mutex> lock(mutex_);
   int& count = counts_[ip];
-  if (count >= 20) {
+  if (count >= max_) {
     return false;
   }
   ++count;
@@ -80,7 +80,7 @@ void IpCounter::release(const std::string& ip) {
 
 bool IpCounter::allow_auth(const std::string& ip, int64_t now_ms) {
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto [it, inserted] = auth_buckets_.try_emplace(ip, 1.0, 60.0);
+  auto [it, inserted] = auth_buckets_.try_emplace(ip, auth_rate_, auth_burst_);
   (void)inserted;
   return it->second.allow(now_ms);
 }
@@ -581,7 +581,8 @@ WsServer::WsServer(net::io_context& io, const Config& cfg, SessionRegistry& regi
       registry_(registry),
       redis_(redis),
       messages_(messages),
-      db_pool_(db_pool) {}
+      db_pool_(db_pool),
+      ip_counter_(cfg.max_conn_per_ip, cfg.auth_rate_per_sec, cfg.auth_burst) {}
 
 void WsServer::start() {
   const auto colon = cfg_.listen_ws.rfind(':');

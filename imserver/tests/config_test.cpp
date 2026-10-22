@@ -31,5 +31,22 @@ TEST(ConfigTest, AppliesDefaults) {
   EXPECT_EQ(cfg.listen_http, "127.0.0.1:9101");
   EXPECT_EQ(cfg.io_threads, 2);
   EXPECT_EQ(cfg.max_frame, 8192u);
+  EXPECT_EQ(cfg.max_conn_per_ip, 20);
+  EXPECT_DOUBLE_EQ(cfg.auth_rate_per_sec, 1.0);
+  EXPECT_DOUBLE_EQ(cfg.auth_burst, 60.0);
   EXPECT_TRUE(cfg.allowed_origins.empty());
+}
+
+TEST(ConfigTest, ParsesConnectionLimits) {
+  std::map<std::string, std::string> env{
+      {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
+      {"IM_JWT_SECRET", "jwt"},
+      {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MAX_CONN_PER_IP", "1000"},
+      {"IM_AUTH_RATE", "500"},
+      {"IM_AUTH_BURST", "1000"}};
+  const auto cfg = Config::from_map(env);
+  EXPECT_EQ(cfg.max_conn_per_ip, 1000);
+  EXPECT_DOUBLE_EQ(cfg.auth_rate_per_sec, 500.0);
+  EXPECT_DOUBLE_EQ(cfg.auth_burst, 1000.0);
 }

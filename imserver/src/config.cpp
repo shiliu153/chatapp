@@ -28,6 +28,23 @@ int get_int(const std::map<std::string, std::string>& env,
   }
 }
 
+double get_double(const std::map<std::string, std::string>& env,
+                  const std::string& key, double fallback) {
+  const auto raw = get_or(env, key);
+  if (raw.empty()) {
+    return fallback;
+  }
+  try {
+    const double value = std::stod(raw);
+    if (value <= 0) {
+      throw std::runtime_error("invalid positive double for " + key);
+    }
+    return value;
+  } catch (const std::exception&) {
+    throw std::runtime_error("invalid double for " + key + ": " + raw);
+  }
+}
+
 std::size_t get_size(const std::map<std::string, std::string>& env,
                      const std::string& key, std::size_t fallback) {
   const auto raw = get_or(env, key);
@@ -125,6 +142,9 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   cfg.io_threads = get_int(env, "IM_IO_THREADS", cfg.io_threads);
   cfg.db_threads = get_int(env, "IM_DB_THREADS", cfg.db_threads);
   cfg.db_pool = get_int(env, "IM_DB_POOL", cfg.db_pool);
+  cfg.max_conn_per_ip = get_int(env, "IM_MAX_CONN_PER_IP", cfg.max_conn_per_ip);
+  cfg.auth_rate_per_sec = get_double(env, "IM_AUTH_RATE", cfg.auth_rate_per_sec);
+  cfg.auth_burst = get_double(env, "IM_AUTH_BURST", cfg.auth_burst);
   cfg.max_frame = get_size(env, "IM_MAX_FRAME", cfg.max_frame);
   cfg.text_max = get_size(env, "IM_TEXT_MAX", cfg.text_max);
 
@@ -145,7 +165,9 @@ Config Config::from_env() {
   for (const char* key : {"IM_LISTEN_WS", "IM_LISTEN_HTTP", "IM_MYSQL_DSN",
                           "IM_REDIS_URL", "IM_JWT_SECRET", "IM_INTERNAL_SECRET",
                           "IM_MIGRATIONS_DIR", "IM_ALLOWED_ORIGINS", "IM_IO_THREADS",
-                          "IM_DB_THREADS", "IM_DB_POOL", "IM_MAX_FRAME", "IM_TEXT_MAX"}) {
+                          "IM_DB_THREADS", "IM_DB_POOL", "IM_MAX_CONN_PER_IP",
+                          "IM_AUTH_RATE", "IM_AUTH_BURST", "IM_MAX_FRAME",
+                          "IM_TEXT_MAX"}) {
     if (const char* value = std::getenv(key)) {
       env.emplace(key, value);
     }

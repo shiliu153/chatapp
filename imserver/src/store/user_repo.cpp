@@ -16,14 +16,44 @@ int64_t now_ms() {
 
 UserRepo::UserRepo(MysqlPool& pool) : pool_(pool) {}
 
+bool UserRepo::is_known(uint64_t uid) {
+  const std::lock_guard<std::mutex> lock(known_mu_);
+  return known_.count(uid) != 0;
+}
+
+void UserRepo::remember(uint64_t uid) {
+  const std::lock_guard<std::mutex> lock(known_mu_);
+  known_.insert(uid);
+}
+
+void UserRepo::forget(uint64_t uid) {
+  const std::lock_guard<std::mutex> lock(known_mu_);
+  known_.erase(uid);
+}
+
 void UserRepo::ensure(MysqlPool::Lease& lease, uint64_t uid, const std::string& nickname) {
-  Stmt stmt(lease.get(),
-            "INSERT INTO im_user (user_id,nickname,avatar_url,updated_at) VALUES (?,?,'',?) "
-            "ON DUPLICATE KEY UPDATE user_id=user_id");
-  stmt.bind_uint(0, uid);
-  stmt.bind_string(1, nickname);
-  stmt.bind_uint(2, static_cast<uint64_t>(now_ms()));
-  stmt.execute();
+  if (is_known(uid)) {
+    return;
+  }
+  // 先做一次主键读(MVCC,不拿写锁):绝大多数调用是已存在的用户,
+  // 可以完全避开 INSERT ... ON DUPLICATE KEY UPDATE 在相邻主键上的间隙锁互等。
+  bool exists = false;
+  auto* result = lease.query("SELECT 1 FROM im_user WHERE user_id=" +
+                             std::to_string(uid));
+  if (result != nullptr) {
+    exists = mysql_fetch_row(result) != nullptr;
+    mysql_free_result(result);
+  }
+  if (!exists) {
+    Stmt stmt(lease.get(),
+              "INSERT INTO im_user (user_id,nickname,avatar_url,updated_at) VALUES (?,?,'',?) "
+              "ON DUPLICATE KEY UPDATE user_id=user_id");
+    stmt.bind_uint(0, uid);
+    stmt.bind_string(1, nickname);
+    stmt.bind_uint(2, static_cast<uint64_t>(now_ms()));
+    stmt.execute();
+  }
+  remember(uid);
 }
 
 void UserRepo::ensure(uint64_t uid, const std::string& nickname) {
@@ -47,6 +77,9 @@ std::optional<UserRow> UserRepo::get(MysqlPool::Lease& lease, uint64_t uid) {
     row = user;
   }
   mysql_free_result(result);
+  if (row.has_value()) {
+    remember(row->id);
+  }
   return row;
 }
 
@@ -59,6 +92,7 @@ void UserRepo::remove(MysqlPool::Lease& lease, uint64_t uid) {
   Stmt stmt(lease.get(), "DELETE FROM im_user WHERE user_id=?");
   stmt.bind_uint(0, uid);
   stmt.execute();
+  forget(uid);
 }
 
 void UserRepo::update_profile(MysqlPool::Lease& lease, uint64_t uid,

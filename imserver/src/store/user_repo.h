@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 #include "store/models.h"
 #include "store/mysql_pool.h"
@@ -20,5 +22,11 @@ class UserRepo {
   void remove(MysqlPool::Lease& lease, uint64_t uid);
 
  private:
+  bool is_known(uint64_t uid);
+  void remember(uint64_t uid);
+  void forget(uint64_t uid);
+
   MysqlPool& pool_;
+  std::mutex known_mu_;
+  std::unordered_set<uint64_t> known_;
 };

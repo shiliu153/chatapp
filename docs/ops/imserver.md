@@ -68,6 +68,9 @@ IM_ALLOWED_ORIGINS=http://<SERVER_IP>
 IM_IO_THREADS=2
 IM_DB_THREADS=4
 IM_DB_POOL=8
+IM_MAX_CONN_PER_IP=20
+IM_AUTH_RATE=1
+IM_AUTH_BURST=60
 IM_MAX_FRAME=8192
 IM_TEXT_MAX=2000
 ```
@@ -191,7 +194,45 @@ ssh root@<SERVER_IP> 'cd /www/wwwroot/chatapp && git fetch origin && git reset -
 
 > 纯文档提交(如 `f0b4b61`)不需要重启进程;改到 `.env`、任务代码或迁移时才需要。
 
-## 8. 备选:systemd 直接跑二进制
+## 8. 500 连接压测(2026-10-22)
+
+工具:`imserver/scripts/bench_ws.py`(Python + `websockets`,只依赖标准库与 websockets)。
+
+```bash
+# 服务器上直连(逐连接伪造 X-Real-IP,模拟不同客户端)
+IM_JWT_SECRET=$(grep '^IM_JWT_SECRET=' /www/server/imserver/imserver.env | cut -d= -f2) \
+  /root/bench-venv/bin/python bench_ws.py --n 500 --interval 10 --duration 60
+
+# 公网经 nginx(所有连接同一个出口 IP,需临时调大下面三个值)
+#   IM_MAX_CONN_PER_IP=1000  IM_AUTH_RATE=1000  IM_AUTH_BURST=1000
+python bench_ws.py --uri ws://<SERVER_IP>/im/ws --n 500 --interval 10 --duration 60
+```
+
+**为什么要伪造 `X-Real-IP`**:服务端默认单 IP 最多 20 条连接、鉴权 1 次/秒(burst 60)。
+生产里 500 个用户来自 500 个 IP,所以同机压测要逐连接伪造;外部压测则临时调大三个配置项,
+压完改回默认值并重启。
+
+**实测结果**:
+
+| 场景 | 连接 | 消息 | ack 延迟 | RSS |
+|---|---|---|---|---|
+| 500 连接 + 50 msg/s,公网经 nginx,60s | 500/500,0 错误 | 3000 | p50 52ms / p95 67ms / **p99 93ms** | 22 MB |
+| 500 连接冷启动突发(每人 2 条) | 500/500,0 失败 | 1000 | p50 5.0s(吞吐上限 ~200 msg/s) | 22 MB |
+
+**压测发现并修复的两个问题**(提交 `perf(im)`):
+
+1. **`im_user` 间隙锁**:每条消息对收发双方各做一次
+   `INSERT ... ON DUPLICATE KEY UPDATE`,500 个相邻 uid 并发时锁等待可达 115ms,
+   把 p99 推到 300ms+。改为进程内用户存在性缓存 + 未命中先 `SELECT 1`
+   (MVCC 读,不拿写锁),已有用户的消息路径不再产生任何 `im_user` 写。
+2. **冷启动死锁**:500 个新会话并发创建时 `im_conversation` 唯一键死锁,
+   1000 条里失败 10 条(1%)。发送事务对 MySQL `1213`/`1205` 重试 3 次(2/4ms 退避),
+   复测 1000/1000 全部成功。
+
+> 结论:500 连接 + 正常聊天速率达标;瞬时 500 msg/s 是容量上限(排队约 5s),
+> 不是故障。要提升突发吞吐,优先加 `IM_DB_THREADS`/MySQL 规格,而不是加连接数。
+
+## 9. 备选:systemd 直接跑二进制
 
 仓库仍保留 `deploy/imserver.service`。若不用容器,需要宿主机具备
 Boost ≥ 1.83、nlohmann-json、mysqlclient、hiredis 开发库,并且二进制与宿主机

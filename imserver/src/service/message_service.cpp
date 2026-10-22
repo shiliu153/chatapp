@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cctype>
 #include <stdexcept>
+#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -185,76 +186,98 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
     return 42201;
   }
 
-  auto lease = pool_.acquire();
-  try {
-    lease.begin();
-    users_.ensure(lease, request.to, "");
-    if (request.from != 0) {
-      users_.ensure(lease, request.from, "");
-    }
-    if (request.from != 0 && blacklist_.exists_either(lease, request.from, request.to)) {
-      lease.rollback();
-      return 40302;
-    }
-
-    if (auto existing = messages_.find_by_client(lease, request.from,
-                                                 request.client_msg_id)) {
-      if (existing->to_id != request.to) {
-        lease.rollback();
-        return 42201;
-      }
-      lease.commit();
-      return result_for(*existing, users_);
-    }
-
-    const int64_t now = now_ms();
-    const auto conversation =
-        conversations_.lock_pair(lease, request.from, request.to, now);
-    const uint64_t seq = conversation.last_seq + 1;
-    const std::string body = nlohmann::json{{"text", text}}.dump();
-
-    uint64_t msg_id = 0;
+  // 冷启动时大量新会话并发创建会在 im_conversation 的唯一键上死锁;
+  // 死锁(1213)与锁等待超时(1205)是 MySQL 的可重试错误,重试 3 次对上层无感。
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    auto lease = pool_.acquire();
     try {
-      msg_id = messages_.insert(lease, conversation.id, seq, request.from, request.to, 1,
-                                body, request.client_msg_id, now);
-    } catch (const MysqlError& error) {
-      if (error.code() != 1062) {
-        throw;
+      lease.begin();
+      users_.ensure(lease, request.to, "");
+      if (request.from != 0) {
+        users_.ensure(lease, request.from, "");
       }
-      lease.rollback();
-      if (auto existing = messages_.find_by_client(request.from, request.client_msg_id)) {
+      if (request.from != 0 && blacklist_.exists_either(lease, request.from, request.to)) {
+        lease.rollback();
+        return 40302;
+      }
+
+      if (auto existing = messages_.find_by_client(lease, request.from,
+                                                   request.client_msg_id)) {
         if (existing->to_id != request.to) {
+          lease.rollback();
           return 42201;
         }
+        lease.commit();
         return result_for(*existing, users_);
       }
+
+      const int64_t now = now_ms();
+      const auto conversation =
+          conversations_.lock_pair(lease, request.from, request.to, now);
+      const uint64_t seq = conversation.last_seq + 1;
+      const std::string body = nlohmann::json{{"text", text}}.dump();
+
+      uint64_t msg_id = 0;
+      try {
+        msg_id = messages_.insert(lease, conversation.id, seq, request.from, request.to, 1,
+                                  body, request.client_msg_id, now);
+      } catch (const MysqlError& error) {
+        if (error.code() != 1062) {
+          throw;
+        }
+        lease.rollback();
+        if (auto existing = messages_.find_by_client(request.from, request.client_msg_id)) {
+          if (existing->to_id != request.to) {
+            return 42201;
+          }
+          return result_for(*existing, users_);
+        }
+        return 50001;
+      }
+
+      conversations_.touch(lease, conversation.id, seq, msg_id, now);
+      conversations_.upsert_state(lease, request.to, conversation.id, 1, now);
+      if (request.from != 0) {
+        conversations_.upsert_state(lease, request.from, conversation.id, 0, now);
+      }
+      lease.commit();
+
+      SendResult result;
+      result.msg_id = msg_id;
+      result.seq = seq;
+      result.ts = now;
+      if (auto profile = users_.get(request.from)) {
+        result.from_nickname = profile->nickname;
+        result.from_avatar = profile->avatar;
+      }
+      return result;
+    } catch (const MysqlError& error) {
+      try {
+        lease.rollback();
+      } catch (const std::exception&) {
+      }
+      if (error.code() == 1213 || error.code() == 1205) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2 * (attempt + 1)));
+        continue;
+      }
+      log_error("send_failed", {{"from", std::to_string(request.from)},
+                                {"to", std::to_string(request.to)},
+                                {"error", error.what()}});
+      return 50001;
+    } catch (const std::exception& error) {
+      try {
+        lease.rollback();
+      } catch (const std::exception&) {
+      }
+      log_error("send_failed", {{"from", std::to_string(request.from)},
+                                {"to", std::to_string(request.to)},
+                                {"error", error.what()}});
       return 50001;
     }
-
-    conversations_.touch(lease, conversation.id, seq, msg_id, now);
-    conversations_.upsert_state(lease, request.to, conversation.id, 1, now);
-    if (request.from != 0) {
-      conversations_.upsert_state(lease, request.from, conversation.id, 0, now);
-    }
-    lease.commit();
-
-    SendResult result;
-    result.msg_id = msg_id;
-    result.seq = seq;
-    result.ts = now;
-    if (auto profile = users_.get(request.from)) {
-      result.from_nickname = profile->nickname;
-      result.from_avatar = profile->avatar;
-    }
-    return result;
-  } catch (const std::exception& error) {
-    try {
-      lease.rollback();
-    } catch (const std::exception&) {
-    }
-    log_error("send_failed", {{"from", std::to_string(request.from)},
-                              {"to", std::to_string(request.to)},
-                              {"error", error.what()}});
-    return 50001;
   }
+
+  log_error("send_failed", {{"from", std::to_string(request.from)},
+                            {"to", std::to_string(request.to)},
+                            {"error", "deadlock retry exhausted"}});
+  return 50001;
 }

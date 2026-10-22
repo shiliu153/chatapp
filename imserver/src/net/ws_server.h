@@ -27,11 +27,16 @@
 
 class IpCounter {
  public:
+  explicit IpCounter(int max_per_ip = 20, double auth_rate = 1.0, double auth_burst = 60.0)
+      : max_(max_per_ip), auth_rate_(auth_rate), auth_burst_(auth_burst) {}
   bool acquire(const std::string& ip);
   void release(const std::string& ip);
   bool allow_auth(const std::string& ip, int64_t now_ms);
 
  private:
+  const int max_;
+  const double auth_rate_;
+  const double auth_burst_;
   std::mutex mutex_;
   std::unordered_map<std::string, int> counts_;
   std::unordered_map<std::string, TokenBucket> auth_buckets_;
