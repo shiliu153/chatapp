@@ -176,14 +176,20 @@ docker compose up -d
 | `docker load` 报 `repositories: no such file` | 上传的是「套了一层的 tar」,先解压再 load |
 | 容器起来但 nginx 502 | 容器是否用 `network_mode: host`;`curl 127.0.0.1:9101/internal/healthz` |
 
-## 7. 代码同步注意(2026-10-22)
+## 7. 代码同步(2026-10-22)
 
-服务器上自建 IM 的 22 个提交(`ea8a91d`)**当时还没推到 GitHub**,是通过
-`git bundle` 直接同步到服务器的。因此在推送之前:
+自建 IM 的 22 个提交与本次部署文档**已推送到 `origin/master`**(`f0b4b61`),
+服务器也已对齐同一提交,`git bundle` 只是当时的临时通道,后续不再需要。
 
-- **不要**在服务器执行 `git reset --hard origin/master`(会退回 `74fe893`,自建 IM 代码消失);
-- 正确的后续同步方式:先把本地 22 个提交 push 到 `origin/master`,再走常规 `git pull`;
-- 或者继续用 `git bundle`(范围 `74fe893..master`)增量同步。
+日常同步仍用服务器既有的「先备份、再 reset」流程(服务器历史与 `origin` 曾分叉,
+普通 `git pull` 可能报分叉):
+
+```bash
+ssh root@<SERVER_IP> 'cd /www/wwwroot/chatapp && git fetch origin && git reset --hard origin/master'
+# 代码有变时再重启 chatapp-web / chatapp-celery
+```
+
+> 纯文档提交(如 `f0b4b61`)不需要重启进程;改到 `.env`、任务代码或迁移时才需要。
 
 ## 8. 备选:systemd 直接跑二进制
 
