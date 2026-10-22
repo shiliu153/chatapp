@@ -1,0 +1,27 @@
+# 生产部署:自建 IM(容器形态,与宿主机 MySQL/Redis 共用)
+#
+# 用法(服务器上,/www/server/imserver):
+#   docker compose pull            # 或 docker load -i imserver-image.tar.gz
+#   docker compose run --rm imserver --migrate
+#   docker compose up -d
+#   docker compose logs -f --tail=100
+#
+# 说明:
+# - network_mode: host —— 配置里的 127.0.0.1:9100/9101 与宿主机 MySQL/Redis 直接互通,
+#   nginx 反代也走 127.0.0.1;容器不额外暴露端口。
+# - 密钥与数据库口令全部在 imserver.env(权限 600),不进仓库。
+# - 迁移是显式步骤(不放在 entrypoint 里),升级顺序见 docs/ops/imserver.md。
+
+services:
+  imserver:
+    image: ${IMSERVER_IMAGE:-imserver:latest}
+    container_name: imserver
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - /www/server/imserver/imserver.env
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

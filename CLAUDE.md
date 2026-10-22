@@ -44,8 +44,9 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-20 | P1-3「关系出口」交付(`DELETE /matches/{user_id}` = `Match` 软删除 + `unmatch_blacklist` 双向 IM 拉黑 + 滑卡防复活;App/Web 聊天页「⋯」+ 资料页入口 + 被解除后横幅/输入禁用;2 分钟内撤回消息(SDK 原生,双方置灰);接口 35→36,后端 420 / App 375 / Web 336 测试绿。**已读回执挂起**:腾讯 IM 旗舰版专享,当前体验版做不了) |
 | 2026-10-20 | 广场评论「楼中楼」交付(`PostComment` 自引用 `parent` + `reply_to`,服务层把「回复的回复」归一到顶级评论;列表内嵌前 2 条回复 + `GET …/replies` 展开 + `DELETE …/comments/{id}` 删楼;回复即 @,IM 灰条提醒被回复者(`post_replied` 任务);App 楼层/回复态/删除 + Web 组件同步;接口 36→38,后端 440 / App 380 / Web 340 测试绿;PR #12 squash 合并 `8c428c3`;用户模拟器 + Web 手测通过) |
 | 2026-10-21 | 自建 IM 交付(C++20 `imserver/`:WS 首帧 JWT 鉴权 + 会话级 seq + 幂等 + 离线补拉 + 已读/撤回/拉黑 + 内部 HMAC API;Django `IM_BACKEND` 双跑与按账号灰度;App/Web 双实现与图片入口隐藏;`GET /app/config` 最小版本拦截;接口 38→39,后端 450 / App 385 / Web 341 测试绿) |
+| 2026-10-22 | 自建 IM **上服务器**:镜像 `imserver:ea8a91d` 容器化(`network_mode: host`,127.0.0.1:9100/9101),建 `chatapp_im` 库并迁移 v1;Nginx `/im/ws`+`/im/api/` 反代;Django 同步到 `ea8a91d`(git bundle,含 P1 功能与 3 个迁移);灰度 `7,8` 端到端过(鉴权/收发/ack/历史/已读/撤回/离线补拉/未读),非灰度账号仍走腾讯;部署细节见 `docs/ops/imserver.md` 与 rollout 核对单) |
 
-**下一步**:自建 IM 已交付(灰度/回退见 `docs/superpowers/plans/2026-10-20-self-hosted-im-rollout.md`);全量门槛=图片二期 + 历史迁移/产品签字 + 500 连接压测 + 最小版本拦截。P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
+**下一步**:自建 IM 已上服务器并完成测试号灰度(灰度/回退见 `docs/superpowers/plans/2026-10-20-self-hosted-im-rollout.md`);全量门槛=图片二期 + 历史迁移/产品签字 + 500 连接压测 + 最小版本拦截。P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
