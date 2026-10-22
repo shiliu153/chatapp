@@ -14,6 +14,9 @@ class MysqlError : public std::runtime_error {
   int code_;
 };
 
+/// 关闭某条连接上缓存的所有 prepared statement(连接销毁前调用)。
+void clear_stmt_cache(MYSQL* conn);
+
 class Stmt {
  public:
   Stmt(MYSQL* conn, const std::string& sql);

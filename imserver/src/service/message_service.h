@@ -57,4 +57,5 @@ class MessageService {
   MessageRepo& messages_;
   BlacklistRepo& blacklist_;
   std::size_t text_max_;
+  int slow_send_ms_ = 0;
 };

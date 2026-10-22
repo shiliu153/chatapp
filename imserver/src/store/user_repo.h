@@ -3,6 +3,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "store/models.h"
@@ -29,4 +30,6 @@ class UserRepo {
   MysqlPool& pool_;
   std::mutex known_mu_;
   std::unordered_set<uint64_t> known_;
+  std::mutex profile_mu_;
+  std::unordered_map<uint64_t, UserRow> profiles_;
 };

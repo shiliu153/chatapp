@@ -62,6 +62,13 @@ void UserRepo::ensure(uint64_t uid, const std::string& nickname) {
 }
 
 std::optional<UserRow> UserRepo::get(MysqlPool::Lease& lease, uint64_t uid) {
+  {
+    const std::lock_guard<std::mutex> lock(profile_mu_);
+    const auto it = profiles_.find(uid);
+    if (it != profiles_.end()) {
+      return it->second;
+    }
+  }
   auto* result = lease.query(
       "SELECT user_id,nickname,avatar_url FROM im_user WHERE user_id=" +
       std::to_string(uid));
@@ -79,11 +86,20 @@ std::optional<UserRow> UserRepo::get(MysqlPool::Lease& lease, uint64_t uid) {
   mysql_free_result(result);
   if (row.has_value()) {
     remember(row->id);
+    const std::lock_guard<std::mutex> lock(profile_mu_);
+    profiles_[row->id] = *row;
   }
   return row;
 }
 
 std::optional<UserRow> UserRepo::get(uint64_t uid) {
+  {
+    const std::lock_guard<std::mutex> lock(profile_mu_);
+    const auto it = profiles_.find(uid);
+    if (it != profiles_.end()) {
+      return it->second;
+    }
+  }
   auto lease = pool_.acquire();
   return get(lease, uid);
 }
@@ -93,6 +109,8 @@ void UserRepo::remove(MysqlPool::Lease& lease, uint64_t uid) {
   stmt.bind_uint(0, uid);
   stmt.execute();
   forget(uid);
+  const std::lock_guard<std::mutex> lock(profile_mu_);
+  profiles_.erase(uid);
 }
 
 void UserRepo::update_profile(MysqlPool::Lease& lease, uint64_t uid,
@@ -112,4 +130,6 @@ void UserRepo::update_profile(MysqlPool::Lease& lease, uint64_t uid,
     stmt.bind_uint(2, uid);
     stmt.execute();
   }
+  const std::lock_guard<std::mutex> lock(profile_mu_);
+  profiles_.erase(uid);
 }

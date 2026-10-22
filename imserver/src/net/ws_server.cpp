@@ -215,9 +215,17 @@ void WsSession::arm_idle_timer() {
 }
 
 void WsSession::refresh_online() {
-  if (uid_ != 0) {
-    registry_.touch_online(uid_);
+  if (uid_ == 0) {
+    return;
   }
+  // Redis 在线键 TTL 90s;每帧都 SETEX 会把单连接 Redis 变成全局串行点,
+  // 这里按 30s 节流,语义不变(在线判定仍是 120s 内有认证请求)。
+  const int64_t now = now_ms();
+  if (now - last_online_ms_ < 30000) {
+    return;
+  }
+  last_online_ms_ = now;
+  registry_.touch_online(uid_);
 }
 
 void WsSession::do_read() {

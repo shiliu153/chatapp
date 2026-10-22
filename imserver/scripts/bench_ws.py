@@ -86,8 +86,8 @@ async def send_one(ws, res, uid, k, peer, run_id):
 
 
 async def run_client(i, token, start_evt, stop_evt, res, args, run_id):
-    uid = 900001 + i
-    peer = 900001 + ((i + 1) % res['n'])
+    uid = args.uid_base + i
+    peer = args.uid_base + ((i + 1) % res['n'])
     ip = f'10.20.{i // 250}.{i % 250 + 1}'
     ws = None
     try:
@@ -112,7 +112,11 @@ async def run_client(i, token, start_evt, stop_evt, res, args, run_id):
 
     await start_evt.wait()
     try:
-        if args.interval > 0 and i < (args.senders or res['n']):
+        if args.count > 0:
+            for k in range(args.count):
+                await send_one(ws, res, uid, k, peer, run_id)
+            res['done'] += 1
+        elif args.interval > 0 and i < (args.senders or res['n']):
             # steady:按序号把发送时刻摊平到 interval 窗口内
             await asyncio.sleep((i / max(1, args.senders or res['n'])) * args.interval)
             end = time.perf_counter() + args.duration
@@ -164,7 +168,9 @@ async def main():
     ap.add_argument('--hold', type=int, default=60)
     ap.add_argument('--interval', type=float, default=0)
     ap.add_argument('--duration', type=int, default=40)
+    ap.add_argument('--uid-base', type=int, default=900001)
     ap.add_argument('--uri', default=URI)
+    ap.add_argument('--count', type=int, default=0, help='每个连接固定发送条数(吞吐模式)')
     ap.add_argument('--senders', type=int, default=0, help='steady 模式下只有前 N 个连接发消息,0=全部')
     ap.add_argument('--out', default='/tmp/bench_result.json')
     args = ap.parse_args()
@@ -173,9 +179,9 @@ async def main():
     run_id = uuid.uuid4().hex[:6]
     res = {'n': args.n, 'connected': 0, 'connect_fail': 0, 'auth_fail': 0,
            'send_fail': 0, 'closed_early': 0, 'recv': 0, 'errors': [],
-           'auth_lat': [], 'ack_lat': [], 'pong_lat': [], 'ping_sent': {}, 'ack_samples': []}
+           'auth_lat': [], 'ack_lat': [], 'pong_lat': [], 'ping_sent': {}, 'ack_samples': [], 'done': 0}
 
-    tokens = [mint(900001 + i, secret) for i in range(args.n)]
+    tokens = [mint(args.uid_base + i, secret) for i in range(args.n)]
     start_evt = asyncio.Event()
     stop_evt = asyncio.Event()
     t_start = time.perf_counter()
@@ -197,6 +203,13 @@ async def main():
           f'fail={res["connect_fail"]} auth_fail={res["auth_fail"]}', flush=True)
 
     start_evt.set()
+    t_send = time.perf_counter()
+    if args.count > 0:
+        while res['done'] < args.n and time.perf_counter() - t_send < 120:
+            await asyncio.sleep(0.05)
+        elapsed = time.perf_counter() - t_send
+        total = len(res['ack_lat'])
+        print(f'throughput: {total} msgs in {elapsed:.2f}s = {total/elapsed:.0f}/s', flush=True)
     if args.interval > 0:
         wait_s = args.duration + 3
     else:
@@ -235,6 +248,8 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
+
 
 
 

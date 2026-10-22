@@ -103,6 +103,7 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   boost::asio::steady_timer auth_timer_;
   boost::asio::steady_timer idle_timer_;
   std::chrono::steady_clock::time_point last_frame_;
+  int64_t last_online_ms_ = 0;
   TokenBucket send_bucket_{20, 40};
 };
 

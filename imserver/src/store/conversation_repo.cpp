@@ -118,6 +118,31 @@ void ConversationRepo::upsert_state(MysqlPool::Lease& lease, uint64_t owner,
   stmt.execute();
 }
 
+void ConversationRepo::upsert_states(MysqlPool::Lease& lease, uint64_t owner_a, int delta_a,
+                                     uint64_t owner_b, int delta_b, uint64_t conv_id,
+                                     int64_t now_ms) {
+  if (owner_b == 0) {
+    upsert_state(lease, owner_a, conv_id, delta_a, now_ms);
+    return;
+  }
+  // 收发双方的 state 用一条多行 INSERT 写掉,少一次往返(热路径)。
+  Stmt stmt(lease.get(),
+            "INSERT INTO im_conversation_state "
+            "(owner_id,conv_id,unread,read_seq,deleted,updated_at) "
+            "VALUES (?,?,?,0,0,?),(?,?,?,0,0,?) "
+            "ON DUPLICATE KEY UPDATE unread=unread+VALUES(unread),deleted=0,"
+            "updated_at=VALUES(updated_at)");
+  stmt.bind_uint(0, owner_a);
+  stmt.bind_uint(1, conv_id);
+  stmt.bind_int(2, delta_a);
+  stmt.bind_uint(3, static_cast<uint64_t>(now_ms));
+  stmt.bind_uint(4, owner_b);
+  stmt.bind_uint(5, conv_id);
+  stmt.bind_int(6, delta_b);
+  stmt.bind_uint(7, static_cast<uint64_t>(now_ms));
+  stmt.execute();
+}
+
 uint32_t ConversationRepo::unread_for_peer(MysqlPool::Lease& lease, uint64_t owner,
                                            uint64_t peer) {
   const auto [user_a, user_b] = ordered(owner, peer);

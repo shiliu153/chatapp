@@ -16,6 +16,8 @@ class ConversationRepo {
              int64_t now_ms);
   void upsert_state(MysqlPool::Lease& lease, uint64_t owner, uint64_t conv_id,
                     int unread_delta, int64_t now_ms);
+  void upsert_states(MysqlPool::Lease& lease, uint64_t owner_a, int delta_a, uint64_t owner_b,
+                     int delta_b, uint64_t conv_id, int64_t now_ms);
   uint32_t unread_for_peer(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer);
   uint32_t unread_for_peer(uint64_t owner, uint64_t peer);
   void mark_read(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer, uint64_t seq,

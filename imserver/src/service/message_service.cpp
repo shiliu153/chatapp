@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cctype>
+#include <cstdlib>
 #include <stdexcept>
 #include <thread>
 
@@ -71,7 +72,11 @@ MessageService::MessageService(MysqlPool& pool, UserRepo& users,
       conversations_(conversations),
       messages_(messages),
       blacklist_(blacklist),
-      text_max_(text_max) {}
+      text_max_(text_max) {
+  if (const char* slow = std::getenv("IM_SLOW_SEND_MS")) {
+    slow_send_ms_ = std::atoi(slow);
+  }
+}
 
 std::vector<ConversationView> MessageService::list_conversations(uint64_t uid, int limit) {
   auto lease = pool_.acquire();
@@ -192,28 +197,28 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
     auto lease = pool_.acquire();
     try {
       lease.begin();
+      const auto t0 = std::chrono::steady_clock::now();
+      auto since = [&t0]() {
+        return std::chrono::duration_cast<std::chrono::microseconds>(
+                   std::chrono::steady_clock::now() - t0)
+            .count();
+      };
       users_.ensure(lease, request.to, "");
       if (request.from != 0) {
         users_.ensure(lease, request.from, "");
       }
-      if (request.from != 0 && blacklist_.exists_either(lease, request.from, request.to)) {
+      const bool blocked =
+          request.from != 0 && blacklist_.exists_either(lease, request.from, request.to);
+      const auto m_blacklist = since();
+      if (blocked) {
         lease.rollback();
         return 40302;
-      }
-
-      if (auto existing = messages_.find_by_client(lease, request.from,
-                                                   request.client_msg_id)) {
-        if (existing->to_id != request.to) {
-          lease.rollback();
-          return 42201;
-        }
-        lease.commit();
-        return result_for(*existing, users_);
       }
 
       const int64_t now = now_ms();
       const auto conversation =
           conversations_.lock_pair(lease, request.from, request.to, now);
+      const auto m_lock = since();
       const uint64_t seq = conversation.last_seq + 1;
       const std::string body = nlohmann::json{{"text", text}}.dump();
 
@@ -234,13 +239,15 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
         }
         return 50001;
       }
+      const auto m_insert = since();
 
       conversations_.touch(lease, conversation.id, seq, msg_id, now);
-      conversations_.upsert_state(lease, request.to, conversation.id, 1, now);
-      if (request.from != 0) {
-        conversations_.upsert_state(lease, request.from, conversation.id, 0, now);
-      }
+      const auto m_touch = since();
+      conversations_.upsert_states(lease, request.to, 1, request.from, 0, conversation.id, now);
+      const auto m_state1 = since();
+      const auto m_state2 = m_state1;
       lease.commit();
+      const auto m_commit = since();
 
       SendResult result;
       result.msg_id = msg_id;
@@ -249,6 +256,20 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
       if (auto profile = users_.get(request.from)) {
         result.from_nickname = profile->nickname;
         result.from_avatar = profile->avatar;
+      }
+      const auto m_total = since();
+      if (slow_send_ms_ > 0 && m_total >= slow_send_ms_ * 1000LL) {
+        log_error("slow_send", {{"from", std::to_string(request.from)},
+                                {"to", std::to_string(request.to)},
+                                {"total_us", std::to_string(m_total)},
+                                {"blacklist_us", std::to_string(m_blacklist)},
+                                {"lock_us", std::to_string(m_lock - m_blacklist)},
+                                {"insert_us", std::to_string(m_insert - m_lock)},
+                                {"touch_us", std::to_string(m_touch - m_insert)},
+                                {"state1_us", std::to_string(m_state1 - m_touch)},
+                                {"state2_us", std::to_string(m_state2 - m_state1)},
+                                {"commit_us", std::to_string(m_commit - m_state2)},
+                                {"profile_us", std::to_string(m_total - m_commit)}});
       }
       return result;
     } catch (const MysqlError& error) {

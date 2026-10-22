@@ -3,6 +3,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "store/stmt.h"
+
 namespace {
 
 MYSQL* connect_one(const MysqlDsn& dsn) {
@@ -40,6 +42,7 @@ MysqlPool::~MysqlPool() {
     to_close.swap(idle_);
   }
   for (MYSQL* conn : to_close) {
+    clear_stmt_cache(conn);
     mysql_close(conn);
   }
 }

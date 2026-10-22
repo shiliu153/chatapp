@@ -35,7 +35,7 @@
 - [ ] 历史迁移完成,或产品书面确认接受「切换点之前不可见」
 - [x] 500 连接压测 p99 < 200ms、RSS < 300MB
       (2026-10-22:500 连接 / 50 msg/s 公网经 nginx,p99 93ms、RSS 22MB;
-      1000 条瞬间突发的吞吐上限约 200 msg/s,属容量边界)
+      1000 条瞬时突发 4.7s ≈ 215 msg/s,已是 2C2G 上限)
 - [ ] 切换日 `IM_SELF_GRAYLIST=all`,观察 30 分钟:
       消息成功率、ack 延迟、断线率、`docker compose logs imserver` 无 ERROR 尖峰
 

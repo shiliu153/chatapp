@@ -46,6 +46,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-21 | 自建 IM 交付(C++20 `imserver/`:WS 首帧 JWT 鉴权 + 会话级 seq + 幂等 + 离线补拉 + 已读/撤回/拉黑 + 内部 HMAC API;Django `IM_BACKEND` 双跑与按账号灰度;App/Web 双实现与图片入口隐藏;`GET /app/config` 最小版本拦截;接口 38→39,后端 450 / App 385 / Web 341 测试绿) |
 | 2026-10-22 | 自建 IM **上服务器**:镜像 `imserver:ea8a91d` 容器化(`network_mode: host`,127.0.0.1:9100/9101),建 `chatapp_im` 库并迁移 v1;Nginx `/im/ws`+`/im/api/` 反代;Django 同步到 `ea8a91d`(git bundle,含 P1 功能与 3 个迁移);灰度 `7,8` 端到端过(鉴权/收发/ack/历史/已读/撤回/离线补拉/未读),非灰度账号仍走腾讯;部署细节见 `docs/ops/imserver.md` 与 rollout 核对单) |
 | 2026-10-22 | 自建 IM **500 连接压测**:稳态 50 msg/s 经 nginx ack p99 93ms、RSS 22MB(门槛 200ms/300MB);压测暴露并修复两处服务端问题——`im_user` 每消息两次 `INSERT ... ON DUPLICATE KEY UPDATE` 的间隙锁(改进程内缓存 + `SELECT 1` 优先)、冷启动新会话并发死锁(1213/1205 重试 3 次),复测 1000 条突发 0 失败;新增 `IM_MAX_CONN_PER_IP`/`IM_AUTH_RATE`/`IM_AUTH_BURST` 与压测脚本 `imserver/scripts/bench_ws.py`) |
+| 2026-10-22 | 自建 IM **吞吐优化**:prepared statement 按连接缓存(写语句 3 次往返→1 次)、收发双方 unread 合并为一条多行 INSERT、去掉消息前 `client_msg_id` 预查、用户画像进程内缓存、在线 Redis 写入按 30s 节流;1000 条突发 9.4s→4.7s(106→215 msg/s)。**2C2G 天花板 ~200–250 msg/s**(MySQL ~2000 SQL/s ÷ 每消息 ~7 条),再往上需升配 4C8G+ 或应用层批量提交 |
 
 **下一步**:自建 IM 已上服务器并完成测试号灰度(灰度/回退见 `docs/superpowers/plans/2026-10-20-self-hosted-im-rollout.md`);全量门槛=图片二期 + 历史迁移/产品签字 + 500 连接压测 + 最小版本拦截。P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
