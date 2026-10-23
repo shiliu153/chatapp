@@ -229,6 +229,9 @@ python bench_ws.py --uri ws://<SERVER_IP>/im/ws --n 500 --interval 10 --duration
 
 **吞吐优化(2026-10-22 第二批)**:
 
+> 完整实验记录(基线、失败假设、分阶段数据、天花板计算):
+> [imserver-throughput.md](imserver-throughput.md)
+
 | 版本 | 1000 条耗时 | 吞吐 |
 |---|---|---|
 | 初版 | 9.4s | 106/s |
