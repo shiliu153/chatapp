@@ -691,6 +691,24 @@ class DeleteAccountTests(AuthMixin, APITestCase):
         self.assertFalse(default_storage.exists(photo_name))
         self.assertFalse(default_storage.exists(image_name))
 
+    def test_deletes_chat_image_files_on_disk(self):
+        from im.models import ChatImage   # 延迟导入,与 services.py 的删号逻辑保持一致
+
+        image = ChatImage(owner=self.user, width=1, height=1, bytes=len(PNG_1PX))
+        image.file.save("chat/c.png", ContentFile(PNG_1PX), save=False)
+        image.thumb.save("chat/c_thumb.png", ContentFile(PNG_1PX), save=False)
+        image.save()
+        names = [image.file.name, image.thumb.name]
+        for name in names:
+            self.assertTrue(default_storage.exists(name))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self._delete()
+
+        self.assertEqual(resp.status_code, 204)
+        for name in names:
+            self.assertFalse(default_storage.exists(name), name)
+
     def test_clears_presence_and_kick_pending_flag(self):
         user_id = self.user.id
         presence.touch(user_id)
