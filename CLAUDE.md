@@ -49,8 +49,10 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-22 | 自建 IM **吞吐优化**:prepared statement 按连接缓存(写语句 3 次往返→1 次)、收发双方 unread 合并为一条多行 INSERT、去掉消息前 `client_msg_id` 预查、用户画像进程内缓存、在线 Redis 写入按 30s 节流;1000 条突发 9.4s→4.7s(106→215 msg/s)。**2C2G 天花板 ~200–250 msg/s**(MySQL ~2000 SQL/s ÷ 每消息 ~7 条),再往上需升配 4C8G+ 或应用层批量提交;完整记录见 `docs/ops/imserver-throughput.md` |
 | 2026-10-26 | 自建 IM 灰度收尾 + **连接池事故修复**:三项手测脚本化(`imserver/scripts/verify_graylist.py`,17 条断言:互踢 4001/封禁 40301+4003/拉黑 40302,实跑生产全过);同时发现**池不校验存活**导致 MySQL `wait_timeout` 后 IM 永久失联(10-22 晚起约 3 天,仅灰度测试号受影响,重启即恢复),修复为「空闲 ≥`IM_DB_IDLE_PING_MS` 先 ping、失败重连 + 连接级错误丢弃 + `run_db` 兜异常」,新增 DB 测试 `PoolReconnectsAfterServerKill`;镜像 `imserver:a2332dd` 已上线,`KILL` 全部池连接后 `readyz` 仍 200。历史消息由产品确认接受「切换点之前不可见」(测试阶段) |
 | 2026-10-26 | 自建 IM **图片二期**交付(全量门槛最后一项):Django `POST /im/images` + `im.ChatImage`(随机文件名/240px 缩略图/EXIF 方向校正/30 次每小时);imserver `kind=3` + `IM_MEDIA_PREFIX` 前缀校验(防伪造外链)+ 顺带修「灰条历史丢 `custom.type`」;App/Web `sendImage` 与解析、`capabilities.image=true`、聊天选图 1920/80;ops `/ops/chat-images/` 人工抽审 + 举报详情带最近 7 天图片;后端 464 / App 389 / Web 347 / imserver unit 13 + db 10 测试绿。**遗留**:图片无机器审核(人工抽审兜底,上线阻断项)、URL 公开可访问(后续可换签名 URL) |
+| 2026-10-26 | 自建 IM **图片签名 URL + 30 天清理**:Django 新增 `im/media_sign.py`(HMAC-SHA256,`exp` 按整点对齐 + 24h)与 `GET /im/images/auth`(nginx `auth_request` 子请求,生产 nginx **没有** `secure_link` 模块);上传响应/运营台预览改用签名 URL;imserver `MediaSigner` 落库去 query、推送/历史/会话列表读时现签(共享测试向量锁死两端算法);新增 `im_media_cleanup`(默认 dry-run,保留期 30 天 + 孤儿文件 + 删除残留)与 `im_media_stats` 命令;接口 39→40;imserver unit 17 + db 10 + http 集成绿。 |
 
-**下一步**:2026-10-26 图片二期交付后,**功能门槛已全部满足**,只剩 **切换日观察**(`IM_SELF_GRAYLIST=all` + 30 分钟)与切换前配置:必须先把 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL` 配上(现在是默认 `1.0.0`,挡不住旧版本),把 `SMS_DEV_MODE` 显式写成 `0`(现在没写、默认走开发模式,验证码固定 `123456` 且登录页直接显示,**上线阻断项**),并给 imserver 配上 `IM_MEDIA_PREFIX`(与 `MEDIA_BASE_URL + /media/chat/` 一致,缺失则容器起不来)。图片**无机器审核**已记为上线阻断项(人工抽审兜底)。探针已上线但没接群机器人,告警只落日志。P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
+
+**下一步**:2026-10-26 图片签名 URL + 30 天清理交付后,**功能门槛仍全部满足**,只剩 **切换日观察**(`IM_SELF_GRAYLIST=all` + 30 分钟)与切换前配置:必须先把 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL` 配上(现在是默认 `1.0.0`,挡不住旧版本),把 `SMS_DEV_MODE` 显式写成 `0`(现在没写、默认走开发模式,验证码固定 `123456` 且登录页直接显示,**上线阻断项**),并给 imserver 配上 `IM_MEDIA_PREFIX`(与 `MEDIA_BASE_URL + /media/chat/` 一致,缺失则容器起不来)与 `IM_MEDIA_SIGN_SECRET`(与 Django `.env` 一致,不一致则聊天图片全 403)。图片**无机器审核**已记为上线阻断项(人工抽审兜底)。探针已上线但没接群机器人,告警只落日志。P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -153,7 +155,8 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB);`AUTO_APPROVE=1` 上传即过审 |
 | `GET/PATCH /users/me/preference` | 想找的人:目标性别(可空=不限)/ 年龄区间 / 城市 |
 | `POST /im/user_sig` | 取 IM 登录凭证(腾讯 `user_sig` / 自建 `token` 双分支);`banned_heavy` 403 |
-| `POST /im/images` | 上传聊天图片(自建 IM 发图前置;jpg/png/webp ≤5MB、长边 ≤4096,服务端出 240px 缩略图;30 次/小时) |
+| `POST /im/images` | 上传聊天图片(自建 IM 发图前置;jpg/png/webp ≤5MB、长边 ≤4096,服务端出 240px 缩略图;30 次/小时);响应里的 `url/thumb_url` 是**限时签名地址** |
+| `GET /im/images/auth` | nginx `auth_request` 子请求验签(读 `X-Original-URI`,204/403);不是给客户端调的 |
 | `GET /app/config` | 公开;最低版本配置(启动时拦截旧版本) |
 | `GET /discovery/candidates` | 候选卡(默认 10、上限 20);排除自己/划过/已配对/资料未完善;**只推有已过审照片的人** |
 | `POST /discovery/swipe` | `{target_user_id, action: like\|pass}`;幂等;互喜 → `{"matched": true}` + 双方灰条;限流 300/小时 |
