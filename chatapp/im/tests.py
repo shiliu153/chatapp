@@ -1039,3 +1039,124 @@ class ChatImageAuthTests(APITestCase):
         self.assertEqual(self.auth(self.signed()).status_code, 204)
 
 
+class ChatImageCleanupTests(TestCase):
+    """清理命令:保留期删文件并改状态、默认 dry-run、孤儿文件按 mtime、删除残留补删。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, CHAT_IMAGE_RETENTION_DAYS=30)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13900139003")
+
+    def make_image(self, name="a.jpg", days_old=0, status=ChatImageStatus.VISIBLE):
+        """造一张聊天图片并把 ``created_at`` 往前挪。
+
+        Args:
+            name: 原图文件名。
+            days_old: 创建时间往前挪几天。
+            status: 初始状态。
+
+        Returns:
+            刷新后的 ``ChatImage`` 实例。
+        """
+        image = ChatImage.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile(name, PNG_1PX, content_type="image/jpeg"),
+            thumb=SimpleUploadedFile(name.replace(".jpg", "_thumb.jpg"), PNG_1PX,
+                                     content_type="image/jpeg"),
+            width=1, height=1, bytes=len(PNG_1PX), status=status)
+        ChatImage.objects.filter(pk=image.pk).update(
+            created_at=timezone.now() - timedelta(days=days_old))
+        image.refresh_from_db()
+        return image
+
+    def run_cleanup(self, *args):
+        """跑一次清理命令并返回标准输出。
+
+        Args:
+            *args: 透传给命令的参数。
+
+        Returns:
+            命令的标准输出。
+        """
+        out = StringIO()
+        call_command("im_media_cleanup", *args, stdout=out)
+        return out.getvalue()
+
+    def test_retention_removes_files_and_marks_expired(self):
+        image = self.make_image(days_old=31)
+        names = (image.file.name, image.thumb.name)
+        self.run_cleanup("--apply")
+        image.refresh_from_db()
+        self.assertEqual(image.status, ChatImageStatus.EXPIRED)
+        self.assertIsNotNone(image.expired_at)
+        for name in names:
+            self.assertFalse(default_storage.exists(name))
+
+    def test_dry_run_keeps_files(self):
+        image = self.make_image(days_old=31)
+        output = self.run_cleanup()
+        image.refresh_from_db()
+        self.assertEqual(image.status, ChatImageStatus.VISIBLE)
+        self.assertTrue(default_storage.exists(image.file.name))
+        self.assertIn("dry-run", output)
+
+    def test_fresh_image_is_kept(self):
+        image = self.make_image(days_old=1)
+        self.run_cleanup("--apply")
+        image.refresh_from_db()
+        self.assertEqual(image.status, ChatImageStatus.VISIBLE)
+
+    def test_orphan_file_is_deleted_after_grace(self):
+        orphan_dir = Path(self.media_dir) / "chat" / "2026" / "10"
+        orphan_dir.mkdir(parents=True)
+        orphan = orphan_dir / "999-dead.jpg"
+        orphan.write_bytes(PNG_1PX)
+        old = time.time() - 48 * 3600
+        os.utime(orphan, (old, old))
+        self.run_cleanup("--apply")
+        self.assertFalse(orphan.exists())
+
+    def test_recent_orphan_is_kept(self):
+        orphan_dir = Path(self.media_dir) / "chat" / "2026" / "10"
+        orphan_dir.mkdir(parents=True)
+        orphan = orphan_dir / "999-live.jpg"
+        orphan.write_bytes(PNG_1PX)
+        self.run_cleanup("--apply")
+        self.assertTrue(orphan.exists())
+
+    def test_deleted_row_leftover_file_is_removed(self):
+        image = self.make_image(status=ChatImageStatus.DELETED)
+        self.run_cleanup("--apply")
+        self.assertFalse(default_storage.exists(image.file.name))
+
+    def test_zero_retention_skips_retention_pass(self):
+        image = self.make_image(days_old=365)
+        self.run_cleanup("--apply", "--retention-days", "0")
+        image.refresh_from_db()
+        self.assertEqual(image.status, ChatImageStatus.VISIBLE)
+
+
+class ChatImageStatsTests(TestCase):
+    """用量报表:打印各状态条数、字节数与磁盘文件数。"""
+
+    def test_reports_status_counts_and_disk(self):
+        media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media_dir, ignore_errors=True)
+        with self.settings(MEDIA_ROOT=media_dir):
+            user = User.objects.create_user(phone="13900139004")
+            ChatImage.objects.create(
+                owner=user,
+                file=SimpleUploadedFile("s.jpg", PNG_1PX, content_type="image/jpeg"),
+                thumb=SimpleUploadedFile("s_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+                width=1, height=1, bytes=len(PNG_1PX))
+            out = StringIO()
+            call_command("im_media_stats", stdout=out)
+        text = out.getvalue()
+        self.assertIn("visible=1", text)
+        self.assertIn("磁盘文件=2", text)
+
+
+
