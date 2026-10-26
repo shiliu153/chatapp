@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -68,6 +69,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   void handle_delete(const nlohmann::json& frame);
   void on_send_result(const std::variant<SendResult, int>& result,
                       const SendRequest& request);
+  /// 把一段会碰数据库的任务丢进 DB 线程池,并吞掉异常(避免 std::terminate)。
+  void run_db(std::function<void()> task);
   void send_json(const std::string& payload);
   void do_write();
   void on_write(boost::beast::error_code ec, std::size_t bytes);
