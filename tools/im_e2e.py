@@ -13,6 +13,8 @@ import websockets
 SECRET = os.environ["IM_JWT_SECRET"]
 WS = os.environ.get("IM_BASE_WS", "ws://127.0.0.1:19100/im/ws")
 HTTP = os.environ.get("IM_BASE_HTTP", "http://127.0.0.1:19101/im/api")
+# 必须与 imserver 的 IM_MEDIA_PREFIX 一致,否则图片帧会被 42201 拒掉
+MEDIA_PREFIX = os.environ.get("IM_MEDIA_PREFIX", "http://cdn/media/chat/")
 
 
 def token(uid: int) -> str:
@@ -69,6 +71,45 @@ async def main():
 
     conversations = get("/conversations", b_uid)["items"]
     assert conversations[0]["unread"] == 3
+
+    # 图片消息:上传后的 URL 必须带 IM_MEDIA_PREFIX,服务端才认
+    image_url = MEDIA_PREFIX + "2026/10/e2e.jpg"
+    await a.send(json.dumps({
+        "v": 1,
+        "type": "send",
+        "id": "e2e-image",
+        "data": {
+            "client_msg_id": "e2e-image",
+            "to": f"u{b_uid}",
+            "kind": "image",
+            "image": {"url": image_url,
+                      "thumb_url": MEDIA_PREFIX + "2026/10/e2e_thumb.jpg",
+                      "width": 1080, "height": 1440, "size": 345678},
+        },
+    }))
+    await recv(a, "ack")
+    pushed_image = await recv(b, "message")
+    assert pushed_image["data"]["kind"] == "image"
+    assert pushed_image["data"]["image"]["url"] == image_url
+    history = get(f"/messages?peer=u{a_uid}", b_uid)["items"]
+    assert any(item["kind"] == "image" for item in history)
+
+    # 伪造外链必须被拒
+    await a.send(json.dumps({
+        "v": 1,
+        "type": "send",
+        "id": "e2e-image-bad",
+        "data": {
+            "client_msg_id": "e2e-image-bad",
+            "to": f"u{b_uid}",
+            "kind": "image",
+            "image": {"url": "http://evil.example/a.jpg",
+                      "thumb_url": MEDIA_PREFIX + "2026/10/e2e_thumb.jpg",
+                      "width": 1080, "height": 1440, "size": 345678},
+        },
+    }))
+    rejected = await recv(a, "error")
+    assert rejected["data"]["code"] == 42201
 
     await a.send(json.dumps({
         "v": 1,
