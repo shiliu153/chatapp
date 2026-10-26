@@ -327,6 +327,12 @@ CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 CHAT_IMAGE_MAX_SIDE = 4096
 CHAT_IMAGE_THUMB_SIDE = 240
 
+# --- 聊天图片签名 URL(与 imserver 的 IM_MEDIA_SIGN_* 必须一致)---
+IM_MEDIA_SIGN_SECRET = os.getenv("IM_MEDIA_SIGN_SECRET", "")
+IM_MEDIA_SIGN_TTL = int(os.getenv("IM_MEDIA_SIGN_TTL", "86400"))
+# 聊天图片保留期(天);0 表示只清孤儿文件与删除残留
+CHAT_IMAGE_RETENTION_DAYS = int(os.getenv("CHAT_IMAGE_RETENTION_DAYS", "30"))
+
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 

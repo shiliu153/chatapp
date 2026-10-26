@@ -14,16 +14,24 @@
 
 import io
 import json
+import os
 import shutil
 import tempfile
+import time
+from datetime import timedelta
+from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -33,6 +41,7 @@ from users.services import get_profile
 
 from feed.models import Post, PostComment
 
+from . import media_sign
 from .client import (_request, black_list_add, black_list_delete, delete_account,
                      ensure_account, import_account, kick_user, send_ban_lifted,
                      send_ban_notice, send_custom_elem, send_match_notice,
@@ -898,3 +907,51 @@ class ChatImageUploadTests(APITestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual((response.data["width"], response.data["height"]), (20, 40))
         self.assertTrue(response.data["url"].endswith(".jpg"))
+
+
+class MediaSignTests(SimpleTestCase):
+    """聊天图片签名:共享向量、过期、篡改、路径白名单、未配置密钥时的放行。"""
+
+    def test_shared_vector_matches_imserver(self):
+        self.assertEqual(
+            media_sign.signature("/media/chat/2026/10/12-abc.jpg", 1761782400,
+                                 secret="test-media-secret"),
+            "2b46b854b31a88877e318e3d12cb743fe76fccb2977e2d7ced879d7b3547d419")
+
+    def test_expiry_is_bucket_aligned(self):
+        # 1761779999 落在 1761778800 这个整点桶里,加 24h
+        with override_settings(IM_MEDIA_SIGN_TTL=86400):
+            self.assertEqual(media_sign.expires_at(1761779999), 1761865200)
+
+    def test_sign_url_replaces_existing_query(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
+            signed = media_sign.sign_url("http://cdn.test/media/chat/a.jpg?e=1&s=old",
+                                         now=1761782400)
+        self.assertTrue(signed.startswith("http://cdn.test/media/chat/a.jpg?e="))
+        self.assertNotIn("s=old", signed)
+
+    def test_verify_accepts_valid_and_rejects_tampered(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
+            signed = media_sign.sign_url("/media/chat/a.jpg", now=1761782400)
+            query = parse_qs(urlsplit(signed).query)
+            self.assertTrue(media_sign.verify("/media/chat/a.jpg", query["e"][0],
+                                              query["s"][0], now=1761782400))
+            self.assertFalse(media_sign.verify("/media/chat/b.jpg", query["e"][0],
+                                               query["s"][0], now=1761782400))
+            self.assertFalse(media_sign.verify("/media/chat/a.jpg", query["e"][0],
+                                               "0" * 64, now=1761782400))
+
+    def test_verify_rejects_expired_and_foreign_path(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=60):
+            signed = media_sign.sign_url("/media/chat/a.jpg", now=1761782400)
+            query = parse_qs(urlsplit(signed).query)
+            self.assertFalse(media_sign.verify("/media/chat/a.jpg", query["e"][0],
+                                               query["s"][0], now=1761868800))
+            self.assertFalse(media_sign.verify("/media/photos/a.jpg", query["e"][0],
+                                               query["s"][0], now=1761782400))
+
+    def test_disabled_secret_passes_everything(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET=""):
+            self.assertEqual(media_sign.sign_url("/media/chat/a.jpg"), "/media/chat/a.jpg")
+            self.assertTrue(media_sign.verify("/media/chat/a.jpg", "0", "bad"))
+
