@@ -67,14 +67,16 @@ SendResult result_for(const MessageRow& row, UserRepo& users) {
 MessageService::MessageService(MysqlPool& pool, UserRepo& users,
                                ConversationRepo& conversations, MessageRepo& messages,
                                BlacklistRepo& blacklist, std::size_t text_max,
-                               std::string media_prefix)
+                               std::string media_prefix, std::string media_sign_secret,
+                               int media_sign_ttl)
     : pool_(pool),
       users_(users),
       conversations_(conversations),
       messages_(messages),
       blacklist_(blacklist),
       text_max_(text_max),
-      media_prefix_(std::move(media_prefix)) {
+      media_prefix_(std::move(media_prefix)),
+      signer_(std::move(media_sign_secret), media_sign_ttl, media_prefix_) {
   if (const char* slow = std::getenv("IM_SLOW_SEND_MS")) {
     slow_send_ms_ = std::atoi(slow);
   }

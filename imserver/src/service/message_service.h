@@ -11,6 +11,7 @@
 #include "store/message_repo.h"
 #include "store/mysql_pool.h"
 #include "store/user_repo.h"
+#include "util/media_sign.h"
 
 struct SendRequest {
   uint64_t from = 0;
@@ -34,7 +35,8 @@ class MessageService {
  public:
   MessageService(MysqlPool& pool, UserRepo& users, ConversationRepo& conversations,
                  MessageRepo& messages, BlacklistRepo& blacklist,
-                 std::size_t text_max = 2000, std::string media_prefix = "");
+                 std::size_t text_max = 2000, std::string media_prefix = "",
+                 std::string media_sign_secret = "", int media_sign_ttl = 86400);
 
   std::variant<SendResult, int> send(const SendRequest& request);
   std::vector<ConversationView> list_conversations(uint64_t uid, int limit);
@@ -54,6 +56,7 @@ class MessageService {
   ConversationRepo& conversations() { return conversations_; }
   MessageRepo& messages() { return messages_; }
   BlacklistRepo& blacklist() { return blacklist_; }
+  const MediaSigner& signer() const { return signer_; }
 
  private:
   MysqlPool& pool_;
@@ -63,5 +66,6 @@ class MessageService {
   BlacklistRepo& blacklist_;
   std::size_t text_max_;
   std::string media_prefix_;
+  MediaSigner signer_;
   int slow_send_ms_ = 0;
 };
