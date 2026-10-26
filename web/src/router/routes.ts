@@ -3,6 +3,13 @@ import type { RouteRecordRaw } from 'vue-router'
 /** 页面组件一律懒加载:首屏只加载当前路由需要的代码。 */
 export const routes: RouteRecordRaw[] = [
   {
+    // 根路径必须有落点:登录态直接访问 `/` 时守卫不会重定向(没有匹配到任何路由),
+    // RouterView 会渲染成空白页(2026-10-26 生产手测发现)。
+    // 重定向到 home 后由守卫决定:未登录 → login,已登录 → discovery。
+    path: '/',
+    redirect: { name: 'home' },
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('@/features/auth/LoginPage.vue'),

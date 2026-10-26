@@ -56,6 +56,14 @@ describe('路由表', () => {
     }
   })
 
+  it('登录态直接访问 / 不会白屏(根路径重定向到 home)', async () => {
+    // 2026-10-26 生产手测:已登录用户刷新 `/` 时,因为没有匹配路由,
+    // 守卫直接放行、RouterView 渲染空白。根路径必须能落到 home。
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/')
+    expect(router.currentRoute.value.path).toBe('/home/discovery')
+  })
+
   it('公开路由都标了 meta.public(协议全文未登录可看)', () => {
     const publicNames = routes.filter((r) => r.meta?.public).map((r) => String(r.name))
     expect(publicNames).toContain('login')
