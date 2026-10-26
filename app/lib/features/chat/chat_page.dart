@@ -37,10 +37,14 @@ import 'widgets/more_panel.dart';
 import 'widgets/photo_viewer.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
-  const ChatPage({super.key, required this.peerId, this.pickImage = pickChatImageFromGallery});
+  const ChatPage({super.key, required this.peerId, this.focusMsgId,
+      this.pickImage = pickChatImageFromGallery});
 
   /// 对方的 IM id,如 'u9'。
   final String peerId;
+
+  /// 从搜索页点进来的定位目标:进入后回溯历史、滚到这条消息并高亮。
+  final String? focusMsgId;
 
   /// 相册选图(测试注入用)。
   final PickImage pickImage;
@@ -52,9 +56,13 @@ class ChatPage extends ConsumerStatefulWidget {
 class _ChatPageState extends ConsumerState<ChatPage> {
   final _input = TextEditingController();
   final _focusNode = FocusNode();
+  final _scroll = ScrollController();
+  final _itemKeys = <String, GlobalKey>{};
   bool _sending = false;
   bool _showEmoji = false;
   bool _showMore = false;
+  bool _focusStarted = false;
+  String? _highlightMsgId;
 
   @override
   void initState() {
@@ -76,7 +84,41 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void dispose() {
     _input.dispose();
     _focusNode.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  /// 搜索定位:先回溯历史直到目标进列表,再逐屏滚动找到它的渲染对象,
+  /// 最后 ensureVisible 居中并高亮 1.5s。目标已撤回/被删就静默停在原位。
+  Future<void> _focusOn(String msgId) async {
+    final controller = ref.read(chatProvider(widget.peerId).notifier);
+    await controller.loadOlder(untilMsgId: msgId);
+    if (!mounted) return;
+    await WidgetsBinding.instance.endOfFrame;
+    for (var attempt = 0; attempt < 24; attempt++) {
+      if (_itemKeys[msgId]?.currentContext != null) break;
+      if (!_scroll.hasClients) return;
+      final position = _scroll.position;
+      final next = (position.pixels + position.viewportDimension * 0.8)
+          .clamp(0.0, position.maxScrollExtent);
+      if (next <= position.pixels + 1) break;
+      _scroll.jumpTo(next);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+    }
+    final targetContext = _itemKeys[msgId]?.currentContext;
+    if (targetContext == null || !targetContext.mounted) return;
+    await Scrollable.ensureVisible(
+      targetContext,
+      alignment: 0.5,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+    if (!mounted) return;
+    setState(() => _highlightMsgId = msgId);
+    Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _highlightMsgId = null);
+    });
   }
 
   Future<void> _send() async {
@@ -293,9 +335,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ),
                   );
                 }
+                if (!_focusStarted && widget.focusMsgId != null && items.isNotEmpty) {
+                  _focusStarted = true;
+                  WidgetsBinding.instance
+                      .addPostFrameCallback((_) => _focusOn(widget.focusMsgId!));
+                }
                 final chatItems = buildChatItems(items);
                 return ListView.builder(
                   key: const Key('chat.list'),
+                  controller: _scroll,
                   reverse: true, // 新消息在底部,进来就停在最新一条
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   itemCount: chatItems.length,
@@ -306,11 +354,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       // Builder 包一层:itemBuilder 的 context 是 sliver,取不到气泡自己的
                       // 渲染对象(长按菜单要定位到气泡)
                       ChatMessageItem(:final message) => Builder(
+                          key: _itemKeys.putIfAbsent(message.msgId, GlobalKey.new),
                           builder: (itemContext) => MessageBubble(
                             message: message,
                             peerName: peerName,
                             peerAvatarUrl: peerAvatarUrl,
                             selfAvatarUrl: selfAvatarUrl,
+                            highlight: message.msgId == _highlightMsgId,
                             onLongPress: () => _showMessageMenu(itemContext, message),
                             onTapImage: () => _openImage(message),
                             onRetry: () =>

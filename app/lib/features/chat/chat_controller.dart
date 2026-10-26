@@ -72,6 +72,24 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     }
   }
 
+  /// 往前翻历史,直到找到 [untilMsgId](或翻到顶 / 到页数上限)。搜索定位用。
+  Future<void> loadOlder({required String untilMsgId, int maxPages = 5}) async {
+    var current = state.value ?? const <ChatMessage>[];
+    if (current.isEmpty) return;
+    final client = ref.read(imClientProvider);
+    for (var page = 0; page < maxPages; page++) {
+      if (current.any((item) => item.msgId == untilMsgId)) return;
+      final oldestSeq = current.first.seq;
+      if (oldestSeq <= 1) return;
+      final older = await client.fetchHistory(peerId, count: 50, beforeSeq: oldestSeq);
+      if (older.isEmpty) return;
+      final known = {for (final item in current) item.msgId};
+      current = [...older.where((item) => !known.contains(item.msgId)), ...current];
+      state = AsyncValue.data(current);
+      if (older.length < 50) return;
+    }
+  }
+
   Future<void> retry(ChatMessage message) =>
       _sendOut(message.copyWith(isPending: true, isFailed: false));
 

@@ -37,9 +37,24 @@ class ChatsPage extends ConsumerWidget {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.md),
-              child: Text('消息',
-                  style: AppText.display.copyWith(color: AppColors.text1)),
+                  AppSpacing.pageH, AppSpacing.lg, AppSpacing.xs, AppSpacing.md),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text('消息',
+                        style: AppText.display.copyWith(color: AppColors.text1)),
+                  ),
+                  // 搜索入口:仅支持搜索的后端显示(腾讯后端无此能力)
+                  if (ref.read(imClientProvider).capabilities.search)
+                    IconButton(
+                      key: const Key('chats.search'),
+                      tooltip: '搜索聊天记录',
+                      onPressed: () => context.push('/search'),
+                      icon: const Icon(Icons.search_rounded,
+                          size: 24, color: AppColors.text1),
+                    ),
+                ],
+              ),
             ),
             Expanded(
               child: switch (status) {

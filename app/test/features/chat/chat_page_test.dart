@@ -503,4 +503,73 @@ void main() {
     await pumpChat(tester, peerId: 'system_notice');
     expect(find.byKey(const Key('chat.unmatchedBanner')), findsNothing);
   });
+
+  testWidgets('带 focus 进聊天页会回溯历史并高亮目标消息', (tester) async {
+    // 最近一页 50 条里没有目标;目标在更早的一页里
+    fake.history['u9'] = List.generate(
+      50,
+      (i) => ChatMessage(
+        msgId: 'm$i',
+        seq: 100 + i,
+        peerId: 'u9',
+        isSelf: i.isEven,
+        timestamp: DateTime.now().millisecondsSinceEpoch + i * 1000,
+        kind: ChatMessageKind.text,
+        text: '消息 $i',
+      ),
+    );
+    fake.olderHistory['u9'] = {
+      100: [
+        ChatMessage(
+          msgId: 'target',
+          seq: 99,
+          peerId: 'u9',
+          isSelf: false,
+          timestamp: DateTime.now().millisecondsSinceEpoch - 60000,
+          kind: ChatMessageKind.text,
+          text: '上周的地址',
+        ),
+      ],
+    };
+
+    final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
+    container = ProviderContainer(overrides: [
+      baseDioProvider.overrideWithValue(dio),
+      refreshDioProvider.overrideWithValue(dio),
+      imClientProvider.overrideWithValue(fake),
+      imStatusProvider.overrideWith(_LoggedInImManager.new),
+      sessionProvider.overrideWith(_LoggedInSession.new),
+      presenceRefreshIntervalProvider.overrideWithValue(null),
+    ]);
+    addTearDown(container.dispose);
+    final router = GoRouter(
+      initialLocation: '/chat/u9?focus=target',
+      routes: [
+        GoRoute(
+          path: '/chat/:peerId',
+          builder: (context, state) => ChatPage(
+            peerId: state.pathParameters['peerId']!,
+            focusMsgId: state.uri.queryParameters['focus'],
+          ),
+        ),
+      ],
+    );
+    await tester.pumpWidget(UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(routerConfig: router),
+    ));
+    // 反序列表会逐屏滚动找目标;给足帧数让它收敛(不 pumpAndSettle,呼吸点在跑)
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      if (find.byKey(const Key('chat.highlight:target')).evaluate().isNotEmpty) break;
+    }
+
+    expect(find.byKey(const Key('chat.highlight:target')), findsOneWidget);
+    expect(find.text('上周的地址'), findsOneWidget);
+    // 1.5s 后高亮取消
+    for (var i = 0; i < 30; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byKey(const Key('chat.highlight:target')), findsNothing);
+  });
 }

@@ -21,6 +21,7 @@ class MessageBubble extends StatelessWidget {
     this.onLongPress,
     this.onRetry,
     this.onTapImage,
+    this.highlight = false,
   });
 
   final ChatMessage message;
@@ -30,6 +31,9 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onLongPress;
   final VoidCallback? onRetry;
   final VoidCallback? onTapImage;
+
+  /// 搜索定位命中的气泡:主色淡底高亮 1.5s 后由外层取消。
+  final bool highlight;
 
   static const noticeFallback = '你们已互相喜欢,开始聊天吧';
 
@@ -88,25 +92,34 @@ class MessageBubble extends StatelessWidget {
       ),
     );
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md, vertical: AppSpacing.xs),
-      child: Row(
-        mainAxisAlignment: isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!isSelf) ...[avatar, const SizedBox(width: AppSpacing.sm)],
-          if (isSelf && message.isFailed) ...[
-            IconButton(
-              key: const Key('chat.retry'),
-              onPressed: onRetry,
-              icon: const Icon(Icons.error_rounded, color: AppColors.danger, size: 20),
-              visualDensity: VisualDensity.compact,
-            ),
+    return AnimatedContainer(
+      // 搜索定位命中时整个消息行淡入主色底,1.5s 后由外层把 highlight 置回 false
+      key: highlight ? Key('chat.highlight:${message.msgId}') : null,
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: highlight ? AppColors.brand.withValues(alpha: 0.08) : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+        child: Row(
+          mainAxisAlignment: isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!isSelf) ...[avatar, const SizedBox(width: AppSpacing.sm)],
+            if (isSelf && message.isFailed) ...[
+              IconButton(
+                key: const Key('chat.retry'),
+                onPressed: onRetry,
+                icon: const Icon(Icons.error_rounded, color: AppColors.danger, size: 20),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+            bubble,
+            if (isSelf) ...[const SizedBox(width: AppSpacing.sm), avatar],
           ],
-          bubble,
-          if (isSelf) ...[const SizedBox(width: AppSpacing.sm), avatar],
-        ],
+        ),
       ),
     );
   }
