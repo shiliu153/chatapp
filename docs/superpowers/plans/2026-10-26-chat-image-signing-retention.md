@@ -1763,4 +1763,5 @@ cd /www/wwwroot/chatapp/chatapp && /www/wwwroot/chatapp-venv/bin/python manage.p
 | 7 imserver `MediaSigner` + 配置 | ✅ | unit 17 全过(含共享向量) |
 | 8 写时规范化 + 读时签名 | ✅ | 新增 `tests/integration/test_image.py`;`tools/im_e2e.py` 改为断言签名 URL |
 | 9 文档 + 全量回归 | ✅ | 后端 486 绿;imserver unit 17 / db 10 / http 集成全过 |
-| 10 生产部署 | ⏸ 待用户确认 | 服务器仓库仍停在 `9c327e9`,**图片二期本身也没部署**;本轮部署会把两批一起推上去,需先配 `IM_MEDIA_PREFIX`/`IM_MEDIA_SIGN_SECRET`/nginx/cron |
+| 10 生产部署 | ✅ | 代码 `4378804` + 镜像 `imserver:23e5f2f` 已上线;实测签名 200 / 无签名·过期·篡改 403;修掉两个部署期 bug(上传路径重复、nginx alias 漏 `chat/`);cron 04:00 已装 |
+

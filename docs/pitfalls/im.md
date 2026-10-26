@@ -102,4 +102,6 @@ print('done', len(ids))
 - **两端密钥不一致 = 所有聊天图片 403**:先比对 Django `.env` 与容器环境里的 `IM_MEDIA_SIGN_SECRET`(以及 `IM_MEDIA_SIGN_TTL`),再去查 nginx —— 其它图片(头像/广场)正常、只有 `/media/chat/` 403,基本就是这里。
 - **签名 URL 每小时稳定**:`e` 按整点对齐 + TTL,所以同一小时内同一张图的 URL 不变(浏览器缓存有效),但**不要把它持久化到客户端数据库**——超过 24h 就会 403,重进聊天页拉历史即可刷新。
 - **清理命令默认 dry-run**:定时任务必须显式 `--apply`;删文件不可逆,第一次先跑不带 `--apply` 看汇总。清理后图片 404、聊天显示占位是预期行为。
+- **nginx `alias` 会吃掉 location 前缀(2026-10-26 部署实测)**:`location ^~ /media/chat/ { alias .../media/; }` 会把 `/media/chat/` 整段替换掉,实际去找 `media/2026/10/x.jpg` —— 验签通过但 404。alias 必须写成 `.../media/chat/`。另外别用 `sed s#media/#media/chat/#` 批量替换:通用 `location ^~ /media/` 的 alias 会被一起改掉,用户头像与广场图立刻全 404。
+- **上传落盘路径别重复拼 `chat/年/月`(2026-10-26 部署实测)**:`ChatImage.file` 的 `upload_to` 已经是 `chat/%Y/%m/`,视图里再传 `chat/{month}/{stem}.jpg` 会落成 `media/chat/2026/10/chat/2026/10/x.jpg`;测试只断言了前缀所以没红。正确写法是只给文件名,并用 `assertRegex(image.file.name, r"^chat/\d{4}/\d{2}/...")` 兜住。
 

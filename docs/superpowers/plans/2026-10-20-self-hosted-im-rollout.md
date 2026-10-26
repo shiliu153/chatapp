@@ -115,6 +115,7 @@
 | 2026-10-26 | **事故**:MySQL `wait_timeout`(8h)掐掉池内空闲连接,池不校验存活 → 自 10-22 晚起 `readyz` 503、发消息 50001、`/internal/blacklist` 422,持续约 3 天(仅灰度测试号 7/8,无真实用户)。重启容器即恢复 | ⚠️ |
 | 2026-10-26 | **修复**:`MysqlPool::acquire()` 空闲 ≥ `IM_DB_IDLE_PING_MS`(默认 5000)先 ping、失败重连;`Lease::query()` 遇 2006/2013/2055 丢弃连接;`WsSession::run_db()` 兜住 DB 线程池异常。新增 DB 测试 `PoolReconnectsAfterServerKill` | ✅ |
 | 2026-10-26 | 灰度三项脚本化验证(`imserver/scripts/verify_graylist.py`,17 条断言全过):互踢/封禁拒连/拉黑拦截 | ✅ |
+| 2026-10-26 | **图片二期 + 签名 URL/30 天清理上线**:代码 `4378804`、镜像 `imserver:23e5f2f`(此前服务器停在 `9c327e9`,图片二期一直没部署);`IM_MEDIA_PREFIX=http://47.116.114.110/media/chat/`、`IM_MEDIA_SIGN_SECRET` 双端一致;nginx `/media/chat/` 走 `auth_request`;root crontab 每天 04:00 `im_media_cleanup --apply`。实测:签名 URL 200、缩略图 200、无签名/过期/篡改 403、头像与广场图不受影响;生产 `tools/im_e2e.py` 过(含读时签名断言)。**部署中修掉两个真 bug**:①上传落盘路径重复 `chat/年/月`(`4378804`);②nginx alias 漏了 `chat/` 后缀(签名通过但 404) | ✅ |
 
 ## 回退演练记录
 

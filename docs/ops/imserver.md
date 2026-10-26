@@ -414,6 +414,11 @@ ssh root@<SERVER_IP> 'set -a; . /www/server/imserver/imserver.env; set +a; \
 
 - 生产 nginx 没有 `secure_link` 模块(实测只有 `--with-http_auth_request_module`),
   不要照抄网上的 `secure_link` 配置,`nginx -t` 会报 unknown directive;
+- **alias 必须写成 `.../media/chat/`**(带 `chat` 后缀):nginx 会把 location 前缀
+  `/media/chat/` 整段替换成 alias,写成 `.../media/` 会去找 `media/2026/10/x.jpg`
+  —— 签名通过但 404(2026-10-26 部署实测踩到);
+- 只改 `/media/chat/` 这一段,**别动**通用 `location ^~ /media/` 的 alias(用 sed 批量替换
+  会把它也改成 `media/chat/`,用户头像和广场图立刻全 404);
 - 验签子请求打到 `127.0.0.1:8000`,gunicorn 没起时聊天图片会整体 403(其它图片不受影响)。
 
 ### 12.3 验证
