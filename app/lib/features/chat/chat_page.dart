@@ -37,7 +37,7 @@ import 'widgets/more_panel.dart';
 import 'widgets/photo_viewer.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
-  const ChatPage({super.key, required this.peerId, this.pickImage = pickImageFromGallery});
+  const ChatPage({super.key, required this.peerId, this.pickImage = pickChatImageFromGallery});
 
   /// 对方的 IM id,如 'u9'。
   final String peerId;
