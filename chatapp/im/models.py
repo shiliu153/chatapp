@@ -12,12 +12,15 @@
 from django.conf import settings
 from django.db import models
 
+from . import media_sign
+
 
 class ChatImageStatus(models.TextChoices):
     """聊天图片的状态。"""
 
     VISIBLE = "visible", "正常"
     DELETED = "deleted", "已删除"
+    EXPIRED = "expired", "已过期清理"
 
 
 class ChatImage(models.Model):
@@ -40,10 +43,29 @@ class ChatImage(models.Model):
     deleted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
                                    on_delete=models.SET_NULL, related_name="+")
     deleted_at = models.DateTimeField(null=True, blank=True)
+    expired_at = models.DateTimeField("过期清理时间", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def signed_file_url(self) -> str:
+        """运营台预览用:带签名的原图绝对地址。
+
+        Returns:
+            ``MEDIA_BASE_URL + 文件路径`` 并附签名 query。
+        """
+        return media_sign.sign_url(f"{settings.MEDIA_BASE_URL.rstrip('/')}{self.file.url}")
+
+    @property
+    def signed_thumb_url(self) -> str:
+        """运营台预览用:带签名的缩略图绝对地址。
+
+        Returns:
+            ``MEDIA_BASE_URL + 缩略图路径`` 并附签名 query。
+        """
+        return media_sign.sign_url(f"{settings.MEDIA_BASE_URL.rstrip('/')}{self.thumb.url}")
 
     def __str__(self):
         """后台与日志中的可读表示。

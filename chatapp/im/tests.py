@@ -812,6 +812,26 @@ class ChatImageModelTests(TestCase):
         self.user.delete()
         self.assertEqual(ChatImage.objects.count(), 0)
 
+    def test_signed_urls_are_absolute_and_signed(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", MEDIA_BASE_URL="http://cdn.test"):
+            image = ChatImage.objects.create(
+                owner=self.user,
+                file=SimpleUploadedFile("a.jpg", PNG_1PX, content_type="image/jpeg"),
+                thumb=SimpleUploadedFile("a_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+                width=10, height=20, bytes=len(PNG_1PX))
+            self.assertTrue(image.signed_file_url.startswith("http://cdn.test/media/chat/"))
+            self.assertIn("?e=", image.signed_file_url)
+            self.assertIn("&s=", image.signed_thumb_url)
+
+    def test_expired_status_and_timestamp_exist(self):
+        image = ChatImage.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile("b.jpg", PNG_1PX, content_type="image/jpeg"),
+            thumb=SimpleUploadedFile("b_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+            width=1, height=1, bytes=len(PNG_1PX),
+            status=ChatImageStatus.EXPIRED)
+        self.assertIsNone(image.expired_at)
+
 def _jpeg_with_orientation(size=(40, 20), orientation=6):
     """生成一张带 EXIF 方向标签的 JPEG(6 = 顺时针 90°,显示时宽高互换)。
 
