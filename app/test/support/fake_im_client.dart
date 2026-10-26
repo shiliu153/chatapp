@@ -29,6 +29,21 @@ class FakeImClient extends ImClient {
   /// 置上则只让**下一次** login 抛错,之后恢复正常(测 6206 重试)。
   Object? loginErrorOnce;
 
+  /// 搜索命中(测搜索页用;默认按关键词 contains 过滤)。
+  List<ImSearchHit> searchHits = [];
+
+  /// 完全接管 searchMessages 的返回(分页/错误分支用)。
+  ImSearchResult Function(String keyword, int limit, String? beforeId)? searchHandler;
+
+  /// 置上就让 searchMessages 抛这个错。
+  Object? searchError;
+
+  /// 自建后端下置 false,用来测搜索入口隐藏。
+  bool searchCapability = true;
+
+  /// 更早的历史页:peerId → (beforeSeq → 一页消息),测回溯翻页。
+  Map<String, Map<int, List<ChatMessage>>> olderHistory = {};
+
   int _seq = 0;
   bool _initialized = false;
 
@@ -39,7 +54,8 @@ class FakeImClient extends ImClient {
   bool imageCapability = true;
 
   @override
-  ImCapabilities get capabilities => ImCapabilities(image: imageCapability);
+  ImCapabilities get capabilities =>
+      ImCapabilities(image: imageCapability, search: searchCapability);
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {
@@ -69,12 +85,24 @@ class FakeImClient extends ImClient {
   }
 
   @override
-  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50}) async {
+  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50, int? beforeSeq}) async {
     log.add('fetchHistory:$peerId');
     if (historyError != null) throw historyError!;
     final gate = historyGate;
     if (gate != null) await gate.future;
+    if (beforeSeq != null) return olderHistory[peerId]?[beforeSeq] ?? const [];
     return history[peerId] ?? const [];
+  }
+
+  @override
+  Future<ImSearchResult> searchMessages(String keyword,
+      {int limit = 20, String? beforeId}) async {
+    log.add('search:$keyword');
+    if (searchError != null) throw searchError!;
+    final handler = searchHandler;
+    if (handler != null) return handler(keyword, limit, beforeId);
+    final items = searchHits.where((hit) => hit.text.contains(keyword)).toList();
+    return ImSearchResult(items: items.take(limit).toList(), hasMore: items.length > limit);
   }
 
   @override

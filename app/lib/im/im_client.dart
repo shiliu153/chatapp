@@ -28,6 +28,7 @@ class ChatMessage {
     required this.isSelf,
     required this.timestamp,
     required this.kind,
+    this.seq = 0,
     this.text = '',
     this.isPending = false,
     this.isFailed = false,
@@ -38,6 +39,9 @@ class ChatMessage {
   });
 
   final String msgId;
+
+  /// 会话内序号(自建后端从服务端解析;腾讯后端恒为 0)。回溯翻页要用。
+  final int seq;
 
   /// 对端的 IM id,如 'u9'。
   final String peerId;
@@ -69,6 +73,7 @@ class ChatMessage {
   ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl, bool? isRevoked}) =>
       ChatMessage(
         msgId: msgId,
+        seq: seq,
         peerId: peerId,
         isSelf: isSelf,
         timestamp: timestamp,
@@ -141,8 +146,45 @@ class ImException implements Exception {
 }
 
 class ImCapabilities {
-  const ImCapabilities({required this.image});
+  const ImCapabilities({required this.image, this.search = false});
   final bool image;
+
+  /// 是否支持聊天记录搜索(腾讯后端为 false,入口隐藏)。
+  final bool search;
+}
+
+/// 一条搜索命中(只可能是文本消息)。
+class ImSearchHit {
+  const ImSearchHit({
+    required this.msgId,
+    required this.seq,
+    required this.peerId,
+    required this.text,
+    required this.timestamp,
+    this.peerName,
+    this.peerAvatar,
+  });
+
+  final String msgId;
+
+  /// 会话内序号(回溯翻页用)。
+  final int seq;
+
+  /// 对端 IM id,如 'u9'。
+  final String peerId;
+  final String text;
+
+  /// 毫秒时间戳。
+  final int timestamp;
+  final String? peerName;
+  final String? peerAvatar;
+}
+
+/// 一页搜索结果。
+class ImSearchResult {
+  const ImSearchResult({required this.items, required this.hasMore});
+  final List<ImSearchHit> items;
+  final bool hasMore;
 }
 
 abstract class ImClient {
@@ -162,8 +204,12 @@ abstract class ImClient {
   /// 全部会话,按最近消息时间倒序。
   Future<List<ImConversation>> fetchConversations();
 
-  /// 单聊历史消息,按时间正序(旧 → 新)。
-  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50});
+  /// 单聊历史消息,按时间正序(旧 → 新);[beforeSeq] 用于往前翻页。
+  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50, int? beforeSeq});
+
+  /// 搜索聊天记录(仅自建后端支持;腾讯抛 [ImException] 42202)。
+  Future<ImSearchResult> searchMessages(String keyword, {int limit = 20, String? beforeId}) =>
+      throw const ImException(42202, '当前聊天服务暂不支持搜索');
 
   Future<ChatMessage> sendText({required String peerId, required String text,
       String? clientMsgId});

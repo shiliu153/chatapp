@@ -46,8 +46,13 @@ class RoutingImClient extends ImClient {
       _active!.fetchConversations();
 
   @override
-  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50}) =>
-      _active!.fetchHistory(peerId, count: count);
+  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50, int? beforeSeq}) =>
+      _active!.fetchHistory(peerId, count: count, beforeSeq: beforeSeq);
+
+  @override
+  Future<ImSearchResult> searchMessages(String keyword, {int limit = 20, String? beforeId}) =>
+      _active?.searchMessages(keyword, limit: limit, beforeId: beforeId) ??
+      Future.error(const ImException(42202, '当前聊天服务暂不支持搜索'));
 
   @override
   Future<ChatMessage> sendText({required String peerId, required String text,

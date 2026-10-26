@@ -156,7 +156,8 @@ class TencentImClient extends ImClient {
   }
 
   @override
-  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50}) async {
+  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50, int? beforeSeq}) async {
+    // 腾讯后端没有搜索入口,回溯翻页参数用不到,忽略。
     final result = await TencentImSDKPlugin.v2TIMManager
         .getMessageManager()
         .getC2CHistoryMessageList(userID: peerId, count: count);

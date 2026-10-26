@@ -42,7 +42,7 @@ class SelfImClient extends ImClient {
   Stream<ImEvent> get events => _events.stream;
 
   @override
-  ImCapabilities get capabilities => const ImCapabilities(image: true);
+  ImCapabilities get capabilities => const ImCapabilities(image: true, search: true);
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {
@@ -269,13 +269,39 @@ class SelfImClient extends ImClient {
   }
 
   @override
-  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50}) async {
+  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50, int? beforeSeq}) async {
     final data = await _http!.get('/messages', {
       'peer': peerId,
       'limit': '$count',
+      if (beforeSeq != null && beforeSeq > 0) 'before_seq': '$beforeSeq',
     });
     final items = (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();
     return items.map(_messageFromJson).toList();
+  }
+
+  @override
+  Future<ImSearchResult> searchMessages(String keyword, {int limit = 20, String? beforeId}) async {
+    final data = await _http!.get('/search', {
+      'q': keyword,
+      'limit': '$limit',
+      if (beforeId != null && beforeId.isNotEmpty) 'before_id': beforeId,
+    });
+    final items = (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();
+    return ImSearchResult(
+      items: items.map((item) {
+        final peer = (item['peer'] as Map?)?.cast<String, dynamic>() ?? const {};
+        return ImSearchHit(
+          msgId: '${item['msg_id'] ?? ''}',
+          seq: (item['seq'] as num?)?.toInt() ?? 0,
+          peerId: peer['id'] as String? ?? '',
+          text: item['text'] as String? ?? '',
+          timestamp: (item['ts'] as num?)?.toInt() ?? 0,
+          peerName: peer['nickname'] as String?,
+          peerAvatar: peer['avatar'] as String?,
+        );
+      }).toList(),
+      hasMore: data['has_more'] == true,
+    );
   }
 
   @override
@@ -337,6 +363,7 @@ class SelfImClient extends ImClient {
     };
     return ChatMessage(
       msgId: '${json['msg_id'] ?? ''}',
+      seq: (json['seq'] as num?)?.toInt() ?? 0,
       peerId: isSelf ? to : from,
       isSelf: isSelf,
       timestamp: (json['ts'] as num?)?.toInt() ?? 0,

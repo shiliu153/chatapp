@@ -215,6 +215,61 @@ void main() {
     expect(message.imageUrl, 'http://cdn/media/chat/b_thumb.jpg');
     expect(message.imageLargeUrl, 'http://cdn/media/chat/b.jpg');
   });
+
+  test('searchMessages 把关键词与游标带给 /search', () async {
+    final http = RecordingHttpClient({
+      'items': [
+        {
+          'msg_id': '42',
+          'seq': 7,
+          'from': 'u9',
+          'to': 'u2',
+          'ts': 1761465600000,
+          'kind': 'text',
+          'text': '晚上吃火锅吗',
+          'peer': {'id': 'u2', 'nickname': '阿九', 'avatar': 'https://a/9.png'},
+        },
+      ],
+      'has_more': true,
+    });
+    final client = SelfImClient(httpClient: http);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', userSig: 'tok');
+    await pumpEventQueue();
+    // 没有 transport 时 login 永远等不到 auth_ok,这里只验证 HTTP 行为,直接放弃等。
+    unawaited(login.catchError((_) {}));
+
+    final result = await client.searchMessages('火锅', limit: 10, beforeId: '99');
+    expect(http.calls.single,
+        '/search?q=${Uri.encodeComponent('火锅')}&limit=10&before_id=99');
+    expect(result.items.single.text, '晚上吃火锅吗');
+    expect(result.items.single.peerId, 'u2');
+    expect(result.items.single.peerName, '阿九');
+    expect(result.items.single.seq, 7);
+    expect(result.hasMore, isTrue);
+    expect(client.capabilities.search, isTrue);
+  });
+
+  test('fetchHistory 传 beforeSeq 时带上 before_seq', () async {
+    final http = RecordingHttpClient({'items': []});
+    final client = SelfImClient(httpClient: http);
+    await client.init(bootstrap);
+    await client.fetchHistory('u2', count: 50, beforeSeq: 12);
+    expect(http.calls.single, '/messages?peer=u2&limit=50&before_seq=12');
+  });
+}
+
+/// 记录调用并按路径返回固定响应的假 HTTP 客户端。
+class RecordingHttpClient implements SelfHttpClient {
+  RecordingHttpClient(this.response);
+  final Map<String, dynamic> response;
+  final List<String> calls = [];
+
+  @override
+  Future<Map<String, dynamic>> get(String path, Map<String, String> query) async {
+    calls.add('$path?${Uri(queryParameters: query).query}');
+    return response;
+  }
 }
 
 class FakeUploader implements SelfImageUploader {
