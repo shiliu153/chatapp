@@ -1747,3 +1747,20 @@ cd /www/wwwroot/chatapp/chatapp && /www/wwwroot/chatapp-venv/bin/python manage.p
   imserver 的 `sign_url` / `sign_image` / `canonical` 命名一致。
 - 共享向量:`2b46...d419`(exp 1761782400)与 `b574...a718`(exp 1761868800)分别用于
   Django 与 C++ 测试,均由同一算法算出。
+
+---
+
+## 执行记录(2026-10-26)
+
+| Task | 状态 | 备注 |
+|---|---|---|
+| 1 Django 签名模块与配置 | ✅ | `im/media_sign.py`,共享向量两侧一致 |
+| 2 ChatImage 过期状态与签名属性 | ✅ | 迁移 `0002_chatimage_expired_at_alter_chatimage_status` |
+| 3 上传响应签名 + 运营台预览 | ✅ | 既有断言改为解析 path 后再比对 |
+| 4 验签接口 + 路由 + 接口文档 | ✅ | `GET /api/v1/im/images/auth` |
+| 5 `im_media_cleanup` | ✅ | 默认 dry-run,7 个用例 |
+| 6 `im_media_stats` | ✅ | |
+| 7 imserver `MediaSigner` + 配置 | ✅ | unit 17 全过(含共享向量) |
+| 8 写时规范化 + 读时签名 | ✅ | 新增 `tests/integration/test_image.py`;`tools/im_e2e.py` 改为断言签名 URL |
+| 9 文档 + 全量回归 | ✅ | 后端 486 绿;imserver unit 17 / db 10 / http 集成全过 |
+| 10 生产部署 | ⏸ 待用户确认 | 服务器仓库仍停在 `9c327e9`,**图片二期本身也没部署**;本轮部署会把两批一起推上去,需先配 `IM_MEDIA_PREFIX`/`IM_MEDIA_SIGN_SECRET`/nginx/cron |
