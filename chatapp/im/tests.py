@@ -14,10 +14,13 @@
 
 import io
 import json
+import shutil
+import tempfile
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -33,6 +36,7 @@ from .client import (_request, black_list_add, black_list_delete, delete_account
                      send_ban_notice, send_custom_elem, send_match_notice,
                      send_post_commented, send_report_handled, send_text,
                      set_profile_avatar, set_profile_nick)
+from .models import ChatImage, ChatImageStatus
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 from .token import mint_im_token, verify_im_token
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
@@ -44,6 +48,11 @@ from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
 from .tasks import send_match_notice as send_match_notice_task
 
 User = get_user_model()
+
+# 1×1 透明 PNG:最小合法图片,用于上传类用例
+PNG_1PX = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+           b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+           b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
 
 IM_TEST_SETTINGS = dict(
     IM_SDKAPPID="1400000000",
@@ -761,3 +770,32 @@ class SelfNoticeTests(SimpleTestCase):
             user.return_value.im_user_id = "u9"
             ban_lifted.run(9)
         lifted.assert_called_once_with("u9")
+
+class ChatImageModelTests(TestCase):
+    """聊天图片元数据:默认状态、可读表示、随用户级联删除。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13900139001")
+
+    def test_defaults_to_visible_and_str_is_readable(self):
+        image = ChatImage.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile("a.jpg", PNG_1PX, content_type="image/jpeg"),
+            thumb=SimpleUploadedFile("a_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+            width=10, height=20, bytes=len(PNG_1PX))
+        self.assertEqual(image.status, ChatImageStatus.VISIBLE)
+        self.assertIn("chat_image#", str(image))
+
+    def test_cascade_deletes_rows_with_user(self):
+        ChatImage.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile("a.jpg", PNG_1PX, content_type="image/jpeg"),
+            thumb=SimpleUploadedFile("a_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+            width=10, height=20, bytes=len(PNG_1PX))
+        self.user.delete()
+        self.assertEqual(ChatImage.objects.count(), 0)
