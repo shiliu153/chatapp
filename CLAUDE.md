@@ -48,8 +48,9 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-22 | 自建 IM **500 连接压测**:稳态 50 msg/s 经 nginx ack p99 93ms、RSS 22MB(门槛 200ms/300MB);压测暴露并修复两处服务端问题——`im_user` 每消息两次 `INSERT ... ON DUPLICATE KEY UPDATE` 的间隙锁(改进程内缓存 + `SELECT 1` 优先)、冷启动新会话并发死锁(1213/1205 重试 3 次),复测 1000 条突发 0 失败;新增 `IM_MAX_CONN_PER_IP`/`IM_AUTH_RATE`/`IM_AUTH_BURST` 与压测脚本 `imserver/scripts/bench_ws.py`) |
 | 2026-10-22 | 自建 IM **吞吐优化**:prepared statement 按连接缓存(写语句 3 次往返→1 次)、收发双方 unread 合并为一条多行 INSERT、去掉消息前 `client_msg_id` 预查、用户画像进程内缓存、在线 Redis 写入按 30s 节流;1000 条突发 9.4s→4.7s(106→215 msg/s)。**2C2G 天花板 ~200–250 msg/s**(MySQL ~2000 SQL/s ÷ 每消息 ~7 条),再往上需升配 4C8G+ 或应用层批量提交;完整记录见 `docs/ops/imserver-throughput.md` |
 | 2026-10-26 | 自建 IM 灰度收尾 + **连接池事故修复**:三项手测脚本化(`imserver/scripts/verify_graylist.py`,17 条断言:互踢 4001/封禁 40301+4003/拉黑 40302,实跑生产全过);同时发现**池不校验存活**导致 MySQL `wait_timeout` 后 IM 永久失联(10-22 晚起约 3 天,仅灰度测试号受影响,重启即恢复),修复为「空闲 ≥`IM_DB_IDLE_PING_MS` 先 ping、失败重连 + 连接级错误丢弃 + `run_db` 兜异常」,新增 DB 测试 `PoolReconnectsAfterServerKill`;镜像 `imserver:a2332dd` 已上线,`KILL` 全部池连接后 `readyz` 仍 200。历史消息由产品确认接受「切换点之前不可见」(测试阶段) |
+| 2026-10-26 | 自建 IM **回退演练通过**:止血(`docker compose stop imserver`,外部 `/im/api/*`、`/im/ws` 实测 502)→ 切腾讯(`IM_BACKEND=tencent` + 重启 `chatapp-web:*`,`/im/user_sig` → `backend=tencent` + 真实 userSig)→ 恢复(`self` + 起容器 + 重启两个进程,`readyz` 200、`im_message` 行数不变、灰度三项 17/17)。暴露两坑:supervisor 程序名要带 `:*`(写错会留下「已停容器 + 仍按 self」空窗);**Celery 也必须一起重启**,否则灰条等异步副作用仍走旧后端。记录见 rollout 核对单「回退演练记录」 |
 
-**下一步**:自建 IM 已完成测试号灰度(互踢/封禁/拉黑三项已验)与连接池修复;全量门槛剩 **图片二期**、**最小版本拦截生效验证**、**回退演练**、**切换日观察**。P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
+**下一步**:自建 IM 已完成测试号灰度(互踢/封禁/拉黑三项已验)、连接池修复与回退演练;全量门槛剩 **图片二期**、**最小版本拦截生效验证**、**切换日观察**;另有一项 UI 侧待手测(App/Web 按 `backend` 换 SDK + 被踢/封禁提示)。P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 

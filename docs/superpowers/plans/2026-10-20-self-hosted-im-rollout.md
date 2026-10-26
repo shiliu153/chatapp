@@ -47,10 +47,25 @@
 
 ## 回退
 
-- [ ] `IM_BACKEND=tencent` → 重启 gunicorn
-- [ ] 让用户重启 App(下次登录拿腾讯引导包)
-- [ ] 如需立刻止血:先 `docker compose stop imserver`,再改配置、重启 App
-- [ ] 自建库保留;回退期间的消息腾讯侧不可见,产品已知情
+- [x] `IM_BACKEND=tencent` → 重启 gunicorn
+      (2026-10-26 演练:`sed` 改 `.env` + `supervisorctl restart 'chatapp-web:*'`;
+      `/im/user_sig` 从 `backend=self` 变 `backend=tencent` 并带出真实 `user_sig`)
+- [x] 让用户重启 App(下次登录拿腾讯引导包)
+      (演练只验服务端契约;客户端切换需真机/模拟器点一次,见「遗留」)
+- [x] 如需立刻止血:先 `docker compose stop imserver`,再改配置、重启 App
+      (演练按此顺序执行;停机时 `/im/api/*`、`/im/ws` 实测都是 **502**,不是 401)
+- [x] 自建库保留;回退期间的消息腾讯侧不可见,产品已知情
+      (演练后 `im_message` 行数不变 = 7,数据未丢;产品确认见上方历史消息项)
+
+**演练暴露的两个坑(已写进 `docs/ops/imserver.md` §4)**:
+
+1. supervisor 程序名要带组前缀:`chatapp-web` 会报 `no such process`,必须 `chatapp-web:*`;
+   写错时 `.env` 已改、进程未重载,会留下「imserver 已停 + 后端仍按 self 跑」的空窗(约 2 分钟)。
+2. **只重启 gunicorn 不够**:Celery 也缓存 `IM_BACKEND`,灰条/系统通知等异步副作用仍走旧后端,
+   必须一起重启 `chatapp-celery:*`。
+
+**遗留(不影响门槛判定)**:客户端「下次登录拿腾讯引导包」这一段没在真机验证——服务端已切对,
+App 端要按返回的 `backend` 换 SDK,需要在模拟器上点一次(与灰度三项的 UI 侧一起验)。
 
 ## 部署记录
 
@@ -71,4 +86,4 @@
 
 | 日期 | 执行人 | 结果 | 备注 |
 |---|---|---|---|
-|  |  |  |  |
+| 2026-10-26 | Claude(用户授权) | ✅ 通过 | 完整走一遍「止血 → 切腾讯 → 恢复」:①`docker compose stop imserver`,外部 `/im/api/*`、`/im/ws` 均 502;②`IM_BACKEND=tencent` + 重启 `chatapp-web:*`,`/im/user_sig` → `backend=tencent` + 真实 userSig;③恢复 `IM_BACKEND=self` + 起容器 + 重启两个进程,`readyz` 200、`/im/user_sig` → `backend=self`、`im_message` 行数不变(7→8,新增的是恢复后灰度脚本自己发的那条)、`verify_graylist.py` 17/17 全过。影响面:仅灰度测试号 7/8,约 5 分钟不可聊;无真实用户。发现两个坑:supervisor 程序名要带 `:*`;Celery 必须一起重启 |

@@ -152,14 +152,44 @@ docker compose up -d
 迁移按 `im_schema_version` 逐版执行,重复执行安全。回滚镜像只需把 `.env`
 里的 tag 改回旧版本并 `docker compose up -d`(迁移不回滚,代码需向前兼容)。
 
-## 4. 回退到腾讯 IM
+## 4. 回退到腾讯 IM(2026-10-26 已演练)
 
-1. `chatapp/.env` 改 `IM_BACKEND=tencent`;
-2. 重启 gunicorn;
-3. 让用户重启 App(下次登录会拿到腾讯引导包);
-4. 如需立刻止血:先 `docker compose stop imserver`,再改配置、重启 App。
+**顺序:先止血,再改配置,两个进程都要重启。** 实测踩到的两个坑写在命令后面。
+
+```bash
+# 1) 止血:先停 imserver(此时客户端连不上自建 WS,但 Django 仍正常)
+cd /www/server/imserver && docker compose stop imserver
+
+# 2) 改配置
+cd /www/wwwroot/chatapp/chatapp && sed -i 's/^IM_BACKEND=self$/IM_BACKEND=tencent/' .env
+
+# 3) 重启「两个」进程(.env 只在进程启动时读一次)
+SC=/www/server/panel/pyenv/bin/supervisorctl
+$SC -c /etc/supervisor/supervisord.conf restart 'chatapp-web:*'
+$SC -c /etc/supervisor/supervisord.conf restart 'chatapp-celery:*'
+
+# 4) 验证:backend 必须变成 tencent,且带 user_sig
+curl -s -X POST http://<SERVER_IP>/api/v1/im/user_sig -H "Authorization: Bearer <token>"
+# → {"backend":"tencent","user_sig":"...","sdkappid":...}
+
+# 5) 让用户重启 App(下次登录拿腾讯引导包);期间自建侧消息腾讯看不到
+```
 
 回退后自建期间的消息仍在 `chatapp_im` 库中,但腾讯侧看不到;回退前需产品知情。
+
+**坑 1:supervisor 的程序名带组前缀。** `supervisorctl restart chatapp-web` 会报
+`ERROR (no such process)`,必须写 `chatapp-web:*`(或全名 `chatapp-web:chatapp-web_00`)。
+写错时 `.env` 已经改了、进程却没重载,会留下一段「imserver 已停 + 后端仍按 self 跑」的空窗
+(演练时约 2 分钟)。
+
+**坑 2:只重启 gunicorn 不够。** Celery 也缓存了 `IM_BACKEND`,灰条/系统通知等异步副作用
+仍会走旧后端;回退时必须一起重启,否则表现是「HTTP 已经切腾讯了,但系统消息发不出来」。
+
+**停机期间的外部表现**(实测):`/im/api/*` 与 `/im/ws` 都返回 **502**(nginx 上游不可用),
+不是 401/503 —— 排查时别误判成鉴权问题。
+
+**恢复(演练验证过)**:`IM_BACKEND=self` → `docker compose start imserver` → 重启上面两个进程,
+`readyz` 200、`user_sig` 回到 `backend=self`、`chatapp_im.im_message` 行数不变(数据没丢)。
 
 ## 5. 备份
 
