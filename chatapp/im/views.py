@@ -22,7 +22,6 @@ from urllib.parse import parse_qs, urlsplit
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
-from django.utils import timezone
 from PIL import Image, ImageOps
 from rest_framework.decorators import (api_view, authentication_classes,
                                       permission_classes, throttle_classes)
@@ -126,7 +125,6 @@ def upload_image(request):
         return Response({"code": 400, "message": "图片尺寸过大,请先压缩"}, status=400)
 
     stem = f"{request.user.id}-{uuid.uuid4().hex}"
-    month = timezone.localtime().strftime("%Y/%m")
     if orientation == 1:
         data, suffix = raw, SUFFIX_BY_CONTENT_TYPE[upload.content_type]
     else:
@@ -134,15 +132,17 @@ def upload_image(request):
         display.convert("RGB").save(buffer, "JPEG", quality=85)
         data, suffix = buffer.getvalue(), ".jpg"
 
+    # upload_to 已经是 ``chat/%Y/%m/``,这里只给文件名 —— 再拼一遍 "chat/年/月"
+    # 会落成 media/chat/2026/10/chat/2026/10/xxx.jpg(2026-10-26 部署时实测踩到)
     chat_image = ChatImage(owner=request.user, width=width, height=height, bytes=len(data))
-    chat_image.file.save(f"chat/{month}/{stem}{suffix}", ContentFile(data), save=False)
+    chat_image.file.save(f"{stem}{suffix}", ContentFile(data), save=False)
 
     thumb = display.copy()
     thumb.thumbnail((settings.CHAT_IMAGE_THUMB_SIDE, settings.CHAT_IMAGE_THUMB_SIDE),
                     Image.Resampling.LANCZOS)
     thumb_buffer = io.BytesIO()
     thumb.convert("RGB").save(thumb_buffer, "JPEG", quality=80)
-    chat_image.thumb.save(f"chat/{month}/{stem}_thumb.jpg",
+    chat_image.thumb.save(f"{stem}_thumb.jpg",
                           ContentFile(thumb_buffer.getvalue()), save=False)
     chat_image.save()
 

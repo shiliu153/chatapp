@@ -894,6 +894,7 @@ class ChatImageUploadTests(APITestCase):
         self.assertEqual(data["size"], len(PNG_1PX))
         image = ChatImage.objects.get()
         self.assertEqual(image.owner_id, self.user.id)
+        self.assertRegex(image.file.name, r"^chat/\d{4}/\d{2}/\d+-[0-9a-f]{32}\.png$")
         self.assertTrue(image.file.storage.exists(image.file.name))
         self.assertTrue(image.thumb.storage.exists(image.thumb.name))
 
