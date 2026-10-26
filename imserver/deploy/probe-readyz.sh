@@ -17,6 +17,7 @@
 #   IM_PROBE_STATE    连续失败计数文件
 #   IM_PROBE_LOG      失败日志
 #   IM_PROBE_WEBHOOK  可选:企业微信/钉钉群机器人 webhook 地址(文本消息)
+#   IM_PROBE_ENV      可选:环境文件路径,默认 /www/server/imserver/probe.env
 set -u
 
 URL="${IM_PROBE_URL:-http://127.0.0.1:9101/internal/readyz}"
@@ -24,6 +25,14 @@ STATE="${IM_PROBE_STATE:-/www/server/imserver/probe.state}"
 LOG="${IM_PROBE_LOG:-/www/wwwlogs/imserver_probe.log}"
 WEBHOOK="${IM_PROBE_WEBHOOK:-}"
 TS="$(date '+%F %T')"
+
+# 把 webhook 之类的配置放独立文件(600),不要写进计划任务的命令里——
+# 面板的任务记录在 sqlite 里,面板 UI 和备份都能看到。
+ENV_FILE="${IM_PROBE_ENV:-/www/server/imserver/probe.env}"
+if [ -r "$ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+fi
 
 # 取 HTTP 状态码;连不上时统一成 000。
 code() {

@@ -321,7 +321,11 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash -c \
 | 告警 | 写 `/www/wwwlogs/imserver_probe.log` + stdout 打 `ALERT`(宝塔「任务日志」可见)+ 可选 webhook |
 | 去重 | 同一事件只告警一次;恢复后计数清零,下次事故重新告警 |
 | 日志 | `/www/wwwlogs/imserver_probe.log`(超 1MB 自动只留最后 500 行) |
-| 接 webhook | 环境变量 `IM_PROBE_WEBHOOK=<企业微信/钉钉群机器人地址>`,发 `{"msgtype":"text",...}` 文本消息 |
+| 接 webhook | 在 `/www/server/imserver/probe.env`(600)写 `IM_PROBE_WEBHOOK=<企业微信/钉钉群机器人地址>`,发 `{"msgtype":"text",...}` 文本消息;**别写进计划任务命令**(面板任务记录存 sqlite,UI 和备份都能看到) |
+
+> 当前服务器还没有配任何消息通道(面板 `dingding.json`/`weixin.json` 都是空的),所以告警只落在
+> `/www/wwwlogs/imserver_probe.log` 和宝塔「任务日志」里。要真推到手机,配一个群机器人地址写进
+> `probe.env` 即可,脚本不用改。
 
 > **为什么不能靠退出码告警**:宝塔生成的包装脚本(`/www/server/cron/<md5>`)无论任务本身
 > 退出码是多少都以 `rm -f` 收尾、固定返回 0,面板收不到失败信号。所以告警必须在脚本里自己发。
