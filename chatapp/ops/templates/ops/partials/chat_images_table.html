@@ -1,0 +1,27 @@
+<table id="chat-images-table">
+  <thead>
+    <tr><th>预览</th><th>发送者</th><th>时间</th><th>大小(字节)</th><th>操作</th></tr>
+  </thead>
+  <tbody>
+  {% for image in images %}
+    <tr>
+      <td>
+        <a href="{{ image.file.url }}" target="_blank" rel="noopener">
+          <img src="{{ image.thumb.url }}" alt="聊天图片 {{ image.id }}" width="120">
+        </a>
+      </td>
+      <td>{{ image.owner_id }}</td>
+      <td>{{ image.created_at|date:"Y-m-d H:i" }}</td>
+      <td>{{ image.bytes }}</td>
+      <td>
+        <form hx-post="{% url 'ops:chat_image_delete' image.id %}"
+              hx-target="#chat-images-table" hx-swap="outerHTML">
+          <button type="submit" class="danger">删除</button>
+        </form>
+      </td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="5">暂无聊天图片</td></tr>
+  {% endfor %}
+  </tbody>
+</table>

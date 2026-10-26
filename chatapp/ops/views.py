@@ -13,7 +13,10 @@
     封禁态不参与完善度重算,不先脱离封禁态就永远算不回真实状态。
 """
 
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -23,6 +26,7 @@ from accounts.models import User
 from feed.models import Post, PostReport
 from feed.services import delete_post
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
+from im.models import ChatImage, ChatImageStatus
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
 from moderation.services import log_ban_change, notify_report_handled
@@ -104,6 +108,11 @@ def _report_context(report):
         "target_reports": Report.objects.filter(target=report.target)
                                         .exclude(pk=report.pk)[:10],
         "target_ban_logs": BanLog.objects.filter(user=report.target)[:10],
+        # 举报详情里直接给证据:被举报人最近 7 天的聊天图片(图片无机器审核,靠人工抽审)
+        "chat_images": ChatImage.objects.select_related("owner").filter(
+            owner=report.target,
+            created_at__gte=timezone.now() - timedelta(days=7),
+        ).order_by("-created_at")[:12],
     }
 
 
@@ -565,3 +574,45 @@ def feedback_handle(request, feedback_id):
     return render(request, "ops/partials/feedback_table.html", {
         "feedbacks": qs, "status": status, "ftype": ftype,
     })
+
+@staff_required
+def chat_images(request):
+    """聊天图片抽审列表,按时间倒序最多 120 条。
+
+    Args:
+        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)。
+
+    Returns:
+        渲染后的聊天图片表格页。
+    """
+    qs = ChatImage.objects.select_related("owner").filter(
+        status=ChatImageStatus.VISIBLE).order_by("-created_at")
+    user_id = request.GET.get("user")
+    if user_id:
+        qs = qs.filter(owner_id=user_id)
+    return render(request, "ops/chat_images.html", {"images": qs[:120]})
+
+
+@require_POST
+@staff_required
+def chat_image_delete(request, image_id):
+    """删除一张聊天图片:删原图与缩略图文件,行保留并记审计。
+
+    Args:
+        request: Django 请求对象。
+        image_id: 聊天图片主键。
+
+    Returns:
+        刷新后的表格局部片段。
+    """
+    image = get_object_or_404(ChatImage, pk=image_id)
+    for field in (image.file, image.thumb):
+        if field:
+            default_storage.delete(field.name)
+    image.status = ChatImageStatus.DELETED
+    image.deleted_by = request.user
+    image.deleted_at = timezone.now()
+    image.save(update_fields=["status", "deleted_by", "deleted_at"])
+    qs = ChatImage.objects.select_related("owner").filter(
+        status=ChatImageStatus.VISIBLE).order_by("-created_at")
+    return render(request, "ops/partials/chat_images_table.html", {"images": qs[:120]})
