@@ -6,8 +6,8 @@
   {% for image in images %}
     <tr>
       <td>
-        <a href="{{ image.file.url }}" target="_blank" rel="noopener">
-          <img src="{{ image.thumb.url }}" alt="聊天图片 {{ image.id }}" width="120">
+        <a href="{{ image.signed_file_url }}" target="_blank" rel="noopener">
+          <img src="{{ image.signed_thumb_url }}" alt="聊天图片 {{ image.id }}" width="120">
         </a>
       </td>
       <td>{{ image.owner_id }}</td>

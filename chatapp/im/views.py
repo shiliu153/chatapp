@@ -26,6 +26,7 @@ from PIL import Image, ImageOps
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.response import Response
 
+from . import media_sign
 from .backend import use_self_im
 from .client import ensure_account, kick_user
 from .models import ChatImage
@@ -145,8 +146,8 @@ def upload_image(request):
     base = settings.MEDIA_BASE_URL.rstrip("/")
     return Response({
         "id": chat_image.id,
-        "url": f"{base}{chat_image.file.url}",
-        "thumb_url": f"{base}{chat_image.thumb.url}",
+        "url": media_sign.sign_url(f"{base}{chat_image.file.url}"),
+        "thumb_url": media_sign.sign_url(f"{base}{chat_image.thumb.url}"),
         "width": chat_image.width,
         "height": chat_image.height,
         "size": chat_image.bytes,

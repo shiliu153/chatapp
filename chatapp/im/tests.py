@@ -856,7 +856,8 @@ class ChatImageUploadTests(APITestCase):
     def setUp(self):
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
-        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test")
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
+                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
         override.enable()
         self.addCleanup(override.disable)
         cache.clear()   # 限流计数按用户缓存在 Redis,用例间必须清
@@ -885,13 +886,22 @@ class ChatImageUploadTests(APITestCase):
         self.assertEqual(response.status_code, 201, response.data)
         data = response.data
         self.assertTrue(data["url"].startswith("http://cdn.test/media/chat/"))
-        self.assertTrue(data["thumb_url"].endswith("_thumb.jpg"))
+        self.assertIn("?e=", data["url"])
+        self.assertIn("&s=", data["url"])
+        self.assertTrue(urlsplit(data["thumb_url"]).path.endswith("_thumb.jpg"))
+        self.assertIn("&s=", data["thumb_url"])
         self.assertEqual((data["width"], data["height"]), (1, 1))
         self.assertEqual(data["size"], len(PNG_1PX))
         image = ChatImage.objects.get()
         self.assertEqual(image.owner_id, self.user.id)
         self.assertTrue(image.file.storage.exists(image.file.name))
         self.assertTrue(image.thumb.storage.exists(image.thumb.name))
+
+    def test_uploaded_url_verifies_with_auth_helper(self):
+        data = self.upload().data
+        parts = urlsplit(data["url"])
+        query = parse_qs(parts.query)
+        self.assertTrue(media_sign.verify(parts.path, query["e"][0], query["s"][0]))
 
     def test_rejects_non_image(self):
         response = self.upload(name="a.txt", content=b"not an image", content_type="text/plain")
@@ -926,7 +936,7 @@ class ChatImageUploadTests(APITestCase):
         response = self.upload(name="rotated.jpg", content=content, content_type="image/jpeg")
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual((response.data["width"], response.data["height"]), (20, 40))
-        self.assertTrue(response.data["url"].endswith(".jpg"))
+        self.assertTrue(urlsplit(response.data["url"]).path.endswith(".jpg"))
 
 
 class MediaSignTests(SimpleTestCase):
