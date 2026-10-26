@@ -24,10 +24,12 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
+from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
+from users.services import get_profile
 
 from feed.models import Post, PostComment
 
@@ -38,6 +40,7 @@ from .client import (_request, black_list_add, black_list_delete, delete_account
                      set_profile_avatar, set_profile_nick)
 from .models import ChatImage, ChatImageStatus
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
+from .throttles import ChatImageThrottle
 from .token import mint_im_token, verify_im_token
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
                     delete_account as delete_account_task,
@@ -799,3 +802,99 @@ class ChatImageModelTests(TestCase):
             width=10, height=20, bytes=len(PNG_1PX))
         self.user.delete()
         self.assertEqual(ChatImage.objects.count(), 0)
+
+def _jpeg_with_orientation(size=(40, 20), orientation=6):
+    """生成一张带 EXIF 方向标签的 JPEG(6 = 顺时针 90°,显示时宽高互换)。
+
+    Args:
+        size: 原始像素尺寸(宽, 高)。
+        orientation: EXIF Orientation 值。
+
+    Returns:
+        JPEG 字节内容。
+    """
+    buffer = io.BytesIO()
+    image = Image.new("RGB", size, (200, 30, 30))
+    exif = image.getexif()
+    exif[0x0112] = orientation
+    image.save(buffer, "JPEG", exif=exif)
+    return buffer.getvalue()
+
+
+class ChatImageUploadTests(APITestCase):
+    """聊天图片上传:成功返回四元组、大小/格式/尺寸校验、限流、重封禁拦截。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test")
+        override.enable()
+        self.addCleanup(override.disable)
+        cache.clear()   # 限流计数按用户缓存在 Redis,用例间必须清
+        self.user = User.objects.create_user(phone="13900139002")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.user).access_token}")
+        self.url = "/api/v1/im/images"
+
+    def upload(self, name="a.png", content=PNG_1PX, content_type="image/png"):
+        """上传一张图片。
+
+        Args:
+            name: 文件名。
+            content: 文件字节内容。
+            content_type: MIME 类型。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post(
+            self.url, {"file": SimpleUploadedFile(name, content, content_type=content_type)},
+            format="multipart")
+
+    def test_upload_returns_urls_and_dimensions(self):
+        response = self.upload()
+        self.assertEqual(response.status_code, 201, response.data)
+        data = response.data
+        self.assertTrue(data["url"].startswith("http://cdn.test/media/chat/"))
+        self.assertTrue(data["thumb_url"].endswith("_thumb.jpg"))
+        self.assertEqual((data["width"], data["height"]), (1, 1))
+        self.assertEqual(data["size"], len(PNG_1PX))
+        image = ChatImage.objects.get()
+        self.assertEqual(image.owner_id, self.user.id)
+        self.assertTrue(image.file.storage.exists(image.file.name))
+        self.assertTrue(image.thumb.storage.exists(image.thumb.name))
+
+    def test_rejects_non_image(self):
+        response = self.upload(name="a.txt", content=b"not an image", content_type="text/plain")
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejects_oversized_file(self):
+        with override_settings(CHAT_IMAGE_MAX_BYTES=10):
+            response = self.upload()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("5MB", str(response.data))
+
+    def test_rejects_too_large_side(self):
+        with override_settings(CHAT_IMAGE_MAX_SIDE=0):
+            response = self.upload()
+        self.assertEqual(response.status_code, 400)
+
+    def test_throttled_after_rate(self):
+        # DRF 的 THROTTLE_RATES 是类属性,在 import 时就绑定了;测试只能替换这个属性
+        with patch.object(ChatImageThrottle, "THROTTLE_RATES", {"chat_image": "2/hour"}):
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 429)
+
+    def test_heavy_banned_user_is_forbidden(self):
+        profile = get_profile(self.user)          # 资料行是懒创建的,不能直接 user.profile
+        profile.status = ProfileStatus.BANNED_HEAVY
+        profile.save(update_fields=["status"])
+        self.assertEqual(self.upload().status_code, 403)
+
+    def test_exif_orientation_swaps_dimensions_and_reencodes(self):
+        content = _jpeg_with_orientation()
+        response = self.upload(name="rotated.jpg", content=content, content_type="image/jpeg")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual((response.data["width"], response.data["height"]), (20, 40))
+        self.assertTrue(response.data["url"].endswith(".jpg"))
