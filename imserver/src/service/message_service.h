@@ -42,6 +42,18 @@ class MessageService {
   std::vector<ConversationView> list_conversations(uint64_t uid, int limit);
   std::vector<MessageRow> list_messages(uint64_t uid, uint64_t peer, uint64_t before_seq,
                                         int limit);
+  /// 关键词搜索(口径见 `MessageRepo::search`)。
+  ///
+  /// Args:
+  ///   uid: 请求者账号。
+  ///   keyword: 用户关键词。
+  ///   before_id: 游标,0 表示第一页。
+  ///   limit: 最多返回条数。
+  ///
+  /// Returns:
+  ///   命中的消息行,新 → 旧。
+  std::vector<MessageRow> search(uint64_t uid, const std::string& keyword, uint64_t before_id,
+                                 int limit);
   bool mark_read(uint64_t uid, uint64_t peer, uint64_t seq);
   std::variant<RevokeResult, int> revoke(uint64_t uid, uint64_t msg_id);
   bool delete_conversation(uint64_t uid, uint64_t peer);

@@ -97,6 +97,12 @@ std::vector<MessageRow> MessageService::list_messages(uint64_t uid, uint64_t pee
   return messages_.list(lease, conversation->id, before_seq, limit);
 }
 
+std::vector<MessageRow> MessageService::search(uint64_t uid, const std::string& keyword,
+                                               uint64_t before_id, int limit) {
+  auto lease = pool_.acquire();
+  return messages_.search(lease, uid, keyword, before_id, limit);
+}
+
 bool MessageService::mark_read(uint64_t uid, uint64_t peer, uint64_t seq) {
   auto lease = pool_.acquire();
   const auto conversation = conversations_.find_pair(lease, uid, peer);
