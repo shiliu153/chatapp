@@ -90,3 +90,6 @@ print('done', len(ids))
 - **图片**:自建后端暂不支持,客户端按 `capabilities.image` 隐藏入口;不要只靠 `sendImage` 抛错兜底。
 - **Nginx**:`/im/ws` 必须 `Upgrade` + `Connection: upgrade`,并设 `X-Real-IP`(服务端用它做限流);`proxy_read_timeout` ≥ 90s。
 - **回退**:改 `IM_BACKEND=tencent` 只影响下一次登录;要立刻止血先停 imserver,再让用户重启 App。
+- **连接池必须做存活探测(2026-10-26 事故)**:MySQL `wait_timeout=28800`(8h)会掐掉空闲连接;池若只管「借出/归还」、不 ping,死连接会被反复借出,之后**每条 SQL 都报 `Lost connection`**——`readyz` 503、发消息 50001、`/internal/blacklist` 变成 422(被 catch 包成「参数不合法」),而进程、WS、鉴权全都正常,极难从表面看出来。修法:`MysqlPool::acquire()` 在连接空闲超过 `IM_DB_IDLE_PING_MS`(默认 5000)时先 `mysql_ping`,失败就 `clear_stmt_cache` + 关掉 + 重连;`Lease::query` 遇到 2006/2013/2055 立即丢弃连接(放回空槽位,下次 acquire 重连)。
+- **`readyz` 503 就是 DB 挂了**:它跑 `SELECT 1`,不是只看进程;上线后必须有人/有探针盯它(这次 503 挂了 3 天没人发现,因为没人监控)。
+- **DB 线程池里的异常会 std::terminate**:`boost::asio::post(db_pool_, ...)` 的 lambda 一旦抛异常,进程直接死。所以统一走 `WsSession::run_db()`(捕获后回一条 50001),不要在 lambda 里裸调会抛的 DB 函数。

@@ -33,7 +33,8 @@ int main(int argc, char** argv) {
       return 0;
     }
 
-    MysqlPool mysql(parse_mysql_dsn(cfg.mysql_dsn), cfg.db_pool);
+    MysqlPool mysql(parse_mysql_dsn(cfg.mysql_dsn), cfg.db_pool,
+                    cfg.db_idle_ping_ms);
     UserRepo users(mysql);
     ConversationRepo conversations(mysql);
     MessageRepo messages(mysql);

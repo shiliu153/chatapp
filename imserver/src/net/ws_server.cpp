@@ -12,6 +12,7 @@
 
 #include "auth/token.h"
 #include "net/frames.h"
+#include "util/log.h"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -371,7 +372,7 @@ void WsSession::handle_send(const nlohmann::json& frame) {
     request.text = data.value("text", std::string());
 
     auto self = shared_from_this();
-    boost::asio::post(db_pool_, [self, request] {
+    run_db([self, request] {
       const auto result = self->messages_.send(request);
       boost::asio::post(self->ws_.get_executor(),
                         [self, result, request] { self->on_send_result(result, request); });
@@ -419,7 +420,7 @@ void WsSession::handle_read(const nlohmann::json& frame) {
     const uint64_t seq = data.value("seq", 0ULL);
     const std::string id = frame.value("id", std::string());
     auto self = shared_from_this();
-    boost::asio::post(db_pool_, [self, peer = *peer, seq, id] {
+    run_db([self, peer = *peer, seq, id] {
       const bool ok = self->messages_.mark_read(self->uid_, peer, seq);
       boost::asio::post(self->ws_.get_executor(),
                         [self, ok, id] { self->send_raw(ack_frame(id, ok)); });
@@ -435,7 +436,7 @@ void WsSession::handle_revoke(const nlohmann::json& frame) {
     const uint64_t msg_id = std::stoull(data.value("msg_id", std::string()));
     const std::string id = frame.value("id", std::string());
     auto self = shared_from_this();
-    boost::asio::post(db_pool_, [self, msg_id, id] {
+    run_db([self, msg_id, id] {
       const auto result = self->messages_.revoke(self->uid_, msg_id);
       boost::asio::post(self->ws_.get_executor(), [self, result, id] {
         if (const auto* revoked = std::get_if<RevokeResult>(&result)) {
@@ -474,7 +475,7 @@ void WsSession::handle_delete(const nlohmann::json& frame) {
     }
     const std::string id = frame.value("id", std::string());
     auto self = shared_from_this();
-    boost::asio::post(db_pool_, [self, peer = *peer, id] {
+    run_db([self, peer = *peer, id] {
       const bool ok = self->messages_.delete_conversation(self->uid_, peer);
       boost::asio::post(self->ws_.get_executor(),
                         [self, ok, id] { self->send_raw(ack_frame(id, ok)); });
@@ -562,6 +563,22 @@ void WsSession::release_ip() {
     ip_counter_.release(client_ip_);
     released_ip_ = true;
   }
+}
+
+void WsSession::run_db(std::function<void()> task) {
+  auto self = shared_from_this();
+  net::post(db_pool_, [self, task = std::move(task)] {
+    try {
+      task();
+    } catch (const std::exception& error) {
+      // 数据库彻底不可用时(池里连不上、lease 为空),不能把异常抛出线程池 —— 那会
+      // std::terminate 整个进程。这里降级成一条 50001,让客户端重试。
+      log_error("db_task_failed", {{"error", error.what()}});
+      net::post(self->ws_.get_executor(), [self] {
+        self->send_raw(error_frame(50001, "服务暂不可用"));
+      });
+    }
+  });
 }
 
 void WsSession::kick(const std::string& reason) {

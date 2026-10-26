@@ -26,6 +26,7 @@ struct Config {
   int io_threads = 2;
   int db_threads = 4;
   int db_pool = 8;
+  int db_idle_ping_ms = 5000;
   int max_conn_per_ip = 20;
   double auth_rate_per_sec = 1.0;
   double auth_burst = 60.0;

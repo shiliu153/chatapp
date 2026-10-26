@@ -257,3 +257,72 @@ python bench_ws.py --uri ws://<SERVER_IP>/im/ws --n 500 --interval 10 --duration
 仓库仍保留 `deploy/imserver.service`。若不用容器,需要宿主机具备
 Boost ≥ 1.83、nlohmann-json、mysqlclient、hiredis 开发库,并且二进制与宿主机
 glibc 匹配(在 Ubuntu 24.04 构建的二进制**不能**直接放到 Alibaba Cloud Linux 3 上跑)。
+
+## 10. MySQL 连接池存活探测(2026-10-26 事故与修复)
+
+### 10.1 现象
+
+2026-10-26 做灰度手测时发现:WS 能连、鉴权能过、`/internal/healthz` 200,
+但 `readyz` 是 **503**,发消息回 `50001`,拉黑/解封的 `/internal/blacklist` 回
+**422「参数不合法」**(异常被 catch 包成了参数错误,极容易误判成请求格式问题)。
+
+### 10.2 根因
+
+池在启动时一次性建 `IM_DB_POOL`(64)条连接,`acquire()` 只借出/归还、**不校验存活**;
+MySQL `wait_timeout=28800`(8 小时)把空闲连接全掐了。死连接被反复借出,于是每条 SQL
+都报 `Lost connection to MySQL server during query`,直到重启容器才恢复。
+
+时间线:容器 10-22 15:51(北京)启动 → 当晚约 23:51 连接全被 MySQL 掐掉 →
+此后约 3 天,自建 IM 一条消息都写不进去(只有灰度测试号 7/8,无真实用户受影响)。
+
+### 10.3 修复(`src/store/mysql_pool.cpp`)
+
+| 位置 | 行为 |
+|---|---|
+| `MysqlPool::acquire()` | 连接空闲 ≥ `IM_DB_IDLE_PING_MS`(默认 5000)时先 `mysql_ping`;失败则 `clear_stmt_cache` + 关闭 + 重连(最多 3 次,50/100/150ms 退避) |
+| `Lease::query()` | 遇到 2006/2013/2055(连接级错误)立即丢弃连接,槽位置空,下次 acquire 重连 |
+| 重连失败 | 返回空连接(不抛):任何 SQL 立刻失败并走 50001 分支,不会把死连接塞回池,也不会让异常逃出 DB 线程池 |
+| `WsSession::run_db()` | DB 线程池里的任务统一包一层 try/catch,异常降级成一条 50001,避免 `std::terminate` |
+
+配置项(可选,不写就用默认):
+
+```ini
+IM_DB_IDLE_PING_MS=5000   # 0=每次 acquire 都 ping(测试用);负数=关闭探测(不推荐)
+```
+
+### 10.4 验证方法
+
+```bash
+# 1) 池能自愈:掐掉 imserver 的所有 MySQL 连接,readyz 应仍是 200
+mysql -uroot -p -e "SELECT id FROM information_schema.PROCESSLIST WHERE user='imserver'" \
+  | tail -n +2 | xargs -I{} mysql -uroot -p -e "KILL {}"
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9101/internal/readyz   # 200
+docker logs imserver --since 1m | grep mysql_reconnect                          # 有重连日志
+
+# 2) 单元/DB 测试(本地 Docker)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash -c \
+  'cmake -S /src -B /src/build -G Ninja && cmake --build /src/build && \
+   export IM_TEST_MYSQL_DSN="$IM_MYSQL_DSN" && ctest --test-dir /src/build -L db'
+# 其中 StoreTest.PoolReconnectsAfterServerKill 就是「KILL 掉连接后池必须重连」
+```
+
+### 10.5 运维要求
+
+**必须有人盯 `readyz`**:这次 503 挂了 3 天没人发现,因为只看进程/端口。建议在宝塔
+计划任务或外部探针里每分钟请求一次 `http://127.0.0.1:9101/internal/readyz`,
+连续 2 次非 200 就告警(邮件/微信)。
+
+## 11. 灰度三项手测脚本
+
+核对单里「单设备互踢 / 封禁拒连 / 拉黑拦截」三项原先只能双端手点,现在有可重复的脚本:
+
+```bash
+scp imserver/scripts/verify_graylist.py root@<SERVER_IP>:/root/
+ssh root@<SERVER_IP> 'set -a; . /www/server/imserver/imserver.env; set +a; \
+  /root/bench-venv/bin/python /root/verify_graylist.py --uid-a 7 --uid-b 8'
+```
+
+- 只碰两个隔离测试号的 IM 状态,结束自动还原封禁键与双向黑名单(幂等,可反复跑);
+- 断言的是服务端契约:帧类型、错误码(40301/40302)、关闭码(4001/4003)、对端是否收到消息;
+- 退出码 0 = 全过;`--only multi|ban|blacklist` 可单跑。
+
