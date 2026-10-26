@@ -17,13 +17,16 @@
 
 import io
 import uuid
+from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.utils import timezone
 from PIL import Image, ImageOps
-from rest_framework.decorators import api_view, throttle_classes
+from rest_framework.decorators import (api_view, authentication_classes,
+                                      permission_classes, throttle_classes)
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from . import media_sign
@@ -152,3 +155,30 @@ def upload_image(request):
         "height": chat_image.height,
         "size": chat_image.bytes,
     }, status=201)
+
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def image_auth(request):
+    """nginx ``auth_request`` 子请求:校验聊天图片签名(GET /api/v1/im/images/auth)。
+
+    这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而图片本身
+    已经是「谁拿到链接谁能看」的语义,靠签名与有效期兜底。
+
+    Args:
+        request: DRF 请求对象,nginx 通过 ``X-Original-URI`` 传入原始 URI
+            (含 ``?e=&s=``)。
+
+    Returns:
+        通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403。
+    """
+    original = request.headers.get("X-Original-URI", "")
+    parts = urlsplit(original)
+    query = parse_qs(parts.query)
+    expires = (query.get("e") or [""])[0]
+    signature_value = (query.get("s") or [""])[0]
+    if not original or not media_sign.verify(parts.path, expires, signature_value):
+        return Response({"code": 403, "message": "图片链接已失效"}, status=403)
+    return Response(status=204)
+

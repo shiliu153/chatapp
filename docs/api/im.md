@@ -105,11 +105,14 @@ curl -X POST http://<域名>/api/v1/im/user_sig \
 | 参数名称 | 类型 | 描述 |
 |----------|------|------|
 | id | Integer | 聊天图片主键 |
-| url | String | 原图绝对地址 |
-| thumb_url | String | 缩略图绝对地址(长边 240) |
+| url | String | 原图绝对地址(**带签名**,默认 24 小时有效) |
+| thumb_url | String | 缩略图绝对地址(长边 240,**带签名**) |
 | width | Integer | 显示宽度(已按 EXIF 方向校正) |
 | height | Integer | 显示高度 |
 | size | Integer | 文件字节数 |
+
+> `url` / `thumb_url` 是**限时签名地址**(规则见 6.3):默认 24 小时、按整点对齐。
+> 直接使用即可;签名过期或被运营删除后返回 403/404,客户端按加载失败占位处理。
 
 **请求示例**
 
@@ -124,8 +127,8 @@ curl -X POST http://<域名>/api/v1/im/images \
 ```json
 {
   "id": 123,
-  "url": "https://<域名>/media/chat/2026/10/7-a1b2c3d4.jpg",
-  "thumb_url": "https://<域名>/media/chat/2026/10/7-a1b2c3d4_thumb.jpg",
+  "url": "https://<域名>/media/chat/2026/10/7-a1b2c3d4.jpg?e=1761782400&s=9f2c...e1",
+  "thumb_url": "https://<域名>/media/chat/2026/10/7-a1b2c3d4_thumb.jpg?e=1761782400&s=1a2b...c3",
   "width": 1080,
   "height": 1440,
   "size": 345678
@@ -140,3 +143,35 @@ curl -X POST http://<域名>/api/v1/im/images \
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
 | 403 | 403 | 账号被重封禁,禁止使用(全域 403) | 提示用户账号受限 |
 | 429 | 429 | 上传过于频繁(30 次/小时) | 稍后再试 |
+
+---
+
+### 6.3 聊天图片验签(nginx 内部)
+
+> `GET` `/api/v1/im/images/auth` · 无需鉴权 · 无额外限流
+
+**接口描述**
+
+生产 nginx 对 `/media/chat/` 的请求先做一次内部子请求(`auth_request`),由本接口
+校验 URL 上的签名与有效期:通过返回 204(nginx 放行静态文件),失败返回 403。
+**不是给客户端调的**:请求头 `X-Original-URI` 由 nginx 注入,客户端直接调用只会拿到 403。
+
+- 签名规则:`HMAC-SHA256(IM_MEDIA_SIGN_SECRET, path + "\n" + e)`,小写 hex
+- 有效期:`e` 为过期时间戳,由服务端按整点对齐 + `IM_MEDIA_SIGN_TTL`(默认 24h)生成
+- 只接受 `/media/chat/` 下的路径;用户照片与广场图片不在此列
+
+**请求参数**(请求头)
+
+| 参数名称 | 类型 | 必填 | 描述 |
+|----------|------|------|------|
+| X-Original-URI | String | 是 | 原始 URI,形如 `/media/chat/2026/10/7-a1b2.jpg?e=1761782400&s=...` |
+
+**响应参数**
+
+通过:HTTP 204,无响应体。
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 403 | 403 | 缺 `X-Original-URI` / 路径越界 / 已过期 / 签名不符 | 重新进入聊天页刷新历史以拿到新链接 |

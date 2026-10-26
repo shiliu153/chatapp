@@ -985,3 +985,57 @@ class MediaSignTests(SimpleTestCase):
             self.assertEqual(media_sign.sign_url("/media/chat/a.jpg"), "/media/chat/a.jpg")
             self.assertTrue(media_sign.verify("/media/chat/a.jpg", "0", "bad"))
 
+
+class ChatImageAuthTests(APITestCase):
+    """nginx 子请求验签:有效 204、缺头/过期/篡改 403、无需 JWT。"""
+
+    def setUp(self):
+        self.url = "/api/v1/im/images/auth"
+        self.media = "/media/chat/2026/10/12-abc.jpg"
+
+    def auth(self, original):
+        """带 ``X-Original-URI`` 调验签接口。
+
+        Args:
+            original: nginx 传入的原始 URI。
+
+        Returns:
+            DRF 响应对象。
+        """
+        return self.client.get(self.url, HTTP_X_ORIGINAL_URI=original)
+
+    def signed(self):
+        """生成一个当前有效的签名 URL。
+
+        Returns:
+            带 ``?e=&s=`` 的路径。
+        """
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
+            return media_sign.sign_url(self.media, now=int(time.time()))
+
+    def test_valid_signature_passes_without_jwt(self):
+        self.assertEqual(self.auth(self.signed()).status_code, 204)
+
+    def test_missing_header_is_forbidden(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], 403)
+
+    def test_expired_signature_is_forbidden(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=60):
+            stale = media_sign.sign_url(self.media, now=1)
+            self.assertEqual(self.auth(stale).status_code, 403)
+
+    def test_non_chat_path_is_forbidden(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s"):
+            signed = media_sign.sign_url("/media/photos/a.jpg", now=int(time.time()))
+        self.assertEqual(self.auth(signed).status_code, 403)
+
+    def test_heavy_banned_user_can_still_view(self):
+        user = User.objects.create_user(phone="13900139009")
+        profile = get_profile(user)
+        profile.status = ProfileStatus.BANNED_HEAVY
+        profile.save(update_fields=["status"])
+        self.assertEqual(self.auth(self.signed()).status_code, 204)
+
+
