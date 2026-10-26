@@ -308,9 +308,39 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash -c \
 
 ### 10.5 运维要求
 
-**必须有人盯 `readyz`**:这次 503 挂了 3 天没人发现,因为只看进程/端口。建议在宝塔
-计划任务或外部探针里每分钟请求一次 `http://127.0.0.1:9101/internal/readyz`,
-连续 2 次非 200 就告警(邮件/微信)。
+### 10.5 探针(宝塔计划任务,2026-10-26 已上线)
+
+这次 503 挂了 3 天没人发现,因为只看进程/端口。现在用宝塔计划任务每分钟跑一次
+`imserver/deploy/probe-readyz.sh`(任务名 **imserver-readyz-探针**):
+
+| 项 | 值 |
+|---|---|
+| 脚本 | `/www/server/imserver/probe-readyz.sh`(仓库 `imserver/deploy/probe-readyz.sh`) |
+| 周期 | 每分钟(`*/1 * * * *`) |
+| 判定 | 单轮内查两次(间隔 2s),都非 200 记一次;连续 **2 轮**失败才告警 |
+| 告警 | 写 `/www/wwwlogs/imserver_probe.log` + stdout 打 `ALERT`(宝塔「任务日志」可见)+ 可选 webhook |
+| 去重 | 同一事件只告警一次;恢复后计数清零,下次事故重新告警 |
+| 日志 | `/www/wwwlogs/imserver_probe.log`(超 1MB 自动只留最后 500 行) |
+| 接 webhook | 环境变量 `IM_PROBE_WEBHOOK=<企业微信/钉钉群机器人地址>`,发 `{"msgtype":"text",...}` 文本消息 |
+
+> **为什么不能靠退出码告警**:宝塔生成的包装脚本(`/www/server/cron/<md5>`)无论任务本身
+> 退出码是多少都以 `rm -f` 收尾、固定返回 0,面板收不到失败信号。所以告警必须在脚本里自己发。
+
+实测(2026-10-26):正常路径退出 0、计数清零;把 `IM_PROBE_URL` 指到死端口模拟故障,
+第 1 轮只记录、第 2 轮打 ALERT 并退出 1、第 3 轮不再重复告警——符合设计。
+
+部署脚本本体:
+
+```bash
+scp imserver/deploy/probe-readyz.sh root@<SERVER_IP>:/www/server/imserver/probe-readyz.sh
+ssh root@<SERVER_IP> 'chmod 755 /www/server/imserver/probe-readyz.sh'
+# 手动跑一次,确认退出码 0
+ssh root@<SERVER_IP> '/www/server/imserver/probe-readyz.sh; echo exit=$?'
+```
+
+**注意宝塔 API 的 IP 白名单**:`/www/server/panel/config/api.json` 里 `limit_addr` 为空时
+任何 IP 都调不通(报 `IP校验失败`),需要在面板「设置 → API 接口」里加上调用方 IP
+(本机用 `127.0.0.1`)。另:面板开了 SSL 时 API 地址是 `https://127.0.0.1:<端口>`,不是 http。
 
 ## 11. 灰度三项手测脚本
 
