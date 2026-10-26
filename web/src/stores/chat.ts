@@ -201,6 +201,22 @@ export const useChatStore = defineStore('chat', () => {
     return merged
   }
 
+  /** 往前翻历史,直到找到 untilMsgId(最多 5 页)。搜索定位用。 */
+  async function loadOlder(peerId: string, untilMsgId: string, maxPages = 5): Promise<void> {
+    await ensureConnected()
+    let list = messagesOf(peerId)
+    for (let page = 0; page < maxPages; page++) {
+      if (list.some((item) => item.msgId === untilMsgId)) return
+      const oldestSeq = list[0]?.seq ?? 0
+      if (oldestSeq <= 1) return
+      const older = await client.fetchHistory(peerId, 50, oldestSeq)
+      if (!older.length) return
+      list = mergeMessages(list, older)
+      messages.value = { ...messages.value, [peerId]: list }
+      if (older.length < 50) return
+    }
+  }
+
   async function openConversation(peerId: string): Promise<ChatMessage[]> {
     const list = await loadHistory(peerId)
     await client.markConversationRead(peerId)
@@ -293,6 +309,7 @@ export const useChatStore = defineStore('chat', () => {
     reconnect,
     loadConversations,
     loadHistory,
+    loadOlder,
     openConversation,
     sendText,
     sendImage,

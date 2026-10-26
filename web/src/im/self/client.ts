@@ -6,6 +6,7 @@ import {
   type ImClient,
   type ImConversation,
   type ImEvent,
+  type ImSearchResult,
 } from '../types'
 import { type UploadedImage, uploadChatImage } from './image'
 import { conversationFromJson, messageFromJson } from './map'
@@ -27,7 +28,7 @@ export class SelfImClient implements ImClient {
     private readonly uploadImage: (file: File) => Promise<UploadedImage> = uploadChatImage,
   ) {}
 
-  readonly capabilities: ImCapabilities = { image: true }
+  readonly capabilities: ImCapabilities = { image: true, search: true }
 
   private bootstrap?: ImBootstrap
   private transport?: SelfTransport
@@ -112,6 +113,7 @@ export class SelfImClient implements ImClient {
         msgId: String(data.msg_id ?? ''),
         peerId: pending.peerId,
         isSelf: true,
+        seq: Number(data.seq ?? 0),
         timestamp: Number(data.ts ?? Date.now()),
         kind: image ? ChatMessageKind.image : ChatMessageKind.text,
         text: pending.text,
@@ -147,10 +149,31 @@ export class SelfImClient implements ImClient {
     return items.map((item) => conversationFromJson(item, this.bootstrap?.imUserId ?? ''))
   }
 
-  async fetchHistory(peerId: string, count = 50): Promise<ChatMessage[]> {
-    const data = await this.get('/messages', { peer: peerId, limit: String(count) })
+  async fetchHistory(peerId: string, count = 50, beforeSeq?: number): Promise<ChatMessage[]> {
+    const query: Record<string, string> = { peer: peerId, limit: String(count) }
+    if (beforeSeq != null && beforeSeq > 0) query.before_seq = String(beforeSeq)
+    const data = await this.get('/messages', query)
     const items = (data.items ?? []) as Record<string, unknown>[]
     return items.map((item) => messageFromJson(item, this.bootstrap?.imUserId ?? ''))
+  }
+
+  async searchMessages(keyword: string, limit = 20, beforeId?: string): Promise<ImSearchResult> {
+    const query: Record<string, string> = { q: keyword, limit: String(limit) }
+    if (beforeId) query.before_id = beforeId
+    const data = await this.get('/search', query)
+    const items = ((data.items ?? []) as Record<string, unknown>[]).map((item) => {
+      const peer = (item.peer ?? {}) as Record<string, unknown>
+      return {
+        msgId: String(item.msg_id ?? ''),
+        seq: Number(item.seq ?? 0),
+        peerId: String(peer.id ?? ''),
+        peerName: String(peer.nickname ?? ''),
+        peerAvatar: (peer.avatar as string | null) ?? null,
+        text: String(item.text ?? ''),
+        timestamp: Number(item.ts ?? 0),
+      }
+    })
+    return { items, hasMore: data.has_more === true }
   }
 
   async sendText(peerId: string, text: string): Promise<ChatMessage> {

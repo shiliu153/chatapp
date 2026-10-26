@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SelfImClient } from '@/im/self/client'
 import { messageFromJson } from '@/im/self/map'
 import type { SelfTransport } from '@/im/self/transport'
@@ -110,7 +110,43 @@ describe('SelfImClient', () => {
       },
     }, 'u9')
     expect(message.kind).toBe('image')
+    expect(message.seq).toBe(2)
     expect(message.imageUrl).toBe('http://cdn/b_thumb.jpg')
     expect(message.imageLargeUrl).toBe('http://cdn/b.jpg')
+  })
+
+  it('searchMessages 调 /search 并映射 ImSearchHit', async () => {
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input))
+      return new Response(JSON.stringify({
+        items: [
+          {
+            msg_id: '42', seq: 7, from: 'u2', to: 'u9', ts: 1761465600000,
+            kind: 'text', text: '晚上吃火锅吗',
+            peer: { id: 'u2', nickname: '阿九', avatar: 'https://a/9.png' },
+          },
+        ],
+        has_more: true,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    try {
+      const client = new SelfImClient()
+      await client.init(bootstrap)
+      const result = await client.searchMessages('火锅', 10, '99')
+      expect(requests[0]).toContain('/im/api/search?')
+      expect(requests[0]).toContain('q=%E7%81%AB%E9%94%85')
+      expect(requests[0]).toContain('limit=10')
+      expect(requests[0]).toContain('before_id=99')
+      expect(result.items).toHaveLength(1)
+      expect(result.items[0]).toMatchObject({
+        msgId: '42', seq: 7, peerId: 'u2', peerName: '阿九',
+        peerAvatar: 'https://a/9.png', text: '晚上吃火锅吗',
+      })
+      expect(result.hasMore).toBe(true)
+      expect(client.capabilities.search).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

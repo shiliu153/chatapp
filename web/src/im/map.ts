@@ -109,6 +109,7 @@ export function chatMessageFromTim(message: TimMessageLike): ChatMessage {
     msgId: message.ID,
     peerId,
     isSelf,
+    seq: 0, // 腾讯后端没有会话内序号,回溯翻页用不到(搜索仅自建)
     timestamp: (message.time ?? 0) * 1000, // SDK 给的是秒
     kind,
     text: textOf(message, kind),

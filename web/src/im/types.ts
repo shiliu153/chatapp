@@ -18,6 +18,8 @@ export interface ChatMessage {
   /** 对端 IM id,如 'u9' */
   peerId: string
   isSelf: boolean
+  /** 会话内序号,回溯翻页用(腾讯后端恒为 0) */
+  seq: number
   /** 毫秒(SDK 给的是秒,映射时已 ×1000) */
   timestamp: number
   kind: ChatMessageKind
@@ -56,6 +58,25 @@ export interface ImBootstrap {
 
 export interface ImCapabilities {
   image: boolean
+  /** 是否支持聊天记录搜索(腾讯后端为 false,入口隐藏) */
+  search: boolean
+}
+
+/** 一条搜索命中(只可能是文本消息)。 */
+export interface ImSearchHit {
+  msgId: string
+  seq: number
+  peerId: string
+  peerName: string
+  peerAvatar: string | null
+  text: string
+  timestamp: number
+}
+
+/** 一页搜索结果。 */
+export interface ImSearchResult {
+  items: ImSearchHit[]
+  hasMore: boolean
 }
 
 export type ImEvent =
@@ -72,7 +93,9 @@ export interface ImClient {
   login(userId: string, userSig: string): Promise<void>
   logout(): Promise<void>
   fetchConversations(): Promise<ImConversation[]>
-  fetchHistory(peerId: string, count?: number): Promise<ChatMessage[]>
+  fetchHistory(peerId: string, count?: number, beforeSeq?: number): Promise<ChatMessage[]>
+  /** 搜索聊天记录(仅自建后端支持;腾讯抛错) */
+  searchMessages(keyword: string, limit?: number, beforeId?: string): Promise<ImSearchResult>
   sendText(peerId: string, text: string): Promise<ChatMessage>
   sendImage(peerId: string, file: File): Promise<ChatMessage>
   deleteMessage(msgId: string): Promise<void>

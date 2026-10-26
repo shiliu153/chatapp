@@ -186,6 +186,7 @@ async function onPickImage(event: Event) {
     msgId: placeholderId,
     peerId: props.peerId,
     isSelf: true,
+    seq: 0,
     timestamp: Date.now(),
     kind: ChatMessageKind.image,
     text: '',

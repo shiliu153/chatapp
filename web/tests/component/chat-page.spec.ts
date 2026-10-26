@@ -14,6 +14,7 @@ function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
     msgId: 'm1',
     peerId: 'u8',
     isSelf: false,
+    seq: 0,
     timestamp: 1_700_000_000_000,
     kind: ChatMessageKind.text,
     text: '你好',

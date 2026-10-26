@@ -33,6 +33,7 @@ export function messageFromJson(
     msgId: String(json.msg_id ?? ''),
     peerId: self ? to : from,
     isSelf: self,
+    seq: Number(json.seq ?? 0),
     timestamp: Number(json.ts ?? 0),
     kind: messageKind,
     text: kind === 'custom' ? String(custom.desc ?? '') : String(json.text ?? ''),
