@@ -209,23 +209,30 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
       }
       body = request.custom;
     } else if (request.kind == 3) {
-      // 图片只接受本服务媒体前缀下的 URL:否则等于允许客户端给对端塞任意图片源
+      // 图片只接受本服务媒体前缀下的 URL,并落**规范 URL**(去掉 query):
+      // 客户端带上来的签名是上传那一刻的,存下来会在过期后变成死链,
+      // 读的时候由 MediaSigner 现签(见 frames.h / http_api.cpp)。
       const auto& image = request.image;
       if (!image.is_object()) {
         return 42201;
       }
-      const auto url = image.value("url", std::string());
-      const auto thumb = image.value("thumb_url", std::string());
+      const auto canonical_url = signer_.canonical(image.value("url", std::string()));
+      const auto canonical_thumb = signer_.canonical(image.value("thumb_url", std::string()));
+      if (!canonical_url.has_value() || !canonical_thumb.has_value()) {
+        return 42201;
+      }
       const auto width = image.value("width", 0ULL);
       const auto height = image.value("height", 0ULL);
       const auto size = image.value("size", 0ULL);
-      const bool prefixed = !media_prefix_.empty() && url.rfind(media_prefix_, 0) == 0 &&
-                            thumb.rfind(media_prefix_, 0) == 0;
-      if (!prefixed || url.size() > 512 || thumb.size() > 512 || width == 0 || height == 0 ||
-          width > 4096 || height > 4096 || size == 0 || size > 5 * 1024 * 1024) {
+      if (canonical_url->size() > 512 || canonical_thumb->size() > 512 || width == 0 ||
+          height == 0 || width > 4096 || height > 4096 || size == 0 ||
+          size > 5 * 1024 * 1024) {
         return 42201;
       }
-      body = {{"image", image}};
+      nlohmann::json stored = image;
+      stored["url"] = *canonical_url;
+      stored["thumb_url"] = *canonical_thumb;
+      body = {{"image", stored}};
     } else {
       return 42201;
     }

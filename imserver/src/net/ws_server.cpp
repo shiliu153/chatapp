@@ -391,7 +391,7 @@ void WsSession::handle_send(const nlohmann::json& frame) {
 void WsSession::on_send_result(const std::variant<SendResult, int>& result,
                                const SendRequest& request) {
   if (const auto* ok = std::get_if<SendResult>(&result)) {
-    registry_.send_to(request.to, build_message_frame(*ok, request));
+    registry_.send_to(request.to, build_message_frame(*ok, request, messages_.signer()));
     send_raw(nlohmann::json{{"v", 1},
                             {"type", "ack"},
                             {"id", request.client_msg_id},

@@ -90,7 +90,10 @@ async def main():
     await recv(a, "ack")
     pushed_image = await recv(b, "message")
     assert pushed_image["data"]["kind"] == "image"
-    assert pushed_image["data"]["image"]["url"] == image_url
+    # 图片 URL 在推送/历史里是**读时签名**的:路径不变,追加 ?e=&s=
+    signed_url = pushed_image["data"]["image"]["url"]
+    assert signed_url.startswith(image_url + "?e="), signed_url
+    assert "&s=" in signed_url
     history = get(f"/messages?peer=u{a_uid}", b_uid)["items"]
     assert any(item["kind"] == "image" for item in history)
 

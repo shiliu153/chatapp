@@ -36,4 +36,6 @@ services:
       IM_INTERNAL_SECRET: test-internal-secret
       IM_MIGRATIONS_DIR: /src/migrations
       IM_MEDIA_PREFIX: http://cdn/media/chat/
+      IM_MEDIA_SIGN_SECRET: test-media-secret
+      IM_MEDIA_SIGN_TTL: "86400"
     command: bash /src/scripts/test_integration.sh

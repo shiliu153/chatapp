@@ -4,6 +4,7 @@
 #include <string>
 
 #include "service/message_service.h"
+#include "util/media_sign.h"
 
 inline std::string kind_name(int kind) {
   switch (kind) {
@@ -16,8 +17,10 @@ inline std::string kind_name(int kind) {
   }
 }
 
-// 按 kind 拼推送帧:text 带 text,custom 带 custom,image 带 image
-inline std::string build_message_frame(const SendResult& result, const SendRequest& request) {
+// 按 kind 拼推送帧:text 带 text,custom 带 custom,image 带 image。
+// 图片 URL 在**读时**签名(库里存的是去掉 query 的规范 URL)。
+inline std::string build_message_frame(const SendResult& result, const SendRequest& request,
+                                       const MediaSigner& signer) {
   nlohmann::json data = {
       {"msg_id", std::to_string(result.msg_id)},
       {"seq", result.seq},
@@ -32,6 +35,7 @@ inline std::string build_message_frame(const SendResult& result, const SendReque
     data["custom"] = request.custom;
   } else if (request.kind == 3) {
     data["image"] = request.image;
+    signer.sign_image(data["image"]);
   } else {
     data["text"] = request.text;
   }
