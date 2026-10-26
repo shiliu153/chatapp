@@ -206,6 +206,7 @@ SMS_SEND_IP_RATE = os.getenv("SMS_SEND_IP_RATE", "200/hour" if DEBUG else "20/ho
 SMS_VERIFY_IP_RATE = os.getenv("SMS_VERIFY_IP_RATE", "600/hour" if DEBUG else "60/hour")
 PRESENCE_RATE = os.getenv("PRESENCE_RATE", "600/hour")   # 在线状态轮询:一个前台页面 ≈ 80/h
 FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
+CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -227,6 +228,7 @@ REST_FRAMEWORK = {
         "post_report": "20/day",
         "presence": PRESENCE_RATE,
         "feedback": FEEDBACK_RATE,
+        "chat_image": CHAT_IMAGE_RATE,
     },
 }
 
@@ -319,6 +321,17 @@ APP_DOWNLOAD_URL = os.getenv("APP_DOWNLOAD_URL", "")
 AUTO_APPROVE = os.getenv("AUTO_APPROVE", "1") == "1"   # 开发期自动过审;上线接内容安全 API 后置 0
 PHOTO_MAX_COUNT = 6
 PHOTO_MAX_BYTES = 5 * 1024 * 1024
+
+# --- 聊天图片(图片二期)---
+CHAT_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+CHAT_IMAGE_MAX_SIDE = 4096
+CHAT_IMAGE_THUMB_SIDE = 240
+
+# --- 聊天图片签名 URL(与 imserver 的 IM_MEDIA_SIGN_* 必须一致)---
+IM_MEDIA_SIGN_SECRET = os.getenv("IM_MEDIA_SIGN_SECRET", "")
+IM_MEDIA_SIGN_TTL = int(os.getenv("IM_MEDIA_SIGN_TTL", "86400"))
+# 聊天图片保留期(天);0 表示只清孤儿文件与删除残留
+CHAT_IMAGE_RETENTION_DAYS = int(os.getenv("CHAT_IMAGE_RETENTION_DAYS", "30"))
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"

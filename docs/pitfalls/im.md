@@ -87,9 +87,19 @@ print('done', len(ids))
 - **单设备互踢**:新连接先踢旧连接;被踢端收到 `kicked` 后**必须停止重连并强退**,否则两台设备会互相顶号。
 - **灰度不能跨后端**:A 在自建、B 在腾讯时双方消息都收不到;灰度名单只能放隔离测试号,真实用户一次性全量。
 - **Redis 不可用时鉴权 fail closed**:在线态可降级到进程内 Map,但封禁键查不到时拒绝新连接,避免封禁被绕过。
-- **图片**:自建后端暂不支持,客户端按 `capabilities.image` 隐藏入口;不要只靠 `sendImage` 抛错兜底。
+- **图片要两步,且 URL 有前缀白名单(2026-10-26 起)**:自建后端发图先调 `POST /api/v1/im/images` 落盘拿 `url/thumb_url`,再把它们放进 WS `send` 帧(`kind=image`);imserver 会校验两个 URL 都必须以 `IM_MEDIA_PREFIX` 开头,否则 `42201`。所以部署时 `IM_MEDIA_PREFIX` 必须等于 Django 的 `MEDIA_BASE_URL + /media/chat/`,且它是**必填项**(没配 imserver 起不来)。客户端按 `capabilities.image` 决定是否显示入口。
+- **图片没有机器审核**:上传即发,靠 ops `/ops/chat-images/` 人工抽审 + 举报兜底;接云内容安全前,这是上线阻断项。
 - **Nginx**:`/im/ws` 必须 `Upgrade` + `Connection: upgrade`,并设 `X-Real-IP`(服务端用它做限流);`proxy_read_timeout` ≥ 90s。
 - **回退**:改 `IM_BACKEND=tencent` 只影响下一次登录;要立刻止血先停 imserver,再让用户重启 App。
 - **连接池必须做存活探测(2026-10-26 事故)**:MySQL `wait_timeout=28800`(8h)会掐掉空闲连接;池若只管「借出/归还」、不 ping,死连接会被反复借出,之后**每条 SQL 都报 `Lost connection`**——`readyz` 503、发消息 50001、`/internal/blacklist` 变成 422(被 catch 包成「参数不合法」),而进程、WS、鉴权全都正常,极难从表面看出来。修法:`MysqlPool::acquire()` 在连接空闲超过 `IM_DB_IDLE_PING_MS`(默认 5000)时先 `mysql_ping`,失败就 `clear_stmt_cache` + 关掉 + 重连;`Lease::query` 遇到 2006/2013/2055 立即丢弃连接(放回空槽位,下次 acquire 重连)。
 - **`readyz` 503 就是 DB 挂了**:它跑 `SELECT 1`,不是只看进程;上线后必须有人/有探针盯它(这次 503 挂了 3 天没人发现,因为没人监控)。
 - **DB 线程池里的异常会 std::terminate**:`boost::asio::post(db_pool_, ...)` 的 lambda 一旦抛异常,进程直接死。所以统一走 `WsSession::run_db()`(捕获后回一条 50001),不要在 lambda 里裸调会抛的 DB 函数。
+
+## 聊天图片签名(2026-10-26)
+
+- **生产 nginx 没有 `secure_link` 模块**:宝塔的编译参数只有 `--with-http_auth_request_module`。照抄网上的 `secure_link` 配置会在 `nginx -t` 报 unknown directive;正确做法是 `auth_request` → Django `GET /api/v1/im/images/auth`(见 `imserver/deploy/nginx-media-sign.conf`)。
+- **签名必须在读时生成**:把带签名的 URL 写进 `im_message.body`,24h 后历史消息会永久 403。imserver 落库前统一 `MediaSigner::canonical()` 去掉 query,推送/历史/会话列表再现签;`body.image.url` 里出现 `?e=&s=` 说明写时规范化被绕过了。
+- **两端密钥不一致 = 所有聊天图片 403**:先比对 Django `.env` 与容器环境里的 `IM_MEDIA_SIGN_SECRET`(以及 `IM_MEDIA_SIGN_TTL`),再去查 nginx —— 其它图片(头像/广场)正常、只有 `/media/chat/` 403,基本就是这里。
+- **签名 URL 每小时稳定**:`e` 按整点对齐 + TTL,所以同一小时内同一张图的 URL 不变(浏览器缓存有效),但**不要把它持久化到客户端数据库**——超过 24h 就会 403,重进聊天页拉历史即可刷新。
+- **清理命令默认 dry-run**:定时任务必须显式 `--apply`;删文件不可逆,第一次先跑不带 `--apply` 看汇总。清理后图片 404、聊天显示占位是预期行为。
+

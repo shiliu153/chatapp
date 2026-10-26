@@ -14,26 +14,42 @@
 
 import io
 import json
+import os
+import shutil
+import tempfile
+import time
+from datetime import timedelta
+from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.storage import default_storage
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
+from users.services import get_profile
 
 from feed.models import Post, PostComment
 
+from . import media_sign
 from .client import (_request, black_list_add, black_list_delete, delete_account,
                      ensure_account, import_account, kick_user, send_ban_lifted,
                      send_ban_notice, send_custom_elem, send_match_notice,
                      send_post_commented, send_report_handled, send_text,
                      set_profile_avatar, set_profile_nick)
+from .models import ChatImage, ChatImageStatus
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
+from .throttles import ChatImageThrottle
 from .token import mint_im_token, verify_im_token
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
                     delete_account as delete_account_task,
@@ -44,6 +60,11 @@ from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
 from .tasks import send_match_notice as send_match_notice_task
 
 User = get_user_model()
+
+# 1×1 透明 PNG:最小合法图片,用于上传类用例
+PNG_1PX = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+           b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+           b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
 
 IM_TEST_SETTINGS = dict(
     IM_SDKAPPID="1400000000",
@@ -761,3 +782,381 @@ class SelfNoticeTests(SimpleTestCase):
             user.return_value.im_user_id = "u9"
             ban_lifted.run(9)
         lifted.assert_called_once_with("u9")
+
+class ChatImageModelTests(TestCase):
+    """聊天图片元数据:默认状态、可读表示、随用户级联删除。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13900139001")
+
+    def test_defaults_to_visible_and_str_is_readable(self):
+        image = ChatImage.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile("a.jpg", PNG_1PX, content_type="image/jpeg"),
+            thumb=SimpleUploadedFile("a_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+            width=10, height=20, bytes=len(PNG_1PX))
+        self.assertEqual(image.status, ChatImageStatus.VISIBLE)
+        self.assertIn("chat_image#", str(image))
+
+    def test_cascade_deletes_rows_with_user(self):
+        ChatImage.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile("a.jpg", PNG_1PX, content_type="image/jpeg"),
+            thumb=SimpleUploadedFile("a_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+            width=10, height=20, bytes=len(PNG_1PX))
+        self.user.delete()
+        self.assertEqual(ChatImage.objects.count(), 0)
+
+    def test_signed_urls_are_absolute_and_signed(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", MEDIA_BASE_URL="http://cdn.test"):
+            image = ChatImage.objects.create(
+                owner=self.user,
+                file=SimpleUploadedFile("a.jpg", PNG_1PX, content_type="image/jpeg"),
+                thumb=SimpleUploadedFile("a_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+                width=10, height=20, bytes=len(PNG_1PX))
+            self.assertTrue(image.signed_file_url.startswith("http://cdn.test/media/chat/"))
+            self.assertIn("?e=", image.signed_file_url)
+            self.assertIn("&s=", image.signed_thumb_url)
+
+    def test_expired_status_and_timestamp_exist(self):
+        image = ChatImage.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile("b.jpg", PNG_1PX, content_type="image/jpeg"),
+            thumb=SimpleUploadedFile("b_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+            width=1, height=1, bytes=len(PNG_1PX),
+            status=ChatImageStatus.EXPIRED)
+        self.assertIsNone(image.expired_at)
+
+def _jpeg_with_orientation(size=(40, 20), orientation=6):
+    """生成一张带 EXIF 方向标签的 JPEG(6 = 顺时针 90°,显示时宽高互换)。
+
+    Args:
+        size: 原始像素尺寸(宽, 高)。
+        orientation: EXIF Orientation 值。
+
+    Returns:
+        JPEG 字节内容。
+    """
+    buffer = io.BytesIO()
+    image = Image.new("RGB", size, (200, 30, 30))
+    exif = image.getexif()
+    exif[0x0112] = orientation
+    image.save(buffer, "JPEG", exif=exif)
+    return buffer.getvalue()
+
+
+class ChatImageUploadTests(APITestCase):
+    """聊天图片上传:成功返回四元组、大小/格式/尺寸校验、限流、重封禁拦截。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
+                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
+        override.enable()
+        self.addCleanup(override.disable)
+        cache.clear()   # 限流计数按用户缓存在 Redis,用例间必须清
+        self.user = User.objects.create_user(phone="13900139002")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.user).access_token}")
+        self.url = "/api/v1/im/images"
+
+    def upload(self, name="a.png", content=PNG_1PX, content_type="image/png"):
+        """上传一张图片。
+
+        Args:
+            name: 文件名。
+            content: 文件字节内容。
+            content_type: MIME 类型。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post(
+            self.url, {"file": SimpleUploadedFile(name, content, content_type=content_type)},
+            format="multipart")
+
+    def test_upload_returns_urls_and_dimensions(self):
+        response = self.upload()
+        self.assertEqual(response.status_code, 201, response.data)
+        data = response.data
+        self.assertTrue(data["url"].startswith("http://cdn.test/media/chat/"))
+        self.assertIn("?e=", data["url"])
+        self.assertIn("&s=", data["url"])
+        self.assertTrue(urlsplit(data["thumb_url"]).path.endswith("_thumb.jpg"))
+        self.assertIn("&s=", data["thumb_url"])
+        self.assertEqual((data["width"], data["height"]), (1, 1))
+        self.assertEqual(data["size"], len(PNG_1PX))
+        image = ChatImage.objects.get()
+        self.assertEqual(image.owner_id, self.user.id)
+        self.assertTrue(image.file.storage.exists(image.file.name))
+        self.assertTrue(image.thumb.storage.exists(image.thumb.name))
+
+    def test_uploaded_url_verifies_with_auth_helper(self):
+        data = self.upload().data
+        parts = urlsplit(data["url"])
+        query = parse_qs(parts.query)
+        self.assertTrue(media_sign.verify(parts.path, query["e"][0], query["s"][0]))
+
+    def test_rejects_non_image(self):
+        response = self.upload(name="a.txt", content=b"not an image", content_type="text/plain")
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejects_oversized_file(self):
+        with override_settings(CHAT_IMAGE_MAX_BYTES=10):
+            response = self.upload()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("5MB", str(response.data))
+
+    def test_rejects_too_large_side(self):
+        with override_settings(CHAT_IMAGE_MAX_SIDE=0):
+            response = self.upload()
+        self.assertEqual(response.status_code, 400)
+
+    def test_throttled_after_rate(self):
+        # DRF 的 THROTTLE_RATES 是类属性,在 import 时就绑定了;测试只能替换这个属性
+        with patch.object(ChatImageThrottle, "THROTTLE_RATES", {"chat_image": "2/hour"}):
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 429)
+
+    def test_heavy_banned_user_is_forbidden(self):
+        profile = get_profile(self.user)          # 资料行是懒创建的,不能直接 user.profile
+        profile.status = ProfileStatus.BANNED_HEAVY
+        profile.save(update_fields=["status"])
+        self.assertEqual(self.upload().status_code, 403)
+
+    def test_exif_orientation_swaps_dimensions_and_reencodes(self):
+        content = _jpeg_with_orientation()
+        response = self.upload(name="rotated.jpg", content=content, content_type="image/jpeg")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual((response.data["width"], response.data["height"]), (20, 40))
+        self.assertTrue(urlsplit(response.data["url"]).path.endswith(".jpg"))
+
+
+class MediaSignTests(SimpleTestCase):
+    """聊天图片签名:共享向量、过期、篡改、路径白名单、未配置密钥时的放行。"""
+
+    def test_shared_vector_matches_imserver(self):
+        self.assertEqual(
+            media_sign.signature("/media/chat/2026/10/12-abc.jpg", 1761782400,
+                                 secret="test-media-secret"),
+            "2b46b854b31a88877e318e3d12cb743fe76fccb2977e2d7ced879d7b3547d419")
+
+    def test_expiry_is_bucket_aligned(self):
+        # 1761779999 落在 1761778800 这个整点桶里,加 24h
+        with override_settings(IM_MEDIA_SIGN_TTL=86400):
+            self.assertEqual(media_sign.expires_at(1761779999), 1761865200)
+
+    def test_sign_url_replaces_existing_query(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
+            signed = media_sign.sign_url("http://cdn.test/media/chat/a.jpg?e=1&s=old",
+                                         now=1761782400)
+        self.assertTrue(signed.startswith("http://cdn.test/media/chat/a.jpg?e="))
+        self.assertNotIn("s=old", signed)
+
+    def test_verify_accepts_valid_and_rejects_tampered(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
+            signed = media_sign.sign_url("/media/chat/a.jpg", now=1761782400)
+            query = parse_qs(urlsplit(signed).query)
+            self.assertTrue(media_sign.verify("/media/chat/a.jpg", query["e"][0],
+                                              query["s"][0], now=1761782400))
+            self.assertFalse(media_sign.verify("/media/chat/b.jpg", query["e"][0],
+                                               query["s"][0], now=1761782400))
+            self.assertFalse(media_sign.verify("/media/chat/a.jpg", query["e"][0],
+                                               "0" * 64, now=1761782400))
+
+    def test_verify_rejects_expired_and_foreign_path(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=60):
+            signed = media_sign.sign_url("/media/chat/a.jpg", now=1761782400)
+            query = parse_qs(urlsplit(signed).query)
+            self.assertFalse(media_sign.verify("/media/chat/a.jpg", query["e"][0],
+                                               query["s"][0], now=1761868800))
+            self.assertFalse(media_sign.verify("/media/photos/a.jpg", query["e"][0],
+                                               query["s"][0], now=1761782400))
+
+    def test_disabled_secret_passes_everything(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET=""):
+            self.assertEqual(media_sign.sign_url("/media/chat/a.jpg"), "/media/chat/a.jpg")
+            self.assertTrue(media_sign.verify("/media/chat/a.jpg", "0", "bad"))
+
+
+class ChatImageAuthTests(APITestCase):
+    """nginx 子请求验签:有效 204、缺头/过期/篡改 403、无需 JWT。"""
+
+    def setUp(self):
+        self.url = "/api/v1/im/images/auth"
+        self.media = "/media/chat/2026/10/12-abc.jpg"
+
+    def auth(self, original):
+        """带 ``X-Original-URI`` 调验签接口。
+
+        Args:
+            original: nginx 传入的原始 URI。
+
+        Returns:
+            DRF 响应对象。
+        """
+        return self.client.get(self.url, HTTP_X_ORIGINAL_URI=original)
+
+    def signed(self):
+        """生成一个当前有效的签名 URL。
+
+        Returns:
+            带 ``?e=&s=`` 的路径。
+        """
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
+            return media_sign.sign_url(self.media, now=int(time.time()))
+
+    def test_valid_signature_passes_without_jwt(self):
+        self.assertEqual(self.auth(self.signed()).status_code, 204)
+
+    def test_missing_header_is_forbidden(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], 403)
+
+    def test_expired_signature_is_forbidden(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=60):
+            stale = media_sign.sign_url(self.media, now=1)
+            self.assertEqual(self.auth(stale).status_code, 403)
+
+    def test_non_chat_path_is_forbidden(self):
+        with override_settings(IM_MEDIA_SIGN_SECRET="s"):
+            signed = media_sign.sign_url("/media/photos/a.jpg", now=int(time.time()))
+        self.assertEqual(self.auth(signed).status_code, 403)
+
+    def test_heavy_banned_user_can_still_view(self):
+        user = User.objects.create_user(phone="13900139009")
+        profile = get_profile(user)
+        profile.status = ProfileStatus.BANNED_HEAVY
+        profile.save(update_fields=["status"])
+        self.assertEqual(self.auth(self.signed()).status_code, 204)
+
+
+class ChatImageCleanupTests(TestCase):
+    """清理命令:保留期删文件并改状态、默认 dry-run、孤儿文件按 mtime、删除残留补删。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, CHAT_IMAGE_RETENTION_DAYS=30)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13900139003")
+
+    def make_image(self, name="a.jpg", days_old=0, status=ChatImageStatus.VISIBLE):
+        """造一张聊天图片并把 ``created_at`` 往前挪。
+
+        Args:
+            name: 原图文件名。
+            days_old: 创建时间往前挪几天。
+            status: 初始状态。
+
+        Returns:
+            刷新后的 ``ChatImage`` 实例。
+        """
+        image = ChatImage.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile(name, PNG_1PX, content_type="image/jpeg"),
+            thumb=SimpleUploadedFile(name.replace(".jpg", "_thumb.jpg"), PNG_1PX,
+                                     content_type="image/jpeg"),
+            width=1, height=1, bytes=len(PNG_1PX), status=status)
+        ChatImage.objects.filter(pk=image.pk).update(
+            created_at=timezone.now() - timedelta(days=days_old))
+        image.refresh_from_db()
+        return image
+
+    def run_cleanup(self, *args):
+        """跑一次清理命令并返回标准输出。
+
+        Args:
+            *args: 透传给命令的参数。
+
+        Returns:
+            命令的标准输出。
+        """
+        out = StringIO()
+        call_command("im_media_cleanup", *args, stdout=out)
+        return out.getvalue()
+
+    def test_retention_removes_files_and_marks_expired(self):
+        image = self.make_image(days_old=31)
+        names = (image.file.name, image.thumb.name)
+        self.run_cleanup("--apply")
+        image.refresh_from_db()
+        self.assertEqual(image.status, ChatImageStatus.EXPIRED)
+        self.assertIsNotNone(image.expired_at)
+        for name in names:
+            self.assertFalse(default_storage.exists(name))
+
+    def test_dry_run_keeps_files(self):
+        image = self.make_image(days_old=31)
+        output = self.run_cleanup()
+        image.refresh_from_db()
+        self.assertEqual(image.status, ChatImageStatus.VISIBLE)
+        self.assertTrue(default_storage.exists(image.file.name))
+        self.assertIn("dry-run", output)
+
+    def test_fresh_image_is_kept(self):
+        image = self.make_image(days_old=1)
+        self.run_cleanup("--apply")
+        image.refresh_from_db()
+        self.assertEqual(image.status, ChatImageStatus.VISIBLE)
+
+    def test_orphan_file_is_deleted_after_grace(self):
+        orphan_dir = Path(self.media_dir) / "chat" / "2026" / "10"
+        orphan_dir.mkdir(parents=True)
+        orphan = orphan_dir / "999-dead.jpg"
+        orphan.write_bytes(PNG_1PX)
+        old = time.time() - 48 * 3600
+        os.utime(orphan, (old, old))
+        self.run_cleanup("--apply")
+        self.assertFalse(orphan.exists())
+
+    def test_recent_orphan_is_kept(self):
+        orphan_dir = Path(self.media_dir) / "chat" / "2026" / "10"
+        orphan_dir.mkdir(parents=True)
+        orphan = orphan_dir / "999-live.jpg"
+        orphan.write_bytes(PNG_1PX)
+        self.run_cleanup("--apply")
+        self.assertTrue(orphan.exists())
+
+    def test_deleted_row_leftover_file_is_removed(self):
+        image = self.make_image(status=ChatImageStatus.DELETED)
+        self.run_cleanup("--apply")
+        self.assertFalse(default_storage.exists(image.file.name))
+
+    def test_zero_retention_skips_retention_pass(self):
+        image = self.make_image(days_old=365)
+        self.run_cleanup("--apply", "--retention-days", "0")
+        image.refresh_from_db()
+        self.assertEqual(image.status, ChatImageStatus.VISIBLE)
+
+
+class ChatImageStatsTests(TestCase):
+    """用量报表:打印各状态条数、字节数与磁盘文件数。"""
+
+    def test_reports_status_counts_and_disk(self):
+        media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media_dir, ignore_errors=True)
+        with self.settings(MEDIA_ROOT=media_dir):
+            user = User.objects.create_user(phone="13900139004")
+            ChatImage.objects.create(
+                owner=user,
+                file=SimpleUploadedFile("s.jpg", PNG_1PX, content_type="image/jpeg"),
+                thumb=SimpleUploadedFile("s_thumb.jpg", PNG_1PX, content_type="image/jpeg"),
+                width=1, height=1, bytes=len(PNG_1PX))
+            out = StringIO()
+            call_command("im_media_stats", stdout=out)
+        text = out.getvalue()
+        self.assertIn("visible=1", text)
+        self.assertIn("磁盘文件=2", text)
+
+
+

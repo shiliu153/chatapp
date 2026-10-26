@@ -1,4 +1,4 @@
-"""IM 接口:签发 userSig。
+"""IM 接口:签发 userSig 与上传聊天图片。
 
 设计要点:
     IM 账号的供给由本模块自己保证:首次调用同步建号,成功后在 Redis 置 30 天标记,
@@ -8,22 +8,41 @@
     踢旧会话必须发生在**签发新签名之前**,顺序不能反 —— 反了会把本机刚建立的会话
     一起踢掉,客户端收到 KickOffline 会误报「账号已在其他设备登录」(2026-09-12 手测回归)。
 
+    聊天图片上传是**同步落盘 + 同步生成缩略图**:这条路径没有任何第三方调用,
+    符合「响应路径禁止外部调用」纪律;文件名带随机 uuid,不可枚举。
+
 关联文档:
     - 接口契约:docs/api/im.md
 """
 
+import io
+import uuid
+from urllib.parse import parse_qs, urlsplit
+
 from django.conf import settings
 from django.core.cache import cache
-from rest_framework.decorators import api_view
+from django.core.files.base import ContentFile
+from django.utils import timezone
+from PIL import Image, ImageOps
+from rest_framework.decorators import (api_view, authentication_classes,
+                                      permission_classes, throttle_classes)
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from . import media_sign
 from .backend import use_self_im
 from .client import ensure_account, kick_user
+from .models import ChatImage
+from .serializers import ChatImageUploadSerializer
 from .signature import gen_user_sig
 from .tasks import kick_pending_key
+from .throttles import ChatImageThrottle
 from .token import mint_im_token
 
 IMPORTED_FLAG_TTL = 30 * 24 * 3600   # 30 天;Redis 清空后下次调用会幂等重建
+
+# 上传时的 MIME → 落盘后缀;EXIF 方向不为 1 时统一重编码成 JPEG
+SUFFIX_BY_CONTENT_TYPE = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 
 
 @api_view(["POST"])
@@ -74,3 +93,92 @@ def user_sig(request):
         "im_user_id": user.im_user_id,
         "expire": settings.IM_SIG_EXPIRE,
     })
+
+
+@api_view(["POST"])
+@throttle_classes([ChatImageThrottle])
+def upload_image(request):
+    """上传一张聊天图片(POST /api/v1/im/images)。
+
+    同步落盘 + 生成缩略图,不进 Celery:这条路径没有第三方调用,
+    符合「响应路径禁止外部调用」纪律。文件名带随机 uuid,不可枚举。
+
+    Args:
+        request: DRF 请求对象,multipart 字段为 ``file``。
+
+    Returns:
+        201 + ``{id, url, thumb_url, width, height, size}``;URL 用
+        ``settings.MEDIA_BASE_URL`` 拼绝对地址(与 IM 头像同步同一套)。
+    """
+    serializer = ChatImageUploadSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    upload = serializer.validated_data["file"]
+    raw = upload.read()
+    try:
+        image = Image.open(io.BytesIO(raw))
+        orientation = image.getexif().get(0x0112, 1)
+        display = ImageOps.exif_transpose(image)
+        width, height = display.size
+    except Exception:
+        return Response({"code": 400, "message": "请上传图片文件"}, status=400)
+
+    if max(width, height) > settings.CHAT_IMAGE_MAX_SIDE:
+        return Response({"code": 400, "message": "图片尺寸过大,请先压缩"}, status=400)
+
+    stem = f"{request.user.id}-{uuid.uuid4().hex}"
+    month = timezone.localtime().strftime("%Y/%m")
+    if orientation == 1:
+        data, suffix = raw, SUFFIX_BY_CONTENT_TYPE[upload.content_type]
+    else:
+        buffer = io.BytesIO()
+        display.convert("RGB").save(buffer, "JPEG", quality=85)
+        data, suffix = buffer.getvalue(), ".jpg"
+
+    chat_image = ChatImage(owner=request.user, width=width, height=height, bytes=len(data))
+    chat_image.file.save(f"chat/{month}/{stem}{suffix}", ContentFile(data), save=False)
+
+    thumb = display.copy()
+    thumb.thumbnail((settings.CHAT_IMAGE_THUMB_SIDE, settings.CHAT_IMAGE_THUMB_SIDE),
+                    Image.Resampling.LANCZOS)
+    thumb_buffer = io.BytesIO()
+    thumb.convert("RGB").save(thumb_buffer, "JPEG", quality=80)
+    chat_image.thumb.save(f"chat/{month}/{stem}_thumb.jpg",
+                          ContentFile(thumb_buffer.getvalue()), save=False)
+    chat_image.save()
+
+    base = settings.MEDIA_BASE_URL.rstrip("/")
+    return Response({
+        "id": chat_image.id,
+        "url": media_sign.sign_url(f"{base}{chat_image.file.url}"),
+        "thumb_url": media_sign.sign_url(f"{base}{chat_image.thumb.url}"),
+        "width": chat_image.width,
+        "height": chat_image.height,
+        "size": chat_image.bytes,
+    }, status=201)
+
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def image_auth(request):
+    """nginx ``auth_request`` 子请求:校验聊天图片签名(GET /api/v1/im/images/auth)。
+
+    这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而图片本身
+    已经是「谁拿到链接谁能看」的语义,靠签名与有效期兜底。
+
+    Args:
+        request: DRF 请求对象,nginx 通过 ``X-Original-URI`` 传入原始 URI
+            (含 ``?e=&s=``)。
+
+    Returns:
+        通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403。
+    """
+    original = request.headers.get("X-Original-URI", "")
+    parts = urlsplit(original)
+    query = parse_qs(parts.query)
+    expires = (query.get("e") or [""])[0]
+    signature_value = (query.get("s") or [""])[0]
+    if not original or not media_sign.verify(parts.path, expires, signature_value):
+        return Response({"code": 403, "message": "图片链接已失效"}, status=403)
+    return Response(status=204)
+

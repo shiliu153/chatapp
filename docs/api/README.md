@@ -22,7 +22,7 @@
 
 ## 接口一览
 
-共 **39** 个接口(按「方法 + 路径」计)。
+共 **42** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -31,6 +31,7 @@
 | POST | `/api/v1/auth/token/refresh` | 刷新访问令牌 | [auth](auth.md) |
 | GET | `/api/v1/users/me` | 获取我的资料 | [users](users.md) |
 | PATCH | `/api/v1/users/me` | 修改我的资料 | [users](users.md) |
+| DELETE | `/api/v1/users/me` | 注销账号(手机号二次确认,立即硬删除) | [users](users.md) |
 | GET | `/api/v1/users/tags` | 获取标签池 | [users](users.md) |
 | POST | `/api/v1/users/me/photos` | 上传照片 | [users](users.md) |
 | DELETE | `/api/v1/users/me/photos/{photo_id}` | 删除照片 | [users](users.md) |
@@ -45,6 +46,8 @@
 | GET | `/api/v1/matches` | 配对列表(分页) | [discovery](discovery.md) |
 | DELETE | `/api/v1/matches/{user_id}` | 解除配对 | [discovery](discovery.md) |
 | POST | `/api/v1/im/user_sig` | 获取 IM userSig | [im](im.md) |
+| POST | `/api/v1/im/images` | 上传聊天图片(返回签名 URL) | [im](im.md) |
+| GET | `/api/v1/im/images/auth` | 聊天图片验签(nginx 内部子请求) | [im](im.md) |
 | GET | `/api/v1/app/config` | 获取应用最低版本配置 | [app](app.md) |
 | POST | `/api/v1/reports` | 举报用户 | [moderation](moderation.md) |
 | POST | `/api/v1/feedback` | 提交意见反馈 | [feedback](feedback.md) |

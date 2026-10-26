@@ -32,6 +32,11 @@ struct Config {
   double auth_burst = 60.0;
   std::size_t max_frame = 8192;
   std::size_t text_max = 2000;
+  // 聊天图片 URL 前缀(例:https://<host>/media/chat/);必填,缺失则启动失败
+  std::string media_prefix;
+  // 聊天图片签名密钥与有效期;密钥为空 = 不签名(仅开发环境)
+  std::string media_sign_secret;
+  int media_sign_ttl = 86400;
 
   static Config from_env();
   static Config from_map(const std::map<std::string, std::string>& env);

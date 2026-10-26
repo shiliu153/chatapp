@@ -12,16 +12,22 @@
       解封重算状态并清空原因;
     - 封禁日志:展示历史、按动作过滤;
     - 广场治理:动态列表与删除、非运营 403;
-    - 动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知。
+    - 动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知;
+    - 聊天图片抽审:列表可见、删除置 deleted 并删文件、举报详情带最近图片、非运营 403。
 """
 
+import os
+import shutil
+import tempfile
 from unittest.mock import patch
 
+from django.core.files.base import ContentFile
 from django.test import TestCase
 
 from accounts.models import User
 from feed.models import Post, PostLike, PostReport
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
+from im.models import ChatImage, ChatImageStatus
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -507,3 +513,54 @@ class FeedbackOpsTests(TestCase):
     def test_non_staff_forbidden(self):
         self.client.force_login(User.objects.create_user(phone="13900139000"))
         self.assertEqual(self.client.get("/ops/feedback/").status_code, 403)
+
+class ChatImageOpsTests(TestCase):
+    """聊天图片抽审:列表可见、删除置 deleted 且删文件、举报详情带最近图片、非运营 403。"""
+
+    PNG_1PX = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+               b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+               b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+        self.user = User.objects.create_user(phone="13900139003")
+        self.image = ChatImage(owner=self.user, width=1, height=1, bytes=len(self.PNG_1PX))
+        self.image.file.save("chat/c.png", ContentFile(self.PNG_1PX), save=False)
+        self.image.thumb.save("chat/c_thumb.png", ContentFile(self.PNG_1PX), save=False)
+        self.image.save()
+
+    def test_lists_chat_images(self):
+        response = self.client.get("/ops/chat-images/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "聊天图片")
+        self.assertContains(response, self.image.thumb.url)
+
+    def test_delete_marks_status_and_removes_files(self):
+        paths = [self.image.file.path, self.image.thumb.path]
+        response = self.client.post(f"/ops/chat-images/{self.image.id}/delete")
+        self.assertEqual(response.status_code, 200)
+        self.image.refresh_from_db()
+        self.assertEqual(self.image.status, ChatImageStatus.DELETED)
+        self.assertEqual(self.image.deleted_by_id, self.staff.id)
+        self.assertIsNotNone(self.image.deleted_at)
+        for path in paths:
+            self.assertFalse(os.path.exists(path), path)
+        self.assertNotContains(self.client.get("/ops/chat-images/"), self.image.thumb.url)
+
+    def test_report_detail_shows_recent_chat_images(self):
+        report = Report.objects.create(reporter=self.staff, target=self.user,
+                                       type=ReportType.PORN)
+        response = self.client.get(f"/ops/reports/{report.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "最近聊天图片")
+        self.assertContains(response, self.image.thumb.url)
+
+    def test_non_staff_forbidden(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/ops/chat-images/").status_code, 403)

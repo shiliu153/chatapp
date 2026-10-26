@@ -25,7 +25,8 @@ TEST(ConfigTest, AppliesDefaults) {
   std::map<std::string, std::string> env{
       {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
       {"IM_JWT_SECRET", "jwt"},
-      {"IM_INTERNAL_SECRET", "internal"}};
+      {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MEDIA_PREFIX", "http://cdn/media/chat/"}};
   const auto cfg = Config::from_map(env);
   EXPECT_EQ(cfg.listen_ws, "127.0.0.1:9100");
   EXPECT_EQ(cfg.listen_http, "127.0.0.1:9101");
@@ -42,6 +43,7 @@ TEST(ConfigTest, ParsesConnectionLimits) {
       {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
       {"IM_JWT_SECRET", "jwt"},
       {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MEDIA_PREFIX", "http://cdn/media/chat/"},
       {"IM_MAX_CONN_PER_IP", "1000"},
       {"IM_AUTH_RATE", "500"},
       {"IM_AUTH_BURST", "1000"}};
@@ -50,3 +52,21 @@ TEST(ConfigTest, ParsesConnectionLimits) {
   EXPECT_DOUBLE_EQ(cfg.auth_rate_per_sec, 500.0);
   EXPECT_DOUBLE_EQ(cfg.auth_burst, 1000.0);
 }
+
+TEST(ConfigTest, RequiresMediaPrefix) {
+  std::map<std::string, std::string> env{
+      {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
+      {"IM_JWT_SECRET", "jwt"},
+      {"IM_INTERNAL_SECRET", "internal"}};
+  EXPECT_THROW(Config::from_map(env), std::runtime_error);
+}
+
+TEST(ConfigTest, ReadsMediaPrefix) {
+  std::map<std::string, std::string> env{
+      {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
+      {"IM_JWT_SECRET", "jwt"},
+      {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MEDIA_PREFIX", "http://127.0.0.1:8000/media/chat/"}};
+  EXPECT_EQ(Config::from_map(env).media_prefix, "http://127.0.0.1:8000/media/chat/");
+}
+

@@ -17,12 +17,16 @@ export function messageFromJson(
   const self = isSelf(from, me)
   const kind = String(json.kind ?? 'text')
   const custom = (json.custom ?? {}) as Record<string, unknown>
+  const image = (json.image ?? {}) as Record<string, unknown>
   const customType = String(custom.type ?? '')
   let messageKind = ChatMessageKind.text
   if (kind === 'custom') {
     messageKind = customType === 'match_notice'
       ? ChatMessageKind.matchNotice
       : ChatMessageKind.banNotice
+  }
+  if (kind === 'image') {
+    messageKind = ChatMessageKind.image
   }
   const profile = (json.from_profile ?? {}) as Record<string, unknown>
   return {
@@ -36,8 +40,8 @@ export function messageFromJson(
     senderAvatar: (profile.avatar as string | undefined) ?? null,
     isPending: false,
     isFailed: false,
-    imageUrl: null,
-    imageLargeUrl: null,
+    imageUrl: (image.thumb_url as string | undefined) ?? null,
+    imageLargeUrl: (image.url as string | undefined) ?? null,
     isRevoked: json.revoked === true,
   }
 }

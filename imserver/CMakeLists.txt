@@ -30,6 +30,7 @@ add_library(imcore STATIC
   src/store/user_repo.cpp
   src/util/hmac.cpp
   src/util/log.cpp
+  src/util/media_sign.cpp
   src/util/ratelimit.cpp
   src/util/uuid.cpp
 )

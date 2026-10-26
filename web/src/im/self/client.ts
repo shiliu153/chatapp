@@ -7,21 +7,27 @@ import {
   type ImConversation,
   type ImEvent,
 } from '../types'
+import { type UploadedImage, uploadChatImage } from './image'
 import { conversationFromJson, messageFromJson } from './map'
 import { BrowserWebSocketTransport, type SelfTransport } from './transport'
 
 interface PendingSend {
   peerId: string
   text: string
+  /** 图片消息才有:上传结果,ack 回来时用它还原 ChatMessage */
+  image?: UploadedImage
   resolve: (message: ChatMessage) => void
   reject: (error: Error) => void
 }
 
 export class SelfImClient implements ImClient {
-  constructor(private readonly transportFactory: () => SelfTransport =
-      () => new BrowserWebSocketTransport()) {}
+  constructor(
+    private readonly transportFactory: () => SelfTransport =
+      () => new BrowserWebSocketTransport(),
+    private readonly uploadImage: (file: File) => Promise<UploadedImage> = uploadChatImage,
+  ) {}
 
-  readonly capabilities: ImCapabilities = { image: false }
+  readonly capabilities: ImCapabilities = { image: true }
 
   private bootstrap?: ImBootstrap
   private transport?: SelfTransport
@@ -101,19 +107,20 @@ export class SelfImClient implements ImClient {
       const pending = this.pending.get(id)
       if (!pending) return
       this.pending.delete(id)
+      const image = pending.image
       pending.resolve({
         msgId: String(data.msg_id ?? ''),
         peerId: pending.peerId,
         isSelf: true,
         timestamp: Number(data.ts ?? Date.now()),
-        kind: ChatMessageKind.text,
+        kind: image ? ChatMessageKind.image : ChatMessageKind.text,
         text: pending.text,
         senderName: '',
         senderAvatar: null,
         isPending: false,
         isFailed: false,
-        imageUrl: null,
-        imageLargeUrl: null,
+        imageUrl: image ? image.thumb_url : null,
+        imageLargeUrl: image ? image.url : null,
         isRevoked: false,
       })
       return
@@ -172,9 +179,41 @@ export class SelfImClient implements ImClient {
   }
 
   async sendImage(peerId: string, file: File): Promise<ChatMessage> {
-    void peerId
-    void file
-    throw new Error('当前聊天服务暂不支持图片')
+    // 先上传到 Django 拿 URL,再发 WS 帧:帧里要带服务端校验过的地址
+    const image = await this.uploadImage(file)
+    const id = `local-${Date.now()}${Math.floor(Math.random() * 1000)}`
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const promise = new Promise<ChatMessage>((resolve, reject) => {
+        this.pending.set(id, { peerId, text: '', image, resolve, reject })
+      })
+      this.transport?.send(JSON.stringify({
+        v: 1,
+        type: 'send',
+        id,
+        data: {
+          client_msg_id: id,
+          to: peerId,
+          kind: 'image',
+          image: {
+            url: image.url,
+            thumb_url: image.thumb_url,
+            width: image.width,
+            height: image.height,
+            size: image.size,
+          },
+        },
+      }))
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<ChatMessage>((_, reject) =>
+            setTimeout(() => reject(new Error('发送超时')), 10000)),
+        ])
+      } catch {
+        this.pending.delete(id)
+      }
+    }
+    throw new Error('发送失败,请重试')
   }
 
   async deleteMessage(msgId: string): Promise<void> {

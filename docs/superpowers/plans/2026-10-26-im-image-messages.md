@@ -56,7 +56,7 @@
 **Interfaces:**
 - Produces: `ChatImage(owner, file, thumb, width, height, bytes, status, deleted_by, deleted_at, created_at)`;`ChatImageStatus.VISIBLE/DELETED`;`ChatImage.objects`。
 
-- [ ] **Step 1: 写失败的模型测试**
+- [x] **Step 1: 写失败的模型测试**
 
 在 `chatapp/im/tests.py` 顶部导入区补 `import tempfile`、`import shutil`、`from django.core.files.uploadedfile import SimpleUploadedFile`,并在文件末尾追加:
 
@@ -102,12 +102,12 @@ PNG_1PX = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01
 
 同时补导入:`from .models import ChatImage, ChatImageStatus`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test im.tests.ChatImageModelTests -v 2`
 Expected: FAIL —— `ImportError: cannot import name 'ChatImage'`。
 
-- [ ] **Step 3: 写模型**
+- [x] **Step 3: 写模型**
 
 把 `chatapp/im/models.py` 整体替换为:
 
@@ -168,7 +168,7 @@ class ChatImage(models.Model):
         return f"chat_image#{self.pk}(owner={self.owner_id})"
 ```
 
-- [ ] **Step 4: 生成迁移并跑测试**
+- [x] **Step 4: 生成迁移并跑测试**
 
 Run:
 ```
@@ -177,7 +177,7 @@ cd chatapp && python manage.py test im.tests.ChatImageModelTests -v 2
 ```
 Expected: `0001_initial.py` 生成;测试 2 个全 PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/im/models.py chatapp/im/migrations/0001_initial.py chatapp/im/tests.py
@@ -198,7 +198,7 @@ git commit -m "feat(im): 聊天图片元数据表 ChatImage"
 - Produces: `POST /api/v1/im/images` → `{id,url,thumb_url,width,height,size}`;`ChatImageUploadSerializer`;`ChatImageThrottle`。
 - 依赖 Task 1 的 `ChatImage`。
 
-- [ ] **Step 1: 写失败的接口测试**
+- [x] **Step 1: 写失败的接口测试**
 
 在 `chatapp/im/tests.py` 追加:
 
@@ -310,12 +310,12 @@ def _jpeg_with_orientation(size=(40, 20), orientation=6):
     return buffer.getvalue()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test im.tests.ChatImageUploadTests -v 2`
 Expected: FAIL —— 404(路由不存在)。
 
-- [ ] **Step 3: 写序列化器、限流、视图、路由与配置**
+- [x] **Step 3: 写序列化器、限流、视图、路由与配置**
 
 新建 `chatapp/im/serializers.py`:
 
@@ -473,7 +473,7 @@ CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")
 > `POST` `/api/v1/im/images` · 上传一张聊天图片(自建 IM 发图前置步骤)
 ```
 
-- [ ] **Step 4: 跑测试**
+- [x] **Step 4: 跑测试**
 
 Run:
 ```
@@ -482,7 +482,7 @@ cd chatapp && python manage.py test config.tests.ApiDocsCoverageTests -v 2
 ```
 Expected: 全 PASS;文档门禁绿。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/im/serializers.py chatapp/im/throttles.py chatapp/im/views.py chatapp/im/urls.py chatapp/config/settings.py chatapp/im/tests.py docs/api/im.md
@@ -501,7 +501,7 @@ git commit -m "feat(im): 聊天图片上传接口(缩略图/限流/EXIF 校正)"
 - Consumes: Task 1 的 `ChatImage`。
 - Produces: `delete_account()` 收集并删除 `ChatImage.file` / `.thumb` 两个文件。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `chatapp/users/tests.py` 的账号注销用例类里追加(类内已有 `self.media_dir` 与登录设施):
 
@@ -524,12 +524,12 @@ def test_deletes_chat_image_files_on_disk(self):
 
 (若该用例类没有 `os` / `SimpleUploadedFile` / `PNG_1PX`,按文件顶部现有导入补齐。)
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test users.tests.AccountDeletionTests -v 2`
 Expected: FAIL —— 文件仍在磁盘上。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/users/services.py::delete_account` 里,`file_names` 收集段改为:
 
@@ -545,12 +545,12 @@ Expected: FAIL —— 文件仍在磁盘上。
 
 其余逻辑不动(仍在 `on_commit` 里逐个 `default_storage.delete`)。
 
-- [ ] **Step 4: 跑测试**
+- [x] **Step 4: 跑测试**
 
 Run: `cd chatapp && python manage.py test users.tests.AccountDeletionTests -v 2`
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/users/services.py chatapp/users/tests.py
@@ -569,7 +569,7 @@ git commit -m "feat(users): 注销账号时清理聊天图片文件"
 - Produces: `Config::media_prefix`;`SendRequest{from,to,client_msg_id,text,kind,image,custom}`;`MessageService::send` 支持 kind=3;`build_message_frame(result, request)`。
 - 后续 Task 5 依赖 `request.kind` / `request.image` / `request.custom`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `imserver/tests/config_test.cpp` 里给两个「只有必填键」的用例补上 `IM_MEDIA_PREFIX`,并新增断言:
 
@@ -663,12 +663,12 @@ TEST(MessageServiceTest, RejectsImageWithBadDimensions) {
       IM_MEDIA_PREFIX: http://cdn/media/chat/
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test.sh`
 Expected: FAIL —— `Config` 无 `media_prefix`、`SendRequest` 无 `kind`(编译失败)。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `imserver/src/config.h` 的 `Config` 里加:
 
@@ -854,7 +854,7 @@ IM_MEDIA_PREFIX=https://<your-host>/media/chat/
 export IM_MEDIA_PREFIX="${IM_MEDIA_PREFIX:-http://cdn/media/chat/}"
 ```
 
-- [ ] **Step 4: 跑测试**
+- [x] **Step 4: 跑测试**
 
 Run:
 ```
@@ -863,7 +863,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 ```
 Expected: 两个脚本全 PASS(含新增的 3 个 image 用例与 2 个 config 用例)。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add imserver/src imserver/tests imserver/deploy/imserver.env.example imserver/docker-compose.test.yml imserver/scripts
@@ -882,7 +882,7 @@ git commit -m "feat(imserver): 图片消息 kind=3 + IM_MEDIA_PREFIX 前缀校�
 - Consumes: Task 4 的 `SendRequest.kind/custom`、`kind_name()`。
 - Produces: `GET /im/api/messages`、`GET /im/api/conversations` 的 `kind:"image"` 载荷;`/internal/send` 的 custom 以 `kind=2` 落库。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `imserver/tests/message_service_test.cpp` 追加:
 
@@ -933,7 +933,7 @@ TEST(MessageServiceTest, StoresCustomAsKindTwo) {
     assert any(item["kind"] == "image" for item in history)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run:
 ```
@@ -942,7 +942,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 ```
 Expected: 前者 FAIL(`kind` 仍是 1);后者 FAIL(`kind` 断言不成立,推送里没有 image)。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `imserver/src/net/http_api.cpp::message_json` 的分支替换为:
 
@@ -993,7 +993,7 @@ Expected: 前者 FAIL(`kind` 仍是 1);后者 FAIL(`kind` 断言不成立,推送
     }
 ```
 
-- [ ] **Step 4: 跑测试**
+- [x] **Step 4: 跑测试**
 
 Run:
 ```
@@ -1002,7 +1002,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 ```
 Expected: 全 PASS(端到端含 image 推送与历史)。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add imserver/src/net/http_api.cpp imserver/tests/message_service_test.cpp tools/im_e2e.py
@@ -1022,7 +1022,7 @@ git commit -m "feat(imserver): 历史与会话返回 image,灰条按 kind=2 落�
 - Produces: `ChatImageUpload{id,url,thumbUrl,width,height,size}`、`SelfImageUploader` 抽象、`ApiImageUploader`;`SelfImClient({transportFactory, httpClient, imageUploader})`。
 - Consumes: Task 2 的 `POST /api/v1/im/images`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `app/test/im/self_im_client_test.dart` 追加(文件顶部补 `import 'package:chatapp_app/im/self_image_uploader.dart';`):
 
@@ -1136,12 +1136,12 @@ class FakeUploader implements SelfImageUploader {
   });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/im/self_im_client_test.dart`
 Expected: FAIL —— `SelfImageUploader` 未定义、`sendImage` 抛 42202。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 新建 `app/lib/im/self_image_uploader.dart`:
 
@@ -1304,7 +1304,7 @@ final imClientProvider = Provider<ImClient>(
     (ref) => RoutingImClient(imageUploader: ApiImageUploader(ref.watch(apiClientProvider))));
 ```
 
-- [ ] **Step 4: 跑测试与静态检查**
+- [x] **Step 4: 跑测试与静态检查**
 
 Run:
 ```
@@ -1313,7 +1313,7 @@ cd app && ../flutter/bin/flutter.bat analyze
 ```
 Expected: 4 个新用例 PASS;analyze 零告警。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/im app/test/im/self_im_client_test.dart
@@ -1332,7 +1332,7 @@ git commit -m "feat(app): 自建 IM 图片上传与发送(sendImage)"
 - Consumes: Task 6 的 `sendImage`。
 - Produces: `pickChatImageFromGallery()`(长边 1920 / q80)。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `app/test/features/chat/` 下新建 `chat_image_test.dart`:
 
@@ -1351,12 +1351,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_image_test.dart`
 Expected: FAIL —— `chatImageMaxSide` 未定义。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `app/lib/core/image_pick.dart` 追加:
 
@@ -1376,7 +1376,7 @@ Future<XFile?> pickChatImageFromGallery() => ImagePicker().pickImage(
 
 `app/lib/features/chat/chat_page.dart` 的构造默认值 `this.pickImage = pickImageFromGallery` 改为 `this.pickImage = pickChatImageFromGallery`。
 
-- [ ] **Step 4: 跑测试与静态检查**
+- [x] **Step 4: 跑测试与静态检查**
 
 Run:
 ```
@@ -1385,7 +1385,7 @@ cd app && ../flutter/bin/flutter.bat analyze
 ```
 Expected: 全 PASS,analyze 零告警。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/core/image_pick.dart app/lib/features/chat/chat_page.dart app/test/features/chat/chat_image_test.dart
@@ -1405,7 +1405,7 @@ git commit -m "feat(app): 聊天选图使用 1920/80 压缩参数"
 - Produces: `compressImage(file, maxSide?, quality?)`、`uploadChatImage(file)`、`SelfImClient({uploadImage?})`。
 - Consumes: Task 2 的上传接口。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 新建 `web/tests/unit/im-image.spec.ts`:
 
@@ -1479,12 +1479,12 @@ describe('compressImage', () => {
   })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- im-image im-self`
 Expected: FAIL —— `@/im/self/image` 不存在、`capabilities.image` 仍是 false。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 新建 `web/src/im/self/image.ts`:
 
@@ -1623,7 +1623,7 @@ export async function uploadChatImage(file: File): Promise<UploadedImage> {
   }
 ```
 
-- [ ] **Step 4: 跑测试与检查**
+- [x] **Step 4: 跑测试与检查**
 
 Run:
 ```
@@ -1632,7 +1632,7 @@ cd web && npm run type-check && npm run lint
 ```
 Expected: 新用例 PASS;type-check / lint 零错误。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/im/self web/tests/unit/im-image.spec.ts web/tests/unit/im-self.spec.ts
@@ -1652,7 +1652,7 @@ git commit -m "feat(web): 自建 IM 图片压缩、上传与发送"
 - Consumes: Task 1 的 `ChatImage`。
 - Produces: `GET /ops/chat-images/`、`POST /ops/chat-images/<id>/delete`;举报详情页上下文新增 `chat_images`。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `chatapp/ops/tests.py` 追加:
 
@@ -1700,12 +1700,12 @@ class ChatImageOpsTests(TestCase):
 
 (`ReportType.PORN` 是现有取值;`tempfile`/`shutil`/`os`/`SimpleUploadedFile`/`ChatImage`/`ChatImageStatus`/`PNG_1PX` 按需补导入。)
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test ops.tests.ChatImageOpsTests -v 2`
 Expected: FAIL —— 404(路由不存在)。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `chatapp/ops/views.py` 追加(导入 `ChatImage, ChatImageStatus`、`default_storage`、`timezone`、`timedelta`):
 
@@ -1836,12 +1836,12 @@ def chat_image_delete(request, image_id):
 </div>
 ```
 
-- [ ] **Step 4: 跑测试**
+- [x] **Step 4: 跑测试**
 
 Run: `cd chatapp && python manage.py test ops -v 2`
 Expected: 全 PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add chatapp/ops
@@ -1858,7 +1858,7 @@ git commit -m "feat(ops): 聊天图片抽审列表与删除"
 **Interfaces:**
 - 无新代码;把本计划交付的能力写进文档,并跑四端门禁。
 
-- [ ] **Step 1: 补接口与协议文档**
+- [x] **Step 1: 补接口与协议文档**
 
 `docs/api/im.md` 在 `POST /im/user_sig` 之后新增一节(含请求/响应/错误码):
 
@@ -1894,7 +1894,7 @@ git commit -m "feat(ops): 聊天图片抽审列表与删除"
 
 `docs/ops/imserver.md` 的配置表加 `IM_MEDIA_PREFIX`(必填,示例值,与 Django 对齐的要求)。
 
-- [ ] **Step 2: 勾掉核对单并更新项目文档**
+- [x] **Step 2: 勾掉核对单并更新项目文档**
 
 `docs/superpowers/plans/2026-10-20-self-hosted-im-rollout.md`:
 
@@ -1908,7 +1908,7 @@ git commit -m "feat(ops): 聊天图片抽审列表与删除"
 - 「后端接口」表补 `POST /im/images` 一行;
 - 「自建 IM」纪律条目补一句 `IM_MEDIA_PREFIX` 必须与 Django 媒体前缀一致。
 
-- [ ] **Step 3: 跑四端门禁**
+- [x] **Step 3: 跑四端门禁**
 
 Run:
 ```
@@ -1920,7 +1920,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 ```
 Expected: 全绿(后端测试需 Redis 容器在跑:`docker compose -f chatapp/docker-compose.dev.yml up -d`)。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add docs CLAUDE.md

@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/im/im_bootstrap.dart';
+import 'package:chatapp_app/im/im_client.dart';
+import 'package:chatapp_app/im/self_image_uploader.dart';
 import 'package:chatapp_app/im/self_im_client.dart';
 import 'package:chatapp_app/im/self_transport.dart';
 
@@ -90,7 +92,7 @@ void main() {
 
     transport.emit('{"v":1,"type":"auth_ok","data":{"uid":9}}');
     await login;
-    expect(client.capabilities.image, isFalse);
+    expect(client.capabilities.image, isTrue);
   });
 
   test('sendText completes on ack', () async {
@@ -132,4 +134,105 @@ void main() {
     expect(items.single.text, 'a');
     expect(items.single.isSelf, isFalse);
   });
+
+  test('sendImage uploads then sends an image frame and resolves on ack', () async {
+    final transport = FakeTransport();
+    final uploader = FakeUploader();
+    final client = SelfImClient(
+        transportFactory: () => transport, imageUploader: uploader);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', userSig: 'tok');
+    await pumpEventQueue();
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
+    }));
+    await login;
+
+    final pending = client.sendImage(peerId: 'u2', imagePath: '/tmp/a.jpg');
+    await pumpEventQueue();
+    expect(uploader.uploaded, ['/tmp/a.jpg']);
+    final frame = jsonDecode(transport.sent.last) as Map<String, dynamic>;
+    expect(frame['type'], 'send');
+    expect(frame['data']['kind'], 'image');
+    expect(frame['data']['image']['thumb_url'], 'http://cdn/media/chat/a_thumb.jpg');
+
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'ack', 'id': frame['id'],
+      'data': {'msg_id': '42', 'seq': 1, 'ts': 1700000000000},
+    }));
+    final sent = await pending;
+    expect(sent.kind, ChatMessageKind.image);
+    expect(sent.imageUrl, 'http://cdn/media/chat/a_thumb.jpg');
+    expect(sent.imageLargeUrl, 'http://cdn/media/chat/a.jpg');
+  });
+
+  test('sendImage surfaces upload failure as ImException', () async {
+    final transport = FakeTransport();
+    final client = SelfImClient(
+        transportFactory: () => transport,
+        imageUploader: FakeUploader(failure: const ImException(400, '图片不能超过 5MB')));
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', userSig: 'tok');
+    await pumpEventQueue();
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
+    }));
+    await login;
+
+    await expectLater(
+      client.sendImage(peerId: 'u2', imagePath: '/tmp/a.jpg'),
+      throwsA(isA<ImException>()),
+    );
+    expect(transport.sent.where((raw) => raw.contains('"kind":"image"')), isEmpty);
+  });
+
+  test('parses incoming image message', () async {
+    final transport = FakeTransport();
+    final client = SelfImClient(transportFactory: () => transport);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', userSig: 'tok');
+    await pumpEventQueue();
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
+    }));
+    await login;
+
+    final events = <ImEvent>[];
+    client.events.listen(events.add);
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'message',
+      'data': {
+        'msg_id': '7', 'seq': 2, 'from': 'u2', 'to': 'u9', 'kind': 'image',
+        'ts': 1700000000000, 'revoked': false,
+        'image': {'url': 'http://cdn/media/chat/b.jpg',
+                  'thumb_url': 'http://cdn/media/chat/b_thumb.jpg',
+                  'width': 10, 'height': 20, 'size': 100},
+      },
+    }));
+    await pumpEventQueue();
+    final message = (events.first as ImNewMessage).message;
+    expect(message.kind, ChatMessageKind.image);
+    expect(message.imageUrl, 'http://cdn/media/chat/b_thumb.jpg');
+    expect(message.imageLargeUrl, 'http://cdn/media/chat/b.jpg');
+  });
+}
+
+class FakeUploader implements SelfImageUploader {
+  FakeUploader({this.failure});
+  final Object? failure;
+  final uploaded = <String>[];
+
+  @override
+  Future<ChatImageUpload> upload(String localPath) async {
+    uploaded.add(localPath);
+    if (failure != null) throw failure!;
+    return const ChatImageUpload(
+      id: 1,
+      url: 'http://cdn/media/chat/a.jpg',
+      thumbUrl: 'http://cdn/media/chat/a_thumb.jpg',
+      width: 1080,
+      height: 1440,
+      size: 345678,
+    );
+  }
 }

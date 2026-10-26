@@ -4,17 +4,23 @@
 #include <variant>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "store/blacklist_repo.h"
 #include "store/conversation_repo.h"
 #include "store/message_repo.h"
 #include "store/mysql_pool.h"
 #include "store/user_repo.h"
+#include "util/media_sign.h"
 
 struct SendRequest {
   uint64_t from = 0;
   uint64_t to = 0;
   std::string client_msg_id;
   std::string text;
+  int kind = 1;             // 1=text 2=custom 3=image
+  nlohmann::json image;     // kind=3 的载荷
+  nlohmann::json custom;    // kind=2 的载荷
 };
 
 struct SendResult {
@@ -29,7 +35,8 @@ class MessageService {
  public:
   MessageService(MysqlPool& pool, UserRepo& users, ConversationRepo& conversations,
                  MessageRepo& messages, BlacklistRepo& blacklist,
-                 std::size_t text_max = 2000);
+                 std::size_t text_max = 2000, std::string media_prefix = "",
+                 std::string media_sign_secret = "", int media_sign_ttl = 86400);
 
   std::variant<SendResult, int> send(const SendRequest& request);
   std::vector<ConversationView> list_conversations(uint64_t uid, int limit);
@@ -49,6 +56,7 @@ class MessageService {
   ConversationRepo& conversations() { return conversations_; }
   MessageRepo& messages() { return messages_; }
   BlacklistRepo& blacklist() { return blacklist_; }
+  const MediaSigner& signer() const { return signer_; }
 
  private:
   MysqlPool& pool_;
@@ -57,5 +65,7 @@ class MessageService {
   MessageRepo& messages_;
   BlacklistRepo& blacklist_;
   std::size_t text_max_;
+  std::string media_prefix_;
+  MediaSigner signer_;
   int slow_send_ms_ = 0;
 };

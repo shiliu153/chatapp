@@ -78,7 +78,7 @@ std::string peer_id(uint64_t uid) {
   return uid == 0 ? "system_notice" : "u" + std::to_string(uid);
 }
 
-nlohmann::json message_json(const MessageRow& row, UserRepo& users) {
+nlohmann::json message_json(const MessageRow& row, UserRepo& users, const MediaSigner& signer) {
   nlohmann::json data = {{"msg_id", std::to_string(row.msg_id)},
                          {"seq", row.seq},
                          {"from", peer_id(row.from_id)},
@@ -89,12 +89,16 @@ nlohmann::json message_json(const MessageRow& row, UserRepo& users) {
     data["kind"] = "text";
   } else {
     const auto body = nlohmann::json::parse(row.body);
-    if (row.kind == 1) {
-      data["kind"] = "text";
-      data["text"] = body.value("text", "");
-    } else {
+    if (row.kind == 3) {
+      data["kind"] = "image";
+      data["image"] = body.value("image", nlohmann::json::object());
+      signer.sign_image(data["image"]);
+    } else if (row.kind == 2) {
       data["kind"] = "custom";
       data["custom"] = body;
+    } else {
+      data["kind"] = "text";
+      data["text"] = body.value("text", "");
     }
   }
   if (auto profile = users.get(row.from_id)) {
@@ -304,18 +308,16 @@ HttpApi::response_type HttpApi::internal_route(
       request.to = body.at("to").get<uint64_t>();
       request.client_msg_id = "sys-" + random_uuid();
       const auto kind = body.value("kind", std::string("text"));
-      nlohmann::json custom = nlohmann::json::object();
       if (kind == "text") {
+        request.kind = 1;
         request.text = body.value("text", std::string());
       } else {
-        custom = body.at("custom");
-        request.text = custom.value("desc", std::string());
+        request.kind = 2;
+        request.custom = body.at("custom");
       }
       const auto result = messages_.send(request);
       if (const auto* ok = std::get_if<SendResult>(&result)) {
-        registry_.send_to(request.to,
-                          build_message_frame(*ok, request.from, request.to, kind,
-                                              request.text, custom));
+        registry_.send_to(request.to, build_message_frame(*ok, request, messages_.signer()));
         return json_response(req, http::status::ok,
                              {{"ok", true},
                               {"msg_id", std::to_string(ok->msg_id)},
@@ -394,7 +396,7 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
                              {"last_seq", view.last_seq},
                              {"updated_at", view.updated_at}};
       if (view.has_last) {
-        item["last_message"] = message_json(view.last, messages_.users());
+        item["last_message"] = message_json(view.last, messages_.users(), messages_.signer());
       }
       items.push_back(std::move(item));
     }
@@ -419,7 +421,7 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
   nlohmann::json items = nlohmann::json::array();
   const auto rows = messages_.list_messages(*uid, *peer, before, limit);
   for (const auto& row : rows) {
-    items.push_back(message_json(row, messages_.users()));
+    items.push_back(message_json(row, messages_.users(), messages_.signer()));
   }
   response_type response(http::status::ok, req.version());
   response.set(http::field::content_type, "application/json");

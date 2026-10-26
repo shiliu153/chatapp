@@ -73,10 +73,14 @@ IM_AUTH_RATE=1
 IM_AUTH_BURST=60
 IM_MAX_FRAME=8192
 IM_TEXT_MAX=2000
+# 聊天图片 URL 前缀:必须与 Django 的 MEDIA_BASE_URL + /media/chat/ 一致;必填,缺失启动失败
+IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
 ```
 
 - `IM_JWT_SECRET` 必须与 Django 的 `IM_SELF_SECRET` **完全一致**;
 - `IM_INTERNAL_SECRET` 必须与 Django 的 `IM_SELF_INTERNAL_SECRET` **完全一致**;
+- `IM_MEDIA_PREFIX` 必须与 Django 的 `MEDIA_BASE_URL` 拼上 `/media/chat/` **完全一致** ——
+  服务端按这个前缀校验图片 URL,不一致时客户端发图会被 `42201` 拒掉;
 - `IM_ALLOWED_ORIGINS` 只影响带 `Origin` 头的浏览器 WS;原生 App 不带 Origin。
   站点换域名/HTTPS 后要同步改。
 
@@ -389,4 +393,51 @@ ssh root@<SERVER_IP> 'set -a; . /www/server/imserver/imserver.env; set +a; \
 - 只碰两个隔离测试号的 IM 状态,结束自动还原封禁键与双向黑名单(幂等,可反复跑);
 - 断言的是服务端契约:帧类型、错误码(40301/40302)、关闭码(4001/4003)、对端是否收到消息;
 - 退出码 0 = 全过;`--only multi|ban|blacklist` 可单跑。
+
+## 12. 聊天图片签名 URL 与 30 天清理(2026-10-26)
+
+聊天图片不再是「公开永久 URL」:访问 `/media/chat/**` 必须带 `?e=<过期>&s=<签名>`,
+签名由服务端按 `HMAC-SHA256(secret, path + "\n" + e)` 生成,`e` 按整点对齐 + 24h。
+
+### 12.1 环境变量(两端必须一致)
+
+| 变量 | Django `.env` | imserver `imserver.env` | 说明 |
+|---|---|---|---|
+| `IM_MEDIA_SIGN_SECRET` | 必填 | 必填 | `openssl rand -hex 32`;两边不一致的表现是**所有聊天图片 403** |
+| `IM_MEDIA_SIGN_TTL` | 86400 | 86400 | 签名有效期(秒) |
+| `CHAT_IMAGE_RETENTION_DAYS` | 30 | — | 保留期;`0` = 只清孤儿与残留 |
+
+### 12.2 nginx
+
+把 `imserver/deploy/nginx-media-sign.conf` 的两段 `location` 粘进站点 `server{}`,
+**放在 `location ^~ /media/` 之前**,然后 `nginx -t && nginx -s reload`。
+
+- 生产 nginx 没有 `secure_link` 模块(实测只有 `--with-http_auth_request_module`),
+  不要照抄网上的 `secure_link` 配置,`nginx -t` 会报 unknown directive;
+- 验签子请求打到 `127.0.0.1:8000`,gunicorn 没起时聊天图片会整体 403(其它图片不受影响)。
+
+### 12.3 验证
+
+```bash
+# 1) 无签名 → 403
+curl -s -o /dev/null -w '%{http_code}\n' http://<SERVER_IP>/media/chat/2026/10/<文件>
+# 2) 用上传接口拿一个带签名的 URL,原样请求 → 200
+curl -s -X POST http://<SERVER_IP>/api/v1/im/images -H "Authorization: Bearer <access>" \
+  -F "file=@a.jpg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])'
+# 3) 把 e 改成过去的时间 → 403
+# 4) 双端各发一张图,推送、历史、会话列表都能显示
+```
+
+### 12.4 清理(宝塔计划任务,每天 04:00)
+
+```bash
+cd /www/wwwroot/chatapp/chatapp && /www/wwwroot/chatapp-venv/bin/python manage.py im_media_cleanup --apply
+```
+
+- **默认 dry-run**:第一次上线先手动跑一次不带 `--apply`,看汇总再决定;
+- 三类动作:保留期(30 天,删文件 + 行改 `expired`)、孤儿文件(无数据库行且 mtime > 24h)、
+  删除残留(行已 `deleted` 但文件还在);
+- 用量视图:`manage.py im_media_stats`(各状态条数/字节、磁盘占用与剩余、Top 5 发送者);
+- 清理后的图片在聊天里显示加载失败占位,消息本身保留。
+
 
