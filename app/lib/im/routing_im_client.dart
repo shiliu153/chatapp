@@ -2,11 +2,16 @@ import 'dart:async';
 
 import 'im_bootstrap.dart';
 import 'im_client.dart';
+import 'self_image_uploader.dart';
 import 'self_im_client.dart';
 import 'tencent_im_client.dart';
 
 /// 按引导包选择腾讯/自建实现;业务层只依赖 ImClient。
 class RoutingImClient extends ImClient {
+  RoutingImClient({this.imageUploader});
+
+  /// 自建后端发图要先经 Django 上传;腾讯后端不用,所以允许为空。
+  final SelfImageUploader? imageUploader;
   final _events = StreamController<ImEvent>.broadcast();
   ImClient? _active;
   StreamSubscription<ImEvent>? _sub;
@@ -21,7 +26,7 @@ class RoutingImClient extends ImClient {
   @override
   Future<void> init(ImBootstrap bootstrap) async {
     final next = bootstrap.backend == ImBackend.self
-        ? SelfImClient()
+        ? SelfImClient(imageUploader: imageUploader)
         : TencentImClient();
     await next.init(bootstrap);
     await _sub?.cancel();

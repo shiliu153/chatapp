@@ -3,22 +3,27 @@ import 'dart:convert';
 
 import 'im_bootstrap.dart';
 import 'im_client.dart';
+import 'self_image_uploader.dart';
 import 'self_transport.dart';
 
 class _PendingSend {
-  _PendingSend(this.peerId, this.text, this.completer);
+  _PendingSend(this.peerId, this.completer, {this.text = '', this.image});
   final String peerId;
   final String text;
+  final ChatImageUpload? image;
   final Completer<ChatMessage> completer;
 }
 
 class SelfImClient extends ImClient {
-  SelfImClient({SelfTransport Function()? transportFactory, SelfHttpClient? httpClient})
+  SelfImClient({SelfTransport Function()? transportFactory, SelfHttpClient? httpClient,
+      SelfImageUploader? imageUploader})
       : _newTransport = transportFactory ?? (() => WebSocketTransport()),
-        _http = httpClient;
+        _http = httpClient,
+        _uploader = imageUploader;
 
   final SelfTransport Function() _newTransport;
   SelfHttpClient? _http;
+  final SelfImageUploader? _uploader;
   final _events = StreamController<ImEvent>.broadcast();
   final _pendingSends = <String, _PendingSend>{};
   final _pendingAcks = <String, Completer<void>>{};
@@ -37,7 +42,7 @@ class SelfImClient extends ImClient {
   Stream<ImEvent> get events => _events.stream;
 
   @override
-  ImCapabilities get capabilities => const ImCapabilities(image: false);
+  ImCapabilities get capabilities => const ImCapabilities(image: true);
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {
@@ -133,13 +138,16 @@ class SelfImClient extends ImClient {
     }
     final pending = _pendingSends.remove(id);
     if (pending == null || pending.completer.isCompleted) return;
+    final image = pending.image;
     pending.completer.complete(ChatMessage(
       msgId: '${data['msg_id'] ?? ''}',
       peerId: pending.peerId,
       isSelf: true,
       timestamp: (data['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
-      kind: ChatMessageKind.text,
+      kind: image == null ? ChatMessageKind.text : ChatMessageKind.image,
       text: pending.text,
+      imageUrl: image?.thumbUrl,
+      imageLargeUrl: image?.url,
     ));
   }
 
@@ -178,7 +186,7 @@ class SelfImClient extends ImClient {
       String? clientMsgId}) async {
     final id = clientMsgId ?? 'local-${DateTime.now().microsecondsSinceEpoch}';
     final completer = Completer<ChatMessage>();
-    _pendingSends[id] = _PendingSend(peerId, text, completer);
+    _pendingSends[id] = _PendingSend(peerId, completer, text: text);
     for (var attempt = 0; attempt < 3; attempt++) {
       _transport?.send(jsonEncode({
         'v': 1,
@@ -211,8 +219,36 @@ class SelfImClient extends ImClient {
   }
 
   @override
-  Future<ChatMessage> sendImage({required String peerId, required String imagePath}) {
-    throw const ImException(42202, '当前聊天服务暂不支持图片');
+  Future<ChatMessage> sendImage({required String peerId, required String imagePath}) async {
+    final uploader = _uploader;
+    if (uploader == null) {
+      throw const ImException(42202, '当前聊天服务暂不支持图片');
+    }
+    // 先上传到 Django 拿 URL,再发 WS 帧:顺序不能反,帧里要带服务端校验过的地址
+    final image = await uploader.upload(imagePath);
+    final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    final completer = Completer<ChatMessage>();
+    _pendingSends[id] = _PendingSend(peerId, completer, image: image);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      _transport?.send(jsonEncode({
+        'v': 1,
+        'type': 'send',
+        'id': id,
+        'data': {
+          'client_msg_id': id,
+          'to': peerId,
+          'kind': 'image',
+          'image': image.toPayload(),
+        },
+      }));
+      try {
+        return await completer.future.timeout(const Duration(seconds: 10));
+      } on TimeoutException {
+        if (attempt == 2) break;
+      }
+    }
+    _pendingSends.remove(id);
+    throw const ImException(50001, '发送失败,请重试');
   }
 
   @override
@@ -290,11 +326,13 @@ class SelfImClient extends ImClient {
     final isSelf = from == _bootstrap?.imUserId;
     final kind = json['kind'] as String? ?? 'text';
     final custom = (json['custom'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final image = (json['image'] as Map?)?.cast<String, dynamic>() ?? const {};
     final customType = custom['type'] as String? ?? '';
     final messageKind = switch (kind) {
       'custom' when customType == 'match_notice' => ChatMessageKind.matchNotice,
       'custom' when customType.isNotEmpty => ChatMessageKind.banNotice,
       'custom' => ChatMessageKind.other,
+      'image' => ChatMessageKind.image,
       _ => ChatMessageKind.text,
     };
     return ChatMessage(
@@ -306,6 +344,8 @@ class SelfImClient extends ImClient {
       text: kind == 'custom'
           ? (custom['desc'] as String? ?? '')
           : (json['text'] as String? ?? ''),
+      imageUrl: image['thumb_url'] as String?,
+      imageLargeUrl: image['url'] as String?,
       isRevoked: json['revoked'] == true,
     );
   }
