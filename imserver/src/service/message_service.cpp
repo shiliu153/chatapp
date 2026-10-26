@@ -66,13 +66,15 @@ SendResult result_for(const MessageRow& row, UserRepo& users) {
 
 MessageService::MessageService(MysqlPool& pool, UserRepo& users,
                                ConversationRepo& conversations, MessageRepo& messages,
-                               BlacklistRepo& blacklist, std::size_t text_max)
+                               BlacklistRepo& blacklist, std::size_t text_max,
+                               std::string media_prefix)
     : pool_(pool),
       users_(users),
       conversations_(conversations),
       messages_(messages),
       blacklist_(blacklist),
-      text_max_(text_max) {
+      text_max_(text_max),
+      media_prefix_(std::move(media_prefix)) {
   if (const char* slow = std::getenv("IM_SLOW_SEND_MS")) {
     slow_send_ms_ = std::atoi(slow);
   }
@@ -185,9 +187,47 @@ bool MessageService::ready() {
 }
 
 std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
-  const auto text = trim(request.text);
-  if (request.to == 0 || request.from == request.to || text.empty() ||
-      utf8_length(text) > text_max_ || !valid_client_id(request.client_msg_id)) {
+  if (request.to == 0 || request.from == request.to ||
+      !valid_client_id(request.client_msg_id)) {
+    return 42201;
+  }
+
+  // 按 kind 分别校验并构造落库 body:1=text、2=custom、3=image
+  nlohmann::json body;
+  try {
+    if (request.kind == 1) {
+      const auto text = trim(request.text);
+      if (text.empty() || utf8_length(text) > text_max_) {
+        return 42201;
+      }
+      body = {{"text", text}};
+    } else if (request.kind == 2) {
+      if (!request.custom.is_object() || request.custom.value("type", "").empty()) {
+        return 42201;
+      }
+      body = request.custom;
+    } else if (request.kind == 3) {
+      // 图片只接受本服务媒体前缀下的 URL:否则等于允许客户端给对端塞任意图片源
+      const auto& image = request.image;
+      if (!image.is_object()) {
+        return 42201;
+      }
+      const auto url = image.value("url", std::string());
+      const auto thumb = image.value("thumb_url", std::string());
+      const auto width = image.value("width", 0ULL);
+      const auto height = image.value("height", 0ULL);
+      const auto size = image.value("size", 0ULL);
+      const bool prefixed = !media_prefix_.empty() && url.rfind(media_prefix_, 0) == 0 &&
+                            thumb.rfind(media_prefix_, 0) == 0;
+      if (!prefixed || url.size() > 512 || thumb.size() > 512 || width == 0 || height == 0 ||
+          width > 4096 || height > 4096 || size == 0 || size > 5 * 1024 * 1024) {
+        return 42201;
+      }
+      body = {{"image", image}};
+    } else {
+      return 42201;
+    }
+  } catch (const std::exception&) {
     return 42201;
   }
 
@@ -220,12 +260,12 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
           conversations_.lock_pair(lease, request.from, request.to, now);
       const auto m_lock = since();
       const uint64_t seq = conversation.last_seq + 1;
-      const std::string body = nlohmann::json{{"text", text}}.dump();
+      const std::string body_json = body.dump();
 
       uint64_t msg_id = 0;
       try {
-        msg_id = messages_.insert(lease, conversation.id, seq, request.from, request.to, 1,
-                                  body, request.client_msg_id, now);
+        msg_id = messages_.insert(lease, conversation.id, seq, request.from, request.to,
+                                  request.kind, body_json, request.client_msg_id, now);
       } catch (const MysqlError& error) {
         if (error.code() != 1062) {
           throw;

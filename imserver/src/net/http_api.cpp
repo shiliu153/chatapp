@@ -89,12 +89,15 @@ nlohmann::json message_json(const MessageRow& row, UserRepo& users) {
     data["kind"] = "text";
   } else {
     const auto body = nlohmann::json::parse(row.body);
-    if (row.kind == 1) {
-      data["kind"] = "text";
-      data["text"] = body.value("text", "");
-    } else {
+    if (row.kind == 3) {
+      data["kind"] = "image";
+      data["image"] = body.value("image", nlohmann::json::object());
+    } else if (row.kind == 2) {
       data["kind"] = "custom";
       data["custom"] = body;
+    } else {
+      data["kind"] = "text";
+      data["text"] = body.value("text", "");
     }
   }
   if (auto profile = users.get(row.from_id)) {
@@ -304,18 +307,16 @@ HttpApi::response_type HttpApi::internal_route(
       request.to = body.at("to").get<uint64_t>();
       request.client_msg_id = "sys-" + random_uuid();
       const auto kind = body.value("kind", std::string("text"));
-      nlohmann::json custom = nlohmann::json::object();
       if (kind == "text") {
+        request.kind = 1;
         request.text = body.value("text", std::string());
       } else {
-        custom = body.at("custom");
-        request.text = custom.value("desc", std::string());
+        request.kind = 2;
+        request.custom = body.at("custom");
       }
       const auto result = messages_.send(request);
       if (const auto* ok = std::get_if<SendResult>(&result)) {
-        registry_.send_to(request.to,
-                          build_message_frame(*ok, request.from, request.to, kind,
-                                              request.text, custom));
+        registry_.send_to(request.to, build_message_frame(*ok, request));
         return json_response(req, http::status::ok,
                              {{"ok", true},
                               {"msg_id", std::to_string(ok->msg_id)},

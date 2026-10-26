@@ -361,15 +361,21 @@ void WsSession::handle_send(const nlohmann::json& frame) {
       return;
     }
     const uint64_t to_uid = std::stoull(to.substr(1));
-    if (data.value("kind", std::string("text")) != "text") {
-      send_raw(error_frame(42201, "暂不支持该消息类型"));
-      return;
-    }
     SendRequest request;
     request.from = uid_;
     request.to = to_uid;
     request.client_msg_id = data.value("client_msg_id", frame.value("id", std::string()));
-    request.text = data.value("text", std::string());
+    const auto kind = data.value("kind", std::string("text"));
+    if (kind == "image") {
+      request.kind = 3;
+      request.image = data.at("image");
+    } else if (kind == "text") {
+      request.kind = 1;
+      request.text = data.value("text", std::string());
+    } else {
+      send_raw(error_frame(42201, "暂不支持该消息类型"));
+      return;
+    }
 
     auto self = shared_from_this();
     run_db([self, request] {
@@ -385,9 +391,7 @@ void WsSession::handle_send(const nlohmann::json& frame) {
 void WsSession::on_send_result(const std::variant<SendResult, int>& result,
                                const SendRequest& request) {
   if (const auto* ok = std::get_if<SendResult>(&result)) {
-    registry_.send_to(request.to,
-                      build_message_frame(*ok, request.from, request.to, "text",
-                                          request.text, nlohmann::json::object()));
+    registry_.send_to(request.to, build_message_frame(*ok, request));
     send_raw(nlohmann::json{{"v", 1},
                             {"type", "ack"},
                             {"id", request.client_msg_id},

@@ -35,4 +35,5 @@ services:
       IM_JWT_SECRET: test-jwt-secret-0123456789abcdef
       IM_INTERNAL_SECRET: test-internal-secret
       IM_MIGRATIONS_DIR: /src/migrations
+      IM_MEDIA_PREFIX: http://cdn/media/chat/
     command: bash /src/scripts/test_integration.sh

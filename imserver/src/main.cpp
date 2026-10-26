@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
     MessageRepo messages(mysql);
     BlacklistRepo blacklist(mysql);
     MessageService message_service(mysql, users, conversations, messages, blacklist,
-                                   cfg.text_max);
+                                   cfg.text_max, cfg.media_prefix);
 
     RedisClient redis(cfg.redis_url);
     SessionRegistry registry(redis);

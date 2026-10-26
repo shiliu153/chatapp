@@ -148,6 +148,7 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   cfg.auth_burst = get_double(env, "IM_AUTH_BURST", cfg.auth_burst);
   cfg.max_frame = get_size(env, "IM_MAX_FRAME", cfg.max_frame);
   cfg.text_max = get_size(env, "IM_TEXT_MAX", cfg.text_max);
+  cfg.media_prefix = get_or(env, "IM_MEDIA_PREFIX");
 
   if (cfg.mysql_dsn.empty()) {
     throw std::runtime_error("missing IM_MYSQL_DSN");
@@ -157,6 +158,9 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   }
   if (cfg.internal_secret.empty()) {
     throw std::runtime_error("missing IM_INTERNAL_SECRET");
+  }
+  if (cfg.media_prefix.empty()) {
+    throw std::runtime_error("missing IM_MEDIA_PREFIX");
   }
   return cfg;
 }
@@ -169,7 +173,7 @@ Config Config::from_env() {
                           "IM_DB_THREADS", "IM_DB_POOL", "IM_DB_IDLE_PING_MS",
                           "IM_MAX_CONN_PER_IP",
                           "IM_AUTH_RATE", "IM_AUTH_BURST", "IM_MAX_FRAME",
-                          "IM_TEXT_MAX"}) {
+                          "IM_TEXT_MAX", "IM_MEDIA_PREFIX"}) {
     if (const char* value = std::getenv(key)) {
       env.emplace(key, value);
     }

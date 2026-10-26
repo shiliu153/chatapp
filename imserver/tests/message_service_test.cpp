@@ -15,7 +15,8 @@ class Fixture {
         conversations_(pool_),
         messages_(pool_),
         blacklist_(pool_),
-        svc_(pool_, users_, conversations_, messages_, blacklist_) {}
+        svc_(pool_, users_, conversations_, messages_, blacklist_, 2000,
+             "http://cdn/media/chat/") {}
 
   MysqlPool& pool() { return pool_; }
   MessageService& svc() { return svc_; }
@@ -88,4 +89,85 @@ TEST(MessageServiceTest, BlacklistRejectsSend) {
   auto result = svc.send({1, 2, "c-1", "hi"});
   ASSERT_TRUE(std::holds_alternative<int>(result));
   EXPECT_EQ(std::get<int>(result), 40302);
+}
+
+TEST(MessageServiceTest, SendsImageMessage) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+
+  SendRequest request;
+  request.from = 1;
+  request.to = 2;
+  request.client_msg_id = "img-1";
+  request.kind = 3;
+  request.image = {{"url", "http://cdn/media/chat/a.jpg"},
+                   {"thumb_url", "http://cdn/media/chat/a_thumb.jpg"},
+                   {"width", 1080}, {"height", 1440}, {"size", 345678}};
+  const auto result = svc.send(request);
+  ASSERT_TRUE(std::holds_alternative<SendResult>(result));
+
+  const auto rows = svc.list_messages(2, 1, 0, 10);
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].kind, 3);
+  EXPECT_NE(rows[0].body.find("\"image\""), std::string::npos);
+}
+
+TEST(MessageServiceTest, RejectsImageWithForeignUrl) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+
+  SendRequest request;
+  request.from = 1;
+  request.to = 2;
+  request.client_msg_id = "img-2";
+  request.kind = 3;
+  request.image = {{"url", "http://evil.example/a.jpg"},
+                   {"thumb_url", "http://cdn/media/chat/a_thumb.jpg"},
+                   {"width", 1080}, {"height", 1440}, {"size", 345678}};
+  const auto result = svc.send(request);
+  ASSERT_TRUE(std::holds_alternative<int>(result));
+  EXPECT_EQ(std::get<int>(result), 42201);
+}
+
+TEST(MessageServiceTest, RejectsImageWithBadDimensions) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+
+  SendRequest request;
+  request.from = 1;
+  request.to = 2;
+  request.client_msg_id = "img-3";
+  request.kind = 3;
+  request.image = {{"url", "http://cdn/media/chat/a.jpg"},
+                   {"thumb_url", "http://cdn/media/chat/a_thumb.jpg"},
+                   {"width", 0}, {"height", 1440}, {"size", 345678}};
+  const auto result = svc.send(request);
+  ASSERT_TRUE(std::holds_alternative<int>(result));
+  EXPECT_EQ(std::get<int>(result), 42201);
+}
+
+TEST(MessageServiceTest, StoresCustomAsKindTwo) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+
+  SendRequest request;
+  request.from = 1;
+  request.to = 2;
+  request.client_msg_id = "sys-1";
+  request.kind = 2;
+  request.custom = {{"type", "match_notice"}, {"desc", "你们已互相喜欢"}, {"data", {}}};
+  ASSERT_TRUE(std::holds_alternative<SendResult>(svc.send(request)));
+
+  const auto rows = svc.list_messages(2, 1, 0, 10);
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].kind, 2);
+  EXPECT_NE(rows[0].body.find("match_notice"), std::string::npos);
 }
