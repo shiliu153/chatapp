@@ -1236,6 +1236,14 @@ class ChatVoiceUploadTests(APITestCase):
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
     @patch("im.voice._probe_ms", return_value=5000)
+    def test_accepts_codecs_parameter(self, _probe, _transcode, _ffmpeg):
+        # 浏览器 Blob.type 会带 ;codecs=opus,不能因此拒收
+        response = self.upload(content_type="audio/webm;codecs=opus", duration_ms=5000)
+        self.assertEqual(response.status_code, 201, response.data)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
+    @patch("im.voice._probe_ms", return_value=5000)
     def test_signed_url_passes_auth_helper(self, _probe, _transcode, _ffmpeg):
         data = self.upload(duration_ms=5000).data
         parts = urlsplit(data["url"])

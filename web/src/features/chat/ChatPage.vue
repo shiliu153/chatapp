@@ -106,7 +106,11 @@ async function finishRecording(): Promise<void> {
   mediaStream = null
   if (!current) return
   const blob = await new Promise<Blob>((resolve) => {
-    current.onstop = () => resolve(new Blob(chunks, { type: current.mimeType }))
+    current.onstop = () => {
+      // Blob.type 会带 `;codecs=opus`;去掉参数,服务端白名单按主类型匹配
+      const type = current.mimeType.split(';')[0] || 'audio/webm'
+      resolve(new Blob(chunks, { type }))
+    }
     current.stop()
   })
   if (cancelled || duration < 1000) return

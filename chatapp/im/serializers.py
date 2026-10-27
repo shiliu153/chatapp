@@ -3,6 +3,8 @@
 from django.conf import settings
 from rest_framework import serializers
 
+from .voice import base_content_type
+
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 ALLOWED_AUDIO_CONTENT_TYPES = {
     "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/aac", "audio/webm", "audio/ogg",
@@ -53,6 +55,6 @@ class ChatVoiceUploadSerializer(serializers.Serializer):
         """
         if value.size > settings.CHAT_VOICE_MAX_BYTES:
             raise serializers.ValidationError("语音不能超过 5MB")
-        if value.content_type not in ALLOWED_AUDIO_CONTENT_TYPES:
+        if base_content_type(value.content_type) not in ALLOWED_AUDIO_CONTENT_TYPES:
             raise serializers.ValidationError("只支持 M4A/AAC/WebM/OGG 音频")
         return value

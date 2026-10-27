@@ -40,6 +40,21 @@ class VoiceUnavailable(Exception):
     """服务器缺少 ffmpeg/ffprobe;调用方回 503。"""
 
 
+def base_content_type(value: str) -> str:
+    """取 MIME 的主类型(去掉 ``;codecs=...`` 参数并小写)。
+
+    Web 的 ``MediaRecorder`` 给出的是 ``audio/webm;codecs=opus``,浏览器
+    ``Blob.type`` 会原样带上参数;精确匹配会把正常录音挡在门外。
+
+    Args:
+        value: 上传声明的 MIME 原值。
+
+    Returns:
+        形如 ``audio/webm`` 的主类型;空值返回空串。
+    """
+    return (value or "").split(";", 1)[0].strip().lower()
+
+
 def ffmpeg_available() -> bool:
     """检查转码依赖是否齐全。
 
@@ -106,7 +121,7 @@ def normalize(raw: bytes, content_type: str, declared_ms: int) -> tuple[bytes, i
         VoiceUnavailable: 服务器缺 ffmpeg/ffprobe。
         VoiceError: 格式、时长、大小或解码不合法。
     """
-    suffix = ALLOWED_CONTENT_TYPES.get(content_type)
+    suffix = ALLOWED_CONTENT_TYPES.get(base_content_type(content_type))
     if suffix is None:
         raise VoiceError("只支持 M4A/AAC/WebM/OGG 音频")
     if not ffmpeg_available():

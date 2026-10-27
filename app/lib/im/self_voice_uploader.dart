@@ -44,7 +44,9 @@ class ApiVoiceUploader implements SelfVoiceUploader {
     final bytes = await File(localPath).readAsBytes();
     final name = localPath.split(Platform.pathSeparator).last;
     final data = await _api.post('/im/voices', data: FormData.fromMap({
-      'file': MultipartFile.fromBytes(bytes, filename: name),
+      // .m4a 不在 mime 包里,不显式声明会退化成 application/octet-stream 被服务端拒绝
+      'file': MultipartFile.fromBytes(bytes, filename: name,
+          contentType: DioMediaType('audio', 'mp4')),
       'duration_ms': '$durationMs',
     })) as Map<String, dynamic>;
     return ChatVoiceUpload(
