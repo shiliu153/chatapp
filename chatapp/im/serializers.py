@@ -1,9 +1,12 @@
-"""IM 接口的入参校验:聊天图片上传。"""
+"""IM 接口的入参校验:聊天图片与语音上传。"""
 
 from django.conf import settings
 from rest_framework import serializers
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+ALLOWED_AUDIO_CONTENT_TYPES = {
+    "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/aac", "audio/webm", "audio/ogg",
+}
 
 
 class ChatImageUploadSerializer(serializers.Serializer):
@@ -27,4 +30,29 @@ class ChatImageUploadSerializer(serializers.Serializer):
             raise serializers.ValidationError("图片不能超过 5MB")
         if value.content_type not in ALLOWED_CONTENT_TYPES:
             raise serializers.ValidationError("只支持 JPG/PNG/WebP")
+        return value
+
+
+class ChatVoiceUploadSerializer(serializers.Serializer):
+    """聊天语音上传入参(multipart 字段 ``file`` + ``duration_ms``)。"""
+
+    file = serializers.FileField()
+    duration_ms = serializers.IntegerField(min_value=1000, max_value=60000)
+
+    def validate_file(self, value):
+        """校验大小与 MIME。
+
+        Args:
+            value: 上传的文件对象。
+
+        Returns:
+            通过校验的文件对象。
+
+        Raises:
+            serializers.ValidationError: 超过大小上限或类型不在白名单。
+        """
+        if value.size > settings.CHAT_VOICE_MAX_BYTES:
+            raise serializers.ValidationError("语音不能超过 5MB")
+        if value.content_type not in ALLOWED_AUDIO_CONTENT_TYPES:
+            raise serializers.ValidationError("只支持 M4A/AAC/WebM/OGG 音频")
         return value

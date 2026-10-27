@@ -1,4 +1,4 @@
-"""IM 接口:签发 userSig 与上传聊天图片。
+"""IM 接口:签发 userSig、上传聊天图片与语音、nginx 验签子请求。
 
 设计要点:
     IM 账号的供给由本模块自己保证:首次调用同步建号,成功后在 Redis 置 30 天标记,
@@ -16,6 +16,7 @@
 """
 
 import io
+import logging
 import uuid
 from urllib.parse import parse_qs, urlsplit
 
@@ -28,15 +29,19 @@ from rest_framework.decorators import (api_view, authentication_classes,
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from . import media_sign
+from config import error_codes
+
+from . import media_sign, voice
 from .backend import use_self_im
 from .client import ensure_account, kick_user
-from .models import ChatImage
-from .serializers import ChatImageUploadSerializer
+from .models import ChatImage, ChatVoice
+from .serializers import ChatImageUploadSerializer, ChatVoiceUploadSerializer
 from .signature import gen_user_sig
 from .tasks import kick_pending_key
-from .throttles import ChatImageThrottle
+from .throttles import ChatImageThrottle, ChatVoiceThrottle
 from .token import mint_im_token
+
+logger = logging.getLogger(__name__)
 
 IMPORTED_FLAG_TTL = 30 * 24 * 3600   # 30 天;Redis 清空后下次调用会幂等重建
 
@@ -154,6 +159,48 @@ def upload_image(request):
         "width": chat_image.width,
         "height": chat_image.height,
         "size": chat_image.bytes,
+    }, status=201)
+
+
+@api_view(["POST"])
+@throttle_classes([ChatVoiceThrottle])
+def upload_voice(request):
+    """上传一段聊天语音(POST /api/v1/im/voices)。
+
+    同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
+    没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
+
+    Args:
+        request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
+
+    Returns:
+        201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
+        400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
+    """
+    serializer = ChatVoiceUploadSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    upload = serializer.validated_data["file"]
+    try:
+        data, duration_ms = voice.normalize(
+            upload.read(), upload.content_type, serializer.validated_data["duration_ms"])
+    except voice.VoiceUnavailable:
+        logger.error("聊天语音上传失败:服务器缺少 ffmpeg/ffprobe")
+        return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                         "message": "语音消息暂不可用"}, status=503)
+    except voice.VoiceError as error:
+        return Response({"code": 400, "message": str(error)}, status=400)
+
+    stem = f"{request.user.id}-{uuid.uuid4().hex}"
+    chat_voice = ChatVoice(owner=request.user, duration_ms=duration_ms, bytes=len(data))
+    chat_voice.file.save(f"{stem}.m4a", ContentFile(data), save=False)
+    chat_voice.save()
+
+    base = settings.MEDIA_BASE_URL.rstrip("/")
+    return Response({
+        "id": chat_voice.id,
+        "url": media_sign.sign_url(f"{base}{chat_voice.file.url}"),
+        "duration_ms": chat_voice.duration_ms,
+        "size": chat_voice.bytes,
     }, status=201)
 
 

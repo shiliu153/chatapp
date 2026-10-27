@@ -6,3 +6,4 @@ SMS_CODE_WRONG = 40002            # 验证码错误
 SMS_SEND_TOO_FREQUENT = 42901     # 重发间隔未到
 SMS_TOO_MANY_ATTEMPTS = 42902     # 错误次数过多被锁
 SMS_SERVICE_UNAVAILABLE = 50301   # 短信任务入队失败
+CHAT_VOICE_UNAVAILABLE = 50302    # 服务器缺 ffmpeg/ffprobe,语音上传暂不可用

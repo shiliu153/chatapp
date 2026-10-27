@@ -47,7 +47,7 @@ from .client import (_request, black_list_add, black_list_delete, delete_account
                      send_ban_notice, send_custom_elem, send_match_notice,
                      send_post_commented, send_report_handled, send_text,
                      set_profile_avatar, set_profile_nick)
-from .models import ChatImage, ChatImageStatus
+from .models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 from .throttles import ChatImageThrottle
 from .token import mint_im_token, verify_im_token
@@ -1158,6 +1158,97 @@ class ChatImageStatsTests(TestCase):
         text = out.getvalue()
         self.assertIn("visible=1", text)
         self.assertIn("磁盘文件=2", text)
+
+
+class ChatVoiceUploadTests(APITestCase):
+    """语音上传:成功返回四元组、时长/大小/格式校验、ffmpeg 缺失 503、限流。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
+                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
+        override.enable()
+        self.addCleanup(override.disable)
+        cache.clear()
+        self.user = User.objects.create_user(phone="13900139009")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.user).access_token}")
+        self.url = "/api/v1/im/voices"
+
+    def upload(self, content=b"fake-m4a", content_type="audio/mp4", duration_ms=12500):
+        """上传一段语音。
+
+        Args:
+            content: 文件字节。
+            content_type: MIME 类型。
+            duration_ms: 客户端声明时长。
+
+        Returns:
+            DRF 测试客户端响应。
+        """
+        return self.client.post(
+            self.url,
+            {"file": SimpleUploadedFile("a.m4a", content, content_type=content_type),
+             "duration_ms": duration_ms},
+            format="multipart")
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=12500)
+    def test_upload_returns_signed_url(self, _probe, _transcode, _ffmpeg):
+        response = self.upload()
+        self.assertEqual(response.status_code, 201, response.data)
+        data = response.data
+        self.assertTrue(data["url"].startswith("http://cdn.test/media/chat/voices/"))
+        self.assertIn("?e=", data["url"])
+        self.assertEqual(data["duration_ms"], 12500)
+        self.assertEqual(data["size"], len(b"transcoded"))
+        voice = ChatVoice.objects.get()
+        self.assertEqual(voice.owner_id, self.user.id)
+        self.assertRegex(voice.file.name, r"^chat/voices/\d{4}/\d{2}/\d+-[0-9a-f]{32}\.m4a$")
+        self.assertTrue(voice.file.storage.exists(voice.file.name))
+
+    @patch("im.voice.ffmpeg_available", return_value=False)
+    def test_returns_503_without_ffmpeg(self, _ffmpeg):
+        response = self.upload()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], 50302)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._probe_ms", return_value=61000)
+    def test_rejects_too_long(self, _probe, _ffmpeg):
+        response = self.upload(duration_ms=61000)
+        self.assertEqual(response.status_code, 400)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._probe_ms", return_value=5000)
+    def test_rejects_declared_duration_mismatch(self, _probe, _ffmpeg):
+        response = self.upload(duration_ms=20000)
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejects_non_audio_content_type(self):
+        response = self.upload(content_type="image/png")
+        self.assertEqual(response.status_code, 400)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
+    @patch("im.voice._probe_ms", return_value=5000)
+    def test_signed_url_passes_auth_helper(self, _probe, _transcode, _ffmpeg):
+        data = self.upload(duration_ms=5000).data
+        parts = urlsplit(data["url"])
+        query = parse_qs(parts.query)
+        self.assertTrue(media_sign.verify(parts.path, query["e"][0], query["s"][0]))
+
+    @patch("im.throttles.ChatVoiceThrottle.get_rate", return_value="1/hour")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
+    @patch("im.voice._probe_ms", return_value=5000)
+    def test_second_upload_is_throttled(self, _rate, _probe, _transcode, _ffmpeg):
+        cache.clear()
+        self.assertEqual(self.upload(duration_ms=5000).status_code, 201)
+        self.assertEqual(self.upload(duration_ms=5000).status_code, 429)
+
 
 
 
