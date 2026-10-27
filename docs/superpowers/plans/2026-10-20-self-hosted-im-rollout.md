@@ -35,8 +35,10 @@
 ## 全量切换
 
 - [x] 最小版本拦截**机制**已双端验证(2026-10-26:App 与 Web 都被阻塞页挡住,见下节)
-- [ ] `MIN_APP_VERSION` 生产值仍是默认 `1.0.0`(`.env` 未配置)→ **实际挡不住任何旧版本**,
+- [x] `MIN_APP_VERSION` 生产值仍是默认 `1.0.0`(`.env` 未配置)→ **实际挡不住任何旧版本**,
       切换前必须按发版版本填,并配 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`
+      (2026-10-27 已显式写入三项:min/latest 均 `1.0.0`,`APP_DOWNLOAD_URL` 指向
+      `http://<SERVER_IP>/chatapp-1.0.0.apk`;`/api/v1/app/config` 已返回)
 - [x] 图片二期已交付(2026-10-26:上传接口 `POST /im/images` + 缩略图 + EXIF 校正;
       imserver `kind=3` + `IM_MEDIA_PREFIX` 前缀校验;App/Web `sendImage`;ops `/ops/chat-images/` 抽审;
       **注意 `IM_MEDIA_PREFIX` 是必填项,部署时要与 Django 的 `MEDIA_BASE_URL` 对齐**)
@@ -46,8 +48,12 @@
 - [x] 500 连接压测 p99 < 200ms、RSS < 300MB
       (2026-10-22:500 连接 / 50 msg/s 公网经 nginx,p99 93ms、RSS 22MB;
       1000 条瞬时突发 4.7s ≈ 215 msg/s,已是 2C2G 上限)
-- [ ] 切换日 `IM_SELF_GRAYLIST=all`,观察 30 分钟:
+- [x] 切换日 `IM_SELF_GRAYLIST=all`,观察 30 分钟:
       消息成功率、ack 延迟、断线率、`docker compose logs imserver` 无 ERROR 尖峰
+      (2026-10-27 18:06–18:35 执行:30 次采样 `readyz=200` / `health=200` / `im_err=0` /
+      `http5xx=0` 全绿;合成流量 u9→u8 40 条 **40/40 ack 成功**,RTT avg 45.4ms /
+      p95 53.4ms / max 700.6ms;`docker logs --since 35m` 零 error;
+      非灰度账号 u9 的 `/im/user_sig` 已返回 `backend=self` 且能正常收发)
 
 ## 回退
 
