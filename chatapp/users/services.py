@@ -97,12 +97,13 @@ def delete_account(user) -> None:
         user: 待注销的用户实例。
     """
     from feed.models import PostImage   # 延迟导入,避免 app 加载顺序问题(同 im/tasks.py)
-    from im.models import ChatImage
+    from im.models import ChatImage, ChatVoice
 
     file_names = list(user.photos.values_list("file", flat=True))
     file_names += list(PostImage.objects.filter(post__author=user).values_list("file", flat=True))
     file_names += list(ChatImage.objects.filter(owner=user).values_list("file", flat=True))
     file_names += list(ChatImage.objects.filter(owner=user).values_list("thumb", flat=True))
+    file_names += list(ChatVoice.objects.filter(owner=user).values_list("file", flat=True))
     user_id = user.id
     im_user_id = user.im_user_id
 

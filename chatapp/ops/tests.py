@@ -27,7 +27,7 @@ from django.test import TestCase
 from accounts.models import User
 from feed.models import Post, PostLike, PostReport
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
-from im.models import ChatImage, ChatImageStatus
+from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -564,3 +564,48 @@ class ChatImageOpsTests(TestCase):
     def test_non_staff_forbidden(self):
         self.client.force_login(self.user)
         self.assertEqual(self.client.get("/ops/chat-images/").status_code, 403)
+
+
+class ChatVoiceOpsTests(TestCase):
+    """聊天语音抽审:列表可试听、删除置 deleted 并删文件、举报详情带最近语音。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test")
+        override.enable()
+        self.addCleanup(override.disable)
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+        self.user = User.objects.create_user(phone="13900139013")
+        self.voice = ChatVoice(owner=self.user, duration_ms=5000, bytes=3)
+        self.voice.file.save("v.m4a", ContentFile(b"abc"), save=False)
+        self.voice.save()
+
+    def test_lists_chat_voices_with_audio(self):
+        response = self.client.get("/ops/chat-voices/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "聊天语音")
+        self.assertContains(response, "5 秒")
+        self.assertContains(response, "/media/chat/voices/")
+
+    def test_delete_marks_status_and_removes_file(self):
+        path = self.voice.file.path
+        response = self.client.post(f"/ops/chat-voices/{self.voice.pk}/delete")
+        self.assertEqual(response.status_code, 200)
+        self.voice.refresh_from_db()
+        self.assertEqual(self.voice.status, ChatVoiceStatus.DELETED)
+        self.assertEqual(self.voice.deleted_by_id, self.staff.id)
+        self.assertIsNotNone(self.voice.deleted_at)
+        self.assertFalse(os.path.exists(path))
+
+    def test_report_detail_shows_recent_chat_voices(self):
+        report = Report.objects.create(reporter=self.staff, target=self.user,
+                                       type=ReportType.PORN)
+        response = self.client.get(f"/ops/reports/{report.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "最近聊天语音")
+
+    def test_non_staff_forbidden(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/ops/chat-voices/").status_code, 403)

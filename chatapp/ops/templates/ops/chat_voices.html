@@ -1,0 +1,9 @@
+{% extends "ops/base.html" %}
+{% block page_title %}聊天语音{% endblock %}
+{% block content %}
+<p class="ops-tabs">
+  <a href="{% url 'ops:chat_voices' %}" class="active">全部</a>
+</p>
+<p><small>按时间倒序展示最近 120 条正常状态的聊天语音;删除后聊天里显示占位。</small></p>
+{% include "ops/partials/chat_voices_table.html" %}
+{% endblock %}

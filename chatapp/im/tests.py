@@ -24,8 +24,10 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -1248,6 +1250,54 @@ class ChatVoiceUploadTests(APITestCase):
         cache.clear()
         self.assertEqual(self.upload(duration_ms=5000).status_code, 201)
         self.assertEqual(self.upload(duration_ms=5000).status_code, 429)
+
+
+class ChatVoiceCleanupTests(TestCase):
+    """语音清理:30 天过期删文件,孤儿扫描不误删正常语音。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13900139010")
+
+    def make_voice(self, name="v.m4a", created_days_ago=0):
+        """造一条语音行(带真实文件)。
+
+        Args:
+            name: 文件名。
+            created_days_ago: 创建时间距今天数。
+
+        Returns:
+            保存后的 ``ChatVoice``。
+        """
+        voice = ChatVoice(owner=self.user, duration_ms=5000, bytes=3)
+        voice.file.save(name, ContentFile(b"abc"), save=False)
+        voice.save()
+        if created_days_ago:
+            ChatVoice.objects.filter(pk=voice.pk).update(
+                created_at=timezone.now() - timedelta(days=created_days_ago))
+        return voice
+
+    def test_expires_old_voice_and_keeps_fresh(self):
+        old = self.make_voice("old.m4a", created_days_ago=31)
+        fresh = self.make_voice("fresh.m4a")
+        call_command("im_media_cleanup", "--apply")
+        old.refresh_from_db()
+        fresh.refresh_from_db()
+        self.assertEqual(old.status, ChatVoiceStatus.EXPIRED)
+        self.assertFalse(old.file.storage.exists(old.file.name))
+        self.assertEqual(fresh.status, ChatVoiceStatus.VISIBLE)
+        self.assertTrue(fresh.file.storage.exists(fresh.file.name))
+
+    def test_orphan_scan_keeps_known_voice(self):
+        voice = self.make_voice()
+        path = Path(settings.MEDIA_ROOT) / voice.file.name
+        os.utime(path, (time.time() - 48 * 3600, time.time() - 48 * 3600))
+        call_command("im_media_cleanup", "--apply", "--orphan-hours", "24")
+        self.assertTrue(voice.file.storage.exists(voice.file.name))
 
 
 

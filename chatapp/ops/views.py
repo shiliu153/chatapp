@@ -26,7 +26,7 @@ from accounts.models import User
 from feed.models import Post, PostReport
 from feed.services import delete_post
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
-from im.models import ChatImage, ChatImageStatus
+from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
 from moderation.services import log_ban_change, notify_report_handled
@@ -110,6 +110,11 @@ def _report_context(report):
         "target_ban_logs": BanLog.objects.filter(user=report.target)[:10],
         # 举报详情里直接给证据:被举报人最近 7 天的聊天图片(图片无机器审核,靠人工抽审)
         "chat_images": ChatImage.objects.select_related("owner").filter(
+            owner=report.target,
+            created_at__gte=timezone.now() - timedelta(days=7),
+        ).order_by("-created_at")[:12],
+        # 语音同理:可直接试听,不做转写
+        "chat_voices": ChatVoice.objects.select_related("owner").filter(
             owner=report.target,
             created_at__gte=timezone.now() - timedelta(days=7),
         ).order_by("-created_at")[:12],
@@ -616,3 +621,45 @@ def chat_image_delete(request, image_id):
     qs = ChatImage.objects.select_related("owner").filter(
         status=ChatImageStatus.VISIBLE).order_by("-created_at")
     return render(request, "ops/partials/chat_images_table.html", {"images": qs[:120]})
+
+
+@staff_required
+def chat_voices(request):
+    """聊天语音抽审列表,按时间倒序最多 120 条。
+
+    Args:
+        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)。
+
+    Returns:
+        渲染后的聊天语音表格页。
+    """
+    qs = ChatVoice.objects.select_related("owner").filter(
+        status=ChatVoiceStatus.VISIBLE).order_by("-created_at")
+    user_id = request.GET.get("user")
+    if user_id:
+        qs = qs.filter(owner_id=user_id)
+    return render(request, "ops/chat_voices.html", {"voices": qs[:120]})
+
+
+@require_POST
+@staff_required
+def chat_voice_delete(request, voice_id):
+    """删除一条聊天语音:删文件,行保留并记审计。
+
+    Args:
+        request: Django 请求对象。
+        voice_id: 聊天语音主键。
+
+    Returns:
+        刷新后的表格局部片段。
+    """
+    voice = get_object_or_404(ChatVoice, pk=voice_id)
+    if voice.file:
+        default_storage.delete(voice.file.name)
+    voice.status = ChatVoiceStatus.DELETED
+    voice.deleted_by = request.user
+    voice.deleted_at = timezone.now()
+    voice.save(update_fields=["status", "deleted_by", "deleted_at"])
+    qs = ChatVoice.objects.select_related("owner").filter(
+        status=ChatVoiceStatus.VISIBLE).order_by("-created_at")
+    return render(request, "ops/partials/chat_voices_table.html", {"voices": qs[:120]})

@@ -118,6 +118,15 @@ class ChatVoice(models.Model):
         """
         return media_sign.sign_url(f"{settings.MEDIA_BASE_URL.rstrip('/')}{self.file.url}")
 
+    @property
+    def duration_seconds(self) -> int:
+        """时长(秒,四舍五入),运营台展示用。
+
+        Returns:
+            至少为 1 的整秒数。
+        """
+        return max(1, round(self.duration_ms / 1000))
+
     def __str__(self):
         """后台与日志中的可读表示。
 
