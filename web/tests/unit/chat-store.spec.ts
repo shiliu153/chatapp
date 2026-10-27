@@ -219,4 +219,27 @@ describe('chat store', () => {
     expect(client.revokeMessage).toHaveBeenCalledWith('m8')
     expect(store.messagesOf('u8')[0].isRevoked).toBe(true)
   })
+
+  it('连上之后才把客户端能力位同步进 store(入口按它显示)', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    // init 之前是兜底值:直接读 client.capabilities 会拿到 false(图片入口曾因此不显示)
+    expect(store.capabilities).toEqual({ image: false, search: false })
+
+    await store.loadConversations()
+
+    expect(store.capabilities).toEqual({ image: true, search: true })
+  })
+
+  it('searchMessages 先确保已连接,再透传关键词/条数/游标', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+
+    await store.searchMessages('火锅', 10, '99')
+
+    expect(client.login).toHaveBeenCalled()
+    expect(client.searchMessages).toHaveBeenCalledWith('火锅', 10, '99')
+  })
 })

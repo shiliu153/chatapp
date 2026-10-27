@@ -71,6 +71,17 @@ describe('ChatPage', () => {
     expect(w.text()).toContain('你好')
   })
 
+  it('图片入口跟随 store 能力位(连上之前不显示)', async () => {
+    const { w, store } = mountPage()
+    await flushPromises()
+    // 兜底值 false:未连接时不能凭 client.capabilities 把入口藏死
+    expect(w.find('[aria-label="发送图片"]').exists()).toBe(false)
+
+    store.capabilities = { image: true, search: false }
+    await flushPromises()
+    expect(w.find('[aria-label="发送图片"]').exists()).toBe(true)
+  })
+
   it('系统灰条渲染成居中 pill', async () => {
     const { w } = mountPage([msg({ kind: ChatMessageKind.matchNotice, text: '你们已互相喜欢' })])
     await flushPromises()

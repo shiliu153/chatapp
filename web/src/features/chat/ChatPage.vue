@@ -15,15 +15,14 @@ import UnmatchDialog from './UnmatchDialog.vue'
 import { formatTime, shouldShowTime } from './time'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
-import { getImClient } from '@/im/client'
 
 const props = defineProps<{ peerId: string }>()
 
 const store = useChatStore()
 const discovery = useDiscoveryStore()
 const router = useRouter()
-const client = getImClient()
-const imageEnabled = computed(() => client.capabilities.image)
+// 能力位取 store(连上之后才有真值);直接读 getImClient().capabilities 会永远是兜底 false
+const imageEnabled = computed(() => store.capabilities.image)
 const draft = ref('')
 const sending = ref(false)
 const scroller = ref<HTMLElement | null>(null)

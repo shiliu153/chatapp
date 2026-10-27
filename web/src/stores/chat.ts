@@ -5,7 +5,13 @@ import { parseApiError } from '@/api/error'
 import { sessionEvents } from '@/api/session-events'
 import { getImClient } from '@/im/client'
 import { SYSTEM_NOTICE_PEER_ID } from '@/im/map'
-import type { ChatMessage, ImBootstrap, ImConversation } from '@/im/types'
+import type {
+  ChatMessage,
+  ImBootstrap,
+  ImCapabilities,
+  ImConversation,
+  ImSearchResult,
+} from '@/im/types'
 
 export type ChatStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting' | 'inactive' | 'error'
 
@@ -24,6 +30,14 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<Record<string, ChatMessage[]>>({})
   const status = ref<ChatStatus>('idle')
   const error = ref('')
+  /**
+   * 当前 IM 客户端能力(图片/搜索入口按它显示)。
+   *
+   * 必须是响应式状态:`client.capabilities` 只是普通 getter,`getImClient()`
+   * 在 init 之前拿到的是「未连接」的兜底值,直接读它会把入口永久藏起来
+   * (2026-10-26 排查发现:Web 聊天页图片入口因此一直不显示)。
+   */
+  const capabilities = ref<ImCapabilities>({ image: false, search: false })
   /** 发送失败/待发送的图片文件,供「重发」用 */
   const pendingFiles = new Map<string, File>()
   /** 进行中的连接(并发调用复用它) */
@@ -138,6 +152,8 @@ export const useChatStore = defineStore('chat', () => {
       }
       await client.init(bootstrap)
       await client.login(raw.im_user_id, raw.token || raw.user_sig || '')
+      // 连上之后才拿得到真实能力位(init 前 RoutingImClient 还没有 active)
+      capabilities.value = { ...client.capabilities }
       status.value = 'ready'
     } catch (e) {
       error.value = parseApiError(e).message
@@ -215,6 +231,16 @@ export const useChatStore = defineStore('chat', () => {
       messages.value = { ...messages.value, [peerId]: list }
       if (older.length < 50) return
     }
+  }
+
+  /** 搜索聊天记录(仅自建后端;入口由 capabilities.search 控制)。 */
+  async function searchMessages(
+    keyword: string,
+    limit = 20,
+    beforeId?: string,
+  ): Promise<ImSearchResult> {
+    await ensureConnected()
+    return client.searchMessages(keyword, limit, beforeId)
   }
 
   async function openConversation(peerId: string): Promise<ChatMessage[]> {
@@ -296,6 +322,7 @@ export const useChatStore = defineStore('chat', () => {
     await client.logout().catch(() => {})
     conversations.value = []
     messages.value = {}
+    capabilities.value = { image: false, search: false }
     status.value = 'idle'
   }
 
@@ -304,12 +331,14 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     status,
     error,
+    capabilities,
     unreadTotal,
     connect,
     reconnect,
     loadConversations,
     loadHistory,
     loadOlder,
+    searchMessages,
     openConversation,
     sendText,
     sendImage,
