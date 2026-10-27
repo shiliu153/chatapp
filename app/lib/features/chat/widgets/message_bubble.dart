@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../im/im_client.dart';
+import 'voice_bubble.dart';
 
 /// 单条消息(「心跳」附录 B.3):自己=brand 实底白字、对方=白底,
 /// 圆形头像 40;match_notice/ban_notice 渲染成居中 pill 灰条。
@@ -51,7 +52,9 @@ class MessageBubble extends StatelessWidget {
         ),
       );
     }
-    if (message.kind != ChatMessageKind.text && message.kind != ChatMessageKind.image) {
+    if (message.kind != ChatMessageKind.text &&
+        message.kind != ChatMessageKind.image &&
+        message.kind != ChatMessageKind.voice) {
       final label = switch (message.kind) {
         ChatMessageKind.matchNotice => message.text.isEmpty ? noticeFallback : message.text,
         ChatMessageKind.banNotice => message.text.isEmpty ? '系统通知' : message.text,
@@ -125,6 +128,9 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _bubbleContent(BuildContext context) {
+    if (message.kind == ChatMessageKind.voice) {
+      return VoiceBubble(message: message);
+    }
     if (message.kind == ChatMessageKind.image) {
       return GestureDetector(
         key: const Key('chat.image'),

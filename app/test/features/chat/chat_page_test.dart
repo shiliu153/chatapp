@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,8 +19,10 @@ import 'package:chatapp_app/features/presence/presence_controller.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:chatapp_app/im/im_manager.dart';
+import 'package:chatapp_app/im/voice_recorder.dart';
 
 import '../../support/fake_im_client.dart';
+import '../../support/fake_voice.dart';
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
@@ -73,7 +76,8 @@ void main() {
   });
 
   Future<void> pumpChat(WidgetTester tester,
-      {String peerId = 'u9', PickImage? pickImage, bool settle = true}) async {
+      {String peerId = 'u9', PickImage? pickImage, bool settle = true,
+      List<Override> overrides = const []}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
@@ -82,6 +86,7 @@ void main() {
       imStatusProvider.overrideWith(_LoggedInImManager.new),
       sessionProvider.overrideWith(_LoggedInSession.new),
       presenceRefreshIntervalProvider.overrideWithValue(null),
+      ...overrides,
     ]);
     addTearDown(container.dispose);
     final router = GoRouter(
@@ -124,6 +129,32 @@ void main() {
     expect(find.text('小红'), findsOneWidget);
     expect(find.text('你好'), findsOneWidget);
     expect(find.text('嗨'), findsOneWidget);
+  });
+
+  testWidgets('长按麦克风录音,松手发送语音', (tester) async {
+    final recorder = FakeVoiceRecorder();
+    await pumpChat(tester, overrides: [
+      voiceRecorderProvider.overrideWithValue(recorder),
+      voiceTempPathProvider.overrideWithValue(() async => '/tmp/voice.m4a'),
+    ]);
+
+    final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('chat.mic'))));
+    await tester.pump(const Duration(milliseconds: 600));
+    // Stopwatch 走真实时间,测试的假时钟推不动它:这里真等 1.1 秒越过最短时长
+    await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 1100)));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(recorder.started, isTrue);
+    expect(recorder.startPath, '/tmp/voice.m4a');
+    expect(fake.log.any((line) => line.startsWith('sendVoice:u9:/tmp/voice.m4a:')), isTrue);
+  });
+
+  testWidgets('后端不支持语音时隐藏麦克风', (tester) async {
+    fake.voiceCapability = false;
+    await pumpChat(tester);
+    expect(find.byKey(const Key('chat.mic')), findsNothing);
   });
 
   testWidgets('顶栏头像带 Hero(tag avatar-chat-{peerId}),附录 C.8', (tester) async {

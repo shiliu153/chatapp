@@ -60,6 +60,17 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         isPending: true,
       ));
 
+  Future<void> sendVoice(String path, int durationMs) => _sendOut(ChatMessage(
+        msgId: 'local-${DateTime.now().microsecondsSinceEpoch}',
+        peerId: peerId,
+        isSelf: true,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        kind: ChatMessageKind.voice,
+        localPath: path,
+        voiceDurationMs: durationMs,
+        isPending: true,
+      ));
+
   /// 失败不抛异常、消息保留 isFailed;重发复用同一条(msgId 不变,靠 upsert 就地替换)。
   Future<void> _sendOut(ChatMessage pendingMessage) async {
     _upsert(pendingMessage);
