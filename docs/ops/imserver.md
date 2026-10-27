@@ -445,4 +445,48 @@ cd /www/wwwroot/chatapp/chatapp && /www/wwwroot/chatapp-venv/bin/python manage.p
 - 用量视图:`manage.py im_media_stats`(各状态条数/字节、磁盘占用与剩余、Top 5 发送者);
 - 清理后的图片在聊天里显示加载失败占位,消息本身保留。
 
+## 13. 语音消息(2026-10-27)
+
+### 13.1 服务器依赖:ffmpeg
+
+语音上传由 Django 同步转码为 **m4a/AAC 单声道 16kHz 32kbps**,因此服务器必须能执行
+`ffmpeg` 与 `ffprobe`:
+
+```bash
+# 宝塔:软件商店搜 ffmpeg 安装;或
+apt-get update && apt-get install -y ffmpeg
+ffmpeg -version && ffprobe -version
+```
+
+- 缺失时 `POST /api/v1/im/voices` 返回 **503 + `50302`**,文本与图片不受影响;
+- 不需要给 imserver 加任何环境变量(沿用 `IM_MEDIA_PREFIX` / `IM_MEDIA_SIGN_SECRET`);
+- 转码发生在 gunicorn worker 内,60 秒音频约 0.2–0.5 秒;上传限流 60 次/小时。
+
+### 13.2 部署顺序
+
+1. 装 ffmpeg 并验证(见上);
+2. `python manage.py migrate`(新增 `im_chatvoice` 表);
+3. 重建并重启 imserver 镜像(本轮协议新增 `kind=4`,旧镜像会拒收语音);
+4. nginx 不用改:`/media/chat/` 的验签与 `/im/api/` 反代已覆盖 `/media/chat/voices/`;
+5. 重启 ops,导航里出现「聊天语音」。
+
+### 13.3 验证
+
+```bash
+# 1) 能力位:自建分支返回的账号应能发语音(Web 端麦克风按钮出现)
+# 2) 上传一段 m4a:拿到签名 URL,duration_ms 是服务端实测值
+curl -s -X POST http://<SERVER_IP>/api/v1/im/voices -H "Authorization: Bearer <access>" \
+  -F "file=@voice.m4a" -F "duration_ms=12500"
+# 3) Web 录一段 → App 播放(验证 webm→m4a 转码与 iOS 播放)
+# 4) App 录一段 → Web 播放
+# 5) 上滑取消、<1 秒提示、60 秒自动停
+# 6) ops「聊天语音」试听后删除 → 聊天里显示占位
+```
+
+### 13.4 清理
+
+`im_media_cleanup` 已覆盖语音:默认 30 天(`CHAT_VOICE_RETENTION_DAYS`),
+可用 `--voice-retention-days` 单独覆盖;孤儿扫描会把 `ChatVoice.file` 并入 known 集合。
+
+
 

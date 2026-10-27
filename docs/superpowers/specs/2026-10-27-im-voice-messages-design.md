@@ -2,7 +2,7 @@
 
 日期:2026-10-27 · 前置:`docs/superpowers/specs/2026-10-20-self-hosted-im-design.md`、
 `2026-10-26-im-image-messages-design.md`、`2026-10-26-chat-image-signing-retention-design.md`
-状态:设计已确认(用户 2026-10-27 确认「统一转码 + ops 抽审本期做」),待写实施计划
+状态:已交付(2026-10-27;实施计划 `docs/superpowers/plans/2026-10-27-im-voice-messages.md`)
 
 ## 1. 背景与目标
 

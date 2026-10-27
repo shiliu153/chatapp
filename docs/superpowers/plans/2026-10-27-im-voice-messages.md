@@ -36,7 +36,7 @@
 **Interfaces:**
 - Produces: `POST /api/v1/im/voices` → `{id, url, duration_ms, size}`;`ChatVoice.signed_file_url`;`im.voice.normalize(raw: bytes, content_type: str, declared_ms: int) -> tuple[bytes, int]`;`im.voice.VoiceError` / `im.voice.VoiceUnavailable`。
 
-- [ ] **Step 1: 写失败测试(模型 + 上传)**
+- [x] **Step 1: 写失败测试(模型 + 上传)**
 
 在 `chatapp/im/tests.py` 末尾追加(顶部 import 补 `from .models import ChatVoice, ChatVoiceStatus`):
 
@@ -131,12 +131,12 @@ class ChatVoiceUploadTests(APITestCase):
         self.assertEqual(self.upload(duration_ms=5000).status_code, 429)
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test im.tests.ChatVoiceUploadTests -v 2`
 Expected: FAIL(`ImportError: cannot import name 'ChatVoice'` / 404)。
 
-- [ ] **Step 3: 加模型**
+- [x] **Step 3: 加模型**
 
 `chatapp/im/models.py` 末尾追加(模块 docstring 顺手把「聊天图片」改为「聊天媒体」):
 
@@ -195,7 +195,7 @@ class ChatVoice(models.Model):
 Run: `cd chatapp && python manage.py makemigrations im --name chatvoice`
 Expected: 生成 `chatapp/im/migrations/0002_chatvoice.py`。
 
-- [ ] **Step 4: 写转码模块**
+- [x] **Step 4: 写转码模块**
 
 `chatapp/im/voice.py`:
 
@@ -326,7 +326,7 @@ def normalize(raw: bytes, content_type: str, declared_ms: int) -> tuple[bytes, i
     return data, duration
 ```
 
-- [ ] **Step 5: 加配置、错误码、序列化器、限流、视图、路由**
+- [x] **Step 5: 加配置、错误码、序列化器、限流、视图、路由**
 
 `chatapp/config/settings.py`(限流额度块内,`CHAT_IMAGE_RATE` 下一行):
 
@@ -455,12 +455,12 @@ def upload_voice(request):
 
 `chatapp/im/urls.py` 加 `path("voices", views.upload_voice),`。
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test im -v 2`
 Expected: 全绿(含既有 60+ 用例)。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add chatapp/im chatapp/config
@@ -482,7 +482,7 @@ git commit -m "feat(im): 聊天语音上传与统一转码"
 - Consumes: Task 1 的 `ChatVoice` / `ChatVoiceStatus` / `signed_file_url`。
 - Produces: `GET /ops/chat-voices/`、`POST /ops/chat-voices/<id>/delete`;`im_media_cleanup` 覆盖语音。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `chatapp/im/tests.py` 追加:
 
@@ -562,12 +562,12 @@ class ChatVoiceOpsTests(TestCase):
         self.assertFalse(self.voice.file.storage.exists(self.voice.file.name))
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd chatapp && python manage.py test im.tests.ChatVoiceCleanupTests ops.tests.ChatVoiceOpsTests -v 2`
 Expected: FAIL(清理命令不认语音 / `/ops/chat-voices/` 404)。
 
-- [ ] **Step 3: 实现注销收集与清理**
+- [x] **Step 3: 实现注销收集与清理**
 
 `chatapp/users/services.py` 第 100 行附近 import 改为同时引入 `ChatVoice`,并在 `file_names` 处追加:
 
@@ -590,7 +590,7 @@ known |= set(ChatVoice.objects.values_list("file", flat=True))
 
 - 新增 `--voice-retention-days` 参数,默认 `settings.CHAT_VOICE_RETENTION_DAYS`(与现有 `--retention-days` 并列,不改后者语义)。
 
-- [ ] **Step 4: 实现 ops 抽审**
+- [x] **Step 4: 实现 ops 抽审**
 
 `chatapp/ops/views.py`(import 补 `ChatVoice`、`ChatVoiceStatus`):
 
@@ -649,12 +649,12 @@ def chat_voice_delete(request, voice_id):
 
 `report_detail.html` 在图片区块后加语音区块(最近 7 天,最多 10 条,同样 `<audio controls>`)。
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd chatapp && python manage.py test im ops users -v 2`
 Expected: 全绿。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add chatapp
@@ -677,7 +677,7 @@ git commit -m "feat(im): 语音注销清理与运营抽审"
 - Consumes: 客户端帧 `{kind:"voice", voice:{url,duration_ms,size}}`。
 - Produces: 推送/历史/会话 `last_message` 同形 `voice` 载荷,URL 已签名;`kind=4`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `imserver/tests/message_service_test.cpp` 追加(与现有 image 用例同款,`reset()` 在 `setUp` 里已由 fixture 处理):
 
@@ -736,12 +736,12 @@ TEST(MessageServiceTest, RejectsVoiceOutOfBounds) {
 
 `reset()` 与 `make_service()` 是文件里现成的帮助函数,照 image 用例的写法即可。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_integration.sh`
 Expected: 编译失败(`SendRequest` 无 `voice` 成员)。
 
-- [ ] **Step 3: 通用化签名**
+- [x] **Step 3: 通用化签名**
 
 `media_sign.h` 把 `sign_image` 换成:
 
@@ -771,7 +771,7 @@ void MediaSigner::sign_media(nlohmann::json& object,
 `frames.h` 的图片分支改为 `signer.sign_media(data["image"], {"url", "thumb_url"});`,
 `http_api.cpp` 同理;删掉 `sign_image` 声明与定义。
 
-- [ ] **Step 4: 实现 kind=4**
+- [x] **Step 4: 实现 kind=4**
 
 `message_service.h`:`SendRequest` 加 `nlohmann::json voice;`,注释 `// kind=4 的载荷`。
 
@@ -825,13 +825,13 @@ void MediaSigner::sign_media(nlohmann::json& object,
       signer.sign_media(data["voice"], {"url"});
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test.sh`
 Run: `docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_integration.sh`
 Expected: 全绿。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add imserver
@@ -851,7 +851,7 @@ git commit -m "feat(imserver): 语音消息 kind=4 与读时签名"
 **Interfaces:**
 - Produces: `ImClient.sendVoice({peerId, localPath, durationMs})`;`ChatMessage.voiceUrl` / `voiceDurationMs`;`ChatMessageKind.voice`;`ImCapabilities.voice`;`SelfVoiceUploader.upload(path, durationMs) -> ChatVoiceUpload`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/im/self_im_client_test.dart` 追加(沿用该文件既有的假 transport 与上传器写法):
 
@@ -884,12 +884,12 @@ test('sendVoice 上传后发 kind=voice 帧并在 ack 后返回语音消息', ()
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/im/self_im_client_test.dart`
 Expected: FAIL(`sendVoice` 未定义)。
 
-- [ ] **Step 3: 扩模型与接口**
+- [x] **Step 3: 扩模型与接口**
 
 `app/lib/im/im_client.dart`:
 
@@ -914,7 +914,7 @@ Expected: FAIL(`sendVoice` 未定义)。
     }
 ```
 
-- [ ] **Step 4: 上传器**
+- [x] **Step 4: 上传器**
 
 `app/lib/im/self_voice_uploader.dart`(照 `self_image_uploader.dart`):
 
@@ -972,7 +972,7 @@ class ApiVoiceUploader implements SelfVoiceUploader {
 }
 ```
 
-- [ ] **Step 5: SelfImClient 实现**
+- [x] **Step 5: SelfImClient 实现**
 
 - 构造参数加 `SelfVoiceUploader? voiceUploader`,字段 `_voiceUploader`;
 - `capabilities => const ImCapabilities(image: true, search: true, voice: true)`;
@@ -1003,7 +1003,7 @@ class ApiVoiceUploader implements SelfVoiceUploader {
 
 - `routing_im_client.dart` 加 `sendVoice` 转发;`tencent_im_client.dart` 不用写(继承默认抛错),但 `capabilities` 显式 `voice: false`(如未传默认值)。
 
-- [ ] **Step 6: 假客户端与测试辅助**
+- [x] **Step 6: 假客户端与测试辅助**
 
 `app/test/support/fake_im_client.dart`:构造参数加 `voiceCapability = true`,`capabilities` 带上;加
 
@@ -1017,12 +1017,12 @@ class ApiVoiceUploader implements SelfVoiceUploader {
   }
 ```
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/im`
 Expected: 全绿。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add app/lib/im app/test
@@ -1043,7 +1043,7 @@ git commit -m "feat(app): 语音消息数据层与上传器"
 - Consumes: Task 4 的 `sendVoice` / `ChatMessageKind.voice`。
 - Produces: `voiceRecorderProvider`(可注入假实现)、`voicePlayerProvider`、`VoiceBubble`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `app/test/features/chat/voice_bubble_test.dart`:
 
@@ -1082,12 +1082,12 @@ testWidgets('长按麦克风录音、松手发送语音', (tester) async {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/voice_bubble_test.dart`
 Expected: FAIL(找不到 `VoiceBubble`)。
 
-- [ ] **Step 3: 加依赖与权限**
+- [x] **Step 3: 加依赖与权限**
 
 `app/pubspec.yaml` dependencies 加:
 
@@ -1112,7 +1112,7 @@ Expected: 解析成功(若版本与 Flutter 3.47 冲突,取 pub 提示的最近�
 	<string>用于录制并发送语音消息</string>
 ```
 
-- [ ] **Step 4: 录音与播放抽象**
+- [x] **Step 4: 录音与播放抽象**
 
 `app/lib/im/voice_recorder.dart`:
 
@@ -1210,7 +1210,7 @@ final voicePlayerProvider = Provider<VoicePlayer>((ref) {
 });
 ```
 
-- [ ] **Step 5: 气泡**
+- [x] **Step 5: 气泡**
 
 `app/lib/features/chat/widgets/voice_bubble.dart`:
 
@@ -1285,7 +1285,7 @@ class _VoiceBubbleState extends ConsumerState<VoiceBubble> {
 }
 ```
 
-- [ ] **Step 6: 接进聊天页**
+- [x] **Step 6: 接进聊天页**
 
 `message_bubble.dart`:
 
@@ -1366,12 +1366,12 @@ onLongPressEnd: (_) => _finishRecording(),
 
 会话行:`chats_page.dart` 里 last message 文案处加 `ChatMessageKind.voice => '[语音]'`。
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test`
 Expected: analyze 零告警,测试全绿。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add app
@@ -1393,7 +1393,7 @@ git commit -m "feat(app): 按住说话录音、语音气泡与播放"
 - Consumes: Task 3 的 `kind=voice` 帧;Task 1 的 `/im/voices`。
 - Produces: `uploadChatVoice(blob, durationMs)`;`sendVoice(peerId, blob, durationMs)`;`MessageVoice.vue`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `web/tests/unit/im-voice.spec.ts`:
 
@@ -1427,12 +1427,12 @@ it('解析 voice 消息', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/unit/im-voice.spec.ts`
 Expected: FAIL(模块不存在)。
 
-- [ ] **Step 3: 类型与映射**
+- [x] **Step 3: 类型与映射**
 
 `types.ts`:枚举加 `voice = 'voice'`;`ChatMessage` 加 `voiceUrl: string | null`、`voiceDurationMs: number`;`ImCapabilities` 加 `voice: boolean`;`ImClient` 加 `sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage>`。
 
@@ -1444,7 +1444,7 @@ Expected: FAIL(模块不存在)。
 
 `web/src/stores/chat.ts`:两处能力位同步加 `voice`——`const capabilities = ref<ImCapabilities>({ image: false, search: false, voice: false })` 与退出时的 `capabilities.value = { image: false, search: false, voice: false }`。
 
-- [ ] **Step 4: 录音与上传**
+- [x] **Step 4: 录音与上传**
 
 `web/src/im/self/voice.ts`:
 
@@ -1508,7 +1508,7 @@ export async function uploadChatVoice(blob: Blob, durationMs: number): Promise<U
 
 构造参数加 `private readonly uploadVoice = uploadChatVoice`。
 
-- [ ] **Step 5: 播放器与气泡**
+- [x] **Step 5: 播放器与气泡**
 
 `web/src/im/voicePlayer.ts`:
 
@@ -1535,7 +1535,7 @@ export function stopVoice(): void {
 `MessageBubble.vue`:加 `const isVoice = computed(() => props.message.kind === ChatMessageKind.voice)`,
 模板加 `<MessageVoice v-if="isVoice" :message="props.message" />`。
 
-- [ ] **Step 6: 聊天页录音交互**
+- [x] **Step 6: 聊天页录音交互**
 
 `ChatPage.vue`:
 
@@ -1565,12 +1565,12 @@ async function sendVoice(peerId: string, blob: Blob, durationMs: number): Promis
 
 会话行 `ChatsPage.vue` 的摘要:加 `voice => '[语音]'`。
 
-- [ ] **Step 7: 跑测试与静态检查**
+- [x] **Step 7: 跑测试与静态检查**
 
 Run: `cd web && npm run type-check && npm run lint && npm run test:run`
 Expected: 零错误、零告警、全绿(覆盖率门槛 `npm run test:coverage` 也要过)。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add web
@@ -1590,7 +1590,7 @@ git commit -m "feat(web): 语音录制、上传、播放与气泡"
 **Interfaces:**
 - 无代码产出;`ApiDocsCoverageTests` 双向门禁必须绿。
 
-- [ ] **Step 1: 补接口文档**
+- [x] **Step 1: 补接口文档**
 
 `docs/api/im.md` 新增一节,信息行格式与现有接口一致:
 
@@ -1605,12 +1605,12 @@ git commit -m "feat(web): 语音录制、上传、播放与气泡"
 
 `docs/api/README.md` 的总数改成 **43**,并在分册索引里补一条。
 
-- [ ] **Step 2: 跑文档门禁**
+- [x] **Step 2: 跑文档门禁**
 
 Run: `cd chatapp && python manage.py test im.tests.ApiDocsCoverageTests -v 2`
 Expected: PASS(若失败,按提示补/删条目)。
 
-- [ ] **Step 3: 补踩坑与部署文档**
+- [x] **Step 3: 补踩坑与部署文档**
 
 `docs/pitfalls/im.md` 追加两条:
 - 「语音上传 503」= 服务器没装 ffmpeg/ffprobe(`which ffmpeg` 验证,宝塔软件商店安装);
@@ -1619,12 +1619,12 @@ Expected: PASS(若失败,按提示补/删条目)。
 `docs/ops/imserver.md` 的部署核对单加:安装 ffmpeg、`ffprobe -version`、灰度手测清单
 (Web→App 播放、上滑取消、60s 上限、ops 试听)。
 
-- [ ] **Step 4: 更新 CLAUDE.md**
+- [x] **Step 4: 更新 CLAUDE.md**
 
 - 接口表加 `POST /im/voices`;
 - 「下一步」段落改成:语音消息已交付,剩余上线切换与配置项(保留原文其余待办)。
 
-- [ ] **Step 5: 全量验证**
+- [x] **Step 5: 全量验证**
 
 ```bash
 cd chatapp && python manage.py test
@@ -1636,7 +1636,7 @@ docker compose -f ../imserver/docker-compose.test.yml run --rm test bash /src/sc
 
 Expected: 四端全绿;任何红先修再提交。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add docs CLAUDE.md
@@ -1650,3 +1650,16 @@ git commit -m "docs(im): 语音消息接口、踩坑与部署核对"
 - 服务器按 `docs/ops/imserver.md` 装 ffmpeg、重建 imserver 镜像、跑灰度 7/8 手测;
 - 语音与图片一并记为「无机器审核 → 上线阻断项」;
 - 探针加「语音可用」检查项(记待办,不阻塞本期)。
+
+---
+
+## 执行记录(2026-10-27)
+
+- 7 个任务全部完成;四端验证:后端全量 499 测试绿、App `analyze` 零告警 + 405 测试、Web `type-check`/`lint` 零错误零告警 + 369 测试(覆盖率 80.06/75.5/75.73/82.44)、imserver unit 20 + db 15。
+- 迁移实际编号是 **`0003_chatvoice`**(搜索功能已占用 `0002`)。
+- 本地开发机没有 ffmpeg,上传用例全部用 mock 覆盖;真机/服务器手测前必须先装(见 `docs/ops/imserver.md` §13)。
+- 与计划的偏差:
+  1. App 录音临时文件**不主动删除**:发送后仍保留本地文件,发送中/离线时可直接播放;系统临时目录由 OS 回收。
+  2. Web 端「重发」支持语音(缓存 Blob),计划里只写了文本/图片。
+  3. App 语音气泡最小宽度从 60 调到 96(60 会挤压图标 + 秒数,测试报 RenderFlex overflow)。
+- 服务器手测待办:装 ffmpeg → `migrate` → 重建 imserver 镜像 → Web↔App 互发语音 → ops 试听与删除。

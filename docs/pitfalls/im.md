@@ -105,3 +105,11 @@ print('done', len(ids))
 - **nginx `alias` 会吃掉 location 前缀(2026-10-26 部署实测)**:`location ^~ /media/chat/ { alias .../media/; }` 会把 `/media/chat/` 整段替换掉,实际去找 `media/2026/10/x.jpg` —— 验签通过但 404。alias 必须写成 `.../media/chat/`。另外别用 `sed s#media/#media/chat/#` 批量替换:通用 `location ^~ /media/` 的 alias 会被一起改掉,用户头像与广场图立刻全 404。
 - **上传落盘路径别重复拼 `chat/年/月`(2026-10-26 部署实测)**:`ChatImage.file` 的 `upload_to` 已经是 `chat/%Y/%m/`,视图里再传 `chat/{month}/{stem}.jpg` 会落成 `media/chat/2026/10/chat/2026/10/x.jpg`;测试只断言了前缀所以没红。正确写法是只给文件名,并用 `assertRegex(image.file.name, r"^chat/\d{4}/\d{2}/...")` 兜住。
 
+## 聊天语音(2026-10-27)
+
+- **语音上传 503 + `50302` = 服务器没装 ffmpeg**:`shutil.which("ffmpeg")` 或 `ffprobe` 任一缺失就 fail closed(不静默降级,避免 Web 的 webm 存进去后 iOS 播不了)。先 `ffmpeg -version && ffprobe -version`;宝塔软件商店或 `apt install ffmpeg` 安装后无需重启 Django。
+- **语音文件被当孤儿删掉**:`im_media_cleanup` 的孤儿扫描以「库里 known 集合」判断,新增语音后**必须**把 `ChatVoice.file` 并进 `known`;漏了会在 24 小时宽限期后把正常语音全删掉(图片已有同款坑)。`test_orphan_scan_keeps_known_voice` 专门兜这个。
+- **统一转 m4a 是跨端播放的前提**:Chrome/Firefox 的 `MediaRecorder` 出 webm/opus,iOS 的 AVPlayer 播不了;服务端 ffmpeg 统一转 AAC 后存储格式唯一。**不要**改成「原样存」——Web→App 的语音会静默无声。
+- **时长以 ffprobe 为准**:客户端 `duration_ms` 只用来交叉校验(差 >2 秒拒绝),否则改个请求就能把 10 分钟音频塞进来。App 的 `record` 与 Web 的 `performance.now()` 在正常路径上都只差几百毫秒。
+- **`upload_to` 已含 `chat/voices/%Y/%m/`**:与图片一样,保存时只传文件名,否则会落成嵌套的 `chat/voices/2026/10/chat/voices/2026/10/...`。
+
