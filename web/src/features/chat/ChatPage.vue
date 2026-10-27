@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppAvatar from '@/components/AppAvatar.vue'
 import AppButton from '@/components/AppButton.vue'
 import AppInput from '@/components/AppInput.vue'
@@ -21,6 +21,13 @@ const props = defineProps<{ peerId: string }>()
 const store = useChatStore()
 const discovery = useDiscoveryStore()
 const router = useRouter()
+const route = useRoute()
+/** 搜索命中带过来的定位目标(见 SearchPage) */
+const focusId = typeof route.query.focus === 'string' ? route.query.focus : ''
+const hitId = ref('')
+let highlightTimer: ReturnType<typeof setTimeout> | undefined
+/** 定位过程中禁止「自动滚到底」,否则刚滚到的位置会被拉回最新一条 */
+let focusing = false
 // 能力位取 store(连上之后才有真值);直接读 getImClient().capabilities 会永远是兜底 false
 const imageEnabled = computed(() => store.capabilities.image)
 const draft = ref('')
@@ -123,6 +130,34 @@ async function scrollToBottom() {
   if (element) element.scrollTop = element.scrollHeight
 }
 
+/** 在已渲染的气泡里按 msgId 找元素(不用 CSS.escape,msgId 里可能有特殊字符)。 */
+function messageElement(msgId: string): HTMLElement | null {
+  const root = scroller.value
+  if (!root) return null
+  return (
+    Array.from(root.querySelectorAll<HTMLElement>('[data-msg-id]')).find(
+      (item) => item.dataset.msgId === msgId,
+    ) ?? null
+  )
+}
+
+/** 从搜索结果进聊天页:往前翻到目标消息 → 滚到中间 → 高亮 1.5s。 */
+async function focusMessage(msgId: string): Promise<void> {
+  focusing = true
+  try {
+    await store.loadOlder(props.peerId, msgId).catch(() => {})
+    await nextTick()
+    const element = messageElement(msgId)
+    if (!element) return
+    element.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    hitId.value = msgId
+    clearTimeout(highlightTimer)
+    highlightTimer = setTimeout(() => (hitId.value = ''), 1500)
+  } finally {
+    focusing = false
+  }
+}
+
 onMounted(async () => {
   // 深链直接进聊天页时,IM 可能还没连(connect 幂等,已在连/已连会直接返回)
   await store.connect().catch(() => {})
@@ -131,8 +166,12 @@ onMounted(async () => {
   // 会话列表里没有这个人(例如从配对列表点进来)→ 先拉一次,免得标题只剩 u41
   if (!conversation.value) await store.loadConversations().catch(() => {})
   await store.openConversation(props.peerId).catch(() => {})
-  await scrollToBottom()
+  // 带 focus 时不滚到底:直接定位到命中的那条
+  if (focusId) await focusMessage(focusId)
+  else await scrollToBottom()
 })
+
+onUnmounted(() => clearTimeout(highlightTimer))
 
 watch(
   () => props.peerId,
@@ -145,7 +184,9 @@ watch(
 
 watch(
   () => messages.value.length,
-  () => void scrollToBottom(),
+  () => {
+    if (!focusing) void scrollToBottom()
+  },
 )
 
 async function onSend() {
@@ -239,6 +280,7 @@ async function onPickImage(event: Event) {
           :peer-name="peerName"
           :peer-avatar="peerAvatar"
           :local-file="localFiles[row.message.msgId] ?? null"
+          :hit="row.message.msgId === hitId"
           @retry="onRetry(row.message)"
           @open-image="onOpenImage"
           @menu="openMenu(row.message, $event)"
@@ -419,3 +461,7 @@ async function onPickImage(event: Event) {
   font-size: var(--text-badge);
 }
 </style>
+
+
+
+
