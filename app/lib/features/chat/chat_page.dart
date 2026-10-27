@@ -623,8 +623,13 @@ class _InputBarState extends ConsumerState<_InputBar> {
     }
     final path = await recorder.stop();
     if (path == null || durationMs < 1000) {
-      if (path != null) await recorder.cancel();
-      if (mounted) AppToast.show(context, '说话时间太短');
+      // 停止后再 cancel 只是为了删掉临时文件;插件实现可能报「已停止」,忽略即可
+      try {
+        await recorder.cancel();
+      } catch (_) {}
+      if (mounted) {
+        AppToast.show(context, path == null ? '录音失败,请重试' : '说话时间太短');
+      }
       return;
     }
     widget.onSendVoice(path, durationMs);
