@@ -33,7 +33,7 @@
 **Interfaces:**
 - Produces: `std::string like_pattern(const std::string& keyword)` → `%<escaped>%`；`std::string escape_like(const std::string&)`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 // imserver/tests/like_test.cpp
@@ -57,12 +57,12 @@ TEST(LikeTest, KeepsPlainTextUntouched) {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd imserver && docker compose -f docker-compose.test.yml run --rm test bash -c "cmake -S /src -B /src/build -G Ninja -DCMAKE_BUILD_TYPE=Debug >/dev/null && cmake --build /src/build 2>&1 | tail -20"`
 Expected: 编译失败 `util/like.h: No such file or directory`
 
-- [ ] **Step 3: 实现 `imserver/src/util/like.h`**
+- [x] **Step 3: 实现 `imserver/src/util/like.h`**
 
 ```cpp
 #pragma once
@@ -91,7 +91,7 @@ inline std::string like_pattern(const std::string& keyword) {
 }
 ```
 
-- [ ] **Step 4: 把测试加进构建**
+- [x] **Step 4: 把测试加进构建**
 
 `imserver/tests/CMakeLists.txt` 的 `add_executable(im_unit_tests ...)` 里追加 `like_test.cpp`：
 
@@ -100,12 +100,12 @@ add_executable(im_unit_tests config_test.cpp token_test.cpp ratelimit_test.cpp h
                              media_sign_test.cpp like_test.cpp)
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd imserver && docker compose -f docker-compose.test.yml run --rm test bash -c "cmake -S /src -B /src/build -G Ninja >/dev/null && cmake --build /src/build >/dev/null && /src/build/im_unit_tests --gtest_filter='LikeTest.*'"`
 Expected: `[  PASSED  ] 3 tests.`
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add imserver/src/util/like.h imserver/tests/like_test.cpp imserver/tests/CMakeLists.txt
@@ -123,7 +123,7 @@ git commit -m "feat(imserver): LIKE 关键词转义工具"
 **Interfaces:**
 - Produces: schema v2；`im_conversation` 新增 `idx_user_b`。后续任务依赖「`OR user_b = ?` 能走索引」，但不依赖具体索引名。
 
-- [ ] **Step 1: 写迁移文件**
+- [x] **Step 1: 写迁移文件**
 
 ```sql
 -- imserver/migrations/002_search_index.sql
@@ -131,7 +131,7 @@ git commit -m "feat(imserver): LIKE 关键词转义工具"
 ALTER TABLE im_conversation ADD KEY idx_user_b (user_b);
 ```
 
-- [ ] **Step 2: 改 `run_migrations` 为按版本表循环**
+- [x] **Step 2: 改 `run_migrations` 为按版本表循环**
 
 把 `imserver/src/migrate.cpp` 的 `run_migrations` 整体替换为：
 
@@ -175,7 +175,7 @@ void run_migrations(const Config& cfg) {
 
 > 注意：原有的匿名 namespace 已在文件顶部，新增的 `Migration`/`kMigrations` 要放进**已有的**那个匿名 namespace（或就近再开一个，但 `run_migrations` 之前必须可见）。
 
-- [ ] **Step 3: 在测试库上跑两遍迁移，验证幂等**
+- [x] **Step 3: 在测试库上跑两遍迁移，验证幂等**
 
 Run:
 ```bash
@@ -187,7 +187,7 @@ mysql -h$IM_MYSQL_HOST -u$IM_MYSQL_USER -p$IM_MYSQL_PASSWORD $IM_MYSQL_DATABASE 
 （若测试镜像里 `imserver` 二进制路径不同，先按 `scripts/test.sh` 的方式 `cmake --build` 一次。）
 Expected: 两遍都输出 `migrated version=2`（第二遍 `skipped=true`），最后一行能看到 `idx_user_b`。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add imserver/migrations/002_search_index.sql imserver/src/migrate.cpp
@@ -210,7 +210,7 @@ git commit -m "feat(imserver): 迁移器按版本表循环 + v2 会话 user_b �
   - `std::vector<MessageRow> MessageRepo::search(uint64_t uid, const std::string& keyword, uint64_t before_id, int limit)`
   - `std::vector<MessageRow> MessageService::search(uint64_t uid, const std::string& keyword, uint64_t before_id, int limit)`
 
-- [ ] **Step 1: 写失败测试（DB 级）**
+- [x] **Step 1: 写失败测试（DB 级）**
 
 在 `imserver/tests/message_service_test.cpp` 末尾追加（该文件已有 `MakeService()` 之类的夹具就先复用，没有就按下面写）：
 
@@ -265,12 +265,12 @@ TEST(MessageServiceSearchTest, FindsOnlyMyUndeletedUnrevokedText) {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd imserver && docker compose -f docker-compose.test.yml run --rm test bash -c "cmake -S /src -B /src/build -G Ninja >/dev/null && cmake --build /src/build 2>&1 | tail -5"`
 Expected: 编译失败 `no member named 'search' in 'MessageService'`
 
-- [ ] **Step 3: 实现 repo 查询**
+- [x] **Step 3: 实现 repo 查询**
 
 `message_repo.h` 增加：
 
@@ -354,7 +354,7 @@ std::vector<MessageRow> MessageRepo::search(MysqlPool::Lease& lease, uint64_t ui
 
 **二选一，不要两种都留**：`Stmt` 有读接口就用 prepared statement（推荐，免拼串）；没有就用上面的 `lease.query` 版本，并在 `message_repo.cpp` 顶部保留 `#include "util/like.h"`。
 
-- [ ] **Step 4: 实现 service 转发**
+- [x] **Step 4: 实现 service 转发**
 
 `message_service.h` 在 `list_messages` 后加声明：
 
@@ -373,12 +373,12 @@ std::vector<MessageRow> MessageService::search(uint64_t uid, const std::string& 
 }
 ```
 
-- [ ] **Step 5: 跑 DB 测试确认通过**
+- [x] **Step 5: 跑 DB 测试确认通过**
 
 Run: `cd imserver && docker compose -f docker-compose.test.yml run --rm test bash -c "cmake -S /src -B /src/build -G Ninja >/dev/null && cmake --build /src/build >/dev/null && /src/build/im_db_tests --gtest_filter='MessageServiceSearchTest.*'"`
 Expected: `[  PASSED  ] 1 test.`
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add imserver/src/store/message_repo.h imserver/src/store/message_repo.cpp \
@@ -400,7 +400,7 @@ git commit -m "feat(imserver): 消息关键词搜索查询(会话/撤回/拉黑/
 - Consumes: `MessageService::search`（Task 3）、`message_json` / `peer_id`（已有）。
 - Produces: HTTP 契约 `GET /im/api/search?q&limit&before_id` → `{"items":[…],"has_more":bool}`；错误 `40101/42201/42901/50001`。
 
-- [ ] **Step 1: 写失败测试（集成）**
+- [x] **Step 1: 写失败测试（集成）**
 
 ```python
 # imserver/tests/integration/test_search.py
@@ -517,12 +517,12 @@ async def main():
 asyncio.run(main())
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd imserver && docker compose -f docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh`
 Expected: `test_search.py` 报 `HTTP Error 404`（接口还没实现）
 
-- [ ] **Step 3: 实现 URL 解码与 trim（`http_api.cpp` 匿名 namespace）**
+- [x] **Step 3: 实现 URL 解码与 trim（`http_api.cpp` 匿名 namespace）**
 
 ```cpp
 int hex_value(char c) {
@@ -564,7 +564,7 @@ std::string trim_ascii(const std::string& input) {
 }
 ```
 
-- [ ] **Step 4: 限流成员（`http_api.h`）**
+- [x] **Step 4: 限流成员（`http_api.h`）**
 
 ```cpp
 #include <mutex>
@@ -599,7 +599,7 @@ bool HttpApi::allow_search(uint64_t uid, int64_t now_ms) {
 }
 ```
 
-- [ ] **Step 5: 路由放行 + 处理**
+- [x] **Step 5: 路由放行 + 处理**
 
 `route()` 里把路径白名单扩到三个：
 
@@ -653,7 +653,7 @@ bool HttpApi::allow_search(uint64_t uid, int64_t now_ms) {
   }
 ```
 
-- [ ] **Step 6: 接进 `test_http.sh`**
+- [x] **Step 6: 接进 `test_http.sh`**
 
 在 `python3 /src/tests/integration/test_image.py` 之后加一行：
 
@@ -661,12 +661,12 @@ bool HttpApi::allow_search(uint64_t uid, int64_t now_ms) {
 python3 /src/tests/integration/test_search.py
 ```
 
-- [ ] **Step 7: 跑全量 http 集成测试**
+- [x] **Step 7: 跑全量 http 集成测试**
 
 Run: `cd imserver && docker compose -f docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh`
 Expected: 四个 python 集成脚本全过（无 traceback，退出码 0）。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add imserver/src/net/http_api.h imserver/src/net/http_api.cpp \
@@ -685,21 +685,21 @@ git commit -m "feat(imserver): GET /im/api/search 关键词搜索接口与限流
 
 **Interfaces:** 无代码产出；后续任务不改文档。
 
-- [ ] **Step 1: `docs/api/im.md` 追加 6.4**
+- [x] **Step 1: `docs/api/im.md` 追加 6.4**
 
 按 6.2 的排版写：接口描述（自建后端专用，base = `user_sig.http_url`）、请求参数表（q/limit/before_id）、响应参数表（items 各字段 + peer）、请求示例（curl 带 `--data-urlencode`）、响应示例、错误码表（401/422/429/500）。
 
-- [ ] **Step 2: 设计 spec 补接口与错误码**
+- [x] **Step 2: 设计 spec 补接口与错误码**
 
 §6 的 HTTP 接口表加一行 `GET /im/api/search`；错误码表确认 `42901` 一行覆盖「发送过快/搜索过于频繁」。
 
-- [ ] **Step 3: ops 手册补三段**
+- [x] **Step 3: ops 手册补三段**
 
 1. 升级步骤：`docker compose run --rm imserver --migrate`（**v2 索引**）→ `up -d`；
 2. 搜索限流 60 次/分钟；
 3. 已知限制：LIKE 扫描，十万级消息后换 FULLTEXT/ES。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add docs/api/im.md docs/superpowers/specs/2026-10-20-self-hosted-im-design.md docs/ops/imserver.md
@@ -724,7 +724,7 @@ git commit -m "docs(im): 聊天记录搜索接口与运维说明"
   - `ImClient.fetchHistory(String peerId, {int count = 50, int? beforeSeq})`
   - `ChatMessage.seq`（默认 0）
 
-- [ ] **Step 1: 写失败测试（self client 的 HTTP 参数）**
+- [x] **Step 1: 写失败测试（self client 的 HTTP 参数）**
 
 `app/test/im/self_im_client_test.dart` 里按现有假 `SelfHttpClient` 的写法追加：
 
@@ -769,12 +769,12 @@ git commit -m "docs(im): 聊天记录搜索接口与运维说明"
 
 （`_RecordingHttp` 就是测试文件里现有的假 HTTP 客户端；没有就照 `SelfHttpClient` 接口写一个，把每次 `get(path, query)` 记成 `'$path?${Uri(queryParameters: query).query}'`。）
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/im/self_im_client_test.dart`
 Expected: 编译失败 `The method 'searchMessages' isn't defined`
 
-- [ ] **Step 3: 改 `im_client.dart`**
+- [x] **Step 3: 改 `im_client.dart`**
 
 ```dart
 class ImCapabilities {
@@ -824,11 +824,11 @@ class ImSearchResult {
   Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50, int? beforeSeq});
 ```
 
-- [ ] **Step 4: 改 `self_im_client.dart`**
+- [x] **Step 4: 改 `self_im_client.dart`**
 
 `fetchHistory` 加参数并带 `before_seq`；新增 `searchMessages`（见规格 §5.1，字段映射到 `ImSearchHit`）；`_messageFromJson` 增加 `seq: (json['seq'] as num?)?.toInt() ?? 0`；`capabilities` 改为 `const ImCapabilities(image: true, search: true)`。
 
-- [ ] **Step 5: 改腾讯与路由客户端**
+- [x] **Step 5: 改腾讯与路由客户端**
 
 - `tencent_im_client.dart`：`capabilities => const ImCapabilities(image: true)`（search 默认 false）；`fetchHistory` 签名加 `{int? beforeSeq}` 但忽略。
 - `routing_im_client.dart`：`capabilities` 兜底 `const ImCapabilities(image: false)` 不变；`fetchHistory` 透传 `beforeSeq`；新增
@@ -839,7 +839,7 @@ class ImSearchResult {
       Future.error(const ImException(42202, '当前聊天服务暂不支持搜索'));
   ```
 
-- [ ] **Step 6: 扩展假客户端**
+- [x] **Step 6: 扩展假客户端**
 
 `app/test/support/fake_im_client.dart`：`fetchHistory` 加 `int? beforeSeq`；新增字段
 
@@ -865,12 +865,12 @@ class ImSearchResult {
   }
 ```
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test test/im`
 Expected: `No issues found!` + 全部通过
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add app/lib/im app/test/im app/test/support/fake_im_client.dart
@@ -890,7 +890,7 @@ git commit -m "feat(app): IM 搜索能力位、searchMessages 与消息 seq"
 - Consumes: `ImClient.searchMessages`、`ImSearchHit`（Task 6）；`AppSubPageBar`、`AppAvatar`、`AppEmptyState`、`AppErrorView`、`AppSkeleton`、`AppText`/`AppColors`/`AppSpacing`。
 - Produces: 路由名 `/search`；结果行 key `search.hit:<msgId>`、输入框 key `search.input`、加载更多 key `search.more`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```dart
 // app/test/features/chat/search_page_test.dart
@@ -940,12 +940,12 @@ void main() {
     await tester.enterText(find.byKey(const Key('search.input')), '火锅');
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/search_page_test.dart`
 Expected: 编译失败 `search_page.dart: No such file`
 
-- [ ] **Step 3: 实现 `search_page.dart`**
+- [x] **Step 3: 实现 `search_page.dart`**
 
 要点（完整实现按此结构写）：
 
@@ -1025,7 +1025,7 @@ ListTile(
 
 底部「加载更多」：`if (_hasMore) TextButton(key: const Key('search.more'), onPressed: () => _run(_keyword, append: true), child: const Text('加载更多'))`。
 
-- [ ] **Step 4: 挂路由与入口**
+- [x] **Step 4: 挂路由与入口**
 
 `router.dart`：import `search_page.dart`，在 `/chat/:peerId` 后加
 
@@ -1044,12 +1044,12 @@ ListTile(
               ),
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/search_page_test.dart test/features/chat/chats_page_test.dart && ../flutter/bin/flutter.bat analyze`
 Expected: 全过 + `No issues found!`
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add app/lib/features/chat/search_page.dart app/lib/router.dart \
@@ -1072,7 +1072,7 @@ git commit -m "feat(app): 聊天记录搜索页与消息页入口"
 - Consumes: `ChatMessage.seq`、`ImClient.fetchHistory(beforeSeq:)`。
 - Produces: `ChatController.loadOlder({required String untilMsgId, int maxPages = 5})`；`ChatPage({required String peerId, String? focusMsgId})`；高亮 key `chat.highlight:<msgId>`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `chat_page_test.dart` 追加：
 
@@ -1099,12 +1099,12 @@ git commit -m "feat(app): 聊天记录搜索页与消息页入口"
 > 假客户端要支持按 `beforeSeq` 返回不同页：给 `FakeImClient` 加
 > `Map<String, Map<int, List<ChatMessage>>> olderHistory`，`fetchHistory` 在 `beforeSeq != null` 时返回 `olderHistory[peerId]?[beforeSeq] ?? const []`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
 Expected: 失败（没有 `chat.highlight:*`）
 
-- [ ] **Step 3: `ChatController.loadOlder`**
+- [x] **Step 3: `ChatController.loadOlder`**
 
 ```dart
   /// 往前翻历史,直到找到 [untilMsgId](或翻到顶 / 到页数上限)。
@@ -1126,7 +1126,7 @@ Expected: 失败（没有 `chat.highlight:*`）
   }
 ```
 
-- [ ] **Step 4: `ChatPage` 定位与高亮**
+- [x] **Step 4: `ChatPage` 定位与高亮**
 
 ```dart
 class ChatPage extends ConsumerStatefulWidget {
@@ -1200,7 +1200,7 @@ class ChatPage extends ConsumerStatefulWidget {
       ),
 ```
 
-- [ ] **Step 5: `MessageBubble` 支持高亮**
+- [x] **Step 5: `MessageBubble` 支持高亮**
 
 ```dart
 class MessageBubble extends StatelessWidget {
@@ -1223,12 +1223,12 @@ class MessageBubble extends StatelessWidget {
     );
 ```
 
-- [ ] **Step 6: 跑测试确认通过**
+- [x] **Step 6: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat && ../flutter/bin/flutter.bat analyze`
 Expected: 全过 + 零告警
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add app/lib/features/chat/chat_controller.dart app/lib/features/chat/chat_page.dart \
@@ -1249,17 +1249,17 @@ git commit -m "feat(app): 聊天页按 focus 回溯历史并高亮命中消息"
 **Interfaces:**
 - Produces: `ImSearchHit`、`ImSearchResult`、`ImCapabilities.search`、`ImClient.searchMessages`、`ImClient.fetchHistory(peerId, count?, beforeSeq?)`、`ChatMessage.seq`、`useChatStore().loadOlder(peerId, untilMsgId)`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 `web/tests/unit/im-self.spec.ts` 追加：注入假 transport + 桩 `fetch`，断言 `searchMessages` 打到 `/im/api/search?q=…&limit=20` 并映射出 `ImSearchHit`。
 `web/tests/unit/chat-store.spec.ts` 追加：`loadOlder` 用 `beforeSeq` 调 `fetchHistory` 并合并去重。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/unit/im-self.spec.ts`
 Expected: TS 报 `searchMessages` 不存在
 
-- [ ] **Step 3: 类型与实现**
+- [x] **Step 3: 类型与实现**
 
 `types.ts`：
 
@@ -1342,12 +1342,12 @@ export interface ImSearchResult {
 
 （`return` 出去时把 `loadOlder` 加进 store 的 return 对象。）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd web && npm run test:run -- tests/unit/im-self.spec.ts tests/unit/chat-store.spec.ts && npm run type-check`
 Expected: 全过 + 零 TS 错误
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/im web/src/stores/chat.ts web/tests/unit
@@ -1367,14 +1367,14 @@ git commit -m "feat(web): IM 搜索能力位与 searchMessages/loadOlder"
 - Consumes: `useChatStore` / `getImClient().searchMessages`（Task 9）。
 - Produces: 路由 `search`（`/search`）；DOM 钩子 `.search__hit`、`[data-msg-id]`、`.search__more`。
 
-- [ ] **Step 1: 写失败测试**（挂载页面 + 假 client，断言防抖后渲染命中、点击跳 `/chat/u9?focus=42`、空态）
+- [x] **Step 1: 写失败测试**（挂载页面 + 假 client，断言防抖后渲染命中、点击跳 `/chat/u9?focus=42`、空态）
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/component/search-page.spec.ts`
 Expected: 找不到模块
 
-- [ ] **Step 3: 实现页面**
+- [x] **Step 3: 实现页面**
 
 结构：`<section class="search">` → 头部（返回 `RouterLink` 到 `chats` + `AppInput` 搜索框，`v-model` + `watch` 300ms 防抖）→ 结果区（骨架 / `AppErrorView` / `AppEmpty` / `ul.search__list`）。每行：
 
@@ -1394,17 +1394,17 @@ Expected: 找不到模块
 
 `highlight()` 先 `escapeHtml` 再包 `<mark>`（**必须先转义**，否则搜索结果就是 XSS 面）；关键词里的正则元字符要转义。
 
-- [ ] **Step 4: 路由与入口**
+- [x] **Step 4: 路由与入口**
 
 `routes.ts` 在 `chat` 前加 `{ path: '/search', name: 'search', component: () => import('@/features/chat/SearchPage.vue') }`；
 `ChatsPage.vue` 标题行加按钮（`v-if="searchEnabled"`，`@click="router.push({name:'search'})"`，`aria-label="搜索聊天记录"`）。
 
-- [ ] **Step 5: 跑测试与检查**
+- [x] **Step 5: 跑测试与检查**
 
 Run: `cd web && npm run test:run -- tests/component/search-page.spec.ts tests/unit/routes-resolve.spec.ts && npm run type-check && npm run lint`
 Expected: 全过；`routes-resolve` 若断言了路由清单，同步补 `search`。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add web/src/features/chat/SearchPage.vue web/src/router/routes.ts \
@@ -1424,14 +1424,14 @@ git commit -m "feat(web): 聊天记录搜索页与消息页入口"
 - Consumes: `useChatStore().loadOlder`、`route.query.focus`。
 - Produces: 命中气泡 `data-msg-id` 与 `.chat__bubble--hit` 类（高亮 1.5s）。
 
-- [ ] **Step 1: 写失败测试**：假 client 最近一页不含目标、`fetchHistory(peer, 50, seq)` 返回目标页 → 挂载 `ChatPage` 且 `route.query.focus='target'` → `await flushPromises()` → 断言 `[data-msg-id="target"]` 带 `chat__bubble--hit`。
+- [x] **Step 1: 写失败测试**：假 client 最近一页不含目标、`fetchHistory(peer, 50, seq)` 返回目标页 → 挂载 `ChatPage` 且 `route.query.focus='target'` → `await flushPromises()` → 断言 `[data-msg-id="target"]` 带 `chat__bubble--hit`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/component/chat-page.spec.ts`
 Expected: 找不到 `chat__bubble--hit`
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 ```ts
 const route = useRoute()
@@ -1455,12 +1455,12 @@ async function focusMessage(msgId: string): Promise<void> {
 
 `MessageBubble` 透传 `:hit="row.message.msgId === hitId"`，组件里 `:data-msg-id="message.msgId"` 与 `class="message__bubble--hit"`（样式：主色 8% 底，300ms 过渡）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd web && npm run test:run -- tests/component/chat-page.spec.ts && npm run type-check && npm run lint`
 Expected: 全过
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/features/chat/ChatPage.vue web/src/features/chat/MessageBubble.vue \
@@ -1472,31 +1472,31 @@ git commit -m "feat(web): 聊天页按 focus 回溯历史并高亮命中消息"
 
 ### Task 12: 全量回归与收尾
 
-- [ ] **Step 1: imserver 全量**
+- [x] **Step 1: imserver 全量**
 
 Run: `cd imserver && docker compose -f docker-compose.test.yml run --rm test bash /src/scripts/test.sh`
 Expected: unit / db / http 全绿（含 `test_search.py`）
 
-- [ ] **Step 2: App 全量**
+- [x] **Step 2: App 全量**
 
 Run: `cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test`
 Expected: 零告警 + 全部通过（新增用例计入总数）
 
-- [ ] **Step 3: Web 全量**
+- [x] **Step 3: Web 全量**
 
 Run: `cd web && npm run type-check && npm run lint && npm run test:coverage`
 Expected: 零错误/零告警/覆盖率过门槛
 
-- [ ] **Step 4: 后端全量**（本次未改 Django，但按纪律跑一遍确认没被误伤）
+- [x] **Step 4: 后端全量**（本次未改 Django，但按纪律跑一遍确认没被误伤）
 
 Run: `cd chatapp && python manage.py test`
 Expected: 全绿
 
-- [ ] **Step 5: 更新 CLAUDE.md 的「下一步」段落**
+- [x] **Step 5: 更新 CLAUDE.md 的「下一步」段落**
 
 加一句：聊天记录搜索已交付（`GET /im/api/search`，App/Web 双端定位），并保留「切换日观察 + 配置」为待办。
 
-- [ ] **Step 6: 提交并记录**
+- [x] **Step 6: 提交并记录**
 
 ```bash
 git add -A
@@ -1510,3 +1510,16 @@ git commit -m "docs: 聊天记录搜索交付记录"
 - 规格覆盖：§4 服务端（Task 1–4）、§5.1 能力位与接口（Task 6/9）、§5.2 搜索页（Task 7/10）、§5.3 定位（Task 8/11）、§6 错误码（Task 4）、§7 测试（各任务 + Task 12）、§8 文档（Task 5）。
 - 类型一致性：`ImSearchHit`/`ImSearchResult` 在 Task 6 与 Task 9 字段同名同序；`beforeSeq`（App/Web 客户端）与 `before_seq`（HTTP 参数）对应关系在 Task 3/4 明确；`ChatMessage.seq` 两端都加。
 - 已知待定：`Stmt` 是否提供读结果接口需在执行时确认（Task 3 Step 3 给了两条互斥路径，不构成占位符）。
+
+---
+
+---
+
+## 执行记录
+
+- **2026-10-27 全量回归通过后统一勾选**:此前执行未回写 checkbox,本次按交付结果补齐(Task 1–4 合并在同一个提交里)。
+- 提交链路:`2cdaae2` 规格/计划 → `e9c65ab` imserver 搜索(Task 1–4)→ `7a0ced3` App 能力位/客户端(Task 6)→ `e31abc5` App 搜索页 + 定位(Task 7–8)→ `1c37029` Web 客户端/store(Task 9)→ `d010016` Web 搜索页 + 入口(Task 10)→ `fccc686` Web 定位高亮(Task 11)。
+- 门禁结果:后端 486 / App 398(`flutter analyze` 零告警)/ Web 361(覆盖率 82.9 / 77.0 / 77.7 / 85.2)/ imserver unit 20 + db 12 + http 集成(含 `test_search.py` 与 `im_e2e.py`)全绿。
+- 执行期额外修复(计划外,但为入口可见性/可测性所必需):
+  1. **Web 能力位改由 store 响应式暴露**——`getImClient()` 每次返回未 `init` 的 `RoutingImClient`,`capabilities` 恒为兜底 `false`,直接读它会让搜索入口(以及 10-21 起就隐藏的图片入口)永远不显示;`ChatPage` 同步改用 `store.capabilities`。
+  2. **`.gitattributes` 固定 `*.sh` 为 LF**——Windows 上 `core.autocrlf=true` 检出成 CRLF 后,容器里 `set -euo pipefail` 报 `invalid option name`,imserver 测试整套起不来。
