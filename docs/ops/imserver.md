@@ -488,5 +488,30 @@ curl -s -X POST http://<SERVER_IP>/api/v1/im/voices -H "Authorization: Bearer <a
 `im_media_cleanup` 已覆盖语音:默认 30 天(`CHAT_VOICE_RETENTION_DAYS`),
 可用 `--voice-retention-days` 单独覆盖;孤儿扫描会把 `ChatVoice.file` 并入 known 集合。
 
+### 13.5 上线记录(2026-10-27)
+
+- **ffmpeg**:服务器是 Alibaba Cloud Linux 3,`dnf` 源里没有 ffmpeg、EPEL 也装不上;
+  `johnvansickle` 源在国内只有 ~11KB/s,改用 GitHub 加速镜像下载 BtbN 静态包(约 150MB,
+  `gh-proxy.com` 实测 1.8MB/s),只把 `ffmpeg`/`ffprobe` 两个二进制装到 `/usr/local/bin`
+  (不要覆盖系统库,也不要装 rpmfusion,避免污染生产依赖):
+  ```bash
+  curl -sL -o /tmp/ffmpeg.tar.xz \
+    "https://gh-proxy.com/https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+  tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-gh --strip-components=1
+  install -m 755 /tmp/ffmpeg-gh/bin/ffmpeg /usr/local/bin/ffmpeg
+  install -m 755 /tmp/ffmpeg-gh/bin/ffprobe /usr/local/bin/ffprobe
+  ```
+- **镜像**:本地 `docker build -t imserver:<sha>` 后 `docker save` + `scp` + `docker load`
+  (2C2G 上直接编译太慢);`/www/server/imserver/.env` 的 `IMSERVER_IMAGE` **必须同步改**,
+  否则 `docker compose up -d` 仍会拉起旧镜像(本次先踩了一次,容器还是 `a2332dd`)。
+- **验证结果**:上传 201(`duration_ms` 为 ffprobe 实测)、签名 URL 200、无签名 403;
+  WS 以 u7 发 `kind=voice` 收到 ack,再用 u8 读历史得到 `kind=voice` + 读时签名 URL;
+  `readyz=200`;清理 dry-run 汇总含「语音保留期」;imserver 近 10 分钟无 error。
+- **版本配置**:`.env` 显式写入 `MIN_APP_VERSION=1.0.0`/`LATEST_APP_VERSION=1.0.0`/
+  `APP_DOWNLOAD_URL=http://47.116.114.110/chatapp-1.0.0.apk`(APK 放在 Web 根目录);
+  `/api/v1/app/config` 已返回这三个值。
+- **仍未完成**:`SMS_DEV_MODE=0` 需要先接真实短信商(当前代码只有开发模式,置 0 会让
+  所有人收不到验证码);全量切换 `IM_SELF_GRAYLIST=all` 待产品确认后再执行。
+
 
 

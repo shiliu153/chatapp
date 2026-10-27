@@ -112,4 +112,5 @@ print('done', len(ids))
 - **统一转 m4a 是跨端播放的前提**:Chrome/Firefox 的 `MediaRecorder` 出 webm/opus,iOS 的 AVPlayer 播不了;服务端 ffmpeg 统一转 AAC 后存储格式唯一。**不要**改成「原样存」——Web→App 的语音会静默无声。
 - **时长以 ffprobe 为准**:客户端 `duration_ms` 只用来交叉校验(差 >2 秒拒绝),否则改个请求就能把 10 分钟音频塞进来。App 的 `record` 与 Web 的 `performance.now()` 在正常路径上都只差几百毫秒。
 - **`upload_to` 已含 `chat/voices/%Y/%m/`**:与图片一样,保存时只传文件名,否则会落成嵌套的 `chat/voices/2026/10/chat/voices/2026/10/...`。
+- **语音上传 400「只支持 M4A/AAC/WebM/OGG」的两种真因(2026-10-27 上线实测)**:① App 用 Dio 的 `MultipartFile.fromBytes` 传 `.m4a`,mime 包查不到该扩展名 → 实际发的是 `application/octet-stream`;② Web 的 `Blob.type` 是 `audio/webm;codecs=opus`,服务端精确匹配白名单会拒。修复:服务端 `voice.base_content_type()` 先按 `;` 截断再小写;App 显式 `contentType: DioMediaType('audio','mp4')`;Web 构造 Blob 时 `type: mimeType.split(';')[0]`。**mock 测试发现不了**,必须用真实客户端或 `curl -F "file=@x.m4a;type=audio/mp4"` 验一次。
 
