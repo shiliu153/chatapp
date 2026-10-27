@@ -140,6 +140,10 @@ nlohmann::json message_json(const MessageRow& row, UserRepo& users, const MediaS
       data["kind"] = "image";
       data["image"] = body.value("image", nlohmann::json::object());
       signer.sign_image(data["image"]);
+    } else if (row.kind == 4) {
+      data["kind"] = "voice";
+      data["voice"] = body.value("voice", nlohmann::json::object());
+      signer.sign_media(data["voice"], {"url"});
     } else if (row.kind == 2) {
       data["kind"] = "custom";
       data["custom"] = body;

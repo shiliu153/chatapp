@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <initializer_list>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
@@ -23,7 +24,11 @@ class MediaSigner {
   // 给 URL 加 ?e=&s=(先规范化);未启用时原样返回
   std::string sign_url(const std::string& url, int64_t now = 0) const;
 
-  // 就地给 image 对象的 url / thumb_url 签名
+  // 就地给对象里若干 URL 字段签名(图片: url/thumb_url;语音: url)
+  void sign_media(nlohmann::json& object, std::initializer_list<const char*> keys,
+                  int64_t now = 0) const;
+
+  // 图片的薄封装
   void sign_image(nlohmann::json& image, int64_t now = 0) const;
 
  private:

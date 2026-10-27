@@ -52,14 +52,19 @@ std::string MediaSigner::sign_url(const std::string& url, int64_t now) const {
   return *clean + "?e=" + std::to_string(expires) + "&s=" + signature;
 }
 
-void MediaSigner::sign_image(nlohmann::json& image, int64_t now) const {
-  if (!enabled() || !image.is_object()) {
+void MediaSigner::sign_media(nlohmann::json& object,
+                             std::initializer_list<const char*> keys, int64_t now) const {
+  if (!enabled() || !object.is_object()) {
     return;
   }
-  for (const char* key : {"url", "thumb_url"}) {
-    if (!image.contains(key) || !image[key].is_string()) {
+  for (const char* key : keys) {
+    if (!object.contains(key) || !object[key].is_string()) {
       continue;
     }
-    image[key] = sign_url(image[key].get<std::string>(), now);
+    object[key] = sign_url(object[key].get<std::string>(), now);
   }
+}
+
+void MediaSigner::sign_image(nlohmann::json& image, int64_t now) const {
+  sign_media(image, {"url", "thumb_url"}, now);
 }

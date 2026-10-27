@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 
 #include <cstdlib>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include "service/message_service.h"
 
@@ -150,6 +152,71 @@ TEST(MessageServiceTest, RejectsImageWithBadDimensions) {
   const auto result = svc.send(request);
   ASSERT_TRUE(std::holds_alternative<int>(result));
   EXPECT_EQ(std::get<int>(result), 42201);
+}
+
+TEST(MessageServiceTest, SendsVoiceMessage) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+
+  SendRequest request;
+  request.from = 1;
+  request.to = 2;
+  request.client_msg_id = "voice-1";
+  request.kind = 4;
+  request.voice = {{"url", "http://cdn/media/chat/voices/a.m4a"},
+                   {"duration_ms", 12500},
+                   {"size", 48000}};
+  const auto result = svc.send(request);
+  ASSERT_TRUE(std::holds_alternative<SendResult>(result));
+
+  const auto rows = svc.list_messages(2, 1, 0, 10);
+  ASSERT_EQ(rows.size(), 1u);
+  EXPECT_EQ(rows[0].kind, 4);
+  EXPECT_NE(rows[0].body.find("\"voice\""), std::string::npos);
+  EXPECT_NE(rows[0].body.find("\"duration_ms\":12500"), std::string::npos);
+}
+
+TEST(MessageServiceTest, RejectsVoiceWithForeignUrl) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+
+  SendRequest request;
+  request.from = 1;
+  request.to = 2;
+  request.client_msg_id = "voice-2";
+  request.kind = 4;
+  request.voice = {{"url", "https://evil.example/a.m4a"},
+                   {"duration_ms", 5000},
+                   {"size", 1000}};
+  const auto result = svc.send(request);
+  ASSERT_TRUE(std::holds_alternative<int>(result));
+  EXPECT_EQ(std::get<int>(result), 42201);
+}
+
+TEST(MessageServiceTest, RejectsVoiceOutOfBounds) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+
+  for (const auto& item : std::vector<std::pair<long long, long long>>{
+           {999, 1000}, {60001, 1000}, {5000, 0}, {5000, 2 * 1024 * 1024 + 1}}) {
+    SendRequest request;
+    request.from = 1;
+    request.to = 2;
+    request.client_msg_id = "voice-bad";
+    request.kind = 4;
+    request.voice = {{"url", "http://cdn/media/chat/voices/a.m4a"},
+                     {"duration_ms", item.first},
+                     {"size", item.second}};
+    const auto result = svc.send(request);
+    ASSERT_TRUE(std::holds_alternative<int>(result)) << item.first << "/" << item.second;
+    EXPECT_EQ(std::get<int>(result), 42201);
+  }
 }
 
 TEST(MessageServiceTest, StoresCustomAsKindTwo) {

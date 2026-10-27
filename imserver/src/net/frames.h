@@ -12,6 +12,8 @@ inline std::string kind_name(int kind) {
       return "custom";
     case 3:
       return "image";
+    case 4:
+      return "voice";
     default:
       return "text";
   }
@@ -36,6 +38,9 @@ inline std::string build_message_frame(const SendResult& result, const SendReque
   } else if (request.kind == 3) {
     data["image"] = request.image;
     signer.sign_image(data["image"]);
+  } else if (request.kind == 4) {
+    data["voice"] = request.voice;
+    signer.sign_media(data["voice"], {"url"});
   } else {
     data["text"] = request.text;
   }

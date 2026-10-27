@@ -369,6 +369,9 @@ void WsSession::handle_send(const nlohmann::json& frame) {
     if (kind == "image") {
       request.kind = 3;
       request.image = data.at("image");
+    } else if (kind == "voice") {
+      request.kind = 4;
+      request.voice = data.at("voice");
     } else if (kind == "text") {
       request.kind = 1;
       request.text = data.value("text", std::string());

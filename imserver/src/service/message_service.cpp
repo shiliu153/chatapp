@@ -200,7 +200,7 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
     return 42201;
   }
 
-  // 按 kind 分别校验并构造落库 body:1=text、2=custom、3=image
+  // 按 kind 分别校验并构造落库 body:1=text、2=custom、3=image、4=voice
   nlohmann::json body;
   try {
     if (request.kind == 1) {
@@ -239,6 +239,25 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
       stored["url"] = *canonical_url;
       stored["thumb_url"] = *canonical_thumb;
       body = {{"image", stored}};
+    } else if (request.kind == 4) {
+      // 语音与图片同理:只接受本服务媒体前缀下的 URL,落规范 URL,读时现签
+      const auto& voice = request.voice;
+      if (!voice.is_object()) {
+        return 42201;
+      }
+      const auto canonical = signer_.canonical(voice.value("url", std::string()));
+      if (!canonical.has_value() || canonical->size() > 512) {
+        return 42201;
+      }
+      const auto duration = voice.value("duration_ms", 0LL);
+      const auto size = voice.value("size", 0LL);
+      if (duration < 1000 || duration > 60000 || size <= 0 ||
+          size > 2 * 1024 * 1024) {
+        return 42201;
+      }
+      nlohmann::json stored = voice;
+      stored["url"] = *canonical;
+      body = {{"voice", stored}};
     } else {
       return 42201;
     }

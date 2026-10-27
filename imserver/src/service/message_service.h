@@ -18,8 +18,9 @@ struct SendRequest {
   uint64_t to = 0;
   std::string client_msg_id;
   std::string text;
-  int kind = 1;             // 1=text 2=custom 3=image
+  int kind = 1;             // 1=text 2=custom 3=image 4=voice
   nlohmann::json image;     // kind=3 的载荷
+  nlohmann::json voice;     // kind=4 的载荷
   nlohmann::json custom;    // kind=2 的载荷
 };
 
