@@ -295,7 +295,7 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
 
   return {
     onEvent,
-    capabilities: { image: true, search: false },
+    capabilities: { image: true, search: false, voice: false },
     init,
     login,
     logout,
@@ -306,6 +306,9 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
     },
     sendText,
     sendImage,
+    async sendVoice(): Promise<ChatMessage> {
+      throw new Error('当前聊天服务暂不支持语音')
+    },
     deleteMessage,
     revokeMessage,
     markConversationRead,

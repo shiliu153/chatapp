@@ -89,7 +89,7 @@ describe('ChatPage', () => {
     // 兜底值 false:未连接时不能凭 client.capabilities 把入口藏死
     expect(w.find('[aria-label="发送图片"]').exists()).toBe(false)
 
-    store.capabilities = { image: true, search: false }
+    store.capabilities = { image: true, search: false, voice: false }
     await flushPromises()
     expect(w.find('[aria-label="发送图片"]').exists()).toBe(true)
   })

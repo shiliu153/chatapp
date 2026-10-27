@@ -10,6 +10,7 @@ export enum ChatMessageKind {
   matchNotice = 'matchNotice',
   banNotice = 'banNotice',
   image = 'image',
+  voice = 'voice',
   other = 'other',
 }
 
@@ -33,6 +34,10 @@ export interface ChatMessage {
   imageUrl: string | null
   /** 原图 */
   imageLargeUrl: string | null
+  /** 语音地址(播放用) */
+  voiceUrl?: string | null
+  /** 语音时长(毫秒),气泡宽度与秒数展示用 */
+  voiceDurationMs?: number
   /** 已撤回:渲染成居中灰字,不再显示内容 */
   isRevoked: boolean
 }
@@ -60,6 +65,8 @@ export interface ImCapabilities {
   image: boolean
   /** 是否支持聊天记录搜索(腾讯后端为 false,入口隐藏) */
   search: boolean
+  /** 是否支持语音消息(腾讯后端为 false,入口隐藏) */
+  voice: boolean
 }
 
 /** 一条搜索命中(只可能是文本消息)。 */
@@ -98,6 +105,8 @@ export interface ImClient {
   searchMessages(keyword: string, limit?: number, beforeId?: string): Promise<ImSearchResult>
   sendText(peerId: string, text: string): Promise<ChatMessage>
   sendImage(peerId: string, file: File): Promise<ChatMessage>
+  /** 发送语音(仅自建后端支持;腾讯抛错) */
+  sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage>
   deleteMessage(msgId: string): Promise<void>
   revokeMessage(msgId: string): Promise<void>
   markConversationRead(peerId: string): Promise<void>

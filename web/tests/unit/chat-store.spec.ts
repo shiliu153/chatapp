@@ -225,7 +225,7 @@ describe('chat store', () => {
     setImClientFactory(() => client as unknown as ImClient)
     const store = useChatStore()
     // init 之前是兜底值:直接读 client.capabilities 会拿到 false(图片入口曾因此不显示)
-    expect(store.capabilities).toEqual({ image: false, search: false })
+    expect(store.capabilities).toEqual({ image: false, search: false, voice: false })
 
     await store.loadConversations()
 

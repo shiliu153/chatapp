@@ -55,6 +55,7 @@ function summaryOf(message: ChatMessage | null): string {
   if (!message) return '打个招呼吧'
   if (message.isFailed) return '发送失败'
   if (message.kind === ChatMessageKind.image) return '[图片]'
+  if (message.kind === ChatMessageKind.voice) return '[语音]'
   return message.text || '[消息]'
 }
 

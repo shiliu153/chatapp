@@ -28,7 +28,7 @@ function stubStore(results: ImSearchResult | (() => Promise<ImSearchResult>)) {
   const searchMessages =
     typeof results === 'function' ? vi.fn(results) : vi.fn(async () => results)
   store.searchMessages = searchMessages
-  store.capabilities = { image: true, search: true }
+  store.capabilities = { image: true, search: true, voice: false }
   return { store, pinia, searchMessages }
 }
 
@@ -163,7 +163,7 @@ describe('消息页搜索入口', () => {
   function stubChatsStore(search: boolean) {
     const pinia = freshPinia()
     const store = useChatStore()
-    store.capabilities = { image: false, search }
+    store.capabilities = { image: false, search, voice: false }
     store.connect = vi.fn(async () => {})
     store.loadConversations = vi.fn(async () => {})
     return pinia

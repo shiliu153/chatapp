@@ -37,9 +37,11 @@ export const useChatStore = defineStore('chat', () => {
    * 在 init 之前拿到的是「未连接」的兜底值,直接读它会把入口永久藏起来
    * (2026-10-26 排查发现:Web 聊天页图片入口因此一直不显示)。
    */
-  const capabilities = ref<ImCapabilities>({ image: false, search: false })
+  const capabilities = ref<ImCapabilities>({ image: false, search: false, voice: false })
   /** 发送失败/待发送的图片文件,供「重发」用 */
   const pendingFiles = new Map<string, File>()
+  /** 发送失败/待发送的语音,供「重发」用 */
+  const pendingVoices = new Map<string, { blob: Blob; durationMs: number }>()
   /** 进行中的连接(并发调用复用它) */
   let inFlight: Promise<void> | null = null
 
@@ -267,7 +269,16 @@ export const useChatStore = defineStore('chat', () => {
     return message
   }
 
-  /** 重发失败的消息:文本直接重发,图片用缓存的 File 重发。 */
+  async function sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage> {
+    await ensureConnected()
+    const message = await client.sendVoice(peerId, blob, durationMs)
+    pendingVoices.set(message.msgId, { blob, durationMs })
+    appendMessage(peerId, message)
+    upsertConversation({ ...message, isSelf: true })
+    return message
+  }
+
+  /** 重发失败的消息:文本直接重发,图片/语音用缓存的本地内容重发。 */
   async function resend(message: ChatMessage): Promise<void> {
     const list = messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId)
     messages.value = { ...messages.value, [message.peerId]: list }
@@ -276,6 +287,13 @@ export const useChatStore = defineStore('chat', () => {
       if (!file) return
       pendingFiles.delete(message.msgId)
       await sendImage(message.peerId, file)
+      return
+    }
+    if (message.kind === 'voice') {
+      const voice = pendingVoices.get(message.msgId)
+      if (!voice) return
+      pendingVoices.delete(message.msgId)
+      await sendVoice(message.peerId, voice.blob, voice.durationMs)
       return
     }
     await sendText(message.peerId, message.text)
@@ -322,7 +340,7 @@ export const useChatStore = defineStore('chat', () => {
     await client.logout().catch(() => {})
     conversations.value = []
     messages.value = {}
-    capabilities.value = { image: false, search: false }
+    capabilities.value = { image: false, search: false, voice: false }
     status.value = 'idle'
   }
 
@@ -342,6 +360,7 @@ export const useChatStore = defineStore('chat', () => {
     openConversation,
     sendText,
     sendImage,
+    sendVoice,
     resend,
     deleteMessage,
     revokeMessage,

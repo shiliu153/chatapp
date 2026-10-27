@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import AppAvatar from '@/components/AppAvatar.vue'
 import MessageImage from './MessageImage.vue'
+import MessageVoice from './MessageVoice.vue'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
 
@@ -24,6 +25,7 @@ const isNotice = computed(
     props.message.kind === ChatMessageKind.banNotice,
 )
 const isImage = computed(() => props.message.kind === ChatMessageKind.image)
+const isVoice = computed(() => props.message.kind === ChatMessageKind.voice)
 const isUnsupported = computed(() => props.message.kind === ChatMessageKind.other)
 </script>
 
@@ -82,6 +84,7 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
         :local-file="props.localFile"
         @open="$emit('openImage', props.message)"
       />
+      <MessageVoice v-else-if="isVoice" :message="props.message" />
       <span v-else-if="isUnsupported" class="message-bubble__text">[暂不支持的消息类型]</span>
       <span v-else class="message-bubble__text">{{ props.message.text }}</span>
 

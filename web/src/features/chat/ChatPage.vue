@@ -15,6 +15,7 @@ import UnmatchDialog from './UnmatchDialog.vue'
 import { formatTime, shouldShowTime } from './time'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
+import { canRecordVoice, pickMimeType } from '@/im/self/voice'
 
 const props = defineProps<{ peerId: string }>()
 
@@ -30,6 +31,8 @@ let highlightTimer: ReturnType<typeof setTimeout> | undefined
 let focusing = false
 // 能力位取 store(连上之后才有真值);直接读 getImClient().capabilities 会永远是兜底 false
 const imageEnabled = computed(() => store.capabilities.image)
+/** 语音入口:后端能力 + 浏览器能录音(需 HTTPS 或 localhost) */
+const voiceEnabled = computed(() => store.capabilities.voice && canRecordVoice())
 const draft = ref('')
 const sending = ref(false)
 const scroller = ref<HTMLElement | null>(null)
@@ -44,6 +47,71 @@ const moreOpen = ref(false)
 const unmatchOpen = ref(false)
 const unmatching = ref(false)
 const unmatchError = ref('')
+
+// --- 按住说话 ---
+const recording = ref(false)
+const cancelArmed = ref(false)
+const recordSeconds = ref(0)
+let mediaRecorder: MediaRecorder | null = null
+let mediaStream: MediaStream | null = null
+let chunks: Blob[] = []
+let recordStartedAt = 0
+let recordStartY = 0
+let recordTimer: ReturnType<typeof setInterval> | undefined
+
+async function startRecording(event: PointerEvent): Promise<void> {
+  if (!voiceEnabled.value || recording.value || unmatched.value) return
+  const mime = pickMimeType()
+  if (!mime) return
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  } catch {
+    return
+  }
+  chunks = []
+  mediaRecorder = new MediaRecorder(mediaStream, { mimeType: mime })
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0) chunks.push(event.data)
+  }
+  mediaRecorder.start()
+  recordStartedAt = performance.now()
+  recordStartY = event.clientY
+  recording.value = true
+  cancelArmed.value = false
+  recordSeconds.value = 0
+  recordTimer = setInterval(() => {
+    recordSeconds.value = Math.min(60, Math.ceil((performance.now() - recordStartedAt) / 1000))
+    if (recordSeconds.value >= 60) void finishRecording()
+  }, 200)
+}
+
+function onVoiceMove(event: PointerEvent): void {
+  if (!recording.value) return
+  cancelArmed.value = event.clientY - recordStartY < -60
+}
+
+async function finishRecording(): Promise<void> {
+  if (!recording.value) return
+  const cancelled = cancelArmed.value
+  const duration = performance.now() - recordStartedAt
+  recording.value = false
+  cancelArmed.value = false
+  if (recordTimer) {
+    clearInterval(recordTimer)
+    recordTimer = undefined
+  }
+  const current = mediaRecorder
+  mediaRecorder = null
+  mediaStream?.getTracks().forEach((track) => track.stop())
+  mediaStream = null
+  if (!current) return
+  const blob = await new Promise<Blob>((resolve) => {
+    current.onstop = () => resolve(new Blob(chunks, { type: current.mimeType }))
+    current.stop()
+  })
+  if (cancelled || duration < 1000) return
+  await store.sendVoice(props.peerId, blob, duration).catch(() => {})
+}
 
 function openMenu(message: ChatMessage, event: MouseEvent) {
   menu.value = { message, x: event.clientX, y: event.clientY }
@@ -171,7 +239,12 @@ onMounted(async () => {
   else await scrollToBottom()
 })
 
-onUnmounted(() => clearTimeout(highlightTimer))
+onUnmounted(() => {
+  clearTimeout(highlightTimer)
+  if (recordTimer) clearInterval(recordTimer)
+  if (recording.value) void finishRecording()
+  mediaStream?.getTracks().forEach((track) => track.stop())
+})
 
 watch(
   () => props.peerId,
@@ -288,6 +361,13 @@ async function onPickImage(event: Event) {
       </template>
     </div>
 
+    <div v-if="recording" class="chat__recording" role="status">
+      <p class="chat__recording-time">{{ recordSeconds }}″</p>
+      <p class="chat__recording-hint">
+        {{ cancelArmed ? '松开取消' : '松开发送,上滑取消' }}
+      </p>
+    </div>
+
     <footer class="chat__composer">
       <input
         v-if="imageEnabled"
@@ -306,6 +386,19 @@ async function onPickImage(event: Event) {
         @click="picker?.click()"
       >
         🖼️
+      </button>
+      <button
+        v-if="voiceEnabled"
+        type="button"
+        class="chat__image"
+        aria-label="按住说话"
+        :disabled="unmatched"
+        @pointerdown.prevent="startRecording"
+        @pointermove="onVoiceMove"
+        @pointerup="finishRecording"
+        @pointercancel="finishRecording"
+      >
+        🎤
       </button>
       <button
         type="button"
@@ -459,6 +552,29 @@ async function onPickImage(event: Event) {
   background: var(--color-text1);
   color: var(--color-bg-card);
   font-size: var(--text-badge);
+}
+.chat__recording {
+  position: fixed;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-card);
+  background: var(--color-text1);
+  color: var(--color-bg-card);
+  text-align: center;
+  box-shadow: var(--shadow-card);
+  z-index: 10;
+}
+.chat__recording-time {
+  margin: 0;
+  font-size: var(--text-title);
+}
+.chat__recording-hint {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--text-badge);
+  opacity: 0.8;
 }
 </style>
 
