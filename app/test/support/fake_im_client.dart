@@ -53,9 +53,12 @@ class FakeImClient extends ImClient {
   /// 自建后端下置 false,用来测图片入口隐藏。
   bool imageCapability = true;
 
+  /// 自建后端下置 false,用来测语音入口隐藏。
+  bool voiceCapability = true;
+
   @override
-  ImCapabilities get capabilities =>
-      ImCapabilities(image: imageCapability, search: searchCapability);
+  ImCapabilities get capabilities => ImCapabilities(
+      image: imageCapability, search: searchCapability, voice: voiceCapability);
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {
@@ -131,6 +134,23 @@ class FakeImClient extends ImClient {
       timestamp: DateTime.now().millisecondsSinceEpoch,
       kind: ChatMessageKind.image,
       localPath: imagePath,
+    );
+  }
+
+  @override
+  Future<ChatMessage> sendVoice({required String peerId, required String localPath,
+      required int durationMs}) async {
+    log.add('sendVoice:$peerId:$localPath:$durationMs');
+    if (sendError != null) throw sendError!;
+    return ChatMessage(
+      msgId: 'sent-${++_seq}',
+      peerId: peerId,
+      isSelf: true,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      kind: ChatMessageKind.voice,
+      localPath: localPath,
+      voiceUrl: 'http://cdn/v.m4a',
+      voiceDurationMs: durationMs,
     );
   }
 

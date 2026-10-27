@@ -5,25 +5,29 @@ import 'im_bootstrap.dart';
 import 'im_client.dart';
 import 'self_image_uploader.dart';
 import 'self_transport.dart';
+import 'self_voice_uploader.dart';
 
 class _PendingSend {
-  _PendingSend(this.peerId, this.completer, {this.text = '', this.image});
+  _PendingSend(this.peerId, this.completer, {this.text = '', this.image, this.voice});
   final String peerId;
   final String text;
   final ChatImageUpload? image;
+  final ChatVoiceUpload? voice;
   final Completer<ChatMessage> completer;
 }
 
 class SelfImClient extends ImClient {
   SelfImClient({SelfTransport Function()? transportFactory, SelfHttpClient? httpClient,
-      SelfImageUploader? imageUploader})
+      SelfImageUploader? imageUploader, SelfVoiceUploader? voiceUploader})
       : _newTransport = transportFactory ?? (() => WebSocketTransport()),
         _http = httpClient,
-        _uploader = imageUploader;
+        _uploader = imageUploader,
+        _voiceUpload = voiceUploader;
 
   final SelfTransport Function() _newTransport;
   SelfHttpClient? _http;
   final SelfImageUploader? _uploader;
+  final SelfVoiceUploader? _voiceUpload;
   final _events = StreamController<ImEvent>.broadcast();
   final _pendingSends = <String, _PendingSend>{};
   final _pendingAcks = <String, Completer<void>>{};
@@ -42,7 +46,8 @@ class SelfImClient extends ImClient {
   Stream<ImEvent> get events => _events.stream;
 
   @override
-  ImCapabilities get capabilities => const ImCapabilities(image: true, search: true);
+  ImCapabilities get capabilities =>
+      const ImCapabilities(image: true, search: true, voice: true);
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {
@@ -139,15 +144,20 @@ class SelfImClient extends ImClient {
     final pending = _pendingSends.remove(id);
     if (pending == null || pending.completer.isCompleted) return;
     final image = pending.image;
+    final voice = pending.voice;
     pending.completer.complete(ChatMessage(
       msgId: '${data['msg_id'] ?? ''}',
       peerId: pending.peerId,
       isSelf: true,
       timestamp: (data['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
-      kind: image == null ? ChatMessageKind.text : ChatMessageKind.image,
+      kind: voice != null
+          ? ChatMessageKind.voice
+          : (image == null ? ChatMessageKind.text : ChatMessageKind.image),
       text: pending.text,
       imageUrl: image?.thumbUrl,
       imageLargeUrl: image?.url,
+      voiceUrl: voice?.url,
+      voiceDurationMs: voice?.durationMs ?? 0,
     ));
   }
 
@@ -239,6 +249,40 @@ class SelfImClient extends ImClient {
           'to': peerId,
           'kind': 'image',
           'image': image.toPayload(),
+        },
+      }));
+      try {
+        return await completer.future.timeout(const Duration(seconds: 10));
+      } on TimeoutException {
+        if (attempt == 2) break;
+      }
+    }
+    _pendingSends.remove(id);
+    throw const ImException(50001, '发送失败,请重试');
+  }
+
+  @override
+  Future<ChatMessage> sendVoice({required String peerId, required String localPath,
+      required int durationMs}) async {
+    final uploader = _voiceUpload;
+    if (uploader == null) {
+      throw const ImException(42202, '当前聊天服务暂不支持语音');
+    }
+    // 先上传(Django 会统一转 m4a 并校验时长),再发 WS 帧
+    final voice = await uploader.upload(localPath, durationMs);
+    final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    final completer = Completer<ChatMessage>();
+    _pendingSends[id] = _PendingSend(peerId, completer, voice: voice);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      _transport?.send(jsonEncode({
+        'v': 1,
+        'type': 'send',
+        'id': id,
+        'data': {
+          'client_msg_id': id,
+          'to': peerId,
+          'kind': 'voice',
+          'voice': voice.toPayload(),
         },
       }));
       try {
@@ -353,12 +397,14 @@ class SelfImClient extends ImClient {
     final kind = json['kind'] as String? ?? 'text';
     final custom = (json['custom'] as Map?)?.cast<String, dynamic>() ?? const {};
     final image = (json['image'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final voice = (json['voice'] as Map?)?.cast<String, dynamic>() ?? const {};
     final customType = custom['type'] as String? ?? '';
     final messageKind = switch (kind) {
       'custom' when customType == 'match_notice' => ChatMessageKind.matchNotice,
       'custom' when customType.isNotEmpty => ChatMessageKind.banNotice,
       'custom' => ChatMessageKind.other,
       'image' => ChatMessageKind.image,
+      'voice' => ChatMessageKind.voice,
       _ => ChatMessageKind.text,
     };
     return ChatMessage(
@@ -373,6 +419,8 @@ class SelfImClient extends ImClient {
           : (json['text'] as String? ?? ''),
       imageUrl: image['thumb_url'] as String?,
       imageLargeUrl: image['url'] as String?,
+      voiceUrl: voice['url'] as String?,
+      voiceDurationMs: (voice['duration_ms'] as num?)?.toInt() ?? 0,
       isRevoked: json['revoked'] == true,
     );
   }

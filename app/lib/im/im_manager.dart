@@ -8,11 +8,13 @@ import 'im_client.dart';
 import 'im_repository.dart';
 import 'routing_im_client.dart';
 import 'self_image_uploader.dart';
+import 'self_voice_uploader.dart';
 
 /// 真实 IM 客户端(全局单例语义);测试里 override 成 FakeImClient。
-/// 自建后端发图要先经 Django 上传,所以这里把上传器注入进去(IM 客户端不直接依赖 ApiClient)。
+/// 自建后端发图/语音要先经 Django 上传,所以这里把上传器注入进去(IM 客户端不直接依赖 ApiClient)。
 final imClientProvider = Provider<ImClient>((ref) => RoutingImClient(
-    imageUploader: ApiImageUploader(ref.watch(apiClientProvider))));
+    imageUploader: ApiImageUploader(ref.watch(apiClientProvider)),
+    voiceUploader: ApiVoiceUploader(ref.watch(apiClientProvider))));
 
 sealed class ImStatus {
   const ImStatus();

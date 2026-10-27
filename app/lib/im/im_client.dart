@@ -6,7 +6,7 @@ library;
 
 import 'im_bootstrap.dart';
 
-enum ChatMessageKind { text, matchNotice, banNotice, image, other }
+enum ChatMessageKind { text, matchNotice, banNotice, image, voice, other }
 
 /// 「系统通知」固定 IM 账号(与后端 im/client.py::SYSTEM_NOTICE_IDENTIFIER 是跨栈契约)。
 const systemNoticePeerId = 'system_notice';
@@ -35,6 +35,8 @@ class ChatMessage {
     this.localPath,
     this.imageUrl,
     this.imageLargeUrl,
+    this.voiceUrl,
+    this.voiceDurationMs = 0,
     this.isRevoked = false,
   });
 
@@ -67,10 +69,17 @@ class ChatMessage {
   /// 远程原图(全屏查看用)。
   final String? imageLargeUrl;
 
+  /// 语音消息的远程地址(播放用)。
+  final String? voiceUrl;
+
+  /// 语音时长(毫秒),气泡宽度与秒数展示用。
+  final int voiceDurationMs;
+
   /// 已被撤回(自己撤回或对方撤回):界面渲染成居中灰字,不再显示内容。
   final bool isRevoked;
 
-  ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl, bool? isRevoked}) =>
+  ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl, bool? isRevoked,
+      String? voiceUrl, int? voiceDurationMs}) =>
       ChatMessage(
         msgId: msgId,
         seq: seq,
@@ -84,6 +93,8 @@ class ChatMessage {
         localPath: localPath,
         imageUrl: imageUrl ?? this.imageUrl,
         imageLargeUrl: imageLargeUrl,
+        voiceUrl: voiceUrl ?? this.voiceUrl,
+        voiceDurationMs: voiceDurationMs ?? this.voiceDurationMs,
         isRevoked: isRevoked ?? this.isRevoked,
       );
 }
@@ -146,11 +157,14 @@ class ImException implements Exception {
 }
 
 class ImCapabilities {
-  const ImCapabilities({required this.image, this.search = false});
+  const ImCapabilities({required this.image, this.search = false, this.voice = false});
   final bool image;
 
   /// 是否支持聊天记录搜索(腾讯后端为 false,入口隐藏)。
   final bool search;
+
+  /// 是否支持语音消息(腾讯后端为 false,入口隐藏)。
+  final bool voice;
 }
 
 /// 一条搜索命中(只可能是文本消息)。
@@ -216,6 +230,11 @@ abstract class ImClient {
 
   Future<ChatMessage> sendImage({required String peerId, required String imagePath});
 
+  /// 发送语音(仅自建后端支持;腾讯抛 [ImException] 42202)。
+  Future<ChatMessage> sendVoice({required String peerId, required String localPath,
+      required int durationMs}) =>
+      throw const ImException(42202, '当前聊天服务暂不支持语音');
+
   /// 删除本地消息(对方不受影响);本地未发出的消息可直接忽略此调用。
   Future<void> deleteMessage(ChatMessage message);
 
@@ -226,6 +245,10 @@ abstract class ImClient {
   Future<ChatMessage> resend(ChatMessage message) {
     if (message.kind == ChatMessageKind.image && message.localPath != null) {
       return sendImage(peerId: message.peerId, imagePath: message.localPath!);
+    }
+    if (message.kind == ChatMessageKind.voice && message.localPath != null) {
+      return sendVoice(peerId: message.peerId, localPath: message.localPath!,
+          durationMs: message.voiceDurationMs);
     }
     return sendText(peerId: message.peerId, text: message.text);
   }

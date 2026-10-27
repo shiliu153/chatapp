@@ -32,6 +32,7 @@ ChatMessage chatMessageFromSdk(V2TimMessage message) {
       ChatMessageKind.matchNotice => message.customElem?.desc ?? '',
       ChatMessageKind.banNotice => message.customElem?.desc ?? '',
       ChatMessageKind.image => '',
+      ChatMessageKind.voice => '',
       ChatMessageKind.other => '',
     },
     localPath: kind == ChatMessageKind.image ? message.imageElem?.path : null,
