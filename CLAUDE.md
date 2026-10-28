@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **前端**: Flutter(`app/`,包名 `chatapp_app`,Flutter 3.47.2)
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL 8 + Redis + Celery)
 - **聊天**: 腾讯云 IM 与自建 C++ IM 双后端(`IM_BACKEND` 开关;自建见 `imserver/`)
-- **部署**:阿里云轻量 2C2G + 宝塔全托管(`http://<SERVER_IP>`,测试期未备案)
+- **部署**:阿里云轻量 2C2G + 宝塔全托管(`https://chat.shiliu153.cn`,HTTPS 已于 2026-10-28 上线)
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
 
@@ -53,12 +53,13 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-27 | 自建 IM **语音上服务器**:Alibaba Cloud Linux 3 无 apt、dnf 源无 ffmpeg → 用 BtbN 静态包(经 `gh-proxy.com` 加速)只装 `ffmpeg`/`ffprobe` 到 `/usr/local/bin`;本地构建 `imserver:72ae6ea` 后 `docker save`+`scp`+`docker load`(2C2G 上不编译),并同步 `/www/server/imserver/.env` 的 `IMSERVER_IMAGE`(不同步会继续拉旧镜像);Django `migrate` 到 `im.0003_chatvoice`,Web dist 与签名 APK(`chatapp-1.0.0.apk`)同步上线;`.env` 显式配 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。端到端实测:上传 201 → 签名 URL 200 → 无签名 403 → WS u7 发语音 ack → u8 历史读回 `kind=voice` + 读时签名;`readyz=200`、清理 dry-run 含语音。期间修两个 **mock 掩盖的 MIME bug**:Dio 对 `.m4a` 发 `octet-stream`、Web Blob 带 `;codecs=opus`,服务端改为按主类型匹配 |
 | 2026-10-27 | 自建 IM **全量切换**:`IM_SELF_GRAYLIST=7,8` → `all` 并重启 web+celery;观察 30 分钟(18:06–18:35)30 次采样 `readyz=200`/`health=200`/`im_err=0`/`http5xx=0` 全绿,合成流量 u9→u8 **40/40 ack 成功**、RTT avg 45.4ms / p95 53.4ms,imserver 零 error;非灰度账号 u9 已返回 `backend=self` 且收发正常。回退方式:`IM_SELF_GRAYLIST` 改回 `7,8` + 重启 web/celery |
 | 2026-10-28 | **安全审计整改 P0+P1 交付**(`fix/security-remediation`):S1/H2 短信按产品决定不修;H3 IM token 绑定 `sv` + `im_user.session_version` + 登录/`user_sig` 双同步;H4 `im_pair` 配对校验(未配对 40302、目标必须存在、每分钟配额、`known_` 上限)+ `im_sync_pairs` 回填命令;H6 后台登录锁定 + TOTP + IP 白名单;M1 `NUM_PROXIES`、M3/M4/L5 统一图片校验与 EXIF 剥离、M6 媒体签名 fail-closed、M10/M11/M12、L1/L2/L4;H5 生产默认 `AUTO_APPROVE=0`;H1/B8 HTTPS 开关与 nginx 安全基线。后端 545 / imserver unit 22 + db 18 + 集成全绿 |
+| 2026-10-28 | **HTTPS 域名切换交付**(生产已切):交友 App 从 `http://47.116.114.110` 切到 `https://chat.shiliu153.cn`。新增 `chat` A 记录 + 子域证书(DNS-01,到期 2027-01-26,续期 `/root/renew_cert_chat.sh` + cron)+ 443 vhost(`http2`/安全头/`auth_request` 媒体验签/IM 反代);Django `.env` 开 `HTTPS_ENABLED=1`+`CSRF_TRUSTED_ORIGINS`、`MEDIA_BASE_URL`/`IM_SELF_WS_URL`/`IM_SELF_HTTP_URL` 换域名;IM 库历史 URL 重写 + `IM_MEDIA_PREFIX`/`IM_ALLOWED_ORIGINS` 同步;安全整改代码与 `imserver:7930bf2` 一并上线(`im_sync_pairs` 回填 3 对);IP vhost 收口 301;App `1.0.1+2` 发版、`MIN_APP_VERSION=1.0.1`。验收:WS 鉴权/40101/40302、配对 ack、媒体签名 403/200、Web 登录+聊天、`check --deploy` 仅 W021。执行记录见 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) §12 |
 
 
-**下一步**:2026-10-27 **已全量切到自建 IM**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `http://<SERVER_IP>/chatapp-1.0.0.apk`)。剩余:
-1. **安全整改上线动作(2026-10-28)**:先部署 Django + imserver 新镜像,**imserver 先显式跑 `docker compose run --rm imserver --migrate` 再 `up -d`**(entrypoint 不自动迁移),**立刻执行 `python manage.py im_sync_pairs` 回填配对**,再观察 40302;配 `OPS_OTP_REQUIRED=1` 后首个后台登录要绑定 TOTP。`shiliu153.cn` 已备案且证书可用,交友 App 的 HTTPS 切换按 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) 执行(新增 `chat.shiliu153.cn`、签子域证书、443 vhost、改 `.env` 与历史媒体 URL)。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
+**下一步**:2026-10-28 **已全量切到 `https://chat.shiliu153.cn`**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `https://chat.shiliu153.cn/chatapp-1.0.1.apk`)。剩余:
+1. **安全整改 + HTTPS 切换已上线(2026-10-28)**,执行记录见 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) §12。仍需人工:App 真机手测(登录/聊天/杀进程重进/图片语音)、首个 `/ops/` 登录绑定 TOTP、旧 APK 升级弹窗实测。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
 2. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式,必须先接真实短信商并配密钥;**S1/H2 已由产品决定暂不修(保留固定验证码),这是仍未关闭的严重风险,只能封闭测试**;
-3. **Web 语音受 HTTP 限制**:`getUserMedia` 只在 HTTPS/localhost 可用,生产还是 `http://IP`,所以 Web 端麦克风目前**隐藏**,App 不受影响;等域名备案 + HTTPS(与 P1-4b 同一前置);
+3. **Web 语音前置已具备**:HTTPS 已上线,`getUserMedia` 可用;但代码里麦克风入口仍**隐藏**,要放开需单独改一版(与 P1-4b 推送同一批可做);
 4. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志);H1 的 Web token 仍在 localStorage、App 未做证书绑定;M2/M5/M7/M9/L6 等 P2 项未做(详见审计报告 §10)。
 
 其余挂起项不变:P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
@@ -126,9 +127,9 @@ npm run type-check && npm run lint   # 必须零错误 / 零告警
 
 **出签名包**(keystore `C:\Users\you\chatapp-release.jks`,口令在 `app/android/key.properties`;两个文件都不入库,务必备份):
 ```bash
-cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=http://<SERVER_IP>/api/v1
+cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=https://chat.shiliu153.cn/api/v1
 ```
-产物 `app/build/app/outputs/flutter-apk/app-release.apk`。
+产物 `app/build/app/outputs/flutter-apk/app-release.apk`。**发版必须同时**:`pubspec.yaml` 的 `version:` + `lib/core/app_info.dart` 的 `appVersion` + 关于页测试期望三处一起改,再上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk` 并更新 `.env` 的 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。
 
 **服务器**:`ssh root@<SERVER_IP>`(免密);部署形态与更新流程见 [README.md](README.md)「部署」。服务器私有的运维手册(面板口令/路径/端口)不入库,本地保留。
 
