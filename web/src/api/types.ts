@@ -2,7 +2,6 @@
 
 export interface LoginResult {
   access: string
-  refresh: string
   isNewUser: boolean
   userId: number
 }

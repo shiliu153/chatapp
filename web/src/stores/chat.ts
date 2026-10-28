@@ -5,7 +5,13 @@ import { parseApiError } from '@/api/error'
 import { sessionEvents } from '@/api/session-events'
 import { getImClient } from '@/im/client'
 import { SYSTEM_NOTICE_PEER_ID } from '@/im/map'
-import type { ChatMessage, ImBootstrap, ImConversation } from '@/im/types'
+import type {
+  ChatMessage,
+  ImBootstrap,
+  ImCapabilities,
+  ImConversation,
+  ImSearchResult,
+} from '@/im/types'
 
 export type ChatStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting' | 'inactive' | 'error'
 
@@ -24,8 +30,18 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<Record<string, ChatMessage[]>>({})
   const status = ref<ChatStatus>('idle')
   const error = ref('')
+  /**
+   * 当前 IM 客户端能力(图片/搜索入口按它显示)。
+   *
+   * 必须是响应式状态:`client.capabilities` 只是普通 getter,`getImClient()`
+   * 在 init 之前拿到的是「未连接」的兜底值,直接读它会把入口永久藏起来
+   * (2026-10-26 排查发现:Web 聊天页图片入口因此一直不显示)。
+   */
+  const capabilities = ref<ImCapabilities>({ image: false, search: false, voice: false })
   /** 发送失败/待发送的图片文件,供「重发」用 */
   const pendingFiles = new Map<string, File>()
+  /** 发送失败/待发送的语音,供「重发」用 */
+  const pendingVoices = new Map<string, { blob: Blob; durationMs: number }>()
   /** 进行中的连接(并发调用复用它) */
   let inFlight: Promise<void> | null = null
 
@@ -138,6 +154,8 @@ export const useChatStore = defineStore('chat', () => {
       }
       await client.init(bootstrap)
       await client.login(raw.im_user_id, raw.token || raw.user_sig || '')
+      // 连上之后才拿得到真实能力位(init 前 RoutingImClient 还没有 active)
+      capabilities.value = { ...client.capabilities }
       status.value = 'ready'
     } catch (e) {
       error.value = parseApiError(e).message
@@ -201,6 +219,32 @@ export const useChatStore = defineStore('chat', () => {
     return merged
   }
 
+  /** 往前翻历史,直到找到 untilMsgId(最多 5 页)。搜索定位用。 */
+  async function loadOlder(peerId: string, untilMsgId: string, maxPages = 5): Promise<void> {
+    await ensureConnected()
+    let list = messagesOf(peerId)
+    for (let page = 0; page < maxPages; page++) {
+      if (list.some((item) => item.msgId === untilMsgId)) return
+      const oldestSeq = list[0]?.seq ?? 0
+      if (oldestSeq <= 1) return
+      const older = await client.fetchHistory(peerId, 50, oldestSeq)
+      if (!older.length) return
+      list = mergeMessages(list, older)
+      messages.value = { ...messages.value, [peerId]: list }
+      if (older.length < 50) return
+    }
+  }
+
+  /** 搜索聊天记录(仅自建后端;入口由 capabilities.search 控制)。 */
+  async function searchMessages(
+    keyword: string,
+    limit = 20,
+    beforeId?: string,
+  ): Promise<ImSearchResult> {
+    await ensureConnected()
+    return client.searchMessages(keyword, limit, beforeId)
+  }
+
   async function openConversation(peerId: string): Promise<ChatMessage[]> {
     const list = await loadHistory(peerId)
     await client.markConversationRead(peerId)
@@ -225,7 +269,16 @@ export const useChatStore = defineStore('chat', () => {
     return message
   }
 
-  /** 重发失败的消息:文本直接重发,图片用缓存的 File 重发。 */
+  async function sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage> {
+    await ensureConnected()
+    const message = await client.sendVoice(peerId, blob, durationMs)
+    pendingVoices.set(message.msgId, { blob, durationMs })
+    appendMessage(peerId, message)
+    upsertConversation({ ...message, isSelf: true })
+    return message
+  }
+
+  /** 重发失败的消息:文本直接重发,图片/语音用缓存的本地内容重发。 */
   async function resend(message: ChatMessage): Promise<void> {
     const list = messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId)
     messages.value = { ...messages.value, [message.peerId]: list }
@@ -234,6 +287,13 @@ export const useChatStore = defineStore('chat', () => {
       if (!file) return
       pendingFiles.delete(message.msgId)
       await sendImage(message.peerId, file)
+      return
+    }
+    if (message.kind === 'voice') {
+      const voice = pendingVoices.get(message.msgId)
+      if (!voice) return
+      pendingVoices.delete(message.msgId)
+      await sendVoice(message.peerId, voice.blob, voice.durationMs)
       return
     }
     await sendText(message.peerId, message.text)
@@ -280,6 +340,7 @@ export const useChatStore = defineStore('chat', () => {
     await client.logout().catch(() => {})
     conversations.value = []
     messages.value = {}
+    capabilities.value = { image: false, search: false, voice: false }
     status.value = 'idle'
   }
 
@@ -288,14 +349,18 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     status,
     error,
+    capabilities,
     unreadTotal,
     connect,
     reconnect,
     loadConversations,
     loadHistory,
+    loadOlder,
+    searchMessages,
     openConversation,
     sendText,
     sendImage,
+    sendVoice,
     resend,
     deleteMessage,
     revokeMessage,

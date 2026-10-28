@@ -85,3 +85,23 @@ TEST(TokenTest, RejectsSubUidMismatch) {
   const auto forged = forge_token_with_sub("u10", 9);
   EXPECT_FALSE(verify_token(forged, kSecret, kNow).has_value());
 }
+
+TEST(TokenTest, ParsesSessionVersion) {
+  nlohmann::json header = {{"alg", "HS256"}, {"typ", "JWT"}};
+  nlohmann::json payload = {{"sub", "u9"}, {"uid", 9}, {"iat", kNow / 1000},
+                            {"exp", kNow / 1000 + 3600}, {"jti", "sv"}, {"sv", 7}};
+  const auto signing_input = b64url(header.dump()) + "." + b64url(payload.dump());
+  const auto token = signing_input + "." + hmac_b64(signing_input);
+  const auto claims = verify_token(token, kSecret, kNow);
+  ASSERT_TRUE(claims.has_value());
+  EXPECT_EQ(claims->sv, 7);
+}
+
+TEST(TokenTest, RejectsExpiryAtBoundary) {
+  nlohmann::json header = {{"alg", "HS256"}, {"typ", "JWT"}};
+  nlohmann::json payload = {{"sub", "u9"}, {"uid", 9}, {"iat", kNow / 1000},
+                            {"exp", kNow / 1000}, {"jti", "edge"}};
+  const auto signing_input = b64url(header.dump()) + "." + b64url(payload.dump());
+  const auto token = signing_input + "." + hmac_b64(signing_input);
+  EXPECT_FALSE(verify_token(token, kSecret, kNow).has_value());
+}

@@ -12,13 +12,17 @@
     - 踩坑记录:docs/pitfalls/backend.md「账号注销」
 """
 
+import uuid
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from config import images
 from moderation.services import blocked_user_ids
 
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
@@ -26,8 +30,9 @@ from .presence import PRESENCE_MAX_IDS, get_presence
 from .serializers import (DeleteAccountSerializer, PhotoSerializer, PhotoUploadSerializer,
                           PreferenceSerializer, ProfileSerializer, ProfileUpdateSerializer,
                           PublicProfileSerializer, TagSerializer)
-from .services import delete_account, get_profile, sync_im_avatar, sync_im_nickname
-from .throttles import PresenceThrottle
+from .services import (delete_account, get_profile, record_profile_view, sync_im_avatar,
+                       sync_im_nickname)
+from .throttles import PhotoUploadThrottle, PresenceThrottle, PublicProfileThrottle
 
 User = get_user_model()
 
@@ -84,6 +89,7 @@ def tag_list(request):
 
 
 @api_view(["GET"])
+@throttle_classes([PublicProfileThrottle])
 def public_profile(request, user_id):
     """他人资料卡(GET /api/v1/users/{user_id})。
 
@@ -105,10 +111,12 @@ def public_profile(request, user_id):
     profile = getattr(target, "profile", None)
     if profile is None or profile.status == ProfileStatus.BANNED_HEAVY:
         raise NotFound("用户不存在")
+    record_profile_view(request.user.id, target.id)   # 抓取广度监控,失败不影响响应
     return Response(PublicProfileSerializer(profile, context={"request": request}).data)
 
 
 @api_view(["POST"])
+@throttle_classes([PhotoUploadThrottle])
 def upload_photo(request):
     """上传照片(POST /api/v1/users/me/photos)。
 
@@ -129,8 +137,15 @@ def upload_photo(request):
     count = request.user.photos.count()
     if count >= settings.PHOTO_MAX_COUNT:
         return Response({"code": 400, "message": f"最多上传 {settings.PHOTO_MAX_COUNT} 张照片"}, status=400)
+    try:
+        normalized = images.normalize(images.open_checked(
+            serializer.validated_data["file"].read()))
+    except images.ImageError as error:
+        return Response({"code": 400, "message": str(error)}, status=400)
     status = PhotoStatus.APPROVED if settings.AUTO_APPROVE else PhotoStatus.PENDING
-    photo = Photo.objects.create(user=request.user, file=serializer.validated_data["file"],
+    filename = f"{request.user.id}-{uuid.uuid4().hex}{normalized.extension}"
+    photo = Photo.objects.create(user=request.user,
+                                 file=ContentFile(normalized.data, name=filename),
                                  order=count, status=status)
     get_profile(request.user).refresh_status()
     if status == PhotoStatus.APPROVED:

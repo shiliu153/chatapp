@@ -71,12 +71,15 @@ class User(AbstractUser):
     Attributes:
         phone: 手机号,全局唯一,同时是 ``USERNAME_FIELD``。
         session_version: 会话版本;JWT 里带签发时的值,与数据库当前值不一致即作废。
+        totp_secret: 运营账号的 TOTP 密钥(base32);普通用户为空。
     """
 
     username = None
     phone = models.CharField("手机号", max_length=20, unique=True)
     # 单设备登录:每次登录 +1;JWT 里带签发时的版本,鉴权时对不上 = 已在别处登录
     session_version = models.PositiveIntegerField("会话版本", default=SESSION_VERSION_DEFAULT)
+    # 运营后台的第二因子;空串表示尚未绑定,首次登录后台时引导绑定
+    totp_secret = models.CharField("TOTP 密钥", max_length=64, blank=True, default="")
 
     USERNAME_FIELD = "phone"
     REQUIRED_FIELDS = []

@@ -4,6 +4,11 @@
 # 仓库在 Windows 上开发、现有文件以 CRLF 入库,强行归一化会制造
 # 一次"每个文件全量重写"的巨型 diff,收益却接近于零。
 
+# 容器/服务器上执行的 bash 脚本必须是 LF:
+# CRLF 会让 `set -euo pipefail` 在容器里报 `set: pipefail: invalid option name`
+# (2026-10-27 在 Windows 上 core.autocrlf=true 检出后复现,imserver 测试全挂)。
+*.sh text eol=lf
+
 # 明确二进制,避免 Git 对它们做文本 diff
 *.png  binary
 *.jpg  binary
@@ -26,3 +31,6 @@ flutter/** -diff -text linguist-vendored
 
 # 文档不参与 GitHub 语言统计(避免 Markdown 稀释真实代码占比)
 docs/** linguist-documentation
+
+# 证书 PEM 保持 LF:Dart/BoringSSL 的 PEM 解析对 CRLF 兼容,但归一化后 diff 更干净
+*.pem text eol=lf

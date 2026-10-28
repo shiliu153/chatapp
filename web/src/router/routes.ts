@@ -68,6 +68,11 @@ export const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    path: '/search',
+    name: 'search',
+    component: () => import('@/features/chat/SearchPage.vue'),
+  },
+  {
     path: '/chat/:peerId',
     name: 'chat',
     component: () => import('@/features/chat/ChatPage.vue'),

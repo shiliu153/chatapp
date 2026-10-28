@@ -13,23 +13,28 @@
     - 封禁日志:展示历史、按动作过滤;
     - 广场治理:动态列表与删除、非运营 403;
     - 动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知;
-    - 聊天图片抽审:列表可见、删除置 deleted 并删文件、举报详情带最近图片、非运营 403。
+    - 聊天图片抽审:列表可见、删除置 deleted 并删文件、举报详情带最近图片、非运营 403;
+    - 私聊媒体审计:每次浏览落一条 ``MediaAccessLog``(含「仅被举报」筛选),审计失败不影响页面。
 """
 
 import os
 import shutil
 import tempfile
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from django.utils import timezone
 
+from accounts import totp
 from accounts.models import User
 from feed.models import Post, PostLike, PostReport
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
-from im.models import ChatImage, ChatImageStatus
+from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
+from ops.models import MediaAccessLog
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
@@ -564,3 +569,170 @@ class ChatImageOpsTests(TestCase):
     def test_non_staff_forbidden(self):
         self.client.force_login(self.user)
         self.assertEqual(self.client.get("/ops/chat-images/").status_code, 403)
+
+    def test_reported_filter_only_keeps_recently_reported_owners(self):
+        other = User.objects.create_user(phone="13900139004")
+        other_image = ChatImage(owner=other, width=1, height=1, bytes=len(self.PNG_1PX))
+        other_image.file.save("chat/o.png", ContentFile(self.PNG_1PX), save=False)
+        other_image.thumb.save("chat/o_thumb.png", ContentFile(self.PNG_1PX), save=False)
+        other_image.save()
+        report = Report.objects.create(reporter=self.staff, target=self.user,
+                                       type=ReportType.PORN)
+
+        response = self.client.get("/ops/chat-images/?reported=1")
+        self.assertContains(response, self.image.thumb.url)
+        self.assertNotContains(response, other_image.thumb.url)
+
+        # 举报超过 7 天就不再命中「仅被举报」
+        Report.objects.filter(pk=report.pk).update(
+            created_at=timezone.now() - timedelta(days=8))
+        response = self.client.get("/ops/chat-images/?reported=1")
+        self.assertNotContains(response, self.image.thumb.url)
+
+    def test_list_writes_media_access_audit(self):
+        self.client.get("/ops/chat-images/")
+        log = MediaAccessLog.objects.get()
+        self.assertEqual(log.staff_id, self.staff.id)
+        self.assertEqual(log.kind, MediaAccessLog.Kind.IMAGE)
+        self.assertEqual(log.filter, "all")
+        self.assertEqual(log.count, 1)
+        self.assertEqual(log.ip, "127.0.0.1")
+
+    def test_reported_filter_is_recorded_in_audit(self):
+        self.client.get("/ops/chat-images/?reported=1")
+        self.assertEqual(MediaAccessLog.objects.get().filter, "reported")
+
+    @patch("ops.views.MediaAccessLog.objects.create", side_effect=RuntimeError("db down"))
+    def test_audit_failure_does_not_break_page(self, _create):
+        self.assertEqual(self.client.get("/ops/chat-images/").status_code, 200)
+
+
+class ChatVoiceOpsTests(TestCase):
+    """聊天语音抽审:列表可试听、删除置 deleted 并删文件、举报详情带最近语音。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test")
+        override.enable()
+        self.addCleanup(override.disable)
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+        self.user = User.objects.create_user(phone="13900139013")
+        self.voice = ChatVoice(owner=self.user, duration_ms=5000, bytes=3)
+        self.voice.file.save("v.m4a", ContentFile(b"abc"), save=False)
+        self.voice.save()
+
+    def test_lists_chat_voices_with_audio(self):
+        response = self.client.get("/ops/chat-voices/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "聊天语音")
+        self.assertContains(response, "5 秒")
+        self.assertContains(response, "/media/chat/voices/")
+
+    def test_delete_marks_status_and_removes_file(self):
+        path = self.voice.file.path
+        response = self.client.post(f"/ops/chat-voices/{self.voice.pk}/delete")
+        self.assertEqual(response.status_code, 200)
+        self.voice.refresh_from_db()
+        self.assertEqual(self.voice.status, ChatVoiceStatus.DELETED)
+        self.assertEqual(self.voice.deleted_by_id, self.staff.id)
+        self.assertIsNotNone(self.voice.deleted_at)
+        self.assertFalse(os.path.exists(path))
+
+    def test_report_detail_shows_recent_chat_voices(self):
+        report = Report.objects.create(reporter=self.staff, target=self.user,
+                                       type=ReportType.PORN)
+        response = self.client.get(f"/ops/reports/{report.id}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "最近聊天语音")
+
+    def test_list_writes_voice_access_audit(self):
+        self.client.get("/ops/chat-voices/")
+        log = MediaAccessLog.objects.get()
+        self.assertEqual(log.kind, MediaAccessLog.Kind.VOICE)
+        self.assertEqual(log.count, 1)
+
+    def test_non_staff_forbidden(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/ops/chat-voices/").status_code, 403)
+
+
+class OpsInvalidParamTests(TestCase):
+    """审核台非法参数不能 500:非数字 ``user`` 被忽略,非数字 ``ids`` 被丢弃(M10)。"""
+
+    def setUp(self):
+        """登录一个运营账号。"""
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+
+    def test_non_numeric_user_filter_is_ignored(self):
+        """``?user=abc`` 返回 200,而不是 ValueError 500。"""
+        self.assertEqual(self.client.get("/ops/chat-images/?user=abc").status_code, 200)
+        self.assertEqual(self.client.get("/ops/chat-voices/?user=abc").status_code, 200)
+
+    def test_non_numeric_ids_are_dropped(self):
+        """``ids=abc`` 不会进入 ``pk__in``,页面仍正常返回。"""
+        response = self.client.post("/ops/photos/review", {"ids": "abc", "action": "approve"})
+        self.assertEqual(response.status_code, 200)
+
+
+@override_settings(OPS_OTP_REQUIRED=True)
+class StaffOtpTests(TestCase):
+    """运营后台强制第二因子:未验证跳转、绑定、验证后放行(H6)。"""
+
+    def setUp(self):
+        """登录一个未绑定 TOTP 的运营账号。"""
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+
+    def test_staff_without_otp_is_redirected(self):
+        """已登录但未过第二因子时,后台页面 302 到 /ops/otp/。"""
+        response = self.client.get("/ops/reports/")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith("/ops/otp/"))
+
+    def test_verified_staff_passes(self):
+        """session 标记为已验证后正常放行。"""
+        session = self.client.session
+        session["otp_verified"] = True
+        session.save()
+        self.assertEqual(self.client.get("/ops/reports/").status_code, 200)
+
+    def test_setup_binds_secret_and_marks_verified(self):
+        """首次绑定:提交 App 上的验证码后写入密钥并放行。"""
+        self.assertEqual(self.client.get("/ops/otp/").status_code, 200)
+        secret = self.client.session["otp_pending_secret"]
+        response = self.client.post("/ops/otp/", {"code": totp.code_at(secret)})
+        self.assertEqual(response.status_code, 302)
+        self.staff.refresh_from_db()
+        self.assertEqual(self.staff.totp_secret, secret)
+        self.assertTrue(self.client.session["otp_verified"])
+
+    def test_wrong_code_does_not_bind(self):
+        """错误验证码不写入密钥、不置已验证。"""
+        self.client.get("/ops/otp/")
+        response = self.client.post("/ops/otp/", {"code": "000000"})
+        self.assertEqual(response.status_code, 200)
+        self.staff.refresh_from_db()
+        self.assertEqual(self.staff.totp_secret, "")
+        self.assertFalse(self.client.session.get("otp_verified", False))
+
+
+class StaffIpAllowlistTests(TestCase):
+    """后台 IP 白名单:非白名单 403,白名单放行(H6)。"""
+
+    def setUp(self):
+        """登录运营账号。"""
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+
+    @override_settings(OPS_ALLOWED_IPS="10.0.0.9")
+    def test_blocked_ip_is_forbidden(self):
+        """测试客户端来源 127.0.0.1 不在白名单内。"""
+        self.assertEqual(self.client.get("/ops/reports/").status_code, 403)
+
+    @override_settings(OPS_ALLOWED_IPS="127.0.0.1")
+    def test_allowed_ip_passes(self):
+        """白名单命中时正常进入后台(测试环境默认不强制 OTP)。"""
+        self.assertEqual(self.client.get("/ops/reports/").status_code, 200)

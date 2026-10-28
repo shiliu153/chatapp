@@ -4,14 +4,18 @@ import 'im_bootstrap.dart';
 import 'im_client.dart';
 import 'self_image_uploader.dart';
 import 'self_im_client.dart';
+import 'self_voice_uploader.dart';
 import 'tencent_im_client.dart';
 
 /// 按引导包选择腾讯/自建实现;业务层只依赖 ImClient。
 class RoutingImClient extends ImClient {
-  RoutingImClient({this.imageUploader});
+  RoutingImClient({this.imageUploader, this.voiceUploader});
 
   /// 自建后端发图要先经 Django 上传;腾讯后端不用,所以允许为空。
   final SelfImageUploader? imageUploader;
+
+  /// 语音同理(腾讯后端不支持语音)。
+  final SelfVoiceUploader? voiceUploader;
   final _events = StreamController<ImEvent>.broadcast();
   ImClient? _active;
   StreamSubscription<ImEvent>? _sub;
@@ -21,12 +25,12 @@ class RoutingImClient extends ImClient {
 
   @override
   ImCapabilities get capabilities =>
-      _active?.capabilities ?? const ImCapabilities(image: false);
+      _active?.capabilities ?? const ImCapabilities(image: false, voice: false);
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {
     final next = bootstrap.backend == ImBackend.self
-        ? SelfImClient(imageUploader: imageUploader)
+        ? SelfImClient(imageUploader: imageUploader, voiceUploader: voiceUploader)
         : TencentImClient();
     await next.init(bootstrap);
     await _sub?.cancel();
@@ -46,8 +50,13 @@ class RoutingImClient extends ImClient {
       _active!.fetchConversations();
 
   @override
-  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50}) =>
-      _active!.fetchHistory(peerId, count: count);
+  Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50, int? beforeSeq}) =>
+      _active!.fetchHistory(peerId, count: count, beforeSeq: beforeSeq);
+
+  @override
+  Future<ImSearchResult> searchMessages(String keyword, {int limit = 20, String? beforeId}) =>
+      _active?.searchMessages(keyword, limit: limit, beforeId: beforeId) ??
+      Future.error(const ImException(42202, '当前聊天服务暂不支持搜索'));
 
   @override
   Future<ChatMessage> sendText({required String peerId, required String text,
@@ -57,6 +66,12 @@ class RoutingImClient extends ImClient {
   @override
   Future<ChatMessage> sendImage({required String peerId, required String imagePath}) =>
       _active!.sendImage(peerId: peerId, imagePath: imagePath);
+
+  @override
+  Future<ChatMessage> sendVoice({required String peerId, required String localPath,
+      required int durationMs}) =>
+      _active?.sendVoice(peerId: peerId, localPath: localPath, durationMs: durationMs) ??
+      Future.error(const ImException(42202, '当前聊天服务暂不支持语音'));
 
   @override
   Future<void> deleteMessage(ChatMessage message) => _active!.deleteMessage(message);

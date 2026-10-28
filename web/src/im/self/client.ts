@@ -6,16 +6,20 @@ import {
   type ImClient,
   type ImConversation,
   type ImEvent,
+  type ImSearchResult,
 } from '../types'
 import { type UploadedImage, uploadChatImage } from './image'
 import { conversationFromJson, messageFromJson } from './map'
 import { BrowserWebSocketTransport, type SelfTransport } from './transport'
+import { type UploadedVoice, uploadChatVoice } from './voice'
 
 interface PendingSend {
   peerId: string
   text: string
   /** 图片消息才有:上传结果,ack 回来时用它还原 ChatMessage */
   image?: UploadedImage
+  /** 语音消息才有:上传结果,ack 回来时用它还原 ChatMessage */
+  voice?: UploadedVoice
   resolve: (message: ChatMessage) => void
   reject: (error: Error) => void
 }
@@ -25,9 +29,11 @@ export class SelfImClient implements ImClient {
     private readonly transportFactory: () => SelfTransport =
       () => new BrowserWebSocketTransport(),
     private readonly uploadImage: (file: File) => Promise<UploadedImage> = uploadChatImage,
+    private readonly uploadVoice: (blob: Blob, durationMs: number) => Promise<UploadedVoice> =
+      uploadChatVoice,
   ) {}
 
-  readonly capabilities: ImCapabilities = { image: true }
+  readonly capabilities: ImCapabilities = { image: true, search: true, voice: true }
 
   private bootstrap?: ImBootstrap
   private transport?: SelfTransport
@@ -108,12 +114,18 @@ export class SelfImClient implements ImClient {
       if (!pending) return
       this.pending.delete(id)
       const image = pending.image
+      const voice = pending.voice
       pending.resolve({
         msgId: String(data.msg_id ?? ''),
         peerId: pending.peerId,
         isSelf: true,
+        seq: Number(data.seq ?? 0),
         timestamp: Number(data.ts ?? Date.now()),
-        kind: image ? ChatMessageKind.image : ChatMessageKind.text,
+        kind: voice
+          ? ChatMessageKind.voice
+          : image
+            ? ChatMessageKind.image
+            : ChatMessageKind.text,
         text: pending.text,
         senderName: '',
         senderAvatar: null,
@@ -121,6 +133,8 @@ export class SelfImClient implements ImClient {
         isFailed: false,
         imageUrl: image ? image.thumb_url : null,
         imageLargeUrl: image ? image.url : null,
+        voiceUrl: voice ? voice.url : null,
+        voiceDurationMs: voice ? voice.duration_ms : 0,
         isRevoked: false,
       })
       return
@@ -147,10 +161,31 @@ export class SelfImClient implements ImClient {
     return items.map((item) => conversationFromJson(item, this.bootstrap?.imUserId ?? ''))
   }
 
-  async fetchHistory(peerId: string, count = 50): Promise<ChatMessage[]> {
-    const data = await this.get('/messages', { peer: peerId, limit: String(count) })
+  async fetchHistory(peerId: string, count = 50, beforeSeq?: number): Promise<ChatMessage[]> {
+    const query: Record<string, string> = { peer: peerId, limit: String(count) }
+    if (beforeSeq != null && beforeSeq > 0) query.before_seq = String(beforeSeq)
+    const data = await this.get('/messages', query)
     const items = (data.items ?? []) as Record<string, unknown>[]
     return items.map((item) => messageFromJson(item, this.bootstrap?.imUserId ?? ''))
+  }
+
+  async searchMessages(keyword: string, limit = 20, beforeId?: string): Promise<ImSearchResult> {
+    const query: Record<string, string> = { q: keyword, limit: String(limit) }
+    if (beforeId) query.before_id = beforeId
+    const data = await this.get('/search', query)
+    const items = ((data.items ?? []) as Record<string, unknown>[]).map((item) => {
+      const peer = (item.peer ?? {}) as Record<string, unknown>
+      return {
+        msgId: String(item.msg_id ?? ''),
+        seq: Number(item.seq ?? 0),
+        peerId: String(peer.id ?? ''),
+        peerName: String(peer.nickname ?? ''),
+        peerAvatar: (peer.avatar as string | null) ?? null,
+        text: String(item.text ?? ''),
+        timestamp: Number(item.ts ?? 0),
+      }
+    })
+    return { items, hasMore: data.has_more === true }
   }
 
   async sendText(peerId: string, text: string): Promise<ChatMessage> {
@@ -200,6 +235,42 @@ export class SelfImClient implements ImClient {
             width: image.width,
             height: image.height,
             size: image.size,
+          },
+        },
+      }))
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<ChatMessage>((_, reject) =>
+            setTimeout(() => reject(new Error('发送超时')), 10000)),
+        ])
+      } catch {
+        this.pending.delete(id)
+      }
+    }
+    throw new Error('发送失败,请重试')
+  }
+
+  async sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage> {
+    // 先上传(Django 统一转 m4a 并校验时长),再发 WS 帧
+    const voice = await this.uploadVoice(blob, durationMs)
+    const id = `local-${Date.now()}${Math.floor(Math.random() * 1000)}`
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const promise = new Promise<ChatMessage>((resolve, reject) => {
+        this.pending.set(id, { peerId, text: '', voice, resolve, reject })
+      })
+      this.transport?.send(JSON.stringify({
+        v: 1,
+        type: 'send',
+        id,
+        data: {
+          client_msg_id: id,
+          to: peerId,
+          kind: 'voice',
+          voice: {
+            url: voice.url,
+            duration_ms: voice.duration_ms,
+            size: voice.size,
           },
         },
       }))

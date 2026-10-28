@@ -12,6 +12,7 @@
 """
 
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
@@ -19,11 +20,12 @@ from rest_framework.response import Response
 
 from config.pagination import DefaultLimitOffsetPagination
 
+from discovery.models import Match
 from .models import Block, Report, ReportStatus
 from .serializers import (BlockCreateSerializer, BlockSerializer, ReportCreateSerializer,
                           ReportSerializer)
-from .services import sync_im_blacklist
-from .throttles import ReportThrottle
+from .services import sync_im_blacklist, sync_im_pair
+from .throttles import BlockThrottle, ReportThrottle
 
 User = get_user_model()
 
@@ -52,15 +54,19 @@ def create_report(request):
     if data["target_user_id"] == request.user.id:
         raise ValidationError("不能举报自己")
     target = get_object_or_404(User, id=data["target_user_id"])
-    # 幂等:同一对象已有未处理举报就不重复建,直接返回已有记录
+    # 幂等:同一对「举报人 → 被举报人」的待处理举报共用同一个 dedupe_key。
+    # 并发提交时由数据库唯一约束兜底,get_or_create 会回查已有记录,不会产生重复行。
+    dedupe_key = f"{request.user.id}:{target.id}:{ReportStatus.PENDING}"
     report, created = Report.objects.get_or_create(
-        reporter=request.user, target=target, status=ReportStatus.PENDING,
-        defaults={"type": data["type"], "detail": data["detail"]},
+        dedupe_key=dedupe_key,
+        defaults={"reporter": request.user, "target": target,
+                  "type": data["type"], "detail": data["detail"]},
     )
     return Response(ReportSerializer(report).data, status=201 if created else 200)
 
 
 @api_view(["GET", "POST"])
+@throttle_classes([BlockThrottle])
 def blocks(request):
     """黑名单:读取列表与新增拉黑(GET/POST /api/v1/blocks)。
 
@@ -86,6 +92,8 @@ def blocks(request):
         block, created = Block.objects.get_or_create(blocker=request.user, blocked=target)
         if created:
             sync_im_blacklist(request.user, target, add=True)
+            # 拉黑即撤销聊天权限:即使两人之前配对过,也不能继续发消息
+            sync_im_pair(request.user.id, target.id, add=False)
         return Response(BlockSerializer(block, context={"request": request}).data,
                         status=201 if created else 200)
 
@@ -115,4 +123,11 @@ def unblock(request, user_id):
         target = block.blocked
         block.delete()
         sync_im_blacklist(request.user, target, add=False)
+        # 解除拉黑后,如果两人仍是有效配对,恢复聊天权限;否则不恢复。
+        still_matched = Match.objects.filter(
+            Q(user_a=request.user, user_b=target) | Q(user_a=target, user_b=request.user),
+            unmatched_at__isnull=True,
+        ).exists()
+        if still_matched:
+            sync_im_pair(request.user.id, target.id, add=True)
     return Response(status=204)

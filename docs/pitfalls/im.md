@@ -105,3 +105,21 @@ print('done', len(ids))
 - **nginx `alias` 会吃掉 location 前缀(2026-10-26 部署实测)**:`location ^~ /media/chat/ { alias .../media/; }` 会把 `/media/chat/` 整段替换掉,实际去找 `media/2026/10/x.jpg` —— 验签通过但 404。alias 必须写成 `.../media/chat/`。另外别用 `sed s#media/#media/chat/#` 批量替换:通用 `location ^~ /media/` 的 alias 会被一起改掉,用户头像与广场图立刻全 404。
 - **上传落盘路径别重复拼 `chat/年/月`(2026-10-26 部署实测)**:`ChatImage.file` 的 `upload_to` 已经是 `chat/%Y/%m/`,视图里再传 `chat/{month}/{stem}.jpg` 会落成 `media/chat/2026/10/chat/2026/10/x.jpg`;测试只断言了前缀所以没红。正确写法是只给文件名,并用 `assertRegex(image.file.name, r"^chat/\d{4}/\d{2}/...")` 兜住。
 
+## 聊天语音(2026-10-27)
+
+- **语音上传 503 + `50302` = 服务器没装 ffmpeg**:`shutil.which("ffmpeg")` 或 `ffprobe` 任一缺失就 fail closed(不静默降级,避免 Web 的 webm 存进去后 iOS 播不了)。先 `ffmpeg -version && ffprobe -version`;宝塔软件商店或 `apt install ffmpeg` 安装后无需重启 Django。
+- **语音文件被当孤儿删掉**:`im_media_cleanup` 的孤儿扫描以「库里 known 集合」判断,新增语音后**必须**把 `ChatVoice.file` 并进 `known`;漏了会在 24 小时宽限期后把正常语音全删掉(图片已有同款坑)。`test_orphan_scan_keeps_known_voice` 专门兜这个。
+- **统一转 m4a 是跨端播放的前提**:Chrome/Firefox 的 `MediaRecorder` 出 webm/opus,iOS 的 AVPlayer 播不了;服务端 ffmpeg 统一转 AAC 后存储格式唯一。**不要**改成「原样存」——Web→App 的语音会静默无声。
+- **时长以 ffprobe 为准**:客户端 `duration_ms` 只用来交叉校验(差 >2 秒拒绝),否则改个请求就能把 10 分钟音频塞进来。App 的 `record` 与 Web 的 `performance.now()` 在正常路径上都只差几百毫秒。
+- **`upload_to` 已含 `chat/voices/%Y/%m/`**:与图片一样,保存时只传文件名,否则会落成嵌套的 `chat/voices/2026/10/chat/voices/2026/10/...`。
+- **语音上传 400「只支持 M4A/AAC/WebM/OGG」的两种真因(2026-10-27 上线实测)**:① App 用 Dio 的 `MultipartFile.fromBytes` 传 `.m4a`,mime 包查不到该扩展名 → 实际发的是 `application/octet-stream`;② Web 的 `Blob.type` 是 `audio/webm;codecs=opus`,服务端精确匹配白名单会拒。修复:服务端 `voice.base_content_type()` 先按 `;` 截断再小写;App 显式 `contentType: DioMediaType('audio','mp4')`;Web 构造 Blob 时 `type: mimeType.split(';')[0]`。**mock 测试发现不了**,必须用真实客户端或 `curl -F "file=@x.m4a;type=audio/mp4"` 验一次。
+
+## 会话版本与配对校验(2026-10-28)
+
+- **旧 token 重连 40101 = 会话版本没同步**:token 里的 `sv` 必须等于 `im_user.session_version`。同步有两条路径:登录后的 Celery 任务 `sync_session_version`,以及 `POST /im/user_sig` 里签发前的同步调用(失败直接 503,不签发)。排查顺序:Django 日志里 `set_session_version` 是否失败 → `im_user.session_version` 是否是旧值 → token 是否带 `sv`(老 token 的 `sv=0`,过渡期放行)。
+- **所有消息 40302「无法发送」= 没跑 `im_sync_pairs`**:H4 之后 imserver 只允许 `im_pair` 里的两人互发。上线新版本后必须立刻 `python manage.py im_sync_pairs`(幂等,可反复跑);本地手测/造数也要先配对,`im_send` 不再能对任意 uid 代发。
+- **收件人必须先存在**:发送时不再 `ensure(to)` 建行;给不存在的 uid 发消息返回 42201,不会产生 `im_user` 垃圾行。测试里用 `_support.ensure()` / `auth()` 先建号。
+- **系统通知豁免配对**:`from=0` 的灰条/系统通知不查 `im_pair`,但收件人仍必须存在。
+- **`known_` 缓存与测试清库**:DB 测试 `reset()` 删完 `im_user` 后必须 `users().clear_cache()`,否则 `ensure()` 以为用户还在、跳过插入,后续 `get()` 查不到行(2026-10-28 实测踩到,表现为系统通知 42201)。
+- **迁移 SQL 注释里不能有分号**:`imserver/src/migrate.cpp` 的 `apply_sql` 按 `;` 粗暴切分,注释里出现 `;` 会把后半行当 SQL 执行,报 `You have an error in your SQL syntax`。注释用中文句号或换行,别用分号。
+

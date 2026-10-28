@@ -60,6 +60,17 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         isPending: true,
       ));
 
+  Future<void> sendVoice(String path, int durationMs) => _sendOut(ChatMessage(
+        msgId: 'local-${DateTime.now().microsecondsSinceEpoch}',
+        peerId: peerId,
+        isSelf: true,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        kind: ChatMessageKind.voice,
+        localPath: path,
+        voiceDurationMs: durationMs,
+        isPending: true,
+      ));
+
   /// 失败不抛异常、消息保留 isFailed;重发复用同一条(msgId 不变,靠 upsert 就地替换)。
   Future<void> _sendOut(ChatMessage pendingMessage) async {
     _upsert(pendingMessage);
@@ -69,6 +80,24 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
       _replace(pendingMessage.msgId, sent);
     } catch (_) {
       _replace(pendingMessage.msgId, pendingMessage.copyWith(isPending: false, isFailed: true));
+    }
+  }
+
+  /// 往前翻历史,直到找到 [untilMsgId](或翻到顶 / 到页数上限)。搜索定位用。
+  Future<void> loadOlder({required String untilMsgId, int maxPages = 5}) async {
+    var current = state.value ?? const <ChatMessage>[];
+    if (current.isEmpty) return;
+    final client = ref.read(imClientProvider);
+    for (var page = 0; page < maxPages; page++) {
+      if (current.any((item) => item.msgId == untilMsgId)) return;
+      final oldestSeq = current.first.seq;
+      if (oldestSeq <= 1) return;
+      final older = await client.fetchHistory(peerId, count: 50, beforeSeq: oldestSeq);
+      if (older.isEmpty) return;
+      final known = {for (final item in current) item.msgId};
+      current = [...older.where((item) => !known.contains(item.msgId)), ...current];
+      state = AsyncValue.data(current);
+      if (older.length < 50) return;
     }
   }
 

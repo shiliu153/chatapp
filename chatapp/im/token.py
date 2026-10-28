@@ -7,12 +7,13 @@ import jwt
 from django.conf import settings
 
 
-def mint_im_token(user_id: int, ttl: int) -> str:
+def mint_im_token(user_id: int, ttl: int, session_version: int = 0) -> str:
     """签发一个 IM token。
 
     Args:
         user_id: 账号 id。
         ttl: 有效期(秒)。
+        session_version: 签发时的会话版本;imserver 用它拒绝被顶下线的旧 token(H3)。
 
     Returns:
         HS256 JWT 字符串。
@@ -25,6 +26,7 @@ def mint_im_token(user_id: int, ttl: int) -> str:
             "iat": now,
             "exp": now + ttl,
             "jti": uuid.uuid4().hex,
+            "sv": int(session_version),
         },
         settings.IM_SELF_SECRET,
         algorithm="HS256",

@@ -70,6 +70,21 @@
 - **DRF 的权限检查在方法分发之前**:给 `me` 加 DELETE 后,匿名请求拿 401、重封禁拿 403,都不会落到 405 —— 所以 `test_requires_auth` / 重封禁用例在实现前就是绿的,别被「实现前只有 7 例红」误导。
 - **测试里别断言 refresh token 的具体值**:App 启动 `bootstrap()` 会静默刷新一次令牌,存的 refresh 已经不是登录时那个了。要断言「凭证没被清」就用 `isNotNull`。
 
+## 安全加固(2026-10-28)
+
+- **图片必须先看 `size` 再解码**:`config/images.py::open_checked()` 只 `Image.open` 读文件头,检查 `width*height <= 2000 万` 后才允许 `exif_transpose`/`load`。反过来写(先转置再检查)等于让解压炸弹先分配几百 MB;测试用 `patch("config.images.MAX_IMAGE_PIXELS", 100)` + 20×20 图就能覆盖,不必真的造 1.4 亿像素。
+- **重编码才等于剥离 EXIF**:只做 `exif_transpose` 不重编码,原始字节里的 GPS 仍在。三个入口(资料图/广场图/聊天图)统一 `normalize()` → 新 PIL 对象 → `save()`,并清空 `info`;测试用 `Image.Exif()` 写入 `0x010F`/`0x8825` 再读回断言不存在。
+- **测试环境的 `DEBUG` 是 `False`**:Django 测试运行器会把 `DEBUG` 置 False,所以「空密钥放行」的旧用例会突然变红。媒体签名现在的规则是「未配密钥时只有 `DEBUG` 放行」,相关测试要显式 `@override_settings(DEBUG=True)`,验签类测试则统一给类加 `@override_settings(IM_MEDIA_SIGN_SECRET="s")`(签名与验签必须用同一个 secret,别在 `with` 里签、`with` 外验)。
+- **`OPS_OTP_REQUIRED` 在测试里默认 0**:`DEBUG or TESTING` 时默认关闭,否则所有 ops 用例都会被 302 到 `/ops/otp/`。要测门禁必须 `@override_settings(OPS_OTP_REQUIRED=True)`;`force_login()` 只绕过密码,不绕过中间件,所以「已登录未验证」的状态正好可测。
+- **TOTP 绑定是「先放 session,确认后才写库」**:首次进入 `/ops/otp/` 生成 `otp_pending_secret` 放 session,用户输入 App 上的码校验通过才写 `User.totp_secret`。不要一生成就写库——用户没绑成功就退出的话,下次登录会拿着一个自己不知道的密钥被锁死。
+- **登录锁定用自定义后端,不是中间件**:`accounts/backends.py::ThrottledModelBackend` 在 `authenticate()` 前后计数,`/admin/` 与 `/ops/` 共用;锁定期间直接返回 `None`(与密码错误同表现,不泄漏状态)。测试要 `cache.clear()`,否则上一个用例的失败计数会串。
+- **举报去重键在 `save()` 里维护**:`Report.dedupe_key` 是唯一约束,`save()` 会在 `status != pending` 时清空,并把 `dedupe_key` 补进 `update_fields`(只改 `status` 时也能清掉)。并发创建靠唯一约束 + `get_or_create` 回查,不要只在视图里 `filter().exists()` 判重。
+- **`NUM_PROXIES=1` 的语义**:DRF 取 XFF 的**最后一段**作为客户端 IP。nginx 必须用 `proxy_set_header X-Forwarded-For $remote_addr;` 覆盖客户端传入值;若继续用 `$proxy_add_x_forwarded_for`,最后一段仍是真实 IP,但前面会保留伪造值,日志里别拿整条 XFF 当可信来源。
+- **依赖锁定用 `requirements.lock`,不要直接 `pip install -r requirements.txt`**:`requirements.txt` 只表达区间,lock 是依赖闭包的精确版本(含 gunicorn 与传递依赖)。生成方式:在通过全量测试的环境里,从 `requirements.txt` 的直接依赖出发,用 `importlib.metadata` 递归 `requires`,按 `default_environment()` 合并 `sys_platform=linux` 求值 marker,输出 `名字==版本`。**换 Python 大版本必须重新生成**——celery/redis 的条件依赖(`async-timeout`/`exceptiongroup`)是按 Python 版本挂的。`config/tests.py::DependencyLockTests` 会拦住「加了直接依赖却没进 lock」和「lock 里出现区间」两种情况。
+- **ffmpeg 处理上传音频必须给协议白名单**:只加超时不够 —— HLS/concat 这类 playlist 会让 ffmpeg 去拉 http 或读任意本地文件。现在统一 `-protocol_whitelist file,pipe`(输入是临时目录里的文件、输出是本机文件),再加 `-nostdin` + `stdin=DEVNULL` 防交互、`-map_metadata -1 -sn -dn` 丢弃元数据与字幕/数据流、`-threads 1` 限并发。POSIX 下用 `preexec_fn` 设 `RLIMIT_CPU/AS/FSIZE` 兜底解码炸弹;**Windows 没有 `resource` 模块,这段必须按 `os.name == "posix"` 跳过**,否则本地测试直接 ImportError。
+- **ops 抽审私聊媒体要留审计**:`ops.MediaAccessLog` 每次打开聊天图片/语音列表写一条(操作人/类型/筛选/条数/IP);列表的 `?reported=1` 只显示「最近 7 天被举报过的发送者」,与举报详情页的证据窗口一致。**审计写失败只能告警,不能 500**——否则 Redis/DB 抖一下运营就看不了队列。
+- **抓取监控用 `cache.add` 去重,不要用自增计数**:同一小时内重复看同一个人不该累加,`cache.add(per_target_key)` 返回 False 就跳过;计数 key 首次 `incr` 会抛 `ValueError`(key 不存在),要捕获后 `set(1)`。整段包 `try/except` 静默降级:监控代码永远不能影响资料接口。
+
 ## 注释规范
 
 - **规则文档**:`docs/standards/python.md` 是 Python 注释的单一事实来源(模块头模板、`Args`/`Returns`/`Raises` 写法、行内注释禁令、豁免清单)。改注释前先看它,不要自创格式。
@@ -79,3 +94,13 @@
 - **豁免规则一律按名称与嵌套形态判定,不按文件路径**。基于文件名的特判(判断 `test*.py` 还是 `*tests.py`、路径分隔符、大小写)是门禁脚本最容易出错的地方,值得为它放弃几十行注释的「整齐」。
 - **改写注释时信息只增不减**:本项目大量注释承载踩坑结论(踢人顺序、`BROKER_URL` 前缀、`account_import` 覆盖行为)。清理语气与格式可以,**技术结论一条都不能丢**。
 - **验证「只改了注释」的土办法**:用 `ast.dump` 剥离 docstring 后比对改动前后的 AST,两边一致即证明代码零改动。本次规范化全程用它兜底,抓到过一次补 docstring 时误删函数体的事故。
+
+## 令牌硬化(2026-10-28)
+
+- **Web 的 refresh 只走 Cookie,App 仍走响应体**:`accounts/cookies.py::wants_cookie()` 只认请求头 `X-Client: web`。不要用 User-Agent 判断 —— UA 可伪造且难测;自定义头跨域会触发预检,而生产 CORS 白名单为空,第三方站点发不出来。
+- **Cookie 的 `Path` 是 `/api/v1/auth/`**,只在 refresh/logout 两个请求上携带。改成 `/` 会让每个业务请求都带上这个 30 天凭证,暴露面白白扩大。
+- **`Secure` 必须跟 `HTTPS_ENABLED` 联动**:本地 http 调试时加 `Secure` 会被浏览器直接丢弃,表现成「登录成功但刷新立刻掉线」。
+- **刷新轮换要留宽限(`REFRESH_REUSE_GRACE`,默认 60 秒)**:`BLACKLIST_AFTER_ROTATION=True` 下,两个标签页同时刷新时先到者会把旧 refresh 拉黑,后到者原本会 401 被踢回登录页。轮换时把「旧 jti → 新 refresh」写缓存,命中就复用同一对新令牌(不再轮换);超过宽限的复用视为泄露重放。**宽限不能绕过单设备登录** —— 命中缓存后仍要校验 `session_version`,否则被顶下线的设备能借宽限续命。
+- **读 Cookie 分支时别直接碰 `request.data`**:Web 的刷新请求体是空的,DRF 解析空 JSON 体会抛 `ParseError`(400)。`views._body_refresh()` 把它当「没带」处理,再回落到 Cookie。
+- **注销必须幂等**:`POST /auth/logout` 对「没有 token / 已过期 / 已拉黑」一律 204。`blacklist()` 可能因缺 `OutstandingToken` 抛异常,这里只能吞掉 —— 注销的目标是「以后不能用」,不是「本次一定拉黑成功」。
+- **`response.delete_cookie()` 没有 `secure` 参数**:Django 5.2 的签名是 `(key, path, domain, samesite)`,传 `secure` 会 `TypeError`。要清 Secure Cookie 靠同名同 Path 即可。

@@ -11,6 +11,7 @@ const msg = (overrides: Partial<ChatMessage>): ChatMessage => ({
   msgId: 'm0',
   peerId: 'u8',
   isSelf: false,
+  seq: 0,
   timestamp: 1,
   kind: 'text' as never,
   text: '',
@@ -38,7 +39,9 @@ function fakeClient() {
     login: vi.fn(async () => {}),
     logout: vi.fn(async () => {}),
     fetchConversations: vi.fn(async () => conversations),
-    fetchHistory: vi.fn(async () => [] as ChatMessage[]),
+    fetchHistory: vi.fn(async (_peerId?: string, _count?: number, _beforeSeq?: number) => [] as ChatMessage[]),
+    searchMessages: vi.fn(async () => ({ items: [], hasMore: false })),
+    capabilities: { image: true, search: true },
     sendText: vi.fn(async (peerId: string, text: string) => msg({ msgId: 'm1', peerId, isSelf: true, text })),
     sendImage: vi.fn(async (peerId: string) => msg({ msgId: 'm2', peerId, isSelf: true })),
     deleteMessage: vi.fn(async () => {}),
@@ -215,5 +218,46 @@ describe('chat store', () => {
 
     expect(client.revokeMessage).toHaveBeenCalledWith('m8')
     expect(store.messagesOf('u8')[0].isRevoked).toBe(true)
+  })
+
+  it('连上之后才把客户端能力位同步进 store(入口按它显示)', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    // init 之前是兜底值:直接读 client.capabilities 会拿到 false(图片入口曾因此不显示)
+    expect(store.capabilities).toEqual({ image: false, search: false, voice: false })
+
+    await store.loadConversations()
+
+    expect(store.capabilities).toEqual({ image: true, search: true })
+  })
+
+  it('searchMessages 先确保已连接,再透传关键词/条数/游标', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+
+    await store.searchMessages('火锅', 10, '99')
+
+    expect(client.login).toHaveBeenCalled()
+    expect(client.searchMessages).toHaveBeenCalledWith('火锅', 10, '99')
+  })
+
+  it('loadOlder 用最旧一条的 seq 作游标,找到目标即停', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    store.messages = {
+      u8: [msg({ msgId: 'm2', seq: 101, timestamp: 2 }), msg({ msgId: 'm3', seq: 102, timestamp: 3 })],
+    }
+    client.fetchHistory = vi.fn(
+      async (_peerId?: string, _count?: number, beforeSeq?: number) =>
+        beforeSeq ? [msg({ msgId: 'target', seq: 99, timestamp: 1 })] : [],
+    )
+
+    await store.loadOlder('u8', 'target')
+
+    expect(client.fetchHistory).toHaveBeenCalledWith('u8', 50, 101)
+    expect(store.messagesOf('u8').map((item) => item.msgId)).toEqual(['target', 'm2', 'm3'])
   })
 })

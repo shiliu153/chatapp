@@ -69,4 +69,17 @@
   {% endfor %}
   </div>
 </article>
+<article>
+  <h3>最近聊天语音</h3>
+  <div class="ops-photos">
+  {% for voice in chat_voices %}
+    <div>
+      <audio controls preload="none" src="{{ voice.signed_file_url }}"></audio>
+      <div><small>{{ voice.created_at|date:"m-d H:i" }} · {{ voice.duration_seconds }} 秒</small></div>
+    </div>
+  {% empty %}
+    <span>该用户最近 7 天没有聊天语音</span>
+  {% endfor %}
+  </div>
+</article>
 {% endblock %}

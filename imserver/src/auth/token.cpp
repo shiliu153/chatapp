@@ -147,9 +147,10 @@ std::optional<TokenClaims> verify_token(std::string_view token,
     claims.iat = payload.at("iat").get<int64_t>();
     claims.exp = payload.at("exp").get<int64_t>();
     claims.jti = payload.value("jti", "");
+    claims.sv = payload.value("sv", 0);
 
     const int64_t now_s = now_ms / 1000;
-    if (claims.exp < now_s) {
+    if (claims.exp <= now_s) {
       return std::nullopt;
     }
     if (claims.iat > now_s + 60) {

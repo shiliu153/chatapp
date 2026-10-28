@@ -7,6 +7,8 @@ import urllib.request
 import jwt
 import websockets
 
+from _support import ensure, pair
+
 SECRET = os.environ["IM_JWT_SECRET"]
 WS = os.environ.get("IM_TEST_WS", "ws://127.0.0.1:19100/im/ws")
 HTTP = os.environ.get("IM_TEST_HTTP", "http://127.0.0.1:19101/im/api")
@@ -48,6 +50,9 @@ async def recv(ws, type_):
 async def main():
     base = 200000 + (int(time.time() * 1000) + os.getpid()) % 100000
     sender_uid, receiver_uid = base, base + 1
+    ensure(sender_uid)
+    ensure(receiver_uid)
+    pair(sender_uid, receiver_uid)
     sender = await auth(sender_uid)
     for index, text in enumerate(["一", "二"]):
         await sender.send(

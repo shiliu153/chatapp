@@ -6,6 +6,14 @@
 
 from rest_framework.throttling import SimpleRateThrottle
 
+from config.throttling import UserScopedThrottle
+
+
+class CandidateThrottle(UserScopedThrottle):
+    """按用户限流候选池;额度见 ``settings.DEFAULT_THROTTLE_RATES["candidates"]``。"""
+
+    scope = "candidates"
+
 
 class SwipeThrottle(SimpleRateThrottle):
     """按用户限流滑卡;额度在 settings.DEFAULT_THROTTLE_RATES["swipe"]。"""

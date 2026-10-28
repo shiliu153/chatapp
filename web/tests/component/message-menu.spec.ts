@@ -8,6 +8,7 @@ const message: ChatMessage = {
   msgId: 'm1',
   peerId: 'u8',
   isSelf: true,
+  seq: 0,
   timestamp: 1,
   kind: ChatMessageKind.text,
   text: '你好',

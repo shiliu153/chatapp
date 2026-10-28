@@ -6,6 +6,20 @@
 
 from rest_framework.throttling import SimpleRateThrottle
 
+from config.throttling import UserScopedThrottle
+
+
+class PhotoUploadThrottle(UserScopedThrottle):
+    """按用户限流照片上传;额度见 ``settings.DEFAULT_THROTTLE_RATES["upload_photo"]``。"""
+
+    scope = "upload_photo"
+
+
+class PublicProfileThrottle(UserScopedThrottle):
+    """按用户限流他人资料卡;额度见 ``settings.DEFAULT_THROTTLE_RATES["public_profile"]``。"""
+
+    scope = "public_profile"
+
 
 class PresenceThrottle(SimpleRateThrottle):
     """按用户限流在线状态查询;额度在 settings.DEFAULT_THROTTLE_RATES["presence"]。"""

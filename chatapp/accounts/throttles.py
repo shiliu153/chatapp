@@ -43,3 +43,21 @@ class SmsVerifyThrottle(SimpleRateThrottle):
             该 IP 在 ``sms_verify`` 作用域下的缓存键。
         """
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class ProbeThrottle(SimpleRateThrottle):
+    """按 IP 限流探针;额度在 settings.DEFAULT_THROTTLE_RATES["probe"](L1)。"""
+
+    scope = "probe"
+
+    def get_cache_key(self, request, view):
+        """按客户端 IP 生成限流缓存键。
+
+        Args:
+            request: 当前请求。
+            view: 当前视图;DRF 接口要求,此处未使用。
+
+        Returns:
+            该 IP 在 ``probe`` 作用域下的缓存键。
+        """
+        return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}

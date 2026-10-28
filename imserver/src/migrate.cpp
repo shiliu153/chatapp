@@ -58,6 +58,20 @@ void apply_sql(MysqlPool::Lease& lease, const std::string& sql) {
   }
 }
 
+/// 一条迁移:版本号 + SQL 文件名(相对 IM_MIGRATIONS_DIR)。
+struct Migration {
+  int version;
+  const char* file;
+};
+
+/// 新增迁移只在这里加一行;版本号单调递增,已应用的跳过。
+constexpr Migration kMigrations[] = {
+    {1, "001_init.sql"},
+    {2, "002_search_index.sql"},
+    {3, "003_session_version.sql"},
+    {4, "004_pair.sql"},
+};
+
 }  // namespace
 
 void run_migrations(const Config& cfg) {
@@ -68,14 +82,15 @@ void run_migrations(const Config& cfg) {
       "version INT NOT NULL PRIMARY KEY, applied_at BIGINT NOT NULL"
       ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-  if (version_applied(lease, 1)) {
-    log_info("migrated", {{"version", "1"}, {"skipped", "true"}});
-    return;
+  for (const auto& migration : kMigrations) {
+    const std::string version = std::to_string(migration.version);
+    if (version_applied(lease, migration.version)) {
+      log_info("migrated", {{"version", version}, {"skipped", "true"}});
+      continue;
+    }
+    apply_sql(lease, read_file(cfg.migrations_dir + "/" + migration.file));
+    lease.query("INSERT INTO im_schema_version (version, applied_at) VALUES (" + version + ", " +
+                std::to_string(now_ms()) + ")");
+    log_info("migrated", {{"version", version}});
   }
-
-  const std::string path = cfg.migrations_dir + "/001_init.sql";
-  apply_sql(lease, read_file(path));
-  lease.query("INSERT INTO im_schema_version (version, applied_at) VALUES (1, " +
-              std::to_string(now_ms()) + ")");
-  log_info("migrated", {{"version", "1"}});
 }

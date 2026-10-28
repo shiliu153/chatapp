@@ -6,12 +6,14 @@
 
 | 环境 | Base URL |
 |---|---|
-| 对外(域名待备案) | `http://<域名>/api/v1` |
-| 当前测试环境 | `http://<SERVER_IP>/api/v1` |
+| 正式入口(切换后) | `https://chat.shiliu153.cn/api/v1` |
+| 当前测试环境(切换前) | `http://<SERVER_IP>/api/v1` |
 | 本机开发(浏览器 / curl) | `http://127.0.0.1:8000/api/v1` |
 | 本机开发(Android 模拟器) | `http://10.0.2.2:8000/api/v1` |
 
-HTTPS 待域名备案后启用。本文档所有示例中的 `http://<域名>/api/v1` 均可替换为对应环境的 Base URL。
+`shiliu153.cn` 已备案；交友 App 正在从 IP 切换到 `https://chat.shiliu153.cn`，切换任务与回退步骤见
+[docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md](../superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md)。
+切换完成前，测试环境仍用 IP；切换后所有示例中的 `http://<域名>/api/v1` 统一替换为 HTTPS 域名。
 
 ## 请求约定
 

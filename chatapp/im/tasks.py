@@ -297,6 +297,60 @@ def kick_pending(user_id: int) -> None:
 
 
 @shared_task(**RETRY_POLICY)
+def pair_add(user_a_id: int, user_b_id: int) -> None:
+    """配对成功:建立两人的聊天权限(H4)。
+
+    Args:
+        user_a_id: 配对一方账号 id。
+        user_b_id: 配对另一方账号 id。
+
+    Raises:
+        RuntimeError: 同步失败,交给 ``RETRY_POLICY`` 重试。
+    """
+    a, b = _user(user_a_id), _user(user_b_id)
+    if a is None or b is None:
+        return
+    _require(im_client.pair_add(a.im_user_id, b.im_user_id), "pair_add")
+
+
+@shared_task(**RETRY_POLICY)
+def pair_remove(user_a_id: int, user_b_id: int) -> None:
+    """解除配对/拉黑:移除两人的聊天权限(H4)。
+
+    Args:
+        user_a_id: 一方账号 id。
+        user_b_id: 另一方账号 id。
+
+    Raises:
+        RuntimeError: 同步失败,交给 ``RETRY_POLICY`` 重试。
+    """
+    a, b = _user(user_a_id), _user(user_b_id)
+    if a is None or b is None:
+        return
+    _require(im_client.pair_remove(a.im_user_id, b.im_user_id), "pair_remove")
+
+
+@shared_task(**RETRY_POLICY)
+def sync_session_version(user_id: int) -> None:
+    """把账号当前会话版本同步给自建 IM(旧 token 随即失效,H3)。
+
+    登录时先入队一次:即使新设备还没来拉签名,旧设备的 token 也会在任务完成后
+    被 imserver 拒绝;``user_sig`` 里还有一次同步,保证签发前版本一定已落库。
+
+    Args:
+        user_id: 刚登录用户的账号 id。
+
+    Raises:
+        RuntimeError: 同步失败,交给 ``RETRY_POLICY`` 重试。
+    """
+    user = _user(user_id)
+    if user is None:
+        return
+    _require(im_client.set_session_version(user.im_user_id, user.session_version),
+             "set_session_version")
+
+
+@shared_task(**RETRY_POLICY)
 def delete_account(im_user_id: str) -> None:
     """注销账号:先踢下线,再删 IM 账号。
 

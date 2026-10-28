@@ -16,16 +16,20 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -39,15 +43,17 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import get_profile
 
+from discovery.models import Match
+
 from feed.models import Post, PostComment
 
-from . import media_sign
+from . import media_sign, voice
 from .client import (_request, black_list_add, black_list_delete, delete_account,
                      ensure_account, import_account, kick_user, send_ban_lifted,
                      send_ban_notice, send_custom_elem, send_match_notice,
                      send_post_commented, send_report_handled, send_text,
                      set_profile_avatar, set_profile_nick)
-from .models import ChatImage, ChatImageStatus
+from .models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 from .throttles import ChatImageThrottle
 from .token import mint_im_token, verify_im_token
@@ -470,6 +476,42 @@ class ImSyncNicknamesCommandTests(TestCase):
         self.assertIn("失败 1", out.getvalue())
 
 
+@override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="all")
+class ImSyncPairsCommandTests(TestCase):
+    """``im_sync_pairs`` 命令:只回填有效配对,先幂等建号(H4 上线必跑)。"""
+
+    def test_backfills_active_matches(self):
+        """有效配对:两侧都 ensure,再写 im_pair。"""
+        a = User.objects.create_user(phone="13800138010")
+        b = User.objects.create_user(phone="13800138011")
+        Match.objects.create(**Match.pair_kwargs(a, b))
+        with patch("im.management.commands.im_sync_pairs.ensure_account",
+                   return_value=True) as ensure, \
+                patch("im.management.commands.im_sync_pairs.pair_add",
+                      return_value=True) as pair:
+            call_command("im_sync_pairs")
+        pair.assert_called_once_with(a.im_user_id, b.im_user_id)
+        self.assertEqual(ensure.call_count, 2)
+
+    def test_skips_unmatched(self):
+        """已解除的配对不回填。"""
+        a = User.objects.create_user(phone="13800138012")
+        b = User.objects.create_user(phone="13800138013")
+        match = Match.objects.create(**Match.pair_kwargs(a, b))
+        Match.objects.filter(pk=match.pk).update(unmatched_at=timezone.now())
+        with patch("im.management.commands.im_sync_pairs.pair_add",
+                   return_value=True) as pair:
+            call_command("im_sync_pairs")
+        pair.assert_not_called()
+
+    def test_noop_for_tencent_backend(self):
+        """腾讯后端不需要回填,命令直接返回。"""
+        with override_settings(IM_BACKEND="tencent"), \
+                patch("im.management.commands.im_sync_pairs.pair_add") as pair:
+            call_command("im_sync_pairs")
+        pair.assert_not_called()
+
+
 @override_settings(**IM_TEST_SETTINGS)
 class UserSigApiTests(APITestCase):
     """``POST /im/user_sig``:签发内容、重封禁 403、踢旧会话先于签发。"""
@@ -507,6 +549,17 @@ class UserSigApiTests(APITestCase):
         self.client.credentials()
         resp = self.client.post("/api/v1/im/user_sig")
         self.assertEqual(resp.status_code, 401)
+
+    def test_user_sig_throttled(self):
+        """IM 凭证按用户限流,超限返回 429(M7)。"""
+        from .throttles import UserSigThrottle
+
+        cache.clear()
+        with patch("im.views.ensure_account", return_value=True), \
+                patch.object(UserSigThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.client.post("/api/v1/im/user_sig").status_code, 200)
+            self.assertEqual(self.client.post("/api/v1/im/user_sig").status_code, 200)
+            self.assertEqual(self.client.post("/api/v1/im/user_sig").status_code, 429)
 
     def test_heavy_banned_rejected(self):
         Profile.objects.create(user=self.user, status=ProfileStatus.BANNED_HEAVY)
@@ -695,11 +748,12 @@ class ImTokenTests(SimpleTestCase):
 
     @override_settings(IM_SELF_SECRET="t" * 32)
     def test_mint_and_verify(self):
-        token = mint_im_token(9, 3600)
+        token = mint_im_token(9, 3600, session_version=7)
         claims = verify_im_token(token)
         self.assertIsNotNone(claims)
         self.assertEqual(claims["uid"], 9)
         self.assertEqual(claims["sub"], "u9")
+        self.assertEqual(claims["sv"], 7)
 
     @override_settings(IM_SELF_SECRET="t" * 32)
     def test_reject_tampered(self):
@@ -744,14 +798,34 @@ class UserSigSelfTests(APITestCase):
         IM_SELF_SECRET="t" * 32,
         IM_SELF_TOKEN_TTL=86400,
     )
+    @patch("im.views.set_session_version", return_value=True)
     @patch("im.views.ensure_account", return_value=True)
-    def test_self_branch_returns_token(self, _):
+    def test_self_branch_returns_token(self, _ensure, sync):
         self.client.force_authenticate(self.user)
         response = self.client.post("/api/v1/im/user_sig")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["backend"], "self")
         self.assertEqual(response.data["ws_url"], "wss://im.example/ws")
         self.assertTrue(response.data["token"])
+        sync.assert_called_once_with(self.user.im_user_id, self.user.session_version)
+        claims = verify_im_token(response.data["token"])
+        self.assertEqual(claims["sv"], self.user.session_version)
+
+    @override_settings(
+        IM_BACKEND="self",
+        IM_SELF_GRAYLIST="all",
+        IM_SELF_WS_URL="wss://im.example/ws",
+        IM_SELF_HTTP_URL="https://im.example/api",
+        IM_SELF_SECRET="t" * 32,
+    )
+    @patch("im.views.set_session_version", return_value=False)
+    @patch("im.views.ensure_account", return_value=True)
+    def test_self_branch_fails_closed_when_session_sync_fails(self, _ensure, _sync):
+        """版本没落库就不签发 token,否则连接会被 imserver 拒绝(H3)。"""
+        self.client.force_authenticate(self.user)
+        response = self.client.post("/api/v1/im/user_sig")
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("token", response.data)
 
     @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="")
     @patch("im.views.gen_user_sig", return_value="tencent-sig")
@@ -891,7 +965,7 @@ class ChatImageUploadTests(APITestCase):
         self.assertTrue(urlsplit(data["thumb_url"]).path.endswith("_thumb.jpg"))
         self.assertIn("&s=", data["thumb_url"])
         self.assertEqual((data["width"], data["height"]), (1, 1))
-        self.assertEqual(data["size"], len(PNG_1PX))
+        self.assertGreater(data["size"], 0)   # 重编码后的字节数,不再等于原始 PNG
         image = ChatImage.objects.get()
         self.assertEqual(image.owner_id, self.user.id)
         self.assertRegex(image.file.name, r"^chat/\d{4}/\d{2}/\d+-[0-9a-f]{32}\.png$")
@@ -918,6 +992,35 @@ class ChatImageUploadTests(APITestCase):
         with override_settings(CHAT_IMAGE_MAX_SIDE=0):
             response = self.upload()
         self.assertEqual(response.status_code, 400)
+
+    def test_rejects_format_outside_whitelist(self):
+        """GIF 不在 jpg/png/webp 白名单内(L5)。"""
+        buffer = io.BytesIO()
+        Image.new("RGB", (1, 1), "red").save(buffer, "GIF")
+        response = self.upload(name="a.gif", content=buffer.getvalue(),
+                               content_type="image/gif")
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejects_decompression_bomb(self):
+        """像素总数超限时在解码前拒绝(M3)。"""
+        buffer = io.BytesIO()
+        Image.new("RGB", (20, 20), "red").save(buffer, "PNG")
+        with patch("config.images.MAX_IMAGE_PIXELS", 100):
+            response = self.upload(content=buffer.getvalue())
+        self.assertEqual(response.status_code, 400)
+
+    def test_upload_strips_exif(self):
+        """落盘的是重编码图,原始 EXIF 不再存在(M4)。"""
+        exif = Image.Exif()
+        exif[0x010F] = "TestCamera"
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 2), "red").save(buffer, "JPEG", exif=exif)
+        response = self.upload(name="a.jpg", content=buffer.getvalue(),
+                               content_type="image/jpeg")
+        self.assertEqual(response.status_code, 201, response.data)
+        image = ChatImage.objects.get()
+        with Image.open(image.file.path) as stored:
+            self.assertNotIn(0x010F, stored.getexif())
 
     def test_throttled_after_rate(self):
         # DRF 的 THROTTLE_RATES 是类属性,在 import 时就绑定了;测试只能替换这个属性
@@ -981,12 +1084,21 @@ class MediaSignTests(SimpleTestCase):
             self.assertFalse(media_sign.verify("/media/photos/a.jpg", query["e"][0],
                                                query["s"][0], now=1761782400))
 
+    @override_settings(DEBUG=True)
     def test_disabled_secret_passes_everything(self):
+        """仅开发模式(DEBUG=1)允许空密钥放行。"""
         with override_settings(IM_MEDIA_SIGN_SECRET=""):
             self.assertEqual(media_sign.sign_url("/media/chat/a.jpg"), "/media/chat/a.jpg")
             self.assertTrue(media_sign.verify("/media/chat/a.jpg", "0", "bad"))
 
+    @override_settings(DEBUG=False)
+    def test_missing_secret_fails_closed_in_production(self):
+        """生产漏配密钥时必须拒绝,而不是放行(M6)。"""
+        with override_settings(IM_MEDIA_SIGN_SECRET=""):
+            self.assertFalse(media_sign.verify("/media/chat/a.jpg", "0", "bad"))
 
+
+@override_settings(IM_MEDIA_SIGN_SECRET="s")
 class ChatImageAuthTests(APITestCase):
     """nginx 子请求验签:有效 204、缺头/过期/篡改 403、无需 JWT。"""
 
@@ -1158,6 +1270,212 @@ class ChatImageStatsTests(TestCase):
         text = out.getvalue()
         self.assertIn("visible=1", text)
         self.assertIn("磁盘文件=2", text)
+
+
+class ChatVoiceUploadTests(APITestCase):
+    """语音上传:成功返回四元组、时长/大小/格式校验、ffmpeg 缺失 503、限流。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
+                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
+        override.enable()
+        self.addCleanup(override.disable)
+        cache.clear()
+        self.user = User.objects.create_user(phone="13900139009")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.user).access_token}")
+        self.url = "/api/v1/im/voices"
+
+    def upload(self, content=b"fake-m4a", content_type="audio/mp4", duration_ms=12500):
+        """上传一段语音。
+
+        Args:
+            content: 文件字节。
+            content_type: MIME 类型。
+            duration_ms: 客户端声明时长。
+
+        Returns:
+            DRF 测试客户端响应。
+        """
+        return self.client.post(
+            self.url,
+            {"file": SimpleUploadedFile("a.m4a", content, content_type=content_type),
+             "duration_ms": duration_ms},
+            format="multipart")
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=12500)
+    def test_upload_returns_signed_url(self, _probe, _transcode, _ffmpeg):
+        response = self.upload()
+        self.assertEqual(response.status_code, 201, response.data)
+        data = response.data
+        self.assertTrue(data["url"].startswith("http://cdn.test/media/chat/voices/"))
+        self.assertIn("?e=", data["url"])
+        self.assertEqual(data["duration_ms"], 12500)
+        self.assertEqual(data["size"], len(b"transcoded"))
+        voice = ChatVoice.objects.get()
+        self.assertEqual(voice.owner_id, self.user.id)
+        self.assertRegex(voice.file.name, r"^chat/voices/\d{4}/\d{2}/\d+-[0-9a-f]{32}\.m4a$")
+        self.assertTrue(voice.file.storage.exists(voice.file.name))
+
+    @patch("im.voice.ffmpeg_available", return_value=False)
+    def test_returns_503_without_ffmpeg(self, _ffmpeg):
+        response = self.upload()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], 50302)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._probe_ms", return_value=61000)
+    def test_rejects_too_long(self, _probe, _ffmpeg):
+        response = self.upload(duration_ms=61000)
+        self.assertEqual(response.status_code, 400)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._probe_ms", return_value=5000)
+    def test_rejects_declared_duration_mismatch(self, _probe, _ffmpeg):
+        response = self.upload(duration_ms=20000)
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejects_non_audio_content_type(self):
+        response = self.upload(content_type="image/png")
+        self.assertEqual(response.status_code, 400)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
+    @patch("im.voice._probe_ms", return_value=5000)
+    def test_accepts_codecs_parameter(self, _probe, _transcode, _ffmpeg):
+        # 浏览器 Blob.type 会带 ;codecs=opus,不能因此拒收
+        response = self.upload(content_type="audio/webm;codecs=opus", duration_ms=5000)
+        self.assertEqual(response.status_code, 201, response.data)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
+    @patch("im.voice._probe_ms", return_value=5000)
+    def test_signed_url_passes_auth_helper(self, _probe, _transcode, _ffmpeg):
+        data = self.upload(duration_ms=5000).data
+        parts = urlsplit(data["url"])
+        query = parse_qs(parts.query)
+        self.assertTrue(media_sign.verify(parts.path, query["e"][0], query["s"][0]))
+
+    @patch("im.throttles.ChatVoiceThrottle.get_rate", return_value="1/hour")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
+    @patch("im.voice._probe_ms", return_value=5000)
+    def test_second_upload_is_throttled(self, _rate, _probe, _transcode, _ffmpeg):
+        cache.clear()
+        self.assertEqual(self.upload(duration_ms=5000).status_code, 201)
+        self.assertEqual(self.upload(duration_ms=5000).status_code, 429)
+
+
+class VoiceCommandHardeningTests(SimpleTestCase):
+    """M5:ffmpeg/ffprobe 以最小权限运行(协议白名单、无交互、资源上限、最小环境)。"""
+
+    def test_probe_uses_protocol_whitelist(self):
+        with patch("im.voice.subprocess.run") as run:
+            run.return_value = SimpleNamespace(stdout="5.0\n", returncode=0)
+            duration = voice._probe_ms(Path("a.m4a"))
+        self.assertEqual(duration, 5000)
+        args = run.call_args.args[0]
+        self.assertEqual(args[0], "ffprobe")
+        self.assertEqual(args[args.index("-protocol_whitelist") + 1], "file,pipe")
+        kwargs = run.call_args.kwargs
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertFalse(kwargs.get("shell", False))
+        self.assertEqual(kwargs["timeout"], voice.PROCESS_TIMEOUT_SECONDS)
+        self.assertEqual(kwargs["env"]["LC_ALL"], "C")
+        if os.name == "posix":
+            self.assertIs(kwargs["preexec_fn"], voice._apply_limits)
+        else:
+            self.assertIsNone(kwargs["preexec_fn"])
+
+    def test_transcode_args_are_hardened(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            src = Path(workdir) / "in.webm"
+            src.write_bytes(b"x")
+            with patch("im.voice.subprocess.run") as run:
+                run.return_value = SimpleNamespace(stdout="", returncode=0)
+                voice._transcode(src, Path(workdir) / "out.m4a")
+        args = run.call_args.args[0]
+        self.assertEqual(args[0], "ffmpeg")
+        self.assertIn("-nostdin", args)
+        self.assertEqual(args[args.index("-protocol_whitelist") + 1], "file,pipe")
+        self.assertEqual(args[args.index("-map_metadata") + 1], "-1")
+        self.assertIn("-sn", args)
+        self.assertIn("-dn", args)
+        self.assertEqual(args[args.index("-threads") + 1], "1")
+        self.assertFalse(run.call_args.kwargs.get("shell", False))
+
+    def test_transcode_nonzero_exit_raises_voice_error(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            with patch("im.voice.subprocess.run") as run:
+                run.return_value = SimpleNamespace(stdout="", returncode=1)
+                with self.assertRaises(voice.VoiceError):
+                    voice._transcode(Path(workdir) / "in.m4a", Path(workdir) / "out.m4a")
+
+    def test_transcode_timeout_raises_voice_error(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            with patch("im.voice.subprocess.run",
+                       side_effect=subprocess.TimeoutExpired("ffmpeg", 15)):
+                with self.assertRaises(voice.VoiceError):
+                    voice._transcode(Path(workdir) / "in.m4a", Path(workdir) / "out.m4a")
+
+    def test_probe_timeout_raises_voice_error(self):
+        with patch("im.voice.subprocess.run",
+                   side_effect=subprocess.TimeoutExpired("ffprobe", 15)):
+            with self.assertRaises(voice.VoiceError):
+                voice._probe_ms(Path("a.m4a"))
+
+
+class ChatVoiceCleanupTests(TestCase):
+    """语音清理:30 天过期删文件,孤儿扫描不误删正常语音。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13900139010")
+
+    def make_voice(self, name="v.m4a", created_days_ago=0):
+        """造一条语音行(带真实文件)。
+
+        Args:
+            name: 文件名。
+            created_days_ago: 创建时间距今天数。
+
+        Returns:
+            保存后的 ``ChatVoice``。
+        """
+        voice = ChatVoice(owner=self.user, duration_ms=5000, bytes=3)
+        voice.file.save(name, ContentFile(b"abc"), save=False)
+        voice.save()
+        if created_days_ago:
+            ChatVoice.objects.filter(pk=voice.pk).update(
+                created_at=timezone.now() - timedelta(days=created_days_ago))
+        return voice
+
+    def test_expires_old_voice_and_keeps_fresh(self):
+        old = self.make_voice("old.m4a", created_days_ago=31)
+        fresh = self.make_voice("fresh.m4a")
+        call_command("im_media_cleanup", "--apply")
+        old.refresh_from_db()
+        fresh.refresh_from_db()
+        self.assertEqual(old.status, ChatVoiceStatus.EXPIRED)
+        self.assertFalse(old.file.storage.exists(old.file.name))
+        self.assertEqual(fresh.status, ChatVoiceStatus.VISIBLE)
+        self.assertTrue(fresh.file.storage.exists(fresh.file.name))
+
+    def test_orphan_scan_keeps_known_voice(self):
+        voice = self.make_voice()
+        path = Path(settings.MEDIA_ROOT) / voice.file.name
+        os.utime(path, (time.time() - 48 * 3600, time.time() - 48 * 3600))
+        call_command("im_media_cleanup", "--apply", "--orphan-hours", "24")
+        self.assertTrue(voice.file.storage.exists(voice.file.name))
+
 
 
 

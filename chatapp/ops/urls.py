@@ -10,6 +10,7 @@ from django.urls import path
 
 from . import views
 from .forms import OpsLoginForm
+from .otp import otp_verify
 
 app_name = "ops"
 
@@ -21,6 +22,7 @@ urlpatterns = [
         redirect_authenticated_user=True,
     ), name="login"),
     path("logout/", auth_views.LogoutView.as_view(next_page="ops:login"), name="logout"),
+    path("otp/", otp_verify, name="otp"),
     path("reports/", views.reports_list, name="reports"),
     path("reports/<int:report_id>/", views.report_detail, name="report_detail"),
     path("reports/<int:report_id>/handle", views.report_handle, name="report_handle"),
@@ -30,6 +32,9 @@ urlpatterns = [
     path("chat-images/", views.chat_images, name="chat_images"),
     path("chat-images/<int:image_id>/delete", views.chat_image_delete,
          name="chat_image_delete"),
+    path("chat-voices/", views.chat_voices, name="chat_voices"),
+    path("chat-voices/<int:voice_id>/delete", views.chat_voice_delete,
+         name="chat_voice_delete"),
     path("users/", views.users_search, name="users"),
     path("users/<int:user_id>/", views.user_detail, name="user_detail"),
     path("users/<int:user_id>/ban", views.user_ban, name="user_ban"),

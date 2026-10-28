@@ -17,6 +17,7 @@ import {
   type ImConversation,
   type ImEvent,
   type ImEventNames,
+  type ImSearchResult,
   type KickReason,
   type TimChatLike,
   type TimMessageLike,
@@ -210,7 +211,9 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
     return conversations
   }
 
-  async function fetchHistory(peerId: string, count = 20): Promise<ChatMessage[]> {
+  async function fetchHistory(peerId: string, count = 20, beforeSeq?: number): Promise<ChatMessage[]> {
+    // 腾讯后端没有搜索入口,回溯翻页参数用不到,忽略。
+    void beforeSeq
     const instance = await ensureSdk()
     const res = await instance.getMessageList({ conversationID: `C2C${peerId}`, count })
     const list = res?.data?.messageList ?? []
@@ -292,14 +295,20 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
 
   return {
     onEvent,
-    capabilities: { image: true },
+    capabilities: { image: true, search: false, voice: false },
     init,
     login,
     logout,
     fetchConversations,
     fetchHistory,
+    async searchMessages(): Promise<ImSearchResult> {
+      throw new Error('当前聊天服务暂不支持搜索')
+    },
     sendText,
     sendImage,
+    async sendVoice(): Promise<ChatMessage> {
+      throw new Error('当前聊天服务暂不支持语音')
+    },
     deleteMessage,
     revokeMessage,
     markConversationRead,

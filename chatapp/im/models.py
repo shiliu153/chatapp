@@ -1,6 +1,6 @@
-"""IM 应用的本地数据模型:聊天图片元数据。
+"""IM 应用的本地数据模型:聊天图片与语音的元数据。
 
-消息本身仍存在自建 imserver 的库(或腾讯云侧),Django 这边只落**图片文件**
+消息本身仍存在自建 imserver 的库(或腾讯云侧),Django 这边只落**媒体文件**
 的元数据,用于运营抽审、删除审计与注销清理。
 
 设计要点:
@@ -74,3 +74,63 @@ class ChatImage(models.Model):
             ``chat_image#主键(owner=发送者 id)``。
         """
         return f"chat_image#{self.pk}(owner={self.owner_id})"
+
+
+class ChatVoiceStatus(models.TextChoices):
+    """聊天语音的状态。"""
+
+    VISIBLE = "visible", "正常"
+    DELETED = "deleted", "已删除"
+    EXPIRED = "expired", "已过期清理"
+
+
+class ChatVoice(models.Model):
+    """一段聊天语音的文件元数据(统一转码为 m4a)。
+
+    Attributes:
+        deleted_by: 执行删除的运营账号;未删除时为 ``None``。
+        deleted_at: 删除时间;未删除时为 ``None``。
+    """
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                              related_name="chat_voices", verbose_name="发送者")
+    file = models.FileField("语音", upload_to="chat/voices/%Y/%m/")
+    duration_ms = models.PositiveIntegerField("时长(毫秒)")
+    bytes = models.PositiveIntegerField("字节数")
+    mime = models.CharField("MIME", max_length=32, default="audio/mp4")
+    status = models.CharField("状态", max_length=10, choices=ChatVoiceStatus.choices,
+                              default=ChatVoiceStatus.VISIBLE)
+    deleted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                   on_delete=models.SET_NULL, related_name="+")
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    expired_at = models.DateTimeField("过期清理时间", null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def signed_file_url(self) -> str:
+        """运营台播放用:带签名的语音绝对地址。
+
+        Returns:
+            ``MEDIA_BASE_URL + 文件路径`` 并附签名 query。
+        """
+        return media_sign.sign_url(f"{settings.MEDIA_BASE_URL.rstrip('/')}{self.file.url}")
+
+    @property
+    def duration_seconds(self) -> int:
+        """时长(秒,四舍五入),运营台展示用。
+
+        Returns:
+            至少为 1 的整秒数。
+        """
+        return max(1, round(self.duration_ms / 1000))
+
+    def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``chat_voice#主键(owner=发送者 id)``。
+        """
+        return f"chat_voice#{self.pk}(owner={self.owner_id})"

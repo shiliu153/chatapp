@@ -73,6 +73,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    "ops.middleware.StaffSecurityMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
@@ -201,14 +202,44 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
 
+# 后台登录失败锁定(账号 + IP 双维度);达到上限后锁定 15 分钟
+AUTHENTICATION_BACKENDS = ["accounts.backends.ThrottledModelBackend"]
+OPS_LOGIN_MAX_ATTEMPTS = int(os.getenv("OPS_LOGIN_MAX_ATTEMPTS", "5"))
+OPS_LOGIN_LOCK_SECONDS = int(os.getenv("OPS_LOGIN_LOCK_SECONDS", "900"))
+
+# 运营后台的第二因子与 IP 白名单:
+# - OPS_OTP_REQUIRED 生产默认开;DEBUG/测试默认关,避免本地手测被挡
+# - OPS_ALLOWED_IPS 为空表示不限制;生产建议填公网出口 IP 或只走 VPN
+OPS_OTP_REQUIRED = os.getenv("OPS_OTP_REQUIRED",
+                             "0" if (DEBUG or TESTING) else "1") == "1"
+OPS_ALLOWED_IPS = os.getenv("OPS_ALLOWED_IPS", "")
+
 # --- 限流额度(env 可调;DEBUG 下放宽,免得两台模拟器共享 127.0.0.1 触发 IP 限流) ---
 SMS_SEND_IP_RATE = os.getenv("SMS_SEND_IP_RATE", "200/hour" if DEBUG else "20/hour")
 SMS_VERIFY_IP_RATE = os.getenv("SMS_VERIFY_IP_RATE", "600/hour" if DEBUG else "60/hour")
-PRESENCE_RATE = os.getenv("PRESENCE_RATE", "600/hour")   # 在线状态轮询:一个前台页面 ≈ 80/h
+# 测试期把「按用户」的读接口额度放宽,避免同一个测试账号跨用例累积触发 429;
+# 生产值仍是审计报告要求的严格额度(见各 *_RATE 注释)。
+_RELAXED = "100000/hour" if TESTING else None
+PRESENCE_RATE = os.getenv("PRESENCE_RATE", _RELAXED or "120/hour")       # 45s 心跳 ≈ 80/h
+CANDIDATE_RATE = os.getenv("CANDIDATE_RATE", _RELAXED or "60/hour")      # 候选池随机排序,开销大
+USER_SIG_RATE = os.getenv("USER_SIG_RATE", _RELAXED or "30/hour")        # 每次拉签名都可能同步外部 IM
+POST_LIKE_RATE = os.getenv("POST_LIKE_RATE", _RELAXED or "120/hour")
+BLOCK_RATE = os.getenv("BLOCK_RATE", _RELAXED or "60/hour")
+PHOTO_UPLOAD_RATE = os.getenv("PHOTO_UPLOAD_RATE", _RELAXED or "20/hour")
+PUBLIC_PROFILE_RATE = os.getenv("PUBLIC_PROFILE_RATE", _RELAXED or "120/hour")
+PROBE_RATE = os.getenv("PROBE_RATE", _RELAXED or "1200/hour")   # 探针 10s 一次 ≈ 360/h
 FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
+CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传,按用户计数
+
+# 资料抓取监控(M2):同一账号一小时内浏览「多少个不同的人」超过该值就记 WARNING。
+# 限流只能压慢抓取,这个计数是发现「正在被批量爬」的早期信号;只告警不拦截。
+PROFILE_SCRAPE_ALERT_PER_HOUR = int(os.getenv("PROFILE_SCRAPE_ALERT_PER_HOUR", "60"))
 
 REST_FRAMEWORK = {
+    # 只信任最近一层代理(nginx)追加的 XFF 末位。不设置时 DRF 会把整条
+    # X-Forwarded-For 当 ident,客户端随便换一个值就能绕过 IP 限流。
+    "NUM_PROXIES": int(os.getenv("NUM_PROXIES", "1")),
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "accounts.authentication.SessionJwtAuthentication",
     ),
@@ -227,15 +258,26 @@ REST_FRAMEWORK = {
         "post_comment": "60/day",
         "post_report": "20/day",
         "presence": PRESENCE_RATE,
+        "candidates": CANDIDATE_RATE,
+        "user_sig": USER_SIG_RATE,
+        "post_like": POST_LIKE_RATE,
+        "blocks": BLOCK_RATE,
+        "upload_photo": PHOTO_UPLOAD_RATE,
+        "public_profile": PUBLIC_PROFILE_RATE,
+        "probe": PROBE_RATE,
         "feedback": FEEDBACK_RATE,
         "chat_image": CHAT_IMAGE_RATE,
+        "chat_voice": CHAT_VOICE_RATE,
     },
 }
 
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^http://localhost:\d+$",   # Flutter Web / 调试用
-    r"^http://127\.0\.0\.1:\d+$",
-]
+# localhost 只给本地调试用;生产 Web 与 API 同源,不需要 CORS。
+CORS_ALLOWED_ORIGIN_REGEXES = []
+if DEBUG:
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^http://localhost:\d+$",   # Flutter Web / 调试用
+        r"^http://127\.0\.0\.1:\d+$",
+    ]
 CORS_EXPOSE_HEADERS = ["X-Request-Id"]   # 浏览器端能读到追踪头
 
 
@@ -290,6 +332,14 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,  # 旧的立即拉黑
 }
 
+# --- Web 端的 refresh token 走 HttpOnly Cookie(见 docs/superpowers/specs/2026-10-28-token-hardening-design.md) ---
+# 只对带 ``X-Client: web`` 头的请求下发;App 仍走响应体,协议不变。
+REFRESH_COOKIE_NAME = os.getenv("REFRESH_COOKIE_NAME", "chatapp_rt")
+REFRESH_COOKIE_PATH = "/api/v1/auth/"     # 只在 refresh/logout 两个请求上携带
+# 轮换宽限:多标签页同时刷新时,后到者用旧 token 仍能拿到同一对新令牌。
+# 超过宽限的复用视为泄露重放,直接 401。默认 60 秒足够覆盖并发刷新。
+REFRESH_REUSE_GRACE = int(os.getenv("REFRESH_REUSE_GRACE", "60"))
+
 # --- 腾讯云 IM REST(凭据只在 .env) ---
 IM_SDKAPPID = os.getenv("IM_SDKAPPID", "")
 IM_SECRETKEY = os.getenv("IM_SECRETKEY", "")
@@ -318,7 +368,10 @@ LATEST_APP_VERSION = os.getenv("LATEST_APP_VERSION", "1.0.0")
 APP_DOWNLOAD_URL = os.getenv("APP_DOWNLOAD_URL", "")
 
 # --- 照片 ---
-AUTO_APPROVE = os.getenv("AUTO_APPROVE", "1") == "1"   # 开发期自动过审;上线接内容安全 API 后置 0
+# 生产默认「先审后发」:新照片进入 pending,由 /ops/photos/ 审核队列处理;
+# 本地 DEBUG 与测试默认自动过审,免得每次手测都要点审核(H5)。
+AUTO_APPROVE = os.getenv("AUTO_APPROVE",
+                         "1" if (DEBUG or TESTING) else "0") == "1"
 PHOTO_MAX_COUNT = 6
 PHOTO_MAX_BYTES = 5 * 1024 * 1024
 
@@ -329,9 +382,23 @@ CHAT_IMAGE_THUMB_SIDE = 240
 
 # --- 聊天图片签名 URL(与 imserver 的 IM_MEDIA_SIGN_* 必须一致)---
 IM_MEDIA_SIGN_SECRET = os.getenv("IM_MEDIA_SIGN_SECRET", "")
-IM_MEDIA_SIGN_TTL = int(os.getenv("IM_MEDIA_SIGN_TTL", "86400"))
+IM_MEDIA_SIGN_TTL = int(os.getenv("IM_MEDIA_SIGN_TTL", "3600"))
+if not DEBUG and not IM_MEDIA_SIGN_SECRET:
+    # 漏配密钥时 nginx 的 auth_request 会变成「不签名也放行」,等于私聊媒体公开。
+    # 宁可起不来,也不要静默 fail-open。
+    raise ImproperlyConfigured("生产必须配置 IM_MEDIA_SIGN_SECRET(聊天媒体签名)")
 # 聊天图片保留期(天);0 表示只清孤儿文件与删除残留
 CHAT_IMAGE_RETENTION_DAYS = int(os.getenv("CHAT_IMAGE_RETENTION_DAYS", "30"))
+
+# --- 聊天语音(ffmpeg 统一转 m4a/AAC)---
+CHAT_VOICE_MAX_BYTES = 5 * 1024 * 1024
+CHAT_VOICE_MAX_OUT_BYTES = 2 * 1024 * 1024
+CHAT_VOICE_MIN_MS = 1000
+CHAT_VOICE_MAX_MS = 60000
+CHAT_VOICE_DURATION_TOLERANCE_MS = 2000
+CHAT_VOICE_SAMPLE_RATE = 16000
+CHAT_VOICE_BITRATE = "32k"
+CHAT_VOICE_RETENTION_DAYS = int(os.getenv("CHAT_VOICE_RETENTION_DAYS", "30"))
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
@@ -340,3 +407,23 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_BASE_URL = os.getenv("MEDIA_BASE_URL", "http://127.0.0.1:8000")
 
 LOGIN_REDIRECT_URL = "/ops/reports/"
+
+# --- HTTPS / 安全头(域名与证书到位后置 HTTPS_ENABLED=1)---
+# 说明:nginx 必须先配好 443 与 ``proxy_set_header X-Forwarded-Proto $scheme``;
+# 打开后 80 端口的 Django 请求会被 301 到 https,后台 Cookie 也只走 Secure。
+HTTPS_ENABLED = os.getenv("HTTPS_ENABLED", "0") == "1"
+if HTTPS_ENABLED:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "3600"))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = os.getenv("SECURE_HSTS_PRELOAD", "0") == "1"
+    CSRF_TRUSTED_ORIGINS = [item.strip() for item in
+                            os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if item.strip()]
+    SECURE_REFERRER_POLICY = "same-origin"
+
+# 与是否 HTTPS 无关的纵深防御头(nginx 静态页也需同步,见部署核对单)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"

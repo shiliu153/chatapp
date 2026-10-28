@@ -1,4 +1,4 @@
-"""IM 接口:签发 userSig 与上传聊天图片。
+"""IM 接口:签发 userSig、上传聊天图片与语音、nginx 验签子请求。
 
 设计要点:
     IM 账号的供给由本模块自己保证:首次调用同步建号,成功后在 Redis 置 30 天标记,
@@ -16,35 +16,38 @@
 """
 
 import io
+import logging
 import uuid
 from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
-from PIL import Image, ImageOps
+from PIL import Image
 from rest_framework.decorators import (api_view, authentication_classes,
                                       permission_classes, throttle_classes)
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from . import media_sign
+from config import error_codes, images
+
+from . import media_sign, voice
 from .backend import use_self_im
-from .client import ensure_account, kick_user
-from .models import ChatImage
-from .serializers import ChatImageUploadSerializer
+from .client import ensure_account, kick_user, set_session_version
+from .models import ChatImage, ChatVoice
+from .serializers import ChatImageUploadSerializer, ChatVoiceUploadSerializer
 from .signature import gen_user_sig
 from .tasks import kick_pending_key
-from .throttles import ChatImageThrottle
+from .throttles import ChatImageThrottle, ChatVoiceThrottle, UserSigThrottle
 from .token import mint_im_token
+
+logger = logging.getLogger(__name__)
 
 IMPORTED_FLAG_TTL = 30 * 24 * 3600   # 30 天;Redis 清空后下次调用会幂等重建
 
-# 上传时的 MIME → 落盘后缀;EXIF 方向不为 1 时统一重编码成 JPEG
-SUFFIX_BY_CONTENT_TYPE = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
-
 
 @api_view(["POST"])
+@throttle_classes([UserSigThrottle])
 def user_sig(request):
     """签发当前用户的 IM userSig(POST /api/v1/im/user_sig)。
 
@@ -76,9 +79,14 @@ def user_sig(request):
     if use_self_im(user):
         nickname = getattr(getattr(user, "profile", None), "nickname", "") or ""
         ensure_account(user.im_user_id, nickname)   # 失败不阻断签发
+        # 会话版本必须先落到 imserver 再签发 token:否则新 token 带的是
+        # imserver 还没见过的版本,连接会被自己拒绝;同步失败则 fail-closed(H3)。
+        if not set_session_version(user.im_user_id, user.session_version):
+            return Response({"code": 503, "message": "IM 暂不可用,请稍后重试"}, status=503)
         return Response({
             "backend": "self",
-            "token": mint_im_token(user.id, settings.IM_SELF_TOKEN_TTL),
+            "token": mint_im_token(user.id, settings.IM_SELF_TOKEN_TTL,
+                                   user.session_version),
             "im_user_id": user.im_user_id,
             "ws_url": settings.IM_SELF_WS_URL,
             "http_url": settings.IM_SELF_HTTP_URL,
@@ -112,32 +120,25 @@ def upload_image(request):
     serializer = ChatImageUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     upload = serializer.validated_data["file"]
-    raw = upload.read()
     try:
-        image = Image.open(io.BytesIO(raw))
-        orientation = image.getexif().get(0x0112, 1)
-        display = ImageOps.exif_transpose(image)
-        width, height = display.size
-    except Exception:
-        return Response({"code": 400, "message": "请上传图片文件"}, status=400)
+        image = images.open_checked(upload.read())
+    except images.ImageError as error:
+        return Response({"code": 400, "message": str(error)}, status=400)
 
-    if max(width, height) > settings.CHAT_IMAGE_MAX_SIDE:
+    if max(image.size) > settings.CHAT_IMAGE_MAX_SIDE:
         return Response({"code": 400, "message": "图片尺寸过大,请先压缩"}, status=400)
 
+    normalized = images.normalize(image)
     stem = f"{request.user.id}-{uuid.uuid4().hex}"
-    if orientation == 1:
-        data, suffix = raw, SUFFIX_BY_CONTENT_TYPE[upload.content_type]
-    else:
-        buffer = io.BytesIO()
-        display.convert("RGB").save(buffer, "JPEG", quality=85)
-        data, suffix = buffer.getvalue(), ".jpg"
 
     # upload_to 已经是 ``chat/%Y/%m/``,这里只给文件名 —— 再拼一遍 "chat/年/月"
     # 会落成 media/chat/2026/10/chat/2026/10/xxx.jpg(2026-10-26 部署时实测踩到)
-    chat_image = ChatImage(owner=request.user, width=width, height=height, bytes=len(data))
-    chat_image.file.save(f"{stem}{suffix}", ContentFile(data), save=False)
+    chat_image = ChatImage(owner=request.user, width=normalized.width,
+                           height=normalized.height, bytes=len(normalized.data))
+    chat_image.file.save(f"{stem}{normalized.extension}",
+                         ContentFile(normalized.data), save=False)
 
-    thumb = display.copy()
+    thumb = normalized.image.copy()
     thumb.thumbnail((settings.CHAT_IMAGE_THUMB_SIDE, settings.CHAT_IMAGE_THUMB_SIDE),
                     Image.Resampling.LANCZOS)
     thumb_buffer = io.BytesIO()
@@ -154,6 +155,48 @@ def upload_image(request):
         "width": chat_image.width,
         "height": chat_image.height,
         "size": chat_image.bytes,
+    }, status=201)
+
+
+@api_view(["POST"])
+@throttle_classes([ChatVoiceThrottle])
+def upload_voice(request):
+    """上传一段聊天语音(POST /api/v1/im/voices)。
+
+    同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
+    没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
+
+    Args:
+        request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
+
+    Returns:
+        201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
+        400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
+    """
+    serializer = ChatVoiceUploadSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    upload = serializer.validated_data["file"]
+    try:
+        data, duration_ms = voice.normalize(
+            upload.read(), upload.content_type, serializer.validated_data["duration_ms"])
+    except voice.VoiceUnavailable:
+        logger.error("聊天语音上传失败:服务器缺少 ffmpeg/ffprobe")
+        return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                         "message": "语音消息暂不可用"}, status=503)
+    except voice.VoiceError as error:
+        return Response({"code": 400, "message": str(error)}, status=400)
+
+    stem = f"{request.user.id}-{uuid.uuid4().hex}"
+    chat_voice = ChatVoice(owner=request.user, duration_ms=duration_ms, bytes=len(data))
+    chat_voice.file.save(f"{stem}.m4a", ContentFile(data), save=False)
+    chat_voice.save()
+
+    base = settings.MEDIA_BASE_URL.rstrip("/")
+    return Response({
+        "id": chat_voice.id,
+        "url": media_sign.sign_url(f"{base}{chat_voice.file.url}"),
+        "duration_ms": chat_voice.duration_ms,
+        "size": chat_voice.bytes,
     }, status=201)
 
 

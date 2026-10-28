@@ -215,6 +215,21 @@ class CandidateTests(APITestCase):
         self.assertEqual(len(self.client.get(f"{self.URL}?limit=3").json()), 3)
         self.assertEqual(len(self.client.get(f"{self.URL}?limit=99").json()), 12)   # 上限 20,但只有 12 个人
 
+    def test_invalid_limit_is_400_and_negative_is_clamped(self):
+        """``limit=abc`` 返回 400;``limit=-1`` 收敛到 1,不再触发 500(M10)。"""
+        self.assertEqual(self.client.get(f"{self.URL}?limit=abc").status_code, 400)
+        self.assertEqual(self.client.get(f"{self.URL}?limit=-1").status_code, 200)
+
+    def test_candidates_throttled(self):
+        """候选池按用户限流,超限返回 429(M7)。"""
+        from .throttles import CandidateThrottle
+
+        cache.clear()
+        with patch.object(CandidateThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.client.get(self.URL).status_code, 200)
+            self.assertEqual(self.client.get(self.URL).status_code, 200)
+            self.assertEqual(self.client.get(self.URL).status_code, 429)
+
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get(self.URL).status_code, 401)
@@ -272,6 +287,15 @@ class SwipeApiTests(APITestCase):
         resp = self.swipe(self.target.id)
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(Swipe.objects.count(), 1)
+
+    def test_blocked_target_cannot_be_swiped(self):
+        """对方拉黑我后,我不能再对他滑卡,也不能生成配对(M11)。"""
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        Block.objects.create(blocker=self.target, blocked=self.me)
+        resp = self.swipe(self.target.id)
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(Swipe.objects.filter(swiper=self.me).count(), 0)
+        self.assertEqual(Match.objects.count(), 0)
 
     def test_mutual_like_creates_one_match(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)

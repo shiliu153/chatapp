@@ -6,6 +6,8 @@ import time
 import jwt
 import websockets
 
+from _support import pair
+
 SECRET = os.environ["IM_JWT_SECRET"]
 WS = os.environ.get("IM_TEST_WS", "ws://127.0.0.1:19100/im/ws")
 
@@ -38,6 +40,7 @@ async def recv_until(ws, type_):
 async def main():
     base = 1000 + (int(time.time() * 1000) + os.getpid()) % 100000
     sender_uid, receiver_uid = base, base + 1
+    pair(sender_uid, receiver_uid)
     sender = await auth(sender_uid)
     receiver = await auth(receiver_uid)
 
@@ -73,6 +76,23 @@ async def main():
     again = await recv_until(sender, "ack")
     assert again["data"]["msg_id"] == ack["data"]["msg_id"]
     assert again["data"]["seq"] == 1
+
+    # 未配对:直接 40302,且不会给对方建 im_user 行(H4)
+    stranger_uid = base + 2
+    stranger = await auth(stranger_uid)
+    await sender.send(
+        json.dumps(
+            {
+                "v": 1,
+                "type": "send",
+                "id": "c-unpaired",
+                "data": {"to": f"u{stranger_uid}", "kind": "text", "text": "hi"},
+            }
+        )
+    )
+    denied = await recv_until(sender, "error")
+    assert denied["data"]["code"] == 40302
+    await stranger.close()
 
     await sender.close()
     await receiver.close()

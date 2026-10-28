@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import AppAvatar from '@/components/AppAvatar.vue'
 import AppBadge from '@/components/AppBadge.vue'
 import AppEmpty from '@/components/AppEmpty.vue'
@@ -13,6 +14,7 @@ import type { ChatMessage, ImConversation } from '@/im/types'
 
 const store = useChatStore()
 const presence = usePresenceStore()
+const router = useRouter()
 
 /** 连接中/重连中且还没有内容 → 骨架 */
 const loading = computed(
@@ -53,6 +55,7 @@ function summaryOf(message: ChatMessage | null): string {
   if (!message) return '打个招呼吧'
   if (message.isFailed) return '发送失败'
   if (message.kind === ChatMessageKind.image) return '[图片]'
+  if (message.kind === ChatMessageKind.voice) return '[语音]'
   return message.text || '[消息]'
 }
 
@@ -88,7 +91,20 @@ function timeOf(conversation: ImConversation): string {
 
 <template>
   <section class="chats">
-    <h1 class="chats__title">消息</h1>
+    <header class="chats__head">
+      <h1 class="chats__title">消息</h1>
+      <!-- 只有自建 IM 后端支持搜索;能力位在连上之后才为 true(见 store.capabilities) -->
+      <button
+        v-if="store.capabilities.search"
+        type="button"
+        class="chats__search"
+        aria-label="搜索聊天记录"
+        title="搜索聊天记录"
+        @click="router.push({ name: 'search' })"
+      >
+        🔍
+      </button>
+    </header>
 
     <AppSkeleton v-if="loading" height="64px" />
 
@@ -154,10 +170,31 @@ function timeOf(conversation: ImConversation): string {
   gap: var(--space-md);
   padding: var(--space-lg) var(--space-section-gap);
 }
+.chats__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
 .chats__title {
   margin: 0;
   font-size: var(--text-display);
   font-weight: var(--weight-extrabold);
+}
+.chats__search {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: var(--color-bg-card);
+  font-size: var(--text-subtitle);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.chats__search:hover {
+  background: var(--hover-overlay-strong);
 }
 .chats__inactive {
   margin: 0;

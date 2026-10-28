@@ -21,6 +21,7 @@ import '../../core/widgets/breathing_dot.dart';
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
 import '../../im/im_repository.dart';
+import '../../im/voice_recorder.dart';
 import '../presence/models.dart';
 import '../presence/presence_controller.dart';
 import '../profile/profile_controller.dart';
@@ -35,12 +36,17 @@ import 'widgets/emoji_panel.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/more_panel.dart';
 import 'widgets/photo_viewer.dart';
+import 'widgets/voice_record_overlay.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
-  const ChatPage({super.key, required this.peerId, this.pickImage = pickChatImageFromGallery});
+  const ChatPage({super.key, required this.peerId, this.focusMsgId,
+      this.pickImage = pickChatImageFromGallery});
 
   /// 对方的 IM id,如 'u9'。
   final String peerId;
+
+  /// 从搜索页点进来的定位目标:进入后回溯历史、滚到这条消息并高亮。
+  final String? focusMsgId;
 
   /// 相册选图(测试注入用)。
   final PickImage pickImage;
@@ -52,9 +58,13 @@ class ChatPage extends ConsumerStatefulWidget {
 class _ChatPageState extends ConsumerState<ChatPage> {
   final _input = TextEditingController();
   final _focusNode = FocusNode();
+  final _scroll = ScrollController();
+  final _itemKeys = <String, GlobalKey>{};
   bool _sending = false;
   bool _showEmoji = false;
   bool _showMore = false;
+  bool _focusStarted = false;
+  String? _highlightMsgId;
 
   @override
   void initState() {
@@ -76,7 +86,41 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void dispose() {
     _input.dispose();
     _focusNode.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  /// 搜索定位:先回溯历史直到目标进列表,再逐屏滚动找到它的渲染对象,
+  /// 最后 ensureVisible 居中并高亮 1.5s。目标已撤回/被删就静默停在原位。
+  Future<void> _focusOn(String msgId) async {
+    final controller = ref.read(chatProvider(widget.peerId).notifier);
+    await controller.loadOlder(untilMsgId: msgId);
+    if (!mounted) return;
+    await WidgetsBinding.instance.endOfFrame;
+    for (var attempt = 0; attempt < 24; attempt++) {
+      if (_itemKeys[msgId]?.currentContext != null) break;
+      if (!_scroll.hasClients) return;
+      final position = _scroll.position;
+      final next = (position.pixels + position.viewportDimension * 0.8)
+          .clamp(0.0, position.maxScrollExtent);
+      if (next <= position.pixels + 1) break;
+      _scroll.jumpTo(next);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+    }
+    final targetContext = _itemKeys[msgId]?.currentContext;
+    if (targetContext == null || !targetContext.mounted) return;
+    await Scrollable.ensureVisible(
+      targetContext,
+      alignment: 0.5,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+    if (!mounted) return;
+    setState(() => _highlightMsgId = msgId);
+    Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _highlightMsgId = null);
+    });
   }
 
   Future<void> _send() async {
@@ -235,6 +279,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Widget build(BuildContext context) {
     final messages = ref.watch(chatProvider(widget.peerId));
     final imageEnabled = ref.read(imClientProvider).capabilities.image;
+    final voiceEnabled = ref.read(imClientProvider).capabilities.voice;
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final selfAvatarUrl = ref.watch(profileProvider).value?.avatar?.url;
     final peerName = displayNameFor(cache, widget.peerId, imName: _imNameOf(ref));
@@ -293,9 +338,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ),
                   );
                 }
+                if (!_focusStarted && widget.focusMsgId != null && items.isNotEmpty) {
+                  _focusStarted = true;
+                  WidgetsBinding.instance
+                      .addPostFrameCallback((_) => _focusOn(widget.focusMsgId!));
+                }
                 final chatItems = buildChatItems(items);
                 return ListView.builder(
                   key: const Key('chat.list'),
+                  controller: _scroll,
                   reverse: true, // 新消息在底部,进来就停在最新一条
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   itemCount: chatItems.length,
@@ -306,11 +357,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       // Builder 包一层:itemBuilder 的 context 是 sliver,取不到气泡自己的
                       // 渲染对象(长按菜单要定位到气泡)
                       ChatMessageItem(:final message) => Builder(
+                          key: _itemKeys.putIfAbsent(message.msgId, GlobalKey.new),
                           builder: (itemContext) => MessageBubble(
                             message: message,
                             peerName: peerName,
                             peerAvatarUrl: peerAvatarUrl,
                             selfAvatarUrl: selfAvatarUrl,
+                            highlight: message.msgId == _highlightMsgId,
                             onLongPress: () => _showMessageMenu(itemContext, message),
                             onTapImage: () => _openImage(message),
                             onRetry: () =>
@@ -329,9 +382,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             sending: _sending,
             enabled: !unmatched,
             showMore: imageEnabled,
+            showVoice: voiceEnabled && !unmatched,
             onSend: _send,
             onToggleEmoji: _toggleEmoji,
             onToggleMore: _toggleMore,
+            onSendVoice: (path, durationMs) => ref
+                .read(chatProvider(widget.peerId).notifier)
+                .sendVoice(path, durationMs),
           ),
           if (_showEmoji)
             EmojiPanel(onSelect: _insertEmoji)
@@ -469,16 +526,18 @@ class _TimeSeparator extends StatelessWidget {
       );
 }
 
-class _InputBar extends StatelessWidget {
+class _InputBar extends ConsumerStatefulWidget {
   const _InputBar({
     required this.controller,
     required this.focusNode,
     required this.sending,
     required this.enabled,
     this.showMore = true,
+    this.showVoice = false,
     required this.onSend,
     required this.onToggleEmoji,
     required this.onToggleMore,
+    required this.onSendVoice,
   });
 
   final TextEditingController controller;
@@ -490,9 +549,91 @@ class _InputBar extends StatelessWidget {
 
   /// 当前后端是否支持图片;自建后端隐藏「＋」入口。
   final bool showMore;
+
+  /// 当前后端是否支持语音;腾讯后端隐藏麦克风。
+  final bool showVoice;
   final VoidCallback onSend;
   final VoidCallback onToggleEmoji;
   final VoidCallback onToggleMore;
+
+  /// 录完一段语音(本地路径 + 毫秒),由聊天页上传并发送。
+  final void Function(String path, int durationMs) onSendVoice;
+
+  @override
+  ConsumerState<_InputBar> createState() => _InputBarState();
+}
+
+class _InputBarState extends ConsumerState<_InputBar> {
+  bool _recording = false;
+  bool _cancelArmed = false;
+  final _stopwatch = Stopwatch();
+  Timer? _ticker;
+  Timer? _autoStop;
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    _autoStop?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _startRecording() async {
+    if (!widget.enabled || _recording) return;
+    final recorder = ref.read(voiceRecorderProvider);
+    if (!await recorder.hasPermission()) {
+      if (mounted) AppToast.show(context, '需要麦克风权限才能发语音');
+      return;
+    }
+    final path = await ref.read(voiceTempPathProvider)();
+    try {
+      await recorder.start(path);
+    } catch (_) {
+      if (mounted) AppToast.show(context, '录音启动失败,请重试');
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _recording = true;
+      _cancelArmed = false;
+    });
+    _stopwatch
+      ..reset()
+      ..start();
+    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (mounted) setState(() {});
+    });
+    _autoStop = Timer(const Duration(seconds: 60), _finishRecording);
+  }
+
+  Future<void> _finishRecording() async {
+    if (!_recording) return;
+    _autoStop?.cancel();
+    _ticker?.cancel();
+    _stopwatch.stop();
+    final durationMs = _stopwatch.elapsedMilliseconds;
+    final cancelled = _cancelArmed;
+    setState(() {
+      _recording = false;
+      _cancelArmed = false;
+    });
+    final recorder = ref.read(voiceRecorderProvider);
+    if (cancelled) {
+      await recorder.cancel();
+      return;
+    }
+    final path = await recorder.stop();
+    if (path == null || durationMs < 1000) {
+      // 停止后再 cancel 只是为了删掉临时文件;插件实现可能报「已停止」,忽略即可
+      try {
+        await recorder.cancel();
+      } catch (_) {}
+      if (mounted) {
+        AppToast.show(context, path == null ? '录音失败,请重试' : '说话时间太短');
+      }
+      return;
+    }
+    widget.onSendVoice(path, durationMs);
+  }
 
   /// 栏内图标:44 方块(与输入框同高,保证同行对齐),图标 24 居中。
   Widget _iconButton({
@@ -510,91 +651,133 @@ class _InputBar extends StatelessWidget {
       );
 
   @override
-  Widget build(BuildContext context) => Container(
-        color: AppColors.bgCard,
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.sm),
-            child: Row(
-              children: [
-                // 表情在输入框左边
-                _iconButton(
-                  key: const Key('chat.emoji.button'),
-                  icon: Icons.emoji_emotions_rounded,
-                  color: AppColors.text2,
-                  onPressed: enabled ? onToggleEmoji : null,
-                ),
-                Expanded(
-                  child: ListenableBuilder(
-                    listenable: focusNode,
-                    builder: (context, child) => Container(
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: AppColors.bgCard,
-                        borderRadius: BorderRadius.circular(AppRadius.input),
-                        border: Border.all(
-                          color: focusNode.hasFocus
-                              ? AppColors.brand
-                              : AppColors.divider,
-                          width: focusNode.hasFocus ? 1.5 : 1,
+  Widget build(BuildContext context) {
+    final seconds = (_stopwatch.elapsedMilliseconds / 1000).ceil().clamp(0, 60);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          color: AppColors.bgCard,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              child: Row(
+                children: [
+                  if (widget.showVoice)
+                    GestureDetector(
+                      key: const Key('chat.mic'),
+                      behavior: HitTestBehavior.opaque,
+                      onLongPressStart: (_) => _startRecording(),
+                      onLongPressMoveUpdate: (details) {
+                        final armed = details.localOffsetFromOrigin.dy < -60;
+                        if (armed != _cancelArmed) {
+                          setState(() => _cancelArmed = armed);
+                        }
+                      },
+                      onLongPressEnd: (_) => _finishRecording(),
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: Icon(
+                          Icons.mic_rounded,
+                          size: 24,
+                          color: widget.enabled ? AppColors.text2 : AppColors.text3,
                         ),
-                        boxShadow: focusNode.hasFocus
-                            ? [
-                                BoxShadow(
-                                  color: AppColors.brand.withValues(alpha: .12),
-                                  blurRadius: 12,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      // 外观由外层容器绘制,TextField 自身无边框(避免装饰器自带
-                      // 高度约束在真机上把可见框压小)
-                      child: child,
-                    ),
-                    child: TextField(
-                      key: const Key('chat.input'),
-                      controller: controller,
-                      focusNode: focusNode,
-                      enabled: enabled,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => onSend(),
-                      expands: true,
-                      maxLines: null,
-                      minLines: null,
-                      textAlignVertical: TextAlignVertical.center,
-                      style: AppText.body.copyWith(color: AppColors.text1),
-                      decoration: InputDecoration(
-                        isCollapsed: true,
-                        border: InputBorder.none,
-                        hintText: '说点什么…',
-                        hintStyle: AppText.body.copyWith(color: AppColors.text3),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14),
                       ),
                     ),
-                  ),
-                ),
-                if (showMore)
+                  // 表情在输入框左边
                   _iconButton(
-                    key: const Key('chat.more.button'),
-                    icon: Icons.add_circle_rounded,
+                    key: const Key('chat.emoji.button'),
+                    icon: Icons.emoji_emotions_rounded,
                     color: AppColors.text2,
-                    onPressed: enabled ? onToggleMore : null,
+                    onPressed: widget.enabled ? widget.onToggleEmoji : null,
                   ),
-                ListenableBuilder(
-                  listenable: controller,
-                  builder: (context, _) => _iconButton(
-                    key: const Key('chat.send'),
-                    icon: Icons.send_rounded,
-                    color: controller.text.trim().isEmpty || !enabled
-                        ? AppColors.text3
-                        : AppColors.brand,
-                    onPressed: sending || !enabled ? null : onSend,
+                  Expanded(
+                    child: ListenableBuilder(
+                      listenable: widget.focusNode,
+                      builder: (context, child) => Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: AppColors.bgCard,
+                          borderRadius: BorderRadius.circular(AppRadius.input),
+                          border: Border.all(
+                            color: widget.focusNode.hasFocus
+                                ? AppColors.brand
+                                : AppColors.divider,
+                            width: widget.focusNode.hasFocus ? 1.5 : 1,
+                          ),
+                          boxShadow: widget.focusNode.hasFocus
+                              ? [
+                                  BoxShadow(
+                                    color: AppColors.brand.withValues(alpha: .12),
+                                    blurRadius: 12,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        // 外观由外层容器绘制,TextField 自身无边框(避免装饰器自带
+                        // 高度约束在真机上把可见框压小)
+                        child: child,
+                      ),
+                      child: TextField(
+                        key: const Key('chat.input'),
+                        controller: widget.controller,
+                        focusNode: widget.focusNode,
+                        enabled: widget.enabled,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => widget.onSend(),
+                        expands: true,
+                        maxLines: null,
+                        minLines: null,
+                        textAlignVertical: TextAlignVertical.center,
+                        style: AppText.body.copyWith(color: AppColors.text1),
+                        decoration: InputDecoration(
+                          isCollapsed: true,
+                          border: InputBorder.none,
+                          hintText: '说点什么…',
+                          hintStyle: AppText.body.copyWith(color: AppColors.text3),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  if (widget.showMore)
+                    _iconButton(
+                      key: const Key('chat.more.button'),
+                      icon: Icons.add_circle_rounded,
+                      color: AppColors.text2,
+                      onPressed: widget.enabled ? widget.onToggleMore : null,
+                    ),
+                  ListenableBuilder(
+                    listenable: widget.controller,
+                    builder: (context, _) => _iconButton(
+                      key: const Key('chat.send'),
+                      icon: Icons.send_rounded,
+                      color: widget.controller.text.trim().isEmpty || !widget.enabled
+                          ? AppColors.text3
+                          : AppColors.brand,
+                      onPressed: widget.sending || !widget.enabled ? null : widget.onSend,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      );
+        if (_recording)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 64,
+            child: Center(
+              child: VoiceRecordOverlay(
+                seconds: seconds,
+                cancelArmed: _cancelArmed,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }

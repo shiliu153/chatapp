@@ -11,6 +11,9 @@
     - 接口契约:docs/api/feed.md
 """
 
+import uuid
+
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch
 from rest_framework.decorators import api_view, throttle_classes
@@ -18,6 +21,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from config import images
 from config.pagination import DefaultLimitOffsetPagination
 from moderation.models import ReportStatus
 
@@ -27,7 +31,8 @@ from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
                           PostSerializer)
 from .services import (create_comment, delete_comment, delete_post,
                        notify_comment_created, visible_comments, visible_posts)
-from .throttles import PostCommentThrottle, PostCreateThrottle, PostReportThrottle
+from .throttles import (PostCommentThrottle, PostCreateThrottle, PostLikeThrottle,
+                        PostReportThrottle)
 
 
 def _page_response(request, queryset, serializer_class=PostSerializer):
@@ -81,7 +86,15 @@ def _create_post(request):
         post = Post.objects.create(author=request.user,
                                    text=serializer.validated_data["text"])
         for order, file in enumerate(request.FILES.getlist("images")):
-            PostImage.objects.create(post=post, file=file, order=order)
+            try:
+                normalized = images.normalize(images.open_checked(file.read()))
+            except images.ImageError as error:
+                raise ValidationError(str(error)) from error
+            PostImage.objects.create(
+                post=post,
+                file=ContentFile(normalized.data,
+                                 name=f"{request.user.id}-{uuid.uuid4().hex}{normalized.extension}"),
+                order=order)
     post = visible_posts(request.user).get(pk=post.pk)
     return Response(PostSerializer(post, context={"request": request}).data, status=201)
 
@@ -132,6 +145,7 @@ def post_detail(request, post_id):
 
 
 @api_view(["POST", "DELETE"])
+@throttle_classes([PostLikeThrottle])
 def post_like(request, post_id):
     """点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
 

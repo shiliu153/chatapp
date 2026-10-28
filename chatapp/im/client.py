@@ -257,6 +257,51 @@ def kick_user(identifier: str, block: bool = False) -> bool:
     return _check(result, "kick")
 
 
+def set_session_version(identifier: str, version: int) -> bool:
+    """把账号当前会话版本同步给 IM(仅自建后端有该概念)。
+
+    Args:
+        identifier: IM 账号。
+        version: 账号当前的 ``session_version``。
+
+    Returns:
+        自建后端返回同步结果;腾讯后端没有会话版本概念,直接返回 ``True``。
+    """
+    if self_enabled_for(identifier):
+        return self_client.set_session_version(identifier, version)
+    return True
+
+
+def pair_add(identifier_a: str, identifier_b: str) -> bool:
+    """建立聊天权限(配对成功)。
+
+    Args:
+        identifier_a: 一方 IM 账号。
+        identifier_b: 另一方 IM 账号。
+
+    Returns:
+        自建后端返回同步结果;腾讯后端没有该概念,直接返回 ``True``。
+    """
+    if self_enabled_for(identifier_a) and self_enabled_for(identifier_b):
+        return self_client.pair_add(identifier_a, identifier_b)
+    return True
+
+
+def pair_remove(identifier_a: str, identifier_b: str) -> bool:
+    """移除聊天权限(解除配对/拉黑)。
+
+    Args:
+        identifier_a: 一方 IM 账号。
+        identifier_b: 另一方 IM 账号。
+
+    Returns:
+        自建后端返回同步结果;腾讯后端没有该概念,直接返回 ``True``。
+    """
+    if self_enabled_for(identifier_a) and self_enabled_for(identifier_b):
+        return self_client.pair_remove(identifier_a, identifier_b)
+    return True
+
+
 def delete_account(identifier: str) -> bool:
     """删除 IM 账号(注销账号时调用)。
 

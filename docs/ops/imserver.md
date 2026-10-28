@@ -404,7 +404,7 @@ ssh root@<SERVER_IP> 'set -a; . /www/server/imserver/imserver.env; set +a; \
 | 变量 | Django `.env` | imserver `imserver.env` | 说明 |
 |---|---|---|---|
 | `IM_MEDIA_SIGN_SECRET` | 必填 | 必填 | `openssl rand -hex 32`;两边不一致的表现是**所有聊天图片 403** |
-| `IM_MEDIA_SIGN_TTL` | 86400 | 86400 | 签名有效期(秒) |
+| `IM_MEDIA_SIGN_TTL` | 3600 | 3600 | 签名有效期(秒);按整点对齐,实际至少 1 小时 |
 | `CHAT_IMAGE_RETENTION_DAYS` | 30 | — | 保留期;`0` = 只清孤儿与残留 |
 
 ### 12.2 nginx
@@ -444,5 +444,126 @@ cd /www/wwwroot/chatapp/chatapp && /www/wwwroot/chatapp-venv/bin/python manage.p
   删除残留(行已 `deleted` 但文件还在);
 - 用量视图:`manage.py im_media_stats`(各状态条数/字节、磁盘占用与剩余、Top 5 发送者);
 - 清理后的图片在聊天里显示加载失败占位,消息本身保留。
+
+## 13. 语音消息(2026-10-27)
+
+### 13.1 服务器依赖:ffmpeg
+
+语音上传由 Django 同步转码为 **m4a/AAC 单声道 16kHz 32kbps**,因此服务器必须能执行
+`ffmpeg` 与 `ffprobe`:
+
+```bash
+# 宝塔:软件商店搜 ffmpeg 安装;或
+apt-get update && apt-get install -y ffmpeg
+ffmpeg -version && ffprobe -version
+```
+
+- 缺失时 `POST /api/v1/im/voices` 返回 **503 + `50302`**,文本与图片不受影响;
+- 不需要给 imserver 加任何环境变量(沿用 `IM_MEDIA_PREFIX` / `IM_MEDIA_SIGN_SECRET`);
+- 转码发生在 gunicorn worker 内,60 秒音频约 0.2–0.5 秒;上传限流 60 次/小时。
+
+### 13.2 部署顺序
+
+1. 装 ffmpeg 并验证(见上);
+2. `python manage.py migrate`(新增 `im_chatvoice` 表);
+3. 重建并重启 imserver 镜像(本轮协议新增 `kind=4`,旧镜像会拒收语音);
+4. nginx 不用改:`/media/chat/` 的验签与 `/im/api/` 反代已覆盖 `/media/chat/voices/`;
+5. 重启 ops,导航里出现「聊天语音」。
+
+### 13.3 验证
+
+```bash
+# 1) 能力位:自建分支返回的账号应能发语音(Web 端麦克风按钮出现)
+# 2) 上传一段 m4a:拿到签名 URL,duration_ms 是服务端实测值
+curl -s -X POST http://<SERVER_IP>/api/v1/im/voices -H "Authorization: Bearer <access>" \
+  -F "file=@voice.m4a" -F "duration_ms=12500"
+# 3) Web 录一段 → App 播放(验证 webm→m4a 转码与 iOS 播放)
+# 4) App 录一段 → Web 播放
+# 5) 上滑取消、<1 秒提示、60 秒自动停
+# 6) ops「聊天语音」试听后删除 → 聊天里显示占位
+```
+
+### 13.4 清理
+
+`im_media_cleanup` 已覆盖语音:默认 30 天(`CHAT_VOICE_RETENTION_DAYS`),
+可用 `--voice-retention-days` 单独覆盖;孤儿扫描会把 `ChatVoice.file` 并入 known 集合。
+
+### 13.5 上线记录(2026-10-27)
+
+- **ffmpeg**:服务器是 Alibaba Cloud Linux 3,`dnf` 源里没有 ffmpeg、EPEL 也装不上;
+  `johnvansickle` 源在国内只有 ~11KB/s,改用 GitHub 加速镜像下载 BtbN 静态包(约 150MB,
+  `gh-proxy.com` 实测 1.8MB/s),只把 `ffmpeg`/`ffprobe` 两个二进制装到 `/usr/local/bin`
+  (不要覆盖系统库,也不要装 rpmfusion,避免污染生产依赖):
+  ```bash
+  curl -sL -o /tmp/ffmpeg.tar.xz \
+    "https://gh-proxy.com/https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+  tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-gh --strip-components=1
+  install -m 755 /tmp/ffmpeg-gh/bin/ffmpeg /usr/local/bin/ffmpeg
+  install -m 755 /tmp/ffmpeg-gh/bin/ffprobe /usr/local/bin/ffprobe
+  ```
+- **镜像**:本地 `docker build -t imserver:<sha>` 后 `docker save` + `scp` + `docker load`
+  (2C2G 上直接编译太慢);`/www/server/imserver/.env` 的 `IMSERVER_IMAGE` **必须同步改**,
+  否则 `docker compose up -d` 仍会拉起旧镜像(本次先踩了一次,容器还是 `a2332dd`)。
+- **验证结果**:上传 201(`duration_ms` 为 ffprobe 实测)、签名 URL 200、无签名 403;
+  WS 以 u7 发 `kind=voice` 收到 ack,再用 u8 读历史得到 `kind=voice` + 读时签名 URL;
+  `readyz=200`;清理 dry-run 汇总含「语音保留期」;imserver 近 10 分钟无 error。
+- **版本配置**:`.env` 显式写入 `MIN_APP_VERSION=1.0.0`/`LATEST_APP_VERSION=1.0.0`/
+  `APP_DOWNLOAD_URL=http://47.116.114.110/chatapp-1.0.0.apk`(APK 放在 Web 根目录);
+  `/api/v1/app/config` 已返回这三个值。
+- **仍未完成**:`SMS_DEV_MODE=0` 需要先接真实短信商(当前代码只有开发模式,置 0 会让
+  所有人收不到验证码);全量切换 `IM_SELF_GRAYLIST=all` 待产品确认后再执行。
+
+---
+
+## 14. 安全加固(2026-10-28)
+
+### 14.1 新增迁移
+
+| 版本 | 文件 | 内容 |
+|---|---|---|
+| 3 | `003_session_version.sql` | `im_user.session_version BIGINT NOT NULL DEFAULT 0` |
+| 4 | `004_pair.sql` | `im_pair(user_a,user_b,created_at)` 主键 `(user_a,user_b)` |
+
+`imserver --migrate` 会自动应用;旧镜像不认识新列/新表,但不会因此报错,回退镜像时
+可以保留表结构(不要手工 drop,避免再次上线又要重放)。
+
+### 14.2 新增环境变量
+
+```dotenv
+# 单账号每分钟发送上限(跨连接共享,Redis 计数);<=0 关闭
+IM_SEND_PER_MINUTE=120
+# 聊天媒体签名有效期;生产必须配 IM_MEDIA_SIGN_SECRET(与 Django 完全一致)
+IM_MEDIA_SIGN_TTL=3600
+```
+
+### 14.3 上线顺序(必须按这个顺序)
+
+1. 部署 Django 新版本并 `python manage.py migrate`(会加 `moderation.0002`、`accounts.0003`);
+2. 构建/加载 imserver 新镜像,**先显式跑迁移**(entrypoint 不会自动迁移):
+   ```bash
+   cd /www/server/imserver
+   docker compose run --rm imserver --migrate
+   docker compose up -d
+   ```
+3. **立刻**执行 `python manage.py im_sync_pairs`(把现有配对写入 `im_pair`,并补齐缺失的 `im_user` 行);
+   不跑这一步,所有已配对老用户会收到 40302「无法发送」;
+4. 观察日志:正常配对用户不应出现 40302;旧设备重连应出现 40101(被顶下线);
+5. 再按 `docs/security/2026-10-27-api-security-audit.md` §10 逐项复核。
+
+### 14.4 回退
+
+- 回退镜像到旧版本即可(旧代码不读 `session_version`、不查 `im_pair`);
+- 若只想临时关闭配对校验:没有单独开关,需回退镜像;不建议用「清空 im_pair」绕过
+  (那等于把 H4 重新打开)。
+
+### 14.5 排查
+
+| 现象 | 先查 |
+|---|---|
+| 正常配对用户发送 40302 | `im_pair` 是否有该对;`im_sync_pairs` 是否跑过 |
+| 所有设备重连 40101 | `im_user.session_version` 与 token `sv` 是否一致;Django 登录任务是否成功 |
+| 发图/发语音 42201 | `IM_MEDIA_PREFIX` 与 Django `MEDIA_BASE_URL + /media/chat/` 是否一致 |
+| 图片 403 | `IM_MEDIA_SIGN_SECRET` 两侧是否一致、`IM_MEDIA_SIGN_TTL` 是否过期 |
+
 
 

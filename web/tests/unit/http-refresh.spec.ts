@@ -22,16 +22,15 @@ describe('401 刷新通道', () => {
     // 每个用例的监听器互相隔离
     sessionEvents._reset()
     tokenStore.access = 'expired'
-    tokenStore.refresh = 'refresh-1'
   })
 
-  it('刷新成功后重放原请求,并轮换两个令牌', async () => {
+  it('刷新成功后重放原请求,并把新 access 放回内存', async () => {
     let refreshCalls = 0
     server.use(
       guardedMe(),
       mswHttp.post('/api/v1/auth/token/refresh', () => {
         refreshCalls += 1
-        return HttpResponse.json({ access: 'new-access', refresh: 'refresh-2' })
+        return HttpResponse.json({ access: 'new-access' })
       }),
     )
 
@@ -40,7 +39,27 @@ describe('401 刷新通道', () => {
     expect(res.data).toEqual({ id: 1, nickname: '小雨' })
     expect(refreshCalls).toBe(1)
     expect(tokenStore.access).toBe('new-access')
-    expect(tokenStore.refresh).toBe('refresh-2')
+    // 长期凭证不在 JS 手里:localStorage 里不该出现任何令牌
+    expect(localStorage.getItem('hb.access')).toBeNull()
+    expect(localStorage.getItem('hb.refresh')).toBeNull()
+  })
+
+  it('刷新请求带 X-Client 头、请求体为空(靠 HttpOnly Cookie)', async () => {
+    let header: string | null = null
+    let body = ''
+    server.use(
+      guardedMe(),
+      mswHttp.post('/api/v1/auth/token/refresh', async ({ request }) => {
+        header = request.headers.get('X-Client')
+        body = await request.text()
+        return HttpResponse.json({ access: 'new-access' })
+      }),
+    )
+
+    await http.get('/users/me')
+
+    expect(header).toBe('web')
+    expect(JSON.parse(body)).toEqual({})
   })
 
   it('并发两个 401 只刷新一次', async () => {
@@ -50,7 +69,7 @@ describe('401 刷新通道', () => {
       mswHttp.post('/api/v1/auth/token/refresh', async () => {
         refreshCalls += 1
         await new Promise((r) => setTimeout(r, 20)) // 制造并发窗口
-        return HttpResponse.json({ access: 'new-access', refresh: 'refresh-2' })
+        return HttpResponse.json({ access: 'new-access' })
       }),
     )
 
@@ -73,7 +92,6 @@ describe('401 刷新通道', () => {
 
     expect(expired).toHaveBeenCalledTimes(1)
     expect(tokenStore.access).toBeNull()
-    expect(tokenStore.refresh).toBeNull()
   })
 
   it('40101 被顶号:不刷新,直接通知被顶下线', async () => {

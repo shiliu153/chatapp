@@ -128,6 +128,50 @@ def kick_user(identifier: str, block: bool = False) -> bool:
     return _post("/internal/kick", {"uid": _uid(identifier), "block": block})
 
 
+def set_session_version(identifier: str, version: int) -> bool:
+    """把账号当前会话版本同步给自建 IM。
+
+    imserver 在 WS 鉴权时比对 token 里的 ``sv``;不一致即拒绝旧 token(H3)。
+
+    Args:
+        identifier: IM 账号,如 ``u9``。
+        version: 账号当前的 ``session_version``。
+
+    Returns:
+        同步成功返回 ``True``;网络/HTTP 错误返回 ``False``。
+    """
+    return _post("/internal/session_version",
+                 {"uid": _uid(identifier), "version": int(version)})
+
+
+def pair_add(user_a_identifier: str, user_b_identifier: str) -> bool:
+    """建立聊天权限(配对成功)。
+
+    Args:
+        user_a_identifier: 一方 IM 账号。
+        user_b_identifier: 另一方 IM 账号。
+
+    Returns:
+        同步成功返回 ``True``;失败返回 ``False``。
+    """
+    return _post("/internal/pair", {"a": _uid(user_a_identifier),
+                                    "b": _uid(user_b_identifier), "action": "add"})
+
+
+def pair_remove(user_a_identifier: str, user_b_identifier: str) -> bool:
+    """移除聊天权限(解除配对/拉黑)。
+
+    Args:
+        user_a_identifier: 一方 IM 账号。
+        user_b_identifier: 另一方 IM 账号。
+
+    Returns:
+        同步成功返回 ``True``;失败返回 ``False``。
+    """
+    return _post("/internal/pair", {"a": _uid(user_a_identifier),
+                                    "b": _uid(user_b_identifier), "action": "remove"})
+
+
 def unblock_user(identifier: str) -> bool:
     """清除封禁键。"""
     return _post("/internal/unblock", {"uid": _uid(identifier)})

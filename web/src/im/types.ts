@@ -10,6 +10,7 @@ export enum ChatMessageKind {
   matchNotice = 'matchNotice',
   banNotice = 'banNotice',
   image = 'image',
+  voice = 'voice',
   other = 'other',
 }
 
@@ -18,6 +19,8 @@ export interface ChatMessage {
   /** 对端 IM id,如 'u9' */
   peerId: string
   isSelf: boolean
+  /** 会话内序号,回溯翻页用(腾讯后端恒为 0) */
+  seq: number
   /** 毫秒(SDK 给的是秒,映射时已 ×1000) */
   timestamp: number
   kind: ChatMessageKind
@@ -31,6 +34,10 @@ export interface ChatMessage {
   imageUrl: string | null
   /** 原图 */
   imageLargeUrl: string | null
+  /** 语音地址(播放用) */
+  voiceUrl?: string | null
+  /** 语音时长(毫秒),气泡宽度与秒数展示用 */
+  voiceDurationMs?: number
   /** 已撤回:渲染成居中灰字,不再显示内容 */
   isRevoked: boolean
 }
@@ -56,6 +63,27 @@ export interface ImBootstrap {
 
 export interface ImCapabilities {
   image: boolean
+  /** 是否支持聊天记录搜索(腾讯后端为 false,入口隐藏) */
+  search: boolean
+  /** 是否支持语音消息(腾讯后端为 false,入口隐藏) */
+  voice: boolean
+}
+
+/** 一条搜索命中(只可能是文本消息)。 */
+export interface ImSearchHit {
+  msgId: string
+  seq: number
+  peerId: string
+  peerName: string
+  peerAvatar: string | null
+  text: string
+  timestamp: number
+}
+
+/** 一页搜索结果。 */
+export interface ImSearchResult {
+  items: ImSearchHit[]
+  hasMore: boolean
 }
 
 export type ImEvent =
@@ -72,9 +100,13 @@ export interface ImClient {
   login(userId: string, userSig: string): Promise<void>
   logout(): Promise<void>
   fetchConversations(): Promise<ImConversation[]>
-  fetchHistory(peerId: string, count?: number): Promise<ChatMessage[]>
+  fetchHistory(peerId: string, count?: number, beforeSeq?: number): Promise<ChatMessage[]>
+  /** 搜索聊天记录(仅自建后端支持;腾讯抛错) */
+  searchMessages(keyword: string, limit?: number, beforeId?: string): Promise<ImSearchResult>
   sendText(peerId: string, text: string): Promise<ChatMessage>
   sendImage(peerId: string, file: File): Promise<ChatMessage>
+  /** 发送语音(仅自建后端支持;腾讯抛错) */
+  sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage>
   deleteMessage(msgId: string): Promise<void>
   revokeMessage(msgId: string): Promise<void>
   markConversationRead(peerId: string): Promise<void>

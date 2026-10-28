@@ -184,8 +184,8 @@ cp .env.example .env
 #    至少填: SECRET_KEY / DB_PASSWORD / IM_SDKAPPID / IM_SECRETKEY
 #    SECRET_KEY 可用: python -c "import secrets;print(secrets.token_urlsafe(50))"
 
-# 3. 装依赖(建议用虚拟环境)
-pip install -r requirements.txt
+# 3. 装依赖(生产/CI 一律用锁定文件;升级流程见 requirements.lock 头部注释)
+pip install -r requirements.lock
 
 # 4. 起 Redis(仓库自带 compose 文件)
 docker compose -f docker-compose.dev.yml up -d
@@ -460,7 +460,9 @@ nginx 三条硬要求:
 > ② 若用宝塔「反向代理」,它生成的 `proxy_cache` **键不含 `Authorization`** 且忽略 `Vary`,
 > 会造成**跨用户缓存泄漏** —— 要么不开页面缓存,要么把 `Authorization` 加进 `proxy_cache_key`。
 
-备案前可直接用 IP 访问(移动端浏览器会进引导页,不提供手机网页版)。
+`shiliu153.cn` 已备案；交友 App 正在从 IP 切换到 `https://chat.shiliu153.cn`。切换完成前仍可用 IP 访问
+(移动端浏览器会进引导页,不提供手机网页版)；切换步骤见
+[docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md)。
 
 > 具体服务器地址、面板端口与运维命令属于部署私有信息,已从本开源仓库移除。
 > 更新流程本身很简单:`git pull` → 装依赖 → `migrate` → `collectstatic` → 重启 web 与 worker 两条进程。

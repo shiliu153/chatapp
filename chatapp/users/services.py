@@ -12,7 +12,9 @@
 """
 
 import logging
+import time
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import default_storage
 from django.db import transaction
@@ -24,6 +26,42 @@ from . import presence
 from .models import PhotoStatus, Preference, Profile
 
 logger = logging.getLogger(__name__)
+
+# 浏览计数按「自然小时」分桶,key 存活 1 小时即可覆盖整个窗口。
+PROFILE_VIEW_TTL_SECONDS = 3600
+
+
+def record_profile_view(viewer_id: int, target_id: int) -> None:
+    """记录一次「看了谁的资料」,并按小时统计不同目标数;超阈值记 WARNING。
+
+    同一小时内重复看同一个人只算一次(``cache.add`` 返回 False 即已记过),
+    这样阈值衡量的是**抓取广度**而不是刷新次数。
+
+    Args:
+        viewer_id: 浏览者账号 id。
+        target_id: 被浏览者账号 id。
+
+    Returns:
+        None。Redis 异常时只写 debug 日志,绝不影响资料接口。
+    """
+    bucket = int(time.time()) // PROFILE_VIEW_TTL_SECONDS
+    try:
+        first_time = cache.add(f"profile_view:{viewer_id}:{target_id}:{bucket}", 1,
+                               timeout=PROFILE_VIEW_TTL_SECONDS)
+        if not first_time:
+            return
+        count_key = f"profile_view_count:{viewer_id}:{bucket}"
+        try:
+            count = cache.incr(count_key)
+        except ValueError:      # key 不存在时 incr 抛 ValueError,补一次 set
+            cache.set(count_key, 1, timeout=PROFILE_VIEW_TTL_SECONDS)
+            count = 1
+        if count == settings.PROFILE_SCRAPE_ALERT_PER_HOUR + 1:
+            logger.warning("疑似资料抓取: viewer=%s 一小时内浏览了 %s 个不同用户",
+                           viewer_id, count)
+    except Exception:
+        logger.debug("资料浏览计数失败(不影响响应)", exc_info=True)
+
 
 
 def get_profile(user):
@@ -97,12 +135,13 @@ def delete_account(user) -> None:
         user: 待注销的用户实例。
     """
     from feed.models import PostImage   # 延迟导入,避免 app 加载顺序问题(同 im/tasks.py)
-    from im.models import ChatImage
+    from im.models import ChatImage, ChatVoice
 
     file_names = list(user.photos.values_list("file", flat=True))
     file_names += list(PostImage.objects.filter(post__author=user).values_list("file", flat=True))
     file_names += list(ChatImage.objects.filter(owner=user).values_list("file", flat=True))
     file_names += list(ChatImage.objects.filter(owner=user).values_list("thumb", flat=True))
+    file_names += list(ChatVoice.objects.filter(owner=user).values_list("file", flat=True))
     user_id = user.id
     im_user_id = user.im_user_id
 

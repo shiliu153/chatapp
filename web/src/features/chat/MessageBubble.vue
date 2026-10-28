@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import AppAvatar from '@/components/AppAvatar.vue'
 import MessageImage from './MessageImage.vue'
+import MessageVoice from './MessageVoice.vue'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
 
@@ -11,8 +12,10 @@ const props = withDefaults(
     peerName?: string
     peerAvatar?: string | null
     localFile?: File | null
+    /** 搜索定位命中:短暂高亮(见 ChatPage focusMessage) */
+    hit?: boolean
   }>(),
-  { peerName: '', peerAvatar: null, localFile: null },
+  { peerName: '', peerAvatar: null, localFile: null, hit: false },
 )
 defineEmits<{ retry: []; openImage: [ChatMessage]; menu: [MouseEvent] }>()
 
@@ -22,22 +25,39 @@ const isNotice = computed(
     props.message.kind === ChatMessageKind.banNotice,
 )
 const isImage = computed(() => props.message.kind === ChatMessageKind.image)
+const isVoice = computed(() => props.message.kind === ChatMessageKind.voice)
 const isUnsupported = computed(() => props.message.kind === ChatMessageKind.other)
 </script>
 
 <template>
   <!-- 撤回:居中弱化,不显示原内容 -->
-  <p v-if="props.message.isRevoked" class="message-bubble message-bubble--notice">
+  <p
+    v-if="props.message.isRevoked"
+    class="message-bubble message-bubble--notice"
+    :class="{ 'message-bubble--hit': props.hit }"
+    :data-msg-id="props.message.msgId"
+  >
     {{ props.message.isSelf ? '你撤回了一条消息' : '对方撤回了一条消息' }}
   </p>
 
   <!-- 系统灰条:居中 pill,不属于任何一方 -->
-  <p v-else-if="isNotice" class="message-bubble message-bubble--notice">{{ props.message.text }}</p>
+  <p
+    v-else-if="isNotice"
+    class="message-bubble message-bubble--notice"
+    :class="{ 'message-bubble--hit': props.hit }"
+    :data-msg-id="props.message.msgId"
+  >
+    {{ props.message.text }}
+  </p>
 
   <div
     v-else
     class="message-bubble"
-    :class="props.message.isSelf ? 'message-bubble--self' : 'message-bubble--peer'"
+    :class="[
+      props.message.isSelf ? 'message-bubble--self' : 'message-bubble--peer',
+      { 'message-bubble--hit': props.hit },
+    ]"
+    :data-msg-id="props.message.msgId"
     @contextmenu.prevent="$emit('menu', $event)"
   >
     <AppAvatar
@@ -64,6 +84,7 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
         :local-file="props.localFile"
         @open="$emit('openImage', props.message)"
       />
+      <MessageVoice v-else-if="isVoice" :message="props.message" />
       <span v-else-if="isUnsupported" class="message-bubble__text">[暂不支持的消息类型]</span>
       <span v-else class="message-bubble__text">{{ props.message.text }}</span>
 
@@ -110,6 +131,15 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
 .message-bubble--self .message-bubble__body {
   background: var(--gradient-heart);
   color: var(--color-bg-card);
+}
+/* 搜索定位命中:用外扩阴影做淡底,不改变布局(避免滚动位置跳动) */
+.message-bubble--hit {
+  border-radius: var(--radius-bubble);
+  background: var(--tint-brand);
+  box-shadow: 0 0 0 var(--space-sm) var(--tint-brand);
+  transition:
+    background 300ms var(--ease-out),
+    box-shadow 300ms var(--ease-out);
 }
 .message-bubble__text {
   white-space: pre-wrap;

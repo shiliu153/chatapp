@@ -6,6 +6,7 @@ import 'features/auth/login_page.dart';
 import 'features/auth/session.dart';
 import 'features/auth/splash_page.dart';
 import 'features/chat/chat_page.dart';
+import 'features/chat/search_page.dart';
 import 'features/discovery/likes_received_page.dart';
 import 'features/legal/legal_page.dart';
 import 'features/onboarding/onboarding_page.dart';
@@ -49,8 +50,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/likes', builder: (context, state) => const LikesReceivedPage()),
       GoRoute(
         path: '/chat/:peerId',
-        builder: (context, state) => ChatPage(peerId: state.pathParameters['peerId']!),
+        builder: (context, state) => ChatPage(
+          peerId: state.pathParameters['peerId']!,
+          focusMsgId: state.uri.queryParameters['focus'],
+        ),
       ),
+      GoRoute(path: '/search', builder: (context, state) => const SearchPage()),
       GoRoute(
         path: '/users/:id',
         builder: (context, state) => UserProfilePage(

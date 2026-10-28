@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../im/im_client.dart';
+import 'voice_bubble.dart';
 
 /// 单条消息(「心跳」附录 B.3):自己=brand 实底白字、对方=白底,
 /// 圆形头像 40;match_notice/ban_notice 渲染成居中 pill 灰条。
@@ -21,6 +22,7 @@ class MessageBubble extends StatelessWidget {
     this.onLongPress,
     this.onRetry,
     this.onTapImage,
+    this.highlight = false,
   });
 
   final ChatMessage message;
@@ -30,6 +32,9 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onLongPress;
   final VoidCallback? onRetry;
   final VoidCallback? onTapImage;
+
+  /// 搜索定位命中的气泡:主色淡底高亮 1.5s 后由外层取消。
+  final bool highlight;
 
   static const noticeFallback = '你们已互相喜欢,开始聊天吧';
 
@@ -47,7 +52,9 @@ class MessageBubble extends StatelessWidget {
         ),
       );
     }
-    if (message.kind != ChatMessageKind.text && message.kind != ChatMessageKind.image) {
+    if (message.kind != ChatMessageKind.text &&
+        message.kind != ChatMessageKind.image &&
+        message.kind != ChatMessageKind.voice) {
       final label = switch (message.kind) {
         ChatMessageKind.matchNotice => message.text.isEmpty ? noticeFallback : message.text,
         ChatMessageKind.banNotice => message.text.isEmpty ? '系统通知' : message.text,
@@ -88,30 +95,42 @@ class MessageBubble extends StatelessWidget {
       ),
     );
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md, vertical: AppSpacing.xs),
-      child: Row(
-        mainAxisAlignment: isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!isSelf) ...[avatar, const SizedBox(width: AppSpacing.sm)],
-          if (isSelf && message.isFailed) ...[
-            IconButton(
-              key: const Key('chat.retry'),
-              onPressed: onRetry,
-              icon: const Icon(Icons.error_rounded, color: AppColors.danger, size: 20),
-              visualDensity: VisualDensity.compact,
-            ),
+    return AnimatedContainer(
+      // 搜索定位命中时整个消息行淡入主色底,1.5s 后由外层把 highlight 置回 false
+      key: highlight ? Key('chat.highlight:${message.msgId}') : null,
+      duration: const Duration(milliseconds: 300),
+      decoration: BoxDecoration(
+        color: highlight ? AppColors.brand.withValues(alpha: 0.08) : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+        child: Row(
+          mainAxisAlignment: isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!isSelf) ...[avatar, const SizedBox(width: AppSpacing.sm)],
+            if (isSelf && message.isFailed) ...[
+              IconButton(
+                key: const Key('chat.retry'),
+                onPressed: onRetry,
+                icon: const Icon(Icons.error_rounded, color: AppColors.danger, size: 20),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+            bubble,
+            if (isSelf) ...[const SizedBox(width: AppSpacing.sm), avatar],
           ],
-          bubble,
-          if (isSelf) ...[const SizedBox(width: AppSpacing.sm), avatar],
-        ],
+        ),
       ),
     );
   }
 
   Widget _bubbleContent(BuildContext context) {
+    if (message.kind == ChatMessageKind.voice) {
+      return VoiceBubble(message: message);
+    }
     if (message.kind == ChatMessageKind.image) {
       return GestureDetector(
         key: const Key('chat.image'),

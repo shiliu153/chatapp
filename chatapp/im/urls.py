@@ -10,5 +10,6 @@ from . import views
 urlpatterns = [
     path("user_sig", views.user_sig),
     path("images", views.upload_image),
+    path("voices", views.upload_voice),
     path("images/auth", views.image_auth),
 ]

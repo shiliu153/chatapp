@@ -34,6 +34,8 @@ class Report(models.Model):
     Attributes:
         handled_by: 处理人(运营账号);未处理时为 ``None``。
         handled_at: 首次标记已处理的时间,用于判定「首次处理」以免重复通知。
+        dedupe_key: 待处理举报的去重键(``举报人:被举报人:pending``),唯一约束
+            保证并发提交也只落一条;处理完成后置空,允许再次举报。
     """
 
     reporter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
@@ -49,9 +51,32 @@ class Report(models.Model):
                                    on_delete=models.SET_NULL, related_name="reports_handled")
     created_at = models.DateTimeField(auto_now_add=True)
     handled_at = models.DateTimeField(null=True, blank=True)
+    dedupe_key = models.CharField("去重键", max_length=64, null=True, blank=True,
+                                  unique=True, editable=False)
 
     class Meta:
         ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        """保存前维护去重键。
+
+        待处理举报写入 ``举报人:被举报人:pending``;一旦离开待处理状态就清空,
+        这样用户处理完可以再次举报同一人,而并发提交仍被唯一约束挡住。
+
+        Args:
+            *args: 透传给 ``Model.save``。
+            **kwargs: 透传给 ``Model.save``;``update_fields`` 会补上 ``dedupe_key``,
+                否则只改 ``status`` 时去重键清不掉。
+        """
+        if self.status == ReportStatus.PENDING:
+            if not self.dedupe_key:
+                self.dedupe_key = f"{self.reporter_id}:{self.target_id}:pending"
+        else:
+            self.dedupe_key = None
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"dedupe_key"}
+        super().save(*args, **kwargs)
 
     def __str__(self):
         """后台与日志中的可读表示。

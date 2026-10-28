@@ -18,6 +18,7 @@ export function messageFromJson(
   const kind = String(json.kind ?? 'text')
   const custom = (json.custom ?? {}) as Record<string, unknown>
   const image = (json.image ?? {}) as Record<string, unknown>
+  const voice = (json.voice ?? {}) as Record<string, unknown>
   const customType = String(custom.type ?? '')
   let messageKind = ChatMessageKind.text
   if (kind === 'custom') {
@@ -28,11 +29,15 @@ export function messageFromJson(
   if (kind === 'image') {
     messageKind = ChatMessageKind.image
   }
+  if (kind === 'voice') {
+    messageKind = ChatMessageKind.voice
+  }
   const profile = (json.from_profile ?? {}) as Record<string, unknown>
   return {
     msgId: String(json.msg_id ?? ''),
     peerId: self ? to : from,
     isSelf: self,
+    seq: Number(json.seq ?? 0),
     timestamp: Number(json.ts ?? 0),
     kind: messageKind,
     text: kind === 'custom' ? String(custom.desc ?? '') : String(json.text ?? ''),
@@ -42,6 +47,8 @@ export function messageFromJson(
     isFailed: false,
     imageUrl: (image.thumb_url as string | undefined) ?? null,
     imageLargeUrl: (image.url as string | undefined) ?? null,
+    voiceUrl: (voice.url as string | undefined) ?? null,
+    voiceDurationMs: Number(voice.duration_ms ?? 0),
     isRevoked: json.revoked === true,
   }
 }

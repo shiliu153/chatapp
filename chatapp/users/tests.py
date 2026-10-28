@@ -11,6 +11,7 @@
     - 偏好:默认值、更新、区间非法、未满 18 下限、目标性别为空表示不限;
     - admin 审核动作:驳回与通过时的状态重算、记录审核人与时间;
     - 他人资料卡:只返回公开字段、重封禁不可见、轻封禁可见、拉黑双向不可见、404;
+    - 抓取监控:同目标一小时只计一次、跨目标累加、超阈值告警、Redis 故障不影响响应;
     - 在线状态服务:写入后在线、窗口边界、未知用户、本地时区 ISO、Redis 故障降级;
     - 在线状态接口:鉴权、返回在线与最后活跃、剔除拉黑/自己/未知/重封禁、去重保序、
       参数校验、限流、Redis 故障返回 null 而非 500;
@@ -19,6 +20,7 @@
 """
 
 import base64
+import io
 import shutil
 import tempfile
 import time
@@ -34,6 +36,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -43,7 +46,7 @@ from feed.models import Post, PostComment, PostImage
 from im import tasks as im_tasks
 from moderation.models import BanLog, Block, Report
 
-from . import presence
+from . import presence, services
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
 
 User = get_user_model()
@@ -296,10 +299,38 @@ class PhotoTests(AuthMixin, APITestCase):
         resp = self.upload(name="a.txt", content=b"not an image", content_type="text/plain")
         self.assertEqual(resp.status_code, 400)
 
+    def test_upload_rejects_gif(self):
+        """资料图同样只接受 jpg/png/webp(L5)。"""
+        buffer = io.BytesIO()
+        Image.new("RGB", (1, 1), "red").save(buffer, "GIF")
+        resp = self.upload(name="a.gif", content=buffer.getvalue(), content_type="image/gif")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_upload_strips_exif(self):
+        """资料图重编码后不保留原始 EXIF(M4)。"""
+        exif = Image.Exif()
+        exif[0x010F] = "TestCamera"
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 2), "red").save(buffer, "JPEG", exif=exif)
+        resp = self.upload(name="a.jpg", content=buffer.getvalue(), content_type="image/jpeg")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        with Image.open(Photo.objects.get().file.path) as stored:
+            self.assertNotIn(0x010F, stored.getexif())
+
     def test_upload_limit_six(self):
         for i in range(6):
             self.assertEqual(self.upload(name=f"{i}.png").status_code, 201)
         self.assertEqual(self.upload(name="7.png").status_code, 400)
+
+    def test_upload_throttled(self):
+        """照片上传按用户限流,超限 429(M7)。"""
+        from .throttles import PhotoUploadThrottle
+
+        cache.clear()
+        with patch.object(PhotoUploadThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 429)
 
     def test_delete_own_photo_removes_file(self):
         photo_id = self.upload().json()["id"]
@@ -475,6 +506,69 @@ class PublicProfileTests(AuthMixin, APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self._get().status_code, 401)
+
+
+class ProfileScrapeMonitorTests(TestCase):
+    """M2 抓取监控:同目标一小时只计一次、跨目标累加、超阈值告警、Redis 故障不影响响应。"""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.bucket = int(time.time()) // services.PROFILE_VIEW_TTL_SECONDS
+
+    def _count(self, viewer_id):
+        """读该浏览者当前小时的计数。
+
+        Args:
+            viewer_id: 浏览者账号 id。
+
+        Returns:
+            计数;没记录时为 ``None``。
+        """
+        return cache.get(f"profile_view_count:{viewer_id}:{self.bucket}")
+
+    def test_same_target_counted_once_per_hour(self):
+        services.record_profile_view(1, 2)
+        services.record_profile_view(1, 2)
+        self.assertEqual(self._count(1), 1)
+
+    def test_distinct_targets_accumulate(self):
+        for target in (2, 3, 4):
+            services.record_profile_view(1, target)
+        self.assertEqual(self._count(1), 3)
+
+    @override_settings(PROFILE_SCRAPE_ALERT_PER_HOUR=2)
+    def test_threshold_logs_warning_once(self):
+        with self.assertLogs("users.services", "WARNING") as logs:
+            for target in (2, 3, 4, 5):
+                services.record_profile_view(1, target)
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("疑似资料抓取", logs.records[0].getMessage())
+
+    def test_cache_failure_is_swallowed(self):
+        with patch("users.services.cache.add", side_effect=RuntimeError("redis down")):
+            services.record_profile_view(1, 2)   # 不抛异常即通过
+
+
+class ProfileScrapeApiTests(AuthMixin, APITestCase):
+    """看他人资料会写计数;接口本身不受计数失败影响。"""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.me = User.objects.create_user(phone="13800138001")
+        self.login(self.me)
+        self.other = User.objects.create_user(phone="13900139001")
+        Profile.objects.create(user=self.other, nickname="小蓝", status=ProfileStatus.COMPLETE)
+
+    def test_viewing_profile_writes_counter(self):
+        self.client.get(f"/api/v1/users/{self.other.id}")
+        bucket = int(time.time()) // services.PROFILE_VIEW_TTL_SECONDS
+        self.assertEqual(cache.get(f"profile_view_count:{self.me.id}:{bucket}"), 1)
+
+    def test_counter_failure_does_not_break_response(self):
+        with patch("users.services.cache.add", side_effect=RuntimeError("redis down")):
+            self.assertEqual(self.client.get(f"/api/v1/users/{self.other.id}").status_code, 200)
 
 
 class PresenceServiceTests(TestCase):

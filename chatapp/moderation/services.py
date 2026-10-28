@@ -72,6 +72,18 @@ def sync_im_blacklist(blocker, blocked, *, add: bool) -> None:
     _enqueue(task, blocker.id, blocked.id)
 
 
+def sync_im_pair(user_a_id: int, user_b_id: int, *, add: bool) -> None:
+    """同步聊天权限:配对创建时 add,解除配对/拉黑时 remove(H4)。
+
+    Args:
+        user_a_id: 一方账号 id。
+        user_b_id: 另一方账号 id。
+        add: ``True`` 建立权限,``False`` 移除权限。
+    """
+    task = im_tasks.pair_add if add else im_tasks.pair_remove
+    _enqueue(task, user_a_id, user_b_id)
+
+
 def notify_report_handled(report) -> None:
     """举报首次标记「已处理」时调用:给举报者发系统通知(经任务队列)。
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppAvatar from '@/components/AppAvatar.vue'
 import AppButton from '@/components/AppButton.vue'
 import AppInput from '@/components/AppInput.vue'
@@ -15,15 +15,24 @@ import UnmatchDialog from './UnmatchDialog.vue'
 import { formatTime, shouldShowTime } from './time'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
-import { getImClient } from '@/im/client'
+import { canRecordVoice, pickMimeType } from '@/im/self/voice'
 
 const props = defineProps<{ peerId: string }>()
 
 const store = useChatStore()
 const discovery = useDiscoveryStore()
 const router = useRouter()
-const client = getImClient()
-const imageEnabled = computed(() => client.capabilities.image)
+const route = useRoute()
+/** 搜索命中带过来的定位目标(见 SearchPage) */
+const focusId = typeof route.query.focus === 'string' ? route.query.focus : ''
+const hitId = ref('')
+let highlightTimer: ReturnType<typeof setTimeout> | undefined
+/** 定位过程中禁止「自动滚到底」,否则刚滚到的位置会被拉回最新一条 */
+let focusing = false
+// 能力位取 store(连上之后才有真值);直接读 getImClient().capabilities 会永远是兜底 false
+const imageEnabled = computed(() => store.capabilities.image)
+/** 语音入口:后端能力 + 浏览器能录音(需 HTTPS 或 localhost) */
+const voiceEnabled = computed(() => store.capabilities.voice && canRecordVoice())
 const draft = ref('')
 const sending = ref(false)
 const scroller = ref<HTMLElement | null>(null)
@@ -38,6 +47,75 @@ const moreOpen = ref(false)
 const unmatchOpen = ref(false)
 const unmatching = ref(false)
 const unmatchError = ref('')
+
+// --- 按住说话 ---
+const recording = ref(false)
+const cancelArmed = ref(false)
+const recordSeconds = ref(0)
+let mediaRecorder: MediaRecorder | null = null
+let mediaStream: MediaStream | null = null
+let chunks: Blob[] = []
+let recordStartedAt = 0
+let recordStartY = 0
+let recordTimer: ReturnType<typeof setInterval> | undefined
+
+async function startRecording(event: PointerEvent): Promise<void> {
+  if (!voiceEnabled.value || recording.value || unmatched.value) return
+  const mime = pickMimeType()
+  if (!mime) return
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  } catch {
+    return
+  }
+  chunks = []
+  mediaRecorder = new MediaRecorder(mediaStream, { mimeType: mime })
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0) chunks.push(event.data)
+  }
+  mediaRecorder.start()
+  recordStartedAt = performance.now()
+  recordStartY = event.clientY
+  recording.value = true
+  cancelArmed.value = false
+  recordSeconds.value = 0
+  recordTimer = setInterval(() => {
+    recordSeconds.value = Math.min(60, Math.ceil((performance.now() - recordStartedAt) / 1000))
+    if (recordSeconds.value >= 60) void finishRecording()
+  }, 200)
+}
+
+function onVoiceMove(event: PointerEvent): void {
+  if (!recording.value) return
+  cancelArmed.value = event.clientY - recordStartY < -60
+}
+
+async function finishRecording(): Promise<void> {
+  if (!recording.value) return
+  const cancelled = cancelArmed.value
+  const duration = performance.now() - recordStartedAt
+  recording.value = false
+  cancelArmed.value = false
+  if (recordTimer) {
+    clearInterval(recordTimer)
+    recordTimer = undefined
+  }
+  const current = mediaRecorder
+  mediaRecorder = null
+  mediaStream?.getTracks().forEach((track) => track.stop())
+  mediaStream = null
+  if (!current) return
+  const blob = await new Promise<Blob>((resolve) => {
+    current.onstop = () => {
+      // Blob.type 会带 `;codecs=opus`;去掉参数,服务端白名单按主类型匹配
+      const type = current.mimeType.split(';')[0] || 'audio/webm'
+      resolve(new Blob(chunks, { type }))
+    }
+    current.stop()
+  })
+  if (cancelled || duration < 1000) return
+  await store.sendVoice(props.peerId, blob, duration).catch(() => {})
+}
 
 function openMenu(message: ChatMessage, event: MouseEvent) {
   menu.value = { message, x: event.clientX, y: event.clientY }
@@ -124,6 +202,34 @@ async function scrollToBottom() {
   if (element) element.scrollTop = element.scrollHeight
 }
 
+/** 在已渲染的气泡里按 msgId 找元素(不用 CSS.escape,msgId 里可能有特殊字符)。 */
+function messageElement(msgId: string): HTMLElement | null {
+  const root = scroller.value
+  if (!root) return null
+  return (
+    Array.from(root.querySelectorAll<HTMLElement>('[data-msg-id]')).find(
+      (item) => item.dataset.msgId === msgId,
+    ) ?? null
+  )
+}
+
+/** 从搜索结果进聊天页:往前翻到目标消息 → 滚到中间 → 高亮 1.5s。 */
+async function focusMessage(msgId: string): Promise<void> {
+  focusing = true
+  try {
+    await store.loadOlder(props.peerId, msgId).catch(() => {})
+    await nextTick()
+    const element = messageElement(msgId)
+    if (!element) return
+    element.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+    hitId.value = msgId
+    clearTimeout(highlightTimer)
+    highlightTimer = setTimeout(() => (hitId.value = ''), 1500)
+  } finally {
+    focusing = false
+  }
+}
+
 onMounted(async () => {
   // 深链直接进聊天页时,IM 可能还没连(connect 幂等,已在连/已连会直接返回)
   await store.connect().catch(() => {})
@@ -132,7 +238,16 @@ onMounted(async () => {
   // 会话列表里没有这个人(例如从配对列表点进来)→ 先拉一次,免得标题只剩 u41
   if (!conversation.value) await store.loadConversations().catch(() => {})
   await store.openConversation(props.peerId).catch(() => {})
-  await scrollToBottom()
+  // 带 focus 时不滚到底:直接定位到命中的那条
+  if (focusId) await focusMessage(focusId)
+  else await scrollToBottom()
+})
+
+onUnmounted(() => {
+  clearTimeout(highlightTimer)
+  if (recordTimer) clearInterval(recordTimer)
+  if (recording.value) void finishRecording()
+  mediaStream?.getTracks().forEach((track) => track.stop())
 })
 
 watch(
@@ -146,7 +261,9 @@ watch(
 
 watch(
   () => messages.value.length,
-  () => void scrollToBottom(),
+  () => {
+    if (!focusing) void scrollToBottom()
+  },
 )
 
 async function onSend() {
@@ -186,6 +303,7 @@ async function onPickImage(event: Event) {
     msgId: placeholderId,
     peerId: props.peerId,
     isSelf: true,
+    seq: 0,
     timestamp: Date.now(),
     kind: ChatMessageKind.image,
     text: '',
@@ -239,11 +357,19 @@ async function onPickImage(event: Event) {
           :peer-name="peerName"
           :peer-avatar="peerAvatar"
           :local-file="localFiles[row.message.msgId] ?? null"
+          :hit="row.message.msgId === hitId"
           @retry="onRetry(row.message)"
           @open-image="onOpenImage"
           @menu="openMenu(row.message, $event)"
         />
       </template>
+    </div>
+
+    <div v-if="recording" class="chat__recording" role="status">
+      <p class="chat__recording-time">{{ recordSeconds }}″</p>
+      <p class="chat__recording-hint">
+        {{ cancelArmed ? '松开取消' : '松开发送,上滑取消' }}
+      </p>
     </div>
 
     <footer class="chat__composer">
@@ -264,6 +390,19 @@ async function onPickImage(event: Event) {
         @click="picker?.click()"
       >
         🖼️
+      </button>
+      <button
+        v-if="voiceEnabled"
+        type="button"
+        class="chat__image"
+        aria-label="按住说话"
+        :disabled="unmatched"
+        @pointerdown.prevent="startRecording"
+        @pointermove="onVoiceMove"
+        @pointerup="finishRecording"
+        @pointercancel="finishRecording"
+      >
+        🎤
       </button>
       <button
         type="button"
@@ -418,4 +557,31 @@ async function onPickImage(event: Event) {
   color: var(--color-bg-card);
   font-size: var(--text-badge);
 }
+.chat__recording {
+  position: fixed;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-card);
+  background: var(--color-text1);
+  color: var(--color-bg-card);
+  text-align: center;
+  box-shadow: var(--shadow-card);
+  z-index: 10;
+}
+.chat__recording-time {
+  margin: 0;
+  font-size: var(--text-title);
+}
+.chat__recording-hint {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--text-badge);
+  opacity: 0.8;
+}
 </style>
+
+
+
+

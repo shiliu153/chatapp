@@ -15,7 +15,7 @@ export class RoutingImClient implements ImClient {
   private listeners: ((event: ImEvent) => void)[] = []
 
   get capabilities(): ImCapabilities {
-    return this.active?.capabilities ?? { image: false }
+    return this.active?.capabilities ?? { image: false, search: false, voice: false }
   }
 
   onEvent(listener: (event: ImEvent) => void): void {
@@ -44,8 +44,12 @@ export class RoutingImClient implements ImClient {
     return this.active!.fetchConversations()
   }
 
-  fetchHistory(peerId: string, count?: number): Promise<ChatMessage[]> {
-    return this.active!.fetchHistory(peerId, count)
+  fetchHistory(peerId: string, count?: number, beforeSeq?: number): Promise<ChatMessage[]> {
+    return this.active!.fetchHistory(peerId, count, beforeSeq)
+  }
+
+  searchMessages(keyword: string, limit?: number, beforeId?: string) {
+    return this.active!.searchMessages(keyword, limit, beforeId)
   }
 
   sendText(peerId: string, text: string): Promise<ChatMessage> {
@@ -54,6 +58,10 @@ export class RoutingImClient implements ImClient {
 
   sendImage(peerId: string, file: File): Promise<ChatMessage> {
     return this.active!.sendImage(peerId, file)
+  }
+
+  sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage> {
+    return this.active!.sendVoice(peerId, blob, durationMs)
   }
 
   deleteMessage(msgId: string): Promise<void> {

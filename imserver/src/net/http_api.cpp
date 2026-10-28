@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iterator>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -78,6 +79,52 @@ std::string peer_id(uint64_t uid) {
   return uid == 0 ? "system_notice" : "u" + std::to_string(uid);
 }
 
+int hex_value(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return c - 'a' + 10;
+  }
+  if (c >= 'A' && c <= 'F') {
+    return c - 'A' + 10;
+  }
+  return -1;
+}
+
+/// 百分号解码 + 把 `+` 当空格(Web 端 URLSearchParams 就是这么编码空格的)。
+std::string url_decode(const std::string& input) {
+  std::string out;
+  out.reserve(input.size());
+  for (std::size_t i = 0; i < input.size(); ++i) {
+    const char c = input[i];
+    if (c == '+') {
+      out.push_back(' ');
+      continue;
+    }
+    if (c == '%' && i + 2 < input.size()) {
+      const int high = hex_value(input[i + 1]);
+      const int low = hex_value(input[i + 2]);
+      if (high >= 0 && low >= 0) {
+        out.push_back(static_cast<char>(high * 16 + low));
+        i += 2;
+        continue;
+      }
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
+std::string trim_ascii(const std::string& input) {
+  const auto begin = input.find_first_not_of(" \t\r\n");
+  if (begin == std::string::npos) {
+    return "";
+  }
+  const auto end = input.find_last_not_of(" \t\r\n");
+  return input.substr(begin, end - begin + 1);
+}
+
 nlohmann::json message_json(const MessageRow& row, UserRepo& users, const MediaSigner& signer) {
   nlohmann::json data = {{"msg_id", std::to_string(row.msg_id)},
                          {"seq", row.seq},
@@ -93,6 +140,10 @@ nlohmann::json message_json(const MessageRow& row, UserRepo& users, const MediaS
       data["kind"] = "image";
       data["image"] = body.value("image", nlohmann::json::object());
       signer.sign_image(data["image"]);
+    } else if (row.kind == 4) {
+      data["kind"] = "voice";
+      data["voice"] = body.value("voice", nlohmann::json::object());
+      signer.sign_media(data["voice"], {"url"});
     } else if (row.kind == 2) {
       data["kind"] = "custom";
       data["custom"] = body;
@@ -261,6 +312,18 @@ bool HttpApi::verify_internal(const http::request<http::string_body>& req) {
          CRYPTO_memcmp(expected.data(), signature.data(), expected.size()) == 0;
 }
 
+bool HttpApi::allow_search(uint64_t uid, int64_t now_ms) {
+  std::lock_guard<std::mutex> lock(search_mutex_);
+  if (search_buckets_.size() > 4096) {
+    for (auto it = search_buckets_.begin(); it != search_buckets_.end();) {
+      it = (now_ms - it->second.seen_ms > 600000) ? search_buckets_.erase(it) : std::next(it);
+    }
+  }
+  auto& bucket = search_buckets_[uid];
+  bucket.seen_ms = now_ms;
+  return bucket.bucket.allow(now_ms);
+}
+
 HttpApi::response_type HttpApi::internal_route(
     const http::request<http::string_body>& req, const Target& target) {
   if (target.path == "/internal/healthz") {
@@ -348,6 +411,25 @@ HttpApi::response_type HttpApi::internal_route(
       redis_.del("im:block:" + std::to_string(body.at("uid").get<uint64_t>()));
       return json_response(req, http::status::ok, {{"ok", true}});
     }
+    if (target.path == "/internal/pair") {
+      const auto a = body.at("a").get<uint64_t>();
+      const auto b = body.at("b").get<uint64_t>();
+      if (a == 0 || b == 0 || a == b) {
+        return error_response(req, http::status::unprocessable_entity, 42201, "参数不合法");
+      }
+      if (body.value("action", std::string("add")) == "add") {
+        messages_.pair_add(a, b);
+      } else {
+        messages_.pair_remove(a, b);
+      }
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
+    if (target.path == "/internal/session_version") {
+      const auto uid = body.at("uid").get<uint64_t>();
+      const auto version = body.at("version").get<int64_t>();
+      messages_.users().set_session_version(uid, version);
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
     if (target.path == "/internal/delete_account") {
       const auto uid = body.at("uid").get<uint64_t>();
       registry_.kick(uid, "deleted");
@@ -375,7 +457,8 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     }
     return internal_route(req, target);
   }
-  if (target.path != "/im/api/conversations" && target.path != "/im/api/messages") {
+  if (target.path != "/im/api/conversations" && target.path != "/im/api/messages" &&
+      target.path != "/im/api/search") {
     return error_response(req, http::status::not_found, 40401, "not found");
   }
 
@@ -405,6 +488,46 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     response.body() = nlohmann::json{{"items", items}, {"has_more", false}}.dump();
     response.prepare_payload();
     return response;
+  }
+
+  if (target.path == "/im/api/search") {
+    const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count();
+    if (!allow_search(*uid, now_ms)) {
+      return error_response(req, http::status::too_many_requests, 42901,
+                            "搜索过于频繁,请稍后再试");
+    }
+    std::string keyword;
+    if (const auto it = target.query.find("q"); it != target.query.end()) {
+      keyword = trim_ascii(url_decode(it->second));
+    }
+    // 150 字节 ≈ 50 个汉字;再长就没有搜索意义,也挡住超长串打库。
+    if (keyword.empty() || keyword.size() > 150) {
+      return error_response(req, http::status::unprocessable_entity, 42201, "关键词长度不合法");
+    }
+    const int limit =
+        static_cast<int>(std::clamp<uint64_t>(query_uint(target, "limit", 20), 1, 50));
+    const uint64_t before_id = query_uint(target, "before_id", 0);
+    // 多取一条判断 has_more,不靠 rows.size()==limit 猜。
+    auto rows = messages_.search(*uid, keyword, before_id, limit + 1);
+    const bool has_more = rows.size() > static_cast<std::size_t>(limit);
+    if (has_more) {
+      rows.resize(static_cast<std::size_t>(limit));
+    }
+    nlohmann::json items = nlohmann::json::array();
+    for (const auto& row : rows) {
+      nlohmann::json item = message_json(row, messages_.users(), messages_.signer());
+      const uint64_t peer = row.from_id == *uid ? row.to_id : row.from_id;
+      nlohmann::json profile = {{"id", peer_id(peer)}, {"nickname", ""}, {"avatar", ""}};
+      if (auto user = messages_.users().get(peer)) {
+        profile["nickname"] = user->nickname;
+        profile["avatar"] = user->avatar;
+      }
+      item["peer"] = std::move(profile);
+      items.push_back(std::move(item));
+    }
+    return json_response(req, http::status::ok, {{"items", items}, {"has_more", has_more}});
   }
 
   std::string peer_text;

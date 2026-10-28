@@ -13,6 +13,7 @@
     封禁态不参与完善度重算,不先脱离封禁态就永远算不回真实状态。
 """
 
+import logging
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
@@ -23,10 +24,12 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.models import User
+from config.net import client_ip
+from config.params import optional_id
 from feed.models import Post, PostReport
 from feed.services import delete_post
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
-from im.models import ChatImage, ChatImageStatus
+from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
 from moderation.services import log_ban_change, notify_report_handled
@@ -34,6 +37,48 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import review_photos
 
 from .decorators import staff_required
+from .models import MediaAccessLog
+
+logger = logging.getLogger(__name__)
+
+# 与举报详情页的证据窗口保持一致:最近 7 天被举报过的人,其聊天媒体优先进入视野。
+MEDIA_REPORT_WINDOW_DAYS = 7
+
+
+def _reported_user_ids(days: int = MEDIA_REPORT_WINDOW_DAYS) -> set[int]:
+    """取最近 ``days`` 天被举报过的用户 id 集合。
+
+    Args:
+        days: 回看天数。
+
+    Returns:
+        用户 id 集合;没有人被举报时为空集。
+    """
+    return set(Report.objects.filter(
+        created_at__gte=timezone.now() - timedelta(days=days),
+    ).values_list("target_id", flat=True))
+
+
+def _log_media_access(request, kind: str, filter_name: str, count: int) -> None:
+    """记录一次私聊媒体列表浏览;审计写失败只告警,绝不影响页面。
+
+    Args:
+        request: Django 请求对象。
+        kind: ``MediaAccessLog.Kind`` 取值(image/voice)。
+        filter_name: 筛选条件(all/reported/user)。
+        count: 本次返回的条数。
+    """
+    try:
+        MediaAccessLog.objects.create(
+            staff=request.user if request.user.is_authenticated else None,
+            kind=kind,
+            filter=filter_name,
+            count=count,
+            ip=client_ip(request) or None,
+        )
+    except Exception:
+        logger.warning("媒体访问审计写入失败", exc_info=True)
+
 
 
 @staff_required
@@ -110,6 +155,11 @@ def _report_context(report):
         "target_ban_logs": BanLog.objects.filter(user=report.target)[:10],
         # 举报详情里直接给证据:被举报人最近 7 天的聊天图片(图片无机器审核,靠人工抽审)
         "chat_images": ChatImage.objects.select_related("owner").filter(
+            owner=report.target,
+            created_at__gte=timezone.now() - timedelta(days=7),
+        ).order_by("-created_at")[:12],
+        # 语音同理:可直接试听,不做转写
+        "chat_voices": ChatVoice.objects.select_related("owner").filter(
             owner=report.target,
             created_at__gte=timezone.now() - timedelta(days=7),
         ).order_by("-created_at")[:12],
@@ -236,6 +286,8 @@ def photo_review(request):
         照片网格的局部片段,``skipped`` 为页面陈旧、照片已被删除的条数。
     """
     ids = set(request.POST.getlist("ids"))
+    # 非数字 id 直接丢弃:``pk__in=["abc"]`` 会在求值时抛 ValueError(500)。
+    ids = {value for value in ids if value.isdigit()}
     action = request.POST.get("action")
     status_map = {"approve": PhotoStatus.APPROVED, "reject": PhotoStatus.REJECTED}
     skipped = 0
@@ -580,17 +632,25 @@ def chat_images(request):
     """聊天图片抽审列表,按时间倒序最多 120 条。
 
     Args:
-        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)。
+        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)、
+            ``reported=1``(只看最近 7 天被举报过的发送者);每次浏览写一条审计。
 
     Returns:
         渲染后的聊天图片表格页。
     """
     qs = ChatImage.objects.select_related("owner").filter(
         status=ChatImageStatus.VISIBLE).order_by("-created_at")
-    user_id = request.GET.get("user")
+    user_id = optional_id(request.GET.get("user"))
     if user_id:
         qs = qs.filter(owner_id=user_id)
-    return render(request, "ops/chat_images.html", {"images": qs[:120]})
+    filter_name = "all"
+    if request.GET.get("reported") == "1":
+        qs = qs.filter(owner_id__in=_reported_user_ids())
+        filter_name = "reported"
+    images = list(qs[:120])
+    _log_media_access(request, MediaAccessLog.Kind.IMAGE, filter_name, len(images))
+    return render(request, "ops/chat_images.html",
+                  {"images": images, "reported": filter_name == "reported"})
 
 
 @require_POST
@@ -616,3 +676,53 @@ def chat_image_delete(request, image_id):
     qs = ChatImage.objects.select_related("owner").filter(
         status=ChatImageStatus.VISIBLE).order_by("-created_at")
     return render(request, "ops/partials/chat_images_table.html", {"images": qs[:120]})
+
+
+@staff_required
+def chat_voices(request):
+    """聊天语音抽审列表,按时间倒序最多 120 条。
+
+    Args:
+        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)、
+            ``reported=1``(只看最近 7 天被举报过的发送者);每次浏览写一条审计。
+
+    Returns:
+        渲染后的聊天语音表格页。
+    """
+    qs = ChatVoice.objects.select_related("owner").filter(
+        status=ChatVoiceStatus.VISIBLE).order_by("-created_at")
+    user_id = optional_id(request.GET.get("user"))
+    if user_id:
+        qs = qs.filter(owner_id=user_id)
+    filter_name = "all"
+    if request.GET.get("reported") == "1":
+        qs = qs.filter(owner_id__in=_reported_user_ids())
+        filter_name = "reported"
+    voices = list(qs[:120])
+    _log_media_access(request, MediaAccessLog.Kind.VOICE, filter_name, len(voices))
+    return render(request, "ops/chat_voices.html",
+                  {"voices": voices, "reported": filter_name == "reported"})
+
+
+@require_POST
+@staff_required
+def chat_voice_delete(request, voice_id):
+    """删除一条聊天语音:删文件,行保留并记审计。
+
+    Args:
+        request: Django 请求对象。
+        voice_id: 聊天语音主键。
+
+    Returns:
+        刷新后的表格局部片段。
+    """
+    voice = get_object_or_404(ChatVoice, pk=voice_id)
+    if voice.file:
+        default_storage.delete(voice.file.name)
+    voice.status = ChatVoiceStatus.DELETED
+    voice.deleted_by = request.user
+    voice.deleted_at = timezone.now()
+    voice.save(update_fields=["status", "deleted_by", "deleted_at"])
+    qs = ChatVoice.objects.select_related("owner").filter(
+        status=ChatVoiceStatus.VISIBLE).order_by("-created_at")
+    return render(request, "ops/partials/chat_voices_table.html", {"voices": qs[:120]})

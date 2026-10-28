@@ -8,6 +8,7 @@ import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/self_image_uploader.dart';
 import 'package:chatapp_app/im/self_im_client.dart';
 import 'package:chatapp_app/im/self_transport.dart';
+import 'package:chatapp_app/im/self_voice_uploader.dart';
 
 class FakeTransport implements SelfTransport {
   final _frames = StreamController<String>.broadcast();
@@ -215,6 +216,141 @@ void main() {
     expect(message.imageUrl, 'http://cdn/media/chat/b_thumb.jpg');
     expect(message.imageLargeUrl, 'http://cdn/media/chat/b.jpg');
   });
+
+  test('searchMessages 把关键词与游标带给 /search', () async {
+    final http = RecordingHttpClient({
+      'items': [
+        {
+          'msg_id': '42',
+          'seq': 7,
+          'from': 'u9',
+          'to': 'u2',
+          'ts': 1761465600000,
+          'kind': 'text',
+          'text': '晚上吃火锅吗',
+          'peer': {'id': 'u2', 'nickname': '阿九', 'avatar': 'https://a/9.png'},
+        },
+      ],
+      'has_more': true,
+    });
+    final client = SelfImClient(httpClient: http);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', userSig: 'tok');
+    await pumpEventQueue();
+    // 没有 transport 时 login 永远等不到 auth_ok,这里只验证 HTTP 行为,直接放弃等。
+    unawaited(login.catchError((_) {}));
+
+    final result = await client.searchMessages('火锅', limit: 10, beforeId: '99');
+    expect(http.calls.single,
+        '/search?q=${Uri.encodeComponent('火锅')}&limit=10&before_id=99');
+    expect(result.items.single.text, '晚上吃火锅吗');
+    expect(result.items.single.peerId, 'u2');
+    expect(result.items.single.peerName, '阿九');
+    expect(result.items.single.seq, 7);
+    expect(result.hasMore, isTrue);
+    expect(client.capabilities.search, isTrue);
+  });
+
+  test('fetchHistory 传 beforeSeq 时带上 before_seq', () async {
+    final http = RecordingHttpClient({'items': []});
+    final client = SelfImClient(httpClient: http);
+    await client.init(bootstrap);
+    await client.fetchHistory('u2', count: 50, beforeSeq: 12);
+    expect(http.calls.single, '/messages?peer=u2&limit=50&before_seq=12');
+  });
+
+  test('sendVoice 上传后发 kind=voice 帧并在 ack 后返回语音消息', () async {
+    final transport = FakeTransport();
+    final uploader = FakeVoiceUploader();
+    final client = SelfImClient(
+        transportFactory: () => transport, voiceUploader: uploader);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', userSig: 'tok');
+    await pumpEventQueue();
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
+    }));
+    await login;
+
+    final pending = client.sendVoice(
+        peerId: 'u2', localPath: '/tmp/a.m4a', durationMs: 12500);
+    await pumpEventQueue();
+    expect(uploader.uploads.single, ('/tmp/a.m4a', 12500));
+    final frame = jsonDecode(transport.sent.last) as Map<String, dynamic>;
+    expect(frame['data']['kind'], 'voice');
+    expect(frame['data']['voice']['url'], 'http://cdn/media/chat/voices/a.m4a');
+    expect(frame['data']['voice']['duration_ms'], 12500);
+    expect(client.capabilities.voice, isTrue);
+
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'ack', 'id': frame['id'],
+      'data': {'msg_id': '77', 'seq': 3, 'ts': 1700000000000},
+    }));
+    final sent = await pending;
+    expect(sent.kind, ChatMessageKind.voice);
+    expect(sent.voiceUrl, 'http://cdn/media/chat/voices/a.m4a');
+    expect(sent.voiceDurationMs, 12500);
+  });
+
+  test('sendVoice 没有上传器时抛 42202 且不发帧', () async {
+    final transport = FakeTransport();
+    final client = SelfImClient(transportFactory: () => transport);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', userSig: 'tok');
+    await pumpEventQueue();
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
+    }));
+    await login;
+
+    await expectLater(
+      client.sendVoice(peerId: 'u2', localPath: '/tmp/a.m4a', durationMs: 3000),
+      throwsA(isA<ImException>()),
+    );
+    expect(transport.sent.where((raw) => raw.contains('"kind":"voice"')), isEmpty);
+  });
+
+  test('parses incoming voice message', () async {
+    final transport = FakeTransport();
+    final client = SelfImClient(transportFactory: () => transport);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', userSig: 'tok');
+    await pumpEventQueue();
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
+    }));
+    await login;
+
+    final events = <ImEvent>[];
+    client.events.listen(events.add);
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'message',
+      'data': {
+        'msg_id': '8', 'seq': 3, 'from': 'u2', 'to': 'u9', 'kind': 'voice',
+        'ts': 1700000000000, 'revoked': false,
+        'voice': {'url': 'http://cdn/media/chat/voices/b.m4a?e=1&s=2',
+                  'duration_ms': 8000, 'size': 24000},
+      },
+    }));
+    await pumpEventQueue();
+    final message = (events.first as ImNewMessage).message;
+    expect(message.kind, ChatMessageKind.voice);
+    expect(message.voiceUrl, 'http://cdn/media/chat/voices/b.m4a?e=1&s=2');
+    expect(message.voiceDurationMs, 8000);
+  });
+}
+
+/// 记录调用并按路径返回固定响应的假 HTTP 客户端。
+class RecordingHttpClient implements SelfHttpClient {
+  RecordingHttpClient(this.response);
+  final Map<String, dynamic> response;
+  final List<String> calls = [];
+
+  @override
+  Future<Map<String, dynamic>> get(String path, Map<String, String> query) async {
+    calls.add('$path?${Uri(queryParameters: query).query}');
+    return response;
+  }
 }
 
 class FakeUploader implements SelfImageUploader {
@@ -233,6 +369,24 @@ class FakeUploader implements SelfImageUploader {
       width: 1080,
       height: 1440,
       size: 345678,
+    );
+  }
+}
+
+class FakeVoiceUploader implements SelfVoiceUploader {
+  FakeVoiceUploader({this.failure});
+  final Object? failure;
+  final uploads = <(String, int)>[];
+
+  @override
+  Future<ChatVoiceUpload> upload(String localPath, int durationMs) async {
+    uploads.add((localPath, durationMs));
+    if (failure != null) throw failure!;
+    return const ChatVoiceUpload(
+      id: 2,
+      url: 'http://cdn/media/chat/voices/a.m4a',
+      durationMs: 12500,
+      size: 48000,
     );
   }
 }

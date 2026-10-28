@@ -12,6 +12,8 @@ from urllib.parse import parse_qs, urlsplit
 import jwt
 import websockets
 
+from _support import pair
+
 SECRET = os.environ["IM_JWT_SECRET"]
 SIGN_SECRET = os.environ["IM_MEDIA_SIGN_SECRET"]
 MEDIA_PREFIX = os.environ["IM_MEDIA_PREFIX"]
@@ -109,6 +111,7 @@ async def main():
     """跑一遍图片消息的发送、推送、历史与会话列表签名校验。"""
     base = 300000 + (int(time.time() * 1000) + os.getpid()) % 100000
     sender_uid, receiver_uid = base, base + 1
+    pair(sender_uid, receiver_uid)
     sender = await auth(sender_uid)
     receiver = await auth(receiver_uid)
     image = {

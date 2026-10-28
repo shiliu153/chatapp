@@ -1,10 +1,10 @@
-"""清理聊天图片:保留期、孤儿文件、删除残留。
+"""清理聊天媒体(图片与语音):保留期、孤儿文件、删除残留。
 
 默认 dry-run(只打印将要删除的内容),``--apply`` 才真正删文件 —— 删文件不可逆,
 定时任务必须显式带 ``--apply``。
 
 三类动作互相独立:
-    1. 保留期:可见且早于保留期的图片 → 删原图/缩略图,行改 ``expired``;
+    1. 保留期:可见且早于保留期的图片/语音 → 删文件,行改 ``expired``;
     2. 孤儿文件:磁盘上有、库里没有对应行、且 mtime 早于宽限期的文件;
     3. 删除残留:行已 ``deleted`` 但文件还在(上次存储删除失败)→ 补删。
 """
@@ -18,7 +18,7 @@ from django.core.files.storage import default_storage
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from im.models import ChatImage, ChatImageStatus
+from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 
 CHAT_DIR = "chat"
 
@@ -36,7 +36,9 @@ class Command(BaseCommand):
         """
         parser.add_argument("--apply", action="store_true", help="真正删除;默认只打印")
         parser.add_argument("--retention-days", type=int, default=None,
-                            help="保留期(天);默认取 CHAT_IMAGE_RETENTION_DAYS,0 表示不清理")
+                            help="图片保留期(天);默认取 CHAT_IMAGE_RETENTION_DAYS,0 表示不清理")
+        parser.add_argument("--voice-retention-days", type=int, default=None,
+                            help="语音保留期(天);默认取 CHAT_VOICE_RETENTION_DAYS,0 表示不清理")
         parser.add_argument("--orphan-hours", type=int, default=24,
                             help="孤儿文件的宽限期(小时);0 表示不扫孤儿文件")
         parser.add_argument("--batch-size", type=int, default=200, help="每批处理的行数")
@@ -55,16 +57,21 @@ class Command(BaseCommand):
         retention_days = options["retention_days"]
         if retention_days is None:
             retention_days = getattr(settings, "CHAT_IMAGE_RETENTION_DAYS", 30)
+        voice_retention_days = options["voice_retention_days"]
+        if voice_retention_days is None:
+            voice_retention_days = getattr(settings, "CHAT_VOICE_RETENTION_DAYS", 30)
         batch_size = max(int(options["batch_size"]), 1)
 
         mode = "apply" if apply else "dry-run"
         self.stdout.write(f"[im_media_cleanup] mode={mode}")
 
         expired = self._expire_old(retention_days, batch_size, apply)
+        expired_voices = self._expire_voices(voice_retention_days, batch_size, apply)
         removed_files = self._delete_leftovers(batch_size, apply)
         orphans = self._delete_orphans(int(options["orphan_hours"]), apply)
         self.stdout.write(
             f"保留期({retention_days} 天):{expired} 张;"
+            f"语音保留期({voice_retention_days} 天):{expired_voices} 条;"
             f"删除残留:{removed_files} 个文件;孤儿文件:{orphans} 个")
         if not apply:
             self.stdout.write("dry-run:未删除任何文件,确认无误后加 --apply")
@@ -98,6 +105,37 @@ class Command(BaseCommand):
                 image.status = ChatImageStatus.EXPIRED
                 image.expired_at = timezone.now()
                 image.save(update_fields=["status", "expired_at"])
+            total += len(batch)
+
+    def _expire_voices(self, retention_days: int, batch_size: int, apply: bool) -> int:
+        """把早于保留期的可见语音删文件并标记过期。
+
+        Args:
+            retention_days: 保留天数;``0`` 表示跳过。
+            batch_size: 每批处理行数。
+            apply: 是否真正删除。
+
+        Returns:
+            处理的语音数量。
+        """
+        if retention_days <= 0:
+            return 0
+        cutoff = timezone.now() - timedelta(days=retention_days)
+        rows = ChatVoice.objects.filter(
+            status=ChatVoiceStatus.VISIBLE, created_at__lt=cutoff)
+        if not apply:
+            return rows.count()
+
+        total = 0
+        while True:
+            batch = list(rows.order_by("id")[:batch_size])
+            if not batch:
+                return total
+            for voice in batch:
+                self._delete_voice_files(voice)
+                voice.status = ChatVoiceStatus.EXPIRED
+                voice.expired_at = timezone.now()
+                voice.save(update_fields=["status", "expired_at"])
             total += len(batch)
 
     def _delete_leftovers(self, batch_size: int, apply: bool) -> int:
@@ -134,6 +172,7 @@ class Command(BaseCommand):
             return 0
         known = set(ChatImage.objects.values_list("file", flat=True))
         known |= set(ChatImage.objects.values_list("thumb", flat=True))
+        known |= set(ChatVoice.objects.values_list("file", flat=True))
         cutoff = time.time() - orphan_hours * 3600
         total = 0
         for path in root.rglob("*"):
@@ -178,3 +217,25 @@ class Command(BaseCommand):
             except Exception:
                 self.stderr.write(f"删除失败: {field.name}")
         return existed
+
+    def _delete_voice_files(self, voice: ChatVoice, apply: bool = True) -> bool:
+        """删除一条语音的文件。
+
+        Args:
+            voice: 聊天语音行。
+            apply: 是否真正删除。
+
+        Returns:
+            文件原本是否存在(即「本来需要删」)。
+        """
+        if not voice.file:
+            return False
+        try:
+            if not default_storage.exists(voice.file.name):
+                return False
+            if apply:
+                default_storage.delete(voice.file.name)
+            return True
+        except Exception:
+            self.stderr.write(f"删除失败: {voice.file.name}")
+            return False

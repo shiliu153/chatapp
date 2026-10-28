@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chatapp_app/app.dart';
 import 'package:chatapp_app/core/app_config.dart';
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/core/token_storage.dart';
+import 'package:chatapp_app/core/token_store.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/legal/legal_texts.dart';
 import 'package:chatapp_app/features/presence/presence_controller.dart';
@@ -27,10 +29,14 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
   SharedPreferences.setMockInitialValues({'legal.agreed_version': legalVersion, ...prefs});
   final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
   final refreshDio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
+  // 单元测试没有平台通道:令牌存储换成 SharedPreferences 实现,
+  // 这样 `prefs:` 参数仍然等价于「已登录」,用例无需改动
+  final tokenStore = TokenStore(storage: SharedPreferencesTokenStorage());
   await tester.pumpWidget(ProviderScope(
     overrides: [
       baseDioProvider.overrideWithValue(dio),
       refreshDioProvider.overrideWithValue(refreshDio),
+      tokenStoreProvider.overrideWithValue(tokenStore),
       imClientProvider.overrideWithValue(fake),
       appConfigCheckEnabledProvider.overrideWithValue(false),
       // 默认关掉登录态心跳:避免测试里周期性假请求干扰用例,心跳用例自己 override

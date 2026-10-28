@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "store/stmt.h"
+#include "util/like.h"
 
 namespace {
 
@@ -119,8 +120,7 @@ void MessageRepo::revoke(MysqlPool::Lease& lease, uint64_t msg_id, int64_t now_m
   stmt.execute();
 }
 
-uint64_t MessageRepo::count_pair(MysqlPool::Lease& lease, uint64_t a, uint64_t b) {
-  const auto [user_a, user_b] = ordered(a, b);
+uint64_t MessageRepo::count_pair(MysqlPool::Lease& lease, uint64_t a, uint64_t b) {  const auto [user_a, user_b] = ordered(a, b);
   auto* result = lease.query(
       "SELECT COUNT(*) FROM im_message m JOIN im_conversation c ON c.id=m.conv_id "
       "WHERE c.user_a=" + std::to_string(user_a) +
@@ -145,4 +145,45 @@ void MessageRepo::delete_for_user(MysqlPool::Lease& lease, uint64_t uid) {
   stmt.bind_uint(0, uid);
   stmt.bind_uint(1, uid);
   stmt.execute();
+}
+
+std::vector<MessageRow> MessageRepo::search(MysqlPool::Lease& lease, uint64_t uid,
+                                            const std::string& keyword, uint64_t before_id,
+                                            int limit) {
+  limit = std::clamp(limit, 1, 100);
+  const std::string owner = std::to_string(uid);
+  // like_pattern 先转义 %/_/!,再由 escape() 处理引号与反斜杠,两处各管一层。
+  const std::string pattern = lease.escape(like_pattern(keyword));
+  std::string sql =
+      "SELECT m.msg_id,m.conv_id,m.seq,m.from_id,m.to_id,m.kind,m.body,"
+      "m.client_msg_id,m.created_at,m.revoked_at "
+      "FROM im_conversation c JOIN im_message m ON m.conv_id=c.id "
+      "LEFT JOIN im_conversation_state s ON s.conv_id=c.id AND s.owner_id=" + owner + " "
+      "WHERE (c.user_a=" + owner + " OR c.user_b=" + owner + ") "
+      "AND m.kind=1 AND m.revoked_at IS NULL "
+      "AND (s.deleted IS NULL OR s.deleted=0) "
+      "AND IF(c.user_a=" + owner + ",c.user_b,c.user_a)<>0 "
+      "AND NOT EXISTS (SELECT 1 FROM im_blacklist b WHERE b.owner_id=" + owner +
+      " AND b.peer_id=IF(c.user_a=" + owner + ",c.user_b,c.user_a)) ";
+  if (before_id > 0) {
+    sql += "AND m.msg_id<" + std::to_string(before_id) + " ";
+  }
+  sql += "AND m.body LIKE '" + pattern + "' ESCAPE '!' "
+         "ORDER BY m.msg_id DESC LIMIT " + std::to_string(limit);
+
+  std::vector<MessageRow> rows;
+  auto* result = lease.query(sql);
+  if (result != nullptr) {
+    while (MYSQL_ROW values = mysql_fetch_row(result)) {
+      rows.push_back(parse_row(values));
+    }
+    mysql_free_result(result);
+  }
+  return rows;
+}
+
+std::vector<MessageRow> MessageRepo::search(uint64_t uid, const std::string& keyword,
+                                            uint64_t before_id, int limit) {
+  auto lease = pool_.acquire();
+  return search(lease, uid, keyword, before_id, limit);
 }

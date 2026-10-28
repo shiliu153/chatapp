@@ -8,24 +8,28 @@
     - 验证码状态机(HMAC 存储、重放窗口、锁定、不存明文);
     - IM 账号约定 ``u{id}``、新用户导入与老用户「待踢旧会话」标记;
     - 令牌刷新与单设备登录(第二次登录作废第一个设备的两类令牌);
+    - Web 的 Cookie 分支(登录/刷新/注销、轮换宽限);
     - 造数命令(资料完善、生日不小于 18 岁、号码续编、号池耗尽);
     - 认证通过时刷新在线状态。
 """
 
+import base64
 from datetime import date
 from unittest.mock import patch
 
 from django.conf import settings
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.db.models import F
+from django.test import SimpleTestCase, TestCase, override_settings
 from django_redis import get_redis_connection
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts import services, sms_codes
+from accounts import totp
 from accounts.management.commands.seed_fake_users import Command
 from im import tasks as im_tasks
 from accounts.throttles import SmsSendThrottle
@@ -58,6 +62,16 @@ class HealthTests(APITestCase):
         resp = self.client.get("/api/v1/health")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"status": "ok"})
+
+    def test_health_throttled(self):
+        """探针按 IP 限流,超限 429(L1)。"""
+        from accounts.throttles import ProbeThrottle
+
+        cache.clear()
+        with patch.object(ProbeThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.client.get("/api/v1/health").status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/health").status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/health").status_code, 429)
 
 
 class ReadyZTests(APITestCase):
@@ -346,16 +360,132 @@ class TokenRefreshTests(APITestCase):
         self.addCleanup(cache.clear)
         self.user = User.objects.create_user(phone="13800138000")
 
-    def test_refresh_rotates_and_blacklists_old_token(self):
+    def test_refresh_rotates_and_returns_new_pair(self):
         old = str(SessionRefreshToken.for_user(self.user))
         resp = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("access", resp.json())
         new = resp.json()["refresh"]
         self.assertNotEqual(new, old)
+        # 新 refresh 可以继续换发下一轮
+        again = self.client.post("/api/v1/auth/token/refresh", {"refresh": new}, format="json")
+        self.assertEqual(again.status_code, 200)
+
+    def test_reuse_within_grace_returns_same_new_pair(self):
+        """多标签页并发刷新:后到者拿旧 token 仍能拿到同一对新令牌。"""
+        old = str(SessionRefreshToken.for_user(self.user))
+        first = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
+        new = first.json()["refresh"]
+        second = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["refresh"], new)
+        self.assertIn("access", second.json())
+
+    @override_settings(REFRESH_REUSE_GRACE=0)
+    def test_reuse_after_grace_is_rejected(self):
+        """超出宽限期的重复使用视为泄露重放。"""
+        old = str(SessionRefreshToken.for_user(self.user))
+        self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
         again = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
         self.assertEqual(again.status_code, 401)
         self.assertEqual(again.json()["code"], 401)
+
+    def test_grace_does_not_revive_kicked_session(self):
+        """宽限期不能绕过单设备登录:账号已被顶下线时旧 token 仍然 40101。"""
+        old = str(SessionRefreshToken.for_user(self.user))
+        self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
+        User.objects.filter(pk=self.user.pk).update(session_version=F("session_version") + 1)
+        again = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
+        self.assertEqual(again.status_code, 401)
+        self.assertEqual(again.json()["code"], 40101)
+
+    def test_missing_refresh_is_rejected(self):
+        resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json")
+        self.assertEqual(resp.status_code, 401)
+
+
+class WebCookieAuthTests(APITestCase):
+    """Web 分支:refresh 走 HttpOnly Cookie,响应体不返回 refresh。"""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.phone = "13800138000"
+        self.user = User.objects.create_user(phone=self.phone)
+
+    def issue_code(self):
+        """绕过 60 秒重发间隔写入验证码。
+
+        Returns:
+            写入的验证码(开发模式下固定为 ``settings.SMS_DEV_CODE``)。
+        """
+        cache.delete(f"sms:send:{self.phone}")
+        sms_codes.store(self.phone, settings.SMS_DEV_CODE)
+        return settings.SMS_DEV_CODE
+
+    def web_login(self):
+        """带 ``X-Client: web`` 走一次校验登录。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post("/api/v1/auth/sms/verify",
+                                {"phone": self.phone, "code": self.issue_code()},
+                                format="json", HTTP_X_CLIENT="web")
+
+    def test_web_login_sets_cookie_and_hides_refresh(self):
+        resp = self.web_login()
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("refresh", resp.json())
+        cookie = resp.cookies[settings.REFRESH_COOKIE_NAME]
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["samesite"], "Strict")
+        self.assertEqual(cookie["path"], "/api/v1/auth/")
+        self.assertTrue(cookie.value)
+
+    def test_app_login_returns_refresh_without_cookie(self):
+        resp = self.client.post("/api/v1/auth/sms/verify",
+                                {"phone": self.phone, "code": self.issue_code()}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("refresh", resp.json())
+        self.assertNotIn(settings.REFRESH_COOKIE_NAME, resp.cookies)
+
+    def test_cookie_refresh_rotates_and_sets_new_cookie(self):
+        raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json",
+                                HTTP_X_CLIENT="web")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("access", resp.json())
+        self.assertNotIn("refresh", resp.json())
+        rotated = resp.cookies[settings.REFRESH_COOKIE_NAME].value
+        self.assertNotEqual(rotated, raw)
+
+    def test_cookie_refresh_without_client_header_still_works(self):
+        """带了 Cookie 就按 Web 处理,不强制要求 X-Client 头(容错)。"""
+        raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("refresh", resp.json())
+
+    def test_logout_blacklists_refresh_and_clears_cookie(self):
+        raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        resp = self.client.post("/api/v1/auth/logout", {}, format="json", HTTP_X_CLIENT="web")
+        self.assertEqual(resp.status_code, 204)
+        cleared = resp.cookies[settings.REFRESH_COOKIE_NAME]
+        self.assertEqual(cleared["max-age"], 0)
+        # 被拉黑后不能再刷新
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        again = self.client.post("/api/v1/auth/token/refresh", {}, format="json",
+                                 HTTP_X_CLIENT="web")
+        self.assertEqual(again.status_code, 401)
+
+    def test_logout_is_idempotent(self):
+        resp = self.client.post("/api/v1/auth/logout", {}, format="json")
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(resp.cookies[settings.REFRESH_COOKIE_NAME]["max-age"], 0)
 
 
 class SingleDeviceSessionTests(APITestCase):
@@ -529,3 +659,56 @@ class PresenceHookTests(APITestCase):
         resp = self.client.get("/api/v1/users/me")
         self.assertEqual(resp.status_code, 401)
         self.assertIsNone(cache.get(f"presence:{self.user.id}"))
+
+
+class TotpTests(SimpleTestCase):
+    """TOTP:标准测试向量、时间窗、密钥与 otpauth 地址(H6)。"""
+
+    def test_matches_rfc6238_sha1_vector(self):
+        """RFC 6238 的 SHA1 向量(取 6 位)必须一致。"""
+        secret = base64.b32encode(b"12345678901234567890").decode().rstrip("=")
+        self.assertEqual(totp.code_at(secret, 59), "287082")
+
+    def test_verify_allows_one_step_window(self):
+        """前后一个时间步内都算有效,超出则拒绝。"""
+        secret = totp.generate_secret()
+        code = totp.code_at(secret, 1_700_000_000)
+        self.assertTrue(totp.verify(secret, code, moment=1_700_000_000))
+        self.assertTrue(totp.verify(secret, code, moment=1_700_000_030))
+        self.assertFalse(totp.verify(secret, code, moment=1_700_000_120))
+        self.assertFalse(totp.verify(secret, "000000", moment=1_700_000_000))
+
+    def test_provisioning_uri_contains_secret_and_issuer(self):
+        """otpauth 地址要带密钥、发行方与 6 位/30 秒参数。"""
+        uri = totp.provisioning_uri("ABC234", "13800138000")
+        self.assertTrue(uri.startswith("otpauth://totp/"))
+        self.assertIn("secret=ABC234", uri)
+        self.assertIn("issuer=chat_app", uri)
+        self.assertIn("digits=6", uri)
+        self.assertIn("period=30", uri)
+
+
+class LoginThrottleTests(TestCase):
+    """后台登录失败锁定:账号维度达到上限后,正确密码也拒绝(H6)。"""
+
+    def setUp(self):
+        """建一个可登录的运营账号,并清空失败计数。"""
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.staff = User.objects.create_user(phone="13700137000", is_staff=True)
+        self.staff.set_password("ops-pass-123")
+        self.staff.save(update_fields=["password"])
+
+    def test_locks_after_max_attempts(self):
+        """连续 5 次错密码后,第 6 次即使密码正确也返回 None。"""
+        for _ in range(5):
+            self.assertIsNone(authenticate(username="13700137000", password="wrong"))
+        self.assertIsNone(authenticate(username="13700137000", password="ops-pass-123"))
+        self.assertEqual(int(cache.get("ops:login:fail:account:13700137000")), 5)
+
+    def test_success_clears_account_counter(self):
+        """失败几次后登录成功,账号维度的计数被清空。"""
+        for _ in range(3):
+            authenticate(username="13700137000", password="wrong")
+        self.assertIsNotNone(authenticate(username="13700137000", password="ops-pass-123"))
+        self.assertIsNone(cache.get("ops:login:fail:account:13700137000"))
