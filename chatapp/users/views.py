@@ -22,7 +22,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from config import images
+from config import images, storage
 from moderation.services import blocked_user_ids
 
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
@@ -131,6 +131,7 @@ def upload_photo(request):
 
     Raises:
         serializers.ValidationError: 图片缺失或超过大小上限。
+        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
     """
     serializer = PhotoUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -144,8 +145,10 @@ def upload_photo(request):
         return Response({"code": 400, "message": str(error)}, status=400)
     status = PhotoStatus.APPROVED if settings.AUTO_APPROVE else PhotoStatus.PENDING
     filename = f"{request.user.id}-{uuid.uuid4().hex}{normalized.extension}"
+    storage.ensure_quota(request.user, len(normalized.data))
     photo = Photo.objects.create(user=request.user,
                                  file=ContentFile(normalized.data, name=filename),
+                                 bytes=len(normalized.data),
                                  order=count, status=status)
     get_profile(request.user).refresh_status()
     if status == PhotoStatus.APPROVED:

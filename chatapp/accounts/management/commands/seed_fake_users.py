@@ -152,9 +152,11 @@ class Command(BaseCommand):
             profile.tags.set(random.sample(tag_ids, k=random.randint(2, 4)))
         Preference.objects.create(profile=profile, target_gender="male")
         for order in range(2):
-            photo = Photo(user=user, order=order, status=PhotoStatus.APPROVED)
+            data = self._fetch_photo()
+            photo = Photo(user=user, order=order, status=PhotoStatus.APPROVED,
+                          bytes=len(data))
             photo.file.save(f"seed_{user.id}_{order}.jpg",
-                            ContentFile(self._fetch_photo()), save=True)
+                            ContentFile(data), save=True)
         profile.refresh_status()
 
     def _fetch_photo(self):

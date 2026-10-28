@@ -11,14 +11,16 @@
 """
 
 from datetime import date
+from io import StringIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -233,6 +235,80 @@ class CandidateTests(APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get(self.URL).status_code, 401)
+
+
+class CandidateShuffleTests(APITestCase):
+    """候选池排序(M7):走 ``shuffle_key`` 索引取池再抽样,不再 ORDER BY RAND()。"""
+
+    URL = "/api/v1/discovery/candidates"
+
+    def setUp(self):
+        self.me = self._make_user("13800138000", gender="male", city="上海")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make_user(self, phone, gender="female", city="上海"):
+        """造一个资料完善、带一张已过审照片的用户。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+            gender: 性别。
+            city: 城市。
+
+        Returns:
+            新建的用户实例。
+        """
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(
+            user=user, nickname=phone, gender=gender, birthday="2000-01-01", city=city,
+            bio="你好", status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        return user
+
+    def test_candidates_do_not_use_random_ordering(self):
+        """查询里出现的是 ``shuffle_key``,不是 RAND()/RANDOM()。"""
+        self._make_user("13900139000")
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(self.client.get(self.URL).status_code, 200)
+        sql = " ".join(query["sql"] for query in queries.captured_queries).upper()
+        self.assertIn("SHUFFLE_KEY", sql)
+        self.assertNotIn("RAND", sql)
+
+    def test_pool_is_capped_then_sampled(self):
+        """先按 ``CANDIDATE_POOL_SIZE`` 截断池子,再在池内抽样(不是全表排序)。"""
+        users = []
+        for index in range(6):
+            user = self._make_user(f"1390013900{index}")
+            Profile.objects.filter(user=user).update(shuffle_key=index)
+            users.append(user)
+        with self.settings(CANDIDATE_POOL_SIZE=4):
+            with patch("discovery.views.random.sample",
+                       side_effect=lambda seq, count: seq[:count]) as sample:
+                data = self.client.get(f"{self.URL}?limit=2").json()
+        sample.assert_called_once()
+        self.assertEqual(len(sample.call_args.args[0]), 4)     # 池子被截到 4 条
+        self.assertEqual(sample.call_args.args[1], 2)          # 本次只要 2 张
+        self.assertEqual([item["user_id"] for item in data], [user.id for user in users[:2]])
+
+
+class RefreshShuffleKeysCommandTests(TestCase):
+    """``refresh_shuffle_keys``:轮换全部资料的随机键,dry-run 不写库。"""
+
+    def setUp(self):
+        self.users = [User.objects.create_user(phone=f"1380013800{index}") for index in range(3)]
+        for index, user in enumerate(self.users):
+            Profile.objects.create(user=user, nickname=f"u{index}")
+        Profile.objects.update(shuffle_key=0)   # 模拟「升级前所有人同一个 key」
+
+    def test_rotates_all_keys(self):
+        call_command("refresh_shuffle_keys", stdout=StringIO())
+        keys = list(Profile.objects.values_list("shuffle_key", flat=True))
+        self.assertTrue(all(key != 0 for key in keys))
+        self.assertEqual(len(set(keys)), 3)
+
+    def test_dry_run_does_not_write(self):
+        call_command("refresh_shuffle_keys", "--dry-run", stdout=StringIO())
+        self.assertEqual(set(Profile.objects.values_list("shuffle_key", flat=True)), {0})
 
 
 class SwipeApiTests(APITestCase):

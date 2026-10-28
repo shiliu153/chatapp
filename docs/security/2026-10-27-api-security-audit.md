@@ -958,7 +958,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | M4 | 已修复 | 资料图/广场图/聊天图统一 `exif_transpose` + 重编码，元数据不落盘 |
 | M5 | 已修复（进程内） | ffmpeg/ffprobe 加 `-protocol_whitelist file,pipe`、`-nostdin`、`-map_metadata -1`、`-sn -dn`、`-threads 1`；`stdin=DEVNULL`、最小环境、POSIX `setrlimit`（CPU/内存/输出）；**异步化与容器隔离未做**（2C2G 上当前同步转码可接受） |
 | M6 | 已修复 | 生产缺密钥启动失败；验签 fail-closed；默认 TTL 3600（整点对齐且至少 1 小时） |
-| M7 | 部分 | 候选/`user_sig`/点赞/拉黑/照片上传已限流；磁盘配额与候选池缓存未做 |
+| M7 | 已修复 | 候选/`user_sig`/点赞/拉黑/照片上传已限流；四个上传入口接单账号配额（`USER_STORAGE_QUOTA_MB` 默认 200，超限 413 + `41301`）；候选池改 `Profile.shuffle_key` 预计算随机列 + 池内抽样，不再 `ORDER BY RAND()`；新增 `media_bytes_backfill` / `media_cleanup` / `media_disk_report` / `refresh_shuffle_keys` 与 `MEDIA_DISK_WARN_MB` 告警 |
 | M8 | **未关闭（已接受）** | 短信部分不修；验证码仍固定 |
 | M9 | 部分 | 聊天媒体列表加「仅被举报」筛选 + `ops.MediaAccessLog` 访问审计；**资料图/广场图公开直出与防盗链未做**（需签名 URL + 双端改造，按产品决定暂缓） |
 | M10 | 已修复 | `limit=-1/abc` 等不再 500；ops 非法 `user`/`ids` 被忽略 |

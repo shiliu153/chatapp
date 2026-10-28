@@ -400,6 +400,20 @@ CHAT_VOICE_SAMPLE_RATE = 16000
 CHAT_VOICE_BITRATE = "32k"
 CHAT_VOICE_RETENTION_DAYS = int(os.getenv("CHAT_VOICE_RETENTION_DAYS", "30"))
 
+# --- 存储配额与磁盘告警(M7)---
+# 单账号媒体总量上限(资料图 + 广场图 + 聊天图 + 聊天语音)。按审计估算,
+# 聊天图 30 次/小时 × 5MB 单日可达 3.6GB,200MB 把单个小号的天花板压住;
+# 置 0 表示关闭配额(本地手测可关)。
+USER_STORAGE_QUOTA_MB = int(os.getenv("USER_STORAGE_QUOTA_MB", "200"))
+USER_STORAGE_QUOTA_BYTES = USER_STORAGE_QUOTA_MB * 1024 * 1024
+# ``media_disk_report`` 的告警线:媒体目录总占用超过它就算磁盘吃紧
+MEDIA_DISK_WARN_MB = int(os.getenv("MEDIA_DISK_WARN_MB", "5000"))
+
+# --- 候选池(M7)---
+# 候选接口按 ``Profile.shuffle_key`` 索引取一个池子,再在内存里抽样;
+# 池子越大越不容易重复,取 200 对数百人的规模足够。
+CANDIDATE_POOL_SIZE = int(os.getenv("CANDIDATE_POOL_SIZE", "200"))
+
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
