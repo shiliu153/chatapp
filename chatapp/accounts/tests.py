@@ -12,20 +12,22 @@
     - 认证通过时刷新在线状态。
 """
 
+import base64
 from datetime import date
 from unittest.mock import patch
 
 from django.conf import settings
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django_redis import get_redis_connection
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts import services, sms_codes
+from accounts import totp
 from accounts.management.commands.seed_fake_users import Command
 from im import tasks as im_tasks
 from accounts.throttles import SmsSendThrottle
@@ -58,6 +60,16 @@ class HealthTests(APITestCase):
         resp = self.client.get("/api/v1/health")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"status": "ok"})
+
+    def test_health_throttled(self):
+        """探针按 IP 限流,超限 429(L1)。"""
+        from accounts.throttles import ProbeThrottle
+
+        cache.clear()
+        with patch.object(ProbeThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.client.get("/api/v1/health").status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/health").status_code, 200)
+            self.assertEqual(self.client.get("/api/v1/health").status_code, 429)
 
 
 class ReadyZTests(APITestCase):
@@ -529,3 +541,56 @@ class PresenceHookTests(APITestCase):
         resp = self.client.get("/api/v1/users/me")
         self.assertEqual(resp.status_code, 401)
         self.assertIsNone(cache.get(f"presence:{self.user.id}"))
+
+
+class TotpTests(SimpleTestCase):
+    """TOTP:标准测试向量、时间窗、密钥与 otpauth 地址(H6)。"""
+
+    def test_matches_rfc6238_sha1_vector(self):
+        """RFC 6238 的 SHA1 向量(取 6 位)必须一致。"""
+        secret = base64.b32encode(b"12345678901234567890").decode().rstrip("=")
+        self.assertEqual(totp.code_at(secret, 59), "287082")
+
+    def test_verify_allows_one_step_window(self):
+        """前后一个时间步内都算有效,超出则拒绝。"""
+        secret = totp.generate_secret()
+        code = totp.code_at(secret, 1_700_000_000)
+        self.assertTrue(totp.verify(secret, code, moment=1_700_000_000))
+        self.assertTrue(totp.verify(secret, code, moment=1_700_000_030))
+        self.assertFalse(totp.verify(secret, code, moment=1_700_000_120))
+        self.assertFalse(totp.verify(secret, "000000", moment=1_700_000_000))
+
+    def test_provisioning_uri_contains_secret_and_issuer(self):
+        """otpauth 地址要带密钥、发行方与 6 位/30 秒参数。"""
+        uri = totp.provisioning_uri("ABC234", "13800138000")
+        self.assertTrue(uri.startswith("otpauth://totp/"))
+        self.assertIn("secret=ABC234", uri)
+        self.assertIn("issuer=chat_app", uri)
+        self.assertIn("digits=6", uri)
+        self.assertIn("period=30", uri)
+
+
+class LoginThrottleTests(TestCase):
+    """后台登录失败锁定:账号维度达到上限后,正确密码也拒绝(H6)。"""
+
+    def setUp(self):
+        """建一个可登录的运营账号,并清空失败计数。"""
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.staff = User.objects.create_user(phone="13700137000", is_staff=True)
+        self.staff.set_password("ops-pass-123")
+        self.staff.save(update_fields=["password"])
+
+    def test_locks_after_max_attempts(self):
+        """连续 5 次错密码后,第 6 次即使密码正确也返回 None。"""
+        for _ in range(5):
+            self.assertIsNone(authenticate(username="13700137000", password="wrong"))
+        self.assertIsNone(authenticate(username="13700137000", password="ops-pass-123"))
+        self.assertEqual(int(cache.get("ops:login:fail:account:13700137000")), 5)
+
+    def test_success_clears_account_counter(self):
+        """失败几次后登录成功,账号维度的计数被清空。"""
+        for _ in range(3):
+            authenticate(username="13700137000", password="wrong")
+        self.assertIsNotNone(authenticate(username="13700137000", password="ops-pass-123"))
+        self.assertIsNone(cache.get("ops:login:fail:account:13700137000"))

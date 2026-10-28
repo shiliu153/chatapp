@@ -7,6 +7,14 @@
 
 from rest_framework.throttling import SimpleRateThrottle
 
+from config.throttling import UserScopedThrottle
+
+
+class PostLikeThrottle(UserScopedThrottle):
+    """按用户限流点赞/取消点赞;额度见 ``settings.DEFAULT_THROTTLE_RATES["post_like"]``。"""
+
+    scope = "post_like"
+
 
 class PostCreateThrottle(SimpleRateThrottle):
     """按用户限流发布动态;额度在 settings.DEFAULT_THROTTLE_RATES["post_create"]。"""

@@ -68,6 +68,8 @@ struct Migration {
 constexpr Migration kMigrations[] = {
     {1, "001_init.sql"},
     {2, "002_search_index.sql"},
+    {3, "003_session_version.sql"},
+    {4, "004_pair.sql"},
 };
 
 }  // namespace

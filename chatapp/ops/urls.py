@@ -10,6 +10,7 @@ from django.urls import path
 
 from . import views
 from .forms import OpsLoginForm
+from .otp import otp_verify
 
 app_name = "ops"
 
@@ -21,6 +22,7 @@ urlpatterns = [
         redirect_authenticated_user=True,
     ), name="login"),
     path("logout/", auth_views.LogoutView.as_view(next_page="ops:login"), name="logout"),
+    path("otp/", otp_verify, name="otp"),
     path("reports/", views.reports_list, name="reports"),
     path("reports/<int:report_id>/", views.report_detail, name="report_detail"),
     path("reports/<int:report_id>/handle", views.report_handle, name="report_handle"),

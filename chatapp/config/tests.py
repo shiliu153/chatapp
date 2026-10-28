@@ -8,16 +8,22 @@
       (``CommentCoverageTests``)及其检查模块自身的单元测试。
 """
 
+import io
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import cache
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django_redis import get_redis_connection
+from PIL import Image
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
+from config import images
 from config.celery import ping
+from config.params import int_param, optional_id
 
 
 class ErrorEnvelopeTests(APITestCase):
@@ -379,6 +385,128 @@ class CommentCoverageLogicTests(SimpleTestCase):
             self._write(tmp, '"""演示模块。"""\n\n\ndef greet():\n'
                              '    """返回问候语。"""\n')
             self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
+
+
+class QueryParamTests(SimpleTestCase):
+    """查询参数校验:非法整数 400,越界收敛,可选 id 非法返回 None。"""
+
+    def setUp(self):
+        """准备一个不经过 URL 路由的请求工厂。"""
+        self.factory = RequestFactory()
+
+    def _get(self, query):
+        """构造带查询串的 GET 请求。
+
+        Args:
+            query: 查询参数字典。
+
+        Returns:
+            Django ``WSGIRequest``。
+        """
+        return self.factory.get("/x", query)
+
+    def test_missing_or_empty_returns_default(self):
+        """参数缺失或为空串时返回默认值。"""
+        self.assertEqual(int_param(self._get({}), "limit", default=10), 10)
+        self.assertEqual(int_param(self._get({"limit": ""}), "limit", default=10), 10)
+
+    def test_non_integer_raises_validation_error(self):
+        """非整数抛 DRF ValidationError(最终是 400,不是 500)。"""
+        with self.assertRaises(ValidationError):
+            int_param(self._get({"limit": "abc"}), "limit", default=10)
+
+    def test_out_of_range_is_clamped(self):
+        """越界值收敛到边界,不报错也不透传给切片。"""
+        self.assertEqual(
+            int_param(self._get({"limit": "-1"}), "limit", default=10, minimum=1, maximum=20), 1)
+        self.assertEqual(
+            int_param(self._get({"limit": "999"}), "limit", default=10, minimum=1, maximum=20), 20)
+
+    def test_optional_id_rejects_invalid_values(self):
+        """非法主键过滤参数返回 None,由调用方忽略该过滤。"""
+        self.assertEqual(optional_id("12"), 12)
+        self.assertIsNone(optional_id("abc"))
+        self.assertIsNone(optional_id("-3"))
+        self.assertIsNone(optional_id(""))
+
+
+class RequestIdHeaderTests(APITestCase):
+    """客户端传来的 X-Request-Id 必须清洗,防止日志注入(L2)。"""
+
+    def test_unsafe_id_is_replaced(self):
+        """含空格/标点的 ID 被替换成 32 位十六进制。"""
+        resp = self.client.get("/api/v1/health", HTTP_X_REQUEST_ID="bad id!")
+        self.assertEqual(len(resp["X-Request-Id"]), 32)
+
+    def test_safe_id_passes_through(self):
+        """合规的 ID 原样回显,便于前后端对账。"""
+        resp = self.client.get("/api/v1/health", HTTP_X_REQUEST_ID="req-20261028-0001")
+        self.assertEqual(resp["X-Request-Id"], "req-20261028-0001")
+
+
+class ProxySettingsTests(SimpleTestCase):
+    """DRF 只信任一层代理,否则伪造 XFF 可绕过 IP 限流(M1)。"""
+
+    def test_num_proxies_is_configured(self):
+        """``NUM_PROXIES`` 必须是正整数(默认 1)。"""
+        self.assertEqual(settings.REST_FRAMEWORK["NUM_PROXIES"], 1)
+
+
+class ImageGuardTests(SimpleTestCase):
+    """图片校验:格式白名单、像素上限、EXIF 剥离与方向校正(M3/M4/L5)。"""
+
+    def _encoded(self, fmt="PNG", size=(1, 1), exif=None):
+        """生成一张测试图片的字节。
+
+        Args:
+            fmt: Pillow 格式名。
+            size: 宽高。
+            exif: 可选的 EXIF 对象。
+
+        Returns:
+            编码后的字节。
+        """
+        buffer = io.BytesIO()
+        image = Image.new("RGB", size, "red")
+        if exif is None:
+            image.save(buffer, fmt)
+        else:
+            image.save(buffer, fmt, exif=exif)
+        return buffer.getvalue()
+
+    def test_rejects_format_outside_whitelist(self):
+        """GIF 不在 jpg/png/webp 白名单内,直接拒绝。"""
+        with self.assertRaises(images.UnsupportedImage):
+            images.open_checked(self._encoded("GIF"))
+
+    def test_rejects_non_image(self):
+        """完全无法解码的字节按「请上传图片文件」处理。"""
+        with self.assertRaises(images.ImageError):
+            images.open_checked(b"not an image")
+
+    def test_rejects_too_many_pixels(self):
+        """像素总数超过上限时在解码前拒绝。"""
+        with patch("config.images.MAX_IMAGE_PIXELS", 100):
+            with self.assertRaises(images.ImageTooLarge):
+                images.open_checked(self._encoded(size=(20, 20)))
+
+    def test_normalize_strips_exif_and_fixes_orientation(self):
+        """重编码后方向摆正,EXIF(含 GPS)不再存在。"""
+        exif = Image.Exif()
+        exif[0x0112] = 6            # Orientation = 顺时针 90°
+        exif[0x010F] = "TestCamera"  # Make
+        gps = exif.get_ifd(0x8825)
+        gps[1] = "N"
+        gps[2] = (31.0, 14.0, 0.0)
+        raw = self._encoded("JPEG", size=(10, 20), exif=exif)
+
+        normalized = images.normalize(images.open_checked(raw))
+        self.assertEqual((normalized.width, normalized.height), (20, 10))
+
+        reopened = Image.open(io.BytesIO(normalized.data))
+        metadata = reopened.getexif()
+        self.assertNotIn(0x010F, metadata)
+        self.assertNotIn(0x8825, metadata)
 
 
 class CommentCoverageTests(SimpleTestCase):

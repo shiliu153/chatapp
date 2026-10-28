@@ -146,6 +146,7 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   cfg.max_conn_per_ip = get_int(env, "IM_MAX_CONN_PER_IP", cfg.max_conn_per_ip);
   cfg.auth_rate_per_sec = get_double(env, "IM_AUTH_RATE", cfg.auth_rate_per_sec);
   cfg.auth_burst = get_double(env, "IM_AUTH_BURST", cfg.auth_burst);
+  cfg.send_per_minute = get_int(env, "IM_SEND_PER_MINUTE", cfg.send_per_minute);
   cfg.max_frame = get_size(env, "IM_MAX_FRAME", cfg.max_frame);
   cfg.text_max = get_size(env, "IM_TEXT_MAX", cfg.text_max);
   cfg.media_prefix = get_or(env, "IM_MEDIA_PREFIX");
@@ -175,6 +176,7 @@ Config Config::from_env() {
                           "IM_DB_THREADS", "IM_DB_POOL", "IM_DB_IDLE_PING_MS",
                           "IM_MAX_CONN_PER_IP",
                           "IM_AUTH_RATE", "IM_AUTH_BURST", "IM_MAX_FRAME",
+                          "IM_SEND_PER_MINUTE",
                           "IM_TEXT_MAX", "IM_MEDIA_PREFIX", "IM_MEDIA_SIGN_SECRET",
                           "IM_MEDIA_SIGN_TTL"}) {
     if (const char* value = std::getenv(key)) {

@@ -16,6 +16,7 @@ import logging
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection, transaction
+from django.db.models import F
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -28,7 +29,7 @@ from notifications.tasks import send_sms_code
 from . import services
 from .exceptions import SingleDeviceSessionConflict, SmsServiceUnavailable
 from .serializers import PhoneSerializer, SmsVerifySerializer
-from .throttles import SmsSendThrottle, SmsVerifyThrottle
+from .throttles import ProbeThrottle, SmsSendThrottle, SmsVerifyThrottle
 from .tokens import SessionRefreshToken
 
 User = get_user_model()
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([ProbeThrottle])
 def health(request):
     """存活探针。
 
@@ -66,6 +68,7 @@ def _probe_redis():
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([ProbeThrottle])
 def readyz(request):
     """就绪探针:逐项检查数据库与 Redis。
 
@@ -150,10 +153,11 @@ def sms_verify(request):
     services.check_code(phone, serializer.validated_data["code"])
 
     user, created = User.objects.get_or_create(phone=phone)
-    # 单设备登录:版本 +1 作废旧令牌;IM 建号/踢旧会话交给队列(响应路径不做外部调用)
-    previous_version = user.session_version
-    user.session_version = previous_version + 1
-    user.save(update_fields=["session_version"])
+    # 单设备登录:版本 +1 作废旧令牌;IM 建号/踢旧会话交给队列(响应路径不做外部调用)。
+    # 用 F() 在数据库内自增,避免「读—加一—写」在并发登录时两个请求都拿到同一个旧版本,
+    # 结果两台设备都以为自己是有效会话(M12)。
+    User.objects.filter(pk=user.pk).update(session_version=F("session_version") + 1)
+    user.refresh_from_db(fields=["session_version"])
 
     def _after_commit():
         # robust=True:broker 抖动不会把已提交的登录拖成 500
@@ -165,6 +169,8 @@ def sms_verify(request):
             cache.set(im_tasks.kick_pending_key(user.id), 1, im_tasks.KICK_PENDING_TTL)
             im_tasks.kick_pending.apply_async(
                 args=[user.id], countdown=im_tasks.KICK_BACKSTOP_DELAY)
+        # 会话版本同步给 imserver:新设备即使不拉签名,旧 token 也会在任务完成后失效
+        im_tasks.sync_session_version.delay(user.id)
 
     transaction.on_commit(_after_commit, robust=True)
 

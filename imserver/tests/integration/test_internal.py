@@ -15,13 +15,12 @@ BASE = "http://127.0.0.1:19101"
 WS = "ws://127.0.0.1:19100/im/ws"
 
 
-def token(uid: int) -> str:
+def token(uid: int, sv=None) -> str:
     now = int(time.time())
-    return jwt.encode(
-        {"sub": f"u{uid}", "uid": uid, "iat": now, "exp": now + 3600, "jti": "test"},
-        JWT_SECRET,
-        algorithm="HS256",
-    )
+    payload = {"sub": f"u{uid}", "uid": uid, "iat": now, "exp": now + 3600, "jti": "test"}
+    if sv is not None:
+        payload["sv"] = sv
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
 
 def call(path: str, payload=None, method: str = "POST"):
@@ -48,9 +47,9 @@ def call(path: str, payload=None, method: str = "POST"):
         return json.loads(response.read())
 
 
-async def auth(uid: int):
+async def auth(uid: int, sv=None):
     ws = await websockets.connect(WS)
-    await ws.send(json.dumps({"v": 1, "type": "auth", "data": {"token": token(uid)}}))
+    await ws.send(json.dumps({"v": 1, "type": "auth", "data": {"token": token(uid, sv)}}))
     while True:
         message = json.loads(await asyncio.wait_for(ws.recv(), 3))
         if message["type"] == "auth_ok":
@@ -95,6 +94,19 @@ async def main():
     allowed = await auth(uid)
     assert not isinstance(allowed, dict)
     await allowed.close()
+
+    # 会话版本:同步到 5 后 sv=5 可连;升到 6 后旧 token 必须被拒。
+    call("/internal/session_version", {"uid": uid, "version": 5})
+    current = await auth(uid, sv=5)
+    assert not isinstance(current, dict)
+    await current.close()
+    call("/internal/session_version", {"uid": uid, "version": 6})
+    stale = await auth(uid, sv=5)
+    assert isinstance(stale, dict)
+    assert stale["data"]["code"] == 40101
+    fresh = await auth(uid, sv=6)
+    assert not isinstance(fresh, dict)
+    await fresh.close()
 
 
 asyncio.run(main())

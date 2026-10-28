@@ -23,6 +23,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.models import User
+from config.params import optional_id
 from feed.models import Post, PostReport
 from feed.services import delete_post
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
@@ -241,6 +242,8 @@ def photo_review(request):
         照片网格的局部片段,``skipped`` 为页面陈旧、照片已被删除的条数。
     """
     ids = set(request.POST.getlist("ids"))
+    # 非数字 id 直接丢弃:``pk__in=["abc"]`` 会在求值时抛 ValueError(500)。
+    ids = {value for value in ids if value.isdigit()}
     action = request.POST.get("action")
     status_map = {"approve": PhotoStatus.APPROVED, "reject": PhotoStatus.REJECTED}
     skipped = 0
@@ -592,7 +595,7 @@ def chat_images(request):
     """
     qs = ChatImage.objects.select_related("owner").filter(
         status=ChatImageStatus.VISIBLE).order_by("-created_at")
-    user_id = request.GET.get("user")
+    user_id = optional_id(request.GET.get("user"))
     if user_id:
         qs = qs.filter(owner_id=user_id)
     return render(request, "ops/chat_images.html", {"images": qs[:120]})
@@ -635,7 +638,7 @@ def chat_voices(request):
     """
     qs = ChatVoice.objects.select_related("owner").filter(
         status=ChatVoiceStatus.VISIBLE).order_by("-created_at")
-    user_id = request.GET.get("user")
+    user_id = optional_id(request.GET.get("user"))
     if user_id:
         qs = qs.filter(owner_id=user_id)
     return render(request, "ops/chat_voices.html", {"voices": qs[:120]})

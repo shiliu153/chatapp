@@ -40,16 +40,20 @@ def _ttl() -> int:
     """签名有效期(秒)。
 
     Returns:
-        ``settings.IM_MEDIA_SIGN_TTL``,非法值回落到 86400。
+        ``settings.IM_MEDIA_SIGN_TTL``,非法值回落到 3600。
     """
     try:
-        return int(getattr(settings, "IM_MEDIA_SIGN_TTL", 86400) or 86400)
+        return int(getattr(settings, "IM_MEDIA_SIGN_TTL", 3600) or 3600)
     except (TypeError, ValueError):
-        return 86400
+        return 3600
 
 
 def expires_at(now: int | None = None) -> int:
     """按整点对齐后的过期时间戳。
+
+    对齐到整点是为了让同一小时内的历史消息复用同一个 URL(浏览器/客户端缓存
+    不会每次刷新都失效)。但如果 ``ttl`` 小于一小时,直接对齐会得到「下一整点就
+    过期」的极短有效期,因此至少保证还有 ``BUCKET_SECONDS`` 的余量。
 
     Args:
         now: 当前 Unix 秒;``None`` 表示取系统时间。
@@ -58,7 +62,10 @@ def expires_at(now: int | None = None) -> int:
         过期时间戳(秒)。
     """
     moment = int(time.time() if now is None else now)
-    return moment - moment % BUCKET_SECONDS + _ttl()
+    expires = moment - moment % BUCKET_SECONDS + _ttl()
+    if expires <= moment + BUCKET_SECONDS:
+        expires += BUCKET_SECONDS
+    return expires
 
 
 def path_of(url: str) -> str:
@@ -130,12 +137,12 @@ def verify(path: str, expires: str, signature_value: str, *, now: int | None = N
         now: 当前 Unix 秒;``None`` 表示取系统时间。
 
     Returns:
-        是否放行;未配置密钥时恒为 ``True``。
+        是否放行;未配置密钥时仅 ``DEBUG`` 放行(生产 fail-closed)。
     """
     if not path.startswith(SIGN_PATH_PREFIX):
         return False
     if not _secret():
-        return True
+        return bool(settings.DEBUG)
     try:
         moment_expires = int(expires)
     except (TypeError, ValueError):

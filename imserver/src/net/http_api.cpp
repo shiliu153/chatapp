@@ -411,6 +411,25 @@ HttpApi::response_type HttpApi::internal_route(
       redis_.del("im:block:" + std::to_string(body.at("uid").get<uint64_t>()));
       return json_response(req, http::status::ok, {{"ok", true}});
     }
+    if (target.path == "/internal/pair") {
+      const auto a = body.at("a").get<uint64_t>();
+      const auto b = body.at("b").get<uint64_t>();
+      if (a == 0 || b == 0 || a == b) {
+        return error_response(req, http::status::unprocessable_entity, 42201, "参数不合法");
+      }
+      if (body.value("action", std::string("add")) == "add") {
+        messages_.pair_add(a, b);
+      } else {
+        messages_.pair_remove(a, b);
+      }
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
+    if (target.path == "/internal/session_version") {
+      const auto uid = body.at("uid").get<uint64_t>();
+      const auto version = body.at("version").get<int64_t>();
+      messages_.users().set_session_version(uid, version);
+      return json_response(req, http::status::ok, {{"ok", true}});
+    }
     if (target.path == "/internal/delete_account") {
       const auto uid = body.at("uid").get<uint64_t>();
       registry_.kick(uid, "deleted");

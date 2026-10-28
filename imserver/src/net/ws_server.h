@@ -80,6 +80,7 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   void arm_auth_timer();
   void arm_idle_timer();
   void refresh_online();
+  bool allow_send_quota(int64_t now_ms);
   std::string remote_ip();
   bool origin_allowed() const;
   void release_ip();

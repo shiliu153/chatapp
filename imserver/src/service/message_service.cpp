@@ -1,5 +1,6 @@
 #include "service/message_service.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cctype>
 #include <cstdlib>
@@ -151,6 +152,8 @@ bool MessageService::delete_account(uint64_t uid) {
     messages_.delete_for_user(lease, uid);
     conversations_.delete_for_user(lease, uid);
     blacklist_.delete_for_user(lease, uid);
+    lease.query("DELETE FROM im_pair WHERE user_a=" + std::to_string(uid) +
+                " OR user_b=" + std::to_string(uid));
     users_.remove(lease, uid);
     lease.commit();
     return true;
@@ -179,6 +182,47 @@ void MessageService::blacklist_add(uint64_t owner, uint64_t peer) {
 void MessageService::blacklist_remove(uint64_t owner, uint64_t peer) {
   auto lease = pool_.acquire();
   blacklist_.remove(lease, owner, peer);
+}
+
+bool MessageService::pair_exists(MysqlPool::Lease& lease, uint64_t a, uint64_t b) {
+  const uint64_t lo = std::min(a, b);
+  const uint64_t hi = std::max(a, b);
+  auto* result = lease.query("SELECT 1 FROM im_pair WHERE user_a=" + std::to_string(lo) +
+                             " AND user_b=" + std::to_string(hi));
+  if (result == nullptr) {
+    return false;
+  }
+  const bool exists = mysql_fetch_row(result) != nullptr;
+  mysql_free_result(result);
+  return exists;
+}
+
+bool MessageService::pair_exists(uint64_t a, uint64_t b) {
+  auto lease = pool_.acquire();
+  return pair_exists(lease, a, b);
+}
+
+void MessageService::pair_add(uint64_t a, uint64_t b) {
+  const uint64_t lo = std::min(a, b);
+  const uint64_t hi = std::max(a, b);
+  auto lease = pool_.acquire();
+  Stmt stmt(lease.get(),
+            "INSERT INTO im_pair (user_a,user_b,created_at) VALUES (?,?,?) "
+            "ON DUPLICATE KEY UPDATE user_a=user_a");
+  stmt.bind_uint(0, lo);
+  stmt.bind_uint(1, hi);
+  stmt.bind_uint(2, static_cast<uint64_t>(now_ms()));
+  stmt.execute();
+}
+
+void MessageService::pair_remove(uint64_t a, uint64_t b) {
+  const uint64_t lo = std::min(a, b);
+  const uint64_t hi = std::max(a, b);
+  auto lease = pool_.acquire();
+  Stmt stmt(lease.get(), "DELETE FROM im_pair WHERE user_a=? AND user_b=?");
+  stmt.bind_uint(0, lo);
+  stmt.bind_uint(1, hi);
+  stmt.execute();
 }
 
 bool MessageService::ready() {
@@ -277,7 +321,16 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
                    std::chrono::steady_clock::now() - t0)
             .count();
       };
-      users_.ensure(lease, request.to, "");
+      // 聊天权限:只有配对关系才允许发消息(系统通知 from=0 豁免)。
+      // 未配对直接 40302,不建 im_user 行,避免任意 uid 都能被写库(H4)。
+      if (request.from != 0 && !pair_exists(lease, request.from, request.to)) {
+        lease.rollback();
+        return 40302;
+      }
+      if (!users_.get(lease, request.to).has_value()) {
+        lease.rollback();
+        return 42201;
+      }
       if (request.from != 0) {
         users_.ensure(lease, request.from, "");
       }

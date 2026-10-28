@@ -340,6 +340,22 @@ class ReportApiTests(APITestCase):
         self.assertEqual(self.report().status_code, 201)
         self.assertEqual(Report.objects.count(), 2)
 
+    def test_dedupe_key_blocks_duplicate_pending(self):
+        """并发/重复提交同一对用户的待处理举报,唯一约束只放行一条(M12)。"""
+        Report.objects.create(reporter=self.me, target=self.target, type="harassment")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Report.objects.create(reporter=self.me, target=self.target, type="fraud")
+
+    def test_dedupe_key_is_cleared_when_handled(self):
+        """处理完成后清空去重键,允许之后再次举报同一人。"""
+        report = Report.objects.create(reporter=self.me, target=self.target, type="harassment")
+        self.assertIsNotNone(report.dedupe_key)
+        report.status = ReportStatus.HANDLED
+        report.save(update_fields=["status"])
+        report.refresh_from_db()
+        self.assertIsNone(report.dedupe_key)
+
     def test_cannot_report_self(self):
         self.assertEqual(self.report(target_id=self.me.id).status_code, 400)
 
@@ -402,6 +418,21 @@ class BlockApiTests(APITestCase):
     def test_unknown_target_returns_404(self):
         resp = self.client.post(self.URL, {"target_user_id": 999999}, format="json")
         self.assertEqual(resp.status_code, 404)
+
+    def test_block_write_throttled(self):
+        """拉黑写操作按用户限流,超限 429;读列表不计入(M7)。"""
+        from .throttles import BlockThrottle
+
+        cache.clear()
+        with patch("im.tasks.blacklist_add.delay"), \
+                patch.object(BlockThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.client.post(
+                self.URL, {"target_user_id": self.target.id}, format="json").status_code, 201)
+            self.assertEqual(self.client.post(
+                self.URL, {"target_user_id": self.target.id}, format="json").status_code, 200)
+            self.assertEqual(self.client.post(
+                self.URL, {"target_user_id": self.target.id}, format="json").status_code, 429)
+            self.assertEqual(self.client.get(self.URL).status_code, 200)
 
     def test_list_shows_nickname_and_avatar(self):
         Block.objects.create(blocker=self.me, blocked=self.target)

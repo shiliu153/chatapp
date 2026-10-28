@@ -114,3 +114,12 @@ print('done', len(ids))
 - **`upload_to` 已含 `chat/voices/%Y/%m/`**:与图片一样,保存时只传文件名,否则会落成嵌套的 `chat/voices/2026/10/chat/voices/2026/10/...`。
 - **语音上传 400「只支持 M4A/AAC/WebM/OGG」的两种真因(2026-10-27 上线实测)**:① App 用 Dio 的 `MultipartFile.fromBytes` 传 `.m4a`,mime 包查不到该扩展名 → 实际发的是 `application/octet-stream`;② Web 的 `Blob.type` 是 `audio/webm;codecs=opus`,服务端精确匹配白名单会拒。修复:服务端 `voice.base_content_type()` 先按 `;` 截断再小写;App 显式 `contentType: DioMediaType('audio','mp4')`;Web 构造 Blob 时 `type: mimeType.split(';')[0]`。**mock 测试发现不了**,必须用真实客户端或 `curl -F "file=@x.m4a;type=audio/mp4"` 验一次。
 
+## 会话版本与配对校验(2026-10-28)
+
+- **旧 token 重连 40101 = 会话版本没同步**:token 里的 `sv` 必须等于 `im_user.session_version`。同步有两条路径:登录后的 Celery 任务 `sync_session_version`,以及 `POST /im/user_sig` 里签发前的同步调用(失败直接 503,不签发)。排查顺序:Django 日志里 `set_session_version` 是否失败 → `im_user.session_version` 是否是旧值 → token 是否带 `sv`(老 token 的 `sv=0`,过渡期放行)。
+- **所有消息 40302「无法发送」= 没跑 `im_sync_pairs`**:H4 之后 imserver 只允许 `im_pair` 里的两人互发。上线新版本后必须立刻 `python manage.py im_sync_pairs`(幂等,可反复跑);本地手测/造数也要先配对,`im_send` 不再能对任意 uid 代发。
+- **收件人必须先存在**:发送时不再 `ensure(to)` 建行;给不存在的 uid 发消息返回 42201,不会产生 `im_user` 垃圾行。测试里用 `_support.ensure()` / `auth()` 先建号。
+- **系统通知豁免配对**:`from=0` 的灰条/系统通知不查 `im_pair`,但收件人仍必须存在。
+- **`known_` 缓存与测试清库**:DB 测试 `reset()` 删完 `im_user` 后必须 `users().clear_cache()`,否则 `ensure()` 以为用户还在、跳过插入,后续 `get()` 查不到行(2026-10-28 实测踩到,表现为系统通知 42201)。
+- **迁移 SQL 注释里不能有分号**:`imserver/src/migrate.cpp` 的 `apply_sql` 按 `;` 粗暴切分,注释里出现 `;` 会把后半行当 SQL 执行,报 `You have an error in your SQL syntax`。注释用中文句号或换行,别用分号。
+

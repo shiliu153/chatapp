@@ -19,6 +19,7 @@
 """
 
 import base64
+import io
 import shutil
 import tempfile
 import time
@@ -34,6 +35,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -296,10 +298,38 @@ class PhotoTests(AuthMixin, APITestCase):
         resp = self.upload(name="a.txt", content=b"not an image", content_type="text/plain")
         self.assertEqual(resp.status_code, 400)
 
+    def test_upload_rejects_gif(self):
+        """资料图同样只接受 jpg/png/webp(L5)。"""
+        buffer = io.BytesIO()
+        Image.new("RGB", (1, 1), "red").save(buffer, "GIF")
+        resp = self.upload(name="a.gif", content=buffer.getvalue(), content_type="image/gif")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_upload_strips_exif(self):
+        """资料图重编码后不保留原始 EXIF(M4)。"""
+        exif = Image.Exif()
+        exif[0x010F] = "TestCamera"
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 2), "red").save(buffer, "JPEG", exif=exif)
+        resp = self.upload(name="a.jpg", content=buffer.getvalue(), content_type="image/jpeg")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        with Image.open(Photo.objects.get().file.path) as stored:
+            self.assertNotIn(0x010F, stored.getexif())
+
     def test_upload_limit_six(self):
         for i in range(6):
             self.assertEqual(self.upload(name=f"{i}.png").status_code, 201)
         self.assertEqual(self.upload(name="7.png").status_code, 400)
+
+    def test_upload_throttled(self):
+        """照片上传按用户限流,超限 429(M7)。"""
+        from .throttles import PhotoUploadThrottle
+
+        cache.clear()
+        with patch.object(PhotoUploadThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 201)
+            self.assertEqual(self.upload().status_code, 429)
 
     def test_delete_own_photo_removes_file(self):
         photo_id = self.upload().json()["id"]

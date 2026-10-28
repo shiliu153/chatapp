@@ -10,6 +10,7 @@ struct TokenClaims {
   int64_t iat = 0;
   int64_t exp = 0;
   std::string jti;
+  int64_t sv = 0;   // 会话版本;0 = 旧版 token(过渡期放行)
 };
 
 std::string mint_token(uint64_t uid, std::string_view secret, int64_t now_ms,

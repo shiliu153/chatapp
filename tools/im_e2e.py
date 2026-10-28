@@ -1,6 +1,8 @@
 """自建 IM 端到端验收:登录、互发、离线未读、幂等、撤回、互踢。"""
 
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import sys
@@ -13,8 +15,40 @@ import websockets
 SECRET = os.environ["IM_JWT_SECRET"]
 WS = os.environ.get("IM_BASE_WS", "ws://127.0.0.1:19100/im/ws")
 HTTP = os.environ.get("IM_BASE_HTTP", "http://127.0.0.1:19101/im/api")
+INTERNAL = os.environ.get("IM_INTERNAL_BASE", "http://127.0.0.1:19101")
 # 必须与 imserver 的 IM_MEDIA_PREFIX 一致,否则图片帧会被 42201 拒掉
 MEDIA_PREFIX = os.environ.get("IM_MEDIA_PREFIX", "http://cdn/media/chat/")
+
+
+def internal(path: str, payload: dict):
+    """调用一次内部 HMAC API(建号 / 配对)。
+
+    Args:
+        path: 以 ``/internal/`` 开头的路径。
+        payload: JSON 请求体。
+
+    Returns:
+        解析后的 JSON 响应。
+    """
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    timestamp = str(int(time.time()))
+    signature = hmac.new(
+        os.environ["IM_INTERNAL_SECRET"].encode(),
+        f"{timestamp}\nPOST\n{path}\n{body}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    request = urllib.request.Request(
+        INTERNAL + path,
+        data=body.encode(),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-IM-Timestamp": timestamp,
+            "X-IM-Signature": signature,
+        },
+    )
+    with urllib.request.urlopen(request, timeout=3) as response:
+        return json.loads(response.read())
 
 
 def token(uid: int) -> str:
@@ -53,6 +87,10 @@ async def recv(ws, type_):
 async def main():
     base = 500000 + (int(time.time() * 1000) + os.getpid()) % 100000
     a_uid, b_uid = base, base + 1
+    # H4:收件人必须真实存在,且双方必须有配对关系
+    internal("/internal/accounts/ensure", {"uid": a_uid, "nickname": "A"})
+    internal("/internal/accounts/ensure", {"uid": b_uid, "nickname": "B"})
+    internal("/internal/pair", {"a": a_uid, "b": b_uid, "action": "add"})
     a = await auth(a_uid)
     b = await auth(b_uid)
 

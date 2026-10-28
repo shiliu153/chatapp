@@ -229,6 +229,24 @@ void WsSession::refresh_online() {
   registry_.touch_online(uid_);
 }
 
+bool WsSession::allow_send_quota(int64_t now_ms) {
+  if (cfg_.send_per_minute <= 0 || uid_ == 0) {
+    return true;
+  }
+  // 跨连接共享的每分钟配额:同一账号开多条 WS 也无法放大发送量(H4)。
+  const int64_t minute = now_ms / 60000;
+  const std::string key =
+      "im:sendq:" + std::to_string(uid_) + ":" + std::to_string(minute);
+  const long long count = redis_.incr(key);
+  if (count < 0) {
+    return true;   // Redis 故障不阻断聊天;单连接仍有 20/s 的令牌桶兜底
+  }
+  if (count == 1) {
+    redis_.setex(key, 120, "1");
+  }
+  return count <= cfg_.send_per_minute;
+}
+
 void WsSession::do_read() {
   if (closing_) {
     return;
@@ -334,6 +352,17 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
 
     return;
   }
+  // 会话版本:登录会把版本 +1 并同步到 im_user;旧设备的 token 带的是旧版本,
+  // 这里直接拒绝,避免「被顶下线后还能重连收消息」(H3)。sv=0 是过渡期的旧 token。
+  if (claims->sv != 0) {
+    const auto stored = messages_.users().session_version(claims->uid);
+    if (!stored.has_value() || *stored != claims->sv) {
+      send_raw(error_frame(40101, "登录已过期"));
+      close_code_ = 4002;
+
+      return;
+    }
+  }
 
   uid_ = claims->uid;
   authed_ = true;
@@ -350,6 +379,10 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
 
 void WsSession::handle_send(const nlohmann::json& frame) {
   if (!send_bucket_.allow(now_ms())) {
+    send_raw(error_frame(42901, "发送过快"));
+    return;
+  }
+  if (!allow_send_quota(now_ms())) {
     send_raw(error_frame(42901, "发送过快"));
     return;
   }

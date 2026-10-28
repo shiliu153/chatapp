@@ -1,6 +1,7 @@
 """请求追踪中间件:接受/生成 X-Request-Id,写响应头 + 请求日志(带耗时)。"""
 
 import logging
+import re
 import time
 import uuid
 
@@ -9,6 +10,10 @@ from django.conf import settings
 from .request_id import set_request_id
 
 logger = logging.getLogger("chatapp.request")
+
+# 客户端传来的 ID 只接受「短、无空白、无控制字符」的安全字符集;
+# 否则日志里可能被注入换行/终端转义序列(L2)。
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
 class RequestIdMiddleware:
@@ -36,7 +41,9 @@ class RequestIdMiddleware:
         Returns:
             下游返回的响应对象,已带上 ``X-Request-Id`` 头。
         """
-        request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
+        raw_request_id = request.headers.get("X-Request-Id", "")
+        request_id = (raw_request_id if _REQUEST_ID_RE.fullmatch(raw_request_id)
+                      else uuid.uuid4().hex)
         request.request_id = request_id
         set_request_id(request_id)
         start = time.monotonic()

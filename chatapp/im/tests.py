@@ -41,6 +41,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import get_profile
 
+from discovery.models import Match
+
 from feed.models import Post, PostComment
 
 from . import media_sign
@@ -472,6 +474,42 @@ class ImSyncNicknamesCommandTests(TestCase):
         self.assertIn("失败 1", out.getvalue())
 
 
+@override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="all")
+class ImSyncPairsCommandTests(TestCase):
+    """``im_sync_pairs`` 命令:只回填有效配对,先幂等建号(H4 上线必跑)。"""
+
+    def test_backfills_active_matches(self):
+        """有效配对:两侧都 ensure,再写 im_pair。"""
+        a = User.objects.create_user(phone="13800138010")
+        b = User.objects.create_user(phone="13800138011")
+        Match.objects.create(**Match.pair_kwargs(a, b))
+        with patch("im.management.commands.im_sync_pairs.ensure_account",
+                   return_value=True) as ensure, \
+                patch("im.management.commands.im_sync_pairs.pair_add",
+                      return_value=True) as pair:
+            call_command("im_sync_pairs")
+        pair.assert_called_once_with(a.im_user_id, b.im_user_id)
+        self.assertEqual(ensure.call_count, 2)
+
+    def test_skips_unmatched(self):
+        """已解除的配对不回填。"""
+        a = User.objects.create_user(phone="13800138012")
+        b = User.objects.create_user(phone="13800138013")
+        match = Match.objects.create(**Match.pair_kwargs(a, b))
+        Match.objects.filter(pk=match.pk).update(unmatched_at=timezone.now())
+        with patch("im.management.commands.im_sync_pairs.pair_add",
+                   return_value=True) as pair:
+            call_command("im_sync_pairs")
+        pair.assert_not_called()
+
+    def test_noop_for_tencent_backend(self):
+        """腾讯后端不需要回填,命令直接返回。"""
+        with override_settings(IM_BACKEND="tencent"), \
+                patch("im.management.commands.im_sync_pairs.pair_add") as pair:
+            call_command("im_sync_pairs")
+        pair.assert_not_called()
+
+
 @override_settings(**IM_TEST_SETTINGS)
 class UserSigApiTests(APITestCase):
     """``POST /im/user_sig``:签发内容、重封禁 403、踢旧会话先于签发。"""
@@ -509,6 +547,17 @@ class UserSigApiTests(APITestCase):
         self.client.credentials()
         resp = self.client.post("/api/v1/im/user_sig")
         self.assertEqual(resp.status_code, 401)
+
+    def test_user_sig_throttled(self):
+        """IM 凭证按用户限流,超限返回 429(M7)。"""
+        from .throttles import UserSigThrottle
+
+        cache.clear()
+        with patch("im.views.ensure_account", return_value=True), \
+                patch.object(UserSigThrottle, "rate", "2/hour", create=True):
+            self.assertEqual(self.client.post("/api/v1/im/user_sig").status_code, 200)
+            self.assertEqual(self.client.post("/api/v1/im/user_sig").status_code, 200)
+            self.assertEqual(self.client.post("/api/v1/im/user_sig").status_code, 429)
 
     def test_heavy_banned_rejected(self):
         Profile.objects.create(user=self.user, status=ProfileStatus.BANNED_HEAVY)
@@ -697,11 +746,12 @@ class ImTokenTests(SimpleTestCase):
 
     @override_settings(IM_SELF_SECRET="t" * 32)
     def test_mint_and_verify(self):
-        token = mint_im_token(9, 3600)
+        token = mint_im_token(9, 3600, session_version=7)
         claims = verify_im_token(token)
         self.assertIsNotNone(claims)
         self.assertEqual(claims["uid"], 9)
         self.assertEqual(claims["sub"], "u9")
+        self.assertEqual(claims["sv"], 7)
 
     @override_settings(IM_SELF_SECRET="t" * 32)
     def test_reject_tampered(self):
@@ -746,14 +796,34 @@ class UserSigSelfTests(APITestCase):
         IM_SELF_SECRET="t" * 32,
         IM_SELF_TOKEN_TTL=86400,
     )
+    @patch("im.views.set_session_version", return_value=True)
     @patch("im.views.ensure_account", return_value=True)
-    def test_self_branch_returns_token(self, _):
+    def test_self_branch_returns_token(self, _ensure, sync):
         self.client.force_authenticate(self.user)
         response = self.client.post("/api/v1/im/user_sig")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["backend"], "self")
         self.assertEqual(response.data["ws_url"], "wss://im.example/ws")
         self.assertTrue(response.data["token"])
+        sync.assert_called_once_with(self.user.im_user_id, self.user.session_version)
+        claims = verify_im_token(response.data["token"])
+        self.assertEqual(claims["sv"], self.user.session_version)
+
+    @override_settings(
+        IM_BACKEND="self",
+        IM_SELF_GRAYLIST="all",
+        IM_SELF_WS_URL="wss://im.example/ws",
+        IM_SELF_HTTP_URL="https://im.example/api",
+        IM_SELF_SECRET="t" * 32,
+    )
+    @patch("im.views.set_session_version", return_value=False)
+    @patch("im.views.ensure_account", return_value=True)
+    def test_self_branch_fails_closed_when_session_sync_fails(self, _ensure, _sync):
+        """版本没落库就不签发 token,否则连接会被 imserver 拒绝(H3)。"""
+        self.client.force_authenticate(self.user)
+        response = self.client.post("/api/v1/im/user_sig")
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("token", response.data)
 
     @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="")
     @patch("im.views.gen_user_sig", return_value="tencent-sig")
@@ -893,7 +963,7 @@ class ChatImageUploadTests(APITestCase):
         self.assertTrue(urlsplit(data["thumb_url"]).path.endswith("_thumb.jpg"))
         self.assertIn("&s=", data["thumb_url"])
         self.assertEqual((data["width"], data["height"]), (1, 1))
-        self.assertEqual(data["size"], len(PNG_1PX))
+        self.assertGreater(data["size"], 0)   # 重编码后的字节数,不再等于原始 PNG
         image = ChatImage.objects.get()
         self.assertEqual(image.owner_id, self.user.id)
         self.assertRegex(image.file.name, r"^chat/\d{4}/\d{2}/\d+-[0-9a-f]{32}\.png$")
@@ -920,6 +990,35 @@ class ChatImageUploadTests(APITestCase):
         with override_settings(CHAT_IMAGE_MAX_SIDE=0):
             response = self.upload()
         self.assertEqual(response.status_code, 400)
+
+    def test_rejects_format_outside_whitelist(self):
+        """GIF 不在 jpg/png/webp 白名单内(L5)。"""
+        buffer = io.BytesIO()
+        Image.new("RGB", (1, 1), "red").save(buffer, "GIF")
+        response = self.upload(name="a.gif", content=buffer.getvalue(),
+                               content_type="image/gif")
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejects_decompression_bomb(self):
+        """像素总数超限时在解码前拒绝(M3)。"""
+        buffer = io.BytesIO()
+        Image.new("RGB", (20, 20), "red").save(buffer, "PNG")
+        with patch("config.images.MAX_IMAGE_PIXELS", 100):
+            response = self.upload(content=buffer.getvalue())
+        self.assertEqual(response.status_code, 400)
+
+    def test_upload_strips_exif(self):
+        """落盘的是重编码图,原始 EXIF 不再存在(M4)。"""
+        exif = Image.Exif()
+        exif[0x010F] = "TestCamera"
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 2), "red").save(buffer, "JPEG", exif=exif)
+        response = self.upload(name="a.jpg", content=buffer.getvalue(),
+                               content_type="image/jpeg")
+        self.assertEqual(response.status_code, 201, response.data)
+        image = ChatImage.objects.get()
+        with Image.open(image.file.path) as stored:
+            self.assertNotIn(0x010F, stored.getexif())
 
     def test_throttled_after_rate(self):
         # DRF 的 THROTTLE_RATES 是类属性,在 import 时就绑定了;测试只能替换这个属性
@@ -983,12 +1082,21 @@ class MediaSignTests(SimpleTestCase):
             self.assertFalse(media_sign.verify("/media/photos/a.jpg", query["e"][0],
                                                query["s"][0], now=1761782400))
 
+    @override_settings(DEBUG=True)
     def test_disabled_secret_passes_everything(self):
+        """仅开发模式(DEBUG=1)允许空密钥放行。"""
         with override_settings(IM_MEDIA_SIGN_SECRET=""):
             self.assertEqual(media_sign.sign_url("/media/chat/a.jpg"), "/media/chat/a.jpg")
             self.assertTrue(media_sign.verify("/media/chat/a.jpg", "0", "bad"))
 
+    @override_settings(DEBUG=False)
+    def test_missing_secret_fails_closed_in_production(self):
+        """生产漏配密钥时必须拒绝,而不是放行(M6)。"""
+        with override_settings(IM_MEDIA_SIGN_SECRET=""):
+            self.assertFalse(media_sign.verify("/media/chat/a.jpg", "0", "bad"))
 
+
+@override_settings(IM_MEDIA_SIGN_SECRET="s")
 class ChatImageAuthTests(APITestCase):
     """nginx 子请求验签:有效 204、缺头/过期/篡改 403、无需 JWT。"""
 

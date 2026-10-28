@@ -6,6 +6,28 @@
 
 from rest_framework.throttling import SimpleRateThrottle
 
+from config.throttling import UserScopedThrottle
+
+
+class BlockThrottle(UserScopedThrottle):
+    """按用户限流拉黑写操作;额度见 ``settings.DEFAULT_THROTTLE_RATES["blocks"]``。"""
+
+    scope = "blocks"
+
+    def allow_request(self, request, view):
+        """只对 POST 计数,看黑名单列表不限流。
+
+        Args:
+            request: 当前请求。
+            view: 当前视图。
+
+        Returns:
+            非 POST 时恒为 ``True``,否则走父类的额度判定。
+        """
+        if request.method != "POST":
+            return True
+        return super().allow_request(request, view)
+
 
 class ReportThrottle(SimpleRateThrottle):
     """按用户限流举报;额度在 settings.DEFAULT_THROTTLE_RATES["report"]。"""

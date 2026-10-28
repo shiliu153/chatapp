@@ -2,6 +2,14 @@
 
 from rest_framework.throttling import SimpleRateThrottle
 
+from config.throttling import UserScopedThrottle
+
+
+class UserSigThrottle(UserScopedThrottle):
+    """按用户限流 IM 凭证签发;额度见 ``settings.DEFAULT_THROTTLE_RATES["user_sig"]``。"""
+
+    scope = "user_sig"
+
 
 class ChatImageThrottle(SimpleRateThrottle):
     """按用户限流聊天图片上传;额度在 settings.DEFAULT_THROTTLE_RATES["chat_image"]。"""

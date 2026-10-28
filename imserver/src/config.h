@@ -30,6 +30,8 @@ struct Config {
   int max_conn_per_ip = 20;
   double auth_rate_per_sec = 1.0;
   double auth_burst = 60.0;
+  // 单账号每分钟发送上限(跨连接共享,Redis 计数);<=0 表示关闭
+  int send_per_minute = 120;
   std::size_t max_frame = 8192;
   std::size_t text_max = 2000;
   // 聊天图片 URL 前缀(例:https://<host>/media/chat/);必填,缺失则启动失败

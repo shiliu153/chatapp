@@ -19,11 +19,12 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework.decorators import api_view, throttle_classes
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from config.pagination import DefaultLimitOffsetPagination
+from config.params import int_param
 from im import tasks as im_tasks
 from moderation.services import blocked_user_ids
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bounds
@@ -32,7 +33,7 @@ from users.services import get_profile
 from .models import Match, Swipe, SwipeAction
 from .serializers import CandidateSerializer, LikeReceivedSerializer, SwipeSerializer
 from .services import likes_received_queryset, notify_match
-from .throttles import SwipeThrottle
+from .throttles import CandidateThrottle, SwipeThrottle
 
 User = get_user_model()
 
@@ -41,6 +42,7 @@ MAX_LIMIT = 20
 
 
 @api_view(["GET"])
+@throttle_classes([CandidateThrottle])
 def candidates(request):
     """候选卡片列表(GET /api/v1/discovery/candidates)。
 
@@ -81,10 +83,9 @@ def candidates(request):
     upper, lower = birthday_bounds(preference.age_min, preference.age_max)
     qs = qs.filter(birthday__lte=upper, birthday__gt=lower)
 
-    try:
-        limit = min(int(request.query_params.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
-    except ValueError:
-        limit = DEFAULT_LIMIT
+    # 非法值统一 400,越界收敛到 [1, MAX_LIMIT];不再把负数透传给切片导致 500。
+    limit = int_param(request, "limit", default=DEFAULT_LIMIT,
+                      minimum=1, maximum=MAX_LIMIT)
 
     # order_by("?") 在数据量大时性能下降。当前用户规模(数百人)可接受,
     # 后续改为预计算随机列。
@@ -122,6 +123,9 @@ def swipe(request):
         raise ValidationError("不能划自己")
 
     target = get_object_or_404(User, id=target_id)
+    # 拉黑是双向的:任一方向拉黑后,对方都不应再出现在我的可操作范围里(M11)。
+    if target.id in blocked_user_ids(me):
+        raise NotFound("用户不存在")
     if not Profile.objects.filter(user=target, status=ProfileStatus.COMPLETE).exists():
         raise ValidationError("对方资料不完整,无法操作")
 
@@ -196,6 +200,8 @@ def unmatch(request, user_id):
         match.save(update_fields=["unmatched_at", "unmatched_by"])
         transaction.on_commit(
             lambda: im_tasks.unmatch_blacklist.delay(me.id, other.id), robust=True)
+        transaction.on_commit(
+            lambda: im_tasks.pair_remove.delay(me.id, other.id), robust=True)
     return Response(status=204)
 
 

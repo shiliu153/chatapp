@@ -13,6 +13,7 @@
 """
 
 import base64
+import io
 import os
 import shutil
 import tempfile
@@ -23,6 +24,7 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -163,6 +165,26 @@ class PostCreateTests(FeedApiMixin, APITestCase):
         self.assertEqual(len(resp.json()["images"]), 2)
         self.assertEqual(PostImage.objects.count(), 2)
         self.assertEqual(list(PostImage.objects.values_list("order", flat=True)), [0, 1])
+
+    def test_create_rejects_gif(self):
+        """广场图同样只接受 jpg/png/webp(L5)。"""
+        buffer = io.BytesIO()
+        Image.new("RGB", (1, 1), "red").save(buffer, "GIF")
+        gif = SimpleUploadedFile("a.gif", buffer.getvalue(), content_type="image/gif")
+        resp = self.client.post(self.URL, {"text": "x", "images": [gif]}, format="multipart")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_create_strips_exif(self):
+        """广场图重编码后不保留原始 EXIF(M4)。"""
+        exif = Image.Exif()
+        exif[0x010F] = "TestCamera"
+        buffer = io.BytesIO()
+        Image.new("RGB", (2, 2), "red").save(buffer, "JPEG", exif=exif)
+        photo = SimpleUploadedFile("a.jpg", buffer.getvalue(), content_type="image/jpeg")
+        resp = self.client.post(self.URL, {"text": "x", "images": [photo]}, format="multipart")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        with Image.open(PostImage.objects.get().file.path) as stored:
+            self.assertNotIn(0x010F, stored.getexif())
 
     def test_empty_post_rejected(self):
         resp = self.client.post(self.URL, {"text": ""}, format="multipart")

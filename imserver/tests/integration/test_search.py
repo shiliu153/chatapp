@@ -14,6 +14,8 @@ import urllib.request
 import jwt
 import websockets
 
+from _support import ensure, pair
+
 SECRET = os.environ["IM_JWT_SECRET"]
 WS = os.environ.get("IM_TEST_WS", "ws://127.0.0.1:19100/im/ws")
 HTTP = os.environ.get("IM_TEST_HTTP", "http://127.0.0.1:19101/im/api")
@@ -77,6 +79,9 @@ async def main():
     """跑完整条断言链。"""
     base = 300000 + (int(time.time() * 1000) + os.getpid()) % 100000
     me, peer = base, base + 1
+    ensure(me)
+    ensure(peer)
+    pair(me, peer)
     ws = await auth(peer)
     for index, text in enumerate(["晚上吃火锅吗", "火锅店在楼下", "今天天气不错"]):
         await ws.send(

@@ -935,4 +935,51 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 
 ---
 
+## 10. 整改进展（2026-10-28）
+
+> 本轮范围：P0+P1（含 imserver H3/H4），**S1/H2/M8 的短信部分按产品决定不修**。
+> 代码分支：`fix/security-remediation`；后端全量 545 项、imserver unit 22 / db 18 / 集成脚本全绿。
+
+| ID | 状态 | 说明 / 证据 |
+|---|---|---|
+| S1 | **未关闭（已接受）** | 产品决定暂不接短信商、保留固定码；仅限封闭测试，不得对真实用户开放 |
+| H1 | 部分 | Django `HTTPS_ENABLED` 开关 + `docs/ops/nginx-security.conf` 就绪；域名/证书未到位；Web token 仍在 localStorage |
+| H2 | **未关闭（已接受）** | 与 S1 同批；接入短信商时必须一并删除验证码日志 |
+| H3 | 已修复 | IM token 增加 `sv`；`im_user.session_version` + `/internal/session_version`；登录任务与 `user_sig` 双重同步，同步失败 503；旧 token 重连 40101 |
+| H4 | 已修复 | `im_pair` 表 + `/internal/pair`；发送校验配对（40302）、目标必须存在（不再建行）、每分钟配额、`known_` 上限；上线需跑 `im_sync_pairs` |
+| H5 | 部分 | 生产默认 `AUTO_APPROVE=0`，新资料图进 ops 审核队列；机器审核（云内容安全）未接 |
+| H6 | 已修复 | 登录失败锁定（账号+IP，5 次/15 分钟）+ TOTP 2FA + `/admin/`、`/ops/` IP 白名单 |
+| M1 | 已修复 | `NUM_PROXIES=1`；nginx 模板改为覆盖 `X-Forwarded-For` |
+| M2 | 部分 | 资料卡/候选/在线状态已限流；非配对最小字段未做 |
+| M3 | 已修复 | 20M 像素上限、解码前检查、`DecompressionBombError` 转 400 |
+| M4 | 已修复 | 资料图/广场图/聊天图统一 `exif_transpose` + 重编码，元数据不落盘 |
+| M5 | 未修复 | ffmpeg 未加 `-protocol_whitelist`/容器隔离 |
+| M6 | 已修复 | 生产缺密钥启动失败；验签 fail-closed；默认 TTL 3600（整点对齐且至少 1 小时） |
+| M7 | 部分 | 候选/`user_sig`/点赞/拉黑/照片上传已限流；磁盘配额与候选池缓存未做 |
+| M8 | **未关闭（已接受）** | 短信部分不修；验证码仍固定 |
+| M9 | 未修复 | ops 仍可全量浏览私聊媒体；资料图/广场图公开直出 |
+| M10 | 已修复 | `limit=-1/abc` 等不再 500；ops 非法 `user`/`ids` 被忽略 |
+| M11 | 已修复 | `swipe` 先查双向拉黑，命中返回 404，不产生 Match/灰条 |
+| M12 | 已修复 | `session_version` 改 `F()` 自增；举报 `dedupe_key` 唯一约束 + 处理后清空 |
+| L1 | 已修复 | `/health`、`/readyz` 加 IP 限流（1200/h） |
+| L2 | 已修复 | `X-Request-Id` 只接受 `[A-Za-z0-9._-]{1,64}` |
+| L3 | 部分 | `ALLOWED_HOSTS` 无 `*`；部署时按域名收紧 |
+| L4 | 已修复 | CORS localhost 仅 `DEBUG` 生效 |
+| L5 | 已修复 | 只接受 jpg/png/webp，统一重编码 |
+| L6 | 未修复 | 依赖仍未锁定版本 |
+| L7 | 部分 | nginx 模板含 CSP/XFO/Referrer/HSTS；待部署 |
+| L8 | 未修复 | App 令牌仍存 SharedPreferences |
+| L9 | 部分 | `known_` 已有上限；Origin/端口绑定/探针未全改 |
+| L10 | 部分 | JWT `exp <= now` 已改；ops 参数已校验；短信重放窗口保留 |
+
+**复核命令**（与计划文档一致）：
+
+```bash
+cd chatapp && python manage.py test
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_integration.sh
+```
+
+---
+
 **报告结束**

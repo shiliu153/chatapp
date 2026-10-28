@@ -24,6 +24,7 @@ def notify_match(match):
         match: 刚创建的配对记录,双方 id 从它上面取。
     """
     a_id, b_id = match.user_a_id, match.user_b_id
+    transaction.on_commit(lambda: im_tasks.pair_add.delay(a_id, b_id), robust=True)
     transaction.on_commit(lambda: im_tasks.send_match_notice.delay(a_id, b_id), robust=True)
 
 

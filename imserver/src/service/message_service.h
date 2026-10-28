@@ -63,6 +63,11 @@ class MessageService {
                       const std::optional<std::string>& avatar);
   void blacklist_add(uint64_t owner, uint64_t peer);
   void blacklist_remove(uint64_t owner, uint64_t peer);
+  /// 配对关系(聊天权限):由 Django 在配对/解除配对/拉黑时同步。
+  bool pair_exists(MysqlPool::Lease& lease, uint64_t a, uint64_t b);
+  bool pair_exists(uint64_t a, uint64_t b);
+  void pair_add(uint64_t a, uint64_t b);
+  void pair_remove(uint64_t a, uint64_t b);
   bool ready();
 
   UserRepo& users() { return users_; }

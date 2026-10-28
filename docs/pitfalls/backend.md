@@ -70,6 +70,17 @@
 - **DRF 的权限检查在方法分发之前**:给 `me` 加 DELETE 后,匿名请求拿 401、重封禁拿 403,都不会落到 405 —— 所以 `test_requires_auth` / 重封禁用例在实现前就是绿的,别被「实现前只有 7 例红」误导。
 - **测试里别断言 refresh token 的具体值**:App 启动 `bootstrap()` 会静默刷新一次令牌,存的 refresh 已经不是登录时那个了。要断言「凭证没被清」就用 `isNotNull`。
 
+## 安全加固(2026-10-28)
+
+- **图片必须先看 `size` 再解码**:`config/images.py::open_checked()` 只 `Image.open` 读文件头,检查 `width*height <= 2000 万` 后才允许 `exif_transpose`/`load`。反过来写(先转置再检查)等于让解压炸弹先分配几百 MB;测试用 `patch("config.images.MAX_IMAGE_PIXELS", 100)` + 20×20 图就能覆盖,不必真的造 1.4 亿像素。
+- **重编码才等于剥离 EXIF**:只做 `exif_transpose` 不重编码,原始字节里的 GPS 仍在。三个入口(资料图/广场图/聊天图)统一 `normalize()` → 新 PIL 对象 → `save()`,并清空 `info`;测试用 `Image.Exif()` 写入 `0x010F`/`0x8825` 再读回断言不存在。
+- **测试环境的 `DEBUG` 是 `False`**:Django 测试运行器会把 `DEBUG` 置 False,所以「空密钥放行」的旧用例会突然变红。媒体签名现在的规则是「未配密钥时只有 `DEBUG` 放行」,相关测试要显式 `@override_settings(DEBUG=True)`,验签类测试则统一给类加 `@override_settings(IM_MEDIA_SIGN_SECRET="s")`(签名与验签必须用同一个 secret,别在 `with` 里签、`with` 外验)。
+- **`OPS_OTP_REQUIRED` 在测试里默认 0**:`DEBUG or TESTING` 时默认关闭,否则所有 ops 用例都会被 302 到 `/ops/otp/`。要测门禁必须 `@override_settings(OPS_OTP_REQUIRED=True)`;`force_login()` 只绕过密码,不绕过中间件,所以「已登录未验证」的状态正好可测。
+- **TOTP 绑定是「先放 session,确认后才写库」**:首次进入 `/ops/otp/` 生成 `otp_pending_secret` 放 session,用户输入 App 上的码校验通过才写 `User.totp_secret`。不要一生成就写库——用户没绑成功就退出的话,下次登录会拿着一个自己不知道的密钥被锁死。
+- **登录锁定用自定义后端,不是中间件**:`accounts/backends.py::ThrottledModelBackend` 在 `authenticate()` 前后计数,`/admin/` 与 `/ops/` 共用;锁定期间直接返回 `None`(与密码错误同表现,不泄漏状态)。测试要 `cache.clear()`,否则上一个用例的失败计数会串。
+- **举报去重键在 `save()` 里维护**:`Report.dedupe_key` 是唯一约束,`save()` 会在 `status != pending` 时清空,并把 `dedupe_key` 补进 `update_fields`(只改 `status` 时也能清掉)。并发创建靠唯一约束 + `get_or_create` 回查,不要只在视图里 `filter().exists()` 判重。
+- **`NUM_PROXIES=1` 的语义**:DRF 取 XFF 的**最后一段**作为客户端 IP。nginx 必须用 `proxy_set_header X-Forwarded-For $remote_addr;` 覆盖客户端传入值;若继续用 `$proxy_add_x_forwarded_for`,最后一段仍是真实 IP,但前面会保留伪造值,日志里别拿整条 XFF 当可信来源。
+
 ## 注释规范
 
 - **规则文档**:`docs/standards/python.md` 是 Python 注释的单一事实来源(模块头模板、`Args`/`Returns`/`Raises` 写法、行内注释禁令、豁免清单)。改注释前先看它,不要自创格式。

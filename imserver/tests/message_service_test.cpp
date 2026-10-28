@@ -45,10 +45,51 @@ void reset() {
   lease.query("DELETE FROM im_conversation_state");
   lease.query("DELETE FROM im_conversation");
   lease.query("DELETE FROM im_blacklist");
+  lease.query("DELETE FROM im_pair");
   lease.query("DELETE FROM im_user WHERE user_id<>0");
+  // 进程内缓存也要清:否则 ensure 看到缓存会跳过插入,get 却查不到行。
+  fixture().svc().users().clear_cache();
+  // H4 之后发送要求配对;给常用测试账号预置互相可聊的关系。
+  lease.query("INSERT INTO im_pair (user_a,user_b,created_at) VALUES (1,2,0),(1,3,0),(2,3,0)");
 }
 
 }  // namespace
+
+TEST(MessageServiceTest, RejectsUnpairedSendWithoutCreatingUser) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(4, "D");
+  // (1,4) 不在预置配对里
+  auto result = svc.send({1, 4, "c-unpaired", "hi"});
+  ASSERT_TRUE(std::holds_alternative<int>(result));
+  EXPECT_EQ(std::get<int>(result), 40302);
+}
+
+TEST(MessageServiceTest, RejectsUnknownTargetWithoutCreatingRow) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  // 先建立配对,再验证「目标不存在」不会建 im_user 行
+  svc.pair_add(1, 999);
+  auto result = svc.send({1, 999, "c-ghost", "hi"});
+  ASSERT_TRUE(std::holds_alternative<int>(result));
+  EXPECT_EQ(std::get<int>(result), 42201);
+  EXPECT_FALSE(svc.users().get(999).has_value());
+}
+
+TEST(MessageServiceTest, SystemNoticeSkipsPairCheck) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(5, "E");
+  SendRequest request;
+  request.from = 0;
+  request.to = 5;
+  request.client_msg_id = "sys-1";
+  request.kind = 2;
+  request.custom = {{"type", "ban_notice"}, {"desc", "x"}, {"data", {}}};
+  ASSERT_TRUE(std::holds_alternative<SendResult>(svc.send(request)));
+}
 
 TEST(MessageServiceTest, AllocatesSeqAndUnread) {
   reset();

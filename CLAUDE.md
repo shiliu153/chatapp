@@ -52,13 +52,14 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-27 | 自建 IM **语音消息**交付:Django `POST /im/voices` + `im.ChatVoice`(`ffprobe` 校验 1–60 秒、ffmpeg 统一转 m4a/AAC 单声道 16kHz、限流 60 次/小时、签名 URL 与 30 天清理);imserver `kind=4`(前缀校验 + 读时签名,`sign_media` 通用化);App `record`+`audioplayers` 按住说话/上滑取消/60 秒自动停/气泡播放,Web `MediaRecorder`+`Audio` 同交互;ops `/ops/chat-voices/` 试听抽审 + 举报详情带最近 7 天语音;接口 42→43,后端 499 / App 405 / Web 369 测试绿;imserver unit 20 + db 15 绿。**遗留**:语音与图片一样无机器审核(上线阻断项);服务器需装 ffmpeg(缺失时语音上传 503+`50302`) |
 | 2026-10-27 | 自建 IM **语音上服务器**:Alibaba Cloud Linux 3 无 apt、dnf 源无 ffmpeg → 用 BtbN 静态包(经 `gh-proxy.com` 加速)只装 `ffmpeg`/`ffprobe` 到 `/usr/local/bin`;本地构建 `imserver:72ae6ea` 后 `docker save`+`scp`+`docker load`(2C2G 上不编译),并同步 `/www/server/imserver/.env` 的 `IMSERVER_IMAGE`(不同步会继续拉旧镜像);Django `migrate` 到 `im.0003_chatvoice`,Web dist 与签名 APK(`chatapp-1.0.0.apk`)同步上线;`.env` 显式配 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。端到端实测:上传 201 → 签名 URL 200 → 无签名 403 → WS u7 发语音 ack → u8 历史读回 `kind=voice` + 读时签名;`readyz=200`、清理 dry-run 含语音。期间修两个 **mock 掩盖的 MIME bug**:Dio 对 `.m4a` 发 `octet-stream`、Web Blob 带 `;codecs=opus`,服务端改为按主类型匹配 |
 | 2026-10-27 | 自建 IM **全量切换**:`IM_SELF_GRAYLIST=7,8` → `all` 并重启 web+celery;观察 30 分钟(18:06–18:35)30 次采样 `readyz=200`/`health=200`/`im_err=0`/`http5xx=0` 全绿,合成流量 u9→u8 **40/40 ack 成功**、RTT avg 45.4ms / p95 53.4ms,imserver 零 error;非灰度账号 u9 已返回 `backend=self` 且收发正常。回退方式:`IM_SELF_GRAYLIST` 改回 `7,8` + 重启 web/celery |
-| 2026-10-27 | 自建 IM **聊天记录搜索**交付:`GET /im/api/search`(`LIKE` 扫「我参与的会话」+ 游标分页 + 每 uid 60 次/分钟、burst 20;只搜 `kind=1` 未撤回/会话未删/未拉黑/非系统通知;转义符 `!` + `ESCAPE '!'`);迁移 v2 给 `im_conversation.user_b` 加索引;App/Web 搜索页(`capabilities.search` 控制入口)+ 点结果 `?focus=<msg_id>` 进聊天页,聊天页用 `before_seq` 最多回溯 5 页×50 条并高亮 1.5s;顺带修 **Web 能力位读取方式**——`getImClient()` 每次返回未 init 的 RoutingImClient,直接读 `capabilities` 会让入口永远不显示(Web 图片入口自 10-21 起一直隐藏),改由 store 响应式暴露;后端 486 / App 398 / Web 361 测试绿;imserver unit 20 + db 12 + http 集成绿。 |
+| 2026-10-28 | **安全审计整改 P0+P1 交付**(`fix/security-remediation`):S1/H2 短信按产品决定不修;H3 IM token 绑定 `sv` + `im_user.session_version` + 登录/`user_sig` 双同步;H4 `im_pair` 配对校验(未配对 40302、目标必须存在、每分钟配额、`known_` 上限)+ `im_sync_pairs` 回填命令;H6 后台登录锁定 + TOTP + IP 白名单;M1 `NUM_PROXIES`、M3/M4/L5 统一图片校验与 EXIF 剥离、M6 媒体签名 fail-closed、M10/M11/M12、L1/L2/L4;H5 生产默认 `AUTO_APPROVE=0`;H1/B8 HTTPS 开关与 nginx 安全基线。后端 545 / imserver unit 22 + db 18 + 集成全绿 |
 
 
 **下一步**:2026-10-27 **已全量切到自建 IM**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `http://<SERVER_IP>/chatapp-1.0.0.apk`)。剩余:
-1. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式(`accounts/services.py` 只在 dev 下生成固定码并打日志),必须先接真实短信商(阿里云/腾讯云)并配密钥,否则置 0 后所有人收不到验证码;
-2. **Web 语音受 HTTP 限制**:`getUserMedia` 只在 HTTPS/localhost 可用,生产还是 `http://IP`,所以 Web 端麦克风目前**隐藏**,App 不受影响;等域名备案 + HTTPS(与 P1-4b 同一前置);
-3. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志)。
+1. **安全整改上线动作(2026-10-28)**:先部署 Django + imserver 新镜像,**imserver 先显式跑 `docker compose run --rm imserver --migrate` 再 `up -d`**(entrypoint 不自动迁移),**立刻执行 `python manage.py im_sync_pairs` 回填配对**,再观察 40302;配 `OPS_OTP_REQUIRED=1` 后首个后台登录要绑定 TOTP;域名证书到位后再开 `HTTPS_ENABLED=1` 并按 `docs/ops/nginx-security.conf` 改 nginx。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
+2. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式,必须先接真实短信商并配密钥;**S1/H2 已由产品决定暂不修(保留固定验证码),这是仍未关闭的严重风险,只能封闭测试**;
+3. **Web 语音受 HTTP 限制**:`getUserMedia` 只在 HTTPS/localhost 可用,生产还是 `http://IP`,所以 Web 端麦克风目前**隐藏**,App 不受影响;等域名备案 + HTTPS(与 P1-4b 同一前置);
+4. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志);H1 的 Web token 仍在 localStorage、App 未做证书绑定;M2/M5/M7/M9/L6 等 P2 项未做(详见审计报告 §10)。
 
 其余挂起项不变:P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
@@ -95,7 +96,8 @@ python manage.py test              # 全量(前置:Redis 在跑,见下)
 python manage.py test accounts     # 单 app
 python manage.py runserver         # 开发服务器 :8000
 python manage.py makemigrations && python manage.py migrate
-python manage.py im_send --from u2 --to u3 --text "你好"   # 手测:代发消息(--notice 发灰条)
+python manage.py im_send --from u2 --to u3 --text "你好"   # 手测:代发消息(--notice 发灰条;需先有配对)
+python manage.py im_sync_pairs --dry-run                  # 回填现有配对到 imserver(H4 上线必跑)
 python manage.py dev_reset_pair --a u8 --b u9              # 手测:清滑卡/配对重演(不清聊天记录)
 python manage.py seed_fake_users --count 20                # 造数(幂等;直调 IM 同步,不必等 worker)
 ```
@@ -137,6 +139,9 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **响应路径禁止任何第三方网络调用**(requests/腾讯 REST/短信商);跨系统副作用一律走 Celery 任务;`transaction.on_commit(fn, robust=True)` 的语义是「DB 提交后」
 - **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 与 `im/self_client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
 - **自建 IM**:`IM_BACKEND=tencent|self`;`im/client.py` 按账号灰度分发到 `im/self_client.py`;灰度名单只能放隔离测试号(跨后端消息不通);`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致;**图片消息与语音消息**要求 `IM_MEDIA_PREFIX` = Django 的 `MEDIA_BASE_URL + /media/chat/`(必填,缺失 imserver 起不来;不一致则发图/发语音 42201);语音上传还要求服务器装 `ffmpeg`/`ffprobe`(缺失时 503+`50302`)
+- **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101;登录与 `user_sig` 双同步,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
+- **图片上传**:资料图/广场图/聊天图统一走 `config/images.py`(仅 jpg/png/webp、≤2000 万像素、长边 4096、`exif_transpose` 后重编码剥离 EXIF/GPS);聊天媒体签名生产缺 `IM_MEDIA_SIGN_SECRET` 直接启动失败,TTL 默认 3600
+- **运营后台安全**:`/admin/`、`/ops/` 受 `ops.middleware.StaffSecurityMiddleware` 保护 —— `OPS_ALLOWED_IPS` 非空时只放白名单;`OPS_OTP_REQUIRED=1`(生产默认)时运营账号必须绑定 TOTP(`/ops/otp/`);登录失败 5 次锁 15 分钟(账号+IP)。生产 `AUTO_APPROVE` 默认 0,新资料图进 `/ops/photos/` 待审队列
 - **跨栈约定**:IM 账号 = `u{user_id}`(`accounts/models.py::im_user_id`);`system_notice` 相关常量两边别单改
 - **单设备登录**:一个账号同时只允许一台设备在线;被顶设备收 **401 + `40101`**(三条退出路径互为兜底,细节见 pitfalls)
 - **封禁两级**:`banned_light` 只禁滑卡;`banned_heavy` 全域 403——全局权限类自动覆盖新接口,白名单仅 `GET /users/me`、`GET /users/tags`
@@ -160,7 +165,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `POST /auth/token/refresh` | 刷新 access(响应同时给新 refresh) |
 | `GET/PATCH/DELETE /users/me` | 我的资料(昵称/性别/生日/城市/简介/`tag_ids`);未满 18 岁 400;`id`=profile 主键。**DELETE = 注销账号**:body 带 `phone` 二次确认,立即硬删除全部数据 + 释放手机号(同号可重注册为全新账号);重封禁 403 |
 | `GET /users/tags` | 标签池(12 个,数据迁移写入) |
-| `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB);`AUTO_APPROVE=1` 上传即过审 |
+| `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB、jpg/png/webp);生产 `AUTO_APPROVE=0` 时新照片为 `pending`,需 ops 审核 |
 | `GET/PATCH /users/me/preference` | 想找的人:目标性别(可空=不限)/ 年龄区间 / 城市 |
 | `POST /im/user_sig` | 取 IM 登录凭证(腾讯 `user_sig` / 自建 `token` 双分支);`banned_heavy` 403 |
 | `POST /im/images` | 上传聊天图片(自建 IM 发图前置;jpg/png/webp ≤5MB、长边 ≤4096,服务端出 240px 缩略图;30 次/小时);响应里的 `url/thumb_url` 是**限时签名地址** |
