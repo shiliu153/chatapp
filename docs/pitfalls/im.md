@@ -123,3 +123,10 @@ print('done', len(ids))
 - **`known_` 缓存与测试清库**:DB 测试 `reset()` 删完 `im_user` 后必须 `users().clear_cache()`,否则 `ensure()` 以为用户还在、跳过插入,后续 `get()` 查不到行(2026-10-28 实测踩到,表现为系统通知 42201)。
 - **迁移 SQL 注释里不能有分号**:`imserver/src/migrate.cpp` 的 `apply_sql` 按 `;` 粗暴切分,注释里出现 `;` 会把后半行当 SQL 执行,报 `You have an error in your SQL syntax`。注释用中文句号或换行,别用分号。
 
+## 入口防护:L9(2026-10-28)
+
+- **绕过 nginx 直连 9100 也伪造不了 `X-Real-IP`**:只有直连对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时才采信这个头,否则一律用真实对端地址;头里是 `1.2.3.4, 5.6.7.8` 这种拼接串也回退。排查「同一 IP 连接数/鉴权限流不符合预期」时,先确认 nginx 与 imserver 是否同机(同机走回环,天然可信),再看这个列表,别只盯 nginx 配置。压测脚本 `bench_ws.py` 直连回环伪造多 IP 仍然有效。
+- **`IM_ALLOWED_ORIGINS` 不配 ≠ 全放行**:没配白名单时按同源兜底(`Origin` 的 host[:port] 必须等于 `Host` 头),跨站页面在 WS 握手阶段被 `403 40301 origin not allowed` 拒掉;原生 App 不发 `Origin`,仍放行。站点换域名/上 HTTPS 后要同步改这个值,否则浏览器 WS 会直接握手失败(前端表现是「连不上聊天」,不是 401)。
+- **监听 `0.0.0.0` 会直接启动失败**:`IM_LISTEN_WS`/`IM_LISTEN_HTTP` 是非回环地址时必须显式 `IM_ALLOW_PUBLIC_BIND=1`。这是防止部署时手滑把 9101 内部接口(HMAC + 回环保护)暴露到公网的最后一道闸;容器与测试脚本都用 `127.0.0.1`,不受影响。
+- **`auth_buckets_` / `profiles_` 有上限**:前者 2 万条(先淘汰 10 分钟空闲桶,再整体清空),后者 10 万条;整体清空只丢一个限流窗口,日志里会出现 `auth_buckets_reset`,属于预期兜底,不是故障。启动日志里的 `trusted_proxies_empty` 则相反 —— 说明可信代理被显式置空,nginx 反代时全站会挤在 `127.0.0.1` 一个 key 上,单 IP 连接数/鉴权限流会误伤正常用户。
+

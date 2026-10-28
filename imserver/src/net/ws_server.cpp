@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <utility>
 
@@ -81,14 +82,36 @@ void IpCounter::release(const std::string& ip) {
 
 bool IpCounter::allow_auth(const std::string& ip, int64_t now_ms) {
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto [it, inserted] = auth_buckets_.try_emplace(ip, auth_rate_, auth_burst_);
-  (void)inserted;
-  return it->second.allow(now_ms);
+  auto it = auth_buckets_.find(ip);
+  if (it == auth_buckets_.end()) {
+    if (auth_buckets_.size() >= max_auth_buckets_) {
+      // 先淘汰 10 分钟没再鉴权的桶(桶本身早已回满,丢掉不影响限流强度);
+      // 仍然满就整体清空 —— 只丢失一个限流窗口,绝不跟着任意 IP 无限涨内存(L9)。
+      for (auto bucket = auth_buckets_.begin(); bucket != auth_buckets_.end();) {
+        bucket = now_ms - bucket->second.seen_ms > 600000 ? auth_buckets_.erase(bucket)
+                                                          : std::next(bucket);
+      }
+      if (auth_buckets_.size() >= max_auth_buckets_) {
+        log_warn("auth_buckets_reset", {{"size", std::to_string(auth_buckets_.size())}});
+        auth_buckets_.clear();
+      }
+    }
+    it = auth_buckets_
+             .try_emplace(ip, AuthBucket{TokenBucket{auth_rate_, auth_burst_}, now_ms})
+             .first;
+  }
+  it->second.seen_ms = now_ms;
+  return it->second.bucket.allow(now_ms);
+}
+
+std::size_t IpCounter::auth_bucket_count() const {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  return auth_buckets_.size();
 }
 
 WsSession::WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
                      RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
-                     boost::asio::thread_pool& db_pool)
+                     boost::asio::thread_pool& db_pool, const net_guard::ProxyTrust& trust)
     : ws_(std::move(socket)),
       cfg_(cfg),
       registry_(registry),
@@ -96,6 +119,7 @@ WsSession::WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& reg
       ip_counter_(ip_counter),
       messages_(messages),
       db_pool_(db_pool),
+      trust_(trust),
       auth_timer_(ws_.get_executor()),
       idle_timer_(ws_.get_executor()) {}
 
@@ -108,25 +132,21 @@ void WsSession::run() {
 }
 
 std::string WsSession::remote_ip() {
-  const auto forwarded = request_["X-Real-IP"];
-  if (!forwarded.empty()) {
-    return std::string(forwarded);
-  }
   error_code ec;
   const auto endpoint = ws_.next_layer().socket().remote_endpoint(ec);
-  return ec ? std::string("unknown") : endpoint.address().to_string();
+  if (ec) {
+    return "unknown";
+  }
+  // X-Real-IP 只在对端是可信代理(默认回环)时才采信:9100 一旦被绕过 nginx 直连,
+  // 伪造这个头就等于伪造「单 IP 连接数」和「鉴权令牌桶」的 key(L9)。
+  return net_guard::client_ip(endpoint.address(), std::string(request_["X-Real-IP"]), trust_);
 }
 
 bool WsSession::origin_allowed() const {
-  if (cfg_.allowed_origins.empty()) {
-    return true;
-  }
-  const auto origin = std::string(request_[http::field::origin]);
-  if (origin.empty()) {
-    return true;
-  }
-  return std::find(cfg_.allowed_origins.begin(), cfg_.allowed_origins.end(), origin) !=
-         cfg_.allowed_origins.end();
+  // 配了 IM_ALLOWED_ORIGINS 就按白名单;没配则退化为同源校验(仍放行无 Origin 的原生端)。
+  return net_guard::origin_allowed(std::string(request_[http::field::origin]),
+                                   std::string(request_[http::field::host]),
+                                   cfg_.allowed_origins);
 }
 
 void WsSession::on_http_read(error_code ec, std::size_t bytes) {
@@ -647,16 +667,12 @@ WsServer::WsServer(net::io_context& io, const Config& cfg, SessionRegistry& regi
       redis_(redis),
       messages_(messages),
       db_pool_(db_pool),
-      ip_counter_(cfg.max_conn_per_ip, cfg.auth_rate_per_sec, cfg.auth_burst) {}
+      ip_counter_(cfg.max_conn_per_ip, cfg.auth_rate_per_sec, cfg.auth_burst),
+      trust_(net_guard::ProxyTrust::from_list(cfg.trusted_proxies)) {}
 
 void WsServer::start() {
-  const auto colon = cfg_.listen_ws.rfind(':');
-  if (colon == std::string::npos) {
-    throw std::runtime_error("invalid IM_LISTEN_WS");
-  }
-  const auto host = cfg_.listen_ws.substr(0, colon);
-  const auto port = std::stoi(cfg_.listen_ws.substr(colon + 1));
-  const tcp::endpoint endpoint(net::ip::make_address(host), static_cast<unsigned short>(port));
+  const auto listen = net_guard::parse_listen(cfg_.listen_ws);
+  const tcp::endpoint endpoint(listen.address, listen.port);
   acceptor_.open(endpoint.protocol());
   acceptor_.set_option(net::socket_base::reuse_address(true));
   acceptor_.bind(endpoint);
@@ -676,7 +692,7 @@ void WsServer::do_accept() {
   acceptor_.async_accept(net::make_strand(io_), [this](error_code ec, tcp::socket socket) {
     if (!ec) {
       std::make_shared<WsSession>(std::move(socket), cfg_, registry_, redis_, ip_counter_,
-                                  messages_, db_pool_)
+                                  messages_, db_pool_, trust_)
           ->run();
     }
     do_accept();

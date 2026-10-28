@@ -272,7 +272,43 @@
 
 回归：后端全量 **563 项通过**（第一批 545 + 新增 18），Redis 测试端口 16379。
 
-**仍未关闭（与第一批相同）**：S1/H2/M8 固定验证码、H5 机器审核、H1 的 Web token 与
-证书绑定、M7 磁盘配额/候选池缓存；M9 的「资料图/广场图防盗链」与 M2 的「非配对字段裁剪」
+**仍未关闭（与第一批相同）**：S1/H2/M8 固定验证码、H5 机器审核、M7 磁盘配额/候选池缓存；
+M9 的「资料图/广场图防盗链」与 M2 的「非配对字段裁剪」
 按用户决定不做（前者要换签名 URL + 双端改造，后者会改变资料页展示）。
+H1 的「Web token + 证书绑定」已在 [令牌硬化计划](2026-10-28-token-hardening.md) 关闭。
+
+---
+
+## 5. 第三批加固：L9 自建 IM 入口（2026-10-28 晚）
+
+审计项 L9 的三块（伪造 `X-Real-IP`、`Origin` 空配置全放行、缓存无界/端口暴露）一次收口。
+新增 `imserver/src/net/guard.{h,cpp}` 承载「监听解析 + 可信代理 + Origin 判定」，WS 与
+HTTP 两个监听口共用同一份解析，避免两处各写一遍。
+
+| 项 | 做法 | 证据 |
+|---|---|---|
+| 伪造 `X-Real-IP` | `ProxyTrust`：只有直连对端命中 `IM_TRUSTED_PROXIES`（默认 `127.0.0.1,::1`，支持 CIDR 与 IPv4-mapped IPv6）才采信该头，否则用真实对端地址；头里是 `1.2.3.4, 5.6.7.8` 拼接串或乱码同样回退 | `tests/guard_test.cpp::ClientIpTrustsHeaderOnlyFromProxy` |
+| `Origin` 全放行 | `origin_allowed` 三态：无 `Origin`（原生 App）放行；配了白名单按白名单（忽略大小写与结尾 `/`）；没配白名单按同源兜底（`Origin` 的 host[:port] == `Host`），不再是「空配置=全放行」 | `GuardTest.OriginAllowsNativeClients` / `OriginWhitelist` / `OriginFallsBackToSameOrigin` |
+| 缓存无界 | `IpCounter::auth_buckets_` 2 万条上限（先淘汰 10 分钟空闲桶，再整体清空并记 `auth_buckets_reset` 警告）；`UserRepo::profiles_` 10 万条上限 | `IpCounterTest.AuthBucketsAreBounded` / `AuthBucketsDropIdleEntries` |
+| 端口绑定 | 监听地址统一走 `parse_listen`；非回环地址必须 `IM_ALLOW_PUBLIC_BIND=1`，否则启动直接报错（fail-closed）；`/internal/*` 仍只允许回环，`healthz/readyz` 只回 `{"ok":bool}` | `GuardTest.ParseListen*`、`config_test.cpp::ParsesProxyAndBindGuard` |
+
+回归：imserver unit **35 项**（原 22 + guard 12 + config 1）、db **18 项**、
+集成脚本（history/internal/image/search/e2e）全过；`imserver:latest` 需重新构建后再上线。
+
+手工验收（容器内实跑）：
+
+- `IM_LISTEN_WS=0.0.0.0:19100` 启动 → `fatal: listen address ... is not loopback`；加
+  `IM_ALLOW_PUBLIC_BIND=1` 后正常启动。
+- 配 `IM_ALLOWED_ORIGINS=https://chat.example.com`：`Origin: https://evil.example.com`
+  握手 **403**，白名单内可连。
+- 不配 `IM_ALLOWED_ORIGINS`：`Origin: https://evil.example.com` **403**，
+  `Origin: http://127.0.0.1:9100`（与 `Host` 同源）可连，启动日志出现
+  `allowed_origins_empty` 警告。
+
+配置面新增 `IM_TRUSTED_PROXIES`、`IM_ALLOW_PUBLIC_BIND`，已同步
+`imserver/deploy/imserver.env.example`、`docs/ops/imserver.md` §1.4、`CLAUDE.md` 核心契约与
+`docs/pitfalls/im.md`「入口防护」。
+
+**仍未关闭**：S1/H2/M8 固定验证码、H5 机器审核、M7 磁盘配额/候选池缓存。
+
 

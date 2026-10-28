@@ -23,6 +23,10 @@ struct Config {
   std::string internal_secret;
   std::string migrations_dir = "/usr/local/share/imserver/migrations";
   std::vector<std::string> allowed_origins;
+  // 可信代理网段:只有直连对端命中这些地址,才采信它带来的 X-Real-IP(L9)
+  std::vector<std::string> trusted_proxies{"127.0.0.1", "::1"};
+  // 监听非回环地址必须显式开启(默认只允许 127.0.0.1 / ::1)
+  bool allow_public_bind = false;
   int io_threads = 2;
   int db_threads = 4;
   int db_pool = 8;

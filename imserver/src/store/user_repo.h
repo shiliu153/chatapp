@@ -11,7 +11,8 @@
 
 class UserRepo {
  public:
-  explicit UserRepo(MysqlPool& pool, std::size_t max_known = 100000);
+  explicit UserRepo(MysqlPool& pool, std::size_t max_known = 100000,
+                    std::size_t max_profiles = 100000);
 
   void ensure(MysqlPool::Lease& lease, uint64_t uid, const std::string& nickname);
   void ensure(uint64_t uid, const std::string& nickname);
@@ -35,6 +36,8 @@ class UserRepo {
 
   MysqlPool& pool_;
   std::size_t max_known_;
+  /// 画像缓存的硬上限:只缓存真实用户,但同样不能无限涨(L9)。
+  std::size_t max_profiles_;
   std::mutex known_mu_;
   std::unordered_set<uint64_t> known_;
   std::mutex profile_mu_;

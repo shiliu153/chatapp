@@ -740,6 +740,7 @@
 - **证据**：[ws_server.cpp:110-130](../../imserver/src/net/ws_server.cpp#L110-L130)、[user_repo.cpp:19-31](../../imserver/src/store/user_repo.cpp#L19-L31)、[http_api.cpp:329-340](../../imserver/src/net/http_api.cpp#L329-L340)
 - **影响**：若 9100/9101 直接暴露，`X-Real-IP` 可伪造绕过 IP 限流；`Origin` 为空放行；`known_`/`auth_buckets_` 无上限；`healthz/readyz` 无 HMAC（仅 loopback）。
 - **建议**：端口只绑 127.0.0.1；防火墙限制；`IM_ALLOWED_ORIGINS` 配置；缓存 LRU/上限；探针仅内网。
+- **状态（2026-10-28）**：已修复。`X-Real-IP` 改为只信 `IM_TRUSTED_PROXIES`（默认回环）；`Origin` 未配白名单时按同源兜底；`auth_buckets_`（2 万）/`profiles_`（10 万）加硬上限；非回环监听必须 `IM_ALLOW_PUBLIC_BIND=1` 否则启动失败；`/internal/*` 仍只允许回环，探针只回 `{"ok":bool}`。实现见 `imserver/src/net/guard.{h,cpp}`。
 
 #### L10. 其他细节
 
@@ -971,7 +972,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | L6 | 已修复 | `chatapp/requirements.lock` 精确锁定依赖闭包（含 gunicorn），README 改为装 lock；`DependencyLockTests` 守卫漂移 |
 | L7 | 已修复 | 生产 443 vhost 已带 HSTS/CSP/XFO/Referrer；后续接第三方 CDN 时需同步改 CSP |
 | L8 | 已修复 | App 令牌改存 `flutter_secure_storage`（Android Keystore / iOS Keychain），老用户首启一次性迁移并删除 SharedPreferences 旧键；`AndroidManifest` 关闭 `allowBackup`/`fullBackupContent`；安全存储不可用时降级读写，不会把人锁在登录页 |
-| L9 | 部分 | `known_` 已有上限；Origin/端口绑定/探针未全改 |
+| L9 | 已修复 | `X-Real-IP` 只在对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时采信,否则用真实对端地址;`Origin` 未配白名单时退化为同源校验(不再「空配置=全放行」);`auth_buckets_` 加 2 万条上限 + 10 分钟空闲淘汰,`profiles_` 缓存加 10 万条上限;监听非回环地址必须显式 `IM_ALLOW_PUBLIC_BIND=1`,否则启动失败(9101 内部接口仍只允许回环 + HMAC,`healthz/readyz` 只返回 `{"ok":bool}`)。证据:`imserver/tests/guard_test.cpp` 12 项、`config_test.cpp` 新增 1 项 |
 | L10 | 部分 | JWT `exp <= now` 已改；ops 参数已校验；短信重放窗口保留 |
 
 **复核命令**（与计划文档一致）：

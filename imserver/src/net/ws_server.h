@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -21,6 +22,7 @@
 #include <variant>
 
 #include "config.h"
+#include "net/guard.h"
 #include "service/message_service.h"
 #include "service/session_registry.h"
 #include "store/redis_client.h"
@@ -28,19 +30,32 @@
 
 class IpCounter {
  public:
-  explicit IpCounter(int max_per_ip = 20, double auth_rate = 1.0, double auth_burst = 60.0)
-      : max_(max_per_ip), auth_rate_(auth_rate), auth_burst_(auth_burst) {}
+  explicit IpCounter(int max_per_ip = 20, double auth_rate = 1.0, double auth_burst = 60.0,
+                     std::size_t max_auth_buckets = 20000)
+      : max_(max_per_ip),
+        auth_rate_(auth_rate),
+        auth_burst_(auth_burst),
+        max_auth_buckets_(max_auth_buckets) {}
   bool acquire(const std::string& ip);
   void release(const std::string& ip);
   bool allow_auth(const std::string& ip, int64_t now_ms);
+  /// 鉴权令牌桶的当前条数(观测与测试用;正常应远小于上限)。
+  std::size_t auth_bucket_count() const;
 
  private:
+  /// 令牌桶 + 最后活跃时间:满了先淘汰 10 分钟没动静的桶,再不行整体清空。
+  struct AuthBucket {
+    TokenBucket bucket;
+    int64_t seen_ms = 0;
+  };
+
   const int max_;
   const double auth_rate_;
   const double auth_burst_;
-  std::mutex mutex_;
+  const std::size_t max_auth_buckets_;
+  mutable std::mutex mutex_;
   std::unordered_map<std::string, int> counts_;
-  std::unordered_map<std::string, TokenBucket> auth_buckets_;
+  std::unordered_map<std::string, AuthBucket> auth_buckets_;
 };
 
 class WsSession : public std::enable_shared_from_this<WsSession> {
@@ -50,7 +65,7 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
 
   WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
             RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
-            boost::asio::thread_pool& db_pool);
+            boost::asio::thread_pool& db_pool, const net_guard::ProxyTrust& trust);
 
   void run();
   void kick(const std::string& reason);
@@ -104,6 +119,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   IpCounter& ip_counter_;
   MessageService& messages_;
   boost::asio::thread_pool& db_pool_;
+  /// 只有直连对端命中这份表,才采信它带来的 X-Real-IP(L9)。
+  const net_guard::ProxyTrust& trust_;
   boost::asio::steady_timer auth_timer_;
   boost::asio::steady_timer idle_timer_;
   std::chrono::steady_clock::time_point last_frame_;
@@ -129,4 +146,6 @@ class WsServer {
   MessageService& messages_;
   boost::asio::thread_pool& db_pool_;
   IpCounter ip_counter_;
+  /// 进程级可信代理表,所有会话共享(只读)。
+  net_guard::ProxyTrust trust_;
 };
