@@ -15,6 +15,7 @@
 
 #include "auth/token.h"
 #include "net/frames.h"
+#include "net/guard.h"
 #include "util/hmac.h"
 #include "util/uuid.h"
 
@@ -205,13 +206,8 @@ HttpApi::HttpApi(net::io_context& io, const Config& cfg, MessageService& message
       redis_(redis) {}
 
 void HttpApi::start() {
-  const auto colon = cfg_.listen_http.rfind(':');
-  if (colon == std::string::npos) {
-    throw std::runtime_error("invalid IM_LISTEN_HTTP");
-  }
-  const auto host = cfg_.listen_http.substr(0, colon);
-  const auto port = std::stoi(cfg_.listen_http.substr(colon + 1));
-  const tcp::endpoint endpoint(net::ip::make_address(host), static_cast<unsigned short>(port));
+  const auto listen = net_guard::parse_listen(cfg_.listen_http);
+  const tcp::endpoint endpoint(listen.address, listen.port);
   acceptor_.open(endpoint.protocol());
   acceptor_.set_option(net::socket_base::reuse_address(true));
   acceptor_.bind(endpoint);

@@ -64,7 +64,11 @@ IM_REDIS_URL=redis://127.0.0.1:6379/2
 IM_JWT_SECRET=<64 位 hex>
 IM_INTERNAL_SECRET=<64 位 hex>
 IM_MIGRATIONS_DIR=/usr/local/share/imserver/migrations
-IM_ALLOWED_ORIGINS=http://<SERVER_IP>
+IM_ALLOWED_ORIGINS=https://<DOMAIN>
+# 可信代理:只有直连对端命中这些地址才采信 X-Real-IP(默认本机)
+IM_TRUSTED_PROXIES=127.0.0.1,::1
+# 监听非回环地址必须显式置 1(默认 0,写错成 0.0.0.0 会启动失败)
+IM_ALLOW_PUBLIC_BIND=0
 IM_IO_THREADS=2
 IM_DB_THREADS=4
 IM_DB_POOL=8
@@ -82,7 +86,17 @@ IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
 - `IM_MEDIA_PREFIX` 必须与 Django 的 `MEDIA_BASE_URL` 拼上 `/media/chat/` **完全一致** ——
   服务端按这个前缀校验图片 URL,不一致时客户端发图会被 `42201` 拒掉;
 - `IM_ALLOWED_ORIGINS` 只影响带 `Origin` 头的浏览器 WS;原生 App 不带 Origin。
-  站点换域名/HTTPS 后要同步改。
+  站点换域名/HTTPS 后要同步改。**不配也不是「全放行」**:没有白名单时按同源校验
+  (`Origin` 的 host 必须等于 `Host` 头),跨站页面会被 403 拒掉。
+- `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`)决定「谁有资格写 `X-Real-IP`」:
+  只有直连对端命中这个列表(支持 CIDR)时才采信该头,否则一律用真实对端地址。
+  这样即使有人绕过 nginx 直连 9100,也伪造不了单 IP 连接数与鉴权令牌桶的 key。
+  nginx 不在同一台机器时,把它的出口 IP/网段加进来(例如 `10.0.0.0/8`)。
+  **不要显式置空**:那会让所有连接都按对端地址计数,nginx 反代时全站挤在
+  `127.0.0.1` 一个 key 上(启动日志会打 `trusted_proxies_empty` 警告)。
+- `IM_ALLOW_PUBLIC_BIND`(默认 `0`):`IM_LISTEN_WS`/`IM_LISTEN_HTTP` 写成非回环地址
+  时**必须显式置 1**,否则启动直接报错。9101 的内部接口只靠「回环 + HMAC」保护,
+  这个开关是防止部署时手滑把管理接口暴露到公网的最后一道闸。
 
 ### 1.5 迁移与启动
 

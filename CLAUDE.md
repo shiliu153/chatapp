@@ -54,13 +54,14 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-27 | 自建 IM **全量切换**:`IM_SELF_GRAYLIST=7,8` → `all` 并重启 web+celery;观察 30 分钟(18:06–18:35)30 次采样 `readyz=200`/`health=200`/`im_err=0`/`http5xx=0` 全绿,合成流量 u9→u8 **40/40 ack 成功**、RTT avg 45.4ms / p95 53.4ms,imserver 零 error;非灰度账号 u9 已返回 `backend=self` 且收发正常。回退方式:`IM_SELF_GRAYLIST` 改回 `7,8` + 重启 web/celery |
 | 2026-10-28 | **安全审计整改 P0+P1 交付**(`fix/security-remediation`):S1/H2 短信按产品决定不修;H3 IM token 绑定 `sv` + `im_user.session_version` + 登录/`user_sig` 双同步;H4 `im_pair` 配对校验(未配对 40302、目标必须存在、每分钟配额、`known_` 上限)+ `im_sync_pairs` 回填命令;H6 后台登录锁定 + TOTP + IP 白名单;M1 `NUM_PROXIES`、M3/M4/L5 统一图片校验与 EXIF 剥离、M6 媒体签名 fail-closed、M10/M11/M12、L1/L2/L4;H5 生产默认 `AUTO_APPROVE=0`;H1/B8 HTTPS 开关与 nginx 安全基线。后端 545 / imserver unit 22 + db 18 + 集成全绿 |
 | 2026-10-28 | **令牌硬化交付**(`fix/security-remediation`,审计 H1 剩余 + L8):Web 的 refresh 改走 `HttpOnly; SameSite=Strict; Path=/api/v1/auth/` Cookie(响应体不再返回 refresh、access 只留内存、新增 `POST /auth/logout`、60 秒轮换宽限防多标签互踢);App 令牌换 `flutter_secure_storage`(Keystore/Keychain + 老用户一次性迁移 + 失败降级);App 证书绑定 ISRG Root X1+X2 覆盖 HTTPS 与 WSS(release 默认 enforce,`tool/verify_pinning.dart` 对生产域名握手 200)。后端 573 / Web 371 / App 412 测试绿;**H1、L8 关闭** |
+| 2026-10-28 | **L9 入口防护交付**(审计 L9,`imserver/src/net/guard.{h,cpp}`):`X-Real-IP` 只在对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时采信;`Origin` 未配 `IM_ALLOWED_ORIGINS` 按同源兜底;`auth_buckets_`(2 万)/`profiles_`(10 万)加硬上限;非回环监听必须 `IM_ALLOW_PUBLIC_BIND=1` 否则启动失败。imserver unit 35 + db 18 + 集成(history/internal/image/search/e2e)全绿;**L9 关闭**,镜像需重建后再上线 |
 
 
 **下一步**:2026-10-28 **已全量切到 `https://chat.shiliu153.cn`**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `https://chat.shiliu153.cn/chatapp-1.0.1.apk`)。剩余:
 1. **安全整改 + HTTPS 切换已上线并完成人工验收(2026-10-28)**:脚本验收(WS 鉴权/40101/40302、媒体签名、配对 ack)+ 用户真机手测(App 登录/聊天/杀进程重进/图片语音、旧 APK 升级弹窗、`/ops/` 首次绑定 TOTP)均通过。执行记录见 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) §12。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
 2. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式,必须先接真实短信商并配密钥;**S1/H2 已由产品决定暂不修(保留固定验证码),这是仍未关闭的严重风险,只能封闭测试**;
 3. **Web 语音前置已具备**:HTTPS 已上线,`getUserMedia` 可用;但代码里麦克风入口仍**隐藏**,要放开需单独改一版(与 P1-4b 推送同一批可做);
-4. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志);剩余 P2 项:M7 磁盘配额/候选池缓存、L9 的 Origin/端口绑定;M9 资料图防盗链与 M2 非配对字段裁剪按产品决定不做(详见审计报告 §10)。
+4. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志);剩余 P2 项只有 M7 磁盘配额/候选池缓存(L9 已于 2026-10-28 关闭,imserver 镜像需重建后再上线);M9 资料图防盗链与 M2 非配对字段裁剪按产品决定不做(详见审计报告 §10)。
 
 其余挂起项不变:P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
 
@@ -141,6 +142,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 与 `im/self_client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
 - **自建 IM**:`IM_BACKEND=tencent|self`;`im/client.py` 按账号灰度分发到 `im/self_client.py`;灰度名单只能放隔离测试号(跨后端消息不通);`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致;**图片消息与语音消息**要求 `IM_MEDIA_PREFIX` = Django 的 `MEDIA_BASE_URL + /media/chat/`(必填,缺失 imserver 起不来;不一致则发图/发语音 42201);语音上传还要求服务器装 `ffmpeg`/`ffprobe`(缺失时 503+`50302`)
 - **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101;登录与 `user_sig` 双同步,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
+- **imserver 入口防护(2026-10-28 起)**:监听默认只允许回环,写成非回环地址必须显式 `IM_ALLOW_PUBLIC_BIND=1`,否则启动失败;`X-Real-IP` 只在对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时才采信,绕过 nginx 直连伪造不了限流 key;`Origin` 未配 `IM_ALLOWED_ORIGINS` 时按同源兜底(不是全放行)
 - **图片上传**:资料图/广场图/聊天图统一走 `config/images.py`(仅 jpg/png/webp、≤2000 万像素、长边 4096、`exif_transpose` 后重编码剥离 EXIF/GPS);聊天媒体签名生产缺 `IM_MEDIA_SIGN_SECRET` 直接启动失败,TTL 默认 3600
 - **运营后台安全**:`/admin/`、`/ops/` 受 `ops.middleware.StaffSecurityMiddleware` 保护 —— `OPS_ALLOWED_IPS` 非空时只放白名单;`OPS_OTP_REQUIRED=1`(生产默认)时运营账号必须绑定 TOTP(`/ops/otp/`);登录失败 5 次锁 15 分钟(账号+IP)。生产 `AUTO_APPROVE` 默认 0,新资料图进 `/ops/photos/` 待审队列
 - **跨栈约定**:IM 账号 = `u{user_id}`(`accounts/models.py::im_user_id`);`system_notice` 相关常量两边别单改

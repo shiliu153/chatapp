@@ -36,6 +36,24 @@ TEST(ConfigTest, AppliesDefaults) {
   EXPECT_DOUBLE_EQ(cfg.auth_rate_per_sec, 1.0);
   EXPECT_DOUBLE_EQ(cfg.auth_burst, 60.0);
   EXPECT_TRUE(cfg.allowed_origins.empty());
+  EXPECT_EQ(cfg.trusted_proxies.size(), 2u);
+  EXPECT_EQ(cfg.trusted_proxies[0], "127.0.0.1");
+  EXPECT_EQ(cfg.trusted_proxies[1], "::1");
+  EXPECT_FALSE(cfg.allow_public_bind);
+}
+
+TEST(ConfigTest, ParsesProxyAndBindGuard) {
+  std::map<std::string, std::string> env{
+      {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
+      {"IM_JWT_SECRET", "jwt"},
+      {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MEDIA_PREFIX", "http://cdn/media/chat/"},
+      {"IM_TRUSTED_PROXIES", "127.0.0.1, 172.17.0.1/16"},
+      {"IM_ALLOW_PUBLIC_BIND", "1"}};
+  const auto cfg = Config::from_map(env);
+  EXPECT_EQ(cfg.trusted_proxies.size(), 2u);
+  EXPECT_EQ(cfg.trusted_proxies[1], "172.17.0.1/16");
+  EXPECT_TRUE(cfg.allow_public_bind);
 }
 
 TEST(ConfigTest, ParsesConnectionLimits) {

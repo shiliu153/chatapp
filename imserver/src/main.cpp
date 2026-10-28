@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "migrate.h"
+#include "net/guard.h"
 #include "net/http_api.h"
 #include "net/ws_server.h"
 #include "service/message_service.h"
@@ -31,6 +32,26 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]) == "--migrate") {
       run_migrations(cfg);
       return 0;
+    }
+
+    // L9:默认只监听回环 —— 9101 的内部接口只靠「回环 + HMAC」保护,9100 也假定前面
+    // 一定有 nginx。要监听非回环地址必须显式设 IM_ALLOW_PUBLIC_BIND=1,避免部署时
+    // 手滑写成 0.0.0.0 把管理接口和伪造 X-Real-IP 的入口一起暴露出去。
+    if (!cfg.allow_public_bind) {
+      for (const auto& raw : {cfg.listen_ws, cfg.listen_http}) {
+        if (!net_guard::is_loopback(net_guard::parse_listen(raw).address)) {
+          throw std::runtime_error("listen address " + raw +
+                                   " is not loopback; set IM_ALLOW_PUBLIC_BIND=1 if intentional");
+        }
+      }
+    }
+    if (cfg.allowed_origins.empty()) {
+      log_warn("allowed_origins_empty", {{"policy", "same-origin-fallback"}});
+    }
+    if (cfg.trusted_proxies.empty()) {
+      // 可信代理为空 = 所有连接的客户端 IP 都是对端地址;nginx 反代时全站会挤在
+      // 127.0.0.1 一个 key 上,单 IP 连接数/鉴权限流会误伤正常用户。
+      log_warn("trusted_proxies_empty", {{"policy", "peer-address-only"}});
     }
 
     MysqlPool mysql(parse_mysql_dsn(cfg.mysql_dsn), cfg.db_pool,

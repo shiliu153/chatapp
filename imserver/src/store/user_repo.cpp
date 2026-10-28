@@ -14,8 +14,8 @@ int64_t now_ms() {
 
 }  // namespace
 
-UserRepo::UserRepo(MysqlPool& pool, std::size_t max_known)
-    : pool_(pool), max_known_(max_known) {}
+UserRepo::UserRepo(MysqlPool& pool, std::size_t max_known, std::size_t max_profiles)
+    : pool_(pool), max_known_(max_known), max_profiles_(max_profiles) {}
 
 bool UserRepo::is_known(uint64_t uid) {
   const std::lock_guard<std::mutex> lock(known_mu_);
@@ -92,6 +92,9 @@ std::optional<UserRow> UserRepo::get(MysqlPool::Lease& lease, uint64_t uid) {
   if (row.has_value()) {
     remember(row->id);
     const std::lock_guard<std::mutex> lock(profile_mu_);
+    if (profiles_.size() >= max_profiles_) {
+      profiles_.clear();
+    }
     profiles_[row->id] = *row;
   }
   return row;

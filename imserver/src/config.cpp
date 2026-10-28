@@ -139,6 +139,8 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   cfg.internal_secret = get_or(env, "IM_INTERNAL_SECRET");
   cfg.migrations_dir = get_or(env, "IM_MIGRATIONS_DIR", cfg.migrations_dir);
   cfg.allowed_origins = split_origins(get_or(env, "IM_ALLOWED_ORIGINS"));
+  cfg.trusted_proxies = split_origins(get_or(env, "IM_TRUSTED_PROXIES", "127.0.0.1,::1"));
+  cfg.allow_public_bind = get_or(env, "IM_ALLOW_PUBLIC_BIND") == "1";
   cfg.io_threads = get_int(env, "IM_IO_THREADS", cfg.io_threads);
   cfg.db_threads = get_int(env, "IM_DB_THREADS", cfg.db_threads);
   cfg.db_pool = get_int(env, "IM_DB_POOL", cfg.db_pool);
@@ -172,7 +174,8 @@ Config Config::from_env() {
   std::map<std::string, std::string> env;
   for (const char* key : {"IM_LISTEN_WS", "IM_LISTEN_HTTP", "IM_MYSQL_DSN",
                           "IM_REDIS_URL", "IM_JWT_SECRET", "IM_INTERNAL_SECRET",
-                          "IM_MIGRATIONS_DIR", "IM_ALLOWED_ORIGINS", "IM_IO_THREADS",
+                          "IM_MIGRATIONS_DIR", "IM_ALLOWED_ORIGINS", "IM_TRUSTED_PROXIES",
+                          "IM_ALLOW_PUBLIC_BIND", "IM_IO_THREADS",
                           "IM_DB_THREADS", "IM_DB_POOL", "IM_DB_IDLE_PING_MS",
                           "IM_MAX_CONN_PER_IP",
                           "IM_AUTH_RATE", "IM_AUTH_BURST", "IM_MAX_FRAME",
