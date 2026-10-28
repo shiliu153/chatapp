@@ -423,6 +423,7 @@
 | 15:12 | 重写 `im_message.body` 旧前缀（2 条）、`im_user.avatar_url`（0 条） | 0 残留 |
 | 15:12 | imserver env：`IM_ALLOWED_ORIGINS` / `IM_MEDIA_PREFIX` / `IM_MEDIA_SIGN_TTL=3600` / `IM_SEND_PER_MINUTE=120` | `readyz=200` |
 | 15:15 | App `1.0.1+2`（`API_BASE=https://chat.shiliu153.cn/api/v1`）→ `chatapp-1.0.1.apk`；版本三件套 → 1.0.1 | `/app/config` 返回 1.0.1 |
+| 15:20 | Web 端同版本发版：`web/package.json` 1.0.0→1.0.1、关于页测试同步、`npm run build` 后覆盖 `dist`（369 测试绿） | 网页端不再被版本门槛挡住 |
 | 15:18 | `renew_cert_chat.sh` + cron（每月 1/16 日 03:05） | 语法通过，且只挑 `status=valid` 的订单 |
 
 验收（脚本化，`/root/ws_check.py`、`/root/ws_check2.py`）：
@@ -439,6 +440,7 @@
 2. `/_im_media_auth` 必须显式传 `X-Forwarded-Proto https`，否则 `SECURE_SSL_REDIRECT` 会把子请求 301 掉、未签名媒体变成 500（§4 模板已补）。
 3. IP vhost 301 提前到第 5 步之后：`HTTPS_ENABLED=1` 后若 IP 仍按 http 代理，Django 会 301 到 `https://47.116.114.110`（无证书），比直接 301 到域名更糟。
 4. 续期脚本的订单查找加了 `status == "valid"`：首次失败会留下一个 pending 订单，否则续期会命中它。
+5. **`MIN_APP_VERSION` 也卡网页端**：只把 App 升到 1.0.1、网页端仍是 1.0.0 时，整站被「需要更新后才能继续使用」挡住（实测）。所以发版必须双端同版本——`web/package.json` 也要改并重新 `npm run build` 部署 `dist`。已写进 [docs/pitfalls/web.md](../pitfalls/web.md) 第 23 条。
 
 未完成（需人工）：
 

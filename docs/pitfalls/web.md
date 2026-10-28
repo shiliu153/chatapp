@@ -84,6 +84,12 @@
     不含最小版本拦截与自建 IM,而服务端早已是 10-21+ 的代码。验证「功能是否真的上线」
     不要看仓库、也不要只看页面能打开,直接在产物里 grep 本次新增的字符串
     (如 `min_app_version`),或看 `index.html` 引用的 hash 是否是刚构建的。
+23. ⚠️ **`MIN_APP_VERSION` 同时卡网页端**(2026-10-28 切域名时踩到):`web/src/main.ts`
+    启动时读 `/api/v1/app/config`,用自己的 `__APP_VERSION__`(来自 `web/package.json`)
+    跟 `min_app_version` 比;把 App 升到 1.0.1 而网页端还是 1.0.0 时,
+    **整站会被「需要更新后才能继续使用」挡住**。所以**发版必须双端同版本**:
+    改 `app/pubspec.yaml` + `app/lib/core/app_info.dart` 的同时改 `web/package.json`,
+    并重新 `npm run build` 部署 `dist`(只改后端 `.env` 的 `MIN_APP_VERSION` 会让网页端立刻不可用)。
 
 ## 纪律
 
