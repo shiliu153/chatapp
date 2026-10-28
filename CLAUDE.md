@@ -56,7 +56,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 
 
 **下一步**:2026-10-27 **已全量切到自建 IM**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `http://<SERVER_IP>/chatapp-1.0.0.apk`)。剩余:
-1. **安全整改上线动作(2026-10-28)**:先部署 Django + imserver 新镜像,**imserver 先显式跑 `docker compose run --rm imserver --migrate` 再 `up -d`**(entrypoint 不自动迁移),**立刻执行 `python manage.py im_sync_pairs` 回填配对**,再观察 40302;配 `OPS_OTP_REQUIRED=1` 后首个后台登录要绑定 TOTP;域名证书到位后再开 `HTTPS_ENABLED=1` 并按 `docs/ops/nginx-security.conf` 改 nginx。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
+1. **安全整改上线动作(2026-10-28)**:先部署 Django + imserver 新镜像,**imserver 先显式跑 `docker compose run --rm imserver --migrate` 再 `up -d`**(entrypoint 不自动迁移),**立刻执行 `python manage.py im_sync_pairs` 回填配对**,再观察 40302;配 `OPS_OTP_REQUIRED=1` 后首个后台登录要绑定 TOTP。`shiliu153.cn` 已备案且证书可用,交友 App 的 HTTPS 切换按 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) 执行(新增 `chat.shiliu153.cn`、签子域证书、443 vhost、改 `.env` 与历史媒体 URL)。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
 2. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式,必须先接真实短信商并配密钥;**S1/H2 已由产品决定暂不修(保留固定验证码),这是仍未关闭的严重风险,只能封闭测试**;
 3. **Web 语音受 HTTP 限制**:`getUserMedia` 只在 HTTPS/localhost 可用,生产还是 `http://IP`,所以 Web 端麦克风目前**隐藏**,App 不受影响;等域名备案 + HTTPS(与 P1-4b 同一前置);
 4. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志);H1 的 Web token 仍在 localStorage、App 未做证书绑定;M2/M5/M7/M9/L6 等 P2 项未做(详见审计报告 §10)。

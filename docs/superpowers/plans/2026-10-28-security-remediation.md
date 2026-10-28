@@ -241,7 +241,7 @@
 ### 3.3 仍需外部条件/后续立项
 
 - S1/H2/M8：用户明确决定暂不接短信商、保留固定验证码；**这是仍未关闭的严重风险**。
-- H1：Web token 仍在 `localStorage`（需 BFF + HttpOnly Cookie）；App 未做证书绑定。
+- H1：`shiliu153.cn` 已备案且证书可用，但 443 当前指向简历站；交友 App 的 `https://chat.shiliu153.cn` 切换任务见 [2026-10-28-chat-shiliu153-cn-https.md](2026-10-28-chat-shiliu153-cn-https.md)。Web token 仍在 `localStorage`（需 BFF + HttpOnly Cookie）；App 未做证书绑定。
 - H5：无内容安全服务商，图片/语音只有人工抽审；`AUTO_APPROVE=0` 已让新资料图进审核队列。
 - M2：非配对用户仍能看到完整公开资料（只加了限流，未裁剪字段）。
 - M5：ffmpeg 未加协议白名单/容器隔离。

@@ -943,7 +943,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | ID | 状态 | 说明 / 证据 |
 |---|---|---|
 | S1 | **未关闭（已接受）** | 产品决定暂不接短信商、保留固定码；仅限封闭测试，不得对真实用户开放 |
-| H1 | 部分 | Django `HTTPS_ENABLED` 开关 + `docs/ops/nginx-security.conf` 就绪；域名/证书未到位；Web token 仍在 localStorage |
+| H1 | 部分 | Django `HTTPS_ENABLED` 开关 + `docs/ops/nginx-security.conf` 就绪；`shiliu153.cn` 已备案且证书可用，但 443 目前指向简历站，交友 App 待切 `https://chat.shiliu153.cn`（任务见 `docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md`）；Web token 仍在 localStorage |
 | H2 | **未关闭（已接受）** | 与 S1 同批；接入短信商时必须一并删除验证码日志 |
 | H3 | 已修复 | IM token 增加 `sv`；`im_user.session_version` + `/internal/session_version`；登录任务与 `user_sig` 双重同步，同步失败 503；旧 token 重连 40101 |
 | H4 | 已修复 | `im_pair` 表 + `/internal/pair`；发送校验配对（40302）、目标必须存在（不再建行）、每分钟配额、`known_` 上限；上线需跑 `im_sync_pairs` |
