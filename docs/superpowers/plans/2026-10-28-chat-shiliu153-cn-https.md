@@ -94,6 +94,13 @@
 
 ## 3. 证书：新签 `chat.shiliu153.cn`
 
+> **2026-10-28 18:40 更新：已改为 certbot 统一续期**（本节下面的自建 DNS-01 流程仅作历史记录，勿再执行）。
+> 现行配置：`/etc/letsencrypt/renewal/chat.shiliu153.cn.conf`，`authenticator=webroot`、
+> `webroot_path=/www/wwwroot/chatapp-web`、`renew_hook=/root/certbot_deploy_hook.sh`；
+> 调度是 root crontab 的 `17 3 * * * certbot renew`。旧脚本 `/root/renew_cert_chat.sh`、
+> `/root/issue_cert_dns_chat.py` 已归档到 `/root/archive/cert-2026-10-28/`，对应 cron 已删除。
+> 运维速查见 [docs/ops/certificates.md](../../ops/certificates.md)。
+
 现有证书 SAN 不含子域，不能复用。复用已跑通的 DNS-01 脚本：
 
 - [x] 复制脚本并只改域名：
@@ -137,7 +144,7 @@
 - [x] 新建 `/www/server/panel/vhost/nginx/chat.shiliu153.cn.conf`（内容如下；`ssl_certificate` 用第 3 步实际路径）：
   ```nginx
   # 交友 App: chat.shiliu153.cn
-  # 证书: ACME DNS-01, 见 /root/renew_cert_chat.sh
+  # 证书: certbot (webroot)，见 /etc/letsencrypt/renewal/chat.shiliu153.cn.conf
 
   server {
       listen 80;
@@ -400,7 +407,7 @@
 4. **`SECURE_SSL_REDIRECT=1`**：Django 会把任何 `X-Forwarded-Proto: http` 的请求 301 到 `https://<Host>`；所以 IP vhost 必须先改成 301 到域名，否则 `https://47.116.114.110` 无证书会报错。
 5. **TOTP**：`OPS_OTP_REQUIRED` 在生产默认 1；部署后第一次进 `/ops/` 会被要求绑定，先装验证器 App。
 6. **`AUTO_APPROVE`**：生产默认 0；部署后新上传的资料图是 `pending`，要在 `/ops/photos/` 审核。
-7. **证书续期**：不要用面板 SSL 页点续签（脚本已把该订单 `auth_tag=False`）；用 `/root/renew_cert_chat.sh` + cron。
+7. **证书续期**：已统一交给 certbot（`17 3 * * * certbot renew`，含 `chat.shiliu153.cn`，见 [docs/ops/certificates.md](../../ops/certificates.md)）。不要再在面板 SSL 页点续签，也不要用已归档的 `/root/renew_cert_chat.sh`——两套并存会互相覆盖证书文件。
 8. **CSP**：如果后续接入第三方 CDN/统计，需要同步改 `connect-src`/`img-src`，否则会被浏览器拦。
 
 ## 12. 执行记录（2026-10-28 15:00–15:20，生产已切换）
@@ -425,6 +432,7 @@
 | 15:15 | App `1.0.1+2`（`API_BASE=https://chat.shiliu153.cn/api/v1`）→ `chatapp-1.0.1.apk`；版本三件套 → 1.0.1 | `/app/config` 返回 1.0.1 |
 | 15:20 | Web 端同版本发版：`web/package.json` 1.0.0→1.0.1、关于页测试同步、`npm run build` 后覆盖 `dist`（369 测试绿） | 网页端不再被版本门槛挡住 |
 | 15:18 | `renew_cert_chat.sh` + cron（每月 1/16 日 03:05） | 语法通过，且只挑 `status=valid` 的订单 |
+| 18:40 | **chat 证书改由 certbot 续期**：`certonly --webroot` 签发成功，删自建 cron，旧脚本归档 `/root/archive/cert-2026-10-28/` | 新序列号 `06A6B8…`，`renew --dry-run` 通过（18:47） |
 
 验收（脚本化，`/root/ws_check.py`、`/root/ws_check2.py`）：
 
