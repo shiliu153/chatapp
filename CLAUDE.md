@@ -57,7 +57,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 
 
 **下一步**:2026-10-28 **已全量切到 `https://chat.shiliu153.cn`**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `https://chat.shiliu153.cn/chatapp-1.0.1.apk`)。剩余:
-1. **安全整改 + HTTPS 切换已上线(2026-10-28)**,执行记录见 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) §12。仍需人工:App 真机手测(登录/聊天/杀进程重进/图片语音)、首个 `/ops/` 登录绑定 TOTP、旧 APK 升级弹窗实测。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
+1. **安全整改 + HTTPS 切换已上线并完成人工验收(2026-10-28)**:脚本验收(WS 鉴权/40101/40302、媒体签名、配对 ack)+ 用户真机手测(App 登录/聊天/杀进程重进/图片语音、旧 APK 升级弹窗、`/ops/` 首次绑定 TOTP)均通过。执行记录见 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) §12。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
 2. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式,必须先接真实短信商并配密钥;**S1/H2 已由产品决定暂不修(保留固定验证码),这是仍未关闭的严重风险,只能封闭测试**;
 3. **Web 语音前置已具备**:HTTPS 已上线,`getUserMedia` 可用;但代码里麦克风入口仍**隐藏**,要放开需单独改一版(与 P1-4b 推送同一批可做);
 4. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志);H1 的 Web token 仍在 localStorage、App 未做证书绑定;M2/M5/M7/M9/L6 等 P2 项未做(详见审计报告 §10)。
