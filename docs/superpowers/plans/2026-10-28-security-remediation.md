@@ -254,7 +254,7 @@
 - H1：`https://chat.shiliu153.cn` 已于 2026-10-28 上线（443 vhost + 安全头 + 媒体验签）；
   剩余 **Web token 仍在 `localStorage`**（需 BFF + HttpOnly Cookie）、**App 未做证书绑定**。
 - H5：无内容安全服务商，图片/语音只有人工抽审；`AUTO_APPROVE=0` 已让新资料图进审核队列。
-- M7：磁盘配额、候选池缓存未做。
+- M7：已于第四批关闭（存储配额 + 候选池随机列，见 §6）。
 
 ---
 
@@ -272,7 +272,7 @@
 
 回归：后端全量 **563 项通过**（第一批 545 + 新增 18），Redis 测试端口 16379。
 
-**仍未关闭（与第一批相同）**：S1/H2/M8 固定验证码、H5 机器审核、M7 磁盘配额/候选池缓存；
+**仍未关闭（与第一批相同）**：S1/H2/M8 固定验证码、H5 机器审核；
 M9 的「资料图/广场图防盗链」与 M2 的「非配对字段裁剪」
 按用户决定不做（前者要换签名 URL + 双端改造，后者会改变资料页展示）。
 H1 的「Web token + 证书绑定」已在 [令牌硬化计划](2026-10-28-token-hardening.md) 关闭。
@@ -309,6 +309,24 @@ HTTP 两个监听口共用同一份解析，避免两处各写一遍。
 `imserver/deploy/imserver.env.example`、`docs/ops/imserver.md` §1.4、`CLAUDE.md` 核心契约与
 `docs/pitfalls/im.md`「入口防护」。
 
-**仍未关闭**：S1/H2/M8 固定验证码、H5 机器审核、M7 磁盘配额/候选池缓存。
+**仍未关闭**：S1/H2/M8 固定验证码、H5 机器审核。
+
+---
+
+## 6. 第四批加固:M7 存储配额与候选池(2026-10-28 晚)
+
+审计 M7 剩下的两块一次收口:单账号磁盘配额(含四类媒体)与候选池随机排序。
+「资料图/广场图保留期」不做 —— 自动删用户相册属于产品决策,改用配额 + 孤儿清理兜底。
+
+| 项 | 做法 | 证据 |
+|---|---|---|
+| 单账号配额 | `config/storage.py`:`usage_bytes()` 汇总 `Photo.bytes` + `PostImage.bytes` + `ChatImage.bytes` + `ChatVoice.bytes`(后两者只算 `visible`);`ensure_quota()` 在落盘前校验,超限抛 `StorageQuotaExceeded`(413 / `41301`)。配额 `USER_STORAGE_QUOTA_MB` 默认 200,`0` 关闭 | `users/tests.py::PhotoTests.test_upload_rejected_when_quota_exceeded`、`im/tests.py` 图片/语音各 1 项、`feed/tests.py::PostCreateTests.test_quota_exceeded_rejects_post_without_creating_it`、`StorageUsageTests` 3 项 |
+| 字节字段 | `Photo.bytes`、`PostImage.bytes`(迁移 `users.0005`、`feed.0003`);上传时写入;存量用 `media_bytes_backfill` 回填 | `MediaCommandTests.test_media_bytes_backfill_*` |
+| 候选池 | `Profile.shuffle_key`(随机、带索引)+ 迁移里给存量行逐行重分配;候选接口按它取 `CANDIDATE_POOL_SIZE`(默认 200)条,再 `random.sample`;新增 `refresh_shuffle_keys` 每日轮换 | `discovery/tests.py::CandidateShuffleTests` 2 项、`RefreshShuffleKeysCommandTests` 2 项 |
+| 磁盘告警/清理 | `media_disk_report`(三目录 + 库内口径 + `MEDIA_DISK_WARN_MB` 告警,`--fail-over` 退出码 1);`media_cleanup` 清 `photos/`、`posts/` 孤儿文件(默认 dry-run) | `MediaCommandTests` 2 项 |
+
+回归:后端全量 **592 项通过**(新增 19 项)。
+
+**仍未关闭**:S1/H2/M8 固定验证码、H5 机器审核。M7 已关闭。
 
 

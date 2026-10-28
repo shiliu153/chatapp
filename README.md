@@ -466,6 +466,8 @@ nginx 三条硬要求:
 
 > 具体服务器地址、面板端口与运维命令属于部署私有信息,已从本开源仓库移除。
 > 更新流程本身很简单:`git pull` → 装依赖 → `migrate` → `collectstatic` → 重启 web 与 worker 两条进程。
+> M7(2026-10-28)发布多一步:`migrate` 后跑一次 `python manage.py media_bytes_backfill`
+> (回填照片/动态图字节数,否则老用户按零占用算配额),再按 `docs/ops/imserver.md` §12.5 加 4 条计划任务。
 
 ---
 

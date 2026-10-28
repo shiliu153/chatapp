@@ -13,9 +13,25 @@
     - 踩坑记录:docs/pitfalls/backend.md「账号注销」
 """
 
+import secrets
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+SHUFFLE_KEY_UPPER = 1_000_000_000
+
+
+def random_shuffle_key():
+    """生成候选池的随机排序键。
+
+    用 ``secrets`` 而不是 ``random``:这个值会长期落库并决定「谁先被看到」,
+    虽然不涉及资金,但也不该是可预测的伪随机序列。
+
+    Returns:
+        ``[0, 10^9)`` 区间内的整数。
+    """
+    return secrets.randbelow(SHUFFLE_KEY_UPPER)
 
 
 def calculate_age(birthday, today=None):
@@ -128,6 +144,10 @@ class Profile(models.Model):
     status = models.CharField("状态", max_length=20, choices=ProfileStatus.choices,
                               default=ProfileStatus.INCOMPLETE)
     ban_reason = models.CharField("封禁原因", max_length=200, blank=True)
+    # 候选池的预计算随机列:候选接口按它走索引取池,替代全表 ORDER BY RAND()。
+    # 由 ``manage.py refresh_shuffle_keys`` 定期轮换(见该命令的 docstring)。
+    shuffle_key = models.PositiveIntegerField("随机排序键", default=random_shuffle_key,
+                                              db_index=True)
 
     def __str__(self):
         """后台与日志中的可读表示。
@@ -197,6 +217,8 @@ class Photo(models.Model):
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="photos")
     file = models.ImageField("图片", upload_to="photos/%Y/%m/")
+    # 重编码后的文件字节数:存储配额按它求和,不必每次上传都去 stat 磁盘(M7)
+    bytes = models.PositiveIntegerField("字节数", default=0)
     order = models.PositiveSmallIntegerField("排序", default=0)
     status = models.CharField("审核状态", max_length=10, choices=PhotoStatus.choices,
                               default=PhotoStatus.PENDING)

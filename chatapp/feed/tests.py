@@ -166,6 +166,29 @@ class PostCreateTests(FeedApiMixin, APITestCase):
         self.assertEqual(PostImage.objects.count(), 2)
         self.assertEqual(list(PostImage.objects.values_list("order", flat=True)), [0, 1])
 
+    def test_post_image_records_bytes(self):
+        """配图落库时记下重编码字节数,供存储配额统计(M7)。"""
+        self.client.post(self.URL, {"text": "看图", "images": [self.image()]},
+                         format="multipart")
+        image = PostImage.objects.get()
+        self.assertEqual(image.bytes, image.file.size)
+
+    def test_quota_exceeded_rejects_post_without_creating_it(self):
+        """配额不足时返回 413/41301,动态与配图都不落库(M7)。"""
+        with self.settings(USER_STORAGE_QUOTA_BYTES=1):
+            resp = self.client.post(
+                self.URL, {"text": "看图", "images": [self.image()]}, format="multipart")
+        self.assertEqual(resp.status_code, 413)
+        self.assertEqual(resp.json()["code"], 41301)
+        self.assertEqual(Post.objects.count(), 0)
+        self.assertEqual(PostImage.objects.count(), 0)
+
+    def test_text_only_post_unaffected_by_quota(self):
+        """纯文字动态不占媒体配额(``USER_STORAGE_QUOTA_BYTES=0`` 时也能发)。"""
+        with self.settings(USER_STORAGE_QUOTA_BYTES=0):
+            resp = self.client.post(self.URL, {"text": "只发文字"}, format="multipart")
+        self.assertEqual(resp.status_code, 201)
+
     def test_create_rejects_gif(self):
         """广场图同样只接受 jpg/png/webp(L5)。"""
         buffer = io.BytesIO()

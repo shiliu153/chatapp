@@ -21,10 +21,13 @@
 
 import base64
 import io
+import os
 import shutil
 import tempfile
 import time
 from datetime import date
+from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
@@ -33,6 +36,7 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -41,9 +45,11 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from accounts import sms_codes
+from config import storage
 from discovery.models import Match, Swipe
 from feed.models import Post, PostComment, PostImage
 from im import tasks as im_tasks
+from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import BanLog, Block, Report
 
 from . import presence, services
@@ -361,6 +367,130 @@ class PhotoTests(AuthMixin, APITestCase):
         self.fill_profile()
         self.assertEqual(self.upload().json()["status"], "pending")
         self.assertEqual(self.client.get("/api/v1/users/me").json()["status"], "incomplete")
+
+    def test_upload_records_file_bytes(self):
+        """上传后把重编码字节数记进 ``bytes``,供配额统计(M7)。"""
+        self.assertEqual(self.upload().status_code, 201)
+        photo = Photo.objects.get()
+        self.assertEqual(photo.bytes, photo.file.size)
+
+    def test_upload_rejected_when_quota_exceeded(self):
+        """配额已满时上传 413/41301,且不建行、不落盘(M7)。"""
+        self.assertEqual(self.upload().status_code, 201)
+        used = Photo.objects.get().bytes
+        with self.settings(USER_STORAGE_QUOTA_BYTES=used):
+            resp = self.upload(name="b.png")
+        self.assertEqual(resp.status_code, 413)
+        self.assertEqual(resp.json()["code"], 41301)
+        self.assertEqual(Photo.objects.count(), 1)
+
+    def test_quota_zero_disables_limit(self):
+        """``USER_STORAGE_QUOTA_BYTES=0`` 表示关闭配额(本地手测口径)。"""
+        with self.settings(USER_STORAGE_QUOTA_BYTES=0):
+            self.assertEqual(self.upload().status_code, 201)
+
+
+class StorageUsageTests(TestCase):
+    """存储用量口径:四类媒体相加,已删除/已过期的不计,按账号隔离(M7)。"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(phone="13800138000")
+
+    def _chat_image(self, size, status=ChatImageStatus.VISIBLE):
+        """造一条聊天图元数据(不写磁盘,只落 ``bytes``)。
+
+        Args:
+            size: 字节数。
+            status: 图片状态。
+
+        Returns:
+            新建的 ``ChatImage``。
+        """
+        return ChatImage.objects.create(
+            owner=self.user, file="chat/a.jpg", thumb="chat/a_t.jpg",
+            width=1, height=1, bytes=size, status=status)
+
+    def test_usage_sums_all_media_types(self):
+        Photo.objects.create(user=self.user, file="photos/a.png", bytes=10)
+        post = Post.objects.create(author=self.user, text="x")
+        PostImage.objects.create(post=post, file="posts/a.png", bytes=20)
+        self._chat_image(30)
+        ChatVoice.objects.create(owner=self.user, file="chat/voices/a.m4a",
+                                 duration_ms=1000, bytes=40)
+        self.assertEqual(storage.usage_bytes(self.user.id), 100)
+
+    def test_expired_or_deleted_media_not_counted(self):
+        self._chat_image(30, status=ChatImageStatus.EXPIRED)
+        self._chat_image(40, status=ChatImageStatus.DELETED)
+        ChatVoice.objects.create(owner=self.user, file="chat/voices/a.m4a",
+                                 duration_ms=1000, bytes=50,
+                                 status=ChatVoiceStatus.EXPIRED)
+        self.assertEqual(storage.usage_bytes(self.user.id), 0)
+
+    def test_usage_is_per_user(self):
+        other = User.objects.create_user(phone="13900139000")
+        Photo.objects.create(user=other, file="photos/b.png", bytes=99)
+        self.assertEqual(storage.usage_bytes(self.user.id), 0)
+
+
+class MediaCommandTests(TestCase):
+    """媒体管理命令:字节回填、孤儿清理、磁盘报表告警(M7)。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13800138000")
+
+    def _write(self, relative, content=b"abc"):
+        """在临时 MEDIA_ROOT 下写一个文件。
+
+        Args:
+            relative: 相对 ``MEDIA_ROOT`` 的路径。
+            content: 文件内容。
+
+        Returns:
+            写入后的绝对路径。
+        """
+        path = Path(settings.MEDIA_ROOT) / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        return path
+
+    def test_media_bytes_backfill_fills_sizes(self):
+        photo = Photo.objects.create(user=self.user, file="photos/a.png")
+        self._write("photos/a.png", b"12345")
+        call_command("media_bytes_backfill", stdout=StringIO())
+        photo.refresh_from_db()
+        self.assertEqual(photo.bytes, 5)
+
+    def test_media_bytes_backfill_dry_run_does_not_write(self):
+        Photo.objects.create(user=self.user, file="photos/a.png")
+        self._write("photos/a.png", b"12345")
+        call_command("media_bytes_backfill", "--dry-run", stdout=StringIO())
+        self.assertEqual(Photo.objects.get().bytes, 0)
+
+    def test_media_cleanup_deletes_only_orphans_with_apply(self):
+        Photo.objects.create(user=self.user, file="photos/keep.png")
+        kept = self._write("photos/keep.png")
+        orphan = self._write("photos/orphan.png")
+        old = time.time() - 48 * 3600
+        os.utime(orphan, (old, old))
+
+        call_command("media_cleanup", stdout=StringIO())
+        self.assertTrue(orphan.exists())          # dry-run 不删
+
+        call_command("media_cleanup", "--apply", stdout=StringIO())
+        self.assertFalse(orphan.exists())
+        self.assertTrue(kept.exists())
+
+    def test_media_disk_report_fails_over_threshold(self):
+        self._write("photos/big.bin", b"x" * (2 * 1024 * 1024))
+        with self.assertRaises(SystemExit):
+            call_command("media_disk_report", "--warn-mb", "1", "--fail-over",
+                         stdout=StringIO(), stderr=StringIO())
 
 
 class PreferenceTests(AuthMixin, APITestCase):

@@ -39,6 +39,8 @@ class PostImage(models.Model):
 
     post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="images")
     file = models.ImageField("图片", upload_to="posts/%Y/%m/")
+    # 重编码后的文件字节数:存储配额按它求和(M7)
+    bytes = models.PositiveIntegerField("字节数", default=0)
     order = models.PositiveSmallIntegerField("排序", default=0)
 
     class Meta:

@@ -1042,6 +1042,14 @@ class ChatImageUploadTests(APITestCase):
         self.assertEqual((response.data["width"], response.data["height"]), (20, 40))
         self.assertTrue(urlsplit(response.data["url"]).path.endswith(".jpg"))
 
+    def test_quota_exceeded_rejects_upload(self):
+        """配额不足时 413/41301,且不建行(M7)。"""
+        with self.settings(USER_STORAGE_QUOTA_BYTES=1):
+            response = self.upload()
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.data["code"], 41301)
+        self.assertEqual(ChatImage.objects.count(), 0)
+
 
 class MediaSignTests(SimpleTestCase):
     """聊天图片签名:共享向量、过期、篡改、路径白名单、未配置密钥时的放行。"""
@@ -1326,6 +1334,17 @@ class ChatVoiceUploadTests(APITestCase):
         response = self.upload()
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data["code"], 50302)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=12500)
+    def test_quota_exceeded_rejects_upload(self, _probe, _transcode, _ffmpeg):
+        """配额不足时 413/41301,且不建行(M7)。"""
+        with self.settings(USER_STORAGE_QUOTA_BYTES=1):
+            response = self.upload()
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.data["code"], 41301)
+        self.assertEqual(ChatVoice.objects.count(), 0)
 
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._probe_ms", return_value=61000)

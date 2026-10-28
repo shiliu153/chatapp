@@ -21,7 +21,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from config import images
+from config import images, storage
 from config.pagination import DefaultLimitOffsetPagination
 from moderation.models import ReportStatus
 
@@ -79,21 +79,33 @@ def _create_post(request):
 
     Returns:
         201 + 新建动态(已带赞/评数与作者信息)。
+
+    Raises:
+        ValidationError: 配图不是 jpg/png/webp 或超过尺寸上限。
+        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
     """
     serializer = PostCreateSerializer(data=request.data, context={"request": request})
     serializer.is_valid(raise_exception=True)
+    # 先把图片全部校验/重编码完,再统一查一次配额:配额超限是 413(APIException),
+    # 不是 ValidationError;若边建动态边写图,超限时文件已经落盘,事务回滚删不掉,
+    # 会留下一批孤儿文件。
+    normalized_images = []
+    for file in request.FILES.getlist("images"):
+        try:
+            normalized_images.append(images.normalize(images.open_checked(file.read())))
+        except images.ImageError as error:
+            raise ValidationError(str(error)) from error
+    storage.ensure_quota(request.user,
+                         sum(len(item.data) for item in normalized_images))
     with transaction.atomic():
         post = Post.objects.create(author=request.user,
                                    text=serializer.validated_data["text"])
-        for order, file in enumerate(request.FILES.getlist("images")):
-            try:
-                normalized = images.normalize(images.open_checked(file.read()))
-            except images.ImageError as error:
-                raise ValidationError(str(error)) from error
+        for order, normalized in enumerate(normalized_images):
             PostImage.objects.create(
                 post=post,
                 file=ContentFile(normalized.data,
                                  name=f"{request.user.id}-{uuid.uuid4().hex}{normalized.extension}"),
+                bytes=len(normalized.data),
                 order=order)
     post = visible_posts(request.user).get(pk=post.pk)
     return Response(PostSerializer(post, context={"request": request}).data, status=201)

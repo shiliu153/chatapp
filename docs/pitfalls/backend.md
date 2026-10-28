@@ -85,6 +85,14 @@
 - **ops 抽审私聊媒体要留审计**:`ops.MediaAccessLog` 每次打开聊天图片/语音列表写一条(操作人/类型/筛选/条数/IP);列表的 `?reported=1` 只显示「最近 7 天被举报过的发送者」,与举报详情页的证据窗口一致。**审计写失败只能告警,不能 500**——否则 Redis/DB 抖一下运营就看不了队列。
 - **抓取监控用 `cache.add` 去重,不要用自增计数**:同一小时内重复看同一个人不该累加,`cache.add(per_target_key)` 返回 False 就跳过;计数 key 首次 `incr` 会抛 `ValueError`(key 不存在),要捕获后 `set(1)`。整段包 `try/except` 静默降级:监控代码永远不能影响资料接口。
 
+## 存储配额与候选池(M7,2026-10-28)
+
+- **配额按库内 `bytes` 求和,不要每次上传 stat 磁盘**:`config/storage.py::usage_bytes()` 把四类媒体(`Photo.bytes`/`PostImage.bytes`/`ChatImage.bytes`/`ChatVoice.bytes`)各做一次 `SUM`,都走索引;`Photo`/`PostImage` 原本没有 `bytes`,本批加字段并在上传时写入,存量用 `media_bytes_backfill` 补。**没回填就上线会让老用户看起来零占用**,配额形同虚设。
+- **配额检查必须在落盘之前**:聊天图先算「原图 + 缩略图」再 `file.save`;广场图先把所有图 `normalize` 完再统一 `ensure_quota` —— 反过来会在超限时留下已写入的文件,而 `APIException` 回滚事务不会删文件,只能等 `media_cleanup` 扫孤儿。
+- **413 不是 400**:配额超限抛 `StorageQuotaExceeded`(`APIException`,`status_code=413`,`detail_code=41301`),由统一异常处理器包成信封;客户端按 `code=41301` 分支提示「删照片/等过期」,不要匹配 message(里面带具体 MB 数)。
+- **候选池不能再写 `order_by("?")`**:全表 `ORDER BY RAND()` 会给每行算随机数再排序,数据量一上来就是慢查询。现在按 `Profile.shuffle_key`(带索引)取 `CANDIDATE_POOL_SIZE` 条,再 `random.sample` 出本次要的条数;键由 `refresh_shuffle_keys` 每天轮换,新用户注册时自动生成。
+- **删除/过期不扣配额**:用量是实时 `SUM`,删照片、聊天图 30 天过期后自动回落;不要在删除时再 `update` 一个计数列,那样两边一定会漂移。
+
 ## 注释规范
 
 - **规则文档**:`docs/standards/python.md` 是 Python 注释的单一事实来源(模块头模板、`Args`/`Returns`/`Raises` 写法、行内注释禁令、豁免清单)。改注释前先看它,不要自创格式。

@@ -459,6 +459,33 @@ cd /www/wwwroot/chatapp/chatapp && /www/wwwroot/chatapp-venv/bin/python manage.p
 - 用量视图:`manage.py im_media_stats`(各状态条数/字节、磁盘占用与剩余、Top 5 发送者);
 - 清理后的图片在聊天里显示加载失败占位,消息本身保留。
 
+### 12.5 存储配额、候选池与磁盘报表(M7,2026-10-28)
+
+本批新增三个命令与两组配置,部署时按顺序做:
+
+```bash
+# 1) 迁移:users.0005(Profile.shuffle_key、Photo.bytes)、feed.0003(PostImage.bytes)
+python manage.py migrate
+# 2) 回填存量照片/动态图的字节数(配额统计依赖它,幂等,可先 --dry-run)
+python manage.py media_bytes_backfill
+```
+
+宝塔计划任务(与 12.4 的清理并列):
+
+| 时间 | 命令 | 作用 |
+|---|---|---|
+| 每天 03:40 | `manage.py refresh_shuffle_keys` | 轮换候选池随机键(避免同一批人长期排前面) |
+| 每天 04:00 | `manage.py im_media_cleanup --apply` | 聊天图/语音保留期与孤儿清理(已有) |
+| 每天 04:10 | `manage.py media_cleanup --apply` | 资料图/广场图的孤儿文件清理 |
+| 每天 04:20 | `manage.py media_disk_report --fail-over` | 磁盘报表;超 `MEDIA_DISK_WARN_MB` 退出码 1 |
+
+- 配额:`USER_STORAGE_QUOTA_MB`(默认 200)是**单账号**四类媒体之和,超限上传返回
+  **413 + `41301`**;`0` 关闭配额。删除照片或聊天媒体过期后额度自动回收(按库内行统计)。
+- 候选池:`CANDIDATE_POOL_SIZE`(默认 200)决定每次从索引里取多少人再抽样;
+  新用户注册即带随机 `shuffle_key`,不需要手工初始化。
+- 磁盘报表:`media_disk_report` 会分别打印 `photos/` `posts/` `chat/` 目录占用、
+  库内四类字节数、分区剩余与告警状态;`--warn-mb` 可临时覆盖告警线。
+
 ## 13. 语音消息(2026-10-27)
 
 ### 13.1 服务器依赖:ffmpeg

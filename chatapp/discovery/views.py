@@ -14,6 +14,9 @@
     - 接口契约:docs/api/discovery.md
 """
 
+import random
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
@@ -87,10 +90,22 @@ def candidates(request):
     limit = int_param(request, "limit", default=DEFAULT_LIMIT,
                       minimum=1, maximum=MAX_LIMIT)
 
-    # order_by("?") 在数据量大时性能下降。当前用户规模(数百人)可接受,
-    # 后续改为预计算随机列。
-    qs = qs.prefetch_related("tags", "user__photos").order_by("?")[:limit]
-    return Response(CandidateSerializer(qs, many=True, context={"request": request}).data)
+    # 候选池按预计算的随机列取:走 ``shuffle_key`` 索引,避免全表 ORDER BY RAND()
+    # (数据量上来后每次都要给整表算随机数并排序)。取一个比 limit 大的池子,
+    # 再在内存里抽样,让每次请求的顺序不同 —— 否则所有人看到的是同一个全局顺序。
+    pool_size = max(limit, getattr(settings, "CANDIDATE_POOL_SIZE", 200))
+    pool_ids = list(qs.order_by("shuffle_key", "id")
+                    .values_list("user_id", flat=True)[:pool_size])
+    picked = random.sample(pool_ids, min(limit, len(pool_ids)))
+    # 抽样后按 picked 的顺序回排;``user_id__in`` 查出来的顺序不保证
+    profiles = {
+        profile.user_id: profile
+        for profile in Profile.objects.filter(user_id__in=picked)
+        .prefetch_related("tags", "user__photos")
+    }
+    ordered = [profiles[user_id] for user_id in picked if user_id in profiles]
+    return Response(CandidateSerializer(ordered, many=True,
+                                        context={"request": request}).data)
 
 
 @api_view(["POST"])

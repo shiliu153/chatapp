@@ -29,7 +29,7 @@ from rest_framework.decorators import (api_view, authentication_classes,
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from config import error_codes, images
+from config import error_codes, images, storage
 
 from . import media_sign, voice
 from .backend import use_self_im
@@ -116,6 +116,9 @@ def upload_image(request):
     Returns:
         201 + ``{id, url, thumb_url, width, height, size}``;URL 用
         ``settings.MEDIA_BASE_URL`` 拼绝对地址(与 IM 头像同步同一套)。
+
+    Raises:
+        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
     """
     serializer = ChatImageUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -143,8 +146,11 @@ def upload_image(request):
                     Image.Resampling.LANCZOS)
     thumb_buffer = io.BytesIO()
     thumb.convert("RGB").save(thumb_buffer, "JPEG", quality=80)
+    thumb_data = thumb_buffer.getvalue()
+    # 配额按「原图 + 缩略图」算,检查放在落盘之前,超限不留半张图(M7)
+    storage.ensure_quota(request.user, len(normalized.data) + len(thumb_data))
     chat_image.thumb.save(f"{stem}_thumb.jpg",
-                          ContentFile(thumb_buffer.getvalue()), save=False)
+                          ContentFile(thumb_data), save=False)
     chat_image.save()
 
     base = settings.MEDIA_BASE_URL.rstrip("/")
@@ -172,6 +178,9 @@ def upload_voice(request):
     Returns:
         201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
         400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
+
+    Raises:
+        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
     """
     serializer = ChatVoiceUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -187,6 +196,7 @@ def upload_voice(request):
         return Response({"code": 400, "message": str(error)}, status=400)
 
     stem = f"{request.user.id}-{uuid.uuid4().hex}"
+    storage.ensure_quota(request.user, len(data))   # 配额检查在落盘前(M7)
     chat_voice = ChatVoice(owner=request.user, duration_ms=duration_ms, bytes=len(data))
     chat_voice.file.save(f"{stem}.m4a", ContentFile(data), save=False)
     chat_voice.save()
