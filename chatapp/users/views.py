@@ -30,7 +30,8 @@ from .presence import PRESENCE_MAX_IDS, get_presence
 from .serializers import (DeleteAccountSerializer, PhotoSerializer, PhotoUploadSerializer,
                           PreferenceSerializer, ProfileSerializer, ProfileUpdateSerializer,
                           PublicProfileSerializer, TagSerializer)
-from .services import delete_account, get_profile, sync_im_avatar, sync_im_nickname
+from .services import (delete_account, get_profile, record_profile_view, sync_im_avatar,
+                       sync_im_nickname)
 from .throttles import PhotoUploadThrottle, PresenceThrottle, PublicProfileThrottle
 
 User = get_user_model()
@@ -110,6 +111,7 @@ def public_profile(request, user_id):
     profile = getattr(target, "profile", None)
     if profile is None or profile.status == ProfileStatus.BANNED_HEAVY:
         raise NotFound("用户不存在")
+    record_profile_view(request.user.id, target.id)   # 抓取广度监控,失败不影响响应
     return Response(PublicProfileSerializer(profile, context={"request": request}).data)
 
 

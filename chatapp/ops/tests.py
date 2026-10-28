@@ -13,16 +13,19 @@
     - 封禁日志:展示历史、按动作过滤;
     - 广场治理:动态列表与删除、非运营 403;
     - 动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知;
-    - 聊天图片抽审:列表可见、删除置 deleted 并删文件、举报详情带最近图片、非运营 403。
+    - 聊天图片抽审:列表可见、删除置 deleted 并删文件、举报详情带最近图片、非运营 403;
+    - 私聊媒体审计:每次浏览落一条 ``MediaAccessLog``(含「仅被举报」筛选),审计失败不影响页面。
 """
 
 import os
 import shutil
 import tempfile
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.files.base import ContentFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from accounts import totp
 from accounts.models import User
@@ -31,6 +34,7 @@ from feedback.models import Feedback, FeedbackStatus, FeedbackType
 from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
+from ops.models import MediaAccessLog
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
@@ -566,6 +570,42 @@ class ChatImageOpsTests(TestCase):
         self.client.force_login(self.user)
         self.assertEqual(self.client.get("/ops/chat-images/").status_code, 403)
 
+    def test_reported_filter_only_keeps_recently_reported_owners(self):
+        other = User.objects.create_user(phone="13900139004")
+        other_image = ChatImage(owner=other, width=1, height=1, bytes=len(self.PNG_1PX))
+        other_image.file.save("chat/o.png", ContentFile(self.PNG_1PX), save=False)
+        other_image.thumb.save("chat/o_thumb.png", ContentFile(self.PNG_1PX), save=False)
+        other_image.save()
+        report = Report.objects.create(reporter=self.staff, target=self.user,
+                                       type=ReportType.PORN)
+
+        response = self.client.get("/ops/chat-images/?reported=1")
+        self.assertContains(response, self.image.thumb.url)
+        self.assertNotContains(response, other_image.thumb.url)
+
+        # 举报超过 7 天就不再命中「仅被举报」
+        Report.objects.filter(pk=report.pk).update(
+            created_at=timezone.now() - timedelta(days=8))
+        response = self.client.get("/ops/chat-images/?reported=1")
+        self.assertNotContains(response, self.image.thumb.url)
+
+    def test_list_writes_media_access_audit(self):
+        self.client.get("/ops/chat-images/")
+        log = MediaAccessLog.objects.get()
+        self.assertEqual(log.staff_id, self.staff.id)
+        self.assertEqual(log.kind, MediaAccessLog.Kind.IMAGE)
+        self.assertEqual(log.filter, "all")
+        self.assertEqual(log.count, 1)
+        self.assertEqual(log.ip, "127.0.0.1")
+
+    def test_reported_filter_is_recorded_in_audit(self):
+        self.client.get("/ops/chat-images/?reported=1")
+        self.assertEqual(MediaAccessLog.objects.get().filter, "reported")
+
+    @patch("ops.views.MediaAccessLog.objects.create", side_effect=RuntimeError("db down"))
+    def test_audit_failure_does_not_break_page(self, _create):
+        self.assertEqual(self.client.get("/ops/chat-images/").status_code, 200)
+
 
 class ChatVoiceOpsTests(TestCase):
     """聊天语音抽审:列表可试听、删除置 deleted 并删文件、举报详情带最近语音。"""
@@ -606,6 +646,12 @@ class ChatVoiceOpsTests(TestCase):
         response = self.client.get(f"/ops/reports/{report.id}/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "最近聊天语音")
+
+    def test_list_writes_voice_access_audit(self):
+        self.client.get("/ops/chat-voices/")
+        log = MediaAccessLog.objects.get()
+        self.assertEqual(log.kind, MediaAccessLog.Kind.VOICE)
+        self.assertEqual(log.count, 1)
 
     def test_non_staff_forbidden(self):
         self.client.force_login(self.user)

@@ -938,26 +938,28 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 ## 10. 整改进展（2026-10-28）
 
 > 本轮范围：P0+P1（含 imserver H3/H4），**S1/H2/M8 的短信部分按产品决定不修**。
-> 代码分支：`fix/security-remediation`；后端全量 545 项、imserver unit 22 / db 18 / 集成脚本全绿。
+> 代码分支：`fix/security-remediation`；后端全量 563 项、imserver unit 22 / db 18 / 集成脚本全绿。
+> 2026-10-28 下午补第二批（M2/M5/M9/L6，保守加固口径），详见
+> `docs/superpowers/plans/2026-10-28-security-remediation.md` §4。
 
 | ID | 状态 | 说明 / 证据 |
 |---|---|---|
 | S1 | **未关闭（已接受）** | 产品决定暂不接短信商、保留固定码；仅限封闭测试，不得对真实用户开放 |
-| H1 | 部分 | Django `HTTPS_ENABLED` 开关 + `docs/ops/nginx-security.conf` 就绪；`shiliu153.cn` 已备案且证书可用，但 443 目前指向简历站，交友 App 待切 `https://chat.shiliu153.cn`（任务见 `docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md`）；Web token 仍在 localStorage |
+| H1 | 部分 | `https://chat.shiliu153.cn` 已上线（443 vhost + 安全头 + 媒体验签）；剩余 **Web token 仍在 localStorage**（需 BFF + HttpOnly Cookie）、**App 未做证书绑定** |
 | H2 | **未关闭（已接受）** | 与 S1 同批；接入短信商时必须一并删除验证码日志 |
 | H3 | 已修复 | IM token 增加 `sv`；`im_user.session_version` + `/internal/session_version`；登录任务与 `user_sig` 双重同步，同步失败 503；旧 token 重连 40101 |
 | H4 | 已修复 | `im_pair` 表 + `/internal/pair`；发送校验配对（40302）、目标必须存在（不再建行）、每分钟配额、`known_` 上限；上线需跑 `im_sync_pairs` |
 | H5 | 部分 | 生产默认 `AUTO_APPROVE=0`，新资料图进 ops 审核队列；机器审核（云内容安全）未接 |
 | H6 | 已修复 | 登录失败锁定（账号+IP，5 次/15 分钟）+ TOTP 2FA + `/admin/`、`/ops/` IP 白名单 |
 | M1 | 已修复 | `NUM_PROXIES=1`；nginx 模板改为覆盖 `X-Forwarded-For` |
-| M2 | 部分 | 资料卡/候选/在线状态已限流；非配对最小字段未做 |
+| M2 | 部分 | 资料卡/候选/在线状态已限流；新增抓取广度监控（`PROFILE_SCRAPE_ALERT_PER_HOUR`，超阈值 WARNING）；非配对最小字段按产品决定不做 |
 | M3 | 已修复 | 20M 像素上限、解码前检查、`DecompressionBombError` 转 400 |
 | M4 | 已修复 | 资料图/广场图/聊天图统一 `exif_transpose` + 重编码，元数据不落盘 |
-| M5 | 未修复 | ffmpeg 未加 `-protocol_whitelist`/容器隔离 |
+| M5 | 已修复（进程内） | ffmpeg/ffprobe 加 `-protocol_whitelist file,pipe`、`-nostdin`、`-map_metadata -1`、`-sn -dn`、`-threads 1`；`stdin=DEVNULL`、最小环境、POSIX `setrlimit`（CPU/内存/输出）；**异步化与容器隔离未做**（2C2G 上当前同步转码可接受） |
 | M6 | 已修复 | 生产缺密钥启动失败；验签 fail-closed；默认 TTL 3600（整点对齐且至少 1 小时） |
 | M7 | 部分 | 候选/`user_sig`/点赞/拉黑/照片上传已限流；磁盘配额与候选池缓存未做 |
 | M8 | **未关闭（已接受）** | 短信部分不修；验证码仍固定 |
-| M9 | 未修复 | ops 仍可全量浏览私聊媒体；资料图/广场图公开直出 |
+| M9 | 部分 | 聊天媒体列表加「仅被举报」筛选 + `ops.MediaAccessLog` 访问审计；**资料图/广场图公开直出与防盗链未做**（需签名 URL + 双端改造，按产品决定暂缓） |
 | M10 | 已修复 | `limit=-1/abc` 等不再 500；ops 非法 `user`/`ids` 被忽略 |
 | M11 | 已修复 | `swipe` 先查双向拉黑，命中返回 404，不产生 Match/灰条 |
 | M12 | 已修复 | `session_version` 改 `F()` 自增；举报 `dedupe_key` 唯一约束 + 处理后清空 |
@@ -966,9 +968,9 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | L3 | 部分 | `ALLOWED_HOSTS` 无 `*`；部署时按域名收紧 |
 | L4 | 已修复 | CORS localhost 仅 `DEBUG` 生效 |
 | L5 | 已修复 | 只接受 jpg/png/webp，统一重编码 |
-| L6 | 未修复 | 依赖仍未锁定版本 |
-| L7 | 部分 | nginx 模板含 CSP/XFO/Referrer/HSTS；待部署 |
-| L8 | 未修复 | App 令牌仍存 SharedPreferences |
+| L6 | 已修复 | `chatapp/requirements.lock` 精确锁定依赖闭包（含 gunicorn），README 改为装 lock；`DependencyLockTests` 守卫漂移 |
+| L7 | 已修复 | 生产 443 vhost 已带 HSTS/CSP/XFO/Referrer；后续接第三方 CDN 时需同步改 CSP |
+| L8 | 未修复 | App 令牌仍存 SharedPreferences（需换 secure storage + 迁移） |
 | L9 | 部分 | `known_` 已有上限；Origin/端口绑定/探针未全改 |
 | L10 | 部分 | JWT `exp <= now` 已改；ops 参数已校验；短信重放窗口保留 |
 

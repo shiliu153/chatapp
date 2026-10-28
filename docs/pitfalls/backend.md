@@ -80,6 +80,10 @@
 - **登录锁定用自定义后端,不是中间件**:`accounts/backends.py::ThrottledModelBackend` 在 `authenticate()` 前后计数,`/admin/` 与 `/ops/` 共用;锁定期间直接返回 `None`(与密码错误同表现,不泄漏状态)。测试要 `cache.clear()`,否则上一个用例的失败计数会串。
 - **举报去重键在 `save()` 里维护**:`Report.dedupe_key` 是唯一约束,`save()` 会在 `status != pending` 时清空,并把 `dedupe_key` 补进 `update_fields`(只改 `status` 时也能清掉)。并发创建靠唯一约束 + `get_or_create` 回查,不要只在视图里 `filter().exists()` 判重。
 - **`NUM_PROXIES=1` 的语义**:DRF 取 XFF 的**最后一段**作为客户端 IP。nginx 必须用 `proxy_set_header X-Forwarded-For $remote_addr;` 覆盖客户端传入值;若继续用 `$proxy_add_x_forwarded_for`,最后一段仍是真实 IP,但前面会保留伪造值,日志里别拿整条 XFF 当可信来源。
+- **依赖锁定用 `requirements.lock`,不要直接 `pip install -r requirements.txt`**:`requirements.txt` 只表达区间,lock 是依赖闭包的精确版本(含 gunicorn 与传递依赖)。生成方式:在通过全量测试的环境里,从 `requirements.txt` 的直接依赖出发,用 `importlib.metadata` 递归 `requires`,按 `default_environment()` 合并 `sys_platform=linux` 求值 marker,输出 `名字==版本`。**换 Python 大版本必须重新生成**——celery/redis 的条件依赖(`async-timeout`/`exceptiongroup`)是按 Python 版本挂的。`config/tests.py::DependencyLockTests` 会拦住「加了直接依赖却没进 lock」和「lock 里出现区间」两种情况。
+- **ffmpeg 处理上传音频必须给协议白名单**:只加超时不够 —— HLS/concat 这类 playlist 会让 ffmpeg 去拉 http 或读任意本地文件。现在统一 `-protocol_whitelist file,pipe`(输入是临时目录里的文件、输出是本机文件),再加 `-nostdin` + `stdin=DEVNULL` 防交互、`-map_metadata -1 -sn -dn` 丢弃元数据与字幕/数据流、`-threads 1` 限并发。POSIX 下用 `preexec_fn` 设 `RLIMIT_CPU/AS/FSIZE` 兜底解码炸弹;**Windows 没有 `resource` 模块,这段必须按 `os.name == "posix"` 跳过**,否则本地测试直接 ImportError。
+- **ops 抽审私聊媒体要留审计**:`ops.MediaAccessLog` 每次打开聊天图片/语音列表写一条(操作人/类型/筛选/条数/IP);列表的 `?reported=1` 只显示「最近 7 天被举报过的发送者」,与举报详情页的证据窗口一致。**审计写失败只能告警,不能 500**——否则 Redis/DB 抖一下运营就看不了队列。
+- **抓取监控用 `cache.add` 去重,不要用自增计数**:同一小时内重复看同一个人不该累加,`cache.add(per_target_key)` 返回 False 就跳过;计数 key 首次 `incr` 会抛 `ValueError`(key 不存在),要捕获后 `set(1)`。整段包 `try/except` 静默降级:监控代码永远不能影响资料接口。
 
 ## 注释规范
 

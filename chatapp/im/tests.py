@@ -16,11 +16,13 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 from datetime import timedelta
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -45,7 +47,7 @@ from discovery.models import Match
 
 from feed.models import Post, PostComment
 
-from . import media_sign
+from . import media_sign, voice
 from .client import (_request, black_list_add, black_list_delete, delete_account,
                      ensure_account, import_account, kick_user, send_ban_lifted,
                      send_ban_notice, send_custom_elem, send_match_notice,
@@ -1366,6 +1368,65 @@ class ChatVoiceUploadTests(APITestCase):
         cache.clear()
         self.assertEqual(self.upload(duration_ms=5000).status_code, 201)
         self.assertEqual(self.upload(duration_ms=5000).status_code, 429)
+
+
+class VoiceCommandHardeningTests(SimpleTestCase):
+    """M5:ffmpeg/ffprobe 以最小权限运行(协议白名单、无交互、资源上限、最小环境)。"""
+
+    def test_probe_uses_protocol_whitelist(self):
+        with patch("im.voice.subprocess.run") as run:
+            run.return_value = SimpleNamespace(stdout="5.0\n", returncode=0)
+            duration = voice._probe_ms(Path("a.m4a"))
+        self.assertEqual(duration, 5000)
+        args = run.call_args.args[0]
+        self.assertEqual(args[0], "ffprobe")
+        self.assertEqual(args[args.index("-protocol_whitelist") + 1], "file,pipe")
+        kwargs = run.call_args.kwargs
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertFalse(kwargs.get("shell", False))
+        self.assertEqual(kwargs["timeout"], voice.PROCESS_TIMEOUT_SECONDS)
+        self.assertEqual(kwargs["env"]["LC_ALL"], "C")
+        if os.name == "posix":
+            self.assertIs(kwargs["preexec_fn"], voice._apply_limits)
+        else:
+            self.assertIsNone(kwargs["preexec_fn"])
+
+    def test_transcode_args_are_hardened(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            src = Path(workdir) / "in.webm"
+            src.write_bytes(b"x")
+            with patch("im.voice.subprocess.run") as run:
+                run.return_value = SimpleNamespace(stdout="", returncode=0)
+                voice._transcode(src, Path(workdir) / "out.m4a")
+        args = run.call_args.args[0]
+        self.assertEqual(args[0], "ffmpeg")
+        self.assertIn("-nostdin", args)
+        self.assertEqual(args[args.index("-protocol_whitelist") + 1], "file,pipe")
+        self.assertEqual(args[args.index("-map_metadata") + 1], "-1")
+        self.assertIn("-sn", args)
+        self.assertIn("-dn", args)
+        self.assertEqual(args[args.index("-threads") + 1], "1")
+        self.assertFalse(run.call_args.kwargs.get("shell", False))
+
+    def test_transcode_nonzero_exit_raises_voice_error(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            with patch("im.voice.subprocess.run") as run:
+                run.return_value = SimpleNamespace(stdout="", returncode=1)
+                with self.assertRaises(voice.VoiceError):
+                    voice._transcode(Path(workdir) / "in.m4a", Path(workdir) / "out.m4a")
+
+    def test_transcode_timeout_raises_voice_error(self):
+        with tempfile.TemporaryDirectory() as workdir:
+            with patch("im.voice.subprocess.run",
+                       side_effect=subprocess.TimeoutExpired("ffmpeg", 15)):
+                with self.assertRaises(voice.VoiceError):
+                    voice._transcode(Path(workdir) / "in.m4a", Path(workdir) / "out.m4a")
+
+    def test_probe_timeout_raises_voice_error(self):
+        with patch("im.voice.subprocess.run",
+                   side_effect=subprocess.TimeoutExpired("ffprobe", 15)):
+            with self.assertRaises(voice.VoiceError):
+                voice._probe_ms(Path("a.m4a"))
 
 
 class ChatVoiceCleanupTests(TestCase):

@@ -13,6 +13,7 @@
     封禁态不参与完善度重算,不先脱离封禁态就永远算不回真实状态。
 """
 
+import logging
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
@@ -23,6 +24,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.models import User
+from config.net import client_ip
 from config.params import optional_id
 from feed.models import Post, PostReport
 from feed.services import delete_post
@@ -35,6 +37,48 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import review_photos
 
 from .decorators import staff_required
+from .models import MediaAccessLog
+
+logger = logging.getLogger(__name__)
+
+# 与举报详情页的证据窗口保持一致:最近 7 天被举报过的人,其聊天媒体优先进入视野。
+MEDIA_REPORT_WINDOW_DAYS = 7
+
+
+def _reported_user_ids(days: int = MEDIA_REPORT_WINDOW_DAYS) -> set[int]:
+    """取最近 ``days`` 天被举报过的用户 id 集合。
+
+    Args:
+        days: 回看天数。
+
+    Returns:
+        用户 id 集合;没有人被举报时为空集。
+    """
+    return set(Report.objects.filter(
+        created_at__gte=timezone.now() - timedelta(days=days),
+    ).values_list("target_id", flat=True))
+
+
+def _log_media_access(request, kind: str, filter_name: str, count: int) -> None:
+    """记录一次私聊媒体列表浏览;审计写失败只告警,绝不影响页面。
+
+    Args:
+        request: Django 请求对象。
+        kind: ``MediaAccessLog.Kind`` 取值(image/voice)。
+        filter_name: 筛选条件(all/reported/user)。
+        count: 本次返回的条数。
+    """
+    try:
+        MediaAccessLog.objects.create(
+            staff=request.user if request.user.is_authenticated else None,
+            kind=kind,
+            filter=filter_name,
+            count=count,
+            ip=client_ip(request) or None,
+        )
+    except Exception:
+        logger.warning("媒体访问审计写入失败", exc_info=True)
+
 
 
 @staff_required
@@ -588,7 +632,8 @@ def chat_images(request):
     """聊天图片抽审列表,按时间倒序最多 120 条。
 
     Args:
-        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)。
+        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)、
+            ``reported=1``(只看最近 7 天被举报过的发送者);每次浏览写一条审计。
 
     Returns:
         渲染后的聊天图片表格页。
@@ -598,7 +643,14 @@ def chat_images(request):
     user_id = optional_id(request.GET.get("user"))
     if user_id:
         qs = qs.filter(owner_id=user_id)
-    return render(request, "ops/chat_images.html", {"images": qs[:120]})
+    filter_name = "all"
+    if request.GET.get("reported") == "1":
+        qs = qs.filter(owner_id__in=_reported_user_ids())
+        filter_name = "reported"
+    images = list(qs[:120])
+    _log_media_access(request, MediaAccessLog.Kind.IMAGE, filter_name, len(images))
+    return render(request, "ops/chat_images.html",
+                  {"images": images, "reported": filter_name == "reported"})
 
 
 @require_POST
@@ -631,7 +683,8 @@ def chat_voices(request):
     """聊天语音抽审列表,按时间倒序最多 120 条。
 
     Args:
-        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)。
+        request: Django 请求对象,支持 ``user`` 查询参数(按发送者过滤)、
+            ``reported=1``(只看最近 7 天被举报过的发送者);每次浏览写一条审计。
 
     Returns:
         渲染后的聊天语音表格页。
@@ -641,7 +694,14 @@ def chat_voices(request):
     user_id = optional_id(request.GET.get("user"))
     if user_id:
         qs = qs.filter(owner_id=user_id)
-    return render(request, "ops/chat_voices.html", {"voices": qs[:120]})
+    filter_name = "all"
+    if request.GET.get("reported") == "1":
+        qs = qs.filter(owner_id__in=_reported_user_ids())
+        filter_name = "reported"
+    voices = list(qs[:120])
+    _log_media_access(request, MediaAccessLog.Kind.VOICE, filter_name, len(voices))
+    return render(request, "ops/chat_voices.html",
+                  {"voices": voices, "reported": filter_name == "reported"})
 
 
 @require_POST

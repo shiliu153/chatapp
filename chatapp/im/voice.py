@@ -7,11 +7,16 @@ App 录 m4a(AAC),Web 的 ``MediaRecorder`` 输出因浏览器而异(webm/ogg/mp4
 设计要点:
     1. 只在本机起子进程,不访问网络 —— 符合「响应路径禁止第三方网络调用」纪律;
     2. 命令一律用参数数组,不经 shell;超时 15 秒,防止畸形文件拖死 worker;
-    3. ffmpeg/ffprobe 缺失是部署问题,调用方回 503,而不是静默降级。
+    3. ffmpeg/ffprobe 缺失是部署问题,调用方回 503,而不是静默降级;
+    4. **把上传文件当不可信输入**(M5):协议白名单 ``file,pipe`` 挡住 HLS/concat
+       之类的 playlist 去访问网络或读任意本地文件;``-nostdin`` + ``stdin=DEVNULL``
+       防交互;POSIX 下再用 ``setrlimit`` 限 CPU/内存/输出文件大小;子进程环境只留
+       ``PATH``/``TMPDIR``,避免 ``FFREPORT`` 之类的环境变量被利用。
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -31,6 +36,14 @@ ALLOWED_CONTENT_TYPES = {
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
 
+# 只允许本地文件与管道:输入是刚写进临时目录的字节,输出是本机文件。
+# 没有 http/tcp/rtmp 等协议,畸形 playlist(如 HLS/concat)就拉不到外部资源。
+PROTOCOL_WHITELIST = "file,pipe"
+PROCESS_TIMEOUT_SECONDS = 15
+_CPU_LIMIT_SECONDS = 15
+_ADDRESS_SPACE_LIMIT = 512 * 1024 * 1024
+_FILE_SIZE_LIMIT = 16 * 1024 * 1024
+
 
 class VoiceError(Exception):
     """语音不合法或无法处理;消息直接回给客户端。"""
@@ -38,6 +51,60 @@ class VoiceError(Exception):
 
 class VoiceUnavailable(Exception):
     """服务器缺少 ffmpeg/ffprobe;调用方回 503。"""
+
+
+def _child_env() -> dict[str, str]:
+    """构造子进程的最小环境变量。
+
+    Returns:
+        只保留 ``PATH`` 与临时目录相关变量,避免继承 ``FFREPORT`` 等可被利用的配置。
+    """
+    env = {"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+           "LC_ALL": "C", "LANG": "C"}
+    for key in ("TMPDIR", "TEMP", "TMP"):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    return env
+
+
+def _apply_limits() -> None:
+    """在子进程里设置资源上限(POSIX)。
+
+    ``RLIMIT_CPU`` 兜住死循环,``RLIMIT_AS`` 兜住解码炸弹,``RLIMIT_FSIZE``
+    兜住写出超大文件;Windows 没有 ``resource`` 模块,由超时兜底。
+    """
+    if os.name != "posix":
+        return
+    import resource  # 仅 POSIX 可用,放函数内避免 Windows 导入失败
+
+    resource.setrlimit(resource.RLIMIT_CPU, (_CPU_LIMIT_SECONDS, _CPU_LIMIT_SECONDS))
+    resource.setrlimit(resource.RLIMIT_AS, (_ADDRESS_SPACE_LIMIT, _ADDRESS_SPACE_LIMIT))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (_FILE_SIZE_LIMIT, _FILE_SIZE_LIMIT))
+
+
+def _run(args: list[str]) -> subprocess.CompletedProcess:
+    """以最小权限执行 ffmpeg/ffprobe。
+
+    Args:
+        args: 完整参数数组(含可执行文件名),不经 shell。
+
+    Returns:
+        子进程结果;超时抛 ``subprocess.TimeoutExpired``,由调用方转成 ``VoiceError``。
+
+    Raises:
+        subprocess.TimeoutExpired: 处理超过 ``PROCESS_TIMEOUT_SECONDS``。
+    """
+    return subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=PROCESS_TIMEOUT_SECONDS,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        env=_child_env(),
+        preexec_fn=_apply_limits if os.name == "posix" else None,
+    )
 
 
 def base_content_type(value: str) -> str:
@@ -76,10 +143,13 @@ def _probe_ms(path: Path) -> int:
     Raises:
         VoiceError: ffprobe 读不出时长(不是音频 / 文件损坏)。
     """
-    result = subprocess.run(
-        [FFPROBE, "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=nw=1:nk=1", str(path)],
-        capture_output=True, text=True, timeout=15, check=False)
+    try:
+        result = _run(
+            [FFPROBE, "-v", "error", "-protocol_whitelist", PROTOCOL_WHITELIST,
+             "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(path)])
+    except subprocess.TimeoutExpired:
+        raise VoiceError("音频无法解码,请重新录制") from None
     try:
         return max(0, int(round(float(result.stdout.strip()) * 1000)))
     except (TypeError, ValueError):
@@ -97,13 +167,16 @@ def _transcode(src: Path, dst: Path) -> None:
         VoiceError: ffmpeg 非零退出或超时。
     """
     try:
-        subprocess.run(
-            [FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-i", str(src),
+        result = _run(
+            [FFMPEG, "-nostdin", "-y", "-hide_banner", "-loglevel", "error",
+             "-protocol_whitelist", PROTOCOL_WHITELIST,
+             "-i", str(src), "-map_metadata", "-1", "-sn", "-dn", "-threads", "1",
              "-vn", "-ac", "1", "-ar", str(settings.CHAT_VOICE_SAMPLE_RATE),
-             "-c:a", "aac", "-b:a", settings.CHAT_VOICE_BITRATE, "-f", "mp4", str(dst)],
-            capture_output=True, timeout=15, check=True)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+             "-c:a", "aac", "-b:a", settings.CHAT_VOICE_BITRATE, "-f", "mp4", str(dst)])
+    except subprocess.TimeoutExpired:
         raise VoiceError("音频无法解码,请重新录制") from None
+    if result.returncode != 0:
+        raise VoiceError("音频无法解码,请重新录制")
 
 
 def normalize(raw: bytes, content_type: str, declared_ms: int) -> tuple[bytes, int]:

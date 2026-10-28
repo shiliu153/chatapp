@@ -2,8 +2,10 @@
 {% block page_title %}聊天语音{% endblock %}
 {% block content %}
 <p class="ops-tabs">
-  <a href="{% url 'ops:chat_voices' %}" class="active">全部</a>
+  <a href="{% url 'ops:chat_voices' %}" class="{% if not reported %}active{% endif %}">全部</a>
+  <a href="{% url 'ops:chat_voices' %}?reported=1" class="{% if reported %}active{% endif %}">仅被举报</a>
 </p>
-<p><small>按时间倒序展示最近 120 条正常状态的聊天语音;删除后聊天里显示占位。</small></p>
+<p><small>按时间倒序展示最近 120 条正常状态的聊天语音;删除后聊天里显示占位。
+「仅被举报」只显示最近 7 天被举报过的发送者,每次浏览都会记审计。</small></p>
 {% include "ops/partials/chat_voices_table.html" %}
 {% endblock %}

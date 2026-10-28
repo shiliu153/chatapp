@@ -184,8 +184,8 @@ cp .env.example .env
 #    至少填: SECRET_KEY / DB_PASSWORD / IM_SDKAPPID / IM_SECRETKEY
 #    SECRET_KEY 可用: python -c "import secrets;print(secrets.token_urlsafe(50))"
 
-# 3. 装依赖(建议用虚拟环境)
-pip install -r requirements.txt
+# 3. 装依赖(生产/CI 一律用锁定文件;升级流程见 requirements.lock 头部注释)
+pip install -r requirements.lock
 
 # 4. 起 Redis(仓库自带 compose 文件)
 docker compose -f docker-compose.dev.yml up -d

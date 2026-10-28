@@ -232,6 +232,10 @@ FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
 CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传,按用户计数
 
+# 资料抓取监控(M2):同一账号一小时内浏览「多少个不同的人」超过该值就记 WARNING。
+# 限流只能压慢抓取,这个计数是发现「正在被批量爬」的早期信号;只告警不拦截。
+PROFILE_SCRAPE_ALERT_PER_HOUR = int(os.getenv("PROFILE_SCRAPE_ALERT_PER_HOUR", "60"))
+
 REST_FRAMEWORK = {
     # 只信任最近一层代理(nginx)追加的 XFF 末位。不设置时 DRF 会把整条
     # X-Forwarded-For 当 ident,客户端随便换一个值就能绕过 IP 限流。

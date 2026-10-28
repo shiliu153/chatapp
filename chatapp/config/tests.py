@@ -9,6 +9,7 @@
 """
 
 import io
+import re
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -507,6 +508,44 @@ class ImageGuardTests(SimpleTestCase):
         metadata = reopened.getexif()
         self.assertNotIn(0x010F, metadata)
         self.assertNotIn(0x8825, metadata)
+
+
+class DependencyLockTests(SimpleTestCase):
+    """L6 门禁:``requirements.lock`` 必须精确锁定并覆盖 ``requirements.txt`` 的直接依赖。"""
+
+    @staticmethod
+    def _parse(path: Path) -> dict[str, str]:
+        """解析 requirements 文件为「规范化包名 → 原始行」。
+
+        Args:
+            path: requirements 文件路径。
+
+        Returns:
+            包名统一小写、下划线转连字符后的字典;注释与空行忽略。
+        """
+        entries = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            name = re.split(r"[<>=!~\[; ]", line, maxsplit=1)[0]
+            entries[name.lower().replace("_", "-")] = line
+        return entries
+
+    def test_lock_covers_direct_requirements(self):
+        """直接依赖漏进 lock 会让生产装错版本,必须红。"""
+        base = Path(settings.BASE_DIR)
+        direct = self._parse(base / "requirements.txt")
+        lock = self._parse(base / "requirements.lock")
+        self.assertEqual(sorted(set(direct) - set(lock)), [],
+                         "requirements.lock 缺少直接依赖,请重新生成")
+
+    def test_lock_is_exactly_pinned(self):
+        """lock 里出现区间/通配符等于没锁,必须红。"""
+        lock = self._parse(Path(settings.BASE_DIR) / "requirements.lock")
+        unpinned = sorted(line for line in lock.values()
+                          if not re.fullmatch(r"[A-Za-z0-9._-]+==[0-9][^\s]*", line))
+        self.assertEqual(unpinned, [], "锁定文件存在非精确版本")
 
 
 class CommentCoverageTests(SimpleTestCase):
