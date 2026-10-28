@@ -6,13 +6,20 @@ export async function sendCode(phone: string): Promise<void> {
   await http.post('/auth/sms/send', { phone })
 }
 
-/** 校验验证码并登录(未注册自动建号)。 */
+/**
+ * 校验验证码并登录(未注册自动建号)。
+ * 浏览器不带 `refresh`:它在 HttpOnly Cookie 里,JS 读不到。
+ */
 export async function verify(phone: string, code: string): Promise<LoginResult> {
   const { data } = await http.post('/auth/sms/verify', { phone, code })
   return {
     access: data.access,
-    refresh: data.refresh,
     isNewUser: Boolean(data.is_new_user),
     userId: Number(data.user_id),
   }
+}
+
+/** 注销:拉黑 refresh 并清除 Cookie。幂等,重复调用也返回 204。 */
+export async function logout(): Promise<void> {
+  await http.post('/auth/logout', {})
 }

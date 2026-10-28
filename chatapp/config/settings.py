@@ -332,6 +332,14 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,  # 旧的立即拉黑
 }
 
+# --- Web 端的 refresh token 走 HttpOnly Cookie(见 docs/superpowers/specs/2026-10-28-token-hardening-design.md) ---
+# 只对带 ``X-Client: web`` 头的请求下发;App 仍走响应体,协议不变。
+REFRESH_COOKIE_NAME = os.getenv("REFRESH_COOKIE_NAME", "chatapp_rt")
+REFRESH_COOKIE_PATH = "/api/v1/auth/"     # 只在 refresh/logout 两个请求上携带
+# 轮换宽限:多标签页同时刷新时,后到者用旧 token 仍能拿到同一对新令牌。
+# 超过宽限的复用视为泄露重放,直接 401。默认 60 秒足够覆盖并发刷新。
+REFRESH_REUSE_GRACE = int(os.getenv("REFRESH_REUSE_GRACE", "60"))
+
 # --- 腾讯云 IM REST(凭据只在 .env) ---
 IM_SDKAPPID = os.getenv("IM_SDKAPPID", "")
 IM_SECRETKEY = os.getenv("IM_SECRETKEY", "")

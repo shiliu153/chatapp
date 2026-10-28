@@ -55,6 +55,8 @@ describe('SettingsPage', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     localStorage.clear()
+    // 退出/注销都会调一次 /auth/logout 清 HttpOnly Cookie;MSW 未铺的请求会直接抛
+    server.use(mswHttp.post('/api/v1/auth/logout', () => new HttpResponse(null, { status: 204 })))
   })
 
   it('列出全部设置入口', async () => {
@@ -78,7 +80,6 @@ describe('SettingsPage', () => {
   it('确认后退出登录:先登出 IM,再清凭证并跳登录页', async () => {
     const im = stubIm()
     tokenStore.access = 'a'
-    tokenStore.refresh = 'r'
     tokenStore.userId = 9
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
@@ -106,7 +107,6 @@ describe('SettingsPage', () => {
   it('注销账号:两步确认后清会话并跳登录页', async () => {
     const im = stubIm()
     tokenStore.access = 'a'
-    tokenStore.refresh = 'r'
     tokenStore.userId = 9
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     server.use(mswHttp.delete('/api/v1/users/me', () => new HttpResponse(null, { status: 204 })))
@@ -138,7 +138,6 @@ describe('SettingsPage', () => {
   it('注销失败(后端 400)留在设置页并显示错误', async () => {
     stubIm()
     tokenStore.access = 'a'
-    tokenStore.refresh = 'r'
     tokenStore.userId = 9
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     // ⚠️ support/server.ts 是 onUnhandledRequest: 'error',未铺的请求会直接抛,

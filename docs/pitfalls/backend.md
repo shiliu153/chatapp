@@ -94,3 +94,13 @@
 - **豁免规则一律按名称与嵌套形态判定,不按文件路径**。基于文件名的特判(判断 `test*.py` 还是 `*tests.py`、路径分隔符、大小写)是门禁脚本最容易出错的地方,值得为它放弃几十行注释的「整齐」。
 - **改写注释时信息只增不减**:本项目大量注释承载踩坑结论(踢人顺序、`BROKER_URL` 前缀、`account_import` 覆盖行为)。清理语气与格式可以,**技术结论一条都不能丢**。
 - **验证「只改了注释」的土办法**:用 `ast.dump` 剥离 docstring 后比对改动前后的 AST,两边一致即证明代码零改动。本次规范化全程用它兜底,抓到过一次补 docstring 时误删函数体的事故。
+
+## 令牌硬化(2026-10-28)
+
+- **Web 的 refresh 只走 Cookie,App 仍走响应体**:`accounts/cookies.py::wants_cookie()` 只认请求头 `X-Client: web`。不要用 User-Agent 判断 —— UA 可伪造且难测;自定义头跨域会触发预检,而生产 CORS 白名单为空,第三方站点发不出来。
+- **Cookie 的 `Path` 是 `/api/v1/auth/`**,只在 refresh/logout 两个请求上携带。改成 `/` 会让每个业务请求都带上这个 30 天凭证,暴露面白白扩大。
+- **`Secure` 必须跟 `HTTPS_ENABLED` 联动**:本地 http 调试时加 `Secure` 会被浏览器直接丢弃,表现成「登录成功但刷新立刻掉线」。
+- **刷新轮换要留宽限(`REFRESH_REUSE_GRACE`,默认 60 秒)**:`BLACKLIST_AFTER_ROTATION=True` 下,两个标签页同时刷新时先到者会把旧 refresh 拉黑,后到者原本会 401 被踢回登录页。轮换时把「旧 jti → 新 refresh」写缓存,命中就复用同一对新令牌(不再轮换);超过宽限的复用视为泄露重放。**宽限不能绕过单设备登录** —— 命中缓存后仍要校验 `session_version`,否则被顶下线的设备能借宽限续命。
+- **读 Cookie 分支时别直接碰 `request.data`**:Web 的刷新请求体是空的,DRF 解析空 JSON 体会抛 `ParseError`(400)。`views._body_refresh()` 把它当「没带」处理,再回落到 Cookie。
+- **注销必须幂等**:`POST /auth/logout` 对「没有 token / 已过期 / 已拉黑」一律 204。`blacklist()` 可能因缺 `OutstandingToken` 抛异常,这里只能吞掉 —— 注销的目标是「以后不能用」,不是「本次一定拉黑成功」。
+- **`response.delete_cookie()` 没有 `secure` 参数**:Django 5.2 的签名是 `(key, path, domain, samesite)`,传 `secure` 会 `TypeError`。要清 Secure Cookie 靠同名同 Path 即可。

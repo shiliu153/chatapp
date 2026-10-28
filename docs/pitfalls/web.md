@@ -99,3 +99,13 @@
   `web/tests/unit/tokens.spec.ts` 与 `fonts.spec.ts` 会双向比对,漏改即红。
 - 改接口必须同步 `docs/api/`(双向门禁,`ApiDocsCoverageTests` 会红)。
 - 网页端**只服务 PC 浏览器**,移动端按 UA 进引导页,不提供手机网页版。
+
+## 令牌硬化(2026-10-28)
+
+- **access 只在内存,refresh 在 HttpOnly Cookie**:`web/src/api/token-store.ts` 不再把任何令牌写 localStorage(只留 `hb.userId`)。页面刷新后 access 丢失是**预期行为**,`session.restore()` 直接请求 `/users/me`,由 401 拦截器用 Cookie 换新 access 再重放。
+- **请求要带 `X-Client: web`**:后端据此把 refresh 放进 Cookie 而不是响应体。漏了这个头,登录响应里会出现 `refresh` 字段、Cookie 也不会下发 —— 表现成「刷新页面就掉线」。
+- **刷新请求体必须是 `{}`**:空 body + `application/json` 会让 DRF 抛 `ParseError`(400)。`http.ts::refreshAccessToken` 传 `{}` 而不是 `null`。
+- **多标签页同时刷新靠后端 60 秒宽限**:前端不做跨标签锁(轮询/加锁在后台标签被节流时不可靠),后到者拿旧 refresh 仍能拿到同一对新令牌。
+- **退出登录必须调接口**:`session.logout()` 先 `POST /auth/logout` 清 Cookie,再清内存;接口失败也要清本地(否则用户卡在「退不出去」)。注销账号同理 —— 账号行删了拉黑必然失败,但 Cookie 能被清掉。
+- **测试隔离要显式清内存令牌**:`localStorage.clear()` 清不到模块内的 `accessToken`,所以 `tests/support/server.ts` 的 `afterEach` 里要 `tokenStore.clear()`。组件测试若自建 `ProviderScope`,`flutter_secure_storage` 那条是 App 侧的事,Web 不受影响。
+- **老用户升级会被登出一次**:旧版本写在 localStorage 的 `hb.access`/`hb.refresh` 在模块加载时直接删除,不回灌 Cookie(没有安全通道把旧 refresh 换成新会话)。发版说明里要提一句。

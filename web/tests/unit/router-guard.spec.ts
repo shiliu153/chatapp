@@ -12,7 +12,6 @@ const meHandler = () => mswHttp.get('/api/v1/users/me', () => HttpResponse.json(
 
 function loginLocally() {
   tokenStore.access = 'a'
-  tokenStore.refresh = 'r'
   tokenStore.userId = 5
 }
 

@@ -46,6 +46,7 @@ dependencies:
   record: ^7.1.2
   audioplayers: ^6.8.1
   path_provider: ^2.1.6
+  flutter_secure_storage: 9.2.4
 
 dev_dependencies:
   flutter_test:
@@ -81,6 +82,8 @@ flutter:
           weight: 700
   assets:
     - assets/fonts/OFL.txt
+    # 证书绑定用的根证书(发版前用 tool/verify_pinning.dart 验证)
+    - assets/certs/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

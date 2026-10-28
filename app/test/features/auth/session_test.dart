@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/core/token_storage.dart';
+import 'package:chatapp_app/core/token_store.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
@@ -21,6 +23,8 @@ void main() {
     return ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
       refreshDioProvider.overrideWithValue(refreshDio),
+      // 测试没有平台通道:令牌存 SharedPreferences,用例里的 prefs 播种才有效
+      tokenStoreProvider.overrideWithValue(TokenStore(storage: SharedPreferencesTokenStorage())),
       imClientProvider.overrideWithValue(fakeIm),
     ]);
   }
@@ -45,6 +49,8 @@ void main() {
       final container = ProviderContainer(overrides: [
         baseDioProvider.overrideWithValue(dio),
         refreshDioProvider.overrideWithValue(refreshDio),
+        tokenStoreProvider
+            .overrideWithValue(TokenStore(storage: SharedPreferencesTokenStorage())),
         imClientProvider.overrideWithValue(fakeIm),
         heartbeatIntervalProvider.overrideWithValue(const Duration(seconds: 30)),
       ]);

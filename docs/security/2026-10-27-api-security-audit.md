@@ -945,7 +945,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | ID | 状态 | 说明 / 证据 |
 |---|---|---|
 | S1 | **未关闭（已接受）** | 产品决定暂不接短信商、保留固定码；仅限封闭测试，不得对真实用户开放 |
-| H1 | 部分 | `https://chat.shiliu153.cn` 已上线（443 vhost + 安全头 + 媒体验签）；剩余 **Web token 仍在 localStorage**（需 BFF + HttpOnly Cookie）、**App 未做证书绑定** |
+| H1 | **已修复** | HTTPS 已于 2026-10-28 上线；Web 的 refresh 改走 `HttpOnly; SameSite=Strict; Path=/api/v1/auth/` Cookie，access 只留内存（JS 不再持有长期凭证）；App 用 `SecurityContext(withTrustedRoots:false)` 固定 ISRG Root X1 + X2，覆盖 HTTPS 与 WSS，release 包默认强制（`tool/verify_pinning.dart` 已对生产域名握手验证通过）。证据见 `docs/superpowers/plans/2026-10-28-token-hardening.md` |
 | H2 | **未关闭（已接受）** | 与 S1 同批；接入短信商时必须一并删除验证码日志 |
 | H3 | 已修复 | IM token 增加 `sv`；`im_user.session_version` + `/internal/session_version`；登录任务与 `user_sig` 双重同步，同步失败 503；旧 token 重连 40101 |
 | H4 | 已修复 | `im_pair` 表 + `/internal/pair`；发送校验配对（40302）、目标必须存在（不再建行）、每分钟配额、`known_` 上限；上线需跑 `im_sync_pairs` |
@@ -970,7 +970,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | L5 | 已修复 | 只接受 jpg/png/webp，统一重编码 |
 | L6 | 已修复 | `chatapp/requirements.lock` 精确锁定依赖闭包（含 gunicorn），README 改为装 lock；`DependencyLockTests` 守卫漂移 |
 | L7 | 已修复 | 生产 443 vhost 已带 HSTS/CSP/XFO/Referrer；后续接第三方 CDN 时需同步改 CSP |
-| L8 | 未修复 | App 令牌仍存 SharedPreferences（需换 secure storage + 迁移） |
+| L8 | 已修复 | App 令牌改存 `flutter_secure_storage`（Android Keystore / iOS Keychain），老用户首启一次性迁移并删除 SharedPreferences 旧键；`AndroidManifest` 关闭 `allowBackup`/`fullBackupContent`；安全存储不可用时降级读写，不会把人锁在登录页 |
 | L9 | 部分 | `known_` 已有上限；Origin/端口绑定/探针未全改 |
 | L10 | 部分 | JWT `exp <= now` 已改；ops 参数已校验；短信重放窗口保留 |
 

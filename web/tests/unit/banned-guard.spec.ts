@@ -31,7 +31,6 @@ describe('封禁守卫', () => {
     localStorage.clear()
     localStorage.setItem('hb.legalAgreed', '1')
     tokenStore.access = 'a'
-    tokenStore.refresh = 'r'
   })
 
   it('banned_heavy 用户被送到 /banned', async () => {

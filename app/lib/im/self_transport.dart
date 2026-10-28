@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+
+import '../core/pinned_tls.dart';
 
 /// 自建 IM 的 WebSocket 传输抽象:测试注入假实现。
 abstract class SelfTransport {
@@ -20,7 +23,11 @@ class WebSocketTransport implements SelfTransport {
 
   @override
   Future<void> connect(Uri uri) async {
-    final channel = WebSocketChannel.connect(uri);
+    // 证书绑定同时覆盖 WSS:自定义 HttpClient 只信任内置根证书
+    final pinned = PinnedTls.wsClient();
+    final channel = pinned == null
+        ? WebSocketChannel.connect(uri)
+        : IOWebSocketChannel.connect(uri, customClient: pinned);
     await channel.ready;
     _channel = channel;
     channel.stream.listen(
@@ -52,7 +59,8 @@ class DioSelfHttpClient implements SelfHttpClient {
           headers: {'Authorization': 'Bearer $token'},
           connectTimeout: const Duration(seconds: 5),
           receiveTimeout: const Duration(seconds: 5),
-        ));
+        ))
+          ..httpClientAdapter = PinnedTls.adapter();
 
   final Dio _dio;
 

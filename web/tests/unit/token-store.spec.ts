@@ -4,26 +4,13 @@ import { tokenStore } from '@/api/token-store'
 describe('tokenStore', () => {
   beforeEach(() => localStorage.clear())
 
-  it('读写三件套', () => {
+  it('access 只存内存,不写 localStorage', () => {
     tokenStore.access = 'a'
-    tokenStore.refresh = 'r'
-    tokenStore.userId = 42
     expect(tokenStore.access).toBe('a')
-    expect(tokenStore.refresh).toBe('r')
-    expect(tokenStore.userId).toBe(42)
+    expect(localStorage.getItem('hb.access')).toBeNull()
   })
 
-  it('清空后全部为 null', () => {
-    tokenStore.access = 'a'
-    tokenStore.refresh = 'r'
-    tokenStore.userId = 42
-    tokenStore.clear()
-    expect(tokenStore.access).toBeNull()
-    expect(tokenStore.refresh).toBeNull()
-    expect(tokenStore.userId).toBeNull()
-  })
-
-  it('userId 存的是数字,读回来仍是数字', () => {
+  it('userId 存 localStorage,读回来是数字', () => {
     tokenStore.userId = 7
     expect(localStorage.getItem('hb.userId')).toBe('7')
     expect(typeof tokenStore.userId).toBe('number')
@@ -34,9 +21,21 @@ describe('tokenStore', () => {
     expect(tokenStore.userId).toBeNull()
   })
 
-  it('显式写 null 等于删除', () => {
+  it('clear 清掉内存 access 与 userId', () => {
     tokenStore.access = 'a'
-    tokenStore.access = null
+    tokenStore.userId = 42
+    tokenStore.clear()
+    expect(tokenStore.access).toBeNull()
+    expect(tokenStore.userId).toBeNull()
+  })
+
+  it('升级后清掉旧版本遗留的 access/refresh', () => {
+    localStorage.setItem('hb.access', 'old-access')
+    localStorage.setItem('hb.refresh', 'old-refresh')
+
+    tokenStore.clear()
+
     expect(localStorage.getItem('hb.access')).toBeNull()
+    expect(localStorage.getItem('hb.refresh')).toBeNull()
   })
 })

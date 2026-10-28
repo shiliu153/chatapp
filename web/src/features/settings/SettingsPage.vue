@@ -41,7 +41,7 @@ async function onLogout() {
   if (!window.confirm('确定退出登录?')) return
   // 顺序不能反:先登出 IM,再清本地会话(否则 IM 还挂着旧账号的长连接)
   await chat.close().catch(() => {})
-  session.logout()
+  await session.logout()
   await router.push({ name: 'login' })
 }
 
@@ -67,7 +67,7 @@ async function onDeleteSubmitted(phone: string) {
   deleteOpen.value = false
   // 顺序与 onLogout 一致:先登出 IM,再清本地会话
   await chat.close().catch(() => {})
-  session.logout()
+  await session.logout()
   await router.push({ name: 'login' })
 }
 </script>

@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/core/token_storage.dart';
+import 'package:chatapp_app/core/token_store.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
@@ -19,6 +21,8 @@ void main() {
     final container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
       refreshDioProvider.overrideWithValue(dio),
+      // 测试没有平台通道:令牌存 SharedPreferences
+      tokenStoreProvider.overrideWithValue(TokenStore(storage: SharedPreferencesTokenStorage())),
       imClientProvider.overrideWithValue(fake),
     ]);
     addTearDown(container.dispose);

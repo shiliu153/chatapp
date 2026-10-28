@@ -6,6 +6,7 @@ import 'package:chatapp_app/core/api_client.dart';
 import 'package:chatapp_app/core/api_exception.dart';
 import 'package:chatapp_app/core/auth_interceptor.dart';
 import 'package:chatapp_app/core/token_refresher.dart';
+import 'package:chatapp_app/core/token_storage.dart';
 import 'package:chatapp_app/core/token_store.dart';
 
 import '../support/scripted_adapter.dart';
@@ -17,7 +18,7 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    store = TokenStore();
+    store = TokenStore(storage: SharedPreferencesTokenStorage());
     await store.save(access: 'old-access', refresh: 'refresh-1', userId: 1);
     adapter = ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'new-access', 'refresh': 'refresh-2'}),

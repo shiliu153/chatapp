@@ -36,14 +36,18 @@ export const useSessionStore = defineStore('session', () => {
   async function verify(phone: string, code: string): Promise<{ isNewUser: boolean }> {
     const result = await authApi.verify(phone, code)
     tokenStore.access = result.access
-    tokenStore.refresh = result.refresh
     tokenStore.userId = result.userId
     userId.value = result.userId
     status.value = 'loggedIn'
     return { isNewUser: result.isNewUser }
   }
 
-  function logout(): void {
+  /**
+   * 退出登录:先让服务端拉黑 refresh 并清 Cookie,再清本地内存。
+   * 接口失败也要清本地,否则用户会卡在「退不出去」的状态。
+   */
+  async function logout(): Promise<void> {
+    await authApi.logout().catch(() => {})
     resetSession(false)
   }
 
@@ -53,20 +57,23 @@ export const useSessionStore = defineStore('session', () => {
    */
   async function deleteAccount(phone: string): Promise<void> {
     await usersApi.deleteAccount(phone)
+    // 账号行已删,拉黑 refresh 必然失败;这里只为把 HttpOnly Cookie 清掉。
+    await authApi.logout().catch(() => {})
   }
 
+  /**
+   * 恢复会话:内存里没有 access 时,请求拦截器会用 Cookie 换一个再重试,
+   * 所以这里只需照常请求 `/users/me` —— 成功即已登录,失败即未登录。
+   */
   async function restore(): Promise<void> {
-    if (!tokenStore.access || !tokenStore.refresh) {
-      status.value = 'loggedOut'
-      return
-    }
     try {
-      await http.get('/users/me')
+      const { data } = await http.get('/users/me')
+      tokenStore.userId = Number(data.user_id)
       userId.value = tokenStore.userId
       status.value = 'loggedIn'
     } catch {
       // 拦截器已按 401 / 40101 分支清理过凭证;这里只兜底成未登录态
-      status.value = tokenStore.access ? 'loggedIn' : 'loggedOut'
+      status.value = 'loggedOut'
     }
   }
 

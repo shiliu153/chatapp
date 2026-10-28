@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api_client.dart';
 import 'auth_interceptor.dart';
 import 'config.dart';
+import 'pinned_tls.dart';
 import 'token_refresher.dart';
 import 'token_store.dart';
 
@@ -13,7 +14,8 @@ Dio _newDio() => Dio(BaseOptions(
       baseUrl: apiBase,
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
-    ));
+    ))
+      ..httpClientAdapter = PinnedTls.adapter();
 
 /// 业务请求用的 Dio(带拦截器);测试里 override 成挂了 ScriptedAdapter 的实例。
 final baseDioProvider = Provider<Dio>((ref) => _newDio());

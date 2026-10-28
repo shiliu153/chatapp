@@ -3,7 +3,11 @@
     <application
         android:label="chatapp_app"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
+        <!-- 令牌已进 Keystore,但备份仍可能带走 SharedPreferences 里的其他会话痕迹;
+             直接关掉云备份与设备迁移备份,避免 root/备份通道捞出本地数据(L8)。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

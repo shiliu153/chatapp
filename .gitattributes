@@ -31,3 +31,6 @@ flutter/** -diff -text linguist-vendored
 
 # 文档不参与 GitHub 语言统计(避免 Markdown 稀释真实代码占比)
 docs/** linguist-documentation
+
+# 证书 PEM 保持 LF:Dart/BoringSSL 的 PEM 解析对 CRLF 兼容,但归一化后 diff 更干净
+*.pem text eol=lf

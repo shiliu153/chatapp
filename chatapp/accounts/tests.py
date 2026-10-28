@@ -8,6 +8,7 @@
     - 验证码状态机(HMAC 存储、重放窗口、锁定、不存明文);
     - IM 账号约定 ``u{id}``、新用户导入与老用户「待踢旧会话」标记;
     - 令牌刷新与单设备登录(第二次登录作废第一个设备的两类令牌);
+    - Web 的 Cookie 分支(登录/刷新/注销、轮换宽限);
     - 造数命令(资料完善、生日不小于 18 岁、号码续编、号池耗尽);
     - 认证通过时刷新在线状态。
 """
@@ -21,7 +22,8 @@ from django.contrib.auth import authenticate, get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase, TestCase
+from django.db.models import F
+from django.test import SimpleTestCase, TestCase, override_settings
 from django_redis import get_redis_connection
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
@@ -358,16 +360,132 @@ class TokenRefreshTests(APITestCase):
         self.addCleanup(cache.clear)
         self.user = User.objects.create_user(phone="13800138000")
 
-    def test_refresh_rotates_and_blacklists_old_token(self):
+    def test_refresh_rotates_and_returns_new_pair(self):
         old = str(SessionRefreshToken.for_user(self.user))
         resp = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("access", resp.json())
         new = resp.json()["refresh"]
         self.assertNotEqual(new, old)
+        # 新 refresh 可以继续换发下一轮
+        again = self.client.post("/api/v1/auth/token/refresh", {"refresh": new}, format="json")
+        self.assertEqual(again.status_code, 200)
+
+    def test_reuse_within_grace_returns_same_new_pair(self):
+        """多标签页并发刷新:后到者拿旧 token 仍能拿到同一对新令牌。"""
+        old = str(SessionRefreshToken.for_user(self.user))
+        first = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
+        new = first.json()["refresh"]
+        second = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["refresh"], new)
+        self.assertIn("access", second.json())
+
+    @override_settings(REFRESH_REUSE_GRACE=0)
+    def test_reuse_after_grace_is_rejected(self):
+        """超出宽限期的重复使用视为泄露重放。"""
+        old = str(SessionRefreshToken.for_user(self.user))
+        self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
         again = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
         self.assertEqual(again.status_code, 401)
         self.assertEqual(again.json()["code"], 401)
+
+    def test_grace_does_not_revive_kicked_session(self):
+        """宽限期不能绕过单设备登录:账号已被顶下线时旧 token 仍然 40101。"""
+        old = str(SessionRefreshToken.for_user(self.user))
+        self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
+        User.objects.filter(pk=self.user.pk).update(session_version=F("session_version") + 1)
+        again = self.client.post("/api/v1/auth/token/refresh", {"refresh": old}, format="json")
+        self.assertEqual(again.status_code, 401)
+        self.assertEqual(again.json()["code"], 40101)
+
+    def test_missing_refresh_is_rejected(self):
+        resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json")
+        self.assertEqual(resp.status_code, 401)
+
+
+class WebCookieAuthTests(APITestCase):
+    """Web 分支:refresh 走 HttpOnly Cookie,响应体不返回 refresh。"""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.phone = "13800138000"
+        self.user = User.objects.create_user(phone=self.phone)
+
+    def issue_code(self):
+        """绕过 60 秒重发间隔写入验证码。
+
+        Returns:
+            写入的验证码(开发模式下固定为 ``settings.SMS_DEV_CODE``)。
+        """
+        cache.delete(f"sms:send:{self.phone}")
+        sms_codes.store(self.phone, settings.SMS_DEV_CODE)
+        return settings.SMS_DEV_CODE
+
+    def web_login(self):
+        """带 ``X-Client: web`` 走一次校验登录。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post("/api/v1/auth/sms/verify",
+                                {"phone": self.phone, "code": self.issue_code()},
+                                format="json", HTTP_X_CLIENT="web")
+
+    def test_web_login_sets_cookie_and_hides_refresh(self):
+        resp = self.web_login()
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("refresh", resp.json())
+        cookie = resp.cookies[settings.REFRESH_COOKIE_NAME]
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["samesite"], "Strict")
+        self.assertEqual(cookie["path"], "/api/v1/auth/")
+        self.assertTrue(cookie.value)
+
+    def test_app_login_returns_refresh_without_cookie(self):
+        resp = self.client.post("/api/v1/auth/sms/verify",
+                                {"phone": self.phone, "code": self.issue_code()}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("refresh", resp.json())
+        self.assertNotIn(settings.REFRESH_COOKIE_NAME, resp.cookies)
+
+    def test_cookie_refresh_rotates_and_sets_new_cookie(self):
+        raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json",
+                                HTTP_X_CLIENT="web")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("access", resp.json())
+        self.assertNotIn("refresh", resp.json())
+        rotated = resp.cookies[settings.REFRESH_COOKIE_NAME].value
+        self.assertNotEqual(rotated, raw)
+
+    def test_cookie_refresh_without_client_header_still_works(self):
+        """带了 Cookie 就按 Web 处理,不强制要求 X-Client 头(容错)。"""
+        raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("refresh", resp.json())
+
+    def test_logout_blacklists_refresh_and_clears_cookie(self):
+        raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        resp = self.client.post("/api/v1/auth/logout", {}, format="json", HTTP_X_CLIENT="web")
+        self.assertEqual(resp.status_code, 204)
+        cleared = resp.cookies[settings.REFRESH_COOKIE_NAME]
+        self.assertEqual(cleared["max-age"], 0)
+        # 被拉黑后不能再刷新
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        again = self.client.post("/api/v1/auth/token/refresh", {}, format="json",
+                                 HTTP_X_CLIENT="web")
+        self.assertEqual(again.status_code, 401)
+
+    def test_logout_is_idempotent(self):
+        resp = self.client.post("/api/v1/auth/logout", {}, format="json")
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(resp.cookies[settings.REFRESH_COOKIE_NAME]["max-age"], 0)
 
 
 class SingleDeviceSessionTests(APITestCase):
