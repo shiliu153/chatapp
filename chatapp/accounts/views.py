@@ -16,10 +16,11 @@ import logging
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import F
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
-from rest_framework.exceptions import AuthenticationFailed, ParseError
+from rest_framework.exceptions import (AuthenticationFailed, ParseError,
+                                       PermissionDenied)
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenBackendError, TokenError
@@ -32,10 +33,12 @@ from im import tasks as im_tasks
 from notifications.tasks import send_sms_code
 
 from . import services
-from .cookies import clear_refresh_cookie, set_refresh_cookie, wants_cookie
+from .cookies import (clear_refresh_cookie, same_origin, set_refresh_cookie,
+                      wants_cookie)
 from .exceptions import SingleDeviceSessionConflict, SmsServiceUnavailable
 from .serializers import PhoneSerializer, SmsVerifySerializer
-from .throttles import ProbeThrottle, SmsSendThrottle, SmsVerifyThrottle
+from .throttles import (LogoutThrottle, ProbeThrottle, SmsSendThrottle,
+                        SmsVerifyThrottle)
 from .tokens import SessionRefreshToken
 
 User = get_user_model()
@@ -159,7 +162,12 @@ def sms_verify(request):
     phone = serializer.validated_data["phone"]
     services.check_code(phone, serializer.validated_data["code"])
 
-    user, created = User.objects.get_or_create(phone=phone)
+    try:
+        user, created = User.objects.get_or_create(phone=phone)
+    except IntegrityError:
+        # 全新号码并发登录时,后到者会撞 phone 的唯一约束:回查一次即可(L-1)
+        user = User.objects.get(phone=phone)
+        created = False
     # 单设备登录:版本 +1 作废旧令牌;IM 建号/踢旧会话交给队列(响应路径不做外部调用)。
     # 用 F() 在数据库内自增,避免「读—加一—写」在并发登录时两个请求都拿到同一个旧版本,
     # 结果两台设备都以为自己是有效会话(M12)。
@@ -273,6 +281,9 @@ class SessionTokenRefreshView(TokenRefreshView):
         cookie_value = request.COOKIES.get(settings.REFRESH_COOKIE_NAME, "")
         raw = _body_refresh(request) or cookie_value
         web = wants_cookie(request) or bool(cookie_value)
+        if not same_origin(request):
+            # Cookie 会自动随请求带上,必须确认请求来自本站页面(M-3/L-4)
+            raise PermissionDenied("跨站请求被拒绝")
         if not raw:
             raise AuthenticationFailed("登录状态已失效,请重新登录")
 
@@ -322,17 +333,24 @@ class SessionTokenRefreshView(TokenRefreshView):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([LogoutThrottle])
 def logout(request):
     """注销:拉黑 refresh token 并清除 Cookie(POST /api/v1/auth/logout)。
 
     幂等 —— 令牌缺失、已过期或已拉黑都返回 204,前端只关心「本地会话已结束」。
+    按 IP 限流,避免匿名调用把黑名单表刷大(L-5)。
 
     Args:
         request: DRF 请求对象;``refresh`` 可放在请求体或 Cookie。
 
     Returns:
         204 空响应,附带清除 Cookie 的 ``Set-Cookie``。
+
+    Raises:
+        PermissionDenied: ``Origin`` 与本站不同源(仅 Cookie 场景需要,见 ``same_origin``)。
     """
+    if not same_origin(request):
+        raise PermissionDenied("跨站请求被拒绝")
     raw = _body_refresh(request) or request.COOKIES.get(settings.REFRESH_COOKIE_NAME, "")
     if raw:
         try:

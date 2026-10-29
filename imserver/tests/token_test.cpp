@@ -105,3 +105,15 @@ TEST(TokenTest, RejectsExpiryAtBoundary) {
   const auto token = signing_input + "." + hmac_b64(signing_input);
   EXPECT_FALSE(verify_token(token, kSecret, kNow).has_value());
 }
+
+TEST(TokenTest, SessionVersionMatchesStored) {
+  EXPECT_TRUE(session_version_matches(7, std::optional<int64_t>(7)));
+  EXPECT_FALSE(session_version_matches(7, std::optional<int64_t>(6)));
+  EXPECT_FALSE(session_version_matches(7, std::nullopt));
+}
+
+TEST(TokenTest, LegacyTokenWithoutSessionVersionPasses) {
+  // sv=0 是 2026-10-28 之前签发的旧 token,过渡期放行(最多 24h 自然过期)
+  EXPECT_TRUE(session_version_matches(0, std::nullopt));
+  EXPECT_TRUE(session_version_matches(0, std::optional<int64_t>(3)));
+}

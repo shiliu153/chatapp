@@ -134,21 +134,23 @@ def upload_image(request):
     normalized = images.normalize(image)
     stem = f"{request.user.id}-{uuid.uuid4().hex}"
 
-    # upload_to 已经是 ``chat/%Y/%m/``,这里只给文件名 —— 再拼一遍 "chat/年/月"
-    # 会落成 media/chat/2026/10/chat/2026/10/xxx.jpg(2026-10-26 部署时实测踩到)
-    chat_image = ChatImage(owner=request.user, width=normalized.width,
-                           height=normalized.height, bytes=len(normalized.data))
-    chat_image.file.save(f"{stem}{normalized.extension}",
-                         ContentFile(normalized.data), save=False)
-
     thumb = normalized.image.copy()
     thumb.thumbnail((settings.CHAT_IMAGE_THUMB_SIDE, settings.CHAT_IMAGE_THUMB_SIDE),
                     Image.Resampling.LANCZOS)
     thumb_buffer = io.BytesIO()
     thumb.convert("RGB").save(thumb_buffer, "JPEG", quality=80)
     thumb_data = thumb_buffer.getvalue()
-    # 配额按「原图 + 缩略图」算,检查放在落盘之前,超限不留半张图(M7)
+
+    # 配额必须查在**任何一次落盘之前**:``FileField.save(save=False)`` 会立即把文件写进
+    # 存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了(M-1)。
     storage.ensure_quota(request.user, len(normalized.data) + len(thumb_data))
+
+    # upload_to 已经是 ``chat/%Y/%m/``,这里只给文件名 —— 再拼一遍 "chat/年/月"
+    # 会落成 media/chat/2026/10/chat/2026/10/xxx.jpg(2026-10-26 部署时实测踩到)
+    chat_image = ChatImage(owner=request.user, width=normalized.width,
+                           height=normalized.height, bytes=len(normalized.data))
+    chat_image.file.save(f"{stem}{normalized.extension}",
+                         ContentFile(normalized.data), save=False)
     chat_image.thumb.save(f"{stem}_thumb.jpg",
                           ContentFile(thumb_data), save=False)
     chat_image.save()

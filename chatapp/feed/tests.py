@@ -490,6 +490,8 @@ class PostReportTests(FeedApiMixin, APITestCase):
         self.assertEqual((report.reporter, report.post, report.type),
                          (self.me, self.post, "porn"))
         self.assertEqual(report.status, ReportStatus.PENDING)
+        # 待处理举报带去重键,并发提交由数据库唯一约束兜底(L-2)
+        self.assertEqual(report.dedupe_key, f"{self.me.id}:{self.post.id}:pending")
 
     def test_duplicate_pending_is_idempotent(self):
         first = self.client.post(self.url, {"type": "porn"}, format="json")
@@ -498,6 +500,9 @@ class PostReportTests(FeedApiMixin, APITestCase):
         self.assertEqual(second.status_code, 200)
         self.assertEqual(second.json()["id"], first.json()["id"])
         self.assertEqual(PostReport.objects.count(), 1)
+        # 幂等命中已有行时,去重键与首次举报保持一致
+        self.assertEqual(PostReport.objects.get().dedupe_key,
+                         f"{self.me.id}:{self.post.id}:pending")
 
     def test_cannot_report_own_post(self):
         self.login(self.author)

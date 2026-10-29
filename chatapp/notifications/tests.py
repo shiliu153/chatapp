@@ -7,7 +7,7 @@
 
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from notifications.backends import ConsoleSmsBackend
 from notifications.tasks import send_sms_code
@@ -16,10 +16,20 @@ from notifications.tasks import send_sms_code
 class SmsBackendTests(TestCase):
     """短信后端:开发期控制台实现的行为。"""
 
+    @override_settings(SMS_DEV_MODE=True)
     def test_console_backend_logs_code(self):
         with self.assertLogs("notifications", level="INFO") as captured:
             ConsoleSmsBackend().send_code("13800138000", "123456")
         self.assertIn("123456", captured.output[0])
+
+    @override_settings(SMS_DEV_MODE=False)
+    def test_console_backend_never_logs_code_in_production(self):
+        """未接短信商时只报错,不把验证码写进日志(H-3)。"""
+        with self.assertLogs("notifications", level="ERROR") as captured:
+            ConsoleSmsBackend().send_code("13800138000", "123456")
+        joined = "\n".join(captured.output)
+        self.assertNotIn("123456", joined)
+        self.assertIn("138****8000", joined)
 
 
 class SendSmsCodeTaskTests(TestCase):

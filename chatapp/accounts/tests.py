@@ -142,6 +142,33 @@ class SmsSendTests(APITestCase):
             resp = self.client.post("/api/v1/auth/sms/send", {"phone": "13800138009"}, format="json")
             self.assertEqual(resp.status_code, 429)
 
+    @override_settings(SMS_DEV_MODE=True)
+    def test_dev_mode_logs_masked_phone_and_code(self):
+        """开发模式:日志里有验证码,但手机号必须脱敏(H-3)。"""
+        cache.clear()
+        with self.assertLogs("accounts", level="INFO") as captured:
+            code = services.issue_code("13800138000")
+        joined = "\n".join(captured.output)
+        self.assertIn(code, joined)
+        self.assertIn("138****8000", joined)
+        self.assertNotIn("13800138000", joined)
+
+    @override_settings(SMS_DEV_MODE=False)
+    def test_production_mode_never_logs_code(self):
+        """非开发模式:日志里不能出现验证码(接真实短信商后,H-3)。"""
+        cache.clear()
+        with self.assertNoLogs("accounts", level="INFO"):
+            services.issue_code("13800138000")
+
+    @override_settings(SMS_DEV_MODE=False)
+    def test_production_mode_code_is_six_digits(self):
+        """非开发模式:验证码是 6 位数字,且不再固定为 123456。"""
+        cache.clear()
+        with patch("accounts.services.sms_codes.store") as store:
+            code = services.issue_code("13800138000")
+        self.assertRegex(code, r"^\d{6}$")
+        store.assert_called_once_with("13800138000", code)
+
 
 class SmsVerifyTests(APITestCase):
     """校验验证码并登录:建号、令牌、错误分支、锁定、重放与限流。"""
@@ -468,6 +495,35 @@ class WebCookieAuthTests(APITestCase):
         resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json")
         self.assertEqual(resp.status_code, 200)
         self.assertNotIn("refresh", resp.json())
+
+    @override_settings(DEBUG=False)
+    def test_cross_site_refresh_is_rejected(self):
+        """Origin 与 Host 不同源时拒绝刷新(Cookie 的 CSRF 兜底,M-3/L-4)。"""
+        raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json",
+                                HTTP_X_CLIENT="web", HTTP_ORIGIN="https://evil.example.com")
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], 403)
+
+    @override_settings(DEBUG=False)
+    def test_same_origin_refresh_is_allowed(self):
+        """同源 Origin 正常放行。"""
+        raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw
+        resp = self.client.post("/api/v1/auth/token/refresh", {}, format="json",
+                                HTTP_X_CLIENT="web", HTTP_ORIGIN="http://testserver")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_logout_is_throttled(self):
+        """注销按 IP 限流,避免匿名调用刷黑名单表(L-5)。"""
+        from accounts.throttles import LogoutThrottle
+
+        with patch.object(LogoutThrottle, "rate", "1/hour", create=True):
+            first = self.client.post("/api/v1/auth/logout", {}, format="json")
+            second = self.client.post("/api/v1/auth/logout", {}, format="json")
+        self.assertEqual(first.status_code, 204)
+        self.assertEqual(second.status_code, 429)
 
     def test_logout_blacklists_refresh_and_clears_cookie(self):
         raw = self.web_login().cookies[settings.REFRESH_COOKIE_NAME].value

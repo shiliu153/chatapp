@@ -8,7 +8,7 @@
 """
 
 import logging
-import random
+import secrets
 
 from django.conf import settings
 from django.core.cache import cache
@@ -24,11 +24,26 @@ def _sent_key(phone):
     return f"sms:send:{phone}"
 
 
+def _mask_phone(phone: str) -> str:
+    """把手机号脱敏成 ``138****8000``,日志里不再出现完整号码。
+
+    Args:
+        phone: 原始手机号。
+
+    Returns:
+        脱敏后的手机号;长度不足时原样返回。
+    """
+    if len(phone) < 7:
+        return phone
+    return f"{phone[:3]}****{phone[-4:]}"
+
+
 def issue_code(phone: str) -> str:
     """生成并存储验证码。
 
     短信入队由调用方负责(见 ``views.sms_send``);本函数只负责限流、
-    生成、落库三步。
+    生成、落库三步。验证码用 ``secrets`` 生成(CSPRNG);只有开发模式才把
+    验证码写进日志 —— 接入真实短信商后日志里不能再出现明文码(H-3)。
 
     Args:
         phone: 手机号,同时作为发送间隔限流的键。
@@ -41,9 +56,11 @@ def issue_code(phone: str) -> str:
     """
     if not cache.add(_sent_key(phone), 1, settings.SMS_RESEND_INTERVAL):
         raise SmsSendTooFrequent(wait=settings.SMS_RESEND_INTERVAL)
-    code = settings.SMS_DEV_CODE if settings.SMS_DEV_MODE else f"{random.randint(0, 999999):06d}"
+    code = (settings.SMS_DEV_CODE if settings.SMS_DEV_MODE
+            else f"{secrets.randbelow(1_000_000):06d}")
     sms_codes.store(phone, code)
-    logger.info("[开发模式] 验证码 phone=%s code=%s", phone, code)
+    if settings.SMS_DEV_MODE:
+        logger.info("[开发模式] 验证码 phone=%s code=%s", _mask_phone(phone), code)
     return code
 
 

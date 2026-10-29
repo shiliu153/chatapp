@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ImproperlyConfigured
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django_redis import get_redis_connection
 from PIL import Image
@@ -23,7 +24,9 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
 from config import images
+from config import settings as settings_module
 from config.celery import ping
+from config.net import client_ip
 from config.params import int_param, optional_id
 
 
@@ -451,6 +454,67 @@ class ProxySettingsTests(SimpleTestCase):
     def test_num_proxies_is_configured(self):
         """``NUM_PROXIES`` 必须是正整数(默认 1)。"""
         self.assertEqual(settings.REST_FRAMEWORK["NUM_PROXIES"], 1)
+
+
+class SecretKeyGuardTests(SimpleTestCase):
+    """生产拒绝开发默认 ``SECRET_KEY``(H-2)。"""
+
+    def test_rejects_default_key_in_production(self):
+        """``DEBUG=0`` 且仍是默认密钥时必须拒绝启动。"""
+        with self.assertRaises(ImproperlyConfigured):
+            settings_module.assert_production_secret_key("dev-insecure-change-me", False)
+
+    def test_allows_custom_key_in_production(self):
+        """生产配了自定义密钥时正常通过。"""
+        settings_module.assert_production_secret_key("a" * 50, False)
+
+    def test_allows_default_key_in_debug(self):
+        """本地 DEBUG 下仍允许默认密钥,方便起服务。"""
+        settings_module.assert_production_secret_key("dev-insecure-change-me", True)
+
+
+class ClientIpTests(SimpleTestCase):
+    """客户端 IP 解析:只有可信代理转发的头才采信(M-3)。"""
+
+    def _request(self, remote="127.0.0.1", **extra):
+        """构造一个带指定 REMOTE_ADDR 的请求。
+
+        Args:
+            remote: 直连对端地址。
+            **extra: 额外的 META 项(如 ``HTTP_X_REAL_IP``)。
+
+        Returns:
+            Django 请求对象。
+        """
+        request = RequestFactory().get("/", **extra)
+        request.META["REMOTE_ADDR"] = remote
+        return request
+
+    def test_trusted_proxy_real_ip_is_used(self):
+        """回环代理转发的 X-Real-IP 才是真实客户端。"""
+        request = self._request(HTTP_X_REAL_IP="203.0.113.7")
+        self.assertEqual(client_ip(request), "203.0.113.7")
+
+    def test_forwarded_for_uses_last_hop(self):
+        """没有 X-Real-IP 时取 XFF 最后一段(nginx 追加的那一段)。"""
+        request = self._request(HTTP_X_FORWARDED_FOR="1.2.3.4, 203.0.113.7")
+        self.assertEqual(client_ip(request), "203.0.113.7")
+
+    def test_untrusted_peer_ignores_headers(self):
+        """直连(非可信代理)时伪造头无效,只认 REMOTE_ADDR。"""
+        request = self._request(remote="198.51.100.9", HTTP_X_REAL_IP="203.0.113.7")
+        self.assertEqual(client_ip(request), "198.51.100.9")
+
+    def test_ipv4_mapped_loopback_is_trusted(self):
+        """``::ffff:127.0.0.1`` 按 IPv4 处理,仍算可信代理。"""
+        request = self._request(remote="::ffff:127.0.0.1", HTTP_X_REAL_IP="203.0.113.7")
+        self.assertEqual(client_ip(request), "203.0.113.7")
+
+    def test_missing_remote_addr_returns_empty(self):
+        """拿不到对端地址时返回空串,不误信头。"""
+        request = RequestFactory().get("/", HTTP_X_REAL_IP="203.0.113.7")
+        request.META.pop("REMOTE_ADDR", None)
+        self.assertEqual(client_ip(request), "")
 
 
 class ImageGuardTests(SimpleTestCase):

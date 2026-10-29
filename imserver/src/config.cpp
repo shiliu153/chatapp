@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <stdexcept>
 
+#include "util/log.h"
+
 namespace {
 
 std::string get_or(const std::map<std::string, std::string>& env,
@@ -166,6 +168,12 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   }
   if (cfg.media_prefix.empty()) {
     throw std::runtime_error("missing IM_MEDIA_PREFIX");
+  }
+  if (cfg.media_sign_secret.empty()) {
+    // 不致命(本地/测试不配也能跑),但生产漏配会让图片/语音 URL 不带签名,
+    // 经 nginx 验签后全部 403 —— 必须让人一眼看到(L-7)。
+    log_warn("media_sign_disabled",
+             {{"hint", "IM_MEDIA_SIGN_SECRET 未配置:聊天图片/语音将不带签名"}});
   }
   return cfg;
 }

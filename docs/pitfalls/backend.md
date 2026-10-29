@@ -112,3 +112,15 @@
 - **读 Cookie 分支时别直接碰 `request.data`**:Web 的刷新请求体是空的,DRF 解析空 JSON 体会抛 `ParseError`(400)。`views._body_refresh()` 把它当「没带」处理,再回落到 Cookie。
 - **注销必须幂等**:`POST /auth/logout` 对「没有 token / 已过期 / 已拉黑」一律 204。`blacklist()` 可能因缺 `OutstandingToken` 抛异常,这里只能吞掉 —— 注销的目标是「以后不能用」,不是「本次一定拉黑成功」。
 - **`response.delete_cookie()` 没有 `secure` 参数**:Django 5.2 的签名是 `(key, path, domain, samesite)`,传 `secure` 会 `TypeError`。要清 Secure Cookie 靠同名同 Path 即可。
+
+## 第二轮安全整改(2026-10-29)
+
+- **`SECRET_KEY` 断言在模块加载时执行,`override_settings` 改不动**:`config/settings.py` 在 `DEBUG=0` 且密钥仍是 `dev-insecure-change-me` 时直接抛 `ImproperlyConfigured`,进程根本起不来。测试不能靠 `override_settings(SECRET_KEY=...)` 复现,要直接调 `assert_production_secret_key(secret, debug)`。生产漏配的后果是 JWT / 验证码 HMAC / 媒体签名全部可用公开常量伪造,必须让它「启动即失败」而不是静默降级。
+- **验证码日志只在开发模式出现**:`accounts/services.issue_code()` 只在 `SMS_DEV_MODE=1` 时打码,且手机号脱敏成 `138****8000`;`notifications/backends.ConsoleSmsBackend` 在 `SMS_DEV_MODE=0` 时**只记 error「未接入真实短信商」,不记验证码**。接真实短信商时替换 backend 即可,不要把码重新加回日志 —— 日志采集、云日志、运维都能读到。
+- **`client_ip()` 只信可信代理转发的头**:`settings.TRUSTED_PROXY_IPS`(默认 `127.0.0.1,::1`,支持 CIDR)命中的直连对端才采信 `X-Real-IP` / XFF 末段,否则一律用 `REMOTE_ADDR`。生产 Django 只监听回环,由本机 nginx 反代;`/admin/`、`/ops/` 的 nginx 片段必须**显式**写 `proxy_set_header X-Real-IP $remote_addr;` 与 `X-Forwarded-For $remote_addr;`,不能只依赖 `include` —— 漏配时后台 IP 白名单与登录锁定会全部挤在 127.0.0.1。
+- **`FileField.save(save=False)` 仍然立即写盘**:`save=False` 只跳过模型保存,文件已经进存储。聊天图片的配额检查必须放在**任何一次** `file.save` 之前,否则超配额时 413 已经返回、磁盘上却留下没有数据库行的孤儿文件;测试直接断言 `media/chat/` 下无新增文件。
+- **OTP 用时间戳而不是布尔标记**:session 里存 `otp_verified_at`,`ops/otp.is_verified()` 按 `OPS_OTP_TTL`(默认 12 小时)判定;旧的 `otp_verified=True` 一律视为未验证。升级后运营第一次进 `/ops/` 会要求重验一次,这是预期行为。`otp_verify` 通过后同时 `pop` 旧布尔键,避免两套标记并存。
+- **`ids` 过滤用 `int()` 不要用 `str.isdigit()`**:`"²".isdigit()` 为真但 `int("²")` 抛 `ValueError`,`pk__in` 求值时就是 500。ops 照片审核的 id 列表逐个 `try: int(value)` 并限制 500 个。
+- **动态举报去重键与用户举报同款**:`feed.PostReport.dedupe_key`(`举报人:动态:pending`)是唯一约束,`save()` 在离开 pending 时清空并把字段补进 `update_fields`;并发提交靠唯一约束 + `get_or_create` 回查。MySQL 唯一索引允许多个 `NULL`,所以「处理完可以再举报」不需要额外逻辑。**注意**:`post=SET_NULL` 后旧键仍保留旧 post id,不要改成用 `post_id` 现算。
+- **`logout` 限流 + `Origin` 同源校验**:`/auth/logout` 是匿名接口且会写黑名单表,按 IP 限流 60/小时;`same_origin()` 在 `DEBUG` 下直接放行(Vite 代理用 `changeOrigin` 会把 `Host` 改成 127.0.0.1,强校验会误杀本地开发),生产按 `Origin` 与 `Host` 比对,跨站 403。
+- **`ALLOWED_HOSTS` 为空时开放重定向会复活**:`url_has_allowed_host_and_scheme(..., allowed_hosts=None)` 会放行任意主机。`ops/otp._safe_redirect()` 在名单为空时退化为「只允许 `/` 开头且不是 `//` 的相对路径」。
