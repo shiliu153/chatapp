@@ -102,11 +102,31 @@
 - [x] 更新 `docs/pitfalls/backend.md` / `docs/pitfalls/im.md` 新增的坑。
 - [x] 更新 `docs/api/`（如 `logout` 限流、举报去重行为有变化）。
 
-## E. 上线动作（部署时逐条执行）
+## E. 上线动作（2026-10-29 已执行）
 
-- [ ] 后端：`python manage.py migrate`（新增 `feed.0004_postreport_dedupe_key`，会给存量待处理举报回填去重键）。
-- [ ] 后端 `.env`：确认 `SECRET_KEY` 不是开发默认值（否则 `DEBUG=0` 下进程起不来）；确认 `TRUSTED_PROXY_IPS` 保持默认回环，不要写公网网段。
-- [ ] nginx：把 `docs/ops/nginx-security.conf` 里 `/admin/`、`/ops/` 新增的 `proxy_set_header X-Real-IP` / `X-Forwarded-For` 同步到线上并 `nginx -t && reload`。
-- [ ] imserver：重建镜像并替换（`http_api` / `token` / `ratelimit` / `ws_server` 均有改动）；启动日志确认没有 `media_sign_disabled`。
-- [ ] 回归：旧设备（被顶下线）调 `/im/api/conversations` 应 401/40101；正常设备 200。
-- [ ] 运营：升级后第一次进 `/ops/` 会被要求重新输一次 TOTP（`otp_verified_at` 时间戳替代旧布尔标记），属预期。
+- [x] 后端：`python manage.py migrate`（新增 `feed.0004_postreport_dedupe_key`，会给存量待处理举报回填去重键）。
+- [x] 后端 `.env`：确认 `SECRET_KEY` 不是开发默认值（否则 `DEBUG=0` 下进程起不来）；确认 `TRUSTED_PROXY_IPS` 保持默认回环，不要写公网网段。
+- [x] nginx：线上 vhost 的 `location ~ ^/(api|admin|ops)` 已显式 `proxy_set_header X-Real-IP $remote_addr` / `X-Forwarded-For $remote_addr`，无需改动。
+- [x] imserver：重建镜像并替换（`http_api` / `token` / `ratelimit` / `ws_server` 均有改动）；启动日志确认没有 `media_sign_disabled`。
+- [x] 回归：旧设备（被顶下线）调 `/im/api/conversations` 应 401/40101；正常设备 200。
+- [ ] 运营：升级后第一次进 `/ops/` 会被要求重新输一次 TOTP（`otp_verified_at` 时间戳替代旧布尔标记），属预期（待运营下次登录时自然触发）。
+
+## F. 执行记录（2026-10-29 17:37–17:55，生产）
+
+> 说明：服务器原 HEAD 为 `7930bf2`（10-28 的 bundle 线），本次 `git reset --hard origin/master` 一并带上了 M7（存储配额/候选池）与 L9（imserver 入口防护），因此额外执行了 M7 的迁移、回填与计划任务。
+
+| 时间 | 动作 | 结果 |
+|---|---|---|
+| 17:37 | 备份：分支 `backup/pre-round2-20261029-1737`、`chatapp/.env`、`imserver/.env`、`/root/chatapp_backup_20261029-1737.sql`（164K） | 完成 |
+| 17:39 | `git reset --hard origin/master` → `80340e7` | 完成 |
+| 17:40 | `pip install -r requirements.lock`（首次落 lock） | 完成 |
+| 17:40 | `migrate`：`feed.0003`、`feed.0004`、`ops.0001`、`users.0005` | 4 个迁移 OK |
+| 17:40 | `media_bytes_backfill`：资料图 46 行、动态图 21 行 | 完成 |
+| 17:41 | `collectstatic`（127 文件）+ `check --deploy`（仅 W021） | 完成 |
+| 17:41 | 重启 `chatapp-web:*` / `chatapp-celery:*` | RUNNING |
+| 17:42 | 补 3 条 cron：03:40 `refresh_shuffle_keys`、04:10 `media_cleanup --apply`、04:20 `media_disk_report --fail-over` | 已写入 root crontab |
+| 17:43 | 本地构建并上传 `imserver:80340e7`（81MB gz）→ `docker load` → `--migrate`（v1–v4 全 skip）→ `up -d` | 容器已换新镜像 |
+| 17:42 | Web `npm run build` 后覆盖 `dist`（index 由 `BZl6fh0W` → `B6fZxN7L`） | 完成 |
+| 17:50 | 验收：`/api/v1/health` 200、`readyz` 200、`/app/config` 1.0.1；WS `auth_ok`、错误 `sv` → `40101`；HTTP 旧 token 200、错误 `sv` → `401 40101`；媒体无签名 403 / 签名 200；45 次读请求后 429；默认 `SECRET_KEY` 启动抛 `ImproperlyConfigured` | 全过 |
+
+回退：`git reset --hard backup/pre-round2-20261029-1737` + 恢复 `.env` 备份 + `IMSERVER_IMAGE` 改回 `imserver:7930bf2` + `docker compose up -d` + 重启 web/celery（迁移不回滚，代码向前兼容）。
