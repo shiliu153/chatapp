@@ -15,6 +15,8 @@ from django.shortcuts import redirect
 
 from config.net import client_ip
 
+from .otp import is_verified
+
 PROTECTED_PREFIXES = ("/admin/", "/ops/")
 EXEMPT_PREFIXES = (
     "/ops/login/", "/ops/logout/", "/ops/otp/",
@@ -56,6 +58,6 @@ class StaffSecurityMiddleware:
 
         user = getattr(request, "user", None)
         if (settings.OPS_OTP_REQUIRED and user is not None and user.is_authenticated
-                and user.is_staff and not request.session.get("otp_verified")):
+                and user.is_staff and not is_verified(request)):
             return redirect(f"/ops/otp/?next={quote(request.get_full_path())}")
         return self.get_response(request)

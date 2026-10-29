@@ -164,3 +164,12 @@ std::optional<TokenClaims> verify_token(std::string_view token,
     return std::nullopt;
   }
 }
+
+bool session_version_matches(int64_t token_sv, const std::optional<int64_t>& stored) {
+  // sv=0 是 2026-10-28 之前签发的旧 token(过渡期最多 24h),放行;
+  // 其余必须与库里的当前版本完全一致 —— 不一致说明账号已在别处登录。
+  if (token_sv == 0) {
+    return true;
+  }
+  return stored.has_value() && *stored == token_sv;
+}

@@ -282,9 +282,13 @@ def post_report(request, post_id):
         raise ValidationError("不能举报自己的动态")
     serializer = PostReportCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    # 幂等:同一对「举报人 → 动态」的待处理举报共用同一个 dedupe_key。
+    # 并发提交时由数据库唯一约束兜底,get_or_create 会回查已有记录,不会产生重复行(L-2)。
+    dedupe_key = f"{request.user.id}:{post.id}:{ReportStatus.PENDING}"
     report, created = PostReport.objects.get_or_create(
-        reporter=request.user, post=post, status=ReportStatus.PENDING,
-        defaults={"type": serializer.validated_data["type"],
+        dedupe_key=dedupe_key,
+        defaults={"reporter": request.user, "post": post,
+                  "type": serializer.validated_data["type"],
                   "detail": serializer.validated_data["detail"]})
     return Response({"id": report.id, "status": report.status},
                     status=201 if created else 200)

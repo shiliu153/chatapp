@@ -109,7 +109,12 @@ class PostComment(models.Model):
 
 
 class PostReport(models.Model):
-    """动态举报;post 用 SET_NULL:动态删除后举报行留档(运营对账)。"""
+    """动态举报;post 用 SET_NULL:动态删除后举报行留档(运营对账)。
+
+    Attributes:
+        dedupe_key: 待处理举报的去重键(``举报人:动态:pending``),唯一约束
+            保证并发提交也只落一条;处理完成后置空,允许再次举报(L-2)。
+    """
 
     reporter = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
                                  related_name="post_reports")
@@ -125,9 +130,32 @@ class PostReport(models.Model):
                                    related_name="post_reports_handled")
     created_at = models.DateTimeField(auto_now_add=True)
     handled_at = models.DateTimeField(null=True, blank=True)
+    dedupe_key = models.CharField("去重键", max_length=80, null=True, blank=True,
+                                  unique=True, editable=False)
 
     class Meta:
         ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        """保存前维护去重键。
+
+        待处理举报写入 ``举报人:动态:pending``;离开待处理状态就清空,
+        这样处理完可以再次举报同一动态,并发提交仍被唯一约束挡住。
+
+        Args:
+            *args: 透传给 ``Model.save``。
+            **kwargs: 透传给 ``Model.save``;``update_fields`` 会补上 ``dedupe_key``,
+                否则只改 ``status`` 时去重键清不掉。
+        """
+        if self.status == ReportStatus.PENDING:
+            if not self.dedupe_key:
+                self.dedupe_key = f"{self.reporter_id}:{self.post_id}:pending"
+        else:
+            self.dedupe_key = None
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"dedupe_key"}
+        super().save(*args, **kwargs)
 
     def __str__(self):
         """后台与日志中的可读表示。

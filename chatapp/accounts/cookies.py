@@ -11,6 +11,8 @@
     - 接口契约:docs/api/auth.md
 """
 
+from urllib.parse import urlsplit
+
 from django.conf import settings
 from rest_framework.response import Response
 
@@ -28,6 +30,29 @@ def wants_cookie(request) -> bool:
         请求头 ``X-Client`` 为 ``web`` 时返回 ``True``;App 与其它调用方返回 ``False``。
     """
     return request.headers.get(WEB_CLIENT_HEADER, "").strip().lower() == WEB_CLIENT_VALUE
+
+
+def same_origin(request) -> bool:
+    """Cookie 分支的 CSRF 兜底:``Origin`` 存在时必须与 ``Host`` 同源。
+
+    ``SameSite=Strict`` 已经挡住跨站表单,这里再校验一次 ``Origin``,覆盖
+    「同站子域」与浏览器实现差异。本地 ``DEBUG`` 直接放行 —— Vite 代理用了
+    ``changeOrigin``,``Host`` 会变成 127.0.0.1 而浏览器 ``Origin`` 是 localhost,
+    强校验会把本地开发误杀。
+
+    Args:
+        request: DRF 请求对象。
+
+    Returns:
+        同源(或没有 ``Origin``、或 ``DEBUG``)返回 ``True``。
+    """
+    if settings.DEBUG:
+        return True
+    origin = (request.headers.get("Origin") or "").strip()
+    if not origin:
+        return True
+    parsed = urlsplit(origin)
+    return parsed.netloc.lower() == request.get_host().lower()
 
 
 def _cookie_kwargs() -> dict:

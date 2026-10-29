@@ -5,6 +5,7 @@
 #include <boost/beast/core/buffers_to_string.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <iostream>
 #include <iterator>
@@ -41,8 +42,19 @@ std::optional<uint64_t> parse_uid(const std::string& value) {
   if (value.size() < 2 || value[0] != 'u') {
     return std::nullopt;
   }
+  const auto digits = value.substr(1);
+  // 严格整串数字:``std::stoull`` 会接受 "12abc" 这样的前缀(只解析到 12),
+  // 那会让日志/审计里的接收方与客户端意图不一致(M-8)。
+  if (digits.size() > 20) {
+    return std::nullopt;
+  }
+  for (const unsigned char ch : digits) {
+    if (!std::isdigit(ch)) {
+      return std::nullopt;
+    }
+  }
   try {
-    return std::stoull(value.substr(1));
+    return std::stoull(digits);
   } catch (const std::exception&) {
     return std::nullopt;
   }
@@ -374,14 +386,12 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
   }
   // 会话版本:登录会把版本 +1 并同步到 im_user;旧设备的 token 带的是旧版本,
   // 这里直接拒绝,避免「被顶下线后还能重连收消息」(H3)。sv=0 是过渡期的旧 token。
-  if (claims->sv != 0) {
-    const auto stored = messages_.users().session_version(claims->uid);
-    if (!stored.has_value() || *stored != claims->sv) {
-      send_raw(error_frame(40101, "登录已过期"));
-      close_code_ = 4002;
+  if (claims->sv != 0 &&
+      !session_version_matches(claims->sv, messages_.users().session_version(claims->uid))) {
+    send_raw(error_frame(40101, "登录已过期"));
+    close_code_ = 4002;
 
-      return;
-    }
+    return;
   }
 
   uid_ = claims->uid;
@@ -408,15 +418,14 @@ void WsSession::handle_send(const nlohmann::json& frame) {
   }
   try {
     const auto data = frame.at("data");
-    const auto to = data.value("to", std::string());
-    if (to.size() < 2 || to[0] != 'u') {
+    const auto to_uid = parse_uid(data.value("to", std::string()));
+    if (!to_uid.has_value()) {
       send_raw(error_frame(42201, "接收方不合法"));
       return;
     }
-    const uint64_t to_uid = std::stoull(to.substr(1));
     SendRequest request;
     request.from = uid_;
-    request.to = to_uid;
+    request.to = *to_uid;
     request.client_msg_id = data.value("client_msg_id", frame.value("id", std::string()));
     const auto kind = data.value("kind", std::string("text"));
     if (kind == "image") {

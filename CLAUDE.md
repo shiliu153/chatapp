@@ -55,6 +55,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-28 | **安全审计整改 P0+P1 交付**(`fix/security-remediation`):S1/H2 短信按产品决定不修;H3 IM token 绑定 `sv` + `im_user.session_version` + 登录/`user_sig` 双同步;H4 `im_pair` 配对校验(未配对 40302、目标必须存在、每分钟配额、`known_` 上限)+ `im_sync_pairs` 回填命令;H6 后台登录锁定 + TOTP + IP 白名单;M1 `NUM_PROXIES`、M3/M4/L5 统一图片校验与 EXIF 剥离、M6 媒体签名 fail-closed、M10/M11/M12、L1/L2/L4;H5 生产默认 `AUTO_APPROVE=0`;H1/B8 HTTPS 开关与 nginx 安全基线。后端 545 / imserver unit 22 + db 18 + 集成全绿 |
 | 2026-10-28 | **令牌硬化交付**(`fix/security-remediation`,审计 H1 剩余 + L8):Web 的 refresh 改走 `HttpOnly; SameSite=Strict; Path=/api/v1/auth/` Cookie(响应体不再返回 refresh、access 只留内存、新增 `POST /auth/logout`、60 秒轮换宽限防多标签互踢);App 令牌换 `flutter_secure_storage`(Keystore/Keychain + 老用户一次性迁移 + 失败降级);App 证书绑定 ISRG Root X1+X2 覆盖 HTTPS 与 WSS(release 默认 enforce,`tool/verify_pinning.dart` 对生产域名握手 200)。后端 573 / Web 371 / App 412 测试绿;**H1、L8 关闭** |
 | 2026-10-28 | **M7 存储配额 + 候选池交付**(审计 M7):四类媒体单账号配额(`USER_STORAGE_QUOTA_MB` 默认 200,超限 413 + `41301`,检查在落盘前);`Photo.bytes`/`PostImage.bytes` + `media_bytes_backfill`;候选池改 `Profile.shuffle_key` 预计算随机列 + 池内抽样,不再 `ORDER BY RAND()`,新增 `refresh_shuffle_keys` 轮换;`media_cleanup` 清资料图/广场图孤儿、`media_disk_report` 磁盘告警(`--fail-over`)。后端 592 测试绿;**M7 关闭** |
+| 2026-10-29 | **安全审计整改第二轮交付**(`fix/security-round2`,审计 round2 3 高危 + 8 中危 + 9 低危):H-1 `/im/api/*` 与 WS 同口径校验 `sv`;H-2 生产漏配 `SECRET_KEY` 启动即抛 `ImproperlyConfigured`;H-3 验证码改 `secrets` + 只在开发模式打脱敏日志;M-1 聊天图配额前移到落盘前;M-2 HTTP 读接口 `RateTable` 按账号限流;M-3 `client_ip` 只信 `TRUSTED_PROXY_IPS`;M-6 OTP 改时间戳 + `OPS_OTP_TTL`;M-7 ops id 改 `int()` 解析;M-8 WS `parse_uid` 严格整串;L-1 并发建号回查、L-2 `PostReport.dedupe_key`、L-4/L-5 Origin 校验 + logout 限流、L-6 空 `ALLOWED_HOSTS` 只允许相对路径、L-7 媒体密钥缺失告警。后端 611 / imserver unit 40 + db 18 + 集成 / Web 371 / App analyze 零告警 |
 
 
 **下一步**:2026-10-28 **已全量切到 `https://chat.shiliu153.cn`**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `https://chat.shiliu153.cn/chatapp-1.0.1.apk`)。剩余:
@@ -145,7 +146,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **响应路径禁止任何第三方网络调用**(requests/腾讯 REST/短信商);跨系统副作用一律走 Celery 任务;`transaction.on_commit(fn, robust=True)` 的语义是「DB 提交后」
 - **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 与 `im/self_client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
 - **自建 IM**:`IM_BACKEND=tencent|self`;`im/client.py` 按账号灰度分发到 `im/self_client.py`;灰度名单只能放隔离测试号(跨后端消息不通);`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致;**图片消息与语音消息**要求 `IM_MEDIA_PREFIX` = Django 的 `MEDIA_BASE_URL + /media/chat/`(必填,缺失 imserver 起不来;不一致则发图/发语音 42201);语音上传还要求服务器装 `ffmpeg`/`ffprobe`(缺失时 503+`50302`)
-- **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101;登录与 `user_sig` 双同步,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
+- **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101,**WS 握手与 `/im/api/*` 两个入口同口径**;登录与 `user_sig` 双同步,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
 - **imserver 入口防护(2026-10-28 起)**:监听默认只允许回环,写成非回环地址必须显式 `IM_ALLOW_PUBLIC_BIND=1`,否则启动失败;`X-Real-IP` 只在对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时才采信,绕过 nginx 直连伪造不了限流 key;`Origin` 未配 `IM_ALLOWED_ORIGINS` 时按同源兜底(不是全放行)
 - **图片上传**:资料图/广场图/聊天图统一走 `config/images.py`(仅 jpg/png/webp、≤2000 万像素、长边 4096、`exif_transpose` 后重编码剥离 EXIF/GPS);聊天媒体签名生产缺 `IM_MEDIA_SIGN_SECRET` 直接启动失败,TTL 默认 3600
 - **存储配额(2026-10-28 起)**:四类媒体(资料图/广场图/聊天图/语音)按库内 `bytes` 求和,单账号上限 `USER_STORAGE_QUOTA_MB`(默认 200),超限上传 **413 + `41301`**;检查必须在落盘前;删除与 30 天过期自动回收,不做计数列;上线必须跑一次 `media_bytes_backfill`,否则老用户按零占用算
@@ -172,7 +173,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `POST /auth/sms/send` | 发验证码;同号 60 秒重发间隔(42901,带 Retry-After);IP 限流;入队失败回滚并 503(50301) |
 | `POST /auth/sms/verify` | 校验并登录(号码没注册过自动建号)→ `{access, refresh, is_new_user, user_id}`;带 `X-Client: web` 时 refresh 改为 HttpOnly Cookie、响应体不含 refresh;连错 5 次锁 15 分钟(42902);60 秒幂等重放窗口 |
 | `POST /auth/token/refresh` | 刷新 access(响应同时给新 refresh);refresh 可放请求体或 Cookie;轮换后 60 秒宽限内允许并发标签页复用 |
-| `POST /auth/logout` | 注销:拉黑 refresh + 清 Cookie;幂等 204 |
+| `POST /auth/logout` | 注销:拉黑 refresh + 清 Cookie;幂等 204;按 IP 60 次/小时;带 `Origin` 时校验同源 |
 | `GET/PATCH/DELETE /users/me` | 我的资料(昵称/性别/生日/城市/简介/`tag_ids`);未满 18 岁 400;`id`=profile 主键。**DELETE = 注销账号**:body 带 `phone` 二次确认,立即硬删除全部数据 + 释放手机号(同号可重注册为全新账号);重封禁 403 |
 | `GET /users/tags` | 标签池(12 个,数据迁移写入) |
 | `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB、jpg/png/webp);生产 `AUTO_APPROVE=0` 时新照片为 `pending`,需 ops 审核 |

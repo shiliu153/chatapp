@@ -285,9 +285,17 @@ def photo_review(request):
     Returns:
         照片网格的局部片段,``skipped`` 为页面陈旧、照片已被删除的条数。
     """
-    ids = set(request.POST.getlist("ids"))
-    # 非数字 id 直接丢弃:``pk__in=["abc"]`` 会在求值时抛 ValueError(500)。
-    ids = {value for value in ids if value.isdigit()}
+    ids = set()
+    for value in request.POST.getlist("ids"):
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            # 非数字一律丢弃:``pk__in`` 求值时会抛 ValueError(500)。
+            # 注意不能用 ``str.isdigit()`` 过滤 —— "²".isdigit() 为真但 int() 会抛(M-7)。
+            continue
+        if parsed > 0:
+            ids.add(parsed)
+    ids = set(sorted(ids)[:500])   # 一次最多审 500 张,避免超大表单打库
     action = request.POST.get("action")
     status_map = {"approve": PhotoStatus.APPROVED, "reject": PhotoStatus.REJECTED}
     skipped = 0

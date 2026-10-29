@@ -130,3 +130,10 @@ print('done', len(ids))
 - **监听 `0.0.0.0` 会直接启动失败**:`IM_LISTEN_WS`/`IM_LISTEN_HTTP` 是非回环地址时必须显式 `IM_ALLOW_PUBLIC_BIND=1`。这是防止部署时手滑把 9101 内部接口(HMAC + 回环保护)暴露到公网的最后一道闸;容器与测试脚本都用 `127.0.0.1`,不受影响。
 - **`auth_buckets_` / `profiles_` 有上限**:前者 2 万条(先淘汰 10 分钟空闲桶,再整体清空),后者 10 万条;整体清空只丢一个限流窗口,日志里会出现 `auth_buckets_reset`,属于预期兜底,不是故障。启动日志里的 `trusted_proxies_empty` 则相反 —— 说明可信代理被显式置空,nginx 反代时全站会挤在 `127.0.0.1` 一个 key 上,单 IP 连接数/鉴权限流会误伤正常用户。
 
+## 第二轮安全整改(2026-10-29)
+
+- **HTTP `/im/api/*` 与 WS 同口径校验会话版本**:`HttpApi::authenticate()` 在验签、过期、封禁键之外,还要比对 token 的 `sv` 与 `im_user.session_version`,判定收敛到 `auth/token.cpp::session_version_matches()` 一处。`sv=0` 是 2026-10-28 之前签发的旧 token,过渡期放行(最多 24 小时自然过期)。**只修 WS 不修 HTTP 等于没修** —— 被顶下线的旧设备仍能用旧 token 翻全部历史与搜索,验收要分别打 WS 和 `/im/api/conversations`。
+- **HTTP 读接口按账号限流**:`RateTable read_table_{2.0, 40.0}`(120/min、burst 40)覆盖 `/conversations` 与 `/messages`,`search_table_{1.0, 20.0}` 保留更严的独立桶;超限 429 + `42901`。`RateTable` 有 4096 条上限,先淘汰 10 分钟空闲 key,仍满则整体清空并记 `rate_table_reset` —— 只丢一个限流窗口,不会跟着任意 uid 涨内存。
+- **`parse_uid` 必须整串数字**:`std::stoull("12abc")` 会成功返回 12,`u12abc` 于是被当成 uid 12。现在要求 `u` 之后全是 ASCII 数字且长度 ≤20,`handle_send` 也复用它,不合法统一 42201。新增用例在 `tests/integration/test_internal.py`。
+- **`IM_MEDIA_SIGN_SECRET` 缺失只告警不 fatal**:本地/测试不配也能跑,但生产漏配会让图片/语音 URL 不带签名,经 nginx 验签后全部 403。启动日志出现 `media_sign_disabled` 就是漏配,不是普通 warning。
+

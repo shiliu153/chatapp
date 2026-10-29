@@ -1043,12 +1043,14 @@ class ChatImageUploadTests(APITestCase):
         self.assertTrue(urlsplit(response.data["url"]).path.endswith(".jpg"))
 
     def test_quota_exceeded_rejects_upload(self):
-        """配额不足时 413/41301,且不建行(M7)。"""
+        """配额不足时 413/41301,不建行,且**磁盘上不留任何文件**(M-1)。"""
         with self.settings(USER_STORAGE_QUOTA_BYTES=1):
             response = self.upload()
         self.assertEqual(response.status_code, 413)
         self.assertEqual(response.data["code"], 41301)
         self.assertEqual(ChatImage.objects.count(), 0)
+        # 配额校验必须先于落盘:超限后 media/chat 下不能出现孤儿原图/缩略图
+        self.assertEqual([p for p in Path(self.media_dir).rglob("*") if p.is_file()], [])
 
 
 class MediaSignTests(SimpleTestCase):

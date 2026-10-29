@@ -29,13 +29,34 @@ load_dotenv(BASE_DIR / ".env")
 
 # --- 基础开关(以下默认值仅供本地开发,生产一律用 .env 覆盖) ---
 
-# 生产必须从 .env 注入 SECRET_KEY;此处的默认值仅为让本地起得来
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-insecure-change-me")
+# 生产必须从 .env 注入 SECRET_KEY;此处的默认值仅为让本地起得来。
+# 它同时是 JWT(HS256)、验证码 HMAC 与 session 签名的密钥 —— 生产漏配等于全站可伪造,
+# 因此下面在 DEBUG=0 时直接拒绝启动(H-2)。
+_DEV_SECRET_KEY = "dev-insecure-change-me"
+SECRET_KEY = os.getenv("SECRET_KEY", _DEV_SECRET_KEY)
 
 # 生产必须置 DEBUG=0,否则异常页会泄漏源码与配置
 DEBUG = os.getenv("DEBUG", "1") == "1"
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+
+
+def assert_production_secret_key(secret: str, debug: bool) -> None:
+    """生产环境拒绝使用开发默认密钥。
+
+    Args:
+        secret: 当前生效的 ``SECRET_KEY``。
+        debug: 当前 ``DEBUG`` 开关。
+
+    Raises:
+        ImproperlyConfigured: ``DEBUG`` 关闭且仍在使用开发默认密钥。
+    """
+    if not debug and secret == _DEV_SECRET_KEY:
+        raise ImproperlyConfigured(
+            "生产必须配置 SECRET_KEY(不能沿用开发默认值):JWT/验证码/HMAC 都依赖它")
+
+
+assert_production_secret_key(SECRET_KEY, DEBUG)
 
 
 # --- 应用注册 ---
@@ -213,6 +234,8 @@ OPS_LOGIN_LOCK_SECONDS = int(os.getenv("OPS_LOGIN_LOCK_SECONDS", "900"))
 OPS_OTP_REQUIRED = os.getenv("OPS_OTP_REQUIRED",
                              "0" if (DEBUG or TESTING) else "1") == "1"
 OPS_ALLOWED_IPS = os.getenv("OPS_ALLOWED_IPS", "")
+# 第二因子的有效期:通过一次后最多复用这么久(默认 12 小时),超时重新要验证码。
+OPS_OTP_TTL = int(os.getenv("OPS_OTP_TTL", str(12 * 3600)))
 
 # --- 限流额度(env 可调;DEBUG 下放宽,免得两台模拟器共享 127.0.0.1 触发 IP 限流) ---
 SMS_SEND_IP_RATE = os.getenv("SMS_SEND_IP_RATE", "200/hour" if DEBUG else "20/hour")
@@ -235,6 +258,10 @@ CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传
 # 资料抓取监控(M2):同一账号一小时内浏览「多少个不同的人」超过该值就记 WARNING。
 # 限流只能压慢抓取,这个计数是发现「正在被批量爬」的早期信号;只告警不拦截。
 PROFILE_SCRAPE_ALERT_PER_HOUR = int(os.getenv("PROFILE_SCRAPE_ALERT_PER_HOUR", "60"))
+
+# 可信代理:只有直连对端命中这份名单时,才采信 X-Real-IP / X-Forwarded-For。
+# 默认只信回环 —— 生产 Django 只监听 127.0.0.1,由本机 nginx 反代(M-3)。
+TRUSTED_PROXY_IPS = os.getenv("TRUSTED_PROXY_IPS", "127.0.0.1,::1")
 
 REST_FRAMEWORK = {
     # 只信任最近一层代理(nginx)追加的 XFF 末位。不设置时 DRF 会把整条
@@ -265,6 +292,7 @@ REST_FRAMEWORK = {
         "upload_photo": PHOTO_UPLOAD_RATE,
         "public_profile": PUBLIC_PROFILE_RATE,
         "probe": PROBE_RATE,
+        "logout": os.getenv("LOGOUT_RATE", "60/hour"),
         "feedback": FEEDBACK_RATE,
         "chat_image": CHAT_IMAGE_RATE,
         "chat_voice": CHAT_VOICE_RATE,

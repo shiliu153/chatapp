@@ -251,6 +251,12 @@ std::optional<uint64_t> HttpApi::authenticate(
   if (redis_.get("im:block:" + std::to_string(claims->uid)).has_value()) {
     return std::nullopt;
   }
+  // 会话版本必须与 WS 侧同口径校验:否则被顶下线的旧设备还能用旧 token
+  // 通过 /im/api/* 读历史与搜索(H-1)。sv=0 是过渡期旧 token,放行。
+  if (claims->sv != 0 &&
+      !session_version_matches(claims->sv, messages_.users().session_version(claims->uid))) {
+    return std::nullopt;
+  }
   return claims->uid;
 }
 
@@ -306,18 +312,6 @@ bool HttpApi::verify_internal(const http::request<http::string_body>& req) {
   const auto expected = hmac_sha256_hex(cfg_.internal_secret, data);
   return expected.size() == signature.size() &&
          CRYPTO_memcmp(expected.data(), signature.data(), expected.size()) == 0;
-}
-
-bool HttpApi::allow_search(uint64_t uid, int64_t now_ms) {
-  std::lock_guard<std::mutex> lock(search_mutex_);
-  if (search_buckets_.size() > 4096) {
-    for (auto it = search_buckets_.begin(); it != search_buckets_.end();) {
-      it = (now_ms - it->second.seen_ms > 600000) ? search_buckets_.erase(it) : std::next(it);
-    }
-  }
-  auto& bucket = search_buckets_[uid];
-  bucket.seen_ms = now_ms;
-  return bucket.bucket.allow(now_ms);
 }
 
 HttpApi::response_type HttpApi::internal_route(
@@ -463,7 +457,15 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     return error_response(req, http::status::unauthorized, 40101, "登录已过期");
   }
 
+  const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+
   if (target.path == "/im/api/conversations") {
+    if (!read_table_.allow(*uid, now_ms)) {
+      return error_response(req, http::status::too_many_requests, 42901,
+                            "请求过于频繁,请稍后再试");
+    }
     const int limit = static_cast<int>(std::clamp<uint64_t>(
         query_uint(target, "limit", 100), 1, 200));
     nlohmann::json items = nlohmann::json::array();
@@ -487,10 +489,7 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
   }
 
   if (target.path == "/im/api/search") {
-    const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                               std::chrono::system_clock::now().time_since_epoch())
-                               .count();
-    if (!allow_search(*uid, now_ms)) {
+    if (!search_table_.allow(*uid, now_ms)) {
       return error_response(req, http::status::too_many_requests, 42901,
                             "搜索过于频繁,请稍后再试");
     }
@@ -526,6 +525,10 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     return json_response(req, http::status::ok, {{"items", items}, {"has_more", has_more}});
   }
 
+  if (!read_table_.allow(*uid, now_ms)) {
+    return error_response(req, http::status::too_many_requests, 42901,
+                          "请求过于频繁,请稍后再试");
+  }
   std::string peer_text;
   if (const auto it = target.query.find("peer"); it != target.query.end()) {
     peer_text = it->second;

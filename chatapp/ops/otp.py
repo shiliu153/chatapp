@@ -9,6 +9,7 @@
 """
 
 import logging
+import time
 
 from django.conf import settings
 from django.core.cache import cache
@@ -24,6 +25,37 @@ logger = logging.getLogger(__name__)
 
 OTP_ATTEMPT_LIMIT = 10
 OTP_ATTEMPT_TTL = 300
+
+
+def mark_verified(request) -> None:
+    """记录「第二因子已通过」的时间戳。
+
+    Args:
+        request: Django 请求对象(原地写 session)。
+    """
+    request.session["otp_verified_at"] = int(time.time())
+    request.session.pop("otp_verified", None)   # 清掉旧版本的布尔标记
+
+
+def is_verified(request) -> bool:
+    """判断当前 session 的第二因子是否仍在有效期内(M-6)。
+
+    没有时间戳(旧版本 session 或从未验证)一律视为未验证,强制重验一次。
+
+    Args:
+        request: Django 请求对象。
+
+    Returns:
+        在 ``OPS_OTP_TTL`` 内验证过返回 ``True``。
+    """
+    raw = request.session.get("otp_verified_at")
+    if raw is None:
+        return False
+    try:
+        verified_at = int(raw)
+    except (TypeError, ValueError):
+        return False
+    return int(time.time()) - verified_at < int(settings.OPS_OTP_TTL)
 
 
 def _attempt_key(user_id: int) -> str:
@@ -76,7 +108,7 @@ def otp_verify(request):
     """
     user = request.user
     next_url = request.POST.get("next") or request.GET.get("next") or ""
-    if request.session.get("otp_verified"):
+    if is_verified(request):
         return _safe_redirect(next_url)
 
     if _too_many_attempts(user.id):
@@ -98,8 +130,8 @@ def otp_verify(request):
             if setup:
                 user.totp_secret = secret
                 user.save(update_fields=["totp_secret"])
-                request.session.pop("otp_pending_secret", None)
-            request.session["otp_verified"] = True
+            request.session.pop("otp_pending_secret", None)
+            mark_verified(request)
             cache.delete(_attempt_key(user.id))
             return _safe_redirect(next_url)
         _bump_attempt(user.id)
@@ -117,6 +149,9 @@ def otp_verify(request):
 def _safe_redirect(next_url: str):
     """只允许站内跳转,防止开放重定向。
 
+    ``ALLOWED_HOSTS`` 为空时 ``url_has_allowed_host_and_scheme`` 会放开任意主机,
+    因此这种情况退化为「只允许站内相对路径」(L-6)。
+
     Args:
         next_url: 用户提交的下一跳地址。
 
@@ -124,7 +159,10 @@ def _safe_redirect(next_url: str):
         站内地址的 302;``next`` 为空或站外时回到举报列表。
     """
     allowed_hosts = {host for host in settings.ALLOWED_HOSTS if host and host != "*"}
-    if next_url and url_has_allowed_host_and_scheme(
-            next_url, allowed_hosts=allowed_hosts or None):
-        return redirect(next_url)
+    if next_url:
+        if allowed_hosts and url_has_allowed_host_and_scheme(
+                next_url, allowed_hosts=allowed_hosts):
+            return redirect(next_url)
+        if not allowed_hosts and next_url.startswith("/") and not next_url.startswith("//"):
+            return redirect(next_url)
     return redirect(reverse("ops:reports"))

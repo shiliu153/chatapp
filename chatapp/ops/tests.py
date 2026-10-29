@@ -20,11 +20,12 @@
 import os
 import shutil
 import tempfile
+import time
 from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.files.base import ContentFile
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from accounts import totp
@@ -35,6 +36,7 @@ from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
 from ops.models import MediaAccessLog
+from ops.otp import _safe_redirect
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
@@ -676,6 +678,29 @@ class OpsInvalidParamTests(TestCase):
         response = self.client.post("/ops/photos/review", {"ids": "abc", "action": "approve"})
         self.assertEqual(response.status_code, 200)
 
+    def test_unicode_digit_ids_are_dropped(self):
+        """``ids=²`` 这类「isdigit 为真但 int() 会抛」的值不能 500(M-7)。"""
+        response = self.client.post("/ops/photos/review", {"ids": "²", "action": "approve"})
+        self.assertEqual(response.status_code, 200)
+
+
+class OpsSafeRedirectTests(SimpleTestCase):
+    """OTP 的 next 跳转:ALLOWED_HOSTS 为空时只允许站内相对路径(L-6)。"""
+
+    @override_settings(ALLOWED_HOSTS=[])
+    def test_absolute_url_rejected_when_allowlist_empty(self):
+        """``ALLOWED_HOSTS`` 为空时不能跳到任意外部主机。"""
+        response = _safe_redirect("https://evil.example.com/steal")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "/ops/reports/")
+
+    @override_settings(ALLOWED_HOSTS=[])
+    def test_relative_path_allowed_when_allowlist_empty(self):
+        """站内相对路径仍然可以跳。"""
+        response = _safe_redirect("/ops/users/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "/ops/users/")
+
 
 @override_settings(OPS_OTP_REQUIRED=True)
 class StaffOtpTests(TestCase):
@@ -693,11 +718,21 @@ class StaffOtpTests(TestCase):
         self.assertTrue(response.url.startswith("/ops/otp/"))
 
     def test_verified_staff_passes(self):
-        """session 标记为已验证后正常放行。"""
+        """session 在有效期内标记为已验证时正常放行。"""
         session = self.client.session
-        session["otp_verified"] = True
+        session["otp_verified_at"] = int(time.time())
         session.save()
         self.assertEqual(self.client.get("/ops/reports/").status_code, 200)
+
+    @override_settings(OPS_OTP_TTL=60)
+    def test_expired_verification_is_rejected(self):
+        """超过有效期后重新要求第二因子(M-6)。"""
+        session = self.client.session
+        session["otp_verified_at"] = int(time.time()) - 120
+        session.save()
+        response = self.client.get("/ops/reports/")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith("/ops/otp/"))
 
     def test_setup_binds_secret_and_marks_verified(self):
         """首次绑定:提交 App 上的验证码后写入密钥并放行。"""
@@ -707,7 +742,7 @@ class StaffOtpTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.staff.refresh_from_db()
         self.assertEqual(self.staff.totp_secret, secret)
-        self.assertTrue(self.client.session["otp_verified"])
+        self.assertIn("otp_verified_at", self.client.session)
 
     def test_wrong_code_does_not_bind(self):
         """错误验证码不写入密钥、不置已验证。"""
@@ -716,7 +751,7 @@ class StaffOtpTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.staff.refresh_from_db()
         self.assertEqual(self.staff.totp_secret, "")
-        self.assertFalse(self.client.session.get("otp_verified", False))
+        self.assertFalse(self.client.session.get("otp_verified_at", False))
 
 
 class StaffIpAllowlistTests(TestCase):

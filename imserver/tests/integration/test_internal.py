@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 
 import jwt
@@ -58,6 +59,29 @@ async def auth(uid: int, sv=None):
             return message
 
 
+def http_get(path: str, uid: int, sv=None):
+    """带 Bearer token 调用自建 IM 的读接口。
+
+    Args:
+        path: 以 ``/im/api`` 开头的路径(可带 query)。
+        uid: 账号 id,用来签 token。
+        sv: token 里的会话版本;``None`` 表示不带。
+
+    Returns:
+        ``(状态码, 响应 JSON)``;4xx/5xx 也按同样形式返回,不抛异常。
+    """
+    request = urllib.request.Request(
+        BASE + path,
+        method="GET",
+        headers={"Authorization": f"Bearer {token(uid, sv)}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read())
+
+
 async def recv(ws, type_):
     while True:
         message = json.loads(await asyncio.wait_for(ws.recv(), 3))
@@ -107,6 +131,35 @@ async def main():
     fresh = await auth(uid, sv=6)
     assert not isinstance(fresh, dict)
     await fresh.close()
+
+    # H-1:HTTP 读接口与 WS 同口径校验 sv —— 旧设备不能继续翻历史
+    status, body = http_get("/im/api/conversations", uid, sv=6)
+    assert status == 200, (status, body)
+    status, body = http_get("/im/api/conversations", uid, sv=5)
+    assert status == 401 and body["code"] == 40101, (status, body)
+
+    # M-2:会话列表按账号限流(120/min、burst 40),连续请求必须出现 429
+    limited_uid = uid + 1
+    call("/internal/accounts/ensure", {"uid": limited_uid, "nickname": "L"})
+    statuses = [http_get("/im/api/conversations", limited_uid)[0] for _ in range(60)]
+    assert 429 in statuses, statuses
+    assert statuses.count(200) <= 45, statuses
+
+    # M-8:``u12abc`` 必须整体拒绝,不能按前缀解析成 u12
+    sender = await auth(uid, sv=6)
+    await sender.send(
+        json.dumps(
+            {
+                "v": 1,
+                "type": "send",
+                "id": "bad-to",
+                "data": {"to": "u12abc", "kind": "text", "text": "x"},
+            }
+        )
+    )
+    bad_to = await recv(sender, "error")
+    assert bad_to["data"]["code"] == 42201, bad_to
+    await sender.close()
 
 
 asyncio.run(main())
