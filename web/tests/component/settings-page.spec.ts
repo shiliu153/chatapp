@@ -162,4 +162,42 @@ describe('SettingsPage', () => {
     expect(tokenStore.access).toBe('a') // 凭证没被清
     expect(w.find('.settings__error').text()).toContain('手机号与当前账号不一致')
   })
+  it('隐身浏览开关 → PATCH visits_hidden', async () => {
+    stubIm()
+    server.use(
+      mswHttp.get('/api/v1/users/me', () =>
+        HttpResponse.json({
+          id: 7,
+          user_id: 7,
+          phone: '13800138000',
+          nickname: '小明',
+          gender: 'male',
+          birthday: '2000-01-01',
+          age: 26,
+          city: '上海',
+          bio: '你好',
+          status: 'complete',
+          ban_reason: '',
+          missing_fields: [],
+          tags: [],
+          photos: [],
+          preference: { target_gender: null, age_min: 18, age_max: 99, city: '' },
+          visits_hidden: false,
+        }),
+      ),
+      mswHttp.patch('/api/v1/users/me', async ({ request }) => {
+        const body = (await request.json()) as { visits_hidden?: boolean }
+        expect(body).toEqual({ visits_hidden: true })
+        return HttpResponse.json({ visits_hidden: true })
+      }),
+    )
+
+    const { w } = await mountPage()
+    expect(w.find('.settings__switch').attributes('aria-checked')).toBe('false')
+
+    await w.find('.settings__switch').trigger('click')
+    await flushPromises()
+
+    expect(w.find('.settings__switch').attributes('aria-checked')).toBe('true')
+  })
 })
