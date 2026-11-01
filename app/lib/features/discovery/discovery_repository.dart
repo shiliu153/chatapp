@@ -38,6 +38,23 @@ class DiscoveryRepository {
     final data = await _api.get('/discovery/likes/count') as Map<String, dynamic>;
     return data['count'] as int;
   }
+
+  /// 谁看过我(分页);返回本页条目与后端总数。
+  Future<({List<Visit> items, int count})> fetchVisits(
+      {int limit = 20, int offset = 0}) async {
+    final data = await _api.get('/discovery/visits',
+        query: {'limit': limit, 'offset': offset}) as Map<String, dynamic>;
+    final items = (data['results'] as List<dynamic>)
+        .map((item) => Visit.fromJson(item as Map<String, dynamic>))
+        .toList();
+    return (items: items, count: data['count'] as int);
+  }
+
+  /// 访客入口角标:只查数量。
+  Future<int> fetchVisitsCount() async {
+    final data = await _api.get('/discovery/visits/count') as Map<String, dynamic>;
+    return data['count'] as int;
+  }
 }
 
 final discoveryRepositoryProvider = Provider<DiscoveryRepository>(
