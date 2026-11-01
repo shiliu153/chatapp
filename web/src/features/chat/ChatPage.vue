@@ -41,8 +41,6 @@ const draft = ref('')
 const sending = ref(false)
 const scroller = ref<HTMLElement | null>(null)
 const picker = ref<HTMLInputElement | null>(null)
-/** 发送中的图片本地预览(blob 还没变成服务端 URL) */
-const localFiles = ref<Record<string, File>>({})
 const viewer = ref<{ urls: string[]; index: number } | null>(null)
 const menu = ref<{ message: ChatMessage; x: number; y: number } | null>(null)
 const showEmoji = ref(false)
@@ -248,43 +246,13 @@ function onOpenImage(message: ChatMessage) {
   viewer.value = { urls: urls.length ? urls : [target], index: Math.max(urls.indexOf(target), 0) }
 }
 
-/** 选图 → 本地立刻上屏(blob 预览)→ 发送 */
+/** 选图 → 交给 store 乐观上屏(占位 + 本地预览 + 失败可重发) */
 async function onPickImage(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = '' // 允许重复选同一张
   if (!file) return
-
-  const placeholderId = `local-${Date.now()}`
-  const message: ChatMessage = {
-    msgId: placeholderId,
-    peerId: props.peerId,
-    isSelf: true,
-    seq: 0,
-    timestamp: Date.now(),
-    kind: ChatMessageKind.image,
-    text: '',
-    senderName: '',
-    senderAvatar: null,
-    isPending: true,
-    isFailed: false,
-    imageUrl: null,
-    imageLargeUrl: null,
-    isRevoked: false,
-  }
-  localFiles.value = { ...localFiles.value, [placeholderId]: file }
-  store.messages[props.peerId] = [...messages.value, message]
-
-  try {
-    const sent = await store.sendImage(props.peerId, file)
-    // store.sendImage 已经把真实消息追加进列表了,这里只把占位删掉(别再 concat,会重复一条)
-    store.messages[props.peerId] = messages.value.filter((item) => item.msgId !== placeholderId)
-    void sent
-  } catch {
-    store.messages[props.peerId] = messages.value.map((item) =>
-      item.msgId === placeholderId ? { ...item, isPending: false, isFailed: true } : item,
-    )
-  }
+  await store.sendImage(props.peerId, file).catch(() => {})
 }
 </script>
 
@@ -313,7 +281,7 @@ async function onPickImage(event: Event) {
           :message="row.message"
           :peer-name="peerName"
           :peer-avatar="peerAvatar"
-          :local-file="localFiles[row.message.msgId] ?? null"
+          :local-file="store.pendingFiles[row.message.msgId] ?? null"
           :hit="row.message.msgId === hitId"
           @retry="onRetry(row.message)"
           @open-image="onOpenImage"

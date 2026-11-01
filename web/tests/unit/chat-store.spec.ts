@@ -307,4 +307,47 @@ describe('chat store', () => {
     expect(client.sendVoice).toHaveBeenCalledTimes(1)
     expect(store.messagesOf('u8').some((item) => item.msgId === 'real-2')).toBe(true)
   })
+
+  it('sendImage 先插入 isPending 占位,成功后替换成真实消息', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    const real = msg({ msgId: 'img-1', peerId: 'u8', isSelf: true, kind: 'image' as never })
+    client.sendImage = vi.fn(async () => real)
+
+    const pending = store.sendImage('u8', new File(['a'], 'a.png'))
+    expect(store.messagesOf('u8').some((item) => item.isPending)).toBe(true)
+    await pending
+    const images = store.messagesOf('u8').filter((item) => item.kind === 'image')
+    expect(images).toHaveLength(1)
+    expect(images[0].msgId).toBe('img-1')
+  })
+
+  it('sendImage 失败把占位标成 isFailed 并抛出', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    client.sendImage = vi.fn(async () => Promise.reject(new Error('boom')))
+
+    await expect(store.sendImage('u8', new File(['a'], 'a.png'))).rejects.toThrow('boom')
+    const failed = store.messagesOf('u8').find((item) => item.kind === 'image')
+    expect(failed?.isFailed).toBe(true)
+    expect(failed?.isPending).toBe(false)
+  })
+
+  it('resend 用缓存文件重发失败图片', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    client.sendImage = vi.fn(async () => Promise.reject(new Error('boom')))
+    await expect(store.sendImage('u8', new File(['a'], 'a.png'))).rejects.toThrow()
+
+    const failed = store.messagesOf('u8').find((item) => item.isFailed)!
+    client.sendImage = vi.fn(async () =>
+      msg({ msgId: 'img-2', peerId: 'u8', isSelf: true, kind: 'image' as never }),
+    )
+    await store.resend(failed)
+    expect(client.sendImage).toHaveBeenCalledTimes(1)
+    expect(store.messagesOf('u8').some((item) => item.msgId === 'img-2')).toBe(true)
+  })
 })
