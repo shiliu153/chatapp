@@ -1021,8 +1021,12 @@ class ProfileVisitModelTests(TestCase):
                 ProfileVisit.objects.create(viewer=self.a, owner=self.b, last_at=timezone.now())
 
     def test_ordered_by_last_at_desc(self):
-        ProfileVisit.objects.create(viewer=self.a, owner=self.b, last_at=timezone.now())
-        ProfileVisit.objects.create(viewer=self.b, owner=self.a, last_at=timezone.now())
+        # 显式错开时间:Windows 上 time.time() 分辨率约 15ms,连着两次 now() 可能相等,
+        # 排序就会退化成「插入顺序」而偶发失败。
+        now = timezone.now()
+        ProfileVisit.objects.create(viewer=self.a, owner=self.b,
+                                    last_at=now - timedelta(minutes=5))
+        ProfileVisit.objects.create(viewer=self.b, owner=self.a, last_at=now)
         first = ProfileVisit.objects.first()
         self.assertEqual(first.viewer_id, self.b.id)
 
