@@ -1011,3 +1011,58 @@ class ProfileVisitModelTests(TestCase):
         ProfileVisit.objects.create(viewer=self.b, owner=self.a, last_at=timezone.now())
         first = ProfileVisit.objects.first()
         self.assertEqual(first.viewer_id, self.b.id)
+
+class ProfileVisitWriteTests(TestCase):
+    """落库口径:30 分钟窗口、隐身、自看、异常兜底。"""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.viewer = User.objects.create_user(phone="13800138000")
+        self.owner = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.viewer, nickname="小明")
+        Profile.objects.create(user=self.owner, nickname="小红")
+
+    def test_first_visit_creates_row(self):
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        visit = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner)
+        # first_at 由 auto_now_add 在插入时取,last_at 是写入前算的 now,两者差毫秒级
+        self.assertLess(abs((visit.last_at - visit.first_at).total_seconds()), 1)
+
+    def test_second_visit_within_window_keeps_one_row(self):
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        before = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner).last_at
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        self.assertEqual(ProfileVisit.objects.count(), 1)
+        after = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner).last_at
+        self.assertEqual(before, after)
+
+    def test_visit_after_window_updates_last_at(self):
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        before = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner).last_at
+        cache.delete(f"visit:{self.viewer.id}:{self.owner.id}")   # 模拟 30 分钟窗口过期
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        self.assertEqual(ProfileVisit.objects.count(), 1)
+        after = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner).last_at
+        self.assertGreater(after, before)
+
+    def test_incognito_viewer_is_not_recorded(self):
+        profile = self.viewer.profile
+        profile.visits_hidden = True
+        profile.save(update_fields=["visits_hidden"])
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        self.assertEqual(ProfileVisit.objects.count(), 0)
+
+    def test_self_view_is_not_recorded(self):
+        services.record_profile_view(self.viewer.id, self.viewer.id)
+        self.assertEqual(ProfileVisit.objects.count(), 0)
+
+    def test_write_failure_is_swallowed(self):
+        with patch("users.services.ProfileVisit.objects.update_or_create",
+                   side_effect=RuntimeError("db down")):
+            services.record_profile_view(self.viewer.id, self.owner.id)   # 不抛即通过
+
+    def test_missing_profile_is_treated_as_not_hidden(self):
+        stranger = User.objects.create_user(phone="13900139002")   # 没有 Profile
+        services.record_profile_view(stranger.id, self.owner.id)
+        self.assertTrue(ProfileVisit.objects.filter(viewer=stranger).exists())
