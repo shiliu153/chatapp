@@ -148,6 +148,8 @@ class Profile(models.Model):
     # 由 ``manage.py refresh_shuffle_keys`` 定期轮换(见该命令的 docstring)。
     shuffle_key = models.PositiveIntegerField("随机排序键", default=random_shuffle_key,
                                               db_index=True)
+    # 隐身浏览:开启后自己的访问不写进任何人的访客列表(见 services.record_profile_view)
+    visits_hidden = models.BooleanField("隐身浏览", default=False)
 
     def __str__(self):
         """后台与日志中的可读表示。
@@ -256,3 +258,41 @@ class Preference(models.Model):
             ``preference(资料 id)``。
         """
         return f"preference({self.profile_id})"
+
+class ProfileVisit(models.Model):
+    """一次「谁看过我」的访问记录。
+
+    设计要点:
+        1. **每人一行**:``(viewer, owner)`` 唯一,重复访问只刷新 ``last_at``,
+           列表因此天然不会出现同一个人的多行;
+        2. 写入按 30 分钟窗口节流(见 ``services.record_profile_view``),所以
+           ``last_at`` 的精度是 30 分钟,不是「最后一次点击」的精确时刻;
+        3. 保留期 90 天,由 ``manage.py purge_profile_visits`` 清理。
+
+    Attributes:
+        last_at: 最近一次访问时间;列表按它倒序。
+    """
+
+    viewer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                               related_name="visits_made")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                              related_name="visits_received")
+    first_at = models.DateTimeField("首次访问", auto_now_add=True)
+    last_at = models.DateTimeField("最近访问", db_index=True)
+
+    class Meta:
+        ordering = ["-last_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["viewer", "owner"], name="uniq_visit_viewer_owner"),
+        ]
+        indexes = [
+            models.Index(fields=["owner", "-last_at"], name="idx_visit_owner_last"),
+        ]
+
+    def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``visit(浏览者 id -> 被访问者 id)``。
+        """
+        return f"visit({self.viewer_id}->{self.owner_id})"

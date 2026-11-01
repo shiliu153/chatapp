@@ -25,7 +25,7 @@ import os
 import shutil
 import tempfile
 import time
-from datetime import date
+from datetime import date, timedelta
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -37,6 +37,7 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -53,7 +54,8 @@ from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import BanLog, Block, Report
 
 from . import presence, services
-from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
+from .models import (Photo, PhotoStatus, Profile, ProfileStatus, ProfileVisit, Tag,
+                     birthday_bounds, calculate_age)
 
 User = get_user_model()
 
@@ -987,3 +989,25 @@ class DeleteAccountTests(AuthMixin, APITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()["is_new_user"])
         self.assertNotEqual(resp.json()["user_id"], old_id)
+class ProfileVisitModelTests(TestCase):
+    """访客记录模型:默认值、唯一约束、按最近访问排序。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+
+    def test_visits_hidden_defaults_to_false(self):
+        profile = Profile.objects.create(user=self.a, nickname="小明")
+        self.assertFalse(profile.visits_hidden)
+
+    def test_unique_viewer_owner_pair(self):
+        ProfileVisit.objects.create(viewer=self.a, owner=self.b, last_at=timezone.now())
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ProfileVisit.objects.create(viewer=self.a, owner=self.b, last_at=timezone.now())
+
+    def test_ordered_by_last_at_desc(self):
+        ProfileVisit.objects.create(viewer=self.a, owner=self.b, last_at=timezone.now())
+        ProfileVisit.objects.create(viewer=self.b, owner=self.a, last_at=timezone.now())
+        first = ProfileVisit.objects.first()
+        self.assertEqual(first.viewer_id, self.b.id)
