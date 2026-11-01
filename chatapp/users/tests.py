@@ -1080,3 +1080,29 @@ class ProfileVisitWriteTests(TestCase):
         stranger = User.objects.create_user(phone="13900139002")   # 没有 Profile
         services.record_profile_view(stranger.id, self.owner.id)
         self.assertTrue(ProfileVisit.objects.filter(viewer=stranger).exists())
+
+class PurgeProfileVisitsCommandTests(TestCase):
+    """保留期清理:dry-run 不删、--apply 只删过期行、自定义天数。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+        self.old = ProfileVisit.objects.create(
+            viewer=self.a, owner=self.b,
+            last_at=timezone.now() - timedelta(days=91))
+        self.fresh = ProfileVisit.objects.create(
+            viewer=self.b, owner=self.a,
+            last_at=timezone.now() - timedelta(days=89))
+
+    def test_dry_run_keeps_rows(self):
+        call_command("purge_profile_visits", stdout=StringIO())
+        self.assertEqual(ProfileVisit.objects.count(), 2)
+
+    def test_apply_deletes_only_expired(self):
+        call_command("purge_profile_visits", "--apply", stdout=StringIO())
+        self.assertFalse(ProfileVisit.objects.filter(id=self.old.id).exists())
+        self.assertTrue(ProfileVisit.objects.filter(id=self.fresh.id).exists())
+
+    def test_custom_days(self):
+        call_command("purge_profile_visits", "--apply", "--days", "1", stdout=StringIO())
+        self.assertEqual(ProfileVisit.objects.count(), 0)
