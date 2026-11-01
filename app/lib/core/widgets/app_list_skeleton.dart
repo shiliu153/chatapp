@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_radius.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_skeleton.dart';
+import '../theme/app_radius.dart';
+import '../theme/app_spacing.dart';
+import 'app_skeleton.dart';
 
-/// 「喜欢我的人」加载骨架:6 行圆头像 + 两条文字条。
+/// 列表页通用加载骨架:圆头像 + 两条文字条。
 /// 含无限呼吸动画 —— 可见它的用例只用有限 pump。
-class LikesSkeleton extends StatelessWidget {
-  const LikesSkeleton({super.key});
+class AppListSkeleton extends StatelessWidget {
+  const AppListSkeleton({super.key, this.rowCount = 6});
+
+  final int rowCount;
 
   @override
   Widget build(BuildContext context) => Column(
-        key: const Key('likes.skeleton'),
         children: [
-          for (var i = 0; i < 6; i++)
+          for (var i = 0; i < rowCount; i++)
             const Padding(
               padding: EdgeInsets.symmetric(
                 horizontal: AppSpacing.lg,

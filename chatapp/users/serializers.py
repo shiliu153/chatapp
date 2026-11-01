@@ -91,7 +91,8 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = ["id", "user_id", "phone", "nickname", "gender", "birthday", "age", "city", "bio",
-                  "status", "ban_reason", "missing_fields", "tags", "photos", "preference"]
+                  "status", "ban_reason", "missing_fields", "tags", "photos", "preference",
+                  "visits_hidden"]
 
 
 class PublicProfileSerializer(serializers.ModelSerializer):
@@ -128,6 +129,7 @@ class ProfileUpdateSerializer(serializers.Serializer):
     city = serializers.CharField(max_length=50, required=False)
     bio = serializers.CharField(max_length=200, required=False)
     tag_ids = serializers.ListField(child=serializers.IntegerField(), required=False, allow_empty=True)
+    visits_hidden = serializers.BooleanField(required=False)
 
     def validate_nickname(self, value):
         """校验昵称:违禁词检查 + 去首尾空白。

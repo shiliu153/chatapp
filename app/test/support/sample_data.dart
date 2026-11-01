@@ -15,6 +15,7 @@ Map<String, dynamic> profileJson({
   Map<String, dynamic>? preference,
   String? status,
   String banReason = '',
+  bool visitsHidden = false,
 }) =>
     {
       'id': id,
@@ -33,6 +34,7 @@ Map<String, dynamic> profileJson({
       'photos': photos,
       'preference': preference ??
           {'target_gender': null, 'age_min': 18, 'age_max': 99, 'city': ''},
+      'visits_hidden': visitsHidden,
     };
 
 Map<String, dynamic> tagJson(int id, String name, {String icon = ''}) =>
@@ -186,4 +188,18 @@ Map<String, dynamic> likeReceivedJson({
     {
       ...candidateJson(userId: userId, nickname: nickname, age: age, city: city, tags: tags),
       'liked_at': likedAt,
+    };
+
+/// 造一份 GET /discovery/visits 里的一条。
+Map<String, dynamic> visitJson({
+  int userId = 9,
+  String nickname = '小红',
+  int? age = 25,
+  String city = '上海',
+  List<Map<String, dynamic>> tags = const [],
+  String visitedAt = '2026-11-01T12:30:00+08:00',
+}) =>
+    {
+      ...candidateJson(userId: userId, nickname: nickname, age: age, city: city, tags: tags),
+      'visited_at': visitedAt,
     };

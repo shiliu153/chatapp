@@ -48,3 +48,16 @@ class LikeReceived {
   final Candidate candidate;
   final DateTime likedAt;
 }
+
+/// 一次访客记录;字段与 GET /discovery/visits 的单项一一对应。
+class Visit {
+  const Visit({required this.candidate, required this.visitedAt});
+
+  factory Visit.fromJson(Map<String, dynamic> json) => Visit(
+        candidate: Candidate.fromJson(json),
+        visitedAt: DateTime.parse(json['visited_at'] as String),
+      );
+
+  final Candidate candidate;
+  final DateTime visitedAt;
+}

@@ -13,6 +13,7 @@ import '../../core/widgets/app_toast.dart';
 import '../auth/session.dart';
 import 'settings_repository.dart';
 import 'widgets/delete_account_dialog.dart';
+import 'widgets/visits_hidden_row.dart';
 
 /// 设置页(附录 E):二级页顶栏 + 两张行分组卡。
 class SettingsPage extends ConsumerWidget {
@@ -74,6 +75,7 @@ class SettingsPage extends ConsumerWidget {
                   children: [
                     AppRowGroup(
                       children: [
+                        const VisitsHiddenRow(),
                         AppListRow(
                           key: const Key('settings.row.blocks'),
                           icon: Icons.block_rounded,

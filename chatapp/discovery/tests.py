@@ -10,7 +10,7 @@
     - ``dev_reset_pair`` 命令:只清这一对、不动其他对、非法 IM id 报错。
 """
 
-from datetime import date
+from datetime import date, timedelta
 from io import StringIO
 from unittest.mock import patch
 
@@ -26,7 +26,8 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from moderation.models import Block
-from users.models import Photo, PhotoStatus, Preference, Profile, ProfileStatus
+from users.models import (Photo, PhotoStatus, Preference, Profile, ProfileStatus,
+                           ProfileVisit)
 
 from .models import Match, Swipe, SwipeAction
 
@@ -775,3 +776,165 @@ class UnmatchApiTests(APITestCase):
     def test_unmatch_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.delete(f"/api/v1/matches/{self.other.id}").status_code, 401)
+
+class VisitsReceivedTests(APITestCase):
+    """谁看过我:口径、排序、分页、计数、字段脱敏与权限。"""
+
+    URL = "/api/v1/discovery/visits"
+    COUNT_URL = "/api/v1/discovery/visits/count"
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.me = self._make_user("13800138000", gender="male")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make_user(self, phone, gender="female", complete=True, photo=True, status=None):
+        """造一个用户;默认资料完善并带一张已过审照片。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+            gender: 性别。
+            complete: 是否把资料置为完善。
+            photo: 是否加一张已过审照片。
+            status: 显式指定资料状态(用于封禁场景)。
+
+        Returns:
+            新建的用户实例。
+        """
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(
+            user=user, nickname=phone, gender=gender, birthday="2000-01-01", city="上海",
+            bio="你好",
+            status=status or (ProfileStatus.COMPLETE if complete else ProfileStatus.INCOMPLETE),
+        )
+        if photo:
+            Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        return user
+
+    def _visit(self, viewer, minutes_ago=0):
+        """让 viewer 访问我一次。
+
+        Args:
+            viewer: 访客。
+            minutes_ago: 访问发生在多少分钟前(用于排序断言)。
+
+        Returns:
+            写入的记录。
+        """
+        return ProfileVisit.objects.create(
+            viewer=viewer, owner=self.me,
+            last_at=timezone.now() - timedelta(minutes=minutes_ago))
+
+    def _ids(self, resp):
+        """取出列表响应里的 ``user_id``。
+
+        Args:
+            resp: 接口响应。
+
+        Returns:
+            user_id 列表,保持响应顺序。
+        """
+        return [item["user_id"] for item in resp.json()["results"]]
+
+    def test_lists_visitors(self):
+        a = self._make_user("13900139000")
+        self._visit(a)
+        resp = self.client.get(self.URL)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._ids(resp), [a.id])
+
+    def test_excludes_people_i_already_swiped(self):
+        a = self._make_user("13900139000")
+        self._visit(a)
+        Swipe.objects.create(swiper=self.me, target=a, action=SwipeAction.PASS)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+
+    def test_excludes_matched_people(self):
+        a = self._make_user("13900139000")
+        self._visit(a)
+        Swipe.objects.create(swiper=self.me, target=a, action=SwipeAction.LIKE)
+        Swipe.objects.create(swiper=a, target=self.me, action=SwipeAction.LIKE)
+        Match.objects.create(**Match.pair_kwargs(self.me, a))
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+
+    def test_excludes_blocked_both_ways(self):
+        a = self._make_user("13900139000")
+        b = self._make_user("13900139001")
+        self._visit(a)
+        self._visit(b)
+        Block.objects.create(blocker=self.me, blocked=a)
+        Block.objects.create(blocker=b, blocked=self.me)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+
+    def test_excludes_incomplete_no_photo_and_banned(self):
+        users = [
+            self._make_user("13900139000", complete=False),
+            self._make_user("13900139001", photo=False),
+            self._make_user("13900139002", status=ProfileStatus.BANNED_LIGHT),
+            self._make_user("13900139003", status=ProfileStatus.BANNED_HEAVY),
+        ]
+        for user in users:
+            self._visit(user)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+
+    def test_newest_visit_first(self):
+        a = self._make_user("13900139000")
+        b = self._make_user("13900139001")
+        self._visit(a, minutes_ago=30)
+        self._visit(b, minutes_ago=1)
+        self.assertEqual(self._ids(self.client.get(self.URL)), [b.id, a.id])
+
+    def test_pagination(self):
+        users = [self._make_user(f"1390013900{i}") for i in range(3)]
+        for user in users:
+            self._visit(user)
+        first = self.client.get(self.URL, {"limit": 2})
+        self.assertEqual(first.json()["count"], 3)
+        self.assertEqual(len(first.json()["results"]), 2)
+        self.assertIsNotNone(first.json()["next"])
+        second = self.client.get(self.URL, {"limit": 2, "offset": 2})
+        self.assertEqual(len(second.json()["results"]), 1)
+
+    def test_count_uses_same_rules(self):
+        a = self._make_user("13900139000")
+        b = self._make_user("13900139001")
+        self._visit(a)
+        self._visit(b)
+        Block.objects.create(blocker=self.me, blocked=b)
+        self.assertEqual(self.client.get(self.COUNT_URL).json(), {"count": 1})
+        self.assertEqual(self.client.get(self.URL).json()["count"], 1)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get(self.URL).status_code, 401)
+
+    def test_heavy_banned_forbidden(self):
+        self.me.profile.status = ProfileStatus.BANNED_HEAVY
+        self.me.profile.save(update_fields=["status"])
+        self.assertEqual(self.client.get(self.URL).status_code, 403)
+
+    def test_light_banned_can_read(self):
+        self.me.profile.status = ProfileStatus.BANNED_LIGHT
+        self.me.profile.save(update_fields=["status"])
+        self.assertEqual(self.client.get(self.URL).status_code, 200)
+
+    def test_serializer_hides_private_fields_and_filters_photos(self):
+        a = self._make_user("13900139000")
+        Photo.objects.create(user=a, file="photos/pending.png", status=PhotoStatus.PENDING)
+        self._visit(a)
+        item = self.client.get(self.URL).json()["results"][0]
+        self.assertEqual(item["im_user_id"], f"u{a.id}")
+        self.assertIn("visited_at", item)
+        for hidden in ("phone", "birthday", "ban_reason", "missing_fields", "visits_hidden"):
+            self.assertNotIn(hidden, item)
+        self.assertEqual([photo["status"] for photo in item["photos"]], ["approved"])
+
+    def test_end_to_end_via_public_profile(self):
+        a = self._make_user("13900139000")
+        self.client.get(f"/api/v1/users/{a.id}")      # 我看他 → 他那边才该有记录
+        self.assertEqual(self._ids(self.client.get(self.URL)), [])
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(a).access_token}")
+        self.assertEqual(self._ids(self.client.get(self.URL)), [self.me.id])

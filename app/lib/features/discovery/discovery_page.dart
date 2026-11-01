@@ -19,6 +19,7 @@ import '../profile/profile_controller.dart';
 import 'discovery_controller.dart';
 import 'likes_received_controller.dart';
 import 'models.dart';
+import 'visits_controller.dart';
 import 'widgets/deck_skeleton.dart';
 import 'widgets/match_overlay.dart';
 import 'widgets/swipe_deck.dart';
@@ -42,7 +43,28 @@ class DiscoveryPage extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('发现', style: AppText.display.copyWith(color: AppColors.text1)),
-                  _LikesEntry(count: ref.watch(likesReceivedCountProvider).value ?? 0),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _TopEntry(
+                        entryKey: const Key('discovery.likes'),
+                        icon: Icons.favorite_rounded,
+                        iconColor: AppColors.brand,
+                        label: '喜欢我的人',
+                        count: ref.watch(likesReceivedCountProvider).value ?? 0,
+                        onTap: () => context.push('/likes'),
+                      ),
+                      const SizedBox(width: AppSpacing.xs),
+                      _TopEntry(
+                        entryKey: const Key('discovery.visits'),
+                        icon: Icons.visibility_rounded,
+                        iconColor: AppColors.text2,
+                        label: '谁看过我',
+                        count: ref.watch(visitsCountProvider).value ?? 0,
+                        onTap: () => context.push('/visits'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -172,27 +194,46 @@ class _EmptyView extends StatelessWidget {
 }
 
 
-/// 发现页右上角入口:心形 + 收到喜欢的数量。
-class _LikesEntry extends StatelessWidget {
-  const _LikesEntry({required this.count});
+/// 发现页右上角入口:图标 + 文案 + 角标;窄屏(<360dp)只留图标,靠 Semantics 读屏。
+class _TopEntry extends StatelessWidget {
+  const _TopEntry({
+    required this.entryKey,
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.count,
+    required this.onTap,
+  });
 
+  final Key entryKey;
+  final IconData icon;
+  final Color iconColor;
+  final String label;
   final int count;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-        key: const Key('discovery.likes'),
+  Widget build(BuildContext context) {
+    final showLabel = MediaQuery.sizeOf(context).width >= 360;
+    final semantic = count > 0 ? '$label,$count 人' : label;
+    return Semantics(
+      button: true,
+      label: semantic,
+      child: InkWell(
+        key: entryKey,
         borderRadius: BorderRadius.circular(AppRadius.full),
-        onTap: () => context.push('/likes'),
+        onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+              horizontal: AppSpacing.xs, vertical: AppSpacing.xs),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.favorite_rounded, size: 20, color: AppColors.brand),
-              const SizedBox(width: AppSpacing.xs),
-              Text('喜欢我的人',
-                  style: AppText.caption.copyWith(color: AppColors.text2)),
+              Icon(icon, size: 20, color: iconColor),
+              if (showLabel) ...[
+                const SizedBox(width: AppSpacing.xs),
+                Text(label, style: AppText.caption.copyWith(color: AppColors.text2)),
+              ],
               if (count > 0) ...[
                 const SizedBox(width: AppSpacing.xs),
                 AppBadge(count: count),
@@ -200,5 +241,7 @@ class _LikesEntry extends StatelessWidget {
             ],
           ),
         ),
-      );
+      ),
+    );
+  }
 }

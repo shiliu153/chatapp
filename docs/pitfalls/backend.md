@@ -124,3 +124,12 @@
 - **动态举报去重键与用户举报同款**:`feed.PostReport.dedupe_key`(`举报人:动态:pending`)是唯一约束,`save()` 在离开 pending 时清空并把字段补进 `update_fields`;并发提交靠唯一约束 + `get_or_create` 回查。MySQL 唯一索引允许多个 `NULL`,所以「处理完可以再举报」不需要额外逻辑。**注意**:`post=SET_NULL` 后旧键仍保留旧 post id,不要改成用 `post_id` 现算。
 - **`logout` 限流 + `Origin` 同源校验**:`/auth/logout` 是匿名接口且会写黑名单表,按 IP 限流 60/小时;`same_origin()` 在 `DEBUG` 下直接放行(Vite 代理用 `changeOrigin` 会把 `Host` 改成 127.0.0.1,强校验会误杀本地开发),生产按 `Origin` 与 `Host` 比对,跨站 403。
 - **`ALLOWED_HOSTS` 为空时开放重定向会复活**:`url_has_allowed_host_and_scheme(..., allowed_hosts=None)` 会放行任意主机。`ops/otp._safe_redirect()` 在名单为空时退化为「只允许 `/` 开头且不是 `//` 的相对路径」。
+## 资料页访问记录 / 谁看过我(2026-11-01)
+
+- **`GET /users/{id}` 带写副作用,这是有意为之**:访问记录的唯一入口是 `users.services.record_profile_view()`,它由 `public_profile` 在返回前调用。好处是 App 与 Web 都走同一个 `GET`,不可能漏报、也没法伪造;代价是 REST 语义不纯。**若将来给这个接口加 CDN 或反向代理缓存,必须改成前端显式上报**,否则缓存命中会漏记、预取会误记。
+- **写库必须包在内层 `transaction.atomic()` 里**:`update_or_create` 撞唯一约束(`uniq_visit_viewer_owner`)或外键失败时,如果不回滚到保存点,会毒化外层事务 —— 测试里表现为后续查询抛 `TransactionManagementError`,生产上表现为同一个请求里后续的查询全挂。`except IntegrityError` 之后的 `update()` 重试放在保存点回滚之后,所以是安全的。
+- **30 分钟窗口用 Redis `cache.add` 去重,不要每条 GET 都 UPDATE**:同一对 `(viewer, owner)` 半小时内只写一次,`last_at` 的精度就是 30 分钟。这个精度是刻意的:列表只渲染「刚刚 / 3 小时前 / 昨天」,没有人需要毫秒级。
+- **访客监控与访客落库是两个独立窗口,不能共用 early return**:抓取监控按「自然小时」分桶(1 小时),访客记录按 30 分钟。重构时如果把 `if not first_time: return` 放在最外层,30 分钟窗口过期后会被 1 小时的 key 挡住,`last_at` 永远停在第一次。
+- **隐身判断要容错「没有 Profile」**:`Profile` 是懒创建的,新用户第一次被访问时可能还没有资料行。`Profile.objects.filter(...).values_list(...).first()` 返回 `None` 要按「未隐身」处理,否则会 500。
+- **已配对的人不需要单独过滤**:配对的前提是双方都划过对方,而列表已经排除「我已划过」,所以 `Match` 表一次都不用 join。
+- **保留期 90 天靠命令清理**:`purge_profile_visits`(默认 dry-run)。访客记录属于个人信息,不清理就是无限期留存,合规上说不过去。

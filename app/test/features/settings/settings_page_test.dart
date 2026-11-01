@@ -33,6 +33,9 @@ void main() {
     expect(find.byKey(const Key('settings.row.privacy')), findsOneWidget);
     expect(find.byKey(const Key('settings.logout')), findsOneWidget);
 
+    // 新增「隐身浏览」行后,退出登录按钮落到首屏以下;先滚到可见再点
+    await tester.ensureVisible(find.byKey(const Key('settings.logout')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('退出'));
@@ -116,5 +119,50 @@ void main() {
     expect(prefs.getString('auth.refresh'), isNotNull);
 
     await drainToast(tester);
+  });
+  testWidgets('隐身浏览开关 → PATCH visits_hidden', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'PATCH /users/me': (options) => ok(profileJson(visitsHidden: true)),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    await tester.tap(navTab('我的'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('my.row.settings')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('settings.row.visitsHidden')));
+    await tester.pumpAndSettle();
+
+    final request = adapter.log.lastWhere((item) => item.method == 'PATCH');
+    expect(request.data, {'visits_hidden': true});
+  });
+
+  testWidgets('隐身浏览开关失败 → 回滚并提示', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'PATCH /users/me': (options) => jsonError(500, '服务器开小差了'),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    await tester.tap(navTab('我的'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('my.row.settings')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('settings.row.visitsHidden')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('服务器开小差了'), findsOneWidget);
+    await drainToast(tester);   // Toast 的 2s Timer 要推过去,否则用例以 pending timer 失败
   });
 }

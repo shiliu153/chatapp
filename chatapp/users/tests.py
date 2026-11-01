@@ -25,7 +25,7 @@ import os
 import shutil
 import tempfile
 import time
-from datetime import date
+from datetime import date, timedelta
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -37,6 +37,7 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -53,7 +54,8 @@ from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import BanLog, Block, Report
 
 from . import presence, services
-from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag, birthday_bounds, calculate_age
+from .models import (Photo, PhotoStatus, Profile, ProfileStatus, ProfileVisit, Tag,
+                     birthday_bounds, calculate_age)
 
 User = get_user_model()
 
@@ -183,6 +185,16 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
         }
         data.update(overrides)
         return data
+
+    def test_toggle_visits_hidden(self):
+        resp = self.client.patch(self.url, {"visits_hidden": True}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["visits_hidden"])
+        self.user.profile.refresh_from_db()
+        self.assertTrue(self.user.profile.visits_hidden)
+
+    def test_visits_hidden_defaults_false_in_me(self):
+        self.assertFalse(self.client.get(self.url).json()["visits_hidden"])
 
     @patch("im.tasks.sync_profile.delay")
     def test_update_fields(self, delay):
@@ -615,6 +627,10 @@ class PublicProfileTests(AuthMixin, APITestCase):
         for hidden in ("phone", "birthday", "preference", "missing_fields"):
             self.assertNotIn(hidden, data)
 
+    def test_public_profile_hides_visits_hidden(self):
+        Profile.objects.filter(user=self.other).update(visits_hidden=True)
+        self.assertNotIn("visits_hidden", self._get().json())
+
     def test_heavy_banned_target_is_invisible(self):
         Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_HEAVY)
         self.assertEqual(self._get().status_code, 404)
@@ -987,3 +1003,110 @@ class DeleteAccountTests(AuthMixin, APITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()["is_new_user"])
         self.assertNotEqual(resp.json()["user_id"], old_id)
+class ProfileVisitModelTests(TestCase):
+    """访客记录模型:默认值、唯一约束、按最近访问排序。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+
+    def test_visits_hidden_defaults_to_false(self):
+        profile = Profile.objects.create(user=self.a, nickname="小明")
+        self.assertFalse(profile.visits_hidden)
+
+    def test_unique_viewer_owner_pair(self):
+        ProfileVisit.objects.create(viewer=self.a, owner=self.b, last_at=timezone.now())
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                ProfileVisit.objects.create(viewer=self.a, owner=self.b, last_at=timezone.now())
+
+    def test_ordered_by_last_at_desc(self):
+        # 显式错开时间:Windows 上 time.time() 分辨率约 15ms,连着两次 now() 可能相等,
+        # 排序就会退化成「插入顺序」而偶发失败。
+        now = timezone.now()
+        ProfileVisit.objects.create(viewer=self.a, owner=self.b,
+                                    last_at=now - timedelta(minutes=5))
+        ProfileVisit.objects.create(viewer=self.b, owner=self.a, last_at=now)
+        first = ProfileVisit.objects.first()
+        self.assertEqual(first.viewer_id, self.b.id)
+
+class ProfileVisitWriteTests(TestCase):
+    """落库口径:30 分钟窗口、隐身、自看、异常兜底。"""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.viewer = User.objects.create_user(phone="13800138000")
+        self.owner = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.viewer, nickname="小明")
+        Profile.objects.create(user=self.owner, nickname="小红")
+
+    def test_first_visit_creates_row(self):
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        visit = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner)
+        # first_at 由 auto_now_add 在插入时取,last_at 是写入前算的 now,两者差毫秒级
+        self.assertLess(abs((visit.last_at - visit.first_at).total_seconds()), 1)
+
+    def test_second_visit_within_window_keeps_one_row(self):
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        before = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner).last_at
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        self.assertEqual(ProfileVisit.objects.count(), 1)
+        after = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner).last_at
+        self.assertEqual(before, after)
+
+    def test_visit_after_window_updates_last_at(self):
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        before = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner).last_at
+        cache.delete(f"visit:{self.viewer.id}:{self.owner.id}")   # 模拟 30 分钟窗口过期
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        self.assertEqual(ProfileVisit.objects.count(), 1)
+        after = ProfileVisit.objects.get(viewer=self.viewer, owner=self.owner).last_at
+        self.assertGreater(after, before)
+
+    def test_incognito_viewer_is_not_recorded(self):
+        profile = self.viewer.profile
+        profile.visits_hidden = True
+        profile.save(update_fields=["visits_hidden"])
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        self.assertEqual(ProfileVisit.objects.count(), 0)
+
+    def test_self_view_is_not_recorded(self):
+        services.record_profile_view(self.viewer.id, self.viewer.id)
+        self.assertEqual(ProfileVisit.objects.count(), 0)
+
+    def test_write_failure_is_swallowed(self):
+        with patch("users.services.ProfileVisit.objects.update_or_create",
+                   side_effect=RuntimeError("db down")):
+            services.record_profile_view(self.viewer.id, self.owner.id)   # 不抛即通过
+
+    def test_missing_profile_is_treated_as_not_hidden(self):
+        stranger = User.objects.create_user(phone="13900139002")   # 没有 Profile
+        services.record_profile_view(stranger.id, self.owner.id)
+        self.assertTrue(ProfileVisit.objects.filter(viewer=stranger).exists())
+
+class PurgeProfileVisitsCommandTests(TestCase):
+    """保留期清理:dry-run 不删、--apply 只删过期行、自定义天数。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+        self.old = ProfileVisit.objects.create(
+            viewer=self.a, owner=self.b,
+            last_at=timezone.now() - timedelta(days=91))
+        self.fresh = ProfileVisit.objects.create(
+            viewer=self.b, owner=self.a,
+            last_at=timezone.now() - timedelta(days=89))
+
+    def test_dry_run_keeps_rows(self):
+        call_command("purge_profile_visits", stdout=StringIO())
+        self.assertEqual(ProfileVisit.objects.count(), 2)
+
+    def test_apply_deletes_only_expired(self):
+        call_command("purge_profile_visits", "--apply", stdout=StringIO())
+        self.assertFalse(ProfileVisit.objects.filter(id=self.old.id).exists())
+        self.assertTrue(ProfileVisit.objects.filter(id=self.fresh.id).exists())
+
+    def test_custom_days(self):
+        call_command("purge_profile_visits", "--apply", "--days", "1", stdout=StringIO())
+        self.assertEqual(ProfileVisit.objects.count(), 0)

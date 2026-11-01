@@ -389,3 +389,123 @@ HTTP/1.1 204 No Content
 |--------|------|------|----------|
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
 | 403 | 403 | 账号处于重封禁状态 | 联系客服申诉 |
+---
+
+### 3.7 谁看过我
+
+> `GET` `/api/v1/discovery/visits` · 需要鉴权 · 无额外限流
+
+**接口描述**
+
+分页查询「谁看过我的资料页」。口径与「喜欢我的人」一致:
+
+- 打开我的资料页(`GET /users/{id}`)即记一次访问,同一人 30 分钟内重复访问只刷新最近时间;
+- 排除**我已经划过的人**(不论 like/pass)、双向拉黑的人;
+- 只含资料完善(`status = complete`)且至少有 1 张已过审照片的人;
+- 按最近访问时间倒序。已配对的人因「我已划过」自然不在列表内。
+
+开启「隐身浏览」后,你的访问不会写进任何人的列表。
+
+**请求参数**(Query)
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|----------|------|------|------|
+| limit | 否 | Integer | 每页条数,默认 20,上限 100 |
+| offset | 否 | Integer | 偏移量,默认 0 |
+
+**响应参数**
+
+分页对象(见 [conventions.md §分页约定](conventions.md#分页约定)),`results[]` 字段:
+
+| 参数名称 | 类型 | 描述 |
+|----------|------|------|
+| user_id | Integer | 访客账号 ID |
+| im_user_id | String | 访客 IM 账号,格式 `u{user_id}` |
+| nickname | String | 昵称 |
+| gender | String | `male` / `female` |
+| age | Integer / null | 周岁;未填生日时为 `null` |
+| city | String | 城市 |
+| bio | String | 简介 |
+| tags | Object[] | 标签,结构见 [users.md §2.1](users.md) |
+| photos | Object[] | **只含已过审**的照片 |
+| visited_at | String | 最近一次访问时间(UTC,ISO 8601,精度 30 分钟) |
+
+**请求示例**
+
+```bash
+curl "http://<域名>/api/v1/discovery/visits?limit=20&offset=0" \
+  -H "Authorization: Bearer <access>"
+```
+
+**响应示例**
+
+```json
+{
+  "count": 1,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "user_id": 30,
+      "im_user_id": "u30",
+      "nickname": "多多30",
+      "gender": "female",
+      "age": 25,
+      "city": "南京",
+      "bio": "咖啡续命,手冲入门中",
+      "tags": [{ "id": 7, "name": "游戏", "icon": "game" }],
+      "photos": [
+        { "id": 41, "url": "http://<域名>/media/photos/2026/09/seed_30_0.jpg", "status": "approved", "order": 0 }
+      ],
+      "visited_at": "2026-11-01T04:30:00.000000Z"
+    }
+  ]
+}
+```
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 403 | 403 | 账号已被封禁(重封禁) | 提示用户账号受限 |
+
+---
+
+### 3.8 访客人数
+
+> `GET` `/api/v1/discovery/visits/count` · 需要鉴权 · 无额外限流
+
+**接口描述**
+
+返回「谁看过我」的去重人数,口径与 §3.7 完全一致,仅用于客户端入口角标。
+
+**请求参数**
+
+无。
+
+**响应参数**
+
+| 参数名称 | 类型 | 描述 |
+|----------|------|------|
+| count | Integer | 访客人数(已套用 §3.7 的全部排除规则) |
+
+**请求示例**
+
+```bash
+curl "http://<域名>/api/v1/discovery/visits/count" \
+  -H "Authorization: Bearer <access>"
+```
+
+**响应示例**
+
+```json
+{ "count": 12 }
+```
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 403 | 403 | 账号已被封禁(重封禁) | 提示用户账号受限 |

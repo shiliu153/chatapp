@@ -64,6 +64,7 @@ class Profile {
     required this.photos,
     required this.preference,
     this.banReason = '',
+    this.visitsHidden = false,
   });
 
   factory Profile.fromJson(Map<String, dynamic> json) => Profile(
@@ -86,6 +87,7 @@ class Profile {
             .map((item) => Photo.fromJson(item as Map<String, dynamic>))
             .toList(),
         preference: Preference.fromJson(json['preference'] as Map<String, dynamic>?),
+        visitsHidden: (json['visits_hidden'] ?? false) as bool,
       );
 
   /// profile 表主键(仅内部用;对外标识一律 userId)
@@ -105,6 +107,9 @@ class Profile {
   final List<Tag> tags;
   final List<Photo> photos;
   final Preference preference;
+
+  /// 隐身浏览:开启后自己的访问不写进他人访客列表
+  final bool visitsHidden;
 
   bool get isComplete => missingFields.isEmpty;
 

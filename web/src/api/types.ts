@@ -51,6 +51,8 @@ export interface Profile {
   tags: Tag[]
   photos: Photo[]
   preference: Preference
+  /** 隐身浏览:开启后自己的访问不写进他人访客列表 */
+  visits_hidden: boolean
 }
 
 export interface PublicProfile {
@@ -98,6 +100,12 @@ export interface MatchSummary {
 export interface LikeReceived extends Candidate {
   /** ISO 8601 */
   liked_at: string
+}
+
+/** 「谁看过我」列表项:公开资料 + 最近访问时间(discovery.md §3.7)。 */
+export interface ProfileVisit extends Candidate {
+  /** ISO 8601,精度 30 分钟 */
+  visited_at: string
 }
 
 export interface PostAuthor {

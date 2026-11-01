@@ -1,19 +1,42 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/AppButton.vue'
 import AppCard from '@/components/AppCard.vue'
 import { parseApiError } from '@/api/error'
 import { useChatStore } from '@/stores/chat'
+import { useProfileStore } from '@/stores/profile'
 import { useSessionStore } from '@/stores/session'
 import DeleteAccountDialog from './DeleteAccountDialog.vue'
 
 const router = useRouter()
 const session = useSessionStore()
 const chat = useChatStore()
+const profile = useProfileStore()
 
 const deleteOpen = ref(false)
 const deleteError = ref('')
+const toggleError = ref('')
+const togglingVisits = ref(false)
+const visitsHidden = computed(() => profile.profile?.visits_hidden ?? false)
+
+onMounted(() => {
+  if (!profile.profile) profile.load()
+})
+
+/** 隐身浏览:乐观更新由 store 的 PATCH 响应兜底,失败提示并回滚(store 未写入) */
+async function toggleVisitsHidden() {
+  if (togglingVisits.value) return
+  togglingVisits.value = true
+  toggleError.value = ''
+  try {
+    await profile.save({ visits_hidden: !visitsHidden.value })
+  } catch (e) {
+    toggleError.value = parseApiError(e).message
+  } finally {
+    togglingVisits.value = false
+  }
+}
 
 const groups = [
   {
@@ -85,6 +108,23 @@ async function onDeleteSubmitted(phone: string) {
           </RouterLink>
         </li>
       </ul>
+      <div v-if="group.title === '账号与隐私'" class="settings__toggle">
+        <span class="settings__toggle-label">隐身浏览</span>
+        <button
+          class="settings__switch"
+          type="button"
+          role="switch"
+          aria-label="隐身浏览"
+          :aria-checked="visitsHidden"
+          :disabled="togglingVisits"
+          @click="toggleVisitsHidden"
+        >
+          <span class="settings__switch-knob" />
+        </button>
+      </div>
+      <p v-if="group.title === '账号与隐私' && toggleError" class="settings__error">
+        {{ toggleError }}
+      </p>
     </AppCard>
 
     <AppButton
@@ -156,6 +196,48 @@ async function onDeleteSubmitted(phone: string) {
 }
 .settings__item:hover {
   color: var(--color-brand);
+}
+.settings__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  height: 48px;
+  border-top: 1px solid var(--color-divider);
+}
+.settings__toggle-label {
+  color: var(--color-text1);
+}
+.settings__switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-divider);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.settings__switch[aria-checked='true'] {
+  background: var(--color-brand);
+}
+.settings__switch:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.settings__switch-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-card);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.settings__switch[aria-checked='true'] .settings__switch-knob {
+  transform: translateX(18px);
 }
 .settings__error {
   margin: 0;

@@ -166,6 +166,7 @@ void main() {
       'GET /users/me': (options) => ok(profileJson()),
       'GET /discovery/candidates': (options) => ok([candidateJson(userId: 9)]),
       'GET /discovery/likes/count': (options) => ok({'count': 3}),
+      'GET /discovery/visits/count': (options) => ok({'count': 0}),
       'GET /discovery/likes': (options) => ok(pageJson([
             likeReceivedJson(userId: 10, nickname: '小刚'),
           ])),
@@ -179,6 +180,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('喜欢我的人'), findsWidgets);
+    expect(find.text('小刚'), findsOneWidget);
+  });
+  testWidgets('发现页显示访客数,点入口进访客列表', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'GET /discovery/candidates': (options) => ok([candidateJson(userId: 9)]),
+      'GET /discovery/likes/count': (options) => ok({'count': 0}),
+      'GET /discovery/visits/count': (options) => ok({'count': 4}),
+      'GET /discovery/visits': (options) => ok(pageJson([
+            visitJson(userId: 10, nickname: '小刚'),
+          ])),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('discovery.visits')), findsOneWidget);
+    expect(find.text('4'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('discovery.visits')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('谁看过我'), findsWidgets);
     expect(find.text('小刚'), findsOneWidget);
   });
 }

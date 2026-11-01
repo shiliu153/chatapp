@@ -17,22 +17,27 @@ import time
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.storage import default_storage
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from im import tasks as im_tasks
 
 from . import presence
-from .models import PhotoStatus, Preference, Profile
+from .models import PhotoStatus, Preference, Profile, ProfileVisit
 
 logger = logging.getLogger(__name__)
 
 # 浏览计数按「自然小时」分桶,key 存活 1 小时即可覆盖整个窗口。
 PROFILE_VIEW_TTL_SECONDS = 3600
 
+# 访客记录:同一对 (viewer, owner) 30 分钟内只写一次,避免下拉刷新造成写放大。
+PROFILE_VISIT_TTL_SECONDS = 1800
+# 访客记录保留期:超过这个天数的行由 purge_profile_visits 清理。
+PROFILE_VISIT_RETENTION_DAYS = 90
+
 
 def record_profile_view(viewer_id: int, target_id: int) -> None:
-    """记录一次「看了谁的资料」,并按小时统计不同目标数;超阈值记 WARNING。
+    """记录一次「看了谁的资料」:落库访客记录,并按小时统计不同目标数(超阈值告警)。
 
     同一小时内重复看同一个人只算一次(``cache.add`` 返回 False 即已记过),
     这样阈值衡量的是**抓取广度**而不是刷新次数。
@@ -42,25 +47,60 @@ def record_profile_view(viewer_id: int, target_id: int) -> None:
         target_id: 被浏览者账号 id。
 
     Returns:
-        None。Redis 异常时只写 debug 日志,绝不影响资料接口。
+        None。Redis / 数据库异常时只写 debug 日志,绝不影响资料接口。
     """
     bucket = int(time.time()) // PROFILE_VIEW_TTL_SECONDS
     try:
         first_time = cache.add(f"profile_view:{viewer_id}:{target_id}:{bucket}", 1,
                                timeout=PROFILE_VIEW_TTL_SECONDS)
-        if not first_time:
-            return
-        count_key = f"profile_view_count:{viewer_id}:{bucket}"
-        try:
-            count = cache.incr(count_key)
-        except ValueError:      # key 不存在时 incr 抛 ValueError,补一次 set
-            cache.set(count_key, 1, timeout=PROFILE_VIEW_TTL_SECONDS)
-            count = 1
-        if count == settings.PROFILE_SCRAPE_ALERT_PER_HOUR + 1:
-            logger.warning("疑似资料抓取: viewer=%s 一小时内浏览了 %s 个不同用户",
-                           viewer_id, count)
+        if first_time:
+            count_key = f"profile_view_count:{viewer_id}:{bucket}"
+            try:
+                count = cache.incr(count_key)
+            except ValueError:      # key 不存在时 incr 抛 ValueError,补一次 set
+                cache.set(count_key, 1, timeout=PROFILE_VIEW_TTL_SECONDS)
+                count = 1
+            if count == settings.PROFILE_SCRAPE_ALERT_PER_HOUR + 1:
+                logger.warning("疑似资料抓取: viewer=%s 一小时内浏览了 %s 个不同用户",
+                               viewer_id, count)
     except Exception:
         logger.debug("资料浏览计数失败(不影响响应)", exc_info=True)
+    # 访客记录与上面的抓取监控是两套独立窗口(30 分钟 vs 1 小时),不能共用 early return。
+    try:
+        _record_visit(viewer_id, target_id)
+    except Exception:
+        logger.debug("访客记录失败(不影响响应)", exc_info=True)
+
+
+def _record_visit(viewer_id: int, target_id: int) -> None:
+    """把一次资料页访问写进 ``ProfileVisit``(每人一行,30 分钟窗口内只写一次)。
+
+    隐身判断取 ``Profile.visits_hidden``:资料是懒创建的,取不到 profile 视为「未隐身」。
+    写库放在内层 ``atomic()`` 里,失败只回滚到保存点,不会毒化外层事务
+    (``GET /users/{id}`` 本身没有外层事务,但测试与嵌套调用有)。
+
+    Args:
+        viewer_id: 浏览者账号 id。
+        target_id: 被浏览者账号 id。
+
+    Returns:
+        None。
+    """
+    if viewer_id == target_id:      # 自己看自己不算
+        return
+    hidden = (Profile.objects.filter(user_id=viewer_id)
+              .values_list("visits_hidden", flat=True).first())
+    if hidden:
+        return
+    if not cache.add(f"visit:{viewer_id}:{target_id}", 1, timeout=PROFILE_VISIT_TTL_SECONDS):
+        return
+    now = timezone.now()
+    try:
+        with transaction.atomic():
+            ProfileVisit.objects.update_or_create(
+                viewer_id=viewer_id, owner_id=target_id, defaults={"last_at": now})
+    except IntegrityError:      # 并发插入撞唯一约束:退化成一次更新
+        ProfileVisit.objects.filter(viewer_id=viewer_id, owner_id=target_id).update(last_at=now)
 
 
 
