@@ -11,6 +11,7 @@ import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
 import '../../core/widgets/app_list_row.dart';
+import '../../core/widgets/app_list_skeleton.dart';
 import '../../core/widgets/app_sub_page_bar.dart';
 import '../../core/widgets/app_text_action.dart';
 import '../../core/widgets/app_toast.dart';
@@ -18,7 +19,6 @@ import '../../core/widgets/heart_ripple.dart';
 import '../profile/profile_controller.dart';
 import 'likes_received_controller.dart';
 import 'models.dart';
-import 'widgets/likes_skeleton.dart';
 import 'widgets/match_overlay.dart';
 
 /// 「喜欢我的人」二级页:列表 + 回喜欢 + 四态。
@@ -57,7 +57,7 @@ class LikesReceivedPage extends ConsumerWidget {
             const AppSubPageBar(title: '喜欢我的人'),
             Expanded(
               child: likes.when(
-                loading: () => const LikesSkeleton(),
+                loading: () => const AppListSkeleton(key: Key('likes.skeleton')),
                 error: (error, _) => AppErrorView(
                   message: error is ApiException ? error.message : '加载失败,请重试',
                   retryKey: const Key('likes.retry'),
