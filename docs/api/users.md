@@ -37,6 +37,7 @@
 | tags | Object[] | 已选标签,见下表 |
 | photos | Object[] | 已上传照片(含未过审) |
 | preference | Object | 择偶偏好,同 2.6 |
+| visits_hidden | Boolean | 是否开启「隐身浏览」;开启后自己的访问不写进他人访客列表 |
 
 `tags[]` 字段:
 
@@ -116,6 +117,7 @@ curl http://<域名>/api/v1/users/me \
 | city | 否 | String | 城市,最长 50 字 |
 | bio | 否 | String | 简介,最长 200 字;含违规词返回 400 |
 | tag_ids | 否 | Integer[] | 标签 ID 数组(全量替换);ID 不存在返回 400;可传空数组清空 |
+| visits_hidden | 否 | Boolean | 隐身浏览开关;不传表示不改 |
 
 **响应参数**
 
