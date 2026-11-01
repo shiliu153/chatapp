@@ -24,21 +24,17 @@ const int _maxDurationMs = 60000;
 /// 不必真的等两秒。
 class VoiceRecordController extends ChangeNotifier {
   VoiceRecordController({
-    required VoiceRecorder recorder,
-    required Future<String> Function() tempPath,
-    required void Function(String message) onNotice,
-    required Future<void> Function(String path, int durationMs) onSend,
+    required this.recorder,
+    required this.tempPath,
+    required this.onNotice,
+    required this.onSend,
     DateTime Function()? now,
-  })  : _recorder = recorder,
-        _tempPath = tempPath,
-        _onNotice = onNotice,
-        _onSend = onSend,
-        _now = now ?? DateTime.now;
+  }) : _now = now ?? DateTime.now;
 
-  final VoiceRecorder _recorder;
-  final Future<String> Function() _tempPath;
-  final void Function(String message) _onNotice;
-  final Future<void> Function(String path, int durationMs) _onSend;
+  final VoiceRecorder recorder;
+  final Future<String> Function() tempPath;
+  final void Function(String message) onNotice;
+  final Future<void> Function(String path, int durationMs) onSend;
   final DateTime Function() _now;
 
   VoicePhase _phase = VoicePhase.idle;
@@ -70,19 +66,19 @@ class VoiceRecordController extends ChangeNotifier {
     if (_phase != VoicePhase.idle) return;
     _phase = VoicePhase.requesting;
     notifyListeners();
-    if (!await _recorder.hasPermission()) {
+    if (!await recorder.hasPermission()) {
       _phase = VoicePhase.idle;
       notifyListeners();
-      _onNotice(voiceTextPermissionDenied);
+      onNotice(voiceTextPermissionDenied);
       return;
     }
-    final path = await _tempPath();
+    final path = await tempPath();
     try {
-      await _recorder.start(path);
+      await recorder.start(path);
     } catch (_) {
       _phase = VoicePhase.idle;
       notifyListeners();
-      _onNotice(voiceTextStartFailed);
+      onNotice(voiceTextStartFailed);
       return;
     }
     _phase = VoicePhase.recording;
@@ -115,20 +111,20 @@ class VoiceRecordController extends ChangeNotifier {
     _phase = VoicePhase.sending;
     notifyListeners();
 
-    final path = await _recorder.stop();
+    final path = await recorder.stop();
     if (path == null || durationMs < _minDurationMs) {
       try {
-        await _recorder.cancel();
+        await recorder.cancel();
       } catch (_) {}
       _phase = VoicePhase.idle;
       notifyListeners();
-      _onNotice(path == null ? voiceTextStartFailed : voiceTextTooShort);
+      onNotice(path == null ? voiceTextStartFailed : voiceTextTooShort);
       return;
     }
     try {
-      await _onSend(path, durationMs);
+      await onSend(path, durationMs);
     } catch (_) {
-      _onNotice(voiceTextSendFailed);
+      onNotice(voiceTextSendFailed);
     } finally {
       _phase = VoicePhase.idle;
       notifyListeners();
@@ -143,7 +139,7 @@ class VoiceRecordController extends ChangeNotifier {
     _cancelArmed = false;
     _phase = VoicePhase.idle;
     try {
-      await _recorder.cancel();
+      await recorder.cancel();
     } catch (_) {}
     notifyListeners();
   }
@@ -155,7 +151,7 @@ class VoiceRecordController extends ChangeNotifier {
     _ticker?.cancel();
     // 录音中直接销毁必须停掉设备,否则麦克风会一直采集
     if (_phase == VoicePhase.recording || _phase == VoicePhase.sending) {
-      unawaited(_recorder.cancel().catchError((_) {}));
+      unawaited(recorder.cancel().catchError((_) {}));
     }
     super.dispose();
   }
