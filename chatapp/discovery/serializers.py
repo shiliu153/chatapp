@@ -7,7 +7,7 @@
 
 from rest_framework import serializers
 
-from users.models import PhotoStatus, Profile
+from users.models import PhotoStatus, Profile, ProfileVisit
 from users.serializers import PhotoSerializer, TagSerializer
 
 from .models import Swipe, SwipeAction
@@ -74,4 +74,35 @@ class LikeReceivedSerializer(serializers.ModelSerializer):
             已过审照片的序列化数据。
         """
         approved = [p for p in swipe.swiper.photos.all() if p.status == PhotoStatus.APPROVED]
+        return PhotoSerializer(approved, many=True, context=self.context).data
+
+class VisitSerializer(serializers.ModelSerializer):
+    """「谁看过我」列表项:对方公开资料 + 最近访问时间。"""
+
+    user_id = serializers.IntegerField(source="viewer.id", read_only=True)
+    im_user_id = serializers.CharField(source="viewer.im_user_id", read_only=True)
+    nickname = serializers.CharField(source="viewer.profile.nickname", read_only=True)
+    gender = serializers.CharField(source="viewer.profile.gender", read_only=True)
+    age = serializers.IntegerField(source="viewer.profile.age", read_only=True, allow_null=True)
+    city = serializers.CharField(source="viewer.profile.city", read_only=True)
+    bio = serializers.CharField(source="viewer.profile.bio", read_only=True)
+    tags = TagSerializer(source="viewer.profile.tags", many=True, read_only=True)
+    photos = serializers.SerializerMethodField()
+    visited_at = serializers.DateTimeField(source="last_at", read_only=True)
+
+    class Meta:
+        model = ProfileVisit
+        fields = ["user_id", "im_user_id", "nickname", "gender", "age", "city", "bio",
+                  "tags", "photos", "visited_at"]
+
+    def get_photos(self, visit):
+        """只返回已过审照片。
+
+        Args:
+            visit: 一条访客记录。
+
+        Returns:
+            已过审照片的序列化数据。
+        """
+        approved = [p for p in visit.viewer.photos.all() if p.status == PhotoStatus.APPROVED]
         return PhotoSerializer(approved, many=True, context=self.context).data

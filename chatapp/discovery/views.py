@@ -34,8 +34,9 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bo
 from users.services import get_profile
 
 from .models import Match, Swipe, SwipeAction
-from .serializers import CandidateSerializer, LikeReceivedSerializer, SwipeSerializer
-from .services import likes_received_queryset, notify_match
+from .serializers import (CandidateSerializer, LikeReceivedSerializer, SwipeSerializer,
+                          VisitSerializer)
+from .services import likes_received_queryset, notify_match, visits_received_queryset
 from .throttles import CandidateThrottle, SwipeThrottle
 
 User = get_user_model()
@@ -274,3 +275,32 @@ def likes_received_count(request):
         ``{"count": N}``,与列表同口径,供入口角标使用。
     """
     return Response({"count": likes_received_queryset(request.user).count()})
+
+@api_view(["GET"])
+def visits(request):
+    """谁看过我(GET /api/v1/discovery/visits)。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` / ``offset``。
+
+    Returns:
+        分页后的访客列表,字段见 ``VisitSerializer``。
+    """
+    qs = visits_received_queryset(request.user)
+    paginator = DefaultLimitOffsetPagination()
+    page = paginator.paginate_queryset(qs, request)
+    return paginator.get_paginated_response(
+        VisitSerializer(page, many=True, context={"request": request}).data)
+
+
+@api_view(["GET"])
+def visits_count(request):
+    """访客人数(GET /api/v1/discovery/visits/count)。
+
+    Args:
+        request: DRF 请求对象。
+
+    Returns:
+        ``{"count": N}``,与列表同口径,供入口角标使用。
+    """
+    return Response({"count": visits_received_queryset(request.user).count()})

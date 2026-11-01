@@ -10,7 +10,7 @@ from django.db import transaction
 
 from im import tasks as im_tasks
 from moderation.services import blocked_user_ids
-from users.models import Photo, PhotoStatus, ProfileStatus
+from users.models import Photo, PhotoStatus, ProfileStatus, ProfileVisit
 
 from .models import Swipe, SwipeAction
 
@@ -49,3 +49,27 @@ def likes_received_queryset(me):
             .select_related("swiper__profile")
             .prefetch_related("swiper__photos", "swiper__profile__tags")
             .order_by("-created_at", "-id"))
+
+def visits_received_queryset(me):
+    """谁看过我:与「喜欢我的人」同口径,排除我已划过 / 双向拉黑 / 资料不全。
+
+    已配对的人不需要单独过滤:配对的前提是双方都划过对方,「排除我已划过」已天然覆盖。
+
+    Args:
+        me: 当前用户。
+
+    Returns:
+        以 ``ProfileVisit`` 为行的查询集,按最近访问时间倒序;列表与计数必须共用它。
+    """
+    swiped = Swipe.objects.filter(swiper=me).values("target_id")
+    with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
+    return (ProfileVisit.objects
+            .filter(owner=me)
+            .exclude(viewer_id=me.id)
+            .exclude(viewer_id__in=swiped)
+            .exclude(viewer_id__in=blocked_user_ids(me))
+            .filter(viewer__profile__status=ProfileStatus.COMPLETE)
+            .filter(viewer_id__in=with_photos)
+            .select_related("viewer__profile")
+            .prefetch_related("viewer__photos", "viewer__profile__tags")
+            .order_by("-last_at", "-id"))

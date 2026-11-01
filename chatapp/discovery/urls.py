@@ -13,4 +13,6 @@ urlpatterns = [
     path("swipe", views.swipe),
     path("likes", views.likes_received),
     path("likes/count", views.likes_received_count),
+    path("visits", views.visits),
+    path("visits/count", views.visits_count),
 ]
