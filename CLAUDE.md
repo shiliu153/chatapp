@@ -61,7 +61,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 **下一步**:2026-10-28 **已全量切到 `https://chat.shiliu153.cn`**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `https://chat.shiliu153.cn/chatapp-1.0.1.apk`)。剩余:
 1. **安全整改 + HTTPS 切换已上线并完成人工验收(2026-10-28)**:脚本验收(WS 鉴权/40101/40302、媒体签名、配对 ack)+ 用户真机手测(App 登录/聊天/杀进程重进/图片语音、旧 APK 升级弹窗、`/ops/` 首次绑定 TOTP)均通过。执行记录见 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) §12。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
 2. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式,必须先接真实短信商并配密钥;**S1/H2 已由产品决定暂不修(保留固定验证码),这是仍未关闭的严重风险,只能封闭测试**;
-3. **Web 语音前置已具备**:HTTPS 已上线,`getUserMedia` 可用;但代码里麦克风入口仍**隐藏**,要放开需单独改一版(与 P1-4b 推送同一批可做);
+3. **Web 语音已可用(2026-11-01 打磨)**:麦克风入口自 2026-10-27 起就存在(此前本行描述「仍隐藏」已过时)。本期改为**点击式录音**(点开始 → 再点发送,可取消或按 Esc),补齐权限被拒/无设备/太短/发送失败四条错误路径;App 保留按住说话,录音逻辑抽成 `VoiceRecordController`。修掉四个缺陷:指针拖出后录音停不下来、失败静默、入口凭空消失、离开页面把没录完的语音发出去。设计见 `docs/superpowers/specs/2026-11-01-voice-recording-interaction-design.md`;
 4. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志);**P2 项已全部关闭**——M7 磁盘配额/候选池缓存已于 2026-10-28 关闭(部署需跑 `migrate` + `media_bytes_backfill`,并加 4 条计划任务,见 `docs/ops/imserver.md` §12.5);M9 资料图防盗链与 M2 非配对字段裁剪按产品决定不做(详见审计报告 §10)。
 
 其余挂起项不变:P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。

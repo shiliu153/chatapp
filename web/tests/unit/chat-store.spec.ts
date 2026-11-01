@@ -41,9 +41,12 @@ function fakeClient() {
     fetchConversations: vi.fn(async () => conversations),
     fetchHistory: vi.fn(async (_peerId?: string, _count?: number, _beforeSeq?: number) => [] as ChatMessage[]),
     searchMessages: vi.fn(async () => ({ items: [], hasMore: false })),
-    capabilities: { image: true, search: true },
+    capabilities: { image: true, search: true, voice: true },
     sendText: vi.fn(async (peerId: string, text: string) => msg({ msgId: 'm1', peerId, isSelf: true, text })),
     sendImage: vi.fn(async (peerId: string) => msg({ msgId: 'm2', peerId, isSelf: true })),
+    sendVoice: vi.fn(async (peerId: string) =>
+      msg({ msgId: 'm3', peerId, isSelf: true, kind: 'voice' as never }),
+    ),
     deleteMessage: vi.fn(async () => {}),
     revokeMessage: vi.fn(async () => {}),
     markConversationRead: vi.fn(async () => {}),
@@ -229,7 +232,7 @@ describe('chat store', () => {
 
     await store.loadConversations()
 
-    expect(store.capabilities).toEqual({ image: true, search: true })
+    expect(store.capabilities).toEqual({ image: true, search: true, voice: true })
   })
 
   it('searchMessages 先确保已连接,再透传关键词/条数/游标', async () => {
@@ -259,5 +262,49 @@ describe('chat store', () => {
 
     expect(client.fetchHistory).toHaveBeenCalledWith('u8', 50, 101)
     expect(store.messagesOf('u8').map((item) => item.msgId)).toEqual(['target', 'm2', 'm3'])
+  })
+
+  it('sendVoice 先插入 isPending 占位,成功后替换成真实消息', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    const real = msg({ msgId: 'real-1', peerId: 'u8', isSelf: true, kind: 'voice' as never })
+    client.sendVoice = vi.fn(async () => real)
+
+    const pending = store.sendVoice('u8', new Blob(['a']), 3000)
+    // 占位是同步上屏的:失败时才有东西可重试
+    expect(store.messagesOf('u8').some((item) => item.isPending)).toBe(true)
+    await pending
+    const voices = store.messagesOf('u8').filter((item) => item.kind === 'voice')
+    expect(voices).toHaveLength(1)
+    expect(voices[0].msgId).toBe('real-1')
+  })
+
+  it('sendVoice 失败把占位标成 isFailed 并抛出', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    client.sendVoice = vi.fn(async () => Promise.reject(new Error('boom')))
+
+    await expect(store.sendVoice('u8', new Blob(['a']), 3000)).rejects.toThrow('boom')
+    const failed = store.messagesOf('u8').find((item) => item.kind === 'voice')
+    expect(failed?.isFailed).toBe(true)
+    expect(failed?.isPending).toBe(false)
+  })
+
+  it('resend 用缓存 blob 重发失败语音', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    client.sendVoice = vi.fn(async () => Promise.reject(new Error('boom')))
+    await expect(store.sendVoice('u8', new Blob(['a']), 3000)).rejects.toThrow()
+
+    const failed = store.messagesOf('u8').find((item) => item.isFailed)!
+    client.sendVoice = vi.fn(async () =>
+      msg({ msgId: 'real-2', peerId: 'u8', isSelf: true, kind: 'voice' as never }),
+    )
+    await store.resend(failed)
+    expect(client.sendVoice).toHaveBeenCalledTimes(1)
+    expect(store.messagesOf('u8').some((item) => item.msgId === 'real-2')).toBe(true)
   })
 })

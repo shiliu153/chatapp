@@ -109,3 +109,9 @@
 - **退出登录必须调接口**:`session.logout()` 先 `POST /auth/logout` 清 Cookie,再清内存;接口失败也要清本地(否则用户卡在「退不出去」)。注销账号同理 —— 账号行删了拉黑必然失败,但 Cookie 能被清掉。
 - **测试隔离要显式清内存令牌**:`localStorage.clear()` 清不到模块内的 `accessToken`,所以 `tests/support/server.ts` 的 `afterEach` 里要 `tokenStore.clear()`。组件测试若自建 `ProviderScope`,`flutter_secure_storage` 那条是 App 侧的事,Web 不受影响。
 - **老用户升级会被登出一次**:旧版本写在 localStorage 的 `hb.access`/`hb.refresh` 在模块加载时直接删除,不回灌 Cookie(没有安全通道把旧 refresh 换成新会话)。发版说明里要提一句。
+
+## 录音这类「有副作用的状态机」别写在组件里(2026-11-01)
+
+- `ChatPage.vue` 原来把 MediaRecorder 生命周期直接写在组件里，`onUnmounted` 顺手调了 `finishRecording()` —— **离开聊天页会把正在录的语音发给对方**。同期还有三个洞：指针拖出按钮后 `pointerup` 丢失（录音停不下来，直到 60 秒自动发）、`getUserMedia` 失败静默 `return`、能力不支持时按钮直接消失。
+- **规则**：凡是「开始 / 结束 / 取消 + 超时自动结束」的状态机，抽成 composable（Web `useVoiceRecorder`、App `VoiceRecordController`）并显式提供 `dispose()`；`dispose()` 的语义固定是**取消**，不是完成。测试里必须有一条断言「dispose 之后没有发送」。
+- **置灰别用 `disabled`**：`disabled` 的按钮收不到 click，就没法「点击告知原因」。用 `aria-disabled` + 样式，保留 click 处理。

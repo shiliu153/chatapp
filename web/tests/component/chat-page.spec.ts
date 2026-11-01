@@ -193,4 +193,54 @@ describe('ChatPage', () => {
     expect(element.text()).toContain('上周的地址')
     w.unmount()
   })
+
+  it('能力不支持时麦克风仍渲染但置灰,点击给出原因', async () => {
+    const { w } = await mountPage()
+    await flushPromises()
+    const mic = w.find('[aria-label="语音消息"]')
+    expect(mic.exists()).toBe(true)
+    // 置灰用 aria-disabled 而不是 disabled:disabled 会吞掉 click,就没法解释原因
+    expect(mic.attributes('aria-disabled')).toBe('true')
+
+    await mic.trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('当前浏览器不支持录音')
+  })
+
+  it('能力支持时点麦克风进入录音条', async () => {
+    const { w, store } = await mountPage()
+    await flushPromises()
+
+    // jsdom 没有 MediaRecorder:先把浏览器能力桩上,再改能力位触发重算
+    vi.stubGlobal(
+      'MediaRecorder',
+      class {
+        static isTypeSupported = () => true
+        state = 'inactive'
+        mimeType = 'audio/webm'
+        ondataavailable: ((event: { data: Blob }) => void) | null = null
+        onstop: (() => void) | null = null
+        start(): void {
+          this.state = 'recording'
+        }
+        stop(): void {
+          this.state = 'inactive'
+          this.onstop?.()
+        }
+      },
+    )
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })) },
+    })
+    store.capabilities = { image: true, search: false, voice: true }
+    await flushPromises()
+
+    await w.find('[aria-label="语音消息"]').trigger('click')
+    await flushPromises()
+    expect(w.find('.voice-bar').exists()).toBe(true)
+
+    w.unmount()
+    vi.unstubAllGlobals()
+  })
 })

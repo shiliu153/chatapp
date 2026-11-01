@@ -30,6 +30,7 @@ import 'chat_items.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
 import 'recall.dart';
+import 'voice_record_controller.dart';
 import 'widgets/chat_bubbles_mark.dart';
 import 'widgets/chat_skeleton.dart';
 import 'widgets/emoji_panel.dart';
@@ -564,75 +565,31 @@ class _InputBar extends ConsumerStatefulWidget {
 }
 
 class _InputBarState extends ConsumerState<_InputBar> {
-  bool _recording = false;
-  bool _cancelArmed = false;
-  final _stopwatch = Stopwatch();
-  Timer? _ticker;
-  Timer? _autoStop;
+  late final VoiceRecordController _voice;
+
+  @override
+  void initState() {
+    super.initState();
+    _voice = VoiceRecordController(
+      recorder: ref.read(voiceRecorderProvider),
+      tempPath: ref.read(voiceTempPathProvider),
+      onNotice: (message) {
+        if (mounted) AppToast.show(context, message);
+      },
+      onSend: (path, durationMs) async => widget.onSendVoice(path, durationMs),
+    )..addListener(_onVoiceChanged);
+  }
+
+  void _onVoiceChanged() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
-    _ticker?.cancel();
-    _autoStop?.cancel();
+    _voice
+      ..removeListener(_onVoiceChanged)
+      ..dispose();
     super.dispose();
-  }
-
-  Future<void> _startRecording() async {
-    if (!widget.enabled || _recording) return;
-    final recorder = ref.read(voiceRecorderProvider);
-    if (!await recorder.hasPermission()) {
-      if (mounted) AppToast.show(context, '需要麦克风权限才能发语音');
-      return;
-    }
-    final path = await ref.read(voiceTempPathProvider)();
-    try {
-      await recorder.start(path);
-    } catch (_) {
-      if (mounted) AppToast.show(context, '录音启动失败,请重试');
-      return;
-    }
-    if (!mounted) return;
-    setState(() {
-      _recording = true;
-      _cancelArmed = false;
-    });
-    _stopwatch
-      ..reset()
-      ..start();
-    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (mounted) setState(() {});
-    });
-    _autoStop = Timer(const Duration(seconds: 60), _finishRecording);
-  }
-
-  Future<void> _finishRecording() async {
-    if (!_recording) return;
-    _autoStop?.cancel();
-    _ticker?.cancel();
-    _stopwatch.stop();
-    final durationMs = _stopwatch.elapsedMilliseconds;
-    final cancelled = _cancelArmed;
-    setState(() {
-      _recording = false;
-      _cancelArmed = false;
-    });
-    final recorder = ref.read(voiceRecorderProvider);
-    if (cancelled) {
-      await recorder.cancel();
-      return;
-    }
-    final path = await recorder.stop();
-    if (path == null || durationMs < 1000) {
-      // 停止后再 cancel 只是为了删掉临时文件;插件实现可能报「已停止」,忽略即可
-      try {
-        await recorder.cancel();
-      } catch (_) {}
-      if (mounted) {
-        AppToast.show(context, path == null ? '录音失败,请重试' : '说话时间太短');
-      }
-      return;
-    }
-    widget.onSendVoice(path, durationMs);
   }
 
   /// 栏内图标:44 方块(与输入框同高,保证同行对齐),图标 24 居中。
@@ -652,7 +609,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
 
   @override
   Widget build(BuildContext context) {
-    final seconds = (_stopwatch.elapsedMilliseconds / 1000).ceil().clamp(0, 60);
+    final seconds = _voice.seconds;
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -668,14 +625,10 @@ class _InputBarState extends ConsumerState<_InputBar> {
                     GestureDetector(
                       key: const Key('chat.mic'),
                       behavior: HitTestBehavior.opaque,
-                      onLongPressStart: (_) => _startRecording(),
-                      onLongPressMoveUpdate: (details) {
-                        final armed = details.localOffsetFromOrigin.dy < -60;
-                        if (armed != _cancelArmed) {
-                          setState(() => _cancelArmed = armed);
-                        }
-                      },
-                      onLongPressEnd: (_) => _finishRecording(),
+                      onLongPressStart: (_) => _voice.start(),
+                      onLongPressMoveUpdate: (details) =>
+                          _voice.updateCancelArm(details.localOffsetFromOrigin.dy < -60),
+                      onLongPressEnd: (_) => _voice.stopAndSend(),
                       child: SizedBox(
                         width: 44,
                         height: 44,
@@ -765,7 +718,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
             ),
           ),
         ),
-        if (_recording)
+        if (_voice.phase == VoicePhase.recording)
           Positioned(
             left: 0,
             right: 0,
@@ -773,7 +726,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
             child: Center(
               child: VoiceRecordOverlay(
                 seconds: seconds,
-                cancelArmed: _cancelArmed,
+                cancelArmed: _voice.cancelArmed,
               ),
             ),
           ),

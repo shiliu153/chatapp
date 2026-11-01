@@ -51,4 +51,11 @@ describe('MessageVoice', () => {
     await wrapper.get('button').trigger('click')
     expect(playVoice).not.toHaveBeenCalled()
   })
+
+  it('没有地址时渲染不可播放的占位(失败/发送中的气泡)', () => {
+    const wrapper = mount(MessageVoice, { props: { message: message({ voiceUrl: null }) } })
+    expect(wrapper.find('.voice--empty').exists()).toBe(true)
+    expect(wrapper.get('button').attributes('aria-disabled')).toBe('true')
+    expect(wrapper.text()).toContain('🎙')
+  })
 })
