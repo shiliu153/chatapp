@@ -116,7 +116,22 @@ describe('DiscoveryPage', () => {
     const w = mountPage()
     await flushPromises()
 
-    expect(w.find('.likes-entry').exists()).toBe(true)
+    expect(w.find('.top-entry').exists()).toBe(true)
+    expect(w.text()).toContain('喜欢我的人')
     expect(w.text()).toContain('3')
+  })
+
+  it('显示谁看过我入口与数量', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.get('/api/v1/discovery/visits/count', () => HttpResponse.json({ count: 5 })),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    expect(w.findAll('.top-entry')).toHaveLength(2)
+    expect(w.text()).toContain('谁看过我')
+    expect(w.text()).toContain('5')
   })
 })

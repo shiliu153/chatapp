@@ -10,6 +10,7 @@ import LikesEntry from './LikesEntry.vue'
 import MatchesList from './MatchesList.vue'
 import MatchMoment from './MatchMoment.vue'
 import SwipeDeck from './SwipeDeck.vue'
+import VisitsEntry from './VisitsEntry.vue'
 
 const store = useDiscoveryStore()
 const presence = usePresenceStore()
@@ -48,7 +49,10 @@ function onChat() {
 
 <template>
   <section class="discovery">
-    <LikesEntry />
+    <div class="discovery__entries">
+      <LikesEntry />
+      <VisitsEntry />
+    </div>
     <MatchesList />
 
     <p v-if="store.error" class="discovery__error">{{ store.error }}</p>
@@ -93,6 +97,11 @@ function onChat() {
   height: 100%;
   min-height: 0;
   padding: var(--space-lg) var(--space-section-gap);
+}
+.discovery__entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
 }
 .discovery__error {
   margin: 0;
