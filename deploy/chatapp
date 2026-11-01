@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# chat 服务运维命令(由 deploy/oneclick.sh 安装到 /usr/local/bin/chatapp)
+#
+# 所有子命令都在部署目录下执行 docker compose,不依赖当前工作目录。
+set -euo pipefail
+
+SELF=$(readlink -f -- "${BASH_SOURCE[0]}")
+APP_DIR=$(cd -- "$(dirname -- "$SELF")/.." && pwd)
+COMPOSE_FILE="$APP_DIR/docker-compose.yml"
+
+[ -f "$COMPOSE_FILE" ] || { echo "找不到 $COMPOSE_FILE" >&2; exit 1; }
+
+compose() {
+    docker compose -f "$COMPOSE_FILE" --project-directory "$APP_DIR" "$@"
+}
+
+usage() {
+    cat <<'EOF'
+用法: chatapp <命令>
+
+  status | ps        查看容器状态
+  up                 启动全部服务
+  down               停止并删除容器(不删数据卷)
+  restart            重启应用容器(web/worker/imserver/nginx)
+  logs [服务名]      跟踪日志(默认全部)
+  migrate            执行 Django 迁移
+  manage <参数...>   执行 manage.py,如 chatapp manage createsuperuser
+  shell              进入 Django shell
+  backup [文件]      备份 MySQL(chatapp + chatapp_im),默认写到 backups/
+  restore <文件>     从备份恢复(需输入 yes 确认)
+  backup-media [文件] 打包媒体目录(照片/聊天图/语音)
+  cert-renew         立即执行一次证书续期
+  url                打印站点地址
+EOF
+}
+
+case "${1:-}" in
+    status|ps)      compose ps ;;
+    up)             compose up -d ;;
+    down)           compose down ;;
+    restart)        compose restart web worker imserver nginx ;;
+    logs)
+        shift
+        compose logs -f --tail=200 "$@"
+        ;;
+    migrate)        compose run --rm --no-deps migrate ;;
+    manage)
+        shift
+        [ $# -gt 0 ] || { echo "用法: chatapp manage <参数...>" >&2; exit 1; }
+        compose run --rm --no-deps web python manage.py "$@"
+        ;;
+    shell)          compose exec web python manage.py shell ;;
+    backup)
+        out=${2:-"$APP_DIR/backups/chatapp-$(date +%Y%m%d-%H%M%S).sql.gz"}
+        mkdir -p "$(dirname -- "$out")"
+        # 单引号是故意的:变量要在 mysql 容器内展开,不在宿主机展开
+        # shellcheck disable=SC2016
+        compose exec -T mysql sh -c \
+            'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers --databases chatapp chatapp_im' \
+            | gzip > "$out"
+        echo "已备份: $out"
+        ;;
+    restore)
+        file=${2:-}
+        if [ -z "$file" ] || [ ! -f "$file" ]; then
+            echo "用法: chatapp restore <备份文件.sql.gz>" >&2
+            exit 1
+        fi
+        printf '将覆盖当前 chatapp 与 chatapp_im 数据,输入 yes 继续: '
+        read -r answer
+        [ "$answer" = "yes" ] || { echo "已取消"; exit 1; }
+        # shellcheck disable=SC2016
+        gzip -dc "$file" | compose exec -T mysql sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
+        echo "已恢复: $file"
+        ;;
+    backup-media)
+        out=${2:-"$APP_DIR/backups/media-$(date +%Y%m%d-%H%M%S).tar.gz"}
+        mkdir -p "$(dirname -- "$out")"
+        docker run --rm -v chatapp_media:/data:ro -v "$(dirname -- "$out")":/backup \
+            alpine tar czf "/backup/$(basename -- "$out")" -C /data .
+        echo "已备份: $out"
+        ;;
+    cert-renew)     exec "$APP_DIR/bin/certbot-renew.sh" ;;
+    url)
+        sed -n 's/^PUBLIC_URL=//p' "$APP_DIR/.env" | head -n1
+        ;;
+    -h|--help|help) usage ;;
+    *) usage; exit 1 ;;
+esac

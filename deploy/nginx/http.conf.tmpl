@@ -1,0 +1,123 @@
+# 由 deploy/oneclick.sh 生成(HTTP 模式);不要手改。
+# 用于:① --no-tls 部署;② 首次签发证书前的临时站点。
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name __SERVER_NAME__;
+    client_max_body_size 20m;
+
+    # 与 Django 的纵深防御头保持一致;静态页也生效
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "same-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" always;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    # certbot webroot(HTTP-01);证书签发期间必须可达
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        access_log off;
+    }
+
+    # Django collectstatic 产物(web 容器启动时写入共享 volume)
+    location ^~ /static/ {
+        alias /srv/static/;
+        expires 7d;
+    }
+
+    # 聊天媒体:先让 Django 验签,再直出
+    location ^~ /media/chat/ {
+        auth_request /_im_media_auth;
+        alias /srv/media/chat/;
+        expires 1h;
+    }
+
+    location = /_im_media_auth {
+        internal;
+        proxy_pass http://web:8000/api/v1/im/images/auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header X-Original-URI $request_uri;
+        # 必须显式传 Host 与 https 标记:否则 SECURE_SSL_REDIRECT 会把子请求 301 掉
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 资料图 / 广场图公开直出
+    location ^~ /media/ {
+        alias /srv/media/;
+        expires 7d;
+    }
+
+    location ^~ /assets/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+        # 本 location 有自己的 add_header,server 级安全头不会继承,必须重复
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "same-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" always;
+    }
+
+    location ^~ /fonts/ {
+        expires 30d;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-store";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "same-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" always;
+    }
+
+    # 自建 IM:WebSocket + HTTP 内部接口
+    location /im/ws {
+        proxy_pass http://imserver:9100;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        proxy_buffering off;
+    }
+
+    location /im/api/ {
+        proxy_pass http://imserver:9101;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+
+    # API / Django admin / 运营台
+    location ~ ^/(api|admin|ops)(/|$) {
+        proxy_pass http://web:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+
+    # Vue Router history 模式:深链回退到 index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    access_log /dev/stdout;
+    error_log /dev/stderr warn;
+}

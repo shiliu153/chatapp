@@ -1,0 +1,228 @@
+# 由 deploy/oneclick.sh 渲染;不要直接编辑(重跑脚本会覆盖)。
+#
+# 设计:
+#   - 只有 nginx 发布 80/443,MySQL / Redis / Django / imserver 都只在 compose 网络内;
+#   - imserver 在容器内监听 0.0.0.0(IM_ALLOW_PUBLIC_BIND=1),但 compose 不发布端口,
+#     外部只能经 nginx 的 /im/ws 与 /im/api/ 访问;
+#   - 固定子网,便于 Django/imserver 的 TRUSTED_PROXY_IPS 只信任 nginx。
+name: chatapp
+
+x-app: &app
+  image: chatapp-web:local
+  env_file:
+    - "__APP_DIR__/secrets/chatapp.env"
+  volumes:
+    - chatapp_static:/app/staticfiles
+    - chatapp_media:/app/media
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+services:
+  mysql:
+    image: mysql:8.0
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=200
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: chatapp
+      MYSQL_USER: chatapp
+      MYSQL_PASSWORD: "${DB_PASSWORD}"
+      TZ: Asia/Shanghai
+    volumes:
+      - chatapp_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - chatapp_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # 建 chatapp_im 库与 imserver 账号;每次部署都跑,SQL 幂等。
+  db-init:
+    image: mysql:8.0
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
+    volumes:
+      - "__APP_DIR__/mysql/init:/init:ro,z"
+    entrypoint: ["/bin/sh", "-c"]
+    # 必须是一个字符串参数:sh -c 只把紧随其后的第一个参数当命令
+    command:
+      - mysql -h mysql -uroot -p"$$MYSQL_ROOT_PASSWORD" < /init/01-databases.sql
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  migrate:
+    <<: *app
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    build:
+      context: "__REPO_DIR__"
+      dockerfile: deploy/docker/Dockerfile
+      # 构建期用宿主网络:部分云主机/桌面 Docker 的 bridge DNS 拉不到 apt/pip 源
+      network: host
+      args:
+        PIP_INDEX_URL: "${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
+    command: ["gunicorn", "config.wsgi:application", "-b", "0.0.0.0:8000", "-w", "2", "--timeout", "120", "--access-logfile", "-"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # HTTPS_ENABLED=1 时 Django 会把「非 https」请求 301;直连容器要显式带这个头
+      test: ["CMD-SHELL", "curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:8000/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency=1"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  imserver:
+    image: chatapp-imserver:local
+    build:
+      context: "__REPO_DIR__/imserver"
+      dockerfile: Dockerfile
+      network: host
+    env_file:
+      - "__APP_DIR__/secrets/imserver.env"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9101/internal/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  nginx:
+    image: chatapp-nginx:local
+    build:
+      context: "__REPO_DIR__"
+      dockerfile: deploy/docker/web.Dockerfile
+      network: host
+      args:
+        NPM_REGISTRY: "${NPM_REGISTRY:-https://registry.npmmirror.com}"
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - "__APP_DIR__/nginx/conf.d:/etc/nginx/conf.d:ro,z"
+      - chatapp_static:/srv/static:ro
+      - chatapp_media:/srv/media:ro
+      - chatapp_certs:/etc/letsencrypt:ro
+      - chatapp_acme:/var/www/certbot:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      imserver:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # 只在签发/续期时用 `docker compose --profile tools run --rm certbot ...` 调用
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ["tools"]
+    volumes:
+      - chatapp_certs:/etc/letsencrypt
+      - chatapp_acme:/var/www/certbot
+    entrypoint: ["certbot"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  # 显式钉住卷名,避免 compose 再套一层项目前缀(chatapp_chatapp_media)
+  chatapp_mysql:
+    name: chatapp_mysql
+  chatapp_redis:
+    name: chatapp_redis
+  chatapp_static:
+    name: chatapp_static
+  chatapp_media:
+    name: chatapp_media
+  chatapp_certs:
+    name: chatapp_certs
+  chatapp_acme:
+    name: chatapp_acme
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: "__DOCKER_SUBNET__"
