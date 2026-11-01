@@ -15,6 +15,7 @@ Map<String, dynamic> profileJson({
   Map<String, dynamic>? preference,
   String? status,
   String banReason = '',
+  bool visitsHidden = false,
 }) =>
     {
       'id': id,
@@ -33,6 +34,7 @@ Map<String, dynamic> profileJson({
       'photos': photos,
       'preference': preference ??
           {'target_gender': null, 'age_min': 18, 'age_max': 99, 'city': ''},
+      'visits_hidden': visitsHidden,
     };
 
 Map<String, dynamic> tagJson(int id, String name, {String icon = ''}) =>
