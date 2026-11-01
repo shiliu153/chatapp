@@ -186,6 +186,16 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
         data.update(overrides)
         return data
 
+    def test_toggle_visits_hidden(self):
+        resp = self.client.patch(self.url, {"visits_hidden": True}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["visits_hidden"])
+        self.user.profile.refresh_from_db()
+        self.assertTrue(self.user.profile.visits_hidden)
+
+    def test_visits_hidden_defaults_false_in_me(self):
+        self.assertFalse(self.client.get(self.url).json()["visits_hidden"])
+
     @patch("im.tasks.sync_profile.delay")
     def test_update_fields(self, delay):
         tag = Tag.objects.first()
@@ -616,6 +626,10 @@ class PublicProfileTests(AuthMixin, APITestCase):
         self.assertEqual(len(data["photos"]), 1)          # 只有过审那张
         for hidden in ("phone", "birthday", "preference", "missing_fields"):
             self.assertNotIn(hidden, data)
+
+    def test_public_profile_hides_visits_hidden(self):
+        Profile.objects.filter(user=self.other).update(visits_hidden=True)
+        self.assertNotIn("visits_hidden", self._get().json())
 
     def test_heavy_banned_target_is_invisible(self):
         Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_HEAVY)
