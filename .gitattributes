@@ -8,6 +8,10 @@
 # CRLF 会让 `set -euo pipefail` 在容器里报 `set: pipefail: invalid option name`
 # (2026-10-27 在 Windows 上 core.autocrlf=true 检出后复现,imserver 测试全挂)。
 *.sh text eol=lf
+# 无后缀的 bash 脚本同样必须在服务器上是 LF:
+# deploy/oneclick.sh 用 `install -m 755 deploy/chatapp` 装到 /opt/chatapp/bin,
+# Windows 检出若带 CRLF,`chatapp status` 会报 `bad interpreter: /usr/bin/env: bash\r`
+deploy/chatapp text eol=lf
 
 # 明确二进制,避免 Git 对它们做文本 diff
 *.png  binary
