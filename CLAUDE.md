@@ -55,10 +55,10 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | 2026-10-28 | **安全审计整改 P0+P1 交付**(`fix/security-remediation`):S1/H2 短信按产品决定不修;H3 IM token 绑定 `sv` + `im_user.session_version` + 登录/`user_sig` 双同步;H4 `im_pair` 配对校验(未配对 40302、目标必须存在、每分钟配额、`known_` 上限)+ `im_sync_pairs` 回填命令;H6 后台登录锁定 + TOTP + IP 白名单;M1 `NUM_PROXIES`、M3/M4/L5 统一图片校验与 EXIF 剥离、M6 媒体签名 fail-closed、M10/M11/M12、L1/L2/L4;H5 生产默认 `AUTO_APPROVE=0`;H1/B8 HTTPS 开关与 nginx 安全基线。后端 545 / imserver unit 22 + db 18 + 集成全绿 |
 | 2026-10-28 | **令牌硬化交付**(`fix/security-remediation`,审计 H1 剩余 + L8):Web 的 refresh 改走 `HttpOnly; SameSite=Strict; Path=/api/v1/auth/` Cookie(响应体不再返回 refresh、access 只留内存、新增 `POST /auth/logout`、60 秒轮换宽限防多标签互踢);App 令牌换 `flutter_secure_storage`(Keystore/Keychain + 老用户一次性迁移 + 失败降级);App 证书绑定 ISRG Root X1+X2 覆盖 HTTPS 与 WSS(release 默认 enforce,`tool/verify_pinning.dart` 对生产域名握手 200)。后端 573 / Web 371 / App 412 测试绿;**H1、L8 关闭** |
 | 2026-10-28 | **M7 存储配额 + 候选池交付**(审计 M7):四类媒体单账号配额(`USER_STORAGE_QUOTA_MB` 默认 200,超限 413 + `41301`,检查在落盘前);`Photo.bytes`/`PostImage.bytes` + `media_bytes_backfill`;候选池改 `Profile.shuffle_key` 预计算随机列 + 池内抽样,不再 `ORDER BY RAND()`,新增 `refresh_shuffle_keys` 轮换;`media_cleanup` 清资料图/广场图孤儿、`media_disk_report` 磁盘告警(`--fail-over`)。后端 592 测试绿;**M7 关闭** |
-| 2026-10-29 | **安全审计整改第二轮交付**(`fix/security-round2`,审计 round2 3 高危 + 8 中危 + 9 低危):H-1 `/im/api/*` 与 WS 同口径校验 `sv`;H-2 生产漏配 `SECRET_KEY` 启动即抛 `ImproperlyConfigured`;H-3 验证码改 `secrets` + 只在开发模式打脱敏日志;M-1 聊天图配额前移到落盘前;M-2 HTTP 读接口 `RateTable` 按账号限流;M-3 `client_ip` 只信 `TRUSTED_PROXY_IPS`;M-6 OTP 改时间戳 + `OPS_OTP_TTL`;M-7 ops id 改 `int()` 解析;M-8 WS `parse_uid` 严格整串;L-1 并发建号回查、L-2 `PostReport.dedupe_key`、L-4/L-5 Origin 校验 + logout 限流、L-6 空 `ALLOWED_HOSTS` 只允许相对路径、L-7 媒体密钥缺失告警。后端 611 / imserver unit 40 + db 18 + 集成 / Web 371 / App analyze 零告警。**已于 2026-10-29 上线**(`imserver:80340e7` + `migrate` + `media_bytes_backfill` + Web dist + 3 条 M7 计划任务) |
+| 2026-11-01 | **「谁看过我」交付**(`feat/profile-visits`):新表 `users.ProfileVisit`(`(viewer, owner)` 唯一、每人一行)+ `Profile.visits_hidden`;`GET /users/{id}` 顺带落库(Redis 30 分钟窗口去重 + 内层 savepoint 防毒化事务,失败只记日志不影响响应);`GET /discovery/visits` + `/count` 与「喜欢我的人」同口径(已配对的人由「我已划过」天然排除,不 join `Match`);App/Web 发现页双入口 + 访客页(行内可回喜欢)+ 设置页隐身开关;隐私政策补「访问记录」、双端协议版本 2→3;接口 43→45,后端 640 / App 431 / Web 379 测试绿;PR #21 squash 合并 `92e3194`。**已于 2026-11-01 上线**(`migrate` + `purge_profile_visits` 计划任务 03:50 + Web dist + 1.0.2 APK;版本号 PR #23 合并 `7f2d1ec`) |
 
 
-**下一步**:2026-10-28 **已全量切到 `https://chat.shiliu153.cn`**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `https://chat.shiliu153.cn/chatapp-1.0.1.apk`)。剩余:
+**下一步**:2026-10-28 **已全量切到 `https://chat.shiliu153.cn`**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `https://chat.shiliu153.cn/chatapp-1.0.2.apk`,2026-11-01 更新)。剩余:
 1. **安全整改 + HTTPS 切换已上线并完成人工验收(2026-10-28)**:脚本验收(WS 鉴权/40101/40302、媒体签名、配对 ack)+ 用户真机手测(App 登录/聊天/杀进程重进/图片语音、旧 APK 升级弹窗、`/ops/` 首次绑定 TOTP)均通过。执行记录见 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) §12。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
 2. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式,必须先接真实短信商并配密钥;**S1/H2 已由产品决定暂不修(保留固定验证码),这是仍未关闭的严重风险,只能封闭测试**;
 3. **Web 语音已可用(2026-11-01 打磨)**:麦克风入口自 2026-10-27 起就存在(此前本行描述「仍隐藏」已过时)。本期改为**点击式录音**(点开始 → 再点发送,可取消或按 Esc),补齐权限被拒/无设备/太短/发送失败四条错误路径;App 保留按住说话,录音逻辑抽成 `VoiceRecordController`。修掉四个缺陷:指针拖出后录音停不下来、失败静默、入口凭空消失、离开页面把没录完的语音发出去。设计见 `docs/superpowers/specs/2026-11-01-voice-recording-interaction-design.md`;
@@ -187,6 +187,8 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `POST /discovery/swipe` | `{target_user_id, action: like\|pass}`;幂等;互喜 → `{"matched": true}` + 双方灰条;限流 300/小时 |
 | `GET /discovery/likes` | 喜欢我的人(分页);口径与候选池一致,排除我已划过/双向拉黑/资料不全/无过审照片 |
 | `GET /discovery/likes/count` | 喜欢我的人数(入口角标);与列表同口径 |
+| `GET /discovery/visits` | 谁看过我(分页);打开他人资料页即记一次,同一人 30 分钟内只刷新时间;口径同「喜欢我的人」 |
+| `GET /discovery/visits/count` | 访客人数(入口角标);与列表同口径 |
 | `GET /matches` | 配对列表(分页);预热 userId→昵称头像缓存 |
 | `DELETE /matches/{user_id}` | 解除配对:幂等 204;软删除 + 双向 IM 拉黑,不可恢复 |
 | `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
