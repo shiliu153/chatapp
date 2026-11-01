@@ -39,8 +39,8 @@ export const useChatStore = defineStore('chat', () => {
    * (2026-10-26 排查发现:Web 聊天页图片入口因此一直不显示)。
    */
   const capabilities = ref<ImCapabilities>({ image: false, search: false, voice: false })
-  /** 发送失败/待发送的图片文件,供「重发」用 */
-  const pendingFiles = new Map<string, File>()
+  /** 发送失败/待发送的图片文件,供「重发」用(键含本地占位 id) */
+  const pendingFiles = ref<Record<string, File>>({})
   /** 发送失败/待发送的语音,供「重发」用 */
   const pendingVoices = new Map<string, { blob: Blob; durationMs: number }>()
   /** 进行中的连接(并发调用复用它) */
@@ -274,13 +274,54 @@ export const useChatStore = defineStore('chat', () => {
     return message
   }
 
+  /** 取出一份待发文件并从缓存里摘掉(重发时用)。 */
+  function takePendingFile(msgId: string): File | null {
+    const file = pendingFiles.value[msgId] ?? null
+    if (!file) return null
+    const rest = { ...pendingFiles.value }
+    delete rest[msgId]
+    pendingFiles.value = rest
+    return file
+  }
+
+  /**
+   * 乐观发送图片:先上屏本地预览占位,成功后就地替换。
+   *
+   * 占位必须先于 `ensureConnected()` 插入,失败时才有一条可重试的气泡;
+   * 文件同时缓存进 `pendingFiles`,否则「重发」拿不到内容会静默失效。
+   */
   async function sendImage(peerId: string, file: File): Promise<ChatMessage> {
-    await ensureConnected()
-    const message = await client.sendImage(peerId, file)
-    pendingFiles.set(message.msgId, file)
-    appendMessage(peerId, message)
-    upsertConversation({ ...message, isSelf: true })
-    return message
+    const placeholder: ChatMessage = {
+      msgId: `local-${Date.now()}`,
+      peerId,
+      isSelf: true,
+      seq: 0,
+      timestamp: Date.now(),
+      kind: ChatMessageKind.image,
+      text: '',
+      senderName: '',
+      senderAvatar: null,
+      isPending: true,
+      isFailed: false,
+      imageUrl: null,
+      imageLargeUrl: null,
+      isRevoked: false,
+    }
+    appendMessage(peerId, placeholder)
+    pendingFiles.value = { ...pendingFiles.value, [placeholder.msgId]: file }
+    try {
+      await ensureConnected()
+      const sent = await client.sendImage(peerId, file)
+      replaceMessage(placeholder.msgId, sent)
+      // 本地文件改挂到真实 msgId 上,重发时还能用
+      const kept = takePendingFile(placeholder.msgId)
+      if (kept) pendingFiles.value = { ...pendingFiles.value, [sent.msgId]: kept }
+      upsertConversation({ ...sent, isSelf: true })
+      return sent
+    } catch (error) {
+      replaceMessage(placeholder.msgId, { ...placeholder, isPending: false, isFailed: true })
+      throw error
+    }
   }
 
   /**
@@ -329,9 +370,8 @@ export const useChatStore = defineStore('chat', () => {
     const list = messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId)
     messages.value = { ...messages.value, [message.peerId]: list }
     if (message.kind === 'image') {
-      const file = pendingFiles.get(message.msgId)
+      const file = takePendingFile(message.msgId)
       if (!file) return
-      pendingFiles.delete(message.msgId)
       await sendImage(message.peerId, file)
       return
     }
@@ -354,7 +394,7 @@ export const useChatStore = defineStore('chat', () => {
       ...messages.value,
       [message.peerId]: messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId),
     }
-    pendingFiles.delete(message.msgId)
+    takePendingFile(message.msgId)
     await ensureConnected()
     await client.deleteMessage(message.msgId)
   }
@@ -401,6 +441,8 @@ export const useChatStore = defineStore('chat', () => {
     error,
     capabilities,
     unreadTotal,
+    /** 待发送图片的本地文件(键 = 消息 id),页面用它做发送中预览 */
+    pendingFiles,
     connect,
     reconnect,
     loadConversations,
