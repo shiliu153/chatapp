@@ -15,7 +15,11 @@ import UnmatchDialog from './UnmatchDialog.vue'
 import { formatTime, shouldShowTime } from './time'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
-import { canRecordVoice, pickMimeType } from '@/im/self/voice'
+import { canRecordVoice } from '@/im/self/voice'
+import AppToast from '@/components/AppToast.vue'
+import { useToast } from '@/composables/useToast'
+import VoiceRecordBar from './VoiceRecordBar.vue'
+import { VOICE_TEXT, useVoiceRecorder } from './useVoiceRecorder'
 
 const props = defineProps<{ peerId: string }>()
 
@@ -42,79 +46,32 @@ const localFiles = ref<Record<string, File>>({})
 const viewer = ref<{ urls: string[]; index: number } | null>(null)
 const menu = ref<{ message: ChatMessage; x: number; y: number } | null>(null)
 const showEmoji = ref(false)
-const copied = ref(false)
 const moreOpen = ref(false)
 const unmatchOpen = ref(false)
 const unmatching = ref(false)
 const unmatchError = ref('')
 
-// --- 按住说话 ---
-const recording = ref(false)
-const cancelArmed = ref(false)
-const recordSeconds = ref(0)
-let mediaRecorder: MediaRecorder | null = null
-let mediaStream: MediaStream | null = null
-let chunks: Blob[] = []
-let recordStartedAt = 0
-let recordStartY = 0
-let recordTimer: ReturnType<typeof setInterval> | undefined
+// --- 录音(状态机见 useVoiceRecorder;手势按 PC 适配为点击式) ---
+const toast = useToast()
 
-async function startRecording(event: PointerEvent): Promise<void> {
-  if (!voiceEnabled.value || recording.value || unmatched.value) return
-  const mime = pickMimeType()
-  if (!mime) return
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-  } catch {
+const voice = useVoiceRecorder({
+  enabled: () => voiceEnabled.value,
+  onSend: (blob, durationMs) => store.sendVoice(props.peerId, blob, durationMs).then(() => {}),
+  onNotice: (text) => toast.show(text),
+})
+
+/** 麦克风常驻:能力不满足时置灰,点击给出原因,不让入口凭空消失。 */
+function onMicClick(): void {
+  if (!voiceEnabled.value) {
+    toast.show(VOICE_TEXT.unsupported)
     return
   }
-  chunks = []
-  mediaRecorder = new MediaRecorder(mediaStream, { mimeType: mime })
-  mediaRecorder.ondataavailable = (event) => {
-    if (event.data.size > 0) chunks.push(event.data)
-  }
-  mediaRecorder.start()
-  recordStartedAt = performance.now()
-  recordStartY = event.clientY
-  recording.value = true
-  cancelArmed.value = false
-  recordSeconds.value = 0
-  recordTimer = setInterval(() => {
-    recordSeconds.value = Math.min(60, Math.ceil((performance.now() - recordStartedAt) / 1000))
-    if (recordSeconds.value >= 60) void finishRecording()
-  }, 200)
+  void voice.start()
 }
 
-function onVoiceMove(event: PointerEvent): void {
-  if (!recording.value) return
-  cancelArmed.value = event.clientY - recordStartY < -60
-}
-
-async function finishRecording(): Promise<void> {
-  if (!recording.value) return
-  const cancelled = cancelArmed.value
-  const duration = performance.now() - recordStartedAt
-  recording.value = false
-  cancelArmed.value = false
-  if (recordTimer) {
-    clearInterval(recordTimer)
-    recordTimer = undefined
-  }
-  const current = mediaRecorder
-  mediaRecorder = null
-  mediaStream?.getTracks().forEach((track) => track.stop())
-  mediaStream = null
-  if (!current) return
-  const blob = await new Promise<Blob>((resolve) => {
-    current.onstop = () => {
-      // Blob.type 会带 `;codecs=opus`;去掉参数,服务端白名单按主类型匹配
-      const type = current.mimeType.split(';')[0] || 'audio/webm'
-      resolve(new Blob(chunks, { type }))
-    }
-    current.stop()
-  })
-  if (cancelled || duration < 1000) return
-  await store.sendVoice(props.peerId, blob, duration).catch(() => {})
+/** 录音中按 Esc 取消(PC 上的肌肉记忆)。 */
+function onEscape(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && voice.phase.value === 'recording') void voice.cancel()
 }
 
 function openMenu(message: ChatMessage, event: MouseEvent) {
@@ -127,8 +84,7 @@ async function onMenuAction(action: 'copy' | 'delete' | 'retry' | 'recall') {
   if (!target) return
   if (action === 'copy') {
     await navigator.clipboard?.writeText(target.text).catch(() => {})
-    copied.value = true
-    setTimeout(() => (copied.value = false), 1500)
+    toast.show('已复制')
     return
   }
   if (action === 'recall') {
@@ -231,6 +187,7 @@ async function focusMessage(msgId: string): Promise<void> {
 }
 
 onMounted(async () => {
+  document.addEventListener('keydown', onEscape)
   // 深链直接进聊天页时,IM 可能还没连(connect 幂等,已在连/已连会直接返回)
   await store.connect().catch(() => {})
   // 配对列表没加载过就拉一次:否则「已被解除」永远发现不了
@@ -245,9 +202,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   clearTimeout(highlightTimer)
-  if (recordTimer) clearInterval(recordTimer)
-  if (recording.value) void finishRecording()
-  mediaStream?.getTracks().forEach((track) => track.stop())
+  document.removeEventListener('keydown', onEscape)
+  // 离开页面一律取消:绝不把没录完的话发出去
+  voice.dispose()
 })
 
 watch(
@@ -365,74 +322,75 @@ async function onPickImage(event: Event) {
       </template>
     </div>
 
-    <div v-if="recording" class="chat__recording" role="status">
-      <p class="chat__recording-time">{{ recordSeconds }}″</p>
-      <p class="chat__recording-hint">
-        {{ cancelArmed ? '松开取消' : '松开发送,上滑取消' }}
-      </p>
-    </div>
-
     <footer class="chat__composer">
-      <input
-        v-if="imageEnabled"
-        ref="picker"
-        type="file"
-        accept="image/*"
-        class="chat__picker"
-        @change="onPickImage"
+      <VoiceRecordBar
+        v-if="voice.phase.value !== 'idle'"
+        :phase="voice.phase.value"
+        :seconds="voice.seconds.value"
+        @cancel="voice.cancel()"
+        @send="voice.stopAndSend()"
       />
-      <button
-        v-if="imageEnabled"
-        type="button"
-        class="chat__image"
-        aria-label="发送图片"
-        :disabled="unmatched"
-        @click="picker?.click()"
-      >
-        🖼️
-      </button>
-      <button
-        v-if="voiceEnabled"
-        type="button"
-        class="chat__image"
-        aria-label="按住说话"
-        :disabled="unmatched"
-        @pointerdown.prevent="startRecording"
-        @pointermove="onVoiceMove"
-        @pointerup="finishRecording"
-        @pointercancel="finishRecording"
-      >
-        🎤
-      </button>
-      <button
-        type="button"
-        class="chat__image"
-        aria-label="表情"
-        :disabled="unmatched"
-        @click="showEmoji = !showEmoji"
-      >
-        😊
-      </button>
-      <AppInput
-        v-model="draft"
-        placeholder="说点什么…"
-        :maxlength="2000"
-        :disabled="unmatched"
-        @enter="onSend"
-      />
-      <AppButton
-        class="chat__send"
-        :loading="sending"
-        :disabled="unmatched"
-        @click="onSend"
-      >
-        发送
-      </AppButton>
+      <template v-else>
+        <input
+          v-if="imageEnabled"
+          ref="picker"
+          type="file"
+          accept="image/*"
+          class="chat__picker"
+          @change="onPickImage"
+        />
+        <button
+          v-if="imageEnabled"
+          type="button"
+          class="chat__image"
+          aria-label="发送图片"
+          :disabled="unmatched"
+          @click="picker?.click()"
+        >
+          🖼️
+        </button>
+        <button
+          type="button"
+          class="chat__image"
+          :class="{ 'chat__image--off': !voiceEnabled }"
+          aria-label="语音消息"
+          title="点击开始录音"
+          :aria-disabled="!voiceEnabled || unmatched"
+          :disabled="unmatched"
+          @click="onMicClick"
+        >
+          🎤
+        </button>
+        <button
+          type="button"
+          class="chat__image"
+          aria-label="表情"
+          :disabled="unmatched"
+          @click="showEmoji = !showEmoji"
+        >
+          😊
+        </button>
+        <AppInput
+          v-model="draft"
+          placeholder="说点什么…"
+          :maxlength="2000"
+          :disabled="unmatched"
+          @enter="onSend"
+        />
+        <AppButton
+          class="chat__send"
+          :loading="sending"
+          :disabled="unmatched"
+          @click="onSend"
+        >
+          发送
+        </AppButton>
+      </template>
     </footer>
 
     <EmojiPanel v-if="showEmoji" @pick="pickEmoji" @close="showEmoji = false" />
 
-    <p v-if="copied" class="chat__toast">已复制</p>
+    <AppToast :text="toast.text.value" />
 
     <MessageMenu
       v-if="menu"
@@ -545,40 +503,10 @@ async function onPickImage(event: Event) {
 .chat__image:hover {
   background: var(--hover-overlay);
 }
-.chat__toast {
-  position: fixed;
-  bottom: 88px;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  padding: var(--space-xs) var(--space-md);
-  border-radius: var(--radius-full);
-  background: var(--color-text1);
-  color: var(--color-bg-card);
-  font-size: var(--text-badge);
-}
-.chat__recording {
-  position: fixed;
-  bottom: 120px;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-card);
-  background: var(--color-text1);
-  color: var(--color-bg-card);
-  text-align: center;
-  box-shadow: var(--shadow-card);
-  z-index: 10;
-}
-.chat__recording-time {
-  margin: 0;
-  font-size: var(--text-title);
-}
-.chat__recording-hint {
-  margin: var(--space-xs) 0 0;
-  font-size: var(--text-badge);
-  opacity: 0.8;
+/* 置灰但仍可点击:点了要能告诉用户为什么不能用,disabled 会吞掉 click */
+.chat__image--off {
+  color: var(--color-text3);
+  cursor: default;
 }
 </style>
 
