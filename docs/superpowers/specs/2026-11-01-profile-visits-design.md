@@ -383,8 +383,8 @@ python manage.py purge_profile_visits --apply    # 真删 last_at 早于 90 天�
 
 ## 12. 上线清单
 
-1. 后端：`migrate`（`users` 迁移：新表 + 新列）
-2. 计划任务：每天 03:40 `purge_profile_visits --apply`
+1. 后端：`migrate`（`users` 迁移 `0006_profile_visits_hidden_profilevisit`：新表 + 新列）
+2. 计划任务：每天 03:40 `python manage.py purge_profile_visits --apply`（crontab 写法与现有 `media_cleanup` 计划任务保持一致）
 3. App：发版（`pubspec.yaml` + `app_info.dart` + 关于页测试期望三处同改），重打签名 APK
 4. Web：`npm run build` 并部署 `dist`；`web/package.json` 版本号同改
 5. `.env` 的 `MIN_APP_VERSION` / `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL` 按发版节奏更新
