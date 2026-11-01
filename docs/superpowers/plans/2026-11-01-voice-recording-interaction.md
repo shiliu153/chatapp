@@ -1,6 +1,6 @@
 # 语音录音交互打磨 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 把 Web 录音改成点击式并补齐全部错误路径，把 App 录音逻辑从 UI 抽成可单测 controller，两端共用一份状态机契约，修掉 4 个已知缺陷。
 
@@ -37,7 +37,7 @@
 - Produces: `useToast(durationMs?: number): { text: Ref<string>; show(message: string): void; clear(): void }`
 - Produces: `<AppToast :text="string" />`（`text` 为空时不渲染）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `web/tests/unit/use-toast.spec.ts`：
 
@@ -77,12 +77,12 @@ describe('useToast', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/unit/use-toast.spec.ts`
 Expected: FAIL —— 找不到 `@/composables/useToast`。
 
-- [ ] **Step 3: 实现 useToast**
+- [x] **Step 3: 实现 useToast**
 
 创建 `web/src/composables/useToast.ts`：
 
@@ -118,7 +118,7 @@ export function useToast(durationMs = 1500): {
 }
 ```
 
-- [ ] **Step 4: 实现 AppToast 组件**
+- [x] **Step 4: 实现 AppToast 组件**
 
 创建 `web/src/components/AppToast.vue`：
 
@@ -163,12 +163,12 @@ defineProps<{ text: string }>()
 </style>
 ```
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd web && npm run test:run -- tests/unit/use-toast.spec.ts`
 Expected: PASS（3 个用例）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add web/src/composables/useToast.ts web/src/components/AppToast.vue web/tests/unit/use-toast.spec.ts
@@ -190,7 +190,7 @@ git commit -m "feat(web): 抽 AppToast + useToast,统一轻提示"
   - `const VOICE_TEXT: { permissionDenied: string; noDevice: string; unsupported: string; startFailed: string; tooShort: string; sendFailed: string }`
   - `useVoiceRecorder(options: { enabled: () => boolean; onSend: (blob: Blob, durationMs: number) => Promise<void>; onNotice: (text: string) => void }): { phase: Ref<VoicePhase>; seconds: Ref<number>; start(): Promise<void>; stopAndSend(): Promise<void>; cancel(): Promise<void>; dispose(): void }`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `web/tests/unit/use-voice-recorder.spec.ts`：
 
@@ -324,12 +324,12 @@ describe('useVoiceRecorder', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/unit/use-voice-recorder.spec.ts`
 Expected: FAIL —— 模块不存在。
 
-- [ ] **Step 3: 实现 useVoiceRecorder**
+- [x] **Step 3: 实现 useVoiceRecorder**
 
 创建 `web/src/features/chat/useVoiceRecorder.ts`：
 
@@ -516,12 +516,12 @@ export function useVoiceRecorder(options: VoiceRecorderOptions): VoiceRecorderHa
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd web && npm run test:run -- tests/unit/use-voice-recorder.spec.ts`
 Expected: PASS（8 个用例）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/features/chat/useVoiceRecorder.ts web/tests/unit/use-voice-recorder.spec.ts
@@ -540,7 +540,7 @@ git commit -m "feat(web): 录音状态机 useVoiceRecorder(修拖出不停/静�
 - Consumes: `VoicePhase`（Task 2）
 - Produces: `<VoiceRecordBar :phase="VoicePhase" :seconds="number" @cancel @send />`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `web/tests/component/voice-record-bar.spec.ts`：
 
@@ -578,12 +578,12 @@ describe('VoiceRecordBar', () => {
 })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/component/voice-record-bar.spec.ts`
 Expected: FAIL —— 组件不存在。
 
-- [ ] **Step 3: 实现组件**
+- [x] **Step 3: 实现组件**
 
 创建 `web/src/features/chat/VoiceRecordBar.vue`：
 
@@ -705,12 +705,12 @@ function clock(total: number): string {
 </style>
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd web && npm run test:run -- tests/component/voice-record-bar.spec.ts`
 Expected: PASS（3 个用例）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/features/chat/VoiceRecordBar.vue web/tests/component/voice-record-bar.spec.ts
@@ -729,12 +729,12 @@ git commit -m "feat(web): 录音条三段式组件"
 - Produces: `store.sendVoice(peerId, blob, durationMs): Promise<ChatMessage>` —— 先插入 `isPending` 占位，成功就地替换，失败标 `isFailed` 并抛出。
 - Produces: `store.resend(message): Promise<void>` —— 语音失败消息可用缓存 blob 重发。
 
-- [ ] **Step 1: 读现有测试的 store 搭建方式**
+- [x] **Step 1: 读现有测试的 store 搭建方式**
 
 Run: `sed -n '1,60p' web/tests/unit/chat-store.spec.ts`（Windows 用 `Get-Content -TotalCount 60`）
 确认 `useChatStore` 的初始化与假 client 注入方式，后续用例照抄。
 
-- [ ] **Step 2: 写失败测试（追加到 `chat-store.spec.ts` 末尾的 describe 内）**
+- [x] **Step 2: 写失败测试（追加到 `chat-store.spec.ts` 末尾的 describe 内）**
 
 ```ts
 describe('sendVoice 乐观发送', () => {
@@ -776,12 +776,12 @@ describe('sendVoice 乐观发送', () => {
 
 > 注：`setupStore()` / `message()` 用该文件已有的辅助函数；若命名不同，按文件内现有写法调整，语义不变。
 
-- [ ] **Step 3: 跑测试确认失败**
+- [x] **Step 3: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/unit/chat-store.spec.ts`
 Expected: FAIL —— 占位消息不存在。
 
-- [ ] **Step 4: 改 store**
+- [x] **Step 4: 改 store**
 
 在 `web/src/stores/chat.ts` 内新增私有工具（放在 `appendMessage` 附近）：
 
@@ -858,12 +858,12 @@ Expected: FAIL —— 占位消息不存在。
 
 （`resend` 开头已有的"先移除旧消息"对文本/图片仍适用；语音分支自己再移除一次是幂等的。）
 
-- [ ] **Step 5: 跑测试确认通过**
+- [x] **Step 5: 跑测试确认通过**
 
 Run: `cd web && npm run test:run -- tests/unit/chat-store.spec.ts`
 Expected: PASS（原有用例 + 新增 3 个）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add web/src/stores/chat.ts web/tests/unit/chat-store.spec.ts
@@ -881,7 +881,7 @@ git commit -m "feat(web): 语音乐观发送与失败重试"
 **Interfaces:**
 - Consumes: `useVoiceRecorder`（Task 2）、`VoiceRecordBar`（Task 3）、`useToast`/`AppToast`（Task 1）、`store.sendVoice`（Task 4）
 
-- [ ] **Step 1: 写失败测试（追加到 `chat-page.spec.ts`）**
+- [x] **Step 1: 写失败测试（追加到 `chat-page.spec.ts`）**
 
 ```ts
   it('能力不支持时麦克风仍渲染但置灰,点击给出原因', async () => {
@@ -925,12 +925,12 @@ git commit -m "feat(web): 语音乐观发送与失败重试"
 
 > 说明：第二个用例依赖 `voiceEnabled` 里的 `canRecordVoice()`，桩必须在挂载后、点击前生效（该函数每次点击时才调用）。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/component/chat-page.spec.ts`
 Expected: FAIL —— 麦克风在能力为 false 时不存在 / 点完没有 `.voice-bar`。
 
-- [ ] **Step 3: 改 ChatPage**
+- [x] **Step 3: 改 ChatPage**
 
 1）删除脚本里的录音实现（`recording / cancelArmed / recordSeconds / mediaRecorder / mediaStream / chunks / recordStartedAt / recordStartY / recordTimer` 与 `startRecording / onVoiceMove / finishRecording`），改为：
 
@@ -998,17 +998,17 @@ function onEscape(event: KeyboardEvent): void {
 
 6）把原来的 `已复制` 内联提示换成 `<AppToast :text="toast.text.value" />`，`copied` 相关代码删掉，复制成功改调 `toast.show('已复制')`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd web && npm run test:run -- tests/component/chat-page.spec.ts`
 Expected: PASS。
 
-- [ ] **Step 5: 全量回归 + 类型与 lint**
+- [x] **Step 5: 全量回归 + 类型与 lint**
 
 Run: `cd web && npm run type-check && npm run lint && npm run test:run`
 Expected: 全绿。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add web/src/features/chat/ChatPage.vue web/tests/component/chat-page.spec.ts
@@ -1027,7 +1027,7 @@ git commit -m "feat(web): 聊天页接点击式录音(入口常驻/置灰可解�
 - Consumes: `ChatMessage.voiceUrl`（可为 null）
 - Produces: 无 URL 时渲染 `.voice--empty` 且不可点击
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```ts
   it('没有地址时渲染不可播放的占位,不调播放器', async () => {
@@ -1039,12 +1039,12 @@ git commit -m "feat(web): 聊天页接点击式录音(入口常驻/置灰可解�
   })
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd web && npm run test:run -- tests/component/message-voice.spec.ts`
 Expected: FAIL —— 无 `.voice--empty`。
 
-- [ ] **Step 3: 改组件**
+- [x] **Step 3: 改组件**
 
 `MessageVoice.vue` 里：
 
@@ -1053,12 +1053,12 @@ Expected: FAIL —— 无 `.voice--empty`。
 - 根元素 class 绑定 `{ 'voice--empty': !playable }`
 - 图标在不可播放时显示 `🎙`，并加 `aria-disabled="true"`
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd web && npm run test:run -- tests/component/message-voice.spec.ts`
 Expected: PASS。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add web/src/features/chat/MessageVoice.vue web/tests/component/message-voice.spec.ts
@@ -1080,7 +1080,7 @@ git commit -m "fix(web): 语音气泡无地址时渲染占位,不再把空串丢
   - `class VoiceRecordController extends ChangeNotifier`，含 `phase / seconds / cancelArmed / start() / stopAndSend() / cancel() / updateCancelArm(bool)`
   - 顶层常量 `voiceTextPermissionDenied` 等 6 个（与 Web `VOICE_TEXT` 逐字对应）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `app/test/features/chat/voice_record_controller_test.dart`：
 
@@ -1191,12 +1191,12 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/voice_record_controller_test.dart`
 Expected: FAIL —— 文件不存在。
 
-- [ ] **Step 3: 实现 controller**
+- [x] **Step 3: 实现 controller**
 
 创建 `app/lib/features/chat/voice_record_controller.dart`：
 
@@ -1354,12 +1354,12 @@ class VoiceRecordController extends ChangeNotifier {
 
 > `unawaited` 需要 `import 'dart:async';`（已含）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/voice_record_controller_test.dart`
 Expected: PASS（6 个用例）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/voice_record_controller.dart app/test/features/chat/voice_record_controller_test.dart
@@ -1378,12 +1378,12 @@ git commit -m "feat(app): 抽 VoiceRecordController(修 dispose 不停录音的�
 - Consumes: `VoiceRecordController`（Task 7）
 - Produces: 输入栏行为不变（长按录音 / 上滑取消 / 松开发送），但状态由 controller 持有
 
-- [ ] **Step 1: 跑现有测试确认基线**
+- [x] **Step 1: 跑现有测试确认基线**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
 Expected: PASS（记录当前用例数）。
 
-- [ ] **Step 2: 改造 `_InputBarState`**
+- [x] **Step 2: 改造 `_InputBarState`**
 
 - 删掉 `_recording / _cancelArmed / _stopwatch / _ticker / _autoStop` 与 `_startRecording / _finishRecording`。
 - `initState` 里创建：
@@ -1442,17 +1442,17 @@ Expected: PASS（记录当前用例数）。
 - `build` 里 `seconds` 改 `_voice.seconds`，`if (_recording)` 改 `if (_voice.phase == VoicePhase.recording)`，浮层参数改 `cancelArmed: _voice.cancelArmed`。
 - 补 import：`voice_record_controller.dart`。
 
-- [ ] **Step 3: 跑测试确认通过**
+- [x] **Step 3: 跑测试确认通过**
 
 Run: `cd app && ../flutter/bin/flutter.bat test test/features/chat/chat_page_test.dart`
 Expected: PASS（用例数与 Step 1 一致或更多）。
 
-- [ ] **Step 4: 全量回归 + analyze**
+- [x] **Step 4: 全量回归 + analyze**
 
 Run: `cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test`
 Expected: 零告警、全绿。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add app/lib/features/chat/chat_page.dart app/test/features/chat/chat_page_test.dart
@@ -1470,7 +1470,7 @@ git commit -m "refactor(app): 输入栏接入 VoiceRecordController,UI 与手势
 
 **Interfaces:** 无
 
-- [ ] **Step 1: 更新 CLAUDE.md**
+- [x] **Step 1: 更新 CLAUDE.md**
 
 把「下一步」第 3 条整段替换为：
 
@@ -1478,7 +1478,7 @@ git commit -m "refactor(app): 输入栏接入 VoiceRecordController,UI 与手势
 3. **Web 语音已可用(2026-11-01 打磨)**:入口自 2026-10-27 起就存在,本期改为点击式录音(点开始 → 再点发送,可取消/Esc),补齐权限被拒、无设备、太短、发送失败四条错误路径;App 保留按住说话,录音逻辑抽成 `VoiceRecordController`。修掉四个缺陷:指针拖出后录音停不下来、失败静默、入口凭空消失、离开页面把没录完的语音发出去。
 ```
 
-- [ ] **Step 2: 补 web 踩坑**
+- [x] **Step 2: 补 web 踩坑**
 
 在 `docs/pitfalls/web.md` 末尾追加：
 
@@ -1490,7 +1490,7 @@ git commit -m "refactor(app): 输入栏接入 VoiceRecordController,UI 与手势
 **规则**：凡是「开始/结束/取消 + 超时自动结束」的状态机，抽成 composable 并显式提供 `dispose()`；`dispose()` 的语义固定是「取消」，不是「完成」。测试里必须有一条断言 `dispose` 之后没有发送。
 ```
 
-- [ ] **Step 3: 补 frontend 踩坑**
+- [x] **Step 3: 补 frontend 踩坑**
 
 在 `docs/pitfalls/frontend.md` 末尾追加：
 
@@ -1502,7 +1502,7 @@ git commit -m "refactor(app): 输入栏接入 VoiceRecordController,UI 与手势
 **规则**：任何持有设备句柄的 State，`dispose()` 第一件事就是释放句柄；录音统一交给 `VoiceRecordController.dispose()` 处理。
 ```
 
-- [ ] **Step 4: 全量验证**
+- [x] **Step 4: 全量验证**
 
 Run:
 ```
@@ -1511,7 +1511,7 @@ cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test
 ```
 Expected: 全绿。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add CLAUDE.md docs/pitfalls/web.md docs/pitfalls/frontend.md
