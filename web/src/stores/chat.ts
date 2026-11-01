@@ -5,6 +5,7 @@ import { parseApiError } from '@/api/error'
 import { sessionEvents } from '@/api/session-events'
 import { getImClient } from '@/im/client'
 import { SYSTEM_NOTICE_PEER_ID } from '@/im/map'
+import { ChatMessageKind } from '@/im/types'
 import type {
   ChatMessage,
   ImBootstrap,
@@ -85,6 +86,19 @@ export const useChatStore = defineStore('chat', () => {
   function appendMessage(peerId: string, message: ChatMessage): void {
     const list = messages.value[peerId] ?? []
     messages.value = { ...messages.value, [peerId]: mergeMessages(list, [message]) }
+  }
+
+  /** 就地替换一条消息(乐观占位 → 真实消息 / 失败态),不改变列表顺序。 */
+  function replaceMessage(msgId: string, next: ChatMessage): void {
+    const current = messages.value
+    for (const [peerId, list] of Object.entries(current)) {
+      if (!list.some((item) => item.msgId === msgId)) continue
+      messages.value = {
+        ...current,
+        [peerId]: list.map((item) => (item.msgId === msgId ? next : item)),
+      }
+      return
+    }
   }
 
   function messagesOf(peerId: string): ChatMessage[] {
@@ -269,13 +283,45 @@ export const useChatStore = defineStore('chat', () => {
     return message
   }
 
+  /**
+   * 乐观发送:先上屏占位(失败可重试),成功后就地替换成真实消息。
+   *
+   * 占位必须先于 `ensureConnected()` 插入 —— 连不上时也要留一条可重试的气泡,
+   * 否则用户录了一段话会凭空消失。
+   */
   async function sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage> {
-    await ensureConnected()
-    const message = await client.sendVoice(peerId, blob, durationMs)
-    pendingVoices.set(message.msgId, { blob, durationMs })
-    appendMessage(peerId, message)
-    upsertConversation({ ...message, isSelf: true })
-    return message
+    const placeholder: ChatMessage = {
+      msgId: `local-${Date.now()}`,
+      peerId,
+      isSelf: true,
+      seq: 0,
+      timestamp: Date.now(),
+      kind: ChatMessageKind.voice,
+      text: '',
+      senderName: '',
+      senderAvatar: null,
+      isPending: true,
+      isFailed: false,
+      imageUrl: null,
+      imageLargeUrl: null,
+      voiceUrl: null,
+      voiceDurationMs: durationMs,
+      isRevoked: false,
+    }
+    appendMessage(peerId, placeholder)
+    pendingVoices.set(placeholder.msgId, { blob, durationMs })
+    try {
+      await ensureConnected()
+      const sent = await client.sendVoice(peerId, blob, durationMs)
+      replaceMessage(placeholder.msgId, sent)
+      pendingVoices.delete(placeholder.msgId)
+      pendingVoices.set(sent.msgId, { blob, durationMs })
+      upsertConversation({ ...sent, isSelf: true })
+      return sent
+    } catch (error) {
+      replaceMessage(placeholder.msgId, { ...placeholder, isPending: false, isFailed: true })
+      throw error
+    }
   }
 
   /** 重发失败的消息:文本直接重发,图片/语音用缓存的本地内容重发。 */
@@ -293,6 +339,10 @@ export const useChatStore = defineStore('chat', () => {
       const voice = pendingVoices.get(message.msgId)
       if (!voice) return
       pendingVoices.delete(message.msgId)
+      messages.value = {
+        ...messages.value,
+        [message.peerId]: messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId),
+      }
       await sendVoice(message.peerId, voice.blob, voice.durationMs)
       return
     }
