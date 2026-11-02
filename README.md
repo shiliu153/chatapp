@@ -3,16 +3,20 @@
 > 一个从零到可上线的交友 App:Flutter 客户端 + Django REST 后端,聊天走腾讯云 IM,
 > 后端全栈自建(鉴权 / 滑卡配对 / 广场 / 举报拉黑 / 运营审核台 / 在线状态)。
 > 全程按 **spec → plan → 实现 → 验收** 的节奏推进,每个阶段都有可回溯的设计文档与实施计划。
+>
+> **在线体验**:<https://chat.shiliu153.cn> —— 访问根路径自动跳转网页端(PC 浏览器);移动端浏览器会进引导页。
 
-[![Backend CI](https://github.com/yourname/chatapp/actions/workflows/backend.yml/badge.svg?branch=master)](../../actions/workflows/backend.yml)
-[![App CI](https://github.com/yourname/chatapp/actions/workflows/app.yml/badge.svg?branch=master)](../../actions/workflows/app.yml)
-[![Backend Tests](https://img.shields.io/badge/backend%20tests-409%20passed-brightgreen)](#测试策略)
-[![Flutter Tests](https://img.shields.io/badge/flutter%20tests-355%20passed-brightgreen)](#测试策略)
+[![Backend CI](https://github.com/shiliu153/chatapp/actions/workflows/backend.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/backend.yml)
+[![App CI](https://github.com/shiliu153/chatapp/actions/workflows/app.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/app.yml)
+[![Web CI](https://github.com/shiliu153/chatapp/actions/workflows/web.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/web.yml)
+[![Backend Tests](https://img.shields.io/badge/backend%20tests-640%20passed-brightgreen)](#测试策略)
+[![Flutter Tests](https://img.shields.io/badge/flutter%20tests-431%20passed-brightgreen)](#测试策略)
+[![Web Tests](https://img.shields.io/badge/web%20tests-403%20passed-brightgreen)](#测试策略)
 [![Flutter Analyze](https://img.shields.io/badge/flutter%20analyze-0%20issues-brightgreen)](#测试策略)
-[![API Docs](https://img.shields.io/badge/API%20docs-34%20endpoints-blue)](docs/api/README.md)
+[![API Docs](https://img.shields.io/badge/API%20docs-45%20endpoints-blue)](docs/api/README.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-<sub>测试徽章数字为交付时的实测值:后端 `Ran 409 tests ... OK` · Flutter `All tests passed! (+355)` · `flutter analyze` No issues found</sub>
+<sub>测试数字取自 master 最近一次全绿 CI(2026-11-01):后端 `Ran 640 tests` · Flutter `All tests passed! (+431)` · 网页端 `Tests 403 passed` · `flutter analyze` No issues found</sub>
 
 **中文** · [English Abstract](#english-abstract)
 
@@ -47,12 +51,12 @@
 
 | 维度 | 规模 |
 |---|---|
-| 后端 | Django 5.2 LTS + DRF,9 个业务 app,约 **8.0k 行 Python** |
-| 前端 | Flutter 3.47,11 个 feature 模块,约 **8.8k 行 Dart** |
-| 网页端 | Vue 3 + TypeScript,PC 浏览器端,约 **6.5k 行 TS/Vue** |
-| 测试 | **409** 个后端用例 + **355** 个 Flutter 用例(96 个文件)+ **320** 个网页端用例(68 个文件)+ **8** 条端到端场景 |
-| 接口 | **35** 个 REST 接口,配 **11 册**对外交付级接口文档 |
-| 文档 | 设计 spec + 实施计划 + 踩坑手册共 **50+ 篇** |
+| 后端 | Django 5.2 LTS + DRF,9 个业务 app,约 **8.8k 行 Python**(不含测试与迁移) |
+| 前端 | Flutter 3.47,11 个 feature 模块,约 **1.4 万行 Dart** |
+| 网页端 | Vue 3 + TypeScript,PC 浏览器端,约 **1.0 万行 TS/Vue** |
+| 测试 | **640** 个后端用例 + **431** 个 Flutter 用例(114 个文件)+ **403** 个网页端用例(85 个文件)+ **8** 条端到端场景 |
+| 接口 | **45** 个 REST 接口,配 **11 册**对外交付级接口文档 |
+| 文档 | 设计 spec 35 篇 + 实施计划 46 篇 + 踩坑手册 7 篇,共 **88 篇** |
 
 **为什么值得一看**:除了功能本身,这个项目里比较少见的是
 **「约束先于代码」**——错误契约、IM 副作用的唯一出入口、单设备登录、封禁分级、
@@ -241,12 +245,12 @@ flutter build apk --release --dart-define=API_BASE=https://your-domain/api/v1
 
 ## 测试策略
 
-**后端**:`python manage.py test` —— **339 个用例全绿**(需要 Redis 在跑)。
+**后端**:`python manage.py test` —— **640 个用例全绿**(需要 Redis 在跑)。
 关键业务不靠人工点:配对并发(唯一约束 + CheckConstraint)、限流窗口、
 验证码锁定、封禁分级、单设备登录的三条退出路径,都有对应用例。
 所有 IM 副作用一律 mock(`im.tasks.*.delay`),测试不依赖腾讯云。
 
-**前端**:`flutter test` —— **355 个用例全绿**,分布在 96 个测试文件里。
+**前端**:`flutter test` —— **431 个用例全绿**,分布在 114 个测试文件里。
 测试形态是 **「真实 provider + 假网络 + 假 IM」**:
 
 | 替身 | 文件 | 作用 |
@@ -258,7 +262,7 @@ flutter build apk --release --dart-define=API_BASE=https://your-domain/api/v1
 也就是说 UI 测试跑的是**真实的 Riverpod provider 树和真实的路由**,只把外部世界换成假的——
 这样测出来的行为才和线上一致,而不是测了一堆 mock。
 
-**网页端**:`npm run test:run` —— **303 个用例全绿**(63 个文件),另加 `npm run e2e` 的
+**网页端**:`npm run test:run` —— **403 个用例全绿**(85 个文件),另加 `npm run e2e` 的
 **8 条端到端场景**(Playwright,打真后端 + Redis + Celery)。
 
 单元/组件测试用 MSW 在网络层挡请求,**组件与 store 都是真实的**;
@@ -324,7 +328,7 @@ chat_app/
 │   │   ├── router.dart         #   go_router 路由表
 │   │   └── features/           #   auth onboarding discovery chat
 │   │                           #   square profile moderation presence settings shell legal
-│   ├── test/                   #   96 个测试文件 + support/(假网络、假 IM、harness)
+│   ├── test/                   #   114 个测试文件 + support/(假网络、假 IM、harness)
 │   └── assets/fonts/           #   Space Grotesk + OFL 许可
 │
 ├── chatapp/                    # Django 后端
@@ -352,7 +356,7 @@ chat_app/
 │   └── public/fonts/           #   与 App 同源的 Space Grotesk
 │
 ├── docs/
-│   ├── api/                    #   对外交付级接口文档(11 册 / 35 接口)
+│   ├── api/                    #   对外交付级接口文档(11 册 / 45 接口)
 │   ├── pitfalls/               #   踩坑手册(按主题分册)
 │   └── superpowers/
 │       ├── specs/              #   设计文档(先定规则再写代码)
@@ -460,8 +464,8 @@ nginx 三条硬要求:
 > ② 若用宝塔「反向代理」,它生成的 `proxy_cache` **键不含 `Authorization`** 且忽略 `Vary`,
 > 会造成**跨用户缓存泄漏** —— 要么不开页面缓存,要么把 `Authorization` 加进 `proxy_cache_key`。
 
-`shiliu153.cn` 已备案；交友 App 正在从 IP 切换到 `https://chat.shiliu153.cn`。切换完成前仍可用 IP 访问
-(移动端浏览器会进引导页,不提供手机网页版)；切换步骤见
+`shiliu153.cn` 已备案,交友 App 已上线 `https://chat.shiliu153.cn`:访问根路径自动跳转到网页端
+(移动端浏览器会进引导页,不提供手机网页版)；切换过程见
 [docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md)。
 
 > 具体服务器地址、面板端口与运维命令属于部署私有信息,已从本开源仓库移除。
@@ -518,7 +522,7 @@ The feature set covers the full loop — phone/SMS authentication with rotating 
 **single-device login**, profile and photo management, swipe-based discovery with **mutual-like
 matching**, 1-on-1 chat, a social feed, reporting/blocking, a two-tier ban system, a
 server-rendered **operations console** for moderation, and a self-built **presence** service.
-It is documented as **34 REST endpoints across 10 API reference volumes**.
+It is documented as **45 REST endpoints across 11 API reference volumes**.
 
 What distinguishes the project is its emphasis on **constraints before code**. A few rules are
 enforced across the whole stack and backed by tests:
@@ -534,9 +538,10 @@ enforced across the whole stack and backed by tests:
 - **UI as a written design language** ("Heartbeat"): a token-only palette/type/spacing system
   where the brand pink and gradient are rationed to one focal point per screen.
 
-Testing follows the same philosophy: **~8.5k lines of tests** (409 backend cases, 355 Flutter cases
-across 96 test files) where UI tests run the **real Riverpod provider tree and real router** against
-fake network and fake IM adapters — so the tests exercise production wiring, not mocks of it.
+Testing follows the same philosophy: **~19k lines of tests** (640 backend cases, 431 Flutter cases
+across 114 test files, 403 web cases) where UI tests run the **real Riverpod provider tree and real
+router** against fake network and fake IM adapters — so the tests exercise production wiring, not
+mocks of it.
 
 The repository was sanitized before being open-sourced: server addresses, credentials, personal
 paths and business-planning documents were replaced or removed across the **entire commit
