@@ -10,11 +10,17 @@
     - 令牌刷新与单设备登录(第二次登录作废第一个设备的两类令牌);
     - Web 的 Cookie 分支(登录/刷新/注销、轮换宽限);
     - 造数命令(资料完善、生日不小于 18 岁、号码续编、号池耗尽);
+    - 压测令牌命令(一行一个账号的头集、令牌能过鉴权、不签运营账号、生产默认拒绝);
     - 认证通过时刷新在线状态。
 """
 
 import base64
+import json
+import shutil
+import tempfile
 from datetime import date
+from io import StringIO
+from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
@@ -698,6 +704,76 @@ class SeedFakeUsersTests(TestCase):
         call_command("seed_fake_users", count=2, skip_im=True, stdout=None)
         self.assertEqual(len(self.created(self.origin.id)), 2)
         self.im_mock.ensure_account.assert_not_called()
+
+
+@override_settings(DEBUG=True)   # 命令默认只在非生产(DEBUG=1)签发,见下一个用例
+class PerfTokensTests(APITestCase):
+    """压测令牌命令:写场景要多账号,令牌签错就等于压出 401 而自己不知道。"""
+
+    def setUp(self):
+        """建三个 199 号段的测试号(命令只签这个号段)。"""
+        self.users = [User.objects.create_user(phone=str(19_900_000_000 + i))
+                      for i in range(1, 4)]
+
+    def _out_file(self) -> Path:
+        """造一个临时输出路径(测试结束自动清理)。
+
+        Returns:
+            临时文件路径。
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        return Path(tmp) / "headers.jsonl"
+
+    def _mint(self, **kwargs) -> list[dict]:
+        """跑一次命令并读回头集。
+
+        Args:
+            **kwargs: 传给命令的参数。
+
+        Returns:
+            解析后的头集列表,每项是一行的内容。
+        """
+        out = self._out_file()
+        call_command("perf_tokens", out=str(out), stdout=StringIO(), **kwargs)
+        return [json.loads(line)
+                for line in out.read_text(encoding="utf-8").splitlines()]
+
+    def test_emits_one_header_set_per_account(self):
+        sets = self._mint(count=2)
+        self.assertEqual(len(sets), 2)
+        for item in sets:
+            self.assertEqual(set(item), {"Authorization", "X-Forwarded-For"})
+            self.assertTrue(item["Authorization"].startswith("Bearer "))
+        # X-Forwarded-For 要错开,否则 IP 维度的限流会把所有连接算成同一个来源
+        self.assertNotEqual(sets[0]["X-Forwarded-For"], sets[1]["X-Forwarded-For"])
+
+    def test_minted_token_passes_authentication(self):
+        """签出来的 access 必须和登录拿到的一样能过鉴权(带 session_version claim)。"""
+        token = self._mint(count=1)[0]["Authorization"].removeprefix("Bearer ")
+        self.assertEqual(AccessToken(token)["session_version"], self.users[0].session_version)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(self.client.get("/api/v1/users/me").status_code, 200)
+
+    def test_skips_staff_and_out_of_range_accounts(self):
+        User.objects.create_user(phone="19900000009", is_staff=True)
+        User.objects.create_user(phone="13800138000")
+        sets = self._mint(count=10)
+        self.assertEqual(len(sets), 3)
+
+    def test_start_offset_picks_another_batch(self):
+        first = self._mint(count=1, start=0)[0]["Authorization"]
+        second = self._mint(count=1, start=1)[0]["Authorization"]
+        self.assertNotEqual(first, second)
+
+    def test_refuses_production_without_opt_in(self):
+        with override_settings(DEBUG=False), self.assertRaises(CommandError):
+            call_command("perf_tokens", out=str(self._out_file()), stdout=StringIO())
+
+    def test_refuses_when_no_test_accounts(self):
+        User.objects.all().delete()
+        with self.assertRaises(CommandError):
+            call_command("perf_tokens", out=str(self._out_file()), stdout=StringIO())
 
 
 

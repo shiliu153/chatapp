@@ -8,11 +8,28 @@
     python3 perf/run.py --scenario api_read --conns 100 --dur 30 --out perf/results/api100.json
     python3 perf/run.py --scenario ws_burst --conns 500 --count 1 --out perf/results/ws500.json
 
+带鉴权的写场景(写接口的限流都按用户计,单账号压不出容量,必须多账号):
+    python3 manage.py perf_tokens --count 50 --out perf/results/headers.jsonl   # 源端签令牌
+    python3 perf/run.py --scenario api_write --path /api/v1/discovery/swipe \\
+        --method POST --header 'Content-Type: application/json' \\
+        --body '{"target_user_id": {i}, "action": "like"}' --i-start 20001 \\
+        --headers-file perf/results/headers.jsonl --conns 50 --dur 30 \\
+        --out perf/results/write_swipe50.json
+
 场景:
     api_read     GET 一个只读接口(默认 /api/v1/app/config,可 --path 覆盖)
     api_health   GET /api/v1/health(最轻的探活路径,用来测框架开销)
+    api_write    POST 一个写接口(必须 --path;鉴权靠 --header / --headers-file,
+                 请求体靠 --body,路径与请求体里的 {i} 会替换成自增序号)
     ws_burst     WS 突发:每个连接发 --count 条,委托 imserver/scripts/bench_ws.py
     ws_steady    WS 稳态:每连接每 --interval 秒发 1 条,持续 --dur 秒
+
+请求头有两层,按「默认 → --header → --headers-file 里该连接那一套」合并(后者覆盖前者):
+    --header        公共头,可重复,例如 --header 'Content-Type: application/json'
+    --headers-file  一行一个 JSON 对象,连接按行轮转 —— 一个账号一个令牌,
+                    写接口的 per-user 限流才不会被单账号额度卡死
+
+令牌脱敏:结果 JSON 只记头名与头集套数,头的**值绝不落盘**(结果文件会进 git)。
 
 退出码:0 成功;2 参数错误;3 压测本身失败(连接全挂等)。
 """
@@ -39,7 +56,162 @@ SCENARIO_PATHS = {
     "api_health": "/api/v1/health",
 }
 
+# 写场景刻意不给默认路径:写接口的请求体各不相同,猜一个默认值只会压出 400。
+DEFAULT_METHODS = {
+    "api_read": "GET",
+    "api_health": "GET",
+    "api_write": "POST",
+    "ws_burst": "GET",
+    "ws_steady": "GET",
+}
+
+HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
+
+COUNTER_TOKEN = "{i}"      # 路径 / 请求体里的自增序号占位符
+
+DEFAULT_HEADERS = {
+    "Accept": "*/*",
+    "Connection": "keep-alive",
+    "User-Agent": "chatapp-perf",
+    # 直连 gunicorn 时模拟 nginx 追加的两跳头;真走 nginx 时会被真实值覆盖/追加
+    "X-Forwarded-Proto": "https",
+    "X-Real-IP": "10.99.0.1",
+}
+
 BENCH_WS = Path(__file__).resolve().parent.parent / "imserver" / "scripts" / "bench_ws.py"
+
+
+def parse_header_arg(text: str) -> tuple[str, str]:
+    """把 ``Name: Value`` 解析成二元组(argparse 的 type 回调)。
+
+    Args:
+        text: 命令行传入的原始头,例如 ``Authorization: Bearer xxx``。
+
+    Returns:
+        (头名, 头值)。
+
+    Raises:
+        argparse.ArgumentTypeError: 缺少冒号或头名为空,由 argparse 转成退出码 2。
+    """
+    name, sep, value = text.partition(":")
+    if not sep or not name.strip():
+        raise argparse.ArgumentTypeError(f"头部格式应为 'Name: Value',收到 {text!r}")
+    return name.strip(), value.strip()
+
+
+def merge_headers(*layers: dict[str, str]) -> dict[str, str]:
+    """按顺序合并多层请求头,同名(大小写不敏感)时后者覆盖前者。
+
+    Args:
+        *layers: 若干 ``{名: 值}`` 字典。
+
+    Returns:
+        合并后的字典(键名用最后一次出现的写法,顺序保持稳定)。
+    """
+    merged: dict[str, str] = {}
+    spelling: dict[str, str] = {}
+    for layer in layers:
+        for name, value in layer.items():
+            low = name.lower()
+            if low in spelling:
+                merged.pop(spelling[low], None)
+            spelling[low] = name
+            merged[name] = value
+    return merged
+
+
+def has_header(headers: dict[str, str], name: str) -> bool:
+    """判断头集合里是否已有某个头(大小写不敏感)。
+
+    Args:
+        headers: 请求头字典。
+        name: 要查的头名。
+
+    Returns:
+        存在即 True。
+    """
+    return any(key.lower() == name.lower() for key in headers)
+
+
+def build_request(method: str, path: str, headers: dict[str, str], body: str) -> bytes:
+    """拼一个 HTTP/1.1 请求(带 Content-Length,供 keep-alive 复用)。
+
+    Args:
+        method: 请求方法。
+        path: 请求路径(可带查询串)。
+        headers: 已合并的请求头;``Host`` 需由调用方放入。
+        body: 请求体文本,空串表示无体。
+
+    Returns:
+        可直接写进 socket 的字节串。
+    """
+    final = dict(headers)
+    payload = body.encode()
+    if payload:
+        if not has_header(final, "Content-Type"):
+            final["Content-Type"] = "application/json"
+        final["Content-Length"] = str(len(payload))
+    head = "".join(f"{name}: {value}\r\n" for name, value in final.items())
+    return f"{method} {path} HTTP/1.1\r\n{head}\r\n".encode() + payload
+
+
+def load_body(text: str) -> str:
+    """解析 ``--body``:``@路径`` 表示读文件,其余当字面量。
+
+    Args:
+        text: 命令行原值。
+
+    Returns:
+        请求体文本。
+
+    Raises:
+        ValueError: 指定了 ``@文件`` 但文件不存在或读不出来。
+    """
+    if not text.startswith("@"):
+        return text
+    path = Path(text[1:])
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ValueError(f"读取 --body 文件失败:{path}({error})") from error
+
+
+def load_header_sets(path: str) -> list[dict[str, str]]:
+    """读「每连接一套头」的文件:一行一个 JSON 对象,连接按行轮转。
+
+    为什么按连接轮转而不是按请求:一个账号的令牌可以给多条连接共用,但写接口的
+    限流是**按用户**计的,要压出真实容量就得一条连接一个账号。
+
+    Args:
+        path: 文件路径;空行与 ``#`` 开头的行忽略。
+
+    Returns:
+        头集合列表(至少一项)。
+
+    Raises:
+        ValueError: 文件不可读、某行不是 JSON 对象,或键值不是字符串。
+    """
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except OSError as error:
+        raise ValueError(f"读取 --headers-file 失败:{path}({error})") from error
+    sets: list[dict[str, str]] = []
+    for lineno, line in enumerate(raw.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        try:
+            item = json.loads(stripped)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{path} 第 {lineno} 行不是合法 JSON:{error}") from error
+        if not isinstance(item, dict) or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in item.items()):
+            raise ValueError(f"{path} 第 {lineno} 行必须是 {{头名: 头值}} 的 JSON 对象")
+        sets.append(item)
+    if not sets:
+        raise ValueError(f"{path} 里没有任何头集")
+    return sets
 
 
 async def read_response(reader: asyncio.StreamReader) -> tuple[int, bytes]:
@@ -80,13 +252,17 @@ async def read_response(reader: asyncio.StreamReader) -> tuple[int, bytes]:
     return status, body
 
 
-async def one_conn(args, stats: dict, stop: asyncio.Event) -> None:
+async def one_conn(args, stats: dict, stop: asyncio.Event, index: int,
+                   counter: dict, header_sets: list[dict[str, str]]) -> None:
     """一条连接上的闭循环(发请求 → 读完 → 再发),等价于 wrk 的 -c。
 
     Args:
         args: 命令行参数。
         stats: 共享统计容器。
         stop: 停止信号。
+        index: 连接序号,用来轮转 ``--headers-file`` 里的头集。
+        counter: ``{"i": 下一个序号}``,``{i}`` 占位符的取值来源(全局唯一)。
+        header_sets: 每连接一套的额外请求头;空列表表示没有。
     """
     ctx = None
     if args.tls:
@@ -100,12 +276,25 @@ async def one_conn(args, stats: dict, stop: asyncio.Event) -> None:
     except Exception as exc:  # noqa: BLE001  连接失败要计入错误率而不是崩掉
         stats["codes"][f"connect:{type(exc).__name__}"] += 1
         return
-    request = (f"GET {args.path} HTTP/1.1\r\nHost: {args.sni or args.host}\r\n"
-               f"X-Forwarded-Proto: https\r\nX-Real-IP: 10.99.0.1\r\n"
-               f"User-Agent: chatapp-perf\r\nAccept: */*\r\n"
-               f"Connection: keep-alive\r\n\r\n").encode()
+    headers = merge_headers(
+        DEFAULT_HEADERS,
+        {"Host": args.sni or args.host},
+        dict(args.header),
+        header_sets[index % len(header_sets)] if header_sets else {})
+    templated = COUNTER_TOKEN in args.path or COUNTER_TOKEN in args.body
+    static = None if templated else build_request(args.method, args.path, headers, args.body)
     try:
         while not stop.is_set():
+            if static is not None:
+                request = static
+            else:
+                value = counter["i"]
+                counter["i"] += 1
+                request = build_request(
+                    args.method,
+                    args.path.replace(COUNTER_TOKEN, str(value)),
+                    headers,
+                    args.body.replace(COUNTER_TOKEN, str(value)))
             started = time.perf_counter()
             writer.write(request)
             await writer.drain()
@@ -181,19 +370,23 @@ async def sample_resources(stats: dict, stop: asyncio.Event) -> None:
             pass
 
 
-async def run_http(args) -> dict:
+async def run_http(args, header_sets: list[dict[str, str]]) -> dict:
     """跑 HTTP 场景。
 
     Args:
         args: 命令行参数。
+        header_sets: 每连接一套的额外请求头;空列表表示只用 ``--header``。
 
     Returns:
         结果字典(``requests`` / ``rps`` / ``error_rate`` / ``lat_ms`` 等)。
     """
     stats = {"n": 0, "lat": [], "codes": Counter()}
     stop = asyncio.Event()
+    counter = {"i": args.i_start}
     started = time.perf_counter()
-    tasks = [asyncio.create_task(one_conn(args, stats, stop)) for _ in range(args.conns)]
+    tasks = [asyncio.create_task(
+        one_conn(args, stats, stop, index, counter, header_sets))
+        for index in range(args.conns)]
     sampler = asyncio.create_task(sample_resources(stats, stop))
     await asyncio.sleep(args.dur)
     stop.set()
@@ -283,6 +476,82 @@ def machine_spec() -> dict:
     }
 
 
+def build_payload(args, header_sets: list[dict[str, str]], result: dict,
+                  started_at: str) -> dict:
+    """组装要落盘的结果 JSON。
+
+    令牌类信息绝不落盘:``--header`` 只记头名,``--headers-file`` 只记套数 ——
+    结果文件会进 git,把 ``Authorization`` 的值写进去等于泄露登录态。
+
+    Args:
+        args: 命令行参数(已归一:path / method / body 都有值)。
+        header_sets: ``--headers-file`` 读到的头集。
+        result: 压测结果字典,其中的 ``load_peak`` / ``mem_peak`` 会被移到 resources。
+        started_at: 开始时间(ISO 字符串)。
+
+    Returns:
+        结果 payload。
+    """
+    header_names = {name for name, _ in args.header}
+    for extra in header_sets:
+        header_names |= set(extra)
+    return {
+        "schema": 1,
+        "scenario": args.scenario,
+        "started_at": started_at,
+        "machine": machine_spec(),
+        "params": {
+            "target": f"{args.host}:{args.port}{args.path}",
+            "method": args.method,
+            "path": args.path,
+            "conns": args.conns,
+            "duration_s": args.dur,
+            "count": args.count if args.scenario == "ws_burst" else None,
+            "interval": args.interval if args.scenario == "ws_steady" else None,
+            "tls": args.tls,
+            "body_bytes": len(args.body.encode()) if args.body else 0,
+            "body_template": COUNTER_TOKEN in args.path or COUNTER_TOKEN in args.body,
+            "headers": {"names": sorted(header_names), "sets": len(header_sets)},
+        },
+        "result": result,
+        "resources": {
+            "load1_peak": result.pop("load_peak", None),
+            "mem_used_mb_peak": result.pop("mem_peak", None),
+        },
+    }
+
+
+def normalize_args(args) -> str:
+    """把 ``--path`` / ``--method`` / ``--body`` 归一,并做参数期校验。
+
+    Args:
+        args: argparse 解析结果(会被就地改写)。
+
+    Returns:
+        空字符串表示通过;否则是要打印的中文错误说明(不含「参数错误」前缀)。
+    """
+    if args.method:
+        method = args.method.upper()
+        if method not in HTTP_METHODS:
+            return f"--method 只支持 {'/'.join(sorted(HTTP_METHODS))},收到 {args.method!r}"
+        args.method = method
+    else:
+        args.method = DEFAULT_METHODS.get(args.scenario, "GET")
+
+    if args.scenario.startswith("api"):
+        args.path = args.path or SCENARIO_PATHS.get(args.scenario, "")
+        if not args.path:
+            return "api_write 必须显式给 --path(写接口没有通用默认值)"
+        if not args.path.startswith("/"):
+            return f"--path 要以 / 开头,收到 {args.path!r}"
+
+    try:
+        args.body = load_body(args.body)
+    except ValueError as error:
+        return str(error)
+    return ""
+
+
 def main() -> int:
     """解析参数、跑场景、写结果 JSON。
 
@@ -291,10 +560,23 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", required=True,
-                        choices=["api_read", "api_health", "ws_burst", "ws_steady"])
+                        choices=["api_read", "api_health", "api_write",
+                                 "ws_burst", "ws_steady"])
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--path", default="")
+    parser.add_argument("--path", default="",
+                        help="请求路径;{i} 会替换成自增序号")
+    parser.add_argument("--method", default="",
+                        help="HTTP 方法;默认按场景(GET;api_write=POST)")
+    parser.add_argument("--body", default="",
+                        help="请求体;@文件 表示从文件读;{i} 会替换成自增序号")
+    parser.add_argument("--i-start", type=int, default=1,
+                        help="{i} 的起始值(压已造数数据时用来对准目标 id)")
+    parser.add_argument("--header", action="append", type=parse_header_arg,
+                        default=[], metavar="'Name: Value'",
+                        help="公共请求头,可重复,例如 --header 'Authorization: Bearer xxx'")
+    parser.add_argument("--headers-file", default="",
+                        help="每连接一套头:一行一个 JSON 对象,连接按行轮转")
     parser.add_argument("--conns", type=int, default=100)
     parser.add_argument("--dur", type=int, default=20)
     parser.add_argument("--count", type=int, default=1, help="ws_burst:每连接发送条数")
@@ -304,38 +586,30 @@ def main() -> int:
     parser.add_argument("--out", default="")
     args = parser.parse_args()
 
-    if args.scenario.startswith("api"):
-        args.path = args.path or SCENARIO_PATHS[args.scenario]
+    problem = normalize_args(args)
+    if problem:
+        print(f"参数错误: {problem}", file=sys.stderr)
+        return 2
+
+    header_sets: list[dict[str, str]] = []
+    if args.headers_file:
+        try:
+            header_sets = load_header_sets(args.headers_file)
+        except ValueError as error:
+            print(f"参数错误: {error}", file=sys.stderr)
+            return 2
 
     started_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     try:
         if args.scenario.startswith("ws"):
             result = run_ws(args)
         else:
-            result = asyncio.run(run_http(args))
+            result = asyncio.run(run_http(args, header_sets))
     except Exception as error:  # noqa: BLE001
         print(f"压测失败: {error}", file=sys.stderr)
         return 3
 
-    payload = {
-        "schema": 1,
-        "scenario": args.scenario,
-        "started_at": started_at,
-        "machine": machine_spec(),
-        "params": {
-            "target": f"{args.host}:{args.port}{args.path}",
-            "conns": args.conns,
-            "duration_s": args.dur,
-            "count": args.count if args.scenario == "ws_burst" else None,
-            "interval": args.interval if args.scenario == "ws_steady" else None,
-            "tls": args.tls,
-        },
-        "result": result,
-        "resources": {
-            "load1_peak": result.pop("load_peak", None),
-            "mem_used_mb_peak": result.pop("mem_peak", None),
-        },
-    }
+    payload = build_payload(args, header_sets, result, started_at)
     text = json.dumps(payload, ensure_ascii=False, indent=2)
     print(text)
     if args.out:

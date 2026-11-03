@@ -99,13 +99,29 @@
 - [x] 冒烟验证：本机 dev server 10 并发 5 秒 → 303 rps / 0 错误 / p99 83.8ms；
       伪造一条 rps=300 的结果对基线 → 正确判出 −50.7% 与 p99 +78.2%，退出码 1。
 
-### B.2 场景矩阵（待做，下一步）
+### B.2 场景矩阵（进行中）
 
-> 当前 `perf/run.py` 只覆盖公开读接口与 WS。写场景（swipe / 发动态）需要登录态，
-> 计划给 `run.py` 加 `--header` 支持后补齐；混合 70/30 与重连风暴同批做。
+> 写场景的前提是登录态，而**写接口的限流都按用户计**（滑卡 300/小时、发动态 20/天）：
+> 单账号跑几秒就撞 429，压出来的是限额不是容量。所以先补齐「多账号令牌」这条链路，
+> 而不是只给 `run.py` 加一个 `--header`。
 
+- [x] `perf/run.py` 请求层补齐：`--method`、`--header`（可重复）、`--headers-file`
+      （一行一套头、连接轮转，一个账号一个令牌）、`--body`（`@文件` 读入、`{i}` 替换为全局自增序号）、
+      `--i-start`，以及新场景 `api_write`。
+- [x] 令牌脱敏：结果 JSON 只记头名与头集套数，**头的值不落盘**（结果文件会进 git）；
+      `perf/test_run.py` 有 24 条自测（含真实 TCP 回显服务器验证头/体确实发出），CI 会跑。
+- [x] 多账号令牌来源 `manage.py perf_tokens`：用 `SessionRefreshToken.for_user` 库内签发
+      （走短信登录会被 `sms_verify` 的 IP 限流卡住，且每登一次 `session_version += 1` 互相顶号）；
+      默认只签 `seed_scale_users` 的 199 号段、排除 staff/superuser、`DEBUG=0` 需显式 `--allow-production`。
+- [x] 写路径冒烟（本机 dev server，非容量数字）：`POST /discovery/swipe` 2 连接 5 秒
+      **395 次全 200 / 0 错误 / p99 42ms**；`{i}` 自增体在真实链路上确认（DB 落 6 条不同目标的 Swipe）。
+- [x] 顺带实测到「单账号压不出写容量」的具体形状：`POST /posts` 单账号 85 次 = **20 × 201 后 65 × 429**
+      （`post_create` 20/天额度）；DB 落 20 条正文互不相同的动态，证明 `{i}` 在表单体里也生效。
+- [ ] **2C2G 上的写路径基线数字**：跑法已就绪（`perf/README.md` §2.2），`perf/baseline.json` 待补点——
+      本机 Windows + 本地 MySQL 的数字与服务器不可比，不填假数。
 - [ ] 读多：`GET /discovery/candidates`、`/matches`、`/posts`（feed）、`/users/{id}`。
-- [ ] 写：`POST /discovery/swipe`、`POST /posts`、`POST /im/images`。
+- [ ] 写：`POST /discovery/swipe`、`POST /posts` 已可压；`POST /im/images` 未压
+      （multipart 文件体，`--body` 目前只支持文本体）。
 - [ ] 混合 70 读 / 30 写，跑 30 分钟看内存曲线（补 stress 文档「未测：>1h 稳定性」）。
 - [ ] WS：`bench_ws.py` 已有，补「重连风暴」场景（imserver 重启后 1000 客户端同时重连）。
 - [ ] 突发：0→1000 并发 in 10s，看是否触发限流/排队而非 5xx。

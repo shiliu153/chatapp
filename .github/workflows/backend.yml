@@ -5,10 +5,12 @@ on:
     branches: [master, main]
     paths:
       - 'chatapp/**'
+      - 'perf/**'
       - '.github/workflows/backend.yml'
   pull_request:
     paths:
       - 'chatapp/**'
+      - 'perf/**'
       - '.github/workflows/backend.yml'
   workflow_dispatch:
 
@@ -169,3 +171,10 @@ jobs:
 
       - name: 跑测试
         run: python manage.py test --noinput --verbosity=2
+
+      # perf/ 在仓库根(不在 chatapp/ 下),所以 manage.py test 抓不到它的用例。
+      # 这份自测是纯标准库 + 本地回显服务器,不依赖 MySQL/Redis,秒级跑完:
+      # 它防的是「压测脚本自己错了却给出好看的数字」(头没发出去、{i} 没替换、令牌落盘)。
+      - name: 压测脚本自测
+        working-directory: ${{ github.workspace }}
+        run: python -m unittest perf.test_run -v
