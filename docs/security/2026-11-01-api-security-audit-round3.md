@@ -404,4 +404,4 @@ cd app && ../flutter/bin/flutter.bat analyze
 - 「谁看过我」本身口径正确，但保留期（M-1）、写放大（M-2）与节流（M-3）需要在
   上线前补齐，否则会同时带来隐私合规与容量问题。
 
-**报告结束（修复进展见 §5 勾选与 `docs/superpowers/plans/2026-11-01-security-round3.md`）**
+**报告结束（修复进展见 §5 勾选与 `docs/superpowers/archive/plans/2026-11-01-security-round3.md`）**

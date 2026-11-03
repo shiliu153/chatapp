@@ -126,7 +126,7 @@
 - [ ] **P06 · 资料（上）：模型与在线状态**（约 230 行）
   - 文件：`users/models.py`(133)、`users/presence.py`(58)、`users/services.py`(39)
   - 概念：ORM 字段/索引/外键、迁移文件是怎么生成的、120 秒在线窗口、45 秒心跳
-  - 导读：`docs/api/users.md`、`docs/superpowers/specs/2026-09-13-online-presence-design.md`
+  - 导读：`docs/api/users.md`、`docs/superpowers/archive/specs/2026-09-13-online-presence-design.md`
   - 实验：在 `python manage.py shell` 里查一个用户的 presence 返回值。
   - 自查：「在线」的判定为什么放在请求链路里，而不是靠 WebSocket？
 
@@ -160,21 +160,21 @@
 - [ ] **P11 · 合规：举报、拉黑、封禁两级（分 2 次读）**（约 364 行）
   - 文件：`moderation/models.py`(79)、`moderation/services.py`(63)、`moderation/views.py`(65)、`moderation/serializers.py`(42)、`moderation/permissions.py`(24)、`moderation/text_check.py`(13)、`moderation/throttles.py`(10)、`moderation/urls.py`(9)、`moderation/admin.py`(59)
   - 概念：DRF 全局 permission 类、`banned_light` vs `banned_heavy`、全局 403 与白名单、敏感词
-  - 导读：`docs/api/moderation.md`、`docs/superpowers/specs/2026-09-11-m3-compliance-design.md`、`2026-09-12-report-notice-design.md`
+  - 导读：`docs/api/moderation.md`、`docs/superpowers/archive/specs/2026-09-11-m3-compliance-design.md`、`2026-09-12-report-notice-design.md`
   - 实验：把某个用户置成 `banned_heavy`，打任意接口看 403，再打白名单接口看通。
   - 自查：为什么权限要做成**全局类**而不是每个视图各写一遍？
 
 - [ ] **P12 · 广场 feed**（约 387 行）
   - 文件：`feed/models.py`(83)、`feed/serializers.py`(88)、`feed/services.py`(53)、`feed/views.py`(113)、`feed/throttles.py`(38)、`feed/urls.py`(12)
   - 概念：分页（回看 `config/pagination.py`）、点赞计数、多图上传、N+1 查询
-  - 导读：`docs/api/feed.md`、`docs/superpowers/specs/2026-09-12-square-feed-design.md`
+  - 导读：`docs/api/feed.md`、`docs/superpowers/archive/specs/2026-09-12-square-feed-design.md`
   - 实验：造 20 条动态，观察分页参数与返回结构。
   - 自查：什么叫 N+1？这个项目用什么手段规避？
 
 - [ ] **P13 · 运维台 ops（Django 模板视图，不是 DRF）**（约 369 行）
   - 文件：`ops/views.py`(296)、`ops/urls.py`(34)、`ops/decorators.py`(16)、`ops/forms.py`(9)、`ops/context_processors.py`(14)
   - 概念：Django 传统模板视图、装饰器鉴权、context processor、服务端渲染
-  - 导读：`docs/superpowers/specs/2026-09-11-ops-console-design.md`
+  - 导读：`docs/superpowers/archive/specs/2026-09-11-ops-console-design.md`
   - 实验：启动服务后登录 ops 后台，把界面和 `ops/views.py` 的函数对应起来。
   - 自查：为什么同一项目里 ops 用模板视图，而 API 用 DRF？两者鉴权方式有何不同？
 
@@ -183,7 +183,7 @@
 - [ ] **P14 · 文档门禁 + 全局横扫**
   - 文件：`config/api_doc_coverage.py`(88)、`config/tests.py`(184)
   - 概念：`ApiDocsCoverageTests` 双向门禁——改了接口不改文档，测试就红
-  - 导读：`docs/api/README.md`、`docs/superpowers/specs/2026-09-21-api-documentation-design.md`
+  - 导读：`docs/api/README.md`、`docs/superpowers/archive/specs/2026-09-21-api-documentation-design.md`
   - 实验：故意改一个接口的路径而不动 `docs/api/`，跑测试看它怎么红，再改回来。
   - 横扫动作（B 路线）：
     1. 把 8 个 `models.py` 连起来通读一遍，画一张表关系图

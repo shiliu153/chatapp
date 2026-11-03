@@ -305,4 +305,4 @@ cd app && ../flutter/bin/flutter.bat analyze
 
 ---
 
-**报告结束（修复进展见 §5 勾选与 `docs/superpowers/plans/2026-10-28-security-round2.md`）**
+**报告结束（修复进展见 §5 勾选与 `docs/superpowers/archive/plans/2026-10-28-security-round2.md`）**
