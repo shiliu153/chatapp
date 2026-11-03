@@ -117,8 +117,16 @@
       **395 次全 200 / 0 错误 / p99 42ms**；`{i}` 自增体在真实链路上确认（DB 落 6 条不同目标的 Swipe）。
 - [x] 顺带实测到「单账号压不出写容量」的具体形状：`POST /posts` 单账号 85 次 = **20 × 201 后 65 × 429**
       （`post_create` 20/天额度）；DB 落 20 条正文互不相同的动态，证明 `{i}` 在表单体里也生效。
-- [ ] **2C2G 上的写路径基线数字**：跑法已就绪（`perf/README.md` §2.2），`perf/baseline.json` 待补点——
-      本机 Windows + 本地 MySQL 的数字与服务器不可比，不填假数。
+- [x] **2C2G 写路径基线**（2026-11-03 实测，报告 `docs/ops/write-baseline-2026-11-03.md`）：
+      `POST /discovery/swipe` 20/50/100/200 并发 = **33.4 / 35.8 / 38.5 / 39.2 rps**，
+      p50 552→4922ms，全程 **0 个 5xx/429**；`perf/baseline.json` 已补 4 个 `api_write` 点。
+      同批量到三个事实：① 加并发只涨延迟不涨吞吐（天花板是整机 CPU/内存，不是 8 个线程）；
+      ② MySQL 不是瓶颈（每次 swipe ≈10 条查询 / 读 4.7 行，无全表扫）；
+      ③ 内存压力（swap 在用、`si≈1MB/s`）与 4–10 秒的 p99 尖刺同源。
+- [ ] **重跑读基线**（本次顺带发现：同接口同并发 `app_config` 从 608 掉到 **410 rps**，
+      观测栈上线后旧读点偏乐观 ~1/3；不重跑则 `report.py` 的「RPS −20%」会误报）。
+- [ ] 定位这 1/3 的归属（逐容器停掉复测；候选：观测栈合计 ~344MB 上限、mysqld RSS 510MB、swap）。
+- [ ] `GET /discovery/candidates` p99 **9.5s**（20 并发）单独查——发现页主路径，比写路径更影响体感。
 - [ ] 读多：`GET /discovery/candidates`、`/matches`、`/posts`（feed）、`/users/{id}`。
 - [ ] 写：`POST /discovery/swipe`、`POST /posts` 已可压；`POST /im/images` 未压
       （multipart 文件体，`--body` 目前只支持文本体）。
