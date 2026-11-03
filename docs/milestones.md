@@ -64,6 +64,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(上�
 
 | 2026-11-03 | **前端错误上报**(backlog A-4 / 审查 N-7):全仓此前 `sentry`/`bugsnag`/`rollbar` 零命中,白屏与 Flutter 崩溃在服务端指标里完全不可见。**没接第三方**(零成本、错误数据不出境),改为自建 `POST /api/v1/client-errors`(`telemetry` app,匿名可调 + 120 次/小时/IP + 字段长度上限)→ 单行 JSON 日志 `logger=chatapp.client_error` + `client_errors_total{platform}`;`request_id` 由响应头 `X-Request-Id` 串起前后端。Web 挂 `window.onerror`/`unhandledrejection`/Vue `errorHandler`(开关 `VITE_ERROR_REPORTING`,生产 1、开发/测试 0),App 挂 `FlutterError.onError`/`PlatformDispatcher.onError`(开关 `--dart-define=ERROR_REPORTING`,须早于 `runApp`);两端各 20 条配额 + 同 message 去重。实测一条报错 → 日志带 `request_id=demo-rid-123`、`/metrics` 出现 `client_errors_total{platform="web"} 1`;后端 709 / Web 422 / App 439 测试绿;PR #38 |
 
+| 2026-11-03 | **封闭测试白名单关死注册面**(backlog B-1 / 审查 K-1「全项目第一风险」):现场确认生产 `.env` **连 `SMS_DEV_MODE` 这一行都没有**,`settings.py` 默认 `"1"` 静默接管 —— 运行时 `SMS_DEV_CODE=123456`,任何知道手机号的人都能登录该账号、读走全部聊天记录(30 个账号)。按「关死注册面」路线止血:`settings.SMS_PHONE_WHITELIST`(逗号分隔,**留空=不限制**)+ `accounts.services.ensure_phone_allowed()` + 新业务码 `40301`;`sms_send` 在发码前拦(不落码/不入队/不占 60 秒间隔)、`sms_verify` 再拦一次(纵深防御);文档同步 `docs/api/auth.md`、`conventions.md`、`.env.example`、`pitfalls/backend.md`。后端 715 测试绿。**已上线**:`.env` 显式 `SMS_DEV_MODE=1` + 白名单 30 个现有账号 → 部署 `c080e78`(连带 A-1/A-2/A-4,含 2 个纯索引迁移)→ 重启 web + worker;生产实测名单外发码/登录均 `403 + 40301`、名单内 `200`。**残余风险**:名单内仍是固定码,且 `403`/`200` 差异构成受 IP 限流约束的探测口子 —— 对外开放注册前必须做 B-1b(接真实短信商) | PR #39
+
 ## 怎么维护
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;
