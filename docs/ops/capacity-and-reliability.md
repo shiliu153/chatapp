@@ -17,8 +17,11 @@
 
 | 维度 | 指标 | 结果 | 环境 | 证据 |
 |---|---|---|---|---|
-| HTTP 容量 | 稳定吞吐 | **550–600 rps**,0 个 5xx | 2C2G | [stress-test](stress-test-2026-11-01.md) §2.1 |
+| HTTP 容量 | 稳定吞吐(极简读接口) | **550–600 rps**,0 个 5xx | 2C2G | [stress-test](stress-test-2026-11-01.md) §2.1 |
 | HTTP 延迟 | 20 并发 → 400 并发 | p99 **101ms → 995ms**(线性排队,不崩) | 2C2G | 同上 |
+| **写容量** | `POST /discovery/swipe` 20→200 并发 | 饱和 **~40 rps**(33.4→39.2),p50 552ms→4922ms,**0 个 5xx/429** | 2C2G | [write-baseline](write-baseline-2026-11-03.md) §2 |
+| **鉴权读** | `GET /users/me` / `GET /discovery/candidates` @20 并发 | **52** / **23.5 rps**(后者 p99 9.5s) | 2C2G | 同上 §3 |
+| **读基线漂移** | `GET /app/config` @20 并发,观测栈上线前后 | **608 → 410 rps**(−33%),p99 101→155ms | 2C2G | 同上 §4.3 |
 | WS 容量 | 1000 连接 / 2000 条消息 | **0 失败**,RSS ~50MB | 2C2G | 同上 §2.2 |
 | IM 吞吐 | 热会话 | **215 msg/s**;单机天花板 200–250 | 2C2G | [imserver-throughput](imserver-throughput.md) |
 | IM 延迟 | 稳态 50 msg/s | ack **p99 93ms** | 2C2G | 同上 |
@@ -35,6 +38,8 @@
 
 > 口径提醒:2C2G 的数字来自生产同规格机器;标「开发机/容器」的是笔记本 Docker,
 > **绝对值不可搬到线上**,可迁移的是「查询形态 + 相对倍数」。
+> 另外「550–600 rps」**只对不碰 DB 的极简接口成立**(`/app/config`);要鉴权、要打库的业务接口
+> 在 2C2G 上是 **23–52 rps**,写路径 ~40 rps —— 别拿极简接口的数字去推业务接口容量。
 
 ## 3. 三个能讲的故事
 
@@ -108,15 +113,19 @@ RPS −20% / p99 +20% 直接判回归。造数用 `seed_scale_users`,清理用 `
 
 **Q:怎么知道线上现在没坏?**
 A:设计上 `/metrics` 暴露 RED + IM 连接/发送/死锁重试/池等待 + 队列积压;10 条告警推企业微信;
-runbook 写清了「哪条告警 → 看哪块板 → 做什么」。**现状是已就绪未上线**——部署需要 ssh,
-这一点我会主动说明,不把「设计」说成「已运行」。
+runbook 写清了「哪条告警 → 看哪块板 → 做什么」。**2026-11-03 已上线**:5 个容器(prometheus/grafana/
+alertmanager/alert-relay/node-exporter)在跑,3 个 target(api/im/node)全 `up`。
+仍未做的:探针 30s 粒度、告警接群机器人(现在只落日志)——这两条如实写在 `observability.md`。
 
 ## 6. 还没做到的(主动说,比被问出来好)
 
 - **没有真实用户量**:封闭测试个位数用户,所有「规模」都是合成数据;真实 DAU/留存指标还没有采集管道。
-- **写路径容量还没测**:`perf/run.py` 已能压带鉴权的写接口(滑卡/发动态,靠 `perf_tokens` 签多账号令牌绕开
-  per-user 限流),但 2C2G 上的写 RPS/p99 还没跑 —— `perf/baseline.json` 目前只有读接口与 WS。
-- **观测栈还没上线**:配置与看板已入库并校验(promtool/amtool 通过),但部署需要 ssh 到生产。
+- **读基线已过期**:`perf/baseline.json` 的读点是 2026-11-01 量的(观测栈上线前)。
+  2026-11-03 同接口同并发复测只到 **410 rps**(原 608),判回归前必须重跑,否则「−20%」会误报。
+- **写路径天花板低**:2C2G 上 `POST /discovery/swipe` 饱和 **~40 rps**(加并发只涨延迟),
+  同时 `GET /discovery/candidates` p99 曾到 **9.5 秒**——这两处都比「读接口 600 rps」更接近真实体感。
+- **观测栈已上线(2026-11-03)**:5 个容器(prometheus/grafana/alertmanager/alert-relay/node-exporter,
+  均有 mem_limit,合计 ~344MB),3 个 target 全 `up`;代价是与应用的 CPU/内存争用(见上一条)。
 - **MySQL 看门狗待安装**:脚本与 runbook 已就绪,`kill -9 mysqld + mysqld_safe` 的自动恢复还没在现网验证。
 - **keyset 分页未做**:深翻页仍有 106ms 的 OFFSET 成本,改契约要三端同步。
 - **图片/语音仍无机器审核**:人工抽审兜底,是上线阻断项,与容量无关。
