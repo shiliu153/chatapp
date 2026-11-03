@@ -89,7 +89,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | `docs/pitfalls/` | 踩坑手册(按主题分册) | 写代码/排障前按需读取 |
 | `.remember/` | Claude 会话记忆日志(内部机制) | 勿改动、勿提交 |
 
-根目录是 git 仓库;`master` 为主线,功能开发走短生命周期分支后合回。
+根目录是 git 仓库;`master` 为主线,功能开发走短生命周期分支后合回。**部署只认 `origin/master` 的 SHA**(见下「发布流程」)。
 
 ## 常用命令
 
@@ -159,6 +159,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **网页端**:401 只走 `api/http.ts` 的刷新通道(并发去重);错误统一 `ApiError`;页面只碰 store、不直接调 `http`
 - **「心跳」token 双份维护**:改任何视觉 token 或字体,**必须在同一次改动内同时改** `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css`(`web/public/fonts/*` 与 `app/assets/fonts/*` 保持一致);`web/tests/unit/tokens.spec.ts` 与 `fonts.spec.ts` 会双向比对,漏改即红
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步
+- **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/master` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认服务器要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。理由不是形式主义:CI 跑在 Ubuntu + MySQL 8 + Redis 服务容器上,与本地 Windows 环境不同;顺序错了的话,CI 红时生产已经在跑未验证的代码,回滚要同时动代码、镜像和 nginx(2026-11-03 首次整改即如此,事后补了 PR #28,记录见 `docs/superpowers/plans/2026-11-02-observability-and-capacity.md` §8)
 - **网页端测试纪律**:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + vitest 全绿(覆盖率门槛 70/60/70/70);`npm run e2e` 需后端 + Redis + Celery 都在跑,不进 CI
 - **发版版本号必须双端同改**:`app/pubspec.yaml` + `app/lib/core/app_info.dart` + `web/package.json`(连带 App 关于页与 Web 关于页测试的期望)。`MIN_APP_VERSION` 同时卡网页端——只升 App 会让整站被「需要更新后才能继续使用」挡住(2026-10-28 实测,见 `docs/pitfalls/web.md` #23);改完 Web 必须 `npm run build` 并部署 `dist`
 - **接口文档**:`docs/api/` 是接口的对外交付文档;新增/修改/删除任何 `/api/v1` 接口,**同一次改动内**必须同步更新对应分册;`python manage.py test` 会跑 `ApiDocsCoverageTests` 双向比对,漏写即红。模板与维护规则见 `docs/api/README.md`
