@@ -99,14 +99,19 @@ mysql -e 'SELECT 1' && tail -5 /www/wwwlogs/mysql_watchdog.log
 
 ### 5.1 现在备什么、多久、放哪
 
+**两套独立备份并存**(2026-11-03 核实):
+
 | 项 | 内容 | 频率 | 位置 | 保留 |
 |---|---|---|---|---|
 | `chatapp` 库 | 全库 `mysqldump`(32 张表,约 128 KB) | 每天 03:20 | `/www/wwwroot/chatapp/backups/db/chatapp-db-<时间>.sql.gz` | 14 天 |
 | `chatapp_im` 库 | 全库 `mysqldump`(7 张表,约 16 KB) | 每天 03:20 | 同上,`chatapp-im-db-<时间>.sql.gz` | 14 天 |
 | 媒体目录 | `media/`(资料图/广场图/聊天图/语音,约 1.6 MB) | 每天 03:20 | `backups/media/chatapp-media-<时间>.tar.gz` | 14 天 |
 | 配置快照 | `.env`、imserver `imserver.env`、nginx vhost、两条 supervisor ini、`cron.d/mysql-watchdog` | 每天 03:20 | `backups/config/chatapp-config-<时间>.tar.gz` | 14 天 |
+| **宝塔原生备份**(独立第二份) | 只备 `chatapp` 库 | 每天 03:30 | `/www/backup/database/mysql/crontab_backup/chatapp/chatapp_<日期>_<时间>_mysql_data.sql.gz` | 7 份 |
 
-每个 dump 都带同名 `.sha256`;权限 `600`,目录 `700`(`umask 077`)。
+每个 dump 都带同名 `.sha256`;文件 `640 root:backup`,目录 `750 root:backup`(`umask 077` 起手再放行 `backup` 组)。
+
+> **为什么要两套**:宝塔那套只备应用库、且是面板托管(改配置不经过仓库);自建这套多备 IM 库 + 媒体 + 配置、且有完整性断言。**两套互相独立**,任何一套挂了另一套还在,日报里也分别核验。
 
 - **脚本(仓库是唯一事实来源)**:`deploy/ops/chatapp-backup.sh` → `install -m 755` 到 `/www/server/ops/`
 - **cron**(root):
@@ -115,28 +120,59 @@ mysql -e 'SELECT 1' && tail -5 /www/wwwlogs/mysql_watchdog.log
     -c /www/server/ops/chatapp-backup.sh >> /www/wwwlogs/chatapp-backup.log 2>&1
   ```
 - **日志**:`/www/wwwlogs/chatapp-backup.log`,成功一行摘要(`db=/media=/config=/磁盘剩余`),失败非零退出并写「失败: 原因」。
-- **看是否还在跑**:`tail -3 /www/wwwlogs/chatapp-backup.log` 与 `ls -lt /www/wwwroot/chatapp/backups/db | head -3`。**超过 36 小时没有新文件就是坏了**。
+- **看是否还在跑**:`tail -3 /www/wwwlogs/chatapp-backup.log` 与 `ls -lt /www/wwwroot/chatapp/backups/db | head -3`。**超过 36 小时没有新文件就是坏了**;每天 22:00 的服务器日报也会把两套备份分别核验。
 
 > **RPO 24 小时 / RTO 约 10 分钟**(实测:dump 1 秒、恢复 7 秒、起服务数分钟)。
 
-### 5.2 异地(零成本方案)
+### 5.2 异地:树莓派(192.168.101.3)
 
-备份与数据库**同盘**(2C2G 单机,无法本地解决)。当前采用零成本异地:**每天把最新 dump 拉回个人电脑**。
+**拓扑决定方向**:生产服务器在公网,树莓派在家里内网。服务器**主动连不到**内网,所以必须是**树莓派主动往外拉**。
 
-```powershell
-# 仓库内脚本,默认存到 %USERPROFILE%\chatapp-backups,保留 30 天,带 sha256 校验
-pwsh -NoProfile -File deploy/ops/pull-backup.ps1
-
-# 注册成每天 04:10 的计划任务(机器不开就跳过,不会补跑)
-schtasks /create /tn "chatapp-pull-backup" /sc daily /st 04:10 ^
-  /tr "pwsh -NoProfile -File D:\pycharmproject\chat_app\deploy\ops\pull-backup.ps1" /f
+```
+生产服务器(47.116.114.110)         家庭内网
+  03:20 生成备份  ──┐
+                    │  ← 树莓派 04:10 主动拉(ssh 只读账号 backup)
+                    └──────────────→  树莓派 192.168.101.3
+                                        ~/chatapp-backups/  保留 14 天
+                                        └→ 回写一行状态到服务器
+                                           /var/lib/chatapp-backup/offsite-status.txt
+                                              ↑ 22:00 日报读它
 ```
 
-**这条链的诚实边界**:它防的是「服务器磁盘/整机没了」,**不防**「个人电脑也一起没了」。有对象存储预算后应改为上传 OSS/冷归档,并保留本条作为第二份。
+| 项 | 值 |
+|---|---|
+| 树莓派账号 | `moonlinux`(该机有 sudo 但要口令;**这条链不需要 root**,密钥/目录/日志都在家目录) |
+| 服务器侧账号 | `backup`(专用、只读:能读 `backups/`,能写 `/var/lib/chatapp-backup/offsite-status.txt`,**没有 sudo**) |
+| 密钥 | 树莓派 `~/.ssh/id_ed25519_backup` → 服务器 `/home/backup/.ssh/authorized_keys` |
+| 脚本 | 仓库 `deploy/ops/pull-backup-pi.sh` → 树莓派 `~/bin/chatapp-pull-backup.sh` |
+| 本地目录 | 树莓派 `~/chatapp-backups/`(db / media / config,保留 14 天,约 5 MB/天) |
+| 日志 | 树莓派 `~/chatapp-backups/pull-backup.log` |
+| cron(树莓派) | `10 4 * * * flock -xn ~/chatapp-backups/.pull.lock -c ~/bin/chatapp-pull-backup.sh >> ~/chatapp-backups/pull-backup.log 2>&1` |
+
+**为什么要单独建 `backup` 账号**:树莓派上放的是能登录服务器的密钥。若直接用 root 的密钥,树莓派一旦被拿下就等于服务器 root;用只读账号,最坏情况是「备份被别人读走」,而不是「生产被接管」。
+
+**判断它还在跑**:
+
+```bash
+# 服务器上
+cat /var/lib/chatapp-backup/offsite-status.txt
+# 树莓派上
+tail -3 ~/chatapp-backups/pull-backup.log && ls -lt ~/chatapp-backups/db | head -3
+```
+
+**这条链的诚实边界**:
+
+- 树莓派**关机就不拉**。日报口径:36 小时内算正常;36~72 小时只提示(「可能关机」);**超过 72 小时才进硬故障** —— 否则一次关机就天天误报。
+- 树莓派 SD 卡当时只剩 5.1 GB(已用 82%)。备份目前约 5 MB/天 × 14 天 ≈ 70 MB,够用;**如果媒体涨到几百 MB 要重新算**,并考虑在服务器装 `rsync` 做真增量(现在服务器没装,用的是 `tar over ssh` 只传新文件)。
+- 它防的是「服务器磁盘/整机没了」,**不防**「服务器和树莓派同时没了」。有对象存储预算后应再补一份 OSS 冷归档。
 
 ### 5.3 从备份恢复(照这个顺序做)
 
 前提:目标机器上 MySQL 8 已就绪;`backups/config/*.tar.gz` 里的 `.env` 已就位。
+
+> 服务器整机没了时,先从树莓派把最近一份取回来:
+> `scp moonlinux@192.168.101.3:~/chatapp-backups/db/chatapp-db-<时间>.sql.gz .`
+> (以及同目录的 `.sha256`,先 `sha256sum -c` 校验再恢复)
 
 ```bash
 # 1) 建库(空库,字符集必须与生产一致,否则中文会乱码)
@@ -176,7 +212,11 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/api/v1/health
 2. **`chatapp_im` 库不能拿应用账号备** —— 应用账号只有 `chatapp.*` 权限;IM 库的凭据在 imserver 的 `IM_MYSQL_DSN` 里(`mysql://imserver:<口令>@host:port/chatapp_im`),脚本按**最后一个 `@`** 切分来解析。
 3. **只 `gzip -t` 不够** —— 截断的 dump 压缩包往往还是合法的 gzip。必须再断言末行是 `-- Dump completed`,脚本里就是这么做的。
 4. **PowerShell 不支持 `<` 重定向** —— 在本机演练时用 `docker cp` 把 `.gz` 送进容器再 `gunzip`,不要写 `docker exec ... < file`。
-5. **旧 `/root/backup.sh` 是假备份**:它只 dump `chatapp_im` 的 `im_message`/`im_user` 两张表,**应用库一次没备过**,而且没有 cron;最后一次产物停在 2026-10-28。这正是「有备份目录但等于没有」的典型 —— 判断备份是否有效只能靠**恢复演练**,不能看文件在不在。
+5. **`/root/backup.sh` 是个半成品,但「应用库没备份」的判断是错的(2026-11-03 自我更正)**:`/root/backup.sh` 确实只 dump `chatapp_im` 的 `im_message`/`im_user` 两张表、也确实没进 cron(最后产物停在 2026-10-28)。但当时据此断言「应用库一次没备过」是**错的** —— 宝塔面板里一直有一个每天 03:30 的「备份数据库」任务(`/www/server/panel/script/backup.py database chatapp 7`),产物在 `/www/backup/database/mysql/crontab_backup/chatapp/`,每天都在更新。**教训:判断「有没有备份」不能只看 `crontab -l` 和一个脚本文件,面板托管的计划任务在 `/www/server/cron/<hash>` 里、由 `crontab` 的匿名条目驱动,`grep manage.py` 是搜不到的。**
+6. **备份文件得让拉取账号读得到**:`umask 077` 出来的 `600 root:root` 树莓派读不了。脚本改成 `640 root:backup` + 目录 `750 root:backup`(组不存在时自动退回 `600/700`),否则「备份有了但异地永远拉不走」。
+7. **状态行里不能有空格**:异地回写的 `ts=2026-11-03 22:33:00` 被日报按空白切词,`ts` 只剩日期,解析直接失败。改成 ISO 的 `ts=2026-11-03T22:33:00`。
+8. **服务器上没装 `rsync`**:别照抄「rsync 增量同步」的方案,现在是 `tar -cf - | tar -xf -` 只传本地缺的文件;媒体真涨到几百 MB 再考虑装。
+9. **树莓派的 `moonlinux` 有 sudo 但要口令**:非交互脚本里 `sudo` 会直接失败。这条链刻意全程不用 root(密钥、备份目录、日志都在家目录),别再改回 root。
 
 ## 6. 事故复盘模板
 
