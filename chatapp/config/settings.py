@@ -362,6 +362,13 @@ SMS_RESEND_INTERVAL = 60    # 同一号码重发间隔(秒)
 SMS_MAX_ATTEMPTS = 5        # 连续错误次数上限
 SMS_LOCK_TTL = 900          # 触发上限后锁定时长(秒)
 SMS_REPLAY_TTL = 60         # 校验成功后的幂等重放窗口(秒):响应丢失时同码可再换令牌
+# B-1(K-1):封闭测试期把注册面关死 —— 只有白名单内的号码能收发验证码。
+# 逗号分隔的 11 位手机号;留空 = 不限制(开发/测试默认,生产必须填)。
+# 理由:固定验证码 + 任意手机号 = 谁都能接管别人账号;白名单把可登录的号码
+# 从「全空间」缩到「我们自己人」,是对外开放注册前的最低成本止血。
+SMS_PHONE_WHITELIST = frozenset(
+    p.strip() for p in os.getenv("SMS_PHONE_WHITELIST", "").split(",") if p.strip()
+)
 
 # --- 日志:开发期要能在终端看到验证码;每行带 request_id ---
 LOG_FILE = os.getenv("LOG_FILE", "")          # 置为文件路径则额外落盘(手测配 --noreload)
