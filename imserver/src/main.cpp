@@ -53,6 +53,10 @@ int main(int argc, char** argv) {
       // 127.0.0.1 一个 key 上,单 IP 连接数/鉴权限流会误伤正常用户。
       log_warn("trusted_proxies_empty", {{"policy", "peer-address-only"}});
     }
+    // H-1:内部接口的来源网段在启动时就解析一遍,非法条目直接启动失败,
+    // 避免线上才发现 /internal/* 全 403(或更糟:为了救火把校验删掉)。
+    const auto internal_allow = net_guard::ProxyTrust::from_list(cfg.internal_allow);
+    log_info("internal_allow_ready", {{"rules", std::to_string(internal_allow.size())}});
 
     MysqlPool mysql(parse_mysql_dsn(cfg.mysql_dsn), cfg.db_pool,
                     cfg.db_idle_ping_ms, cfg.db_connect_wait_ms);

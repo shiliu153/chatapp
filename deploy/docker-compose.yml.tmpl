@@ -4,7 +4,11 @@
 #   - 只有 nginx 发布 80/443,MySQL / Redis / Django / imserver 都只在 compose 网络内;
 #   - imserver 在容器内监听 0.0.0.0(IM_ALLOW_PUBLIC_BIND=1),但 compose 不发布端口,
 #     外部只能经 nginx 的 /im/ws 与 /im/api/ 访问;
-#   - 固定子网,便于 Django/imserver 的 TRUSTED_PROXY_IPS 只信任 nginx。
+#   - 固定子网,便于 Django/imserver 的 TRUSTED_PROXY_IPS 只信任 nginx;
+#   - 两张网络(M-6):default 负责对外(nginx/证书/出站),backend 放 MySQL 与 Redis,
+#     只有 web/worker/imserver 同时接入。nginx 与 certbot 没有 backend 路由,
+#     即使被攻陷也连不到 3306/6379;
+#   - 每个服务都有内存与进程上限(M-5):单个服务失控不会把 2C2G 整机拖死。
 name: chatapp
 
 x-app: &app
@@ -15,6 +19,10 @@ x-app: &app
     - chatapp_static:/app/staticfiles
     - chatapp_media:/app/media
   restart: unless-stopped
+  # 应用容器不需要任何 Linux capability;禁止通过 setuid 提权
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
   logging:
     driver: json-file
     options:
@@ -31,13 +39,18 @@ services:
       - --max-connections=200
     environment:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
-      MYSQL_ROOT_HOST: "%"
+      # L-9:root 只允许来自 compose 子网(默认 172.28.0.%),不是 "%"
+      MYSQL_ROOT_HOST: "__MYSQL_ROOT_HOST__"
       MYSQL_DATABASE: chatapp
       MYSQL_USER: chatapp
       MYSQL_PASSWORD: "${DB_PASSWORD}"
       TZ: Asia/Shanghai
     volumes:
       - chatapp_mysql:/var/lib/mysql
+    networks: [backend]
+    mem_limit: 700m
+    pids_limit: 300
+    security_opt: ["no-new-privileges:true"]
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 10s
@@ -56,6 +69,12 @@ services:
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
     volumes:
       - chatapp_redis:/data
+    # M-6:只接 backend,nginx/certbot 没有到 6379 的路由
+    networks: [backend]
+    mem_limit: 320m
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -83,6 +102,11 @@ services:
     command:
       - mysql -h mysql -uroot -p"$$MYSQL_ROOT_PASSWORD" < /init/01-databases.sql
     restart: "no"
+    networks: [backend]
+    mem_limit: 192m
+    pids_limit: 128
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging:
       driver: json-file
       options:
@@ -93,6 +117,9 @@ services:
     <<: *app
     command: ["python", "manage.py", "migrate", "--noinput"]
     restart: "no"
+    # 一次性容器只需要 DB/Redis,不接 default(没有出站需求)
+    networks: [backend]
+    mem_limit: 384m
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -109,6 +136,9 @@ services:
       args:
         PIP_INDEX_URL: "${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
     command: ["gunicorn", "config.wsgi:application", "-b", "0.0.0.0:8000", "-w", "2", "--timeout", "120", "--access-logfile", "-"]
+    # default 供 nginx 反代,backend 供 MySQL/Redis
+    networks: [default, backend]
+    mem_limit: 384m
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -125,6 +155,9 @@ services:
   worker:
     <<: *app
     command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency=1"]
+    # default 保留出站(接短信商/腾讯 IM 时要用),backend 接 Redis/MySQL
+    networks: [default, backend]
+    mem_limit: 256m
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -139,6 +172,12 @@ services:
       network: host
     env_file:
       - "__APP_DIR__/secrets/imserver.env"
+    # nginx 经 default 反代 /im/ws、/im/api;MySQL/Redis 在 backend
+    networks: [default, backend]
+    mem_limit: 320m
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     depends_on:
       db-init:
         condition: service_completed_successfully
@@ -159,6 +198,16 @@ services:
 
   nginx:
     image: chatapp-nginx:local
+    # H-2:固定 IP —— Django/imserver 的可信代理名单只写这一个地址,
+    # 不再信任整个 compose 子网(否则任何容器都能伪造 X-Real-IP)。
+    networks:
+      default:
+        ipv4_address: "__NGINX_IP__"
+    mem_limit: 96m
+    pids_limit: 256
+    # nginx 需要 root 绑 80/443 再降权到 nginx 用户,这里只加 no-new-privileges,
+    # 不 cap_drop ALL(否则 NET_BIND_SERVICE 没了,容器起不来)。
+    security_opt: ["no-new-privileges:true"]
     build:
       context: "__REPO_DIR__"
       dockerfile: deploy/docker/web.Dockerfile
@@ -200,6 +249,11 @@ services:
       - chatapp_certs:/etc/letsencrypt
       - chatapp_acme:/var/www/certbot
     entrypoint: ["certbot"]
+    networks: [default]
+    mem_limit: 128m
+    pids_limit: 64
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging:
       driver: json-file
       options:
@@ -226,3 +280,7 @@ networks:
     ipam:
       config:
         - subnet: "__DOCKER_SUBNET__"
+  backend:
+    # M-6:MySQL/Redis 只挂在这张网上;internal 让这张网单独没有出站路由。
+    # 需要出站的服务(web/worker)同时接 default,出站走 default。
+    internal: true

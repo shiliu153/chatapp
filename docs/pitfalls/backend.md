@@ -130,9 +130,11 @@
 - **写库必须包在内层 `transaction.atomic()` 里**:`update_or_create` 撞唯一约束(`uniq_visit_viewer_owner`)或外键失败时,如果不回滚到保存点,会毒化外层事务 —— 测试里表现为后续查询抛 `TransactionManagementError`,生产上表现为同一个请求里后续的查询全挂。`except IntegrityError` 之后的 `update()` 重试放在保存点回滚之后,所以是安全的。
 - **30 分钟窗口用 Redis `cache.add` 去重,不要每条 GET 都 UPDATE**:同一对 `(viewer, owner)` 半小时内只写一次,`last_at` 的精度就是 30 分钟。这个精度是刻意的:列表只渲染「刚刚 / 3 小时前 / 昨天」,没有人需要毫秒级。
 - **访客监控与访客落库是两个独立窗口,不能共用 early return**:抓取监控按「自然小时」分桶(1 小时),访客记录按 30 分钟。重构时如果把 `if not first_time: return` 放在最外层,30 分钟窗口过期后会被 1 小时的 key 挡住,`last_at` 永远停在第一次。
-- **隐身判断要容错「没有 Profile」**:`Profile` 是懒创建的,新用户第一次被访问时可能还没有资料行。`Profile.objects.filter(...).values_list(...).first()` 返回 `None` 要按「未隐身」处理,否则会 500。
+- **没有 Profile 的访问者不落库**(2026-11-03 起):`Profile` 是懒创建的,访客列表又只展示「资料完善 + 有过审照片」的人,所以「没有资料行」等价于「不会展示」,直接跳过;不要为了容错再按「未隐身」写一行。`Profile.objects.filter(...).values(...).first()` 为 `None` 时 return。
 - **已配对的人不需要单独过滤**:配对的前提是双方都划过对方,而列表已经排除「我已划过」,所以 `Match` 表一次都不用 join。
-- **保留期 90 天靠命令清理**:`purge_profile_visits`(默认 dry-run)。访客记录属于个人信息,不清理就是无限期留存,合规上说不过去。
+- **保留期 90 天靠命令清理**:`purge_profile_visits`(默认 dry-run)。访客记录属于个人信息,不清理就是无限期留存,合规上说不过去。一键部署的 `maintenance.sh` 已包含 `--apply`(M-1)。
+- **写库口径必须与展示口径一致**(M-2):只给「`status=complete` 且至少一张已过审照片」的访问者落库。否则批量造号每小时能写百万行,而这些人永远不会出现在列表里。`PROFILE_VISIT_MAX_PER_OWNER`(默认 500)再兜一道:超过上限按 `last_at` 淘汰最旧行。
+- **访客接口要按用户限流**(M-3):`visits` 每次跑 Swipe/Photo/Block 三个子查询,`visits/count` 单请求多次聚合。额度 `VISITS_RATE=120/hour`、`VISITS_COUNT_RATE=240/hour`,测试里用 `patch.dict(Throttle.THROTTLE_RATES, {...})` 调小,别循环 120 次。
 ## 候选池缓存(2026-11-02)
 
 - **失效用版本号,不用延迟双删**:键是 `disc:cand:{uid}:u{用户版本}:g{全局版本}:p{池大小}`。写路径只 `INCR` 版本,旧键立刻不可达,不存在「删了 key 又被并发读回填一份脏数据」的窗口;延迟双删还得赌第二次删除落在回填之后,而多 worker 下这个顺序没有保证。删除只用来回收内存,TTL(默认 30 秒)负责兜底。

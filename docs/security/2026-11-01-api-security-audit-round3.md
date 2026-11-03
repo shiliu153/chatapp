@@ -77,25 +77,25 @@
 
 | ID | 等级 | 标题 | 主要影响 | 状态 |
 |---|---|---|---|---|
-| C-1 | 严重 | 一键部署默认 `SMS_DEV_MODE=1` + 固定管理员手机号 | 新部署到公网即可用 `123456` 登录任意手机号，包括运营管理员账号 | 待修 |
-| H-1 | 高危 | Compose 下 imserver `/internal/*` 仅允许回环 | 自建 IM 全链路 403（`user_sig` 503、配对/封禁/删号失效），并诱导运维放开内部接口 | 待修 |
-| H-2 | 高危 | `TRUSTED_PROXY_IPS` / `IM_TRUSTED_PROXIES` = 整个 Docker 子网 | 任一容器（含被攻陷的 imserver）可伪造 `X-Real-IP`，绕过后台 IP 白名单、登录锁定与按 IP 限流 | 待修 |
-| M-1 | 中危 | 每日维护漏掉 `purge_profile_visits` | 90 天保留期永不执行，违反隐私政策承诺 | 待修 |
-| M-2 | 中危 | 访客记录写放大（GET 落库 + 未完善资料也写） | 批量造号可放大 `ProfileVisit` 表与写压力 | 待修 |
-| M-3 | 中危 | `visits` / `visits/count` 无按用户节流 | 单账号可高频打带多子查询的计数接口 | 待修 |
-| M-4 | 中危 | 备份明文落盘、目录权限随 umask、无保留策略 | 数据库转储（手机号/聊天内容/密码哈希）在宿主机可读 | 待修 |
-| M-5 | 中危 | 容器全部 root、无资源/能力限制 | 任一容器 RCE 影响面放大；2C2G 上 OOM 会波及宿主（压测已见 MySQL 被 OOM） | 待修 |
-| M-6 | 中危 | Redis 无口令且与业务容器同网 | 验证码摘要、JWT 黑名单、限流计数、在线状态可被同网容器读取/篡改 | 待修 |
-| M-7 | 中危 | `--domain` 未做字符白名单 | 域名值原样渲染进 nginx `server_name`，可注入配置（托管/自动化场景） | 待修 |
-| L-1 | 低危 | `--render-only` 渲染目录未加入 `.gitignore` | 预览生成的 `secrets/values.env` 可能被 `git add -A` 提交 | 待修 |
+| C-1 | 严重 | 一键部署默认 `SMS_DEV_MODE=1` + 固定管理员手机号 | 新部署到公网即可用 `123456` 登录任意手机号，包括运营管理员账号 | 已修复 2026-11-03 |
+| H-1 | 高危 | Compose 下 imserver `/internal/*` 仅允许回环 | 自建 IM 全链路 403（`user_sig` 503、配对/封禁/删号失效），并诱导运维放开内部接口 | 已修复 2026-11-03 |
+| H-2 | 高危 | `TRUSTED_PROXY_IPS` / `IM_TRUSTED_PROXIES` = 整个 Docker 子网 | 任一容器（含被攻陷的 imserver）可伪造 `X-Real-IP`，绕过后台 IP 白名单、登录锁定与按 IP 限流 | 已修复 2026-11-03 |
+| M-1 | 中危 | 每日维护漏掉 `purge_profile_visits` | 90 天保留期永不执行，违反隐私政策承诺 | 已修复 2026-11-03 |
+| M-2 | 中危 | 访客记录写放大（GET 落库 + 未完善资料也写） | 批量造号可放大 `ProfileVisit` 表与写压力 | 已修复 2026-11-03 |
+| M-3 | 中危 | `visits` / `visits/count` 无按用户节流 | 单账号可高频打带多子查询的计数接口 | 已修复 2026-11-03 |
+| M-4 | 中危 | 备份明文落盘、目录权限随 umask、无保留策略 | 数据库转储（手机号/聊天内容/密码哈希）在宿主机可读 | 已修复 2026-11-03（加密由运维按 README §8 执行） |
+| M-5 | 中危 | 容器全部 root、无资源/能力限制 | 任一容器 RCE 影响面放大；2C2G 上 OOM 会波及宿主（压测已见 MySQL 被 OOM） | 已修复 2026-11-03（nginx 仍 root master，记录） |
+| M-6 | 中危 | Redis 无口令且与业务容器同网 | 验证码摘要、JWT 黑名单、限流计数、在线状态可被同网容器读取/篡改 | 已修复 2026-11-03（网络隔离；`requirepass` 待 imserver 支持 AUTH） |
+| M-7 | 中危 | `--domain` 未做字符白名单 | 域名值原样渲染进 nginx `server_name`，可注入配置（托管/自动化场景） | 已修复 2026-11-03 |
+| L-1 | 低危 | `--render-only` 渲染目录未加入 `.gitignore` | 预览生成的 `secrets/values.env` 可能被 `git add -A` 提交 | 已修复 2026-11-03 |
 | L-2 | 低危 | 镜像可变 tag + `curl get.docker.com \| sh` | 构建不可复现，供应链漂移 | 记录 |
-| L-3 | 低危 | 部署模板 HSTS 仅 3600 秒 | 与现网「HSTS 一年」基线不一致 | 待修 |
+| L-3 | 低危 | 部署模板 HSTS 仅 3600 秒 | 与现网「HSTS 一年」基线不一致 | 已修复 2026-11-03 |
 | L-4 | 低危 | 管理员口令打印到 stdout 并明文存 `admin.txt` | 部署日志/终端录屏可能泄露运营口令 | 记录 |
 | L-5 | 低危 | 内部 HMAC 无重放缓存（60 秒窗口） | 同网抓包可在窗口内重放内部调用 | 记录 |
-| L-6 | 低危 | `image_auth` 文档称校验路径前缀，实现未显式校验 | 现状靠签名覆盖路径兜底，后续改动易踩 | 待修 |
+| L-6 | 低危 | `image_auth` 文档称校验路径前缀，实现未显式校验 | 现状靠签名覆盖路径兜底，后续改动易踩 | 已修复 2026-11-03 |
 | L-7 | 低危 | 刷新/注销无节流；`logout` 可拉黑任意有效 refresh | 随机 token 可打黑名单查询；单 token 可被 DoS | 记录 |
 | L-8 | 低危 | 开启「隐身浏览」不清理历史访客记录 | 与用户直觉不符（设计已记录，需文案说明） | 记录 |
-| L-9 | 低危 | `MYSQL_ROOT_HOST=%` | 容器网络内任意主机可尝试 root 登录 | 待修 |
+| L-9 | 低危 | `MYSQL_ROOT_HOST=%` | 容器网络内任意主机可尝试 root 登录 | 已修复 2026-11-03 |
 
 ---
 
@@ -319,13 +319,32 @@ Compose 路径没有任何 `mem_limit` 来隔离「一个服务吃满内存拖�
 
 ## 5. 修复批次
 
-| 批次 | 内容 | 项 |
+| 批次 | 内容 | 项 | 状态 |
+|---|---|---|---|
+| A | 部署默认值与内部接口 | C-1、H-1、H-2 | 已交付 2026-11-03 |
+| B | 访客记录与运维缺口 | M-1、M-2、M-3、M-4、M-7 | 已交付 2026-11-03 |
+| C | 容器与网络加固 | M-5、M-6、L-9 | 已交付 2026-11-03 |
+| D | 低危与文档 | L-1、L-3、L-6、其余记录项 | 已交付 2026-11-03 |
+| E | 回归与文档 | 后端全量、imserver 集成、Web/App 检查、docs/api、pitfalls、部署 README | 已交付 2026-11-03 |
+
+**修复证据**（逐项落在代码与测试上）：
+
+| 项 | 改动 | 证据 |
 |---|---|---|
-| A | 部署默认值与内部接口 | C-1、H-1、H-2 |
-| B | 访客记录与运维缺口 | M-1、M-2、M-3、M-4、M-7 |
-| C | 容器与网络加固 | M-5、M-6、L-9 |
-| D | 低危与文档 | L-1、L-3、L-6、其余记录项 |
-| E | 回归与文档 | 后端全量、imserver 集成、Web/App 检查、docs/api、pitfalls、部署 README |
+| C-1 | `oneclick.sh` 新增 `--allow-dev-sms`（默认不写 `SMS_DEV_MODE`）、公网/TLS 必须显式 `--admin-phone`；`accounts/views.py::sms_verify` 对 staff/superuser 返回 403（可用 `SMS_ALLOW_STAFF_LOGIN=1` 在封闭测试放开） | `SmsVerifyTests` 新增 2 条；`--render-only` 实跑：无开关直接退出码 1 |
+| H-1 | `IM_INTERNAL_ALLOW`（IP/CIDR，默认 `127.0.0.1,::1`），`HttpApi` 按对端地址判定，HMAC 不变；compose 写子网 | `ConfigTest.ParsesInternalAllowList`、`GuardTest`；`imserver` 单元/集成绿 |
+| H-2 | nginx 固定 `172.28.0.10`；`TRUSTED_PROXY_IPS`/`IM_TRUSTED_PROXIES` 只写 `127.0.0.1,::1,172.28.0.10` | 渲染产物核对 + `docker compose config -q` |
+| M-1 | `maintenance.sh` 增加 `purge_profile_visits --apply` | 渲染产物核对 |
+| M-2 | `_record_visit` 先判「完善 + 过审照片」再落库；`PROFILE_VISIT_MAX_PER_OWNER=500` 淘汰最旧 | `ProfileVisitWriteTests` 新增 4 条 |
+| M-3 | `VisitsThrottle`/`VisitsCountThrottle`（120/240 每小时） | `VisitsReceivedTests` 新增 2 条（429） |
+| M-4 | `umask 077` + 落盘 `chmod 600`；README §8 写明加密/离线/保留期 | `deploy/chatapp` |
+| M-5 | 应用与 imserver 镜像 `USER 10001`；compose `mem_limit`/`pids_limit`/`cap_drop`/`no-new-privileges` | `docker compose config -q`；镜像构建 |
+| M-6 | `backend`(internal) 网络只放 MySQL/Redis；nginx/certbot 不接入 | compose 渲染核对 |
+| M-7 | `--domain` 只允许 `[a-z0-9.-]`、≤253、不含 `..` | 实跑：`a_b.example`、`a;b`、`a..b` 均退出码 1 |
+| L-1 | `.gitignore` 增加 `deploy-render/`，README 提示删除 | — |
+| L-3 | `SECURE_HSTS_SECONDS=31536000` | 渲染产物核对 |
+| L-6 | `image_auth` 显式校验 `/media/chat/` 前缀 | `test_non_chat_path_rejected_even_if_verify_passes` |
+| L-9 | `MYSQL_ROOT_HOST=172.28.0.%`（按子网派生） | 渲染产物核对 |
 
 **本轮建议不做**（记录为已知风险）：M-4/M-5（第二轮遗留的语音异步化、腾讯调用移出
 响应路径）、L-2（镜像供应链，需 CI 支持）、L-5（HMAC 重放缓存）、L-7/L-8（产品取舍）。

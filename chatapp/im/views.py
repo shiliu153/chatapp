@@ -233,6 +233,11 @@ def image_auth(request):
     query = parse_qs(parts.query)
     expires = (query.get("e") or [""])[0]
     signature_value = (query.get("s") or [""])[0]
+    # L-6:显式校验路径前缀,与 docstring 一致。``media_sign.verify`` 内部也查一次,
+    # 但那是「签名覆盖路径」的兜底;这里先挡掉非聊天媒体的请求,避免以后改签名逻辑时
+    # 把资料图/广场图也放进来。
+    if not parts.path.startswith(media_sign.SIGN_PATH_PREFIX):
+        return Response({"code": 403, "message": "图片链接已失效"}, status=403)
     if not original or not media_sign.verify(parts.path, expires, signature_value):
         return Response({"code": 403, "message": "图片链接已失效"}, status=403)
     return Response(status=204)

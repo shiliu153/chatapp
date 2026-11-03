@@ -67,6 +67,8 @@ IM_MIGRATIONS_DIR=/usr/local/share/imserver/migrations
 IM_ALLOWED_ORIGINS=https://<DOMAIN>
 # 可信代理:只有直连对端命中这些地址才采信 X-Real-IP(默认本机)
 IM_TRUSTED_PROXIES=127.0.0.1,::1
+# 内部管理接口(/internal/*)允许的来源网段;容器部署时 Django 的源地址不是回环
+IM_INTERNAL_ALLOW=127.0.0.1,::1
 # 监听非回环地址必须显式置 1(默认 0,写错成 0.0.0.0 会启动失败)
 IM_ALLOW_PUBLIC_BIND=0
 IM_IO_THREADS=2
@@ -94,8 +96,12 @@ IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
   nginx 不在同一台机器时,把它的出口 IP/网段加进来(例如 `10.0.0.0/8`)。
   **不要显式置空**:那会让所有连接都按对端地址计数,nginx 反代时全站挤在
   `127.0.0.1` 一个 key 上(启动日志会打 `trusted_proxies_empty` 警告)。
+- `IM_INTERNAL_ALLOW`(默认 `127.0.0.1,::1`)决定「谁可以调 `/internal/*`」,支持
+  IP 与 CIDR,非法条目**启动即失败**。Django 在容器里时源地址是 `172.28.0.x` 而不是
+  回环,只写回环会让 `user_sig` 503、配对/封禁/踢人全部静默失败(H-1)。容器部署写
+  compose 子网(如 `172.28.0.0/16`);**来源网段只是第一道闸,HMAC 校验照旧**。
 - `IM_ALLOW_PUBLIC_BIND`(默认 `0`):`IM_LISTEN_WS`/`IM_LISTEN_HTTP` 写成非回环地址
-  时**必须显式置 1**,否则启动直接报错。9101 的内部接口只靠「回环 + HMAC」保护,
+  时**必须显式置 1**,否则启动直接报错。9101 的内部接口靠「来源网段 + HMAC」保护,
   这个开关是防止部署时手滑把管理接口暴露到公网的最后一道闸。
 
 ### 1.5 迁移与启动

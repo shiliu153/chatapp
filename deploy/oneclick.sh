@@ -33,10 +33,16 @@ STAGING=0
 RENDER_ONLY=0
 ROTATE_SECRETS=0
 SKIP_DOCKER_INSTALL=0
+ALLOW_DEV_SMS=0
 NO_BUILD=0
 HTTP_PORT=80
 HTTPS_PORT=443
 DOCKER_SUBNET="172.28.0.0/16"
+# nginx 在 compose 网络里的固定地址:H-2 要求可信代理只写这一个地址,
+# 而不是整个 /16(否则任何容器都能伪造 X-Real-IP)。
+NGINX_IP="172.28.0.10"
+# L-9:MySQL root 只允许来自 compose 子网(不是 "%")。按 /16 取前三段。
+MYSQL_ROOT_HOST=$(printf '%s' "$DOCKER_SUBNET" | awk -F'[./]' '{print $1"."$2"."$3".%"}')
 ADMIN_PHONE=""
 ADMIN_PASSWORD=""
 PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
@@ -85,7 +91,9 @@ chat 服务一键部署(Docker Compose)
   --skip-docker-install      不自动安装 Docker(已装但 compose 缺失时仍会补插件)
   --no-build                 跳过镜像构建,直接用现有镜像
   --imserver-image-tar <文件> 用本地 docker save 的 imserver 镜像,避免在 2C2G 上编译
-  --admin-phone <手机号>     运营管理员手机号,默认 13900000000
+  --allow-dev-sms            允许写入 SMS_DEV_MODE=1(固定验证码 123456)
+                             仅限封闭测试;公网/TLS 部署必须显式加这个开关
+  --admin-phone <手机号>     运营管理员手机号(公网/TLS 部署必填)
   --admin-password <口令>    管理员口令(仅首次创建时生效)
   --pip-index-url <URL>      pip 镜像,默认阿里云
   --npm-registry <URL>       npm 镜像,默认 npmmirror
@@ -122,6 +130,7 @@ while [ $# -gt 0 ]; do
         --imserver-image-tar) need_value "$1" "${2:-}"; IMSERVER_TAR=$2; shift 2 ;;
         --no-tls)            NO_TLS=1; shift ;;
         --staging)           STAGING=1; shift ;;
+        --allow-dev-sms)     ALLOW_DEV_SMS=1; shift ;;
         --render-only)       RENDER_ONLY=1; shift ;;
         --rotate-secrets)    ROTATE_SECRETS=1; shift ;;
         --skip-docker-install) SKIP_DOCKER_INSTALL=1; shift ;;
@@ -147,6 +156,12 @@ if [ -n "$DOMAIN" ]; then
         *://*|*/*) die "--domain 只写域名,不要带协议或路径" ;;
     esac
     DOMAIN=$(printf '%s' "$DOMAIN" | tr '[:upper:]' '[:lower:]')
+    # M-7:域名会原样渲染进 nginx 的 server_name,只放行合法字符,防配置注入
+    case "$DOMAIN" in
+        *[!a-z0-9.-]*) die "--domain 只允许字母/数字/点/连字符: $DOMAIN" ;;
+        *..*|.*|*.)    die "--domain 不能包含 '..'、也不能以点开头或结尾: $DOMAIN" ;;
+    esac
+    [ "${#DOMAIN}" -le 253 ] || die "--domain 长度不能超过 253 个字符"
 fi
 if [ -n "$ADMIN_PASSWORD" ]; then
     case "$ADMIN_PASSWORD" in
@@ -262,6 +277,32 @@ PUBLIC_AUTHORITY=${PUBLIC_AUTHORITY%%/*}
 PUBLIC_HOST=${PUBLIC_AUTHORITY%%:*}
 [ -n "$PUBLIC_HOST" ] || die "无法从 PUBLIC_URL 解析主机名: $PUBLIC_URL"
 
+# --- C-1:固定验证码只允许封闭测试 ------------------------------------------
+# SMS_DEV_MODE=1 时任何手机号都能用 123456 登录(含运营账号)。默认不写这个值;
+# TLS 或非回环地址的部署必须由操作者显式加 --allow-dev-sms 确认「这是封闭测试」。
+is_loopback_host() {
+    case "$1" in
+        127.*|localhost|::1|"[::1]") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+PUBLIC_IS_LOOPBACK=0
+is_loopback_host "$PUBLIC_HOST" && PUBLIC_IS_LOOPBACK=1
+
+if [ "$TLS" = 1 ] || [ "$PUBLIC_IS_LOOPBACK" = 0 ]; then
+    if [ "$ALLOW_DEV_SMS" != 1 ]; then
+        die "拒绝生成公网配置:未加 --allow-dev-sms 时 SMS_DEV_MODE=0,
+     而当前没有接真实短信商,站点将无法登录。
+     如果这台机器只做封闭测试,请显式加 --allow-dev-sms 并确保不对公网开放注册;
+     否则请先接短信商,再把 SMS_DEV_MODE 设为 0。"
+    fi
+fi
+SMS_DEV_MODE=0
+if [ "$ALLOW_DEV_SMS" = 1 ]; then
+    SMS_DEV_MODE=1
+    warn "已启用 SMS_DEV_MODE=1(固定验证码 123456):仅限封闭测试,严禁对公网开放"
+fi
+
 if [ "$TLS" = 1 ]; then
     WS_SCHEME="wss"
     CERT_DIR="/etc/letsencrypt/live/$DOMAIN"
@@ -332,7 +373,13 @@ if [ -z "$ADMIN_PASSWORD" ] && [ -f "$ADMIN_TXT" ]; then
         ADMIN_PHONE=$(sed -n 's/^PHONE=//p' "$ADMIN_TXT" | head -n1 || true)
     fi
 fi
-ADMIN_PHONE=${ADMIN_PHONE:-13900000000}
+if [ -z "$ADMIN_PHONE" ]; then
+    if [ "$TLS" = 1 ] || [ "$PUBLIC_IS_LOOPBACK" = 0 ]; then
+        die "公网/TLS 部署必须显式指定 --admin-phone(运营管理员手机号)"
+    fi
+    ADMIN_PHONE=13900000000
+    warn "未指定 --admin-phone,使用占位手机号 13900000000(仅限本地/预览)"
+fi
 ADMIN_PASSWORD=${ADMIN_PASSWORD:-$(gen_hex 12)}
 
 # 用 %q 做 shell 转义:即使 --admin-password 带空格/符号,重跑时 source 也不会被拆开
@@ -404,15 +451,15 @@ CHAT_VOICE_RETENTION_DAYS=30
 MEDIA_BASE_URL=$PUBLIC_URL
 HTTPS_ENABLED=$https_flag
 CSRF_TRUSTED_ORIGINS=$csrf
-SECURE_HSTS_SECONDS=3600
+SECURE_HSTS_SECONDS=31536000
 SECURE_HSTS_PRELOAD=0
 NUM_PROXIES=1
-TRUSTED_PROXY_IPS=$DOCKER_SUBNET
+TRUSTED_PROXY_IPS=127.0.0.1,::1,$NGINX_IP
 
 OPS_OTP_REQUIRED=1
 OPS_ALLOWED_IPS=
 AUTO_APPROVE=0
-SMS_DEV_MODE=1
+SMS_DEV_MODE=$SMS_DEV_MODE
 
 MIN_APP_VERSION=$WEB_VERSION
 LATEST_APP_VERSION=$WEB_VERSION
@@ -438,7 +485,10 @@ IM_JWT_SECRET=$IM_JWT_SECRET
 IM_INTERNAL_SECRET=$IM_INTERNAL_SECRET
 IM_MIGRATIONS_DIR=/usr/local/share/imserver/migrations
 IM_ALLOWED_ORIGINS=$PUBLIC_URL
-IM_TRUSTED_PROXIES=$DOCKER_SUBNET
+IM_TRUSTED_PROXIES=127.0.0.1,::1,$NGINX_IP
+# H-1:Django 在容器里,源地址不是回环;内部接口按「显式网段 + HMAC」放行。
+# 只写 compose 子网(web/worker/migrate 都是一次性容器,IP 不固定)。
+IM_INTERNAL_ALLOW=127.0.0.1,::1,$DOCKER_SUBNET
 IM_MEDIA_PREFIX=$PUBLIC_URL/media/chat/
 IM_MEDIA_SIGN_SECRET=$IM_MEDIA_SIGN_SECRET
 IM_MEDIA_SIGN_TTL=3600
@@ -481,7 +531,9 @@ log "生成配置到 $APP_DIR"
 render_tmpl "$SCRIPT_DIR/docker-compose.yml.tmpl" "$APP_DIR/docker-compose.yml" \
     "REPO_DIR=$REPO_DIR" \
     "APP_DIR=$APP_DIR" \
-    "DOCKER_SUBNET=$DOCKER_SUBNET"
+    "DOCKER_SUBNET=$DOCKER_SUBNET" \
+    "NGINX_IP=$NGINX_IP" \
+    "MYSQL_ROOT_HOST=$MYSQL_ROOT_HOST"
 chmod 644 "$APP_DIR/docker-compose.yml"
 
 render_tmpl "$SCRIPT_DIR/nginx/http.conf.tmpl" "$APP_DIR/nginx/http.conf" \
@@ -529,7 +581,7 @@ docker compose -f "$APP_DIR/docker-compose.yml" --project-directory "$APP_DIR" \
 EOF
 chmod 700 "$APP_DIR/bin/certbot-renew.sh"
 
-# 每日维护:候选池随机键、聊天媒体过期、资料图/广场图孤儿、磁盘报表
+# 每日维护:候选池随机键、访客保留期、聊天媒体过期、资料图/广场图孤儿、磁盘报表
 cat > "$APP_DIR/bin/maintenance.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -538,6 +590,7 @@ docker compose -f "$APP_DIR/docker-compose.yml" --project-directory "$APP_DIR" \
     run --rm --no-deps web sh -c '
 set -e
 python manage.py refresh_shuffle_keys
+python manage.py purge_profile_visits --apply
 python manage.py im_media_cleanup --apply
 python manage.py media_cleanup --apply
 python manage.py media_disk_report --fail-over
@@ -555,8 +608,10 @@ if [ "$RENDER_ONLY" = 1 ]; then
     printf '\n生成的文件:\n'
     find "$APP_DIR" -maxdepth 3 -type f -printf '  %p\n' | sort
     printf '\n下一步(去掉 --render-only 正式部署):\n'
-    printf '  sudo bash %s/deploy/oneclick.sh %s\n' "$REPO_DIR" \
-        "$([ "$TLS" = 1 ] && printf -- '--domain %s --email %s' "$DOMAIN" "$EMAIL" || printf -- '--no-tls')"
+    NEXT_ARGS=$([ "$TLS" = 1 ] && printf -- '--domain %s --email %s' "$DOMAIN" "$EMAIL" || printf -- '--no-tls')
+    [ "$ALLOW_DEV_SMS" = 1 ] && NEXT_ARGS="$NEXT_ARGS --allow-dev-sms"
+    [ -n "$ADMIN_PHONE" ] && NEXT_ARGS="$NEXT_ARGS --admin-phone $ADMIN_PHONE"
+    printf '  sudo bash %s/deploy/oneclick.sh %s\n' "$REPO_DIR" "$NEXT_ARGS"
     exit 0
 fi
 
@@ -879,7 +934,8 @@ $(printf '%s✓ 部署完成%s' "$C_GREEN" "$C_RESET")
 
 $(printf '%s! 首次上线必读%s' "$C_YELLOW" "$C_RESET")
   1. 安全组/防火墙放行 TCP ${HTTP_PORT}、${HTTPS_PORT};$([ "$TLS" = 1 ] && printf 'HTTP 访问会自动 301 到 HTTPS。' || printf '当前是 HTTP 模式,未启用 HTTPS。')
-  2. SMS_DEV_MODE=1:验证码固定 123456,只适合封闭测试;接真实短信商后改成 0。
+  2. $([ "$SMS_DEV_MODE" = 1 ] && printf 'SMS_DEV_MODE=1:验证码固定 123456,只适合封闭测试;接真实短信商后改成 0。' || printf 'SMS_DEV_MODE=0:已关闭固定验证码,需接真实短信商后才能登录。')
+     运营账号(staff/superuser)不能走短信登录,请直接用 $PUBLIC_URL/ops/ 的账号口令 + TOTP。
   3. AUTO_APPROVE=0:新资料图进入待审队列,去 /ops/photos/ 审核后才会出现在候选池。
   4. 首次进 /ops/ 会用管理员账号登录,并按提示绑定 TOTP(生产默认强制)。
   5. 2C2G 上 imserver 首次编译较慢;以后可用本地构建的镜像 --imserver-image-tar 跳过编译。

@@ -168,6 +168,11 @@ def sms_verify(request):
         # 全新号码并发登录时,后到者会撞 phone 的唯一约束:回查一次即可(L-1)
         user = User.objects.get(phone=phone)
         created = False
+    # C-1:运营账号(staff/superuser)不走短信登录。固定验证码 + 可猜的管理员手机号
+    # 会让「最高权限的 API 身份」被直接接管;运营后台用账号口令 + TOTP。
+    # 封闭测试环境确需用运营账号登 App 时,显式设 SMS_ALLOW_STAFF_LOGIN=1。
+    if (user.is_staff or user.is_superuser) and not settings.SMS_ALLOW_STAFF_LOGIN:
+        raise PermissionDenied("运营账号请使用运营后台登录")
     # 单设备登录:版本 +1 作废旧令牌;IM 建号/踢旧会话交给队列(响应路径不做外部调用)。
     # 用 F() 在数据库内自增,避免「读—加一—写」在并发登录时两个请求都拿到同一个旧版本,
     # 结果两台设备都以为自己是有效会话(M12)。

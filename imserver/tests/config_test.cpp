@@ -39,7 +39,24 @@ TEST(ConfigTest, AppliesDefaults) {
   EXPECT_EQ(cfg.trusted_proxies.size(), 2u);
   EXPECT_EQ(cfg.trusted_proxies[0], "127.0.0.1");
   EXPECT_EQ(cfg.trusted_proxies[1], "::1");
+  // H-1:默认与旧行为一致 —— 内部接口只允许本机
+  EXPECT_EQ(cfg.internal_allow.size(), 2u);
+  EXPECT_EQ(cfg.internal_allow[0], "127.0.0.1");
+  EXPECT_EQ(cfg.internal_allow[1], "::1");
   EXPECT_FALSE(cfg.allow_public_bind);
+}
+
+TEST(ConfigTest, ParsesInternalAllowList) {
+  std::map<std::string, std::string> env{
+      {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
+      {"IM_JWT_SECRET", "jwt"},
+      {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MEDIA_PREFIX", "http://cdn/media/chat/"},
+      {"IM_INTERNAL_ALLOW", "127.0.0.1, 172.28.0.0/16"}};
+  const auto cfg = Config::from_map(env);
+  EXPECT_EQ(cfg.internal_allow.size(), 2u);
+  EXPECT_EQ(cfg.internal_allow[0], "127.0.0.1");
+  EXPECT_EQ(cfg.internal_allow[1], "172.28.0.0/16");
 }
 
 TEST(ConfigTest, ParsesProxyAndBindGuard) {

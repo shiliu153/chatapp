@@ -30,6 +30,7 @@ from users.models import (Photo, PhotoStatus, Preference, Profile, ProfileStatus
                            ProfileVisit)
 
 from .models import Match, Swipe, SwipeAction
+from .throttles import VisitsCountThrottle, VisitsThrottle
 
 User = get_user_model()
 
@@ -905,6 +906,18 @@ class VisitsReceivedTests(APITestCase):
         Block.objects.create(blocker=self.me, blocked=b)
         self.assertEqual(self.client.get(self.COUNT_URL).json(), {"count": 1})
         self.assertEqual(self.client.get(self.URL).json()["count"], 1)
+
+    def test_visits_are_throttled_per_user(self):
+        """M-3:访客列表按用户限流,超限 429(额度 120/hour)。"""
+        with patch.dict(VisitsThrottle.THROTTLE_RATES, {"visits": "2/hour"}):
+            statuses = [self.client.get(self.URL).status_code for _ in range(3)]
+        self.assertEqual(statuses, [200, 200, 429])
+
+    def test_visits_count_is_throttled_per_user(self):
+        """M-3:访客人数按用户限流,超限 429(额度 240/hour)。"""
+        with patch.dict(VisitsCountThrottle.THROTTLE_RATES, {"visits_count": "2/hour"}):
+            statuses = [self.client.get(self.COUNT_URL).status_code for _ in range(3)]
+        self.assertEqual(statuses, [200, 200, 429])
 
     def test_requires_auth(self):
         self.client.credentials()

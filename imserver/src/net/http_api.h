@@ -1,5 +1,6 @@
 #pragma once
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/http.hpp>
 
@@ -10,6 +11,7 @@
 #include <nlohmann/json.hpp>
 
 #include "config.h"
+#include "net/guard.h"
 #include "service/message_service.h"
 #include "service/session_registry.h"
 #include "store/redis_client.h"
@@ -31,13 +33,13 @@ class HttpApi {
 
   response_type handle(
       const boost::beast::http::request<boost::beast::http::string_body>& req,
-      bool loopback);
+      const boost::asio::ip::address& peer_addr);
 
  private:
   void do_accept();
   response_type route(
       const boost::beast::http::request<boost::beast::http::string_body>& req,
-      bool loopback);
+      const boost::asio::ip::address& peer_addr);
   response_type internal_route(
       const boost::beast::http::request<boost::beast::http::string_body>& req,
       const Target& target);
@@ -63,4 +65,6 @@ class HttpApi {
   // 普通读接口(会话列表 / 历史消息):每账号 120 次/分钟、burst 40。
   // 之前这两个接口完全没有按账号限流,单账号即可持续打库(M-2)。
   RateTable read_table_{2.0, 40.0};
+  // 内部管理接口(/internal/*)的来源网段;容器部署下 Django 不在回环上(H-1)。
+  net_guard::ProxyTrust internal_allow_;
 };

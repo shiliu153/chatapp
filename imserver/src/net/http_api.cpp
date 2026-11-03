@@ -182,8 +182,10 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
     }
     boost::system::error_code endpoint_error;
     const auto endpoint = socket_.remote_endpoint(endpoint_error);
-    const bool loopback = !endpoint_error && endpoint.address().is_loopback();
-    auto response = std::make_shared<HttpApi::response_type>(api_.handle(request_, loopback));
+    // 取不到对端地址时用未指定地址:既不是回环也不在允许网段内 → 一律 403(fail-closed)
+    const boost::asio::ip::address peer =
+        endpoint_error ? boost::asio::ip::address{} : endpoint.address();
+    auto response = std::make_shared<HttpApi::response_type>(api_.handle(request_, peer));
     auto self = shared_from_this();
     http::async_write(socket_, *response,
                       [self, response](beast::error_code error, std::size_t written) {
@@ -204,7 +206,8 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
 HttpApi::HttpApi(net::io_context& io, const Config& cfg, MessageService& messages,
                  SessionRegistry& registry, RedisClient& redis)
     : io_(io), acceptor_(io), cfg_(cfg), messages_(messages), registry_(registry),
-      redis_(redis) {}
+      redis_(redis),
+      internal_allow_(net_guard::ProxyTrust::from_list(cfg.internal_allow)) {}
 
 void HttpApi::start() {
   const auto listen = net_guard::parse_listen(cfg_.listen_http);
@@ -282,9 +285,10 @@ HttpApi::response_type HttpApi::json_response(
 }
 
 HttpApi::response_type HttpApi::handle(
-    const http::request<http::string_body>& req, bool loopback) {
+    const http::request<http::string_body>& req,
+    const boost::asio::ip::address& peer_addr) {
   try {
-    return route(req, loopback);
+    return route(req, peer_addr);
   } catch (const std::exception&) {
     return error_response(req, http::status::internal_server_error, 50001, "内部错误");
   }
@@ -436,10 +440,11 @@ HttpApi::response_type HttpApi::internal_route(
 }
 
 HttpApi::response_type HttpApi::route(const http::request<http::string_body>& req,
-                                      bool loopback) {
+                                      const boost::asio::ip::address& peer_addr) {
   const auto target = parse_target(std::string(req.target()));
+  const bool loopback = net_guard::is_loopback(peer_addr);
   if (target.path == "/metrics") {
-    // 与 /internal/* 同口径:只允许回环。nginx 不代理该路径,Prometheus 直连 9101 抓取。
+    // 与旧版 /internal/* 同口径:只允许回环。nginx 不代理该路径,Prometheus 直连 9101 抓取。
     if (!loopback) {
       return error_response(req, http::status::forbidden, 40301, "forbidden");
     }
@@ -450,7 +455,9 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     return response;
   }
   if (target.path.rfind("/internal/", 0) == 0) {
-    if (!loopback) {
+    // H-1:来源网段由 IM_INTERNAL_ALLOW 显式配置(容器部署下 Django 不在回环上),
+    // HMAC 校验照旧。只放开「谁可以敲门」,不放开「谁可以不签名」。
+    if (!internal_allow_.trusted(peer_addr)) {
       return error_response(req, http::status::forbidden, 40301, "forbidden");
     }
     if (target.path != "/internal/healthz" && target.path != "/internal/readyz" &&

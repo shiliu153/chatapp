@@ -39,7 +39,8 @@ from .serializers import (CandidateSerializer, LikeReceivedSerializer, SwipeSeri
                           VisitSerializer)
 from .services import (candidate_pool_ids, likes_received_queryset, notify_match,
                        visits_received_queryset)
-from .throttles import CandidateThrottle, SwipeThrottle
+from .throttles import (CandidateThrottle, SwipeThrottle, VisitsCountThrottle,
+                        VisitsThrottle)
 
 User = get_user_model()
 
@@ -255,6 +256,7 @@ def likes_received_count(request):
     return Response({"count": likes_received_queryset(request.user).count()})
 
 @api_view(["GET"])
+@throttle_classes([VisitsThrottle])
 def visits(request):
     """谁看过我(GET /api/v1/discovery/visits)。
 
@@ -272,6 +274,7 @@ def visits(request):
 
 
 @api_view(["GET"])
+@throttle_classes([VisitsCountThrottle])
 def visits_count(request):
     """访客人数(GET /api/v1/discovery/visits/count)。
 
