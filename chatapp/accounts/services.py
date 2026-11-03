@@ -3,6 +3,9 @@
 验证码本身存在 Redis(见 ``sms_codes``);真实短信发送由调用方入队 Celery
 任务完成,响应路径不做任何第三方网络调用。
 
+封闭测试期(B-1 / K-1)多一道白名单闸门:只有 ``settings.SMS_PHONE_WHITELIST``
+内的号码能收发验证码;白名单为空表示不限制(开发/测试的默认状态)。
+
 关联文档:
     - 接口契约:docs/api/auth.md
 """
@@ -14,7 +17,13 @@ from django.conf import settings
 from django.core.cache import cache
 
 from . import sms_codes
-from .exceptions import SmsCodeExpired, SmsCodeWrong, SmsLocked, SmsSendTooFrequent
+from .exceptions import (
+    PhoneNotAllowed,
+    SmsCodeExpired,
+    SmsCodeWrong,
+    SmsLocked,
+    SmsSendTooFrequent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +31,25 @@ logger = logging.getLogger(__name__)
 def _sent_key(phone):
     """拼出该手机号最近一次发送的限流键。"""
     return f"sms:send:{phone}"
+
+
+def ensure_phone_allowed(phone: str) -> None:
+    """白名单闸门:号码不在封闭测试名单内则直接拒绝。
+
+    校验放在发码与校验两个入口(而不是只放在校验),好处是:非白名单号码
+    既拿不到验证码、也不会在 Redis 里留下限流占位,更不会触发短信任务。
+
+    Args:
+        phone: 客户端提交的手机号。
+
+    Raises:
+        PhoneNotAllowed: 白名单非空且该号码不在其中。
+    """
+    whitelist = settings.SMS_PHONE_WHITELIST
+    if whitelist and phone not in whitelist:
+        logger.warning("[白名单] 拒绝非受邀号码 phone=%s", _mask_phone(phone))
+        raise PhoneNotAllowed()
+
 
 
 def _mask_phone(phone: str) -> str:

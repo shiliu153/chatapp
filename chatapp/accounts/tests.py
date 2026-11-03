@@ -4,6 +4,7 @@
     - 建号管理器(手机号建号、admin 建号);
     - 健康检查与就绪探针(数据库/Redis 任一不可用时返回 503);
     - 发码:落码、60 秒重发间隔、入队失败回滚、手机号格式、IP 限流;
+    - 封闭测试白名单(非受邀号码 403、空白名单不限制、纵深防御);
     - 校验登录:自动建号、幂等重放、错误/过期、连错锁定、IP 限流、响应头;
     - 验证码状态机(HMAC 存储、重放窗口、锁定、不存明文);
     - IM 账号约定 ``u{id}``、新用户导入与老用户「待踢旧会话」标记;
@@ -36,6 +37,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts import services, sms_codes
 from accounts import totp
+from accounts.exceptions import PhoneNotAllowed
 from accounts.management.commands.seed_fake_users import Command
 from im import tasks as im_tasks
 from accounts.throttles import SmsSendThrottle
@@ -300,6 +302,93 @@ class SmsVerifyTests(APITestCase):
                 resp = self.verify(code)
         self.assertEqual(resp.status_code, 200)
         rest.assert_not_called()
+
+
+class SmsPhoneWhitelistTests(APITestCase):
+    """封闭测试白名单(B-1 / K-1):非受邀号码拿不到码,也登不上。"""
+
+    ALLOWED = "13900139000"
+    OUTSIDER = "13800138000"
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def send(self, phone):
+        """调用发码接口。
+
+        Args:
+            phone: 目标手机号。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post("/api/v1/auth/sms/send", {"phone": phone}, format="json")
+
+    def verify(self, phone, code=None):
+        """调用校验登录接口。
+
+        Args:
+            phone: 目标手机号。
+            code: 提交的验证码;``None`` 表示用开发模式的固定码。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post("/api/v1/auth/sms/verify",
+                                {"phone": phone, "code": code or settings.SMS_DEV_CODE},
+                                format="json")
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({ALLOWED}))
+    def test_outsider_cannot_request_code(self):
+        """非白名单号码发码:403 + 专属业务码,且不落码、不入队、不占限流键。"""
+        with patch("notifications.tasks.send_sms_code.delay") as delay:
+            resp = self.send(self.OUTSIDER)
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], 40301)
+        delay.assert_not_called()
+        self.assertIs(sms_codes.verify(self.OUTSIDER, settings.SMS_DEV_CODE),
+                      sms_codes.CodeResult.EXPIRED)
+        # 没有占限流键:白名单放开后立刻能发,不用等 60 秒
+        self.assertIsNone(cache.get(f"sms:send:{self.OUTSIDER}"))
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({ALLOWED}))
+    def test_outsider_cannot_login_even_with_code(self):
+        """纵深防御:码已在白名单收紧前下发,校验入口仍必须拦住。"""
+        sms_codes.store(self.OUTSIDER, settings.SMS_DEV_CODE)
+        resp = self.verify(self.OUTSIDER)
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], 40301)
+        self.assertNotIn("access", resp.json())
+        self.assertFalse(User.objects.filter(phone=self.OUTSIDER).exists())
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({ALLOWED}))
+    def test_whitelisted_phone_logs_in(self):
+        """白名单内号码:发码与登录都正常。"""
+        with patch("notifications.tasks.send_sms_code.delay"):
+            resp = self.send(self.ALLOWED)
+        self.assertEqual(resp.status_code, 200)
+        with patch("im.tasks.import_account.delay"), \
+                patch("im.tasks.sync_session_version.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.verify(self.ALLOWED)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["is_new_user"])
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset())
+    def test_empty_whitelist_allows_any_phone(self):
+        """白名单为空 = 不限制(开发/测试默认),避免本地和 CI 全被拦。"""
+        with patch("notifications.tasks.send_sms_code.delay"):
+            resp = self.send(self.OUTSIDER)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_ensure_phone_allowed_service(self):
+        """服务层:空白名单放行;命中白名单放行;未命中抛 PhoneNotAllowed。"""
+        services.ensure_phone_allowed(self.OUTSIDER)   # 默认设置下白名单为空
+        with override_settings(SMS_PHONE_WHITELIST=frozenset({self.OUTSIDER})):
+            services.ensure_phone_allowed(self.OUTSIDER)
+            with self.assertRaises(PhoneNotAllowed):
+                services.ensure_phone_allowed(self.ALLOWED)
 
 
 class SmsCodeStateTests(TestCase):

@@ -119,12 +119,15 @@ def sms_send(request):
         ``{"status": "ok"}``。
 
     Raises:
+        PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
         SmsSendTooFrequent: 距上次发送不足重发间隔。
         SmsServiceUnavailable: 短信任务入队失败(fail-closed)。
     """
     serializer = PhoneSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     phone = serializer.validated_data["phone"]
+    # B-1:白名单闸门放在发码之前 —— 非受邀号码不占限流键、不落码、不入队
+    services.ensure_phone_allowed(phone)
     code = services.issue_code(phone)
     try:
         send_sms_code.delay(phone, code)
@@ -153,6 +156,7 @@ def sms_verify(request):
         ``refresh``,改为下发 HttpOnly Cookie(App 分支保持原样)。
 
     Raises:
+        PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
         SmsCodeExpired: 验证码已过期或不存在。
         SmsCodeWrong: 验证码错误。
         SmsLocked: 连续错误次数超限。
@@ -160,6 +164,8 @@ def sms_verify(request):
     serializer = SmsVerifySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     phone = serializer.validated_data["phone"]
+    # B-1:校验入口再拦一次(纵深防御)—— 白名单可能在码已下发之后才收紧
+    services.ensure_phone_allowed(phone)
     services.check_code(phone, serializer.validated_data["code"])
 
     try:

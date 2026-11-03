@@ -68,3 +68,15 @@ class SmsServiceUnavailable(APIException):
     status_code = 503
     default_detail = "短信服务暂时不可用,请稍后重试"
     detail_code = error_codes.SMS_SERVICE_UNAVAILABLE
+
+
+class PhoneNotAllowed(APIException):
+    """号码不在封闭测试白名单内(B-1 / K-1)。
+
+    固定验证码 + 任意手机号意味着「知道号码即可接管账号」,因此封闭测试期
+    只放行白名单内的号码;对外开发注册前必须换成真实短信商。
+    """
+
+    status_code = 403
+    default_detail = "当前为封闭测试,该手机号未在受邀名单内"
+    detail_code = error_codes.PHONE_NOT_ALLOWED
