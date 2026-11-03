@@ -27,6 +27,7 @@ umask 077
 APP_DIR=${APP_DIR:-/www/wwwroot/chatapp/chatapp}      # manage.py 所在层
 DEST=${DEST:-/www/wwwroot/chatapp/backups}            # 备份根目录
 KEEP_DAYS=${KEEP_DAYS:-14}
+BACKUP_GROUP=${BACKUP_GROUP:-backup}   # 只读拉取账号的组;留空=不授权
 STAMP=$(date +%Y%m%d-%H%M%S)
 
 APP_ENV="$APP_DIR/.env"
@@ -44,6 +45,26 @@ die() {
 # 从 KEY=VALUE 文件里取一个值;不用 source,免得值里的特殊字符被 shell 解释
 env_get() {
     sed -n "s/^$2=//p" "$1" | head -n 1
+}
+
+# 让「只读拉取账号」(树莓派的 backup 用户)能读到,但 others 永远不行。
+# 组不存在时退回 600/700,脚本在别的机器上照样能跑。
+has_group() {
+    [ -n "${BACKUP_GROUP:-}" ] && getent group "$BACKUP_GROUP" >/dev/null 2>&1
+}
+
+publish_file() {
+    chmod 600 "$1"
+    if has_group; then
+        chgrp "$BACKUP_GROUP" "$1" && chmod 640 "$1"
+    fi
+}
+
+publish_dir() {
+    chmod 700 "$1"
+    if has_group; then
+        chgrp "$BACKUP_GROUP" "$1" && chmod 750 "$1"
+    fi
 }
 
 [ -r "$APP_ENV" ] || die "读不到 $APP_ENV"
@@ -74,6 +95,10 @@ IM_PORT=${im_hostport##*:}
 [ -n "$IM_USER" ] && [ -n "$IM_PASSWORD" ] && [ -n "$IM_DB" ] || die "IM 库连接信息解析失败"
 
 mkdir -p "$DEST/db" "$DEST/media" "$DEST/config"
+publish_dir "$DEST"
+publish_dir "$DEST/db"
+publish_dir "$DEST/media"
+publish_dir "$DEST/config"
 
 # 单个库的 dump:--single-transaction 不锁表;--no-tablespaces 免 PROCESS 权限
 dump_db() {
@@ -100,7 +125,7 @@ dump_db() {
         die "dump 不完整(缺少 Dump completed 尾行): $db"
     fi
     sha256sum "$out" >"$out.sha256"
-    chmod 600 "$out" "$out.sha256"
+    publish_file "$out"; publish_file "$out.sha256"
     local tables
     tables=$(zcat "$out" | grep -c '^CREATE TABLE' || true)
     log "  ok $(du -h "$out" | cut -f1),建表语句 $tables 条"
@@ -117,7 +142,7 @@ if [ -d "$APP_DIR/media" ]; then
     log "打包 media -> $MEDIA_OUT"
     tar -czf "$MEDIA_OUT" -C "$APP_DIR" media
     sha256sum "$MEDIA_OUT" >"$MEDIA_OUT.sha256"
-    chmod 600 "$MEDIA_OUT" "$MEDIA_OUT.sha256"
+    publish_file "$MEDIA_OUT"; publish_file "$MEDIA_OUT.sha256"
     log "  ok $(du -h "$MEDIA_OUT" | cut -f1)"
 else
     log "跳过 media(目录不存在)"
@@ -139,7 +164,7 @@ done
 log "打包配置快照 -> $CONF_OUT(${#conf_files[@]} 个文件)"
 tar -czf "$CONF_OUT" -C / "${conf_files[@]}"
 sha256sum "$CONF_OUT" >"$CONF_OUT.sha256"
-chmod 600 "$CONF_OUT" "$CONF_OUT.sha256"
+publish_file "$CONF_OUT"; publish_file "$CONF_OUT.sha256"
 
 # 保留策略
 log "清理超过 ${KEEP_DAYS} 天的备份"
