@@ -120,8 +120,8 @@
 - **位置**：`chatapp/accounts/services.py`、`chatapp/accounts/views.py`、`chatapp/config/settings.py`
 - **证据**：
   - `SMS_DEV_MODE` 默认值为 `1`：[settings.py:245](../../chatapp/config/settings.py#L245)
-  - 生产部署配置写 `SMS_DEV_MODE=1`：[部署设计:79](../superpowers/specs/2026-09-18-m4-deploy-runthrough-design.md#L79)
-  - 部署记录确认生产 `.env` 没写该键，靠默认值 1，并列为“上线阻断项”：[部署计划:92-94](../superpowers/plans/2026-10-20-self-hosted-im-rollout.md#L92-L94)
+  - 生产部署配置写 `SMS_DEV_MODE=1`：[部署设计:79](../superpowers/archive/specs/2026-09-18-m4-deploy-runthrough-design.md#L79)
+  - 部署记录确认生产 `.env` 没写该键，靠默认值 1，并列为“上线阻断项”：[部署计划:92-94](../superpowers/archive/plans/2026-10-20-self-hosted-im-rollout.md#L92-L94)
   - 固定码逻辑：[accounts/services.py:42-46](../../chatapp/accounts/services.py#L42-L46)
   - 校验成功即签发 JWT，号码不存在自动建号：[accounts/views.py:147-177](../../chatapp/accounts/views.py#L147-L177)
 - **攻击路径**：
@@ -162,7 +162,7 @@
 - **等级**：高危（High）
 - **位置**：部署 nginx、`web/src/api/token-store.ts`、`chatapp/config/settings.py`
 - **证据**：
-  - 测试期部署形态为 `http://<SERVER_IP>`：[部署设计:10](../superpowers/specs/2026-09-18-m4-deploy-runthrough-design.md#L10)
+  - 测试期部署形态为 `http://<SERVER_IP>`：[部署设计:10](../superpowers/archive/specs/2026-09-18-m4-deploy-runthrough-design.md#L10)
   - Web 把 access/refresh token 存 `localStorage`：[token-store.ts:1-37](../../web/src/api/token-store.ts#L1-L37)
   - `check --deploy` 报 4 项：`SECURE_HSTS_SECONDS`、`SECURE_SSL_REDIRECT`、`SESSION_COOKIE_SECURE`、`CSRF_COOKIE_SECURE` 均未设置
   - `/admin/`、`/ops/` 走同一 HTTP 站点：[urls.py:14](../../chatapp/config/urls.py#L14)、[ops/urls.py:18-22](../../chatapp/ops/urls.py#L18-L22)
@@ -296,7 +296,7 @@
 - **等级**：高危（High，合规/滥用）
 - **位置**：`chatapp/config/settings.py`、`chatapp/users/views.py`、`chatapp/moderation/text_check.py`
 - **证据**：
-  - 生产配置 `AUTO_APPROVE=1`：[部署设计:80](../superpowers/specs/2026-09-18-m4-deploy-runthrough-design.md#L80)
+  - 生产配置 `AUTO_APPROVE=1`：[部署设计:80](../superpowers/archive/specs/2026-09-18-m4-deploy-runthrough-design.md#L80)
   - 上传即过审：[users/views.py:132-137](../../chatapp/users/views.py#L132-L137)
   - 聊天图片/语音没有机器审核；文本审核只有 6 个词的子串匹配：[text_check.py:8](../../chatapp/moderation/text_check.py#L8)
 - **影响**：
@@ -358,7 +358,7 @@
 - **证据**：
   - 短信发码/校验按 IP 限流：[accounts/throttles.py:27](../../chatapp/accounts/throttles.py#L27)、[accounts/throttles.py:45](../../chatapp/accounts/throttles.py#L45)
   - 项目未设置 `NUM_PROXIES`；DRF 3.18 在 `NUM_PROXIES=None` 时直接使用完整的 `X-Forwarded-For` 作为 ident
-  - nginx 使用 `$proxy_add_x_forwarded_for`：[部署计划:376](../superpowers/plans/2026-09-18-m4-deploy-runthrough.md#L376)
+  - nginx 使用 `$proxy_add_x_forwarded_for`：[部署计划:376](../superpowers/archive/plans/2026-09-18-m4-deploy-runthrough.md#L376)
 - **影响**：
   - 每次请求换一个 `X-Forwarded-For` 即可绕过 20/h、60/h 的 IP 限额；
   - 用于短信轰炸、验证码爆破、锁定 DoS；
@@ -575,7 +575,7 @@
 - **位置**：`chatapp/ops/views.py`、nginx `/media/`
 - **证据**：
   - 审核台“聊天图片/语音”列表默认查全量，不要求关联举报：[ops/views.py:583-598](../../chatapp/ops/views.py#L583-L598)、[ops/views.py:626-641](../../chatapp/ops/views.py#L626-L641)
-  - 通用 `/media/` 由 nginx 直接 alias，无鉴权；资料图、广场图均走这里：[部署计划:369](../superpowers/plans/2026-09-18-m4-deploy-runthrough.md#L369)
+  - 通用 `/media/` 由 nginx 直接 alias，无鉴权；资料图、广场图均走这里：[部署计划:369](../superpowers/archive/plans/2026-09-18-m4-deploy-runthrough.md#L369)
 - **影响**：
   - 任一运营账号可浏览所有用户的私聊图片/语音，超出“处理举报”的最小必要范围；
   - 资料图/广场图 URL 一旦泄露，无需登录即可访问；
@@ -941,12 +941,12 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 > 本轮范围：P0+P1（含 imserver H3/H4），**S1/H2/M8 的短信部分按产品决定不修**。
 > 代码分支：`fix/security-remediation`；后端全量 563 项、imserver unit 22 / db 18 / 集成脚本全绿。
 > 2026-10-28 下午补第二批（M2/M5/M9/L6，保守加固口径），详见
-> `docs/superpowers/plans/2026-10-28-security-remediation.md` §4。
+> `docs/superpowers/archive/plans/2026-10-28-security-remediation.md` §4。
 
 | ID | 状态 | 说明 / 证据 |
 |---|---|---|
 | S1 | **未关闭（已接受）** | 产品决定暂不接短信商、保留固定码；仅限封闭测试，不得对真实用户开放 |
-| H1 | **已修复** | HTTPS 已于 2026-10-28 上线；Web 的 refresh 改走 `HttpOnly; SameSite=Strict; Path=/api/v1/auth/` Cookie，access 只留内存（JS 不再持有长期凭证）；App 用 `SecurityContext(withTrustedRoots:false)` 固定 ISRG Root X1 + X2，覆盖 HTTPS 与 WSS，release 包默认强制（`tool/verify_pinning.dart` 已对生产域名握手验证通过）。证据见 `docs/superpowers/plans/2026-10-28-token-hardening.md` |
+| H1 | **已修复** | HTTPS 已于 2026-10-28 上线；Web 的 refresh 改走 `HttpOnly; SameSite=Strict; Path=/api/v1/auth/` Cookie，access 只留内存（JS 不再持有长期凭证）；App 用 `SecurityContext(withTrustedRoots:false)` 固定 ISRG Root X1 + X2，覆盖 HTTPS 与 WSS，release 包默认强制（`tool/verify_pinning.dart` 已对生产域名握手验证通过）。证据见 `docs/superpowers/archive/plans/2026-10-28-token-hardening.md` |
 | H2 | **未关闭（已接受）** | 与 S1 同批；接入短信商时必须一并删除验证码日志 |
 | H3 | 已修复 | IM token 增加 `sv`；`im_user.session_version` + `/internal/session_version`；登录任务与 `user_sig` 双重同步，同步失败 503；旧 token 重连 40101 |
 | H4 | 已修复 | `im_pair` 表 + `/internal/pair`；发送校验配对（40302）、目标必须存在（不再建行）、每分钟配额、`known_` 上限；上线需跑 `im_sync_pairs` |

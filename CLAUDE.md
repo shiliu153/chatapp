@@ -8,64 +8,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **前端**: Flutter(`app/`,包名 `chatapp_app`,Flutter 3.47.2)
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL 8 + Redis + Celery)
-- **聊天**: 腾讯云 IM 与自建 C++ IM 双后端(`IM_BACKEND` 开关;自建见 `imserver/`)
-- **部署**:阿里云轻量 2C2G + 宝塔全托管(`https://chat.shiliu153.cn`,HTTPS 已于 2026-10-28 上线)
+- **聊天**: 自建 C++ IM(`imserver/`,已全量切换;腾讯云 IM 分支待删,见 backlog D-4)
+- **部署**: 阿里云轻量 2C2G + 宝塔全托管(`https://chat.shiliu153.cn`,HTTPS 2026-10-28 上线)
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
 
-## 文档导航(按需读取)
+## 文档导航(按需读取,别在本文堆细节)
 
-本文件只放核心内容。**写代码 / 排障前,先看 [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选踩坑文档**(IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包含 → android-emulator.md;测试 → testing.md;网页端 → web.md)。部署与运维 → [README.md](README.md)「部署」一节。设计/计划 → `docs/superpowers/{specs,plans}/`(进度以文件内 checkbox 为准)。接口文档(对外交付级)→ [docs/api/README.md](docs/api/README.md)。容量/观测/削峰的数字与口径 → [docs/ops/capacity-and-reliability.md](docs/ops/capacity-and-reliability.md)。
+| 想知道 | 去哪 |
+|---|---|
+| **现在该做什么** | [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)(待办总表,按批次排好,每条可独立开新对话执行) |
+| 已交付了什么、哪天、哪个 PR | [docs/milestones.md](docs/milestones.md)(完整时间线) |
+| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(工作面 3 份 + 归档 80 份的索引) |
+| 写代码 / 排障前 | [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选:IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包 → android-emulator.md;测试 → testing.md;网页端 → web.md |
+| 接口(对外交付级) | [docs/api/README.md](docs/api/README.md) |
+| 部署与运维 | [README.md](README.md)「部署」;服务器细节 → [docs/ops/imserver.md](docs/ops/imserver.md)、[docs/ops/runbook.md](docs/ops/runbook.md) |
+| 容量 / 观测 / 削峰的数字与口径 | [docs/ops/capacity-and-reliability.md](docs/ops/capacity-and-reliability.md) |
+| 安全审计与整改 | [docs/security/](docs/security/)(三轮报告) |
+| 工程审查结论 | [docs/reviews/2026-11-03-fullstack-review.md](docs/reviews/2026-11-03-fullstack-review.md) |
+| Python 注释规范 | [docs/standards/python.md](docs/standards/python.md) |
 
 ## 里程碑
 
-M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/superpowers/` 与 git log);当前处于 M4。
+M0–M3 与后续七次追加均已交付;当前处于 **M4(上线运营)**。**完整时间线见 [docs/milestones.md](docs/milestones.md)**,这里只留骨架:
 
 | 阶段 | 一句话 |
 |---|---|
 | M0–M2 | 地基 / 后端全量 / 前端全量(登录→卡片→配对→IM 聊天) |
 | M3 | 合规:审核台 / 举报拉黑 / 重封禁 403 / 协议弹窗 / 签名 APK |
-| 后 M3 ①–③ | ops 审核台 / 封禁系统消息+消息页改版 / 微信式聊天+资料页(IM 昵称同步) |
-| 后 M3 ④–⑦ | 单设备登录+造数 / 举报处理通知 / 广场页(动态流)/ 在线状态(自建 presence) |
-| 2026-09-15 | 「心跳」UI 设计规则 v1(常驻强制,见下节) |
-| **M4 第一步** | **服务器跑通**(宝塔全托管,IP:80 测试,双模拟器手测通过) |
-| 2026-09-18 | UI 整改批次①「底座+底栏」交付(Space Grotesk/主题 token/8 组件/悬浮胶囊底栏;220 测试绿) |
-| 2026-09-19 | UI 整改批次②「发现页」交付(页壳/卡面/圆钮/配对情感时刻/涟漪空态;233 测试绿) |
-| 2026-09-19 | UI 整改批次③「消息/聊天」交付(消息页四态/横滑条/通知行/会话行;聊天页顶栏 62/气泡/输入栏/双气泡空态/骨架/错误重试;提炼 AppErrorView 与 AppAvatar 首字占位;247 测试绿) |
-| 2026-09-21 | 接口文档体系交付(`docs/api/` 十册 · 32 接口 · 腾讯云风格;`ApiDocsCoverageTests` 双向门禁强制「改接口必改文档」) |
-| 2026-10-05 | 网页端(PC Web)立项:实测否决 Flutter Web → 改 Vue 3;T1–T8 交付(壳层/鉴权/资料/发现配对/聊天/广场/设置) |
-| 2026-10-12 | 网页端收尾 T9–T10:覆盖率门槛(85.6/81.0/81.2/87.4)、Playwright 端到端 8 条、Web CI、web 踩坑分册、部署核对单;期间修两个真 bug(新用户不进引导页 / `account_import` 清空 IM 昵称头像) |
-| 2026-10-12 | UI 整改批次④「我的 + 他人资料页」交付(我的页身份卡+完成度环/行数 8→5;资料页照片头图+透明顶栏+相册 R12;**首次落地 §6.2 Hero 转场**——tag 按来源自身 id 派生经路由 `extra` 传递,接入广场卡/详情作者/详情评论/聊天顶栏四处;聊天顶栏补头像 32 修订附录 B.2;资料页接入在线状态;规则文档升 v1.3 附录 C;278 测试绿) |
-| 2026-10-12 | UI 整改批次⑤「广场」交付(页壳大标题+涟漪空态+骨架+渐变 FAB/动态卡圆头像+九宫格 3 列+点赞脉冲/详情页自绘顶栏+44 评论栏/我的动态;**落地 §6.2 第二处 Hero「动态卡→动态详情」**——SDK 禁 Hero 嵌套 + 扫描只一次 → 状态切换双保 + `extra` 带 seed 直出真卡;删孤儿 `OnlineDot`;规则文档升 v1.4 附录 D;296 测试绿) |
-| 2026-10-12 | UI 整改批次⑥「二级页」交付(**表单控件规范一次定死**:14 个 core 组件 + 2 个 feature 组件;10 页 = 登录/启动/引导/设置/黑名单/编辑资料/想找的人/发动态/协议/封禁;`AlertDialog`→`AppDialog`、`SnackBar`→`AppToast` 全量统一;抽共享 `AppSubPageBar` 取代两份私有顶栏副本;规则文档升 v1.5 附录 E;329 测试绿) |
-| 2026-10-13 | 上线合规轨 T-17「账号注销入口」交付(`DELETE /users/me` = 手机号二次确认 + 立即硬删除全部数据 + 释放手机号;IM 侧新增 `account_delete` 与删号任务;App/Web 双端入口;隐私政策补注销路径、双端协议版本升 2;后端 360 / App 336 / Web 308 测试绿;PR #6 squash 合并 `f686bc2`;用户模拟器 + Web 手测通过)。同批顺带修既有偶发:`seed_fake_users` 会造出未满 18 岁账号(生日取「age 年前的随机月/日」,今年生日未过时 `calculate_age` 算成 age-1;概率约 2.2%/轮,曾把 CI 卡红) |
-| 2026-10-20 | P1-1「喜欢我的人」交付(`GET /discovery/likes` + `/count`,口径与候选池共用 `likes_received_queryset`;App 发现页入口+列表页,Web `/likes` + store;回喜欢复用 `swipe`;接口 32→34,后端 392 / App 347 / Web 315 测试绿;PR #8 squash 合并 `b606f3e`) |
-| 2026-10-20 | P1-2「设置页补齐」交付(新 `feedback` app + `POST /feedback` + ops 意见反馈队列;App/Web 设置页三段式 + 意见反馈页 + 通知设置只读骨架 + 关于页;版本号 App 常量守卫 / Web Vite 注入;接口 34→35,后端 409 / App 355 / Web 320 测试绿) |
-| 2026-10-20 | P1-3「关系出口」交付(`DELETE /matches/{user_id}` = `Match` 软删除 + `unmatch_blacklist` 双向 IM 拉黑 + 滑卡防复活;App/Web 聊天页「⋯」+ 资料页入口 + 被解除后横幅/输入禁用;2 分钟内撤回消息(SDK 原生,双方置灰);接口 35→36,后端 420 / App 375 / Web 336 测试绿。**已读回执挂起**:腾讯 IM 旗舰版专享,当前体验版做不了) |
-| 2026-10-20 | 广场评论「楼中楼」交付(`PostComment` 自引用 `parent` + `reply_to`,服务层把「回复的回复」归一到顶级评论;列表内嵌前 2 条回复 + `GET …/replies` 展开 + `DELETE …/comments/{id}` 删楼;回复即 @,IM 灰条提醒被回复者(`post_replied` 任务);App 楼层/回复态/删除 + Web 组件同步;接口 36→38,后端 440 / App 380 / Web 340 测试绿;PR #12 squash 合并 `8c428c3`;用户模拟器 + Web 手测通过) |
-| 2026-10-21 | 自建 IM 交付(C++20 `imserver/`:WS 首帧 JWT 鉴权 + 会话级 seq + 幂等 + 离线补拉 + 已读/撤回/拉黑 + 内部 HMAC API;Django `IM_BACKEND` 双跑与按账号灰度;App/Web 双实现与图片入口隐藏;`GET /app/config` 最小版本拦截;接口 38→39,后端 450 / App 385 / Web 341 测试绿) |
-| 2026-10-22 | 自建 IM **上服务器**:镜像 `imserver:ea8a91d` 容器化(`network_mode: host`,127.0.0.1:9100/9101),建 `chatapp_im` 库并迁移 v1;Nginx `/im/ws`+`/im/api/` 反代;Django 同步到 `ea8a91d`(git bundle,含 P1 功能与 3 个迁移);灰度 `7,8` 端到端过(鉴权/收发/ack/历史/已读/撤回/离线补拉/未读),非灰度账号仍走腾讯;部署细节见 `docs/ops/imserver.md` 与 rollout 核对单) |
-| 2026-10-22 | 自建 IM **500 连接压测**:稳态 50 msg/s 经 nginx ack p99 93ms、RSS 22MB(门槛 200ms/300MB);压测暴露并修复两处服务端问题——`im_user` 每消息两次 `INSERT ... ON DUPLICATE KEY UPDATE` 的间隙锁(改进程内缓存 + `SELECT 1` 优先)、冷启动新会话并发死锁(1213/1205 重试 3 次),复测 1000 条突发 0 失败;新增 `IM_MAX_CONN_PER_IP`/`IM_AUTH_RATE`/`IM_AUTH_BURST` 与压测脚本 `imserver/scripts/bench_ws.py`) |
-| 2026-10-22 | 自建 IM **吞吐优化**:prepared statement 按连接缓存(写语句 3 次往返→1 次)、收发双方 unread 合并为一条多行 INSERT、去掉消息前 `client_msg_id` 预查、用户画像进程内缓存、在线 Redis 写入按 30s 节流;1000 条突发 9.4s→4.7s(106→215 msg/s)。**2C2G 天花板 ~200–250 msg/s**(MySQL ~2000 SQL/s ÷ 每消息 ~7 条),再往上需升配 4C8G+ 或应用层批量提交;完整记录见 `docs/ops/imserver-throughput.md` |
-| 2026-10-26 | 自建 IM 灰度收尾 + **连接池事故修复**:三项手测脚本化(`imserver/scripts/verify_graylist.py`,17 条断言:互踢 4001/封禁 40301+4003/拉黑 40302,实跑生产全过);同时发现**池不校验存活**导致 MySQL `wait_timeout` 后 IM 永久失联(10-22 晚起约 3 天,仅灰度测试号受影响,重启即恢复),修复为「空闲 ≥`IM_DB_IDLE_PING_MS` 先 ping、失败重连 + 连接级错误丢弃 + `run_db` 兜异常」,新增 DB 测试 `PoolReconnectsAfterServerKill`;镜像 `imserver:a2332dd` 已上线,`KILL` 全部池连接后 `readyz` 仍 200。历史消息由产品确认接受「切换点之前不可见」(测试阶段) |
-| 2026-10-26 | 自建 IM **图片二期**交付(全量门槛最后一项):Django `POST /im/images` + `im.ChatImage`(随机文件名/240px 缩略图/EXIF 方向校正/30 次每小时);imserver `kind=3` + `IM_MEDIA_PREFIX` 前缀校验(防伪造外链)+ 顺带修「灰条历史丢 `custom.type`」;App/Web `sendImage` 与解析、`capabilities.image=true`、聊天选图 1920/80;ops `/ops/chat-images/` 人工抽审 + 举报详情带最近 7 天图片;后端 464 / App 389 / Web 347 / imserver unit 13 + db 10 测试绿。**遗留**:图片无机器审核(人工抽审兜底,上线阻断项)、URL 公开可访问(后续可换签名 URL) |
-| 2026-10-27 | 自建 IM **语音消息**交付:Django `POST /im/voices` + `im.ChatVoice`(`ffprobe` 校验 1–60 秒、ffmpeg 统一转 m4a/AAC 单声道 16kHz、限流 60 次/小时、签名 URL 与 30 天清理);imserver `kind=4`(前缀校验 + 读时签名,`sign_media` 通用化);App `record`+`audioplayers` 按住说话/上滑取消/60 秒自动停/气泡播放,Web `MediaRecorder`+`Audio` 同交互;ops `/ops/chat-voices/` 试听抽审 + 举报详情带最近 7 天语音;接口 42→43,后端 499 / App 405 / Web 369 测试绿;imserver unit 20 + db 15 绿。**遗留**:语音与图片一样无机器审核(上线阻断项);服务器需装 ffmpeg(缺失时语音上传 503+`50302`) |
-| 2026-10-27 | 自建 IM **语音上服务器**:Alibaba Cloud Linux 3 无 apt、dnf 源无 ffmpeg → 用 BtbN 静态包(经 `gh-proxy.com` 加速)只装 `ffmpeg`/`ffprobe` 到 `/usr/local/bin`;本地构建 `imserver:72ae6ea` 后 `docker save`+`scp`+`docker load`(2C2G 上不编译),并同步 `/www/server/imserver/.env` 的 `IMSERVER_IMAGE`(不同步会继续拉旧镜像);Django `migrate` 到 `im.0003_chatvoice`,Web dist 与签名 APK(`chatapp-1.0.0.apk`)同步上线;`.env` 显式配 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。端到端实测:上传 201 → 签名 URL 200 → 无签名 403 → WS u7 发语音 ack → u8 历史读回 `kind=voice` + 读时签名;`readyz=200`、清理 dry-run 含语音。期间修两个 **mock 掩盖的 MIME bug**:Dio 对 `.m4a` 发 `octet-stream`、Web Blob 带 `;codecs=opus`,服务端改为按主类型匹配 |
-| 2026-10-27 | 自建 IM **全量切换**:`IM_SELF_GRAYLIST=7,8` → `all` 并重启 web+celery;观察 30 分钟(18:06–18:35)30 次采样 `readyz=200`/`health=200`/`im_err=0`/`http5xx=0` 全绿,合成流量 u9→u8 **40/40 ack 成功**、RTT avg 45.4ms / p95 53.4ms,imserver 零 error;非灰度账号 u9 已返回 `backend=self` 且收发正常。回退方式:`IM_SELF_GRAYLIST` 改回 `7,8` + 重启 web/celery |
-| 2026-10-28 | **安全审计整改 P0+P1 交付**(`fix/security-remediation`):S1/H2 短信按产品决定不修;H3 IM token 绑定 `sv` + `im_user.session_version` + 登录/`user_sig` 双同步;H4 `im_pair` 配对校验(未配对 40302、目标必须存在、每分钟配额、`known_` 上限)+ `im_sync_pairs` 回填命令;H6 后台登录锁定 + TOTP + IP 白名单;M1 `NUM_PROXIES`、M3/M4/L5 统一图片校验与 EXIF 剥离、M6 媒体签名 fail-closed、M10/M11/M12、L1/L2/L4;H5 生产默认 `AUTO_APPROVE=0`;H1/B8 HTTPS 开关与 nginx 安全基线。后端 545 / imserver unit 22 + db 18 + 集成全绿 |
-| 2026-10-28 | **令牌硬化交付**(`fix/security-remediation`,审计 H1 剩余 + L8):Web 的 refresh 改走 `HttpOnly; SameSite=Strict; Path=/api/v1/auth/` Cookie(响应体不再返回 refresh、access 只留内存、新增 `POST /auth/logout`、60 秒轮换宽限防多标签互踢);App 令牌换 `flutter_secure_storage`(Keystore/Keychain + 老用户一次性迁移 + 失败降级);App 证书绑定 ISRG Root X1+X2 覆盖 HTTPS 与 WSS(release 默认 enforce,`tool/verify_pinning.dart` 对生产域名握手 200)。后端 573 / Web 371 / App 412 测试绿;**H1、L8 关闭** |
-| 2026-10-28 | **M7 存储配额 + 候选池交付**(审计 M7):四类媒体单账号配额(`USER_STORAGE_QUOTA_MB` 默认 200,超限 413 + `41301`,检查在落盘前);`Photo.bytes`/`PostImage.bytes` + `media_bytes_backfill`;候选池改 `Profile.shuffle_key` 预计算随机列 + 池内抽样,不再 `ORDER BY RAND()`,新增 `refresh_shuffle_keys` 轮换;`media_cleanup` 清资料图/广场图孤儿、`media_disk_report` 磁盘告警(`--fail-over`)。后端 592 测试绿;**M7 关闭** |
-| 2026-11-01 | **「谁看过我」交付**(`feat/profile-visits`):新表 `users.ProfileVisit`(`(viewer, owner)` 唯一、每人一行)+ `Profile.visits_hidden`;`GET /users/{id}` 顺带落库(Redis 30 分钟窗口去重 + 内层 savepoint 防毒化事务,失败只记日志不影响响应);`GET /discovery/visits` + `/count` 与「喜欢我的人」同口径(已配对的人由「我已划过」天然排除,不 join `Match`);App/Web 发现页双入口 + 访客页(行内可回喜欢)+ 设置页隐身开关;隐私政策补「访问记录」、双端协议版本 2→3;接口 43→45,后端 640 / App 431 / Web 379 测试绿;PR #21 squash 合并 `92e3194`。**已于 2026-11-01 上线**(`migrate` + `purge_profile_visits` 计划任务 03:50 + Web dist + 1.0.2 APK;版本号 PR #23 合并 `7f2d1ec`) |
-| 2026-11-03 | **第三轮安全整改交付**(`fix/security-round3`,PR #30):C-1 部署默认值(`--allow-dev-sms` 默认关闭、公网/TLS 强制 `--admin-phone`、staff/superuser 禁短信登录 + `SMS_ALLOW_STAFF_LOGIN` 逃生阀);H-1 imserver `IM_INTERNAL_ALLOW`(来源网段 + HMAC,容器内回环假设不再成立);H-2 nginx 固定 `172.28.0.10`,可信代理不再信任整个 `/16`;M-1 维护加 `purge_profile_visits`;M-2 访客只对「完善 + 过审照片」落库 + 单 owner 上限 500;M-3 `visits` 120/h、`visits/count` 240/h;M-4 备份 `umask 077`+`600`;M-5 镜像非 root + `mem_limit`/`cap_drop`;M-6 `backend` internal 网络隔离 MySQL/Redis;M-7 域名白名单;L-1/L-3/L-6/L-9;顺带修 CI 缺 `packaging`(kombu redis transport 首次发任务即导入,缺它入队 503)。后端 693 / imserver 43+19 / Web 403 / App analyze 绿;PR #30 squash 合并 `c44035e`。**19:10–19:35 已上线生产**:后端 `bbc9206` + 新镜像 `imserver:bbc9206`(H-1/M-5 真正生效,日志 `internal_allow_ready rules=2`;无迁移,`migrate --check` 干净),脚本冒烟全绿(staff 短信 403、`/internal/send` 通、`im_sends_total{ok}` 计数、0 个 5xx)。**注意**:本轮 `imserver/src` 有改动,「只上后端代码」会漏掉 H-1;回滚点为代码 `0aded19` + 镜像 `imserver:8a7ef1a`(仍留在服务器上),记录见 `docs/superpowers/plans/2026-11-01-security-round3.md` §H |
+| 后 M3 ①–⑦ | ops 审核台 / 封禁消息+消息页 / 微信式聊天+资料页 / 单设备登录+造数 / 举报通知 / 广场 / 在线状态 |
+| M4 第一步 | 服务器跑通(宝塔全托管) |
+| 2026-09~10 | 「心跳」UI 六批整改 / 网页端 Vue 3 / 接口文档体系 / 自建 IM 全量切换 / P1 功能群 / 聊天图片·语音·搜索 |
+| 2026-10-28~11-03 | 三轮安全审计整改 + 令牌硬化 + HTTPS 上线 + 可观测性与容量工程 + 压测基线 |
 
-
-**下一步**:2026-10-28 **已全量切到 `https://chat.shiliu153.cn`**(`IM_SELF_GRAYLIST=all`),`ffmpeg` 与版本三件套已就位(APK 在 `https://chat.shiliu153.cn/chatapp-1.0.2.apk`,2026-11-01 更新)。剩余:
-1. **安全整改 + HTTPS 切换已上线并完成人工验收(2026-10-28)**:脚本验收(WS 鉴权/40101/40302、媒体签名、配对 ack)+ 用户真机手测(App 登录/聊天/杀进程重进/图片语音、旧 APK 升级弹窗、`/ops/` 首次绑定 TOTP)均通过。执行记录见 [2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md) §12。完整清单见 `docs/superpowers/plans/2026-10-28-security-remediation.md`。
-2. **`SMS_DEV_MODE=0` 仍不可执行**:代码里只有开发模式,必须先接真实短信商并配密钥;**S1/H2 已由产品决定暂不修(保留固定验证码),这是仍未关闭的严重风险,只能封闭测试**;2026-11-03 起**运营账号(staff/superuser)已禁止短信登录**(`sms_verify` 403),生产若自己的 App 账号是超管会登不上,需换普通账号或临时 `SMS_ALLOW_STAFF_LOGIN=1`;
-3. **Web 语音已可用(2026-11-01 打磨)**:麦克风入口自 2026-10-27 起就存在(此前本行描述「仍隐藏」已过时)。本期改为**点击式录音**(点开始 → 再点发送,可取消或按 Esc),补齐权限被拒/无设备/太短/发送失败四条错误路径;App 保留按住说话,录音逻辑抽成 `VoiceRecordController`。修掉四个缺陷:指针拖出后录音停不下来、失败静默、入口凭空消失、离开页面把没录完的语音发出去。设计见 `docs/superpowers/specs/2026-11-01-voice-recording-interaction-design.md`;
-4. **图片与语音无机器审核**仍是上线阻断项(人工抽审兜底),探针也还没接群机器人(告警只落日志);**P2 项已全部关闭**——M7 磁盘配额/候选池缓存已于 2026-10-28 关闭(部署需跑 `migrate` + `media_bytes_backfill`,并加 4 条计划任务,见 `docs/ops/imserver.md` §12.5);M9 资料图防盗链与 M2 非配对字段裁剪按产品决定不做(详见审计报告 §10)。
-
-其余挂起项不变:P1-4 推送待真机验极光 key(P1-4b 聊天推送待备案域名 + HTTPS);已读回执待 IM 升旗舰版。上线合规轨按 `2026-09-18-launch-execution.md` 并行推进 S0/S1(主体与备案由用户线下办理,Claude 侧可执行项:T-06 软著材料、T-10 隐私政策页部署、T-12 安全评估报告、T-18 备份策略、T-19 PIPIA/未成年人保护方案)。
+**当前风险最高的两项**(与代码质量无关,优先于任何性能项):固定验证码 `123456`(`SMS_DEV_MODE=1`)、备份与数据库同盘且手动执行。详见 backlog 的 B-1 与 A-3。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -75,7 +51,7 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 - 主色 #FF2C55 + 心跳渐变(粉→橙)只出现在引导视线处(主按钮/选中/未读/配对/在线光),其余走三级中性色阶
 - 字体:全局 Space Grotesk(拉丁/数字)+ 中文系统 fallback;图标统一 Material `*_rounded` 变体
 - 动效三档(微交互/结构/情感),尊重 reduced-motion;不做纯装饰动画
-- 旧视觉专项(微信式聊天/抖音式消息页/微博式广场)与「心跳」冲突处一律作废,以「心跳」为准;页面改造分批立项(① 底座+底栏 2026-09-18、② 发现 2026-09-19、③ 消息/聊天 2026-09-19 均已交付),顺序:①底座+底栏 → ②发现 → ③消息/聊天 → ④我的/资料 → ⑤广场 → ⑥二级页
+- 旧视觉专项(微信式聊天/抖音式消息页/微博式广场)与「心跳」冲突处一律作废,以「心跳」为准
 
 ## 目录结构
 
@@ -86,7 +62,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan,细节在 `docs/super
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
 | `web/` | 网页端(Vue 3 SPA) | `src/{api,stores,im,components,layouts,features}`;开发 `npm run dev`(代理到 :8000),构建 `npm run build`;**只服务 PC 浏览器**,移动端按 UA 进引导页 |
 | `imserver/` | 自建 IM(C++20) | WS :9100 + HTTP :9101;MySQL `chatapp_im` + Redis DB2;测试 `docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh` |
-| `docs/superpowers/` | 设计 spec 与实施计划 | 计划的执行进度以文件内 checkbox 为准 |
+| `docs/superpowers/` | 设计 spec 与实施计划 | 只放进行中/未启动的(`specs/`、`plans/`),已交付的进 `archive/`;索引见该目录 README |
+| `docs/backlog/` | 待办总表 | 当前工作面 = 最新那份 |
 | `docs/pitfalls/` | 踩坑手册(按主题分册) | 写代码/排障前按需读取 |
 | `.remember/` | Claude 会话记忆日志(内部机制) | 勿改动、勿提交 |
 
@@ -147,11 +124,11 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **鉴权**:Bearer JWT(access 30min / refresh 30d,刷新即轮换、旧进黑名单);JWT `user_id` claim 是**字符串**;`GET /users/me` 响应 `id` 是 **profile 表主键**,账号 ID 看 `user_id`
 - **响应路径禁止任何第三方网络调用**(requests/腾讯 REST/短信商);跨系统副作用一律走 Celery 任务;`transaction.on_commit(fn, robust=True)` 的语义是「DB 提交后」
 - **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 与 `im/self_client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
-- **自建 IM**:`IM_BACKEND=tencent|self`;`im/client.py` 按账号灰度分发到 `im/self_client.py`;灰度名单只能放隔离测试号(跨后端消息不通);`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致;**图片消息与语音消息**要求 `IM_MEDIA_PREFIX` = Django 的 `MEDIA_BASE_URL + /media/chat/`(必填,缺失 imserver 起不来;不一致则发图/发语音 42201);语音上传还要求服务器装 `ffmpeg`/`ffprobe`(缺失时 503+`50302`)
+- **自建 IM**:`IM_BACKEND=tencent|self`;`im/client.py` 按账号灰度分发到 `im/self_client.py`;`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致;**图片消息与语音消息**要求 `IM_MEDIA_PREFIX` = Django 的 `MEDIA_BASE_URL + /media/chat/`(必填,缺失 imserver 起不来;不一致则发图/发语音 42201);语音上传还要求服务器装 `ffmpeg`/`ffprobe`(缺失时 503+`50302`)
 - **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101,**WS 握手与 `/im/api/*` 两个入口同口径**;登录与 `user_sig` 双同步,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
-- **imserver 入口防护(2026-10-28 起)**:监听默认只允许回环,写成非回环地址必须显式 `IM_ALLOW_PUBLIC_BIND=1`,否则启动失败;`X-Real-IP` 只在对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时才采信,绕过 nginx 直连伪造不了限流 key;`Origin` 未配 `IM_ALLOWED_ORIGINS` 时按同源兜底(不是全放行)
+- **imserver 入口防护(2026-10-28 起)**:监听默认只允许回环,写成非回环地址必须显式 `IM_ALLOW_PUBLIC_BIND=1`,否则启动失败;`X-Real-IP` 只在对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时才采信;`Origin` 未配 `IM_ALLOWED_ORIGINS` 时按同源兜底(不是全放行)
 - **图片上传**:资料图/广场图/聊天图统一走 `config/images.py`(仅 jpg/png/webp、≤2000 万像素、长边 4096、`exif_transpose` 后重编码剥离 EXIF/GPS);聊天媒体签名生产缺 `IM_MEDIA_SIGN_SECRET` 直接启动失败,TTL 默认 3600
-- **存储配额(2026-10-28 起)**:四类媒体(资料图/广场图/聊天图/语音)按库内 `bytes` 求和,单账号上限 `USER_STORAGE_QUOTA_MB`(默认 200),超限上传 **413 + `41301`**;检查必须在落盘前;删除与 30 天过期自动回收,不做计数列;上线必须跑一次 `media_bytes_backfill`,否则老用户按零占用算
+- **存储配额(2026-10-28 起)**:四类媒体(资料图/广场图/聊天图/语音)按库内 `bytes` 求和,单账号上限 `USER_STORAGE_QUOTA_MB`(默认 200),超限上传 **413 + `41301`**;检查必须在落盘前;删除与 30 天过期自动回收,不做计数列;上线必须跑一次 `media_bytes_backfill`
 - **运营后台安全**:`/admin/`、`/ops/` 受 `ops.middleware.StaffSecurityMiddleware` 保护 —— `OPS_ALLOWED_IPS` 非空时只放白名单;`OPS_OTP_REQUIRED=1`(生产默认)时运营账号必须绑定 TOTP(`/ops/otp/`);登录失败 5 次锁 15 分钟(账号+IP)。生产 `AUTO_APPROVE` 默认 0,新资料图进 `/ops/photos/` 待审队列
 - **跨栈约定**:IM 账号 = `u{user_id}`(`accounts/models.py::im_user_id`);`system_notice` 相关常量两边别单改
 - **单设备登录**:一个账号同时只允许一台设备在线;被顶设备收 **401 + `40101`**(三条退出路径互为兜底,细节见 pitfalls)
@@ -161,7 +138,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **网页端**:401 只走 `api/http.ts` 的刷新通道(并发去重);错误统一 `ApiError`;页面只碰 store、不直接调 `http`
 - **「心跳」token 双份维护**:改任何视觉 token 或字体,**必须在同一次改动内同时改** `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css`(`web/public/fonts/*` 与 `app/assets/fonts/*` 保持一致);`web/tests/unit/tokens.spec.ts` 与 `fonts.spec.ts` 会双向比对,漏改即红
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步
-- **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/master` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认服务器要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。理由不是形式主义:CI 跑在 Ubuntu + MySQL 8 + Redis 服务容器上,与本地 Windows 环境不同;顺序错了的话,CI 红时生产已经在跑未验证的代码,回滚要同时动代码、镜像和 nginx(2026-11-03 首次整改即如此,事后补了 PR #28,记录见 `docs/superpowers/plans/2026-11-02-observability-and-capacity.md` §8)
+- **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/master` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。CI 跑在 Ubuntu + MySQL 8 + Redis 上,与本地 Windows 不同;顺序错了会变成「CI 红时生产已在跑未验证代码」
 - **网页端测试纪律**:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + vitest 全绿(覆盖率门槛 70/60/70/70);`npm run e2e` 需后端 + Redis + Celery 都在跑,不进 CI
 - **发版版本号必须双端同改**:`app/pubspec.yaml` + `app/lib/core/app_info.dart` + `web/package.json`(连带 App 关于页与 Web 关于页测试的期望)。`MIN_APP_VERSION` 同时卡网页端——只升 App 会让整站被「需要更新后才能继续使用」挡住(2026-10-28 实测,见 `docs/pitfalls/web.md` #23);改完 Web 必须 `npm run build` 并部署 `dist`
 - **接口文档**:`docs/api/` 是接口的对外交付文档;新增/修改/删除任何 `/api/v1` 接口,**同一次改动内**必须同步更新对应分册;`python manage.py test` 会跑 `ApiDocsCoverageTests` 双向比对,漏写即红。模板与维护规则见 `docs/api/README.md`
@@ -195,6 +172,10 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `GET /matches` | 配对列表(分页);预热 userId→昵称头像缓存 |
 | `DELETE /matches/{user_id}` | 解除配对:幂等 204;软删除 + 双向 IM 拉黑,不可恢复 |
 | `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
-| `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见各 spec 与 pitfalls(评论支持两级楼中楼与回复提醒) |
+| `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见 `docs/api/` 与 pitfalls(评论支持两级楼中楼与回复提醒) |
 
 资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`(否则 `incomplete`,`missing_fields` 列出缺项);`banned_light` / `banned_heavy` 为封禁状态。
+
+## 下一步
+
+**所有待办统一在 [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)**:按批次(A 止血 → B 上线阻断 → C 产品闭环 → D 规模架构 → E 工程纪律)排好序,每条都带证据、验收口径和「开新对话提示词」。**不要在本文件里另起一份待办清单。**

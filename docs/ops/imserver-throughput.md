@@ -3,7 +3,7 @@
 > 环境:阿里云轻量 **2C2G** · Alibaba Cloud Linux 3 · MySQL 8.0.45(同机,binlog 开启)
 > · Redis 7.4 · imserver 容器(`network_mode: host`)· 压测脚本 `imserver/scripts/bench_ws.py`
 >
-> 关联:`docs/ops/imserver.md`(部署与运维)、`docs/superpowers/plans/2026-10-20-self-hosted-im-rollout.md`(灰度核对单)
+> 关联:`docs/ops/imserver.md`(部署与运维)、`docs/superpowers/archive/plans/2026-10-20-self-hosted-im-rollout.md`(灰度核对单)
 
 ## 1. 结论
 

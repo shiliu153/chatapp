@@ -12,7 +12,7 @@
 | 本机开发(Android 模拟器) | `http://10.0.2.2:8000/api/v1` |
 
 `shiliu153.cn` 已备案；交友 App 正在从 IP 切换到 `https://chat.shiliu153.cn`，切换任务与回退步骤见
-[docs/superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md](../superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md)。
+[docs/superpowers/archive/plans/2026-10-28-chat-shiliu153-cn-https.md](../superpowers/archive/plans/2026-10-28-chat-shiliu153-cn-https.md)。
 切换完成前，测试环境仍用 IP；切换后所有示例中的 `http://<域名>/api/v1` 统一替换为 HTTPS 域名。
 
 ## 请求约定
