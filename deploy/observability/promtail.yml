@@ -1,0 +1,23 @@
+# Promtail:把本机日志文件推进 Loki。
+# 默认只收 /www/wwwlogs/*.log(宝塔的站点/应用日志目录)。
+# 如果 gunicorn 的日志由 supervisor 写到别处,改 __path__ 即可。
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: warn
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://127.0.0.1:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: chatapp-files
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: chatapp
+          host: chatapp-prod
+          __path__: /www/wwwlogs/*.log

@@ -31,6 +31,9 @@ struct Config {
   int db_threads = 4;
   int db_pool = 8;
   int db_idle_ping_ms = 5000;
+  /// 启动时连不上 MySQL 的最长等待(毫秒)。>0 表示在这段时间内每 2 秒重试一次,
+  /// 避免 DB 尚未就绪时进程直接退出、陷入 Docker 指数退避的 crash loop(P1-3)。
+  int db_connect_wait_ms = 60000;
   int max_conn_per_ip = 20;
   double auth_rate_per_sec = 1.0;
   double auth_burst = 60.0;

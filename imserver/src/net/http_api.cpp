@@ -17,6 +17,7 @@
 #include "net/frames.h"
 #include "net/guard.h"
 #include "util/hmac.h"
+#include "util/metrics.h"
 #include "util/uuid.h"
 
 namespace beast = boost::beast;
@@ -437,6 +438,17 @@ HttpApi::response_type HttpApi::internal_route(
 HttpApi::response_type HttpApi::route(const http::request<http::string_body>& req,
                                       bool loopback) {
   const auto target = parse_target(std::string(req.target()));
+  if (target.path == "/metrics") {
+    // 与 /internal/* 同口径:只允许回环。nginx 不代理该路径,Prometheus 直连 9101 抓取。
+    if (!loopback) {
+      return error_response(req, http::status::forbidden, 40301, "forbidden");
+    }
+    response_type response(http::status::ok, req.version());
+    response.set(http::field::content_type, "text/plain; version=0.0.4; charset=utf-8");
+    response.body() = metrics::render(registry_.online_count());
+    response.prepare_payload();
+    return response;
+  }
   if (target.path.rfind("/internal/", 0) == 0) {
     if (!loopback) {
       return error_response(req, http::status::forbidden, 40301, "forbidden");

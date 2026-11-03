@@ -24,6 +24,9 @@ class Post(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        # 广场按时间倒序翻页;没有这个索引时 MySQL 要全表扫 + filesort
+        # (2026-11-03 实测:10 万条动态单次 3.3 秒,见 docs/ops/scale-report.md)。
+        indexes = [models.Index(fields=["-created_at", "-id"], name="post_feed_order_idx")]
 
     def __str__(self):
         """后台与日志中的可读表示。

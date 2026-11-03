@@ -11,3 +11,4 @@ celery>=5.4
 redis>=5.0
 django-redis>=5.4
 gunicorn>=21.2
+prometheus-client>=0.21

@@ -336,7 +336,11 @@ MySQL `wait_timeout=28800`(8 小时)把空闲连接全掐了。死连接被反�
 
 ```ini
 IM_DB_IDLE_PING_MS=5000   # 0=每次 acquire 都 ping(测试用);负数=关闭探测(不推荐)
+IM_DB_CONNECT_WAIT_MS=60000  # 启动时连不上 MySQL 的最长重试窗口(每 2s 一次);0=立即失败
 ```
+
+`IM_DB_CONNECT_WAIT_MS` 解决的是**启动期**问题:DB 未就绪时进程不再直接退出,
+避免 Docker 指数退避把重启间隔拉到 60s、DB 恢复后还要再等一个退避周期(2026-11-01 实测多等 47s)。
 
 ### 10.4 验证方法
 

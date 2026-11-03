@@ -43,16 +43,35 @@ std::optional<ConversationRow> ConversationRepo::find_pair(MysqlPool::Lease& lea
 ConversationRow ConversationRepo::lock_pair(MysqlPool::Lease& lease, uint64_t a, uint64_t b,
                                             int64_t now_ms) {
   const auto [user_a, user_b] = ordered(a, b);
-  const std::string select_sql =
-      "SELECT id,user_a,user_b,last_seq,IFNULL(last_msg_id,0),last_msg_at "
-      "FROM im_conversation WHERE user_a=" + std::to_string(user_a) +
-      " AND user_b=" + std::to_string(user_b) + " FOR UPDATE";
 
-  auto read = [&]() -> std::optional<ConversationRow> {
-    auto* result = lease.query(select_sql);
-    if (result == nullptr) {
-      return std::nullopt;
-    }
+  // 冷启动时大量「全新配对」并发发第一条消息:若先 SELECT ... FOR UPDATE 一个不存在的行,
+  // REPEATABLE READ 会给这段唯一键间隙加锁,几百个事务抢同一段间隙 → 1213 死锁
+  // (2026-11-01 压测实测 500 对全新配对 819/1000 失败)。
+  // 改成把 INSERT 放在事务最前面:此时事务还没持有任何行锁/间隙锁,
+  // 用 ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id) 让并发插入退化成唯一键上的等锁,
+  // 一次往返同时覆盖「新建」与「已存在」两种情况,随后按主键加锁读(last_seq 才是准的)。
+  uint64_t conv_id = 0;
+  {
+    Stmt insert(lease.get(),
+                "INSERT INTO im_conversation "
+                "(user_a,user_b,last_seq,last_msg_id,last_msg_at,created_at) "
+                "VALUES (?,?,0,NULL,0,?) "
+                "ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)");
+    insert.bind_uint(0, user_a);
+    insert.bind_uint(1, user_b);
+    insert.bind_uint(2, static_cast<uint64_t>(now_ms));
+    insert.execute();
+    conv_id = insert.insert_id();
+  }
+  if (conv_id == 0) {
+    throw std::runtime_error("failed to upsert conversation");
+  }
+
+  // 主键等值查询 + FOR UPDATE:只锁这一行,不会加间隙锁。
+  auto* result = lease.query(
+      "SELECT id,user_a,user_b,last_seq,IFNULL(last_msg_id,0),last_msg_at "
+      "FROM im_conversation WHERE id=" + std::to_string(conv_id) + " FOR UPDATE");
+  if (result != nullptr) {
     std::optional<ConversationRow> row;
     if (MYSQL_ROW values = mysql_fetch_row(result)) {
       ConversationRow conversation;
@@ -65,30 +84,9 @@ ConversationRow ConversationRepo::lock_pair(MysqlPool::Lease& lease, uint64_t a,
       row = conversation;
     }
     mysql_free_result(result);
-    return row;
-  };
-
-  if (auto existing = read()) {
-    return *existing;
-  }
-
-  try {
-    Stmt insert(lease.get(),
-                "INSERT INTO im_conversation "
-                "(user_a,user_b,last_seq,last_msg_id,last_msg_at,created_at) "
-                "VALUES (?,?,0,NULL,0,?)");
-    insert.bind_uint(0, user_a);
-    insert.bind_uint(1, user_b);
-    insert.bind_uint(2, static_cast<uint64_t>(now_ms));
-    insert.execute();
-  } catch (const MysqlError& error) {
-    if (error.code() != 1062) {
-      throw;
+    if (row) {
+      return *row;
     }
-  }
-
-  if (auto created = read()) {
-    return *created;
   }
   throw std::runtime_error("failed to lock conversation");
 }

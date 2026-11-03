@@ -69,7 +69,20 @@ def _user(user_id: int):
     return get_user_model().objects.filter(id=user_id).first()
 
 
-@shared_task(**RETRY_POLICY)
+def _notice_rate_limit():
+    """notify 类任务的消费速率上限。
+
+    为什么只限 notify:配对/评论/举报通知是突发流量的主要来源,而且可以等;
+    ``critical`` 队列(封禁/踢人)不能限速,否则会把紧急操作排到通知后面。
+
+    Returns:
+        Celery 的 rate limit 字符串(如 ``50/s``);配置为 0 时返回 ``None``(不限速)。
+    """
+    rate = int(getattr(settings, "IM_NOTICE_RATE_PER_SEC", 0) or 0)
+    return f"{rate}/s" if rate > 0 else None
+
+
+@shared_task(rate_limit=_notice_rate_limit(), **RETRY_POLICY)
 def send_match_notice(user_a_id: int, user_b_id: int) -> None:
     """配对成功:给双方各发一条灰条消息。
 
@@ -167,7 +180,7 @@ def ban_lifted(user_id: int) -> None:
     _require(im_client.send_ban_lifted(user.im_user_id), "ban_lifted")
 
 
-@shared_task(**RETRY_POLICY)
+@shared_task(rate_limit=_notice_rate_limit(), **RETRY_POLICY)
 def report_handled(reporter_id: int) -> None:
     """举报处理完成:告知举报者(收件人是举报者,不是被举报人)。
 
@@ -180,7 +193,7 @@ def report_handled(reporter_id: int) -> None:
     _require(im_client.send_report_handled(user.im_user_id), "report_handled")
 
 
-@shared_task(**RETRY_POLICY)
+@shared_task(rate_limit=_notice_rate_limit(), **RETRY_POLICY)
 def post_commented(comment_id: int) -> None:
     """动态被评论:告知动态作者(自己评自己不打扰;内容缺失静默)。
 
@@ -202,7 +215,7 @@ def post_commented(comment_id: int) -> None:
              "post_commented")
 
 
-@shared_task(**RETRY_POLICY)
+@shared_task(rate_limit=_notice_rate_limit(), **RETRY_POLICY)
 def post_replied(comment_id: int) -> None:
     """回复通知:告知被回复者(自己回复自己不发;内容缺失静默)。
 

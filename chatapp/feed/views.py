@@ -30,7 +30,8 @@ from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
                           PostCreateSerializer, PostReportCreateSerializer,
                           PostSerializer)
 from .services import (create_comment, delete_comment, delete_post,
-                       notify_comment_created, visible_comments, visible_posts)
+                       notify_comment_created, page_visible_posts, visible_comments,
+                       visible_posts)
 from .throttles import (PostCommentThrottle, PostCreateThrottle, PostLikeThrottle,
                         PostReportThrottle)
 
@@ -68,7 +69,31 @@ def posts(request):
     """
     if request.method == "POST":
         return _create_post(request)
-    return _page_response(request, visible_posts(request.user))
+    return _page_visible_posts(request)
+
+
+def _page_visible_posts(request):
+    """两段式分页:先取当页 id,再只对这几条做赞/评聚合(见 ``page_visible_posts``)。
+
+    响应结构与 ``DefaultLimitOffsetPagination`` 完全一致(count/next/previous/results),
+    客户端无需改动。
+
+    Args:
+        request: DRF 请求对象,提供 ``limit`` / ``offset``。
+
+    Returns:
+        分页后的动态列表响应。
+    """
+    paginator = DefaultLimitOffsetPagination()
+    limit = paginator.get_limit(request)
+    offset = paginator.get_offset(request)
+    rows, total = page_visible_posts(request.user, offset, limit)
+    paginator.count = total
+    paginator.limit = limit
+    paginator.offset = offset
+    paginator.request = request
+    return paginator.get_paginated_response(
+        PostSerializer(rows, many=True, context={"request": request}).data)
 
 
 def _create_post(request):

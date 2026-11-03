@@ -1,0 +1,110 @@
+groups:
+  - name: chatapp-api
+    rules:
+      # 5xx 比例:1% 持续 2 分钟。分母为 0 时不算(夜里没流量不该报)。
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m])) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx 比例 > 1%"
+          description: "近 5 分钟 5xx 占比 {{ $value | humanizePercentage }};先看 /metrics 里的 route 标签定位到具体接口。"
+
+      # p99 > 500ms 持续 5 分钟:先看是哪个路由,再查 MySQL 慢查询。
+      - alert: ApiSlowP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p99 > 500ms"
+          description: "当前 p99 = {{ $value }}s。对比 http_request_duration_seconds 的 route 维度。"
+
+      # 在途请求持续 > 20:gunicorn 的 8 个工作位已经排满,再涨就是排队。
+      - alert: ApiInflightSaturated
+        expr: max(http_inflight) > 20
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API 在途请求持续 > 20(工作位饱和)"
+
+  - name: chatapp-im
+    rules:
+      - alert: ImDown
+        expr: up{job="im"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "imserver 抓取失败(进程或端口不可用)"
+          description: "先 curl 127.0.0.1:9101/internal/readyz;503 = DB/Redis 不可用,000 = 进程没了。"
+
+      - alert: ImDeadlockRetries
+        expr: increase(im_deadlock_retries_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "imserver 出现死锁重试"
+          description: "10 分钟内重试 {{ $value }} 次;若持续增长,检查是否又出现冷启动并发建会话。"
+
+      - alert: ImSendFailureRate
+        expr: |
+          sum(rate(im_sends_total{result="failed"}[5m]))
+          /
+          clamp_min(sum(rate(im_sends_total[5m])), 0.001) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "IM 发送失败率 > 5%"
+
+      - alert: ImDbPoolWait
+        expr: im_db_pool_wait_seconds > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "IM 取 DB 连接平均等待 > 50ms(池打满)"
+
+  - name: chatapp-queue
+    rules:
+      # 队列积压:notify/bulk 可以等,但持续堆积说明消费端出问题了(worker 挂了/限速过低)。
+      - alert: CeleryQueueBacklog
+        expr: max by (queue) (celery_queue_depth{queue=~"notify|bulk|default"}) > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery 队列 {{ $labels.queue }} 积压 {{ $value }} 条"
+          description: "先确认 worker 是否存活(supervisorctl status);worker 正常则检查 IM_NOTICE_RATE_PER_SEC 是否过低。"
+
+  - name: chatapp-host
+    rules:
+      - alert: DiskAlmostFull
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+           / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "根分区可用 < 15%"
+          description: "先跑 manage.py media_cleanup --apply 与 media_disk_report。"
+
+      - alert: MemoryPressure
+        expr: |
+          (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "内存使用 > 90%(2G 机器上会触发 OOM Killer)"

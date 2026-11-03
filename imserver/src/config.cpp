@@ -147,6 +147,7 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   cfg.db_threads = get_int(env, "IM_DB_THREADS", cfg.db_threads);
   cfg.db_pool = get_int(env, "IM_DB_POOL", cfg.db_pool);
   cfg.db_idle_ping_ms = get_int(env, "IM_DB_IDLE_PING_MS", cfg.db_idle_ping_ms);
+  cfg.db_connect_wait_ms = get_int(env, "IM_DB_CONNECT_WAIT_MS", cfg.db_connect_wait_ms);
   cfg.max_conn_per_ip = get_int(env, "IM_MAX_CONN_PER_IP", cfg.max_conn_per_ip);
   cfg.auth_rate_per_sec = get_double(env, "IM_AUTH_RATE", cfg.auth_rate_per_sec);
   cfg.auth_burst = get_double(env, "IM_AUTH_BURST", cfg.auth_burst);
@@ -185,6 +186,7 @@ Config Config::from_env() {
                           "IM_MIGRATIONS_DIR", "IM_ALLOWED_ORIGINS", "IM_TRUSTED_PROXIES",
                           "IM_ALLOW_PUBLIC_BIND", "IM_IO_THREADS",
                           "IM_DB_THREADS", "IM_DB_POOL", "IM_DB_IDLE_PING_MS",
+                          "IM_DB_CONNECT_WAIT_MS",
                           "IM_MAX_CONN_PER_IP",
                           "IM_AUTH_RATE", "IM_AUTH_BURST", "IM_MAX_FRAME",
                           "IM_SEND_PER_MINUTE",
