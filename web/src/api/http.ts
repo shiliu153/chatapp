@@ -1,4 +1,5 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import { rememberRequestId } from './clientErrors'
 import { parseApiError } from './error'
 import { sessionEvents } from './session-events'
 import { tokenStore } from './token-store'
@@ -38,8 +39,13 @@ async function refreshAccessToken(): Promise<string> {
 }
 
 http.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // 记下服务端追踪 ID:前端错误上报会带上它,前后端日志才能按同一个 id 对上
+    rememberRequestId(response.headers?.['x-request-id'] as string | undefined)
+    return response
+  },
   async (error: AxiosError) => {
+    rememberRequestId(error.response?.headers?.['x-request-id'] as string | undefined)
     const apiError = parseApiError(error)
 
     if (apiError.isKickedOffline) {

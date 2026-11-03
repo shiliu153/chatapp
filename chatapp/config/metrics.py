@@ -60,6 +60,14 @@ CACHE_ERRORS = Counter(
     registry=REGISTRY,
 )
 
+# --- 客户端错误:前端白屏/崩溃在服务端 5xx 里看不见,只能靠前端主动上报 ---
+CLIENT_ERRORS = Counter(
+    "client_errors_total",
+    "前端上报的未捕获异常数(按端)",
+    ["platform"],
+    registry=REGISTRY,
+)
+
 # --- 队列指标:积压是「削峰是否生效」的直接读数 ---
 CELERY_QUEUE_DEPTH = Gauge(
     "celery_queue_depth",

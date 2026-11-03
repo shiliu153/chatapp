@@ -6,7 +6,9 @@
 字段约定(JSON 模式):
     ``ts`` / ``level`` / ``logger`` / ``message`` / ``request_id`` 恒定存在;
     ``user_id`` / ``route`` / ``status`` / ``duration_ms`` / ``sql_count`` 由
-    ``RequestIdMiddleware`` 通过 ``extra`` 传入,存在才输出。
+    ``RequestIdMiddleware`` 通过 ``extra`` 传入,存在才输出;
+    ``platform`` / ``app_version`` / ``user_agent`` / ``client_*`` 由客户端错误上报
+    接口(``telemetry/views.py``)传入。
 
 关联文档:
     - 观测部署:docs/ops/observability.md
@@ -27,7 +29,13 @@ class JsonFormatter(logging.Formatter):
     """
 
     #: 允许从 ``record`` 里透出的业务字段。
-    EXTRA_FIELDS = ("user_id", "route", "status", "duration_ms", "sql_count")
+    #:
+    #: ``platform`` / ``app_version`` / ``user_agent`` / ``client_*`` 来自
+    #: ``POST /api/v1/client-errors``(前端未捕获异常);字段名刻意避开
+    #: ``message`` / ``levelname`` 等 LogRecord 保留字。
+    EXTRA_FIELDS = ("user_id", "route", "status", "duration_ms", "sql_count",
+                    "platform", "app_version", "user_agent", "client_message",
+                    "client_stack", "client_route", "client_request_id")
 
     def format(self, record: logging.LogRecord) -> str:
         """渲染一条日志。

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import 'api_exception.dart';
+import 'error_reporting.dart';
 
 /// 薄封装:统一抛 ApiException,调用方直接拿 response.data。
 class ApiClient {
@@ -38,8 +39,12 @@ class ApiClient {
   Future<dynamic> _guard(Future<Response<dynamic>> Function() request) async {
     try {
       final response = await request();
+      // 记下服务端追踪 ID:错误上报会带上它,前后端日志才能按同一个 id 对上
+      ErrorReporting.rememberRequestId(response.headers.value('X-Request-Id'));
       return response.data;
     } on DioException catch (error) {
+      ErrorReporting.rememberRequestId(
+          error.response?.headers.value('X-Request-Id'));
       throw ApiException.from(error);
     }
   }

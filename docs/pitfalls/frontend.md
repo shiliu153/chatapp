@@ -74,3 +74,17 @@
 - `_InputBarState.dispose()` 原来只取消计时器，没有调 `recorder.cancel()`：页面弹出后麦克风仍在采集，临时文件也不回收。录音逻辑现由 `features/chat/voice_record_controller.dart` 承担，`dispose()` 第一件事就是停设备。
 - **规则**：任何持有设备句柄（麦克风 / 相机 / 播放器）的 State，`dispose()` 必须先释放句柄，再处理计时器与监听。
 - **时间来源要可注入**：控制器用 `DateTime Function() now` 而不是硬编码 `DateTime.now`/`Stopwatch`，测试才能用假时钟驱动「满 1 秒」「60 秒自动结束」，不必真的等两秒。
+
+## 错误上报必须早于 `runApp`(2026-11-03,A-4)
+
+- `ErrorReporting.install()` 要在 `WidgetsFlutterBinding.ensureInitialized()` 之后、`runApp` **之前**调用:
+  启动阶段的崩溃(读本地配置、建 Dio、TLS 预热)发生得比 `runApp` 早,装晚了就抓不到 ——
+  而那恰恰是最该被上报的一类错误。
+- 两条通道缺一不可:`FlutterError.onError` 只覆盖**框架内**错误(构建/布局/绘制),
+  `PlatformDispatcher.instance.onError` 才覆盖**异步未捕获**错误(裸 `Future` 抛出的)。
+- `FlutterError.onError` 里必须**先调原来的处理器**再上报,否则控制台红屏与日志消失,开发体验直接退化。
+- 开关走 `--dart-define=ERROR_REPORTING=true`,**默认关**:测试与本地开发不该往生产日志灌垃圾;
+  单测用 `install(forceEnabled: true, sender: 假实现)` 注入,不要依赖环境变量。
+- 上报要**限流 + 去重**:渲染循环里抛异常一秒几百次,不限流等于自己 DDoS 自己
+  (客户端每进程 20 条 + 同 message 去重,服务端还有 120 次/小时/IP)。
+
