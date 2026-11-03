@@ -31,6 +31,8 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<Record<string, ChatMessage[]>>({})
   const status = ref<ChatStatus>('idle')
   const error = ref('')
+  /** 上次连接失败是 403(封禁/账号异常):重连没有意义,交给路由守卫 */
+  const banned = ref(false)
   /**
    * 当前 IM 客户端能力(图片/搜索入口按它显示)。
    *
@@ -45,6 +47,14 @@ export const useChatStore = defineStore('chat', () => {
   const pendingVoices = new Map<string, { blob: Blob; durationMs: number }>()
   /** 进行中的连接(并发调用复用它) */
   let inFlight: Promise<void> | null = null
+  /** 当前正在看的会话(重连后补拉它的历史);由 openConversation 维护 */
+  const activePeerId = ref<string | null>(null)
+  /** 断线重连的退避定时器(同一时刻只排一个) */
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  /** 第几次退避,成功连上后清零 */
+  let reconnectAttempt = 0
+  /** 退避档位(秒),与 App 的 self_im_client.dart 一致 */
+  const RECONNECT_DELAYS = [1, 2, 4, 8, 16, 30]
 
   const unreadTotal = computed(() =>
     conversations.value.reduce((sum, item) => sum + item.unreadCount, 0),
@@ -135,17 +145,29 @@ export const useChatStore = defineStore('chat', () => {
       //    两个标签页会自动互相踢,实测 10 秒内打了 27 次 user_sig 并被 IM 限流。
       //    正确做法:置为 inactive,等用户显式接管(reconnect)。
       if (event.reason === 'multiAccount') {
+        cancelReconnect()
         status.value = 'inactive'
         return
       }
       // 分流二:真的被别的设备顶掉 → 全屏提示 + 清凭证
+      cancelReconnect()
       sessionEvents.emitKickedOffline()
+      return
+    }
+    if (event.type === 'disconnected') {
+      // ⚠️ 分流三:连接断了(服务端 75s 空闲踢出、网络抖动、切后台)。
+      //    与「被顶号」完全不同:这里**必须**自动退避重连,否则前端仍显示 ready,
+      //    对方的新消息会静默丢失(2026-11-03 全栈审查 N-1)。
+      //    已被顶掉(inactive)或已退出(idle)时不重连,避免和用户抢连接。
+      if (status.value === 'inactive' || status.value === 'idle') return
+      scheduleReconnect()
     }
   })
 
   /** 取 userSig → 登录 IM。403(重封禁)不重试,交给路由守卫处理。 */
   async function doConnect(): Promise<void> {
     error.value = ''
+    banned.value = false
     try {
       const { data } = await http.post('/im/user_sig')
       const raw = data as {
@@ -170,11 +192,63 @@ export const useChatStore = defineStore('chat', () => {
       await client.login(raw.im_user_id, raw.token || raw.user_sig || '')
       // 连上之后才拿得到真实能力位(init 前 RoutingImClient 还没有 active)
       capabilities.value = { ...client.capabilities }
+      reconnectAttempt = 0
       status.value = 'ready'
     } catch (e) {
-      error.value = parseApiError(e).message
+      const apiError = parseApiError(e)
+      error.value = apiError.message
       status.value = 'error'
+      // 403(封禁/账号异常)重连多少次都一样,别退避重试
+      banned.value = apiError.isBanned
     }
+  }
+
+  /** 断线退避重连:1/2/4/8/16/30 秒,同一时刻只排一个定时器。 */
+  function scheduleReconnect(): void {
+    status.value = 'reconnecting'
+    if (reconnectTimer) return // 已经排上了,别叠加
+    const seconds = RECONNECT_DELAYS[Math.min(reconnectAttempt, RECONNECT_DELAYS.length - 1)]
+    reconnectAttempt += 1
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      void doReconnect()
+    }, seconds * 1000)
+  }
+
+  /** 取消排期中的重连(退出登录、被顶号时用)。 */
+  function cancelReconnect(): void {
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
+  /**
+   * 读当前连接状态。
+   *
+   * 必须经函数读:`status.value` 是 Pinia 的 ref,TypeScript 会顺着同一函数里的赋值
+   * 收窄它的字面量类型,直接比较 `=== 'ready'` 会被判成「永假」(TS2367)。
+   */
+  function currentStatus(): ChatStatus {
+    return status.value
+  }
+
+  async function doReconnect(): Promise<void> {
+    if (status.value === 'inactive' || status.value === 'idle') return
+    if (status.value === 'ready') return
+    await connect()
+    if (currentStatus() === 'ready') {
+      // 断线期间的消息服务端不会主动重放:必须补拉会话列表 + 当前会话历史
+      await refetchAfterReconnect()
+      return
+    }
+    if (banned.value) return // 403 不重试
+    scheduleReconnect() // 网络还没好:继续退避
+  }
+
+  /** 重连成功后的补拉。失败只吞掉:下一轮断线还会再补。 */
+  async function refetchAfterReconnect(): Promise<void> {
+    await loadConversations().catch(() => {})
+    const peerId = activePeerId.value
+    if (peerId) await loadHistory(peerId).catch(() => {})
   }
 
   async function connect(): Promise<void> {
@@ -198,8 +272,11 @@ export const useChatStore = defineStore('chat', () => {
 
   /** 被同端顶掉后由用户显式接管(见 multiAccount 分流注释)。 */
   async function reconnect(): Promise<void> {
+    cancelReconnect()
+    reconnectAttempt = 0
     status.value = 'reconnecting'
     await doConnect()
+    if (currentStatus() === 'ready') await refetchAfterReconnect()
   }
 
   async function loadConversations(): Promise<void> {
@@ -260,6 +337,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function openConversation(peerId: string): Promise<ChatMessage[]> {
+    // 记下来:断线重连后要补拉「当前正在看的会话」(见 refetchAfterReconnect)
+    activePeerId.value = peerId
     const list = await loadHistory(peerId)
     await client.markConversationRead(peerId)
     setLocalUnread(peerId, 0)
@@ -418,15 +497,20 @@ export const useChatStore = defineStore('chat', () => {
     markRevoked(message.msgId)
   }
 
-  async function deleteConversation(peerId: string): Promise<void> {    await ensureConnected()
+  async function deleteConversation(peerId: string): Promise<void> {
+    await ensureConnected()
     await client.deleteConversation(peerId)
     conversations.value = conversations.value.filter((item) => item.peerId !== peerId)
     const rest = { ...messages.value }
     delete rest[peerId]
     messages.value = rest
+    if (activePeerId.value === peerId) activePeerId.value = null
   }
 
   async function close(): Promise<void> {
+    cancelReconnect()
+    reconnectAttempt = 0
+    activePeerId.value = null
     await client.logout().catch(() => {})
     conversations.value = []
     messages.value = {}

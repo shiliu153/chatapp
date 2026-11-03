@@ -23,6 +23,9 @@ export class RoutingImClient implements ImClient {
   }
 
   async init(bootstrap: ImBootstrap): Promise<void> {
+    // 重连会重新 init:先把上一个实例登出,否则它的心跳定时器与 onclose 监听会一直
+    // 挂在旧连接上(重连后可能补发一个 disconnected,触发多余的二次重连)。
+    await this.active?.logout().catch(() => {})
     this.active = bootstrap.backend === 'self'
       ? new SelfImClient()
       : createImClient()

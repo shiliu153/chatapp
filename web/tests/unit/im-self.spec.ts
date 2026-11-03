@@ -2,14 +2,20 @@ import { describe, expect, it, vi } from 'vitest'
 import { SelfImClient } from '@/im/self/client'
 import { messageFromJson } from '@/im/self/map'
 import type { SelfTransport } from '@/im/self/transport'
-import type { ImBootstrap } from '@/im/types'
+import type { ImBootstrap, ImEvent } from '@/im/types'
 
 class FakeTransport implements SelfTransport {
   sent: string[] = []
+  closed = 0
   private handler?: (raw: string) => void
+  private closeHandler?: (info: { code: number; reason: string }) => void
 
   onFrame(fn: (raw: string) => void): void {
     this.handler = fn
+  }
+
+  onClose(fn: (info: { code: number; reason: string }) => void): void {
+    this.closeHandler = fn
   }
 
   async connect(): Promise<void> {}
@@ -18,10 +24,17 @@ class FakeTransport implements SelfTransport {
     this.sent.push(raw)
   }
 
-  async close(): Promise<void> {}
+  async close(): Promise<void> {
+    this.closed += 1
+  }
 
   emit(raw: string): void {
     this.handler?.(raw)
+  }
+
+  /** 模拟服务端关连接(75s 空闲踢出 / 网络中断) */
+  emitClose(code = 1000, reason = ''): void {
+    this.closeHandler?.({ code, reason })
   }
 }
 
@@ -113,6 +126,84 @@ describe('SelfImClient', () => {
     expect(message.seq).toBe(2)
     expect(message.imageUrl).toBe('http://cdn/b_thumb.jpg')
     expect(message.imageLargeUrl).toBe('http://cdn/b.jpg')
+  })
+
+  it('每 25 秒发一次业务 ping(与 App 对齐,防服务端 75s 空闲踢出)', async () => {
+    vi.useFakeTimers()
+    try {
+      const transport = new FakeTransport()
+      const client = new SelfImClient(() => transport)
+      await client.init(bootstrap)
+      const login = client.login('u9', 'tok')
+      await vi.advanceTimersByTimeAsync(0)
+      transport.emit('{"v":1,"type":"auth_ok","data":{"uid":9}}')
+      await login
+
+      const before = transport.sent.length
+      await vi.advanceTimersByTimeAsync(25_000)
+      expect(transport.sent.slice(before).some((raw) => raw.includes('"type":"ping"'))).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(25_000)
+      const pings = transport.sent.filter((raw) => raw.includes('"type":"ping"'))
+      expect(pings).toHaveLength(2)
+      expect(JSON.parse(pings[0])).toEqual({ v: 1, type: 'ping', data: {} })
+
+      await client.logout()
+      const afterLogout = transport.sent.length
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(transport.sent.length).toBe(afterLogout) // 退出后不再发心跳
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('连接被关闭时发出独立的 disconnected 事件(不冒充 kickedOffline)', async () => {
+    const transport = new FakeTransport()
+    const client = new SelfImClient(() => transport)
+    const events: ImEvent[] = []
+    client.onEvent((event) => events.push(event))
+    await client.init(bootstrap)
+    const login = client.login('u9', 'tok')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    transport.emit('{"v":1,"type":"auth_ok","data":{"uid":9}}')
+    await login
+
+    transport.emitClose(1000, 'idle')
+
+    expect(events.map((event) => event.type)).toEqual(['disconnected'])
+  })
+
+  it('被顶(kicked)后连接关闭不再补发 disconnected(否则会被自动重连抢回来)', async () => {
+    const transport = new FakeTransport()
+    const client = new SelfImClient(() => transport)
+    const events: ImEvent[] = []
+    client.onEvent((event) => events.push(event))
+    await client.init(bootstrap)
+    const login = client.login('u9', 'tok')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    transport.emit('{"v":1,"type":"auth_ok","data":{"uid":9}}')
+    await login
+
+    transport.emit('{"v":1,"type":"kicked","data":{"reason":"multiAccount"}}')
+    transport.emitClose(4001, '')
+
+    expect(events.map((event) => event.type)).toEqual(['kickedOffline'])
+  })
+
+  it('断线时挂起的发送立即失败,不干等 10 秒 × 3 次', async () => {
+    const transport = new FakeTransport()
+    const client = new SelfImClient(() => transport)
+    await client.init(bootstrap)
+    const login = client.login('u9', 'tok')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    transport.emit('{"v":1,"type":"auth_ok","data":{"uid":9}}')
+    await login
+
+    const sending = client.sendText('u2', 'hi')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    transport.emitClose(1000, '')
+
+    await expect(sending).rejects.toThrow('连接已断开')
   })
 
   it('searchMessages 调 /search 并映射 ImSearchHit', async () => {

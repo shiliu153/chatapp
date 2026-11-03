@@ -115,3 +115,13 @@
 - `ChatPage.vue` 原来把 MediaRecorder 生命周期直接写在组件里，`onUnmounted` 顺手调了 `finishRecording()` —— **离开聊天页会把正在录的语音发给对方**。同期还有三个洞：指针拖出按钮后 `pointerup` 丢失（录音停不下来，直到 60 秒自动发）、`getUserMedia` 失败静默 `return`、能力不支持时按钮直接消失。
 - **规则**：凡是「开始 / 结束 / 取消 + 超时自动结束」的状态机，抽成 composable（Web `useVoiceRecorder`、App `VoiceRecordController`）并显式提供 `dispose()`；`dispose()` 的语义固定是**取消**，不是完成。测试里必须有一条断言「dispose 之后没有发送」。
 - **置灰别用 `disabled`**：`disabled` 的按钮收不到 click，就没法「点击告知原因」。用 `aria-disabled` + 样式，保留 click 处理。
+
+## Web IM 的断线感知(2026-11-03,审查 N-1)
+
+- **服务端 75 秒没收到业务帧就关连接**（`imserver/src/net/ws_server.cpp` 的 `arm_idle_timer` + `do_close(1000)`），而 **WS 层的 keep-alive 救不了**：Beast 在协议层就消费掉了控制帧，`last_frame_` 只在业务帧的 `on_read` 里刷新。所以前端必须发**业务** `ping`（Web 与 App 都是 25 秒一次）。
+- 反过来的坑更隐蔽：**浏览器不会告诉你连接已经关了**，除非你挂 `ws.onclose`。旧实现只挂了 `onFrame`，于是静置 75 秒后前端仍显示 `ready`，对方新消息**静默丢失**，服务端也没有 5xx（`do_close(1000)` 是正常路径）。
+- **`disconnected` 与 `kickedOffline` 必须是两个事件**：被同端另一个标签页顶掉时服务端会先发 `kicked` 再用 **4001** 关连接，如果把这当成断线去自动重连，就变成两个标签页互相踢（实测 10 秒打了 27 次 `user_sig` 被限流）。`SelfImClient` 用 `suppressClose` 标记「已顶号」，随后的 `onclose` 不再上报。
+- **重连成功必须补拉**：断线期间的消息服务端不会主动重放，`stores/chat.ts` 的 `refetchAfterReconnect()` 会重拉会话列表 + 当前会话历史（`activePeerId` 由 `openConversation` 维护），靠 `mergeMessages` 按 `msgId` 去重。
+- **断线时挂起的发送要立刻失败**：否则每条消息都要干等 `10s × 3` 次重试，用户看到的「发送中」会挂 30 秒。`sendText/sendImage/sendVoice` 在 catch 里检查 `authed`，断线即抛，UI 直接出「重发」。
+- 别在 `login()` 里 `await` 旧 transport 的 `close()`：多一个微任务会让「发 auth 帧」的时序整体后移（单测里 `transport.sent[0]` 会变成 `undefined`）。发起关闭即可，旧连接本来就已经断了。
+

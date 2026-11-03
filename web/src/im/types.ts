@@ -91,6 +91,12 @@ export type ImEvent =
   | { type: 'conversationsChanged' }
   | { type: 'messageRevoked'; msgId: string }
   | { type: 'kickedOffline'; reason: KickReason }
+  /**
+   * 连接断了(服务端 75s 空闲踢出、网络中断等),**不是**被顶号。
+   * 与 `kickedOffline` 必须分开:被顶号绝不能自动重连(同端多标签会互相踢成风暴),
+   * 断线则必须自动退避重连并补拉(否则静默丢消息)。
+   */
+  | { type: 'disconnected'; code?: number; reason?: string }
   | { type: 'ready' }
 
 export interface ImClient {
