@@ -5,7 +5,7 @@
 > 执行方式：`executing-plans` 内联逐批完成，不派子 agent。
 > 每批完成即跑对应测试并勾选，未全绿不进入下一批。
 > 前置：本轮只动部署脚本/模板与少量后端代码，**不需要数据库迁移**。
-> **执行状态：A–E 已完成（2026-11-03）；F（上线）待按发布流程走。**
+> **执行状态：A–E 已完成并合并（PR #30 → `c44035e`，2026-11-03，CI 双绿）；F（上线）待执行。**
 
 ## 0. 验收基线
 
@@ -234,8 +234,19 @@
 | Web | `npm run type-check && npm run lint && npm run test:run` | **403 测试通过**，零告警 |
 | App | `flutter analyze` | **No issues found** |
 
+### 合并与 CI（2026-11-03）
+
+- PR #30 squash 合并 **`c44035e`**；CI 双绿（backend 693 测试 + imserver unit/db/http）。
+- **首跑红一次，根因不是本轮代码**：`requirements.txt` 缺 `packaging` —— kombu 的 redis transport
+  在「第一次真的往 broker 发布任务」时 `from packaging.version import Version`，缺它时所有
+  `.delay` 入队 `ModuleNotFoundError`，表现为发短信 **503**（`SmsSendTests.test_send_ip_throttle`
+  是唯一真入队的用例）。已补依赖；`requirements.lock` 本来就有 `packaging==25.0`。
+- 排障手法记录：CI 日志要 admin 权限才能下载，改用「失败时把用例名/上下文写成 GitHub
+  annotation」的临时步骤，再用公开的 `/check-runs/{id}/annotations` 读回；确认后已移除该步骤。
+
 ### 未完成 / 已知限制
 
+- **未部署**：上线动作见 §F（宝塔现网只上后端代码时，`git pull` + 重启 web/worker 即可，无迁移）。
 - `python:3.11-slim-bookworm` 拉取失败（本机访问 Docker Hub 超时），**非 root 镜像只做了静态核对**，
   未实际构建运行；上线前需在能拉镜像的机器上 `docker compose build web` 验证一次。
 - nginx 仍是 root master（绑 80/443），`nginx-unprivileged` 记录为已知项。
