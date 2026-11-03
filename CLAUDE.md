@@ -41,7 +41,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(上线运营)**。**
 | 2026-09~10 | 「心跳」UI 六批整改 / 网页端 Vue 3 / 接口文档体系 / 自建 IM 全量切换 / P1 功能群 / 聊天图片·语音·搜索 |
 | 2026-10-28~11-03 | 三轮安全审计整改 + 令牌硬化 + HTTPS 上线 + 可观测性与容量工程 + 压测基线 |
 
-**当前风险最高的两项**(与代码质量无关,优先于任何性能项):固定验证码 `123456`(`SMS_DEV_MODE=1`)、备份与数据库同盘且手动执行。详见 backlog 的 B-1 与 A-3。
+**当前风险最高的两项**(与代码质量无关,优先于任何性能项):① 固定验证码 `123456` —— 2026-11-03 已用**手机号白名单**(`SMS_PHONE_WHITELIST`)把可登录的号码收窄到受邀名单,名单外一律 `403 + 40301`,但固定码本身没消除,**对外开放注册前必须先接真实短信商**(backlog B-1b);② 备份与数据库同盘且手动执行。详见 backlog 的 B-1/B-1b 与 A-3。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -150,7 +150,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 
 | 接口 | 说明 |
 |---|---|
-| `POST /auth/sms/send` | 发验证码;同号 60 秒重发间隔(42901,带 Retry-After);IP 限流;入队失败回滚并 503(50301) |
+| `POST /auth/sms/send` | 发验证码;同号 60 秒重发间隔(42901,带 Retry-After);IP 限流;入队失败回滚并 503(50301);**封闭测试期名单外号码 403(40301),不落码不入队**(`SMS_PHONE_WHITELIST`,留空=不限制) |
 | `POST /auth/sms/verify` | 校验并登录(号码没注册过自动建号)→ `{access, refresh, is_new_user, user_id}`;带 `X-Client: web` 时 refresh 改为 HttpOnly Cookie、响应体不含 refresh;连错 5 次锁 15 分钟(42902);60 秒幂等重放窗口;**staff/superuser 一律 403(运营账号走 `/ops/`,封闭测试可用 `SMS_ALLOW_STAFF_LOGIN=1` 放开)** |
 | `POST /auth/token/refresh` | 刷新 access(响应同时给新 refresh);refresh 可放请求体或 Cookie;轮换后 60 秒宽限内允许并发标签页复用 |
 | `POST /auth/logout` | 注销:拉黑 refresh + 清 Cookie;幂等 204;按 IP 60 次/小时;带 `Origin` 时校验同源 |
