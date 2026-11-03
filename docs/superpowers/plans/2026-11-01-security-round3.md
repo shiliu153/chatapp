@@ -5,7 +5,9 @@
 > 执行方式：`executing-plans` 内联逐批完成，不派子 agent。
 > 每批完成即跑对应测试并勾选，未全绿不进入下一批。
 > 前置：本轮只动部署脚本/模板与少量后端代码，**不需要数据库迁移**。
-> **执行状态：A–E 已完成并合并（PR #30 → `c44035e`，2026-11-03，CI 双绿）；F（上线）待执行。**
+> **执行状态：A–F 全部完成。A–E 已合并（PR #30 → `c44035e`，CI 双绿、文档 PR #31 → `bbc9206`）；
+> F（上线）于 2026-11-03 19:10–19:35 执行完毕，后端 `bbc9206` + 新镜像 `imserver:bbc9206` 已在生产，
+> 详见 §H。**
 
 ## 0. 验收基线
 
@@ -29,6 +31,7 @@
 | C | 容器与网络加固 | M-5、M-6、L-9 | [x] 2026-11-03（两项记录） |
 | D | 低危与文档 | L-1、L-3、L-6 | [x] 2026-11-03 |
 | E | 回归与文档 | 全部 | [x] 2026-11-03 |
+| F | 上线动作（生产 + 新部署路径核对） | 全部 | [x] 2026-11-03（记录见 §H） |
 
 ---
 
@@ -191,14 +194,17 @@
 - [x] 更新 `deploy/README.md`（默认值、维护任务、备份、可信代理、内部接口）。
 - [x] 若 C-1 改了 `sms_verify` 行为，更新 `docs/api/auth.md`。
 
-## F. 上线动作（执行后填写）
+## F. 上线动作（2026-11-03 执行完毕，细节见 §H）
 
-- [ ] 新部署路径：用 `--render-only` 生成一份配置做静态核对；
-      有条件时在一台测试机跑 `--no-tls --allow-dev-sms` 全链路（登录/聊天/发图/语音）。
-      **已完成的部分**：`--render-only` 渲染 + `docker compose config -q` 通过；
-      完整容器起栈未做（本机拉不到 `python:3.11-slim-bookworm`，Docker Hub 不可达）。
-- [ ] 现网（宝塔）不受本轮改动影响；若只上线后端代码（`sms_verify` superuser 403 +
-      visits 节流），按常规 `git pull` + `migrate`（无新迁移）+ 重启 web/worker。
+- [x] 新部署路径：`--render-only` 生成配置做静态核对 + 渲染出的 `docker-compose.yml` 过
+      `docker compose config -q`；**补做了原「未完成」的非 root Web 镜像实构**——
+      2026-11-03 19:20 起本机 Docker Hub 恢复可达，`docker build -f deploy/docker/Dockerfile`
+      构建成功，容器内实测 `uid=10001(app)`、`gunicorn 23.0.0`、`ffmpeg 5.1.9`、`django 5.2.9`、
+      `kombu.transport.redis` + `packaging` 可导入、`/app/{media,staticfiles,logs}` 属主 `app:app`。
+      完整容器起栈（登录/聊天/发图/语音全链路）仍未跑，留作已知限制。
+- [x] 现网（宝塔）升级：`git pull`（`0aded19` → `bbc9206`）→ `pip install -r requirements.txt`
+      （补 `packaging`）→ `migrate --check`（无待应用迁移）→ `collectstatic` → supervisor 重启
+      web/celery。**本轮 `imserver/src` 有 H-1/M-5 改动，故必须同时换 imserver 镜像**（已换）。
 
 ---
 
@@ -246,9 +252,75 @@
 
 ### 未完成 / 已知限制
 
-- **未部署**：上线动作见 §F（宝塔现网只上后端代码时，`git pull` + 重启 web/worker 即可，无迁移）。
-- `python:3.11-slim-bookworm` 拉取失败（本机访问 Docker Hub 超时），**非 root 镜像只做了静态核对**，
-  未实际构建运行；上线前需在能拉镜像的机器上 `docker compose build web` 验证一次。
+- ~~**未部署**~~ → **已于 2026-11-03 19:10–19:35 上线**（后端 `bbc9206` + `imserver:bbc9206`），见 §H。
+- `python:3.11-slim-bookworm` 拉取失败（本机访问 Docker Hub 超时）→ **2026-11-03 19:20 恢复可达**，
+  §H.3 已实构非 root Web 镜像并做容器内核对；只差「整栈起服务的全链路手测」。
 - nginx 仍是 root master（绑 80/443），`nginx-unprivileged` 记录为已知项。
 - Redis 仍未设 `requirepass`（imserver 不支持 AUTH），靠 `backend` 网络隔离兜底。
 - 备份文件未自动加密，README 要求运维加密/离线保存。
+
+---
+
+## H. 上线执行记录（2026-11-03 19:10–19:35，生产 47.116.114.110）
+
+### H.1 回滚点（先记录后动手）
+
+| 项 | 值 |
+|---|---|
+| 代码 | 服务器 `/www/wwwroot/chatapp` 原为 `0aded19`（部署前 `git fetch` 确认要落到 `bbc9206` = `origin/master`） |
+| 镜像 | 原 `imserver:8a7ef1a`（**仍留在服务器上**，可直接切回） |
+| 配置备份 | `/www/server/imserver/imserver.env.bak.20261103-1910`、`/www/server/imserver/.env.bak.20261103-1910`（`IMSERVER_IMAGE` 所在）、`chatapp/.env.bak.20261103-1910` |
+
+回滚步骤：`git reset --hard 0aded19` → 恢复 `imserver.env` 与 `.env`（`IMSERVER_IMAGE=imserver:8a7ef1a`）→
+`docker compose -f /www/server/imserver/docker-compose.yml up -d` → supervisor 重启 `chatapp-web`/`chatapp-celery`。
+**无数据库迁移**，不需要回滚库结构。
+
+### H.2 执行步骤与证据
+
+| 步骤 | 命令要点 | 结果 |
+|---|---|---|
+| 后端代码 | `git pull --ff-only origin master` | HEAD `bbc9206`（33 文件，无 `migrations/`） |
+| 依赖 | `pip install -r chatapp/requirements.txt` | `packaging 25.0` 就位 |
+| 迁移 | `python manage.py migrate --check` | `NO_PENDING_MIGRATIONS`（退出码 0，故未跑 `migrate`） |
+| 静态 | `python manage.py collectstatic --noinput` | 0 copied / 156 unmodified |
+| 进程 | `supervisorctl restart chatapp-web:* chatapp-celery:*` | 两者 `RUNNING`；celery 任务表已注册 |
+| imserver 镜像 | 本地 `docker build -t imserver:bbc9206 imserver/` → `docker save` + gzip（111MB）→ `scp`（134s）→ `docker load` | `Loaded image: imserver:bbc9206` |
+| 切换 | `sed -i` 改 `.env` 的 `IMSERVER_IMAGE` → `docker compose up -d` | 容器 `imserver:bbc9206` Up；日志 `internal_allow_ready rules=2` |
+| 配对回填 | `python manage.py im_sync_pairs` | `同步完成:成功 3,失败 0`（幂等） |
+
+### H.3 新部署路径核对（§F 第 1 项）
+
+- `docker build -f deploy/docker/Dockerfile -t chatapp-web:bbc9206 .` **成功**（Docker Hub 19:20 起可达）。
+- 容器内实测：`uid=10001(app)`、`gunicorn 23.0.0`、`ffmpeg 5.1.9-0+deb12u1`、`django 5.2.9`、
+  `import kombu.transport.redis` + `from packaging.version import Version` 均通过（即 CI 那个 503 的根因在镜像里已闭合），
+  `/app/{media,staticfiles,logs}` 属主 `app:app`。
+- 未做：整栈 `docker compose up` 后的全链路手测（登录/发图/语音）——本机是 2C2G 之外的开发机，
+  起 MySQL+Redis+Django+nginx+imserver 会与现网配置争用习惯，且有端口冲突风险，记录为已知限制。
+
+### H.4 冒烟验收（脚本，全绿）
+
+| 项 | 期望 | 实测 |
+|---|---|---|
+| `GET /api/v1/app/config` | 200 | **200**（`min_app_version=1.0.1` / `latest=1.0.2`） |
+| 站点根 `https://chat.shiliu153.cn/` | 200 | **200** |
+| `GET /health` / `/readyz`（公网） | 200 | **200 / 200** |
+| `GET /discovery/visits`（无令牌） | 401 | **401**（`/likes` 同为 401） |
+| `POST /auth/sms/send` | 200（**入队成功即证明 `packaging` 修复生效**） | **200** |
+| `POST /auth/sms/verify`（staff 手机号） | 403 `运营账号请使用运营后台登录` | **403**（C-1 生产生效） |
+| `settings` 断言 | `SMS_ALLOW_STAFF_LOGIN=False`、`VISITS_RATE=120/hour`、`VISITS_COUNT_RATE=240/hour`、`PROFILE_VISIT_MAX_OWNER=500` | 全部符合 |
+| imserver `/internal/readyz`（探针脚本 `probe-readyz.sh`） | 200 | **200**（连续两次） |
+| imserver `/metrics` | 计数增长 | `im_sends_total{result="ok"} 1` |
+| 内部发送 `im_send --from u8 --to u12` | 成功 | **已发送**（Django→imserver HMAC 路径通） |
+| 未配对发送 `--from u8 --to u9` | 拒绝 | `/internal/send` **400**（H4 配对口径，符合预期，非回归） |
+| 媒体验签 `GET /im/images/auth`（无签名） | 403 fail-closed | **403**（`/media/chat/` 与非 chat 前缀同为 403） |
+| WS 路由 `/im/ws`（无令牌握手） | 4xx | **400** |
+| web 日志 | 0 个 5xx / 0 ERROR | **0 / 0** |
+| 容器身份 | 非 root | `docker inspect` → `app`；`docker exec imserver id` → `uid=10001(app)` |
+
+### H.5 观察与遗留
+
+- 上线后 `readyz`、`/metrics`、业务接口均正常；imserver 日志仅两条启动行（`startup` + `internal_allow_ready`），无 error。
+- 遗留：整栈全链路手测未做（见 §H.3）；`SMS_DEV_MODE` 仍为默认 1（S1/H2 产品决定不修，只允许封闭测试）；
+  图片/语音仍无机器审核。
+- 顺带确认：H-1 生效后 `imserver.env` **无需**新增 `IM_INTERNAL_ALLOW`——宝塔现网 Django 与 nginx 都从
+  127.0.0.1 访问 imserver，回环默认值即可；容器化部署（nginx 在 `172.28.0.10`）才需要显式配网段。
