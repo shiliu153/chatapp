@@ -34,15 +34,27 @@ systemctl daemon-reload
 systemctl show mysqld -p Restart   # 应输出 Restart=always
 ```
 
-**B. 宝塔 / mysqld_safe 形态(现网)**:每分钟 cron 兜底。
+**B. 宝塔 / mysqld_safe 形态(现网)**:每分钟 cron 兜底。**已于 2026-11-03 上线**。
 
 ```bash
+# 0) 探活用的 mysql 客户端配置(root 无免密登录,用应用账号建 cnf)
+cd /www/wwwroot/chatapp/chatapp
+U=$(grep '^DB_USER=' .env | cut -d= -f2); P=$(grep '^DB_PASSWORD=' .env | cut -d= -f2)
+printf '[client]\nuser=%s\npassword=%s\nhost=127.0.0.1\nport=3306\n' "$U" "$P" > /root/.my.im.cnf
+chmod 600 /root/.my.im.cnf && mysql --defaults-extra-file=/root/.my.im.cnf -N -e 'SELECT 1'
+
+# 1) 安装脚本与参数
+mkdir -p /www/server/ops
 install -m 755 deploy/ops/mysql-watchdog.sh /www/server/ops/mysql-watchdog.sh
-# probe.env 里已有的机器人地址直接复用
-grep -q PROBE_WEBHOOK /www/server/ops/probe.env && \
-  echo 'PROBE_WEBHOOK=<机器人地址>' >> /etc/default/mysql-watchdog
+printf 'MYSQL_CNF=/root/.my.im.cnf\nMYSQL_START_CMD="/etc/init.d/mysqld start"\n' \
+  > /etc/default/mysql-watchdog
+
+# 2) 每分钟跑一次
 echo '* * * * * root set -a; . /etc/default/mysql-watchdog; set +a; /www/server/ops/mysql-watchdog.sh >> /www/wwwlogs/mysql_watchdog.log 2>&1' \
   > /etc/cron.d/mysql-watchdog
+
+# 3) 手动跑一次:健康时应静默退出 0
+set -a; . /etc/default/mysql-watchdog; set +a; /www/server/ops/mysql-watchdog.sh; echo $?
 ```
 
 验证(会短暂中断 DB,低峰期做):

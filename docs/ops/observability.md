@@ -21,25 +21,44 @@ node_exporter :9105 ─────┘         │
 
 ## 2. 部署
 
+**已于 2026-11-03 上线**(`/www/server/observability`)。完整步骤与踩过的坑:
+
 ```bash
 # 1) 生成抓取令牌(生产必须;不配则 /metrics 只对回环开放)
 TOKEN=$(openssl rand -hex 24)
 echo "METRICS_TOKEN=$TOKEN" >> /www/wwwroot/chatapp/chatapp/.env
-echo "$TOKEN" > /www/server/observability/metrics_token
 
-# 2) 拉起观测栈
+# 2) 拷贝栈并写令牌
+mkdir -p /www/server/observability
+scp -r deploy/observability/* root@<SERVER_IP>:/www/server/observability/
 cd /www/server/observability
-WECOM_WEBHOOK='https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...' \
-  docker compose up -d
+printf '%s' "$TOKEN" > metrics_token          # 不要换行,Prometheus 会原样当 token
+chown 65534:65534 metrics_token && chmod 640 metrics_token   # 容器内以 nobody 读
+chmod -R a+rX grafana                        # 否则 Grafana 读不到 provisioning,看板不加载
 
-# 3) 重启 gunicorn 让 METRICS_TOKEN 生效
-supervisorctl restart chatapp-web
+# 3) 国内服务器拉不到 Docker Hub 时用镜像站
+cp docker-compose.mirror.yml docker-compose.override.yml
 
-# 4) 验证
-curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/metrics | head -5
+# 4) 拉起
+docker compose up -d
+
+# 5) 重启 gunicorn 让 METRICS_TOKEN / LOG_FORMAT 生效
+/www/server/panel/pyenv/bin/supervisorctl -c /etc/supervisor/supervisord.conf \
+  restart "chatapp-web:*" "chatapp-celery:*"
+
+# 6) 验证
+curl -s -H "X-Metrics-Token: $TOKEN" http://127.0.0.1:8000/metrics | head -5
 curl -s http://127.0.0.1:9101/metrics | head -5
+curl -s "http://127.0.0.1:9090/api/v1/targets" | python3 -m json.tool | grep health
 curl -s -o /dev/null -w '%{http_code}\n' https://<DOMAIN>/metrics   # 期望 404
 ```
+
+**三个上线时踩到的坑**(都已在仓库里修好):
+
+1. `/metrics` 被 `SecurityMiddleware` 301 到 https,Prometheus 跟随重定向后对 8000 做 TLS 握手失败
+   → Django 侧加 `SECURE_REDIRECT_EXEMPT = [r"^metrics$"]`(`scrape_config` 不支持自定义 headers)。
+2. Prometheus 容器以 `nobody` 读令牌 → `chown 65534:65534 && chmod 640`。
+3. Grafana 读不到 provisioning 目录 → `chmod -R a+rX grafana`,否则看板列表为空。
 
 Grafana 只监听回环,本机看板用 SSH 隧道:
 

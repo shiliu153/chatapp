@@ -267,12 +267,40 @@
 - [x] 测试 3 条（`config.tests.UnhandledExceptionTests`）：DRF 500 JSON、API 前缀 JSON、
       非接口路径纯文本。
 
-### P0-2 MySQL 无系统级守护（脚本就绪，待上线执行）
+### P0-2 MySQL 无系统级守护（已上线 2026-11-03）
 
 - [x] `deploy/ops/mysql-watchdog.sh`：每分钟探活，失败按 systemd/init.d 顺序拉起，
       `flock` 防重入、失败只告警一次、恢复补通知。
 - [x] `deploy/ops/mysql-restart-always.conf`：有真 systemd unit 时的 `Restart=always` drop-in。
 - [x] `docs/ops/runbook.md`：安装步骤、验证方法、故障处置顺序与告警对照表。
-- [ ] **上线执行**（需 ssh 到生产）：安装 cron + 机器人地址，然后按 runbook §2.2
-      做一次双杀演练，确认 90s 内自动恢复。
+- [x] **上线执行**：`/www/server/ops/mysql-watchdog.sh` + `/etc/cron.d/mysql-watchdog`；
+      探活用 `/root/.my.im.cnf`（从 `.env` 的 DB_USER/DB_PASSWORD 生成），
+      `MYSQL_START_CMD=/etc/init.d/mysqld start`；手动执行退出码 0。
+- [ ] **双杀演练**：会短暂中断生产 DB，留待低峰期按 runbook §2.2 执行。
+
+---
+
+## 8. 上线记录（2026-11-03）
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 | 服务器 `master` 快进到 `a6263c6`（含 8a7ef1a 的整改提交） |
+| 依赖 | venv 安装 `prometheus-client==0.21.1` |
+| 迁移 | `feed.0005_post_feed_order_index` 已应用 |
+| 环境变量 | `LOG_FORMAT=json`、`METRICS_TOKEN=<48 hex>`；`LOG_FILE` 原有 |
+| 进程 | gunicorn / celery 重启，`/api/v1/health` = 200 |
+| 指标 | 本机 `/metrics` 带令牌 200、无令牌 403；公网 `https://…/metrics` = **404** |
+| 观测栈 | Prometheus / Grafana / Alertmanager / relay / node_exporter 全部 Up；**api / im / node 三个 target 全 up** |
+| 看板 | `chatapp 概览` 已由 provisioning 加载（Grafana 需 `chmod -R a+rX`，否则读不到目录） |
+| 日志 | `app.log` 输出单行 JSON，带 `route/status/duration_ms/request_id` |
+| 告警链路 | relay 收到合成告警并正确格式化；**企业微信 webhook 未配置**（只落日志） |
+| imserver | 新镜像 `imserver:8a7ef1a`（P0-1 死锁修复 + `/metrics`）已上线，`readyz=200`、`/metrics=200` |
+| MySQL 看门狗 | cron 每分钟，手动执行退出码 0；双杀演练未做 |
+| 资源 | 内存 used 1223MB / available 647MB；观测栈实际占用 ≈135MB（Prometheus 31 / Grafana 63 / 其余 40） |
+
+上线时踩到并已修好的三个坑：`/metrics` 被 301 到 https（`SECURE_REDIRECT_EXEMPT`）、
+Prometheus 容器读令牌权限（`chown 65534` + `640`）、Grafana 读不到 provisioning（`a+rX`）。
+
+**待办**：企业微信机器人地址（配到 `WECOM_WEBHOOK` 后重启 relay）；Loki `logs` profile 未启动
+（内存留余量，需要时 `docker compose --profile logs up -d`）；MySQL 双杀演练。
 

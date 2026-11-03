@@ -88,6 +88,7 @@ services:
     volumes:
       - ./promtail.yml:/etc/promtail/promtail.yml:ro
       - /www/wwwlogs:/www/wwwlogs:ro
+      - /www/server/panel/plugin/supervisor/log:/www/server/panel/plugin/supervisor/log:ro
     depends_on:
       - loki
     mem_limit: 48m
