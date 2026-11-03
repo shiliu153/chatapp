@@ -168,14 +168,4 @@ jobs:
         run: python manage.py migrate --noinput --verbosity=2
 
       - name: 跑测试
-        run: |
-          set -o pipefail
-          python manage.py test --noinput --verbosity=2 2>&1 | tee /tmp/test.log || status=$?
-          status=${status:-0}
-          if [ "$status" -ne 0 ]; then
-            awk '/^(FAIL|ERROR): /{p=30} p>0{print "::error title=test-detail::" $0; p--}' /tmp/test.log | head -n 120
-            tail -n 25 /tmp/test.log | while read -r line; do
-              echo "::error title=tail::$line"
-            done
-            exit "$status"
-          fi
+        run: python manage.py test --noinput --verbosity=2

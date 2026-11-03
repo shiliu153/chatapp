@@ -8,6 +8,10 @@ python-dotenv>=1.0
 Pillow>=10.0
 requests>=2.31
 celery>=5.4
+# kombu 的 redis transport 在「第一次真的往 broker 发布任务」时执行
+# `from packaging.version import Version`,而 kombu 并未把 packaging 声明成硬依赖。
+# 缺它时所有 `.delay` 入队都会 ModuleNotFoundError(2026-11-03 CI 实测:发短信 503)。
+packaging>=24.0
 redis>=5.0
 django-redis>=5.4
 gunicorn>=21.2
