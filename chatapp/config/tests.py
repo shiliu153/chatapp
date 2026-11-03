@@ -784,6 +784,16 @@ class MetricsTests(APITestCase):
         resp = self.client.get("/metrics", REMOTE_ADDR="203.0.113.9")
         self.assertEqual(resp.status_code, 404)
 
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_metrics_is_exempt_from_https_redirect(self):
+        """Prometheus 走 http 直连回环:不能被 301 到 https(否则抓取变成 TLS 握手)。"""
+        self.assertEqual(self.client.get("/metrics").status_code, 200)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_business_paths_still_redirect_to_https(self):
+        """豁免只针对 /metrics,业务接口仍强制 https。"""
+        self.assertEqual(self.client.get("/api/v1/health").status_code, 301)
+
 
 class _BoomView(APIView):
     """测试专用视图:抛出未预期异常,用于验证 500 也是 JSON 契约。"""

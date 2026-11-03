@@ -359,6 +359,11 @@ LOG_FORMAT = os.getenv("LOG_FORMAT", "text")
 # 未设置时 /metrics 只对回环直连开放,其余一律 404(不暴露端点存在)。
 METRICS_TOKEN = os.getenv("METRICS_TOKEN", "")
 
+# /metrics 豁免 HTTPS 强制跳转:Prometheus 在回环上直接抓 http://127.0.0.1:8000,
+# 不豁免会被 301 到 https,跟随重定向后对 8000 做 TLS 握手而失败
+# (2026-11-03 上线时实际踩到)。
+SECURE_REDIRECT_EXEMPT = [r"^metrics$"]
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

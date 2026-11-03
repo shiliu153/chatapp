@@ -1,0 +1,20 @@
+# 国内服务器拉不到 Docker Hub 时,用镜像站覆盖 image。
+# 用法(服务器上):
+#   cp docker-compose.mirror.yml docker-compose.override.yml
+#   docker compose up -d
+# 镜像站不可用时删掉 override 即可回到官方源。
+services:
+  prometheus:
+    image: docker.m.daocloud.io/prom/prometheus:v2.55.1
+  alertmanager:
+    image: docker.m.daocloud.io/prom/alertmanager:v0.27.0
+  alert-relay:
+    image: docker.m.daocloud.io/library/python:3.12-alpine
+  grafana:
+    image: docker.m.daocloud.io/grafana/grafana:11.3.1
+  node-exporter:
+    image: docker.m.daocloud.io/prom/node-exporter:v1.8.2
+  loki:
+    image: docker.m.daocloud.io/grafana/loki:3.2.0
+  promtail:
+    image: docker.m.daocloud.io/grafana/promtail:3.2.0
