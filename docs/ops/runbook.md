@@ -95,7 +95,90 @@ mysql -e 'SELECT 1' && tail -5 /www/wwwlogs/mysql_watchdog.log
 | 磁盘 >85% | `du -sh /www/wwwroot/*` | 聊天图片/语音堆积 | `python manage.py media_cleanup --apply`;检查 30 天清理任务 |
 | 内存不足 | `free -m`、`ps aux --sort=-rss` | 压测进程、日志未轮转 | 杀掉压测进程;检查 logrotate |
 
-## 5. 事故复盘模板
+## 5. 备份与恢复
+
+### 5.1 现在备什么、多久、放哪
+
+| 项 | 内容 | 频率 | 位置 | 保留 |
+|---|---|---|---|---|
+| `chatapp` 库 | 全库 `mysqldump`(32 张表,约 128 KB) | 每天 03:20 | `/www/wwwroot/chatapp/backups/db/chatapp-db-<时间>.sql.gz` | 14 天 |
+| `chatapp_im` 库 | 全库 `mysqldump`(7 张表,约 16 KB) | 每天 03:20 | 同上,`chatapp-im-db-<时间>.sql.gz` | 14 天 |
+| 媒体目录 | `media/`(资料图/广场图/聊天图/语音,约 1.6 MB) | 每天 03:20 | `backups/media/chatapp-media-<时间>.tar.gz` | 14 天 |
+| 配置快照 | `.env`、imserver `imserver.env`、nginx vhost、两条 supervisor ini、`cron.d/mysql-watchdog` | 每天 03:20 | `backups/config/chatapp-config-<时间>.tar.gz` | 14 天 |
+
+每个 dump 都带同名 `.sha256`;权限 `600`,目录 `700`(`umask 077`)。
+
+- **脚本(仓库是唯一事实来源)**:`deploy/ops/chatapp-backup.sh` → `install -m 755` 到 `/www/server/ops/`
+- **cron**(root):
+  ```
+  20 3 * * * flock -xn /www/server/ops/chatapp-backup.lock \
+    -c /www/server/ops/chatapp-backup.sh >> /www/wwwlogs/chatapp-backup.log 2>&1
+  ```
+- **日志**:`/www/wwwlogs/chatapp-backup.log`,成功一行摘要(`db=/media=/config=/磁盘剩余`),失败非零退出并写「失败: 原因」。
+- **看是否还在跑**:`tail -3 /www/wwwlogs/chatapp-backup.log` 与 `ls -lt /www/wwwroot/chatapp/backups/db | head -3`。**超过 36 小时没有新文件就是坏了**。
+
+> **RPO 24 小时 / RTO 约 10 分钟**(实测:dump 1 秒、恢复 7 秒、起服务数分钟)。
+
+### 5.2 异地(零成本方案)
+
+备份与数据库**同盘**(2C2G 单机,无法本地解决)。当前采用零成本异地:**每天把最新 dump 拉回个人电脑**。
+
+```powershell
+# 仓库内脚本,默认存到 %USERPROFILE%\chatapp-backups,保留 30 天,带 sha256 校验
+pwsh -NoProfile -File deploy/ops/pull-backup.ps1
+
+# 注册成每天 04:10 的计划任务(机器不开就跳过,不会补跑)
+schtasks /create /tn "chatapp-pull-backup" /sc daily /st 04:10 ^
+  /tr "pwsh -NoProfile -File D:\pycharmproject\chat_app\deploy\ops\pull-backup.ps1" /f
+```
+
+**这条链的诚实边界**:它防的是「服务器磁盘/整机没了」,**不防**「个人电脑也一起没了」。有对象存储预算后应改为上传 OSS/冷归档,并保留本条作为第二份。
+
+### 5.3 从备份恢复(照这个顺序做)
+
+前提:目标机器上 MySQL 8 已就绪;`backups/config/*.tar.gz` 里的 `.env` 已就位。
+
+```bash
+# 1) 建库(空库,字符集必须与生产一致,否则中文会乱码)
+mysql -uroot -p -e "CREATE DATABASE chatapp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                    CREATE DATABASE chatapp_im CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+# 2) 恢复两个库(先应用库,再 IM 库;顺序不影响,但应用库更关键)
+gunzip -c chatapp-db-<时间>.sql.gz     | mysql -uroot -p chatapp
+gunzip -c chatapp-im-db-<时间>.sql.gz  | mysql -uroot -p chatapp_im
+
+# 3) 校验:行数必须与备份时一致(见 5.4 的对照表口径)
+mysql -uroot -p -N -B chatapp -e "
+  SELECT 'accounts_user',COUNT(*) FROM accounts_user
+  UNION ALL SELECT 'users_profile',COUNT(*) FROM users_profile
+  UNION ALL SELECT 'users_photo',COUNT(*) FROM users_photo
+  UNION ALL SELECT 'discovery_match',COUNT(*) FROM discovery_match;"
+
+# 4) 校验 schema 与当前代码是否一致(不一致说明备份比代码旧,先 migrate)
+cd /www/wwwroot/chatapp/chatapp && python manage.py migrate --check
+
+# 5) 起服务 + 冒烟
+supervisorctl -c /etc/supervisor/supervisord.conf restart 'chatapp-web:*' 'chatapp-celery:*'
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/api/v1/health
+```
+
+**恢复后必做**:`python manage.py im_sync_pairs`(回填配对到 imserver)、确认 `SMS_PHONE_WHITELIST` 仍在 `.env` 里、确认 `IM_MEDIA_SIGN_SECRET` 与 imserver 侧一致 —— 否则「库恢复了但发不出消息/发不了图」。
+
+### 5.4 恢复演练记录
+
+| 日期 | 场景 | 做法 | 结果 |
+|---|---|---|---|
+| 2026-11-03 | 生产备份 → **另一台机器**(本机 Docker `mysql:8.0`)恢复 | 拉最新 dump + `.sha256` 校验 → 建库 → 恢复两库 → `migrate --check` → 从恢复库挑已有账号走完整 `sms/send` + `sms/verify` 登录链路 | **通过**:行数与生产逐表一致(`accounts_user` 30 / `users_profile` 30 / `users_photo` 46 / `discovery_match` 3 / `discovery_swipe` 25 / `django_migrations` 55 / `feed_post` 8),`migrate --check` 退出 0,登录返回 `200` 且 `is_new_user=false`(**登进的是恢复出来的原账号**,不是新建号)。耗时:dump 1 秒、应用库恢复 6.5 秒、IM 库 0.4 秒 |
+
+**这次演练踩到的坑(别再踩)**:
+
+1. **`auth_user` 不存在** —— 本项目用自定义用户模型,表名是 **`accounts_user`**。写校验 SQL 时按 Django 默认表名猜会直接报 `Table 'chatapp.auth_user' doesn't exist`。
+2. **`chatapp_im` 库不能拿应用账号备** —— 应用账号只有 `chatapp.*` 权限;IM 库的凭据在 imserver 的 `IM_MYSQL_DSN` 里(`mysql://imserver:<口令>@host:port/chatapp_im`),脚本按**最后一个 `@`** 切分来解析。
+3. **只 `gzip -t` 不够** —— 截断的 dump 压缩包往往还是合法的 gzip。必须再断言末行是 `-- Dump completed`,脚本里就是这么做的。
+4. **PowerShell 不支持 `<` 重定向** —— 在本机演练时用 `docker cp` 把 `.gz` 送进容器再 `gunzip`,不要写 `docker exec ... < file`。
+5. **旧 `/root/backup.sh` 是假备份**:它只 dump `chatapp_im` 的 `im_message`/`im_user` 两张表,**应用库一次没备过**,而且没有 cron;最后一次产物停在 2026-10-28。这正是「有备份目录但等于没有」的典型 —— 判断备份是否有效只能靠**恢复演练**,不能看文件在不在。
+
+## 6. 事故复盘模板
 
 每次 P0/P1 故障在 `docs/ops/incidents/YYYY-MM-DD-<slug>.md` 留一份,四段:
 

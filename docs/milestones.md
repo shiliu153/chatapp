@@ -66,6 +66,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(上�
 
 | 2026-11-03 | **封闭测试白名单关死注册面**(backlog B-1 / 审查 K-1「全项目第一风险」):现场确认生产 `.env` **连 `SMS_DEV_MODE` 这一行都没有**,`settings.py` 默认 `"1"` 静默接管 —— 运行时 `SMS_DEV_CODE=123456`,任何知道手机号的人都能登录该账号、读走全部聊天记录(30 个账号)。按「关死注册面」路线止血:`settings.SMS_PHONE_WHITELIST`(逗号分隔,**留空=不限制**)+ `accounts.services.ensure_phone_allowed()` + 新业务码 `40301`;`sms_send` 在发码前拦(不落码/不入队/不占 60 秒间隔)、`sms_verify` 再拦一次(纵深防御);文档同步 `docs/api/auth.md`、`conventions.md`、`.env.example`、`pitfalls/backend.md`。后端 715 测试绿。**已上线**:`.env` 显式 `SMS_DEV_MODE=1` + 白名单 30 个现有账号 → 部署 `c080e78`(连带 A-1/A-2/A-4,含 2 个纯索引迁移)→ 重启 web + worker;生产实测名单外发码/登录均 `403 + 40301`、名单内 `200`。**残余风险**:名单内仍是固定码,且 `403`/`200` 差异构成受 IP 限流约束的探测口子 —— 对外开放注册前必须做 B-1b(接真实短信商) | PR #39
 
+| 2026-11-03 | **备份上 cron + 恢复演练**(backlog A-3 / 审查 N-6):先查出真相 —— 服务器上的 `/root/backup.sh` **只备 `chatapp_im` 的两张表,应用库一次没备过**,且**没进 cron**,最后产物停在 10-28。新增 `deploy/ops/chatapp-backup.sh`:`chatapp` + `chatapp_im` 双库全量(IM 库凭据从 `IM_MYSQL_DSN` 解析)+ 媒体 + 配置快照,每份带 `.sha256`、`umask 077`/`600`、保留 14 天,并断言 dump 末行 `-- Dump completed`(截断包往往仍是合法 gzip);cron `20 3 * * *` + `flock` 防重入,日志 `/www/wwwlogs/chatapp-backup.log`。异地走**零成本**路线:`deploy/ops/pull-backup.ps1` 每日把最新 dump 拉回个人电脑(sha256 校验 + 保留 30 天),OSS 因预算仍挂起。**恢复演练真跑了**:dump 拉回本机 → Docker `mysql:8.0` 干净实例 → 恢复两库 → `migrate --check` 退出 0 → 从恢复库挑已有账号走完整 `sms/send`+`sms/verify` 返回 200 且 `is_new_user=false`,逐表行数与生产一致;dump 1s / 应用库恢复 6.5s / IM 库 0.4s。`docs/ops/runbook.md` 新增 §5「备份与恢复」含 5 条踩坑。RPO 24h、RTO ≈10min | PR #41
+
 ## 怎么维护
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;
