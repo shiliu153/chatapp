@@ -92,8 +92,13 @@ python manage.py seed_scale_users --count 100000 --posts 500000
 # 2) 量延迟与执行计划
 python manage.py scale_probe --repeat 5 --offsets 0,1000,10000,50000 --explain
 
-# 3) 压接口(需要登录态,当前 perf/run.py 只支持公开接口)
+# 3) 压接口:只读接口直接压;写接口(需要登录态)用 perf_tokens 签令牌后压
 python3 perf/run.py --scenario api_read --conns 100 --dur 30 --out perf/results/feed.json
+#    python manage.py perf_tokens --count 50 --out ../perf/results/headers.jsonl
+#    python3 perf/run.py --scenario api_write --path /api/v1/discovery/swipe \
+#      --body '{"target_user_id": {i}, "action": "like"}' --i-start <首个目标 id> \
+#      --headers-file perf/results/headers.jsonl --conns 50 --dur 30
+#    写场景的口径与坑见 perf/README.md §2.2
 
 # 4) 清理
 python manage.py seed_scale_users --count 100000 --clean
