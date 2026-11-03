@@ -3,6 +3,8 @@
 #
 # 所有子命令都在部署目录下执行 docker compose,不依赖当前工作目录。
 set -euo pipefail
+# 备份里含手机号、密码哈希、聊天记录与图片元数据:目录与文件都只给属主读写(M-4)。
+umask 077
 
 SELF=$(readlink -f -- "${BASH_SOURCE[0]}")
 APP_DIR=$(cd -- "$(dirname -- "$SELF")/.." && pwd)
@@ -58,6 +60,7 @@ case "${1:-}" in
         compose exec -T mysql sh -c \
             'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers --databases chatapp chatapp_im' \
             | gzip > "$out"
+        chmod 600 "$out"
         echo "已备份: $out"
         ;;
     restore)
@@ -78,6 +81,7 @@ case "${1:-}" in
         mkdir -p "$(dirname -- "$out")"
         docker run --rm -v chatapp_media:/data:ro -v "$(dirname -- "$out")":/backup \
             alpine tar czf "/backup/$(basename -- "$out")" -C /data .
+        chmod 600 "$out"
         echo "已备份: $out"
         ;;
     cert-renew)     exec "$APP_DIR/bin/certbot-renew.sh" ;;

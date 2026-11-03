@@ -47,5 +47,8 @@ Thumbs.db
 # 观测栈的抓取令牌(部署时从 METRICS_TOKEN 写入,不入库)
 deploy/observability/metrics_token
 
+# oneclick.sh --render-only 的默认输出目录(含 secrets/values.env 真实密钥)
+deploy-render/
+
 # 压测结果(每次跑都产生;只提交 perf/baseline.json)
 perf/results/

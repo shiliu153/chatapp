@@ -35,5 +35,13 @@ COPY chatapp/ /app/
 COPY deploy/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 755 /usr/local/bin/entrypoint.sh
 
+# M-5:非 root 运行。容器被 RCE 后拿不到挂载卷的写权限,也读不到别的进程环境。
+# 三个目录要预先建好并 chown:Docker 初始化命名卷时会继承镜像里的属主。
+RUN groupadd --gid 10001 app \
+ && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app \
+ && mkdir -p /app/media /app/staticfiles /app/logs \
+ && chown -R app:app /app
+USER app
+
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["gunicorn", "config.wsgi:application", "-b", "0.0.0.0:8000", "-w", "2", "--timeout", "120", "--access-logfile", "-"]

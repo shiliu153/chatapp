@@ -1160,6 +1160,13 @@ class ChatImageAuthTests(APITestCase):
             signed = media_sign.sign_url("/media/photos/a.jpg", now=int(time.time()))
         self.assertEqual(self.auth(signed).status_code, 403)
 
+    def test_non_chat_path_rejected_even_if_verify_passes(self):
+        """L-6:路径前缀由视图显式校验,不再依赖 ``media_sign.verify`` 内部兜底。"""
+        with patch("im.views.media_sign.verify", return_value=True):
+            response = self.auth("/media/photos/a.jpg?e=9999999999&s=x")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], 403)
+
     def test_heavy_banned_user_can_still_view(self):
         user = User.objects.create_user(phone="13900139009")
         profile = get_profile(user)

@@ -1031,7 +1031,7 @@ class ProfileVisitModelTests(TestCase):
         self.assertEqual(first.viewer_id, self.b.id)
 
 class ProfileVisitWriteTests(TestCase):
-    """落库口径:30 分钟窗口、隐身、自看、异常兜底。"""
+    """落库口径:30 分钟窗口、隐身、自看、展示门槛与上限、异常兜底。"""
 
     def setUp(self):
         cache.clear()
@@ -1040,6 +1040,28 @@ class ProfileVisitWriteTests(TestCase):
         self.owner = User.objects.create_user(phone="13900139000")
         Profile.objects.create(user=self.viewer, nickname="小明")
         Profile.objects.create(user=self.owner, nickname="小红")
+        self._make_displayable(self.viewer, "小明")
+
+    def _make_displayable(self, user, nickname="小明"):
+        """把用户补成「资料完善 + 一张过审照片」——访客记录只对这类访问者落库(M-2)。
+
+        Args:
+            user: 目标账号。
+            nickname: 昵称(资料完善必填项之一)。
+
+        Returns:
+            None。
+        """
+        profile = user.profile
+        profile.nickname = nickname
+        profile.gender = "male"
+        profile.birthday = date(1995, 1, 1)
+        profile.city = "上海"
+        profile.bio = "你好"
+        profile.save()
+        Photo.objects.create(user=user, file="photos/visit-test.jpg",
+                             status=PhotoStatus.APPROVED)
+        profile.refresh_status()
 
     def test_first_visit_creates_row(self):
         services.record_profile_view(self.viewer.id, self.owner.id)
@@ -1080,10 +1102,36 @@ class ProfileVisitWriteTests(TestCase):
                    side_effect=RuntimeError("db down")):
             services.record_profile_view(self.viewer.id, self.owner.id)   # 不抛即通过
 
-    def test_missing_profile_is_treated_as_not_hidden(self):
+    def test_missing_profile_is_not_recorded(self):
+        """资料未创建 = 未完善,不在访客列表的展示口径内,不落库(M-2)。"""
         stranger = User.objects.create_user(phone="13900139002")   # 没有 Profile
         services.record_profile_view(stranger.id, self.owner.id)
-        self.assertTrue(ProfileVisit.objects.filter(viewer=stranger).exists())
+        self.assertFalse(ProfileVisit.objects.filter(viewer=stranger).exists())
+
+    def test_incomplete_viewer_is_not_recorded(self):
+        """资料未完善的访问者不会出现在列表里,写库是纯放大(M-2)。"""
+        half = User.objects.create_user(phone="13900139003")
+        Profile.objects.create(user=half, nickname="只填了昵称")
+        services.record_profile_view(half.id, self.owner.id)
+        self.assertFalse(ProfileVisit.objects.filter(viewer=half).exists())
+
+    def test_viewer_without_approved_photo_is_not_recorded(self):
+        """照片待审/没有照片同样不落库,与 ``visits_received_queryset`` 同口径(M-2)。"""
+        profile = self.viewer.profile
+        Photo.objects.filter(user=self.viewer).update(status=PhotoStatus.PENDING)
+        profile.refresh_status()
+        services.record_profile_view(self.viewer.id, self.owner.id)
+        self.assertFalse(ProfileVisit.objects.filter(viewer=self.viewer).exists())
+
+    @override_settings(PROFILE_VISIT_MAX_PER_OWNER=2)
+    def test_owner_keeps_only_recent_visits(self):
+        """单个 owner 超过上限时淘汰最旧的行,表不会无限增长(M-2 第二道闸)。"""
+        for index in range(3):
+            viewer = User.objects.create_user(phone=f"1370013900{index}")
+            Profile.objects.create(user=viewer, nickname=f"访客{index}")
+            self._make_displayable(viewer, f"访客{index}")
+            services.record_profile_view(viewer.id, self.owner.id)
+        self.assertEqual(ProfileVisit.objects.filter(owner=self.owner).count(), 2)
 
 class PurgeProfileVisitsCommandTests(TestCase):
     """保留期清理:dry-run 不删、--apply 只删过期行、自定义天数。"""

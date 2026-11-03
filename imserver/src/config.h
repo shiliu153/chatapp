@@ -25,6 +25,10 @@ struct Config {
   std::vector<std::string> allowed_origins;
   // 可信代理网段:只有直连对端命中这些地址,才采信它带来的 X-Real-IP(L9)
   std::vector<std::string> trusted_proxies{"127.0.0.1", "::1"};
+  // 内部管理接口(/internal/*)允许的来源网段(H-1)。容器部署下 Django 的源地址
+  // 不是回环,只写回环会让 user_sig/配对/封禁全部 403;这里显式配置来源网段,
+  // 仍保留 HMAC 校验。默认只允许本机,与旧行为一致。
+  std::vector<std::string> internal_allow{"127.0.0.1", "::1"};
   // 监听非回环地址必须显式开启(默认只允许 127.0.0.1 / ::1)
   bool allow_public_bind = false;
   int io_threads = 2;

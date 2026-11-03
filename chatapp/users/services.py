@@ -23,7 +23,7 @@ from django.utils import timezone
 from im import tasks as im_tasks
 
 from . import presence
-from .models import PhotoStatus, Preference, Profile, ProfileVisit
+from .models import Photo, PhotoStatus, Preference, Profile, ProfileStatus, ProfileVisit
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,10 @@ def _record_visit(viewer_id: int, target_id: int) -> None:
     写库放在内层 ``atomic()`` 里,失败只回滚到保存点,不会毒化外层事务
     (``GET /users/{id}`` 本身没有外层事务,但测试与嵌套调用有)。
 
+    **只记录「会展示在访客列表里的人」**(M-2):访客列表只展示资料完善且有过审照片的
+    人,所以资料未完善的访问者即使落库也不会被看到 —— 批量造号可以拿它把表写爆。
+    判断口径与 ``discovery.services.visits_received_queryset`` 保持一致。
+
     Args:
         viewer_id: 浏览者账号 id。
         target_id: 被浏览者账号 id。
@@ -88,9 +92,13 @@ def _record_visit(viewer_id: int, target_id: int) -> None:
     """
     if viewer_id == target_id:      # 自己看自己不算
         return
-    hidden = (Profile.objects.filter(user_id=viewer_id)
-              .values_list("visits_hidden", flat=True).first())
-    if hidden:
+    viewer = (Profile.objects.filter(user_id=viewer_id)
+              .values("visits_hidden", "status").first())
+    if viewer is None or viewer["visits_hidden"]:
+        return
+    if viewer["status"] != ProfileStatus.COMPLETE:
+        return
+    if not Photo.objects.filter(user_id=viewer_id, status=PhotoStatus.APPROVED).exists():
         return
     if not cache.add(f"visit:{viewer_id}:{target_id}", 1, timeout=PROFILE_VISIT_TTL_SECONDS):
         return
@@ -99,8 +107,32 @@ def _record_visit(viewer_id: int, target_id: int) -> None:
         with transaction.atomic():
             ProfileVisit.objects.update_or_create(
                 viewer_id=viewer_id, owner_id=target_id, defaults={"last_at": now})
+            _trim_owner_visits(target_id)
     except IntegrityError:      # 并发插入撞唯一约束:退化成一次更新
         ProfileVisit.objects.filter(viewer_id=viewer_id, owner_id=target_id).update(last_at=now)
+
+
+def _trim_owner_visits(owner_id: int) -> None:
+    """每个 owner 只保留最近 N 条访客记录(M-2 的第二道闸)。
+
+    ``N`` 取 ``settings.PROFILE_VISIT_MAX_PER_OWNER``(默认 500);``<=0`` 表示关闭。
+    先 ``COUNT`` 再决定是否淘汰:超过上限的账号极少,正常写入只多一条索引计数。
+
+    Args:
+        owner_id: 被访问者账号 id。
+
+    Returns:
+        None。
+    """
+    limit = settings.PROFILE_VISIT_MAX_PER_OWNER
+    if limit <= 0:
+        return
+    visits = ProfileVisit.objects.filter(owner_id=owner_id)
+    if visits.count() <= limit:
+        return
+    stale = list(visits.order_by("-last_at").values_list("id", flat=True)[limit:])
+    if stale:
+        ProfileVisit.objects.filter(id__in=stale).delete()
 
 
 

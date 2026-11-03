@@ -31,3 +31,21 @@ class SwipeThrottle(SimpleRateThrottle):
             该用户在 ``swipe`` 作用域下的缓存键。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
+
+
+class VisitsThrottle(UserScopedThrottle):
+    """按用户限流访客列表;额度见 ``settings.DEFAULT_THROTTLE_RATES["visits"]``。
+
+    ``visits`` 每次要跑 Swipe/Photo/Block 三个子查询,单账号高频调用即可持续打库(M-3)。
+    """
+
+    scope = "visits"
+
+
+class VisitsCountThrottle(UserScopedThrottle):
+    """按用户限流访客人数;额度见 ``settings.DEFAULT_THROTTLE_RATES["visits_count"]``。
+
+    计数接口比列表更便宜,额度给到列表的两倍,足够入口角标刷新。
+    """
+
+    scope = "visits_count"

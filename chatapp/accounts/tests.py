@@ -222,6 +222,23 @@ class SmsVerifyTests(APITestCase):
         self.assertFalse(resp.json()["is_new_user"])
         self.assertEqual(User.objects.filter(phone=self.phone).count(), 1)
 
+    def test_staff_account_cannot_login_by_sms(self):
+        """C-1:运营账号不走短信登录,固定验证码不能换来最高权限的 API 身份。"""
+        User.objects.create(phone=self.phone, is_staff=True, is_superuser=True)
+        resp = self.verify(self.issue_code())
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], 403)
+        self.assertIn("运营后台", resp.json()["message"])
+        self.assertNotIn("access", resp.json())
+
+    def test_staff_account_can_login_when_explicitly_allowed(self):
+        """封闭测试用 SMS_ALLOW_STAFF_LOGIN=1 显式放开;生产必须保持 0。"""
+        User.objects.create(phone=self.phone, is_staff=True, is_superuser=True)
+        with self.settings(SMS_ALLOW_STAFF_LOGIN=True):
+            resp = self.verify(self.issue_code())
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("access", resp.json())
+
     def test_verify_wrong_code(self):
         self.issue_code()
         resp = self.verify("000000")

@@ -279,6 +279,9 @@ POST_LIKE_RATE = os.getenv("POST_LIKE_RATE", _RELAXED or "120/hour")
 BLOCK_RATE = os.getenv("BLOCK_RATE", _RELAXED or "60/hour")
 PHOTO_UPLOAD_RATE = os.getenv("PHOTO_UPLOAD_RATE", _RELAXED or "20/hour")
 PUBLIC_PROFILE_RATE = os.getenv("PUBLIC_PROFILE_RATE", _RELAXED or "120/hour")
+# 访客列表/人数(M-3):列表要跑三个子查询,人数接口单请求多次聚合
+VISITS_RATE = os.getenv("VISITS_RATE", _RELAXED or "120/hour")
+VISITS_COUNT_RATE = os.getenv("VISITS_COUNT_RATE", _RELAXED or "240/hour")
 PROBE_RATE = os.getenv("PROBE_RATE", _RELAXED or "1200/hour")   # 探针 10s 一次 ≈ 360/h
 FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
@@ -288,9 +291,18 @@ CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传
 # 限流只能压慢抓取,这个计数是发现「正在被批量爬」的早期信号;只告警不拦截。
 PROFILE_SCRAPE_ALERT_PER_HOUR = int(os.getenv("PROFILE_SCRAPE_ALERT_PER_HOUR", "60"))
 
+# 访客记录(M-2):每个被访问者最多保留最近 N 条;<=0 关闭淘汰。
+# 访客列表本身只展示「资料完善 + 有过审照片」的访问者,这里再兜一层表膨胀上限。
+PROFILE_VISIT_MAX_PER_OWNER = int(os.getenv("PROFILE_VISIT_MAX_PER_OWNER", "500"))
+
 # 可信代理:只有直连对端命中这份名单时,才采信 X-Real-IP / X-Forwarded-For。
 # 默认只信回环 —— 生产 Django 只监听 127.0.0.1,由本机 nginx 反代(M-3)。
 TRUSTED_PROXY_IPS = os.getenv("TRUSTED_PROXY_IPS", "127.0.0.1,::1")
+
+# C-1:运营账号(staff/superuser)默认不允许走短信登录 —— 固定验证码 + 可猜的
+# 管理员手机号等于把最高权限的 API 身份交出去。封闭测试确需用运营账号登 App 时,
+# 显式设 SMS_ALLOW_STAFF_LOGIN=1;生产必须保持 0。
+SMS_ALLOW_STAFF_LOGIN = os.getenv("SMS_ALLOW_STAFF_LOGIN", "0") == "1"
 
 REST_FRAMEWORK = {
     # 只信任最近一层代理(nginx)追加的 XFF 末位。不设置时 DRF 会把整条
@@ -320,6 +332,8 @@ REST_FRAMEWORK = {
         "blocks": BLOCK_RATE,
         "upload_photo": PHOTO_UPLOAD_RATE,
         "public_profile": PUBLIC_PROFILE_RATE,
+        "visits": VISITS_RATE,
+        "visits_count": VISITS_COUNT_RATE,
         "probe": PROBE_RATE,
         "logout": os.getenv("LOGOUT_RATE", "60/hour"),
         "feedback": FEEDBACK_RATE,

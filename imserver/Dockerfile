@@ -18,4 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/build/imserver /usr/local/bin/imserver
 COPY --from=build /src/migrations /usr/local/share/imserver/migrations
+# M-5:非 root 运行(监听 9100/9101 都是 >1024 的端口,不需要特权)
+RUN groupadd --gid 10001 app \
+ && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
+USER app
 ENTRYPOINT ["/usr/local/bin/imserver"]
