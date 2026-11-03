@@ -173,11 +173,9 @@ jobs:
           python manage.py test --noinput --verbosity=2 2>&1 | tee /tmp/test.log || status=$?
           status=${status:-0}
           if [ "$status" -ne 0 ]; then
-            grep -E "^(FAIL|ERROR):" /tmp/test.log | head -n 20 | while read -r line; do
-              echo "::error title=test-failure::$line"
-            done
-            grep -E "^(AssertionError|[A-Za-z.]+Error):" /tmp/test.log | head -n 5 | while read -r line; do
-              echo "::error title=test-error::$line"
+            awk '/^(FAIL|ERROR): /{p=30} p>0{print "::error title=test-detail::" $0; p--}' /tmp/test.log | head -n 120
+            tail -n 25 /tmp/test.log | while read -r line; do
+              echo "::error title=tail::$line"
             done
             exit "$status"
           fi
