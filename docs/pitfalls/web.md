@@ -125,3 +125,18 @@
 - **断线时挂起的发送要立刻失败**：否则每条消息都要干等 `10s × 3` 次重试，用户看到的「发送中」会挂 30 秒。`sendText/sendImage/sendVoice` 在 catch 里检查 `authed`，断线即抛，UI 直接出「重发」。
 - 别在 `login()` 里 `await` 旧 transport 的 `close()`：多一个微任务会让「发 auth 帧」的时序整体后移（单测里 `transport.sent[0]` 会变成 `undefined`）。发起关闭即可，旧连接本来就已经断了。
 
+## 前端错误上报(2026-11-03,A-4)
+
+- **`window.onerror` 抓不到 Vue 组件里的异常**：Vue 会自己捕获渲染/生命周期错误，必须另外挂
+  `app.config.errorHandler`（`src/main.ts` 已挂）。两个都挂才算齐活。
+- **资源加载失败也会触发 `error` 事件**（图片/脚本 404），那种事件的 `event.error` 是 `undefined`、
+  只有 `event.message`；不判空会往上报里塞一堆 `undefined`。
+- **`PromiseRejectionEvent` 在 jsdom 里不存在**：单测要自己 `new Event('unhandledrejection')`
+  再 `Object.defineProperty(event, 'reason', ...)`，别指望构造器。
+- **上报请求要 `keepalive: true`**：白屏后用户刷新/跳转时，普通 fetch 会被中断，恰恰丢掉最该留下的那条。
+- **开关必须走构建期变量**（`VITE_ERROR_REPORTING`，`.env.production` 为 `1`、开发/测试为 `0`）：
+  否则本地每改一行代码都会往生产日志灌垃圾；单测用 `vi.stubEnv` 打开、`installClientErrorReporting({ enabled: true, sender })` 注入假发送器。
+- **`request_id` 靠响应头 `X-Request-Id` 串起来**：`api/http.ts` 的响应拦截器把它记进
+  `clientErrors.rememberRequestId()`，上报时带上，前后端日志就能按同一个 id 对上。
+
+

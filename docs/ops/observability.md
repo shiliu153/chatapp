@@ -80,6 +80,7 @@ ssh -L 3000:127.0.0.1:3000 root@<SERVER_IP>   # 然后浏览器打开 http://127
 | `im_deadlock_retries_total` | counter | 1213/1205 重试次数;增长说明又出现锁冲突 |
 | `im_db_pool_wait_seconds` / `im_db_pool_waits_total` | gauge / counter | 取连接平均等待;DB 瓶颈的早期信号 |
 | `celery_queue_depth{queue}` | gauge | 各队列积压;抓取时从 broker 实时读 |
+| `client_errors_total{platform}` | counter | **前端上报的未捕获异常**(Web / App);服务端 5xx 看不见白屏与崩溃,这个计数是唯一入口 |
 | `node_*` | — | CPU / 内存 / 磁盘(磁盘告警 >85% 使用) |
 
 ## 4. 告警与处置
@@ -98,6 +99,28 @@ ssh -L 3000:127.0.0.1:3000 root@<SERVER_IP>   # 然后浏览器打开 http://127
 | `MemoryPressure` | 使用 >90% | 2G 机器会触发 OOM Killer;先杀压测/排查泄漏 |
 
 完整处置顺序见 [runbook.md](runbook.md) §3。
+
+### 前端错误上报(2026-11-03)
+
+白屏、JS 运行时异常、Flutter 崩溃**不会**出现在 `http_requests_total` 里 —— 用户不刷新就没人知道
+(审查 N-7)。链路是自建的,零第三方成本:
+
+```
+Web: window.onerror / unhandledrejection / Vue errorHandler
+App: FlutterError.onError / PlatformDispatcher.onError
+        └─→ POST /api/v1/client-errors（匿名可调,120 次/小时/IP）
+              ├─→ 单行 JSON 日志 logger=chatapp.client_error
+              │    （request_id / platform / client_route / client_stack / app_version）
+              └─→ client_errors_total{platform}
+```
+
+- **开关**:Web 构建期 `VITE_ERROR_REPORTING=1`(`web/.env.production` 已开,开发/测试为 `0`);
+  App `--dart-define=ERROR_REPORTING=true`。**未开时监听根本不安装**,零开销。
+- **查错顺序**:Grafana `client_errors_total` 突增 → Loki 查 `{logger="chatapp.client_error"}`
+  按 `client_route` 分组 → 用该条的 `request_id`(或 `client_request_id`)对齐服务端那条请求日志。
+- **限流与配额**:客户端每页面/进程最多 20 条、同 message 去重;服务端按 IP 120 次/小时
+  (`CLIENT_ERROR_RATE`),避免「渲染循环抛异常」把自己打成 DDoS。
+
 
 ## 5. SLO(先定口径,再谈达标)
 

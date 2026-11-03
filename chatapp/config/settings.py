@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     "feed",
     "feedback",
     "appconfig",
+    "telemetry",
 ]
 
 MIDDLEWARE = [
@@ -339,6 +340,7 @@ REST_FRAMEWORK = {
         "feedback": FEEDBACK_RATE,
         "chat_image": CHAT_IMAGE_RATE,
         "chat_voice": CHAT_VOICE_RATE,
+        "client_error": os.getenv("CLIENT_ERROR_RATE", "120/hour"),
     },
 }
 

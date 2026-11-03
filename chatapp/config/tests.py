@@ -117,6 +117,23 @@ class JsonLogTests(SimpleTestCase):
             self._record(phone="13800138000", request_id="rid-2")))
         self.assertNotIn("phone", payload)
 
+    def test_client_error_fields_are_emitted(self):
+        """客户端错误上报的字段(platform/client_*/app_version)必须进 JSON 日志。"""
+        from config.logging import JsonFormatter
+
+        payload = json.loads(JsonFormatter().format(self._record(
+            request_id="rid-3", platform="web", app_version="1.0.2",
+            user_agent="Mozilla/5.0", client_message="TypeError: x",
+            client_stack="at ChatPage.vue:42", client_route="/chats/u9",
+            client_request_id="abc123")))
+        self.assertEqual(payload["platform"], "web")
+        self.assertEqual(payload["app_version"], "1.0.2")
+        self.assertEqual(payload["client_message"], "TypeError: x")
+        self.assertEqual(payload["client_stack"], "at ChatPage.vue:42")
+        self.assertEqual(payload["client_route"], "/chats/u9")
+        self.assertEqual(payload["client_request_id"], "abc123")
+        self.assertEqual(payload["user_agent"], "Mozilla/5.0")
+
     def test_exception_is_serialized_into_exc_field(self):
         """异常堆栈进 ``exc`` 字段,而不是拼进 message。"""
         from config.logging import JsonFormatter

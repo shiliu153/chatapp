@@ -58,7 +58,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(上线运营)**。**
 | 路径 | 内容 | 说明 |
 |---|---|---|
 | `app/` | Flutter 应用 | `lib/core/`(网络/错误/凭证)、`lib/im/`(IM 抽象层)、`lib/router.dart`(go_router 路由表)、`lib/features/{auth,onboarding,discovery,chat,profile,settings,shell,square,presence,legal}`;测试是"真实 provider + 假网络 + 假 IM":`test/support/scripted_adapter.dart` + `test/support/harness.dart` 的 `pumpApp` + `test/support/fake_im_client.dart` |
-| `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 业务 app:`accounts users discovery im moderation ops feed notifications feedback`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
+| `chatapp/` | Django 项目(`manage.py` 所在层) | `config/` 项目包 + 业务 app:`accounts users discovery im moderation ops feed notifications feedback telemetry`;敏感配置读 `chatapp/.env`(gitignored,模板见 `.env.example`) |
 | `flutter/` | **Flutter SDK 源码**(自带独立 .git) | 这是 SDK,不是应用代码,**切勿修改、勿提交**;命令用 `flutter/bin/flutter.bat` |
 | `web/` | 网页端(Vue 3 SPA) | `src/{api,stores,im,components,layouts,features}`;开发 `npm run dev`(代理到 :8000),构建 `npm run build`;**只服务 PC 浏览器**,移动端按 UA 进引导页 |
 | `imserver/` | 自建 IM(C++20) | WS :9100 + HTTP :9101;MySQL `chatapp_im` + Redis DB2;测试 `docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh` |
@@ -112,9 +112,9 @@ npm run type-check && npm run lint   # 必须零错误 / 零告警
 
 **出签名包**(keystore `C:\Users\you\chatapp-release.jks`,口令在 `app/android/key.properties`;两个文件都不入库,务必备份):
 ```bash
-cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=https://chat.shiliu153.cn/api/v1
+cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=https://chat.shiliu153.cn/api/v1 --dart-define=ERROR_REPORTING=true
 ```
-产物 `app/build/app/outputs/flutter-apk/app-release.apk`。**发版必须同时**:`pubspec.yaml` 的 `version:` + `lib/core/app_info.dart` 的 `appVersion` + 关于页测试期望三处一起改,再上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk` 并更新 `.env` 的 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。
+产物 `app/build/app/outputs/flutter-apk/app-release.apk`。`--dart-define=ERROR_REPORTING=true` **必须带**(否则线上崩溃与白屏不会上报,见 backlog A-4);Web 侧对应 `web/.env.production` 的 `VITE_ERROR_REPORTING=1`。**发版必须同时**:`pubspec.yaml` 的 `version:` + `lib/core/app_info.dart` 的 `appVersion` + 关于页测试期望三处一起改,再上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk` 并更新 `.env` 的 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。
 
 **服务器**:`ssh root@<SERVER_IP>`(免密);部署形态与更新流程见 [README.md](README.md)「部署」。服务器私有的运维手册(面板口令/路径/端口)不入库,本地保留。
 
@@ -172,6 +172,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `GET /matches` | 配对列表(分页);预热 userId→昵称头像缓存 |
 | `DELETE /matches/{user_id}` | 解除配对:幂等 204;软删除 + 双向 IM 拉黑,不可恢复 |
 | `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
+| `POST /client-errors` | 前端未捕获异常上报(**匿名可调**,120 次/小时/IP);只写 JSON 日志 `chatapp.client_error` + `client_errors_total{platform}`,不落库 |
 | `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见 `docs/api/` 与 pitfalls(评论支持两级楼中楼与回复提醒) |
 
 资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`(否则 `incomplete`,`missing_fields` 列出缺项);`banned_light` / `banned_heavy` 为封禁状态。

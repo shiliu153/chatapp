@@ -18,11 +18,12 @@
 | [feed.md](feed.md) | 广场动态 |
 | [im.md](im.md) | IM 会话凭证与聊天媒体上传 |
 | [app.md](app.md) | 应用版本配置(启动时最小版本拦截) |
+| [telemetry.md](telemetry.md) | 客户端错误上报(前端未捕获异常 → 日志/指标) |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
 
 ## 接口一览
 
-共 **45** 个接口(按「方法 + 路径」计)。
+共 **46** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -54,6 +55,7 @@
 | GET | `/api/v1/app/config` | 获取应用最低版本配置 | [app](app.md) |
 | POST | `/api/v1/reports` | 举报用户 | [moderation](moderation.md) |
 | POST | `/api/v1/feedback` | 提交意见反馈 | [feedback](feedback.md) |
+| POST | `/api/v1/client-errors` | 上报客户端未捕获异常 | [telemetry](telemetry.md) |
 | GET | `/api/v1/blocks` | 拉黑列表(分页) | [moderation](moderation.md) |
 | POST | `/api/v1/blocks` | 拉黑用户 | [moderation](moderation.md) |
 | DELETE | `/api/v1/blocks/{user_id}` | 解除拉黑 | [moderation](moderation.md) |

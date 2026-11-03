@@ -4,6 +4,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import { router } from './router'
+import { installClientErrorReporting } from './api/clientErrors'
 import ForceUpdate from './features/app/ForceUpdate.vue'
 import { APP_VERSION } from './features/settings/appInfo'
 import { isOutdated } from './features/app/version'
@@ -13,6 +14,9 @@ interface AppConfig {
   latest_version: string
   download_url: string
 }
+
+/** 前端未捕获异常上报(开关见 .env.* 的 VITE_ERROR_REPORTING,本地/测试默认关)。 */
+const errorReporter = installClientErrorReporting({ appVersion: APP_VERSION })
 
 async function bootstrap(): Promise<void> {
   let config: AppConfig | null = null
@@ -30,7 +34,13 @@ async function bootstrap(): Promise<void> {
     }).mount('#app')
     return
   }
-  createApp(App).use(createPinia()).use(router).mount('#app')
+  const app = createApp(App)
+  // 组件渲染/生命周期里的异常不会触发 window.onerror,只能靠 Vue 自己的钩子
+  app.config.errorHandler = (error, _instance, info) => {
+    errorReporter.report(error, { stack: error instanceof Error ? error.stack : info })
+    console.error(error)
+  }
+  app.use(createPinia()).use(router).mount('#app')
 }
 
 void bootstrap()
