@@ -151,3 +151,22 @@
 - **并发幂等测试必须用 `TransactionTestCase`**:`TestCase` 把用例包在事务里,线程看不到未提交数据,竞态永远复现不出来。用例里每个线程要新建 `APIClient`(连接不能跨线程共享)。
 - **没有冗余计数列就不要硬造**:赞数/评数是查询时 `COUNT(DISTINCT)`,不存在「并发自增丢更新」;给它加一列 `like_count` 反而要维护一致性。先确认数据模型,再决定要不要 `F()`。
 - **`blocked_user_ids` 一次请求只查一次**:它内部是两条 SQL(我拉黑的 ∪ 拉黑我的)。分页函数里若先 `count()` 再取当页,记得把同一个 `base` 传下去,否则拉黑查询会执行两遍。
+
+## 索引与 `EXISTS` 的反直觉点(2026-11-03,A-2)
+
+- **`exclude(a, b)` 不是「两个都不要」,而是 `NOT (a AND b)`**:想同时排除两件事必须分两次
+  `exclude()`。2026-11-03 把拉黑过滤写成 `.exclude(*两条 EXISTS)` 时,单方向拉黑的行全部漏了,
+  被 `moderation/tests.py::BlockVisibilityTests` 抓住。列表类查询统一走
+  `moderation.services.exclude_blocked(qs, me, "<对方 id 字段>")`,它内部就是逐条 `exclude`。
+- **带 `OR` 的 `EXISTS` 会让 MySQL 放弃半连接**:`EXISTS(... blocker=me AND blocked=other
+  OR blocked=me AND blocker=other)` 在 2 万访客上实测 **565ms**,拆成两条单列 `EXISTS` 只要
+  **103ms**(与完全不加过滤同价)。EXPLAIN 的信号是外层出现 `Start temporary ... End temporary`
+  与 `Using join buffer (hash join)`。
+- **MySQL 8 会把「被新索引左前缀覆盖」的外键索引当冗余删掉**:给 `discovery_swipe` 加了
+  `(target_id, action, created_at DESC, id DESC)` 之后,`target_id` 的独立外键索引消失了
+  (配对表的 `user_b_id` 同理)。所以「加索引后想回滚」时 `DROP INDEX` 会报 **1553
+  (needed in a foreign key constraint)** —— 得先补一条单列索引再删。线上回滚同理。
+- **降序索引要和排序键一起写**:`Meta.ordering = ["-created_at"]` 的列表,索引写成
+  `(过滤列, 排序列 DESC, id DESC)` 才能把 filesort 一起消掉(MySQL 8 原生支持降序索引;
+  MySQL 5.7 忽略 DESC,但反扫仍可用)。
+

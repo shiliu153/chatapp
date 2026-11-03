@@ -29,7 +29,7 @@ from rest_framework.response import Response
 from config.pagination import DefaultLimitOffsetPagination
 from config.params import int_param
 from im import tasks as im_tasks
-from moderation.services import blocked_user_ids
+from moderation.services import blocked_user_ids, exclude_blocked
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bounds
 from users.services import get_profile
 
@@ -156,15 +156,18 @@ def match_list(request):
         分页后的配对条目数组。
     """
     me = request.user
-    blocked_ids = blocked_user_ids(me)
+    # 拉黑用 NOT EXISTS 而不是把 id 拉进 Python 再 __in:配对行的数量会随用户成长,
+    # 占位符列表同样会线性变长(审查 N-4)。配对双方各排一次。
     matches = (Match.objects.filter(Q(user_a=me) | Q(user_b=me), unmatched_at__isnull=True)
-               .exclude(Q(user_a_id__in=blocked_ids) | Q(user_b_id__in=blocked_ids))
                .select_related("user_a__profile", "user_b__profile")
                .prefetch_related("user_a__photos", "user_b__photos"))
-    entries = [_match_entry(match, me, request) for match in matches]
+    matches = exclude_blocked(exclude_blocked(matches, me, "user_a_id"), me, "user_b_id")
+    # 先分页再组装:配对行的数量随用户成长,整表拉进内存再切片会让「第 2 页」
+    # 和「第 1 页」一样贵(审查 N-2)。头像绝对 URL 仍在 _match_entry 里按请求拼。
     paginator = DefaultLimitOffsetPagination()   # Match Meta ordering=-created_at,翻页顺序稳定
-    page = paginator.paginate_queryset(entries, request)
-    return paginator.get_paginated_response(page)
+    page = paginator.paginate_queryset(matches, request)
+    entries = [_match_entry(match, me, request) for match in page]
+    return paginator.get_paginated_response(entries)
 
 
 @api_view(["DELETE"])

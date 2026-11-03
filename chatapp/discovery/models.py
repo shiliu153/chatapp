@@ -35,6 +35,13 @@ class Swipe(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["swiper", "target"], name="uniq_swipe_swiper_target"),
         ]
+        indexes = [
+            # 「喜欢我的人」:filter(target=me, action=like).order_by("-created_at", "-id")。
+            # 唯一约束 (swiper, target) 的 target 不是前导列,不加这条就是全表扫(审查 N-3)。
+            # 把排序键一并放进去,顺带消掉 filesort(MySQL 8 支持降序索引)。
+            models.Index(fields=["target", "action", "-created_at", "-id"],
+                         name="idx_swipe_target_action"),
+        ]
 
     def __str__(self):
         """后台与日志中的可读表示。
@@ -70,6 +77,12 @@ class Match(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["user_a", "user_b"], name="uniq_match_pair"),
             models.CheckConstraint(condition=Q(user_a__lt=F("user_b")), name="match_user_a_before_b"),
+        ]
+        indexes = [
+            # 配对列表是 Q(user_a=me) | Q(user_b=me):唯一约束只给 user_a 建了前导列,
+            # 缺 user_b 这条索引时 OR 只能全表扫 + filesort(审查 N-2)。
+            # 带上 unmatched_at:过滤未解除的配对也在索引里完成。
+            models.Index(fields=["user_b", "unmatched_at"], name="idx_match_user_b"),
         ]
 
     @classmethod

@@ -10,11 +10,11 @@
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 from config import cache_utils
 from im import tasks as im_tasks
-from moderation.services import blocked_user_ids
+from moderation.services import exclude_blocked
 from users.models import (Photo, PhotoStatus, Profile, ProfileStatus, ProfileVisit,
                           birthday_bounds)
 
@@ -25,6 +25,10 @@ from .models import Match, Swipe, SwipeAction
 def candidate_pool_queryset(me, preference, pool_size: int):
     """候选池查询集(不含缓存),供缓存回填与执行计划分析共用。
 
+    三处排除都写成 ``NOT EXISTS`` 子查询而不是「先把 id 拉进 Python 再 ``__in``」:
+    后者生成的 SQL 会随用户活跃度线性变长(划过几百人就有几百个占位符),
+    而且命中不了索引(审查 N-4/N-5)。
+
     Args:
         me: 当前用户。
         preference: 当前用户的「想找的人」偏好。
@@ -33,24 +37,18 @@ def candidate_pool_queryset(me, preference, pool_size: int):
     Returns:
         按 ``shuffle_key`` 排序的 ``Profile`` 查询集。
     """
-    swiped_ids = Swipe.objects.filter(swiper=me).values_list("target_id", flat=True)
-    my_matches = Match.objects.filter(Q(user_a=me) | Q(user_b=me))
-    matched_ids = [
-        other_id
-        for other_id in list(my_matches.values_list("user_a_id", flat=True))
-        + list(my_matches.values_list("user_b_id", flat=True))
-        if other_id != me.id
-    ]
+    swiped_exists = Exists(Swipe.objects.filter(swiper=me, target_id=OuterRef("user_id")))
+    matched_exists = Exists(Match.objects.filter(
+        Q(user_a=me, user_b_id=OuterRef("user_id")) | Q(user_b=me, user_a_id=OuterRef("user_id"))))
 
     # 只让有已过审照片的人进候选。用子查询而非 JOIN,避免产生重复行,
-    # 也避免 distinct 与随机排序互相冲突。
-    blocked_ids = blocked_user_ids(me)
+    # 也避免 distinct 与随机排序互相冲突(``(status, user_id)`` 索引专为它而建)。
     with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
     qs = (Profile.objects.filter(status=ProfileStatus.COMPLETE, user_id__in=with_photos)
           .exclude(user_id=me.id)
-          .exclude(user_id__in=list(swiped_ids))
-          .exclude(user_id__in=matched_ids)
-          .exclude(user_id__in=list(blocked_ids)))
+          .exclude(swiped_exists)
+          .exclude(matched_exists))
+    qs = exclude_blocked(qs, me, "user_id")
 
     if preference.target_gender:
         qs = qs.filter(gender=preference.target_gender)
@@ -121,18 +119,18 @@ def likes_received_queryset(me):
     Returns:
         以 ``Swipe`` 为行的查询集,按喜欢时间倒序;列表与计数必须共用它。
     """
-    swiped = Swipe.objects.filter(swiper=me).values("target_id")
     with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
-    return (Swipe.objects
-            .filter(target=me, action=SwipeAction.LIKE)
-            .exclude(swiper_id=me.id)
-            .exclude(swiper_id__in=swiped)
-            .exclude(swiper_id__in=blocked_user_ids(me))
-            .filter(swiper__profile__status=ProfileStatus.COMPLETE)
-            .filter(swiper_id__in=with_photos)
-            .select_related("swiper__profile")
-            .prefetch_related("swiper__photos", "swiper__profile__tags")
-            .order_by("-created_at", "-id"))
+    qs = (Swipe.objects
+          .filter(target=me, action=SwipeAction.LIKE)
+          .exclude(swiper_id=me.id)
+          .exclude(Exists(Swipe.objects.filter(swiper=me, target_id=OuterRef("swiper_id"))))
+          .filter(swiper__profile__status=ProfileStatus.COMPLETE)
+          .filter(swiper_id__in=with_photos)
+          .select_related("swiper__profile")
+          .prefetch_related("swiper__photos", "swiper__profile__tags")
+          .order_by("-created_at", "-id"))
+    return exclude_blocked(qs, me, "swiper_id")
+
 
 def visits_received_queryset(me):
     """谁看过我:与「喜欢我的人」同口径,排除我已划过 / 双向拉黑 / 资料不全。
@@ -145,15 +143,14 @@ def visits_received_queryset(me):
     Returns:
         以 ``ProfileVisit`` 为行的查询集,按最近访问时间倒序;列表与计数必须共用它。
     """
-    swiped = Swipe.objects.filter(swiper=me).values("target_id")
     with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
-    return (ProfileVisit.objects
-            .filter(owner=me)
-            .exclude(viewer_id=me.id)
-            .exclude(viewer_id__in=swiped)
-            .exclude(viewer_id__in=blocked_user_ids(me))
-            .filter(viewer__profile__status=ProfileStatus.COMPLETE)
-            .filter(viewer_id__in=with_photos)
-            .select_related("viewer__profile")
-            .prefetch_related("viewer__photos", "viewer__profile__tags")
-            .order_by("-last_at", "-id"))
+    qs = (ProfileVisit.objects
+          .filter(owner=me)
+          .exclude(viewer_id=me.id)
+          .exclude(Exists(Swipe.objects.filter(swiper=me, target_id=OuterRef("viewer_id"))))
+          .filter(viewer__profile__status=ProfileStatus.COMPLETE)
+          .filter(viewer_id__in=with_photos)
+          .select_related("viewer__profile")
+          .prefetch_related("viewer__photos", "viewer__profile__tags")
+          .order_by("-last_at", "-id"))
+    return exclude_blocked(qs, me, "viewer_id")

@@ -60,6 +60,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(上�
 
 | 2026-11-03 | **Web IM 断线静默修复**(backlog A-1 / 审查 N-1):服务端 75s 空闲踢出而 Web 只挂 `onFrame`,静置后前端仍显示 `ready`、对方新消息**静默丢失**;`SelfTransport` 加 `onClose`(挂 `ws.onclose`/`onerror`,本端主动关闭不上报)+ `SelfImClient` 25s 业务心跳(与 App 对齐)+ 独立 `disconnected` 事件(被顶号用 `suppressClose` 抑制,避免两标签互踢)+ 断线让挂起发送立刻失败;`stores/chat.ts` 1/2/4/8/16/30s 退避重连 + 重连后补拉会话与当前会话历史(`activePeerId`),`multiAccount`/`idle` 不重连、403 不重试;新增 7 条单测,Web 411 测试绿 + `vue-tsc`/`eslint` 零告警;PR #36 |
 
+| 2026-11-03 | **社交列表索引整改**(backlog A-2 / 审查 N-2~N-5):`Swipe(target,action,-created_at,-id)` + `Match(user_b,unmatched_at)` + `Photo(status,user_id)` 三条索引(迁移 `discovery/0003`、`users/0007`);三处排除列表从「Python 拉 id 再 `__in`」改成 `NOT EXISTS`(`moderation.services.exclude_blocked`),`/matches` 改为先分页再组装。2 万用户实测:喜欢我 95.7→**32.0ms**、计数 92.0→**29.8ms**、访客 371.7→**105.0ms**(`type=ALL` 消失)、配对扫行数 2000→**101**(index_merge);查询预算门禁收紧(候选冷 18→13、配对 13→9)并新增「必须 EXISTS / 索引必须存在」两条断言;后端 703 测试绿;PR #37,数字与两个坑见 `docs/ops/scale-report.md` §6 |
+
 ## 怎么维护
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;
