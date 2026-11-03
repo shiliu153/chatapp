@@ -1,6 +1,7 @@
 #pragma once
 #include <mysql/mysql.h>
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -41,7 +42,9 @@ class MysqlPool {
   ///   size: 连接数(启动时全部建好,连不上直接抛,属于配置错误)。
   ///   idle_ping_ms: 连接空闲超过该毫秒数就先 ping 一次再交给调用方;
   ///     0 表示每次都 ping(测试用),负数表示关闭探测。
-  MysqlPool(const MysqlDsn& dsn, int size, int64_t idle_ping_ms = 5000);
+  ///   connect_wait_ms: 启动时连不上 MySQL 的最长等待毫秒数;0 = 首次失败立即抛。
+  MysqlPool(const MysqlDsn& dsn, int size, int64_t idle_ping_ms = 5000,
+            int64_t connect_wait_ms = 0);
   ~MysqlPool();
   MysqlPool(const MysqlPool&) = delete;
   MysqlPool& operator=(const MysqlPool&) = delete;
@@ -57,9 +60,11 @@ class MysqlPool {
   void release(MYSQL* conn);
   void discard(MYSQL* conn);
   MYSQL* connect_with_retry(int attempts);
+  MYSQL* connect_until(std::chrono::steady_clock::time_point deadline);
 
   MysqlDsn dsn_;
   int64_t idle_ping_ms_ = 5000;
+  int64_t connect_wait_ms_ = 0;
   std::mutex mutex_;
   std::condition_variable cv_;
   std::vector<Slot> idle_;

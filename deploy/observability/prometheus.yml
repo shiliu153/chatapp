@@ -1,0 +1,32 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]
+
+scrape_configs:
+  # Django(gunicorn):/metrics 需要 METRICS_TOKEN,令牌从挂载文件读,不进 git。
+  # 走 http 直连回环;Django 侧用 SECURE_REDIRECT_EXEMPT 豁免了 /metrics 的 https 跳转
+  # (scrape_config 不支持自定义 headers,301 会让抓取变成对 8000 端口做 TLS)。
+  - job_name: api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics_token
+    static_configs:
+      - targets: ["127.0.0.1:8000"]
+
+  # 自建 IM:只暴露连接数/发送成败/死锁重试/池等待四个维度。
+  - job_name: im
+    static_configs:
+      - targets: ["127.0.0.1:9101"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["127.0.0.1:9105"]

@@ -33,10 +33,12 @@ from moderation.services import blocked_user_ids
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bounds
 from users.services import get_profile
 
+from .cache_keys import invalidate_candidates
 from .models import Match, Swipe, SwipeAction
 from .serializers import (CandidateSerializer, LikeReceivedSerializer, SwipeSerializer,
                           VisitSerializer)
-from .services import likes_received_queryset, notify_match, visits_received_queryset
+from .services import (candidate_pool_ids, likes_received_queryset, notify_match,
+                       visits_received_queryset)
 from .throttles import CandidateThrottle, SwipeThrottle
 
 User = get_user_model()
@@ -61,42 +63,14 @@ def candidates(request):
     me = request.user
     preference = get_profile(me).preference
 
-    swiped_ids = Swipe.objects.filter(swiper=me).values_list("target_id", flat=True)
-    my_matches = Match.objects.filter(Q(user_a=me) | Q(user_b=me))
-    matched_ids = [
-        other_id
-        for other_id in list(my_matches.values_list("user_a_id", flat=True))
-        + list(my_matches.values_list("user_b_id", flat=True))
-        if other_id != me.id
-    ]
-
-    # 只让有已过审照片的人进候选。用子查询而非 JOIN,避免产生重复行,
-    # 也避免 distinct 与随机排序互相冲突。
-    blocked_ids = blocked_user_ids(me)
-    with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
-    qs = (Profile.objects.filter(status=ProfileStatus.COMPLETE, user_id__in=with_photos)
-          .exclude(user_id=me.id)
-          .exclude(user_id__in=list(swiped_ids))
-          .exclude(user_id__in=matched_ids)
-          .exclude(user_id__in=list(blocked_ids)))
-
-    if preference.target_gender:
-        qs = qs.filter(gender=preference.target_gender)
-    if preference.city:
-        qs = qs.filter(city=preference.city)
-    upper, lower = birthday_bounds(preference.age_min, preference.age_max)
-    qs = qs.filter(birthday__lte=upper, birthday__gt=lower)
-
     # 非法值统一 400,越界收敛到 [1, MAX_LIMIT];不再把负数透传给切片导致 500。
     limit = int_param(request, "limit", default=DEFAULT_LIMIT,
                       minimum=1, maximum=MAX_LIMIT)
 
-    # 候选池按预计算的随机列取:走 ``shuffle_key`` 索引,避免全表 ORDER BY RAND()
-    # (数据量上来后每次都要给整表算随机数并排序)。取一个比 limit 大的池子,
-    # 再在内存里抽样,让每次请求的顺序不同 —— 否则所有人看到的是同一个全局顺序。
+    # 候选池走缓存(键带用户版本 + 全局版本,写路径升版本即失效):
+    # 池子查询是这条接口最贵的一段,缓存后每次只做内存抽样 + 取 10 张资料卡。
     pool_size = max(limit, getattr(settings, "CANDIDATE_POOL_SIZE", 200))
-    pool_ids = list(qs.order_by("shuffle_key", "id")
-                    .values_list("user_id", flat=True)[:pool_size])
+    pool_ids = candidate_pool_ids(me, preference, pool_size)
     picked = random.sample(pool_ids, min(limit, len(pool_ids)))
     # 抽样后按 picked 的顺序回排;``user_id__in`` 查出来的顺序不保证
     profiles = {
@@ -147,6 +121,8 @@ def swipe(request):
 
     # 幂等:重复提交保留第一次的动作与结果
     swipe_obj, _ = Swipe.objects.get_or_create(swiper=me, target=target, defaults={"action": action})
+    # 划过的人必须立刻从我的候选池消失:升版本,旧缓存键随即不可达。
+    invalidate_candidates(me.id)
 
     matched = False
     if swipe_obj.action == SwipeAction.LIKE and Swipe.objects.filter(
@@ -159,6 +135,8 @@ def swipe(request):
             else:
                 if created:
                     notify_match(match)
+                    # 对方也进入了「已配对」状态,候选池同样要失效。
+                    invalidate_candidates(target.id)
                 matched = True
 
     return Response({"matched": matched})

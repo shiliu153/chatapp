@@ -4,6 +4,8 @@
 #include <chrono>
 #include <cctype>
 #include <cstdlib>
+#include <functional>
+#include <random>
 #include <stdexcept>
 #include <thread>
 
@@ -11,6 +13,7 @@
 
 #include "store/stmt.h"
 #include "util/log.h"
+#include "util/metrics.h"
 
 namespace {
 
@@ -18,6 +21,19 @@ int64_t now_ms() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::system_clock::now().time_since_epoch())
       .count();
+}
+
+/// 死锁重试的退避毫秒数:指数式增长 + 线程本地随机抖动。
+///
+/// 固定退避会让同一批撞在一起的线程「同时醒来再撞一次」,抖动把重试错开。
+int retry_backoff_ms(int attempt) {
+  thread_local std::mt19937 rng([] {
+    std::random_device seed;
+    return std::mt19937(seed() ^ static_cast<unsigned>(
+                                     std::hash<std::thread::id>{}(std::this_thread::get_id())));
+  }());
+  std::uniform_int_distribution<int> jitter(0, 2 * (attempt + 1));
+  return 2 * (attempt + 1) + jitter(rng);
 }
 
 std::size_t utf8_length(const std::string& text) {
@@ -310,8 +326,10 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
   }
 
   // 冷启动时大量新会话并发创建会在 im_conversation 的唯一键上死锁;
-  // 死锁(1213)与锁等待超时(1205)是 MySQL 的可重试错误,重试 3 次对上层无感。
-  for (int attempt = 0; attempt < 3; ++attempt) {
+  // 死锁(1213)与锁等待超时(1205)是 MySQL 的可重试错误。
+  // 重试 8 次 + 抖动:500 对全新配对同时发首条消息时,重试窗口要覆盖一次 InnoDB
+  // 死锁检测周期(默认 50ms 量级),3 次(2/4/6ms)实测扛不住。
+  for (int attempt = 0; attempt < 8; ++attempt) {
     auto lease = pool_.acquire();
     try {
       lease.begin();
@@ -362,8 +380,10 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
           if (existing->to_id != request.to) {
             return 42201;
           }
+          metrics::sends_ok.fetch_add(1, std::memory_order_relaxed);
           return result_for(*existing, users_);
         }
+        metrics::sends_failed.fetch_add(1, std::memory_order_relaxed);
         return 50001;
       }
       const auto m_insert = since();
@@ -398,6 +418,7 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
                                 {"commit_us", std::to_string(m_commit - m_state2)},
                                 {"profile_us", std::to_string(m_total - m_commit)}});
       }
+      metrics::sends_ok.fetch_add(1, std::memory_order_relaxed);
       return result;
     } catch (const MysqlError& error) {
       try {
@@ -405,12 +426,14 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
       } catch (const std::exception&) {
       }
       if (error.code() == 1213 || error.code() == 1205) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(2 * (attempt + 1)));
+        metrics::deadlock_retries.fetch_add(1, std::memory_order_relaxed);
+        std::this_thread::sleep_for(std::chrono::milliseconds(retry_backoff_ms(attempt)));
         continue;
       }
       log_error("send_failed", {{"from", std::to_string(request.from)},
                                 {"to", std::to_string(request.to)},
                                 {"error", error.what()}});
+      metrics::sends_failed.fetch_add(1, std::memory_order_relaxed);
       return 50001;
     } catch (const std::exception& error) {
       try {
@@ -420,6 +443,7 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
       log_error("send_failed", {{"from", std::to_string(request.from)},
                                 {"to", std::to_string(request.to)},
                                 {"error", error.what()}});
+      metrics::sends_failed.fetch_add(1, std::memory_order_relaxed);
       return 50001;
     }
   }
@@ -427,5 +451,6 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
   log_error("send_failed", {{"from", std::to_string(request.from)},
                             {"to", std::to_string(request.to)},
                             {"error", "deadlock retry exhausted"}});
+  metrics::sends_failed.fetch_add(1, std::memory_order_relaxed);
   return 50001;
 }

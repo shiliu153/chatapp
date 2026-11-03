@@ -758,7 +758,13 @@ class ImTokenTests(SimpleTestCase):
     @override_settings(IM_SELF_SECRET="t" * 32)
     def test_reject_tampered(self):
         token = mint_im_token(9, 3600)
-        self.assertIsNone(verify_im_token(token[:-1] + ("A" if token[-1] != "A" else "B")))
+        # 改 payload 段,而不是签名段的最后一个字符:32 字节签名 base64url 后是 43 字符,
+        # 末字符只有 2 位有效 + 4 位填充,改它的低位可能解出完全相同的字节,
+        # 验签会「通过」——这是本用例此前偶发变红的原因。
+        header, payload, signature = token.split(".")
+        tampered = ".".join([header, payload[:-1] + ("A" if payload[-1] != "A" else "B"),
+                             signature])
+        self.assertIsNone(verify_im_token(tampered))
 
 
 class SelfBackendTests(SimpleTestCase):

@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 文档导航(按需读取)
 
-本文件只放核心内容。**写代码 / 排障前,先看 [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选踩坑文档**(IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包含 → android-emulator.md;测试 → testing.md;网页端 → web.md)。部署与运维 → [README.md](README.md)「部署」一节。设计/计划 → `docs/superpowers/{specs,plans}/`(进度以文件内 checkbox 为准)。接口文档(对外交付级)→ [docs/api/README.md](docs/api/README.md)。
+本文件只放核心内容。**写代码 / 排障前,先看 [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选踩坑文档**(IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包含 → android-emulator.md;测试 → testing.md;网页端 → web.md)。部署与运维 → [README.md](README.md)「部署」一节。设计/计划 → `docs/superpowers/{specs,plans}/`(进度以文件内 checkbox 为准)。接口文档(对外交付级)→ [docs/api/README.md](docs/api/README.md)。容量/观测/削峰的数字与口径 → [docs/ops/capacity-and-reliability.md](docs/ops/capacity-and-reliability.md)。
 
 ## 里程碑
 

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "machine": "阿里云轻量 2 vCPU / 1870MB RAM / 1024MB swap",
+  "source": "docs/ops/stress-test-2026-11-01.md §2(2026-11-01 实测)",
+  "note": "HTTP 为直连 gunicorn(排除公网);WS 为 imserver 本机 loopback。换机器/改接口后必须重跑并更新本文件。",
+  "points": [
+    {"scenario": "api_read", "conns": 20, "rps": 608, "p50_ms": 31, "p95_ms": 70, "p99_ms": 101, "error_rate": 0},
+    {"scenario": "api_read", "conns": 50, "rps": 576, "p50_ms": 98, "p95_ms": 186, "p99_ms": 294, "error_rate": 0},
+    {"scenario": "api_read", "conns": 100, "rps": 601, "p50_ms": 165, "p95_ms": 276, "p99_ms": 329, "error_rate": 0},
+    {"scenario": "api_read", "conns": 200, "rps": 569, "p50_ms": 325, "p95_ms": 488, "p99_ms": 566, "error_rate": 0},
+    {"scenario": "api_read", "conns": 400, "rps": 552, "p50_ms": 692, "p95_ms": 887, "p99_ms": 995, "error_rate": 0},
+    {"scenario": "ws_burst", "conns": 500, "count": 2, "rps": null, "p99_ms": null, "error_rate": 0, "note": "1000 条消息 0 失败,ack p50 2.55s"},
+    {"scenario": "ws_burst", "conns": 1000, "count": 2, "rps": null, "p99_ms": null, "error_rate": 0, "note": "2000 条消息 0 失败,ack p50 5.01s"},
+    {"scenario": "ws_burst", "conns": 500, "count": 1, "rps": null, "p99_ms": null, "error_rate": 0, "note": "2026-11-02 冷会话复测:500/500 ack,0 失败(P0-1 修复后)"}
+  ]
+}

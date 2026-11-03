@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <string>
 #include <thread>
+#include <vector>
 
+#include "store/conversation_repo.h"
 #include "store/mysql_pool.h"
 #include "store/redis_client.h"
 
@@ -56,6 +59,50 @@ TEST(StoreTest, PoolReconnectsAfterServerKill) {
   auto* result = lease.query("SELECT 1");
   ASSERT_NE(result, nullptr);
   mysql_free_result(result);
+}
+
+TEST(StoreTest, ColdStartConversationCreationDoesNotDeadlock) {
+  // 复现 2026-11-01 压测的 P0-1:500 对全新配对同时发第一条消息,819/1000 报 1213 死锁。
+  // 根因是 lock_pair 先对「不存在的行」做 SELECT ... FOR UPDATE,RR 隔离级别下加的是
+  // 间隙锁,几百个事务抢同一段唯一键间隙。修复后 INSERT 在最前面,并发插入退化成等锁。
+  // 这里用 16 线程 × 20 个全新配对复现同一模式,断言 0 失败。
+  const char* dsn = std::getenv("IM_TEST_MYSQL_DSN");
+  ASSERT_NE(dsn, nullptr);
+  MysqlPool pool(parse_mysql_dsn(dsn), 8);
+  ConversationRepo conversations(pool);
+
+  constexpr int kThreads = 16;
+  constexpr int kPerThread = 20;
+  constexpr uint64_t kBase = 900000000ULL;
+  std::atomic<int> failures{0};
+  std::vector<std::thread> workers;
+  workers.reserve(kThreads);
+  for (int t = 0; t < kThreads; ++t) {
+    workers.emplace_back([&, t] {
+      for (int i = 0; i < kPerThread; ++i) {
+        const uint64_t a = kBase + static_cast<uint64_t>(t) * 1000 + i;
+        const uint64_t b = a + 500000;
+        try {
+          auto lease = pool.acquire();
+          lease.begin();
+          conversations.lock_pair(lease, a, b, 1);
+          lease.commit();
+        } catch (const std::exception&) {
+          ++failures;
+        }
+      }
+    });
+  }
+  for (auto& worker : workers) {
+    worker.join();
+  }
+  EXPECT_EQ(failures.load(), 0);
+
+  {
+    auto lease = pool.acquire();
+    lease.query("DELETE FROM im_conversation WHERE user_a>=" + std::to_string(kBase) +
+                " AND user_a<" + std::to_string(kBase + 100000));
+  }
 }
 
 TEST(StoreTest, RedisSetGetDel) {

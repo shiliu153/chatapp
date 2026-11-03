@@ -40,3 +40,12 @@ Thumbs.db
 
 # Brainstorm 预览(Mockup)会话产物
 .superpowers/
+
+# 压测脚本与原始采样(2026-11-01 压测;含 venv 与服务器日志,不入库)
+.stress/
+
+# 观测栈的抓取令牌(部署时从 METRICS_TOKEN 写入,不入库)
+deploy/observability/metrics_token
+
+# 压测结果(每次跑都产生;只提交 perf/baseline.json)
+perf/results/

@@ -87,6 +87,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "config.middleware.RequestIdMiddleware",
+    "config.middleware.MetricsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -181,6 +182,34 @@ CELERY_TASK_IGNORE_RESULT = True          # 副作用任务不需要结果
 CELERY_TASK_ACKS_LATE = True              # 任务不丢:执行完才 ack
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# --- 队列分级(削峰)---
+# 三类任务的延迟容忍度完全不同,挤在一个队列里会让「封禁踢人」排在「配对灰条」后面:
+#   critical:封禁/踢下线/聊天权限 —— 必须最快;
+#   default :其余 IM 副作用;
+#   notify  :配对/评论/举报通知 —— 可以等,是突发流量的主要来源;
+#   bulk    :资料同步/账号导入 —— 最不急,可以慢慢跑。
+CELERY_TASK_DEFAULT_QUEUE = "default"
+CELERY_TASK_ROUTES = {
+    "im.tasks.ban_notice": {"queue": "critical"},
+    "im.tasks.ban_lifted": {"queue": "critical"},
+    "im.tasks.kick_pending": {"queue": "critical"},
+    "im.tasks.delete_account": {"queue": "critical"},
+    "im.tasks.pair_add": {"queue": "critical"},
+    "im.tasks.unmatch_blacklist": {"queue": "critical"},
+    "im.tasks.blacklist_add": {"queue": "critical"},
+    "im.tasks.blacklist_remove": {"queue": "critical"},
+    "im.tasks.send_match_notice": {"queue": "notify"},
+    "im.tasks.post_commented": {"queue": "notify"},
+    "im.tasks.post_replied": {"queue": "notify"},
+    "im.tasks.report_handled": {"queue": "notify"},
+    "im.tasks.sync_profile": {"queue": "bulk"},
+    "im.tasks.import_account": {"queue": "bulk"},
+}
+# notify 队列的消费速率上限(条/秒)。imserver 单机实测天花板 ~215 msg/s,
+# 配对高峰(一次活动 500 对)瞬间产生 1000 条灰条,不限速会把 imserver 打满、
+# ack p99 从 93ms 涨到秒级。0 = 不限速。
+IM_NOTICE_RATE_PER_SEC = int(os.getenv("IM_NOTICE_RATE_PER_SEC", "50"))
 
 
 # --- 密码校验(Django 内置四条;本项目登录走短信验证码,此处主要约束 admin 账号) ---
@@ -321,6 +350,19 @@ SMS_REPLAY_TTL = 60         # 校验成功后的幂等重放窗口(秒):响应�
 # --- 日志:开发期要能在终端看到验证码;每行带 request_id ---
 LOG_FILE = os.getenv("LOG_FILE", "")          # 置为文件路径则额外落盘(手测配 --noreload)
 REQUEST_SLOW_MS = int(os.getenv("REQUEST_SLOW_MS", "500"))
+# 生产置 json:单行 JSON,Loki/ES 才能按 request_id/user_id/route 检索;
+# 开发保持 text(终端可读)。字段白名单见 config/logging.py。
+LOG_FORMAT = os.getenv("LOG_FORMAT", "text")
+
+# --- Prometheus 抓取令牌:/metrics 的访问控制 ---
+# 生产必须设置:nginx 反代后 REMOTE_ADDR 恒为 127.0.0.1,回环判断挡不住公网。
+# 未设置时 /metrics 只对回环直连开放,其余一律 404(不暴露端点存在)。
+METRICS_TOKEN = os.getenv("METRICS_TOKEN", "")
+
+# /metrics 豁免 HTTPS 强制跳转:Prometheus 在回环上直接抓 http://127.0.0.1:8000,
+# 不豁免会被 301 到 https,跟随重定向后对 8000 做 TLS 握手而失败
+# (2026-11-03 上线时实际踩到)。
+SECURE_REDIRECT_EXEMPT = [r"^metrics$"]
 
 LOGGING = {
     "version": 1,
@@ -340,6 +382,8 @@ LOGGING = {
                             "filters": ["request_id"]},
     },
 }
+if LOG_FORMAT == "json":
+    LOGGING["formatters"]["console"] = {"()": "config.logging.JsonFormatter"}
 if LOG_FILE:
     # 注意:此时手测必须用 runserver --noreload —— autoreload 的两个进程会抢写同一文件
     LOGGING["handlers"]["file"] = {
@@ -441,6 +485,9 @@ MEDIA_DISK_WARN_MB = int(os.getenv("MEDIA_DISK_WARN_MB", "5000"))
 # 候选接口按 ``Profile.shuffle_key`` 索引取一个池子,再在内存里抽样;
 # 池子越大越不容易重复,取 200 对数百人的规模足够。
 CANDIDATE_POOL_SIZE = int(os.getenv("CANDIDATE_POOL_SIZE", "200"))
+# 候选池缓存 TTL(秒)。写路径会升版本让旧键立即失效,TTL 只决定「无人操作时
+# 多久重新查一次库」;30 秒在 2C2G 上能把池子查询的 QPS 压掉一个量级。
+CANDIDATE_CACHE_TTL = int(os.getenv("CANDIDATE_CACHE_TTL", "30"))
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"

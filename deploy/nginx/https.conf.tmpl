@@ -48,6 +48,11 @@ server {
     add_header Referrer-Policy "same-origin" always;
     add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" always;
 
+    # 指标端点只给本机 Prometheus 抓取(直连 gunicorn:8000),公网一律 404。
+    location = /metrics {
+        return 404;
+    }
+
     location = /healthz {
         access_log off;
         return 200 "ok\n";

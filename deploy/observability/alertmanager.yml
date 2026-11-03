@@ -1,0 +1,13 @@
+route:
+  receiver: wecom
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: wecom
+    webhook_configs:
+      # 企业微信机器人要的 JSON 与 Alertmanager 不同,交给 relay 转换。
+      - url: http://127.0.0.1:9099/alert
+        send_resolved: true

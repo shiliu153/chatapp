@@ -14,24 +14,44 @@ from django.utils import timezone
 from im import tasks as im_tasks
 from moderation.models import ReportStatus
 from moderation.services import blocked_user_ids, notify_report_handled
-from users.models import ProfileStatus
+from users.models import Profile, ProfileStatus
 
 from .models import Post, PostComment, PostLike, PostReport
 
 
-def visible_posts(viewer):
-    """广场可见动态:排除双向拉黑与重封禁作者;命中注解赞/评数与「我是否已赞」。
+def visible_base(viewer):
+    """广场可见性的基础查询集(不注解、不预取),用于取当页 id 与总数。
+
+    重封禁作者用**子查询**而不是 ``author__profile__status`` 关联过滤:后者会生成
+    LEFT JOIN,MySQL 优化器因此放弃 ``created_at`` 索引、改成全表扫 + filesort
+    (2026-11-03 实测 10 万条动态 214ms;改 NOT IN 子查询后走索引,同数据量 ~1ms)。
 
     Args:
         viewer: 当前浏览者。
 
     Returns:
-        已注解 ``like_count`` / ``comment_count`` / ``liked_by_me`` 的查询集。
+        只带可见性过滤的 ``Post`` 查询集。
     """
     blocked = blocked_user_ids(viewer)
+    banned_author_ids = Profile.objects.filter(
+        status=ProfileStatus.BANNED_HEAVY).values("user_id")
     return (Post.objects
             .exclude(author_id__in=blocked)
-            .exclude(author__profile__status=ProfileStatus.BANNED_HEAVY)
+            .exclude(author_id__in=banned_author_ids))
+
+
+def visible_posts(viewer, base=None):
+    """广场可见动态:排除双向拉黑与重封禁作者;命中注解赞/评数与「我是否已赞」。
+
+    Args:
+        viewer: 当前浏览者。
+        base: 已构建的可见性查询集(可选)。分页场景下复用同一个 base,
+            避免 ``blocked_user_ids`` 被重复执行两次。
+
+    Returns:
+        已注解 ``like_count`` / ``comment_count`` / ``liked_by_me`` 的查询集。
+    """
+    return ((base if base is not None else visible_base(viewer))
             .select_related("author__profile")
             .prefetch_related("author__photos", "images")
             .annotate(like_count=Count("likes", distinct=True),
@@ -40,6 +60,32 @@ def visible_posts(viewer):
                           PostLike.objects.filter(post=OuterRef("pk"), user=viewer)))
             # annotate 触发 GROUP BY 时 Meta.ordering 会被丢弃,必须显式排序
             .order_by("-created_at", "-id"))
+
+
+def page_visible_posts(viewer, offset: int, limit: int):
+    """两段式取一页动态:先按索引取当页 id,再只对这几条做聚合。
+
+    为什么不能直接 ``visible_posts(viewer)[offset:offset+limit]``:注解里有
+    ``COUNT(DISTINCT)``,MySQL 必须先把**全表**分组完才能 LIMIT;10 万条动态时
+    单次请求实测 3.3 秒。拆成「取 id(走 created_at 索引) + 对 10 条聚合」后,
+    成本与数据量脱钩。
+
+    Args:
+        viewer: 当前浏览者。
+        offset: 跳过条数。
+        limit: 每页条数。
+
+    Returns:
+        (当页 ``Post`` 列表, 可见总数);顺序与全量查询一致。
+    """
+    base = visible_base(viewer)
+    total = base.count()
+    ids = list(base.order_by("-created_at", "-id")
+               .values_list("id", flat=True)[offset:offset + limit])
+    if not ids:
+        return [], total
+    rows = {post.pk: post for post in visible_posts(viewer, base=base).filter(pk__in=ids)}
+    return [rows[post_id] for post_id in ids if post_id in rows], total
 
 
 def delete_post(post) -> None:

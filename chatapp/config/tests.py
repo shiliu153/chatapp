@@ -9,7 +9,10 @@
 """
 
 import io
+import json
+import logging
 import re
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -18,14 +21,19 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.urls import path
 from django_redis import get_redis_connection
 from PIL import Image
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
 from rest_framework.test import APITestCase
+from rest_framework.views import APIView
 
 from config import images
+from config import metrics
 from config import settings as settings_module
 from config.celery import ping
+from config.exceptions import server_error
 from config.net import client_ip
 from config.params import int_param, optional_id
 
@@ -65,6 +73,105 @@ class CelerySkeletonTests(TestCase):
         from config.celery import app
         self.assertTrue(app.conf.broker_url.endswith("/14"),
                         f"测试 broker 应指向 DB14,实际: {app.conf.broker_url}")
+
+
+class JsonLogTests(SimpleTestCase):
+    """JSON 日志:字段白名单、异常序列化、不泄漏任意 extra。"""
+
+    def _record(self, **extra) -> logging.LogRecord:
+        """构造一条带指定 extra 的日志记录。
+
+        Args:
+            **extra: 要附加到记录上的字段。
+
+        Returns:
+            ``logging.LogRecord`` 实例。
+        """
+        record = logging.LogRecord("chatapp.request", logging.INFO, __file__, 1,
+                                   "GET /x -> 200 12ms", None, None)
+        for key, value in extra.items():
+            setattr(record, key, value)
+        return record
+
+    def test_whitelisted_fields_are_emitted(self):
+        """约定字段全部出现,且是合法 JSON。"""
+        from config.logging import JsonFormatter
+
+        payload = json.loads(JsonFormatter().format(self._record(
+            request_id="rid-1", user_id=7, route="api/v1/posts", status=200,
+            duration_ms=12.5, sql_count=3)))
+        self.assertEqual(payload["level"], "INFO")
+        self.assertEqual(payload["request_id"], "rid-1")
+        self.assertEqual(payload["user_id"], 7)
+        self.assertEqual(payload["route"], "api/v1/posts")
+        self.assertEqual(payload["status"], 200)
+        self.assertEqual(payload["duration_ms"], 12.5)
+        self.assertEqual(payload["sql_count"], 3)
+        self.assertIn("ts", payload)
+
+    def test_unknown_extra_is_not_leaked(self):
+        """白名单之外字段(可能是手机号)不能进日志。"""
+        from config.logging import JsonFormatter
+
+        payload = json.loads(JsonFormatter().format(
+            self._record(phone="13800138000", request_id="rid-2")))
+        self.assertNotIn("phone", payload)
+
+    def test_exception_is_serialized_into_exc_field(self):
+        """异常堆栈进 ``exc`` 字段,而不是拼进 message。"""
+        from config.logging import JsonFormatter
+
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            record = logging.LogRecord("chatapp.request", logging.ERROR, __file__, 1,
+                                       "unhandled_exception", None, sys.exc_info())
+        payload = json.loads(JsonFormatter().format(record))
+        self.assertIn("ValueError", payload["exc"])
+        self.assertEqual(payload["message"], "unhandled_exception")
+
+    @override_settings(REQUEST_SLOW_MS=0)
+    def test_request_log_carries_structured_fields(self):
+        """访问日志带上 status/route/duration_ms,供 Loki 按字段检索。"""
+        with self.assertLogs("chatapp.request", level="WARNING") as captured:
+            self.client.get("/api/v1/health", HTTP_X_REQUEST_ID="rid-3")
+        record = captured.records[0]
+        self.assertEqual(record.status, 200)
+        self.assertEqual(record.route, "api/v1/health")
+        self.assertGreaterEqual(record.duration_ms, 0)
+
+
+class CeleryQueueTests(SimpleTestCase):
+    """队列分级与限速(削峰):紧急任务不能被通知洪水堵住。"""
+
+    def test_routes_split_queues_by_urgency(self):
+        """封禁/踢人走 critical,通知走 notify,资料同步走 bulk。"""
+        routes = settings.CELERY_TASK_ROUTES
+        self.assertEqual(routes["im.tasks.ban_notice"]["queue"], "critical")
+        self.assertEqual(routes["im.tasks.send_match_notice"]["queue"], "notify")
+        self.assertEqual(routes["im.tasks.sync_profile"]["queue"], "bulk")
+
+    def test_notify_tasks_are_rate_limited(self):
+        """notify 类任务带速率上限,critical 类不带。"""
+        from im import tasks
+
+        expected = f"{settings.IM_NOTICE_RATE_PER_SEC}/s"
+        self.assertEqual(tasks.send_match_notice.rate_limit, expected)
+        self.assertEqual(tasks.post_commented.rate_limit, expected)
+        self.assertIsNone(tasks.ban_notice.rate_limit)
+
+    def test_queue_depth_refresh_sets_gauges(self):
+        """队列深度抓取:llen 的结果写进 celery_queue_depth。"""
+        from unittest.mock import MagicMock
+
+        fake = MagicMock()
+        fake.llen.side_effect = lambda queue: {"notify": 7, "critical": 2}.get(queue, 0)
+        with patch("redis.Redis.from_url", return_value=fake):
+            metrics.refresh_queue_depths()
+        self.assertEqual(
+            metrics.REGISTRY.get_sample_value("celery_queue_depth", {"queue": "notify"}), 7)
+        self.assertEqual(
+            metrics.REGISTRY.get_sample_value("celery_queue_depth", {"queue": "critical"}), 2)
 
 
 class RequestIdTests(APITestCase):
@@ -624,3 +731,112 @@ class CommentCoverageTests(SimpleTestCase):
             problems, [],
             "以下位置缺少注释或含装饰符号,请按 docs/standards/python.md 修正:\n" +
             "\n".join(f"  {p}" for p in problems))
+
+
+class MetricsTests(APITestCase):
+    """可观测性:路由模板打标签、``/metrics`` 访问控制、抓取自身不计数。"""
+
+    def test_counter_uses_route_template(self):
+        """真实路径里的 id 不能进标签,否则时间序列基数会爆炸。"""
+        resp = self.client.get("/api/v1/users/123")
+        value = metrics.REGISTRY.get_sample_value(
+            "http_requests_total",
+            {"method": "GET", "route": "api/v1/users/<int:user_id>",
+             "status": str(resp.status_code)})
+        self.assertIsNotNone(value)
+
+    def test_raw_path_is_not_used_as_label(self):
+        """同一请求不应产生 ``users/123`` 这样的标签。"""
+        resp = self.client.get("/api/v1/users/123")
+        self.assertIsNone(metrics.REGISTRY.get_sample_value(
+            "http_requests_total",
+            {"method": "GET", "route": "api/v1/users/123", "status": str(resp.status_code)}))
+
+    def test_metrics_endpoint_skips_itself(self):
+        """抓取请求不能污染延迟分布。"""
+        self.assertEqual(self.client.get("/metrics").status_code, 200)
+        self.assertIsNone(metrics.REGISTRY.get_sample_value(
+            "http_requests_total",
+            {"method": "GET", "route": "metrics", "status": "200"}))
+
+    @override_settings(METRICS_TOKEN="s3cret")
+    def test_token_required_when_configured(self):
+        """配了令牌后,无令牌 403、带令牌 200。"""
+        self.assertEqual(self.client.get("/metrics").status_code, 403)
+        resp = self.client.get("/metrics", HTTP_X_METRICS_TOKEN="s3cret")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"http_requests_total", resp.content)
+
+    @override_settings(METRICS_TOKEN="s3cret")
+    def test_bearer_token_is_accepted(self):
+        """Prometheus 的 authorization 头也要能用。"""
+        resp = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer s3cret")
+        self.assertEqual(resp.status_code, 200)
+
+    @override_settings(METRICS_TOKEN="")
+    def test_loopback_allowed_without_token(self):
+        """开发期本机直连可抓取。"""
+        self.assertEqual(self.client.get("/metrics").status_code, 200)
+
+    @override_settings(METRICS_TOKEN="")
+    def test_non_loopback_is_hidden_without_token(self):
+        """未配令牌时对非回环返回 404,不暴露端点存在。"""
+        resp = self.client.get("/metrics", REMOTE_ADDR="203.0.113.9")
+        self.assertEqual(resp.status_code, 404)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_metrics_is_exempt_from_https_redirect(self):
+        """Prometheus 走 http 直连回环:不能被 301 到 https(否则抓取变成 TLS 握手)。"""
+        self.assertEqual(self.client.get("/metrics").status_code, 200)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_business_paths_still_redirect_to_https(self):
+        """豁免只针对 /metrics,业务接口仍强制 https。"""
+        self.assertEqual(self.client.get("/api/v1/health").status_code, 301)
+
+
+class _BoomView(APIView):
+    """测试专用视图:抛出未预期异常,用于验证 500 也是 JSON 契约。"""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """故意抛 ``RuntimeError``,模拟代码 bug 或 DB 故障。
+
+        Args:
+            request: 当前请求(未使用)。
+
+        Raises:
+            RuntimeError: 恒抛,供上层异常处理器转成 500。
+        """
+        raise RuntimeError("boom")
+
+
+urlpatterns = [path("api/v1/_boom", _BoomView.as_view())]
+
+
+@override_settings(ROOT_URLCONF="config.tests")
+class UnhandledExceptionTests(APITestCase):
+    """P2-4:未预期异常必须返回 ``{code,message,request_id}``,不能回 HTML 500。"""
+
+    def test_unhandled_exception_returns_json_500(self):
+        """DRF 视图里的 RuntimeError 被转成 500 JSON,且堆栈进日志。"""
+        with self.assertLogs("chatapp.request", level="ERROR"):
+            resp = self.client.get("/api/v1/_boom")
+        self.assertEqual(resp.status_code, 500)
+        body = resp.json()
+        self.assertEqual(body["code"], 500)
+        self.assertIn("message", body)
+        self.assertIn("request_id", body)
+
+    def test_handler500_returns_json_for_api_paths(self):
+        """非 DRF 路径的兜底 handler 对 ``/api/`` 前缀返回 JSON。"""
+        resp = server_error(RequestFactory().get("/api/v1/users/me"))
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(json.loads(resp.content)["code"], 500)
+
+    def test_handler500_keeps_plain_text_outside_api(self):
+        """非接口路径保持纯文本,避免把 HTML 页面也改成 JSON。"""
+        resp = server_error(RequestFactory().get("/some-page/"))
+        self.assertEqual(resp.status_code, 500)
+        self.assertIn("text/plain", resp["Content-Type"])

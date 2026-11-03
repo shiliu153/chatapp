@@ -1,0 +1,19 @@
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+
+  # 只有启用了 --profile logs 才有数据;没启动时 Grafana 只是报连接失败,不影响看板。
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://127.0.0.1:3100
+    jsonData:
+      maxLines: 500

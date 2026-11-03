@@ -107,14 +107,25 @@ def _record_visit(viewer_id: int, target_id: int) -> None:
 def get_profile(user):
     """取当前用户资料;没有就建空 Profile + 空 Preference(资料是懒创建的)。
 
+    结果挂在 ``user`` 实例上做**请求内记忆**:一次请求里视图、权限类、序列化器
+    会各调一次,不记忆就是每处两次 ``get_or_create``(2026-11-03 实测候选接口
+    因此多打 6 条 SQL)。同一请求内 ``profile.save()`` 改的就是这个实例,不会读到旧值。
+
     Args:
         user: 当前用户。
 
     Returns:
         该用户的 ``Profile`` 实例。
     """
+    cached = getattr(user, "_profile_cache", None)
+    if cached is not None:
+        return cached
     profile, _ = Profile.objects.get_or_create(user=user)
-    Preference.objects.get_or_create(profile=profile)
+    preference, _ = Preference.objects.get_or_create(profile=profile)
+    # 把 preference 挂到反向一对一缓存上:否则随后的 ``profile.preference``
+    # 还要再查一次(候选接口实测多打 1 条 SQL)。
+    profile.preference = preference
+    user._profile_cache = profile
     return profile
 
 

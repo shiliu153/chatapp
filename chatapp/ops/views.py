@@ -26,6 +26,7 @@ from django.views.decorators.http import require_POST
 from accounts.models import User
 from config.net import client_ip
 from config.params import optional_id
+from discovery.cache_keys import invalidate_pool_globally
 from feed.models import Post, PostReport
 from feed.services import delete_post
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
@@ -304,6 +305,8 @@ def photo_review(request):
         targets = Photo.objects.filter(pk__in=ids)
         skipped = len(ids) - targets.count()
         review_photos(targets, status_map[action], request.user)
+        # 过审/驳回直接决定谁能进候选池,必须让全站候选池缓存失效。
+        invalidate_pool_globally()
     status = request.POST.get("status", PhotoStatus.PENDING)
     qs = Photo.objects.select_related("user", "reviewed_by").order_by("-created_at")
     if status in PhotoStatus.values:

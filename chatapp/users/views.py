@@ -23,6 +23,7 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from config import images, storage
+from discovery.cache_keys import invalidate_candidates, invalidate_pool_globally
 from moderation.services import blocked_user_ids
 
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
@@ -72,6 +73,9 @@ def me(request):
         profile.refresh_status()
         if profile.nickname != old_nickname:
             sync_im_nickname(profile.user)
+        # 资料字段(性别/城市/生日)参与别人的候选过滤,必须让全局候选池失效。
+        invalidate_pool_globally()
+        invalidate_candidates(request.user.id)
     return Response(ProfileSerializer(profile, context={"request": request}).data)
 
 
@@ -153,6 +157,9 @@ def upload_photo(request):
     get_profile(request.user).refresh_status()
     if status == PhotoStatus.APPROVED:
         sync_im_avatar(request.user.id)
+    # 照片决定「谁有资格进候选池」,上传/过审后全站候选池都要重算。
+    invalidate_pool_globally()
+    invalidate_candidates(request.user.id)
     return Response(PhotoSerializer(photo, context={"request": request}).data, status=201)
 
 
@@ -174,6 +181,8 @@ def delete_photo(request, photo_id):
     photo.file.delete(save=False)   # 连磁盘文件一起删
     photo.delete()
     get_profile(request.user).refresh_status()
+    invalidate_pool_globally()
+    invalidate_candidates(request.user.id)
     return Response(status=204)
 
 
@@ -229,4 +238,6 @@ def my_preference(request):
         serializer = PreferenceSerializer(preference, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        # 偏好只影响自己的候选池。
+        invalidate_candidates(request.user.id)
     return Response(PreferenceSerializer(preference).data)

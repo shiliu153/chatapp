@@ -13,6 +13,7 @@ import logging
 
 from django.db import transaction
 
+from discovery.cache_keys import invalidate_pool_globally
 from im import tasks as im_tasks
 from users.models import Profile, ProfileStatus
 
@@ -49,6 +50,8 @@ def log_ban_change(user, old_status, new_status, reason, operator) -> None:
     """
     if new_status == old_status:
         return
+    # 封禁/解封改变「谁有资格出现在候选池」,全站候选缓存必须失效。
+    invalidate_pool_globally()
     if new_status == ProfileStatus.BANNED_LIGHT:
         _write_log(user, BanAction.BAN_LIGHT, reason, operator)
         _enqueue(im_tasks.ban_notice, user.id, "light", reason or "")

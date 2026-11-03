@@ -2,11 +2,13 @@
 
 #include <chrono>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <utility>
 
 #include "store/stmt.h"
 #include "util/log.h"
+#include "util/metrics.h"
 
 namespace {
 
@@ -38,14 +40,32 @@ MYSQL* connect_one(const MysqlDsn& dsn) {
 
 }  // namespace
 
-MysqlPool::MysqlPool(const MysqlDsn& dsn, int size, int64_t idle_ping_ms)
-    : dsn_(dsn), idle_ping_ms_(idle_ping_ms), size_(size) {
+MysqlPool::MysqlPool(const MysqlDsn& dsn, int size, int64_t idle_ping_ms,
+                     int64_t connect_wait_ms)
+    : dsn_(dsn), idle_ping_ms_(idle_ping_ms), connect_wait_ms_(connect_wait_ms), size_(size) {
   if (size_ <= 0) {
     throw std::invalid_argument("mysql pool size must be positive");
   }
   idle_.reserve(static_cast<std::size_t>(size_));
-  for (int i = 0; i < size_; ++i) {
-    idle_.push_back(Slot{connect_one(dsn_), now_ms()});
+  // 启动时 DB 还没就绪是常态(容器一起拉起、MySQL 正在崩溃恢复)。
+  // 直接抛会让进程退出,而 Docker 的重启退避会一路涨到 60s —— DB 恢复后还要再等一个
+  // 退避周期才起得来(2026-11-01 压测实测多等 47s)。这里在窗口内重试,窗口内恢复即启动。
+  const int64_t wait_ms = connect_wait_ms_ > 0 ? connect_wait_ms_ : 0;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
+  try {
+    for (int i = 0; i < size_; ++i) {
+      idle_.push_back(Slot{connect_until(deadline), now_ms()});
+    }
+  } catch (...) {
+    // 构造失败时析构函数不会执行,已建好的连接要自己关掉。
+    for (const Slot& slot : idle_) {
+      if (slot.conn != nullptr) {
+        clear_stmt_cache(slot.conn);
+        mysql_close(slot.conn);
+      }
+    }
+    idle_.clear();
+    throw;
   }
 }
 
@@ -66,6 +86,7 @@ MysqlPool::~MysqlPool() {
 }
 
 MysqlPool::Lease MysqlPool::acquire() {
+  const auto wait_start = std::chrono::steady_clock::now();
   MYSQL* conn = nullptr;
   {
     std::unique_lock<std::mutex> lock(mutex_);
@@ -91,7 +112,32 @@ MysqlPool::Lease MysqlPool::acquire() {
       }
     }
   }
+  // 池等待时间:并发打满时这个值会先涨,是「DB 侧瓶颈」的早期信号。
+  const auto waited_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::steady_clock::now() - wait_start)
+                             .count();
+  metrics::db_wait_count.fetch_add(1, std::memory_order_relaxed);
+  metrics::db_wait_us.fetch_add(static_cast<uint64_t>(waited_us),
+                                std::memory_order_relaxed);
   return Lease(*this, conn);
+}
+
+MYSQL* MysqlPool::connect_until(std::chrono::steady_clock::time_point deadline) {
+  int attempt = 0;
+  for (;;) {
+    try {
+      return connect_one(dsn_);
+    } catch (const std::exception& error) {
+      ++attempt;
+      if (std::chrono::steady_clock::now() >= deadline) {
+        throw std::runtime_error(std::string("mysql connect failed after ") +
+                                 std::to_string(attempt) + " attempts: " + error.what());
+      }
+      log_error("mysql_connect_retry",
+                {{"attempt", std::to_string(attempt)}, {"error", error.what()}});
+      std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    }
+  }
 }
 
 MYSQL* MysqlPool::connect_with_retry(int attempts) {
