@@ -83,14 +83,56 @@ EXPLAIN 显示 `Index scan on users_profile using users_profile_shuffle_key` +
 对照片表的 semijoin。这就是 2026-10-28 M7 把 `ORDER BY RAND()` 换成
 `shuffle_key` 预计算列的效果——**不需要再改**。
 
-## 6. 复现
+## 6. 社交列表:三条索引 + `NOT EXISTS`(2026-11-03,A-2)
+
+「喜欢我的人 / 谁看过我 / 配对列表」三个接口此前有三处结构性劣化(审查 N-2/N-3/N-4):
+`Swipe` 的 `target`、`Match` 的 `user_b` 都不是任何索引的前导列;`Photo` 的 `status` 没有索引
+(候选池 / 喜欢我 / 访客三处共用的「有已过审照片的人」子查询因此全表扫);
+排除列表又是「先把 id 拉进 Python 再 `__in`」,SQL 随活跃度线性变长。
+
+**实测口径**:20,052 用户 / 20,068 照片(三成待审)/ 20,033 条滑卡(15% 是 like)/
+20,000 条访客 / 10,050 条配对(九成已解除),MySQL 8.0.42,开发机,
+`manage.py scale_probe --phone <探针号> --explain`,取 15 次中位数(前 3 次预热)。
+
+| 查询 | 改动前 | 改动后 | 变化 |
+|---|---|---|---|
+| `likes_received`(前 20 条) | 95.72 ms,`ref` on `target_id`,rows 10098 + **filesort** | **32.02 ms**,`ref` on `idx_swipe_target_action`,rows 3000,无 filesort | −67% |
+| `likes/count` | 92.04 ms | **29.83 ms** | −68% |
+| `visits`(前 20 条) | 371.65 ms,**`type=ALL`** on `users_photo` rows 19576 + temporary + filesort | **105.0 ms**,`ref` on `idx_visit_owner_last`;照片子查询不再全表扫 | −72% |
+| `matches`(前 20 条) | 2.01 ms,`ref` on `unmatched_at` rows 2000 | **1.74 ms**,`index_merge(uniq_match_pair, idx_match_user_b)` rows 101 | 扫行数 −95% |
+
+三条索引:
+
+| 表 | 索引 | 服务于 |
+|---|---|---|
+| `discovery_swipe` | `(target_id, action, created_at DESC, id DESC)` | 喜欢我的人:等值 + 排序一索引搞定 |
+| `discovery_match` | `(user_b_id, unmatched_at)` | 配对列表的 OR:与 `uniq_match_pair` 组成 index_merge |
+| `users_photo` | `(status, user_id)` | 三处共用的「有已过审照片的人」覆盖索引 |
+
+两个容易踩的点(都实测过):
+
+1. **MySQL 8 会把「被新索引左前缀覆盖」的外键索引当冗余删掉**:加了
+   `idx_swipe_target_action` 之后,`target_id` 的独立外键索引消失(配对表同理)。
+   所以「先加索引、后想回滚」时,`DROP INDEX` 会报 1553 —— 得先补一条单列索引;
+   线上回滚同理,别指望 `migrate` 反向操作一定干净。
+2. **拉黑过滤必须拆成两条 `EXISTS`**:一条带 `OR` 的 `EXISTS` 用不了半连接,
+   MySQL 会把外层行整体物化进临时表 —— 2 万访客上实测 **565 ms**,拆成两条 **103 ms**
+   (与完全不加拉黑过滤同价)。另外 `exclude(a, b)` 在 Django 里是 `NOT (a AND b)`,
+   写成一次调用只会剔除「双向都拉黑」的行,单方向拉黑会漏 —— 这条已被
+   `moderation/tests.py::BlockVisibilityTests` 钉死。
+
+`/matches` 顺带修掉了「把全部配对行拉进内存再分页」:现在先 `LIMIT/OFFSET` 再组装,
+翻到第 2 页和第 1 页一样贵;头像绝对 URL 仍在序列化阶段按请求拼。
+
+## 7. 复现
 
 ```bash
 # 1) 造数(开发库/测试库都行;--clean 只删 199 号段)
 python manage.py seed_scale_users --count 100000 --posts 500000
 
 # 2) 量延迟与执行计划
-python manage.py scale_probe --repeat 5 --offsets 0,1000,10000,50000 --explain
+#    --phone 指定探针账号(要看「喜欢我/谁看过我/配对」的规模数据,得让它有对应的行)
+python manage.py scale_probe --repeat 5 --offsets 0,1000,10000,50000 --explain --phone <手机号>
 
 # 3) 压接口:只读接口直接压;写接口(需要登录态)用 perf_tokens 签令牌后压
 python3 perf/run.py --scenario api_read --conns 100 --dur 30 --out perf/results/feed.json
@@ -104,7 +146,7 @@ python3 perf/run.py --scenario api_read --conns 100 --dur 30 --out perf/results/
 python manage.py seed_scale_users --count 100000 --clean
 ```
 
-## 7. 局限
+## 8. 局限
 
 - 开发机(Windows + 本地 MySQL)与 2C2G 服务器的 IO 特性不同,**绝对值不可直接搬到线上**;
   可迁移的是「查询形态 + 执行计划 + 相对倍数」。

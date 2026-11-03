@@ -231,6 +231,11 @@ class Photo(models.Model):
 
     class Meta:
         ordering = ["order", "id"]
+        indexes = [
+            # 「有已过审照片的人」子查询:Photo.objects.filter(status=APPROVED).values("user_id")。
+            # 候选池 / 喜欢我的人 / 访客三处共用它,缺索引时每次都是全表扫(审查 N-4)。
+            models.Index(fields=["status", "user_id"], name="idx_photo_status_user"),
+        ]
 
     def __str__(self):
         """后台与日志中的可读表示。
