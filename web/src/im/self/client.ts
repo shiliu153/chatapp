@@ -42,6 +42,14 @@ export class SelfImClient implements ImClient {
   private ackWaiters = new Map<string, () => void>()
   private authResolve?: () => void
   private authReject?: (error: Error) => void
+  /** 登录超时定时器:auth_ok 到达后必须清掉,否则 5 秒后会对着已完成的 Promise 再 reject */
+  private authTimer?: ReturnType<typeof setTimeout>
+  /** 25s 业务心跳:与 App 对齐。服务端只认业务帧,WS 层 keep-alive 救不了(审查 N-1) */
+  private heartbeat?: ReturnType<typeof setInterval>
+  /** 握手是否已完成:未完成的失败由 login() 抛出,不重复报断线 */
+  private authed = false
+  /** 已被顶号/令牌过期:随后的 onclose 不能再报 disconnected(否则会被自动重连抢回来) */
+  private suppressClose = false
 
   onEvent(listener: (event: ImEvent) => void): void {
     this.listeners.push(listener)
@@ -55,21 +63,96 @@ export class SelfImClient implements ImClient {
     void userId
     const bootstrap = this.bootstrap
     if (!bootstrap) throw new Error('IM 未初始化')
+    // 重连时先关掉上一条连接,别让旧连接的定时器与 onclose 继续影响新连接。
+    // 不 await:close() 只是发起关闭,等它会白白多一个微任务(旧连接通常已经断了)。
+    const previous = this.transport
+    this.transport = undefined
+    void previous?.close().catch(() => {})
+    this.stopHeartbeat()
     const transport = this.transportFactory()
     this.transport = transport
+    this.authed = false
+    this.suppressClose = false
+    let closeHandled = false
     transport.onFrame((raw) => this.onFrame(raw))
+    transport.onClose((info) => {
+      if (closeHandled) return
+      closeHandled = true
+      this.onTransportClosed(info)
+    })
     await transport.connect(bootstrap.wsUrl)
 
     await new Promise<void>((resolve, reject) => {
-      this.authResolve = resolve
-      this.authReject = reject
+      const timer = setTimeout(() => {
+        this.authTimer = undefined
+        reject(new Error('IM 登录超时'))
+      }, 5000)
+      this.authTimer = timer
+      this.authResolve = () => {
+        this.clearAuthTimer()
+        resolve()
+      }
+      this.authReject = (error: Error) => {
+        this.clearAuthTimer()
+        reject(error)
+      }
       transport.send(JSON.stringify({ v: 1, type: 'auth', data: { token: userSig } }))
-      setTimeout(() => reject(new Error('IM 登录超时')), 5000)
     })
+  }
+
+  private clearAuthTimer(): void {
+    if (this.authTimer) clearTimeout(this.authTimer)
+    this.authTimer = undefined
   }
 
   private emit(event: ImEvent): void {
     for (const listener of this.listeners) listener(event)
+  }
+
+  /**
+   * 连接被关闭(非本端主动):停心跳、让挂起的发送立刻失败,并上报 `disconnected`。
+   *
+   * 未完成握手时不上报 —— 那种失败由 `login()` 的 Promise 抛出,重连由调用方处理。
+   */
+  private onTransportClosed(info: { code: number; reason: string }): void {
+    this.stopHeartbeat()
+    if (this.suppressClose) {
+      this.suppressClose = false
+      return
+    }
+    const wasAuthed = this.authed
+    this.authed = false
+    if (!wasAuthed) return
+    // 连接没了,挂起的发送永远等不到 ack:立刻失败,让 UI 出「重发」而不是干等 30 秒
+    this.failPending(new Error('IM 连接已断开'))
+    this.emit({ type: 'disconnected', code: info.code, reason: info.reason })
+  }
+
+  private failPending(error: Error): void {
+    for (const pending of this.pending.values()) pending.reject(error)
+    this.pending.clear()
+    this.ackWaiters.clear()
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this.heartbeat = setInterval(() => {
+      this.sendFrame(JSON.stringify({ v: 1, type: 'ping', data: {} }))
+    }, 25_000)
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat)
+    this.heartbeat = undefined
+  }
+
+  /** 发帧永不上抛:连接已断时静默丢弃,交给心跳/重连与发送超时兜底。 */
+  private sendFrame(raw: string): void {
+    try {
+      this.transport?.send(raw)
+    } catch {
+      // 已关闭的 WebSocket 调 send 会抛 InvalidStateError,不能冒到 UI 层
+    }
   }
 
   private onFrame(raw: string): void {
@@ -82,18 +165,25 @@ export class SelfImClient implements ImClient {
     const type = String(frame.type ?? '')
     const data = (frame.data ?? {}) as Record<string, unknown>
     if (type === 'auth_ok') {
+      this.authed = true
+      this.startHeartbeat()
       this.authResolve?.()
       this.authResolve = undefined
       return
     }
     if (type === 'kicked') {
+      // 服务端随后会用 4001 关连接:那是被顶号,不是断线,不能让 store 自动重连
+      this.suppressClose = true
+      this.stopHeartbeat()
       this.emit({ type: 'kickedOffline', reason: 'multiAccount' })
       return
     }
     if (type === 'error') {
       const code = Number(data.code ?? 0)
       if (code === 40101) {
-          this.authReject?.(new Error('IM 登录已过期'))
+        this.suppressClose = true
+        this.stopHeartbeat()
+        this.authReject?.(new Error('IM 登录已过期'))
         this.emit({ type: 'kickedOffline', reason: 'sigExpired' })
         return
       }
@@ -151,7 +241,10 @@ export class SelfImClient implements ImClient {
   }
 
   async logout(): Promise<void> {
-    await this.transport?.close()
+    this.suppressClose = true
+    this.authed = false
+    this.stopHeartbeat()
+    await this.transport?.close().catch(() => {})
     this.transport = undefined
   }
 
@@ -194,7 +287,7 @@ export class SelfImClient implements ImClient {
       const promise = new Promise<ChatMessage>((resolve, reject) => {
         this.pending.set(id, { peerId, text, resolve, reject })
       })
-      this.transport?.send(JSON.stringify({
+      this.sendFrame(JSON.stringify({
         v: 1,
         type: 'send',
         id,
@@ -206,8 +299,10 @@ export class SelfImClient implements ImClient {
           new Promise<ChatMessage>((_, reject) =>
             setTimeout(() => reject(new Error('发送超时')), 10000)),
         ])
-      } catch {
+      } catch (error) {
         this.pending.delete(id)
+        // 连接已断:再重试也发不出去,立刻把失败交给 UI(否则要连等 3 × 10 秒)
+        if (!this.authed) throw error instanceof Error ? error : new Error('IM 连接已断开')
       }
     }
     throw new Error('发送失败,请重试')
@@ -221,7 +316,7 @@ export class SelfImClient implements ImClient {
       const promise = new Promise<ChatMessage>((resolve, reject) => {
         this.pending.set(id, { peerId, text: '', image, resolve, reject })
       })
-      this.transport?.send(JSON.stringify({
+      this.sendFrame(JSON.stringify({
         v: 1,
         type: 'send',
         id,
@@ -244,8 +339,10 @@ export class SelfImClient implements ImClient {
           new Promise<ChatMessage>((_, reject) =>
             setTimeout(() => reject(new Error('发送超时')), 10000)),
         ])
-      } catch {
+      } catch (error) {
         this.pending.delete(id)
+        // 连接已断:再重试也发不出去,立刻把失败交给 UI(否则要连等 3 × 10 秒)
+        if (!this.authed) throw error instanceof Error ? error : new Error('IM 连接已断开')
       }
     }
     throw new Error('发送失败,请重试')
@@ -259,7 +356,7 @@ export class SelfImClient implements ImClient {
       const promise = new Promise<ChatMessage>((resolve, reject) => {
         this.pending.set(id, { peerId, text: '', voice, resolve, reject })
       })
-      this.transport?.send(JSON.stringify({
+      this.sendFrame(JSON.stringify({
         v: 1,
         type: 'send',
         id,
@@ -280,8 +377,10 @@ export class SelfImClient implements ImClient {
           new Promise<ChatMessage>((_, reject) =>
             setTimeout(() => reject(new Error('发送超时')), 10000)),
         ])
-      } catch {
+      } catch (error) {
         this.pending.delete(id)
+        // 连接已断:再重试也发不出去,立刻把失败交给 UI(否则要连等 3 × 10 秒)
+        if (!this.authed) throw error instanceof Error ? error : new Error('IM 连接已断开')
       }
     }
     throw new Error('发送失败,请重试')
@@ -294,7 +393,7 @@ export class SelfImClient implements ImClient {
   async revokeMessage(msgId: string): Promise<void> {
     const id = `revoke-${Date.now()}`
     const waiter = new Promise<void>((resolve) => this.ackWaiters.set(id, resolve))
-    this.transport?.send(JSON.stringify({
+    this.sendFrame(JSON.stringify({
       v: 1,
       type: 'revoke',
       id,
@@ -308,7 +407,7 @@ export class SelfImClient implements ImClient {
   }
 
   async markConversationRead(peerId: string): Promise<void> {
-    this.transport?.send(JSON.stringify({
+    this.sendFrame(JSON.stringify({
       v: 1,
       type: 'read',
       id: `read-${Date.now()}`,
@@ -317,7 +416,7 @@ export class SelfImClient implements ImClient {
   }
 
   async deleteConversation(peerId: string): Promise<void> {
-    this.transport?.send(JSON.stringify({
+    this.sendFrame(JSON.stringify({
       v: 1,
       type: 'conversation_delete',
       id: `delete-${Date.now()}`,

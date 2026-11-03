@@ -187,6 +187,97 @@ describe('chat store', () => {
     expect(store.status).toBe('ready')
   })
 
+  it('IM 断线 → reconnecting → 退避 1s 后重连,并补拉会话与当前会话消息', async () => {
+    const { client, emit } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    // 先建立「当前会话」(真实定时器下把网络请求跑完,再切假定时器)
+    await store.openConversation('u8')
+    expect(store.status).toBe('ready')
+
+    vi.useFakeTimers()
+    try {
+      client.login.mockClear()
+      client.fetchConversations.mockClear()
+      client.fetchHistory.mockClear()
+
+      emit({ type: 'disconnected' })
+
+      expect(store.status).toBe('reconnecting')
+      expect(client.login).not.toHaveBeenCalled() // 第一次退避 1s 还没到
+
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(0) // 让重连里的 HTTP 落地
+
+      expect(client.login).toHaveBeenCalledTimes(1)
+      expect(store.status).toBe('ready')
+      // 断线期间的消息不会自己回来:必须补拉会话列表 + 当前会话历史
+      expect(client.fetchConversations).toHaveBeenCalled()
+      expect(client.fetchHistory).toHaveBeenCalledWith('u8')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('退避按 1/2/4… 递增:第一次 1s 未成功时下一次等 2s', async () => {
+    const { client, emit } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    await store.loadConversations()
+
+    vi.useFakeTimers()
+    try {
+      // 让每次重连都失败(网络还没恢复)
+      client.login = vi.fn(async () => Promise.reject(new Error('offline')))
+      client.init = vi.fn()
+
+      emit({ type: 'disconnected' })
+      await vi.advanceTimersByTimeAsync(1_000)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(client.login).toHaveBeenCalledTimes(1)
+      // 这次没连上 → 继续排下一档退避,状态回到「重连中」(而不是停在 error)
+      expect(store.status).toBe('reconnecting')
+
+      // 第二次退避是 2s:999ms 时还不该重试
+      await vi.advanceTimersByTimeAsync(1_999)
+      expect(client.login).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(client.login).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('被同端顶掉后即使收到 disconnected 也不自动重连', async () => {
+    const { client, emit } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    await store.loadConversations()
+    client.login.mockClear()
+
+    emit({ type: 'kickedOffline', reason: 'multiAccount' })
+    emit({ type: 'disconnected' })
+
+    expect(store.status).toBe('inactive')
+    await new Promise((resolve) => setTimeout(resolve, 1_200))
+    expect(client.login).not.toHaveBeenCalled()
+  })
+
+  it('主动退出登录后不因 disconnected 重连', async () => {
+    const { client, emit } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    await store.loadConversations()
+    await store.close()
+    client.login.mockClear()
+
+    emit({ type: 'disconnected' })
+
+    expect(store.status).toBe('idle')
+    expect(client.login).not.toHaveBeenCalled()
+  })
+
   it('打开会话即清未读', async () => {
     const { client } = fakeClient()
     setImClientFactory(() => client as unknown as ImClient)
