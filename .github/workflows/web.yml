@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 端到端要真后端 + Redis + imserver,不进 CI;CI 只守类型/规范/单测/构建
+  # 本轨只守类型/规范/单测/构建;端到端冒烟见 web-e2e.yml(E-3:真 MySQL+Redis+Django)
   check:
     runs-on: ubuntu-latest
     defaults:

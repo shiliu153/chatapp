@@ -125,6 +125,19 @@
 - **断线时挂起的发送要立刻失败**：否则每条消息都要干等 `10s × 3` 次重试，用户看到的「发送中」会挂 30 秒。`sendText/sendImage/sendVoice` 在 catch 里检查 `authed`，断线即抛，UI 直接出「重发」。
 - 别在 `login()` 里 `await` 旧 transport 的 `close()`：多一个微任务会让「发 auth 帧」的时序整体后移（单测里 `transport.sent[0]` 会变成 `undefined`）。发起关闭即可，旧连接本来就已经断了。
 
+## 端到端冒烟进 CI(2026-11-05,E-3)
+
+- **只把「登录 → 完善资料 → 发现/广场列表」1 条放进 CI**(`web-e2e.yml` → `npm run e2e:smoke`):
+  真 MySQL + Redis + Django(`runserver`)+ `vite preview`。全量 8 条要 imserver + Celery
+  (发消息、灰条、已读、媒体上传),在 Actions 里起全栈的收益抵不过 flaky 风险,继续本地人工跑。
+- **CI 环境变量有两个坑**:`SMS_PHONE_WHITELIST` 必须留空(空库 + 空种子 = 不限制,否则新号 403);
+  `AUTO_APPROVE=1`,否则新上传的照片是 `pending`,资料永远 `incomplete`,发现页永远空。
+- **冒烟别去消息页**:会话列表走 imserver 的 `/im/api/conversations`,冒烟轨不起 imserver,
+  只会看到「消息加载失败」。验证列表用**广场** `/posts`(纯 Django)或发现页候选。
+- **Windows 本地 4173 可能起不来**:报 `EACCES: permission denied 127.0.0.1:4173` ——
+  端口落在 Hyper-V 保留段(`netsh interface ipv4 show excludedportrange protocol=tcp` 可见)。
+  `playwright.config.ts` 支持 `PLAYWRIGHT_PORT=5000 npm run e2e` 换端口,CI 不受影响。
+
 ## 前端错误上报(2026-11-03,A-4)
 
 - **`window.onerror` 抓不到 Vue 组件里的异常**：Vue 会自己捕获渲染/生命周期错误，必须另外挂

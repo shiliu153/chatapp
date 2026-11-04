@@ -91,6 +91,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(运�
 
 | 2026-11-05 | **E-2 跨栈协议 fixture 契约测试**(backlog E-2 / 审查 D-3):WS 协议帧此前只有「Python 侧发帧 + 两端假 transport」,服务端改帧格式只能人工手测发现。① 新增 `imserver/tests/fixtures/ws/{client_to_server,server_to_client}.json`(上行 8 帧 / 下行 12 帧)+ `README.md`(改协议必须三端同一次改、比对规则);② imserver 把帧构造收进 `src/net/frames.h`,新增 `frames_fixture_test.cpp` 用真实序列化函数比对 fixture(unit **45/45**);③ App `protocol_fixture_test.dart`(**3 例**)与 Web `im-protocol-fixture.spec.ts`(**3 例**)用真实解析路径吃 fixture,上下行都断言;④ `app.yml`/`web.yml` 的 paths 加 fixture 目录;⑤ 验收实测:故意把 fixture 的 `msg_id` 改成 `message_id` → **三端同时红**,还原后全绿 | PR #62 |
 
+| 2026-11-05 | **E-3 端到端冒烟进 CI**(backlog E-3 / 审查 D-5):评估后**只把 1 条冒烟放进 CI,全量 8 条保留人工**(全量要 imserver + Celery,起全栈的 flaky 成本高于收益)。① 新增 `.github/workflows/web-e2e.yml`:MySQL 8 + Redis service containers + Django `runserver`(复用 backend.yml 的「等可认证连接」)+ `npm run e2e:smoke`,失败上传 Playwright 报告;② 新增 `web/tests/e2e/ci-smoke.spec.ts`:注册登录 → 完善资料(含照片)→ 发现页候选 → 广场 `/posts`(不去消息页,它走 imserver);③ `playwright.config.ts` 支持 `PLAYWRIGHT_PORT`(Windows 4173 落在 Hyper-V 保留段会 EACCES),本地用 5000 实测跑通;④ `web.yml` 注释、`CLAUDE.md` 测试纪律、`docs/pitfalls/web.md` 同步 | PR #TBD |
+
 ## 怎么维护
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;
