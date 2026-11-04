@@ -516,8 +516,11 @@ MEDIA_DISK_WARN_MB = int(os.getenv("MEDIA_DISK_WARN_MB", "5000"))
 # 池子越大越不容易重复,取 200 对数百人的规模足够。
 CANDIDATE_POOL_SIZE = int(os.getenv("CANDIDATE_POOL_SIZE", "200"))
 # 候选池缓存 TTL(秒)。写路径会升版本让旧键立即失效,TTL 只决定「无人操作时
-# 多久重新查一次库」;30 秒在 2C2G 上能把池子查询的 QPS 压掉一个量级。
-CANDIDATE_CACHE_TTL = int(os.getenv("CANDIDATE_CACHE_TTL", "30"))
+# 多久重新查一次库」——所以它只是兜底,拉长不影响正确性(见 config/cache_utils.py)。
+# 2026-11-04 实测(D-2):冷池查询在 2 万资料时 **114.6ms**(全表扫 + 4 个反连接 + 排序),
+# 热池 0.95ms;30s 时每个活跃用户每 30 秒就吃一次 115ms。拉到 300s 后冷查询频率降 10 倍,
+# 而「划走一个人/配对/拉黑」仍然靠版本号立刻失效,不需要靠 TTL。
+CANDIDATE_CACHE_TTL = int(os.getenv("CANDIDATE_CACHE_TTL", "300"))
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"

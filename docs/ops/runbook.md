@@ -268,7 +268,32 @@ python manage.py allowlist_seed_import               # 真导,写完立刻生效
 4. **`403`/`200` 的差异本身是个探测口子**(受 20 次/小时 IP 限流约束):别拿名单页当对外开放的功能宣传。
 5. **停用不影响已登录的会话** —— 名单只管「能不能重新拿令牌」;已经在线的设备要继续用,得去 `/ops/users/` 封禁(`banned_heavy`)或用单设备登录顶掉。
 
-## 7. 事故复盘模板
+## 7. 日志轮转(2026-11-04,D-3 选项 A 顺带)
+
+**背景**:`LOG_FILE=/www/wwwlogs/chatapp/app.log`,每个请求一行 JSON。2026-11-04 压测实测
+持续高压约 **1.4MB / 5 分钟**(450 rps 量级,30 分钟约 40MB),而**此前没有轮转** ——
+长期高压会把 40GB 盘写满,写满后 gunicorn/MySQL 会一起出问题。
+
+**安装(一次性)**:
+
+```bash
+cp deploy/ops/chatapp-logrotate.conf /etc/logrotate.d/chatapp
+chmod 644 /etc/logrotate.d/chatapp
+logrotate -d /etc/logrotate.d/chatapp    # 干跑:确认匹配到 /www/wwwlogs/chatapp/*.log
+logrotate -f /etc/logrotate.d/chatapp    # 手动强制转一次,验证产物与进程继续写
+ls -lh /www/wwwlogs/chatapp/             # 期望看到 app.log-YYYYMMDD(.gz)+ 新的 app.log
+```
+
+**参数**:每天转、留 14 份、超过 200MB 提前转、压缩、`copytruncate`(进程不重开文件)。
+
+**为什么是 `copytruncate`**:gunicorn/celery 用 Python `FileHandler` 一直开着日志文件;
+只 rename 不重开的话进程会继续写旧 inode,表现为「日志停了」。`copytruncate` 复制后原地截断,
+进程无感;代价是复制与截断之间可能丢几行,访问日志可接受。
+
+**注意**:cron 里的 logrotate(`/etc/cron.daily/logrotate`)每天只跑一次,**200MB 的提前轮转要等下一次 cron**;
+如果哪天真的短时间灌满,临时 `logrotate -f` 手动转一次即可。
+
+## 8. 事故复盘模板
 
 每次 P0/P1 故障在 `docs/ops/incidents/YYYY-MM-DD-<slug>.md` 留一份,四段:
 
