@@ -467,8 +467,9 @@ nginx 三条硬要求:
 > ② 若用宝塔「反向代理」,它生成的 `proxy_cache` **键不含 `Authorization`** 且忽略 `Vary`,
 > 会造成**跨用户缓存泄漏** —— 要么不开页面缓存,要么把 `Authorization` 加进 `proxy_cache_key`。
 
-`shiliu153.cn` 已备案,交友 App 已上线 `https://chat.shiliu153.cn`:访问根路径自动跳转到网页端
-(移动端浏览器会进引导页,不提供手机网页版)；切换过程见
+`shiliu153.cn` 已备案,交友 App 部署在 `https://chat.shiliu153.cn`:访问根路径自动跳转到网页端
+(移动端浏览器会进引导页,不提供手机网页版)。**项目定位为个人项目、不对外发行**(不上架应用商店、
+不开放自助注册),见 [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md) §4.2;切换过程见
 [docs/superpowers/archive/plans/2026-10-28-chat-shiliu153-cn-https.md](docs/superpowers/archive/plans/2026-10-28-chat-shiliu153-cn-https.md)。
 
 > 具体服务器地址、面板端口与运维命令属于部署私有信息,已从本开源仓库移除。
