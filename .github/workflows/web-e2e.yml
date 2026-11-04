@@ -22,9 +22,6 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    # 仅用于「失败时把诊断日志推到 ci-logs 分支」(见最后一步);平时不影响仓库
-    permissions:
-      contents: write
 
     services:
       mysql:
@@ -175,23 +172,3 @@ jobs:
           name: playwright-report
           path: web/playwright-report
           retention-days: 7
-
-      # 临时诊断:Actions 日志在私有仓库里不能直接读,失败时把关键日志推到
-      # `ci-logs` 分支,本地 `git fetch origin ci-logs` 就能看。定位完可删。
-      - name: 失败时把诊断日志推到 ci-logs 分支
-        if: failure()
-        run: |
-          set -e
-          rm -rf /tmp/ci-logs && mkdir -p /tmp/ci-logs
-          cp /tmp/django.log /tmp/ci-logs/django.log 2>/dev/null || true
-          cp -r web/test-results /tmp/ci-logs/test-results 2>/dev/null || true
-          cp -r web/playwright-report /tmp/ci-logs/playwright-report 2>/dev/null || true
-          cd /tmp/ci-logs
-          git init -q -b ci-logs
-          git config user.email "ci@local"
-          git config user.name "ci"
-          git add -A
-          git commit -q -m "ci logs ${GITHUB_RUN_ID} attempt ${GITHUB_RUN_ATTEMPT}" || true
-          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ci-logs
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
