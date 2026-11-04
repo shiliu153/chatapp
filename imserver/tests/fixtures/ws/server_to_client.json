@@ -1,0 +1,125 @@
+{
+  "protocol_version": 1,
+  "note": "服务端 → 客户端(下行)WS 帧。三端(App/Web/imserver)各有一份契约测试读这里;改字段必须三端同一次改动内一起改,见同目录 README.md。",
+  "frames": [
+    {
+      "name": "auth_ok",
+      "frame": {
+        "v": 1,
+        "type": "auth_ok",
+        "data": {"uid": 9, "server_time": 1720000000000, "heartbeat_sec": 25}
+      },
+      "note": "首帧鉴权成功;heartbeat_sec 是服务端建议的心跳间隔"
+    },
+    {
+      "name": "pong",
+      "frame": {"v": 1, "type": "pong", "data": {"server_time": 1720000000000}}
+    },
+    {
+      "name": "kicked",
+      "frame": {"v": 1, "type": "kicked", "data": {"reason": "kicked"}},
+      "note": "被同账号新登录顶下线;服务端随后以 4001 关闭连接"
+    },
+    {
+      "name": "error_40101",
+      "frame": {"v": 1, "type": "error", "data": {"code": 40101, "message": "登录已过期"}}
+    },
+    {
+      "name": "error_42201",
+      "frame": {"v": 1, "type": "error", "data": {"code": 42201, "message": "未知帧类型"}}
+    },
+    {
+      "name": "ack_send",
+      "frame": {
+        "v": 1,
+        "type": "ack",
+        "id": "c-1",
+        "data": {"msg_id": "900124", "seq": 42, "ts": 1720000000000}
+      },
+      "note": "send 的 ack 用 msg_id/seq/ts,没有 ok 字段;id 与上行帧的 id/client_msg_id 相同"
+    },
+    {
+      "name": "ack_ok",
+      "frame": {"v": 1, "type": "ack", "id": "read-1", "data": {"ok": true}},
+      "note": "read/revoke/conversation_delete 的 ack 形状:{ok}"
+    },
+    {
+      "name": "message_text",
+      "frame": {
+        "v": 1,
+        "type": "message",
+        "data": {
+          "msg_id": "900124",
+          "seq": 42,
+          "from": "u2",
+          "to": "u9",
+          "kind": "text",
+          "ts": 1720000000000,
+          "revoked": false,
+          "text": "你好",
+          "from_profile": {"nickname": "小九", "avatar": "http://cdn/avatar/u2.jpg"}
+        }
+      }
+    },
+    {
+      "name": "message_image",
+      "frame": {
+        "v": 1,
+        "type": "message",
+        "data": {
+          "msg_id": "900125",
+          "seq": 43,
+          "from": "u2",
+          "to": "u9",
+          "kind": "image",
+          "ts": 1720000000001,
+          "revoked": false,
+          "image": {
+            "url": "http://cdn/media/chat/a.jpg",
+            "thumb_url": "http://cdn/media/chat/a_thumb.jpg",
+            "width": 1080,
+            "height": 1440,
+            "size": 345678
+          },
+          "from_profile": {"nickname": "小九", "avatar": "http://cdn/avatar/u2.jpg"}
+        }
+      },
+      "note": "线上 url/thumb_url 会带 ?e=&s= 限时签名;fixture 存不带 query 的规范地址,比对时统一剥掉 query"
+    },
+    {
+      "name": "message_voice",
+      "frame": {
+        "v": 1,
+        "type": "message",
+        "data": {
+          "msg_id": "900126",
+          "seq": 44,
+          "from": "u2",
+          "to": "u9",
+          "kind": "voice",
+          "ts": 1720000000002,
+          "revoked": false,
+          "voice": {
+            "url": "http://cdn/media/chat/v.m4a",
+            "duration_ms": 3200,
+            "size": 12345
+          },
+          "from_profile": {"nickname": "小九", "avatar": "http://cdn/avatar/u2.jpg"}
+        }
+      }
+    },
+    {
+      "name": "read_down",
+      "frame": {"v": 1, "type": "read", "data": {"peer": "u2", "seq": 42}},
+      "note": "对端(peer)读到 seq=42;没有 id,服务端主动推,客户端不要回 ack"
+    },
+    {
+      "name": "revoked",
+      "frame": {
+        "v": 1,
+        "type": "revoked",
+        "data": {"msg_id": "900124", "seq": 42, "peer": "u2", "ts": 1720000000000}
+      }
+    }
+  ]
+}

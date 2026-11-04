@@ -1,0 +1,91 @@
+{
+  "protocol_version": 1,
+  "note": "客户端 → 服务端(上行)WS 帧。三端(App/Web/imserver)各有一份契约测试读这里;改字段必须三端同一次改动内一起改,见同目录 README.md。",
+  "frames": [
+    {
+      "name": "auth",
+      "frame": {"v": 1, "type": "auth", "data": {"token": "<IM_TOKEN>"}},
+      "note": "首帧。token 是 POST /api/v1/im/user_sig 发的 JWT;测试里用占位符,比对时只校验类型"
+    },
+    {
+      "name": "ping",
+      "frame": {"v": 1, "type": "ping", "data": {}},
+      "note": "25 秒业务心跳(App/Web 都是),服务端回 pong"
+    },
+    {
+      "name": "send_text",
+      "frame": {
+        "v": 1,
+        "type": "send",
+        "id": "c-1",
+        "data": {"client_msg_id": "c-1", "to": "u2", "kind": "text", "text": "你好"}
+      }
+    },
+    {
+      "name": "send_image",
+      "frame": {
+        "v": 1,
+        "type": "send",
+        "id": "c-2",
+        "data": {
+          "client_msg_id": "c-2",
+          "to": "u2",
+          "kind": "image",
+          "image": {
+            "url": "http://cdn/media/chat/a.jpg",
+            "thumb_url": "http://cdn/media/chat/a_thumb.jpg",
+            "width": 1080,
+            "height": 1440,
+            "size": 345678
+          }
+        }
+      }
+    },
+    {
+      "name": "send_voice",
+      "frame": {
+        "v": 1,
+        "type": "send",
+        "id": "c-3",
+        "data": {
+          "client_msg_id": "c-3",
+          "to": "u2",
+          "kind": "voice",
+          "voice": {
+            "url": "http://cdn/media/chat/v.m4a",
+            "duration_ms": 3200,
+            "size": 12345
+          }
+        }
+      }
+    },
+    {
+      "name": "read",
+      "frame": {
+        "v": 1,
+        "type": "read",
+        "id": "read-1",
+        "data": {"peer": "u2", "seq": 0}
+      },
+      "note": "seq=0 表示读到该会话最新;服务端落库后给对端推下行 read 帧"
+    },
+    {
+      "name": "revoke",
+      "frame": {
+        "v": 1,
+        "type": "revoke",
+        "id": "revoke-1",
+        "data": {"msg_id": "900123"}
+      }
+    },
+    {
+      "name": "conversation_delete",
+      "frame": {
+        "v": 1,
+        "type": "conversation_delete",
+        "id": "delete-1",
+        "data": {"peer": "u2"}
+      }
+    }
+  ]
+}

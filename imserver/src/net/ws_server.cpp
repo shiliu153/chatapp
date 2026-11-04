@@ -31,13 +31,6 @@ int64_t now_ms() {
       .count();
 }
 
-std::string error_frame(int code, const std::string& message) {
-  return nlohmann::json{{"v", 1},
-                        {"type", "error"},
-                        {"data", {{"code", code}, {"message", message}}}}
-      .dump();
-}
-
 std::optional<uint64_t> parse_uid(const std::string& value) {
   if (value.size() < 2 || value[0] != 'u') {
     return std::nullopt;
@@ -58,11 +51,6 @@ std::optional<uint64_t> parse_uid(const std::string& value) {
   } catch (const std::exception&) {
     return std::nullopt;
   }
-}
-
-std::string ack_frame(const std::string& id, bool ok) {
-  return nlohmann::json{{"v", 1}, {"type", "ack"}, {"id", id}, {"data", {{"ok", ok}}}}
-      .dump();
 }
 
 std::string peer_id(uint64_t uid) {
@@ -329,10 +317,7 @@ void WsSession::on_frame(const std::string& payload) {
     return;
   }
   if (type == "ping") {
-    send_raw(nlohmann::json{{"v", 1},
-                            {"type", "pong"},
-                            {"data", {{"server_time", now_ms()}}}}
-                 .dump());
+    send_raw(pong_frame(now_ms()));
     return;
   }
   if (type == "send") {
@@ -399,12 +384,7 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
   auth_timer_.cancel();
   messages_.users().ensure(uid_, "");
   registry_.register_session(uid_, shared_from_this());
-  send_raw(nlohmann::json{{"v", 1},
-                          {"type", "auth_ok"},
-                          {"data", {{"uid", uid_},
-                                    {"server_time", now_ms()},
-                                    {"heartbeat_sec", 25}}}}
-               .dump());
+  send_raw(auth_ok_frame(uid_, now_ms()));
 }
 
 void WsSession::handle_send(const nlohmann::json& frame) {
@@ -457,13 +437,7 @@ void WsSession::on_send_result(const std::variant<SendResult, int>& result,
                                const SendRequest& request) {
   if (const auto* ok = std::get_if<SendResult>(&result)) {
     registry_.send_to(request.to, build_message_frame(*ok, request, messages_.signer()));
-    send_raw(nlohmann::json{{"v", 1},
-                            {"type", "ack"},
-                            {"id", request.client_msg_id},
-                            {"data", {{"msg_id", std::to_string(ok->msg_id)},
-                                      {"seq", ok->seq},
-                                      {"ts", ok->ts}}}}
-                 .dump());
+    send_raw(send_ack_frame(request.client_msg_id, ok->msg_id, ok->seq, ok->ts));
     return;
   }
   const int code = std::get<int>(result);
@@ -505,12 +479,7 @@ void WsSession::handle_read(const nlohmann::json& frame) {
         }
         // 通知对端「我读到 *marked」:对端据此把自己 seq <= N 的消息标已读。
         // 不带 id —— 这是服务端主动推的,不要求 ack(客户端也不该回)。
-        self->registry_.send_to(
-            peer_uid, nlohmann::json{{"v", 1},
-                                     {"type", "read"},
-                                     {"data",
-                                      {{"peer", peer_id(self->uid_)}, {"seq", *marked}}}}
-                          .dump());
+        self->registry_.send_to(peer_uid, read_frame(peer_id(self->uid_), *marked));
       });
     });
   } catch (const std::exception&) {
@@ -529,14 +498,7 @@ void WsSession::handle_revoke(const nlohmann::json& frame) {
       boost::asio::post(self->ws_.get_executor(), [self, result, id] {
         if (const auto* revoked = std::get_if<RevokeResult>(&result)) {
           const auto frame_for = [&](uint64_t other) {
-            return nlohmann::json{
-                {"v", 1},
-                {"type", "revoked"},
-                {"data", {{"msg_id", std::to_string(revoked->msg_id)},
-                          {"seq", revoked->seq},
-                          {"peer", peer_id(other)},
-                          {"ts", revoked->ts}}}}
-                .dump();
+            return revoked_frame(revoked->msg_id, revoked->seq, peer_id(other), revoked->ts);
           };
           self->registry_.send_to(revoked->from_id,
                                   frame_for(revoked->to_id));
@@ -675,10 +637,7 @@ void WsSession::kick(const std::string& reason) {
     if (self->closing_) {
       return;
     }
-    self->outbox_.push_back(nlohmann::json{{"v", 1},
-                                           {"type", "kicked"},
-                                           {"data", {{"reason", reason}}}}
-                                .dump());
+    self->outbox_.push_back(kicked_frame(reason));
     self->outbox_bytes_ += self->outbox_.back().size();
     self->close_code_ = 4001;
     self->do_write();
