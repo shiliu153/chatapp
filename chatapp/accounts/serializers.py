@@ -2,14 +2,13 @@
 
 设计要点:
     ``SmsVerifySerializer`` 继承 ``PhoneSerializer``,因此校验验证码的接口同样会先
-    走一遍手机号规范化(去空白 + 格式校验),两个接口的号码口径保持一致。
+    走一遍手机号规范化(去空白 + 格式校验),两个接口的号码口径保持一致;
+    格式规则本身在 ``accounts.validators``(审核台名单表单用的是同一份)。
 """
-
-import re
 
 from rest_framework import serializers
 
-PHONE_RE = re.compile(r"^1[3-9]\d{9}$")
+from .validators import PHONE_RE
 
 
 class PhoneSerializer(serializers.Serializer):

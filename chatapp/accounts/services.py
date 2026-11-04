@@ -3,11 +3,14 @@
 验证码本身存在 Redis(见 ``sms_codes``);真实短信发送由调用方入队 Celery
 任务完成,响应路径不做任何第三方网络调用。
 
-封闭测试期(B-1 / K-1)多一道白名单闸门:只有 ``settings.SMS_PHONE_WHITELIST``
-内的号码能收发验证码;白名单为空表示不限制(开发/测试的默认状态)。
+封闭测试期(B-1 / K-1 / B-1c)多一道白名单闸门:**库内名单**
+(``accounts.PhoneAllowlist``)内的号码才能收发验证码;``.env`` 的
+``SMS_PHONE_WHITELIST`` 退化为「兜底种子」,两者都空表示不限制
+(开发/测试的默认状态)。判定逻辑只在本模块实现一次,别处不要另写。
 
 关联文档:
     - 接口契约:docs/api/auth.md
+    - 运维入口:docs/ops/runbook.md「准入名单的日常运维」
 """
 
 import logging
@@ -16,7 +19,7 @@ import secrets
 from django.conf import settings
 from django.core.cache import cache
 
-from . import sms_codes
+from . import allowlist, sms_codes
 from .exceptions import (
     PhoneNotAllowed,
     SmsCodeExpired,
@@ -24,6 +27,7 @@ from .exceptions import (
     SmsLocked,
     SmsSendTooFrequent,
 )
+from .validators import mask_phone
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,14 @@ def _sent_key(phone):
 
 
 def ensure_phone_allowed(phone: str) -> None:
-    """白名单闸门:号码不在封闭测试名单内则直接拒绝。
+    """白名单闸门:号码不在准入名单内则直接拒绝。
+
+    判定顺序(逐条生效,命中即返回):
+        1. **库内停用** → 拒(显式停用优先于 ``.env`` 种子,否则停不掉老号码);
+        2. **库内启用** → 放行;
+        3. **``.env`` 种子里有** → 放行(库里还没导入时的兜底);
+        4. **库或种子非空** → 拒(说明名单机制已生效,只放名单内的人);
+        5. **库与种子都空** → 放行(开发/测试默认,避免本地和 CI 全被拦)。
 
     校验放在发码与校验两个入口(而不是只放在校验),好处是:非白名单号码
     既拿不到验证码、也不会在 Redis 里留下限流占位,更不会触发短信任务。
@@ -43,27 +54,20 @@ def ensure_phone_allowed(phone: str) -> None:
         phone: 客户端提交的手机号。
 
     Raises:
-        PhoneNotAllowed: 白名单非空且该号码不在其中。
+        PhoneNotAllowed: 该号码不在准入名单内(含「库内已停用」)。
     """
-    whitelist = settings.SMS_PHONE_WHITELIST
-    if whitelist and phone not in whitelist:
-        logger.warning("[白名单] 拒绝非受邀号码 phone=%s", _mask_phone(phone))
+    active, disabled = allowlist.snapshot()
+    if phone in disabled:
+        logger.warning("[白名单] 拒绝已停用号码 phone=%s", mask_phone(phone))
         raise PhoneNotAllowed()
-
-
-
-def _mask_phone(phone: str) -> str:
-    """把手机号脱敏成 ``138****8000``,日志里不再出现完整号码。
-
-    Args:
-        phone: 原始手机号。
-
-    Returns:
-        脱敏后的手机号;长度不足时原样返回。
-    """
-    if len(phone) < 7:
-        return phone
-    return f"{phone[:3]}****{phone[-4:]}"
+    if phone in active:
+        return
+    if phone in settings.SMS_PHONE_WHITELIST:
+        return
+    if active or disabled or settings.SMS_PHONE_WHITELIST:
+        logger.warning("[白名单] 拒绝非受邀号码 phone=%s", mask_phone(phone))
+        raise PhoneNotAllowed()
+    # 库与种子都空 = 不限制:开发/测试的默认状态(生产漏配 = 没防护,见 runbook)
 
 
 def issue_code(phone: str) -> str:
@@ -88,7 +92,7 @@ def issue_code(phone: str) -> str:
             else f"{secrets.randbelow(1_000_000):06d}")
     sms_codes.store(phone, code)
     if settings.SMS_DEV_MODE:
-        logger.info("[开发模式] 验证码 phone=%s code=%s", _mask_phone(phone), code)
+        logger.info("[开发模式] 验证码 phone=%s code=%s", mask_phone(phone), code)
     return code
 
 

@@ -86,6 +86,9 @@ tbody tr:last-child td { border-bottom: none; }
 .tag-red { background: #fdecea; color: #d93025; }
 .ops-error { margin: 0 0 10px; color: #d93025; font-weight: 600; }
 .ops-warn { margin: 0 0 10px; color: #e8890c; }
+.ops-notice { margin: 0 0 10px; color: #1e9e57; font-weight: 600; }
+.ops-hint { margin: 0 0 12px; color: #6b7280; font-size: 13px; line-height: 1.7; }
+.ops-hint code { padding: 1px 5px; border-radius: 3px; background: #f0f2f5; color: #2b2f36; }
 
 /* ===== 用户卡 / 照片 ===== */
 .ops-photos { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }

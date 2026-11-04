@@ -1,0 +1,80 @@
+{# 名单面板:加号表单 + 表格。整体被 HTMX 替换(outerHTML),所以提示与输入框都在这一块里。 #}
+<div id="allowlist-panel">
+  {% if error %}<p class="ops-error">{{ error }}</p>{% endif %}
+  {% if notice %}<p class="ops-notice">{{ notice }}</p>{% endif %}
+
+  <article>
+    <h3>加一个号</h3>
+    <p class="ops-hint">
+      名单内 = 「自己人」:本项目不接短信商,验证码固定 <code>123456</code>,
+      所以<b>一个号码进了名单,就等于这个账号可以被接管</b>。加号前先问清楚是谁在用。
+      {% if seed_count %}
+        <br>当前 <code>.env</code> 里还有 {{ seed_count }} 个兜底种子号码(库里没有记录时按它放行);
+        用 <code>python manage.py allowlist_seed_import</code> 可以把它们一次性导进库。
+      {% endif %}
+    </p>
+    <form hx-post="{% url 'ops:allowlist_add' %}"
+          hx-target="#allowlist-panel" hx-swap="outerHTML">
+      <input type="hidden" name="status" value="{{ status }}">
+      <input type="hidden" name="q" value="{{ q }}">
+      <div class="ops-filters">
+        <label>手机号
+          <input type="text" name="phone" maxlength="20" placeholder="11 位手机号">
+        </label>
+        <label>备注
+          <input type="text" name="note" maxlength="100" placeholder="谁在用 / 为什么加">
+        </label>
+        <button type="submit">加入名单</button>
+      </div>
+    </form>
+  </article>
+
+  <article>
+    <table id="allowlist-table">
+      <thead>
+        <tr>
+          <th>手机号</th><th>备注</th><th>状态</th><th>已注册账号</th>
+          <th>加入人</th><th>加入时间</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in records %}
+        <tr>
+          <td>{{ r.phone }}</td>
+          <td>{{ r.note|default:"—" }}</td>
+          <td>
+            {% if r.is_active %}
+              <span class="tag tag-green">启用</span>
+            {% else %}
+              <span class="tag tag-gray">已停用</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.phone in registered %}
+              <span class="tag tag-gray">已有账号</span>
+            {% else %}
+              <span class="tag tag-orange">待首次登录</span>
+            {% endif %}
+          </td>
+          <td>{{ r.created_by.phone|default:"—" }}</td>
+          <td>{{ r.created_at|date:"Y-m-d H:i" }}</td>
+          <td>
+            <form hx-post="{% url 'ops:allowlist_toggle' r.id %}"
+                  hx-target="#allowlist-panel" hx-swap="outerHTML" style="display:inline">
+              <input type="hidden" name="status" value="{{ status }}">
+              <input type="hidden" name="q" value="{{ q }}">
+              {% if r.is_active %}
+                <button type="submit" class="danger">停用</button>
+              {% else %}
+                <button type="submit" class="ok">启用</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7">名单里还没有号码(库与 <code>.env</code> 都空时等于不限制,生产必须至少有一个)</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </article>
+</div>

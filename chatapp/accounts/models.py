@@ -1,18 +1,23 @@
-"""账号模型:以手机号为登录标识的自定义用户。
+"""账号模型:以手机号为登录标识的自定义用户,以及准入名单。
 
 设计要点:
     1. 继承 ``AbstractUser`` 但把 ``username`` 置空、``USERNAME_FIELD`` 改为 ``phone``,
        因此必须自带 ``UserManager``(默认管理器按 username 建号会失败);
     2. ``session_version`` 支撑单设备登录:每次登录 +1 并写进 JWT,鉴权时比对;
-    3. ``im_user_id`` 是全项目唯一的 IM 账号拼装点(``u{user_id}``),别处一律用它。
+    3. ``im_user_id`` 是全项目唯一的 IM 账号拼装点(``u{user_id}``),别处一律用它;
+    4. ``PhoneAllowlist`` 是封闭测试的准入名单(B-1c):本项目不接短信商,固定验证码
+       ``123456`` + 名单 = 长期准入机制,因此**这张表本身就是安全边界**。
 
 注意事项:
     登录一律走短信验证码,普通用户的密码是不可用的(``set_unusable_password``);
     只有 ``create_superuser`` 会设置真实密码,供 Django admin 使用。
 """
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager as BaseUserManager
 from django.db import models
+
+from .validators import mask_phone
 
 
 class UserManager(BaseUserManager):
@@ -98,3 +103,52 @@ class User(AbstractUser):
             用户手机号。
         """
         return self.phone
+
+
+class PhoneAllowlist(models.Model):
+    """封闭测试准入名单(B-1 / B-1c):有资格收发短信验证码的手机号。
+
+    为什么是「表」而不是 ``.env`` 里一行逗号分隔的字符串:
+        本项目 2026-11-03 起确定**不接入短信商**,固定验证码 ``123456`` + 名单就是
+        **长期准入机制**。名单里的人彼此之间用固定码可以互相登录,所以「谁在名单里」
+        等于「谁算自己人」—— 这份名单要能随时加、随时停用、留得住是谁加的,
+        改 ``.env`` 再重启 web 做不到这三点(还会因为一个逗号打错把所有人挡在外面)。
+
+    与 ``Settings`` 的关系:
+        ``settings.SMS_PHONE_WHITELIST`` 降级为「兜底种子」:库里没有这条记录时仍按它
+        放行(冷启动、首次导入前的过渡);但**库里显式停用的号码优先被拒**,否则
+        「停用」就停不掉那些还留在 ``.env`` 里的号码。判定逻辑唯一入口是
+        ``accounts.services.ensure_phone_allowed()``,不要在别处另写一份。
+
+    Attributes:
+        phone: 手机号;全局唯一,与 ``User.phone`` 同一口径(11 位,1 开头)。
+        note: 备注(谁在用、为什么加),方便以后清理名单时判断。
+        is_active: 是否启用;停用 = 该号码立刻 ``403 + 40301``,记录保留可追溯。
+        created_by: 加号的操作账号;运营账号被删除时置空,不连带删名单。
+        created_at: 加入时间。
+        updated_at: 最后一次改动(启停/改备注)时间。
+    """
+
+    phone = models.CharField("手机号", max_length=20, unique=True)
+    note = models.CharField("备注", max_length=100, blank=True, default="")
+    is_active = models.BooleanField("启用", default=True, db_index=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="加入人",
+                                  null=True, blank=True, on_delete=models.SET_NULL,
+                                  related_name="+")
+    created_at = models.DateTimeField("加入时间", auto_now_add=True)
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        """新加的号排最前;启用中的排在停用前,便于一眼看到当前准入面。"""
+
+        verbose_name = "手机号准入名单"
+        verbose_name_plural = verbose_name
+        ordering = ["-is_active", "-created_at"]
+
+    def __str__(self):
+        """后台列表里的可读标识。
+
+        Returns:
+            形如 ``139****9000(启用)`` 的脱敏摘要。
+        """
+        return f"{mask_phone(self.phone)}({'启用' if self.is_active else '停用'})"
