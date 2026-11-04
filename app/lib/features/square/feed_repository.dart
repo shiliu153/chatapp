@@ -12,14 +12,20 @@ class FeedRepository {
 
   final ApiClient _api;
 
-  Future<({List<Post> items, bool hasMore})> fetchPosts(
-      {int limit = 20, int offset = 0, String path = '/posts'}) async {
-    final page = await _api.get(path, query: {'limit': limit, 'offset': offset})
-        as Map<String, dynamic>;
+  /// 广场动态流(游标分页):首页不传 [cursor],之后传上一页的 `nextCursor`。
+  ///
+  /// 后端已改成复合游标(backlog D-1):`?before=<游标>`,响应带 `next_cursor`。
+  /// 不再用 offset —— 动态流头部会持续插入新行,offset 翻页会重复/漏读。
+  Future<({List<Post> items, String? nextCursor})> fetchPosts(
+      {int limit = 20, String? cursor, String path = '/posts'}) async {
+    final page = await _api.get(path, query: {
+      'limit': limit,
+      'before': ?cursor,
+    }) as Map<String, dynamic>;
     final items = (page['results'] as List<dynamic>)
         .map((item) => Post.fromJson(item as Map<String, dynamic>))
         .toList();
-    return (items: items, hasMore: page['next'] != null);
+    return (items: items, nextCursor: page['next_cursor'] as String?);
   }
 
   Future<void> toggleLike(int postId, {required bool like}) async {

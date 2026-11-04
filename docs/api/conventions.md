@@ -63,7 +63,53 @@ Authorization: Bearer <access>
 
 ## 分页约定
 
-所有列表接口统一使用 `limit` / `offset` 分页:
+列表接口有两种分页方式:**游标分页(新,推荐)** 与 **offset 分页(旧,兼容保留)**。
+
+### 游标分页(推荐)
+
+用于「按时间倒序、头部会持续插入新行」的列表:`GET /posts`、`GET /posts/mine`、
+`GET /matches`、`GET /discovery/likes`、`GET /discovery/visits`。
+
+**请求参数**
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| limit | Integer | 否 | 每页条数,默认 20,上限 100(超出按 100 计) |
+| before | String | 否 | 游标。首页不传;之后**原样回传**上一页响应里的 `next_cursor` |
+
+**响应结构**
+
+```json
+{
+  "count": 137,
+  "next_cursor": "MjAyNi0xMS0wNFQwMzoyMDoxMS4xMjM0NTYrMDA6MDB8MTIz",
+  "has_more": true,
+  "results": []
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| count | Integer | 该列表的可见总数(与分页无关,入口角标也用它) |
+| next_cursor | String / null | 下一页游标;`has_more` 为 `false` 时恒为 `null` |
+| has_more | Boolean | 是否还有下一页 |
+| results | Array | 当页数据 |
+
+**游标是不透明字符串**:客户端只负责「原样保存、原样回传」,不要解析、不要自己拼
+(它内部是 base64url 编码的「排序时间 + 主键」)。游标坏了返回
+`400` + `{"code": 400, "message": "分页游标无效,请从第一页重新拉取", …}`,
+客户端应清空列表、从第一页重拉。
+
+为什么要换:这类列表头部会持续插入新行,`offset=20` 在「读完第 1 页、又有人发帖」时
+必然**重复一条、漏掉一条**;游标记住「上一页最后一行是谁」,翻页结果与页深无关,
+深翻页也不会越来越慢(审查 N-5,见 backlog D-1)。
+
+### offset 分页(旧,兼容保留)
+
+其余列表接口(评论、回复、拉黑名单等)仍用 `limit` / `offset`。上面 5 个游标接口
+**也仍然接受** `offset`:只要请求里带 `offset` 且不带 `before`,服务端就按老规则分页,
+响应形状也回到 `count/next/previous/results`。这条兼容只为还没升级的老客户端保留,
+新代码一律用游标。
 
 **请求参数**
 

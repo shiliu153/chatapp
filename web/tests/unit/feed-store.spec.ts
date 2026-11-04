@@ -17,8 +17,8 @@ export const post = (id: number, liked = false) => ({
 
 const paged = (results: unknown[], overrides: Record<string, unknown> = {}) => ({
   count: results.length,
-  next: null,
-  previous: null,
+  next_cursor: null,
+  has_more: false,
   results,
   ...overrides,
 })
@@ -26,13 +26,17 @@ const paged = (results: unknown[], overrides: Record<string, unknown> = {}) => (
 describe('feed store', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('分页追加而不是替换', async () => {
+  it('按游标分页追加而不是替换', async () => {
     let calls = 0
+    let secondQuery = ''
     server.use(
-      mswHttp.get('/api/v1/posts', () => {
+      mswHttp.get('/api/v1/posts', ({ request }) => {
         calls += 1
+        if (calls > 1) secondQuery = new URL(request.url).search
         return HttpResponse.json(
-          calls === 1 ? paged([post(1)], { count: 2, next: 'x' }) : paged([post(2)], { count: 2 }),
+          calls === 1
+            ? paged([post(1)], { count: 2, next_cursor: 'c2', has_more: true })
+            : paged([post(2)], { count: 2 }),
         )
       }),
     )
@@ -42,6 +46,8 @@ describe('feed store', () => {
     await store.load()
 
     expect(store.posts.map((p) => p.id)).toEqual([1, 2])
+    expect(secondQuery).toContain('before=c2')   // 第二页带游标,不再带 offset
+    expect(store.hasMore).toBe(false)
   })
 
   it('点赞先行更新界面,失败时回滚', async () => {

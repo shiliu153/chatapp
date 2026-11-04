@@ -77,6 +77,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(运�
 
 | 2026-11-04 | **项目定位变更:个人项目,不再对外发行**(用户决定,无代码改动):不上架应用商店、不开放自助注册、不为发行做合规投入(备案材料 / 软著 / 安全评估 / PIPIA / 机审 / 实名)。**backlog 批次 B「上线阻断」整批关闭** —— B-4(合规轨清单重建 + T-06/T-10/T-12/T-19)否决并移入 §4.1,新增 §4.2 定位说明;范围口径:① 白名单(B-1/B-1c)继续是核心安全机制,与是否上线无关;② A 批(心跳/索引/备份/错误上报)与定位无关,照常维护;③ D/E/C 三批照常推进。同步修正:各类历史文档里的「上线阻断项 / 上线前必须做」口径作废(`CLAUDE.md` 里程碑段、`README.md` 部署段、`docs/reviews/2026-11-03-fullstack-review.md` K-2/K-4、`docs/pitfalls/im.md`、`docs/ops/capacity-and-reliability.md`),C-1 的阻塞点更正为「只剩极光 key」(备案与 HTTPS 均已具备) | 未上线(仅文档) |
 
+| 2026-11-04 | **cursor/keyset 分页替代 offset**(backlog D-1 / 审查 N-5):广场流、我的动态、配对、喜欢我的人、谁看过我五类「头部持续插入」的列表,offset 翻页在「读完第 1 页、又有人发帖」时必然重复一条 + 漏读一条,深翻页还要跳读前 N 行。① 新增 `chatapp/config/cursor.py`:游标 = base64url(`<排序时间>|<主键>`),**故意不透明**(ISO 的 `+08:00` 进 query 会被解成空格),`read_before`(无游标=第一页)/ `apply_before`(keyset `(field,pk) < (值,主键)`)/ `slice_page`(多取 1 条判 `has_more`)/ `paginated_response`(带老分支);非法游标 `400` + 统一信封,不漏 500。② 协议:请求 `?before=`,响应 `{count, next_cursor, has_more, results}`(`count` 保留 —— App/Web 都拿它算 `hasMore` 与入口角标)。③ **`offset` 保留兼容**:带 `offset` 且不带 `before` 就走旧 `LimitOffsetPagination`、响应形状也不变,线上 1.0.3 的老 APK 不会卡在第 1 页;评论/回复/拉黑名单完全不动。④ `/posts` 的两段式取数保留(只换「取当页 id」那一步),`/matches` 补 `-id` 兜底排序(否则同秒配对顺序不定会漏行),访客按 `last_at` 取游标。⑤ 回归测试先写后改:动态流「翻页期间有人发帖」、喜欢我「翻页期间又来一个赞」、访客同类,外加 `next_cursor` 走完、非法游标 400、offset 老形状不变;App `getAllPages` 改成「响应带 `next_cursor` 就顺着游标翻、否则退回 offset」。后端 **751** 绿、App 447 绿 + `analyze` 零告警、Web 429 绿 + `vue-tsc`/`eslint` 零告警;文档 `conventions.md` §分页约定重写 + `feed.md`/`discovery.md` 五处同步 | 未上线(待 PR) |
+
 ## 怎么维护
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;

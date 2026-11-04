@@ -12,18 +12,23 @@ class VisitsState {
     required this.items,
     required this.count,
     this.hasMore = false,
+    this.nextCursor,
     this.busyUserId,
   });
 
   final List<Visit> items;
   final int count;
   final bool hasMore;
+
+  /// 下一页游标(后端 `next_cursor`);没有下一页时为 `null`。
+  final String? nextCursor;
   final int? busyUserId;
 
   VisitsState copyWith({
     List<Visit>? items,
     int? count,
     bool? hasMore,
+    String? nextCursor,
     int? busyUserId,
     bool clearBusy = false,
   }) =>
@@ -31,6 +36,7 @@ class VisitsState {
         items: items ?? this.items,
         count: count ?? this.count,
         hasMore: hasMore ?? this.hasMore,
+        nextCursor: nextCursor ?? this.nextCursor,
         busyUserId: clearBusy ? null : (busyUserId ?? this.busyUserId),
       );
 }
@@ -42,14 +48,15 @@ class VisitsController extends AsyncNotifier<VisitsState> {
   @override
   Future<VisitsState> build() => _fetch(reset: true);
 
-  Future<VisitsState> _fetch({required bool reset, int offset = 0}) async {
+  Future<VisitsState> _fetch({required bool reset, String? cursor}) async {
     final page = await ref
         .read(discoveryRepositoryProvider)
-        .fetchVisits(limit: _pageSize, offset: offset);
+        .fetchVisits(limit: _pageSize, cursor: cursor);
     final items = reset
         ? page.items
         : [...(state.value?.items ?? const <Visit>[]), ...page.items];
-    return VisitsState(items: items, count: page.count, hasMore: items.length < page.count);
+    return VisitsState(items: items, count: page.count,
+        hasMore: page.nextCursor != null, nextCursor: page.nextCursor);
   }
 
   Future<void> reload() async {
@@ -64,11 +71,12 @@ class VisitsController extends AsyncNotifier<VisitsState> {
     try {
       final page = await ref
           .read(discoveryRepositoryProvider)
-          .fetchVisits(limit: _pageSize, offset: current.items.length);
+          .fetchVisits(limit: _pageSize, cursor: current.nextCursor);
       state = AsyncValue.data(current.copyWith(
         items: [...current.items, ...page.items],
         count: page.count,
-        hasMore: current.items.length + page.items.length < page.count,
+        hasMore: page.nextCursor != null,
+        nextCursor: page.nextCursor,
       ));
     } finally {
       _loadingMore = false;

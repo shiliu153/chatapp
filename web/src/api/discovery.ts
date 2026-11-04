@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { Candidate, LikeReceived, MatchSummary, Page, ProfileVisit } from './types'
+import type { Candidate, CursorPage, LikeReceived, MatchSummary, ProfileVisit } from './types'
 
 export async function fetchCandidates(limit = 10): Promise<Candidate[]> {
   const { data } = await http.get('/discovery/candidates', { params: { limit } })
@@ -18,9 +18,13 @@ export async function swipe(
   return { matched: Boolean(data.matched) }
 }
 
-export async function fetchMatches(limit = 20, offset = 0): Promise<Page<MatchSummary>> {
-  const { data } = await http.get('/matches', { params: { limit, offset } })
-  return data as Page<MatchSummary>
+/** 配对列表:游标分页(首页 cursor 传 null,之后传上一页的 next_cursor)。 */
+export async function fetchMatches(
+  limit = 20,
+  cursor: string | null = null,
+): Promise<CursorPage<MatchSummary>> {
+  const { data } = await http.get('/matches', { params: { limit, before: cursor ?? undefined } })
+  return data as CursorPage<MatchSummary>
 }
 
 /** 解除配对:幂等(没配对也 204);解除后双方 IM 互相拉黑。 */
@@ -30,10 +34,12 @@ export async function unmatch(userId: number): Promise<void> {
 
 export async function fetchLikesReceived(
   limit = 20,
-  offset = 0,
-): Promise<Page<LikeReceived>> {
-  const { data } = await http.get('/discovery/likes', { params: { limit, offset } })
-  return data as Page<LikeReceived>
+  cursor: string | null = null,
+): Promise<CursorPage<LikeReceived>> {
+  const { data } = await http.get('/discovery/likes', {
+    params: { limit, before: cursor ?? undefined },
+  })
+  return data as CursorPage<LikeReceived>
 }
 
 export async function fetchLikesReceivedCount(): Promise<number> {
@@ -41,9 +47,14 @@ export async function fetchLikesReceivedCount(): Promise<number> {
   return Number(data.count)
 }
 
-export async function fetchVisits(limit = 20, offset = 0): Promise<Page<ProfileVisit>> {
-  const { data } = await http.get('/discovery/visits', { params: { limit, offset } })
-  return data as Page<ProfileVisit>
+export async function fetchVisits(
+  limit = 20,
+  cursor: string | null = null,
+): Promise<CursorPage<ProfileVisit>> {
+  const { data } = await http.get('/discovery/visits', {
+    params: { limit, before: cursor ?? undefined },
+  })
+  return data as CursorPage<ProfileVisit>
 }
 
 export async function fetchVisitsCount(): Promise<number> {

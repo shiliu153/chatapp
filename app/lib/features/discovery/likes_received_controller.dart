@@ -14,18 +14,23 @@ class LikesReceivedState {
     required this.items,
     required this.count,
     this.hasMore = false,
+    this.nextCursor,
     this.busyUserId,
   });
 
   final List<LikeReceived> items;
   final int count;
   final bool hasMore;
+
+  /// 下一页游标(后端 `next_cursor`);没有下一页时为 `null`。
+  final String? nextCursor;
   final int? busyUserId;
 
   LikesReceivedState copyWith({
     List<LikeReceived>? items,
     int? count,
     bool? hasMore,
+    String? nextCursor,
     int? busyUserId,
     bool clearBusy = false,
   }) =>
@@ -33,6 +38,7 @@ class LikesReceivedState {
         items: items ?? this.items,
         count: count ?? this.count,
         hasMore: hasMore ?? this.hasMore,
+        nextCursor: nextCursor ?? this.nextCursor,
         busyUserId: clearBusy ? null : (busyUserId ?? this.busyUserId),
       );
 }
@@ -44,17 +50,18 @@ class LikesReceivedController extends AsyncNotifier<LikesReceivedState> {
   @override
   Future<LikesReceivedState> build() => _fetch(reset: true);
 
-  Future<LikesReceivedState> _fetch({required bool reset, int offset = 0}) async {
+  Future<LikesReceivedState> _fetch({required bool reset, String? cursor}) async {
     final page = await ref
         .read(discoveryRepositoryProvider)
-        .fetchLikesReceived(limit: _pageSize, offset: offset);
+        .fetchLikesReceived(limit: _pageSize, cursor: cursor);
     final items = reset
         ? page.items
         : [...(state.value?.items ?? const <LikeReceived>[]), ...page.items];
     return LikesReceivedState(
       items: items,
       count: page.count,
-      hasMore: items.length < page.count,
+      hasMore: page.nextCursor != null,
+      nextCursor: page.nextCursor,
     );
   }
 
@@ -70,11 +77,12 @@ class LikesReceivedController extends AsyncNotifier<LikesReceivedState> {
     try {
       final page = await ref
           .read(discoveryRepositoryProvider)
-          .fetchLikesReceived(limit: _pageSize, offset: current.items.length);
+          .fetchLikesReceived(limit: _pageSize, cursor: current.nextCursor);
       state = AsyncValue.data(current.copyWith(
         items: [...current.items, ...page.items],
         count: page.count,
-        hasMore: current.items.length + page.items.length < page.count,
+        hasMore: page.nextCursor != null,
+        nextCursor: page.nextCursor,
       ));
     } finally {
       _loadingMore = false;

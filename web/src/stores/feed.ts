@@ -2,35 +2,36 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as feedApi from '@/api/feed'
 import { parseApiError } from '@/api/error'
-import type { Post } from '@/api/types'
+import type { CursorPage, Post } from '@/api/types'
 
 const PAGE_SIZE = 20
 
-type Fetcher = (limit: number, offset: number) => Promise<{ count: number; results: Post[] }>
+type Fetcher = (limit: number, cursor: string | null) => Promise<CursorPage<Post>>
 
 export const useFeedStore = defineStore('feed', () => {
   const posts = ref<Post[]>([])
   const count = ref(0)
-  const offset = ref(0)
+  /** 下一页游标:null = 没有下一页(后端 next_cursor 原样存,回传时原样带上) */
+  const cursor = ref<string | null>(null)
   const loading = ref(false)
   const loadingMore = ref(false)
   const error = ref('')
 
-  const hasMore = computed(() => posts.value.length < count.value)
+  const hasMore = computed(() => cursor.value !== null)
 
   async function loadPage(fetcher: Fetcher, reset: boolean): Promise<void> {
     if (reset) {
       posts.value = []
-      offset.value = 0
+      cursor.value = null
     }
     if (posts.value.length === 0) loading.value = true
     else loadingMore.value = true
     error.value = ''
     try {
-      const page = await fetcher(PAGE_SIZE, offset.value)
+      const page = await fetcher(PAGE_SIZE, cursor.value)
       posts.value = [...posts.value, ...page.results]
       count.value = page.count
-      offset.value += page.results.length
+      cursor.value = page.next_cursor
     } catch (e) {
       error.value = parseApiError(e).message
     } finally {

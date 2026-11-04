@@ -20,8 +20,8 @@ const visit = (id: number) => ({
 
 const page = (results: unknown[]) => ({
   count: results.length,
-  next: null,
-  previous: null,
+  next_cursor: null,
+  has_more: false,
   results,
 })
 

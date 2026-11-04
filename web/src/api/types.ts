@@ -66,11 +66,25 @@ export interface PublicProfile {
   photos: Photo[]
 }
 
-/** 所有列表接口统一的分页信封(conventions.md) */
+/** offset 分页信封(评论、回复、拉黑名单等旧接口,conventions.md) */
 export interface Page<T> {
   count: number
   next: string | null
   previous: string | null
+  results: T[]
+}
+
+/**
+ * 游标分页信封(动态流 / 配对 / 喜欢我的人 / 访客)。
+ *
+ * 这几类列表头部会持续插入新行,offset 翻页会重复/漏读,后端已改成复合游标
+ * (backlog D-1):请求带 `?before=`,响应给 `next_cursor`。游标是不透明字符串,
+ * 客户端只负责原样回传,不要解析。
+ */
+export interface CursorPage<T> {
+  count: number
+  next_cursor: string | null
+  has_more: boolean
   results: T[]
 }
 

@@ -7,16 +7,35 @@
        否则作者自删后举报会在审核台里悬空。
 """
 
+from typing import NamedTuple
+
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone
 
+from config.cursor import apply_before, encode_cursor
 from im import tasks as im_tasks
 from moderation.models import ReportStatus
 from moderation.services import blocked_user_ids, notify_report_handled
 from users.models import Profile, ProfileStatus
 
 from .models import Post, PostComment, PostLike, PostReport
+
+
+class FeedPage(NamedTuple):
+    """广场动态流的一页(两段式取数的结果)。
+
+    Attributes:
+        rows: 当页 ``Post`` 列表(已带赞/评数与作者信息)。
+        total: 可见动态总数。
+        has_more: 是否还有下一页。
+        next_cursor: 下一页的游标;没有下一页时为 ``None``。
+    """
+
+    rows: list
+    total: int
+    has_more: bool
+    next_cursor: str | None
 
 
 def visible_base(viewer):
@@ -62,7 +81,8 @@ def visible_posts(viewer, base=None):
             .order_by("-created_at", "-id"))
 
 
-def page_visible_posts(viewer, offset: int, limit: int):
+def page_visible_posts(viewer, limit: int, before: tuple | None = None,
+                       offset: int | None = None) -> "FeedPage":
     """两段式取一页动态:先按索引取当页 id,再只对这几条做聚合。
 
     为什么不能直接 ``visible_posts(viewer)[offset:offset+limit]``:注解里有
@@ -70,22 +90,39 @@ def page_visible_posts(viewer, offset: int, limit: int):
     单次请求实测 3.3 秒。拆成「取 id(走 created_at 索引) + 对 10 条聚合」后,
     成本与数据量脱钩。
 
+    翻页用**复合游标**而不是 offset(审查 N-5):动态流是头部持续插入的列表,
+    offset 在「读完第 1 页、又有人发了新动态」时必然重复一条并漏掉一条。
+    ``offset`` 参数只为还在用老版本客户端的设备保留。
+
     Args:
         viewer: 当前浏览者。
-        offset: 跳过条数。
         limit: 每页条数。
+        before: 游标 ``(created_at, id)``;``None`` 表示第一页。
+        offset: 旧客户端兼容用的跳过条数;``None``/0 表示不用。
 
     Returns:
-        (当页 ``Post`` 列表, 可见总数);顺序与全量查询一致。
+        当页的 ``FeedPage``(行、可见总数、是否还有下一页、下一页游标)。
     """
     base = visible_base(viewer)
     total = base.count()
-    ids = list(base.order_by("-created_at", "-id")
-               .values_list("id", flat=True)[offset:offset + limit])
-    if not ids:
-        return [], total
+    ordered = base.order_by("-created_at", "-id")
+    if before is not None:
+        ordered = apply_before(ordered, "created_at", before)
+    if offset:
+        ordered = ordered[offset:]
+    pairs = list(ordered.values_list("id", "created_at")[:limit + 1])
+    has_more = len(pairs) > limit
+    pairs = pairs[:limit]
+    if not pairs:
+        return FeedPage(rows=[], total=total, has_more=False, next_cursor=None)
+    ids = [post_id for post_id, _ in pairs]
     rows = {post.pk: post for post in visible_posts(viewer, base=base).filter(pk__in=ids)}
-    return [rows[post_id] for post_id in ids if post_id in rows], total
+    next_cursor = None
+    if has_more:
+        last_id, last_at = pairs[-1]
+        next_cursor = encode_cursor(last_at, last_id)
+    return FeedPage(rows=[rows[post_id] for post_id in ids if post_id in rows],
+                    total=total, has_more=has_more, next_cursor=next_cursor)
 
 
 def delete_post(post) -> None:

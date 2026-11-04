@@ -9,7 +9,8 @@ const PAGE_SIZE = 20
 export const useVisitsStore = defineStore('visits', () => {
   const items = ref<ProfileVisit[]>([])
   const count = ref(0)
-  const offset = ref(0)
+  /** 下一页游标:null = 没有下一页 */
+  const cursor = ref<string | null>(null)
   const loading = ref(false)
   const error = ref('')
   const busyUserId = ref<number | null>(null)
@@ -18,15 +19,15 @@ export const useVisitsStore = defineStore('visits', () => {
   async function load(reset = false): Promise<void> {
     if (reset) {
       items.value = []
-      offset.value = 0
+      cursor.value = null
     }
     loading.value = true
     error.value = ''
     try {
-      const page = await discoveryApi.fetchVisits(PAGE_SIZE, offset.value)
+      const page = await discoveryApi.fetchVisits(PAGE_SIZE, cursor.value)
       items.value = [...items.value, ...page.results]
       count.value = page.count
-      offset.value += page.results.length
+      cursor.value = page.next_cursor
     } catch (e) {
       error.value = parseApiError(e).message
       throw e
@@ -63,7 +64,7 @@ export const useVisitsStore = defineStore('visits', () => {
   return {
     items,
     count,
-    offset,
+    cursor,
     loading,
     error,
     busyUserId,
