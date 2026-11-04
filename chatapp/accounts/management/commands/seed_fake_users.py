@@ -4,7 +4,7 @@
 
     python manage.py seed_fake_users                 # 默认 20 个
     python manage.py seed_fake_users --count 8
-    python manage.py seed_fake_users --skip-im       # 不调腾讯 IM(离线环境)
+    python manage.py seed_fake_users --skip-im       # 不调 IM(离线环境)
 
 设计要点:
     1. 号码从 ``13900000001`` 起按序分配,已存在的号码直接跳过 —— 幂等,可反复执行;

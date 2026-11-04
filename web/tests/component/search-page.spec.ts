@@ -183,7 +183,7 @@ describe('消息页搜索入口', () => {
     expect(router.currentRoute.value.name).toBe('search')
   })
 
-  it('腾讯后端(能力位 false)不显示搜索入口', async () => {
+  it('能力位 false 时不显示搜索入口', async () => {
     const pinia = stubChatsStore(false)
     const { w } = mountChats(pinia)
     await flushPromises()

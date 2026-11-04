@@ -1,8 +1,8 @@
 # 腾讯 IM 分支删除计划（backlog D-4）
 
 - 日期：2026-11-04
-- 状态：**清单与顺序已出，待执行**（执行窗口见 §5）
-- 依据：[backlog D-4](../backlog/2026-11-03-todo.md)、[fullstack review §四 D-2](../reviews/2026-11-03-fullstack-review.md)
+- 状态：**已执行（2026-11-08）**，见 §6 执行记录
+- 依据：[backlog D-4](../../backlog/2026-11-03-todo.md)、[fullstack review §四 D-2](../../reviews/2026-11-03-fullstack-review.md)
 
 ## 0. 一句话
 
@@ -95,3 +95,28 @@
 - 若想更早：随时可做，但**必须三端一起改**（客户端先、后端后、配置最后），别分两天。
 - 删除当天需要：`flutter analyze` / `flutter test`、`npm run type-check && npm run lint && npm run test:run`、
   `python manage.py test`、`imserver` 的 `test_ws.sh` / `test_http.sh`，然后按发布流程（分支 → PR → CI → squash → 部署）。
+
+## 6. 执行记录(2026-11-08)
+
+按 §2 的顺序一次做完,**每步跑完对应测试**:
+
+1. **客户端(App)**:删 `tencent_im_client.dart` / `routing_im_client.dart` / `tencent_im_client_test.dart`;
+   `im_bootstrap.dart` 只留 `token/wsUrl/httpUrl/imUserId`;`im_manager.dart` 直接构造 `SelfImClient`;
+   `im_client.dart` 的能力位注释收敛;`pubspec.yaml` 去掉 `tencent_cloud_chat_sdk`(连带 `mime_type` 不再被依赖)。
+   `flutter analyze` 零告警、`flutter test` **437 绿**(删掉 10 条腾讯客户端用例)。
+2. **客户端(Web)**:删 `im/client.ts` 的腾讯实现 + `im/map.ts` + `im/routing.ts` + `tests/unit/im-client.spec.ts` + `im-map.spec.ts`;
+   `im/client.ts` 收敛成「工厂 + `getImClient`/`setImClientFactory`」;`types.ts` 去掉 `Tim*` 与 `backend/sdkAppId`;
+   `SYSTEM_NOTICE_PEER_ID` 移进 `types.ts`;`package.json` 去掉 `@tencentcloud/chat`。
+   `vue-tsc` 零错误、`eslint --max-warnings 0` 零告警、vitest **406 绿**。
+3. **后端**:`im/client.py` 从 522 行腾讯 REST 实现改成 ~250 行「语义层」(只转调 `self_client`,文案/消息类型保留);
+   `im/backend.py`(灰度判定)与 `im/signature.py`(腾讯 userSig)**整文件删除**;
+   `views.py::user_sig` 只留自建分支;`settings.py` 删 `IM_BACKEND`/`IM_SELF_GRAYLIST`/`IM_SIG_EXPIRE`/腾讯凭据,
+   自建配置缺失时**非 DEBUG/非测试直接启动失败**;`im_sync_pairs` 去掉 `IM_BACKEND` 早退;
+   `.env.example` / CI env / `deploy/oneclick.sh` / `deploy/README.md` 同步。
+   `manage.py test` **715 绿**(腾讯用例换成「门面委托」用例)。
+4. **文档**:`CLAUDE.md` 契约、`README.md`、`docs/api/im.md`(只描述自建凭证)、`docs/ops/imserver.md` §4
+   (回退改成「回退镜像/回退 SHA」)、`docs/pitfalls/im.md`(标题与「凭据与代码位置」改成现状,历史坑保留)、
+   `docs/security/*` 与 `docs/reviews/*` 只加状态注记。
+
+**验收对照**:全量测试绿(715 / 437 / 406 / imserver CI);`docs/api/im.md` 与运维文档不再出现「腾讯分支」;
+回退方案已改为镜像回退;`git grep -i 'tencent|腾讯'` 只剩历史文档的状态注记与 `archive/`。

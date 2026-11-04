@@ -83,6 +83,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(运�
 
 | 2026-11-04 | **架构决策:不做双机、暂不升配 + 两条零成本优化**(backlog D-3,用户拍板选 A):① 决策记录 `docs/ops/dual-server-vs-upgrade-2026-11-04.md` —— S0 现状 / S1 升配 4C8G(+¥100–200/月,当天可完成)/ S2 同云双机(+¥60–100/月,1–2 周改造)按成本·切换时间·合规·回滚四维对比;选定 A:不花钱,先把零成本项做完,升配触发条件写死在 §5(发现页 p50 持续 > 1s / 同时在线 > 100 人)。② `CANDIDATE_CACHE_TTL` 默认 **30s → 300s**(写路径版本号失效不变,正确性不受影响;实测 60 秒同负载缓存 miss **20 → 13**、miss 率 **3.33% → 1.67%**)。③ 新增 `deploy/ops/chatapp-logrotate.conf` + `runbook.md` §7:`/www/wwwlogs/chatapp/app.log` 此前**没有任何轮转**,压测实测 1.4MB/5 分钟,长期高压会写满磁盘;用 `copytruncate` 是因为 gunicorn/celery 一直开着文件。④ 口径更正:这两条改的是 DB 压力与磁盘风险,**不会**把 `/app/config` 读吞吐从 476 抬到 550(初稿说法已作废) | PR #54,已上线 `8fe6b68e` |
 
+| 2026-11-08 | **删除腾讯云 IM 分支**(backlog D-4 / 审查 D-2):自建 IM 已全量近三周,腾讯分支退化成「永远走不到的死代码 + 一层分发 + 一堆文档噪音」。① **App**:删 `tencent_im_client.dart`/`routing_im_client.dart` 与测试,`ImBootstrap` 只剩 `token/wsUrl/httpUrl/imUserId`,`im_manager` 直接构造 `SelfImClient`,登录参数 `userSig`→`token`,重试码 `6206/70001`→imserver 的 `40101`,去掉 `tencent_cloud_chat_sdk` 依赖;② **Web**:删腾讯客户端/map/routing 与两个测试,`client.ts` 收敛成工厂,`types.ts` 去掉 `Tim*`/`backend`/`sdkAppId`,去掉 `@tencentcloud/chat`;③ **后端**:`im/client.py` 从 522 行腾讯 REST 客户端改成 ~250 行**语义层**(只转调 `self_client`),`im/backend.py`+`im/signature.py` 整文件删除,`user_sig` 只留自建分支,`settings.py` 删 `IM_BACKEND`/`IM_SELF_GRAYLIST`/腾讯凭据;④ **回退语义**改为「回退 imserver 镜像 / 回退后端 SHA」,运维文档明确写「不要再找 `IM_BACKEND`」。测试:后端 **715** / App **437**(analyze 零告警)/ Web **406**(vue-tsc+eslint 零告警);历史文档只加状态注记,计划归档 | 待上线(纯删除重构,无 schema 变更) |
+
 ## 怎么维护
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;

@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 端到端要真后端 + Redis + 腾讯云,不进 CI;CI 只守类型/规范/单测/构建
+  # 端到端要真后端 + Redis + imserver,不进 CI;CI 只守类型/规范/单测/构建
   check:
     runs-on: ubuntu-latest
     defaults:

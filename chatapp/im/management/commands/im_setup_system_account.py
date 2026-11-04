@@ -25,7 +25,7 @@ class Command(BaseCommand):
             **options: 已解析的命令行参数(本命令无参数)。
 
         Raises:
-            CommandError: 腾讯侧建号失败(看上面的 IM 错误日志)。
+            CommandError: IM 侧建号失败(看上面的 IM 错误日志)。
         """
         if not ensure_account(SYSTEM_NOTICE_IDENTIFIER, SYSTEM_NOTICE_NICK):
             raise CommandError("系统账号创建失败 —— 看上面的 IM 错误日志")

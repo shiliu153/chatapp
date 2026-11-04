@@ -1,6 +1,6 @@
 # IM 会话凭证
 
-本分册含 3 个接口:获取 IM 登录凭证、上传聊天图片、上传聊天语音。聊天消息本身走 IM 服务(腾讯云或自建),这些接口只负责发放登录所需的凭证,以及为自建后端提供发图/发语音前置的上传通道。
+本分册含 3 个接口:获取 IM 登录凭证、上传聊天图片、上传聊天语音。聊天消息本身走自建 IM(`imserver/`),这些接口只负责发放登录所需的凭证,以及提供发图/发语音前置的上传通道。
 
 ---
 
@@ -10,14 +10,14 @@
 
 **接口描述**
 
-返回 `backend` 与对应凭证:腾讯分支用 `sdkappid` + `im_user_id` + `user_sig`;自建分支用 `token` + `ws_url` + `http_url`。
+返回自建 IM 的登录凭证:`token`(HS256 JWT,首帧 `auth` 使用)+ `ws_url` + `http_url`。腾讯云 IM 分支已于 2026-11-08 删除,响应里不再有 `user_sig` / `sdkappid`,`backend` 恒为 `self`。
 
 服务端行为说明:
 
 - **账号自动供给**:每次调用都会确保对应的 IM 账号存在(幂等,无需额外调用)
 - **单设备登录联动**:若本次登录顶掉了旧设备,服务端会在发放签名**之前**踢掉旧的 IM 会话;客户端在旧设备上会看到「账号已在其他设备登录」并被迫下线,属预期行为
 - 聊天双方的身份映射:IM 账号固定为 `u{user_id}`(如账号 21 → `u21`)
-- **灰度**:`IM_BACKEND=self` 且账号命中 `IM_SELF_GRAYLIST` 时返回自建分支,否则仍返回腾讯分支;灰度名单只能放隔离测试号
+- **会话版本**:签发前会把账号的 `session_version` 同步到 imserver,同步失败返回 503(fail-closed,避免发出一个会被服务端拒绝的 token)
 
 **请求参数**
 
@@ -27,12 +27,10 @@
 
 | 参数名称 | 类型 | 描述 |
 |----------|------|------|
-| backend | String | `tencent` 或 `self` |
-| user_sig | String | 腾讯分支:登录 IM 用的签名串 |
-| sdkappid | String | 腾讯分支:腾讯云 IM 应用 ID |
-| token | String | 自建分支:HS256 JWT,首帧 `auth` 使用 |
-| ws_url | String | 自建分支:WebSocket 地址 |
-| http_url | String | 自建分支:历史/会话接口基址 |
+| backend | String | 恒为 `self`(保留字段以兼容老客户端) |
+| token | String | HS256 JWT,首帧 `auth` 使用;带 `sv`(会话版本)|
+| ws_url | String | WebSocket 地址 |
+| http_url | String | 历史/会话接口基址 |
 | im_user_id | String | 本账号的 IM 账号,格式 `u{user_id}` |
 | expire | Integer | 凭证有效期(秒) |
 
@@ -43,19 +41,7 @@ curl -X POST http://<域名>/api/v1/im/user_sig \
   -H "Authorization: Bearer <access>"
 ```
 
-**响应示例(腾讯)**
-
-```json
-{
-  "backend": "tencent",
-  "user_sig": "eJw1zEELgjAYxvGvIrsWslfGNoMOdegUHtyM6B…(签名串,略)",
-  "sdkappid": "1600161711",
-  "im_user_id": "u21",
-  "expire": 604800
-}
-```
-
-**响应示例(自建)**
+**响应示例**
 
 ```json
 {
@@ -83,8 +69,8 @@ curl -X POST http://<域名>/api/v1/im/user_sig \
 
 **接口描述**
 
-自建 IM(`backend=self`)发图分两步:先调本接口把图片落盘,拿到 `url`/`thumb_url`,
-再把它们放进 WebSocket 的 `send` 帧(`kind=image`)。腾讯分支由 SDK 自己上传,不需要调本接口。
+发图分两步:先调本接口把图片落盘,拿到 `url`/`thumb_url`,
+再把它们放进 WebSocket 的 `send` 帧(`kind=image`)。
 
 服务端行为说明:
 
@@ -186,7 +172,7 @@ curl -X POST http://<域名>/api/v1/im/images \
 **接口描述**
 
 自建 IM(`backend=self`)发语音分两步:先调本接口把音频落盘并**统一转码为 m4a/AAC**,
-拿到 `url`,再把它放进 WebSocket 的 `send` 帧(`kind=voice`)。腾讯分支不支持语音,不会调用本接口。
+拿到 `url`,再把它放进 WebSocket 的 `send` 帧(`kind=voice`)。
 
 服务端行为说明:
 

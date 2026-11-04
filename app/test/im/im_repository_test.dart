@@ -20,19 +20,22 @@ void main() {
     repository = ImRepository(ApiClient(dio));
   });
 
-  test('fetchUserSig 解析签名信息(sdkappid 是字符串也要收)', () async {
+  test('fetchUserSig 解析自建 IM 凭证', () async {
     adapter.routes['POST /im/user_sig'] = (options) => ok({
-          'user_sig': 'sig-abc',
-          'sdkappid': '1600161711',
+          'backend': 'self',
+          'token': 'tok-abc',
+          'ws_url': 'ws://test/im/ws',
+          'http_url': 'http://test/im/api',
           'im_user_id': 'u3',
-          'expire': 604800,
+          'expire': 86400,
         });
 
     final sig = await repository.fetchUserSig();
 
-    expect(sig.userSig, 'sig-abc');
-    expect(sig.sdkAppId, 1600161711);
+    expect(sig.token, 'tok-abc');
+    expect(sig.wsUrl, 'ws://test/im/ws');
     expect(sig.imUserId, 'u3');
+    expect(sig.bootstrap.token, 'tok-abc');
     expect(adapter.log.single.path, '/im/user_sig');
   });
 

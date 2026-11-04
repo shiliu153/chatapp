@@ -12,7 +12,7 @@ describe('LegalPage', () => {
   it('隐私政策', () => {
     const w = mount(LegalPage, { props: { kind: 'privacy' } })
     expect(w.find('.legal__title').text()).toBe('隐私政策')
-    expect(w.find('.legal__body').text()).toContain('腾讯云 IM')
+    expect(w.find('.legal__body').text()).toContain('自建的即时通讯服务')
   })
 
   it('正文与 App 的 legal_texts.dart 逐字一致(抽查关键句)', () => {

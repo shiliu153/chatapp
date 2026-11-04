@@ -64,7 +64,7 @@ export class SelfImClient implements ImClient {
     this.bootstrap = bootstrap
   }
 
-  async login(userId: string, userSig: string): Promise<void> {
+  async login(userId: string, token: string): Promise<void> {
     void userId
     const bootstrap = this.bootstrap
     if (!bootstrap) throw new Error('IM 未初始化')
@@ -101,7 +101,7 @@ export class SelfImClient implements ImClient {
         this.clearAuthTimer()
         reject(error)
       }
-      transport.send(JSON.stringify({ v: 1, type: 'auth', data: { token: userSig } }))
+      transport.send(JSON.stringify({ v: 1, type: 'auth', data: { token } }))
     })
   }
 

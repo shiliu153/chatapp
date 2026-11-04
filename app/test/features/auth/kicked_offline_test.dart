@@ -16,17 +16,19 @@ void main() {
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
       'GET /users/me': (options) => ok(profileJson()),
       'POST /im/user_sig': (options) => ok({
-            'user_sig': 'sig',
-            'sdkappid': '1600161711',
+            'backend': 'self',
+            'token': 'tok',
+            'ws_url': 'ws://test/im/ws',
+            'http_url': 'http://test/im/api',
             'im_user_id': 'u7',
-            'expire': 604800,
+            'expire': 86400,
           }),
     });
     final fake = await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
     expect(find.byType(AppBottomBar), findsOneWidget); // 已在主框架
 
-    // 另一台设备登录同账号 → 腾讯踢下线事件
+    // 另一台设备登录同账号 → imserver 踢下线事件
     fake.emit(const ImKickedOffline());
     await tester.pumpAndSettle();
 

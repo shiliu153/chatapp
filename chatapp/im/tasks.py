@@ -1,4 +1,4 @@
-"""IM 副作用任务:所有腾讯 REST 调用统一走这里,响应路径禁止直接调用。
+"""IM 副作用任务:所有 IM 管理端调用统一走这里,响应路径禁止直接调用。
 
 设计要点:
     1. ``im/client.py`` 的函数对外永不抛异常(失败返回 ``False`` 只记日志);
@@ -130,7 +130,7 @@ def blacklist_remove(owner_id: int, other_id: int) -> None:
 def unmatch_blacklist(user_a_id: int, user_b_id: int) -> None:
     """解除配对:双向拉黑,双方都收不到、也发不出消息。
 
-    这是「解除配对 = 彻底断开」的唯一实现点:腾讯 IM 只能由管理员侧
+    这是「解除配对 = 彻底断开」的唯一实现点:IM 侧只能由管理员侧
     REST 把对方加进黑名单,客户端只能拉黑自己这侧。
 
     Args:

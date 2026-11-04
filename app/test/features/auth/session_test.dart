@@ -158,10 +158,12 @@ void main() {
     adapter.routes['POST /auth/sms/verify'] =
         (options) => ok({'access': 'a3', 'refresh': 'r3', 'is_new_user': false, 'user_id': 9});
     adapter.routes['POST /im/user_sig'] = (options) => ok({
-          'user_sig': 'sig',
-          'sdkappid': '1600161711',
+          'backend': 'self',
+          'token': 'tok',
+          'ws_url': 'ws://test/im/ws',
+          'http_url': 'http://test/im/api',
           'im_user_id': 'u9',
-          'expire': 604800,
+          'expire': 86400,
         });
     final container = makeContainer();
     addTearDown(container.dispose);
@@ -176,10 +178,12 @@ void main() {
     adapter.routes['POST /auth/sms/verify'] =
         (options) => ok({'access': 'a3', 'refresh': 'r3', 'is_new_user': false, 'user_id': 9});
     adapter.routes['POST /im/user_sig'] = (options) => ok({
-          'user_sig': 'sig',
-          'sdkappid': '1600161711',
+          'backend': 'self',
+          'token': 'tok',
+          'ws_url': 'ws://test/im/ws',
+          'http_url': 'http://test/im/api',
           'im_user_id': 'u9',
-          'expire': 604800,
+          'expire': 86400,
         });
     final container = makeContainer();
     addTearDown(container.dispose);

@@ -5,11 +5,11 @@ import '../core/providers.dart';
 import 'im_bootstrap.dart';
 
 /// POST /im/user_sig 的响应:登录 IM 需要的一组信息。
+///
+/// 腾讯云 IM 分支已于 2026-11-08 删除(backlog D-4):只剩自建一套字段,
+/// `user_sig` / `sdkappid` / `backend` 都不再出现。
 class UserSig {
   const UserSig({
-    required this.backend,
-    required this.userSig,
-    required this.sdkAppId,
     required this.token,
     required this.wsUrl,
     required this.httpUrl,
@@ -17,27 +17,18 @@ class UserSig {
   });
 
   factory UserSig.fromJson(Map<String, dynamic> json) => UserSig(
-        backend: (json['backend'] ?? 'tencent') as String,
-        userSig: (json['user_sig'] ?? '') as String,
-        // 后端配置里 sdkappid 是字符串,统一转成 int 给 SDK 用
-        sdkAppId: int.tryParse('${json['sdkappid'] ?? 0}') ?? 0,
         token: (json['token'] ?? '') as String,
         wsUrl: (json['ws_url'] ?? '') as String,
         httpUrl: (json['http_url'] ?? '') as String,
         imUserId: json['im_user_id'] as String,
       );
 
-  final String backend;
-  final String userSig;
-  final int sdkAppId;
   final String token;
   final String wsUrl;
   final String httpUrl;
   final String imUserId;
 
   ImBootstrap get bootstrap => ImBootstrap(
-        backend: backend == 'self' ? ImBackend.self : ImBackend.tencent,
-        sdkAppId: sdkAppId,
         token: token,
         wsUrl: wsUrl,
         httpUrl: httpUrl,

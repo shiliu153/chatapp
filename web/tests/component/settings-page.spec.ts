@@ -9,7 +9,7 @@ import { setImClientFactory } from '@/im/client'
 import type { ImClient } from '@/im/types'
 import { server } from '../support/server'
 
-/** 退出登录要先登出 IM,这里给个最小假客户端(否则会去连真腾讯云)。 */
+/** 退出登录要先登出 IM,这里给个最小假客户端(否则会去连真 IM 服务)。 */
 function stubIm() {
   const logout = vi.fn(async () => {})
   setImClientFactory(

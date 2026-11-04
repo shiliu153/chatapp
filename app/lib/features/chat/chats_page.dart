@@ -44,7 +44,7 @@ class ChatsPage extends ConsumerWidget {
                     child: Text('消息',
                         style: AppText.display.copyWith(color: AppColors.text1)),
                   ),
-                  // 搜索入口:仅支持搜索的后端显示(腾讯后端无此能力)
+                  // 搜索入口:仅支持搜索的实现显示
                   if (ref.read(imClientProvider).capabilities.search)
                     IconButton(
                       key: const Key('chats.search'),

@@ -58,10 +58,12 @@ void main() {
     final fake = FakeImClient()..conversations = [ImConversation(peerId: 'u9', unreadCount: 3)];
     final adapter = _adapter(profile: profileJson())
       ..routes['POST /im/user_sig'] = (options) => ok({
-            'user_sig': 'sig',
-            'sdkappid': '1600161711',
+            'backend': 'self',
+            'token': 'tok',
+            'ws_url': 'ws://test/im/ws',
+            'http_url': 'http://test/im/api',
             'im_user_id': 'u7',
-            'expire': 604800,
+            'expire': 86400,
           });
 
     await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);

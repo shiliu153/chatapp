@@ -1,5 +1,10 @@
 # chat_app 第三轮安全审计（2026-11-01）
 
+> **状态注记(2026-11-08)**:本文描述的腾讯云 IM 分支已随 backlog D-4 删除;
+> 文中 `IM_BACKEND` / `IM_SELF_GRAYLIST` / `user_sig` 等表述仅作历史记录,现行链路见
+> `docs/ops/imserver.md` 与 `docs/pitfalls/im.md`。
+
+
 > 审计日期：2026-11-01（第三轮）
 > 报告版本：v1.0
 > 审计对象：

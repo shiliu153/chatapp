@@ -442,27 +442,18 @@ REFRESH_COOKIE_PATH = "/api/v1/auth/"     # 只在 refresh/logout 两个请求�
 # 超过宽限的复用视为泄露重放,直接 401。默认 60 秒足够覆盖并发刷新。
 REFRESH_REUSE_GRACE = int(os.getenv("REFRESH_REUSE_GRACE", "60"))
 
-# --- 腾讯云 IM REST(凭据只在 .env) ---
-IM_SDKAPPID = os.getenv("IM_SDKAPPID", "")
-IM_SECRETKEY = os.getenv("IM_SECRETKEY", "")
-IM_ADMIN_IDENTIFIER = os.getenv("IM_ADMIN_IDENTIFIER", "administrator")
-IM_REST_BASE = "https://console.tim.qq.com/v4"
-IM_SIG_EXPIRE = 7 * 24 * 3600   # userSig 有效期(秒),腾讯上限 180 天
-IM_TIMEOUT = 5                  # REST 超时(秒)
-
-# --- 自建 IM(IM_BACKEND=self 时生效) ---
-IM_BACKEND = os.getenv("IM_BACKEND", "tencent")
+# --- 自建 IM(唯一后端;腾讯云 IM 分支已于 2026-11-08 删除,backlog D-4) ---
 IM_SELF_URL = os.getenv("IM_SELF_URL", "http://127.0.0.1:9101")
 IM_SELF_WS_URL = os.getenv("IM_SELF_WS_URL", "")
 IM_SELF_HTTP_URL = os.getenv("IM_SELF_HTTP_URL", "")
 IM_SELF_SECRET = os.getenv("IM_SELF_SECRET", "")
 IM_SELF_INTERNAL_SECRET = os.getenv("IM_SELF_INTERNAL_SECRET", "")
 IM_SELF_TOKEN_TTL = int(os.getenv("IM_SELF_TOKEN_TTL", "86400"))
-IM_SELF_GRAYLIST = os.getenv("IM_SELF_GRAYLIST", "")
 
-if IM_BACKEND == "self" and not (IM_SELF_SECRET and IM_SELF_INTERNAL_SECRET
-                                 and IM_SELF_WS_URL and IM_SELF_HTTP_URL):
-    raise ImproperlyConfigured("IM_BACKEND=self 需要完整的 IM_SELF_* 配置")
+if not (TESTING or DEBUG) and not (IM_SELF_SECRET and IM_SELF_INTERNAL_SECRET
+                                   and IM_SELF_WS_URL and IM_SELF_HTTP_URL):
+    raise ImproperlyConfigured("自建 IM 需要完整的 IM_SELF_* 配置"
+                              "(SECRET / INTERNAL_SECRET / WS_URL / HTTP_URL)")
 
 # --- 客户端最小版本(全量切换前必须能挡住旧版本)---
 MIN_APP_VERSION = os.getenv("MIN_APP_VERSION", "1.0.0")

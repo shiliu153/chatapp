@@ -1,4 +1,4 @@
-"""开发用手测脚本:以某个用户身份给对方发消息(走腾讯 REST,不经 App)。
+"""开发用手测脚本:以某个用户身份给对方发消息(走 imserver 内部 API,不经 App)。
 
 用法::
 
@@ -35,7 +35,7 @@ class Command(BaseCommand):
             **options: 已解析的命令行参数(``sender`` / ``receiver`` / ``text`` / ``notice``)。
 
         Raises:
-            CommandError: 两个内容参数同时给出或都未给出,或腾讯侧发送失败。
+            CommandError: 两个内容参数同时给出或都未给出,或 IM 侧发送失败。
         """
         text, notice = options["text"], options["notice"]
         if bool(text) == bool(notice):

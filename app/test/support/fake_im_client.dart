@@ -7,7 +7,7 @@ import 'package:chatapp_app/im/im_client.dart';
 class FakeImClient extends ImClient {
   final _events = StreamController<ImEvent>.broadcast();
 
-  /// 调用流水,如 'init:1600161711' / 'login:u3' / 'send:u9:你好'。
+  /// 调用流水,如 'init:u3' / 'login:u3' / 'send:u9:你好'。
   final List<String> log = [];
 
   List<ImConversation> conversations = [];
@@ -26,7 +26,7 @@ class FakeImClient extends ImClient {
   /// 置上则 fetchHistory 挂起直到 complete(测加载骨架)。
   Completer<void>? historyGate;
 
-  /// 置上则只让**下一次** login 抛错,之后恢复正常(测 6206 重试)。
+  /// 置上则只让**下一次** login 抛错,之后恢复正常(测 40101 重试)。
   Object? loginErrorOnce;
 
   /// 搜索命中(测搜索页用;默认按关键词 contains 过滤)。
@@ -56,7 +56,7 @@ class FakeImClient extends ImClient {
   /// 自建后端下置 false,用来测语音入口隐藏。
   bool voiceCapability = true;
 
-  /// 腾讯后端置 false,用来测「不支持已读回执时不显示已读」。
+  /// 置 false 用来测「不支持已读回执时不显示已读」。
   bool readReceiptCapability = true;
 
   @override
@@ -71,11 +71,11 @@ class FakeImClient extends ImClient {
   Future<void> init(ImBootstrap bootstrap) async {
     if (_initialized) return; // 接口约定 init 幂等,和真实实现保持一致
     _initialized = true;
-    log.add('init:${bootstrap.sdkAppId}');
+    log.add('init:${bootstrap.imUserId}');
   }
 
   @override
-  Future<void> login({required String userId, required String userSig}) async {
+  Future<void> login({required String userId, required String token}) async {
     log.add('login:$userId');
     if (loginErrorOnce != null) {
       final error = loginErrorOnce!;

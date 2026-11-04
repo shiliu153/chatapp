@@ -6,13 +6,14 @@ import '../core/api_exception.dart';
 import '../core/providers.dart';
 import 'im_client.dart';
 import 'im_repository.dart';
-import 'routing_im_client.dart';
 import 'self_image_uploader.dart';
+import 'self_im_client.dart';
 import 'self_voice_uploader.dart';
 
 /// 真实 IM 客户端(全局单例语义);测试里 override 成 FakeImClient。
-/// 自建后端发图/语音要先经 Django 上传,所以这里把上传器注入进去(IM 客户端不直接依赖 ApiClient)。
-final imClientProvider = Provider<ImClient>((ref) => RoutingImClient(
+/// 自建 IM 是唯一后端(腾讯分支已于 2026-11-08 删除,backlog D-4);
+/// 发图/语音要先经 Django 上传,所以这里把上传器注入进去(IM 客户端不直接依赖 ApiClient)。
+final imClientProvider = Provider<ImClient>((ref) => SelfImClient(
     imageUploader: ApiImageUploader(ref.watch(apiClientProvider)),
     voiceUploader: ApiVoiceUploader(ref.watch(apiClientProvider))));
 
@@ -81,8 +82,8 @@ class ImManager extends Notifier<ImStatus> {
         state = const ImLoggedOut();
       });
 
-  /// 6206(登录票据被拒)、70001(票据过期):多为换设备/顶号时的瞬时冲突,重拉签名重试一次。
-  static const _retryableLoginCodes = {6206, 70001};
+  /// 40101(令牌被拒)、40102(令牌过期):多为换设备/顶号时的瞬时冲突,重拉凭证重试一次。
+  static const _retryableLoginCodes = {40101, 40102};
   static Duration loginRetryDelay = const Duration(milliseconds: 1500);
 
   Future<void> _doLogin() async {
@@ -117,7 +118,7 @@ class ImManager extends Notifier<ImStatus> {
     await client.init(sig.bootstrap);
     await client.login(
       userId: sig.imUserId,
-      userSig: sig.token.isNotEmpty ? sig.token : sig.userSig,
+      token: sig.token,
     );
     state = ImLoggedIn(sig.imUserId);
   }

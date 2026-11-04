@@ -168,7 +168,7 @@ void main() {
     expect(find.byKey(const Key('chat.status.read')), findsNothing);
   });
 
-  testWidgets('后端不支持已读回执(腾讯分支)时不显示已读', (tester) async {
+  testWidgets('实现不支持已读回执时不显示已读', (tester) async {
     fake.readReceiptCapability = false;
     fake.history = {
       'u9': [_text('m1', isSelf: true, text: '我发的一', seq: 1)],

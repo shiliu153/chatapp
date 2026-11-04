@@ -63,9 +63,12 @@ jobs:
       # Celery broker 的环境变量必须叫 BROKER_URL(不能用 CELERY_ 前缀)
       BROKER_URL: redis://127.0.0.1:6379/1
       REDIS_URL: redis://127.0.0.1:6379/0
-      # IM 凭据在 CI 里是假值:测试全程 mock 掉 IM 副作用,不会真的调腾讯云
-      IM_SDKAPPID: '1400000000'
-      IM_SECRETKEY: ci-fake-key
+      # IM 凭据在 CI 里是假值:测试全程 mock 掉 IM 副作用,不会真的调 imserver
+      IM_SELF_URL: http://127.0.0.1:9101
+      IM_SELF_WS_URL: ws://127.0.0.1:9100/im/ws
+      IM_SELF_HTTP_URL: http://127.0.0.1:9101/im/api
+      IM_SELF_SECRET: ci-fake-secret-32-bytes-minimum
+      IM_SELF_INTERNAL_SECRET: ci-fake-internal-32-bytes-minimum
       SMS_DEV_MODE: '1'
       AUTO_APPROVE: '1'
 

@@ -13,7 +13,7 @@ import type { ChatMessage, ImClient, ImConversation, ImEvent } from '@/im/types'
  * 已读回执的两条链路(与 App 侧对齐):
  * 1) 实时:下行 `peerRead` 事件推进 store 里的 `peerReadSeq`(**只增不减**);
  * 2) 补拉:打开会话时用会话列表的 `peer_read_seq` 初始化。
- * 另外覆盖「后端不支持(腾讯分支)不渲染已读」。
+ * 另外覆盖「实现不支持时不渲染已读」。
  */
 
 const msg = (overrides: Partial<ChatMessage>): ChatMessage => ({
@@ -75,8 +75,10 @@ describe('已读回执:store', () => {
     server.use(
       mswHttp.post('/api/v1/im/user_sig', () =>
         HttpResponse.json({
-          user_sig: 'sig',
-          sdkappid: '1600161711',
+          backend: 'self',
+          token: 'tok-41',
+          ws_url: 'ws://test/im/ws',
+          http_url: 'http://test/im/api',
           im_user_id: 'u41',
           expire: 1791189272,
         }),
@@ -136,7 +138,7 @@ describe('已读回执:气泡', () => {
     expect(w.find('[data-testid="chat-read"]').exists()).toBe(true)
   })
 
-  it('后端不支持已读回执(腾讯分支)时不显示「已读」', () => {
+  it('实现不支持已读回执时不显示「已读」', () => {
     const w = mount(MessageBubble, {
       props: { message: msg({ seq: 2 }), isRead: true, readReceiptEnabled: false },
     })

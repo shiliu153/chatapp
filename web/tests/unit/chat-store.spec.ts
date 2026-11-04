@@ -76,8 +76,10 @@ describe('chat store', () => {
     server.use(
       mswHttp.post('/api/v1/im/user_sig', () =>
         HttpResponse.json({
-          user_sig: 'sig',
-          sdkappid: '1600161711',
+          backend: 'self',
+          token: 'tok-41',
+          ws_url: 'ws://test/im/ws',
+          http_url: 'http://test/im/api',
           im_user_id: 'u41',
           expire: 1791189272,
         }),
@@ -85,7 +87,7 @@ describe('chat store', () => {
     )
   })
 
-  it('先连上再拉会话(否则会用 SDKAppID=0 建实例 → No SDKAppID)', async () => {
+  it('先连上再拉会话(否则会在 init 之前就用空凭证连 WS)', async () => {
     const { client } = fakeClient()
     setImClientFactory(() => client as unknown as ImClient)
     const store = useChatStore()
@@ -93,7 +95,7 @@ describe('chat store', () => {
     await store.loadConversations()
 
     expect(client.init).toHaveBeenCalledWith(
-      expect.objectContaining({ sdkAppId: 1600161711, imUserId: 'u41' }),
+      expect.objectContaining({ token: 'tok-41', imUserId: 'u41' }),
     )
     expect(client.login).toHaveBeenCalled()
     expect((client.init as unknown as { mock: { invocationCallOrder: number[] } }).mock.invocationCallOrder[0])

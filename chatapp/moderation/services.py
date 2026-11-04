@@ -6,7 +6,7 @@
     2. 封禁状态跨越边界时才写审计并发通知(``new_status != old_status``),
        重复保存同一个状态不会产生重复通知;
     3. 所有 IM 副作用统一经 ``_enqueue`` 走 ``transaction.on_commit`` ——
-       响应路径不等腾讯,且入队必须晚于事务提交。
+       响应路径不等 IM,且入队必须晚于事务提交。
 """
 
 import logging
@@ -73,7 +73,7 @@ def blocked_user_ids(user) -> set[int]:
 def log_ban_change(user, old_status, new_status, reason, operator) -> None:
     """admin 保存 Profile / ops 封禁时调用:状态跨封禁边界就写审计 + 发系统通知。
 
-    通知与踢下线经任务队列(ban_notice 任务内保证 heavy 先发后踢);响应路径不等腾讯。
+    通知与踢下线经任务队列(ban_notice 任务内保证 heavy 先发后踢);响应路径不等 IM。
 
     Args:
         user: 状态被修改的用户。

@@ -35,7 +35,7 @@ nginx 容器(固定 172.28.0.10)
 - MySQL root 只允许来自 compose 子网(`MYSQL_ROOT_HOST=172.28.0.%`),不是 `%`(L-9)。
 - 应用与 imserver 镜像以非 root(`uid 10001`)运行;每个服务都有内存/进程上限(M-5)。
 - MySQL 里有两个库:`chatapp`(Django)与 `chatapp_im`(imserver),账号分离。
-- 聊天走自建 IM(`IM_BACKEND=self`、`IM_SELF_GRAYLIST=all`),不依赖腾讯云 IM。
+- 聊天走自建 IM(唯一后端,腾讯云 IM 分支已于 2026-11-08 删除)。
 
 ## 2. 前置条件
 
