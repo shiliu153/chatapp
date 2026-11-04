@@ -135,10 +135,12 @@ alertmanager/alert-relay/node-exporter)在跑,3 个 target(api/im/node)全 `up`�
 - **写路径天花板低**:2C2G 上 `POST /discovery/swipe` 饱和 **~40 rps**(加并发只涨延迟),
   `GET /discovery/candidates` @20 并发 **28.5 rps / p99 2.35s**(冷池查询 115ms 是全表扫),
   这两处都比「极简读 476 rps」更接近真实体感。11-03 那次 9.5s 的 p99 已归因为整机换页抖动。
-- **候选池冷查询可优化但未做**:`CANDIDATE_CACHE_TTL` 目前 30s(冷查询 115ms);
-  改成 300s 只需一行(写路径已用版本号失效),试过的复合索引反而更慢(115 → 149ms)。
-- **`app.log` 没有轮转**:`/www/wwwlogs/chatapp/app.log` 不在 logrotate 里,
-  每请求一行 JSON;450 rps 持续压测时约 4–5MB/分钟,长期高压有写满磁盘的风险(本次 30 分钟约 40MB)。
+- **候选池冷查询已优化一次(2026-11-04,D-3 选项 A)**:`CANDIDATE_CACHE_TTL` 30s → **300s**,
+  60 秒同负载下缓存 miss **20 → 13**、miss 率 **3.33% → 1.67%**;试过的 `(status,shuffle_key,id)`
+  复合索引反而更慢(冷池 115 → 149ms),已回滚。剩下的两条路(Redis 集合 / 物化 shuffle 序)还没做。
+- **`app.log` 轮转已补(2026-11-04)**:此前 `/www/wwwlogs/chatapp/app.log` 不在 logrotate 里,
+  每请求一行 JSON、持续高压约 1.4MB/5 分钟;现由 `deploy/ops/chatapp-logrotate.conf` 每天转、留 14 份、
+  超 200MB 提前转,用 `copytruncate` 因为 gunicorn/celery 一直开着文件(见 `runbook.md` §7)。
 - **观测栈已上线(2026-11-03)**:5 个容器(prometheus/grafana/alertmanager/alert-relay/node-exporter,
   均有 mem_limit,合计 ~344MB),3 个 target 全 `up`;实测代价 **+3.6%**(100 并发 473→490 rps,在噪声内)。
 - **MySQL 看门狗待安装**:脚本与 runbook 已就绪,`kill -9 mysqld + mysqld_safe` 的自动恢复还没在现网验证。
