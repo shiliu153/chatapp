@@ -4,6 +4,7 @@
     - 接口契约:docs/api/feedback.md
 """
 
+from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.response import Response
 
@@ -11,6 +12,7 @@ from .serializers import FeedbackCreateSerializer, FeedbackSerializer
 from .throttles import FeedbackThrottle
 
 
+@extend_schema(request=FeedbackCreateSerializer, responses={201: FeedbackSerializer})
 @api_view(["POST"])
 @throttle_classes([FeedbackThrottle])
 def create_feedback(request):

@@ -13,12 +13,14 @@
 
 from django.contrib.auth import get_user_model
 from django.db.models import Q
+from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from config.pagination import DefaultLimitOffsetPagination
+from config.schema_helpers import offset_page, offset_params
 
 from discovery.models import Match
 from .models import Block, Report, ReportStatus
@@ -30,6 +32,8 @@ from .throttles import BlockThrottle, ReportThrottle
 User = get_user_model()
 
 
+@extend_schema(request=ReportCreateSerializer,
+               responses={200: ReportSerializer, 201: ReportSerializer})
 @api_view(["POST"])
 @throttle_classes([ReportThrottle])
 def create_report(request):
@@ -65,6 +69,10 @@ def create_report(request):
     return Response(ReportSerializer(report).data, status=201 if created else 200)
 
 
+@extend_schema(methods=["GET"], parameters=offset_params(),
+               responses={200: offset_page("BlockPage", BlockSerializer)})
+@extend_schema(methods=["POST"], request=BlockCreateSerializer,
+               responses={200: BlockSerializer, 201: BlockSerializer})
 @api_view(["GET", "POST"])
 @throttle_classes([BlockThrottle])
 def blocks(request):
@@ -105,6 +113,7 @@ def blocks(request):
         [BlockSerializer(block, context={"request": request}).data for block in page])
 
 
+@extend_schema(responses={204: None})
 @api_view(["DELETE"])
 def unblock(request, user_id):
     """解除拉黑(DELETE /api/v1/blocks/{user_id})。

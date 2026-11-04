@@ -18,6 +18,8 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
 from django.db.models import F
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import (AuthenticationFailed, ParseError,
                                        PermissionDenied)
@@ -46,6 +48,9 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+@extend_schema(responses={200: inline_serializer("HealthStatus", fields={
+    "status": serializers.CharField(),
+})})
 @api_view(["GET"])
 @permission_classes([AllowAny])
 @throttle_classes([ProbeThrottle])
@@ -75,6 +80,10 @@ def _probe_redis():
         raise RuntimeError("redis round-trip mismatch")
 
 
+@extend_schema(responses={200: inline_serializer("ReadyStatus", fields={
+    "status": serializers.CharField(),
+    "checks": serializers.DictField(),
+})})
 @api_view(["GET"])
 @permission_classes([AllowAny])
 @throttle_classes([ProbeThrottle])
@@ -103,6 +112,8 @@ def readyz(request):
     )
 
 
+@extend_schema(request=PhoneSerializer, responses={200: inline_serializer(
+    "SmsSendStatus", fields={"status": serializers.CharField()})})
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([SmsSendThrottle])
@@ -139,6 +150,13 @@ def sms_send(request):
     return Response({"status": "ok"})
 
 
+@extend_schema(request=SmsVerifySerializer, responses={200: inline_serializer(
+    "SmsVerifyResult", fields={
+        "access": serializers.CharField(),
+        "refresh": serializers.CharField(required=False),
+        "is_new_user": serializers.BooleanField(),
+        "user_id": serializers.IntegerField(),
+    })})
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([SmsVerifyThrottle])
@@ -267,6 +285,11 @@ def _reuse_within_grace(raw_token: str) -> str | None:
     return cached
 
 
+@extend_schema(request=inline_serializer("TokenRefreshBody", fields={
+    "refresh": serializers.CharField(required=False)}),
+    responses={200: inline_serializer("TokenRefreshResult", fields={
+        "access": serializers.CharField(),
+        "refresh": serializers.CharField(required=False)})})
 class SessionTokenRefreshView(TokenRefreshView):
     """刷新 access token:Web 走 Cookie,App 走请求体。
 
@@ -342,6 +365,9 @@ class SessionTokenRefreshView(TokenRefreshView):
         return Response(payload)
 
 
+@extend_schema(request=inline_serializer("LogoutBody", fields={
+    "refresh": serializers.CharField(required=False)}),
+    responses={204: None})
 @api_view(["POST"])
 @permission_classes([AllowAny])
 @throttle_classes([LogoutThrottle])

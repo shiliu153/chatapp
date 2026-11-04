@@ -23,7 +23,9 @@ from urllib.parse import parse_qs, urlsplit
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from PIL import Image
+from rest_framework import serializers
 from rest_framework.decorators import (api_view, authentication_classes,
                                       permission_classes, throttle_classes)
 from rest_framework.permissions import AllowAny
@@ -44,6 +46,14 @@ logger = logging.getLogger(__name__)
 IMPORTED_FLAG_TTL = 30 * 24 * 3600   # 30 天;Redis 清空后下次调用会幂等重建
 
 
+@extend_schema(request=None, responses={200: inline_serializer("ImUserSig", fields={
+    "backend": serializers.CharField(),
+    "token": serializers.CharField(),
+    "im_user_id": serializers.CharField(),
+    "ws_url": serializers.CharField(),
+    "http_url": serializers.CharField(),
+    "expire": serializers.IntegerField(),
+})})
 @api_view(["POST"])
 @throttle_classes([UserSigThrottle])
 def user_sig(request):
@@ -90,6 +100,15 @@ def user_sig(request):
     })
 
 
+@extend_schema(request=ChatImageUploadSerializer,
+               responses={201: inline_serializer("ChatImageUploaded", fields={
+                   "id": serializers.IntegerField(),
+                   "url": serializers.CharField(),
+                   "thumb_url": serializers.CharField(),
+                   "width": serializers.IntegerField(),
+                   "height": serializers.IntegerField(),
+                   "size": serializers.IntegerField(),
+               })})
 @api_view(["POST"])
 @throttle_classes([ChatImageThrottle])
 def upload_image(request):
@@ -154,6 +173,13 @@ def upload_image(request):
     }, status=201)
 
 
+@extend_schema(request=ChatVoiceUploadSerializer,
+               responses={201: inline_serializer("ChatVoiceUploaded", fields={
+                   "id": serializers.IntegerField(),
+                   "url": serializers.CharField(),
+                   "duration_ms": serializers.IntegerField(),
+                   "size": serializers.IntegerField(),
+               })})
 @api_view(["POST"])
 @throttle_classes([ChatVoiceThrottle])
 def upload_voice(request):
@@ -200,6 +226,10 @@ def upload_voice(request):
     }, status=201)
 
 
+@extend_schema(parameters=[OpenApiParameter(
+    "X-Original-URI", str, OpenApiParameter.HEADER, required=True,
+    description="原始 URI(含签名与过期时间),由 nginx 的 auth_request 注入")],
+    responses={204: None, 403: None})
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([AllowAny])

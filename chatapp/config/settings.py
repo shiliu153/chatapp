@@ -387,6 +387,13 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     # 稳定排序:CI 用 git diff 比对生成物,顺序抖动会变成误报。
     "SORT_OPERATIONS": True,
+    # 枚举名覆盖:``type`` / ``gender`` 这类字段在多个组件里出现,不指定名字时库会
+    # 生成 ``TypeD40Enum`` 这种带哈希后缀的组件名,客户端类型生成也跟着变丑。
+    "ENUM_NAME_OVERRIDES": {
+        "ReportTypeEnum": "moderation.models.ReportType",
+        "FeedbackTypeEnum": "feedback.models.FeedbackType",
+        "GenderEnum": "users.models.Gender",
+    },
 }
 
 # localhost 只给本地调试用;生产 Web 与 API 同源,不需要 CORS。

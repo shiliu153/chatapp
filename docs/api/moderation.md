@@ -152,7 +152,7 @@ curl "http://<域名>/api/v1/blocks?limit=20&offset=0" \
 
 **响应参数**
 
-与 4.2 的 `results[]` 单项结构一致(`user_id` / `nickname` / `avatar_url` / `blocked_at`)。
+同 [4.2 拉黑列表](#42-拉黑列表)(`results[]` 单项结构)。
 
 **请求示例**
 

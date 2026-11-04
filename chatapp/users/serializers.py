@@ -9,6 +9,7 @@
 """
 
 from django.conf import settings
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from moderation.text_check import find_blocked_word
@@ -107,6 +108,7 @@ class PublicProfileSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ["user_id", "nickname", "gender", "age", "city", "bio", "tags", "photos"]
 
+    @extend_schema_field(PhotoSerializer(many=True))
     def get_photos(self, profile):
         """只返回已过审的照片。
 
