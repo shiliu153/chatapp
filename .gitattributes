@@ -38,3 +38,7 @@ docs/** linguist-documentation
 
 # 证书 PEM 保持 LF:Dart/BoringSSL 的 PEM 解析对 CRLF 兼容,但归一化后 diff 更干净
 *.pem text eol=lf
+
+# OpenAPI 生成物固定 LF:CI 用 `git diff --exit-code` 比对「重新生成后是否零差异」,
+# 若 Windows 检出成 CRLF,本地每次生成都会变成整文件 diff(2026-11-04 加)。
+docs/api/openapi.yml text eol=lf

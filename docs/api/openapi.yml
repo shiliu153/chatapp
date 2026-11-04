@@ -1,0 +1,1148 @@
+openapi: 3.0.3
+info:
+  title: chat_app API
+  version: 1.0.4
+  description: |-
+    交友 App 后端接口(/api/v1)。
+
+    本文件由 `python manage.py spectacular` 从代码生成,请勿手改;人读文档见仓库 docs/api/。
+paths:
+  /api/v1/app/config:
+    get:
+      operationId: app_config_retrieve
+      description: |-
+        返回客户端启动所需的最低版本配置。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{min_app_version, latest_version, download_url}``。
+      tags:
+      - app
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/logout:
+    post:
+      operationId: auth_logout_create
+      description: |-
+        注销:拉黑 refresh token 并清除 Cookie(POST /api/v1/auth/logout)。
+
+        幂等 —— 令牌缺失、已过期或已拉黑都返回 204,前端只关心「本地会话已结束」。
+        按 IP 限流,避免匿名调用把黑名单表刷大(L-5)。
+
+        Args:
+            request: DRF 请求对象;``refresh`` 可放在请求体或 Cookie。
+
+        Returns:
+            204 空响应,附带清除 Cookie 的 ``Set-Cookie``。
+
+        Raises:
+            PermissionDenied: ``Origin`` 与本站不同源(仅 Cookie 场景需要,见 ``same_origin``)。
+      tags:
+      - auth
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/sms/send:
+    post:
+      operationId: auth_sms_send_create
+      description: |-
+        发送短信验证码(POST /api/v1/auth/sms/send)。
+
+        先占用限流键并落库验证码,再入队发送任务;入队失败会回滚限流占位与验证码,
+        让用户可以立刻重试。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``phone``。
+
+        Returns:
+            ``{"status": "ok"}``。
+
+        Raises:
+            PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
+            SmsSendTooFrequent: 距上次发送不足重发间隔。
+            SmsServiceUnavailable: 短信任务入队失败(fail-closed)。
+      tags:
+      - auth
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/sms/verify:
+    post:
+      operationId: auth_sms_verify_create
+      description: |-
+        校验验证码并登录(POST /api/v1/auth/sms/verify)。
+
+        号码未注册过则自动建号;登录成功即递增 ``session_version`` 使旧设备令牌失效,
+        并在事务提交后入队 IM 建号或标记待踢旧会话。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``phone`` 与 ``code``。
+
+        Returns:
+            ``{access, is_new_user, user_id}``;带 ``X-Client: web`` 的请求不返回
+            ``refresh``,改为下发 HttpOnly Cookie(App 分支保持原样)。
+
+        Raises:
+            PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
+            SmsCodeExpired: 验证码已过期或不存在。
+            SmsCodeWrong: 验证码错误。
+            SmsLocked: 连续错误次数超限。
+      tags:
+      - auth
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/auth/token/refresh:
+    post:
+      operationId: auth_token_refresh_create
+      description: |-
+        校验会话版本后换发新令牌。
+
+        Args:
+            request: DRF 请求对象;``refresh`` 可放在请求体(App)或 Cookie(Web)。
+            *args: 透传给父类的位置参数。
+            **kwargs: 透传给父类的关键字参数。
+
+        Returns:
+            Web:``{access}`` + 轮换后的 Cookie;App:``{access, refresh}``。
+
+        Raises:
+            AuthenticationFailed: 没有令牌、令牌无效或超出宽限期的重复使用。
+            SingleDeviceSessionConflict: 该 refresh token 来自已被顶下线的设备。
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/blocks:
+    get:
+      operationId: blocks_retrieve
+      description: |-
+        黑名单:读取列表与新增拉黑(GET/POST /api/v1/blocks)。
+
+        POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单。
+
+        Args:
+            request: DRF 请求对象;POST 时 body 需带 ``target_user_id``。
+
+        Returns:
+            GET 返回分页后的黑名单条目;POST 返回拉黑对象(新建为 201,已存在为 200)。
+
+        Raises:
+            ValidationError: 拉黑自己。
+            NotFound: 目标用户不存在。
+      tags:
+      - blocks
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: blocks_create
+      description: |-
+        黑名单:读取列表与新增拉黑(GET/POST /api/v1/blocks)。
+
+        POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单。
+
+        Args:
+            request: DRF 请求对象;POST 时 body 需带 ``target_user_id``。
+
+        Returns:
+            GET 返回分页后的黑名单条目;POST 返回拉黑对象(新建为 201,已存在为 200)。
+
+        Raises:
+            ValidationError: 拉黑自己。
+            NotFound: 目标用户不存在。
+      tags:
+      - blocks
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/blocks/{user_id}:
+    delete:
+      operationId: blocks_destroy
+      description: |-
+        解除拉黑(DELETE /api/v1/blocks/{user_id})。
+
+        幂等:没有该条拉黑记录时直接返回 204,不报错。
+
+        Args:
+            request: DRF 请求对象。
+            user_id: 被解除拉黑的账号 id。
+
+        Returns:
+            204 空响应。
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - blocks
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/client-errors:
+    post:
+      operationId: client_errors_create
+      description: |-
+        接收一条前端未捕获异常(POST /api/v1/client-errors)。
+
+        允许匿名:登录页白屏、启动即崩这类最有价值的错误发生时,客户端还没有令牌。
+
+        Args:
+            request: DRF 请求对象,body 见 ``ClientErrorSerializer``。
+
+        Returns:
+            204 空响应(上报是 fire-and-forget,不回业务数据)。
+      tags:
+      - client-errors
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/discovery/candidates:
+    get:
+      operationId: discovery_candidates_retrieve
+      description: |-
+        候选卡片列表(GET /api/v1/discovery/candidates)。
+
+        按「想找的人」偏好过滤(性别、城市、年龄区间),再套用候选池的排除规则。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` 查询参数(默认 10,上限 20)。
+
+        Returns:
+            候选卡片数组,字段见 ``CandidateSerializer``。
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/discovery/likes:
+    get:
+      operationId: discovery_likes_retrieve
+      description: |-
+        喜欢我的人列表(GET /api/v1/discovery/likes)。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的「喜欢我的人」列表,字段见 ``LikeReceivedSerializer``。
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/discovery/likes/count:
+    get:
+      operationId: discovery_likes_count_retrieve
+      description: |-
+        喜欢我的人数(GET /api/v1/discovery/likes/count)。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{"count": N}``,与列表同口径,供入口角标使用。
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/discovery/swipe:
+    post:
+      operationId: discovery_swipe_create
+      description: |-
+        提交一次滑卡(POST /api/v1/discovery/swipe)。
+
+        幂等:同一对用户重复提交保留第一次的动作;若本次形成互喜则创建配对,
+        并在事务提交后给双方发 IM 灰条。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``target_user_id`` 与 ``action``。
+
+        Returns:
+            ``{"matched": bool}``,表示本次是否配对成功。
+
+        Raises:
+            PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
+            ValidationError: 划自己,或对方资料不完整。
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/discovery/visits:
+    get:
+      operationId: discovery_visits_retrieve
+      description: |-
+        谁看过我(GET /api/v1/discovery/visits)。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的访客列表,字段见 ``VisitSerializer``。
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/discovery/visits/count:
+    get:
+      operationId: discovery_visits_count_retrieve
+      description: |-
+        访客人数(GET /api/v1/discovery/visits/count)。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{"count": N}``,与列表同口径,供入口角标使用。
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/feedback:
+    post:
+      operationId: feedback_create
+      description: |-
+        提交意见反馈(POST /api/v1/feedback)。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``type`` / ``content`` / 可选 ``contact``。
+
+        Returns:
+            201 + 反馈回执(``id`` / ``type`` / ``content`` / ``contact`` / ``created_at``)。
+      tags:
+      - feedback
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/health:
+    get:
+      operationId: health_retrieve
+      description: |-
+        存活探针。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            固定 ``{"status": "ok"}``,不触碰数据库与 Redis。
+      tags:
+      - health
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/im/images:
+    post:
+      operationId: im_images_create
+      description: |-
+        上传一张聊天图片(POST /api/v1/im/images)。
+
+        同步落盘 + 生成缩略图,不进 Celery:这条路径没有第三方调用,
+        符合「响应路径禁止外部调用」纪律。文件名带随机 uuid,不可枚举。
+
+        Args:
+            request: DRF 请求对象,multipart 字段为 ``file``。
+
+        Returns:
+            201 + ``{id, url, thumb_url, width, height, size}``;URL 用
+            ``settings.MEDIA_BASE_URL`` 拼绝对地址(与 IM 头像同步同一套)。
+
+        Raises:
+            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+      tags:
+      - im
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/im/images/auth:
+    get:
+      operationId: im_images_auth_retrieve
+      description: |-
+        nginx ``auth_request`` 子请求:校验聊天图片签名(GET /api/v1/im/images/auth)。
+
+        这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而图片本身
+        已经是「谁拿到链接谁能看」的语义,靠签名与有效期兜底。
+
+        Args:
+            request: DRF 请求对象,nginx 通过 ``X-Original-URI`` 传入原始 URI
+                (含 ``?e=&s=``)。
+
+        Returns:
+            通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403。
+      tags:
+      - im
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/im/user_sig:
+    post:
+      operationId: im_user_sig_create
+      description: |-
+        签发当前用户的 IM 登录凭证(POST /api/v1/im/user_sig)。
+
+        重封禁用户由全局权限类 ``IsNotHeavyBanned`` 直接拦成 403,本函数不再重复检查。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{backend, token, im_user_id, ws_url, http_url, expire}``;
+            ``backend`` 恒为 ``self``(腾讯分支已于 2026-11-08 删除)。
+      tags:
+      - im
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/im/voices:
+    post:
+      operationId: im_voices_create
+      description: |-
+        上传一段聊天语音(POST /api/v1/im/voices)。
+
+        同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
+        没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
+
+        Args:
+            request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
+
+        Returns:
+            201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
+            400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
+
+        Raises:
+            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+      tags:
+      - im
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/matches:
+    get:
+      operationId: matches_retrieve
+      description: |-
+        我的配对列表(GET /api/v1/matches)。
+
+        与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的)从列表中剔除;按配对时间倒序分页。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的配对条目数组。
+      tags:
+      - matches
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/matches/{user_id}:
+    delete:
+      operationId: matches_destroy
+      description: |-
+        解除配对(DELETE /api/v1/matches/{user_id})。
+
+        幂等:没有配对 / 已解除 / 解除自己都返回 204,与 ``DELETE /blocks/{user_id}``
+        保持一致。解除是软删除(``unmatched_at`` 落时间戳),并双向拉黑 IM,
+        之后双方既收不到、也发不出消息。
+
+        Args:
+            request: DRF 请求对象。
+            user_id: 对方的账号 id。
+
+        Returns:
+            204 空响应。
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - matches
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/posts:
+    get:
+      operationId: posts_retrieve
+      description: |-
+        广场动态:列表与发布(GET/POST /api/v1/posts)。
+
+        GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
+        限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
+
+        Args:
+            request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
+
+        Returns:
+            GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: posts_create
+      description: |-
+        广场动态:列表与发布(GET/POST /api/v1/posts)。
+
+        GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
+        限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
+
+        Args:
+            request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
+
+        Returns:
+            GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/posts/{post_id}:
+    get:
+      operationId: posts_retrieve_2
+      description: |-
+        动态详情与删除(GET/DELETE /api/v1/posts/{post_id})。
+
+        DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
+        删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+
+        Returns:
+            GET 返回动态详情;DELETE 返回 204 空响应。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: posts_destroy
+      description: |-
+        动态详情与删除(GET/DELETE /api/v1/posts/{post_id})。
+
+        DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
+        删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+
+        Returns:
+            GET 返回动态详情;DELETE 返回 204 空响应。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/posts/{post_id}/comments:
+    get:
+      operationId: posts_comments_retrieve
+      description: |-
+        评论列表与发表评论(GET/POST /api/v1/posts/{post_id}/comments)。
+
+        GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
+        层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
+
+        Args:
+            request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
+            post_id: 动态主键。
+
+        Returns:
+            GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: posts_comments_create
+      description: |-
+        评论列表与发表评论(GET/POST /api/v1/posts/{post_id}/comments)。
+
+        GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
+        层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
+
+        Args:
+            request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
+            post_id: 动态主键。
+
+        Returns:
+            GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/posts/{post_id}/comments/{comment_id}:
+    delete:
+      operationId: posts_comments_destroy
+      description: |-
+        删除自己的评论(DELETE /api/v1/posts/{post_id}/comments/{comment_id})。
+
+        删顶级评论会连带删除该楼全部回复;非作者一律 404(不暴露存在性)。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+            comment_id: 评论主键。
+
+        Returns:
+            204 空响应。
+
+        Raises:
+            Http404: 动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的。
+      parameters:
+      - in: path
+        name: comment_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/posts/{post_id}/comments/{comment_id}/replies:
+    get:
+      operationId: posts_comments_replies_retrieve
+      description: |-
+        某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``offset``。
+            post_id: 动态主键。
+            comment_id: 顶级评论主键。
+
+        Returns:
+            分页后的回复列表,按时间正序。
+
+        Raises:
+            Http404: 动态不可见、评论不存在/不属于该动态/本身是回复。
+      parameters:
+      - in: path
+        name: comment_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/posts/{post_id}/like:
+    post:
+      operationId: posts_like_create
+      description: |-
+        点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
+
+        点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+
+        Returns:
+            POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: posts_like_destroy
+      description: |-
+        点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
+
+        点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+
+        Returns:
+            POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/posts/{post_id}/report:
+    post:
+      operationId: posts_report_create
+      description: |-
+        举报动态(POST /api/v1/posts/{post_id}/report)。
+
+        幂等:同一动态已有待处理举报时返回已有记录(200),本次新建返回 201。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``type`` 与可选 ``detail``。
+            post_id: 动态主键。
+
+        Returns:
+            ``{id, status}``。
+
+        Raises:
+            ValidationError: 举报自己的动态。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/posts/mine:
+    get:
+      operationId: posts_mine_retrieve
+      description: |-
+        我的动态列表(GET /api/v1/posts/mine)。
+
+        与广场列表不同:这里只按作者过滤,不套用 ``visible_posts`` 的可见性规则 ——
+        自己发过的动态自己始终能看到。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的动态列表,按发布时间倒序。
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/presence:
+    get:
+      operationId: presence_retrieve
+      description: |-
+        批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略。
+
+        Args:
+            request: DRF 请求对象,``user_ids`` 为逗号分隔的账号 id,单次上限 100。
+
+        Returns:
+            ``{"results": [{"user_id", "online", "last_active_at"}]}``。
+      tags:
+      - presence
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/readyz:
+    get:
+      operationId: readyz_retrieve
+      description: |-
+        就绪探针:逐项检查数据库与 Redis。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            全部依赖可用时返回 200 + ``{"status": "ok", "checks": {...}}``;
+            任一依赖不可用时返回 503 + ``status="unavailable"``,便于负载均衡摘除实例。
+      tags:
+      - readyz
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/reports:
+    post:
+      operationId: reports_create
+      description: |-
+        提交举报(POST /api/v1/reports)。
+
+        幂等:同一被举报人若已有待处理举报,返回已有记录且状态码为 200;
+        本次新建时返回 201。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``target_user_id`` / ``type`` / 可选 ``detail``。
+
+        Returns:
+            ``{id, type, status}``。
+
+        Raises:
+            ValidationError: 举报自己。
+            NotFound: 被举报人不存在。
+      tags:
+      - reports
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/{user_id}:
+    get:
+      operationId: users_retrieve
+      description: |-
+        他人资料卡(GET /api/v1/users/{user_id})。
+
+        Args:
+            request: DRF 请求对象。
+            user_id: 目标账号 id。
+
+        Returns:
+            公开资料(不含手机号、生日、偏好与缺失项)。
+
+        Raises:
+            NotFound: 对方与当前用户互相拉黑、资料不存在,或对方处于重封禁状态 ——
+                三种情况统一按「用户不存在」处理,不泄漏账号是否存在。
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/me:
+    get:
+      operationId: users_me_retrieve
+      description: |-
+        我的资料:读取、局部更新与账号注销(GET/PATCH/DELETE /api/v1/users/me)。
+
+        DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
+        PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
+
+        Args:
+            request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
+
+        Returns:
+            GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: users_me_partial_update
+      description: |-
+        我的资料:读取、局部更新与账号注销(GET/PATCH/DELETE /api/v1/users/me)。
+
+        DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
+        PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
+
+        Args:
+            request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
+
+        Returns:
+            GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: users_me_destroy
+      description: |-
+        我的资料:读取、局部更新与账号注销(GET/PATCH/DELETE /api/v1/users/me)。
+
+        DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
+        PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
+
+        Args:
+            request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
+
+        Returns:
+            GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/users/me/photos:
+    post:
+      operationId: users_me_photos_create
+      description: |-
+        上传照片(POST /api/v1/users/me/photos)。
+
+        上传后按 ``settings.AUTO_APPROVE`` 决定是否直接过审(开发期上传即过审);
+        过审时会顺带把头像同步到 IM。
+
+        Args:
+            request: DRF 请求对象,multipart 字段为 ``file``。
+
+        Returns:
+            201 + 照片对象;超出张数上限时返回 400。
+
+        Raises:
+            serializers.ValidationError: 图片缺失或超过大小上限。
+            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/me/photos/{photo_id}:
+    delete:
+      operationId: users_me_photos_destroy
+      description: |-
+        删除自己的照片(DELETE /api/v1/users/me/photos/{photo_id})。
+
+        只允许删除本人照片(查询集限定在 ``request.user.photos`` 上);
+        删除后重算资料完善状态,照片不足会掉回「未完善」并失去候选资格。
+
+        Args:
+            request: DRF 请求对象。
+            photo_id: 照片主键。
+
+        Returns:
+            204 空响应。
+      parameters:
+      - in: path
+        name: photo_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/users/me/preference:
+    get:
+      operationId: users_me_preference_retrieve
+      description: |-
+        我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。
+
+        Args:
+            request: DRF 请求对象;``PATCH`` 支持部分字段。
+
+        Returns:
+            更新后的完整偏好对象。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+    patch:
+      operationId: users_me_preference_partial_update
+      description: |-
+        我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。
+
+        Args:
+            request: DRF 请求对象;``PATCH`` 支持部分字段。
+
+        Returns:
+            更新后的完整偏好对象。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/v1/users/tags:
+    get:
+      operationId: users_tags_retrieve
+      description: |-
+        标签池全量列表(GET /api/v1/users/tags)。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            全部标签(12 个,由数据迁移写入);重封禁用户由全局权限类放行本接口。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+      required:
+      - refresh
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

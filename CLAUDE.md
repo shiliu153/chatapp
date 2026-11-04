@@ -148,6 +148,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **网页端测试纪律**:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + vitest 全绿(覆盖率门槛 70/60/70/70);`npm run e2e` 需后端 + Redis + Celery 都在跑,不进 CI
 - **发版版本号必须双端同改**:`app/pubspec.yaml` + `app/lib/core/app_info.dart` + `web/package.json`(连带 App 关于页与 Web 关于页测试的期望)。`MIN_APP_VERSION` 同时卡网页端——只升 App 会让整站被「需要更新后才能继续使用」挡住(2026-10-28 实测,见 `docs/pitfalls/web.md` #23);改完 Web 必须 `npm run build` 并部署 `dist`
 - **接口文档**:`docs/api/` 是接口的对外交付文档;新增/修改/删除任何 `/api/v1` 接口,**同一次改动内**必须同步更新对应分册;`python manage.py test` 会跑 `ApiDocsCoverageTests` 双向比对,漏写即红。模板与维护规则见 `docs/api/README.md`
+- **OpenAPI 生成物(D-5)**:`docs/api/openapi.yml` 是**机器可读契约**,由 `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` 从视图上的 `@extend_schema` 生成,**禁止手改**;改了对外字段(改名/增删/改类型)必须在同一次改动内重新生成并提交,CI 会重新生成后 `git diff --exit-code` 比对。`config/tests.py::OpenApiSchemaTests` 另校验「schema 操作集合 == URLconf 操作集合」
 - **注释规范**:`docs/standards/python.md` 是 Python 注释的单一事实来源;新增/修改任何 `.py` 文件,**同一次改动内**必须补齐模块 docstring 与函数/类 docstring(`test_*` 用例、`setUp` 等生命周期钩子、`Meta` 声明式内部类、函数内闭包豁免),**公开函数带参数必须写 `Args:` 小节**;`python manage.py test` 会跑 `CommentCoverageTests` 比对,漏写即红。本地快速自查:`cd chatapp && python config/comment_coverage.py`(秒级,不依赖 Django),`--warnings` 看口语词提示、`--structure` 看 `Args` 结构提示(均不拦截)
 
 ## 后端接口

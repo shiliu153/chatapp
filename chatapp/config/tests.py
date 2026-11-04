@@ -340,6 +340,46 @@ class ApiDocsCoverageTests(SimpleTestCase):
             "\n".join(f"  {m} {p}" for m, p in stale))
 
 
+class OpenApiSchemaTests(SimpleTestCase):
+    """OpenAPI 生成物门禁(D-5 第 1 步):schema 能生成,且与 URLconf 的操作集合一致。
+
+    设计要点:
+        本类只比「方法 + 路径」这一层,是生成管道的冒烟测试;字段级双向比对在
+        ``config/test_schema_contract.py``(第 2 步)。这里刻意与
+        ``ApiDocsCoverageTests`` 用同一份 ``endpoints_from_urlconf()``,保证
+        「代码 / 人读文档 / 机器可读契约」三者不会各说各话。
+    """
+
+    schema: dict = {}
+
+    @classmethod
+    def setUpClass(cls):
+        """生成一次 schema 供本类各用例复用(生成有固定开销,不重复跑)。"""
+        super().setUpClass()
+        from drf_spectacular.generators import SchemaGenerator
+
+        cls.schema = SchemaGenerator().get_schema(request=None, public=True)
+
+    def test_schema_is_openapi_3(self):
+        self.assertTrue(self.schema["openapi"].startswith("3."))
+
+    def test_schema_operations_match_urlconf(self):
+        from config.api_doc_coverage import endpoints_from_urlconf
+
+        operations = {
+            (method.upper(), path)
+            for path, item in self.schema["paths"].items()
+            for method in item
+            if method in ("get", "post", "patch", "put", "delete")
+        }
+        self.assertEqual(operations, endpoints_from_urlconf())
+
+    def test_bearer_auth_scheme_is_registered(self):
+        scheme = self.schema["components"]["securitySchemes"]["bearerAuth"]
+        self.assertEqual(scheme["scheme"], "bearer")
+        self.assertEqual(scheme["bearerFormat"], "JWT")
+
+
 class CommentCoverageLogicTests(SimpleTestCase):
     """注释门禁检查模块自身的单元测试(用临时目录,不依赖真实代码)。"""
 
