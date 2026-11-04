@@ -9,7 +9,7 @@ void main() {
 
     expect(find.text('心跳'), findsOneWidget);
     expect(find.byKey(const Key('about.version')), findsOneWidget);
-    expect(find.text('版本 1.0.3'), findsOneWidget);
+    expect(find.text('版本 1.0.4'), findsOneWidget);
     expect(find.byKey(const Key('about.agreement')), findsOneWidget);
     expect(find.byKey(const Key('about.privacy')), findsOneWidget);
   });
