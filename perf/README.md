@@ -14,6 +14,10 @@
 
 ## 2. 跑一个场景
 
+> **用 python3.11**：`run.py` 用了 `from __future__ import annotations`(3.7+),
+> 而这台服务器的 `/usr/bin/python3` 是 3.6.8 —— 直接 `python3 perf/run.py` 会 `SyntaxError`。
+> 线上实测一律用 `/usr/bin/python3.11 perf/run.py`(或 `chatapp-venv/bin/python`)。
+
 ### 2.1 读接口(公开,不需要登录态)
 
 ```bash
@@ -118,26 +122,61 @@ python3 perf/report.py perf/results/*.json --baseline perf/baseline.json --fail-
 带 `machine` 是为了让两次结果**可比**:RPS 脱离机器规格没有意义。
 `params.headers` 只留头名与头集套数 —— **头的值(令牌)永不落盘**。
 
-## 5. 场景矩阵(逐步补齐)
+## 5. 场景矩阵
 
 | 场景 | 覆盖 | 状态 |
 |---|---|---|
 | `api_read` | 只读接口(候选池/配置/广场 feed) | 已支持(默认 app/config,可 `--path`) |
-| `api_health` | 框架开销基线 | 已支持 |
+| `api_health` | 框架开销基线 | 已支持(注意 `probe` 限流 1200/小时,别当纯框架数字) |
 | `api_write` | 写接口(swipe / 发动态 / 点赞…) | 已支持(需 `--path` + `--header`/`--headers-file` + `--body`) |
+| `api_upload` | multipart 上传(聊天图片) | 已支持(`--file` + `--field` + `--form`;二进制走 latin-1) |
+| `api_mixed` | 混合读写(默认 70 读 30 写) | 已支持(`--write-path`/`--write-ratio`/`--write-interval`,带内存曲线) |
 | `ws_burst` | WS 突发/冷会话 | 已支持(委托 bench_ws) |
 | `ws_steady` | 稳态消息速率与 ack 延迟 | 已支持 |
-| 混合 70 读 / 30 写、30 分钟内存曲线 | — | 待补(计划 B.2 余下部分) |
-| WS 重连风暴(重启后 1000 客户端同时重连) | — | 待补(B.2) |
+| `ws_reconnect` | 重连风暴(重启服务端后 N 客户端同时重连) | 已支持(`--restart-cmd`,委托 bench_ws_reconnect) |
+| 0→N 并发突发 / 爬坡 | `--ramp 0` vs `--ramp 30` | 已支持(同一 `api_read`) |
 | 规模数据(10 万用户) | 数据量增长后的 p99 | 待补(B.3) |
+
+**2026-11-04 补齐的三个场景**(数字与结论见
+[read-baseline-2026-11-04.md](../docs/ops/read-baseline-2026-11-04.md) §5):
+
+```bash
+# ① multipart 上传:20 个账号、20 并发(注意 /im/images 是 30 次/小时/账号)
+/usr/bin/python3.11 perf/run.py --scenario api_upload --file /tmp/x.jpg \
+  --headers-file perf/results/headers.jsonl --conns 20 --dur 20 \
+  --out perf/results/upload20.json
+
+# ② 70 读 / 30 写 30 分钟(--write-interval 按 per-user 配额打散写节奏)
+/usr/bin/python3.11 perf/run.py --scenario api_mixed --path /api/v1/app/config \
+  --write-path /api/v1/discovery/swipe --write-method POST \
+  --write-body '{"target_user_id": {i}, "action": "like"}' --i-start 20300 \
+  --write-ratio 0.3 --write-interval 20 --headers-file perf/results/headers.jsonl \
+  --conns 100 --dur 1800 --sample-interval 15 --out perf/results/mixed30.json
+
+# ③ WS 重连风暴:连满 1000 后由压测器执行重启,客户端无退避立刻重连
+set -a; . /www/server/imserver/imserver.env; set +a
+chatapp-venv/bin/python perf/run.py --scenario ws_reconnect --conns 1000 --dur 60 \
+  --restart-cmd 'docker restart imserver' --out perf/results/wsreconnect1000.json
+
+# ④ 0→1000 突发 / 爬坡
+/usr/bin/python3.11 perf/run.py --scenario api_read --conns 1000 --dur 20 --ramp 0  --out perf/results/burst.json
+/usr/bin/python3.11 perf/run.py --scenario api_read --conns 1000 --dur 30 --ramp 30 --out perf/results/ramp.json
+```
+
+`--sample-interval` 让长跑带上内存曲线(`resources.mem_curve`,每点 `[秒, 内存MB, swapMB, load1]`),
+30 分钟的混合跑就是靠它看出「什么时候开始换页」。
 
 **写路径基线已实测(2026-11-03)**:`POST /discovery/swipe` 在 2C2G 上饱和 **~40 rps**
 (20/50/100/200 并发 = 33.4/35.8/38.5/39.2 rps,p50 552ms→4922ms,全程 0 个 5xx,标准 = 「排队不是崩」)。
 完整数字、方法与三个发现见 [write-baseline-2026-11-03.md](../docs/ops/write-baseline-2026-11-03.md)。
 
-> ⚠️ `baseline.json` 里的**读点是 2026-11-01 量的**(观测栈上线前),写点是 11-03 量的。
-> 同接口同并发复测显示读能力已从 608 掉到 **410 rps**(观测栈 5 个容器在跑 + 内存开始 swap),
-> 所以判读回归前应先重跑读基线,否则「RPS −20%」会天天误报。
+**读基线已重跑(2026-11-04)**:`GET /app/config` @100 并发 = **476 rps**(三次 446–496);
+`perf/baseline.json` 的读点已换成这组。同机「裸 WSGI」能跑 2626 rps,
+所以读的天花板是 Django 每请求 CPU(2.7ms)+ 2 核 GIL,不是内存/容器 ——
+详见 [read-baseline-2026-11-04.md](../docs/ops/read-baseline-2026-11-04.md)。
+
+> ⚠️ 判读口径:**只用 100 并发档判回归**(重复性 ±5%)。20 并发档单次噪声 ±15–30%,
+> 拿它比「RPS −20%」会天天误报。
 
 
 ## 6. 与旧脚本的关系
