@@ -15,6 +15,7 @@
 from datetime import timedelta
 from pathlib import Path
 import os
+import re
 import sys
 
 from dotenv import load_dotenv
@@ -25,6 +26,26 @@ from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
+
+
+def _read_app_version() -> str:
+    """读取 App 版本号,作为 OpenAPI 文档的版本(D-5)。
+
+    设计要点:
+        ``app/pubspec.yaml`` 是发版版本号的唯一来源(见 CLAUDE.md「发版版本号必须双端同改」)。
+        直接读它,OpenAPI 文档就不会再手写一份版本号而漂移;真正的三端一致性校验由
+        ``scripts/sync_version.py`` 负责。
+
+    Returns:
+        形如 ``1.0.4`` 的版本号;文件缺失或解析失败时返回 ``0.0.0``(宁可有值,不让生成失败)。
+    """
+    pubspec = BASE_DIR.parent / "app" / "pubspec.yaml"
+    try:
+        text = pubspec.read_text(encoding="utf-8")
+    except OSError:
+        return "0.0.0"
+    match = re.search(r"^version:\s*([0-9][^\s+]*)", text, re.MULTILINE)
+    return match.group(1) if match else "0.0.0"
 
 
 # --- 基础开关(以下默认值仅供本地开发,生产一律用 .env 覆盖) ---
@@ -72,6 +93,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
+    "drf_spectacular",   # D-5:OpenAPI 导出
     # 业务 app
     "accounts",
     "users",
@@ -317,6 +339,7 @@ REST_FRAMEWORK = {
         "moderation.permissions.IsNotHeavyBanned",
     ),
     "EXCEPTION_HANDLER": "config.exceptions.api_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "config.pagination.DefaultLimitOffsetPagination",
     "DEFAULT_THROTTLE_RATES": {
         "sms_send": SMS_SEND_IP_RATE,
@@ -341,6 +364,35 @@ REST_FRAMEWORK = {
         "chat_image": CHAT_IMAGE_RATE,
         "chat_voice": CHAT_VOICE_RATE,
         "client_error": os.getenv("CLIENT_ERROR_RATE", "120/hour"),
+    },
+}
+
+# --- OpenAPI schema(D-5)---
+# 机器可读契约:``python manage.py spectacular`` 生成 ``docs/api/openapi.yml``。
+# 人读文档仍是 ``docs/api/*.md``(两者并存,见 docs/api/README.md)。
+SPECTACULAR_SETTINGS = {
+    "TITLE": "chat_app API",
+    "DESCRIPTION": (
+        "交友 App 后端接口(/api/v1)。\n\n"
+        "本文件由 `python manage.py spectacular` 从代码生成,请勿手改;"
+        "人读文档见仓库 docs/api/。"
+    ),
+    "VERSION": _read_app_version(),
+    # /api/v1 下只放业务接口:schema 不注册成视图,生成物走 CLI 落盘。
+    "SERVE_INCLUDE_SCHEMA": False,
+    # 只导出 /api/v1;/ops 后台与 /metrics 不属于对外契约(门禁口径同 ApiDocsCoverageTests)。
+    "SCHEMA_PATH_PREFIX": r"^/api/v1",
+    # 请求体与响应体拆成两个组件:请求只含可写字段、响应含只读字段,
+    # 「字段级门禁」才能与 docs/api 的「请求参数 / 响应参数」两张表逐字段对齐。
+    "COMPONENT_SPLIT_REQUEST": True,
+    # 稳定排序:CI 用 git diff 比对生成物,顺序抖动会变成误报。
+    "SORT_OPERATIONS": True,
+    # 枚举名覆盖:``type`` / ``gender`` 这类字段在多个组件里出现,不指定名字时库会
+    # 生成 ``TypeD40Enum`` 这种带哈希后缀的组件名,客户端类型生成也跟着变丑。
+    "ENUM_NAME_OVERRIDES": {
+        "ReportTypeEnum": "moderation.models.ReportType",
+        "FeedbackTypeEnum": "feedback.models.FeedbackType",
+        "GenderEnum": "users.models.Gender",
     },
 }
 

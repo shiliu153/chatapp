@@ -7,6 +7,7 @@
     3. 正文与评论写入前统一过 ``moderation.text_check`` 的违禁词检查。
 """
 
+from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
 from moderation.models import ReportType
@@ -14,6 +15,17 @@ from moderation.text_check import find_blocked_word
 from users.models import PhotoStatus
 
 from .models import Post, PostComment
+
+# 作者摘要与被回复者摘要是纯字典,给 schema 用的内联序列化器
+AUTHOR_BRIEF_SCHEMA = inline_serializer("AuthorBrief", fields={
+    "user_id": serializers.IntegerField(),
+    "nickname": serializers.CharField(),
+    "avatar_url": serializers.CharField(allow_null=True),
+})
+REPLY_TO_SCHEMA = inline_serializer("ReplyTo", fields={
+    "user_id": serializers.IntegerField(),
+    "nickname": serializers.CharField(),
+})
 
 
 def author_brief(user, request):
@@ -50,6 +62,7 @@ class PostSerializer(serializers.ModelSerializer):
         fields = ["id", "author", "text", "images", "like_count", "comment_count",
                   "liked_by_me", "created_at"]
 
+    @extend_schema_field(AUTHOR_BRIEF_SCHEMA)
     def get_author(self, post):
         """取动态作者的简要信息。
 
@@ -61,6 +74,7 @@ class PostSerializer(serializers.ModelSerializer):
         """
         return author_brief(post.author, self.context["request"])
 
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_images(self, post):
         """取全部配图的绝对 URL。
 
@@ -92,6 +106,7 @@ class PostCommentSerializer(serializers.ModelSerializer):
         fields = ["id", "author", "text", "parent_id", "reply_to",
                   "reply_count", "replies", "created_at"]
 
+    @extend_schema_field(AUTHOR_BRIEF_SCHEMA)
     def get_author(self, comment):
         """取评论作者的简要信息。
 
@@ -120,6 +135,7 @@ class PostCommentSerializer(serializers.ModelSerializer):
         comment.visible_replies = cached
         return cached
 
+    @extend_schema_field(REPLY_TO_SCHEMA)
     def get_reply_to(self, comment):
         """取被回复者的简要信息。
 
@@ -135,7 +151,7 @@ class PostCommentSerializer(serializers.ModelSerializer):
         profile = getattr(user, "profile", None)
         return {"user_id": user.id, "nickname": profile.nickname if profile else ""}
 
-    def get_reply_count(self, comment):
+    def get_reply_count(self, comment) -> int:
         """取该楼层可见回复的总数(回复对象恒为 0)。
 
         Args:
@@ -148,6 +164,7 @@ class PostCommentSerializer(serializers.ModelSerializer):
             return 0
         return len(self._visible_replies(comment))
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_replies(self, comment):
         """取该楼层内嵌的前两条回复(回复对象恒为空)。
 

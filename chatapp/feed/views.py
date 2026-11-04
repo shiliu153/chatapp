@@ -16,6 +16,8 @@ import uuid
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import get_object_or_404
@@ -25,6 +27,7 @@ from config import images, storage
 from config.cursor import cursor_body, paginated_response, read_before, wants_legacy_offset
 from config.pagination import DefaultLimitOffsetPagination
 from config.params import int_param
+from config.schema_helpers import cursor_page, cursor_params, offset_page, offset_params
 from moderation.models import ReportStatus
 
 from .models import Post, PostComment, PostImage, PostLike, PostReport
@@ -36,6 +39,18 @@ from .services import (create_comment, delete_comment, delete_post,
                        visible_posts)
 from .throttles import (PostCommentThrottle, PostCreateThrottle, PostLikeThrottle,
                         PostReportThrottle)
+
+# 点赞/举报的回执是纯字典,给 schema 用的内联序列化器(200 与 201 共用同一个组件)
+POST_LIKE_SCHEMA = inline_serializer("PostLikeResult", fields={
+    "liked": serializers.BooleanField()})
+POST_REPORT_SCHEMA = inline_serializer("PostReportResult", fields={
+    "id": serializers.IntegerField(),
+    "status": serializers.CharField(),
+})
+POST_CREATE_SCHEMA = inline_serializer("PostCreateBody", fields={
+    "text": serializers.CharField(required=False),
+    "images": serializers.ListField(child=serializers.ImageField(), required=False),
+})
 
 
 def _page_response(request, queryset, serializer_class=PostSerializer):
@@ -55,6 +70,10 @@ def _page_response(request, queryset, serializer_class=PostSerializer):
         serializer_class(page, many=True, context={"request": request}).data)
 
 
+@extend_schema(methods=["GET"], operation_id="posts_list", parameters=cursor_params(),
+               responses={200: cursor_page("PostPage", PostSerializer)})
+@extend_schema(methods=["POST"], request=POST_CREATE_SCHEMA,
+               responses={201: PostSerializer})
 @api_view(["GET", "POST"])
 @throttle_classes([PostCreateThrottle])
 def posts(request):
@@ -158,6 +177,8 @@ def _create_post(request):
     return Response(PostSerializer(post, context={"request": request}).data, status=201)
 
 
+@extend_schema(parameters=cursor_params(),
+               responses={200: cursor_page("MyPostPage", PostSerializer)})
 @api_view(["GET"])
 def my_posts(request):
     """我的动态列表(GET /api/v1/posts/mine)。
@@ -183,6 +204,8 @@ def my_posts(request):
         lambda rows: PostSerializer(rows, many=True, context={"request": request}).data)
 
 
+@extend_schema(methods=["GET"], responses={200: PostSerializer})
+@extend_schema(methods=["DELETE"], responses={204: None})
 @api_view(["GET", "DELETE"])
 def post_detail(request, post_id):
     """动态详情与删除(GET/DELETE /api/v1/posts/{post_id})。
@@ -205,6 +228,9 @@ def post_detail(request, post_id):
     return Response(PostSerializer(post, context={"request": request}).data)
 
 
+@extend_schema(methods=["POST"], request=None,
+               responses={200: POST_LIKE_SCHEMA, 201: POST_LIKE_SCHEMA})
+@extend_schema(methods=["DELETE"], responses={204: None})
 @api_view(["POST", "DELETE"])
 @throttle_classes([PostLikeThrottle])
 def post_like(request, post_id):
@@ -227,6 +253,10 @@ def post_like(request, post_id):
     return Response(status=204)
 
 
+@extend_schema(methods=["GET"], parameters=offset_params(),
+               responses={200: offset_page("CommentPage", PostCommentSerializer)})
+@extend_schema(methods=["POST"], request=PostCommentCreateSerializer,
+               responses={201: PostCommentSerializer})
 @api_view(["GET", "POST"])
 @throttle_classes([PostCommentThrottle])
 def post_comments(request, post_id):
@@ -263,6 +293,8 @@ def post_comments(request, post_id):
     return _page_response(request, top, PostCommentSerializer)
 
 
+@extend_schema(parameters=offset_params(),
+               responses={200: offset_page("ReplyPage", PostCommentSerializer)})
 @api_view(["GET"])
 def post_comment_replies(request, post_id, comment_id):
     """某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
@@ -285,6 +317,7 @@ def post_comment_replies(request, post_id, comment_id):
     return _page_response(request, replies, PostCommentSerializer)
 
 
+@extend_schema(responses={204: None})
 @api_view(["DELETE"])
 def post_comment_detail(request, post_id, comment_id):
     """删除自己的评论(DELETE /api/v1/posts/{post_id}/comments/{comment_id})。
@@ -309,6 +342,8 @@ def post_comment_detail(request, post_id, comment_id):
     return Response(status=204)
 
 
+@extend_schema(request=PostReportCreateSerializer,
+               responses={200: POST_REPORT_SCHEMA, 201: POST_REPORT_SCHEMA})
 @api_view(["POST"])
 @throttle_classes([PostReportThrottle])
 def post_report(request, post_id):

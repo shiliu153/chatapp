@@ -17,6 +17,8 @@ import uuid
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import serializers
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
@@ -38,6 +40,10 @@ from .throttles import PhotoUploadThrottle, PresenceThrottle, PublicProfileThrot
 User = get_user_model()
 
 
+@extend_schema(methods=["GET"], responses={200: ProfileSerializer})
+@extend_schema(methods=["PATCH"], request=ProfileUpdateSerializer,
+               responses={200: ProfileSerializer})
+@extend_schema(methods=["DELETE"], request=DeleteAccountSerializer, responses={204: None})
 @api_view(["GET", "PATCH", "DELETE"])
 def me(request):
     """我的资料:读取、局部更新与账号注销(GET/PATCH/DELETE /api/v1/users/me)。
@@ -79,6 +85,7 @@ def me(request):
     return Response(ProfileSerializer(profile, context={"request": request}).data)
 
 
+@extend_schema(responses={200: TagSerializer(many=True)})
 @api_view(["GET"])
 def tag_list(request):
     """标签池全量列表(GET /api/v1/users/tags)。
@@ -92,6 +99,7 @@ def tag_list(request):
     return Response(TagSerializer(Tag.objects.all(), many=True).data)
 
 
+@extend_schema(responses={200: PublicProfileSerializer})
 @api_view(["GET"])
 @throttle_classes([PublicProfileThrottle])
 def public_profile(request, user_id):
@@ -119,6 +127,7 @@ def public_profile(request, user_id):
     return Response(PublicProfileSerializer(profile, context={"request": request}).data)
 
 
+@extend_schema(request=PhotoUploadSerializer, responses={201: PhotoSerializer})
 @api_view(["POST"])
 @throttle_classes([PhotoUploadThrottle])
 def upload_photo(request):
@@ -163,6 +172,7 @@ def upload_photo(request):
     return Response(PhotoSerializer(photo, context={"request": request}).data, status=201)
 
 
+@extend_schema(responses={204: None})
 @api_view(["DELETE"])
 def delete_photo(request, photo_id):
     """删除自己的照片(DELETE /api/v1/users/me/photos/{photo_id})。
@@ -186,6 +196,15 @@ def delete_photo(request, photo_id):
     return Response(status=204)
 
 
+@extend_schema(parameters=[OpenApiParameter(
+    "user_ids", str, OpenApiParameter.QUERY, required=True,
+    description="逗号分隔的账号 ID,一次最多 100 个")],
+    responses={200: inline_serializer("PresenceResult", fields={
+        "results": serializers.ListField(child=inline_serializer("PresenceItem", fields={
+            "user_id": serializers.IntegerField(),
+            "online": serializers.BooleanField(),
+            "last_active_at": serializers.DateTimeField(allow_null=True),
+        }))})})
 @api_view(["GET"])
 @throttle_classes([PresenceThrottle])
 def presence_status(request):
@@ -222,6 +241,9 @@ def presence_status(request):
     return Response({"results": [{"user_id": uid, **data[uid]} for uid in visible]})
 
 
+@extend_schema(methods=["GET"], responses={200: PreferenceSerializer})
+@extend_schema(methods=["PATCH"], request=PreferenceSerializer,
+               responses={200: PreferenceSerializer})
 @api_view(["GET", "PATCH"])
 def my_preference(request):
     """我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。

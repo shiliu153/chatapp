@@ -110,7 +110,7 @@ curl "http://<域名>/api/v1/posts?limit=20&before=<next_cursor>" \
 
 **响应参数**(HTTP 201)
 
-动态对象,结构见 5.1。
+同 [5.1 动态流](#51-动态流)(动态对象)。
 
 **请求示例**
 
@@ -173,8 +173,10 @@ curl -X POST http://<域名>/api/v1/posts \
 
 **响应参数**
 
-与 5.1 相同的游标分页对象(`count` / `next_cursor` / `has_more` / `results`);
+游标分页对象(`count` / `next_cursor` / `has_more` / `results`);
 带 `offset` 的老客户端仍得到 `{count, next, previous, results}`。
+
+同 [5.1 动态流](#51-动态流)(`results[]` 条目字段)。
 
 **请求示例**
 
@@ -234,7 +236,7 @@ curl "http://<域名>/api/v1/posts/mine?limit=20" \
 
 **响应参数**
 
-动态对象,结构见 5.1。
+同 [5.1 动态流](#51-动态流)(动态对象)。
 
 **请求示例**
 
@@ -631,7 +633,9 @@ curl -X POST http://<域名>/api/v1/posts/9/report \
 
 **响应参数**
 
-分页对象,`results[]` 为回复对象,字段见 5.8(其中 `replies` 恒为空数组、`reply_count` 恒为 0)。
+分页对象,`results[]` 为回复对象(其中 `replies` 恒为空数组、`reply_count` 恒为 0)。
+
+同 [5.8 评论列表](#58-评论列表)。
 
 **请求示例**
 

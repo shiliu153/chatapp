@@ -6,11 +6,13 @@ on:
     paths:
       - 'chatapp/**'
       - 'perf/**'
+      - 'docs/api/**'
       - '.github/workflows/backend.yml'
   pull_request:
     paths:
       - 'chatapp/**'
       - 'perf/**'
+      - 'docs/api/**'
       - '.github/workflows/backend.yml'
   workflow_dispatch:
 
@@ -174,6 +176,14 @@ jobs:
 
       - name: 跑测试
         run: python manage.py test --noinput --verbosity=2
+
+      # D-5:``docs/api/openapi.yml`` 是「机器可读契约」的生成物。这里重新生成一次再
+      # 用 git diff 比对:任何人改了视图/序列化器却没同步生成物,CI 立刻红。
+      # 注意生成物路径在仓库根(docs/),而本 job 的 working-directory 是 chatapp/。
+      - name: 校验 OpenAPI 生成物与代码一致
+        run: |
+          python manage.py spectacular --file ../docs/api/openapi.yml --validate
+          git -C .. diff --exit-code -- docs/api/openapi.yml
 
       # perf/ 在仓库根(不在 chatapp/ 下),所以 manage.py test 抓不到它的用例。
       # 这份自测是纯标准库 + 本地回显服务器,不依赖 MySQL/Redis,秒级跑完:

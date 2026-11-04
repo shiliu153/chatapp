@@ -23,7 +23,7 @@
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
 | [specs/2026-10-28-dual-server-load-balancing-design.md](specs/2026-10-28-dual-server-load-balancing-design.md) | **已决策(2026-11-04)** | 双机负载均衡方案 v2。用户拍板选「不做双机、暂不升配」,决策记录见 [ops/dual-server-vs-upgrade](../ops/dual-server-vs-upgrade-2026-11-04.md);本 spec 留作历史设计 |
 | [plans/2026-11-02-observability-and-capacity.md](plans/2026-11-02-observability-and-capacity.md) | 进行中 | 可观测性 + 容量工程 + 削峰整改。P0/P1 主体已上线,剩余项看文件内未勾选 checkbox |
-| [plans/2026-11-08-openapi-and-client-codegen.md](plans/2026-11-08-openapi-and-client-codegen.md) | **未启动(可行性已验)** | backlog D-5:OpenAPI 导出 + 字段级门禁 + 客户端类型。实测 47 个操作自动只出 1 个 schema 组件,须逐个加 `@extend_schema`;分三步 3–4 天,**用户 2026-11-08 定为稍后** |
+| [plans/2026-11-08-openapi-and-client-codegen.md](plans/2026-11-08-openapi-and-client-codegen.md) | **已实现,待合并** | backlog D-5:OpenAPI 导出 + 字段级门禁 + 客户端类型。三步全部落地(2026-11-04):47 个操作 `@extend_schema` + 字段级双向门禁 + `openapi.yml`;Web `schema.d.ts` 与 `contract.ts` 编译期断言;App 由 `scripts/check_app_models.py` 比对;`scripts/sync_version.py` 收敛版本号。合并上线后按约定归档 |
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。

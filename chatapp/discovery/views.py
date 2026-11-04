@@ -21,6 +21,8 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import serializers
 from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.generics import get_object_or_404
@@ -28,6 +30,7 @@ from rest_framework.response import Response
 
 from config.cursor import paginated_response
 from config.params import int_param
+from config.schema_helpers import cursor_page, cursor_params
 from im import tasks as im_tasks
 from moderation.services import blocked_user_ids, exclude_blocked
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bounds
@@ -47,7 +50,20 @@ User = get_user_model()
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 20
 
+# 配对列表条目:由 ``_match_entry`` 直接拼字典,没有对应序列化器,这里给 schema 用
+MATCH_ENTRY_SCHEMA = inline_serializer("MatchEntry", fields={
+    "user_id": serializers.IntegerField(),
+    "im_user_id": serializers.CharField(),
+    "nickname": serializers.CharField(),
+    "avatar_url": serializers.CharField(allow_null=True),
+    "matched_at": serializers.DateTimeField(),
+})
 
+
+@extend_schema(parameters=[OpenApiParameter(
+    "limit", int, OpenApiParameter.QUERY, required=False,
+    description="拉取条数,默认 10,上限 20")],
+    responses={200: CandidateSerializer(many=True)})
 @api_view(["GET"])
 @throttle_classes([CandidateThrottle])
 def candidates(request):
@@ -84,6 +100,8 @@ def candidates(request):
                                         context={"request": request}).data)
 
 
+@extend_schema(request=SwipeSerializer, responses={200: inline_serializer(
+    "SwipeResult", fields={"matched": serializers.BooleanField()})})
 @api_view(["POST"])
 @throttle_classes([SwipeThrottle])
 def swipe(request):
@@ -143,6 +161,8 @@ def swipe(request):
     return Response({"matched": matched})
 
 
+@extend_schema(parameters=cursor_params(),
+               responses={200: cursor_page("MatchPage", MATCH_ENTRY_SCHEMA)})
 @api_view(["GET"])
 def match_list(request):
     """我的配对列表(GET /api/v1/matches)。
@@ -170,6 +190,7 @@ def match_list(request):
                                             for match in rows])
 
 
+@extend_schema(responses={204: None})
 @api_view(["DELETE"])
 def unmatch(request, user_id):
     """解除配对(DELETE /api/v1/matches/{user_id})。
@@ -229,6 +250,8 @@ def _match_entry(match, me, request):
     }
 
 
+@extend_schema(parameters=cursor_params(),
+               responses={200: cursor_page("LikePage", LikeReceivedSerializer)})
 @api_view(["GET"])
 def likes_received(request):
     """喜欢我的人列表(GET /api/v1/discovery/likes)。
@@ -245,6 +268,8 @@ def likes_received(request):
                                             context={"request": request}).data)
 
 
+@extend_schema(responses={200: inline_serializer(
+    "LikesCount", fields={"count": serializers.IntegerField()})})
 @api_view(["GET"])
 def likes_received_count(request):
     """喜欢我的人数(GET /api/v1/discovery/likes/count)。
@@ -257,6 +282,8 @@ def likes_received_count(request):
     """
     return Response({"count": likes_received_queryset(request.user).count()})
 
+@extend_schema(parameters=cursor_params(),
+               responses={200: cursor_page("VisitPage", VisitSerializer)})
 @api_view(["GET"])
 @throttle_classes([VisitsThrottle])
 def visits(request):
@@ -274,6 +301,8 @@ def visits(request):
         field="last_at")
 
 
+@extend_schema(responses={200: inline_serializer(
+    "VisitsCount", fields={"count": serializers.IntegerField()})})
 @api_view(["GET"])
 @throttle_classes([VisitsCountThrottle])
 def visits_count(request):

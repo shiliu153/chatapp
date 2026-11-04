@@ -46,7 +46,7 @@ class BlockSerializer(serializers.ModelSerializer):
         model = Block
         fields = ["user_id", "nickname", "avatar_url", "blocked_at"]
 
-    def get_nickname(self, block):
+    def get_nickname(self, block) -> str:
         """取被拉黑方的昵称。
 
         Args:
@@ -58,7 +58,7 @@ class BlockSerializer(serializers.ModelSerializer):
         profile = getattr(block.blocked, "profile", None)
         return profile.nickname if profile else ""
 
-    def get_avatar_url(self, block):
+    def get_avatar_url(self, block) -> str | None:
         """取被拉黑方第一张已过审照片的绝对 URL。
 
         Args:

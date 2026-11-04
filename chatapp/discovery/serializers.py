@@ -5,6 +5,7 @@
     待审核与已驳回的照片绝不能出现在候选卡上。
 """
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from users.models import PhotoStatus, Profile, ProfileVisit
@@ -25,6 +26,7 @@ class CandidateSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ["user_id", "nickname", "gender", "age", "city", "bio", "tags", "photos"]
 
+    @extend_schema_field(PhotoSerializer(many=True))
     def get_photos(self, profile):
         """只返回已过审的照片。
 
@@ -64,6 +66,7 @@ class LikeReceivedSerializer(serializers.ModelSerializer):
         fields = ["user_id", "im_user_id", "nickname", "gender", "age", "city", "bio",
                   "tags", "photos", "liked_at"]
 
+    @extend_schema_field(PhotoSerializer(many=True))
     def get_photos(self, swipe):
         """只返回已过审照片。
 
@@ -95,6 +98,7 @@ class VisitSerializer(serializers.ModelSerializer):
         fields = ["user_id", "im_user_id", "nickname", "gender", "age", "city", "bio",
                   "tags", "photos", "visited_at"]
 
+    @extend_schema_field(PhotoSerializer(many=True))
     def get_photos(self, visit):
         """只返回已过审照片。
 

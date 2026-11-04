@@ -1,0 +1,2827 @@
+openapi: 3.0.3
+info:
+  title: chat_app API
+  version: 1.0.4
+  description: |-
+    交友 App 后端接口(/api/v1)。
+
+    本文件由 `python manage.py spectacular` 从代码生成,请勿手改;人读文档见仓库 docs/api/。
+paths:
+  /api/v1/app/config:
+    get:
+      operationId: app_config_retrieve
+      description: |-
+        返回客户端启动所需的最低版本配置。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{min_app_version, latest_version, download_url}``。
+      tags:
+      - app
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppConfig'
+          description: ''
+  /api/v1/auth/logout:
+    post:
+      operationId: auth_logout_create
+      description: |-
+        注销:拉黑 refresh token 并清除 Cookie(POST /api/v1/auth/logout)。
+
+        幂等 —— 令牌缺失、已过期或已拉黑都返回 204,前端只关心「本地会话已结束」。
+        按 IP 限流,避免匿名调用把黑名单表刷大(L-5)。
+
+        Args:
+            request: DRF 请求对象;``refresh`` 可放在请求体或 Cookie。
+
+        Returns:
+            204 空响应,附带清除 Cookie 的 ``Set-Cookie``。
+
+        Raises:
+            PermissionDenied: ``Origin`` 与本站不同源(仅 Cookie 场景需要,见 ``same_origin``)。
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutBodyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LogoutBodyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LogoutBodyRequest'
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/auth/sms/send:
+    post:
+      operationId: auth_sms_send_create
+      description: |-
+        发送短信验证码(POST /api/v1/auth/sms/send)。
+
+        先占用限流键并落库验证码,再入队发送任务;入队失败会回滚限流占位与验证码,
+        让用户可以立刻重试。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``phone``。
+
+        Returns:
+            ``{"status": "ok"}``。
+
+        Raises:
+            PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
+            SmsSendTooFrequent: 距上次发送不足重发间隔。
+            SmsServiceUnavailable: 短信任务入队失败(fail-closed)。
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PhoneRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PhoneRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmsSendStatus'
+          description: ''
+  /api/v1/auth/sms/verify:
+    post:
+      operationId: auth_sms_verify_create
+      description: |-
+        校验验证码并登录(POST /api/v1/auth/sms/verify)。
+
+        号码未注册过则自动建号;登录成功即递增 ``session_version`` 使旧设备令牌失效,
+        并在事务提交后入队 IM 建号或标记待踢旧会话。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``phone`` 与 ``code``。
+
+        Returns:
+            ``{access, is_new_user, user_id}``;带 ``X-Client: web`` 的请求不返回
+            ``refresh``,改为下发 HttpOnly Cookie(App 分支保持原样)。
+
+        Raises:
+            PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
+            SmsCodeExpired: 验证码已过期或不存在。
+            SmsCodeWrong: 验证码错误。
+            SmsLocked: 连续错误次数超限。
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SmsVerifyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SmsVerifyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SmsVerifyRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmsVerifyResult'
+          description: ''
+  /api/v1/auth/token/refresh:
+    post:
+      operationId: auth_token_refresh_create
+      description: |-
+        校验会话版本后换发新令牌。
+
+        Args:
+            request: DRF 请求对象;``refresh`` 可放在请求体(App)或 Cookie(Web)。
+            *args: 透传给父类的位置参数。
+            **kwargs: 透传给父类的关键字参数。
+
+        Returns:
+            Web:``{access}`` + 轮换后的 Cookie;App:``{access, refresh}``。
+
+        Raises:
+            AuthenticationFailed: 没有令牌、令牌无效或超出宽限期的重复使用。
+            SingleDeviceSessionConflict: 该 refresh token 来自已被顶下线的设备。
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshBodyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshBodyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshBodyRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshResult'
+          description: ''
+  /api/v1/blocks:
+    get:
+      operationId: blocks_retrieve
+      description: |-
+        黑名单:读取列表与新增拉黑(GET/POST /api/v1/blocks)。
+
+        POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单。
+
+        Args:
+            request: DRF 请求对象;POST 时 body 需带 ``target_user_id``。
+
+        Returns:
+            GET 返回分页后的黑名单条目;POST 返回拉黑对象(新建为 201,已存在为 200)。
+
+        Raises:
+            ValidationError: 拉黑自己。
+            NotFound: 目标用户不存在。
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      - in: query
+        name: offset
+        schema:
+          type: integer
+        description: 偏移量,默认 0
+      tags:
+      - blocks
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockPage'
+          description: ''
+    post:
+      operationId: blocks_create
+      description: |-
+        黑名单:读取列表与新增拉黑(GET/POST /api/v1/blocks)。
+
+        POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单。
+
+        Args:
+            request: DRF 请求对象;POST 时 body 需带 ``target_user_id``。
+
+        Returns:
+            GET 返回分页后的黑名单条目;POST 返回拉黑对象(新建为 201,已存在为 200)。
+
+        Raises:
+            ValidationError: 拉黑自己。
+            NotFound: 目标用户不存在。
+      tags:
+      - blocks
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BlockCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BlockCreateRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Block'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Block'
+          description: ''
+  /api/v1/blocks/{user_id}:
+    delete:
+      operationId: blocks_destroy
+      description: |-
+        解除拉黑(DELETE /api/v1/blocks/{user_id})。
+
+        幂等:没有该条拉黑记录时直接返回 204,不报错。
+
+        Args:
+            request: DRF 请求对象。
+            user_id: 被解除拉黑的账号 id。
+
+        Returns:
+            204 空响应。
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - blocks
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/client-errors:
+    post:
+      operationId: client_errors_create
+      description: |-
+        接收一条前端未捕获异常(POST /api/v1/client-errors)。
+
+        允许匿名:登录页白屏、启动即崩这类最有价值的错误发生时,客户端还没有令牌。
+
+        Args:
+            request: DRF 请求对象,body 见 ``ClientErrorSerializer``。
+
+        Returns:
+            204 空响应(上报是 fire-and-forget,不回业务数据)。
+      tags:
+      - client-errors
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientErrorRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientErrorRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientErrorRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/discovery/candidates:
+    get:
+      operationId: discovery_candidates_list
+      description: |-
+        候选卡片列表(GET /api/v1/discovery/candidates)。
+
+        按「想找的人」偏好过滤(性别、城市、年龄区间),再套用候选池的排除规则。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` 查询参数(默认 10,上限 20)。
+
+        Returns:
+            候选卡片数组,字段见 ``CandidateSerializer``。
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 拉取条数,默认 10,上限 20
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Candidate'
+          description: ''
+  /api/v1/discovery/likes:
+    get:
+      operationId: discovery_likes_retrieve
+      description: |-
+        喜欢我的人列表(GET /api/v1/discovery/likes)。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的「喜欢我的人」列表,字段见 ``LikeReceivedSerializer``。
+      parameters:
+      - in: query
+        name: before
+        schema:
+          type: string
+        description: 游标,首页不传;之后原样回传上一页的 next_cursor
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikePage'
+          description: ''
+  /api/v1/discovery/likes/count:
+    get:
+      operationId: discovery_likes_count_retrieve
+      description: |-
+        喜欢我的人数(GET /api/v1/discovery/likes/count)。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{"count": N}``,与列表同口径,供入口角标使用。
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LikesCount'
+          description: ''
+  /api/v1/discovery/swipe:
+    post:
+      operationId: discovery_swipe_create
+      description: |-
+        提交一次滑卡(POST /api/v1/discovery/swipe)。
+
+        幂等:同一对用户重复提交保留第一次的动作;若本次形成互喜则创建配对,
+        并在事务提交后给双方发 IM 灰条。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``target_user_id`` 与 ``action``。
+
+        Returns:
+            ``{"matched": bool}``,表示本次是否配对成功。
+
+        Raises:
+            PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
+            ValidationError: 划自己,或对方资料不完整。
+      tags:
+      - discovery
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwipeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SwipeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SwipeRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwipeResult'
+          description: ''
+  /api/v1/discovery/visits:
+    get:
+      operationId: discovery_visits_retrieve
+      description: |-
+        谁看过我(GET /api/v1/discovery/visits)。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的访客列表,字段见 ``VisitSerializer``。
+      parameters:
+      - in: query
+        name: before
+        schema:
+          type: string
+        description: 游标,首页不传;之后原样回传上一页的 next_cursor
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisitPage'
+          description: ''
+  /api/v1/discovery/visits/count:
+    get:
+      operationId: discovery_visits_count_retrieve
+      description: |-
+        访客人数(GET /api/v1/discovery/visits/count)。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{"count": N}``,与列表同口径,供入口角标使用。
+      tags:
+      - discovery
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisitsCount'
+          description: ''
+  /api/v1/feedback:
+    post:
+      operationId: feedback_create
+      description: |-
+        提交意见反馈(POST /api/v1/feedback)。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``type`` / ``content`` / 可选 ``contact``。
+
+        Returns:
+            201 + 反馈回执(``id`` / ``type`` / ``content`` / ``contact`` / ``created_at``)。
+      tags:
+      - feedback
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FeedbackCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FeedbackCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FeedbackCreateRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feedback'
+          description: ''
+  /api/v1/health:
+    get:
+      operationId: health_retrieve
+      description: |-
+        存活探针。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            固定 ``{"status": "ok"}``,不触碰数据库与 Redis。
+      tags:
+      - health
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+          description: ''
+  /api/v1/im/images:
+    post:
+      operationId: im_images_create
+      description: |-
+        上传一张聊天图片(POST /api/v1/im/images)。
+
+        同步落盘 + 生成缩略图,不进 Celery:这条路径没有第三方调用,
+        符合「响应路径禁止外部调用」纪律。文件名带随机 uuid,不可枚举。
+
+        Args:
+            request: DRF 请求对象,multipart 字段为 ``file``。
+
+        Returns:
+            201 + ``{id, url, thumb_url, width, height, size}``;URL 用
+            ``settings.MEDIA_BASE_URL`` 拼绝对地址(与 IM 头像同步同一套)。
+
+        Raises:
+            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+      tags:
+      - im
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatImageUploadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChatImageUploadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChatImageUploadRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatImageUploaded'
+          description: ''
+  /api/v1/im/images/auth:
+    get:
+      operationId: im_images_auth_retrieve
+      description: |-
+        nginx ``auth_request`` 子请求:校验聊天图片签名(GET /api/v1/im/images/auth)。
+
+        这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而图片本身
+        已经是「谁拿到链接谁能看」的语义,靠签名与有效期兜底。
+
+        Args:
+            request: DRF 请求对象,nginx 通过 ``X-Original-URI`` 传入原始 URI
+                (含 ``?e=&s=``)。
+
+        Returns:
+            通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403。
+      parameters:
+      - in: header
+        name: X-Original-URI
+        schema:
+          type: string
+        description: 原始 URI(含签名与过期时间),由 nginx 的 auth_request 注入
+        required: true
+      tags:
+      - im
+      security:
+      - {}
+      responses:
+        '204':
+          description: No response body
+        '403':
+          description: No response body
+  /api/v1/im/user_sig:
+    post:
+      operationId: im_user_sig_create
+      description: |-
+        签发当前用户的 IM 登录凭证(POST /api/v1/im/user_sig)。
+
+        重封禁用户由全局权限类 ``IsNotHeavyBanned`` 直接拦成 403,本函数不再重复检查。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{backend, token, im_user_id, ws_url, http_url, expire}``;
+            ``backend`` 恒为 ``self``(腾讯分支已于 2026-11-08 删除)。
+      tags:
+      - im
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImUserSig'
+          description: ''
+  /api/v1/im/voices:
+    post:
+      operationId: im_voices_create
+      description: |-
+        上传一段聊天语音(POST /api/v1/im/voices)。
+
+        同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
+        没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
+
+        Args:
+            request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
+
+        Returns:
+            201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
+            400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
+
+        Raises:
+            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+      tags:
+      - im
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatVoiceUploadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChatVoiceUploadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChatVoiceUploadRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatVoiceUploaded'
+          description: ''
+  /api/v1/matches:
+    get:
+      operationId: matches_retrieve
+      description: |-
+        我的配对列表(GET /api/v1/matches)。
+
+        与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的)从列表中剔除;按配对时间倒序分页。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的配对条目数组。
+      parameters:
+      - in: query
+        name: before
+        schema:
+          type: string
+        description: 游标,首页不传;之后原样回传上一页的 next_cursor
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      tags:
+      - matches
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchPage'
+          description: ''
+  /api/v1/matches/{user_id}:
+    delete:
+      operationId: matches_destroy
+      description: |-
+        解除配对(DELETE /api/v1/matches/{user_id})。
+
+        幂等:没有配对 / 已解除 / 解除自己都返回 204,与 ``DELETE /blocks/{user_id}``
+        保持一致。解除是软删除(``unmatched_at`` 落时间戳),并双向拉黑 IM,
+        之后双方既收不到、也发不出消息。
+
+        Args:
+            request: DRF 请求对象。
+            user_id: 对方的账号 id。
+
+        Returns:
+            204 空响应。
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - matches
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/posts:
+    get:
+      operationId: posts_list
+      description: |-
+        广场动态:列表与发布(GET/POST /api/v1/posts)。
+
+        GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
+        限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
+
+        Args:
+            request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
+
+        Returns:
+            GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+      parameters:
+      - in: query
+        name: before
+        schema:
+          type: string
+        description: 游标,首页不传;之后原样回传上一页的 next_cursor
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostPage'
+          description: ''
+    post:
+      operationId: posts_create
+      description: |-
+        广场动态:列表与发布(GET/POST /api/v1/posts)。
+
+        GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
+        限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
+
+        Args:
+            request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
+
+        Returns:
+            GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+      tags:
+      - posts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostCreateBodyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PostCreateBodyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PostCreateBodyRequest'
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+  /api/v1/posts/{post_id}:
+    get:
+      operationId: posts_retrieve
+      description: |-
+        动态详情与删除(GET/DELETE /api/v1/posts/{post_id})。
+
+        DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
+        删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+
+        Returns:
+            GET 返回动态详情;DELETE 返回 204 空响应。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+          description: ''
+    delete:
+      operationId: posts_destroy
+      description: |-
+        动态详情与删除(GET/DELETE /api/v1/posts/{post_id})。
+
+        DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
+        删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+
+        Returns:
+            GET 返回动态详情;DELETE 返回 204 空响应。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/posts/{post_id}/comments:
+    get:
+      operationId: posts_comments_retrieve
+      description: |-
+        评论列表与发表评论(GET/POST /api/v1/posts/{post_id}/comments)。
+
+        GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
+        层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
+
+        Args:
+            request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
+            post_id: 动态主键。
+
+        Returns:
+            GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      - in: query
+        name: offset
+        schema:
+          type: integer
+        description: 偏移量,默认 0
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentPage'
+          description: ''
+    post:
+      operationId: posts_comments_create
+      description: |-
+        评论列表与发表评论(GET/POST /api/v1/posts/{post_id}/comments)。
+
+        GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
+        层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
+
+        Args:
+            request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
+            post_id: 动态主键。
+
+        Returns:
+            GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostCommentCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PostCommentCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PostCommentCreateRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostComment'
+          description: ''
+  /api/v1/posts/{post_id}/comments/{comment_id}:
+    delete:
+      operationId: posts_comments_destroy
+      description: |-
+        删除自己的评论(DELETE /api/v1/posts/{post_id}/comments/{comment_id})。
+
+        删顶级评论会连带删除该楼全部回复;非作者一律 404(不暴露存在性)。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+            comment_id: 评论主键。
+
+        Returns:
+            204 空响应。
+
+        Raises:
+            Http404: 动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的。
+      parameters:
+      - in: path
+        name: comment_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/posts/{post_id}/comments/{comment_id}/replies:
+    get:
+      operationId: posts_comments_replies_retrieve
+      description: |-
+        某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``offset``。
+            post_id: 动态主键。
+            comment_id: 顶级评论主键。
+
+        Returns:
+            分页后的回复列表,按时间正序。
+
+        Raises:
+            Http404: 动态不可见、评论不存在/不属于该动态/本身是回复。
+      parameters:
+      - in: path
+        name: comment_id
+        schema:
+          type: integer
+        required: true
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      - in: query
+        name: offset
+        schema:
+          type: integer
+        description: 偏移量,默认 0
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReplyPage'
+          description: ''
+  /api/v1/posts/{post_id}/like:
+    post:
+      operationId: posts_like_create
+      description: |-
+        点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
+
+        点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+
+        Returns:
+            POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostLikeResult'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostLikeResult'
+          description: ''
+    delete:
+      operationId: posts_like_destroy
+      description: |-
+        点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
+
+        点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+
+        Args:
+            request: DRF 请求对象。
+            post_id: 动态主键。
+
+        Returns:
+            POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/posts/{post_id}/report:
+    post:
+      operationId: posts_report_create
+      description: |-
+        举报动态(POST /api/v1/posts/{post_id}/report)。
+
+        幂等:同一动态已有待处理举报时返回已有记录(200),本次新建返回 201。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``type`` 与可选 ``detail``。
+            post_id: 动态主键。
+
+        Returns:
+            ``{id, status}``。
+
+        Raises:
+            ValidationError: 举报自己的动态。
+      parameters:
+      - in: path
+        name: post_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - posts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostReportCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PostReportCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PostReportCreateRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostReportResult'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostReportResult'
+          description: ''
+  /api/v1/posts/mine:
+    get:
+      operationId: posts_mine_retrieve
+      description: |-
+        我的动态列表(GET /api/v1/posts/mine)。
+
+        与广场列表不同:这里只按作者过滤,不套用 ``visible_posts`` 的可见性规则 ——
+        自己发过的动态自己始终能看到。
+
+        Args:
+            request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的动态列表,按发布时间倒序。
+      parameters:
+      - in: query
+        name: before
+        schema:
+          type: string
+        description: 游标,首页不传;之后原样回传上一页的 next_cursor
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      tags:
+      - posts
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyPostPage'
+          description: ''
+  /api/v1/presence:
+    get:
+      operationId: presence_retrieve
+      description: |-
+        批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略。
+
+        Args:
+            request: DRF 请求对象,``user_ids`` 为逗号分隔的账号 id,单次上限 100。
+
+        Returns:
+            ``{"results": [{"user_id", "online", "last_active_at"}]}``。
+      parameters:
+      - in: query
+        name: user_ids
+        schema:
+          type: string
+        description: 逗号分隔的账号 ID,一次最多 100 个
+        required: true
+      tags:
+      - presence
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresenceResult'
+          description: ''
+  /api/v1/readyz:
+    get:
+      operationId: readyz_retrieve
+      description: |-
+        就绪探针:逐项检查数据库与 Redis。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            全部依赖可用时返回 200 + ``{"status": "ok", "checks": {...}}``;
+            任一依赖不可用时返回 503 + ``status="unavailable"``,便于负载均衡摘除实例。
+      tags:
+      - readyz
+      security:
+      - bearerAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyStatus'
+          description: ''
+  /api/v1/reports:
+    post:
+      operationId: reports_create
+      description: |-
+        提交举报(POST /api/v1/reports)。
+
+        幂等:同一被举报人若已有待处理举报,返回已有记录且状态码为 200;
+        本次新建时返回 201。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``target_user_id`` / ``type`` / 可选 ``detail``。
+
+        Returns:
+            ``{id, type, status}``。
+
+        Raises:
+            ValidationError: 举报自己。
+            NotFound: 被举报人不存在。
+      tags:
+      - reports
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReportCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReportCreateRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+  /api/v1/users/{user_id}:
+    get:
+      operationId: users_retrieve
+      description: |-
+        他人资料卡(GET /api/v1/users/{user_id})。
+
+        Args:
+            request: DRF 请求对象。
+            user_id: 目标账号 id。
+
+        Returns:
+            公开资料(不含手机号、生日、偏好与缺失项)。
+
+        Raises:
+            NotFound: 对方与当前用户互相拉黑、资料不存在,或对方处于重封禁状态 ——
+                三种情况统一按「用户不存在」处理,不泄漏账号是否存在。
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProfile'
+          description: ''
+  /api/v1/users/me:
+    get:
+      operationId: users_me_retrieve
+      description: |-
+        我的资料:读取、局部更新与账号注销(GET/PATCH/DELETE /api/v1/users/me)。
+
+        DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
+        PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
+
+        Args:
+            request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
+
+        Returns:
+            GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+          description: ''
+    patch:
+      operationId: users_me_partial_update
+      description: |-
+        我的资料:读取、局部更新与账号注销(GET/PATCH/DELETE /api/v1/users/me)。
+
+        DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
+        PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
+
+        Args:
+            request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
+
+        Returns:
+            GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProfileUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProfileUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProfileUpdateRequest'
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+          description: ''
+    delete:
+      operationId: users_me_destroy
+      description: |-
+        我的资料:读取、局部更新与账号注销(GET/PATCH/DELETE /api/v1/users/me)。
+
+        DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
+        PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
+
+        Args:
+            request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
+
+        Returns:
+            GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/users/me/photos:
+    post:
+      operationId: users_me_photos_create
+      description: |-
+        上传照片(POST /api/v1/users/me/photos)。
+
+        上传后按 ``settings.AUTO_APPROVE`` 决定是否直接过审(开发期上传即过审);
+        过审时会顺带把头像同步到 IM。
+
+        Args:
+            request: DRF 请求对象,multipart 字段为 ``file``。
+
+        Returns:
+            201 + 照片对象;超出张数上限时返回 400。
+
+        Raises:
+            serializers.ValidationError: 图片缺失或超过大小上限。
+            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhotoUploadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PhotoUploadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PhotoUploadRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Photo'
+          description: ''
+  /api/v1/users/me/photos/{photo_id}:
+    delete:
+      operationId: users_me_photos_destroy
+      description: |-
+        删除自己的照片(DELETE /api/v1/users/me/photos/{photo_id})。
+
+        只允许删除本人照片(查询集限定在 ``request.user.photos`` 上);
+        删除后重算资料完善状态,照片不足会掉回「未完善」并失去候选资格。
+
+        Args:
+            request: DRF 请求对象。
+            photo_id: 照片主键。
+
+        Returns:
+            204 空响应。
+      parameters:
+      - in: path
+        name: photo_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/users/me/preference:
+    get:
+      operationId: users_me_preference_retrieve
+      description: |-
+        我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。
+
+        Args:
+            request: DRF 请求对象;``PATCH`` 支持部分字段。
+
+        Returns:
+            更新后的完整偏好对象。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preference'
+          description: ''
+    patch:
+      operationId: users_me_preference_partial_update
+      description: |-
+        我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。
+
+        Args:
+            request: DRF 请求对象;``PATCH`` 支持部分字段。
+
+        Returns:
+            更新后的完整偏好对象。
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferenceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferenceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPreferenceRequest'
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preference'
+          description: ''
+  /api/v1/users/tags:
+    get:
+      operationId: users_tags_list
+      description: |-
+        标签池全量列表(GET /api/v1/users/tags)。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            全部标签(12 个,由数据迁移写入);重封禁用户由全局权限类放行本接口。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tag'
+          description: ''
+components:
+  schemas:
+    ActionEnum:
+      enum:
+      - like
+      - pass
+      type: string
+      description: |-
+        * `like` - 喜欢
+        * `pass` - 跳过
+    AppConfig:
+      type: object
+      properties:
+        min_app_version:
+          type: string
+        latest_version:
+          type: string
+        download_url:
+          type: string
+      required:
+      - download_url
+      - latest_version
+      - min_app_version
+    AuthorBrief:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        nickname:
+          type: string
+        avatar_url:
+          type: string
+          nullable: true
+      required:
+      - avatar_url
+      - nickname
+      - user_id
+    BlankEnum:
+      enum:
+      - ''
+    Block:
+      type: object
+      description: 黑名单条目的对外表示,已内联对方的昵称与头像。
+      properties:
+        user_id:
+          type: integer
+          readOnly: true
+        nickname:
+          type: string
+          description: |-
+            取被拉黑方的昵称。
+
+            Args:
+                block: 拉黑记录。
+
+            Returns:
+                昵称;对方没有资料行时返回空串。
+          readOnly: true
+        avatar_url:
+          type: string
+          nullable: true
+          description: |-
+            取被拉黑方第一张已过审照片的绝对 URL。
+
+            Args:
+                block: 拉黑记录。
+
+            Returns:
+                头像绝对 URL;没有已过审照片时返回 ``None``。
+          readOnly: true
+        blocked_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - avatar_url
+      - blocked_at
+      - nickname
+      - user_id
+    BlockCreateRequest:
+      type: object
+      description: 拉黑入参。
+      properties:
+        target_user_id:
+          type: integer
+      required:
+      - target_user_id
+    BlockPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          nullable: true
+        previous:
+          type: string
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Block'
+      required:
+      - count
+      - next
+      - previous
+      - results
+    Candidate:
+      type: object
+      description: 候选卡片的对外表示。
+      properties:
+        user_id:
+          type: integer
+          readOnly: true
+        nickname:
+          type: string
+          title: 昵称
+          maxLength: 20
+        gender:
+          title: 性别
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        age:
+          type: integer
+          readOnly: true
+        city:
+          type: string
+          title: 城市
+          maxLength: 50
+        bio:
+          type: string
+          title: 简介
+          maxLength: 200
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+          readOnly: true
+        photos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Photo'
+          readOnly: true
+      required:
+      - age
+      - photos
+      - tags
+      - user_id
+    ChatImageUploadRequest:
+      type: object
+      description: 聊天图片上传入参(multipart 字段 ``file``)。
+      properties:
+        file:
+          type: string
+          format: binary
+      required:
+      - file
+    ChatImageUploaded:
+      type: object
+      properties:
+        id:
+          type: integer
+        url:
+          type: string
+        thumb_url:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        size:
+          type: integer
+      required:
+      - height
+      - id
+      - size
+      - thumb_url
+      - url
+      - width
+    ChatVoiceUploadRequest:
+      type: object
+      description: 聊天语音上传入参(multipart 字段 ``file`` + ``duration_ms``)。
+      properties:
+        file:
+          type: string
+          format: binary
+        duration_ms:
+          type: integer
+          maximum: 60000
+          minimum: 1000
+      required:
+      - duration_ms
+      - file
+    ChatVoiceUploaded:
+      type: object
+      properties:
+        id:
+          type: integer
+        url:
+          type: string
+        duration_ms:
+          type: integer
+        size:
+          type: integer
+      required:
+      - duration_ms
+      - id
+      - size
+      - url
+    ClientErrorRequest:
+      type: object
+      description: |-
+        一条客户端错误上报。
+
+        Attributes:
+            platform: 端标识,``web`` 或 ``app``。
+            message: 错误摘要(必填)。
+            stack: 堆栈文本,按 4KB 截断足够定位问题。
+            route: 出错的页面/路由,便于按页面聚合。
+            app_version: 客户端版本号。
+            request_id: 客户端最后收到的 ``X-Request-Id``,用来和服务端日志对账。
+      properties:
+        platform:
+          $ref: '#/components/schemas/PlatformEnum'
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+        stack:
+          type: string
+          default: ''
+          maxLength: 8000
+        route:
+          type: string
+          default: ''
+          maxLength: 200
+        app_version:
+          type: string
+          default: ''
+          maxLength: 32
+        request_id:
+          type: string
+          default: ''
+          maxLength: 64
+      required:
+      - message
+      - platform
+    CommentPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          nullable: true
+        previous:
+          type: string
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PostComment'
+      required:
+      - count
+      - next
+      - previous
+      - results
+    Feedback:
+      type: object
+      description: 反馈的对外回执(不回显处理状态与处理人)。
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type:
+          allOf:
+          - $ref: '#/components/schemas/FeedbackTypeEnum'
+          title: 类型
+        content:
+          type: string
+          title: 反馈内容
+          maxLength: 500
+        contact:
+          type: string
+          title: 联系方式
+          maxLength: 64
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - content
+      - created_at
+      - id
+      - type
+    FeedbackCreateRequest:
+      type: object
+      description: 反馈入参。
+      properties:
+        type:
+          $ref: '#/components/schemas/FeedbackTypeEnum'
+        content:
+          type: string
+          minLength: 10
+          maxLength: 500
+        contact:
+          type: string
+          default: ''
+          maxLength: 64
+      required:
+      - content
+      - type
+    FeedbackTypeEnum:
+      enum:
+      - feature
+      - bug
+      - account
+      - other
+      type: string
+      description: |-
+        * `feature` - 功能建议
+        * `bug` - 问题反馈
+        * `account` - 账号问题
+        * `other` - 其他
+    GenderEnum:
+      enum:
+      - male
+      - female
+      type: string
+      description: |-
+        * `male` - 男
+        * `female` - 女
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
+    ImUserSig:
+      type: object
+      properties:
+        backend:
+          type: string
+        token:
+          type: string
+        im_user_id:
+          type: string
+        ws_url:
+          type: string
+        http_url:
+          type: string
+        expire:
+          type: integer
+      required:
+      - backend
+      - expire
+      - http_url
+      - im_user_id
+      - token
+      - ws_url
+    LikePage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/LikeReceived'
+      required:
+      - count
+      - has_more
+      - next_cursor
+      - results
+    LikeReceived:
+      type: object
+      description: 「喜欢我的人」列表项:对方公开资料 + 喜欢时间。
+      properties:
+        user_id:
+          type: integer
+          readOnly: true
+        im_user_id:
+          type: string
+          readOnly: true
+        nickname:
+          type: string
+          readOnly: true
+        gender:
+          type: string
+          readOnly: true
+        age:
+          type: integer
+          readOnly: true
+          nullable: true
+        city:
+          type: string
+          readOnly: true
+        bio:
+          type: string
+          readOnly: true
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+          readOnly: true
+        photos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Photo'
+          readOnly: true
+        liked_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - age
+      - bio
+      - city
+      - gender
+      - im_user_id
+      - liked_at
+      - nickname
+      - photos
+      - tags
+      - user_id
+    LikesCount:
+      type: object
+      properties:
+        count:
+          type: integer
+      required:
+      - count
+    LogoutBodyRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+    MatchEntry:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        im_user_id:
+          type: string
+        nickname:
+          type: string
+        avatar_url:
+          type: string
+          nullable: true
+        matched_at:
+          type: string
+          format: date-time
+      required:
+      - avatar_url
+      - im_user_id
+      - matched_at
+      - nickname
+      - user_id
+    MatchPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MatchEntry'
+      required:
+      - count
+      - has_more
+      - next_cursor
+      - results
+    MyPostPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Post'
+      required:
+      - count
+      - has_more
+      - next_cursor
+      - results
+    NullEnum:
+      enum:
+      - null
+    PatchedPreferenceRequest:
+      type: object
+      description: 择偶偏好的读写表示。
+      properties:
+        target_gender:
+          nullable: true
+          title: 想找的性别
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        age_min:
+          type: integer
+          maximum: 65535
+          minimum: 0
+          title: 最小年龄
+        age_max:
+          type: integer
+          maximum: 65535
+          minimum: 0
+          title: 最大年龄
+        city:
+          type: string
+          title: 城市
+          maxLength: 50
+    PatchedProfileUpdateRequest:
+      type: object
+      description: 编辑资料的入参;所有字段可选,只校验提交上来的那些。
+      properties:
+        nickname:
+          type: string
+          minLength: 1
+          maxLength: 20
+        gender:
+          $ref: '#/components/schemas/GenderEnum'
+        birthday:
+          type: string
+          format: date
+        city:
+          type: string
+          minLength: 1
+          maxLength: 50
+        bio:
+          type: string
+          minLength: 1
+          maxLength: 200
+        tag_ids:
+          type: array
+          items:
+            type: integer
+        visits_hidden:
+          type: boolean
+    PhoneRequest:
+      type: object
+      description: 只接收一个手机号的入参。
+      properties:
+        phone:
+          type: string
+          minLength: 1
+          maxLength: 20
+      required:
+      - phone
+    Photo:
+      type: object
+      description: 照片的对外表示:只暴露 URL 与审核状态,不暴露存储路径。
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        url:
+          type: string
+          format: uri
+          nullable: true
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PhotoStatusEnum'
+          title: 审核状态
+        order:
+          type: integer
+          maximum: 65535
+          minimum: 0
+          title: 排序
+      required:
+      - id
+      - url
+    PhotoStatusEnum:
+      enum:
+      - pending
+      - approved
+      - rejected
+      type: string
+      description: |-
+        * `pending` - 待审核
+        * `approved` - 已通过
+        * `rejected` - 已驳回
+    PhotoUploadRequest:
+      type: object
+      description: 照片上传入参(multipart 字段 ``file``)。
+      properties:
+        file:
+          type: string
+          format: binary
+      required:
+      - file
+    PlatformEnum:
+      enum:
+      - web
+      - app
+      type: string
+      description: |-
+        * `web` - web
+        * `app` - app
+    Post:
+      type: object
+      description: 动态的对外表示,含作者、配图与互动计数。
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        author:
+          allOf:
+          - $ref: '#/components/schemas/AuthorBrief'
+          readOnly: true
+        text:
+          type: string
+          title: 正文
+          maxLength: 500
+        images:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        like_count:
+          type: integer
+          readOnly: true
+          default: 0
+        comment_count:
+          type: integer
+          readOnly: true
+          default: 0
+        liked_by_me:
+          type: boolean
+          readOnly: true
+          default: false
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author
+      - comment_count
+      - created_at
+      - id
+      - images
+      - like_count
+      - liked_by_me
+    PostComment:
+      type: object
+      description: |-
+        评论的对外表示:作者摘要、被回复者、回复数与内嵌前两条回复。
+
+        回复不再递归:回复对象的 ``replies`` 恒为空、``reply_count`` 恒为 0,
+        避免响应随层级膨胀。
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        author:
+          allOf:
+          - $ref: '#/components/schemas/AuthorBrief'
+          readOnly: true
+        text:
+          type: string
+          title: 内容
+          maxLength: 200
+        parent_id:
+          type: integer
+          readOnly: true
+          nullable: true
+        reply_to:
+          allOf:
+          - $ref: '#/components/schemas/ReplyTo'
+          readOnly: true
+        reply_count:
+          type: integer
+          description: |-
+            取该楼层可见回复的总数(回复对象恒为 0)。
+
+            Args:
+                comment: 评论对象。
+
+            Returns:
+                可见回复条数。
+          readOnly: true
+        replies:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author
+      - created_at
+      - id
+      - parent_id
+      - replies
+      - reply_count
+      - reply_to
+      - text
+    PostCommentCreateRequest:
+      type: object
+      description: 发表评论的入参;``parent_id`` 非空表示这是一条回复。
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 200
+        parent_id:
+          type: integer
+          minimum: 1
+          nullable: true
+      required:
+      - text
+    PostCreateBodyRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          minLength: 1
+        images:
+          type: array
+          items:
+            type: string
+            format: binary
+    PostLikeResult:
+      type: object
+      properties:
+        liked:
+          type: boolean
+      required:
+      - liked
+    PostPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Post'
+      required:
+      - count
+      - has_more
+      - next_cursor
+      - results
+    PostReportCreateRequest:
+      type: object
+      description: 举报动态的入参。
+      properties:
+        type:
+          $ref: '#/components/schemas/ReportTypeEnum'
+        detail:
+          type: string
+          default: ''
+          maxLength: 200
+      required:
+      - type
+    PostReportResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+      required:
+      - id
+      - status
+    Preference:
+      type: object
+      description: 择偶偏好的读写表示。
+      properties:
+        target_gender:
+          nullable: true
+          title: 想找的性别
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        age_min:
+          type: integer
+          maximum: 65535
+          minimum: 0
+          title: 最小年龄
+        age_max:
+          type: integer
+          maximum: 65535
+          minimum: 0
+          title: 最大年龄
+        city:
+          type: string
+          title: 城市
+          maxLength: 50
+    PresenceItem:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        online:
+          type: boolean
+        last_active_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - last_active_at
+      - online
+      - user_id
+    PresenceResult:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresenceItem'
+      required:
+      - results
+    Profile:
+      type: object
+      description: 「我的资料」的完整表示,含隐私字段与完善度提示。
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user_id:
+          type: integer
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+        nickname:
+          type: string
+          title: 昵称
+          maxLength: 20
+        gender:
+          title: 性别
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        birthday:
+          type: string
+          format: date
+          nullable: true
+          title: 生日
+        age:
+          type: integer
+          readOnly: true
+        city:
+          type: string
+          title: 城市
+          maxLength: 50
+        bio:
+          type: string
+          title: 简介
+          maxLength: 200
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ProfileStatusEnum'
+          title: 状态
+        ban_reason:
+          type: string
+          title: 封禁原因
+          maxLength: 200
+        missing_fields:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+          readOnly: true
+        photos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Photo'
+          readOnly: true
+        preference:
+          allOf:
+          - $ref: '#/components/schemas/Preference'
+          readOnly: true
+        visits_hidden:
+          type: boolean
+          title: 隐身浏览
+      required:
+      - age
+      - id
+      - missing_fields
+      - phone
+      - photos
+      - preference
+      - tags
+      - user_id
+    ProfileStatusEnum:
+      enum:
+      - incomplete
+      - complete
+      - banned_light
+      - banned_heavy
+      type: string
+      description: |-
+        * `incomplete` - 未完善
+        * `complete` - 已完善
+        * `banned_light` - 轻度封禁
+        * `banned_heavy` - 重度封禁
+    PublicProfile:
+      type: object
+      description: 对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。
+      properties:
+        user_id:
+          type: integer
+          readOnly: true
+        nickname:
+          type: string
+          title: 昵称
+          maxLength: 20
+        gender:
+          title: 性别
+          oneOf:
+          - $ref: '#/components/schemas/GenderEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        age:
+          type: integer
+          readOnly: true
+        city:
+          type: string
+          title: 城市
+          maxLength: 50
+        bio:
+          type: string
+          title: 简介
+          maxLength: 200
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+          readOnly: true
+        photos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Photo'
+          readOnly: true
+      required:
+      - age
+      - photos
+      - tags
+      - user_id
+    ReadyStatus:
+      type: object
+      properties:
+        status:
+          type: string
+        checks:
+          type: object
+          additionalProperties: {}
+      required:
+      - checks
+      - status
+    ReplyPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          nullable: true
+        previous:
+          type: string
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PostComment'
+      required:
+      - count
+      - next
+      - previous
+      - results
+    ReplyTo:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        nickname:
+          type: string
+      required:
+      - nickname
+      - user_id
+    Report:
+      type: object
+      description: 举报的对外表示(只回执最必要的三项)。
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        type:
+          allOf:
+          - $ref: '#/components/schemas/ReportTypeEnum'
+          title: 类型
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ReportStatusEnum'
+          title: 状态
+      required:
+      - id
+      - type
+    ReportCreateRequest:
+      type: object
+      description: 举报入参。
+      properties:
+        target_user_id:
+          type: integer
+        type:
+          $ref: '#/components/schemas/ReportTypeEnum'
+        detail:
+          type: string
+          default: ''
+          maxLength: 200
+      required:
+      - target_user_id
+      - type
+    ReportStatusEnum:
+      enum:
+      - pending
+      - handled
+      type: string
+      description: |-
+        * `pending` - 待处理
+        * `handled` - 已处理
+    ReportTypeEnum:
+      enum:
+      - harassment
+      - porn
+      - fraud
+      - other
+      type: string
+      description: |-
+        * `harassment` - 骚扰
+        * `porn` - 色情
+        * `fraud` - 诈骗
+        * `other` - 其他
+    SmsSendStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+      - status
+    SmsVerifyRequest:
+      type: object
+      description: 手机号 + 6 位验证码的入参。
+      properties:
+        phone:
+          type: string
+          minLength: 1
+          maxLength: 20
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required:
+      - code
+      - phone
+    SmsVerifyResult:
+      type: object
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        is_new_user:
+          type: boolean
+        user_id:
+          type: integer
+      required:
+      - access
+      - is_new_user
+      - user_id
+    SwipeRequest:
+      type: object
+      description: 滑卡入参:目标用户与动作。
+      properties:
+        target_user_id:
+          type: integer
+        action:
+          $ref: '#/components/schemas/ActionEnum'
+      required:
+      - action
+      - target_user_id
+    SwipeResult:
+      type: object
+      properties:
+        matched:
+          type: boolean
+      required:
+      - matched
+    Tag:
+      type: object
+      description: 标签的对外表示。
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          title: 名称
+          maxLength: 20
+        icon:
+          type: string
+          title: 图标
+          maxLength: 50
+      required:
+      - id
+      - name
+    TokenRefreshBodyRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          minLength: 1
+    TokenRefreshResult:
+      type: object
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+      required:
+      - access
+    Visit:
+      type: object
+      description: 「谁看过我」列表项:对方公开资料 + 最近访问时间。
+      properties:
+        user_id:
+          type: integer
+          readOnly: true
+        im_user_id:
+          type: string
+          readOnly: true
+        nickname:
+          type: string
+          readOnly: true
+        gender:
+          type: string
+          readOnly: true
+        age:
+          type: integer
+          readOnly: true
+          nullable: true
+        city:
+          type: string
+          readOnly: true
+        bio:
+          type: string
+          readOnly: true
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+          readOnly: true
+        photos:
+          type: array
+          items:
+            $ref: '#/components/schemas/Photo'
+          readOnly: true
+        visited_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - age
+      - bio
+      - city
+      - gender
+      - im_user_id
+      - nickname
+      - photos
+      - tags
+      - user_id
+      - visited_at
+    VisitPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Visit'
+      required:
+      - count
+      - has_more
+      - next_cursor
+      - results
+    VisitsCount:
+      type: object
+      properties:
+        count:
+          type: integer
+      required:
+      - count
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

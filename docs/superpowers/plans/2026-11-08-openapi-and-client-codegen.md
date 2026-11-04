@@ -1,7 +1,7 @@
 # D-5 可行性方案:OpenAPI 导出 + 客户端类型生成 + 门禁升级
 
 - 日期：2026-11-08
-- 状态：**可行性验证完成（含实测），待排期实现**
+- 状态：**三步已全部实现（2026-11-04 落地）**
 - 依据：[backlog D-5](../backlog/2026-11-03-todo.md)、[fullstack review §四 D-1](../reviews/2026-11-03-fullstack-review.md)
 - 结论先行：**能落地，但不是「装个库就有」**。自动导出只能拿到「路径 + 方法」这一层（实测 39 paths / 47 operations / **只有 1 个 schema 组件**），
   要到**字段级**必须逐个接口写 `@extend_schema`；因此建议**分三步走**，每步都能独立交付、独立生效。
@@ -110,3 +110,49 @@ spectacular 无从推断请求体/响应体。这不是配置问题，**是视�
 - ❌ **不自动生成请求代码**（TS 端）：现在 `api/*.ts` 里有一层错误处理/刷新/游标分页逻辑，生成器不会替我们写这些。
 - ❌ **不把 `docs/api/*.md` 换成生成文档**：它是人读的交付物，schema 是机器读的契约，两者并存。
 - ❌ 不在本轮动 `imserver` 的 `/im/api/*`：它不属于 `/api/v1`，门禁范围不变（见 `docs/api/README.md` 的口径说明）。
+
+## 7. 落地记录（2026-11-04，第 1、2 步）
+
+### 第 1 步（已完成）
+
+| 项 | 落地内容 |
+|---|---|
+| 依赖 | `requirements.txt` 加 `drf-spectacular>=0.30`；`requirements.lock` 同步补 8 个包（drf-spectacular / inflection / jsonschema / jsonschema-specifications / referencing / rpds-py / attrs / PyYAML / uritemplate） |
+| 配置 | `INSTALLED_APPS` 加 `drf_spectacular`；`REST_FRAMEWORK["DEFAULT_SCHEMA_CLASS"]`；`SPECTACULAR_SETTINGS`（只导出 `/api/v1`、请求/响应组件拆分、稳定排序、枚举名覆盖） |
+| 认证扩展 | `chatapp/accounts/schema.py`（**不是计划里的 `config/schema.py`**：扩展的目标类在 accounts，drf-spectacular 靠「被导入」注册，所以放在 `accounts/schema.py` 并由 `AccountsConfig.ready()` 导入，比 `config` 反向依赖 accounts 干净） |
+| 版本号 | `SPECTACULAR_SETTINGS["VERSION"]` 直接读 `app/pubspec.yaml`（不再多一处手写版本号） |
+| 生成物 | `docs/api/openapi.yml`（39 paths / 47 operations / 66 components，openapi 3.0.3） |
+| 门禁 | `config/tests.py::OpenApiSchemaTests` 校验「schema 操作集合 == URLconf 操作集合」；CI 重新生成后 `git diff --exit-code`（`backend.yml`，并把 `docs/api/**` 加入触发路径） |
+| 细节 | `.gitattributes` 固定 `docs/api/openapi.yml` 为 LF，否则 Windows 检出成 CRLF 会让本地每次生成都变成整文件 diff |
+
+### 第 2 步（已完成）
+
+- **47 个操作全部补了 `@extend_schema`**（按 app 分批改：accounts 6 / users 10 / discovery 8 / im 4 / moderation 4 / feed 12 / 其他 3）。
+  复用件集中在新模块 `config/schema_helpers.py`：`cursor_page` / `offset_page` / `cursor_params` / `offset_params`。
+- **字段级双向门禁**：`config/api_schema_contract.py`（解析 + 比对）+ `config/test_schema_contract.py`（断言 + 自测）。
+  解析规则：只比**顶层字段**；「请求参数」表里混写的路径参数算请求字段；「响应参数」只取标记后的**第一张**表
+  （`users.md §2.1` 后面的 `tags[]` / `photos[]` 子表不算顶层）；分页信封解到 `results[]` 条目。
+- **文档侧配套**：
+  - 新增「`同 [X.Y 标题]`」引用约定（6 处：`/posts`、`/posts/mine`、`/posts/{id}`、`replies`、`PATCH /users/me`、`PATCH /users/me/preference`、`POST /blocks`），
+    避免同一张字段表复制 3 份；约定写进 `docs/api/README.md` §维护规则 5/6。
+  - `health.md` 给 `/health` 补了响应参数表（原来只有示例）。
+  - `README.md` 接口一览补上漏记的 `POST /auth/logout`（46 → 47）。
+- **唯一的 schema 表达不了的东西**：`DELETE /users/me` 的请求体 `phone`。OpenAPI 3.0 没有定义 DELETE body，
+  drf-spectacular 直接丢弃（`_get_request_body`：只有 PUT/PATCH/POST 能有 body），因此在
+  `api_schema_contract.py::SCHEMA_INEXPRESSIBLE` 里显式豁免，并用单测锁死「豁免只允许 DELETE」。
+- **验证**：`python manage.py spectacular --file ../docs/api/openapi.yml --validate` 退出码 0 且**零 error / 零 warning**；
+  后端 **725** 测试绿；`python config/comment_coverage.py` 无缺口；`find_problems()` 返回 `[]`。
+
+### 第 3 步（已完成）
+
+| 端 | 落地内容 | 门禁 |
+|---|---|---|
+| **Web（TS）** | `web/src/api/schema.d.ts`（openapi-typescript 7.13.0 生成，2854 行纯类型）；`npm run gen:api` 用**固定版本**的 `npx --yes openapi-typescript@7.13.0`（`openapi-typescript@7` 的 peer 是 `typescript@^5`，而本项目用 TS 6，直接装 devDependency 会让 `npm ci` 因 peer 冲突失败；用 npx 固定版本既不污染依赖图又可复现）；`eslint` 忽略生成物 | `web.yml`：`npm run gen:api` + `git diff --exit-code` |
+| **Web 契约断言** | `web/src/api/contract.ts`：13 个手写接口做**字段名 ⊆ schema 字段名**的编译期断言（`Exclude<keyof 手写, keyof schema>` 必须是 `never`）。**只做单向**（手写 → schema）：后端新增字段对前端向后兼容，不该把 CI 卡红 | `npm run type-check`（已验证：把 `Post.images` 改名 → `error TS2344`） |
+| **App（Dart）** | 仍**不生成模型**；改为 `scripts/check_app_models.py` 静态扫描 `app/lib/features/**/models.dart` 里所有 `json['...']` 键，断言 ⊆ `openapi.yml` 的字段全集（82 个）。用 Python 扫描而不是 Dart 测试：Dart 没有 YAML 解析器，而为一次检查引入代码生成不划算 | 新 workflow `contract.yml`（`app/lib/**`、`docs/api/**` 等路径触发，秒级） |
+| **版本号** | `scripts/sync_version.py`：以 `app/pubspec.yaml` 为唯一来源，`--check` 校验 `app/lib/core/app_info.dart` + `web/package.json`，`--write` 写回；配 7 条 unittest | `contract.yml`：`--check` + 脚本自测 |
+
+**顺带修掉的 schema 精度问题**：`GET /presence` 的 `results[]` 原来用 `DictField` 兜底，`online` / `last_active_at` 根本没进 schema（App 模型正好读这两个键）；改成 `inline_serializer` 后字段可见，App 契约检查才有意义。
+
+**验证**：Web `type-check` 零错误 / `lint` 零告警 / **406** 单测绿；后端 **725** 绿；`scripts.test_sync_version` **7** 条绿；
+`check_app_models.py` 通过（故意把 `avatar_url` 改成 `avatar` → 退出码 1，已回滚验证）。

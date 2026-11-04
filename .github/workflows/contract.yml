@@ -1,0 +1,48 @@
+name: 跨栈契约
+
+# 只跑「不需要数据库 / 不需要 Flutter / 不需要 npm」的秒级检查,所以单独一个 workflow:
+#   - 版本号三处一致(事实来源 app/pubspec.yaml)
+#   - App 手写模型读取的字段 ⊆ OpenAPI 契约
+# 生成物与代码的一致性(openapi.yml / schema.d.ts)在 backend.yml 与 web.yml 里各自守着。
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'docs/api/**'
+      - 'app/lib/**'
+      - 'app/pubspec.yaml'
+      - 'web/package.json'
+      - 'scripts/**'
+      - '.github/workflows/contract.yml'
+  pull_request:
+    paths:
+      - 'docs/api/**'
+      - 'app/lib/**'
+      - 'app/pubspec.yaml'
+      - 'web/package.json'
+      - 'scripts/**'
+      - '.github/workflows/contract.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 装 PyYAML(脚本只依赖它)
+        run: pip install PyYAML
+
+      - name: 版本号三处一致(app/pubspec.yaml 为准)
+        run: python scripts/sync_version.py --check
+
+      - name: 版本号同步脚本自测
+        run: python -m unittest scripts.test_sync_version -v
+
+      - name: App 手写模型字段 ⊆ OpenAPI 契约
+        run: python scripts/check_app_models.py --verbose
