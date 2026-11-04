@@ -165,6 +165,25 @@ uint32_t ConversationRepo::unread_for_peer(uint64_t owner, uint64_t peer) {
   return unread_for_peer(lease, owner, peer);
 }
 
+uint64_t ConversationRepo::read_seq_for(MysqlPool::Lease& lease, uint64_t owner,
+                                        uint64_t peer) {
+  const auto [user_a, user_b] = ordered(owner, peer);
+  auto* result = lease.query(
+      "SELECT s.read_seq FROM im_conversation_state s "
+      "JOIN im_conversation c ON c.id=s.conv_id "
+      "WHERE s.owner_id=" + std::to_string(owner) +
+      " AND c.user_a=" + std::to_string(user_a) +
+      " AND c.user_b=" + std::to_string(user_b));
+  uint64_t read_seq = 0;
+  if (result != nullptr) {
+    if (MYSQL_ROW values = mysql_fetch_row(result)) {
+      read_seq = std::stoull(values[0]);
+    }
+    mysql_free_result(result);
+  }
+  return read_seq;
+}
+
 void ConversationRepo::mark_read(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer,
                                  uint64_t seq, int64_t now_ms) {
   const auto [user_a, user_b] = ordered(owner, peer);
@@ -212,17 +231,23 @@ void ConversationRepo::delete_for_user(MysqlPool::Lease& lease, uint64_t uid) {
 std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, uint64_t owner,
                                                      int limit) {
   limit = std::clamp(limit, 1, 200);
+  // `ps` 是**对端**的会话状态行:同一 conv_id、owner 换成对端。
+  // 已读回执靠它把「对端读到哪」带给客户端(`peer_read_seq`),客户端再据此把
+  // `seq <= peer_read_seq` 的我方消息标已读。`ps` 走 (owner_id,conv_id) 唯一键,
+  // 是等值查找,不会因为多这个 JOIN 而扫全表。
   const std::string sql =
       "SELECT u.user_id,u.nickname,u.avatar_url,"
       "IFNULL(m.msg_id,0),IFNULL(m.conv_id,0),IFNULL(m.seq,0),IFNULL(m.from_id,0),"
       "IFNULL(m.to_id,0),IFNULL(m.kind,1),IFNULL(m.body,''),"
       "IFNULL(m.client_msg_id,''),IFNULL(m.created_at,0),m.revoked_at,"
-      "s.unread,c.last_seq,s.updated_at "
+      "s.unread,c.last_seq,s.updated_at,IFNULL(ps.read_seq,0) "
       "FROM im_conversation_state s "
       "JOIN im_conversation c ON c.id=s.conv_id "
       "JOIN im_user u ON u.user_id=IF(c.user_a=" + std::to_string(owner) +
       ",c.user_b,c.user_a) "
       "LEFT JOIN im_message m ON m.msg_id=c.last_msg_id "
+      "LEFT JOIN im_conversation_state ps ON ps.conv_id=s.conv_id AND ps.owner_id="
+      "IF(c.user_a=" + std::to_string(owner) + ",c.user_b,c.user_a) "
       "WHERE s.owner_id=" + std::to_string(owner) +
       " AND s.deleted=0 ORDER BY c.last_msg_at DESC LIMIT " + std::to_string(limit);
 
@@ -256,6 +281,7 @@ std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, ui
     view.unread = static_cast<uint32_t>(std::stoul(values[13]));
     view.last_seq = std::stoull(values[14]);
     view.updated_at = std::stoll(values[15]);
+    view.peer_read_seq = std::stoull(values[16]);
     rows.push_back(std::move(view));
   }
   mysql_free_result(result);

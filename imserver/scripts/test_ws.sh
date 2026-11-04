@@ -14,3 +14,5 @@ for i in $(seq 1 30); do
 done
 python3 /src/tests/integration/test_ws.py
 python3 /src/tests/integration/test_send.py
+export IM_TEST_HTTP="http://127.0.0.1:19101/im/api"
+python3 /src/tests/integration/test_read.py
