@@ -13,6 +13,7 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "e2e": "playwright test",
+    "e2e:smoke": "playwright test tests/e2e/ci-smoke.spec.ts",
     "gen:api": "npx --yes openapi-typescript@7.13.0 ../docs/api/openapi.yml -o src/api/schema.d.ts"
   },
   "dependencies": {

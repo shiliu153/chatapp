@@ -1,0 +1,174 @@
+name: Web E2E (smoke)
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'web/**'
+      - 'chatapp/**'
+      - '.github/workflows/web-e2e.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'chatapp/**'
+      - '.github/workflows/web-e2e.yml'
+  workflow_dispatch:
+
+# E-3：端到端「冒烟」轨 —— 真 MySQL + Redis + Django + Web preview，
+# 跑 `tests/e2e/ci-smoke.spec.ts`（登录 → 完善资料 → 发现/消息列表）。
+#
+# 全量 8 条（main-flow / edge-cases）需要 imserver + Celery，仍按 `npm run e2e` 人工跑；
+# 为什么只上冒烟、怎么在本地跑全量，见 backlog E-3 与 `docs/pitfalls/web.md`。
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: chatapp_dev
+          MYSQL_USER: chatapp
+          MYSQL_PASSWORD: chatapp_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+          --health-start-period=30s
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      SECRET_KEY: ci-only-not-a-real-secret
+      DEBUG: '1'
+      DB_NAME: chatapp_dev
+      DB_USER: chatapp
+      DB_PASSWORD: chatapp_ci
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      # 与 backend.yml 同口径：MySQL 8 的 caching_sha2_password 在非 TLS 连接上
+      # 需要 RSA 公钥交换，CI 会失败；走 TLS 直接在加密通道里认证。
+      DB_SSL_DISABLED: '0'
+      BROKER_URL: redis://127.0.0.1:6379/1
+      REDIS_URL: redis://127.0.0.1:6379/0
+      # CI 是全新空库：白名单留空 = 不限制（生产靠库里的 PhoneAllowlist）
+      SMS_DEV_MODE: '1'
+      SMS_PHONE_WHITELIST: ''
+      # 资料图上传后立刻过审，否则新账号资料永远 incomplete、发现页会一直空
+      AUTO_APPROVE: '1'
+      ALLOWED_HOSTS: 127.0.0.1,localhost
+      # 冒烟不碰聊天，IM 凭据给假值即可（登录时的 IM 副作用只是入队，不会真调）
+      IM_SELF_URL: http://127.0.0.1:9101
+      IM_SELF_WS_URL: ws://127.0.0.1:9100/im/ws
+      IM_SELF_HTTP_URL: http://127.0.0.1:9101/im/api
+      IM_SELF_SECRET: ci-fake-secret-32-bytes-minimum
+      IM_SELF_INTERNAL_SECRET: ci-fake-internal-32-bytes-minimum
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: chatapp/requirements.txt
+
+      - name: 安装后端依赖
+        working-directory: chatapp
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 与 backend.yml 同一个坑：mysqladmin ping 是未认证探测，容器刚起时会先应答，
+      # 带认证的连接仍可能被关闭。这里真正建立一次 Django 连接才算就绪。
+      - name: 等待 MySQL 可认证连接
+        working-directory: chatapp
+        run: |
+          python -c '
+          import os, sys, time
+          sys.path.insert(0, os.getcwd())
+          os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+          import django
+          django.setup()
+          from django.db import connections
+          last = None
+          for attempt in range(1, 31):
+              try:
+                  connections["default"].ensure_connection()
+                  with connections["default"].cursor() as cur:
+                      cur.execute("SELECT 1")
+                      cur.fetchone()
+                  print("MySQL 可认证连接就绪（第 %d 次）" % attempt)
+                  sys.exit(0)
+              except Exception as exc:
+                  last = exc
+                  print("  第 %d 次: %s: %s" % (attempt, type(exc).__name__, exc), flush=True)
+                  time.sleep(5)
+          raise SystemExit(1) from last
+          '
+
+      - name: 迁移
+        working-directory: chatapp
+        run: python manage.py migrate --noinput
+
+      - name: 启动 Django（后台）并等 readyz
+        working-directory: chatapp
+        run: |
+          nohup python manage.py runserver 127.0.0.1:8000 --noreload > /tmp/django.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/api/v1/readyz > /dev/null; then
+              echo "Django readyz 就绪"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Django 未在 120 秒内就绪" >&2
+          tail -n 120 /tmp/django.log >&2
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装前端依赖
+        working-directory: web
+        run: npm ci
+
+      - name: 安装 Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      # 先单独构建:构建失败就是构建失败,不会被算进 webServer 的 180 秒超时窗口
+      - name: 构建 Web
+        working-directory: web
+        run: npm run build
+
+      # webServer 只起 `vite preview --host 127.0.0.1`(:4173,preview 的 /api/v1
+      # 代理到 :8000,见 web/vite.config.ts);PW_SKIP_BUILD=1 让 config 跳过重复构建
+      - name: 跑冒烟 e2e
+        working-directory: web
+        run: npm run e2e:smoke
+        env:
+          PW_SKIP_BUILD: '1'
+
+      - name: 失败时上传 Playwright 报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report
+          retention-days: 7
