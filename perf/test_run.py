@@ -20,6 +20,7 @@ import json
 import tempfile
 import unittest
 from argparse import Namespace
+from collections import Counter
 from pathlib import Path
 
 from perf import run as perf_run
@@ -41,6 +42,18 @@ def make_args(**overrides) -> Namespace:
         path="/api/v1/discovery/swipe",
         method="POST",
         body='{"target_user_id": {i}, "action": "like"}',
+        file="",
+        field="file",
+        form=[],
+        write_path="",
+        write_method="POST",
+        write_body="",
+        write_ratio=0.3,
+        write_interval=0,
+        ramp=0,
+        sample_interval=15,
+        uri="",
+        restart_cmd="",
         i_start=1,
         header=[],
         headers_file="",
@@ -323,6 +336,168 @@ class LiveWriteLoopTests(unittest.TestCase):
         args = make_args(conns=1, dur=0.2, body='{"action": "like"}')
         _result, requests = self._run(args, [{"Authorization": "Bearer t"}])
         self.assertTrue(all(body == b'{"action": "like"}' for *_rest, body in requests))
+
+
+class UploadAndMixedTests(unittest.TestCase):
+    """`api_upload` 的 multipart 体与 `api_mixed` 的读写角色分配。"""
+
+    def test_upload_body_is_binary_safe_multipart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tiny.png"
+            raw = bytes(range(256)) * 4  # 覆盖 0x00-0xFF,验证 latin-1 往返无损
+            path.write_bytes(raw)
+            body, content_type = perf_run.load_upload(str(path), "file", {"visibility": "public"})
+        self.assertEqual(content_type,
+                         f"multipart/form-data; boundary={perf_run.MULTIPART_BOUNDARY}")
+        encoded = body.encode("latin-1")
+        self.assertIn(raw, encoded, "文件字节必须原样进请求体")
+        self.assertIn(b'name="visibility"', encoded)
+        self.assertIn(b'name="file"; filename="tiny.png"', encoded)
+        self.assertIn(b"Content-Type: image/png", encoded)
+        self.assertTrue(encoded.endswith(b"--\r\n"))
+
+    def test_upload_rejects_unknown_extension(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "notes.txt"
+            path.write_text("hi", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                perf_run.load_upload(str(path))
+
+    def test_upload_requires_file_and_fills_defaults(self):
+        args = make_args(scenario="api_upload", path="", method="", body="", file="")
+        self.assertIn("--file", perf_run.normalize_args(args))
+
+    def test_upload_normalizes_path_method_and_content_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.jpg"
+            path.write_bytes(b"\xff\xd8\xff" + b"x" * 100)
+            args = make_args(scenario="api_upload", path="", method="", body="",
+                             file=str(path), field="file", form=[])
+            self.assertEqual(perf_run.normalize_args(args), "")
+        self.assertEqual(args.path, "/api/v1/im/images")
+        self.assertEqual(args.method, "POST")
+        self.assertEqual(args.body_encoding, "latin-1")
+        names = [name.lower() for name, _ in args.header]
+        self.assertIn("content-type", names)
+
+    def test_role_split_is_evenly_spread(self):
+        writes = [i for i in range(10) if perf_run.role_is_write(i, 0.3)]
+        self.assertEqual(len(writes), 3)
+        self.assertEqual(writes, [3, 6, 9], "写角色必须摊开,不能全挤在开头")
+        self.assertFalse(perf_run.role_is_write(0, 0))
+        self.assertTrue(perf_run.role_is_write(0, 1))
+
+    def test_mixed_requires_write_path_and_valid_ratio(self):
+        args = make_args(scenario="api_mixed", write_path="", write_ratio=0.3)
+        self.assertIn("--write-path", perf_run.normalize_args(args))
+        args = make_args(scenario="api_mixed", write_path="/api/v1/discovery/swipe",
+                         write_ratio=1.5)
+        self.assertIn("--write-ratio", perf_run.normalize_args(args))
+
+    def test_mixed_payload_records_write_side(self):
+        args = make_args(scenario="api_mixed", path="/api/v1/app/config", method="GET",
+                         write_path="/api/v1/discovery/swipe", write_method="POST",
+                         write_body='{"target_user_id": {i}}', write_ratio=0.3)
+        self.assertEqual(perf_run.normalize_args(args), "")
+        payload = perf_run.build_payload(args, [], {"rps": 1.0}, "2026-11-04T20:00:00+08:00")
+        self.assertEqual(payload["params"]["write"]["path"], "/api/v1/discovery/swipe")
+        self.assertEqual(payload["params"]["write"]["ratio"], 0.3)
+
+
+class LiveUploadAndMixedLoopTests(unittest.TestCase):
+    """真实 TCP 上验证:multipart 真的发出去了、混合场景两种请求都出现。"""
+
+    def _run(self, args, header_sets):
+        """起回显服务器 → 跑 run_http → 收服务器记录。
+
+        Args:
+            args: 参数命名空间。
+            header_sets: 每连接一套的请求头。
+
+        Returns:
+            (压测结果, 服务器收到的请求列表)。
+        """
+        async def scenario():
+            """搭起服务器并跑一次 HTTP 场景。"""
+            server = EchoServer()
+            await server.start()
+            args.port = server.port
+            try:
+                result = await perf_run.run_http(args, header_sets)
+            finally:
+                await server.stop()
+            return result, list(server.requests)
+
+        return asyncio.run(scenario())
+
+    def test_upload_loop_sends_multipart_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tiny.jpg"
+            path.write_bytes(b"\xff\xd8\xff\xe0" + b"payload" * 50)
+            args = make_args(scenario="api_upload", path="", method="", body="",
+                             file=str(path), field="file", form=[], conns=1, dur=0.2)
+            self.assertEqual(perf_run.normalize_args(args), "")
+            result, requests = self._run(args, [{"Authorization": "Bearer t"}])
+        self.assertGreater(len(requests), 0)
+        self.assertEqual(result["error_rate"], 0.0)
+        method, path_seen, headers, body = requests[0]
+        self.assertEqual(method, "POST")
+        self.assertEqual(path_seen, "/api/v1/im/images")
+        self.assertTrue(headers["content-type"].startswith("multipart/form-data; boundary="))
+        self.assertIn(b"\xff\xd8\xff\xe0", body)
+
+    def test_mixed_loop_hits_both_paths(self):
+        args = make_args(scenario="api_mixed", path="/api/v1/app/config", method="GET",
+                         body="", write_path="/api/v1/discovery/swipe", write_method="POST",
+                         write_body='{"target_user_id": {i}, "action": "like"}',
+                         write_ratio=0.3,
+        write_interval=0, conns=10, dur=0.3)
+        self.assertEqual(perf_run.normalize_args(args), "")
+        result, requests = self._run(args, [{"Authorization": "Bearer t"}])
+        paths = Counter(path for _m, path, _h, _b in requests)
+        self.assertIn("/api/v1/app/config", paths)
+        self.assertIn("/api/v1/discovery/swipe", paths)
+        self.assertEqual(result["mixed"]["write_conns"], 3)
+        self.assertEqual(result["mixed"]["read_conns"], 7)
+        writes = [body for method, _p, _h, body in requests if method == "POST"]
+        ids = [json.loads(body)["target_user_id"] for body in writes]
+        self.assertEqual(len(ids), len(set(ids)), "混合场景的自增序号也必须全局唯一")
+
+
+class ResourceCurveTests(unittest.TestCase):
+    """`--sample-interval` 的内存曲线:长跑要能看出「什么时候开始换页」。"""
+
+    def test_curve_is_recorded_when_interval_is_small(self):
+        async def scenario():
+            """跑一个 1.2 秒、每 0.3 秒采一次曲线点的 HTTP 场景。"""
+            server = EchoServer()
+            await server.start()
+            args = make_args(conns=1, dur=1.2, sample_interval=0.3)
+            args.port = server.port
+            try:
+                return await perf_run.run_http(args, [])
+            finally:
+                await server.stop()
+
+        result = asyncio.run(scenario())
+        curve = result.get("mem_curve")
+        self.assertTrue(curve, "内存曲线必须有采样点")
+        self.assertGreaterEqual(len(curve), 2)
+        self.assertEqual(len(curve[0]), 4, "每个点是 [秒, 内存MB, swapMB, load1]")
+
+    def test_curve_can_be_disabled(self):
+        async def scenario():
+            """跑一个 0.3 秒、关闭曲线采样的场景。"""
+            server = EchoServer()
+            await server.start()
+            args = make_args(conns=1, dur=0.3, sample_interval=0)
+            args.port = server.port
+            try:
+                return await perf_run.run_http(args, [])
+            finally:
+                await server.stop()
+
+        self.assertNotIn("mem_curve", asyncio.run(scenario()))
 
 
 if __name__ == "__main__":
