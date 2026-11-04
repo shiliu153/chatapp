@@ -1,7 +1,7 @@
 # D-5 可行性方案:OpenAPI 导出 + 客户端类型生成 + 门禁升级
 
 - 日期：2026-11-08
-- 状态：**第 1、2 步已实现（2026-11-04 落地），第 3 步待做**
+- 状态：**三步已全部实现（2026-11-04 落地）**
 - 依据：[backlog D-5](../backlog/2026-11-03-todo.md)、[fullstack review §四 D-1](../reviews/2026-11-03-fullstack-review.md)
 - 结论先行：**能落地，但不是「装个库就有」**。自动导出只能拿到「路径 + 方法」这一层（实测 39 paths / 47 operations / **只有 1 个 schema 组件**），
   要到**字段级**必须逐个接口写 `@extend_schema`；因此建议**分三步走**，每步都能独立交付、独立生效。
@@ -143,6 +143,16 @@ spectacular 无从推断请求体/响应体。这不是配置问题，**是视�
 - **验证**：`python manage.py spectacular --file ../docs/api/openapi.yml --validate` 退出码 0 且**零 error / 零 warning**；
   后端 **725** 测试绿；`python config/comment_coverage.py` 无缺口；`find_problems()` 返回 `[]`。
 
-### 第 3 步（待做）
+### 第 3 步（已完成）
 
-Web 的 `openapi-typescript` 类型生成、App 的 `api_contract_test.dart`、`scripts/sync_version.py` 尚未开始。
+| 端 | 落地内容 | 门禁 |
+|---|---|---|
+| **Web（TS）** | `web/src/api/schema.d.ts`（openapi-typescript 7.13.0 生成，2854 行纯类型）；`npm run gen:api` 用**固定版本**的 `npx --yes openapi-typescript@7.13.0`（`openapi-typescript@7` 的 peer 是 `typescript@^5`，而本项目用 TS 6，直接装 devDependency 会让 `npm ci` 因 peer 冲突失败；用 npx 固定版本既不污染依赖图又可复现）；`eslint` 忽略生成物 | `web.yml`：`npm run gen:api` + `git diff --exit-code` |
+| **Web 契约断言** | `web/src/api/contract.ts`：13 个手写接口做**字段名 ⊆ schema 字段名**的编译期断言（`Exclude<keyof 手写, keyof schema>` 必须是 `never`）。**只做单向**（手写 → schema）：后端新增字段对前端向后兼容，不该把 CI 卡红 | `npm run type-check`（已验证：把 `Post.images` 改名 → `error TS2344`） |
+| **App（Dart）** | 仍**不生成模型**；改为 `scripts/check_app_models.py` 静态扫描 `app/lib/features/**/models.dart` 里所有 `json['...']` 键，断言 ⊆ `openapi.yml` 的字段全集（82 个）。用 Python 扫描而不是 Dart 测试：Dart 没有 YAML 解析器，而为一次检查引入代码生成不划算 | 新 workflow `contract.yml`（`app/lib/**`、`docs/api/**` 等路径触发，秒级） |
+| **版本号** | `scripts/sync_version.py`：以 `app/pubspec.yaml` 为唯一来源，`--check` 校验 `app/lib/core/app_info.dart` + `web/package.json`，`--write` 写回；配 7 条 unittest | `contract.yml`：`--check` + 脚本自测 |
+
+**顺带修掉的 schema 精度问题**：`GET /presence` 的 `results[]` 原来用 `DictField` 兜底，`online` / `last_active_at` 根本没进 schema（App 模型正好读这两个键）；改成 `inline_serializer` 后字段可见，App 契约检查才有意义。
+
+**验证**：Web `type-check` 零错误 / `lint` 零告警 / **406** 单测绿；后端 **725** 绿；`scripts.test_sync_version` **7** 条绿；
+`check_app_models.py` 通过（故意把 `avatar_url` 改成 `avatar` → 退出码 1，已回滚验证）。

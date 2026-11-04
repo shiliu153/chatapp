@@ -11,6 +11,8 @@ export default tseslint.config(
       'node_modules/**',
       'playwright-report/**',
       'test-results/**',
+      // D-5:openapi-typescript 的生成物,不手改、不参与规范检查
+      'src/api/schema.d.ts',
     ],
   },
   js.configs.recommended,

@@ -116,6 +116,12 @@ Base URL、鉴权细节、统一错误结构、分页约定、限流额度见 [c
    序列化器在函数体里临时构造,库推断不出来),**不要**为了生成 schema 而改视图写法。
 4. 生成物对 `drf-spectacular` 版本敏感:升级该库后必须重新生成并提交 diff(否则 CI 会红,
    这是有意的 —— 生成物变了就是契约变了)。
+5. **下游派生门禁**(改了 schema 就要一起跑):
+   - Web:`cd web && npm run gen:api` → `src/api/schema.d.ts`(纯类型,`web.yml` 比对生成物);
+     `src/api/contract.ts` 用 `Exclude<keyof 手写类型, keyof schema>` 做字段名编译期断言;
+   - App:`python scripts/check_app_models.py`(静态扫描 `app/lib/features/**/models.dart`
+     里所有 `json['...']` 键,断言都在 schema 字段全集里,`contract.yml` 里跑);
+   - 版本号:`python scripts/sync_version.py --check`(`app/pubspec.yaml` 为唯一来源)。
 
 ## 维护规则(新增/修改接口时必须遵守)
 

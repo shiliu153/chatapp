@@ -5,10 +5,12 @@ on:
     branches: [master, main]
     paths:
       - 'web/**'
+      - 'docs/api/**'
       - '.github/workflows/web.yml'
   pull_request:
     paths:
       - 'web/**'
+      - 'docs/api/**'
       - '.github/workflows/web.yml'
   workflow_dispatch:
 
@@ -30,6 +32,13 @@ jobs:
 
       - name: 拉依赖
         run: npm ci
+
+      # D-5:``src/api/schema.d.ts`` 是 openapi-typescript 从后端 schema 生成的纯类型文件。
+      # 这里重新生成一次再比对:后端改了字段却没同步生成物,CI 立刻红。
+      - name: 校验 API 类型生成物与后端 schema 一致
+        run: |
+          npm run gen:api
+          git -C .. diff --exit-code -- web/src/api/schema.d.ts
 
       - name: 类型检查(必须零错误)
         run: npm run type-check

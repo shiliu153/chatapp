@@ -42,3 +42,5 @@ docs/** linguist-documentation
 # OpenAPI 生成物固定 LF:CI 用 `git diff --exit-code` 比对「重新生成后是否零差异」,
 # 若 Windows 检出成 CRLF,本地每次生成都会变成整文件 diff(2026-11-04 加)。
 docs/api/openapi.yml text eol=lf
+# 同理:openapi-typescript 生成的 Web 类型文件
+web/src/api/schema.d.ts text eol=lf

@@ -200,7 +200,11 @@ def delete_photo(request, photo_id):
     "user_ids", str, OpenApiParameter.QUERY, required=True,
     description="逗号分隔的账号 ID,一次最多 100 个")],
     responses={200: inline_serializer("PresenceResult", fields={
-        "results": serializers.ListField(child=serializers.DictField())})})
+        "results": serializers.ListField(child=inline_serializer("PresenceItem", fields={
+            "user_id": serializers.IntegerField(),
+            "online": serializers.BooleanField(),
+            "last_active_at": serializers.DateTimeField(allow_null=True),
+        }))})})
 @api_view(["GET"])
 @throttle_classes([PresenceThrottle])
 def presence_status(request):

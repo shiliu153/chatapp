@@ -2406,14 +2406,28 @@ components:
           type: string
           title: 城市
           maxLength: 50
+    PresenceItem:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        online:
+          type: boolean
+        last_active_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - last_active_at
+      - online
+      - user_id
     PresenceResult:
       type: object
       properties:
         results:
           type: array
           items:
-            type: object
-            additionalProperties: {}
+            $ref: '#/components/schemas/PresenceItem'
       required:
       - results
     Profile:
