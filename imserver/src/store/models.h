@@ -47,6 +47,11 @@ struct ConversationView {
   uint32_t unread = 0;
   uint64_t last_seq = 0;
   int64_t updated_at = 0;
+  /// **对端**读到哪(站在「我」的视角)。0 = 对端从没读过,不是错误。
+  ///
+  /// `unread` 是「我」没读的条数,`peer_read_seq` 是「对端」读到哪 —— 两者是
+  /// 两条独立链路,别混。客户端用它把 `seq <= peer_read_seq` 的**我方**消息标成已读。
+  uint64_t peer_read_seq = 0;
 };
 
 struct RevokeResult {

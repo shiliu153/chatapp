@@ -281,6 +281,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final messages = ref.watch(chatProvider(widget.peerId));
     final imageEnabled = ref.read(imClientProvider).capabilities.image;
     final voiceEnabled = ref.read(imClientProvider).capabilities.voice;
+    final readReceiptEnabled = ref.read(imClientProvider).capabilities.readReceipt;
+    // 对端读到哪:下行 read 帧实时更新,打开会话时由 controller 从会话列表补拉一次
+    final peerReadSeq = ref.watch(chatPeerReadSeqProvider(widget.peerId));
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final selfAvatarUrl = ref.watch(profileProvider).value?.avatar?.url;
     final peerName = displayNameFor(cache, widget.peerId, imName: _imNameOf(ref));
@@ -365,6 +368,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             peerAvatarUrl: peerAvatarUrl,
                             selfAvatarUrl: selfAvatarUrl,
                             highlight: message.msgId == _highlightMsgId,
+                            readReceiptEnabled: readReceiptEnabled,
+                            // 我方消息 seq <= 对端已读位置 → 已读。seq=0 是本地乐观消息
+                            // (还没拿到服务端序号),不能算已读。
+                            isRead: message.seq > 0 && message.seq <= peerReadSeq,
                             onLongPress: () => _showMessageMenu(itemContext, message),
                             onTapImage: () => _openImage(message),
                             onRetry: () =>

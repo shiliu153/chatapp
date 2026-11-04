@@ -494,6 +494,9 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
                                        {"avatar", view.peer.avatar}}},
                              {"unread", view.unread},
                              {"last_seq", view.last_seq},
+                             // 对端读到哪(0 = 从没读过)。已读回执的离线补拉入口:
+                             // 客户端打开会话/重连后靠它把 seq <= peer_read_seq 的我方消息标已读。
+                             {"peer_read_seq", view.peer_read_seq},
                              {"updated_at", view.updated_at}};
       if (view.has_last) {
         item["last_message"] = message_json(view.last, messages_.users(), messages_.signer());

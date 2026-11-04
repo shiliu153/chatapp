@@ -106,6 +106,7 @@ class ImConversation {
     this.showName,
     this.faceUrl,
     this.lastMessage,
+    this.peerReadSeq = 0,
   });
 
   final String peerId;
@@ -115,6 +116,10 @@ class ImConversation {
   final String? showName;
   final String? faceUrl;
   final ChatMessage? lastMessage;
+
+  /// **对端**读到哪(0 = 从没读过)。`seq <= peerReadSeq` 的我方消息算已读。
+  /// 与 `unreadCount`(我没读的条数)是两条独立链路,别混。
+  final int peerReadSeq;
 }
 
 sealed class ImEvent {
@@ -137,6 +142,13 @@ class ImMessageRevoked extends ImEvent {
   final String msgId;
 }
 
+/// 对端读到了 `seq`(已读回执)。**只增不减**:收到更小的值直接忽略。
+class ImPeerRead extends ImEvent {
+  const ImPeerRead({required this.peerId, required this.seq});
+  final String peerId;
+  final int seq;
+}
+
 class ImSigExpired extends ImEvent {
   const ImSigExpired();
 }
@@ -157,7 +169,12 @@ class ImException implements Exception {
 }
 
 class ImCapabilities {
-  const ImCapabilities({required this.image, this.search = false, this.voice = false});
+  const ImCapabilities({
+    required this.image,
+    this.search = false,
+    this.voice = false,
+    this.readReceipt = false,
+  });
   final bool image;
 
   /// 是否支持聊天记录搜索(腾讯后端为 false,入口隐藏)。
@@ -165,6 +182,10 @@ class ImCapabilities {
 
   /// 是否支持语音消息(腾讯后端为 false,入口隐藏)。
   final bool voice;
+
+  /// 是否支持已读回执(腾讯后端为 false —— 没有「对方读到哪」就不会有真已读,
+  /// 宁可不显示,也不要显示一个永远「未读」的假状态)。
+  final bool readReceipt;
 }
 
 /// 一条搜索命中(只可能是文本消息)。

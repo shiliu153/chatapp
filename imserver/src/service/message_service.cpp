@@ -120,15 +120,17 @@ std::vector<MessageRow> MessageService::search(uint64_t uid, const std::string& 
   return messages_.search(lease, uid, keyword, before_id, limit);
 }
 
-bool MessageService::mark_read(uint64_t uid, uint64_t peer, uint64_t seq) {
+std::optional<uint64_t> MessageService::mark_read(uint64_t uid, uint64_t peer, uint64_t seq) {
   auto lease = pool_.acquire();
   const auto conversation = conversations_.find_pair(lease, uid, peer);
   if (!conversation.has_value()) {
-    return false;
+    return std::nullopt;
   }
   const uint64_t target = seq == 0 ? conversation->last_seq : seq;
   conversations_.mark_read(lease, uid, peer, target, now_ms());
-  return true;
+  // 回读而不是直接返回 target:落库用的是 GREATEST,乱序到达的旧 read 帧不会让
+  // read_seq 回退;广播必须带真实值,否则客户端会被「更小的 N」推回未读。
+  return conversations_.read_seq_for(lease, uid, peer);
 }
 
 std::variant<RevokeResult, int> MessageService::revoke(uint64_t uid, uint64_t msg_id) {

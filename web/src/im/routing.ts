@@ -15,7 +15,14 @@ export class RoutingImClient implements ImClient {
   private listeners: ((event: ImEvent) => void)[] = []
 
   get capabilities(): ImCapabilities {
-    return this.active?.capabilities ?? { image: false, search: false, voice: false }
+    return (
+      this.active?.capabilities ?? {
+        image: false,
+        search: false,
+        voice: false,
+        readReceipt: false,
+      }
+    )
   }
 
   onEvent(listener: (event: ImEvent) => void): void {

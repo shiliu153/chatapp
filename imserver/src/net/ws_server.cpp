@@ -479,6 +479,13 @@ void WsSession::on_send_result(const std::variant<SendResult, int>& result,
 }
 
 void WsSession::handle_read(const nlohmann::json& frame) {
+  // 已读回执是「附带动作」,但它会让服务端给对端推一帧。不设限流的话,
+  // 一个坏客户端(或「每滚一屏发一次」的实现)就能把对端的推送打爆。
+  // 超限**静默丢弃**:read 是幂等的,下次打开会话/收到新消息还会再发一次,
+  // 回错误帧只会让客户端白重试。
+  if (!read_bucket_.allow(now_ms())) {
+    return;
+  }
   try {
     const auto data = frame.at("data");
     const auto peer = parse_uid(data.value("peer", std::string()));
@@ -490,9 +497,21 @@ void WsSession::handle_read(const nlohmann::json& frame) {
     const std::string id = frame.value("id", std::string());
     auto self = shared_from_this();
     run_db([self, peer = *peer, seq, id] {
-      const bool ok = self->messages_.mark_read(self->uid_, peer, seq);
-      boost::asio::post(self->ws_.get_executor(),
-                        [self, ok, id] { self->send_raw(ack_frame(id, ok)); });
+      const auto marked = self->messages_.mark_read(self->uid_, peer, seq);
+      boost::asio::post(self->ws_.get_executor(), [self, marked, peer_uid = peer, id] {
+        self->send_raw(ack_frame(id, marked.has_value()));
+        if (!marked.has_value()) {
+          return;  // 会话不存在:没东西可广播
+        }
+        // 通知对端「我读到 *marked」:对端据此把自己 seq <= N 的消息标已读。
+        // 不带 id —— 这是服务端主动推的,不要求 ack(客户端也不该回)。
+        self->registry_.send_to(
+            peer_uid, nlohmann::json{{"v", 1},
+                                     {"type", "read"},
+                                     {"data",
+                                      {{"peer", peer_id(self->uid_)}, {"seq", *marked}}}}
+                          .dump());
+      });
     });
   } catch (const std::exception&) {
     send_raw(error_frame(42201, "read 参数错误"));

@@ -102,6 +102,7 @@
 | 11-01 | [profile-visits](archive/plans/2026-11-01-profile-visits.md) | [✓](archive/specs/2026-11-01-profile-visits-design.md) | 谁看过我(PR #21,已上线) |
 | 11-01 | [voice-recording-interaction](archive/plans/2026-11-01-voice-recording-interaction.md) | [✓](archive/specs/2026-11-01-voice-recording-interaction-design.md) | 语音录音交互打磨(Web 点击式 + App 状态机) |
 | 11-01 | [security-round3](archive/plans/2026-11-01-security-round3.md) | — | 第三轮安全审计整改(PR #30,已上线) |
+| 11-04 | [read-receipt](archive/plans/2026-11-04-read-receipt.md) | [✓](archive/specs/2026-11-04-read-receipt-design.md) | 已读回执(imserver 广播 + peer_read_seq,App/Web 双端;backlog C-2) |
 
 ---
 

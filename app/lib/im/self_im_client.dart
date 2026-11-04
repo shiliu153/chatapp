@@ -46,8 +46,12 @@ class SelfImClient extends ImClient {
   Stream<ImEvent> get events => _events.stream;
 
   @override
-  ImCapabilities get capabilities =>
-      const ImCapabilities(image: true, search: true, voice: true);
+  ImCapabilities get capabilities => const ImCapabilities(
+        image: true,
+        search: true,
+        voice: true,
+        readReceipt: true,
+      );
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {
@@ -131,6 +135,12 @@ class SelfImClient extends ImClient {
         _events.add(const ImConversationsChanged());
       case 'revoked':
         _events.add(ImMessageRevoked('${data['msg_id'] ?? ''}'));
+      case 'read':
+        // 对端读到哪(已读回执)。服务端主动推,不要求 ack。
+        _events.add(ImPeerRead(
+          peerId: '${data['peer'] ?? ''}',
+          seq: (data['seq'] as num?)?.toInt() ?? 0,
+        ));
       case 'pong':
         break;
     }
@@ -308,6 +318,8 @@ class SelfImClient extends ImClient {
         showName: peer['nickname'] as String?,
         faceUrl: peer['avatar'] as String?,
         lastMessage: last is Map<String, dynamic> ? _messageFromJson(last) : null,
+        // 已读回执的**离线补拉**入口:断线期间对方读过什么,重连后靠这个字段算。
+        peerReadSeq: (item['peer_read_seq'] as num?)?.toInt() ?? 0,
       );
     }).toList();
   }

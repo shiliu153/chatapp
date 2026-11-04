@@ -126,6 +126,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   std::chrono::steady_clock::time_point last_frame_;
   int64_t last_online_ms_ = 0;
   TokenBucket send_bucket_{20, 40};
+  /// 已读回执帧的令牌桶(2/s、突发 30):每次 read 都会给对端推一帧,必须限流。
+  TokenBucket read_bucket_{2, 30};
 };
 
 class WsServer {

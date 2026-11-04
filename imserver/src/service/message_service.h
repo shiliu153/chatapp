@@ -55,7 +55,16 @@ class MessageService {
   ///   命中的消息行,新 → 旧。
   std::vector<MessageRow> search(uint64_t uid, const std::string& keyword, uint64_t before_id,
                                  int limit);
-  bool mark_read(uint64_t uid, uint64_t peer, uint64_t seq);
+  /// 把一个会话标到已读,并返回**写完之后**的已读位置(已读回执广播用)。
+  ///
+  /// Args:
+  ///   uid: 读消息的人。
+  ///   peer: 会话对端。
+  ///   seq: 读到哪;`0` 表示「读到该会话最新」(`last_seq`)。
+  ///
+  /// Returns:
+  ///   成功时返回实库里的 `read_seq`(已 `GREATEST`,不会回退),会话不存在时 `nullopt`。
+  std::optional<uint64_t> mark_read(uint64_t uid, uint64_t peer, uint64_t seq);
   std::variant<RevokeResult, int> revoke(uint64_t uid, uint64_t msg_id);
   bool delete_conversation(uint64_t uid, uint64_t peer);
   bool delete_account(uint64_t uid);

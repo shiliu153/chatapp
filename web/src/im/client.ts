@@ -295,7 +295,8 @@ export function createImClient(options: CreateImClientOptions = {}): ImClient {
 
   return {
     onEvent,
-    capabilities: { image: true, search: false, voice: false },
+    // 腾讯分支没有「对方读到哪」,readReceipt=false → 不渲染已读,不给假状态
+    capabilities: { image: true, search: false, voice: false, readReceipt: false },
     init,
     login,
     logout,

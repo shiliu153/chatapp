@@ -143,5 +143,7 @@ export function conversationFromTim(conversation: TimConversationLike): ImConver
       (peerId === SYSTEM_NOTICE_PEER_ID ? '系统通知' : ''),
     faceUrl: conversation.userProfile?.avatar || conversation.lastMessage?.avatar || null,
     lastMessage: conversation.lastMessage ? chatMessageFromTim(conversation.lastMessage) : null,
+    // 腾讯分支没有已读位置(readReceipt 能力为 false,界面不会渲染已读)
+    peerReadSeq: 0,
   }
 }

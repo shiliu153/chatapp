@@ -40,7 +40,12 @@ export const useChatStore = defineStore('chat', () => {
    * 在 init 之前拿到的是「未连接」的兜底值,直接读它会把入口永久藏起来
    * (2026-10-26 排查发现:Web 聊天页图片入口因此一直不显示)。
    */
-  const capabilities = ref<ImCapabilities>({ image: false, search: false, voice: false })
+  const capabilities = ref<ImCapabilities>({
+    image: false,
+    search: false,
+    voice: false,
+    readReceipt: false,
+  })
   /** 发送失败/待发送的图片文件,供「重发」用(键含本地占位 id) */
   const pendingFiles = ref<Record<string, File>>({})
   /** 发送失败/待发送的语音,供「重发」用 */
@@ -49,6 +54,13 @@ export const useChatStore = defineStore('chat', () => {
   let inFlight: Promise<void> | null = null
   /** 当前正在看的会话(重连后补拉它的历史);由 openConversation 维护 */
   const activePeerId = ref<string | null>(null)
+  /**
+   * 对端在每个会话里读到哪(已读回执)。
+   *
+   * **只增不减**:下行 `read` 帧可能乱序/重复到达,收到更小的 N 必须忽略,
+   * 否则会出现「已读」跳回「未读」。`seq <= peerReadSeq[peerId]` 的我方消息算已读。
+   */
+  const peerReadSeq = ref<Record<string, number>>({})
   /** 断线重连的退避定时器(同一时刻只排一个) */
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   /** 第几次退避,成功连上后清零 */
@@ -87,6 +99,8 @@ export const useChatStore = defineStore('chat', () => {
               : message.senderName || message.peerId,
           faceUrl: message.senderAvatar,
           lastMessage: message,
+          // 新会话还没同步过已读位置;下一次 loadConversations 会带上真值
+          peerReadSeq: peerReadSeq.value[message.peerId] ?? 0,
         },
       ]
     }
@@ -120,6 +134,12 @@ export const useChatStore = defineStore('chat', () => {
     if (target) target.unreadCount = count
   }
 
+  /** 推进「对端读到哪」;只增不减,没变大就什么都不做(避免无意义重渲染)。 */
+  function advancePeerRead(peerId: string, seq: number): void {
+    if (!peerId || seq <= (peerReadSeq.value[peerId] ?? 0)) return
+    peerReadSeq.value = { ...peerReadSeq.value, [peerId]: seq }
+  }
+
   client.onEvent((event) => {
     if (event.type === 'newMessage') {
       appendMessage(event.message.peerId, event.message)
@@ -132,6 +152,10 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (event.type === 'messageRevoked') {
       markRevoked(event.msgId)
+      return
+    }
+    if (event.type === 'peerRead') {
+      advancePeerRead(event.peerId, event.seq)
       return
     }
     if (event.type === 'ready') {
@@ -342,6 +366,16 @@ export const useChatStore = defineStore('chat', () => {
     const list = await loadHistory(peerId)
     await client.markConversationRead(peerId)
     setLocalUnread(peerId, 0)
+    // 已读回执的**补拉**:断线期间对方读过什么,那时下行 read 帧根本没送到,
+    // 只能打开会话时问一次会话列表(`peer_read_seq` 是唯一事实来源)。
+    // 失败静默 —— 最坏只是不显示「已读」,不该让聊天页打不开。
+    try {
+      await loadConversations()
+      const conversation = conversations.value.find((item) => item.peerId === peerId)
+      if (conversation) advancePeerRead(peerId, conversation.peerReadSeq)
+    } catch {
+      /* 忽略:已读态拿不到不影响聊天 */
+    }
     return list
   }
 
@@ -514,7 +548,13 @@ export const useChatStore = defineStore('chat', () => {
     await client.logout().catch(() => {})
     conversations.value = []
     messages.value = {}
-    capabilities.value = { image: false, search: false, voice: false }
+    peerReadSeq.value = {}
+    capabilities.value = {
+      image: false,
+      search: false,
+      voice: false,
+      readReceipt: false,
+    }
     status.value = 'idle'
   }
 
@@ -525,6 +565,8 @@ export const useChatStore = defineStore('chat', () => {
     error,
     capabilities,
     unreadTotal,
+    /** 对端在每个会话里读到哪(已读回执);`seq <= peerReadSeq[peerId]` 的我方消息算已读 */
+    peerReadSeq,
     /** 待发送图片的本地文件(键 = 消息 id),页面用它做发送中预览 */
     pendingFiles,
     connect,

@@ -82,6 +82,14 @@ async def main():
     await recv(receiver, "ack")
     assert get("/conversations", receiver_uid)["items"][0]["unread"] == 0
 
+    # 已读回执(2026-11-04):B 读完后,A 既收到实时下行 `read` 帧,
+    # 也能从会话列表的 peer_read_seq 补拉(离线/重连走这条)。
+    receipt = await recv(sender, "read")
+    assert receipt["data"] == {"peer": f"u{receiver_uid}", "seq": 2}
+    sender_view = get("/conversations", sender_uid)["items"]
+    assert sender_view[0]["peer_read_seq"] == 2
+    assert sender_view[0]["last_seq"] == 2
+
     msg_id = history[0]["msg_id"]
     await sender.send(
         json.dumps({"v": 1, "type": "revoke", "id": "v-1", "data": {"msg_id": msg_id}})

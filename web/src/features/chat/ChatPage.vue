@@ -37,6 +37,16 @@ let focusing = false
 const imageEnabled = computed(() => store.capabilities.image)
 /** 语音入口:后端能力 + 浏览器能录音(需 HTTPS 或 localhost) */
 const voiceEnabled = computed(() => store.capabilities.voice && canRecordVoice())
+/** 已读回执:后端支持才显示(腾讯分支 false) */
+const readReceiptEnabled = computed(() => store.capabilities.readReceipt)
+/**
+ * 这条我方消息是否已被对端读过:`seq <= 对端已读位置`。
+ *
+ * `seq = 0` 是本地乐观消息(还没拿到服务端序号),不能算已读。
+ */
+function isReadByPeer(message: ChatMessage): boolean {
+  return message.seq > 0 && message.seq <= (store.peerReadSeq[props.peerId] ?? 0)
+}
 const draft = ref('')
 const sending = ref(false)
 const scroller = ref<HTMLElement | null>(null)
@@ -283,6 +293,8 @@ async function onPickImage(event: Event) {
           :peer-avatar="peerAvatar"
           :local-file="store.pendingFiles[row.message.msgId] ?? null"
           :hit="row.message.msgId === hitId"
+          :read-receipt-enabled="readReceiptEnabled"
+          :is-read="isReadByPeer(row.message)"
           @retry="onRetry(row.message)"
           @open-image="onOpenImage"
           @menu="openMenu(row.message, $event)"

@@ -89,7 +89,7 @@ describe('ChatPage', () => {
     // 兜底值 false:未连接时不能凭 client.capabilities 把入口藏死
     expect(w.find('[aria-label="发送图片"]').exists()).toBe(false)
 
-    store.capabilities = { image: true, search: false, voice: false }
+    store.capabilities = { image: true, search: false, voice: false, readReceipt: false }
     await flushPromises()
     expect(w.find('[aria-label="发送图片"]').exists()).toBe(true)
   })
@@ -233,7 +233,7 @@ describe('ChatPage', () => {
       configurable: true,
       value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })) },
     })
-    store.capabilities = { image: true, search: false, voice: true }
+    store.capabilities = { image: true, search: false, voice: true, readReceipt: false }
     await flushPromises()
 
     await w.find('[aria-label="语音消息"]').trigger('click')
