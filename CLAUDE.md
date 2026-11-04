@@ -136,6 +136,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **存储配额(2026-10-28 起)**:四类媒体(资料图/广场图/聊天图/语音)按库内 `bytes` 求和,单账号上限 `USER_STORAGE_QUOTA_MB`(默认 200),超限上传 **413 + `41301`**;检查必须在落盘前;删除与 30 天过期自动回收,不做计数列;上线必须跑一次 `media_bytes_backfill`
 - **运营后台安全**:`/admin/`、`/ops/` 受 `ops.middleware.StaffSecurityMiddleware` 保护 —— `OPS_ALLOWED_IPS` 非空时只放白名单;`OPS_OTP_REQUIRED=1`(生产默认)时运营账号必须绑定 TOTP(`/ops/otp/`);登录失败 5 次锁 15 分钟(账号+IP)。生产 `AUTO_APPROVE` 默认 0,新资料图进 `/ops/photos/` 待审队列
 - **跨栈约定**:IM 账号 = `u{user_id}`(`accounts/models.py::im_user_id`);`system_notice` 相关常量两边别单改
+- **已读回执(2026-11-04)**:事实来源是 `im_conversation_state.read_seq`,语义是「**我**读到哪」;对端视角叫 `peer_read_seq`(`GET /im/api/conversations` 的字段)。判定永远是「**我方**消息 `seq <= peer_read_seq` = 已读」,`unread`(我没读的条数)是另一条链路,不可互推。服务端在 `read` 帧落库后**回读实库**再向对端推下行 `read` 帧(`GREATEST` 语义,乱序旧帧不会把已读推回去),客户端只增不减;`read` 帧有 2/s 限流,超限静默丢弃。协议与排查见 `docs/ops/imserver.md` §15
 - **单设备登录**:一个账号同时只允许一台设备在线;被顶设备收 **401 + `40101`**(三条退出路径互为兜底,细节见 pitfalls)
 - **封禁两级**:`banned_light` 只禁滑卡;`banned_heavy` 全域 403——全局权限类自动覆盖新接口,白名单仅 `GET /users/me`、`GET /users/tags`
 - **在线状态是公开信息**(不依赖配对);「在线」= 120 秒内有认证请求(45s 心跳)

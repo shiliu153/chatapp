@@ -95,3 +95,22 @@
 ## 执行记录 / 与计划的偏差
 
 (实施过程中填写)
+
+---
+
+## 执行结果(2026-11-04,PR #47)
+
+7 个 Task 全部落地。**与计划的偏差**:
+
+1. Task 1 额外加了 `ConversationRepo::read_seq_for`,并在 `mark_read` 里**回读实库**再返回 —— 计划里写「广播用 `target` 足够」是不对的:`mark_read` 落库是 `GREATEST` 语义,直接用请求里的 seq 会让乱序到达的旧帧把对端推回未读。回读是一次同 lease 的等值查询,`read` 帧有 2/s 限流,成本可忽略。
+2. 限流超限**静默丢弃**而不是回 `42901`:回错误帧会让客户端白重试,而 `read` 幂等,下次打开会话/收到新消息还会再发。
+3. Web 侧状态词放在 `message-bubble__body` 内(与既有「发送中…/重发」同位置);App 侧放在气泡左侧 —— 版式不同,语义一致。
+
+**踩到的坑**:
+
+1. 给 `ImCapabilities` / `ImConversation` 加必填字段,会连带 6 处测试夹具 + 2 处生产映射(`map.ts` 腾讯分支、`upsertConversation` 新会话兜底)一起红 —— 这类契约字段改动先跑 `npm run type-check` / `flutter analyze` 最省事。
+2. `store.close()` 是 async,测试里漏 `await` 会读到没清干净的状态。
+3. `test_ws.sh`(WS 集成)**不在 CI 里**(CI 只跑 `test.sh` / `test_integration.sh` / `test_http.sh`),所以新用例同时在 `test_history.py` 里补了两条断言,让 CI 也能覆盖实时下行帧与 `peer_read_seq`。
+4. `ninja: no work to do` 不代表没编译 —— 容器里的 `/src/build` 是 bind mount 复用的,源码改过就会重编;判断「新代码真的跑了」靠测试里的正向断言(本次用 ack 计数与 `test_read ok: …` 打印确认)。
+
+**验收对照**:双端互发 → 对方打开会话 → 我方气泡出现「已读」(App `chat.status.read` / Web `data-testid="chat-read"`);断线重连可补拉(会话列表 `peer_read_seq`);imserver 新增 `tests/integration/test_read.py` + `test_history.py` 两条断言。
