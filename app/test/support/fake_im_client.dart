@@ -56,9 +56,16 @@ class FakeImClient extends ImClient {
   /// 自建后端下置 false,用来测语音入口隐藏。
   bool voiceCapability = true;
 
+  /// 腾讯后端置 false,用来测「不支持已读回执时不显示已读」。
+  bool readReceiptCapability = true;
+
   @override
   ImCapabilities get capabilities => ImCapabilities(
-      image: imageCapability, search: searchCapability, voice: voiceCapability);
+        image: imageCapability,
+        search: searchCapability,
+        voice: voiceCapability,
+        readReceipt: readReceiptCapability,
+      );
 
   @override
   Future<void> init(ImBootstrap bootstrap) async {
@@ -191,6 +198,9 @@ class FakeImClient extends ImClient {
 
   /// 模拟「消息被撤回」事件。
   void emitRevoked(String msgId) => emit(ImMessageRevoked(msgId));
+
+  /// 模拟「对端读到 seq」的下行 read 帧。
+  void emitPeerRead(String peerId, int seq) => emit(ImPeerRead(peerId: peerId, seq: seq));
 
   void dispose() => _events.close();
 }

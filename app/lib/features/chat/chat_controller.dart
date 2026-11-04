@@ -22,11 +22,30 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         _markRead(client); // 正看着这个会话,来了就算已读
       } else if (event is ImMessageRevoked) {
         _markRevoked(event.msgId);
+      } else if (event is ImPeerRead && event.peerId == peerId) {
+        // 对端读到 seq:我方 seq <= N 的气泡改显示「已读」
+        ref.read(chatPeerReadSeqProvider(peerId).notifier).advance(event.seq);
       }
     });
     ref.onDispose(sub.cancel);
     _markRead(client);
+    unawaited(_seedPeerReadSeq(client));
     return client.fetchHistory(peerId);
+  }
+
+  /// 补拉「对端读到哪」。
+  ///
+  /// 为什么需要:断线期间对方读过什么,那时下行 `read` 帧根本没送到,所以打开会话时
+  /// 必须问一次会话列表(`peer_read_seq` 是唯一事实来源)。失败静默 —— 最坏只是不显示
+  /// 「已读」,不该影响聊天本身。
+  Future<void> _seedPeerReadSeq(ImClient client) async {
+    try {
+      final conversations = await client.fetchConversations();
+      for (final conversation in conversations) {
+        if (conversation.peerId != peerId) continue;
+        ref.read(chatPeerReadSeqProvider(peerId).notifier).advance(conversation.peerReadSeq);
+      }
+    } catch (_) {}
   }
 
   /// 清未读是尽力而为:失败只影响角标,不该炸聊天页。
@@ -149,4 +168,30 @@ final chatProvider =
   // 页面自己有错误态,关掉 Riverpod 3 的自动重试,行为更可预期
   retry: (retryCount, error) => null,
   // autoDispose 不能丢:离开聊天页后订阅必须取消,否则新消息仍被自动已读,列表红点永远不出现
+);
+
+/// 对端在这个会话里读到哪(已读回执)。
+///
+/// **只增不减**:下行 `read` 帧可能乱序/重复到达,收到更小的 N 必须忽略,否则会出现
+/// 「已读」跳回「未读」。autoDispose:离开聊天页即丢,下次打开由 [ChatController]
+/// 用会话列表的 `peer_read_seq` 重新补拉。
+class ChatPeerReadSeq extends Notifier<int> {
+  ChatPeerReadSeq(this.peerId);
+
+  final String peerId;
+
+  @override
+  int build() => 0;
+
+  /// 前进到 [seq];返回值表示是否真的变了(没变就不触发重建)。
+  bool advance(int seq) {
+    if (seq <= state) return false;
+    state = seq;
+    return true;
+  }
+}
+
+final chatPeerReadSeqProvider =
+    NotifierProvider.autoDispose.family<ChatPeerReadSeq, int, String>(
+  ChatPeerReadSeq.new,
 );
