@@ -44,10 +44,12 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     adapter = ScriptedAdapter({
       'POST /im/user_sig': (options) => ok({
-            'user_sig': 'sig',
-            'sdkappid': '1600161711',
+            'backend': 'self',
+            'token': 'tok',
+            'ws_url': 'ws://test/im/ws',
+            'http_url': 'http://test/im/api',
             'im_user_id': 'u3',
-            'expire': 604800,
+            'expire': 86400,
           }),
     });
     fake = FakeImClient();

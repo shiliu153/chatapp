@@ -297,9 +297,10 @@ class SmsVerifyTests(APITestCase):
         self.assertEqual(resp.headers.get("Retry-After"), str(settings.SMS_LOCK_TTL))
 
     def test_verify_path_never_calls_im_rest(self):
-        """响应路径零外部调用:登录成功只入队任务,绝不同步打腾讯(第 1 期铁律的回归)。"""
+        """响应路径零外部调用:登录成功只入队任务,绝不同步打 IM(第 1 期铁律的回归)。"""
         code = self.issue_code()
-        with patch("im.client._request") as rest, patch("im.tasks.import_account.delay"):
+        with patch("im.self_client._post") as rest, \
+                patch("im.tasks.import_account.delay"):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.verify(code)
         self.assertEqual(resp.status_code, 200)

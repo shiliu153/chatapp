@@ -541,14 +541,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.1.0"
-  mime_type:
-    dependency: transitive
-    description:
-      name: mime_type
-      sha256: d652b613e84dac1af28030a9fba82c0999be05b98163f9e18a0849c6e63838bb
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.1"
   objective_c:
     dependency: transitive
     description:
@@ -834,14 +826,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.5.0"
-  tencent_cloud_chat_sdk:
-    dependency: "direct main"
-    description:
-      name: tencent_cloud_chat_sdk
-      sha256: "2fa59a2731740aaab7bdedc7caa2968f4270aa7ae7442483bf9f21a6a38f922a"
-      url: "https://pub.dev"
-    source: hosted
-    version: "9.0.7652+1"
   term_glyph:
     dependency: transitive
     description:

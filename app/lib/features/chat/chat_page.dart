@@ -558,7 +558,7 @@ class _InputBar extends ConsumerStatefulWidget {
   /// 当前后端是否支持图片;自建后端隐藏「＋」入口。
   final bool showMore;
 
-  /// 当前后端是否支持语音;腾讯后端隐藏麦克风。
+  /// 当前实现是否支持语音;不支持时隐藏麦克风。
   final bool showVoice;
   final VoidCallback onSend;
   final VoidCallback onToggleEmoji;

@@ -39,8 +39,6 @@ class FakeTransport implements SelfTransport {
 }
 
 const bootstrap: ImBootstrap = {
-  backend: 'self',
-  sdkAppId: 0,
   token: 'tok',
   wsUrl: 'ws://test/im/ws',
   httpUrl: 'http://test/im/api',

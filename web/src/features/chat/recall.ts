@@ -1,7 +1,7 @@
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
 
-/** 撤回窗口:与腾讯控制台默认的 2 分钟一致。 */
+/** 撤回窗口:与 imserver 的校验一致(2 分钟)。 */
 export const RECALL_WINDOW_MS = 2 * 60 * 1000
 
 /**

@@ -60,11 +60,11 @@ class SelfImClient extends ImClient {
   }
 
   @override
-  Future<void> login({required String userId, required String userSig}) async {
+  Future<void> login({required String userId, required String token}) async {
     _stopped = false;
-    _lastToken = userSig;
+    _lastToken = token;
     _attempt = 0;
-    await _connect(userSig);
+    await _connect(token);
   }
 
   Future<void> _connect(String token) async {

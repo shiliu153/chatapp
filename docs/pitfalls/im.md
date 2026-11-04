@@ -1,12 +1,19 @@
-# 踩坑手册 · 腾讯云 IM 与聊天
+# 踩坑手册 · IM 与聊天
 
 > 索引见 [README.md](README.md)。动 IM / 聊天 / 消息页 / 单设备登录相关代码前,先过一遍本文件。
+>
+> **状态(2026-11-08,backlog D-4)**:腾讯云 IM 分支已整体删除,下面标注「腾讯时代」的坑
+> 只作历史参考(它们解释了现在的代码为什么这么写);现行链路 = Django `im/client.py`(语义层)
+> → `im/self_client.py`(HMAC 内部 API)→ imserver(C++ WS/HTTP)。
 
-## 凭据与代码位置
+## 凭据与代码位置(2026-11-08 起)
 
-- 凭据:`IM_SDKAPPID=1600161711`(公开,App 端也要用);密钥只在 `chatapp/.env`,**永不入代码/提交**。管理员账号 `administrator` 默认存在。
-- userSig 生成:`chatapp/im/signature.py`(含 `decode_user_sig` 调试解码);REST 封装:`chatapp/im/client.py`(**对外永不抛异常**,失败返回 False 只记日志);副作用任务:`chatapp/im/tasks.py`。
-- 客户端抽象:`app/lib/im/`(`tencent_im_client.dart` 是**全项目唯一 import SDK 的文件**)。
+- 密钥:`chatapp/.env` 的 `IM_SELF_SECRET`(与 imserver 的 `IM_JWT_SECRET` 一致)、
+  `IM_SELF_INTERNAL_SECRET`(与 imserver 的 `IM_INTERNAL_SECRET` 一致),**永不入代码/提交**。
+- 传输层:`chatapp/im/self_client.py`(HMAC 内部 API,对外永不抛异常,失败返回 False 只记日志);
+  语义层:`chatapp/im/client.py`(消息类型/灰条文案/系统通知身份,只转调 self_client);
+  副作用任务:`chatapp/im/tasks.py`。
+- 客户端抽象:`app/lib/im/`(`self_im_client.dart` 是唯一实现;Web 侧 `web/src/im/self/`)。
 
 ## userSig 生成(最大的坑)
 

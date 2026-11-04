@@ -1,32 +1,21 @@
-"""腾讯云 IM REST 客户端(自建后端的分发入口)。
+"""IM 管理端客户端(唯一后端 = 自建 imserver)。
 
 设计要点:
     1. **业务函数对外永不抛异常**:失败只记日志并返回 ``False``。IM 抖动不应该拖垮
        主流程;把 ``False`` 转成异常、交给 Celery 重试是 ``im/tasks.py`` 的职责;
-    2. **REST 调用的 identifier 必须是应用管理员**(否则腾讯返回 60010),而消息的
-       发送方由 body 里的 ``From_Account`` 决定 —— 所以对外仍是「双方各自发的」;
-    3. **建号必须幂等**:``ensure_account`` 先查后建,绝不盲目调用 ``account_import``;
-    4. 命中灰度时在函数入口分发到 ``self_client``,决策主体见 ``backend.py``。
-
-注意事项:
-    ``account_import`` 对**已存在**的账号不会返回 7015,而是返回 ``ErrorCode: 0``
-    并把 ``Nick`` / ``FaceUrl`` 覆盖成传入值。因此「先导入、把 7015 当成功」的写法
-    会静默清空已同步的昵称与头像,详见 ``ensure_account`` 的说明。
+    2. **这一层只剩「语义与文案」**:消息类型、灰条文案、系统通知身份在这里,
+       真正的传输由 ``im/self_client.py`` 用 HMAC 内部 API 完成;
+    3. 腾讯云 IM 分支已于 2026-11-08 删除(backlog D-4):不再有 ``IM_BACKEND`` 开关、
+       不再有灰度名单,也没有「切回腾讯」的回退路径 —— IM 出问题回退 imserver 镜像。
 
 关联文档:
     - 踩坑记录:docs/pitfalls/im.md
+    - 内部 API 契约:docs/ops/imserver.md
 """
 
-import json
 import logging
-import random
-
-import requests
-from django.conf import settings
 
 from . import self_client
-from .backend import self_enabled_for
-from .signature import gen_user_sig
 
 logger = logging.getLogger(__name__)
 
@@ -60,118 +49,53 @@ def _ban_notice_text(level: str, reason: str) -> str:
             "限制期间无法使用滑卡功能,聊天、资料等其他功能不受影响。如有疑问请联系客服。")
 
 
-def _random_int():
-    """生成腾讯 REST 要求的随机数参数。
-
-    Returns:
-        1 ~ 4294967295 之间的随机整数(即无符号 32 位范围)。
-    """
-    return random.randint(1, 4294967295)
-
-
-def _request(service: str, command: str, payload: dict | None = None, identifier: str | None = None) -> dict:
-    """发起一次腾讯 IM REST 调用。
-
-    统一拼 URL、签名、随机数与超时;HTTP 层错误由 ``raise_for_status`` 抛出,
-    由各业务函数的 ``try`` 兜住。
-
-    Args:
-        service: REST 服务名,如 ``im_open_login_svc``。
-        command: 该服务下的命令名,如 ``account_import``。
-        payload: 请求体;``None`` 表示空对象。
-        identifier: 调用身份;``None`` 表示用管理员账号 ``IM_ADMIN_IDENTIFIER``。
-
-    Returns:
-        腾讯返回的 JSON 字典。
-    """
-    identifier = identifier or settings.IM_ADMIN_IDENTIFIER
-    url = f"{settings.IM_REST_BASE}/{service}/{command}"
-    params = {
-        "sdkappid": settings.IM_SDKAPPID,
-        "identifier": identifier,
-        "usersig": gen_user_sig(identifier),
-        "random": _random_int(),
-        "contenttype": "json",
-    }
-    resp = requests.post(url, params=params, json=payload or {}, timeout=settings.IM_TIMEOUT)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _check(result: dict, what: str) -> bool:
-    """按腾讯的 ``ErrorCode`` 判定调用是否成功。
-
-    Args:
-        result: 腾讯返回的 JSON 字典。
-        what: 调用名,仅用于日志。
-
-    Returns:
-        ``ErrorCode`` 为 0 时返回 ``True``,否则记警告日志并返回 ``False``。
-    """
-    if result.get("ErrorCode") != 0:
-        logger.warning("IM %s 返回错误: %s", what, result)
-        return False
-    return True
-
-
 def import_account(identifier: str, nickname: str = "") -> bool:
     """导入(创建)一个 IM 账号。
 
-    注意这是**破坏性**接口:对已存在的账号会把昵称与头像覆盖成传入值。
-    需要幂等建号时请用 ``ensure_account``,不要直接调本函数。
+    历史语义来自腾讯的 ``account_import``;自建后端没有独立的「导入」概念,
+    统一走幂等的 ``ensure_account``(已存在不动它,不存在才建)。
 
     Args:
         identifier: IM 账号(即 ``u{user_id}``)。
         nickname: 初始昵称,可为空串。
 
     Returns:
-        成功返回 ``True``;调用异常或腾讯返回非 0 错误码时返回 ``False``。
+        建号成功(或账号已存在)返回 ``True``,失败返回 ``False``。
     """
-    payload = {"Identifier": identifier, "Nick": nickname, "FaceUrl": ""}
-    try:
-        result = _request("im_open_login_svc", "account_import", payload)
-    except Exception:
-        logger.exception("IM account_import 调用失败 identifier=%s", identifier)
-        return False
-    return _check(result, "account_import")
+    return self_client.ensure_account(identifier, nickname)
 
 
-def send_custom_elem(from_identifier: str, to_identifier: str, data: dict, desc: str = "") -> bool:
+def ensure_account(identifier: str, nickname: str = "") -> bool:
+    """幂等建号:已存在就**不动它**,不存在才创建。
+
+    Args:
+        identifier: IM 账号。
+        nickname: 仅在需要新建账号时使用的初始昵称。
+
+    Returns:
+        账号已存在或新建成功返回 ``True``;失败返回 ``False``。
+    """
+    return self_client.ensure_account(identifier, nickname)
+
+
+def send_custom_elem(from_identifier: str, to_identifier: str, data: dict,
+                     desc: str = "") -> bool:
     """发送一条自定义消息(灰条、系统通知都走它)。
 
     Args:
-        from_identifier: 发送方 IM 账号(由 body 的 ``From_Account`` 决定)。
+        from_identifier: 发送方 IM 账号。
         to_identifier: 接收方 IM 账号。
-        data: 自定义消息体,会被序列化成 JSON 放进 ``Data``。
+        data: 自定义消息体,会被序列化成 JSON。
         desc: 消息摘要;客户端在会话列表里用它做预览文案。
 
     Returns:
-        成功返回 ``True``;调用异常或腾讯返回非 0 错误码时返回 ``False``。
+        成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(to_identifier):
-        return self_client.send_custom_elem(from_identifier, to_identifier, data, desc)
-    payload = {
-        "SyncOtherMachine": 2,
-        "From_Account": from_identifier,
-        "To_Account": to_identifier,
-        "MsgRandom": _random_int(),
-        "MsgBody": [{
-            "MsgType": "TIMCustomElem",
-            "MsgContent": {"Data": json.dumps(data, ensure_ascii=False), "Desc": desc, "Ext": ""},
-        }],
-    }
-    try:
-        # REST 的 identifier 必须是本应用的管理员账号(否则腾讯报 60010);
-        # 消息的发送方由 body 里的 From_Account 决定,所以对外仍是"双方各自发的"。
-        result = _request("openim", "sendmsg", payload)
-    except Exception:
-        logger.exception("IM 发消息失败 %s -> %s", from_identifier, to_identifier)
-        return False
-    return _check(result, "sendmsg")
+    return self_client.send_custom_elem(from_identifier, to_identifier, data, desc)
 
 
 def send_match_notice(identifier_a: str, identifier_b: str) -> bool:
-    """双方各发一条 TIMCustomElem:两个人的会话列表都会出现这个会话(M2 渲染成居中灰条)。
+    """双方各发一条自定义消息:两个人的会话列表都会出现这个会话(渲染成居中灰条)。
 
     Args:
         identifier_a: 配对一方 IM 账号。
@@ -196,9 +120,7 @@ def black_list_add(owner_identifier: str, other_identifier: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(owner_identifier):
-        return self_client.black_list_add(owner_identifier, other_identifier)
-    return _black_list("black_list_add", owner_identifier, other_identifier)
+    return self_client.black_list_add(owner_identifier, other_identifier)
 
 
 def black_list_delete(owner_identifier: str, other_identifier: str) -> bool:
@@ -211,65 +133,33 @@ def black_list_delete(owner_identifier: str, other_identifier: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(owner_identifier):
-        return self_client.black_list_delete(owner_identifier, other_identifier)
-    return _black_list("black_list_delete", owner_identifier, other_identifier)
-
-
-def _black_list(command: str, owner_identifier: str, other_identifier: str) -> bool:
-    """拉黑/解除拉黑的公共实现。
-
-    Args:
-        command: ``black_list_add`` 或 ``black_list_delete``。
-        owner_identifier: 操作方 IM 账号。
-        other_identifier: 对方 IM 账号。
-
-    Returns:
-        成功返回 ``True``,失败返回 ``False``。
-    """
-    # 注意:identifier 是否必须是管理员,需用真凭据实测确认,与 sendmsg 的 60010 同类问题
-    payload = {"From_Account": owner_identifier, "To_Account": [other_identifier]}
-    try:
-        result = _request("sns", command, payload)
-    except Exception:
-        logger.exception("IM %s 失败 %s -> %s", command, owner_identifier, other_identifier)
-        return False
-    return _check(result, command)
+    return self_client.black_list_delete(owner_identifier, other_identifier)
 
 
 def kick_user(identifier: str, block: bool = False) -> bool:
-    """把账号的在线 IM 会话踢下线(重封禁用;不然已有 userSig 最长 7 天还能聊)。
+    """把账号的在线 IM 会话踢下线(重封禁/单设备登录;否则已有 token 还能继续用)。
 
     Args:
         identifier: 目标 IM 账号。
-        block: 自建后端是否同时写封禁键;腾讯后端忽略该参数。
+        block: 是否同时写封禁键(重封禁时为 True)。
 
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(identifier):
-        return self_client.kick_user(identifier, block)
-    try:
-        result = _request("im_open_login_svc", "kick", {"UserID": identifier})
-    except Exception:
-        logger.exception("IM kick 调用失败 identifier=%s", identifier)
-        return False
-    return _check(result, "kick")
+    return self_client.kick_user(identifier, block)
 
 
 def set_session_version(identifier: str, version: int) -> bool:
-    """把账号当前会话版本同步给 IM(仅自建后端有该概念)。
+    """把账号当前会话版本同步给 imserver。
 
     Args:
         identifier: IM 账号。
         version: 账号当前的 ``session_version``。
 
     Returns:
-        自建后端返回同步结果;腾讯后端没有会话版本概念,直接返回 ``True``。
+        同步结果;失败返回 ``False``(调用方按 fail-closed 处理)。
     """
-    if self_enabled_for(identifier):
-        return self_client.set_session_version(identifier, version)
-    return True
+    return self_client.set_session_version(identifier, version)
 
 
 def pair_add(identifier_a: str, identifier_b: str) -> bool:
@@ -280,11 +170,9 @@ def pair_add(identifier_a: str, identifier_b: str) -> bool:
         identifier_b: 另一方 IM 账号。
 
     Returns:
-        自建后端返回同步结果;腾讯后端没有该概念,直接返回 ``True``。
+        同步结果。
     """
-    if self_enabled_for(identifier_a) and self_enabled_for(identifier_b):
-        return self_client.pair_add(identifier_a, identifier_b)
-    return True
+    return self_client.pair_add(identifier_a, identifier_b)
 
 
 def pair_remove(identifier_a: str, identifier_b: str) -> bool:
@@ -295,73 +183,21 @@ def pair_remove(identifier_a: str, identifier_b: str) -> bool:
         identifier_b: 另一方 IM 账号。
 
     Returns:
-        自建后端返回同步结果;腾讯后端没有该概念,直接返回 ``True``。
+        同步结果。
     """
-    if self_enabled_for(identifier_a) and self_enabled_for(identifier_b):
-        return self_client.pair_remove(identifier_a, identifier_b)
-    return True
+    return self_client.pair_remove(identifier_a, identifier_b)
 
 
 def delete_account(identifier: str) -> bool:
     """删除 IM 账号(注销账号时调用)。
 
-    注意:参数形状需用真凭据实测确认。本仓库已有两处同类前车之鉴 ——
-    ``sendmsg`` 的 identifier 必须是管理员(否则 60010)、``account_import``
-    对已存在账号会覆盖 Nick/FaceUrl 而不是返回 7015。
-
     Args:
         identifier: 待删除的 IM 账号。
 
     Returns:
-        成功返回 ``True``;调用异常或腾讯返回非 0 错误码时返回 ``False``。
+        成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(identifier):
-        return self_client.delete_account(identifier)
-    payload = {"DeleteItem": [{"UserID": identifier}]}
-    try:
-        result = _request("im_open_login_svc", "account_delete", payload)
-    except Exception:
-        logger.exception("IM account_delete 调用失败 identifier=%s", identifier)
-        return False
-    return _check(result, "account_delete")
-
-
-def ensure_account(identifier: str, nickname: str = "") -> bool:
-    """幂等建号:已存在就**不动它**,不存在才导入。
-
-    腾讯的 ``account_import`` 对**已存在**账号并不返回 7015,而是返回
-    ``ErrorCode: 0`` 并把 ``Nick`` / ``FaceUrl`` **覆盖**成传入值(2026-10-12 实测)。
-    「先导入、7015 当成功」的写法会带来两个后果:
-        1. 每次 ``POST /im/user_sig`` 的首次 ensure 都把已同步的昵称/头像清成空串
-           (会话列表于是显示成 ``u43`` 而不是昵称);
-        2. 7015 分支实际上永远走不到,是个假兜底。
-
-    因此这里先 ``account_check`` 问状态:已存在直接返回成功;查询失败时**不敢盲目
-    导入**(导入是破坏性的),返回 ``False`` 让上层重试。
-
-    Args:
-        identifier: IM 账号。
-        nickname: 仅在需要新建账号时使用的初始昵称。
-
-    Returns:
-        账号已存在或新建成功返回 ``True``;状态查询失败、导入失败返回 ``False``。
-    """
-    if self_enabled_for(identifier):
-        return self_client.ensure_account(identifier, nickname)
-    try:
-        result = _request("im_open_login_svc", "account_check",
-                          {"CheckItem": [{"UserID": identifier}]})
-        if result.get("ErrorCode") != 0:
-            logger.warning("IM account_check 返回错误: %s", result)
-            return False
-        items = result.get("ResultItem") or []
-        if items and items[0].get("AccountStatus") == "Imported":
-            return True
-    except Exception:
-        logger.exception("IM account_check 调用失败 identifier=%s", identifier)
-        return False
-
-    return import_account(identifier, nickname)
+    return self_client.delete_account(identifier)
 
 
 def send_ban_notice(to_identifier: str, level: str, reason: str) -> bool:
@@ -389,10 +225,7 @@ def send_ban_lifted(to_identifier: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(to_identifier):
-        return self_client.send_ban_lifted(to_identifier)
-    return send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
-                            {"type": "ban_lifted"}, BAN_LIFTED_TEXT)
+    return self_client.send_ban_lifted(to_identifier)
 
 
 def send_report_handled(to_identifier: str) -> bool:
@@ -441,7 +274,7 @@ def send_post_replied(to_identifier: str, replier_nickname: str, snippet: str) -
 
 
 def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
-    """发一条普通文本消息;手测/联调用(业务消息都从 App 端走 SDK)。
+    """发一条普通文本消息;手测/联调用(业务消息都从 App 端走 WS)。
 
     Args:
         from_identifier: 发送方 IM 账号。
@@ -451,27 +284,11 @@ def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(to_identifier):
-        return self_client.send_text(from_identifier, to_identifier, text)
-    payload = {
-        "SyncOtherMachine": 2,
-        "From_Account": from_identifier,
-        "To_Account": to_identifier,
-        "MsgRandom": _random_int(),
-        "MsgBody": [{"MsgType": "TIMTextElem", "MsgContent": {"Text": text}}],
-    }
-    try:
-        result = _request("openim", "sendmsg", payload)
-    except Exception:
-        logger.exception("IM 发消息失败 %s -> %s", from_identifier, to_identifier)
-        return False
-    return _check(result, "sendmsg")
+    return self_client.send_text(from_identifier, to_identifier, text)
 
 
 def set_profile_nick(identifier: str, nickname: str) -> bool:
     """把昵称同步到 IM 资料(会话列表 showName 的来源,名字降级兜底的根)。
-
-    接口是 ``profile/portrait_set``;名字写错(如 ``profile_set_field``)会返回 60008。
 
     Args:
         identifier: IM 账号。
@@ -480,15 +297,11 @@ def set_profile_nick(identifier: str, nickname: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(identifier):
-        return self_client.set_profile_nick(identifier, nickname)
-    return _portrait_set(identifier, [{"Tag": "Tag_Profile_IM_Nick", "Value": nickname}], "portrait_set")
+    return self_client.set_profile_nick(identifier, nickname)
 
 
 def set_profile_avatar(identifier: str, avatar_url: str) -> bool:
     """把头像同步到 IM 资料(会话列表/消息页头像取自 IM 的资料)。
-
-    字段名是 ``Tag_Profile_IM_Image``;写成 ``Url`` 会报 40009「Invalid field」。
 
     Args:
         identifier: IM 账号。
@@ -497,26 +310,4 @@ def set_profile_avatar(identifier: str, avatar_url: str) -> bool:
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
-    if self_enabled_for(identifier):
-        return self_client.set_profile_avatar(identifier, avatar_url)
-    return _portrait_set(identifier, [{"Tag": "Tag_Profile_IM_Image", "Value": avatar_url}], "portrait_set")
-
-
-def _portrait_set(identifier: str, profile_items: list, what: str) -> bool:
-    """资料字段写入的公共实现。
-
-    Args:
-        identifier: IM 账号。
-        profile_items: 待写入的 ``ProfileItem`` 列表。
-        what: 调用名,仅用于日志。
-
-    Returns:
-        成功返回 ``True``;调用异常或腾讯返回非 0 错误码时返回 ``False``。
-    """
-    payload = {"From_Account": identifier, "ProfileItem": profile_items}
-    try:
-        result = _request("profile", "portrait_set", payload)
-    except Exception:
-        logger.exception("IM portrait_set 调用失败 identifier=%s", identifier)
-        return False
-    return _check(result, what)
+    return self_client.set_profile_avatar(identifier, avatar_url)

@@ -16,7 +16,7 @@ const props = withDefaults(
     hit?: boolean
     /** 对端已读这条(只对我方消息有意义,由 ChatPage 用 peerReadSeq 比较得出) */
     isRead?: boolean
-    /** 后端是否支持已读回执(腾讯分支为 false:宁可不显示,也不要假状态) */
+    /** 是否支持已读回执(不支持时宁可不显示,也不要假状态) */
     readReceiptEnabled?: boolean
   }>(),
   {
@@ -37,7 +37,7 @@ defineEmits<{ retry: []; openImage: [ChatMessage]; menu: [MouseEvent] }>()
  * - 失败交给「重发」按钮,发送中显示「发送中…」,这两种情况不显示已读;
  * - **未读不写字**(微信口径):一屏十几条都挂「未读」是纯噪声,而且区分不了
  *   「已送达未读 / 没送达」;有没有「已读」两个字本身就是未读的信号;
- * - 后端不支持已读回执(腾讯分支)时一律不显示。
+ * - 不支持已读回执时一律不显示。
  */
 const showRead = computed(
   () =>

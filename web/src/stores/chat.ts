@@ -4,8 +4,7 @@ import { http } from '@/api/http'
 import { parseApiError } from '@/api/error'
 import { sessionEvents } from '@/api/session-events'
 import { getImClient } from '@/im/client'
-import { SYSTEM_NOTICE_PEER_ID } from '@/im/map'
-import { ChatMessageKind } from '@/im/types'
+import { ChatMessageKind, SYSTEM_NOTICE_PEER_ID } from '@/im/types'
 import type {
   ChatMessage,
   ImBootstrap,
@@ -188,33 +187,28 @@ export const useChatStore = defineStore('chat', () => {
     }
   })
 
-  /** 取 userSig → 登录 IM。403(重封禁)不重试,交给路由守卫处理。 */
+  /** 取 IM 凭证 → 登录 IM。403(重封禁)不重试,交给路由守卫处理。 */
   async function doConnect(): Promise<void> {
     error.value = ''
     banned.value = false
     try {
       const { data } = await http.post('/im/user_sig')
       const raw = data as {
-        backend?: 'tencent' | 'self'
-        sdkappid?: string | number
         im_user_id: string
         token?: string
-        user_sig?: string
       }
       // Web 永远走同源:忽略后端返回的绝对地址(可能是 App 用的 10.0.2.2)
       const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/im/ws`
       const httpUrl = new URL('/im/api', location.origin).toString()
       const bootstrap: ImBootstrap = {
-        backend: raw.backend === 'self' ? 'self' : 'tencent',
-        sdkAppId: Number(raw.sdkappid ?? 0),
         token: raw.token ?? '',
         wsUrl,
         httpUrl,
         imUserId: raw.im_user_id,
       }
       await client.init(bootstrap)
-      await client.login(raw.im_user_id, raw.token || raw.user_sig || '')
-      // 连上之后才拿得到真实能力位(init 前 RoutingImClient 还没有 active)
+      await client.login(raw.im_user_id, raw.token ?? '')
+      // 连上之后才拿得到真实能力位(init 之前客户端还没握手)
       capabilities.value = { ...client.capabilities }
       reconnectAttempt = 0
       status.value = 'ready'
@@ -287,8 +281,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * 所有 IM 操作前都要先确保已连接 —— 否则会在 `init()` 之前就用 SDKAppID=0
-   * 建出实例,之后所有调用都返回 `No SDKAppID`(真机踩到过)。
+   * 所有 IM 操作前都要先确保已连接 —— 否则会在 `init()` 之前就用空凭证去连 WS,
+   * 之后所有调用都会失败(真机踩到过)。
    */
   async function ensureConnected(): Promise<void> {
     await connect()

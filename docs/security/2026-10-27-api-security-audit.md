@@ -1,5 +1,10 @@
 # chat_app 接口安全审计报告
 
+> **状态注记(2026-11-08)**:本文描述的腾讯云 IM 分支已随 backlog D-4 删除;
+> 文中 `IM_BACKEND` / `IM_SELF_GRAYLIST` / `user_sig` 等表述仅作历史记录,现行链路见
+> `docs/ops/imserver.md` 与 `docs/pitfalls/im.md`。
+
+
 > 审计日期：2026-10-27  
 > 报告版本：v1.0  
 > 审计对象：Django/DRF 后端、`/ops` 审核台、自建 `imserver`、Web/App 鉴权与令牌存储  

@@ -93,7 +93,7 @@ class User(AbstractUser):
 
     @property
     def im_user_id(self):
-        """腾讯云 IM 的账号标识;全项目只在这里拼,别处一律用这个属性。"""
+        """IM 账号标识(``u{user_id}``);全项目只在这里拼,别处一律用这个属性。"""
         return f"u{self.id}"
 
     def __str__(self):

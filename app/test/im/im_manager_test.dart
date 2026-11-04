@@ -31,10 +31,11 @@ void main() {
 
   void stubUserSig() {
     adapter.routes['POST /im/user_sig'] = (options) => ok({
-          'user_sig': 'sig-abc',
-          'sdkappid': '1600161711',
+          'token': 'tok-abc',
+          'ws_url': 'ws://test/im/ws',
+          'http_url': 'http://test/im/api',
           'im_user_id': 'u3',
-          'expire': 604800,
+          'expire': 86400,
         });
   }
 
@@ -52,10 +53,10 @@ void main() {
     await container.read(imStatusProvider.notifier).login();
 
     expect(container.read(imStatusProvider), isA<ImLoggedIn>());
-    expect(fake.log, ['init:1600161711', 'login:u3']);
+    expect(fake.log, ['init:u3', 'login:u3']);
   });
 
-  test('拿 userSig 失败(403 封禁)→ ImFailed 带后端中文提示', () async {
+  test('拿 IM 凭证失败(403 封禁)→ ImFailed 带后端中文提示', () async {
     adapter.routes['POST /im/user_sig'] = (options) => jsonError(403, '账号已被封禁');
     final container = makeContainer();
 
@@ -69,12 +70,12 @@ void main() {
 
   test('SDK 登录报错 → ImFailed 带错误码', () async {
     stubUserSig();
-    fake.loginError = const ImException(6206, 'sig expired');
+    fake.loginError = const ImException(40101, '登录已过期');
     final container = makeContainer();
 
     await container.read(imStatusProvider.notifier).login();
 
-    expect((container.read(imStatusProvider) as ImFailed).message, contains('6206'));
+    expect((container.read(imStatusProvider) as ImFailed).message, contains('40101'));
   });
 
   test('logout:调 SDK 登出 → 未登录', () async {
@@ -85,10 +86,10 @@ void main() {
     await container.read(imStatusProvider.notifier).logout();
 
     expect(container.read(imStatusProvider), isA<ImLoggedOut>());
-    expect(fake.log, ['init:1600161711', 'login:u3', 'logout']);
+    expect(fake.log, ['init:u3', 'login:u3', 'logout']);
   });
 
-  test('userSig 过期事件 → 自动重新拉签名登录', () async {
+  test('IM 凭证过期事件 → 自动重新拉凭证登录', () async {
     stubUserSig();
     final container = makeContainer();
     await container.read(imStatusProvider.notifier).login();
@@ -97,12 +98,12 @@ void main() {
     await pumpEventQueue();
 
     expect(container.read(imStatusProvider), isA<ImLoggedIn>());
-    expect(fake.log, ['init:1600161711', 'login:u3', 'login:u3']);
+    expect(fake.log, ['init:u3', 'login:u3', 'login:u3']);
   });
 
-  test('6206 瞬时冲突 → 自动重试一次后成功', () async {
+  test('40101 瞬时冲突 → 自动重试一次后成功', () async {
     stubUserSig();
-    fake.loginErrorOnce = const ImException(6206, 'sig rejected');
+    fake.loginErrorOnce = const ImException(40101, '登录已过期');
     final original = ImManager.loginRetryDelay;
     ImManager.loginRetryDelay = Duration.zero;
     addTearDown(() => ImManager.loginRetryDelay = original);
@@ -114,9 +115,9 @@ void main() {
     expect(fake.log.where((l) => l.startsWith('login:')), hasLength(2)); // 试了两次
   });
 
-  test('6206 持续失败 → ImFailed(不再无限重试)', () async {
+  test('40101 持续失败 → ImFailed(不再无限重试)', () async {
     stubUserSig();
-    fake.loginError = const ImException(6206, 'sig rejected');
+    fake.loginError = const ImException(40101, '登录已过期');
     final original = ImManager.loginRetryDelay;
     ImManager.loginRetryDelay = Duration.zero;
     addTearDown(() => ImManager.loginRetryDelay = original);
@@ -124,7 +125,7 @@ void main() {
 
     await container.read(imStatusProvider.notifier).login();
 
-    expect((container.read(imStatusProvider) as ImFailed).message, contains('6206'));
+    expect((container.read(imStatusProvider) as ImFailed).message, contains('40101'));
     expect(fake.log.where((l) => l.startsWith('login:')), hasLength(2));
   });
 

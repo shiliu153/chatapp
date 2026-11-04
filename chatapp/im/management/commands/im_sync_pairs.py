@@ -10,7 +10,6 @@
 命令幂等(``im_pair`` 以 ``(user_a,user_b)`` 为主键),失败只记日志。
 """
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from discovery.models import Match
@@ -39,9 +38,6 @@ class Command(BaseCommand):
             **options: 已解析的命令行参数;``dry_run`` 为真时只统计。
         """
         dry_run = options["dry_run"]
-        if settings.IM_BACKEND != "self":
-            self.stdout.write("当前 IM_BACKEND 不是 self,不需要回填配对")
-            return
         ok = fail = 0
         matches = (Match.objects.filter(unmatched_at__isnull=True)
                    .select_related("user_a__profile", "user_b__profile"))

@@ -35,7 +35,7 @@ export default tseslint.config(
         'warn',
         { html: { void: 'always', normal: 'always', component: 'always' } },
       ],
-      // 腾讯云 IM 的 payload 是无类型对象,边界处不可避免用 any
+      // 自建 IM 的帧 payload 是无类型对象,边界处不可避免用 any
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },

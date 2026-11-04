@@ -7,7 +7,7 @@ import { freshPinia } from '../support/pinia'
 import type { ImConversation } from '@/im/types'
 
 /**
- * 组件测试只验证渲染与交互:两个动作都替换掉,避免真的去连腾讯云。
+ * 组件测试只验证渲染与交互:两个动作都替换掉,避免真的去连 IM 服务。
  * (预置状态的 pinia 必须与挂载用的是同一个,否则组件读到空 store。)
  */
 function stubChatStore(conversations: ImConversation[], status: ChatStatus = 'ready') {

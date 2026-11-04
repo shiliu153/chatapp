@@ -25,6 +25,6 @@ Google 源在国内不可直连,以下已就位(2026-09-10 `flutter build apk --
 - ⚠️ **`monkey -p chatapp_app` 会静默失败**:applicationId 是 `com.chatapp.chatapp_app`,不是 Flutter 包名 `chatapp_app`;用 `am start`。
 - ⚠️ **只保留一个 runserver 进程**:Windows 下多个 runserver 可同时绑定 8000,旧进程会拿旧配置抢答(踩过:旧 ALLOWED_HOSTS 导致 400)。排查:`netstat -ano | grep :8000` + `Get-CimInstance Win32_Process` 看 PID 启动时间和命令行。
 - ⚠️ **覆盖安装后行为仍像旧代码 → 怀疑装到了旧产物**(2026-09-13 踩过):现象=新功能完全不生效但后端日志显示请求正常。排查:`adb shell dumpsys package com.chatapp.chatapp_app | grep lastUpdateTime` 对照安装时刻;**处理=干净重打 `flutter build apk` 再 `install -r`**。诊断手段:临时 `debugPrint` + release 包直接 `adb logcat -d | grep "\[标签"`(release 里 debugPrint 仍输出)。
-- ⚠️ **模拟器长跑数小时后 IM 长连接劣化**(2026-09-12 实测):消息最长隔 ~2 分钟才到、记录加载慢、偶发「网络不给力」;`adb logcat -d | grep -c ERR_CONNECTION_RESET` 每 ~2 分钟一次(SDK 心跳 120s 踩线跑不过链路重置)。判据:同机裸 TCP 空闲不断、后端接口全 15~60ms、宿主直连腾讯正常 → 模拟器侧劣化。处理:**冷启动重启(`-no-snapshot-load`)即恢复**——⚠️ 动模拟器前先和用户确认。
+- ⚠️ **模拟器长跑数小时后 IM 长连接劣化**(2026-09-12 实测,腾讯 SDK 时代;自建 imserver 下 45s 心跳已解决,保留作历史参考):消息最长隔 ~2 分钟才到、记录加载慢、偶发「网络不给力」;`adb logcat -d | grep -c ERR_CONNECTION_RESET` 每 ~2 分钟一次(SDK 心跳 120s 踩线跑不过链路重置)。判据:同机裸 TCP 空闲不断、后端接口全 15~60ms、宿主直连腾讯正常 → 模拟器侧劣化。处理:**冷启动重启(`-no-snapshot-load`)即恢复**——⚠️ 动模拟器前先和用户确认。
 - ⚠️ **模拟器相册默认是空的**:测照片上传先 `adb push 本地图.png /sdcard/Pictures/x.png` 并触发媒体扫描(`adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/x.png`),或改用 `-d windows` 走文件选择。
 - ⚠️ 模拟器访问宿主机一律 **`10.0.2.2`**(不是 127.0.0.1——那指向模拟器自己)。

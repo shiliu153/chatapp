@@ -1,6 +1,6 @@
 # chat_app · 交友应用全栈项目
 
-> 一个从零到可上线的交友 App:Flutter 客户端 + Django REST 后端,聊天走腾讯云 IM,
+> 一个从零到可上线的交友 App:Flutter 客户端 + Django REST 后端,聊天走自建 C++ IM,
 > 后端全栈自建(鉴权 / 滑卡配对 / 广场 / 举报拉黑 / 运营审核台 / 在线状态)。
 > 全程按 **spec → plan → 实现 → 验收** 的节奏推进,每个阶段都有可回溯的设计文档与实施计划。
 >
@@ -46,7 +46,7 @@
 ## 项目概览
 
 这是一个**双端齐全、业务流程闭环**的交友类应用,不是课程作业式的 Demo:从手机号验证码登录、
-资料完善、滑卡发现、互相喜欢配对,到基于腾讯云 IM 的实时聊天、朋友圈式的广场动态,
+资料完善、滑卡发现、互相喜欢配对,到基于自建 IM 的实时聊天、朋友圈式的广场动态,
 再到面向运营侧的举报处理与封禁审核台,链路都跑通过、并在真实服务器上部署验证过。
 
 | 维度 | 规模 |
@@ -83,8 +83,8 @@
 - **喜欢我的人**:收到的喜欢按时间倒序展示,可直接回喜欢;口径与候选池完全一致,互喜即配对
 - 滑卡限流 300 次/小时;配对列表分页并预热昵称头像缓存
 
-### 聊天(腾讯云 IM)
-- 消息链路走腾讯云 IM,业务数据存 Django;后端签发 userSig
+### 聊天(自建 IM)
+- 消息链路走自建 C++ imserver(WS :9100 + HTTP :9101),业务数据存 Django;后端签发 IM token,imserver 校验会话版本
 - 会话列表四态(骨架 / 空态 / 错误重试 / 正常)、最近联系人横滑条、系统通知置顶
 - 聊天页:气泡、时间条(间隔 > 5 分钟插入)、表情面板、发图、长按菜单、失败重发
 - 昵称与头像变更同步到 IM(照片过审后异步刷头像)
@@ -122,7 +122,7 @@
 | 后端 | **Django 5.2 LTS + DRF** | LTS 保证长期维护;自带 admin/ORM/迁移,合规侧(审核台)可以直接借用 admin 的鉴权体系 |
 | 数据库 | **MySQL 8** | 生产常见选择;需要唯一约束 + CheckConstraint 来保证配对幂等与并发正确性 |
 | 缓存 / 队列 | **Redis 7** + **Celery** | 验证码、限流走 Redis;所有跨系统副作用走 Celery,保证响应路径零第三方网络调用 |
-| 聊天 | **腾讯云 IM** | 自建长连接的成本远高于接入成熟 SDK;但**业务数据仍全部留在自己的库**里,IM 只做消息通道 |
+| 聊天 | **自建 C++ IM(`imserver/`)** | 2026-10-20 全量切换;消息存 `chatapp_im` 库,图片/语音走 Django 上传 + 签名地址(腾讯分支已于 2026-11-08 删除) |
 | 部署 | 阿里云轻量 + 宝塔面板 + gunicorn + nginx | 2C2G 小机器全托管;容量实测见下方[部署](#部署)一节 |
 
 ---
@@ -138,7 +138,7 @@
                 │ HTTPS /api/v1            │ 长连接(消息)
                 ▼                          ▼
 ┌───────────────────────────────┐   ┌──────────────────────────┐
-│  Django + DRF (chatapp/)      │   │  腾讯云 IM               │
+│  Django + DRF (chatapp/)      │   │  imserver (C++ IM)      │
 │  config/  统一错误契约 · 鉴权  │   │  userSig 由后端签发       │
 │  accounts users discovery     │   │  账号 = u{user_id}        │
 │  im moderation ops feed …     │   └──────────────────────────┘
@@ -174,7 +174,7 @@
 | MySQL | 8.0+ | 业务库 |
 | Redis | 7.x | **跑测试和接口前必须先起**,否则验证码/限流用例会失败 |
 | Flutter | 3.47.x | 客户端 |
-| 腾讯云 IM | 体验版即可 | 需要一个 SDKAppID;聊天功能依赖它 |
+| imserver | 随仓库构建 | 自建 C++ IM(WS :9100 + HTTP :9101),聊天功能依赖它 |
 
 ### 后端(Django)
 
@@ -185,7 +185,7 @@ mysql -u root -p < chatapp/db_setup.sql
 # 2. 配置环境变量
 cd chatapp
 cp .env.example .env
-#    至少填: SECRET_KEY / DB_PASSWORD / IM_SDKAPPID / IM_SECRETKEY
+#    至少填: SECRET_KEY / DB_PASSWORD / IM_SELF_SECRET / IM_SELF_INTERNAL_SECRET
 #    SECRET_KEY 可用: python -c "import secrets;print(secrets.token_urlsafe(50))"
 
 # 3. 装依赖(生产/CI 一律用锁定文件;升级流程见 requirements.lock 头部注释)
@@ -248,7 +248,7 @@ flutter build apk --release --dart-define=API_BASE=https://your-domain/api/v1
 **后端**:`python manage.py test` —— **640 个用例全绿**(需要 Redis 在跑)。
 关键业务不靠人工点:配对并发(唯一约束 + CheckConstraint)、限流窗口、
 验证码锁定、封禁分级、单设备登录的三条退出路径,都有对应用例。
-所有 IM 副作用一律 mock(`im.tasks.*.delay`),测试不依赖腾讯云。
+所有 IM 副作用一律 mock(`im.tasks.*.delay`),测试不依赖真实 imserver。
 
 **前端**:`flutter test` —— **431 个用例全绿**,分布在 114 个测试文件里。
 测试形态是 **「真实 provider + 假网络 + 假 IM」**:
@@ -273,7 +273,7 @@ flutter build apk --release --dart-define=API_BASE=https://your-domain/api/v1
 - App:`flutter analyze` 必须零告警
 - 网页端:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + 覆盖率门槛(70/60/70/70)
 
-三条前端门禁都进了 CI(`.github/workflows/`),端到端因为依赖真实后端与腾讯云 IM,不进 CI。
+三条前端门禁都进了 CI(`.github/workflows/`),端到端因为依赖真实后端与 imserver,不进 CI。
 
 ---
 
@@ -348,7 +348,7 @@ chat_app/
 │   ├── src/
 │   │   ├── api/                #   纯请求层(错误契约解析 / 401 刷新通道 / 令牌存储)
 │   │   ├── stores/             #   Pinia:会话 / 资料 / 发现 / 聊天 / 广场 / 在线状态
-│   │   ├── im/                 #   腾讯云 IM 浏览器 SDK 封装 + 消息映射(纯函数)
+│   │   ├── im/                 #   自建 IM 客户端(WS 帧 + 消息映射)
 │   │   ├── components/         #   基础组件(按钮/输入/头像/骨架/空态/错误态)
 │   │   ├── layouts/            #   DesktopShell(可拖拽侧栏)/ MobileGuard(移动端引导)
 │   │   └── features/           #   auth onboarding discovery chat square profile settings
@@ -423,7 +423,7 @@ chat_app/
              └─ Redis 7 DB2
 ```
 
-聊天可走腾讯云 IM(默认)或自建 `imserver`(见 `docs/ops/imserver.md`);
+聊天走自建 `imserver`(唯一后端,见 `docs/ops/imserver.md`);
 切换只改 Django `.env` 的 `IM_BACKEND`,客户端按 `/im/user_sig` 返回的
 `backend` 自动选择实现。
 
@@ -434,7 +434,7 @@ chat_app/
 | `GET /readyz`(最轻) | 并发 ≤ 40 | ~200 req/s |
 | `GET /users/me`(登录态实读) | 并发 ≤ 10–20 | ~53 req/s |
 
-折算混合流量约可支撑 **300–500 同时在线**。聊天走腾讯云 IM 直连时不占本机资源;
+折算混合流量约可支撑 **300–500 同时在线**。聊天走本机 imserver(WS 长连接,常驻约 50MB);
 切到自建 imserver 后,500 连接常驻内存约 20–40 MB,文本消息是单行 INSERT,
 2C2G 足够。**真正吃 CPU 的是刷卡片和广场**。当时的结论是"瓶颈已经从 worker 数
 转为 CPU 核数"——再加线程无用,要提容量得升配或降单请求开销。
@@ -491,7 +491,7 @@ nginx 三条硬要求:
 - 提交邮箱统一为 GitHub noreply 地址;
 - 清洗脚本保留在 [`tools/sanitize.py`](tools/sanitize.py),规则可复核、可复现。
 
-**如果你要基于本项目部署,务必自行更换**:`SECRET_KEY`、数据库口令、腾讯云 IM 密钥,
+**如果你要基于本项目部署,务必自行更换**:`SECRET_KEY`、数据库口令、IM 密钥,
 并关闭 `DEBUG` / `SMS_DEV_MODE` / `AUTO_APPROVE` 这些开发期开关。
 
 ### 已知取舍
@@ -524,7 +524,7 @@ Issue 与 PR 都欢迎;提交前请确认后端测试全绿、`flutter analyze` 
 
 **chat_app** is a full-stack dating application built as a complete, deployable product rather
 than a toy demo: a **Flutter 3.47** client and a **Django 5.2 + DRF** backend, with real-time
-messaging delegated to **Tencent Cloud IM** while all business data stays in **MySQL 8**
+messaging handled by a **self-hosted C++ IM** while all business data stays in **MySQL 8**
 (cache and async jobs on **Redis 7 + Celery**).
 
 The feature set covers the full loop — phone/SMS authentication with rotating JWT pairs and

@@ -16,14 +16,13 @@
 | `plans/` | 进行中 / 未启动的实施计划 |
 | `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(80 份,清单见 §4) |
 
-## 2. 当前工作面(只有这 4 份)
+## 2. 当前工作面(只有这 3 份)
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
 | [specs/2026-10-28-dual-server-load-balancing-design.md](specs/2026-10-28-dual-server-load-balancing-design.md) | **已决策(2026-11-04)** | 双机负载均衡方案 v2。用户拍板选「不做双机、暂不升配」,决策记录见 [ops/dual-server-vs-upgrade](../ops/dual-server-vs-upgrade-2026-11-04.md);本 spec 留作历史设计 |
 | [plans/2026-11-02-observability-and-capacity.md](plans/2026-11-02-observability-and-capacity.md) | 进行中 | 可观测性 + 容量工程 + 削峰整改。P0/P1 主体已上线,剩余项看文件内未勾选 checkbox |
-| [plans/2026-11-04-tencent-im-removal.md](plans/2026-11-04-tencent-im-removal.md) | 未启动 | backlog D-4:删除腾讯 IM 分支。引用清单与删除顺序已出,**待 2026-11-08 执行** |
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。
@@ -36,7 +35,7 @@
 - 交付后在文件末尾写「执行记录 / 与计划的偏差 / 踩到的坑」,**不要**回头补勾旧 checkbox(见 §4 注)
 - 交付即归档:同一提交内 `git mv` 到 `archive/` + 更新本文 §4 + 更新 `CLAUDE.md` 里程碑摘要
 
-## 4. 归档清单(已交付,共 81 份)
+## 4. 归档清单(已交付,共 82 份)
 
 > **注**:2026-10 之前的计划普遍存在「已交付但 checkbox 未回填」的情况(M0–M2、UI 批次②③、广场楼中楼、自建 IM、账号注销、访客等)。
 > 判断是否交付**以本表结论与 git log 为准**,不要以文件内 checkbox 为准。
@@ -105,6 +104,7 @@
 | 11-01 | [security-round3](archive/plans/2026-11-01-security-round3.md) | — | 第三轮安全审计整改(PR #30,已上线) |
 | 11-04 | [read-receipt](archive/plans/2026-11-04-read-receipt.md) | [✓](archive/specs/2026-11-04-read-receipt-design.md) | 已读回执(imserver 广播 + peer_read_seq,App/Web 双端;backlog C-2) |
 | 11-04 | [cursor-pagination](archive/plans/2026-11-04-cursor-pagination.md) | — | cursor/keyset 分页替代 offset(五个列表接口 + App/Web 双端;backlog D-1 / 审查 N-5) |
+| 11-08 | [tencent-im-removal](archive/plans/2026-11-04-tencent-im-removal.md) | — | 删除腾讯云 IM 分支:App/Web/后端三端 + 配置/CI/文档收敛,灰度开关移除、回退改镜像;backlog D-4 |
 
 ---
 

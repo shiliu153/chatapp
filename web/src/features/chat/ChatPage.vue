@@ -37,7 +37,7 @@ let focusing = false
 const imageEnabled = computed(() => store.capabilities.image)
 /** 语音入口:后端能力 + 浏览器能录音(需 HTTPS 或 localhost) */
 const voiceEnabled = computed(() => store.capabilities.voice && canRecordVoice())
-/** 已读回执:后端支持才显示(腾讯分支 false) */
+/** 已读回执:实现支持才显示 */
 const readReceiptEnabled = computed(() => store.capabilities.readReceipt)
 /**
  * 这条我方消息是否已被对端读过:`seq <= 对端已读位置`。

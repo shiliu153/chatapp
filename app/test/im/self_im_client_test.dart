@@ -73,7 +73,6 @@ class FakeHttpClient implements SelfHttpClient {
 }
 
 const bootstrap = ImBootstrap(
-  backend: ImBackend.self,
   token: 'tok',
   wsUrl: 'ws://test/im/ws',
   httpUrl: 'http://test/im/api',
@@ -86,7 +85,7 @@ void main() {
     final client = SelfImClient(transportFactory: () => transport);
     await client.init(bootstrap);
 
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     expect(transport.connected, isTrue);
     expect(transport.sent.single, contains('"type":"auth"'));
@@ -100,7 +99,7 @@ void main() {
     final transport = FakeTransport();
     final client = SelfImClient(transportFactory: () => transport);
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     transport.emit('{"v":1,"type":"auth_ok","data":{"uid":9}}');
     await login;
@@ -126,7 +125,7 @@ void main() {
       httpClient: FakeHttpClient(),
     );
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     transport.emit('{"v":1,"type":"auth_ok","data":{"uid":9}}');
     await login;
@@ -142,7 +141,7 @@ void main() {
     final client = SelfImClient(
         transportFactory: () => transport, imageUploader: uploader);
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     transport.emit(jsonEncode({
       'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
@@ -173,7 +172,7 @@ void main() {
         transportFactory: () => transport,
         imageUploader: FakeUploader(failure: const ImException(400, '图片不能超过 5MB')));
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     transport.emit(jsonEncode({
       'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
@@ -191,7 +190,7 @@ void main() {
     final transport = FakeTransport();
     final client = SelfImClient(transportFactory: () => transport);
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     transport.emit(jsonEncode({
       'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
@@ -235,7 +234,7 @@ void main() {
     });
     final client = SelfImClient(httpClient: http);
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     // 没有 transport 时 login 永远等不到 auth_ok,这里只验证 HTTP 行为,直接放弃等。
     unawaited(login.catchError((_) {}));
@@ -265,7 +264,7 @@ void main() {
     final client = SelfImClient(
         transportFactory: () => transport, voiceUploader: uploader);
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     transport.emit(jsonEncode({
       'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
@@ -296,7 +295,7 @@ void main() {
     final transport = FakeTransport();
     final client = SelfImClient(transportFactory: () => transport);
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     transport.emit(jsonEncode({
       'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
@@ -314,7 +313,7 @@ void main() {
     final transport = FakeTransport();
     final client = SelfImClient(transportFactory: () => transport);
     await client.init(bootstrap);
-    final login = client.login(userId: 'u9', userSig: 'tok');
+    final login = client.login(userId: 'u9', token: 'tok');
     await pumpEventQueue();
     transport.emit(jsonEncode({
       'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},

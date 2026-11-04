@@ -1,7 +1,6 @@
 /// IM 领域模型与客户端接口。
 ///
-/// 真实实现:腾讯在 tencent_im_client.dart,自建在 self_im_client.dart;
-/// 登录时由 routing_im_client.dart 按服务端引导包选择。
+/// 真实实现只有自建一套(`self_im_client.dart`);腾讯分支已于 2026-11-08 删除。
 library;
 
 import 'im_bootstrap.dart';
@@ -18,7 +17,7 @@ int? userIdFromImId(String imUserId) {
   return int.tryParse(imUserId.substring(1));
 }
 
-/// 账号在另一台设备登录(腾讯踢下线)时给用户的提示。
+/// 账号在另一台设备登录(被 imserver 踢下线)时给用户的提示。
 const kickedOfflineMessage = '账号已在其他设备登录,请重新登录';
 
 class ChatMessage {
@@ -42,7 +41,7 @@ class ChatMessage {
 
   final String msgId;
 
-  /// 会话内序号(自建后端从服务端解析;腾讯后端恒为 0)。回溯翻页要用。
+  /// 会话内序号(由 imserver 解析)。回溯翻页要用。
   final int seq;
 
   /// 对端的 IM id,如 'u9'。
@@ -157,7 +156,7 @@ class ImKickedOffline extends ImEvent {
   const ImKickedOffline();
 }
 
-/// IM 调用返回非零错误码时抛;code 是腾讯错误码。
+/// IM 调用返回非零错误码时抛;code 是 imserver 的业务码(如 40101 登录过期)。
 class ImException implements Exception {
   const ImException(this.code, this.message);
 
@@ -177,14 +176,13 @@ class ImCapabilities {
   });
   final bool image;
 
-  /// 是否支持聊天记录搜索(腾讯后端为 false,入口隐藏)。
+  /// 是否支持聊天记录搜索(当前自建实现支持)。
   final bool search;
 
-  /// 是否支持语音消息(腾讯后端为 false,入口隐藏)。
+  /// 是否支持语音消息(当前自建实现支持)。
   final bool voice;
 
-  /// 是否支持已读回执(腾讯后端为 false —— 没有「对方读到哪」就不会有真已读,
-  /// 宁可不显示,也不要显示一个永远「未读」的假状态)。
+  /// 是否支持已读回执(自建实现支持;没有「对方读到哪」时不要显示假状态)。
   final bool readReceipt;
 }
 
@@ -232,7 +230,7 @@ abstract class ImClient {
   /// 初始化 SDK/连接参数;重复调用要幂等。
   Future<void> init(ImBootstrap bootstrap);
 
-  Future<void> login({required String userId, required String userSig});
+  Future<void> login({required String userId, required String token});
 
   Future<void> logout();
 
@@ -242,7 +240,7 @@ abstract class ImClient {
   /// 单聊历史消息,按时间正序(旧 → 新);[beforeSeq] 用于往前翻页。
   Future<List<ChatMessage>> fetchHistory(String peerId, {int count = 50, int? beforeSeq});
 
-  /// 搜索聊天记录(仅自建后端支持;腾讯抛 [ImException] 42202)。
+  /// 搜索聊天记录(不支持时抛 [ImException] 42202)。
   Future<ImSearchResult> searchMessages(String keyword, {int limit = 20, String? beforeId}) =>
       throw const ImException(42202, '当前聊天服务暂不支持搜索');
 
@@ -251,7 +249,7 @@ abstract class ImClient {
 
   Future<ChatMessage> sendImage({required String peerId, required String imagePath});
 
-  /// 发送语音(仅自建后端支持;腾讯抛 [ImException] 42202)。
+  /// 发送语音(不支持时抛 [ImException] 42202)。
   Future<ChatMessage> sendVoice({required String peerId, required String localPath,
       required int durationMs}) =>
       throw const ImException(42202, '当前聊天服务暂不支持语音');
@@ -259,7 +257,7 @@ abstract class ImClient {
   /// 删除本地消息(对方不受影响);本地未发出的消息可直接忽略此调用。
   Future<void> deleteMessage(ChatMessage message);
 
-  /// 撤回已发送消息(腾讯默认时限 2 分钟,超时抛 [ImException])。
+  /// 撤回已发送消息(时限 2 分钟,超时抛 [ImException])。
   Future<void> revokeMessage(String msgId);
 
   /// 该 SDK 版本无原生重发:等价于用原内容重新发送。

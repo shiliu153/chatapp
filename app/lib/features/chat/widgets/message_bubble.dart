@@ -41,7 +41,7 @@ class MessageBubble extends StatelessWidget {
   /// 对端已读这条(我方消息才有意义;由 `chatPeerReadSeqProvider` 与 `seq` 比较得出)。
   final bool isRead;
 
-  /// 后端是否支持已读回执(腾讯后端为 false:宁可不显示,也不要假状态)。
+  /// 是否支持已读回执(不支持时宁可不显示,也不要假状态)。
   final bool readReceiptEnabled;
 
   static const noticeFallback = '你们已互相喜欢,开始聊天吧';
@@ -150,7 +150,7 @@ class MessageBubble extends StatelessWidget {
   /// - 失败不写字 —— 左侧已有红色重发图标,再写字是重复;
   /// - **未读不写字** —— 微信口径。一屏十几条都挂「未读」是纯噪声,而且区分不了
   ///   「已送达未读 / 没送达」;「有没有『已读』这两个字」本身就是未读的信号;
-  /// - 后端不支持已读回执(腾讯分支)时一律不显示,不给假状态。
+  /// - 不支持已读回执时一律不显示,不给假状态。
   String? _statusLabel() {
     if (!message.isSelf) return null;
     if (message.isPending) return '发送中';

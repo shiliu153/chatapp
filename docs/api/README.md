@@ -48,7 +48,7 @@
 | GET | `/api/v1/discovery/visits/count` | 访客人数 | [discovery](discovery.md) |
 | GET | `/api/v1/matches` | 配对列表(分页) | [discovery](discovery.md) |
 | DELETE | `/api/v1/matches/{user_id}` | 解除配对 | [discovery](discovery.md) |
-| POST | `/api/v1/im/user_sig` | 获取 IM userSig | [im](im.md) |
+| POST | `/api/v1/im/user_sig` | 获取 IM 登录凭证 | [im](im.md) |
 | POST | `/api/v1/im/images` | 上传聊天图片(返回签名 URL) | [im](im.md) |
 | POST | `/api/v1/im/voices` | 上传聊天语音(转码 m4a,返回签名 URL) | [im](im.md) |
 | GET | `/api/v1/im/images/auth` | 聊天图片验签(nginx 内部子请求) | [im](im.md) |

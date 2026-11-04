@@ -1,4 +1,4 @@
-"""一次性/随时可跑:把本地昵称全量同步到腾讯 IM(幂等,失败只记日志)。
+"""一次性/随时可跑:把本地昵称全量同步到 IM(幂等,失败只记日志)。
 
 用法::
 
@@ -17,7 +17,7 @@ from users.models import Profile
 class Command(BaseCommand):
     """把全部非空昵称同步到 IM。"""
 
-    help = "把用户昵称全量同步到腾讯 IM(幂等)"
+    help = "把用户昵称全量同步到 IM(幂等)"
 
     def handle(self, *args, **options):
         """逐条同步并汇总成败数量。

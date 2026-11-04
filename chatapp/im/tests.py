@@ -1,13 +1,13 @@
-"""IM 应用的测试:userSig 算法、REST 客户端、Celery 副作用任务、命令与接口。
+"""IM 应用的测试:客户端门面、Celery 副作用任务、管理命令与接口。
 
 覆盖场景:
-    - userSig:编码后能还原、sig 字段符合官方 HMAC 公式、外层用腾讯 base64 变体;
-    - REST 客户端:请求参数拼装、各接口的 payload 形状、错误码与网络异常一律返回 False,
-      ``ensure_account`` 对已存在账号不重复导入(覆盖会清空昵称/头像的回归点);
-    - 动态评论通知:客户端 payload 与任务侧收件人、自己评自己不发送、评论已删则静默;
+    - 客户端门面(``im/client.py``):每个业务函数只转调 ``self_client``,
+      配对灰条双向发、系统通知用 ``system_notice`` 身份;
+    - 动态评论通知:任务侧收件人、自己评自己不发送、评论已删则静默;
     - 管理命令:``im_send``(文本与灰条互斥)、``im_setup_system_account``、
-      ``im_sync_nicknames``(含失败计数);
-    - userSig 接口:签发、重封禁 403、踢旧会话必须先于签发;
+      ``im_sync_nicknames``(含失败计数)、``im_sync_pairs``(回填配对);
+    - IM 凭证接口:签发自建 token、重封禁 403、会话版本同步失败则 fail-closed、
+      踢旧会话必须先于签发;
     - 副作用任务:``False`` 转异常以触发重试、缺用户时静默、注销删号不查库、
       解除配对时双向拉黑。
 """
@@ -48,13 +48,13 @@ from discovery.models import Match
 from feed.models import Post, PostComment
 
 from . import media_sign, voice
-from .client import (_request, black_list_add, black_list_delete, delete_account,
-                     ensure_account, import_account, kick_user, send_ban_lifted,
-                     send_ban_notice, send_custom_elem, send_match_notice,
-                     send_post_commented, send_report_handled, send_text,
-                     set_profile_avatar, set_profile_nick)
+from .client import (black_list_add, black_list_delete, delete_account,
+                     ensure_account, import_account, kick_user, pair_add,
+                     send_ban_lifted, send_ban_notice, send_custom_elem,
+                     send_match_notice, send_post_commented, send_post_replied,
+                     send_report_handled, send_text, set_profile_avatar,
+                     set_profile_nick, set_session_version)
 from .models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
-from .signature import _hmac_sha256, decode_user_sig, gen_user_sig
 from .throttles import ChatImageThrottle
 from .token import mint_im_token, verify_im_token
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
@@ -72,310 +72,62 @@ PNG_1PX = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01
            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
            b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
 
-IM_TEST_SETTINGS = dict(
-    IM_SDKAPPID="1400000000",
-    IM_SECRETKEY="k" * 32,
-    IM_ADMIN_IDENTIFIER="administrator",
-    IM_SIG_EXPIRE=604800,
-    IM_REST_BASE="https://console.tim.qq.com/v4",
-    IM_TIMEOUT=5,
-)
+# 腾讯云 IM 分支已于 2026-11-08 删除(backlog D-4):客户端层只剩「转调 self_client」,
+# 所以这里断言的是**委托关系**而不是 REST 报文。
+class ClientFacadeTests(SimpleTestCase):
+    """``im/client.py`` 门面:每个业务函数都只转调 ``self_client``。"""
 
+    def test_send_custom_elem_delegates(self):
+        """自定义消息(灰条/系统通知)直接转调自建客户端。"""
+        with patch("im.client.self_client.send_custom_elem", return_value=True) as send:
+            self.assertTrue(send_custom_elem("u1", "u2", {"type": "x"}, "hi"))
+        send.assert_called_once_with("u1", "u2", {"type": "x"}, "hi")
 
-@override_settings(**IM_TEST_SETTINGS)
-class UserSigTests(SimpleTestCase):
-    """userSig 算法:可还原、sig 字段公式正确、外层编码是腾讯变体。"""
-
-    def test_encode_then_decode_keeps_fields(self):
-        sig = gen_user_sig("u1", now=1700000000)
-        doc = decode_user_sig(sig)
-        self.assertEqual(doc["TLS.ver"], "2.0")
-        self.assertEqual(doc["TLS.identifier"], "u1")
-        self.assertEqual(doc["TLS.sdkappid"], 1400000000)
-        self.assertEqual(doc["TLS.time"], 1700000000)
-        self.assertEqual(doc["TLS.expire"], 604800)
-
-    def test_sig_field_matches_official_hmac_formula(self):
-        sig = gen_user_sig("u1", now=1700000000)
-        doc = decode_user_sig(sig)
-        expected = _hmac_sha256("u1", 1400000000, 1700000000, 604800, "k" * 32)
-        self.assertEqual(doc["TLS.sig"], expected)
-
-    def test_uses_tencent_base64_variant(self):
-        sig = gen_user_sig("u1")
-        for ch in "+/=":
-            self.assertNotIn(ch, sig)
-
-
-@override_settings(**IM_TEST_SETTINGS)
-class ImClientTests(SimpleTestCase):
-    """REST 客户端:参数拼装、各接口 payload、错误与异常都返回 False。"""
-
-    def test_request_builds_tencent_params(self):
-        with patch("im.client.requests.post") as post:
-            post.return_value.json.return_value = {"ErrorCode": 0}
-            _request("openim", "sendmsg", {"a": 1})
-        args, kwargs = post.call_args
-        self.assertTrue(args[0].endswith("/openim/sendmsg"))
-        self.assertEqual(kwargs["params"]["sdkappid"], "1400000000")
-        self.assertEqual(kwargs["params"]["identifier"], "administrator")
-        self.assertEqual(kwargs["params"]["contenttype"], "json")
-        self.assertIn("usersig", kwargs["params"])
-        self.assertIn("random", kwargs["params"])
-        self.assertEqual(kwargs["json"], {"a": 1})
-
-    def test_import_account_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(import_account("u1", "小明"))
-        args, _ = req.call_args
-        self.assertEqual(args[0], "im_open_login_svc")
-        self.assertEqual(args[1], "account_import")
-        self.assertEqual(args[2]["Identifier"], "u1")
-        self.assertEqual(args[2]["Nick"], "小明")
-
-    def test_import_account_error_code_returns_false(self):
-        with patch("im.client._request", return_value={"ErrorCode": 7015, "ErrorInfo": "exist"}):
-            self.assertFalse(import_account("u1"))
-
-    def test_import_account_network_error_returns_false(self):
-        with patch("im.client._request", side_effect=Exception("boom")):
-            self.assertFalse(import_account("u1"))
-
-    def test_send_custom_elem_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(send_custom_elem("u1", "u2", {"type": "match_notice"}, "灰条"))
-        args, kwargs = req.call_args
-        self.assertEqual(args[0], "openim")
-        self.assertEqual(args[1], "sendmsg")
-        self.assertIsNone(kwargs.get("identifier"))   # 必须以管理员身份调(错误码 60010),发送方看 From_Account
-        payload = args[2]
-        self.assertEqual(payload["From_Account"], "u1")
-        self.assertEqual(payload["To_Account"], "u2")
-        body = payload["MsgBody"][0]
-        self.assertEqual(body["MsgType"], "TIMCustomElem")
-        self.assertEqual(json.loads(body["MsgContent"]["Data"]), {"type": "match_notice"})
-        self.assertEqual(body["MsgContent"]["Desc"], "灰条")
-
-    def test_send_match_notice_sends_both_directions(self):
-        with patch("im.client.send_custom_elem", return_value=True) as send:
+    def test_match_notice_sends_both_directions(self):
+        """配对灰条要双向各发一条,任一条失败整体失败。"""
+        with patch("im.client.self_client.send_custom_elem", return_value=True) as send:
             self.assertTrue(send_match_notice("u1", "u2"))
         self.assertEqual(send.call_count, 2)
         self.assertEqual(send.call_args_list[0][0][:2], ("u1", "u2"))
         self.assertEqual(send.call_args_list[1][0][:2], ("u2", "u1"))
 
-    def test_send_text_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(send_text("u1", "u2", "你好"))
-        args, _ = req.call_args
-        self.assertEqual(args[0], "openim")
-        self.assertEqual(args[1], "sendmsg")
-        payload = args[2]
-        self.assertEqual(payload["From_Account"], "u1")
-        self.assertEqual(payload["To_Account"], "u2")
-        body = payload["MsgBody"][0]
-        self.assertEqual(body["MsgType"], "TIMTextElem")
-        self.assertEqual(body["MsgContent"]["Text"], "你好")
+    def test_import_account_is_idempotent_ensure(self):
+        """``import_account`` 收敛到幂等建号(自建没有独立「导入」概念)。"""
+        with patch("im.client.self_client.ensure_account", return_value=True) as ensure:
+            self.assertTrue(import_account("u9", "小明"))
+        ensure.assert_called_once_with("u9", "小明")
 
-    def test_kick_user_payload(self):
-        with patch("im.client._request", return_value={"ActionStatus": "OK", "ErrorCode": 0}) as req:
-            self.assertTrue(kick_user("u5"))
-        args, _ = req.call_args
-        self.assertEqual(args[0], "im_open_login_svc")
-        self.assertEqual(args[1], "kick")
-        self.assertEqual(args[2], {"UserID": "u5"})
+    def test_profile_and_session_helpers_delegate(self):
+        """资料/会话版本/配对/踢人这些辅助函数同样只转调。"""
+        with patch("im.client.self_client.set_profile_nick", return_value=True) as nick, \
+                patch("im.client.self_client.set_profile_avatar", return_value=True) as avatar, \
+                patch("im.client.self_client.set_session_version", return_value=True) as sync, \
+                patch("im.client.self_client.pair_add", return_value=True) as pair, \
+                patch("im.client.self_client.kick_user", return_value=True) as kick:
+            self.assertTrue(set_profile_nick("u9", "小明"))
+            self.assertTrue(set_profile_avatar("u9", "https://x/a.png"))
+            self.assertTrue(set_session_version("u9", 3))
+            self.assertTrue(pair_add("u1", "u2"))
+            self.assertTrue(kick_user("u9", True))
+        nick.assert_called_once_with("u9", "小明")
+        avatar.assert_called_once_with("u9", "https://x/a.png")
+        sync.assert_called_once_with("u9", 3)
+        pair.assert_called_once_with("u1", "u2")
+        kick.assert_called_once_with("u9", True)
 
-    def test_kick_user_network_error_returns_false(self):
-        with patch("im.client._request", side_effect=Exception("boom")):
-            self.assertFalse(kick_user("u5"))
-
-    def test_delete_account_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(delete_account("u9"))
-        args, _ = req.call_args
-        self.assertEqual(args[0], "im_open_login_svc")
-        self.assertEqual(args[1], "account_delete")
-        self.assertEqual(args[2], {"DeleteItem": [{"UserID": "u9"}]})
-
-    def test_delete_account_error_code_returns_false(self):
-        with patch("im.client._request",
-                   return_value={"ErrorCode": 7011, "ErrorInfo": "account not exist"}):
-            self.assertFalse(delete_account("u9"))
-
-    def test_delete_account_network_error_returns_false(self):
-        with patch("im.client._request", side_effect=Exception("boom")):
-            self.assertFalse(delete_account("u9"))
-
-    def test_set_profile_nick_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(set_profile_nick("u1", "小明"))
-        args, _ = req.call_args
-        self.assertEqual(args[0], "profile")
-        self.assertEqual(args[1], "portrait_set")
-        self.assertEqual(args[2]["From_Account"], "u1")
-        self.assertEqual(args[2]["ProfileItem"],
-                         [{"Tag": "Tag_Profile_IM_Nick", "Value": "小明"}])
-
-    def test_set_profile_nick_error_returns_false(self):
-        with patch("im.client._request", return_value={"ErrorCode": 9999}):
-            self.assertFalse(set_profile_nick("u1", "小明"))
-
-    def test_set_profile_nick_network_error_returns_false(self):
-        with patch("im.client._request", side_effect=Exception("boom")):
-            self.assertFalse(set_profile_nick("u1", "小明"))
-
-    def test_set_profile_avatar_payload(self):
-        # 实测字段名必须是 Tag_Profile_IM_Image,写成 Url 腾讯回 40009
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(set_profile_avatar("u1", "http://x/a.jpg"))
-        args, _ = req.call_args
-        self.assertEqual(args[2]["ProfileItem"],
-                         [{"Tag": "Tag_Profile_IM_Image", "Value": "http://x/a.jpg"}])
-
-    def test_black_list_add_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(black_list_add("u1", "u2"))
-        args, _ = req.call_args
-        self.assertEqual(args[0], "sns")
-        self.assertEqual(args[1], "black_list_add")
-        self.assertEqual(args[2], {"From_Account": "u1", "To_Account": ["u2"]})
-
-    def test_black_list_delete_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(black_list_delete("u1", "u2"))
-        args, _ = req.call_args
-        self.assertEqual(args[1], "black_list_delete")
-
-    def test_black_list_error_returns_false(self):
-        with patch("im.client._request", side_effect=Exception("boom")):
-            self.assertFalse(black_list_add("u1", "u2"))
-
-    def test_ensure_account_existing_account_is_not_reimported(self):
-        """⚠️ 回归:对已存在的账号再调 account_import 会把昵称/头像**清空**。
-
-        实测(2026-10-12):account_import 对已存在账号返回 `ErrorCode: 0`(不是文档说的 7015),
-        并且把 Nick/FaceUrl 覆盖成传入值 —— 于是 `POST /im/user_sig` 的首次 ensure_account
-        会把刚同步好的昵称和头像抹掉,会话列表只剩 `u43`。
-        所以已存在时必须**跳过**导入。
-        """
-        def fake_request(service, command, payload=None, identifier=None):
-            if command == "account_check":
-                return {"ErrorCode": 0, "ResultItem": [
-                    {"UserID": "u9", "ResultCode": 0, "AccountStatus": "Imported"}]}
-            raise AssertionError(f"不该调用 {command}(会把昵称/头像清空)")
-
-        with patch("im.client._request", side_effect=fake_request):
-            self.assertTrue(ensure_account("u9", "小雨"))
-
-    def test_ensure_account_missing_account_imports(self):
-        calls = []
-
-        def fake_request(service, command, payload=None, identifier=None):
-            calls.append(command)
-            if command == "account_check":
-                return {"ErrorCode": 0, "ResultItem": [
-                    {"UserID": "u9", "ResultCode": 0, "AccountStatus": "NotImported"}]}
-            return {"ErrorCode": 0}
-
-        with patch("im.client._request", side_effect=fake_request):
-            self.assertTrue(ensure_account("u9", "小雨"))
-
-        self.assertEqual(calls, ["account_check", "account_import"])
-
-    def test_ensure_account_check_failure_returns_false(self):
-        """查不到状态时不敢盲目导入(导入是破坏性的),交给上层重试。"""
-        with patch("im.client._request", side_effect=Exception("boom")):
-            self.assertFalse(ensure_account("u9", "小雨"))
-
-    def test_ensure_account_payload(self):
-        def fake_request(service, command, payload=None, identifier=None):
-            if command == "account_check":
-                return {"ErrorCode": 0, "ResultItem": [
-                    {"UserID": "system_notice", "AccountStatus": "NotImported"}]}
-            self.assertEqual(command, "account_import")
-            self.assertEqual(payload["Identifier"], "system_notice")
-            self.assertEqual(payload["Nick"], "系统通知")
-            return {"ErrorCode": 0}
-
-        with patch("im.client._request", side_effect=fake_request):
-            self.assertTrue(ensure_account("system_notice", "系统通知"))
-
-    def test_ensure_account_other_error_returns_false(self):
-        def fake_request(service, command, payload=None, identifier=None):
-            if command == "account_check":
-                return {"ErrorCode": 0, "ResultItem": [
-                    {"UserID": "u9", "AccountStatus": "NotImported"}]}
-            return {"ErrorCode": 9999}
-
-        with patch("im.client._request", side_effect=fake_request):
-            self.assertFalse(ensure_account("u9"))
-
-    def test_send_ban_notice_light_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(send_ban_notice("u9", "light", "骚扰他人"))
-        args = req.call_args[0]
-        self.assertEqual(args[:2], ("openim", "sendmsg"))
-        payload = args[2]
-        self.assertEqual(payload["From_Account"], "system_notice")
-        self.assertEqual(payload["To_Account"], "u9")
-        content = payload["MsgBody"][0]["MsgContent"]
-        self.assertEqual(json.loads(content["Data"]), {"type": "ban_notice", "level": "light"})
-        self.assertIn("骚扰他人", content["Desc"])
-        self.assertIn("无法使用滑卡功能", content["Desc"])
-
-    def test_send_ban_notice_heavy_reason_fallback(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            send_ban_notice("u9", "heavy", "")
-        content = req.call_args[0][2]["MsgBody"][0]["MsgContent"]
-        self.assertEqual(json.loads(content["Data"]), {"type": "ban_notice", "level": "heavy"})
-        self.assertIn("违反社区规范", content["Desc"])
-        self.assertIn("封禁期间所有功能暂停使用", content["Desc"])
-
-    def test_send_ban_lifted_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
-            self.assertTrue(send_ban_lifted("u9"))
-        content = req.call_args[0][2]["MsgBody"][0]["MsgContent"]
-        self.assertEqual(json.loads(content["Data"]), {"type": "ban_lifted"})
-        self.assertIn("已解除", content["Desc"])
-
-    def test_send_ban_notice_network_error_returns_false(self):
-        with patch("im.client._request", side_effect=RuntimeError("boom")):
-            self.assertFalse(send_ban_notice("u9", "light", "x"))
-
-    def test_send_report_handled_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
+    def test_system_notices_use_system_identity(self):
+        """封禁/举报/评论通知都以 ``system_notice`` 身份发出,文案不变。"""
+        with patch("im.client.self_client.send_custom_elem", return_value=True) as send:
+            self.assertTrue(send_ban_notice("u9", "light", "违规"))
             self.assertTrue(send_report_handled("u9"))
-        args = req.call_args[0]
-        self.assertEqual(args[:2], ("openim", "sendmsg"))
-        payload = args[2]
-        self.assertEqual(payload["From_Account"], "system_notice")
-        self.assertEqual(payload["To_Account"], "u9")
-        content = payload["MsgBody"][0]["MsgContent"]
-        self.assertEqual(json.loads(content["Data"]), {"type": "report_handled"})
-        self.assertEqual(content["Desc"], "您提交的举报已处理,感谢您对社区安全的支持。")
-
-    def test_send_report_handled_network_error_returns_false(self):
-        with patch("im.client._request", side_effect=RuntimeError("boom")):
-            self.assertFalse(send_report_handled("u9"))
-
-
-class PostCommentedClientTests(TestCase):
-    """动态评论通知的客户端层:以系统通知身份发出,文案带评论者昵称与摘要。"""
-
-    def test_send_post_commented_payload(self):
-        with patch("im.client._request", return_value={"ErrorCode": 0}) as req:
             self.assertTrue(send_post_commented("u9", "小红", "好漂亮"))
-        args = req.call_args[0]
-        self.assertEqual(args[:2], ("openim", "sendmsg"))
-        payload = args[2]
-        self.assertEqual(payload["From_Account"], "system_notice")
-        self.assertEqual(payload["To_Account"], "u9")
-        content = payload["MsgBody"][0]["MsgContent"]
-        self.assertEqual(json.loads(content["Data"]), {"type": "post_commented"})
-        self.assertEqual(content["Desc"], "小红 评论了你的动态:好漂亮")
-
-    def test_send_post_commented_network_error_returns_false(self):
-        with patch("im.client._request", side_effect=RuntimeError("boom")):
-            self.assertFalse(send_post_commented("u9", "小红", "好漂亮"))
+            self.assertTrue(send_post_replied("u9", "小红", "好漂亮"))
+        self.assertEqual(send.call_count, 4)
+        for call in send.call_args_list:
+            self.assertEqual(call[0][0], "system_notice")
+            self.assertEqual(call[0][1], "u9")
+        self.assertEqual(send.call_args_list[1][0][2], {"type": "report_handled"})
+        self.assertEqual(send.call_args_list[2][0][3], "小红 评论了你的动态:好漂亮")
 
 
 class PostCommentedTaskTests(TestCase):
@@ -476,7 +228,6 @@ class ImSyncNicknamesCommandTests(TestCase):
         self.assertIn("失败 1", out.getvalue())
 
 
-@override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="all")
 class ImSyncPairsCommandTests(TestCase):
     """``im_sync_pairs`` 命令:只回填有效配对,先幂等建号(H4 上线必跑)。"""
 
@@ -504,15 +255,13 @@ class ImSyncPairsCommandTests(TestCase):
             call_command("im_sync_pairs")
         pair.assert_not_called()
 
-    def test_noop_for_tencent_backend(self):
-        """腾讯后端不需要回填,命令直接返回。"""
-        with override_settings(IM_BACKEND="tencent"), \
-                patch("im.management.commands.im_sync_pairs.pair_add") as pair:
-            call_command("im_sync_pairs")
-        pair.assert_not_called()
 
-
-@override_settings(**IM_TEST_SETTINGS)
+@override_settings(
+    IM_SELF_WS_URL="wss://im.example/ws",
+    IM_SELF_HTTP_URL="https://im.example/api",
+    IM_SELF_SECRET="t" * 32,
+    IM_SELF_TOKEN_TTL=86400,
+)
 class UserSigApiTests(APITestCase):
     """``POST /im/user_sig``:签发内容、重封禁 403、踢旧会话先于签发。"""
 
@@ -523,22 +272,37 @@ class UserSigApiTests(APITestCase):
         token = RefreshToken.for_user(self.user).access_token
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
-    def test_returns_sig_for_current_user(self):
+    def test_returns_token_for_current_user(self):
+        """返回自建凭证:backend=self、带 ws_url、token 里带会话版本。"""
         with patch("im.views.ensure_account", return_value=True) as ensure, \
+                patch("im.views.set_session_version", return_value=True) as sync, \
                 patch("im.views.kick_user") as kick:
             resp = self.client.post("/api/v1/im/user_sig")
-        ensure.assert_called_once_with(self.user.im_user_id)
+        ensure.assert_called_with(self.user.im_user_id,
+                                  getattr(getattr(self.user, "profile", None), "nickname", ""))
+        sync.assert_called_once_with(self.user.im_user_id, self.user.session_version)
         kick.assert_not_called()   # 没有待踢标记时不踢(否则会把本机会话踢掉)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
+        self.assertEqual(data["backend"], "self")
         self.assertEqual(data["im_user_id"], f"u{self.user.id}")
-        self.assertEqual(data["sdkappid"], "1400000000")
-        self.assertEqual(data["expire"], 604800)
-        self.assertEqual(decode_user_sig(data["user_sig"])["TLS.identifier"], f"u{self.user.id}")
+        self.assertEqual(data["ws_url"], "wss://im.example/ws")
+        self.assertEqual(data["expire"], 86400)
+        self.assertNotIn("user_sig", data, "腾讯分支已删除,不再返回 user_sig")
+        self.assertEqual(verify_im_token(data["token"])["sub"], f"u{self.user.id}")
+
+    def test_fails_closed_when_session_sync_fails(self):
+        """版本没落库就不签发 token,否则连接会被 imserver 拒绝(H3)。"""
+        with patch("im.views.ensure_account", return_value=True), \
+                patch("im.views.set_session_version", return_value=False):
+            resp = self.client.post("/api/v1/im/user_sig")
+        self.assertEqual(resp.status_code, 503)
+        self.assertNotIn("token", resp.json())
 
     def test_pending_kick_runs_before_issuing_sig(self):
         cache.set(kick_pending_key(self.user.id), 1, 60)
         with patch("im.views.ensure_account", return_value=True), \
+                patch("im.views.set_session_version", return_value=True), \
                 patch("im.views.kick_user", return_value=True) as kick:
             resp = self.client.post("/api/v1/im/user_sig")
         self.assertEqual(resp.status_code, 200)
@@ -556,6 +320,7 @@ class UserSigApiTests(APITestCase):
 
         cache.clear()
         with patch("im.views.ensure_account", return_value=True), \
+                patch("im.views.set_session_version", return_value=True), \
                 patch.object(UserSigThrottle, "rate", "2/hour", create=True):
             self.assertEqual(self.client.post("/api/v1/im/user_sig").status_code, 200)
             self.assertEqual(self.client.post("/api/v1/im/user_sig").status_code, 200)
@@ -767,85 +532,9 @@ class ImTokenTests(SimpleTestCase):
         self.assertIsNone(verify_im_token(tampered))
 
 
-class SelfBackendTests(SimpleTestCase):
-    """门面按账号灰度分发,未命中时仍走腾讯。"""
-
-    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="2")
-    @patch("im.client.self_client.send_custom_elem", return_value=True)
-    def test_gray_recipient_dispatches(self, mocked):
-        self.assertTrue(send_custom_elem("u1", "u2", {"type": "match_notice"}, "hi"))
-        mocked.assert_called_once()
-
-    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="1")
-    @patch("im.client._request")
-    def test_non_gray_recipient_stays_tencent(self, request):
-        request.return_value = {"ErrorCode": 0}
-        self.assertTrue(send_custom_elem("u1", "u2", {"type": "x"}, "hi"))
-        request.assert_called_once()
-
-    @override_settings(IM_BACKEND="tencent")
-    @patch("im.client._request")
-    def test_tencent_still_default(self, request):
-        request.return_value = {"ErrorCode": 0}
-        self.assertTrue(send_custom_elem("u1", "u2", {"type": "x"}, "hi"))
-
-
-class UserSigSelfTests(APITestCase):
-    """``/im/user_sig`` 的双分支与灰度。"""
-
-    def setUp(self):
-        self.user = User.objects.create_user(phone="13800000001")
-
-    @override_settings(
-        IM_BACKEND="self",
-        IM_SELF_GRAYLIST="all",
-        IM_SELF_WS_URL="wss://im.example/ws",
-        IM_SELF_HTTP_URL="https://im.example/api",
-        IM_SELF_SECRET="t" * 32,
-        IM_SELF_TOKEN_TTL=86400,
-    )
-    @patch("im.views.set_session_version", return_value=True)
-    @patch("im.views.ensure_account", return_value=True)
-    def test_self_branch_returns_token(self, _ensure, sync):
-        self.client.force_authenticate(self.user)
-        response = self.client.post("/api/v1/im/user_sig")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["backend"], "self")
-        self.assertEqual(response.data["ws_url"], "wss://im.example/ws")
-        self.assertTrue(response.data["token"])
-        sync.assert_called_once_with(self.user.im_user_id, self.user.session_version)
-        claims = verify_im_token(response.data["token"])
-        self.assertEqual(claims["sv"], self.user.session_version)
-
-    @override_settings(
-        IM_BACKEND="self",
-        IM_SELF_GRAYLIST="all",
-        IM_SELF_WS_URL="wss://im.example/ws",
-        IM_SELF_HTTP_URL="https://im.example/api",
-        IM_SELF_SECRET="t" * 32,
-    )
-    @patch("im.views.set_session_version", return_value=False)
-    @patch("im.views.ensure_account", return_value=True)
-    def test_self_branch_fails_closed_when_session_sync_fails(self, _ensure, _sync):
-        """版本没落库就不签发 token,否则连接会被 imserver 拒绝(H3)。"""
-        self.client.force_authenticate(self.user)
-        response = self.client.post("/api/v1/im/user_sig")
-        self.assertEqual(response.status_code, 503)
-        self.assertNotIn("token", response.data)
-
-    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="")
-    @patch("im.views.gen_user_sig", return_value="tencent-sig")
-    def test_not_in_graylist_falls_back(self, _):
-        self.client.force_authenticate(self.user)
-        response = self.client.post("/api/v1/im/user_sig")
-        self.assertEqual(response.data["backend"], "tencent")
-        self.assertEqual(response.data["user_sig"], "tencent-sig")
-
-
 class SelfNoticeTests(SimpleTestCase):
     """自建后端下的封禁/解封通知。"""
 
-    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="9")
     @patch("im.client.self_client.send_custom_elem", return_value=True)
     @patch("im.client.self_client.kick_user", return_value=True)
     def test_heavy_ban_blocks_and_notifies(self, kick, send):
@@ -855,7 +544,6 @@ class SelfNoticeTests(SimpleTestCase):
         send.assert_called_once()
         kick.assert_called_once_with("u9", True)
 
-    @override_settings(IM_BACKEND="self", IM_SELF_GRAYLIST="9")
     @patch("im.client.self_client.send_ban_lifted", return_value=True)
     def test_ban_lifted_unblocks(self, lifted):
         with patch("im.tasks._user") as user:

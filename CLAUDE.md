@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **前端**: Flutter(`app/`,包名 `chatapp_app`,Flutter 3.47.2)
 - **后端**: Django 5.2 LTS + DRF(`chatapp/`,MySQL 8 + Redis + Celery)
-- **聊天**: 自建 C++ IM(`imserver/`,已全量切换;腾讯云 IM 分支待删,见 backlog D-4)
+- **聊天**: 自建 C++ IM(`imserver/`,唯一后端;腾讯云 IM 分支已于 2026-11-08 删除)
 - **部署**: 阿里云轻量 2C2G + 宝塔全托管(`https://chat.shiliu153.cn`,HTTPS 2026-10-28 上线)
 
 用户以中文交流,回复请使用中文。用户是 **Flutter/Django 新手**,偏好教学式、分步、带"为什么"的讲解。
@@ -127,10 +127,10 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 
 - **错误契约**:成功 2xx + 资源 JSON;失败一律 `{"code": <HTTP状态码>, "message": "<中文>", "request_id": ...}`;业务码=前 3 位 HTTP + 2 位序号(`config/error_codes.py`)
 - **鉴权**:Bearer JWT(access 30min / refresh 30d,刷新即轮换、旧进黑名单);JWT `user_id` claim 是**字符串**;`GET /users/me` 响应 `id` 是 **profile 表主键**,账号 ID 看 `user_id`
-- **响应路径禁止任何第三方网络调用**(requests/腾讯 REST/短信商);跨系统副作用一律走 Celery 任务;`transaction.on_commit(fn, robust=True)` 的语义是「DB 提交后」
+- **响应路径禁止任何第三方网络调用**(短信商/任何外部 REST);跨系统副作用一律走 Celery 任务;`transaction.on_commit(fn, robust=True)` 的语义是「DB 提交后」
 - **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 与 `im/self_client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
-- **自建 IM**:`IM_BACKEND=tencent|self`;`im/client.py` 按账号灰度分发到 `im/self_client.py`;`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致;**图片消息与语音消息**要求 `IM_MEDIA_PREFIX` = Django 的 `MEDIA_BASE_URL + /media/chat/`(必填,缺失 imserver 起不来;不一致则发图/发语音 42201);语音上传还要求服务器装 `ffmpeg`/`ffprobe`(缺失时 503+`50302`)
-- **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101,**WS 握手与 `/im/api/*` 两个入口同口径**;登录与 `user_sig` 双同步,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
+- **自建 IM(唯一后端)**:`im/client.py` 是语义层(消息类型/灰条文案/系统通知身份),传输统一转调 `im/self_client.py` 的 HMAC 内部 API;没有 `IM_BACKEND` 开关、没有灰度名单,**回退方式 = 回退 imserver 镜像/后端 SHA**(不再有「切回腾讯」);`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致;**图片消息与语音消息**要求 `IM_MEDIA_PREFIX` = Django 的 `MEDIA_BASE_URL + /media/chat/`(必填,缺失 imserver 起不来;不一致则发图/发语音 42201);语音上传还要求服务器装 `ffmpeg`/`ffprobe`(缺失时 503+`50302`)
+- **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101,**WS 握手与 `/im/api/*` 两个入口同口径**;登录时把 `session_version` 同步到 imserver,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
 - **imserver 入口防护(2026-10-28 起)**:监听默认只允许回环,写成非回环地址必须显式 `IM_ALLOW_PUBLIC_BIND=1`,否则启动失败;`X-Real-IP` 只在对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时才采信;`Origin` 未配 `IM_ALLOWED_ORIGINS` 时按同源兜底(不是全放行)
 - **图片上传**:资料图/广场图/聊天图统一走 `config/images.py`(仅 jpg/png/webp、≤2000 万像素、长边 4096、`exif_transpose` 后重编码剥离 EXIF/GPS);聊天媒体签名生产缺 `IM_MEDIA_SIGN_SECRET` 直接启动失败,TTL 默认 3600
 - **存储配额(2026-10-28 起)**:四类媒体(资料图/广场图/聊天图/语音)按库内 `bytes` 求和,单账号上限 `USER_STORAGE_QUOTA_MB`(默认 200),超限上传 **413 + `41301`**;检查必须在落盘前;删除与 30 天过期自动回收,不做计数列;上线必须跑一次 `media_bytes_backfill`
@@ -164,7 +164,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `GET /users/tags` | 标签池(12 个,数据迁移写入) |
 | `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB、jpg/png/webp);生产 `AUTO_APPROVE=0` 时新照片为 `pending`,需 ops 审核 |
 | `GET/PATCH /users/me/preference` | 想找的人:目标性别(可空=不限)/ 年龄区间 / 城市 |
-| `POST /im/user_sig` | 取 IM 登录凭证(腾讯 `user_sig` / 自建 `token` 双分支);`banned_heavy` 403 |
+| `POST /im/user_sig` | 取 IM 登录凭证(自建 `token`,响应含 `ws_url`/`http_url`);`banned_heavy` 403 |
 | `POST /im/images` | 上传聊天图片(自建 IM 发图前置;jpg/png/webp ≤5MB、长边 ≤4096,服务端出 240px 缩略图;30 次/小时);响应里的 `url/thumb_url` 是**限时签名地址** |
 | `POST /im/voices` | 上传聊天语音(自建 IM 发语音前置;m4a/aac/webm/ogg ≤5MB、时长 1–60 秒,ffmpeg 统一转 m4a/AAC;60 次/小时);响应 `url` 为**限时签名地址**;缺 ffmpeg 时 503+`50302` |
 | `GET /im/images/auth` | nginx `auth_request` 子请求验签(读 `X-Original-URI`,204/403);不是给客户端调的 |
