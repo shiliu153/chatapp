@@ -1,4 +1,4 @@
-"""运营审核台:举报处理、照片审核、用户管理、封禁日志与广场治理。
+"""运营审核台:举报处理、照片审核、用户管理、封禁日志、广场治理与准入名单。
 
 设计要点:
     1. **用 Django 模板 + HTMX 局部刷新,不用 DRF**:审核台是内部工具,追求开发速度。
@@ -6,7 +6,10 @@
        ``ApiDocsCoverageTests`` 的接口文档门禁约束;
     2. **鉴权靠 ``@staff_required`` 装饰器**:未登录跳登录页,非 ``is_staff`` 直接 403;
     3. **封禁与解封统一走 ``_apply_status_change``**:审计与 IM 通知都复用
-       ``moderation.services.log_ban_change``,与 Django admin 完全同源。
+       ``moderation.services.log_ban_change``,与 Django admin 完全同源;
+    4. **准入名单(B-1c)是安全边界的操作台**:本项目不接短信商,名单内 = 自己人,
+       因此加号/停用都要留操作人;写路径必须调 ``accounts.allowlist.invalidate()``,
+       否则 App/Web 侧还要等快照 TTL 才生效。
 
 注意事项:
     解封时必须先把状态改回 ``INCOMPLETE`` 再调 ``refresh_status()`` ——
@@ -16,6 +19,7 @@
 import logging
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.db.models import Count, Q
@@ -23,7 +27,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from accounts.models import User
+from accounts import allowlist as allowlist_module
+from accounts.models import PhoneAllowlist, User
+from accounts.validators import mask_phone
 from config.net import client_ip
 from config.params import optional_id
 from discovery.cache_keys import invalidate_pool_globally
@@ -38,12 +44,16 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import review_photos
 
 from .decorators import staff_required
+from .forms import PhoneAllowlistForm
 from .models import MediaAccessLog
 
 logger = logging.getLogger(__name__)
 
 # 与举报详情页的证据窗口保持一致:最近 7 天被举报过的人,其聊天媒体优先进入视野。
 MEDIA_REPORT_WINDOW_DAYS = 7
+
+# 准入名单一页最多展示多少条;名单总量是几十到几百的量级,不做分页。
+ALLOWLIST_PAGE_SIZE = 200
 
 
 def _reported_user_ids(days: int = MEDIA_REPORT_WINDOW_DAYS) -> set[int]:
@@ -737,3 +747,141 @@ def chat_voice_delete(request, voice_id):
     qs = ChatVoice.objects.select_related("owner").filter(
         status=ChatVoiceStatus.VISIBLE).order_by("-created_at")
     return render(request, "ops/partials/chat_voices_table.html", {"voices": qs[:120]})
+
+
+def _allowlist_context(request):
+    """拼准入名单页的上下文(列表、筛选、库/种子规模),整页与 HTMX 局部共用。
+
+    Args:
+        request: Django 请求对象;筛选参数 ``status``(active/disabled/all)与
+            ``q``(手机号或备注模糊匹配)优先取 POST,再退回 GET ——
+            HTMX 局部刷新的 POST 里也带着当前筛选,刷新后不会跳回默认视图。
+
+    Returns:
+        模板上下文字典;``registered`` 是「这些号码里哪些已经注册了账号」的集合,
+        用来提醒运营「加了号还没人用过」和「这个号已经有账号了」。
+    """
+    status = request.POST.get("status") or request.GET.get("status") or "active"
+    q = (request.POST.get("q") or request.GET.get("q") or "").strip()
+    qs = PhoneAllowlist.objects.select_related("created_by").order_by(
+        "-is_active", "-created_at")
+    if status == "active":
+        qs = qs.filter(is_active=True)
+    elif status == "disabled":
+        qs = qs.filter(is_active=False)
+    if q:
+        qs = qs.filter(Q(phone__icontains=q) | Q(note__icontains=q))
+    records = list(qs[:ALLOWLIST_PAGE_SIZE])
+    registered = set(
+        User.objects.filter(phone__in=[r.phone for r in records])
+        .values_list("phone", flat=True)
+    )
+    return {
+        "records": records,
+        "registered": registered,
+        "status": status,
+        "q": q,
+        "error": None,
+        "notice": None,
+        "seed_count": len(settings.SMS_PHONE_WHITELIST),
+        "active_total": PhoneAllowlist.objects.filter(is_active=True).count(),
+        "disabled_total": PhoneAllowlist.objects.filter(is_active=False).count(),
+    }
+
+
+def _render_allowlist_panel(request, error=None, notice=None):
+    """渲染名单面板的 HTMX 局部片段(表单 + 表格一起换,输入框随之清空)。
+
+    Args:
+        request: Django 请求对象。
+        error: 需要回显的错误文案;``None`` 表示无错误。
+        notice: 操作成功的提示文案;``None`` 表示无提示。
+
+    Returns:
+        名单面板的局部片段响应。
+    """
+    ctx = _allowlist_context(request)
+    ctx["error"] = error
+    ctx["notice"] = notice
+    return render(request, "ops/partials/allowlist_panel.html", ctx)
+
+
+@staff_required
+def allowlist_page(request):
+    """准入名单管理页:列表 + 加号表单 + 启用/停用。
+
+    为什么这个页面存在(B-1c):本项目不接短信商,固定验证码 + 名单是**长期机制**,
+    「加一个人」不能靠 SSH 改 `.env` 再重启 gunicorn —— 那既容易改错(一个逗号
+    就把所有人挡在外面),也无法回答「谁加的、为什么加」。
+
+    Args:
+        request: Django 请求对象,支持 ``status`` 与 ``q`` 查询参数。
+
+    Returns:
+        渲染后的名单页。
+    """
+    return render(request, "ops/allowlist.html", _allowlist_context(request))
+
+
+@require_POST
+@staff_required
+def allowlist_add(request):
+    """把一个手机号加进准入名单;已停用的号码重复提交视为「重新启用」。
+
+    写库后立刻清名单快照缓存,所以该号码**下一次请求**就能登录,不用重启 web。
+
+    Args:
+        request: Django 请求对象,POST 需带 ``phone``,可选 ``note``。
+
+    Returns:
+        名单面板的局部片段,带 ``notice`` 或 ``error``。
+    """
+    form = PhoneAllowlistForm(request.POST)
+    if not form.is_valid():
+        errors = "；".join(
+            f"{form.fields[name].label}{''.join(msgs)}" for name, msgs in form.errors.items())
+        return _render_allowlist_panel(request, error=errors)
+    phone = form.cleaned_data["phone"]
+    note = form.cleaned_data["note"]
+    record, created = PhoneAllowlist.objects.get_or_create(
+        phone=phone, defaults={"note": note, "created_by": request.user})
+    if created:
+        allowlist_module.invalidate()
+        return _render_allowlist_panel(
+            request, notice=f"{mask_phone(phone)} 已加入名单,立即生效")
+    was_active = record.is_active
+    record.is_active = True
+    if note:
+        record.note = note
+    record.save(update_fields=["is_active", "note", "updated_at"])
+    allowlist_module.invalidate()
+    if was_active:
+        notice = f"{mask_phone(phone)} 已在名单中,备注已更新"
+    else:
+        notice = f"{mask_phone(phone)} 已重新启用,立即生效"
+    return _render_allowlist_panel(request, notice=notice)
+
+
+@require_POST
+@staff_required
+def allowlist_toggle(request, entry_id):
+    """启用/停用一个号码;停用立刻生效(该号码下一次发码即 403)。
+
+    只改 ``is_active``,不删记录 —— 名单本身就是安全边界,「谁曾经被放进来、
+    什么时候被拿掉」要留得住。
+
+    Args:
+        request: Django 请求对象。
+        entry_id: 名单记录主键。
+
+    Returns:
+        名单面板的局部片段,带 ``notice``。
+    """
+    record = get_object_or_404(PhoneAllowlist, pk=entry_id)
+    record.is_active = not record.is_active
+    record.save(update_fields=["is_active", "updated_at"])
+    allowlist_module.invalidate()
+    masked = mask_phone(record.phone)
+    notice = (f"{masked} 已启用,立即生效" if record.is_active
+              else f"{masked} 已停用,该号码即刻无法收发验证码")
+    return _render_allowlist_panel(request, notice=notice)

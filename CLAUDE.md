@@ -41,7 +41,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(上线运营)**。**
 | 2026-09~10 | 「心跳」UI 六批整改 / 网页端 Vue 3 / 接口文档体系 / 自建 IM 全量切换 / P1 功能群 / 聊天图片·语音·搜索 |
 | 2026-10-28~11-03 | 三轮安全审计整改 + 令牌硬化 + HTTPS 上线 + 可观测性与容量工程 + 压测基线 |
 
-**当前风险最高的两项**(与代码质量无关,优先于任何性能项):① **固定验证码 `123456` + 手机号白名单** —— 2026-11-03 已确定**本项目不接入短信商**,白名单(`SMS_PHONE_WHITELIST`)是**长期准入机制**而非过渡方案:名单外一律 `403 + 40301`,名单内仍是固定码,因此「名单里有哪些号」本身就是安全边界(一个号泄露 = 该账号被接管);加号目前要改 `.env` + 重启 web,运维入口见 backlog **B-1c**;② **备份** —— 每天 03:20 自建双库全量(应用库 + IM 库 + 媒体 + 配置,保留 14 天,`deploy/ops/chatapp-backup.sh`),另有宝塔 03:30 的原生备份作为独立第二份,树莓派每天 04:10 主动拉走(`deploy/ops/pull-backup-pi.sh`),三项都进 22:00 服务器日报;**恢复演练已真跑通过**。剩余风险:防得住「服务器磁盘/整机没了」,防不住「服务器和树莓派同时没了」(无对象存储预算)。详见 backlog 的 B-1/B-1c 与 A-3、`docs/ops/runbook.md` §5。
+**当前风险最高的两项**(与代码质量无关,优先于任何性能项):① **固定验证码 `123456` + 手机号白名单** —— 2026-11-03 已确定**本项目不接入短信商**,白名单(`SMS_PHONE_WHITELIST`)是**长期准入机制**而非过渡方案:名单外一律 `403 + 40301`,名单内仍是固定码,因此「名单里有哪些号」本身就是安全边界(一个号泄露 = 该账号被接管)。名单存在数据库 `accounts.PhoneAllowlist`,运营在 **`/ops/allowlist/`** 加号/停用(**立刻生效,不用重启**);`.env` 的 `SMS_PHONE_WHITELIST` 降级为兜底种子(库里没这条记录时按它放行,库里显式停用的优先被拒),库与种子都空 = 不限制。日常运维见 `docs/ops/runbook.md` §6;② **备份** —— 每天 03:20 自建双库全量(应用库 + IM 库 + 媒体 + 配置,保留 14 天,`deploy/ops/chatapp-backup.sh`),另有宝塔 03:30 的原生备份作为独立第二份,树莓派每天 04:10 主动拉走(`deploy/ops/pull-backup-pi.sh`),三项都进 22:00 服务器日报;**恢复演练已真跑通过**。剩余风险:防得住「服务器磁盘/整机没了」,防不住「服务器和树莓派同时没了」(无对象存储预算)。详见 backlog 的 B-1/B-1c 与 A-3、`docs/ops/runbook.md` §5。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -86,6 +86,7 @@ python manage.py media_bytes_backfill [--dry-run]          # 回填照片/动态
 python manage.py media_cleanup [--apply]                   # 清资料图/广场图孤儿文件(默认 dry-run)
 python manage.py media_disk_report [--fail-over]           # 媒体磁盘报表;超告警线退出码 1
 python manage.py perf_tokens --count 50 --out ../perf/results/headers.jsonl  # 压测:签多账号令牌(写场景用;文件含活令牌,跑完删)
+python manage.py allowlist_seed_import [--dry-run]         # 把 .env 的准入名单种子导进库(幂等;不重新启用已停用的号)
 ```
 
 **Redis / Celery**(cwd = `chatapp/`;验证码、限流、异步 IM 副作用都靠它们):
@@ -150,7 +151,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 
 | 接口 | 说明 |
 |---|---|
-| `POST /auth/sms/send` | 发验证码;同号 60 秒重发间隔(42901,带 Retry-After);IP 限流;入队失败回滚并 503(50301);**名单外号码 403(40301),不落码不入队**(`SMS_PHONE_WHITELIST`;本项目不接短信商,白名单是**长期准入机制**,留空=不限制) |
+| `POST /auth/sms/send` | 发验证码;同号 60 秒重发间隔(42901,带 Retry-After);IP 限流;入队失败回滚并 503(50301);**名单外号码 403(40301),不落码不入队**(名单在 `accounts.PhoneAllowlist`,运营在 `/ops/allowlist/` 维护、改完立刻生效;`.env` 的 `SMS_PHONE_WHITELIST` 是兜底种子;库与种子都空=不限制) |
 | `POST /auth/sms/verify` | 校验并登录(号码没注册过自动建号)→ `{access, refresh, is_new_user, user_id}`;带 `X-Client: web` 时 refresh 改为 HttpOnly Cookie、响应体不含 refresh;连错 5 次锁 15 分钟(42902);60 秒幂等重放窗口;**staff/superuser 一律 403(运营账号走 `/ops/`,封闭测试可用 `SMS_ALLOW_STAFF_LOGIN=1` 放开)** |
 | `POST /auth/token/refresh` | 刷新 access(响应同时给新 refresh);refresh 可放请求体或 Cookie;轮换后 60 秒宽限内允许并发标签页复用 |
 | `POST /auth/logout` | 注销:拉黑 refresh + 清 Cookie;幂等 204;按 IP 60 次/小时;带 `Origin` 时校验同源 |

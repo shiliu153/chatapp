@@ -1,0 +1,21 @@
+{% extends "ops/base.html" %}
+{% block page_title %}准入名单{% endblock %}
+{% block content %}
+<p class="ops-tabs">
+  <a href="?status=active" class="{% if status == 'active' %}active{% endif %}">
+    启用中{% if active_total %} {{ active_total }}{% endif %}
+  </a>
+  <a href="?status=disabled" class="{% if status == 'disabled' %}active{% endif %}">
+    已停用{% if disabled_total %} {{ disabled_total }}{% endif %}
+  </a>
+  <a href="?status=all" class="{% if status == 'all' %}active{% endif %}">全部</a>
+</p>
+<form method="get" class="ops-filters" style="margin-bottom:14px">
+  <input type="hidden" name="status" value="{{ status }}">
+  <label style="flex:0 0 240px">号码或备注
+    <input type="search" name="q" value="{{ q }}" placeholder="手机号片段 / 备注关键字">
+  </label>
+  <button type="submit" class="secondary">筛选</button>
+</form>
+{% include "ops/partials/allowlist_panel.html" %}
+{% endblock %}

@@ -14,9 +14,11 @@
     - 广场治理:动态列表与删除、非运营 403;
     - 动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知;
     - 聊天图片抽审:列表可见、删除置 deleted 并删文件、举报详情带最近图片、非运营 403;
-    - 私聊媒体审计:每次浏览落一条 ``MediaAccessLog``(含「仅被举报」筛选),审计失败不影响页面。
+    - 私聊媒体审计:每次浏览落一条 ``MediaAccessLog``(含「仅被举报」筛选),审计失败不影响页面;
+    - 准入名单(B-1c):列表带注册状态、加号/停用立刻生效、格式错误不落库、停用后可重新启用。
 """
 
+import json
 import os
 import shutil
 import tempfile
@@ -24,12 +26,15 @@ import time
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
+from accounts import services
 from accounts import totp
-from accounts.models import User
+from accounts.exceptions import PhoneNotAllowed
+from accounts.models import PhoneAllowlist, User
 from feed.models import Post, PostLike, PostReport
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
 from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
@@ -771,3 +776,115 @@ class StaffIpAllowlistTests(TestCase):
     def test_allowed_ip_passes(self):
         """白名单命中时正常进入后台(测试环境默认不强制 OTP)。"""
         self.assertEqual(self.client.get("/ops/reports/").status_code, 200)
+
+
+class OpsAllowlistTests(TestCase):
+    """准入名单的运维入口(B-1c):列表、加号、停用,以及「改完立刻生效」。"""
+
+    ALLOWED = "13900139000"
+    NEWCOMER = "13800138000"
+
+    def setUp(self):
+        """登录运营账号,并清掉名单快照缓存(否则上一个用例的名单会漏进来)。"""
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.staff = make_staff()
+        self.client.force_login(self.staff)
+
+    def test_anonymous_redirected_and_non_staff_forbidden(self):
+        """未登录跳登录页;非运营账号 403。"""
+        self.client.logout()
+        self.assertEqual(self.client.get("/ops/allowlist/").status_code, 302)
+        plain = User.objects.create_user(phone="13700137001")
+        self.client.force_login(plain)
+        self.assertEqual(self.client.get("/ops/allowlist/").status_code, 403)
+
+    def test_lists_entries_with_note_and_registration_state(self):
+        """列表展示号码、备注,并区分「已有账号」与「待首次登录」。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED, note="产品同事")
+        User.objects.create_user(phone="13700137002")
+        PhoneAllowlist.objects.create(phone="13700137002")
+        resp = self.client.get("/ops/allowlist/?status=all")
+        self.assertContains(resp, self.ALLOWED)
+        self.assertContains(resp, "产品同事")
+        self.assertContains(resp, "待首次登录")
+        self.assertContains(resp, "已有账号")
+
+    def test_add_creates_entry_with_operator(self):
+        """加号:落库、记操作人,并在片段里回显提示。"""
+        resp = self.client.post("/ops/allowlist/add",
+                                {"phone": self.NEWCOMER, "note": "测试同事"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "已加入名单")
+        record = PhoneAllowlist.objects.get(phone=self.NEWCOMER)
+        self.assertEqual(record.note, "测试同事")
+        self.assertEqual(record.created_by, self.staff)
+        self.assertTrue(record.is_active)
+
+    def test_add_takes_effect_without_restart(self):
+        """加号后该号码**下一次请求**就能发码(写路径清快照,不用重启 web)。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        # 先把快照写热:此时新号还不存在,应被拦
+        with self.assertRaises(PhoneNotAllowed):
+            services.ensure_phone_allowed(self.NEWCOMER)
+        self.client.post("/ops/allowlist/add", {"phone": self.NEWCOMER})
+        services.ensure_phone_allowed(self.NEWCOMER)      # 不再抛
+        with patch("notifications.tasks.send_sms_code.delay"):
+            resp = self.client.post("/api/v1/auth/sms/send",
+                                    json.dumps({"phone": self.NEWCOMER}),
+                                    content_type="application/json")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_add_invalid_phone_shows_error_and_writes_nothing(self):
+        """格式不对的号码只回显错误,不落库(避免「加进去却永远登不上」)。"""
+        resp = self.client.post("/ops/allowlist/add", {"phone": "12345"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "手机号格式不正确")
+        self.assertFalse(PhoneAllowlist.objects.exists())
+
+    def test_add_existing_disabled_reactivates_it(self):
+        """重复提交一个已停用的号码 = 重新启用(运营手上只有这一个入口)。"""
+        record = PhoneAllowlist.objects.create(phone=self.ALLOWED, is_active=False)
+        resp = self.client.post("/ops/allowlist/add", {"phone": self.ALLOWED, "note": "回来了"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "已重新启用")
+        record.refresh_from_db()
+        self.assertTrue(record.is_active)
+        self.assertEqual(record.note, "回来了")
+
+    def test_toggle_disables_and_blocks_immediately(self):
+        """停用:立刻 403,不重启、不等缓存过期(写路径清快照)。"""
+        record = PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        services.ensure_phone_allowed(self.ALLOWED)       # 快照写热(此时启用)
+        resp = self.client.post(f"/ops/allowlist/{record.id}/toggle")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "已停用")
+        record.refresh_from_db()
+        self.assertFalse(record.is_active)
+        with self.assertRaises(PhoneNotAllowed):
+            services.ensure_phone_allowed(self.ALLOWED)
+        with patch("notifications.tasks.send_sms_code.delay") as delay:
+            resp = self.client.post("/api/v1/auth/sms/send",
+                                    json.dumps({"phone": self.ALLOWED}),
+                                    content_type="application/json")
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], 40301)
+        delay.assert_not_called()
+
+    def test_toggle_reenables(self):
+        """再次点击变成启用,该号码重新放行。"""
+        record = PhoneAllowlist.objects.create(phone=self.ALLOWED, is_active=False)
+        resp = self.client.post(f"/ops/allowlist/{record.id}/toggle")
+        self.assertContains(resp, "已启用")
+        services.ensure_phone_allowed(self.ALLOWED)
+
+    def test_filters_by_status_and_keyword(self):
+        """按状态与关键字筛选:启用/停用分栏,号码与备注都能搜。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED, note="设计")
+        PhoneAllowlist.objects.create(phone=self.NEWCOMER, note="运营", is_active=False)
+        active_page = self.client.get("/ops/allowlist/?status=active")
+        self.assertContains(active_page, self.ALLOWED)
+        self.assertNotContains(active_page, self.NEWCOMER)
+        search_page = self.client.get("/ops/allowlist/?status=all&q=运营")
+        self.assertContains(search_page, self.NEWCOMER)
+        self.assertNotContains(search_page, self.ALLOWED)

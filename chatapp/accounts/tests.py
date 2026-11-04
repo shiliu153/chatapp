@@ -5,6 +5,7 @@
     - 健康检查与就绪探针(数据库/Redis 任一不可用时返回 503);
     - 发码:落码、60 秒重发间隔、入队失败回滚、手机号格式、IP 限流;
     - 封闭测试白名单(非受邀号码 403、空白名单不限制、纵深防御);
+    - 准入名单落库(B-1c):库内命中/未命中/停用、停用优先于 `.env` 种子、快照缓存与失效;
     - 校验登录:自动建号、幂等重放、错误/过期、连错锁定、IP 限流、响应头;
     - 验证码状态机(HMAC 存储、重放窗口、锁定、不存明文);
     - IM 账号约定 ``u{id}``、新用户导入与老用户「待踢旧会话」标记;
@@ -35,10 +36,11 @@ from django_redis import get_redis_connection
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken
 
-from accounts import services, sms_codes
+from accounts import allowlist, services, sms_codes
 from accounts import totp
 from accounts.exceptions import PhoneNotAllowed
 from accounts.management.commands.seed_fake_users import Command
+from accounts.models import PhoneAllowlist
 from im import tasks as im_tasks
 from accounts.throttles import SmsSendThrottle
 from accounts.tokens import SessionRefreshToken
@@ -391,6 +393,116 @@ class SmsPhoneWhitelistTests(APITestCase):
                 services.ensure_phone_allowed(self.ALLOWED)
 
 
+class PhoneAllowlistDbTests(APITestCase):
+    """准入名单落库(B-1c):库内命中 / 未命中 / 停用,以及写路径的缓存失效。"""
+
+    ALLOWED = "13900139000"
+    OUTSIDER = "13800138000"
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def send(self, phone):
+        """调用发码接口。
+
+        Args:
+            phone: 目标手机号。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post("/api/v1/auth/sms/send", {"phone": phone}, format="json")
+
+    def verify(self, phone):
+        """用开发模式固定码调用校验登录接口。
+
+        Args:
+            phone: 目标手机号。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post("/api/v1/auth/sms/verify",
+                                {"phone": phone, "code": settings.SMS_DEV_CODE},
+                                format="json")
+
+    def test_db_entry_allows_phone(self):
+        """库内启用 + 种子为空:该号码能正常发码(名单已由数据库接管)。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        with patch("notifications.tasks.send_sms_code.delay"):
+            resp = self.send(self.ALLOWED)
+        self.assertEqual(resp.status_code, 200)
+
+    def test_db_entry_allows_login(self):
+        """库内启用:登录链路完整可用(发码 → 校验 → 拿到 access)。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        with patch("notifications.tasks.send_sms_code.delay"):
+            self.assertEqual(self.send(self.ALLOWED).status_code, 200)
+        with patch("im.tasks.import_account.delay"), \
+                patch("im.tasks.sync_session_version.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.verify(self.ALLOWED)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("access", resp.json())
+
+    def test_outsider_denied_when_db_has_entries(self):
+        """库里已有别人 → 名单由数据库接管,未列出的号码 403 + 40301。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        with patch("notifications.tasks.send_sms_code.delay") as delay:
+            resp = self.send(self.OUTSIDER)
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], 40301)
+        delay.assert_not_called()
+
+    def test_disabled_entry_denied_even_if_in_env_seed(self):
+        """停用优先于 `.env` 种子 —— 否则「停用」停不掉还留在 `.env` 里的老号。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED, is_active=False)
+        with override_settings(SMS_PHONE_WHITELIST=frozenset({self.ALLOWED})):
+            with patch("notifications.tasks.send_sms_code.delay") as delay:
+                resp = self.send(self.ALLOWED)
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], 40301)
+        delay.assert_not_called()
+
+    def test_disabled_phone_cannot_login_with_already_sent_code(self):
+        """纵深防御:码已下发后再停用,校验入口仍拦住(快照随写路径立刻失效)。"""
+        record = PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        sms_codes.store(self.ALLOWED, settings.SMS_DEV_CODE)
+        services.ensure_phone_allowed(self.ALLOWED)      # 先把快照缓存写热
+        record.is_active = False
+        record.save(update_fields=["is_active"])
+        allowlist.invalidate()
+        resp = self.verify(self.ALLOWED)
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], 40301)
+
+    def test_seed_still_allows_when_db_empty(self):
+        """库里一条记录都没有时,`.env` 种子兜底放行(首次导入前的过渡态)。"""
+        with override_settings(SMS_PHONE_WHITELIST=frozenset({self.OUTSIDER})):
+            services.ensure_phone_allowed(self.OUTSIDER)
+            with self.assertRaises(PhoneNotAllowed):
+                services.ensure_phone_allowed(self.ALLOWED)
+
+    def test_db_and_seed_both_empty_allows_any(self):
+        """库与种子都空 = 不限制(开发/测试默认);有记录才收紧。"""
+        services.ensure_phone_allowed(self.OUTSIDER)
+        PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        allowlist.invalidate()      # 写路径都会清快照,这里显式模拟
+        with self.assertRaises(PhoneNotAllowed):
+            services.ensure_phone_allowed(self.OUTSIDER)
+
+    def test_snapshot_cached_until_invalidated(self):
+        """快照命中缓存时不查库;失效后立刻回到数据库真值。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        services.ensure_phone_allowed(self.ALLOWED)      # 第一次:查库 + 回填
+        with self.assertNumQueries(0):
+            services.ensure_phone_allowed(self.ALLOWED)  # 第二次:纯缓存
+        allowlist.invalidate()
+        with self.assertNumQueries(1):
+            services.ensure_phone_allowed(self.ALLOWED)  # 失效后:再查一次
+
+
 class SmsCodeStateTests(TestCase):
     """验证码状态机:HMAC 存储 + Lua 原子校验 + 重放窗口。"""
 
@@ -693,6 +805,60 @@ class SingleDeviceSessionTests(APITestCase):
         resp = self.client.post("/api/v1/auth/token/refresh", {"refresh": first_refresh}, format="json")
         self.assertEqual(resp.status_code, 401)
         self.assertEqual(resp.json()["code"], 40101)
+
+class AllowlistSeedImportTests(TestCase):
+    """种子导入命令 allowlist_seed_import:幂等补齐,但不把已停用的号放回来。"""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def run_cmd(self, **kwargs):
+        """跑一次导入命令并返回标准输出。
+
+        Args:
+            **kwargs: 透传给 ``call_command`` 的选项(dry_run / note)。
+
+        Returns:
+            命令的标准输出文本。
+        """
+        out = StringIO()
+        call_command("allowlist_seed_import", stdout=out, **kwargs)
+        return out.getvalue()
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({"13900139000", "13900139001"}))
+    def test_imports_missing_numbers(self):
+        """把种子号码补进库,备注写默认说明。"""
+        self.run_cmd()
+        self.assertEqual(PhoneAllowlist.objects.count(), 2)
+        self.assertTrue(all(r.note == "从 .env 种子导入" for r in PhoneAllowlist.objects.all()))
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({"13900139000"}))
+    def test_dry_run_writes_nothing(self):
+        """--dry-run 只打印,不写库。"""
+        output = self.run_cmd(dry_run=True)
+        self.assertIn("139****9000", output)
+        self.assertFalse(PhoneAllowlist.objects.exists())
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({"13900139000", "13900139001"}))
+    def test_idempotent_and_keeps_disabled_entries(self):
+        """重复执行不重复插入,且**不会**把已停用的号码重新启用。"""
+        disabled = PhoneAllowlist.objects.create(phone="13900139000",
+                                                 note="手工加的", is_active=False)
+        self.run_cmd()
+        self.run_cmd()
+        self.assertEqual(PhoneAllowlist.objects.count(), 2)
+        disabled.refresh_from_db()
+        self.assertFalse(disabled.is_active)
+        self.assertEqual(disabled.note, "手工加的")
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset())
+    def test_empty_seed_is_noop(self):
+        """种子为空时什么都不做。"""
+        output = self.run_cmd()
+        self.assertIn("没有可导入的号码", output)
+        self.assertFalse(PhoneAllowlist.objects.exists())
+
 
 class SeedFakeUsersTests(TestCase):
     """造数命令 seed_fake_users:建「资料已完善 + 过审照片」的女号(手测发现页用)。"""

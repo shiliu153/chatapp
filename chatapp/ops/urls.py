@@ -2,7 +2,12 @@
 
 设计要点:
     以 ``/`` 结尾的是整页,不带结尾斜杠的是 HTMX 局部刷新端点
-    (``handle`` / ``ban`` / ``review`` / ``delete``),两者返回的模板粒度不同。
+    (``handle`` / ``ban`` / ``review`` / ``delete`` / ``add`` / ``toggle``),
+    两者返回的模板粒度不同。
+
+注意事项:
+    ``allowlist/`` 与 ``allowlist/<int:entry_id>/toggle`` 不会互相吞路由:
+    前者带斜杠且是字面量,``add`` 也是字面量,``<int:>`` 只吃数字。
 """
 
 from django.contrib.auth import views as auth_views
@@ -49,4 +54,8 @@ urlpatterns = [
          name="post_report_handle"),
     path("post-reports/<int:report_id>/delete-post", views.post_report_delete_post,
          name="post_report_delete_post"),
+    path("allowlist/", views.allowlist_page, name="allowlist"),
+    path("allowlist/add", views.allowlist_add, name="allowlist_add"),
+    path("allowlist/<int:entry_id>/toggle", views.allowlist_toggle,
+         name="allowlist_toggle"),
 ]
