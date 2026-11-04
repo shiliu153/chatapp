@@ -9,7 +9,7 @@ describe('AboutPage', () => {
     })
 
     expect(w.text()).toContain('心跳')
-    expect(w.find('.about__version').text()).toContain('1.0.3')
+    expect(w.find('.about__version').text()).toContain('1.0.4')
     expect(w.find('.about__agreement').text()).toContain('用户协议')
     expect(w.find('.about__privacy').text()).toContain('隐私政策')
   })
