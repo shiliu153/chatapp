@@ -155,11 +155,18 @@ jobs:
         working-directory: web
         run: npx playwright install --with-deps chromium
 
-      # Playwright 的 webServer 会自己 `npm run build && npm run preview`（:4173，
-      # preview 的 /api/v1 代理到 :8000，见 web/vite.config.ts）
+      # 先单独构建:构建失败就是构建失败,不会被算进 webServer 的 180 秒超时窗口
+      - name: 构建 Web
+        working-directory: web
+        run: npm run build
+
+      # webServer 只起 `vite preview --host 127.0.0.1`(:4173,preview 的 /api/v1
+      # 代理到 :8000,见 web/vite.config.ts);PW_SKIP_BUILD=1 让 config 跳过重复构建
       - name: 跑冒烟 e2e
         working-directory: web
         run: npm run e2e:smoke
+        env:
+          PW_SKIP_BUILD: '1'
 
       - name: 失败时上传 Playwright 报告
         if: failure()
