@@ -6,11 +6,14 @@ on:
     paths:
       - 'web/**'
       - 'docs/api/**'
+      # 跨栈协议 fixture(E-2):只改 fixture 也要跑 Web 的契约测试
+      - 'imserver/tests/fixtures/**'
       - '.github/workflows/web.yml'
   pull_request:
     paths:
       - 'web/**'
       - 'docs/api/**'
+      - 'imserver/tests/fixtures/**'
       - '.github/workflows/web.yml'
   workflow_dispatch:
 

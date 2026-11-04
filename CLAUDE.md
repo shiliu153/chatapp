@@ -143,6 +143,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **前端**:401 只走 `AuthInterceptor` 刷新通道;错误统一 `ApiException`;写操作后检查相关 provider 失效
 - **网页端**:401 只走 `api/http.ts` 的刷新通道(并发去重);错误统一 `ApiError`;页面只碰 store、不直接调 `http`
 - **「心跳」token 双份维护**:改任何视觉 token 或字体,**必须在同一次改动内同时改** `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css`(`web/public/fonts/*` 与 `app/assets/fonts/*` 保持一致);`web/tests/unit/tokens.spec.ts` 与 `fonts.spec.ts` 会双向比对,漏改即红
+- **跨栈 IM 协议帧(2026-11-05 起,E-2)**:`imserver/tests/fixtures/ws/*.json` 是三端(App / Web / imserver)唯一的线上帧契约源。改任何 WS 帧格式必须**同一次改动内**同时改:fixture + imserver(`src/net/frames.h` 的构造 / `ws_server.cpp`)+ App(`self_im_client.dart` 与 `app/test/im/protocol_fixture_test.dart`)+ Web(`web/src/im/self/*` 与 `web/tests/unit/im-protocol-fixture.spec.ts`);三条 CI 轨(`imserver.yml`/`app.yml`/`web.yml`)各自会红。契约与改法见 `imserver/tests/fixtures/ws/README.md`
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步
 - **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/master` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。CI 跑在 Ubuntu + MySQL 8 + Redis 上,与本地 Windows 不同;顺序错了会变成「CI 红时生产已在跑未验证代码」
 - **网页端测试纪律**:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + vitest 全绿(覆盖率门槛 70/60/70/70);`npm run e2e` 需后端 + Redis + Celery 都在跑,不进 CI

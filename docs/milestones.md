@@ -89,6 +89,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(运�
 
 | 2026-11-05 | **E-1 文档债:补聊天记录搜索文档**(backlog E-1):`GET /im/api/search` 功能 2026-10-27 已交付,但 `docs/api/` 与 `docs/ops/imserver.md` 全仓搜不到 `search`。① 新增 `docs/ops/imserver.md` §16:鉴权与地址(用 `user_sig` 的 IM token、401 的四种原因)、请求参数(`q` 150 字节上限 / `limit` 1~50 / `before_id` 游标)、响应字段(含 `peer` 与 `from_profile`)、搜索口径(只搜文本、撤回 / 删会话 / 拉黑过滤、`LIKE` 转义、新→旧)、限流(1 次/秒、突发 20)、错误码、验证命令、排查表;② `docs/api/im.md` 与 `docs/api/README.md` 加指路,说明 `/im/api/*` 属 imserver 内部契约、不进 `/api/v1` 门禁;③ **无代码改动**,门禁与 CI 照常绿 | PR #61 |
 
+| 2026-11-05 | **E-2 跨栈协议 fixture 契约测试**(backlog E-2 / 审查 D-3):WS 协议帧此前只有「Python 侧发帧 + 两端假 transport」,服务端改帧格式只能人工手测发现。① 新增 `imserver/tests/fixtures/ws/{client_to_server,server_to_client}.json`(上行 8 帧 / 下行 12 帧)+ `README.md`(改协议必须三端同一次改、比对规则);② imserver 把帧构造收进 `src/net/frames.h`,新增 `frames_fixture_test.cpp` 用真实序列化函数比对 fixture(unit **45/45**);③ App `protocol_fixture_test.dart`(**3 例**)与 Web `im-protocol-fixture.spec.ts`(**3 例**)用真实解析路径吃 fixture,上下行都断言;④ `app.yml`/`web.yml` 的 paths 加 fixture 目录;⑤ 验收实测:故意把 fixture 的 `msg_id` 改成 `message_id` → **三端同时红**,还原后全绿 | PR #TBD |
+
 ## 怎么维护
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;

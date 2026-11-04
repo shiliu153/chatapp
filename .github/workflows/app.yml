@@ -5,10 +5,13 @@ on:
     branches: [master, main]
     paths:
       - 'app/**'
+      # 跨栈协议 fixture(E-2):只改 fixture 也要跑 App 的契约测试
+      - 'imserver/tests/fixtures/**'
       - '.github/workflows/app.yml'
   pull_request:
     paths:
       - 'app/**'
+      - 'imserver/tests/fixtures/**'
       - '.github/workflows/app.yml'
   workflow_dispatch:
 
