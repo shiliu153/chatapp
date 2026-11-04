@@ -87,3 +87,21 @@ cd web && npm run type-check && npm run lint && npm run test:run
 - `autoDispose` 的 Riverpod provider 在测试里 `read` 完会被回收,新写的分页单测必须先 `container.listen(...)` 才能断言 `loadMore` 之后的状态。
 
 **验证**:后端 751 绿(`manage.py test`,含查询预算与接口文档门禁);App `analyze` 零告警 + 447 绿;Web `vue-tsc`/`eslint` 零告警 + 429 绿。
+
+## 上线记录(2026-11-04)
+
+`origin/master` = `ae7099f`(版本号 PR #51 把三处同改到 **1.0.4**),按发布流程部署:
+
+| 项 | 动作 | 结果 |
+|---|---|---|
+| 后端 | `git checkout -f b5015bf` → `migrate --check` → `collectstatic` → 重启 `chatapp-web`/`chatapp-celery` | 无新迁移;health/readyz `200` |
+| Web | 本地 `npm run build` → tar → 服务器解包 → `chown www:www` | 新 `assets/index-_l04JpFd.js`,旧包备份 `chatapp-web-dist-20261104-2032-preD1.tar.gz` |
+| APK | `flutter build apk --release`(`ERROR_REPORTING=true`)→ `chatapp-1.0.4.apk`(MD5 `f202cc1b…`) | 断点下载 `206` |
+| `.env` | 只改 `LATEST_APP_VERSION=1.0.4` + `APP_DOWNLOAD_URL` | `MIN_APP_VERSION` **保持 1.0.1**;`/app/config` 返回 1.0.4 |
+
+生产冒烟(用 `SessionRefreshToken` 现场签一个令牌,`/tmp` 脚本跑完即删):游标模式 `{count, next_cursor, has_more, results}`、
+第 2 页与第 1 页**零重叠**、`?offset=1` 仍是 `count/next/previous`、坏游标 `400 + 400`,
+`/posts/mine`、`/matches`、`/discovery/likes`、`/discovery/visits` 四个接口全是新形状。
+
+两个重启窗口(20:31 / 20:41)共 73 个 `502`,全部来自本机探针 `curl`(`/users/me` 与 `/app/config`),**无真实用户 5xx**。
+回滚点:代码 `a08599b`、`.env.bak.20261104-2041-104`、旧 dist 备份(旧 APK 1.0.3 仍在服务器)。
