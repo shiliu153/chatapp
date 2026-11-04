@@ -112,27 +112,29 @@ describe('discovery store', () => {
     expect(store.current?.user_id).toBe(1)
   })
 
-  it('配对列表分页追加,不重置已有数据', async () => {
+  it('配对列表按游标翻页追加,不重置已有数据', async () => {
     const page1 = {
       count: 3,
-      next: 'http://x/api/v1/matches?limit=2&offset=2',
-      previous: null,
+      next_cursor: 'matches-page-2',
+      has_more: true,
       results: [
         { user_id: 1, im_user_id: 'u1', nickname: 'A', avatar_url: null, matched_at: '2026-10-01T00:00:00Z' },
       ],
     }
     const page2 = {
       count: 3,
-      next: null,
-      previous: null,
+      next_cursor: null,
+      has_more: false,
       results: [
         { user_id: 2, im_user_id: 'u2', nickname: 'B', avatar_url: null, matched_at: '2026-10-02T00:00:00Z' },
       ],
     }
     let calls = 0
+    let secondQuery = ''
     server.use(
-      mswHttp.get('/api/v1/matches', () => {
+      mswHttp.get('/api/v1/matches', ({ request }) => {
         calls += 1
+        if (calls > 1) secondQuery = new URL(request.url).search
         return HttpResponse.json(calls === 1 ? page1 : page2)
       }),
     )
@@ -144,13 +146,14 @@ describe('discovery store', () => {
     expect(store.matches.map((m) => m.user_id)).toEqual([1, 2])
     expect(store.matchesCount).toBe(3)
     expect(store.matchesLoaded).toBe(true)
+    expect(secondQuery).toContain('before=matches-page-2')
   })
 
   it('unmatch 调 DELETE 并从本地列表移除', async () => {
     const page = {
       count: 1,
-      next: null,
-      previous: null,
+      next_cursor: null,
+      has_more: false,
       results: [
         { user_id: 8, im_user_id: 'u8', nickname: 'A', avatar_url: null, matched_at: '2026-10-01T00:00:00Z' },
       ],

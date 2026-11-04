@@ -8,8 +8,8 @@ import { server } from '../support/server'
 
 const page = {
   count: 3,
-  next: null,
-  previous: null,
+  next_cursor: null,
+  has_more: false,
   results: [
     { user_id: 1, im_user_id: 'u1', nickname: 'A', avatar_url: null, matched_at: '2026-10-01T00:00:00Z' },
     {
@@ -43,18 +43,20 @@ describe('MatchesList', () => {
     expect(w.text()).toContain('A')
   })
 
-  it('还有下一页时展示「加载更多」,点后追加', async () => {
+  it('还有下一页时展示「加载更多」,点后按 next_cursor 追加', async () => {
     let calls = 0
+    let secondQuery = ''
     server.use(
-      mswHttp.get('/api/v1/matches', () => {
+      mswHttp.get('/api/v1/matches', ({ request }) => {
         calls += 1
+        if (calls > 1) secondQuery = new URL(request.url).search
         return HttpResponse.json(
           calls === 1
-            ? { ...page, next: 'http://x/api/v1/matches?offset=2' }
+            ? { ...page, next_cursor: 'matches-page-2', has_more: true }
             : {
                 count: 3,
-                next: null,
-                previous: null,
+                next_cursor: null,
+                has_more: false,
                 results: [
                   {
                     user_id: 3,
@@ -75,12 +77,13 @@ describe('MatchesList', () => {
     await flushPromises()
 
     expect(w.findAll('.matches-list__item')).toHaveLength(3)
+    expect(secondQuery).toContain('before=matches-page-2')   // 游标,不是 offset
   })
 
   it('一个配对都没有时不渲染区块', async () => {
     server.use(
       mswHttp.get('/api/v1/matches', () =>
-        HttpResponse.json({ count: 0, next: null, previous: null, results: [] }),
+        HttpResponse.json({ count: 0, next_cursor: null, has_more: false, results: [] }),
       ),
     )
     const w = mountList()

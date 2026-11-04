@@ -6,8 +6,8 @@ import { server } from '../support/server'
 
 const page = (results: unknown[], count = results.length) => ({
   count,
-  next: null,
-  previous: null,
+  next_cursor: null,
+  has_more: false,
   results,
 })
 

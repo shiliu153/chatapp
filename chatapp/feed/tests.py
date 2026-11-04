@@ -285,7 +285,8 @@ class FeedFlowTests(FeedApiMixin, APITestCase):
         data = self.client.get("/api/v1/posts").json()
         self.assertEqual(data["count"], 25)
         self.assertEqual(len(data["results"]), 20)
-        self.assertIsNotNone(data["next"])
+        self.assertTrue(data["has_more"])
+        self.assertIsNotNone(data["next_cursor"])
 
     def test_flow_excludes_blocked_both_ways(self):
         Block.objects.create(blocker=self.me, blocked=self.other)

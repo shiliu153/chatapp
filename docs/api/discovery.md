@@ -175,11 +175,12 @@ curl -X POST http://<域名>/api/v1/discovery/swipe \
 | 参数名称 | 必填 | 类型 | 描述 |
 |----------|------|------|------|
 | limit | 否 | Integer | 每页条数,默认 20,上限 100 |
-| offset | 否 | Integer | 偏移量,默认 0 |
+| before | 否 | String | 游标。首页不传;之后原样回传上一页的 `next_cursor`(见 [conventions.md §分页约定](conventions.md#分页约定)) |
 
 **响应参数**
 
-分页对象(见 [conventions.md §分页约定](conventions.md#分页约定)),`results[]` 字段:
+游标分页对象(`count` / `next_cursor` / `has_more` / `results`);带 `offset` 的老客户端
+仍得到 `{count, next, previous, results}`。`results[]` 字段:
 
 | 参数名称 | 类型 | 描述 |
 |----------|------|------|
@@ -192,7 +193,7 @@ curl -X POST http://<域名>/api/v1/discovery/swipe \
 **请求示例**
 
 ```bash
-curl "http://<域名>/api/v1/matches?limit=20&offset=0" \
+curl "http://<域名>/api/v1/matches?limit=20" \
   -H "Authorization: Bearer <access>"
 ```
 
@@ -201,8 +202,8 @@ curl "http://<域名>/api/v1/matches?limit=20&offset=0" \
 ```json
 {
   "count": 1,
-  "next": null,
-  "previous": null,
+  "next_cursor": null,
+  "has_more": false,
   "results": [
     {
       "user_id": 8,
@@ -219,6 +220,7 @@ curl "http://<域名>/api/v1/matches?limit=20&offset=0" \
 
 | 错误码 | HTTP | 描述 | 处理建议 |
 |--------|------|------|----------|
+| 400 | 400 | 游标无效 | 清空列表,从第一页重拉 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
 
 ---
@@ -243,11 +245,13 @@ curl "http://<域名>/api/v1/matches?limit=20&offset=0" \
 | 参数名称 | 必填 | 类型 | 描述 |
 |----------|------|------|------|
 | limit | 否 | Integer | 每页条数,默认 20,上限 100 |
-| offset | 否 | Integer | 偏移量,默认 0 |
+| before | 否 | String | 游标。首页不传;之后原样回传上一页的 `next_cursor` |
 
 **响应参数**
 
-分页对象(见 [conventions.md §分页约定](conventions.md#分页约定)),`results[]` 字段:
+游标分页对象(`count` / `next_cursor` / `has_more` / `results`);带 `offset` 的老客户端
+仍得到 `{count, next, previous, results}`。注意 `count` 是「喜欢我的人」总数,与分页无关,
+客户端拿它算入口角标。`results[]` 字段:
 
 | 参数名称 | 类型 | 描述 |
 |----------|------|------|
@@ -265,7 +269,7 @@ curl "http://<域名>/api/v1/matches?limit=20&offset=0" \
 **请求示例**
 
 ```bash
-curl "http://<域名>/api/v1/discovery/likes?limit=20&offset=0" \
+curl "http://<域名>/api/v1/discovery/likes?limit=20" \
   -H "Authorization: Bearer <access>"
 ```
 
@@ -274,8 +278,8 @@ curl "http://<域名>/api/v1/discovery/likes?limit=20&offset=0" \
 ```json
 {
   "count": 1,
-  "next": null,
-  "previous": null,
+  "next_cursor": null,
+  "has_more": false,
   "results": [
     {
       "user_id": 30,
@@ -301,6 +305,7 @@ curl "http://<域名>/api/v1/discovery/likes?limit=20&offset=0" \
 
 | 错误码 | HTTP | 描述 | 处理建议 |
 |--------|------|------|----------|
+| 400 | 400 | 游标无效 | 清空列表,从第一页重拉 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
 | 403 | 403 | 账号已被封禁(重封禁) | 提示用户账号受限 |
 
@@ -412,11 +417,12 @@ HTTP/1.1 204 No Content
 | 参数名称 | 必填 | 类型 | 描述 |
 |----------|------|------|------|
 | limit | 否 | Integer | 每页条数,默认 20,上限 100 |
-| offset | 否 | Integer | 偏移量,默认 0 |
+| before | 否 | String | 游标。首页不传;之后原样回传上一页的 `next_cursor` |
 
 **响应参数**
 
-分页对象(见 [conventions.md §分页约定](conventions.md#分页约定)),`results[]` 字段:
+游标分页对象(`count` / `next_cursor` / `has_more` / `results`);带 `offset` 的老客户端
+仍得到 `{count, next, previous, results}`。`results[]` 字段:
 
 | 参数名称 | 类型 | 描述 |
 |----------|------|------|
@@ -434,7 +440,7 @@ HTTP/1.1 204 No Content
 **请求示例**
 
 ```bash
-curl "http://<域名>/api/v1/discovery/visits?limit=20&offset=0" \
+curl "http://<域名>/api/v1/discovery/visits?limit=20" \
   -H "Authorization: Bearer <access>"
 ```
 
@@ -443,8 +449,8 @@ curl "http://<域名>/api/v1/discovery/visits?limit=20&offset=0" \
 ```json
 {
   "count": 1,
-  "next": null,
-  "previous": null,
+  "next_cursor": null,
+  "has_more": false,
   "results": [
     {
       "user_id": 30,
@@ -468,6 +474,7 @@ curl "http://<域名>/api/v1/discovery/visits?limit=20&offset=0" \
 
 | 错误码 | HTTP | 描述 | 处理建议 |
 |--------|------|------|----------|
+| 400 | 400 | 游标无效 | 清空列表,从第一页重拉 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
 | 403 | 403 | 账号已被封禁(重封禁) | 提示用户账号受限 |
 | 429 | 429 | 触发限流(120 次/小时) | 按 `Retry-After` 等待 |

@@ -125,6 +125,21 @@ Map<String, dynamic> pageJson(List<dynamic> items, {bool hasNext = false}) => {
       'results': items,
     };
 
+/// 造一份游标分页响应(动态流 / 配对 / 喜欢我 / 访客用);
+/// hasMore=true 时给一个非空 next_cursor(测「加载更多」用)。
+Map<String, dynamic> cursorPageJson(
+  List<dynamic> items, {
+  bool hasMore = false,
+  int? count,
+  String cursor = 'cursor-next-page',
+}) =>
+    {
+      'count': count ?? items.length,
+      'next_cursor': hasMore ? cursor : null,
+      'has_more': hasMore,
+      'results': items,
+    };
+
 /// 造一条动态(GET /posts 里的一条);字段可覆盖。
 Map<String, dynamic> postJson({
   int id = 1,

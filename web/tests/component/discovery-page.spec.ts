@@ -17,7 +17,7 @@ const card: Candidate = {
   photos: [{ id: 1, url: 'https://cdn/a.jpg', status: 'approved', order: 0 }],
 }
 
-const emptyMatches = { count: 0, next: null, previous: null, results: [] }
+const emptyMatches = { count: 0, next_cursor: null, has_more: false, results: [] }
 
 function mountPage() {
   return mount(DiscoveryPage, {

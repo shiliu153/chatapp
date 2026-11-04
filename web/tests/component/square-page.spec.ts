@@ -19,8 +19,8 @@ const post = (id: number): Post => ({
 
 const page = (results: unknown[], overrides = {}) => ({
   count: results.length,
-  next: null,
-  previous: null,
+  next_cursor: null,
+  has_more: false,
   results,
   ...overrides,
 })
@@ -78,7 +78,7 @@ describe('SquarePage', () => {
   it('还有下一页时展示「加载更多」', async () => {
     server.use(
       mswHttp.get('/api/v1/posts', () =>
-        HttpResponse.json(page([post(1)], { count: 2, next: 'x' })),
+        HttpResponse.json(page([post(1)], { count: 2, next_cursor: 'c2', has_more: true })),
       ),
     )
     const w = mountPage()

@@ -35,7 +35,7 @@
 - 交付后在文件末尾写「执行记录 / 与计划的偏差 / 踩到的坑」,**不要**回头补勾旧 checkbox(见 §4 注)
 - 交付即归档:同一提交内 `git mv` 到 `archive/` + 更新本文 §4 + 更新 `CLAUDE.md` 里程碑摘要
 
-## 4. 归档清单(已交付,共 80 份)
+## 4. 归档清单(已交付,共 81 份)
 
 > **注**:2026-10 之前的计划普遍存在「已交付但 checkbox 未回填」的情况(M0–M2、UI 批次②③、广场楼中楼、自建 IM、账号注销、访客等)。
 > 判断是否交付**以本表结论与 git log 为准**,不要以文件内 checkbox 为准。
@@ -103,6 +103,7 @@
 | 11-01 | [voice-recording-interaction](archive/plans/2026-11-01-voice-recording-interaction.md) | [✓](archive/specs/2026-11-01-voice-recording-interaction-design.md) | 语音录音交互打磨(Web 点击式 + App 状态机) |
 | 11-01 | [security-round3](archive/plans/2026-11-01-security-round3.md) | — | 第三轮安全审计整改(PR #30,已上线) |
 | 11-04 | [read-receipt](archive/plans/2026-11-04-read-receipt.md) | [✓](archive/specs/2026-11-04-read-receipt-design.md) | 已读回执(imserver 广播 + peer_read_seq,App/Web 双端;backlog C-2) |
+| 11-04 | [cursor-pagination](archive/plans/2026-11-04-cursor-pagination.md) | — | cursor/keyset 分页替代 offset(五个列表接口 + App/Web 双端;backlog D-1 / 审查 N-5) |
 
 ---
 

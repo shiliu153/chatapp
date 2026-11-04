@@ -22,7 +22,9 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from config import images, storage
+from config.cursor import cursor_body, paginated_response, read_before, wants_legacy_offset
 from config.pagination import DefaultLimitOffsetPagination
+from config.params import int_param
 from moderation.models import ReportStatus
 
 from .models import Post, PostComment, PostImage, PostLike, PostReport
@@ -75,25 +77,45 @@ def posts(request):
 def _page_visible_posts(request):
     """两段式分页:先取当页 id,再只对这几条做赞/评聚合(见 ``page_visible_posts``)。
 
-    响应结构与 ``DefaultLimitOffsetPagination`` 完全一致(count/next/previous/results),
-    客户端无需改动。
+    默认走**复合游标**(``?before=``),响应 ``{count, next_cursor, has_more, results}``;
+    请求里带 ``offset`` 的老客户端仍走旧的 ``LimitOffsetPagination`` 路径,
+    响应形状保持 ``{count, next, previous, results}``(审查 N-5 / backlog D-1)。
+
+    Args:
+        request: DRF 请求对象,提供 ``limit`` 与 ``before``(或兼容的 ``offset``)。
+
+    Returns:
+        分页后的动态列表响应。
+    """
+    if wants_legacy_offset(request):
+        return _legacy_page_visible_posts(request)
+    limit = int_param(request, "limit", default=DefaultLimitOffsetPagination.default_limit,
+                      minimum=1, maximum=DefaultLimitOffsetPagination.max_limit)
+    page = page_visible_posts(request.user, limit, before=read_before(request))
+    return Response(cursor_body(
+        PostSerializer(page.rows, many=True, context={"request": request}).data,
+        count=page.total, next_cursor=page.next_cursor, has_more=page.has_more))
+
+
+def _legacy_page_visible_posts(request):
+    """offset 分页(老客户端兼容路径):响应形状与改造前逐字段一致。
 
     Args:
         request: DRF 请求对象,提供 ``limit`` / ``offset``。
 
     Returns:
-        分页后的动态列表响应。
+        带 ``count`` / ``next`` / ``previous`` / ``results`` 的分页响应。
     """
     paginator = DefaultLimitOffsetPagination()
     limit = paginator.get_limit(request)
     offset = paginator.get_offset(request)
-    rows, total = page_visible_posts(request.user, offset, limit)
-    paginator.count = total
+    page = page_visible_posts(request.user, limit, offset=offset)
+    paginator.count = page.total
     paginator.limit = limit
     paginator.offset = offset
     paginator.request = request
     return paginator.get_paginated_response(
-        PostSerializer(rows, many=True, context={"request": request}).data)
+        PostSerializer(page.rows, many=True, context={"request": request}).data)
 
 
 def _create_post(request):
@@ -144,7 +166,7 @@ def my_posts(request):
     自己发过的动态自己始终能看到。
 
     Args:
-        request: DRF 请求对象。
+        request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
 
     Returns:
         分页后的动态列表,按发布时间倒序。
@@ -156,7 +178,9 @@ def my_posts(request):
                           liked_by_me=Exists(
                               PostLike.objects.filter(post=OuterRef("pk"), user=request.user)))
                 .order_by("-created_at", "-id"))
-    return _page_response(request, queryset)
+    return paginated_response(
+        request, queryset,
+        lambda rows: PostSerializer(rows, many=True, context={"request": request}).data)
 
 
 @api_view(["GET", "DELETE"])

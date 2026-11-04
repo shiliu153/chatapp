@@ -1,14 +1,18 @@
 import { http } from './http'
-import type { Comment, Page, Post, ReportType } from './types'
+import type { Comment, CursorPage, Page, Post, ReportType } from './types'
 
-export async function fetchPosts(limit = 20, offset = 0): Promise<Page<Post>> {
-  const { data } = await http.get('/posts', { params: { limit, offset } })
-  return data as Page<Post>
+/** 动态流:游标分页(首页 cursor 传 null,之后传上一页的 next_cursor)。 */
+export async function fetchPosts(limit = 20, cursor: string | null = null): Promise<CursorPage<Post>> {
+  const { data } = await http.get('/posts', { params: { limit, before: cursor ?? undefined } })
+  return data as CursorPage<Post>
 }
 
-export async function fetchMyPosts(limit = 20, offset = 0): Promise<Page<Post>> {
-  const { data } = await http.get('/posts/mine', { params: { limit, offset } })
-  return data as Page<Post>
+export async function fetchMyPosts(
+  limit = 20,
+  cursor: string | null = null,
+): Promise<CursorPage<Post>> {
+  const { data } = await http.get('/posts/mine', { params: { limit, before: cursor ?? undefined } })
+  return data as CursorPage<Post>
 }
 
 export async function fetchPost(id: number): Promise<Post> {

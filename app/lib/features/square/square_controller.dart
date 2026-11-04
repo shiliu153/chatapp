@@ -5,13 +5,15 @@ import 'models.dart';
 
 class SquareController extends AsyncNotifier<List<Post>> {
   bool _hasMore = true;
+  String? _nextCursor;
 
   @override
   Future<List<Post>> build() => _fetchFirst();
 
   Future<List<Post>> _fetchFirst() async {
     final page = await ref.read(feedRepositoryProvider).fetchPosts();
-    _hasMore = page.hasMore;
+    _nextCursor = page.nextCursor;
+    _hasMore = page.nextCursor != null;
     return page.items;
   }
 
@@ -25,8 +27,9 @@ class SquareController extends AsyncNotifier<List<Post>> {
     if (current == null || !_hasMore) return;
     final page = await ref
         .read(feedRepositoryProvider)
-        .fetchPosts(offset: current.length);
-    _hasMore = page.hasMore;
+        .fetchPosts(cursor: _nextCursor);
+    _nextCursor = page.nextCursor;
+    _hasMore = page.nextCursor != null;
     final existing = current.map((post) => post.id).toSet();
     state = AsyncValue.data(
         [...current, ...page.items.where((post) => !existing.contains(post.id))]);
@@ -63,11 +66,13 @@ final squareProvider =
 
 class MyPostsController extends AsyncNotifier<List<Post>> {
   bool _hasMore = true;
+  String? _nextCursor;
 
   @override
   Future<List<Post>> build() async {
     final page = await ref.read(feedRepositoryProvider).fetchPosts(path: '/posts/mine');
-    _hasMore = page.hasMore;
+    _nextCursor = page.nextCursor;
+    _hasMore = page.nextCursor != null;
     return page.items;
   }
 
@@ -81,8 +86,9 @@ class MyPostsController extends AsyncNotifier<List<Post>> {
     if (current == null || !_hasMore) return;
     final page = await ref
         .read(feedRepositoryProvider)
-        .fetchPosts(path: '/posts/mine', offset: current.length);
-    _hasMore = page.hasMore;
+        .fetchPosts(path: '/posts/mine', cursor: _nextCursor);
+    _nextCursor = page.nextCursor;
+    _hasMore = page.nextCursor != null;
     final existing = current.map((post) => post.id).toSet();
     state = AsyncValue.data(
         [...current, ...page.items.where((post) => !existing.contains(post.id))]);

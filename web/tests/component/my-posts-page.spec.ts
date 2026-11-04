@@ -19,8 +19,8 @@ const post = (id: number): Post => ({
 
 const page = (results: unknown[], overrides = {}) => ({
   count: results.length,
-  next: null,
-  previous: null,
+  next_cursor: null,
+  has_more: false,
   results,
   ...overrides,
 })

@@ -26,7 +26,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from config.pagination import DefaultLimitOffsetPagination
+from config.cursor import paginated_response
 from config.params import int_param
 from im import tasks as im_tasks
 from moderation.services import blocked_user_ids, exclude_blocked
@@ -150,7 +150,7 @@ def match_list(request):
     与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的)从列表中剔除;按配对时间倒序分页。
 
     Args:
-        request: DRF 请求对象,支持 ``limit`` / ``offset``。
+        request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
 
     Returns:
         分页后的配对条目数组。
@@ -162,12 +162,12 @@ def match_list(request):
                .select_related("user_a__profile", "user_b__profile")
                .prefetch_related("user_a__photos", "user_b__photos"))
     matches = exclude_blocked(exclude_blocked(matches, me, "user_a_id"), me, "user_b_id")
-    # 先分页再组装:配对行的数量随用户成长,整表拉进内存再切片会让「第 2 页」
-    # 和「第 1 页」一样贵(审查 N-2)。头像绝对 URL 仍在 _match_entry 里按请求拼。
-    paginator = DefaultLimitOffsetPagination()   # Match Meta ordering=-created_at,翻页顺序稳定
-    page = paginator.paginate_queryset(matches, request)
-    entries = [_match_entry(match, me, request) for match in page]
-    return paginator.get_paginated_response(entries)
+    # 显式补 -id 兜底:同一次配对不可能同微秒发生,但游标要求「排序完全确定」,
+    # 少了它 MySQL 对同一 created_at 的行顺序不保证,翻页可能漏行。
+    matches = matches.order_by("-created_at", "-id")
+    return paginated_response(request, matches,
+                              lambda rows: [_match_entry(match, me, request)
+                                            for match in rows])
 
 
 @api_view(["DELETE"])
@@ -234,16 +234,15 @@ def likes_received(request):
     """喜欢我的人列表(GET /api/v1/discovery/likes)。
 
     Args:
-        request: DRF 请求对象,支持 ``limit`` / ``offset``。
+        request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
 
     Returns:
         分页后的「喜欢我的人」列表,字段见 ``LikeReceivedSerializer``。
     """
-    qs = likes_received_queryset(request.user)
-    paginator = DefaultLimitOffsetPagination()
-    page = paginator.paginate_queryset(qs, request)
-    return paginator.get_paginated_response(
-        LikeReceivedSerializer(page, many=True, context={"request": request}).data)
+    return paginated_response(
+        request, likes_received_queryset(request.user),
+        lambda rows: LikeReceivedSerializer(rows, many=True,
+                                            context={"request": request}).data)
 
 
 @api_view(["GET"])
@@ -264,16 +263,15 @@ def visits(request):
     """谁看过我(GET /api/v1/discovery/visits)。
 
     Args:
-        request: DRF 请求对象,支持 ``limit`` / ``offset``。
+        request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
 
     Returns:
         分页后的访客列表,字段见 ``VisitSerializer``。
     """
-    qs = visits_received_queryset(request.user)
-    paginator = DefaultLimitOffsetPagination()
-    page = paginator.paginate_queryset(qs, request)
-    return paginator.get_paginated_response(
-        VisitSerializer(page, many=True, context={"request": request}).data)
+    return paginated_response(
+        request, visits_received_queryset(request.user),
+        lambda rows: VisitSerializer(rows, many=True, context={"request": request}).data,
+        field="last_at")
 
 
 @api_view(["GET"])

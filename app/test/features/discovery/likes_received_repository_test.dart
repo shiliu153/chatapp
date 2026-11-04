@@ -19,18 +19,29 @@ void main() {
     repository = DiscoveryRepository(ApiClient(dio));
   });
 
-  test('fetchLikesReceived 解析分页、liked_at 并带上 limit/offset', () async {
-    adapter.routes['GET /discovery/likes'] = (options) => ok(pageJson([
+  test('fetchLikesReceived 解析游标分页、liked_at,并带上 limit/before', () async {
+    adapter.routes['GET /discovery/likes'] = (options) => ok(cursorPageJson([
           likeReceivedJson(userId: 9, nickname: '小红'),
           likeReceivedJson(userId: 10, nickname: '小刚'),
-        ]));
+        ], hasMore: true));
 
-    final page = await repository.fetchLikesReceived(limit: 20, offset: 0);
+    final page = await repository.fetchLikesReceived(limit: 20);
 
     expect(page.count, 2);
     expect(page.items.map((item) => item.candidate.nickname), ['小红', '小刚']);
     expect(page.items.first.likedAt.year, 2026);
-    expect(adapter.log.last.queryParameters, {'limit': 20, 'offset': 0});
+    expect(page.nextCursor, 'cursor-next-page');
+    expect(adapter.log.last.queryParameters, {'limit': 20});
+  });
+
+  test('fetchLikesReceived 第二页把游标原样放回 query(不再用 offset)', () async {
+    adapter.routes['GET /discovery/likes'] =
+        (options) => ok(cursorPageJson([likeReceivedJson(userId: 11)]));
+
+    final page = await repository.fetchLikesReceived(limit: 20, cursor: 'abc123');
+
+    expect(page.nextCursor, isNull);
+    expect(adapter.log.last.queryParameters, {'limit': 20, 'before': 'abc123'});
   });
 
   test('fetchLikesReceivedCount 解析 count', () async {

@@ -489,17 +489,37 @@ class MatchListTests(APITestCase):
         data = self.client.get(self.URL).json()
         self.assertEqual([item["user_id"] for item in data["results"]], [other.id])
 
-    def test_pagination_limit_and_offset(self):
+    def test_pagination_by_cursor(self):
         others = [self._make_user(f"1390013910{i}") for i in range(3)]
         for other in others:
             Match.objects.create(**Match.pair_kwargs(self.me, other))
         first = self.client.get(self.URL, {"limit": 2}).json()
         self.assertEqual(first["count"], 3)
         self.assertEqual(len(first["results"]), 2)
-        second = self.client.get(self.URL, {"limit": 2, "offset": 2}).json()
+        self.assertTrue(first["has_more"])
+        second = self.client.get(self.URL,
+                                 {"limit": 2, "before": first["next_cursor"]}).json()
         self.assertEqual(len(second["results"]), 1)
+        self.assertFalse(second["has_more"])
         ids = [item["user_id"] for item in first["results"] + second["results"]]
         self.assertEqual(sorted(ids), sorted(other.id for other in others))   # 翻页不重不漏
+
+    def test_offset_request_keeps_legacy_shape(self):
+        """老客户端仍带 offset:响应退回 count/next/previous/results。"""
+        others = [self._make_user(f"1390013910{i}") for i in range(3)]
+        for other in others:
+            Match.objects.create(**Match.pair_kwargs(self.me, other))
+        first = self.client.get(self.URL, {"limit": 2, "offset": 0}).json()
+        self.assertEqual(len(first["results"]), 2)
+        self.assertIsNotNone(first["next"])
+        self.assertEqual(len(self.client.get(self.URL,
+                                             {"limit": 2, "offset": 2}).json()["results"]), 1)
+
+    def test_invalid_cursor_is_400(self):
+        """游标坏了给 400 + 统一错误信封(不许漏成 500)。"""
+        response = self.client.get(self.URL, {"limit": 2, "before": "bogus"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], 400)
 
     def test_requires_auth(self):
         self.client.credentials()
@@ -652,16 +672,45 @@ class LikesReceivedTests(APITestCase):
         self._like_me(b)
         self.assertEqual(self._ids(self.client.get(self.URL)), [b.id, a.id])
 
-    def test_pagination(self):
+    def test_pagination_by_cursor(self):
         users = [self._make_user(f"1390013900{i}") for i in range(3)]
         for user in users:
             self._like_me(user)
-        first = self.client.get(self.URL, {"limit": 2})
-        self.assertEqual(first.json()["count"], 3)
-        self.assertEqual(len(first.json()["results"]), 2)
-        self.assertIsNotNone(first.json()["next"])
-        second = self.client.get(self.URL, {"limit": 2, "offset": 2})
-        self.assertEqual(len(second.json()["results"]), 1)
+        first = self.client.get(self.URL, {"limit": 2}).json()
+        self.assertEqual(first["count"], 3)
+        self.assertEqual(len(first["results"]), 2)
+        self.assertTrue(first["has_more"])
+        second = self.client.get(self.URL,
+                                 {"limit": 2, "before": first["next_cursor"]}).json()
+        self.assertEqual(len(second["results"]), 1)
+        self.assertFalse(second["has_more"])
+        ids = [item["user_id"] for item in first["results"] + second["results"]]
+        self.assertEqual(sorted(ids), sorted(user.id for user in users))   # 翻页不重不漏
+
+    def test_cursor_ignores_new_like_between_pages(self):
+        """翻页期间又有人喜欢我:第二页不重复第 1 页的行(换成 offset 就会重复)。"""
+        users = [self._make_user(f"1390013900{i}") for i in range(4)]
+        for user in users[:3]:
+            self._like_me(user)
+        first = self.client.get(self.URL, {"limit": 2}).json()
+        self._like_me(users[3])
+        second = self.client.get(self.URL,
+                                 {"limit": 2, "before": first["next_cursor"]}).json()
+        first_ids = [item["user_id"] for item in first["results"]]
+        second_ids = [item["user_id"] for item in second["results"]]
+        self.assertFalse(set(first_ids) & set(second_ids))
+        self.assertEqual(len(first_ids + second_ids), 3)
+
+    def test_offset_request_keeps_legacy_shape(self):
+        """老客户端仍带 offset:响应退回 count/next/previous/results。"""
+        users = [self._make_user(f"1390013900{i}") for i in range(3)]
+        for user in users:
+            self._like_me(user)
+        first = self.client.get(self.URL, {"limit": 2, "offset": 0}).json()
+        self.assertEqual(len(first["results"]), 2)
+        self.assertIsNotNone(first["next"])
+        self.assertEqual(len(self.client.get(self.URL,
+                                             {"limit": 2, "offset": 2}).json()["results"]), 1)
 
     def test_count_uses_same_rules(self):
         a = self._make_user("13900139000")
@@ -887,16 +936,45 @@ class VisitsReceivedTests(APITestCase):
         self._visit(b, minutes_ago=1)
         self.assertEqual(self._ids(self.client.get(self.URL)), [b.id, a.id])
 
-    def test_pagination(self):
+    def test_pagination_by_cursor(self):
         users = [self._make_user(f"1390013900{i}") for i in range(3)]
         for user in users:
             self._visit(user)
-        first = self.client.get(self.URL, {"limit": 2})
-        self.assertEqual(first.json()["count"], 3)
-        self.assertEqual(len(first.json()["results"]), 2)
-        self.assertIsNotNone(first.json()["next"])
-        second = self.client.get(self.URL, {"limit": 2, "offset": 2})
-        self.assertEqual(len(second.json()["results"]), 1)
+        first = self.client.get(self.URL, {"limit": 2}).json()
+        self.assertEqual(first["count"], 3)
+        self.assertEqual(len(first["results"]), 2)
+        self.assertTrue(first["has_more"])
+        second = self.client.get(self.URL,
+                                 {"limit": 2, "before": first["next_cursor"]}).json()
+        self.assertEqual(len(second["results"]), 1)
+        self.assertFalse(second["has_more"])
+        ids = [item["user_id"] for item in first["results"] + second["results"]]
+        self.assertEqual(sorted(ids), sorted(user.id for user in users))   # 翻页不重不漏
+
+    def test_cursor_ignores_new_visit_between_pages(self):
+        """翻页期间又有人来访:第二页不重复第 1 页的行。"""
+        users = [self._make_user(f"1390013900{i}") for i in range(4)]
+        for index, user in enumerate(users[:3]):
+            self._visit(user, minutes_ago=10 * (index + 1))
+        first = self.client.get(self.URL, {"limit": 2}).json()
+        self._visit(users[3])
+        second = self.client.get(self.URL,
+                                 {"limit": 2, "before": first["next_cursor"]}).json()
+        first_ids = [item["user_id"] for item in first["results"]]
+        second_ids = [item["user_id"] for item in second["results"]]
+        self.assertFalse(set(first_ids) & set(second_ids))
+        self.assertEqual(len(first_ids + second_ids), 3)
+
+    def test_offset_request_keeps_legacy_shape(self):
+        """老客户端仍带 offset:响应退回 count/next/previous/results。"""
+        users = [self._make_user(f"1390013900{i}") for i in range(3)]
+        for user in users:
+            self._visit(user)
+        first = self.client.get(self.URL, {"limit": 2, "offset": 0}).json()
+        self.assertEqual(len(first["results"]), 2)
+        self.assertIsNotNone(first["next"])
+        self.assertEqual(len(self.client.get(self.URL,
+                                             {"limit": 2, "offset": 2}).json()["results"]), 1)
 
     def test_count_uses_same_rules(self):
         a = self._make_user("13900139000")

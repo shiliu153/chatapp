@@ -29,7 +29,7 @@ void main() {
 
   test('build 拉第一页并带分页参数', () async {
     adapter.routes['GET /discovery/likes'] = (options) =>
-        ok(pageJson([likeReceivedJson(userId: 9), likeReceivedJson(userId: 10)]));
+        ok(cursorPageJson([likeReceivedJson(userId: 9), likeReceivedJson(userId: 10)]));
     final container = makeContainer();
     addTearDown(container.dispose);
 
@@ -38,7 +38,8 @@ void main() {
     expect(state.items.map((item) => item.candidate.userId), [9, 10]);
     expect(state.count, 2);
     expect(state.hasMore, isFalse);
-    expect(adapter.log.last.queryParameters, {'limit': 20, 'offset': 0});
+    expect(state.nextCursor, isNull);
+    expect(adapter.log.last.queryParameters, {'limit': 20});
   });
 
   test('accept → like 请求、移除该行、计数 -1、返回候选人', () async {
@@ -80,13 +81,14 @@ void main() {
     expect(after.busyUserId, isNull);
   });
 
-  test('loadMore 追加下一页', () async {
+  test('loadMore 追加下一页(带上一页的 next_cursor)', () async {
     var calls = 0;
     adapter.routes['GET /discovery/likes'] = (options) {
       calls += 1;
       return calls == 1
-          ? ok({...pageJson([likeReceivedJson(userId: 9)]), 'count': 2})
-          : ok({...pageJson([likeReceivedJson(userId: 10)]), 'count': 2});
+          ? ok(cursorPageJson([likeReceivedJson(userId: 9)],
+              hasMore: true, count: 2, cursor: 'page-2'))
+          : ok(cursorPageJson([likeReceivedJson(userId: 10)], count: 2));
     };
     final container = makeContainer();
     addTearDown(container.dispose);
@@ -96,6 +98,7 @@ void main() {
 
     final after = container.read(likesReceivedProvider).value!;
     expect(after.items.map((item) => item.candidate.userId), [9, 10]);
-    expect(adapter.log.last.queryParameters, {'limit': 20, 'offset': 1});
+    expect(after.hasMore, isFalse);
+    expect(adapter.log.last.queryParameters, {'limit': 20, 'before': 'page-2'});
   });
 }

@@ -15,6 +15,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from django.conf import settings
@@ -33,6 +34,7 @@ from config import images
 from config import metrics
 from config import settings as settings_module
 from config.celery import ping
+from config.cursor import decode_cursor, encode_cursor, read_before, wants_legacy_offset
 from config.exceptions import server_error
 from config.net import client_ip
 from config.params import int_param, optional_id
@@ -857,3 +859,34 @@ class UnhandledExceptionTests(APITestCase):
         resp = server_error(RequestFactory().get("/some-page/"))
         self.assertEqual(resp.status_code, 500)
         self.assertIn("text/plain", resp["Content-Type"])
+
+class CursorCodecTests(SimpleTestCase):
+    """游标编解码:往返一致、坏游标一律 400、offset 兼容口径。"""
+
+    def test_roundtrip_keeps_microseconds_and_pk(self):
+        """编码再解码回来,时间(含微秒)与主键都不许漂。"""
+        value = datetime(2026, 11, 4, 3, 20, 11, 123456, tzinfo=timezone.utc)
+        self.assertEqual(decode_cursor(encode_cursor(value, 42)), (value, 42))
+
+    def test_cursor_is_url_safe(self):
+        """游标里不能出现 ``+`` / ``/`` / ``=``(放进 query 会被改写)。"""
+        cursor = encode_cursor(datetime(2026, 11, 4, tzinfo=timezone.utc), 987654321)
+        self.assertRegex(cursor, r"^[A-Za-z0-9_-]+$")
+
+    def test_garbage_cursor_is_400(self):
+        """不是 base64 / 少了分隔符 / 主键不是数字,全部 400。"""
+        for raw in ("not-a-cursor", "", "YWJjZGVm", encode_cursor(datetime(2026, 1, 1, tzinfo=timezone.utc), 1)[:-4] + "!!"):
+            with self.assertRaises(ValidationError):
+                decode_cursor(raw)
+
+    def test_wants_legacy_offset(self):
+        """带 offset 且不带 before 才是老客户端;两者都带时以 before 为准。"""
+        self.assertTrue(wants_legacy_offset(RequestFactory().get("/x", {"offset": "0"})))
+        self.assertFalse(wants_legacy_offset(RequestFactory().get("/x", {"before": "abc"})))
+        self.assertFalse(wants_legacy_offset(
+            RequestFactory().get("/x", {"offset": "20", "before": "abc"})))
+        self.assertFalse(wants_legacy_offset(RequestFactory().get("/x")))
+
+    def test_read_before_returns_none_without_param(self):
+        """不带 before 表示第一页。"""
+        self.assertIsNone(read_before(RequestFactory().get("/x")))

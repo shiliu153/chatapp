@@ -22,15 +22,18 @@ class DiscoveryRepository {
     return (data as Map<String, dynamic>)['matched'] == true;
   }
 
-  /// 喜欢我的人(分页);返回本页条目与后端总数。
-  Future<({List<LikeReceived> items, int count})> fetchLikesReceived(
-      {int limit = 20, int offset = 0}) async {
-    final data = await _api.get('/discovery/likes',
-        query: {'limit': limit, 'offset': offset}) as Map<String, dynamic>;
+  /// 喜欢我的人(游标分页);返回本页条目、后端总数与下一页游标。
+  Future<({List<LikeReceived> items, int count, String? nextCursor})> fetchLikesReceived(
+      {int limit = 20, String? cursor}) async {
+    final data = await _api.get('/discovery/likes', query: {
+      'limit': limit,
+      'before': ?cursor,
+    }) as Map<String, dynamic>;
     final items = (data['results'] as List<dynamic>)
         .map((item) => LikeReceived.fromJson(item as Map<String, dynamic>))
         .toList();
-    return (items: items, count: data['count'] as int);
+    return (items: items, count: data['count'] as int,
+        nextCursor: data['next_cursor'] as String?);
   }
 
   /// 入口角标:只查数量。
@@ -39,15 +42,18 @@ class DiscoveryRepository {
     return data['count'] as int;
   }
 
-  /// 谁看过我(分页);返回本页条目与后端总数。
-  Future<({List<Visit> items, int count})> fetchVisits(
-      {int limit = 20, int offset = 0}) async {
-    final data = await _api.get('/discovery/visits',
-        query: {'limit': limit, 'offset': offset}) as Map<String, dynamic>;
+  /// 谁看过我(游标分页);返回本页条目、后端总数与下一页游标。
+  Future<({List<Visit> items, int count, String? nextCursor})> fetchVisits(
+      {int limit = 20, String? cursor}) async {
+    final data = await _api.get('/discovery/visits', query: {
+      'limit': limit,
+      'before': ?cursor,
+    }) as Map<String, dynamic>;
     final items = (data['results'] as List<dynamic>)
         .map((item) => Visit.fromJson(item as Map<String, dynamic>))
         .toList();
-    return (items: items, count: data['count'] as int);
+    return (items: items, count: data['count'] as int,
+        nextCursor: data['next_cursor'] as String?);
   }
 
   /// 访客入口角标:只查数量。

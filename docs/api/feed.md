@@ -19,11 +19,11 @@
 | 参数名称 | 必填 | 类型 | 描述 |
 |----------|------|------|------|
 | limit | 否 | Integer | 每页条数,默认 20,上限 100 |
-| offset | 否 | Integer | 偏移量,默认 0 |
+| before | 否 | String | 游标。首页不传;之后原样回传上一页的 `next_cursor`(见 [conventions.md §分页约定](conventions.md#分页约定)) |
 
 **响应参数**
 
-分页对象(见 [conventions.md §分页约定](conventions.md#分页约定)),`results[]` 为动态对象:
+游标分页对象(见 [conventions.md §分页约定](conventions.md#分页约定)),`results[]` 为动态对象:
 
 | 参数名称 | 类型 | 描述 |
 |----------|------|------|
@@ -47,7 +47,11 @@
 **请求示例**
 
 ```bash
-curl "http://<域名>/api/v1/posts?limit=20&offset=0" \
+curl "http://<域名>/api/v1/posts?limit=20" \
+  -H "Authorization: Bearer <access>"
+
+# 第二页:把上一页响应里的 next_cursor 原样带回来
+curl "http://<域名>/api/v1/posts?limit=20&before=<next_cursor>" \
   -H "Authorization: Bearer <access>"
 ```
 
@@ -56,8 +60,8 @@ curl "http://<域名>/api/v1/posts?limit=20&offset=0" \
 ```json
 {
   "count": 9,
-  "next": "http://<域名>/api/v1/posts?limit=20&offset=20",
-  "previous": null,
+  "next_cursor": "MjAyNi0wOS0xOFQyMTozMzo0NC45NjI3NTErMDg6MDB8OQ",
+  "has_more": true,
   "results": [
     {
       "id": 9,
@@ -77,10 +81,14 @@ curl "http://<域名>/api/v1/posts?limit=20&offset=0" \
 }
 ```
 
+> **老客户端兼容**:请求里带 `offset`(且不带 `before`)时按 offset 分页,响应回到
+> `{count, next, previous, results}`。新代码请用游标。
+
 **错误码**
 
 | 错误码 | HTTP | 描述 | 处理建议 |
 |--------|------|------|----------|
+| 400 | 400 | 游标无效(`before` 不是合法游标) | 清空列表,从第一页重拉 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
 
 ---
@@ -161,16 +169,17 @@ curl -X POST http://<域名>/api/v1/posts \
 | 参数名称 | 必填 | 类型 | 描述 |
 |----------|------|------|------|
 | limit | 否 | Integer | 每页条数,默认 20,上限 100 |
-| offset | 否 | Integer | 偏移量,默认 0 |
+| before | 否 | String | 游标。首页不传;之后原样回传上一页的 `next_cursor` |
 
 **响应参数**
 
-与 5.1 相同的分页对象。
+与 5.1 相同的游标分页对象(`count` / `next_cursor` / `has_more` / `results`);
+带 `offset` 的老客户端仍得到 `{count, next, previous, results}`。
 
 **请求示例**
 
 ```bash
-curl "http://<域名>/api/v1/posts/mine?limit=20&offset=0" \
+curl "http://<域名>/api/v1/posts/mine?limit=20" \
   -H "Authorization: Bearer <access>"
 ```
 
@@ -179,8 +188,8 @@ curl "http://<域名>/api/v1/posts/mine?limit=20&offset=0" \
 ```json
 {
   "count": 1,
-  "next": null,
-  "previous": null,
+  "next_cursor": null,
+  "has_more": false,
   "results": [
     {
       "id": 10,
@@ -204,6 +213,7 @@ curl "http://<域名>/api/v1/posts/mine?limit=20&offset=0" \
 
 | 错误码 | HTTP | 描述 | 处理建议 |
 |--------|------|------|----------|
+| 400 | 400 | 游标无效 | 清空列表,从第一页重拉 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
 
 ---
