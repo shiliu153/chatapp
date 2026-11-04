@@ -682,6 +682,126 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | 对端收不到实时帧 | 对端 WS 是否在线;`im_conversation_state` 里读者那行是否存在 |
 | 大量 `read` 无响应 | 撞上 2/s 限流(静默丢弃,不是错误) |
 
+## 16. 聊天记录搜索 `GET /im/api/search`(2026-10-27 交付,2026-11-05 补文档)
+
+聊天记录搜索**不经过 Django**,由 imserver 直接提供;App(`app/lib/features/chat/search_page.dart`)
+与 Web(`web/src/features/chat/SearchPage.vue`)共用这一个接口,入口由 IM 能力位
+`capabilities.search` 控制(自建后端恒为 true)。交付记录见 `docs/milestones.md`(2026-10-27)。
+
+> 为什么写在这里:`/im/api/*` 与 WS 帧一样是 imserver 的内部契约,`docs/api/` 的分册门禁
+> (`ApiDocsCoverageTests`、`test_schema_contract.py`)只比对 `/api/v1`,写进去也不会被校验;
+> `docs/api/im.md` 只负责 Django 侧的「发凭证 + 传媒体」三个接口(同 §15 开头的说明)。
+
+### 16.1 鉴权与地址
+
+- 基址 = `POST /api/v1/im/user_sig` 返回的 `http_url`(生产 `https://<域名>/im/api`);
+- 请求头 `Authorization: Bearer <IM token>`:用的是 `user_sig` 发的 JWT,**不是** Django 的 access token;
+- 返回 401 的情况:没带或前缀不对、JWT 过期/签名错、会话版本 `sv` 与 `im_user.session_version`
+  不一致(被别的设备顶下线)、账号在 IM 侧被拉黑(`im:block:*`)。
+
+### 16.2 请求参数
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|---|---|---|---|
+| q | 是 | String | 关键词。服务端先 `trim`;为空或超过 **150 字节**(UTF-8,约 50 个汉字)返回 422 |
+| limit | 否 | Integer | 每页条数,默认 **20**,范围 1~50(超出被截断) |
+| before_id | 否 | Integer | 游标:只返回 `msg_id` **严格小于**该值的更旧消息;首页不传 |
+
+```bash
+# 凭证从 POST /api/v1/im/user_sig 拿(见 docs/api/im.md 6.1),这里用它的 token 与 http_url
+curl -G 'https://<域名>/im/api/search' \
+  --data-urlencode 'q=火锅' \
+  --data 'limit=20' \
+  -H 'Authorization: Bearer <user_sig 里的 token>'
+```
+
+### 16.3 响应
+
+```json
+{
+  "items": [
+    {
+      "msg_id": "900123",
+      "seq": 42,
+      "from": "u9",
+      "to": "u7",
+      "ts": 1720000000000,
+      "revoked": false,
+      "kind": "text",
+      "text": "火锅店在楼下",
+      "from_profile": {"nickname": "小九", "avatar": "https://…"},
+      "peer": {"id": "u9", "nickname": "小九", "avatar": "https://…"}
+    }
+  ],
+  "has_more": true
+}
+```
+
+| 参数名称 | 类型 | 描述 |
+|---|---|---|
+| items | Array | 命中的消息,新 → 旧 |
+| items[].msg_id | String | 消息 id;翻页时把本页最后一条原样传给 `before_id` |
+| items[].seq | Integer | 会话内序号(与该会话历史接口一致) |
+| items[].from / items[].to | String | IM 账号 `u{user_id}` |
+| items[].ts | Integer | 发送时间,毫秒时间戳 |
+| items[].kind | String | 搜索只返回 `text` |
+| items[].text | String | 消息正文;命中片段不做高亮,客户端自己标 |
+| items[].revoked | Boolean | 恒为 false(已撤回的不进结果) |
+| items[].from_profile | Object | 发送者昵称/头像(用户行存在时才有) |
+| items[].peer | Object | **会话对端**(相对当前账号)的 id/昵称/头像,点结果跳转用 |
+| has_more | Boolean | 还有更旧的结果(服务端多取一条判定,不是用 `len(items)==limit` 猜) |
+
+字段口径与 `GET /im/api/messages` 的历史消息对象一致(只多一个 `peer`),客户端复用同一个
+消息模型即可,不要为搜索另建一套。
+
+### 16.4 搜索口径(排序与过滤)
+
+- **只搜文本**(`kind=1`):图片、语音、系统灰条不参与;
+- 已撤回的消息不可见(`revoked_at IS NOT NULL` 排除);
+- **我删掉的会话**整段不可见(`im_conversation_state.deleted=1`);
+- 我拉黑的对端消息不出现(`im_blacklist` 反连接);
+- 关键词按 `LIKE '%关键词%'` 匹配,用户输入里的 `%`、`_`、`!` 会被转义
+  (`imserver/src/util/like.h`,转义符选 `!`),搜「100%」不会变成通配;
+- 排序 **新 → 旧**(`msg_id DESC`),翻页只认 `before_id`;
+- 搜索范围仅限**已有会话**:从没聊过的人不会出现。
+
+### 16.5 限流
+
+每账号令牌桶 **1 次/秒、突发 20**(约 60 次/分钟),超限返回 `429 + 42901`。
+App/Web 都有 300ms 防抖,正常输入不会撞到;多个标签页同时搜才可能触发。
+
+### 16.6 错误码
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|---|---|---|---|
+| 40101 | 401 | 未登录 / 令牌过期 / 被顶下线 / 被拉黑 | 重新 `POST /api/v1/im/user_sig` 换 token 并重连 |
+| 42201 | 422 | 关键词为空或超长 | 客户端先 `trim` 并限制长度 |
+| 42901 | 429 | 搜索过于频繁 | 退避后再搜,不要立即重试 |
+| 40401 | 404 | 路径不对 | 检查 `http_url` 与 `/search` 的拼接 |
+
+> imserver 的错误体是 `{"code": …, "message": …}`(**没有** `request_id`),
+> 与 Django `/api/v1` 的统一错误信封不同;客户端不要假设两者结构一致。
+
+### 16.7 验证
+
+```bash
+# HTTP 集成(含中文命中/排序/游标分页/对端资料/撤回不可见/空关键词/未认证/限流)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
+```
+
+断言在 `imserver/tests/integration/test_search.py`;unit 侧 `like_test.cpp` 覆盖 `%`/`_`/`!` 转义。
+
+### 16.8 排查
+
+| 现象 | 先查 |
+|---|---|
+| 明明有这条消息却搜不到 | 是不是图片/语音;是否已撤回;会话是否被自己删除;是否拉黑了对方 |
+| 401 | `user_sig` 的 token 是否过期;是否在别的设备登录把 `sv` 顶掉 |
+| 422 | `q` 是否为空;URL 解码后是否超过 150 字节 |
+| 429 | 是否绕过了 300ms 防抖;是否多个标签页同时搜 |
+| 翻页重复或漏条 | 是否把上一页最后一条的 `msg_id` 原样传给 `before_id`(严格小于) |
+| 搜「100%」命中一切 | 客户端是否在本地又拼了一次 `%`(服务端已转义,前端不要预处理) |
+
 
 
 

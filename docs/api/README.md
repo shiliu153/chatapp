@@ -76,6 +76,8 @@
 | GET | `/api/v1/health` | 存活探针 | [health](health.md) |
 | GET | `/api/v1/readyz` | 就绪探针(DB/Redis) | [health](health.md) |
 
+> 另有 **imserver 内部接口**(`/im/api/*`:会话列表、历史消息、聊天记录搜索)与 WS 帧,它们不走 `/api/v1` 门禁、不在本目录,文档见 [`docs/ops/imserver.md`](../ops/imserver.md)(§15 已读回执、§16 聊天记录搜索)。
+
 ## 如何调用
 
 最短链路:**登录换令牌 → 带令牌调业务接口**。
