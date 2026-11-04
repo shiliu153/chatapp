@@ -30,7 +30,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 里程碑
 
-M0–M3 与后续七次追加均已交付;当前处于 **M4(上线运营)**。**完整时间线见 [docs/milestones.md](docs/milestones.md)**,这里只留骨架:
+M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。
+
+> **项目定位(2026-11-04 用户决定):个人项目,不对外发行。** 不上架应用商店、不开放自助注册(手机号白名单收口)、不做合规轨(备案材料 / 软著 / 安全评估 / PIPIA 已否决);backlog 批次 B「上线阻断」整批关闭,**C/D/E 三批照常推进**。各类历史文档里的「上线阻断项 / 上线前必须做」口径一律作废,以 [backlog §4.2](docs/backlog/2026-11-03-todo.md) 为准;**安全基线不因此降级**。
+
+**完整时间线见 [docs/milestones.md](docs/milestones.md)**,这里只留骨架:
 
 | 阶段 | 一句话 |
 |---|---|
@@ -180,4 +184,4 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 
 ## 下一步
 
-**所有待办统一在 [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)**:按批次(A 止血 → B 上线阻断 → C 产品闭环 → D 规模架构 → E 工程纪律)排好序,每条都带证据、验收口径和「开新对话提示词」。**不要在本文件里另起一份待办清单。**
+**所有待办统一在 [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)**:按批次(A 止血 → B 准入收敛「已关闭」→ C 产品闭环 → D 规模架构 → E 工程纪律)排好序,每条都带证据、验收口径和「开新对话提示词」。**当前进度:A 全完成、B 轨已关闭(定位改个人项目,见里程碑段的说明与 backlog §4.2),从 C 轨开始。不要在本文件里另起一份待办清单。**
