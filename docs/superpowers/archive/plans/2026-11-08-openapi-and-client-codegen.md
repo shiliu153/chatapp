@@ -1,8 +1,8 @@
 # D-5 可行性方案:OpenAPI 导出 + 客户端类型生成 + 门禁升级
 
 - 日期：2026-11-08
-- 状态：**三步已全部实现（2026-11-04 落地）**
-- 依据：[backlog D-5](../backlog/2026-11-03-todo.md)、[fullstack review §四 D-1](../reviews/2026-11-03-fullstack-review.md)
+- 状态：**三步已全部实现并上线（2026-11-05，`origin/master` = `74f920f1`，PR #59）**
+- 依据：[backlog D-5](../../../backlog/2026-11-03-todo.md)、[fullstack review §四 D-1](../../../reviews/2026-11-03-fullstack-review.md)
 - 结论先行：**能落地，但不是「装个库就有」**。自动导出只能拿到「路径 + 方法」这一层（实测 39 paths / 47 operations / **只有 1 个 schema 组件**），
   要到**字段级**必须逐个接口写 `@extend_schema`；因此建议**分三步走**，每步都能独立交付、独立生效。
 
