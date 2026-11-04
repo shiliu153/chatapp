@@ -616,5 +616,77 @@ IM_MEDIA_SIGN_TTL=3600
 | 发图/发语音 42201 | `IM_MEDIA_PREFIX` 与 Django `MEDIA_BASE_URL + /media/chat/` 是否一致 |
 | 图片 403 | `IM_MEDIA_SIGN_SECRET` 两侧是否一致、`IM_MEDIA_SIGN_TTL` 是否过期 |
 
+## 15. 已读回执(2026-11-04)
+
+已读态的**唯一事实来源**是 `im_conversation_state.read_seq`(每个 owner 一行,语义是「**我**读到哪」)。
+`unread`(我没读的条数)与 `read_seq`(我读到哪)是两条独立链路,别混。
+
+> `docs/api/` 里不写这些:WS 帧与 `/im/api/*` 都是 imserver 的内部契约,不归 `/api/v1` 门禁管,
+> 归属本文件。
+
+### 15.1 上行 `read` 帧(客户端 → 服务端,2026-10 起就有)
+
+```json
+{"v":1,"type":"read","id":"read-1720000000000","data":{"peer":"u9","seq":0}}
+```
+
+- `seq = 0` = 「读到该会话最新」,服务端取 `im_conversation.last_seq`;
+- 落库是 `GREATEST(read_seq, ?)`,**单调不回退**(乱序到达的旧帧不会把已读推回去);
+- 会话不存在时回 `ack{ok:false}`(没有会话就没有已读可记)。
+
+### 15.2 下行 `read` 帧(服务端 → 被读的一方,2026-11-04 新增)
+
+```json
+{"v":1,"type":"read","data":{"peer":"u7","seq":123}}
+```
+
+- 触发:任何 `read` 帧落库成功后,若对端在线就推一帧;
+- `peer` = **读消息的人**(即收帧者的对端),`seq` = 他读到的位置(回读实库后的真实值);
+- **没有 `id` 字段**:服务端主动推,不要求 ack,客户端也不要回;
+- 对端离线时不排队,靠 §15.3 补拉。
+
+### 15.3 `GET /im/api/conversations` 新增字段 `peer_read_seq`
+
+每个 item 多一个整数 `peer_read_seq`(0 = 对端从没读过):
+
+```json
+{"peer":{"id":"u9","nickname":"…","avatar":"…"},"unread":0,"last_seq":42,
+ "peer_read_seq":17,"updated_at":1720000000000}
+```
+
+实现是 `list` 的 SQL 多一个 `LEFT JOIN im_conversation_state ps`(同一 `conv_id`、owner 换成对端,
+走 `(owner_id,conv_id)` 唯一键,等值查找,不会因为多这个 JOIN 扫全表)。
+
+客户端口径:`seq <= peer_read_seq` 的**我方**消息 = 已读;打开会话/重连后拿这个字段补一次。
+
+### 15.4 `read` 帧限流
+
+每次 `read` 都会给对端推一帧,所以每连接有令牌桶 **2/s、突发 30**(`WsSession::read_bucket_`),
+超限**静默丢弃**(`read` 幂等,下一次打开会话还会再发;回错误帧只会让客户端白重试)。
+实测:连发 40 帧约 29 个成功、其余静默丢。
+
+### 15.5 验证
+
+```bash
+# unit + DB 测试
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test.sh
+# WS 集成(含已读回执四条)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_ws.sh
+# HTTP 集成(含 test_history.py 里的实时帧 + peer_read_seq 断言)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
+```
+
+`tests/integration/test_read.py` 覆盖:下行帧 / 旧值不回退 / 离线补拉 / 限流。
+
+### 15.6 排查
+
+| 现象 | 先查 |
+|---|---|
+| 一直不显示「已读」 | 对端是否真的打开过会话;`GET /im/api/conversations` 里 `peer_read_seq` 是否为 0 |
+| 已读显示后又消失 | 客户端是否把「只增不减」做丢了(收到更小的 `seq` 必须忽略) |
+| 对端收不到实时帧 | 对端 WS 是否在线;`im_conversation_state` 里读者那行是否存在 |
+| 大量 `read` 无响应 | 撞上 2/s 限流(静默丢弃,不是错误) |
+
+
 
 

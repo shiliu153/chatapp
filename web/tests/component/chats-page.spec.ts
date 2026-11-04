@@ -38,8 +38,15 @@ describe('ChatsPage', () => {
 
   it('系统通知置顶并显示未读角标', async () => {
     const { pinia } = stubChatStore([
-      { peerId: 'system_notice', unreadCount: 1, showName: '系统通知', faceUrl: null, lastMessage: null },
-      { peerId: 'u8', unreadCount: 2, showName: '小雨', faceUrl: null, lastMessage: null },
+      {
+        peerId: 'system_notice',
+        unreadCount: 1,
+        showName: '系统通知',
+        faceUrl: null,
+        lastMessage: null,
+        peerReadSeq: 0,
+      },
+      { peerId: 'u8', unreadCount: 2, showName: '小雨', faceUrl: null, lastMessage: null, peerReadSeq: 0 },
     ])
     const w = mountPage(pinia)
     await flushPromises()

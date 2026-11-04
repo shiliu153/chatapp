@@ -14,10 +14,40 @@ const props = withDefaults(
     localFile?: File | null
     /** 搜索定位命中:短暂高亮(见 ChatPage focusMessage) */
     hit?: boolean
+    /** 对端已读这条(只对我方消息有意义,由 ChatPage 用 peerReadSeq 比较得出) */
+    isRead?: boolean
+    /** 后端是否支持已读回执(腾讯分支为 false:宁可不显示,也不要假状态) */
+    readReceiptEnabled?: boolean
   }>(),
-  { peerName: '', peerAvatar: null, localFile: null, hit: false },
+  {
+    peerName: '',
+    peerAvatar: null,
+    localFile: null,
+    hit: false,
+    isRead: false,
+    readReceiptEnabled: false,
+  },
 )
 defineEmits<{ retry: []; openImage: [ChatMessage]; menu: [MouseEvent] }>()
+
+/**
+ * 我方消息的已读标记。
+ *
+ * 口径与 App 一致:
+ * - 失败交给「重发」按钮,发送中显示「发送中…」,这两种情况不显示已读;
+ * - **未读不写字**(微信口径):一屏十几条都挂「未读」是纯噪声,而且区分不了
+ *   「已送达未读 / 没送达」;有没有「已读」两个字本身就是未读的信号;
+ * - 后端不支持已读回执(腾讯分支)时一律不显示。
+ */
+const showRead = computed(
+  () =>
+    props.readReceiptEnabled &&
+    props.isRead &&
+    props.message.isSelf &&
+    !props.message.isPending &&
+    !props.message.isFailed &&
+    !props.message.isRevoked,
+)
 
 const isNotice = computed(
   () =>
@@ -97,6 +127,7 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
         重发
       </button>
       <span v-else-if="props.message.isPending" class="message-bubble__pending">发送中…</span>
+      <span v-else-if="showRead" class="message-bubble__read" data-testid="chat-read">已读</span>
     </div>
   </div>
 </template>
@@ -185,6 +216,12 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
   opacity: 1;
 }
 .message-bubble__pending {
+  flex: none;
+  font-size: var(--text-badge);
+  opacity: 0.8;
+}
+/* 已读:与「发送中」同尺寸同位置,弱化处理(不抢内容的视线,不加动效) */
+.message-bubble__read {
   flex: none;
   font-size: var(--text-badge);
   opacity: 0.8;

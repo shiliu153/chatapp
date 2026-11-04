@@ -33,7 +33,12 @@ export class SelfImClient implements ImClient {
       uploadChatVoice,
   ) {}
 
-  readonly capabilities: ImCapabilities = { image: true, search: true, voice: true }
+  readonly capabilities: ImCapabilities = {
+    image: true,
+    search: true,
+    voice: true,
+    readReceipt: true,
+  }
 
   private bootstrap?: ImBootstrap
   private transport?: SelfTransport
@@ -237,6 +242,15 @@ export class SelfImClient implements ImClient {
     }
     if (type === 'revoked') {
       this.emit({ type: 'messageRevoked', msgId: String(data.msg_id ?? '') })
+      return
+    }
+    if (type === 'read') {
+      // 对端读到哪(已读回执)。服务端主动推,不要求 ack。
+      this.emit({
+        type: 'peerRead',
+        peerId: String(data.peer ?? ''),
+        seq: Number(data.seq ?? 0),
+      })
     }
   }
 

@@ -48,6 +48,8 @@ export interface ImConversation {
   showName: string
   faceUrl: string | null
   lastMessage: ChatMessage | null
+  /** **对端**读到哪(0 = 从没读过)。`seq <= peerReadSeq` 的我方消息算已读。 */
+  peerReadSeq: number
 }
 
 export type KickReason = 'multiDevice' | 'multiAccount' | 'sigExpired' | 'restApi'
@@ -67,6 +69,11 @@ export interface ImCapabilities {
   search: boolean
   /** 是否支持语音消息(腾讯后端为 false,入口隐藏) */
   voice: boolean
+  /**
+   * 是否支持已读回执(腾讯后端为 false)。
+   * 没有「对方读到哪」就不会有真已读,宁可不显示,也不要显示一个永远「未读」的假状态。
+   */
+  readReceipt: boolean
 }
 
 /** 一条搜索命中(只可能是文本消息)。 */
@@ -90,6 +97,8 @@ export type ImEvent =
   | { type: 'newMessage'; message: ChatMessage }
   | { type: 'conversationsChanged' }
   | { type: 'messageRevoked'; msgId: string }
+  /** 对端读到了 `seq`(已读回执)。**只增不减**:收到更小的值直接忽略。 */
+  | { type: 'peerRead'; peerId: string; seq: number }
   | { type: 'kickedOffline'; reason: KickReason }
   /**
    * 连接断了(服务端 75s 空闲踢出、网络中断等),**不是**被顶号。

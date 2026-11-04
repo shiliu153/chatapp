@@ -28,8 +28,22 @@ const msg = (overrides: Partial<ChatMessage>): ChatMessage => ({
 function fakeClient() {
   let listener: ((event: ImEvent) => void) | null = null
   const conversations: ImConversation[] = [
-    { peerId: 'u8', unreadCount: 2, showName: '小雨', faceUrl: null, lastMessage: null },
-    { peerId: 'system_notice', unreadCount: 1, showName: '系统通知', faceUrl: null, lastMessage: null },
+    {
+      peerId: 'u8',
+      unreadCount: 2,
+      showName: '小雨',
+      faceUrl: null,
+      lastMessage: null,
+      peerReadSeq: 0,
+    },
+    {
+      peerId: 'system_notice',
+      unreadCount: 1,
+      showName: '系统通知',
+      faceUrl: null,
+      lastMessage: null,
+      peerReadSeq: 0,
+    },
   ]
   const client = {
     onEvent: (fn: (event: ImEvent) => void) => {
@@ -41,7 +55,7 @@ function fakeClient() {
     fetchConversations: vi.fn(async () => conversations),
     fetchHistory: vi.fn(async (_peerId?: string, _count?: number, _beforeSeq?: number) => [] as ChatMessage[]),
     searchMessages: vi.fn(async () => ({ items: [], hasMore: false })),
-    capabilities: { image: true, search: true, voice: true },
+    capabilities: { image: true, search: true, voice: true, readReceipt: true },
     sendText: vi.fn(async (peerId: string, text: string) => msg({ msgId: 'm1', peerId, isSelf: true, text })),
     sendImage: vi.fn(async (peerId: string) => msg({ msgId: 'm2', peerId, isSelf: true })),
     sendVoice: vi.fn(async (peerId: string) =>
@@ -115,6 +129,7 @@ describe('chat store', () => {
         showName: '',
         faceUrl: null,
         lastMessage: msg({ msgId: 'm9', peerId: '', text: '你好呀', timestamp: 0 }),
+        peerReadSeq: 0,
       },
     ])
     await store.loadConversations()
@@ -319,11 +334,22 @@ describe('chat store', () => {
     setImClientFactory(() => client as unknown as ImClient)
     const store = useChatStore()
     // init 之前是兜底值:直接读 client.capabilities 会拿到 false(图片入口曾因此不显示)
-    expect(store.capabilities).toEqual({ image: false, search: false, voice: false })
+    expect(store.capabilities).toEqual({
+      image: false,
+      search: false,
+      voice: false,
+      readReceipt: false,
+    })
 
     await store.loadConversations()
 
-    expect(store.capabilities).toEqual({ image: true, search: true, voice: true })
+    // 能力位整体同步:包括 readReceipt(已读回执的渲染开关)
+    expect(store.capabilities).toMatchObject({
+      image: true,
+      search: true,
+      voice: true,
+      readReceipt: true,
+    })
   })
 
   it('searchMessages 先确保已连接,再透传关键词/条数/游标', async () => {

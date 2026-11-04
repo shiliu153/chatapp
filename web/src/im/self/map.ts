@@ -65,5 +65,7 @@ export function conversationFromJson(
     showName: String(peer.nickname ?? ''),
     faceUrl: (peer.avatar as string | undefined) ?? null,
     lastMessage: last ? messageFromJson(last as Record<string, unknown>, me) : null,
+    // 已读回执的**离线补拉**入口:断线期间对方读过什么,重连后靠这个字段算
+    peerReadSeq: Number(json.peer_read_seq ?? 0),
   }
 }
