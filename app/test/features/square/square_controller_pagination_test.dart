@@ -47,7 +47,7 @@ void main() {
     };
     // autoDispose 的 provider 必须先挂一个监听,否则 read 完就被回收
     final subscription =
-        container.listen(squareProvider, (_, __) {}, fireImmediately: true);
+        container.listen(squareProvider, (_, _) {}, fireImmediately: true);
     addTearDown(subscription.close);
     await container.read(squareProvider.future);
 
