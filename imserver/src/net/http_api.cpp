@@ -204,9 +204,9 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
 };
 
 HttpApi::HttpApi(net::io_context& io, const Config& cfg, MessageService& messages,
-                 SessionRegistry& registry, RedisClient& redis)
+                 SessionRegistry& registry, RedisClient& redis, PushNotifier& push)
     : io_(io), acceptor_(io), cfg_(cfg), messages_(messages), registry_(registry),
-      redis_(redis),
+      redis_(redis), push_(push),
       internal_allow_(net_guard::ProxyTrust::from_list(cfg.internal_allow)) {}
 
 void HttpApi::start() {
@@ -375,7 +375,14 @@ HttpApi::response_type HttpApi::internal_route(
       }
       const auto result = messages_.send(request);
       if (const auto* ok = std::get_if<SendResult>(&result)) {
-        registry_.send_to(request.to, build_message_frame(*ok, request, messages_.signer()));
+        const bool delivered = registry_.send_to(
+            request.to, build_message_frame(*ok, request, messages_.signer()));
+        // C-1:走内部 API 发出去的消息(im_send / Django 灰条)同样要照顾离线对端。
+        // kind=2(灰条/系统通知)由 PushNotifier 自己过滤掉。
+        if (!delivered) {
+          push_.notify_offline_message(request.to, request.from, ok->msg_id, request.kind,
+                                       request.text, ok->from_nickname);
+        }
         return json_response(req, http::status::ok,
                              {{"ok", true},
                               {"msg_id", std::to_string(ok->msg_id)},

@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
     PushNotifier push_notifier(cfg);
     WsServer server(io, cfg, registry, redis, message_service, push_notifier, db_pool);
     server.start();
-    HttpApi http(io, cfg, message_service, registry, redis);
+    HttpApi http(io, cfg, message_service, registry, redis, push_notifier);
     http.start();
 
     boost::asio::signal_set signals(io, SIGINT, SIGTERM);
