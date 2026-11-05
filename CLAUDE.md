@@ -181,6 +181,8 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `DELETE /matches/{user_id}` | 解除配对:幂等 204;软删除 + 双向 IM 拉黑,不可恢复 |
 | `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
 | `POST /client-errors` | 前端未捕获异常上报(**匿名可调**,120 次/小时/IP);只写 JSON 日志 `chatapp.client_error` + `client_errors_total{platform}`,不落库 |
+| `POST/DELETE /push/devices`、`GET/PATCH /push/preferences` | 推送设备上报/解绑(registration_id 全局唯一、同账号只留最新一台)与四类通知开关(`likes/matches/messages/system`);通道 `PUSH_PROVIDER=off|log|jpush` **默认 off**(极光 key 未注册),`jpush` 缺 key 直接报错 |
+| `POST /internal/push/new-message` | **不是给客户端调的**:imserver 在「消息落库 + 目标不在线」时回调它(HMAC 共享密钥 + 时间戳窗口 + 按 `msg_id` 幂等),再由 Celery 发推送;不在 `/api/v1` 下,契约见 `docs/ops/push.md` |
 | `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见 `docs/api/` 与 pitfalls(评论支持两级楼中楼与回复提醒) |
 
 资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`(否则 `incomplete`,`missing_fields` 列出缺项);`banned_light` / `banned_heavy` 为封禁状态。
