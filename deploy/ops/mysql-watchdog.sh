@@ -32,6 +32,12 @@ now() { date '+%Y-%m-%d %H:%M:%S'; }
 log() { echo "[$(now)] $*"; }
 
 # 同一时刻只允许一个实例:上一分钟的恢复动作可能还没结束。
+#
+# 注意:锁的 fd(9)**必须在所有子进程里关掉**(`9>&-`)。2026-11-05 E-5 演练实测踩到过:
+# 不关的话,`/etc/init.d/mysqld start` 拉起的 mysqld_safe / mysqld 会继承这个打开着的
+# 锁文件描述符,守护进程常驻 → flock 被永久持有 → 之后每分钟都是
+# `skip: previous run still in progress`,看门狗等于**在第一次成功恢复后把自己关掉**。
+# 现网已按此改法修复(fd 8/9 一处不改就复发),改动时别再往 START 命令外扩。
 exec 9>"$LOCK_FILE" 2>/dev/null || true
 if ! flock -n 9; then
   log "skip: previous run still in progress"
@@ -44,17 +50,18 @@ mysql_ok() {
 
 # 告警:邮件优先(与日报同链路),webhook 配了才额外发一条。
 # 去重键里带时间戳:同一事件的重复抑制由「只告警一次」的状态文件负责,不靠 notify 去重。
+# 所有子进程都带 `9>&-`:别让它们继承锁 fd(见上面 flock 处的说明)。
 notify() {
   local text=$1
   if [ -n "$WEBHOOK" ]; then
     curl -s -m 5 -H 'Content-Type: application/json' \
       -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"[MySQL看门狗] $text\"}}" \
-      "$WEBHOOK" >/dev/null 2>&1 || true
+      "$WEBHOOK" >/dev/null 2>&1 9>&- || true
   fi
   if [ -x "$NOTIFY_BIN" ]; then
     printf '%s\n' "$text" | NOTIFY_CONFIG="$NOTIFY_CONFIG" "$NOTIFY_BIN" send \
       --title "[告警] MySQL 看门狗" --body-file - --level error \
-      --dedup-key "mysql-watchdog:$(date +%s)" --dedup-window 5 >/dev/null 2>&1 || true
+      --dedup-key "mysql-watchdog:$(date +%s)" --dedup-window 5 >/dev/null 2>&1 9>&- || true
   fi
 }
 
@@ -72,15 +79,15 @@ log "mysql down, attempting restart"
 
 start_mysql() {
   if [ -n "$START_CMD" ]; then
-    bash -c "$START_CMD"
+    bash -c "$START_CMD" 9>&-
     return $?
   fi
   if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files mysqld.service >/dev/null 2>&1; then
-    systemctl start mysqld
+    systemctl start mysqld 9>&-
     return $?
   fi
   if [ -x /etc/init.d/mysqld ]; then
-    /etc/init.d/mysqld start
+    /etc/init.d/mysqld start 9>&-
     return $?
   fi
   log "no start method found"
