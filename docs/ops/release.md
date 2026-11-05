@@ -83,6 +83,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.2 | 2026-11-01 | — | 无(规则生效前发版) | — | `chatapp-1.0.2.apk` |
 | 1.0.3 | 2026-11-04 | — | 无(规则生效前发版) | `56f3f5b` | `chatapp-1.0.3.apk` |
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
+| 1.0.5 | 2026-11-05 | `v1.0.5` | 待建:tag 待推送(SHA 见 PR #79 合并提交),Release 对象待建 —— 本环境无 `gh` CLI 与 GitHub token | 见 PR #79 | `chatapp-1.0.5.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
