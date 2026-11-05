@@ -137,7 +137,7 @@ DB 不可达时 imserver 直接 `fatal: mysql connect failed` 退出，Docker �
 
 > 2026-11-02 更新：P0-1、P1-3、P2-4 已修复并通过回归（含 500 冷会话端到端 0 失败）；
 > P0-2 的看门狗脚本与 systemd drop-in 已入库，待上线安装。执行记录见
-> [2026-11-02-observability-and-capacity.md](../superpowers/plans/2026-11-02-observability-and-capacity.md) §7。
+> [2026-11-02-observability-and-capacity.md](../superpowers/archive/plans/2026-11-02-observability-and-capacity.md) §7。
 
 1. **P0-1**:`lock_pair` 改成「先 `INSERT ... ON DUPLICATE KEY UPDATE id=LAST_INSERT_ID(id)` 拿到 id，再 `SELECT ... FOR UPDATE`」，让插入在事务最前面、不持有间隙锁；同时把重试从 3 次提到 8 次并加随机抖动。这是改动最小、收益最大的一条。
 2. **P0-2**:给 `mysqld` 的 systemd unit 加 `Restart=always` + `RestartSec=5`；再补一条每分钟的计划任务探 3306，失败就 `/etc/init.d/mysqld start`（和现有 readyz 探针同思路）。

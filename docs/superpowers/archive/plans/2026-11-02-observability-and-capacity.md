@@ -216,7 +216,7 @@
 ## D. 叙事（贯穿，不单独占工期）
 
 - [x] 每个改造产出三件套：**before/after 数字 + 证据链接 + 一段复盘**——汇总在
-      [capacity-and-reliability.md](../../ops/capacity-and-reliability.md)。
+      [capacity-and-reliability.md](../../../ops/capacity-and-reliability.md)。
 - [x] 简历口径示例（4 条，全部带数字与限定条件）：
       「2C2G 单机支撑 600 rps / 1000 条 WS 长连接，修复冷启动建会话死锁（失败率 82% → 0）」；
       「Prometheus + Grafana + 10 条告警，故障发现降到 60 秒内」；
@@ -339,4 +339,25 @@ Prometheus 容器读令牌权限（`chown 65534` + `640`）、Grafana 读不到 
 **待办**：~~企业微信机器人地址~~（2026-11-05 决定**不接机器人**，告警改走邮件，见 backlog E-4 ①）；
 Loki `logs` profile 未启动（内存留余量，需要时 `docker compose --profile logs up -d`）；
 ~~探针 30s~~、~~业务指标~~、~~三个 exporter~~ 已于 2026-11-05 补齐（E-4 ②③④）；MySQL 双杀演练未做（E-5）。
+
+---
+
+## 9. 执行记录（2026-11-05 收尾归档）
+
+四轨已全部落地。**文件内的 checkbox 保持原样**（写作规范 §3：不回头补勾），未勾项按下表逐条对应到交付证据。
+
+| 未勾项 | 结论 | 交付证据 |
+|---|---|---|
+| §B 重跑读基线（`app_config` 608→410 rps） | 已完成；判读口径改为「只用 100 并发档判回归」 | D-2（PR #53），`docs/ops/read-baseline-2026-11-04.md` |
+| §B 定位掉下去的那 1/3 | 已归因：非容器内存，而是 2 核上 Django 每请求 2.7ms 的 GIL 天花板（裸 WSGI 2626 rps 为对照组） | D-2，同文档 |
+| §B `candidates` p99 9.5s | 已归因：冷池 114.6ms 全表扫 + 整机换页抖动；复合索引实测更慢，已回滚 | D-2，`docs/ops/scale-report.md` |
+| §B 读 / 写 / 上传 / 混合 / WS 重连 / 突发场景矩阵 | 全部补齐，自测用例 24 → 35 条 | D-2（`perf/run.py` 新增 `api_upload`/`api_mixed`/`ws_reconnect`/`--ramp`） |
+| §B keyset 分页替代 offset | 已完成（五个列表接口 + 双端适配） | D-1（PR #50），`docs/api/conventions.md` §分页约定 |
+| §B DB QPS 下降比例 | 已实测并**证伪原口径**：语句数只省 12%，「−60%」不成立 | E-7（PR #70/#71），`docs/ops/cache-win-2026-11-05.md` |
+| 全局精确限速（跨 worker Redis 令牌桶） | **决定不做**：当前规模不值得 | backlog §4 |
+| 队列满拒绝入队 | **决定不做**：通知类延迟入队优于丢弃 | backlog §4 |
+| MySQL 双杀演练 | 已执行两轮，MTTR 24.2s / 27.2s，顺带修掉看门狗自锁 P0 | E-5（PR #69），`docs/ops/runbook.md` §2.3/§2.4 |
+
+> 归档原因：工作面已清空，本文件转为历史记录。当前待办见
+> [`docs/backlog/2026-11-03-todo.md`](../../../backlog/2026-11-03-todo.md)。
 

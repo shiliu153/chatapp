@@ -2,7 +2,7 @@
 
 - 日期：2026-11-04
 - 状态：**已执行（2026-11-08）**，见 §6 执行记录
-- 依据：[backlog D-4](../../backlog/2026-11-03-todo.md)、[fullstack review §四 D-2](../../reviews/2026-11-03-fullstack-review.md)
+- 依据：[backlog D-4](../../../backlog/2026-11-03-todo.md)、[fullstack review §四 D-2](../../../reviews/2026-11-03-fullstack-review.md)
 
 ## 0. 一句话
 
