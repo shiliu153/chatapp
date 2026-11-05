@@ -1,0 +1,38 @@
+# 告警邮件专用配置:部署到服务器 /etc/notify/alerts.ini (权限 600)。
+#
+# 为什么要单独一份而不是复用日报那份 ~/.config/notify/config.ini:
+#   1. 日报那份的 [message] subject_prefix = [日报], 告警标题挂上「[日报]」会误导;
+#   2. 通道(发信地址/密码来源)、配额、状态库必须与日报**完全一致** —— 这样告警和日报
+#      共用同一份发信额度(5/分钟、50/天)与同一个去重库, 不会两边各发一遍。
+#
+# 用法:
+#   install -m 600 deploy/observability/notify-alerts.ini.tmpl /etc/notify/alerts.ini
+#   # 把 <...> 换成真实值, 然后
+#   NOTIFY_CONFIG=/etc/notify/alerts.ini /opt/notify/bin/notify send \
+#       --title "[测试] 告警链路" --body "hello" --dedup-key rel-selftest
+#
+# 密码不写在这里: 用 password_env 指向 /etc/notify/env 里的变量(该文件 600)。
+
+[message]
+to             = <收件邮箱, 与日报同一地址>
+from_name      = chatapp 告警
+subject_prefix = [chatapp]
+
+# 主通道: 阿里云邮件推送(与日报同一个发信账号)
+[channels.email.directmail]
+enabled      = true
+host         = smtpdm.aliyun.com
+port         = 465
+username     = <发信地址, 与日报相同>
+password_env = NOTIFY_DM_PASSWORD
+
+[limits]
+per_minute           = 5
+per_day              = 50
+dedup_window_minutes = 60
+
+[log]
+path = ~/.local/state/notify/notify.jsonl
+
+[state]
+path = ~/.local/state/notify/state.db

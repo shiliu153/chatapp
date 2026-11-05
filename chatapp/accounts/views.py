@@ -21,7 +21,7 @@ from django.db.models import F
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
-from rest_framework.exceptions import (AuthenticationFailed, ParseError,
+from rest_framework.exceptions import (APIException, AuthenticationFailed, ParseError,
                                        PermissionDenied)
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -31,6 +31,7 @@ from rest_framework_simplejwt.state import token_backend
 from rest_framework_simplejwt.views import TokenRefreshView
 from django_redis import get_redis_connection
 
+from config import metrics
 from im import tasks as im_tasks
 from notifications.tasks import send_sms_code
 
@@ -182,9 +183,15 @@ def sms_verify(request):
     serializer = SmsVerifySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     phone = serializer.validated_data["phone"]
-    # B-1:校验入口再拦一次(纵深防御)—— 白名单可能在码已下发之后才收紧
-    services.ensure_phone_allowed(phone)
-    services.check_code(phone, serializer.validated_data["code"])
+    # 业务指标(E-4 ③):只分「成功 / 被拒」两档。标签里不放手机号,也不细分被拒原因
+    # —— 那会把时间序列基数撑开,而「被拒有多少次」已经够判断「是不是有人在试探」。
+    try:
+        # B-1:校验入口再拦一次(纵深防御)—— 白名单可能在码已下发之后才收紧
+        services.ensure_phone_allowed(phone)
+        services.check_code(phone, serializer.validated_data["code"])
+    except APIException:
+        metrics.LOGINS.labels(result="rejected").inc()
+        raise
 
     try:
         user, created = User.objects.get_or_create(phone=phone)
@@ -196,6 +203,7 @@ def sms_verify(request):
     # 会让「最高权限的 API 身份」被直接接管;运营后台用账号口令 + TOTP。
     # 封闭测试环境确需用运营账号登 App 时,显式设 SMS_ALLOW_STAFF_LOGIN=1。
     if (user.is_staff or user.is_superuser) and not settings.SMS_ALLOW_STAFF_LOGIN:
+        metrics.LOGINS.labels(result="rejected").inc()
         raise PermissionDenied("运营账号请使用运营后台登录")
     # 单设备登录:版本 +1 作废旧令牌;IM 建号/踢旧会话交给队列(响应路径不做外部调用)。
     # 用 F() 在数据库内自增,避免「读—加一—写」在并发登录时两个请求都拿到同一个旧版本,
@@ -224,6 +232,7 @@ def sms_verify(request):
         "is_new_user": created,
         "user_id": user.id,
     }
+    metrics.LOGINS.labels(result="success").inc()
     if wants_cookie(request):
         # Web:refresh 只进 HttpOnly Cookie,JS 读不到,30 天的长期凭证不再暴露给页面脚本。
         response = Response(payload)

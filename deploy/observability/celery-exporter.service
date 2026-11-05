@@ -1,0 +1,23 @@
+[Unit]
+Description=chatapp celery-exporter (Celery 任务级指标,监听 127.0.0.1:9808)
+Documentation=file:///www/wwwroot/chatapp/chatapp/docs/ops/observability.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=PYTHONUNBUFFERED=1
+# 只绑回环:这个进程默认监听 0.0.0.0,2C2G 的机器不值得多开一个公网端口。
+# --retry-interval=5: broker 抖动时不要退出(broker 就在本机,重启时必然短暂连不上)。
+ExecStart=/opt/celery-exporter-venv/bin/python /www/server/observability/celery_exporter_run.py \
+    --broker-url=redis://127.0.0.1:6379/1 \
+    --host=127.0.0.1 --port=9808 \
+    --retry-interval=5
+Restart=always
+RestartSec=10
+MemoryMax=128M
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

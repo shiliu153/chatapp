@@ -7,13 +7,25 @@
 
 | 探针 | 频率 | 失败判定 | 通知 |
 |---|---|---|---|
-| `imserver /internal/readyz` | 30s | 连续 2 次非 200 | 企业微信机器人(`PROBE_WEBHOOK`) |
-| `GET /api/v1/health` | 30s | 同上 | 同上 |
-| MySQL 3306 探活 | 60s | 一次失败即拉起 | 看门狗脚本 + 机器人 |
+| `imserver /internal/readyz` | **30s**(脚本内一次复测) | 连续 2 次非 200 | 邮件(`/opt/notify`,与日报同链路) |
+| `GET /api/v1/health` | **30s**(同上) | 同上 | 同上 |
+| Prometheus 抓 `job=api` / `job=im` | 15s | `up=0` 持续 30s(`ApiDown`)/ 1m(`ImDown`) | Alertmanager → relay → 邮件 |
+| MySQL 3306 探活 | 60s | 一次失败即拉起 | 看门狗脚本 + 邮件 |
 | 磁盘/内存 | 5min | 磁盘 >85%、可用内存 <100MB | 同上 |
 
 > 2026-11-01 之前的探针是「每分钟一次、连续 2 轮才 ALERT」,实测 90 秒宕机只记 1 次失败、
-> 没有告警。改成 30s 一次后,单次故障也能在 60 秒内触达。
+> 没有告警。**2026-11-05(E-4 ②)** 改成:宝塔仍每分钟调用脚本,但脚本内部先查所有目标、
+> 失败隔 30 秒再复测一次 —— 单次故障 30~35 秒内发信,和 Prometheus 那条通道互为兜底。
+> **通知通道同时从「微信群机器人」改成邮件**(机器人一直没配 = 告警只落日志),详见
+> [observability.md](observability.md) §2.1。
+
+告警邮件里能看到什么、怎么确认通道没断:
+
+```bash
+systemctl status chatapp-alert-relay --no-pager     # active (running)
+tail -20 /www/wwwlogs/alert-relay.log               # 每条告警的处理结果
+/opt/notify/bin/notify log -n 10                     # notify 自己的发送记录(含去重跳过)
+```
 
 ## 2. MySQL 看门狗(P0-2)
 
@@ -89,9 +101,13 @@ mysql -e 'SELECT 1' && tail -5 /www/wwwlogs/mysql_watchdog.log
 | 告警 | 先看 | 常见原因 | 处置 |
 |---|---|---|---|
 | `readyz` 连续失败 | `docker logs imserver` | MySQL 不可达 / 池连接全死 | 先修 DB;池有 idle ping,DB 恢复后自动重连 |
+| `ApiDown`(抓不到 Django) | `supervisorctl status 'chatapp-web:*'` | 进程被 OOM 杀 / 端口占用 / 启动异常 | supervisor 会拉起;连挂两次就 `supervisorctl tail chatapp-web` 看启动日志 |
+| `ImDown`(抓不到 imserver) | `curl 127.0.0.1:9101/internal/readyz` | 503=DB/Redis;000=进程没了 | 按 §3 的依赖顺序恢复 |
+| `MysqlDown` / `RedisDown` | `mysql -e 'SELECT 1'`、`docker ps \| grep redis` | 进程挂了 / 磁盘满 / OOM | 看门狗会拉起 MySQL;Redis 重启后限流计数与缓存为空,属正常 |
+| `ExporterDown` | `docker compose ps` + `systemctl status chatapp-celery-exporter` | 容器挂了 / 端口冲突 | 指标盲区优先修,不然下一次故障没人知道 |
 | API 5xx >1% | gunicorn 日志 + `request_id` | DB 宕机、代码异常 | 用 `request_id` 在日志里定位单条请求;未预期异常现在返回 JSON 500 并带堆栈 |
 | API p99 >500ms | MySQL 慢查询、连接数 | 慢 SQL、连接池打满 | `SHOW FULL PROCESSLIST`;必要时限流 |
-| Celery 积压 | `celery_queue_depth` 面板 + worker 日志 | worker 挂了 / 限速过低 | 重启 worker;队列分级与限速见 [peak-shaving.md](peak-shaving.md) |
+| Celery 积压 / 失败 | `celery_queue_depth` 面板 + worker 日志 | worker 挂了 / 限速过低 / imserver 不可达 | 重启 worker;队列分级与限速见 [peak-shaving.md](peak-shaving.md) |
 | 磁盘 >85% | `du -sh /www/wwwroot/*` | 聊天图片/语音堆积 | `python manage.py media_cleanup --apply`;检查 30 天清理任务 |
 | 内存不足 | `free -m`、`ps aux --sort=-rss` | 压测进程、日志未轮转 | 杀掉压测进程;检查 logrotate |
 

@@ -28,6 +28,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
+from config import metrics
 from config.cursor import paginated_response
 from config.params import int_param
 from config.schema_helpers import cursor_page, cursor_params
@@ -140,6 +141,8 @@ def swipe(request):
 
     # 幂等:重复提交保留第一次的动作与结果
     swipe_obj, _ = Swipe.objects.get_or_create(swiper=me, target=target, defaults={"action": action})
+    # 业务指标(E-4 ③):按「实际生效的动作」计数,幂等重放不会把 like 记成 pass。
+    metrics.SWIPES.labels(action=swipe_obj.action).inc()
     # 划过的人必须立刻从我的候选池消失:升版本,旧缓存键随即不可达。
     invalidate_candidates(me.id)
 
@@ -153,6 +156,8 @@ def swipe(request):
                 matched = False
             else:
                 if created:
+                    # 只在「新建配对」时计数:软删除的旧行被 get_or_create 捞出来不算新配对。
+                    metrics.MATCHES.inc()
                     notify_match(match)
                     # 对方也进入了「已配对」状态,候选池同样要失效。
                     invalidate_candidates(target.id)

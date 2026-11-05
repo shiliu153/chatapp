@@ -47,6 +47,9 @@ Thumbs.db
 # 观测栈的抓取令牌(部署时从 METRICS_TOKEN 写入,不入库)
 deploy/observability/metrics_token
 
+# 观测栈 MySQL 监控账号的口令文件(服务器上生成,600,不入库)
+deploy/observability/mysqld_exporter.cnf
+
 # oneclick.sh --render-only 的默认输出目录(含 secrets/values.env 真实密钥)
 deploy-render/
 

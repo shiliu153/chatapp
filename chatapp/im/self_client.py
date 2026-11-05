@@ -15,6 +15,8 @@ import time
 import requests
 from django.conf import settings
 
+from config import metrics
+
 logger = logging.getLogger(__name__)
 
 SYSTEM_NOTICE_IDENTIFIER = "system_notice"
@@ -64,8 +66,10 @@ def _post(path: str, payload: dict) -> bool:
             timeout=5,
         )
         response.raise_for_status()
+        metrics.im_call(path, True)
         return True
     except Exception:
+        metrics.im_call(path, False)
         logger.exception("自建 IM 调用失败 path=%s", path)
         return False
 

@@ -10,13 +10,17 @@
 #
 # 环境变量:
 #   MYSQL_CNF        带账号密码的 cnf,默认 /root/.my.im.cnf
-#   PROBE_WEBHOOK    企业微信/钉钉机器人地址,留空则只落日志
+#   PROBE_WEBHOOK    可选:企业微信/钉钉机器人地址(2026-11-05 起默认不再用它)
+#   NOTIFY_BIN       邮件通道入口,默认 /opt/notify/bin/notify(与服务器日报同一条链路)
+#   NOTIFY_CONFIG    告警专用配置,默认 /etc/notify/alerts.ini
 #   MYSQL_START_CMD  自定义启动命令,默认依次尝试 systemctl / init.d
 #   WATCHDOG_STATE   记录上次告警状态的目录,默认 /var/lib/mysql-watchdog
 set -u
 
 CNF=${MYSQL_CNF:-/root/.my.im.cnf}
 WEBHOOK=${PROBE_WEBHOOK:-}
+NOTIFY_BIN=${NOTIFY_BIN:-/opt/notify/bin/notify}
+NOTIFY_CONFIG=${NOTIFY_CONFIG:-/etc/notify/alerts.ini}
 STATE_DIR=${WATCHDOG_STATE:-/var/lib/mysql-watchdog}
 LOCK_FILE=${WATCHDOG_LOCK:-/var/lock/mysql-watchdog.lock}
 START_CMD=${MYSQL_START_CMD:-}
@@ -38,12 +42,20 @@ mysql_ok() {
   mysql --defaults-extra-file="$CNF" --connect-timeout=3 -N -e 'SELECT 1' >/dev/null 2>&1
 }
 
+# 告警:邮件优先(与日报同链路),webhook 配了才额外发一条。
+# 去重键里带时间戳:同一事件的重复抑制由「只告警一次」的状态文件负责,不靠 notify 去重。
 notify() {
   local text=$1
-  [ -z "$WEBHOOK" ] && return 0
-  curl -s -m 5 -H 'Content-Type: application/json' \
-    -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"[MySQL看门狗] $text\"}}" \
-    "$WEBHOOK" >/dev/null 2>&1 || true
+  if [ -n "$WEBHOOK" ]; then
+    curl -s -m 5 -H 'Content-Type: application/json' \
+      -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"[MySQL看门狗] $text\"}}" \
+      "$WEBHOOK" >/dev/null 2>&1 || true
+  fi
+  if [ -x "$NOTIFY_BIN" ]; then
+    printf '%s\n' "$text" | NOTIFY_CONFIG="$NOTIFY_CONFIG" "$NOTIFY_BIN" send \
+      --title "[告警] MySQL 看门狗" --body-file - --level error \
+      --dedup-key "mysql-watchdog:$(date +%s)" --dedup-window 5 >/dev/null 2>&1 || true
+  fi
 }
 
 if mysql_ok; then

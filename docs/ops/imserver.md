@@ -374,22 +374,26 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash -c \
 | 项 | 值 |
 |---|---|
 | 脚本 | `/www/server/imserver/probe-readyz.sh`(仓库 `imserver/deploy/probe-readyz.sh`) |
-| 周期 | 每分钟(`*/1 * * * *`) |
-| 判定 | 单轮内查两次(间隔 2s),都非 200 记一次;连续 **2 轮**失败才告警 |
-| 告警 | 写 `/www/wwwlogs/imserver_probe.log` + stdout 打 `ALERT`(宝塔「任务日志」可见)+ 可选 webhook |
-| 去重 | 同一事件只告警一次;恢复后计数清零,下次事故重新告警 |
+| 周期 | 每分钟调用一次;**脚本内部失败隔 30s 复测一次**(2026-11-05 改,见下) |
+| 目标 | 默认两个:`im=http://127.0.0.1:9101/internal/readyz`、`api=http://127.0.0.1:8000/api/v1/health`(`IM_PROBE_TARGETS` 可改) |
+| 判定 | 首轮全健康即退出;有失败则 30s 后复测,两次都失败才算 1 次,计数到 2 发告警 |
+| 告警 | 写 `/www/wwwlogs/imserver_probe.log` + 发**邮件**(`/opt/notify`,与 22:00 日报同链路) |
+| 去重 | 同一事件只告警一次;恢复时清零并记一行 `RECOVERED` |
 | 日志 | `/www/wwwlogs/imserver_probe.log`(超 1MB 自动只留最后 500 行) |
-| 接 webhook | 在 `/www/server/imserver/probe.env`(600)写 `IM_PROBE_WEBHOOK=<企业微信/钉钉群机器人地址>`,发 `{"msgtype":"text",...}` 文本消息;**别写进计划任务命令**(面板任务记录存 sqlite,UI 和备份都能看到) |
+| 环境文件 | `/www/server/imserver/probe.env`(600):`IM_PROBE_NOTIFY_CONFIG` / `IM_PROBE_TARGETS` 等;**别写进计划任务命令**(面板任务记录存 sqlite,UI 和备份都能看到) |
 
-> 当前服务器还没有配任何消息通道(面板 `dingding.json`/`weixin.json` 都是空的),所以告警只落在
-> `/www/wwwlogs/imserver_probe.log` 和宝塔「任务日志」里。要真推到手机,配一个群机器人地址写进
-> `probe.env` 即可,脚本不用改。
+> 2026-11-05(E-4 ②)两处改动:① 粒度从「每分钟 2 次、连续 2 轮(≈2 分钟)才告警」降到
+> **30 秒复测**,单次故障 30~35 秒内发信 —— 旧判定实测漏报过一次 90 秒宕机;
+> ② 通知通道从「群机器人(一直没配,告警只落日志)」改成**邮件**,复用服务器日报的
+> `/opt/notify` 链路(用户 2026-11-05 决定不接机器人)。`IM_PROBE_WEBHOOK` 已废弃。
+> 与 Prometheus 那条通道(`ApiDown`:抓取 15s + `for: 30s`)互为兜底。
 
 > **为什么不能靠退出码告警**:宝塔生成的包装脚本(`/www/server/cron/<md5>`)无论任务本身
 > 退出码是多少都以 `rm -f` 收尾、固定返回 0,面板收不到失败信号。所以告警必须在脚本里自己发。
 
-实测(2026-10-26):正常路径退出 0、计数清零;把 `IM_PROBE_URL` 指到死端口模拟故障,
-第 1 轮只记录、第 2 轮打 ALERT 并退出 1、第 3 轮不再重复告警——符合设计。
+实测(2026-10-26,旧判定):正常路径退出 0、计数清零;把 `IM_PROBE_URL` 指到死端口模拟故障,
+第 1 轮只记录、第 2 轮打 ALERT 并退出 1、第 3 轮不再重复告警。
+2026-11-05 改成 30s 复测后,同一次模拟故障在 **~30 秒**后就会发信(不再需要等两分钟)。
 
 部署脚本本体:
 
