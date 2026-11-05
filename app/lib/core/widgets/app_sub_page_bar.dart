@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 「心跳」规则 §5.2 二级页顶栏:高 52,返回箭头 22 `text1`,标题 17/w600 居中。
 ///
@@ -28,7 +28,9 @@ class AppSubPageBar extends StatelessWidget {
   static const height = 52.0;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return SizedBox(
         height: height,
         child: Stack(
           alignment: Alignment.center,
@@ -36,7 +38,7 @@ class AppSubPageBar extends StatelessWidget {
             Text(
               title,
               style: AppText.subtitle
-                  .copyWith(fontSize: 17, color: AppColors.text1), // 17/w600(§5.2)
+                  .copyWith(fontSize: 17, color: colors.text1), // 17/w600(§5.2)
             ),
             if (showBack)
               Positioned(
@@ -46,8 +48,8 @@ class AppSubPageBar extends StatelessWidget {
                 child: IconButton(
                   key: backKey,
                   onPressed: onBack ?? () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                      size: 22, color: AppColors.text1),
+                  icon: Icon(Icons.arrow_back_ios_new_rounded,
+                      size: 22, color: colors.text1),
                 ),
               ),
             if (trailing != null)
@@ -63,4 +65,5 @@ class AppSubPageBar extends StatelessWidget {
           ],
         ),
       );
+  }
 }

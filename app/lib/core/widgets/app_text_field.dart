@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
+import '../theme/heart_theme_context.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_spacing.dart';
@@ -89,12 +89,13 @@ class _AppTextFieldState extends State<AppTextField> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final counter = widget.maxLength == null
         ? null
         : Text(
             '$_length/${widget.maxLength}',
             key: widget.counterKey,
-            style: AppText.micro.copyWith(color: AppColors.text3),
+            style: AppText.micro.copyWith(color: colors.text3),
           );
 
     if (widget.borderless) {
@@ -111,15 +112,15 @@ class _AppTextFieldState extends State<AppTextField> {
     }
 
     final borderColor = widget.errorText != null
-        ? AppColors.danger
-        : (_focused ? AppColors.brand : AppColors.divider);
+        ? colors.danger
+        : (_focused ? colors.brand : colors.divider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (widget.label != null) ...[
           Text(widget.label!,
-              style: AppText.caption.copyWith(color: AppColors.text2)),
+              style: AppText.caption.copyWith(color: colors.text2)),
           const SizedBox(height: AppSpacing.xs),
         ],
         AnimatedContainer(
@@ -131,7 +132,7 @@ class _AppTextFieldState extends State<AppTextField> {
             vertical: AppSpacing.sm,
           ),
           decoration: BoxDecoration(
-            color: widget.enabled ? AppColors.bgCard : AppColors.divider,
+            color: widget.enabled ? colors.bgCard : colors.divider,
             borderRadius: BorderRadius.circular(AppRadius.input),
             border: Border.all(
               color: borderColor,
@@ -140,7 +141,7 @@ class _AppTextFieldState extends State<AppTextField> {
             boxShadow: _focused
                 ? [
                     BoxShadow(
-                      color: AppColors.brand.withValues(alpha: .12),
+                      color: colors.brand.withValues(alpha: .12),
                       spreadRadius: 3,
                     ),
                   ]
@@ -159,7 +160,7 @@ class _AppTextFieldState extends State<AppTextField> {
         if (widget.errorText != null) ...[
           const SizedBox(height: AppSpacing.xs),
           Text(widget.errorText!,
-              style: AppText.micro.copyWith(color: AppColors.danger)),
+              style: AppText.micro.copyWith(color: colors.danger)),
         ],
         if (counter != null) ...[
           const SizedBox(height: AppSpacing.xs),
@@ -169,7 +170,10 @@ class _AppTextFieldState extends State<AppTextField> {
     );
   }
 
-  Widget _field() => TextField(
+  Widget _field() {
+    // State 的 context 是 getter,直接取色板即可(此方法不是带参数的 build)
+    final colors = context.heart;
+    return TextField(
         controller: widget.controller,
         focusNode: _node,
         enabled: widget.enabled,
@@ -183,14 +187,15 @@ class _AppTextFieldState extends State<AppTextField> {
           setState(() => _length = value.length);
           widget.onChanged?.call(value);
         },
-        style: AppText.body.copyWith(color: AppColors.text1),
+        style: AppText.body.copyWith(color: colors.text1),
         decoration: InputDecoration(
           isDense: true,
           border: InputBorder.none,
           contentPadding: EdgeInsets.zero,
           counterText: '', // 计数自己画
           hintText: widget.hint,
-          hintStyle: AppText.body.copyWith(color: AppColors.text3),
+          hintStyle: AppText.body.copyWith(color: colors.text3),
         ),
       );
+  }
 }

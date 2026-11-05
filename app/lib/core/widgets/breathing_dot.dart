@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 在线点:green + 呼吸光晕(§5.3/§4);描边色 = 所在背景色。
 /// 无限动画:处于可见状态的测试只用有限 pump,禁 pumpAndSettle。
@@ -30,7 +30,9 @@ class _BreathingDotState extends State<BreathingDot> with SingleTickerProviderSt
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return AnimatedBuilder(
         animation: _c,
         builder: (context, _) => Opacity(
           opacity: 0.55 + 0.45 * _c.value, // 呼吸:透明度 .55↔1
@@ -38,11 +40,12 @@ class _BreathingDotState extends State<BreathingDot> with SingleTickerProviderSt
             width: widget.size,
             height: widget.size,
             decoration: BoxDecoration(
-              color: AppColors.green,
+              color: colors.green,
               shape: BoxShape.circle,
               border: Border.all(color: widget.borderColor, width: 2),
             ),
           ),
         ),
       );
+  }
 }
