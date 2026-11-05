@@ -1,8 +1,13 @@
 # 推送(C-1):链路、开关与验证
 
-> 现状(2026-11-05 **已上线** `3ef2b8c`):**链路已打通并端到端验证过,但通道默认关闭(`PUSH_PROVIDER=off`)** ——
-> 极光 AppKey/MasterSecret 还没注册(用户 2026-11-05 决定暂时不注册)。接上 key 之后只需改配置 + App 侧上报
-> `registration_id` + 真机验收,服务端不用再改代码。
+> **状态(2026-11-05 用户决定):本项目不做离线推送,本条链路不再往下推进。** 通道固定
+> `PUSH_PROVIDER=off`,imserver 只累加 `push_skipped_total{reason="provider_off"}`,App 不集成推送 SDK、
+> 不再注册极光凭据。**本文档保留为内部契约与实现记录**(排查时仍需知道这条链路存在且是关的),
+> 决策与「若要彻底移除该怎么做」见 [backlog §4](../backlog/2026-11-03-todo.md)。
+>
+> 历史现状(2026-11-05 **已上线** `3ef2b8c`):**链路已打通并端到端验证过,但通道默认关闭(`PUSH_PROVIDER=off`)** ——
+> 极光 AppKey/MasterSecret 未注册。接上 key 之后只需改配置 + App 侧上报
+> `registration_id` + 真机验收,服务端不用再改代码(**该路径已作废,不要再按它排期**)。
 >
 > 相关:接口契约 [docs/api/push.md](../api/push.md);imserver 内部事件在本文 §3。
 >
@@ -118,6 +123,10 @@ curl -s 127.0.0.1:9101/internal/metrics | grep im_push_total       # imserver �
 > `provider_off` / `preference_off` / `no_device` / `banned` / `duplicate` 各自对应一种短路。
 
 ## 5. 接极光时还差什么
+
+> **本节已作废(2026-11-05)**:本项目不做离线推送,不注册极光凭据、不集成客户端 SDK。
+> 仅当项目定位再次变化、且明确需要离线触达时才重新评估;届时按当时的最新契约重写本节,
+> 不要照抄下面的步骤。
 
 1. 极光控制台建应用 → 拿 **AppKey / MasterSecret**,填进 `.env` 并 `PUSH_PROVIDER=jpush`;
 2. **App 侧**:集成极光 SDK,登录后调 `POST /api/v1/push/devices` 上报 `registration_id`

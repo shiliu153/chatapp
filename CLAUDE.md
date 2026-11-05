@@ -181,12 +181,12 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `DELETE /matches/{user_id}` | 解除配对:幂等 204;软删除 + 双向 IM 拉黑,不可恢复 |
 | `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
 | `POST /client-errors` | 前端未捕获异常上报(**匿名可调**,120 次/小时/IP);只写 JSON 日志 `chatapp.client_error` + `client_errors_total{platform}`,不落库 |
-| `POST/DELETE /push/devices`、`GET/PATCH /push/preferences` | 推送设备上报/解绑(registration_id 全局唯一、同账号只留最新一台)与四类通知开关(`likes/matches/messages/system`);通道 `PUSH_PROVIDER=off|log|jpush` **默认 off**(极光 key 未注册),`jpush` 缺 key 直接报错 |
-| `POST /internal/push/new-message` | **不是给客户端调的**:imserver 在「消息落库 + 目标不在线」时回调它(HMAC 共享密钥 + 时间戳窗口 + 按 `msg_id` 幂等),再由 Celery 发推送;不在 `/api/v1` 下,契约见 `docs/ops/push.md` |
+| `POST/DELETE /push/devices`、`GET/PATCH /push/preferences` | 推送设备上报/解绑(registration_id 全局唯一、同账号只留最新一台)与四类通知开关(`likes/matches/messages/system`);通道 `PUSH_PROVIDER=off|log|jpush`。**本项目不做离线推送(2026-11-05 决定,见 backlog §4)**:通道固定 `off`,接口与代码保留但不产生外部调用,App 不集成推送 SDK |
+| `POST /internal/push/new-message` | **不是给客户端调的**:imserver 在「消息落库 + 目标不在线」时回调它(HMAC 共享密钥 + 时间戳窗口 + 按 `msg_id` 幂等),再由 Celery 发推送;不在 `/api/v1` 下,契约见 `docs/ops/push.md`。**推送通道固定 `off`,该回调当前只累加 `push_skipped_total{reason="provider_off"}`** |
 | `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见 `docs/api/` 与 pitfalls(评论支持两级楼中楼与回复提醒) |
 
 资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`(否则 `incomplete`,`missing_fields` 列出缺项);`banned_light` / `banned_heavy` 为封禁状态。
 
 ## 下一步
 
-**所有待办统一在 [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)**:按批次(A 止血 → B 准入收敛「已关闭」→ C 产品闭环 → D 规模架构 → E 工程纪律)排好序,每条都带证据、验收口径和「开新对话提示词」。**当前进度(2026-11-05):A–E 五批全部闭环,本表已无待办;唯一未闭环的功能项是「App 端消息推送」(后端链路已上线,缺极光 key 与客户端 SDK),连同备份异地、树莓派容量、TOTP 重绑确认等一并列在 backlog §7。不要在本文件里另起一份待办清单。**
+**所有待办统一在 [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)**:按批次(A 止血 → B 准入收敛「已关闭」→ C 产品闭环 → D 规模架构 → E 工程纪律)排好序,每条都带证据、验收口径和「开新对话提示词」。**当前进度(2026-11-05):A–E 五批全部闭环,本表已无待办;剩余未闭环项是备份异地(无对象存储预算)、树莓派容量、TOTP 重绑确认与 Loki 常驻,列在 backlog §7。消息推送已明确不做(2026-11-05),不要再把它当待办重新提出。不要在本文件里另起一份待办清单。**

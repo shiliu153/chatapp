@@ -1,5 +1,10 @@
 # 推送
 
+> **本能力不启用(2026-11-05 用户决定):本项目不需要离线推送。** 通道固定 `PUSH_PROVIDER=off`,
+> 不产生任何外部调用,客户端不集成推送 SDK,也不再采购极光凭据。接口与本文档**保留**(已进 OpenAPI
+> 契约与字段级门禁,删除会牵动 `openapi.yml` 与客户端类型生成,收益为零);决策口径与「若要彻底移除
+> 该怎么做」见 [backlog §4](../backlog/2026-11-03-todo.md)。**新功能不要依赖本分册的接口。**
+>
 > 本分册记录推送设备与通知偏好接口。推送通道为极光 JPush:客户端上报 `registration_id`,服务端按「新的喜欢 / 配对成功 / 新消息 / 系统通知」四类偏好投递;点击通知由客户端按 `extras.deeplink` 跳转。
 > 
 > **新消息推送的触发方是 imserver**:消息由 imserver 直接写库,Django 收不到「有新消息」,所以由 imserver 在目标不在线时回调 `/internal/push/new-message`(HMAC 共享密钥,不进本分册),再由 Celery 发推送。运维口径见 [docs/ops/push.md](../ops/push.md)。
