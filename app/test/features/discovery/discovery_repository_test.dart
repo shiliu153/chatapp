@@ -37,18 +37,32 @@ void main() {
   test('like → POST 动作是 like,matched 原样返回', () async {
     adapter.routes['POST /discovery/swipe'] = (options) => ok({'matched': true});
 
-    final matched = await repository.swipe(targetUserId: 9, like: true);
+    final result = await repository.swipe(targetUserId: 9, like: true);
 
-    expect(matched, isTrue);
+    expect(result.matched, isTrue);
+    expect(result.sharedTags, isEmpty);
     expect(adapter.log.last.data, {'target_user_id': 9, 'action': 'like'});
   });
 
   test('pass → POST 动作是 pass', () async {
     adapter.routes['POST /discovery/swipe'] = (options) => ok({'matched': false});
 
-    final matched = await repository.swipe(targetUserId: 10, like: false);
+    final result = await repository.swipe(targetUserId: 10, like: false);
 
-    expect(matched, isFalse);
+    expect(result.matched, isFalse);
+    expect(result.sharedTags, isEmpty);
     expect(adapter.log.last.data, {'target_user_id': 10, 'action': 'pass'});
+  });
+
+  test('配对成功 → 解析响应里的共同标签(破冰文案用)', () async {
+    adapter.routes['POST /discovery/swipe'] = (options) => ok({
+          'matched': true,
+          'shared_tags': [tagJson(1, '运动'), tagJson(3, '电影')],
+        });
+
+    final result = await repository.swipe(targetUserId: 9, like: true);
+
+    expect(result.matched, isTrue);
+    expect(result.sharedTags.map((tag) => tag.name), ['运动', '电影']);
   });
 }

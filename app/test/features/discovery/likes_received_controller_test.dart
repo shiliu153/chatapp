@@ -54,7 +54,7 @@ void main() {
         .read(likesReceivedProvider.notifier)
         .accept(state.items.first);
 
-    expect(matched?.userId, 9);
+    expect(matched?.candidate.userId, 9);
     final after = container.read(likesReceivedProvider).value!;
     expect(after.items.map((item) => item.candidate.userId), [10]);
     expect(after.count, 1);

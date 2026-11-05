@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
 import '../../core/providers.dart';
+import '../profile/models.dart';
 import 'models.dart';
 
 class DiscoveryRepository {
@@ -15,11 +16,23 @@ class DiscoveryRepository {
     return data.map((item) => Candidate.fromJson(item as Map<String, dynamic>)).toList();
   }
 
-  /// 滑一张卡;返回是否配对成功。
-  Future<bool> swipe({required int targetUserId, required bool like}) async {
+  /// 滑一张卡;返回是否配对成功,以及配对成功时后端直接给出的共同标签。
+  ///
+  /// 共同标签只用来渲染「配对那一刻」的破冰文案,不要为了它再拉一次对方资料 ——
+  /// 那会被记成一次访客访问(discovery.md §3.2)。
+  Future<({bool matched, List<Tag> sharedTags})> swipe({
+    required int targetUserId,
+    required bool like,
+  }) async {
     final data = await _api.post('/discovery/swipe',
-        data: {'target_user_id': targetUserId, 'action': like ? 'like' : 'pass'});
-    return (data as Map<String, dynamic>)['matched'] == true;
+            data: {'target_user_id': targetUserId, 'action': like ? 'like' : 'pass'})
+        as Map<String, dynamic>;
+    return (
+      matched: data['matched'] == true,
+      sharedTags: ((data['shared_tags'] ?? const []) as List<dynamic>)
+          .map((item) => Tag.fromJson(item as Map<String, dynamic>))
+          .toList(),
+    );
   }
 
   /// 喜欢我的人(游标分页);返回本页条目、后端总数与下一页游标。

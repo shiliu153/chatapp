@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: chat_app API
-  version: 1.0.5
+  version: 1.0.6
   description: |-
     交友 App 后端接口(/api/v1)。
 
@@ -429,13 +429,15 @@ paths:
         提交一次滑卡(POST /api/v1/discovery/swipe)。
 
         幂等:同一对用户重复提交保留第一次的动作;若本次形成互喜则创建配对,
-        并在事务提交后给双方发 IM 灰条。
+        并在事务提交后给双方发 IM 灰条。配对成功时响应带 ``shared_tags``
+        (共同标签),供「配对那一刻」的破冰文案直接使用 —— 客户端不必再拉一次
+        ``GET /users/{id}``,否则会被记成一次访客访问(语义污染)。
 
         Args:
             request: DRF 请求对象,body 需带 ``target_user_id`` 与 ``action``。
 
         Returns:
-            ``{"matched": bool}``,表示本次是否配对成功。
+            ``{"matched": bool, "shared_tags": [...]}``;未配对时 ``shared_tags`` 为空数组。
 
         Raises:
             PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
@@ -2214,11 +2216,16 @@ components:
         matched_at:
           type: string
           format: date-time
+        shared_tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
       required:
       - avatar_url
       - im_user_id
       - matched_at
       - nickname
+      - shared_tags
       - user_id
     MatchPage:
       type: object
@@ -2696,7 +2703,11 @@ components:
         * `banned_heavy` - 重度封禁
     PublicProfile:
       type: object
-      description: 对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。
+      description: |-
+        对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。
+
+        ``shared_tags`` 是「对方标签 ∩ 我的标签」,给配对那一刻的破冰文案用;
+        列表场景若已批量算好,可从 ``context["shared_tags_map"]`` 直接注入,避免逐项查询。
       properties:
         user_id:
           type: integer
@@ -2726,6 +2737,11 @@ components:
           items:
             $ref: '#/components/schemas/Tag'
           readOnly: true
+        shared_tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+          readOnly: true
         photos:
           type: array
           items:
@@ -2734,6 +2750,7 @@ components:
       required:
       - age
       - photos
+      - shared_tags
       - tags
       - user_id
     PushPreference:
@@ -2899,8 +2916,13 @@ components:
       properties:
         matched:
           type: boolean
+        shared_tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
       required:
       - matched
+      - shared_tags
     Tag:
       type: object
       description: 标签的对外表示。

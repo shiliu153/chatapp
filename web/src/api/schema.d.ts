@@ -350,13 +350,15 @@ export interface paths {
          * @description 提交一次滑卡(POST /api/v1/discovery/swipe)。
          *
          *     幂等:同一对用户重复提交保留第一次的动作;若本次形成互喜则创建配对,
-         *     并在事务提交后给双方发 IM 灰条。
+         *     并在事务提交后给双方发 IM 灰条。配对成功时响应带 ``shared_tags``
+         *     (共同标签),供「配对那一刻」的破冰文案直接使用 —— 客户端不必再拉一次
+         *     ``GET /users/{id}``,否则会被记成一次访客访问(语义污染)。
          *
          *     Args:
          *         request: DRF 请求对象,body 需带 ``target_user_id`` 与 ``action``。
          *
          *     Returns:
-         *         ``{"matched": bool}``,表示本次是否配对成功。
+         *         ``{"matched": bool, "shared_tags": [...]}``;未配对时 ``shared_tags`` 为空数组。
          *
          *     Raises:
          *         PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
@@ -1540,6 +1542,7 @@ export interface components {
             avatar_url: string | null;
             /** Format: date-time */
             matched_at: string;
+            shared_tags: components["schemas"]["Tag"][];
         };
         MatchPage: {
             count: number;
@@ -1745,7 +1748,12 @@ export interface components {
          * @enum {string}
          */
         ProfileStatusEnum: "incomplete" | "complete" | "banned_light" | "banned_heavy";
-        /** @description 对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。 */
+        /**
+         * @description 对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。
+         *
+         *     ``shared_tags`` 是「对方标签 ∩ 我的标签」,给配对那一刻的破冰文案用;
+         *     列表场景若已批量算好,可从 ``context["shared_tags_map"]`` 直接注入,避免逐项查询。
+         */
         PublicProfile: {
             readonly user_id: number;
             /** 昵称 */
@@ -1758,6 +1766,7 @@ export interface components {
             /** 简介 */
             bio?: string;
             readonly tags: components["schemas"]["Tag"][];
+            readonly shared_tags: components["schemas"]["Tag"][];
             readonly photos: components["schemas"]["Photo"][];
         };
         /** @description 通知偏好的读写形状(四个布尔字段,对应四类通知)。 */
@@ -1837,6 +1846,7 @@ export interface components {
         };
         SwipeResult: {
             matched: boolean;
+            shared_tags: components["schemas"]["Tag"][];
         };
         /** @description 标签的对外表示。 */
         Tag: {

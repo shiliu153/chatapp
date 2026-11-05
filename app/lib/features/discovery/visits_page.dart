@@ -36,9 +36,11 @@ class VisitsPage extends ConsumerWidget {
       final me = ref.read(profileProvider).value;
       await showMatchOverlay(
         context,
-        candidate: item.candidate,
+        candidate: matched.candidate,
         myAvatarUrl: me?.avatar?.url,
-        onGoChat: () => context.push('/chat/u${item.candidate.userId}'),
+        sharedTags: matched.sharedTags,
+        myCity: me?.city ?? '',
+        onGoChat: () => context.push('/chat/u${matched.candidate.userId}'),
       );
     } on ApiException catch (error) {
       if (context.mounted) AppToast.show(context, error.message);

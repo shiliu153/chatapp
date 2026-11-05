@@ -35,6 +35,7 @@ from config.schema_helpers import cursor_page, cursor_params
 from im import tasks as im_tasks
 from moderation.services import blocked_user_ids, exclude_blocked
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bounds
+from users.serializers import TagSerializer, shared_tags_for_profiles
 from users.services import get_profile
 
 from .cache_keys import invalidate_candidates
@@ -58,6 +59,7 @@ MATCH_ENTRY_SCHEMA = inline_serializer("MatchEntry", fields={
     "nickname": serializers.CharField(),
     "avatar_url": serializers.CharField(allow_null=True),
     "matched_at": serializers.DateTimeField(),
+    "shared_tags": TagSerializer(many=True),
 })
 
 
@@ -102,20 +104,23 @@ def candidates(request):
 
 
 @extend_schema(request=SwipeSerializer, responses={200: inline_serializer(
-    "SwipeResult", fields={"matched": serializers.BooleanField()})})
+    "SwipeResult", fields={"matched": serializers.BooleanField(),
+                           "shared_tags": TagSerializer(many=True)})})
 @api_view(["POST"])
 @throttle_classes([SwipeThrottle])
 def swipe(request):
     """提交一次滑卡(POST /api/v1/discovery/swipe)。
 
     幂等:同一对用户重复提交保留第一次的动作;若本次形成互喜则创建配对,
-    并在事务提交后给双方发 IM 灰条。
+    并在事务提交后给双方发 IM 灰条。配对成功时响应带 ``shared_tags``
+    (共同标签),供「配对那一刻」的破冰文案直接使用 —— 客户端不必再拉一次
+    ``GET /users/{id}``,否则会被记成一次访客访问(语义污染)。
 
     Args:
         request: DRF 请求对象,body 需带 ``target_user_id`` 与 ``action``。
 
     Returns:
-        ``{"matched": bool}``,表示本次是否配对成功。
+        ``{"matched": bool, "shared_tags": [...]}``;未配对时 ``shared_tags`` 为空数组。
 
     Raises:
         PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
@@ -163,7 +168,9 @@ def swipe(request):
                     invalidate_candidates(target.id)
                 matched = True
 
-    return Response({"matched": matched})
+    shared_tags = (shared_tags_for_profiles([getattr(target, "profile", None)], me)
+                   .get(target.id, []) if matched else [])
+    return Response({"matched": matched, "shared_tags": shared_tags})
 
 
 @extend_schema(parameters=cursor_params(),
@@ -191,8 +198,7 @@ def match_list(request):
     # 少了它 MySQL 对同一 created_at 的行顺序不保证,翻页可能漏行。
     matches = matches.order_by("-created_at", "-id")
     return paginated_response(request, matches,
-                              lambda rows: [_match_entry(match, me, request)
-                                            for match in rows])
+                              lambda rows: _match_entries(rows, me, request))
 
 
 @extend_schema(responses={204: None})
@@ -229,7 +235,28 @@ def unmatch(request, user_id):
     return Response(status=204)
 
 
-def _match_entry(match, me, request):
+def _match_entries(matches, me, request):
+    """把一页配对记录整理成列表项,共同标签**一次批量求交**。
+
+    ``shared_tags`` 供配对那一刻的破冰文案使用。整页只多一条 M2M 查询,
+    不随配对条数增长(``config/test_query_budget.py`` 会拦 N+1)。
+
+    Args:
+        matches: 本页配对记录。
+        me: 当前用户,用于确定「对方」是谁。
+        request: 当前请求,用于构造绝对 URL。
+
+    Returns:
+        列表项数组,字段见 ``MATCH_ENTRY_SCHEMA``。
+    """
+    profiles = [getattr(match.other_user(me), "profile", None) for match in matches]
+    shared_map = shared_tags_for_profiles(profiles, me)
+    return [_match_entry(match, me, request,
+                         shared_map.get(match.other_user(me).id, []))
+            for match in matches]
+
+
+def _match_entry(match, me, request, shared_tags):
     """把一条配对记录整理成列表项。
 
     头像取对方第一张已过审照片,并转成绝对 URL(IM 与会话列表需要可直接访问的地址)。
@@ -238,10 +265,11 @@ def _match_entry(match, me, request):
         match: 配对记录。
         me: 当前用户,用于确定「对方」是谁。
         request: 当前请求,用于构造绝对 URL。
+        shared_tags: 已算好的共同标签数组(``{id, name, icon}``),无交集为空数组。
 
     Returns:
         列表项字典(``user_id`` / ``im_user_id`` / ``nickname`` / ``avatar_url`` /
-        ``matched_at``)。
+        ``matched_at`` / ``shared_tags``)。
     """
     other = match.other_user(me)
     profile = getattr(other, "profile", None)
@@ -252,6 +280,7 @@ def _match_entry(match, me, request):
         "nickname": profile.nickname if profile else "",
         "avatar_url": request.build_absolute_uri(approved[0].file.url) if approved else None,
         "matched_at": match.created_at,
+        "shared_tags": shared_tags,
     }
 
 

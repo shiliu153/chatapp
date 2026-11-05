@@ -84,6 +84,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.3 | 2026-11-04 | — | 无(规则生效前发版) | `56f3f5b` | `chatapp-1.0.3.apk` |
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
 | 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
+| 1.0.6 | 2026-11-06 | `v1.0.6` | 待建:tag 待 PR 合并后打到合并 SHA,Release 材料见 §6.2 | — | `chatapp-1.0.6.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -233,6 +234,60 @@ gh release create v1.0.5 \
 
 > 注:批次 F 的前端产物与 APK 才是本次交付物,后端 SHA 落后于 `origin/master` 属预期
 > (后端在 C-1 之后没有必须随本版上线的改动)。下次有后端改动时再按 §3 走完整部署。
+
+
+## 6.2 v1.0.6 的发版材料(批次 G · 共同点破冰)
+
+**状态:待发。** 版本号已在批次 G 的 PR 里升到 `1.0.6`;tag 必须在 PR **squash 合并之后**
+打到合并提交上(`v1.0.6` → 合并 SHA),不要打在功能分支上。
+
+**标题**:`v1.0.6 — 共同点破冰`
+
+**notes 草稿**
+
+```markdown
+## 变更
+
+- 配对那一刻告诉双方「你们都喜欢什么」,提高开口率。**只在配对那一刻展示**:
+  App 配对动效、Web 配对弹窗、Web 配对列表卡片;聊天页不做提示(计划 §2.2 的范围收敛)。
+- 后端新增 `shared_tags`(共同标签 = 对方标签 ∩ 我的标签):
+  - `GET /api/v1/users/{id}` 新增字段;
+  - `GET /api/v1/matches` 每项新增字段,**整页一次批量求交**,不随配对条数增加查询;
+  - `POST /api/v1/discovery/swipe` 配对成功时直接带回 —— 客户端因此**不必**再拉一次对方资料
+    (那会被记成一次访客访问,语义污染)。
+- 破冰文案是**纯客户端模板**(不调外部服务、不引 LLM):有交集 → 「你们都喜欢 X、Y,不如从这儿聊起?」;
+  无交集但同城 → 「你们都在 X」;都不满足则整行不展示(不提性别)。
+- Web 配对列表卡片展示最多 2 个共同标签 chip。
+
+## 运维注意
+
+- **后端有改动**(序列化器 + 两个视图),需按 §3 部署后端;**无迁移**。
+- Web `dist` 需重新构建部署;APK 需重新打包上传。
+- `.env` 只改 `LATEST_APP_VERSION=1.0.6` 与 `APP_DOWNLOAD_URL`;**`MIN_APP_VERSION` 保持不动**
+  (老客户端不被挡)。
+- 查询预算门禁未放宽:`matches` 仍是 ≤ 9 条 SQL,实测新增 1 条。
+
+## 验证
+
+- 后端:`manage.py test` **799 OK**;`spectacular --validate` 零 warning;
+  `test_schema_contract` / `ApiDocsCoverageTests` 绿;`comment_coverage` 无缺口。
+- App:`flutter analyze` 零告警 + `flutter test` **495 绿**。
+- Web:`vue-tsc` + `eslint --max-warnings 0` 零告警 + `vitest` **432 绿**。
+- `python scripts/sync_version.py --check` 绿。
+```
+
+**附件**:`app/build/app/outputs/flutter-apk/app-release.apk` → 上传为 `chatapp-1.0.6.apk`
+
+**创建命令**(本机无 `gh`,走 GitHub REST + PAT,与 1.0.5 同法)
+
+```bash
+gh release create v1.0.6 \
+  --title "v1.0.6 — 共同点破冰" \
+  --notes-file /tmp/notes-1.0.6.md \
+  app/build/app/outputs/flutter-apk/app-release.apk#chatapp-1.0.6.apk
+```
+
+建好后把 §5 表里 1.0.6 行的 `Release` / `上线 SHA` / APK 三列补齐。
 
 
 ## 7. 为什么这条约束值得存在

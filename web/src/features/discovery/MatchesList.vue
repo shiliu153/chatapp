@@ -35,6 +35,20 @@ async function loadMore() {
       >
         <AppAvatar :src="match.avatar_url" :name="match.nickname" :size="48" />
         <span class="matches-list__name">{{ match.nickname || '神秘人' }}</span>
+        <!-- 共同标签:最多 2 个 chip(discovery.md §3.3),没有就不占位 -->
+        <span
+          v-if="(match.shared_tags ?? []).length"
+          class="matches-list__tags"
+          :title="(match.shared_tags ?? []).map((tag) => tag.name).join('、')"
+        >
+          <span
+            v-for="tag in (match.shared_tags ?? []).slice(0, 2)"
+            :key="tag.id"
+            class="matches-list__tag"
+          >
+            {{ tag.name }}
+          </span>
+        </span>
       </RouterLink>
       <button
         v-if="hasMore"
@@ -80,6 +94,21 @@ async function loadMore() {
   font-size: var(--text-badge);
   color: var(--color-text2);
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.matches-list__tags {
+  display: flex;
+  gap: var(--space-xs);
+  max-width: 64px;
+  overflow: hidden;
+}
+.matches-list__tag {
+  flex: none;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-full);
+  background: var(--color-divider);
+  font-size: var(--text-badge);
+  color: var(--color-text2);
   white-space: nowrap;
 }
 .matches-list__more {

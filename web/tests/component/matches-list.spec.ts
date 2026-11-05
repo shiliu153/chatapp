@@ -11,13 +11,25 @@ const page = {
   next_cursor: null,
   has_more: false,
   results: [
-    { user_id: 1, im_user_id: 'u1', nickname: 'A', avatar_url: null, matched_at: '2026-10-01T00:00:00Z' },
+    {
+      user_id: 1,
+      im_user_id: 'u1',
+      nickname: 'A',
+      avatar_url: null,
+      matched_at: '2026-10-01T00:00:00Z',
+      shared_tags: [],
+    },
     {
       user_id: 2,
       im_user_id: 'u2',
       nickname: 'B',
       avatar_url: 'https://cdn/b.jpg',
       matched_at: '2026-10-02T00:00:00Z',
+      shared_tags: [
+        { id: 1, name: '运动', icon: 'sports' },
+        { id: 3, name: '电影', icon: 'movie' },
+        { id: 5, name: '音乐', icon: 'music' },
+      ],
     },
   ],
 }
@@ -64,6 +76,7 @@ describe('MatchesList', () => {
                     nickname: 'C',
                     avatar_url: null,
                     matched_at: '2026-10-03T00:00:00Z',
+                    shared_tags: [],
                   },
                 ],
               },
@@ -90,5 +103,18 @@ describe('MatchesList', () => {
     await flushPromises()
 
     expect(w.find('.matches-list').exists()).toBe(false)
+  })
+
+  it('共同标签最多展示 2 个 chip;没有共同标签的人不占位', async () => {
+    server.use(mswHttp.get('/api/v1/matches', () => HttpResponse.json(page)))
+    const w = mountList()
+    await flushPromises()
+
+    const items = w.findAll('.matches-list__item')
+    expect(items[0].find('.matches-list__tags').exists()).toBe(false)   // A 无共同标签
+    expect(items[1].findAll('.matches-list__tag').map((chip) => chip.text())).toEqual([
+      '运动',
+      '电影',
+    ])
   })
 })

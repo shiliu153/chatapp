@@ -63,6 +63,8 @@ export interface PublicProfile {
   city: string
   bio: string
   tags: Tag[]
+  /** 与当前用户的标签交集(users.md §2.8);无交集为空数组 */
+  shared_tags: Tag[]
   photos: Photo[]
 }
 
@@ -108,6 +110,8 @@ export interface MatchSummary {
   avatar_url: string | null
   /** ISO 8601 */
   matched_at: string
+  /** 共同标签(discovery.md §3.3);无交集为空数组 */
+  shared_tags: Tag[]
 }
 
 /** 「喜欢我的人」列表项:公开资料 + 喜欢时间(discovery.md §3.4)。 */

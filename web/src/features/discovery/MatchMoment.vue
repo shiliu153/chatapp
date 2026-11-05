@@ -1,8 +1,28 @@
 <script setup lang="ts">
-import type { Candidate } from '@/api/types'
+import { computed } from 'vue'
+import type { Candidate, Tag } from '@/api/types'
+import { matchIcebreaker } from './icebreaker'
 
-const props = defineProps<{ candidate: Candidate }>()
+const props = withDefaults(
+  defineProps<{
+    candidate: Candidate
+    /** 配对那一刻的共同标签(滑卡响应直接带回) */
+    sharedTags?: Tag[]
+    /** 我的城市:与对方同城才会展示「你们都在 X」 */
+    myCity?: string
+  }>(),
+  { sharedTags: () => [], myCity: '' },
+)
 defineEmits<{ close: []; chat: [] }>()
+
+// 共同点只在「配对那一刻」说一句:有共同标签说标签,否则只在同城时说城市。
+const icebreaker = computed(() =>
+  matchIcebreaker({
+    sharedTagNames: props.sharedTags.map((tag) => tag.name),
+    myCity: props.myCity,
+    peerCity: props.candidate.city,
+  }),
+)
 </script>
 
 <template>
@@ -11,6 +31,7 @@ defineEmits<{ close: []; chat: [] }>()
       <span class="match-moment__heart">♥</span>
       <h2 class="match-moment__title">你们互相喜欢</h2>
       <p class="match-moment__desc">和 {{ props.candidate.nickname || '对方' }} 打个招呼吧</p>
+      <p v-if="icebreaker" class="match-moment__icebreaker">{{ icebreaker }}</p>
       <RouterLink
         class="match-moment__chat"
         :to="{ name: 'chat', params: { peerId: `u${props.candidate.user_id}` } }"
@@ -57,6 +78,14 @@ defineEmits<{ close: []; chat: [] }>()
   margin: 0;
   font-size: var(--text-caption);
   color: var(--color-text2);
+}
+.match-moment__icebreaker {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-input);
+  background: var(--color-divider);
+  font-size: var(--text-caption);
+  color: var(--color-text1);
 }
 .match-moment__chat {
   display: inline-flex;

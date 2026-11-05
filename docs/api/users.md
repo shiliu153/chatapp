@@ -442,6 +442,7 @@ curl -X PATCH http://<域名>/api/v1/users/me/preference \
 | city | String | 城市 |
 | bio | String | 简介 |
 | tags | Object[] | 标签,同 2.1 |
+| shared_tags | Object[] | **共同标签**:对方标签与当前用户标签的交集(元素结构同 2.1 的 `tags[]`);无交集或未登录为空数组 |
 | photos | Object[] | 已过审照片,同 2.1 |
 
 **请求示例**
@@ -464,6 +465,10 @@ curl http://<域名>/api/v1/users/8 \
   "tags": [
     { "id": 1, "name": "运动", "icon": "sports" },
     { "id": 2, "name": "音乐", "icon": "music" },
+    { "id": 3, "name": "电影", "icon": "movie" }
+  ],
+  "shared_tags": [
+    { "id": 1, "name": "运动", "icon": "sports" },
     { "id": 3, "name": "电影", "icon": "movie" }
   ],
   "photos": [

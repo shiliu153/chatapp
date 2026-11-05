@@ -46,7 +46,7 @@ void main() {
           container.read(visitsProvider).value!.items.first,
         );
 
-    expect(matched?.userId, 9);
+    expect(matched?.candidate.userId, 9);
     final state = container.read(visitsProvider).value!;
     expect(state.items.single.candidate.userId, 10);
     expect(state.count, 1);

@@ -6,7 +6,8 @@
       只返回已过审照片,``limit`` 默认值与上限,未登录 401;
     - 滑卡:幂等、互喜只建一条配对且只发一次灰条、pass 不配对、入队失败不影响结果、
       不能划自己、目标不存在/未完善/被轻封禁的处理、非法动作、限流;
-    - 配对列表:双向都能列出、无过审照片时头像为 null、只列自己的、分页;
+    - 配对列表:双向都能列出、无过审照片时头像为 null、只列自己的、分页、
+      共同标签只返回交集且整页一次批量求交(条数翻倍不增加 SQL);
     - ``dev_reset_pair`` 命令:只清这一对、不动其他对、非法 IM id 报错。
 """
 
@@ -27,7 +28,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from moderation.models import Block
 from users.models import (Photo, PhotoStatus, Preference, Profile, ProfileStatus,
-                           ProfileVisit)
+                           ProfileVisit, Tag)
 
 from .models import Match, Swipe, SwipeAction
 from .throttles import VisitsCountThrottle, VisitsThrottle
@@ -356,7 +357,7 @@ class SwipeApiTests(APITestCase):
     def test_like_creates_swipe(self):
         resp = self.swipe(self.target.id)
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), {"matched": False})
+        self.assertEqual(resp.json(), {"matched": False, "shared_tags": []})
         self.assertTrue(Swipe.objects.filter(swiper=self.me, target=self.target,
                                              action=SwipeAction.LIKE).exists())
 
@@ -380,7 +381,7 @@ class SwipeApiTests(APITestCase):
         with patch("im.tasks.send_match_notice.delay") as notice:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.swipe(self.target.id)
-        self.assertEqual(resp.json(), {"matched": True})
+        self.assertEqual(resp.json(), {"matched": True, "shared_tags": []})
         self.assertEqual(Match.objects.count(), 1)
         self.assertEqual(Match.objects.first().user_a, self.me)
         notice.assert_called_once_with(self.me.id, self.target.id)
@@ -391,14 +392,37 @@ class SwipeApiTests(APITestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 self.swipe(self.target.id)
                 again = self.swipe(self.target.id)
-        self.assertEqual(again.json(), {"matched": True})
+        self.assertEqual(again.json(), {"matched": True, "shared_tags": []})
         self.assertEqual(notice.call_count, 1)
 
     def test_pass_never_matches(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
         resp = self.swipe(self.target.id, action="pass")
-        self.assertEqual(resp.json(), {"matched": False})
+        self.assertEqual(resp.json(), {"matched": False, "shared_tags": []})
         self.assertEqual(Match.objects.count(), 0)
+
+    def test_match_returns_shared_tags(self):
+        """配对成功时直接带回共同标签,客户端不必再拉一次资料(避免被记成访客)。"""
+        tags = list(Tag.objects.order_by("id")[:3])
+        self.me.profile.tags.set([tags[0], tags[1]])
+        self.target.profile.tags.set([tags[1], tags[2]])
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        with patch("im.tasks.send_match_notice.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.swipe(self.target.id)
+        self.assertEqual(resp.json()["matched"], True)
+        self.assertEqual([tag["id"] for tag in resp.json()["shared_tags"]], [tags[1].id])
+
+    def test_shared_tags_empty_when_no_overlap(self):
+        """没有交集时是空数组,不是 null。"""
+        tags = list(Tag.objects.order_by("id")[:2])
+        self.me.profile.tags.set([tags[0]])
+        self.target.profile.tags.set([tags[1]])
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        with patch("im.tasks.send_match_notice.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.swipe(self.target.id)
+        self.assertEqual(resp.json()["shared_tags"], [])
 
     def test_enqueue_failure_does_not_break_swipe(self):
         Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
@@ -406,7 +430,7 @@ class SwipeApiTests(APITestCase):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.swipe(self.target.id)
         self.assertEqual(resp.status_code, 200)   # robust=True 兜住,配对结果不受影响
-        self.assertEqual(resp.json(), {"matched": True})
+        self.assertEqual(resp.json(), {"matched": True, "shared_tags": []})
 
     def test_cannot_swipe_self(self):
         self.assertEqual(self.swipe(self.me.id).status_code, 400)
@@ -524,6 +548,39 @@ class MatchListTests(APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get(self.URL).status_code, 401)
+
+    def test_shared_tags_is_intersection(self):
+        """共同标签只返回交集,按 id 升序;没有交集的人给空数组。"""
+        tags = list(Tag.objects.order_by("id")[:3])
+        overlap = self._make_user("13900139000")
+        overlap.profile.tags.set([tags[0], tags[1]])
+        self.me.profile.tags.set([tags[1], tags[2]])
+        no_overlap = self._make_user("13900139001")
+        no_overlap.profile.tags.set([tags[0]])
+        Match.objects.create(**Match.pair_kwargs(self.me, overlap))
+        Match.objects.create(**Match.pair_kwargs(self.me, no_overlap))
+        by_user = {item["user_id"]: item["shared_tags"]
+                   for item in self.client.get(self.URL).json()["results"]}
+        self.assertEqual([tag["id"] for tag in by_user[overlap.id]], [tags[1].id])
+        self.assertEqual(by_user[overlap.id][0]["name"], tags[1].name)
+        self.assertEqual(by_user[no_overlap.id], [])
+
+    def test_shared_tags_query_count_does_not_grow(self):
+        """共同标签是整页一次批量求交:配对条数翻倍不增加 SQL 条数。"""
+        tags = list(Tag.objects.order_by("id")[:3])
+        self.me.profile.tags.set(tags)
+        first = self._make_user("13900139000")
+        first.profile.tags.set(tags)
+        Match.objects.create(**Match.pair_kwargs(self.me, first))
+        self.client.get(self.URL)   # 预热:首次请求会懒创建 Preference 等一次性查询
+        with CaptureQueriesContext(connection) as one_match:
+            self.client.get(self.URL)
+        second = self._make_user("13900139001")
+        second.profile.tags.set(tags)
+        Match.objects.create(**Match.pair_kwargs(self.me, second))
+        with CaptureQueriesContext(connection) as two_matches:
+            self.client.get(self.URL)
+        self.assertEqual(len(one_match.captured_queries), len(two_matches.captured_queries))
 
 
 class DevResetPairCommandTests(TestCase):

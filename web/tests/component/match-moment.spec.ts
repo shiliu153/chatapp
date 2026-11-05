@@ -28,4 +28,38 @@ describe('MatchMoment', () => {
     await w.find('.match-moment__close').trigger('click')
     expect(w.emitted('close')).toHaveLength(1)
   })
+
+  it('有共同标签 → 展示「你们都喜欢 X、Y」', () => {
+    const w = mount(MatchMoment, {
+      props: {
+        candidate,
+        myCity: '上海',
+        sharedTags: [
+          { id: 1, name: '运动', icon: 'sports' },
+          { id: 3, name: '电影', icon: 'movie' },
+          { id: 5, name: '音乐', icon: 'music' },
+        ],
+      },
+      global: { stubs },
+    })
+    expect(w.find('.match-moment__icebreaker').text()).toBe(
+      '你们都喜欢 运动、电影,不如从这儿聊起?',
+    )
+  })
+
+  it('没有共同标签也不同城 → 整行不展示', () => {
+    const w = mount(MatchMoment, {
+      props: { candidate: { ...candidate, city: '成都' }, myCity: '杭州' },
+      global: { stubs },
+    })
+    expect(w.find('.match-moment__icebreaker').exists()).toBe(false)
+  })
+
+  it('没有共同标签但同城 → 只说城市', () => {
+    const w = mount(MatchMoment, {
+      props: { candidate: { ...candidate, city: '杭州' }, myCity: '杭州' },
+      global: { stubs },
+    })
+    expect(w.find('.match-moment__icebreaker').text()).toBe('你们都在 杭州')
+  })
 })
