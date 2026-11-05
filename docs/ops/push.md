@@ -1,10 +1,15 @@
 # 推送(C-1):链路、开关与验证
 
-> 现状(2026-11-05):**链路已打通并可端到端验证,但通道默认关闭(`PUSH_PROVIDER=off`)** ——
-> 极光 AppKey/MasterSecret 还没注册。接上 key 之后只需改配置 + App 侧上报
+> 现状(2026-11-05 **已上线** `3ef2b8c`):**链路已打通并端到端验证过,但通道默认关闭(`PUSH_PROVIDER=off`)** ——
+> 极光 AppKey/MasterSecret 还没注册(用户 2026-11-05 决定暂时不注册)。接上 key 之后只需改配置 + App 侧上报
 > `registration_id` + 真机验收,服务端不用再改代码。
 >
 > 相关:接口契约 [docs/api/push.md](../api/push.md);imserver 内部事件在本文 §3。
+>
+> **已实测的端到端证据(2026-11-05)**:`im_send` 给离线用户 → imserver `im_push_total{queued}=1,sent=1`
+> → Django `push_sent_total{provider="log",result="ok"}=1` → Celery 日志
+> `[推送-日志] devices=1 title=小雨12 alert=推送联调-172952 extras={'deeplink': '/home/chats/12', 'peer': '12'}`;
+> 通道改回 `off` 后再发一条,只多一条 `push_skipped_total{reason="provider_off"}`。
 
 ## 1. 链路长什么样
 
