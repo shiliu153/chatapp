@@ -130,6 +130,16 @@ Alertmanager 告警与 `notify` 邮件记录,最后在 `$OUT_DIR/summary.txt` �
    期望 200;若容器 crash loop,`docker logs --tail 50 imserver` 看是否 DB 未就绪。
 3. **Django(gunicorn)** → `supervisorctl status chatapp-web`,期望 RUNNING;
    进程在但 502 时看 `supervisorctl tail chatapp-web`。
+   **现网的实际命令**(`supervisorctl` 不在 PATH 里,而且进程名带组前缀,2026-11-05 踩过):
+
+   ```bash
+   S=/www/server/panel/pyenv/bin/supervisorctl; C=/etc/supervisor/supervisord.conf
+   $S -c $C status                                  # 三个 program:chatapp-web / chatapp-celery / profile-web
+   $S -c $C restart chatapp-web:chatapp-web_00      # 只写 chatapp-web 会报 "no such process"
+   $S -c $C tail chatapp-web:chatapp-web_00
+   ```
+
+   改 `.env`(如 `CANDIDATE_CACHE_TTL`)后**必须重启它**才生效,重启窗口约 3 秒 502。
 4. **nginx** → `nginx -t && systemctl reload nginx`。
 
 ## 4. 常见告警对照表
