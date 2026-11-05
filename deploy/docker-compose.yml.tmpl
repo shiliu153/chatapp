@@ -205,9 +205,10 @@ services:
         ipv4_address: "__NGINX_IP__"
     mem_limit: 96m
     pids_limit: 256
-    # nginx 需要 root 绑 80/443 再降权到 nginx 用户,这里只加 no-new-privileges,
-    # 不 cap_drop ALL(否则 NET_BIND_SERVICE 没了,容器起不来)。
+    # E-6①:nginx 以非 root(uid 101)运行,容器内监听 8080/8443,
+    # 宿主机 80/443 由 ports 映射进来 —— 不再需要 root 与 NET_BIND_SERVICE。
     security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     build:
       context: "__REPO_DIR__"
       dockerfile: deploy/docker/web.Dockerfile
@@ -215,8 +216,8 @@ services:
       args:
         NPM_REGISTRY: "${NPM_REGISTRY:-https://registry.npmmirror.com}"
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
+      - "${HTTP_PORT:-80}:8080"
+      - "${HTTPS_PORT:-443}:8443"
     volumes:
       - "__APP_DIR__/nginx/conf.d:/etc/nginx/conf.d:ro,z"
       - chatapp_static:/srv/static:ro
@@ -229,7 +230,7 @@ services:
       imserver:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz | grep -q ok"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -q ok"]
       interval: 15s
       timeout: 5s
       retries: 10
