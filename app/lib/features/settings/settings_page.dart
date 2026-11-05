@@ -73,8 +73,13 @@ class SettingsPage extends ConsumerWidget {
               const AppSubPageBar(title: '设置'),
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(AppSpacing.pageH,
-                      AppSpacing.md, AppSpacing.pageH, AppSpacing.xxl),
+                  // 底部额外让开系统手势条:设置页内容会随分组增长(2026-11-05 新增「外观」卡后
+                  // 已贴到底),edge-to-edge 设备上最后一张卡会压进手势区
+                  padding: EdgeInsets.fromLTRB(
+                      AppSpacing.pageH,
+                      AppSpacing.md,
+                      AppSpacing.pageH,
+                      AppSpacing.xxl + MediaQuery.viewPaddingOf(context).bottom),
                   children: [
                     AppRowGroup(
                       children: [

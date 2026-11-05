@@ -83,7 +83,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.2 | 2026-11-01 | — | 无(规则生效前发版) | — | `chatapp-1.0.2.apk` |
 | 1.0.3 | 2026-11-04 | — | 无(规则生效前发版) | `56f3f5b` | `chatapp-1.0.3.apk` |
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
-| 1.0.5 | 2026-11-05 | `v1.0.5` | 待建:tag 已推送(`3390ab5`),Release 对象待建(现成材料见 §6.1) | `3390ab5` | `chatapp-1.0.5.apk` |
+| 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -146,10 +146,14 @@ gh release create v1.0.4 \
 
 建好后把 §5 表里 1.0.4 行的 `Release` 列改成 Release 链接。
 
-## 6.1 补建 v1.0.5 的现成材料
+## 6.1 v1.0.5 的发版材料(已发布,留档备查)
 
-与 1.0.4 同一处境:tag 已推送、Release 对象尚未创建(本环境无 `gh` CLI 与 GitHub token)。
-以下内容可直接粘贴。
+**状态:已发布。** tag `v1.0.5` 已推送;Release 对象 2026-11-05 23:36 通过 GitHub REST
+(`POST /repos/shiliu153/chatapp/releases` + `uploads.github.com/.../assets`)创建并上传附件
+—— 本机没有 `gh` CLI,但 GitHub MCP 配了带 `repo` 权限的 PAT,直接走 REST 即可
+(该 PAT 的 toolsets 里没有 release 工具,所以不是「MCP 做不了」而是「没暴露工具」)。
+
+以下为当时使用的标题与 notes,留档便于以后核对。
 
 **tag / 目标提交**
 
