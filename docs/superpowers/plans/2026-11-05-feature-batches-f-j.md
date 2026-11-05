@@ -1,0 +1,504 @@
+# 功能开发计划 · 批次 F–J(2026-11-05 立项)
+
+> **Spec 链接**:无独立 spec。用户 2026-11-05 决定「先出计划、执行分批开会话进行」,
+> 因此设计决策**内嵌本文 §2**(每条都写明取舍与理由),不再单独立 spec 文档。
+> 若某批次执行中需要改动 §2 的决策,先改本文再动代码。
+
+## Goal
+
+补齐 5 项产品功能,按「先底座、后页面、最后跨栈」的顺序分 5 个批次交付:
+
+| 批次 | 功能 | 一句话目标 |
+|---|---|---|
+| **F** | 暗黑模式 | 双端支持浅色/深色/跟随系统,取色一律走 token,零裸色值 |
+| **G** | 共同点破冰 | 配对那一刻告诉双方「你们都喜欢什么」,提高开口率 |
+| **H** | 站内通知中心 | 点赞/评论/配对/举报五类事件聚合成一个入口,有未读数 |
+| **I** | 广场关注 + 关注流 | 建立关注关系,广场多一个「关注」tab |
+| **J** | 聊天表情 / 贴纸 | 输入框旁加表情面板,支持 emoji 与贴纸消息 |
+
+**不在本次范围**(已明确,不要顺手做):
+
+- **#2 滑卡反悔 + 每日额度**:用户 2026-11-05 明确跳过。
+- 离线推送:2026-11-05 已决定不做(backlog §4),站内通知是它的替代品。
+- 「喜欢我的人 / 谁看过我」的站内通知:**不做**,它们已有入口角标与列表页,再通知就是洪水(见 §2.3)。
+- 关注关系的新粉丝通知:**不做**(同上)。
+- 聊天页的破冰提示:**不做**(见 §2.2 的范围收敛)。
+- 任何后台管理界面:5 项都是客户端功能,`/ops/` 不动。
+
+## Architecture
+
+沿用现有三端结构,不新增服务、不引入第三方依赖:
+
+- **后端**(Django + DRF):`notifications` app 承担通知中心(#1);`users` 承担 `shared_tags`(#3);`feed` 承担 `Follow` + 关注流(#6)。
+- **跨栈 IM**:#5 走**既有 `kind=2 custom` 帧**,imserver 预期零改动;若 §2.5 的闸门核实失败则退回新增 `kind=5`(四轨同改)。
+- **App**(Flutter):#4 新增 `HeartColors` ThemeExtension 并全量迁移 301 处取色;新增 `/notifications` 路由。
+- **Web**(Vue 3):#4 用 `[data-theme="dark"]` 覆盖 CSS 变量;新增 `/notifications` 路由。
+- **token 双份维护**(强制):任何色值改动必须**同一次改动内**同时改
+  `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css`,`web/tests/unit/tokens.spec.ts` 会双向比对。
+
+## Global Constraints
+
+1. **发布流程**:分支 → `git push` → 开 PR → CI 全绿 → squash 合并 → **只部署 `origin/master` 的 SHA**。
+   禁止把未合并的本地提交直接上线;部署前先 `git fetch` 确认 SHA,并记下回滚点。
+2. **执行方式**:superpowers 类任务**内联执行**,不派子 agent(用户 2026-10-04 明确要求)。
+3. **接口契约**:新增/修改任何 `/api/v1` 接口,**同一次改动内**同步
+   `docs/api/<分册>.md` → 重生成 `docs/api/openapi.yml` → 重生成 `web/src/api/schema.d.ts`。
+   `ApiDocsCoverageTests` / `test_schema_contract.py` / `OpenAPISchemaTests` 三处门禁会拦。
+   **`openapi.yml` 与 `schema.d.ts` 是生成物,冲突时永远重新生成,不要手工解冲突。**
+4. **Python 注释**:新增/修改 `.py` 必须补模块 docstring + 函数/类 docstring,公开函数带参数要写 `Args:`;
+   `CommentCoverageTests` 会拦,本地自查 `python config/comment_coverage.py`。
+5. **IM 副作用**:一律走 `im/tasks.py`,参数一律 user_id;站内通知写库**不是**跨系统副作用,
+   但同样要用 `transaction.on_commit(..., robust=True)` 包住,**失败不得影响主流程**。
+6. **响应路径禁止第三方网络调用**:#3 的破冰文案**不用 LLM、不调外部服务**,纯模板 + 库内数据。
+7. **「心跳」设计规则**:所有 App 端 UI 改动遵循 `specs/2026-09-15-ui-design-language-design.md`;
+   新代码禁止裸 hex / 裸字号 / 裸间距。本次新增的「禁用裸色值」硬门禁见 F-2 / F-3。
+8. **测试纪律**:每步全绿再进下一步;IM 一律 mock(`im.tasks.*.delay`)。
+9. **版本号**:每批次交付后按 `docs/ops/release.md` 发版 —— `app/pubspec.yaml` 是唯一事实来源,
+   `python scripts/sync_version.py --write` 写回另两处,打 tag,建/更新远端 Release,
+   并在 `docs/ops/release.md` §5 记录表加一行。**只升 `LATEST_APP_VERSION`,不动 `MIN_APP_VERSION`。**
+
+## 验收命令
+
+每批次结束时必须全部通过(缺一不可):
+
+```bash
+# 后端(cwd = chatapp/;前置:Redis 在跑)
+python manage.py test
+python config/comment_coverage.py
+python manage.py spectacular --file ../docs/api/openapi.yml --validate
+git diff --exit-code ../docs/api/openapi.yml          # 生成物必须已提交
+
+# App(cwd = app/)
+../flutter/bin/flutter.bat analyze                     # 零告警
+../flutter/bin/flutter.bat test
+
+# Web(cwd = web/)
+npm run type-check && npm run lint                     # 零错误 / 零告警
+npm run test:run
+npm run gen:api && git diff --exit-code src/api/schema.d.ts
+
+# 版本号一致性(仓库根)
+python scripts/sync_version.py --check
+```
+
+---
+
+## 1. 为什么是这 5 项、为什么是这个顺序
+
+**为什么先做暗黑模式(F)**:它是唯一改动「所有页面取色方式」的批次(301 处 / 70 文件)。
+H、I 两批都要新增页面,若 F 排在后面,新页面得用浅色写一遍、再迁移一遍。
+**先建底座,后面的新页面天然双主题。**
+
+**为什么 G 排第二**:成本最小(约 1 天),且它是「验证 F 批底座没问题」的最低风险探针 ——
+它只改一个序列化器字段 + 两个展示点,若暗色迁移有遗漏,在这一批就能发现。
+
+**为什么 H 排第三**:站内通知是本次价值最高的一项(离线推送不做,它是唯一的回访理由),
+但它依赖 F 的底座(新页面要双主题),所以不能更早。
+
+**为什么 I 排第四**:它要新增一张表 + 一个 tab,与 H 的页面结构同构,
+H 批积累的「新页面 + 游标分页 + 双主题」经验可直接复用。
+
+**为什么 J 排最后**:它唯一跨栈(要动 `imserver/tests/fixtures/ws/*.json` 三端契约),
+风险独立且与前 4 批零耦合;放最后可以先吃完前面的收益,万一 J-1 闸门判定要改协议,也不影响已交付的东西。
+
+**开工前的基点**:`feat/release-sync-constraint`(版本更新同步 Release 约束 + CI 门禁)已于
+2026-11-05 以 **PR #77** 合并,`origin/master` = `4d46c72`,本地 `master` 已同步。
+**每批都从最新 `origin/master` 切分支**,不要从上一批的分支切。
+
+---
+
+## 2. 设计决策(先定死,执行时不要再讨论)
+
+### 2.1 暗黑模式(F)
+
+| 决策 | 取值 | 理由 |
+|---|---|---|
+| 实现方式 | `HeartColors extends ThemeExtension<HeartColors>`,注册进 `ThemeData.extensions` | `AppColors` 全是 `static const`,无法随主题变;ThemeExtension 是 Flutter 官方推荐做法,且能在测试里断言 |
+| `AppColors` 是否删除 | **保留**,降级为「浅色值的事实来源」 | 避免一次性重写 301 处;`HeartColors.light` 从它派生,单点维护 |
+| 取色调用方式 | `final colors = context.heart;`(`BuildContext` 扩展) | 比 `Theme.of(context).extension<HeartColors>()!` 短;但**必须在 `build` 内取**,不能用 `const` |
+| 主题切换 | 跟随系统 / 浅色 / 深色 三态,`shared_preferences` 持久化(key `theme_mode`) | 项目已有 `shared_preferences`(`legal_gate.dart` 在用),不新增依赖 |
+| 暗色取值 | 见 §2.1.1 表 | 品牌色不变(「心跳」渐变是视觉锚点,暗色下反而更亮);只动中性色阶与语义色 |
+| Web 实现 | `tokens.css` 加 `[data-theme="dark"]` 覆盖块 + `<html data-theme>` | Web 已是 CSS 变量,零重构;只加覆盖块 |
+| 防回退 | 新增硬门禁测试:App 侧 `lib/features/**`、`lib/core/**`(排除 `core/theme/`)不得出现 `AppColors.`;Web 侧除 `tokens.css` 外不得出现裸 hex | 否则下一个人写新页面又会把裸色值带回来 |
+
+#### 2.1.1 暗色 token 取值(两处必须一致)
+
+| 语义 | 浅色(现状) | 深色(新增) |
+|---|---|---|
+| `bgPage` | `#F6F7FB` | `#0E1015` |
+| `bgCard` | `#FFFFFF` | `#171A21` |
+| `divider` | `#EEF0F4` | `#262A33` |
+| `text1` | `#16181D` | `#F2F4F8` |
+| `text2` | `#8A8F9E` | `#9BA1AE` |
+| `text3` | `#B3B7C0` | `#6E7482` |
+| `brand` | `#FF2C55` | `#FF2C55`(不变) |
+| `heartOrange` | `#FF7A45` | `#FF8A5B`(暗底提亮) |
+| `violet` | `#7C5CFF` | `#8E72FF` |
+| `systemBlue` | `#4F8CFF` | `#6AA0FF` |
+| `green` | `#12C48B` | `#22D89B` |
+| `amber` | `#FFB020` | `#FFC04D` |
+| `danger` | `#FA5151` | `#FF6B6B` |
+| `photoScrim` | `rgba(16,17,20,.87)` | 不变(照片叠字场景本身就是深色) |
+
+### 2.2 共同点破冰(G)
+
+| 决策 | 取值 | 理由 |
+|---|---|---|
+| 展示位置 | **只在「配对那一刻」**:App `match_overlay.dart`、Web 配对弹窗、`GET /matches` 列表卡片 | 收敛范围。原方案想在聊天空会话页也提示,但聊天页拉 `GET /users/{id}` 会触发 `record_profile_view`(**被记成访客**),语义污染;要避开就得多一个轻量接口,不值得 |
+| 数据来源 | `PublicProfileSerializer` 新增 `shared_tags`(与当前用户的标签交集) | 复用既有 `Profile.tags` M2M,零新表 |
+| `GET /matches` | 每项新增 `shared_tags` | 列表页也要展示,一次批量预取求交,**不允许 N+1**(`test_query_budget.py` 会拦) |
+| 破冰文案 | **客户端模板**,双端文案表写死;不做新接口、不引 LLM | 响应路径禁第三方调用;文案要改就发版,个人项目可接受 |
+| 兜底 | 无共同标签时,只提城市(「你们都在杭州」);**不提性别** | 避免刻板印象;城市为空则整行不展示 |
+
+### 2.3 站内通知中心(H)
+
+| 决策 | 取值 | 理由 |
+|---|---|---|
+| 模型位置 | `notifications.InAppNotification` | `notifications` app 已是「通知」主题,已有偏好表与 push 通道,不新开 app |
+| 五类事件 | `post_like` / `post_comment` / `comment_reply` / `match` / `report_handled`(+ 预留 `system`) | 对应真实存在且当前「无提醒或只有灰条」的事件 |
+| **不通知** | 喜欢我、访客、新粉丝 | 已有入口角标 + 列表页;再进通知就是洪水,且会让人不敢随便刷 |
+| 与 IM 灰条的关系 | **两者都保留**,不互相替代 | 灰条是聊天记录里的事实(用户会在会话里回看),通知是聚合索引。**不要为了做通知中心去删灰条** |
+| 文案 | **服务端生成** `text` 字段,双端直接显示 | 双端各写一套文案必然漂移;改文案要发版,可接受 |
+| 目标跳转 | `target_kind`(`post`/`user`/`none`)+ `target_id`,**不建 FK** | FK 级联会在帖子被删时把通知一起删掉;通知要留痕 |
+| 偏好开关 | 复用 `NotificationPreference`,**新增一列 `social`**(动态被赞/评论/回复),默认 True | 现有 `likes` 语义是「新的喜欢」(推送),把动态互动塞进去会让人分不清;新增一列最清楚。**会改 `/push/preferences` 响应字段 → 必须同步 `docs/api/push.md` + 重生成 openapi** |
+| 过期 | 查询侧只返回 90 天内;物理删除交给管理命令 `notifications_prune`,**不接 cron** | 个人项目量级,查询侧截断就够;接 cron 要动服务器计划任务,收益不成比例 |
+| 入口位置 | **消息页 AppBar 铃铛 + 未读角标**,不加第 5 个底栏 tab | 底栏 4 tab 是「心跳」定死的结构,加 tab 要重排整页,不值得 |
+| 分页 | 复用 `config/cursor.py` 游标分页,响应形状 `{count, next_cursor, has_more, results}` | 与 D-1 已统一的 5 个列表接口保持一致 |
+| 已读 | `POST /notifications/read` 支持 `{"ids":[...]}` 与 `{"all":true}`;只影响自己的 | 进页面即全部已读会让「翻着看」丢状态,所以两者都要 |
+
+### 2.4 广场关注 + 关注流(I)
+
+| 决策 | 取值 | 理由 |
+|---|---|---|
+| 模型 | `feed.Follow(follower, followee, created_at)`,`unique(follower, followee)`,`index(followee, -created_at)` | 关注是 feed 的语义,不新开 app |
+| 接口 | `POST` / `DELETE /api/v1/users/{id}/follow`,幂等 204 | 幂等与既有 `/blocks` 一致 |
+| 自关注 | 400 | 无意义且会污染关注流 |
+| 关注流口径 | **只含关注的人**,不含自己 | 自己的动态在 `/posts/mine`(已有);混进去会让「关注」tab 变成第二个「我的」 |
+| 可见性 | 复用 `page_visible_posts` 的口径:排除双向拉黑、排除重封禁作者 | 与广场主流程完全一致,不另立规则 |
+| 新粉丝通知 | **不做** | 见 §2.3 |
+| 资料页新增字段 | `is_followed` / `follower_count` / `following_count` | 按钮态与计数;`followee` 有索引,`count()` 可接受 |
+| 广场结构 | 顶部 tab「推荐 / 关注」;推荐 = 现有 `/posts` | 不改现有接口语义,只加一个 tab 指向新接口 |
+
+### 2.5 聊天表情 / 贴纸(J)
+
+| 决策 | 取值 | 理由 |
+|---|---|---|
+| emoji | **纯文本消息**(插入 unicode) | 零协议改动、零后端改动;输入框加面板即可 |
+| 贴纸 | **复用 `kind=2 custom`**,载荷 `{"type":"sticker","id":"sticker_01"}` | 三端**已支持** custom 帧(系统通知一直在用),imserver 预期零改动。这是本批最大的成本节约点 |
+| 闸门 | **J-1 先核实 custom 是否持久化 + history 是否返回** | 若不持久化,离线补拉会丢贴纸 → 必须改走新增 `kind=5`(四轨同改,成本 +1 天)。**核实不过就不要往下做** |
+| 资源 | 打包进两端:`app/assets/stickers/*.png` + `web/public/stickers/*.png`,同名同内容 | 零后端、零 CDN;新增 `scripts/check_stickers.py` 断言两边文件清单一致,进 `contract.yml` |
+| 未知贴纸 | 降级渲染为「[贴纸]」文本 | 老版本客户端收到新贴纸不能白屏 |
+| 契约 | 新增 2 帧 fixture(上行 sticker、下行 message sticker),三端各断言 | 遵守 CLAUDE.md 的「改帧必须三端同一次改」 |
+
+---
+
+## 3. 批次总览
+
+| 批次 | 功能 | 任务数 | 预估 | 依赖 |
+|---|---|---|---|---|
+| **F** | 暗黑模式 | 6 | **3.5 天** | 无(必须最先) |
+| **G** | 共同点破冰 | 4 | **1 天** | F(新 UI 要双主题) |
+| **H** | 站内通知中心 | 6 | **4 天** | F(新页面);G 无依赖 |
+| **I** | 广场关注 + 关注流 | 6 | **3 天** | F(新 tab);与 H 可并行,但**同改 `users` 序列化器要串行** |
+| **J** | 聊天表情 / 贴纸 | 5 | **2 天**(闸门失败 +1) | 无 |
+| | | **27** | **≈13.5 天** | |
+
+**每个批次 = 一次独立会话**,批次内部按 Task 顺序做,每完成一个 Task 跑该 Task 的验收命令并提交。
+
+---
+
+## 4. 任务明细
+
+### 批次 F:暗黑模式(3.5 天)
+
+#### F-1 双主题底座(App)
+- 新增 `app/lib/core/theme/heart_colors.dart`:`HeartColors extends ThemeExtension<HeartColors>`,
+  字段 = §2.1.1 全部语义色;`HeartColors.light`(从 `AppColors` 派生)/ `HeartColors.dark`(写死 §2.1.1 深色值)。
+- 新增 `app/lib/core/theme/heart_theme_context.dart`:`extension HeartThemeX on BuildContext { HeartColors get heart; }`。
+- 改 `app/lib/core/theme/app_theme.dart`:`buildAppTheme({required Brightness brightness})`,
+  `extensions: [colors]`,`scaffoldBackgroundColor` 取 `colors.bgPage`。
+- 改 `app/lib/app.dart`(或 `main.dart`)的 `MaterialApp`:`theme` / `darkTheme` / `themeMode`。
+- **验收**:`flutter analyze` 零告警;新增 `app/test/theme/heart_colors_test.dart` —— 断言两套值字段齐全、
+  浅色与 `AppColors` 逐字段相等、`Theme.of(context).extension<HeartColors>()` 非空、深色与浅色在 6 个中性色上确实不同。
+
+#### F-2 迁移 features 取色(301 处 / 70 文件)
+- 规则:`AppColors.x` → `context.heart.x`;**`const` 上下文里不能用**,去掉 const 或在 `build` 顶部 `final colors = context.heart;`。
+- 每 **15 个文件**一批:改 → `flutter analyze` → `flutter test` → 提交。**不要一次改 70 个文件再跑测试。**
+- 收尾新增硬门禁 `app/test/theme/no_raw_colors_test.dart`:扫 `lib/features/**` 与 `lib/core/**`
+  (排除 `lib/core/theme/`),断言不出现 `AppColors.` 与 `Color(0x`(白/黑/透明三个例外白名单)。
+- **验收**:门禁测试绿;`flutter test` 全量绿;`git grep -c "AppColors\." -- app/lib/features` 为 0。
+
+#### F-3 Web 双主题
+- `web/src/styles/tokens.css` 加 `[data-theme="dark"]` 块,逐条覆盖 §2.1.1 深色值(变量名与浅色完全同名)。
+- 扩展 `web/tests/unit/tokens.spec.ts`:解析 `:root` 与 `[data-theme="dark"]` 两块,
+  **分别**与 Dart 的 `HeartColors.light` / `.dark` 双向比对(漏一个色即红)。
+- 新增 `web/src/stores/theme.ts`(`mode: 'system'|'light'|'dark'`,持久化 `localStorage`)+
+  在 `App.vue` 监听 `prefers-color-scheme` 并写 `document.documentElement.dataset.theme`。
+- 新增 `web/tests/unit/no-raw-color.spec.ts`:扫 `src/**/*.{vue,css,ts}`,排除 `tokens.css`,断言无裸 `#rrggbb` / `rgb(`。
+- **验收**:`npm run type-check && npm run lint && npm run test:run` 全绿;手工切三态无残留浅色块。
+
+#### F-4 App 主题切换 UI + 持久化
+- 新增 `app/lib/core/theme/theme_mode_store.dart`(`shared_preferences`,key `theme_mode`,默认 `system`)
+  与 `theme_controller.dart`(`ValueNotifier<ThemeMode>`,启动时读取)。
+- 设置页新增「外观」行 → 三选一(跟随系统 / 浅色 / 深色);沿用 `settings_page.dart` 既有行样式。
+- **验收**:三态切换即时生效;杀进程重启后保留;测试用 harness 的 fake prefs 注入,断言启动读到 `dark` 时 `MaterialApp.themeMode == ThemeMode.dark`。
+
+#### F-5 全页面暗色回归
+- App 13 条路由 + Web 全路由逐页过一遍,**重点**:照片 scrim、心跳渐变按钮、骨架屏、Toast、对话框、空态。
+- 修残留裸色值:`git grep -n "Color(0x" -- app/lib/features` 应为 0(白/黑/透明例外)。
+- **验收**:手工回归记录(哪些页、发现什么问题、怎么修的)写进本文件末尾「执行记录」。
+
+#### F-6 发版
+- 版本号 → **1.0.5**;`sync_version.py --write`;tag `v1.0.5`;远端 Release;`release.md` §5 加一行;
+  上传 `chatapp-1.0.5.apk` + 部署 `dist`;`.env` 只改 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`。
+
+---
+
+### 批次 G:共同点破冰(1 天)
+
+#### G-1 后端 `shared_tags`
+- `chatapp/users/serializers.py::PublicProfileSerializer` 新增 `shared_tags`(`SerializerMethodField`)。
+- 求交:`profile.tags.filter(id__in=my_tag_ids)`;`my_tag_ids` 从 `context["request"].user` 取,
+  **一次查询,不允许 N+1**;`tags` 已 `prefetch_related` 则直接用 Python 求交更省。
+- 文档:`docs/api/users.md` 字段表加 `shared_tags`(元素结构 `{id,name,icon}`);重生成 openapi。
+- **验收**:`python manage.py test users config` 绿;`test_query_budget.py` 不红(该接口查询数 +0 或 +1);
+  `spectacular --validate` 零 warning;`test_schema_contract.py` 绿。
+
+#### G-2 匹配列表 / 配对 overlay 展示
+- `chatapp/discovery/views.py::match_list`:每项新增 `shared_tags`;
+  **批量求交**(一次取全部 peer 的 tag 关系,再在内存里求交),禁止逐项查询。
+- App:`app/lib/features/discovery/match_overlay.dart` 加一行「你们都喜欢 X、Y」;
+  `match_list` 卡片加最多 2 个共同标签 chip。
+- Web:配对弹窗 + 匹配列表同理。
+- 文档:`docs/api/discovery.md` 的 `GET /matches` 字段表;重生成 openapi。
+- **验收**:后端测试绿 + 查询预算不红;App `flutter test` 绿(新增 overlay 快照/断言 2 例);Web `vitest` 绿(2 例)。
+
+#### G-3 破冰文案表
+- 双端各一份文案常量:有交集 → 「你们都喜欢 X、Y,不如从这儿聊起?」;无交集 → 「你们都在 {城市}」(城市空则整行不展示)。
+- **不做新接口、不引 LLM**(响应路径禁第三方调用)。
+- **验收**:双端各 2 例测试(有交集 / 无交集)。
+
+#### G-4 发版
+- 版本号 → **1.0.6**;发版流程同 F-6。
+
+---
+
+### 批次 H:站内通知中心(4 天)
+
+#### H-1 模型 + 服务层
+- `chatapp/notifications/models.py` 新增 `InAppNotification`:
+  `user`(FK CASCADE)、`kind`(TextChoices:`post_like`/`post_comment`/`comment_reply`/`match`/`report_handled`/`system`)、
+  `actor`(FK null)、`target_kind`(TextChoices:`post`/`user`/`none`)、`target_id`(int null)、
+  `text`(≤200)、`is_read`(默认 False)、`dedupe_key`(≤120,unique null)、`created_at`。
+- Meta:`indexes = [Index(fields=["user", "-created_at"]), Index(fields=["user", "is_read"])]`、`ordering = ["-created_at"]`。
+- `chatapp/notifications/services.py` 新增统一入口 `notify(user, kind, actor=None, target_kind="none", target_id=None, text="", dedupe_key=None)`:
+  ① 查 `NotificationPreference.allows()` 对应开关(`social` / `match` / `system`),关闭直接 return;
+  ② `dedupe_key` 存在则 `get_or_create` 幂等;③ 写库。**整体包在 `transaction.on_commit(..., robust=True)` 由调用方负责**。
+- `NotificationPreference` 新增 `social = BooleanField(default=True)` 一列 + 迁移;`allows()` 增加 `"social"` 分支。
+- 新增管理命令 `chatapp/notifications/management/commands/notifications_prune.py`(默认 dry-run,`--apply` 真删 90 天前)。
+- **验收**:`python manage.py test notifications` 绿(至少:开关关闭不落库 / dedupe 幂等 / 90 天窗口 / prune dry-run 与 apply)。
+
+#### H-2 三个接口 + 文档 + 门禁
+- **路由挂法(注意)**:`notifications/urls.py` **已经存在并被挂在 `/api/v1/push/`**(devices / preferences)。
+  站内通知是另一个前缀,所以新增 `chatapp/notifications/notification_urls.py`,
+  在 `chatapp/config/api_urls.py` 加一行 `path("notifications/", include("notifications.notification_urls"))`。
+  **不要把站内通知塞进 `notifications/urls.py`** —— 那会变成 `/api/v1/push/notifications`。
+  - `GET /notifications` → 游标分页 `{count, next_cursor, has_more, results}`,
+    item:`{id, kind, text, is_read, created_at, actor:{id,nickname,avatar}, target:{kind,id}}`;
+    **只返回 90 天内、只返回自己的**。
+  - `GET /notifications/unread_count` → `{"unread": n}`。
+  - `POST /notifications/read` → body `{"ids":[...]}` 或 `{"all":true}`,只影响自己的,幂等 204。
+- 每个视图写 `@extend_schema`;**新增 `docs/api/notifications.md` 分册** + `docs/api/README.md` 索引一行;
+  重生成 `openapi.yml` 与 `web/src/api/schema.d.ts`;`web/src/api/contract.ts` 补类型断言。
+- **验收**:`ApiDocsCoverageTests` / `test_schema_contract.py` / `OpenAPISchemaTests` 三处绿;
+  `npm run gen:api && git diff --exit-code src/api/schema.d.ts` 干净;三个接口各有单测(含「别人的通知我标不到」)。
+
+#### H-3 事件接入(4 处 hook,不改业务流程)
+| 事件 | 接入点 | 结果 |
+|---|---|---|
+| 动态被赞 | `chatapp/feed/views.py::post_like` 成功分支 | 一条 `post_like`;自己赞自己不通知;取消赞**不产生**通知 |
+| 顶级评论 | `chatapp/feed/services.py::notify_comment_created` | 一条 `post_comment`;**保留** IM 灰条 |
+| 回复评论 | 同上 | 一条 `comment_reply`;**保留** IM 灰条 |
+| 配对成功 | `chatapp/discovery/services.py::notify_match` | 双方**各一条** `match`;**保留** 灰条 |
+| 举报处理 | `chatapp/moderation/services.py::notify_report_handled` | 一条 `report_handled`;**保留** 灰条 |
+
+- 全部用 `transaction.on_commit(..., robust=True)`;写通知失败只记日志,不影响主流程。
+- **验收**:每个事件一条测试 + 「关掉 `social` 开关后不落库」+ 「自己操作自己不通知」;
+  `python manage.py test` 全量绿(**这是最容易漏的地方:既有测试会断言灰条被调用,新逻辑不能改变调用次数**)。
+
+#### H-4 App 通知页
+- 新路由 `/notifications`(`app/lib/router.dart`);入口 = `chats_page` 的 AppBar 铃铛 + 未读角标。
+- `notifications_repository.dart` / `notifications_controller.dart` / `notifications_page.dart`:
+  下拉刷新、游标分页、空态、骨架屏(复用「心跳」骨架样式)、未读点。
+- 点击跳转:`post` → `/posts/:id`;`user`(match/comment)→ `/chat/:peerId`;`report_handled` → 只标已读不跳转。
+- 进页面标已读:点单条标单条,「全部已读」按钮走 `{"all":true}`。
+- **验收**:controller 单测(分页/已读/角标刷新)+ 页面 widget 测试(空态/有数据/点击跳转)+ `flutter analyze` 零告警。
+
+#### H-5 Web 通知页
+- 路由 `/notifications`;入口 = `ChatsPage` 顶部铃铛 + 角标;
+  `api/notifications.ts` + `stores/notifications.ts` + `features/notifications/NotificationsPage.vue`。
+- **验收**:`vue-tsc` 零错误 + `eslint --max-warnings 0` + `vitest` 绿(store 单测 + 组件测试)。
+
+#### H-6 上线 + 冒烟 + 发版
+- 生产:`migrate`(新增 1 张表 + 1 列)→ 重启 web + celery;冒烟:造一条点赞 → 通知页可见 → 未读数正确 → 标记已读。
+- 版本号 → **1.0.7**;发版流程同 F-6。
+
+---
+
+### 批次 I:广场关注 + 关注流(3 天)
+
+#### I-1 `Follow` 模型 + 关注接口
+- `chatapp/feed/models.py` 新增 `Follow`:`follower` / `followee` / `created_at`;
+  `unique_together (follower, followee)`;`Index(fields=["followee", "-created_at"])`。
+- `POST` / `DELETE /api/v1/users/{id}/follow`。
+  **路由放 `chatapp/users/urls.py`**(`path("<int:user_id>/follow", feed_views.follow)`,加在
+  `path("<int:user_id>", ...)` **之前**),视图写在 `chatapp/feed/views.py`。
+  **不要挂到 `feed/urls.py`** —— `config/api_urls.py` 里 `users/` 的 include 在 `feed` 之前,
+  靠「子匹配失败后回落到下一个 include」也能通,但依赖解析顺序,脆。
+  - 自关注 400;拉黑或对方重封禁 404(不暴露存在性);幂等 204。
+  - 限流:参照「喜欢我」300/小时 → 关注 **120/小时**(新增 Throttle 类)。
+- 文档:`docs/api/feed.md`(新接口)+ 重生成 openapi。
+- **验收**:测试覆盖幂等/自关注/拉黑/重封禁/限流;文档门禁绿。
+
+#### I-2 关注流接口
+- `GET /api/v1/feed/following` → 游标分页,只含我关注的人(不含自己);
+  可见性复用 `page_visible_posts`(排除双向拉黑、排除重封禁作者)。
+- 文档:`docs/api/feed.md`;重生成 openapi。
+- **验收**:测试(空关注 / 有关注 / 被拉黑后消失 / 翻页不重复);`test_query_budget.py` 加一条预算并绿。
+
+#### I-3 资料页关注态
+- `PublicProfileSerializer` 新增 `is_followed` / `follower_count` / `following_count`(+2 条查询,走 `followee` 索引)。
+- 文档:`docs/api/users.md`;重生成 openapi。
+- **注意**:与 G-1 同改一个序列化器与一份文档 —— 若 G 已合并,本任务只需增量;**openapi 冲突一律重新生成**。
+- **验收**:测试 + 查询预算 + 文档门禁绿。
+
+#### I-4 App:关注按钮 + 关注 tab
+- 他人资料页(`/users/:id`)加关注/已关注按钮(乐观更新 + 失败回滚);
+- 广场页(`square_page.dart`)顶部加「推荐 / 关注」tab,关注 tab 走 `/feed/following` 并复用现有游标翻页与骨架屏。
+- **验收**:controller 单测 + widget 测试(按钮态切换 / tab 切换 / 关注流空态)。
+
+#### I-5 Web:同上
+- **验收**:`vue-tsc` + `eslint` + `vitest` 全绿。
+
+#### I-6 上线 + 发版
+- 版本号 → **1.0.8**;发版流程同 F-6。
+
+---
+
+### 批次 J:聊天表情 / 贴纸(2 天,闸门失败 +1 天)
+
+#### J-1 【闸门】核实 `kind=2 custom` 的持久化与补拉
+- 读 `imserver/src/service/message_service.cpp`、`imserver/src/store/message_repo.cpp` 与
+  `imserver/src/net/http_api.cpp` 的 history 返回:
+  ① `kind=2` 的 content 是否**落库**;② `GET /im/api/messages` 与离线补拉是否**带回 `custom`** 字段。
+- 产出:一段结论 + 帧契约写进 `docs/ops/imserver.md`(补在既有 custom/系统通知那一节)。
+- **判定**:
+  - **通过** → 按 §2.5 走 `kind=2`,imserver 零改动,继续 J-2。
+  - **不通过** → 改走新增 `kind=5`:**同一次改动内**改
+    `imserver/tests/fixtures/ws/*.json` + `imserver/src/net/frames.h` + `imserver/src/net/ws_server.cpp`
+    + App(`self_im_client.dart` + `protocol_fixture_test.dart`)+ Web(`web/src/im/self/*` + `im-protocol-fixture.spec.ts`),
+    三条 CI 轨都会拦;本批预估 +1 天。**先把结论报给用户再动手。**
+
+#### J-2 贴纸资源 + 一致性门禁
+- `app/assets/stickers/*.png`(12 个,512×512,统一风格)+ `web/public/stickers/*.png`(同名同内容);
+  `app/pubspec.yaml` 声明 assets。
+- 新增 `scripts/check_stickers.py`:断言两边文件名集合一致、逐字节相同、尺寸一致;进 `.github/workflows/contract.yml`。
+- **验收**:`python scripts/check_stickers.py` 绿;故意删一个文件 → 变红。
+
+#### J-3 双端表情 / 贴纸面板
+- 输入框旁加「表情」按钮 → 底部面板两 tab(emoji / 贴纸):
+  emoji 点击**插入输入框**(文本消息,零协议改动);贴纸点击**直接发送** `kind=2 custom {type:"sticker", id}`。
+- 气泡渲染:`type=="sticker"` → 按 id 取本地资源,不显示气泡底色;未知 id 降级「[贴纸]」。
+- 历史消息与离线补拉要能还原(依赖 J-1 结论)。
+- **验收**:双端各有「发 emoji / 发贴纸 / 渲染历史贴纸 / 未知 id 降级」4 例测试。
+
+#### J-4 跨栈 fixture
+- `imserver/tests/fixtures/ws/client_to_server.json` 加 1 帧(上行 sticker send);
+  `server_to_client.json` 加 1 帧(下行 message sticker)。
+- 三端各加断言:App `app/test/im/protocol_fixture_test.dart`、Web `web/tests/unit/im-protocol-fixture.spec.ts`;
+  imserver 侧若走 `kind=2` 则无需改服务端代码(fixture 只做结构校验)。
+- **验收**:故意把 fixture 里 `sticker` 改成 `sticker_id` → 三端至少一处变红。
+
+#### J-5 上线 + 发版
+- 版本号 → **1.0.9**;发版流程同 F-6。
+- 若 J-1 走了 `kind=5`:imserver 要重新打镜像并 `docker compose run --rm imserver --migrate` 后 `up -d`,
+  回滚点记旧镜像 tag。
+
+---
+
+## 5. 每批次通用门禁清单(执行时逐条打勾)
+
+- [ ] 分支从**最新 `origin/master`** 切出,不是从上一批的分支切
+- [ ] `python manage.py test` 全量绿(前置 Redis 在跑)
+- [ ] `python config/comment_coverage.py` 无缺口
+- [ ] `python manage.py spectacular --validate` 零 error/零 warning,且 `openapi.yml` 已提交
+- [ ] `flutter analyze` 零告警 + `flutter test` 全绿
+- [ ] `npm run type-check` + `npm run lint -- --max-warnings 0` + `npm run test:run` 全绿
+- [ ] `npm run gen:api` 后 `git diff --exit-code src/api/schema.d.ts` 干净
+- [ ] `python scripts/sync_version.py --check` 绿
+- [ ] `docs/api/*.md` 与 `docs/milestones.md` 已同步
+- [ ] PR 已开、CI 六轨全绿、squash 合并、**只部署 `origin/master` 的 SHA**
+- [ ] 回滚点已记录(旧 SHA / 旧镜像 tag / `.env` 备份)
+
+---
+
+## 6. 风险与回滚
+
+| 风险 | 影响 | 应对 |
+|---|---|---|
+| **F 批改动面最大**(301 处 / 70 文件) | 视觉回归、`const` 报错、测试大面积红 | 每 15 文件一批跑 analyze+test;硬门禁测试兜底;F-5 逐页回归并记录 |
+| **G-1 与 I-3 同改 `PublicProfileSerializer` + `users.md` + `openapi.yml`** | rebase 冲突,手工解 openapi 会出错 | **openapi 与 `schema.d.ts` 永远重新生成**,不手工解;I 批从最新 master 切分支 |
+| **H-3 改动既有 hook 可能弄红既有测试** | 灰条测试断言调用次数 | 只**追加**站内通知调用,不改灰条调用;先跑全量测试再提交 |
+| **J-1 闸门判定 `kind=2` 不持久化** | 贴纸离线丢消息 | 闸门不过就转 `kind=5`,四轨同改,预估 +1 天;**先报用户再动手** |
+| **每批发版导致版本号快跑** | 1.0.5 → 1.0.9(5 批 5 个版本) | 只升 `LATEST_APP_VERSION`,**不动 `MIN_APP_VERSION`**(老客户端不被挡) |
+| 分支基点错(从上一批分支切) | 混入未合并提交 | 每批都从最新 `origin/master` 切分支(当前基点 `4d46c72`) |
+
+**回滚**:每批都是「代码 + 迁移 + 前端产物」三件套。回滚 = 回退到上一批的 SHA + `migrate` 反向风险
+(本次 5 批只新增表/列,**不删不改**既有列,迁移可安全保留),前端回退旧 `dist` / 旧 APK。
+
+---
+
+## 7. 开新会话提示词(可直接复制)
+
+**批次 F**
+> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 F(§4),按 F-1→F-6 顺序执行。
+> 先做 F-1 双主题底座,再每 15 个文件一批迁移取色并跑 analyze+test;新增的「禁用裸色值」硬门禁必须落地。
+> 完成后按 §5 门禁清单走 PR,并升版本到 1.0.5 发版。`
+
+**批次 G**
+> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 G(§4),按 G-1→G-4 执行。
+> 注意 §2.2 的范围收敛:只在配对那一刻展示共同点,不动聊天页;查询预算门禁不能红。
+> 完成后走 PR 并升版本到 1.0.6。`
+
+**批次 H**
+> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 H(§4),按 H-1→H-6 执行。
+> 严格遵守 §2.3 的决策:灰条保留、喜欢我/访客不通知、新增 social 开关列、铃铛入口不加底栏 tab。
+> H-3 只追加不改既有调用,先跑全量测试。完成后走 PR 并升版本到 1.0.7。`
+
+**批次 I**
+> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 I(§4),按 I-1→I-6 执行。
+> 关注流口径见 §2.4(只含关注的人,不含自己);openapi 冲突一律重新生成不要手工解。
+> 完成后走 PR 并升版本到 1.0.8。`
+
+**批次 J**
+> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 J(§4)。**先做 J-1 闸门**:
+> 核实 imserver 的 kind=2 custom 是否持久化且 history 能带回,把结论报给我再决定走 kind=2 还是 kind=5。
+> 不要跳过闸门直接写代码。完成后走 PR 并升版本到 1.0.9。`
+
+---
+
+## 8. 与现有 backlog 的关系
+
+- 本计划对应 **批次 F–J**,是 backlog A–E 闭环之后的第五轮功能开发;
+  `docs/backlog/2026-11-03-todo.md` §2 批次总览已加一行指向本文。
+- 本计划**不替代** backlog §7 的 4 项运维尾巴(备份异地 / 树莓派容量 / TOTP 重绑 / Loki 常驻),它们仍在原处。
+- 交付后:每批在本文末尾追加「执行记录 / 与计划的偏差 / 踩到的坑」,全部交付后
+  `git mv` 到 `docs/superpowers/archive/plans/` 并在 `docs/superpowers/README.md` §4 补一行。
+
+---
+
+## 执行记录
+
+(每批次执行后在此追加;格式:`### 批次 X 执行于 YYYY-MM-DD / PR #N`,写清偏差与踩坑)
+
+_尚未开始执行。_
