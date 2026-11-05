@@ -84,7 +84,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.3 | 2026-11-04 | — | 无(规则生效前发版) | `56f3f5b` | `chatapp-1.0.3.apk` |
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
 | 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
-| 1.0.6 | 2026-11-06 | `v1.0.6` | 待建:tag 待 PR 合并后打到合并 SHA,Release 材料见 §6.2 | — | `chatapp-1.0.6.apk` |
+| 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | 待部署:合并 SHA `ba24f93`(后端与前端产物尚未上服务器,见 §6.2) | `chatapp-1.0.6.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -238,8 +238,19 @@ gh release create v1.0.5 \
 
 ## 6.2 v1.0.6 的发版材料(批次 G · 共同点破冰)
 
-**状态:待发。** 版本号已在批次 G 的 PR 里升到 `1.0.6`;tag 必须在 PR **squash 合并之后**
-打到合并提交上(`v1.0.6` → 合并 SHA),不要打在功能分支上。
+**状态:tag 与 Release 已建;服务器尚未部署。**
+
+- 合并:PR #83 squash 合并 → `ba24f93`(squash 提交);
+- tag:`v1.0.6` → `ba24f93c4bd6ce905d39f043a52e1e7134533eb2`(附注 tag,指向合并 SHA);
+- Release:2026-11-06 通过 GitHub REST(`POST /repos/shiliu153/chatapp/releases`
+  + `uploads.github.com/.../assets`)创建,附件 `chatapp-1.0.6.apk`;
+- APK:57.4 MB,SHA-1 `8d6353147abb6088c245d40df64a7a7825774cf9`(本机 `flutter build apk --release`
+  从 `ba24f93` 构建,带 `ERROR_REPORTING=true`);
+- **未做**:后端部署、`dist` 部署、APK 上传服务器、`.env` 改 `LATEST_APP_VERSION`。
+  后端接口是**纯增量**(只加字段),旧后端 + 新客户端/新网页端可正常工作,因此可以延后部署;
+  但要让「检查更新」推到 1.0.6,必须完成 §3 的三件套。
+
+以下为创建 Release 时使用的标题与 notes,留档便于以后核对。
 
 **标题**:`v1.0.6 — 共同点破冰`
 
