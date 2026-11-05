@@ -1,0 +1,27 @@
+[Unit]
+Description=chatapp alert relay (Alertmanager webhook -> notify 邮件)
+Documentation=file:///www/wwwroot/chatapp/chatapp/docs/ops/observability.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+# HOME 决定 notify 找 ~/.config/notify 的位置; 环境文件 /etc/notify/env 由 bin/notify 自己 source。
+Environment=HOME=/root
+Environment=PYTHONUNBUFFERED=1
+Environment=ALERT_RELAY_PORT=9099
+Environment=ALERT_NOTIFY_BIN=/opt/notify/bin/notify
+Environment=ALERT_NOTIFY_CONFIG=/etc/notify/alerts.ini
+Environment=ALERT_DEDUP_WINDOW=60
+# 用 sh 重定向而不是 StandardOutput=append: 本机 systemd 是 239, append: 从 240 才有;
+# 落到 /www/wwwlogs 也顺手让 promtail 能收(见 promtail.yml 的 __path__)。
+ExecStart=/bin/sh -c 'exec /usr/bin/python3.11 /www/server/observability/alert_relay.py >> /www/wwwlogs/alert-relay.log 2>&1'
+Restart=always
+RestartSec=5
+MemoryMax=64M
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -854,6 +854,115 @@ class MetricsTests(APITestCase):
         self.assertEqual(self.client.get("/api/v1/health").status_code, 301)
 
 
+def metric_value(name: str, **labels) -> float:
+    """读一个指标的当前值(标签组合还没出现过时按 0 处理)。
+
+    Args:
+        name: 指标名(如 ``logins_total``)。
+        **labels: 标签组合。
+
+    Returns:
+        当前累计值;不存在时为 0.0(便于直接断言增量)。
+    """
+    value = metrics.REGISTRY.get_sample_value(name, labels)
+    return 0.0 if value is None else value
+
+
+class BusinessMetricTests(APITestCase):
+    """业务指标(E-4 ③):登录、滑卡、配对、IM 调用四类事件都要能被 Prometheus 读到。
+
+    口径说明:这些是**进程内累计计数**,同一进程里测试之间会累加,所以全部断言「增量」
+    (先读一次、动作后再读一次),不写死绝对值 —— 否则单独跑和全量跑会得到不同结果。
+    """
+
+    def setUp(self):
+        """清缓存(验证码与限流计数都在 Redis 缓存里)。"""
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _make_user(self, phone, gender="female"):
+        """造一个资料完善、带已过审照片的用户。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+            gender: 性别。
+
+        Returns:
+            新建的用户实例。
+        """
+        from accounts.models import User
+        from users.models import Photo, PhotoStatus, Profile, ProfileStatus
+
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(user=user, nickname=phone, gender=gender, birthday="2000-01-01",
+                               city="上海", bio="你好", status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+        return user
+
+    def test_login_success_and_rejection_are_counted(self):
+        """登录成功记 ``success``,验证码错记 ``rejected``。"""
+        from accounts import sms_codes
+
+        before_ok = metric_value("logins_total", result="success")
+        before_bad = metric_value("logins_total", result="rejected")
+
+        sms_codes.store("13800138000", settings.SMS_DEV_CODE)
+        ok = self.client.post("/api/v1/auth/sms/verify",
+                              {"phone": "13800138000", "code": settings.SMS_DEV_CODE},
+                              format="json")
+        self.assertEqual(ok.status_code, 200)
+
+        sms_codes.store("13900139000", settings.SMS_DEV_CODE)
+        bad = self.client.post("/api/v1/auth/sms/verify",
+                               {"phone": "13900139000", "code": "000000"}, format="json")
+        self.assertGreaterEqual(bad.status_code, 400)
+
+        self.assertEqual(1.0, metric_value("logins_total", result="success") - before_ok)
+        self.assertEqual(1.0, metric_value("logins_total", result="rejected") - before_bad)
+
+    def test_swipe_and_match_are_counted(self):
+        """双方互喜:滑卡各记一次 ``like``,配对只涨 1。"""
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        me = self._make_user("13800138000", gender="male")
+        target = self._make_user("13900139000")
+        before_swipe = metric_value("swipes_total", action="like")
+        before_match = metric_value("matches_total")
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(me).access_token}")
+        self.client.post("/api/v1/discovery/swipe",
+                         {"target_user_id": target.id, "action": "like"}, format="json")
+
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(target).access_token}")
+        resp = self.client.post("/api/v1/discovery/swipe",
+                                {"target_user_id": me.id, "action": "like"}, format="json")
+        self.assertEqual({"matched": True}, resp.json())
+
+        self.assertEqual(2.0, metric_value("swipes_total", action="like") - before_swipe)
+        self.assertEqual(1.0, metric_value("matches_total") - before_match)
+
+    def test_im_call_success_and_failure_are_counted(self):
+        """Django → imserver 的调用成与败各记一档,端点用内部 API 路径。"""
+        from im import self_client
+
+        path = "/internal/metrics-selftest"
+        before_ok = metric_value("im_calls_total", endpoint=path, result="ok")
+        before_err = metric_value("im_calls_total", endpoint=path, result="error")
+
+        with patch.object(self_client.requests, "post") as post:
+            post.return_value.raise_for_status.return_value = None
+            self.assertTrue(self_client._post(path, {"uid": 1}))
+        with patch.object(self_client.requests, "post", side_effect=OSError("boom")):
+            self.assertFalse(self_client._post(path, {"uid": 1}))
+
+        self.assertEqual(1.0, metric_value("im_calls_total", endpoint=path, result="ok")
+                         - before_ok)
+        self.assertEqual(1.0, metric_value("im_calls_total", endpoint=path, result="error")
+                         - before_err)
+
+
 class _BoomView(APIView):
     """测试专用视图:抛出未预期异常,用于验证 500 也是 JSON 契约。"""
 

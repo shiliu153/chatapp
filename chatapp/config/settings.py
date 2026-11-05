@@ -205,6 +205,10 @@ CELERY_TASK_IGNORE_RESULT = True          # 副作用任务不需要结果
 CELERY_TASK_ACKS_LATE = True              # 任务不丢:执行完才 ack
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# celery-exporter(E-4 ④)靠 Celery 的实时事件流统计「每个任务成功/失败/耗时、worker 是否在」。
+# 不开这个开关,导出的是空指标(只有队列长度);开了以后 worker 会额外往 broker 打事件,
+# 代价是每个任务多几次 Redis 写入 —— 本项目量级可忽略。**改完必须重启 celery worker**。
+CELERY_WORKER_SEND_TASK_EVENTS = True
 
 # --- 队列分级(削峰)---
 # 三类任务的延迟容忍度完全不同,挤在一个队列里会让「封禁踢人」排在「配对灰条」后面:

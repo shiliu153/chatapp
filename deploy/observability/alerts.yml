@@ -36,6 +36,18 @@ groups:
         annotations:
           summary: "API 在途请求持续 > 20(工作位饱和)"
 
+      # 「进程/socket 都没了」是唯一必须 30 秒内知道的故障:抓取 15s 一次,规则等 30s,
+      # 最坏 45s 判定 + 邮件几秒 = 一分钟内到人。这是 E-4 的验收口径
+      # (kill -9 gunicorn 后 60s 内必须收到告警),别再调大 for。
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Django 抓取失败(gunicorn 进程或端口不可用)"
+          description: "先 supervisorctl status 'chatapp-web:*';再看 /www/wwwlogs 里 gunicorn 的错误日志。supervisor 会拉起,但几分钟内用户看到的是 502。"
+
   - name: chatapp-im
     rules:
       - alert: ImDown
@@ -86,6 +98,65 @@ groups:
         annotations:
           summary: "Celery 队列 {{ $labels.queue }} 积压 {{ $value }} 条"
           description: "先确认 worker 是否存活(supervisorctl status);worker 正常则检查 IM_NOTICE_RATE_PER_SEC 是否过低。"
+
+  - name: chatapp-deps
+    # 依赖与指标盲区(2026-11-05 E-4 ④)。分两层看:
+    #   *Down  :exporter 活着但依赖挂了(能看见「挂了」);
+    #   ExporterDown:连数都抓不到(盲区本身也要告警,否则「没告警」会被误读成「没事」)。
+    rules:
+      - alert: MysqlDown
+        expr: mysql_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MySQL 探活失败(mysqld_exporter 连不上库)"
+          description: "先 /etc/init.d/mysqld status 与 tail /www/wwwlogs/mysql_watchdog.log;看门狗每分钟会尝试拉起。"
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis 探活失败"
+          description: "验证码、限流、缓存、Celery broker 全在 Redis 上;挂了表现为「登录收不到码 + 队列不动」。docker ps | grep redis,再看 /www/wwwlogs。"
+
+      - alert: MysqlConnectionsHigh
+        expr: mysql_global_status_threads_connected > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MySQL 连接数 > 100(上限通常是 151)"
+          description: "先看是不是有连接泄漏(CONN_MAX_AGE=60 应让连接复用);Gunicorn 8 工作位正常只占个位数。"
+
+      - alert: CeleryTaskFailures
+        expr: increase(celery_task_failed_total[10m]) >= 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Celery 任务失败 {{ $value }} 次 / 10 分钟"
+          description: "按 name 标签定位任务;im.tasks.* 失败通常是 imserver 连不上或配对不存在(40302)。重试次数看 celery_task_retried_total。"
+
+      - alert: CeleryWorkerDown
+        expr: sum(celery_worker_up) < 1 or absent(celery_worker_up)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "没有在线 Celery worker(或抓不到 worker 指标)"
+          description: "supervisorctl status 'chatapp-celery:*';顺带确认 Django 开着 CELERY_WORKER_SEND_TASK_EVENTS,否则指标永远是空的。"
+
+      - alert: ExporterDown
+        expr: up{job=~"celery|mysql|redis"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} exporter 抓取失败(指标出现盲区)"
+          description: "docker ps 里看对应容器;/www/server/observability 下 docker compose logs <service> --tail 50。"
 
   - name: chatapp-host
     rules:

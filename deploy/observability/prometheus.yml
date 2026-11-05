@@ -30,3 +30,21 @@ scrape_configs:
   - job_name: node
     static_configs:
       - targets: ["127.0.0.1:9105"]
+
+  # --- 三个 exporter(2026-11-05 E-4 ④) ---
+  # Celery 任务级:received/succeeded/failed/retried、worker_up、runtime 直方图。
+  # 空指标的含义见 celery-exporter 那条注释:先查 Django 是否开了
+  # CELERY_WORKER_SEND_TASK_EVENTS、worker 是否重启过。
+  - job_name: celery
+    static_configs:
+      - targets: ["127.0.0.1:9808"]
+
+  # MySQL:mysql_up / 连接数 / 慢查询计数 / InnoDB 行锁等待。
+  - job_name: mysql
+    static_configs:
+      - targets: ["127.0.0.1:9104"]
+
+  # Redis:连接数 / 内存 / 命中率 / 命令耗时。
+  - job_name: redis
+    static_configs:
+      - targets: ["127.0.0.1:9121"]

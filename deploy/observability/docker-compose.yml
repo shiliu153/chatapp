@@ -1,6 +1,7 @@
 services:
-  # 2C2G 上的最小观测栈:Prometheus + Alertmanager + Grafana + node_exporter。
-  # 全部 host 网络,直接抓 127.0.0.1 上的 gunicorn:8000 与 imserver:9101,
+  # 2C2G 上的最小观测栈:Prometheus + Alertmanager + Grafana + node_exporter
+  # + 三个 exporter(celery / mysqld / redis,2026-11-05 E-4 ④)。
+  # 除 celery-exporter 外全部 host 网络,直接抓 127.0.0.1 上的 gunicorn:8000 与 imserver:9101,
   # 不经过 nginx(所以 /metrics 在 nginx 上被 404 掉也不影响抓取)。
   prometheus:
     image: prom/prometheus:v2.55.1
@@ -30,18 +31,10 @@ services:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     mem_limit: 32m
 
-  # Alertmanager 的 JSON 与企业微信机器人格式不同,用 40 行的中转脚本转换。
-  alert-relay:
-    image: python:3.12-alpine
-    network_mode: host
-    restart: unless-stopped
-    command: ["python", "/app/alert_relay.py"]
-    environment:
-      WECOM_WEBHOOK: ${WECOM_WEBHOOK:-}
-      LISTEN_PORT: "9099"
-    volumes:
-      - ./alert_relay.py:/app/alert_relay.py:ro
-    mem_limit: 32m
+  # 告警转发(Alertmanager JSON → 邮件)不再跑在容器里:它要调宿主机上的
+  # /opt/notify(与每天 22:00 服务器日报同一条发信链路)并读写 notify 的状态库,
+  # 挂四处目录进容器不如直接跑在宿主机上。见 deploy/observability/alert-relay.service。
+  # 部署:systemctl enable --now chatapp-alert-relay
 
   grafana:
     image: grafana/grafana:11.3.1
@@ -66,6 +59,41 @@ services:
     # 9100 被 imserver WS 占用,换 9105。
     command: ["--web.listen-address=127.0.0.1:9105"]
     mem_limit: 24m
+
+  # --- 两个 exporter:把「DB / Redis 的容量读数」接进同一条抓取链 ---
+  #
+  # Celery 的 exporter **不在这里**:danihodovic/celery-exporter 不在国内镜像站白名单
+  # (daocloud 直接拒),直连 Docker Hub 在这台机器上只有 ~18KB/s。改成 PyPI 包 +
+  # systemd 服务(chatapp-celery-exporter),见 celery-exporter.service 与 celery_exporter_run.py。
+  # Celery 任务级指标还依赖 Django 的 CELERY_WORKER_SEND_TASK_EVENTS=True 与 worker 重启。
+
+  # MySQL:用应用账号(只读不了 processlist/复制状态,所以关掉那两个 collector),
+  # 口令文件只读挂载、在服务器上生成(见 docs/ops/observability.md §2 的部署步骤)。
+  # 抓不到 mysql_up=1 就是账号/口令/文件权限不对 —— 先看 docker logs 里的 "Error parsing host config"。
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.15.1
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - --config.my-cnf=/etc/mysqld_exporter/my.cnf
+      - --web.listen-address=127.0.0.1:9104
+      # 应用账号没有 PROCESS / REPLICATION CLIENT,这两个 scraper 只会刷访问被拒的日志。
+      - --no-collect.slave_status
+      - --no-collect.info_schema.processlist
+    volumes:
+      - ./mysqld_exporter.cnf:/etc/mysqld_exporter/my.cnf:ro
+    mem_limit: 32m
+
+  # Redis:连接数 / 内存 / 命中率;命令统计的 key 基数可控(--check-keys 只列指定键)。
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://127.0.0.1:6379
+      REDIS_EXPORTER_LOG_FORMAT: txt
+    command: ["--web.listen-address=127.0.0.1:9121"]
+    mem_limit: 32m
 
   # --- 日志(可选):docker compose --profile logs up -d ---
   loki:

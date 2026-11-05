@@ -3,17 +3,24 @@
 #   cp docker-compose.mirror.yml docker-compose.override.yml
 #   docker compose up -d
 # 镜像站不可用时删掉 override 即可回到官方源。
+#
+# 2026-11-05:celery-exporter 改为 PyPI 包 + systemd 服务(不在国内镜像站白名单),
+# 因此这里没有它的镜像条目。
 services:
   prometheus:
     image: docker.m.daocloud.io/prom/prometheus:v2.55.1
   alertmanager:
     image: docker.m.daocloud.io/prom/alertmanager:v0.27.0
-  alert-relay:
-    image: docker.m.daocloud.io/library/python:3.12-alpine
   grafana:
     image: docker.m.daocloud.io/grafana/grafana:11.3.1
   node-exporter:
     image: docker.m.daocloud.io/prom/node-exporter:v1.8.2
+  celery-exporter:
+    image: hub.rat.dev/danihodovic/celery-exporter:0.11.0
+  mysqld-exporter:
+    image: docker.m.daocloud.io/prom/mysqld-exporter:v0.15.1
+  redis-exporter:
+    image: docker.m.daocloud.io/oliver006/redis_exporter:v1.62.0
   loki:
     image: docker.m.daocloud.io/grafana/loki:3.2.0
   promtail:

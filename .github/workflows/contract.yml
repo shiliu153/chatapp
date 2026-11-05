@@ -14,6 +14,7 @@ on:
       - 'app/pubspec.yaml'
       - 'web/package.json'
       - 'scripts/**'
+      - 'deploy/observability/**'
       - '.github/workflows/contract.yml'
   pull_request:
     paths:
@@ -22,6 +23,7 @@ on:
       - 'app/pubspec.yaml'
       - 'web/package.json'
       - 'scripts/**'
+      - 'deploy/observability/**'
       - '.github/workflows/contract.yml'
   workflow_dispatch:
 
@@ -46,3 +48,8 @@ jobs:
 
       - name: App 手写模型字段 ⊆ OpenAPI 契约
         run: python scripts/check_app_models.py --verbose
+
+      # 告警中转脚本只用标准库,秒级可测:载荷渲染、去重键、HTTP 入口与失败收敛。
+      # 这条链路哑了没人会发现(告警本来就不常发),所以必须有回归。
+      - name: 告警转发脚本自测
+        run: python -m unittest discover -s deploy/observability -p 'test_*.py' -v

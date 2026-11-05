@@ -1,13 +1,16 @@
 route:
-  receiver: wecom
+  receiver: email
   group_by: [alertname]
   group_wait: 10s
   group_interval: 1m
   repeat_interval: 4h
 
 receivers:
-  - name: wecom
+  # 2026-11-05 起不再接群机器人:告警邮件走「服务器日报」同一条链路(/opt/notify),
+  # 由宿主机上的 systemd 服务 chatapp-alert-relay 转换 Alertmanager 的 JSON。
+  # 为什么不是容器:转换完要调 /opt/notify 发信, 那需要宿主机的配置与状态库。
+  - name: email
     webhook_configs:
-      # 企业微信机器人要的 JSON 与 Alertmanager 不同,交给 relay 转换。
       - url: http://127.0.0.1:9099/alert
         send_resolved: true
+        max_alerts: 10

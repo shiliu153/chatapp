@@ -122,6 +122,67 @@
       ],
       "fieldConfig": {"defaults": {"unit": "percent", "max": 100}, "overrides": []},
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "业务漏斗（登录 → 滑卡 → 配对）",
+      "description": "E-4 ③。低流量下 rate(1m) 会全是 0，这里用 10 分钟窗口。配对数值天然比滑卡小两个量级，看趋势不看绝对值。",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 23},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(logins_total{result=\"success\"}[10m]))", "legendFormat": "登录成功/s"},
+        {"refId": "B", "expr": "sum(rate(logins_total{result=\"rejected\"}[10m]))", "legendFormat": "登录被拒/s"},
+        {"refId": "C", "expr": "sum by (action) (rate(swipes_total[10m]))", "legendFormat": "滑卡 {{action}}/s"},
+        {"refId": "D", "expr": "sum(rate(matches_total[10m]))", "legendFormat": "配对/s"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 4}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Celery 任务结果 / worker / 队列",
+      "description": "E-4 ④ celery-exporter。全为空说明 Django 没开 CELERY_WORKER_SEND_TASK_EVENTS 或 worker 没重启过。",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 23},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(celery_task_succeeded_total[5m]))", "legendFormat": "成功/s"},
+        {"refId": "B", "expr": "sum(rate(celery_task_failed_total[5m]))", "legendFormat": "失败/s"},
+        {"refId": "C", "expr": "sum(celery_worker_up)", "legendFormat": "在线 worker"},
+        {"refId": "D", "expr": "sum by (queue_name) (celery_queue_length)", "legendFormat": "队列 {{queue_name}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 2}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "候选池缓存命中率 / Django→IM 调用失败率",
+      "description": "左边是「加缓存到底有没有用」的读数（命中率 ≥90% 是 C.1 的口径），右边是 Django 这一侧的 IM 调用失败率——imserver 的 im_sends_total 看不到「Django 根本没发出请求」。",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 31},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(cache_hits_total[5m])) / clamp_min(sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m])), 0.001)", "legendFormat": "缓存命中率"},
+        {"refId": "B", "expr": "sum(rate(im_calls_total{result=\"error\"}[5m])) / clamp_min(sum(rate(im_calls_total[5m])), 0.001)", "legendFormat": "IM 调用失败率"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3, "min": 0}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}}
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "MySQL 连接 / Redis 连接与内存",
+      "description": "E-4 ④。MySQL 连接上限通常 151，Redis 在 2G 机器上要盯着别把内存吃满（会触发 OOM Killer，先杀谁不由我们决定）。",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 31},
+      "targets": [
+        {"refId": "A", "expr": "mysql_global_status_threads_connected", "legendFormat": "MySQL 连接"},
+        {"refId": "B", "expr": "redis_connected_clients", "legendFormat": "Redis 连接"},
+        {"refId": "C", "expr": "redis_memory_used_bytes / 1024 / 1024", "legendFormat": "Redis 内存 MB"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 1}, "overrides": []},
+      "options": {"legend": {"displayMode": "table", "placement": "right"}}
     }
   ]
 }

@@ -120,10 +120,13 @@ A:能。`perf/run.py` 一条命令跑场景,输出带机器规格的 JSON;`perf/
 RPS −20% / p99 +20% 直接判回归。造数用 `seed_scale_users`,清理用 `--clean`。
 
 **Q:怎么知道线上现在没坏?**
-A:设计上 `/metrics` 暴露 RED + IM 连接/发送/死锁重试/池等待 + 队列积压;10 条告警推企业微信;
-runbook 写清了「哪条告警 → 看哪块板 → 做什么」。**2026-11-03 已上线**:5 个容器(prometheus/grafana/
-alertmanager/alert-relay/node-exporter)在跑,3 个 target(api/im/node)全 `up`。
-仍未做的:探针 30s 粒度、告警接群机器人(现在只落日志)——这两条如实写在 `observability.md`。
+A:设计上 `/metrics` 暴露 RED + IM 连接/发送/死锁重试/池等待 + 队列积压 + 业务漏斗(登录/滑卡/配对)
++ 依赖读数(MySQL 连接、Redis 内存);告警经 Alertmanager 推到**邮件**(与 22:00 服务器日报同一条链路);
+runbook 写清了「哪条告警 → 看哪块板 → 做什么」。**2026-11-03 上线**,**2026-11-05 补齐尾巴(E-4)**:
+容器 6 个(prometheus/grafana/alertmanager/node-exporter/mysqld-exporter/redis-exporter)+
+2 个 systemd 服务(alert-relay、celery-exporter),6 个 target(api/im/node/celery/mysql/redis)全 `up`;
+探针改成 30s 粒度(脚本内复测一次),告警从「只落日志」变成「发到邮箱」。
+仍未做的:告警到手机(邮件到手机的延迟取决于邮箱客户端)、tracing、真实 DAU 采集。
 
 ## 6. 还没做到的(主动说,比被问出来好)
 
@@ -141,7 +144,7 @@ alertmanager/alert-relay/node-exporter)在跑,3 个 target(api/im/node)全 `up`�
 - **`app.log` 轮转已补(2026-11-04)**:此前 `/www/wwwlogs/chatapp/app.log` 不在 logrotate 里,
   每请求一行 JSON、持续高压约 1.4MB/5 分钟;现由 `deploy/ops/chatapp-logrotate.conf` 每天转、留 14 份、
   超 200MB 提前转,用 `copytruncate` 因为 gunicorn/celery 一直开着文件(见 `runbook.md` §7)。
-- **观测栈已上线(2026-11-03)**:5 个容器(prometheus/grafana/alertmanager/alert-relay/node-exporter,
+- **观测栈已上线(2026-11-03,2026-11-05 补齐 E-4)**:容器 6 个(prometheus/grafana/alertmanager/
   均有 mem_limit,合计 ~344MB),3 个 target 全 `up`;实测代价 **+3.6%**(100 并发 473→490 rps,在噪声内)。
 - **MySQL 看门狗待安装**:脚本与 runbook 已就绪,`kill -9 mysqld + mysqld_safe` 的自动恢复还没在现网验证。
 - **keyset 分页已做(2026-11-04,D-1)**:`/posts`、`/matches`、`/discovery/likes|visits` 已换游标分页,

@@ -46,12 +46,21 @@
 - [x] `chatapp/config/urls.py`：`/metrics` 挂在根路由（不在 `/api/v1` 下，不纳入接口文档门禁）；
       配 `METRICS_TOKEN` 时校验 `X-Metrics-Token` / `Authorization: Bearer`，
       未配令牌时只对回环开放、非回环一律 404。
-- [ ] 业务指标（低基数，按需加）：登录成功数、滑卡数、配对成功数、IM 发消息数、Celery 任务失败数。
+- [x] 业务指标（低基数，按需加）：登录成功/被拒 `logins_total{result}`、滑卡 `swipes_total{action}`、
+      配对 `matches_total`、**Django 这一侧**的 IM 调用 `im_calls_total{endpoint,result}`
+      （2026-11-05，backlog E-4 ③；`config/metrics.py` + `accounts/views.py` / `discovery/views.py` /
+      `im/self_client.py` 三处打点，`config.tests.BusinessMetricTests` 4 例覆盖增量）。
+      Celery 失败数走 celery-exporter，不在 Django 里重复埋点。
 - [x] `imserver/src/util/metrics.{h,cpp}` + `/metrics`（回环限定）：`im_connections`、
       `im_sends_total{result}`、`im_deadlock_retries_total`、`im_db_pool_wait_seconds` /
       `im_db_pool_waits_total`。热路径只多一条 relaxed `fetch_add`。
-- [ ] Celery：`celery-exporter`（或手写 Redis `llen` Gauge）。
-- [ ] `mysqld_exporter` + `redis_exporter`（容器）。
+- [x] Celery：`celery-exporter`（2026-11-05，E-4 ④）。**没有走容器**：镜像不在国内镜像站白名单、
+      直连 Docker Hub 实测 ~18KB/s，改成 PyPI 包 + systemd（`chatapp-celery-exporter`，
+      `deploy/observability/celery_exporter_run.py`）。配套在 settings 打开
+      `CELERY_WORKER_SEND_TASK_EVENTS`（不改 worker 重启则任务级指标全空）。
+- [x] `mysqld_exporter` + `redis_exporter`（容器，2026-11-05）。
+      MySQL 用应用账号跑（缺 `PROCESS`/`REPLICATION CLIENT`，关掉 `slave_status` 与
+      `info_schema.processlist` 两个 scraper），口令文件 640 + 属组 65534 只读挂载。
 
 ### A.2 展示与告警
 
@@ -62,7 +71,9 @@
 - [x] 告警规则（`alerts.yml`，9 条）→ Alertmanager → `alert_relay.py`（40 行标准库代码，
       把 Alertmanager JSON 转成企业微信格式）：5xx 比例、p99、inflight 饱和、IM 掉线、
       死锁重试、发送失败率、池等待、磁盘、内存。
-- [ ] 探针改 30s 一次（现每分钟、连续 2 轮才 ALERT，实测漏报 90s 宕机）——**服务器侧，待上线**。
+- [x] 探针改 30s 一次（2026-11-05，E-4 ②）：宝塔仍每分钟调用 `probe-readyz.sh`，脚本内部先查
+      「imserver readyz + Django health」两个目标、失败后隔 30s 复测一次，单次故障 30~35 秒内发信。
+      通知通道同时从「群机器人（从未配置）」改成**邮件**（`/opt/notify`，与 22:00 日报同链路）。
 - [x] **MySQL 系统级守护**（stress 文档 P0-2）：`deploy/ops/mysql-watchdog.sh` + systemd drop-in；
       上线后 MTTR 目标 ≤30s。
 - [x] `docs/ops/runbook.md`：告警 → 看哪块板 → 处置动作；`docs/ops/observability.md`：部署与指标口径。
@@ -325,6 +336,7 @@
 上线时踩到并已修好的三个坑：`/metrics` 被 301 到 https（`SECURE_REDIRECT_EXEMPT`）、
 Prometheus 容器读令牌权限（`chown 65534` + `640`）、Grafana 读不到 provisioning（`a+rX`）。
 
-**待办**：企业微信机器人地址（配到 `WECOM_WEBHOOK` 后重启 relay）；Loki `logs` profile 未启动
-（内存留余量，需要时 `docker compose --profile logs up -d`）；MySQL 双杀演练。
+**待办**：~~企业微信机器人地址~~（2026-11-05 决定**不接机器人**，告警改走邮件，见 backlog E-4 ①）；
+Loki `logs` profile 未启动（内存留余量，需要时 `docker compose --profile logs up -d`）；
+~~探针 30s~~、~~业务指标~~、~~三个 exporter~~ 已于 2026-11-05 补齐（E-4 ②③④）；MySQL 双杀演练未做（E-5）。
 

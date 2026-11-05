@@ -68,6 +68,37 @@ CLIENT_ERRORS = Counter(
     registry=REGISTRY,
 )
 
+# --- 业务指标(2026-11-05,E-4 ③):只回答「今天有人在用吗、断在哪一步」 ---
+# 不加用户 id / 手机号 / 目标 id 这类标签:基数会随用户数线性膨胀,Prometheus 撑不住。
+# 漏斗口径:登录成功 → 滑卡(like/pass)→ 配对成功;IM 调用看 Django 这一侧的成与败
+# (imserver 自己的 im_sends_total 只看传输层,看不到「Django 根本没发出请求」)。
+LOGINS = Counter(
+    "logins_total",
+    "登录结果(成功 / 被拒:白名单、验证码、锁定)",
+    ["result"],
+    registry=REGISTRY,
+)
+
+SWIPES = Counter(
+    "swipes_total",
+    "滑卡次数(按动作)",
+    ["action"],
+    registry=REGISTRY,
+)
+
+MATCHES = Counter(
+    "matches_total",
+    "新增配对数(每建立一条配对计数一次)",
+    registry=REGISTRY,
+)
+
+IM_CALLS = Counter(
+    "im_calls_total",
+    "Django 调 imserver 内部 API 的次数与成败(按端点)",
+    ["endpoint", "result"],
+    registry=REGISTRY,
+)
+
 # --- 队列指标:积压是「削峰是否生效」的直接读数 ---
 CELERY_QUEUE_DEPTH = Gauge(
     "celery_queue_depth",
@@ -77,6 +108,16 @@ CELERY_QUEUE_DEPTH = Gauge(
 )
 
 QUEUES = ("critical", "default", "notify", "bulk")
+
+
+def im_call(endpoint: str, ok: bool) -> None:
+    """记录一次「Django → imserver 内部 API」调用。
+
+    Args:
+        endpoint: 内部 API 路径(如 ``/internal/messages/send``);基数固定,可以安全当标签。
+        ok: 调用是否成功(2xx)。
+    """
+    IM_CALLS.labels(endpoint=endpoint, result="ok" if ok else "error").inc()
 
 
 def refresh_queue_depths() -> None:
