@@ -107,4 +107,5 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(运�
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;
 - **同时**在 `docs/superpowers/README.md` §4 归档表补一行,并把 spec+plan `git mv` 到 `archive/`;
-- CLAUDE.md 只保留「阶段总览」级别的摘要,不再堆砌细节。
+- CLAUDE.md 只保留「阶段总览」级别的摘要,不再堆砌细节;
+- **发版级事实不写在这里**:版本号、tag 与 Release 三者同步后记入 [`docs/ops/release.md`](ops/release.md) §5 记录表(CI 门禁读它);本文件只留里程碑级叙事,避免同一件事两处维护。
