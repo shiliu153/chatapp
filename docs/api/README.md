@@ -19,7 +19,7 @@
 | [im.md](im.md) | IM 会话凭证与聊天媒体上传 |
 | [app.md](app.md) | 应用版本配置(启动时最小版本拦截) |
 | [telemetry.md](telemetry.md) | 客户端错误上报(前端未捕获异常 → 日志/指标) |
-| [push.md](push.md) | 推送设备与通知偏好(极光 registration_id 上报、四类通知开关) |
+| [push.md](push.md) | 推送设备与通知偏好(极光 registration_id 上报、四类通知开关)。**该能力不启用**:通道固定 `PUSH_PROVIDER=off`,见分册首部说明 |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
 | [openapi.yml](openapi.yml) | **机器可读契约**(OpenAPI 3.0,由代码生成,请勿手改;规则见下「机器可读契约」) |
 

@@ -1,7 +1,7 @@
 # chat_app · 交友应用全栈工程
 
 > Flutter 客户端 + Django REST 业务后端 + 自建 C++ 长连接服务:三个进程、两个数据库、一套契约。
-> **业务事实**(账号、资料、滑卡、配对、广场、举报、推送偏好)留在 Django/MySQL;
+> **业务事实**(账号、资料、滑卡、配对、广场、举报、通知偏好)留在 Django/MySQL;
 > **会话与消息状态**(消息体、序号、已读位点、配对镜像)由 imserver/MySQL 持有。
 > 两侧只通过签名内部 API 与异步任务交互,响应路径不出现任何第三方调用。
 
@@ -67,15 +67,15 @@
               ┌─────▼──────┐                      │
               │ Celery     │◀─────────────────────┘
               │ 副作用任务 │  POST /internal/push/new-message
-              └────────────┘  (仅「消息落库 + 目标不在线」时回调)
+              └────────────┘  (仅「消息落库 + 目标不在线」时回调;推送通道固定 off)
 ```
 
 | 关注点 | 归属 | 关键约束 |
 |---|---|---|
-| 账号 / 资料 / 照片 / 滑卡 / 配对 / 广场 / 举报 / 推送偏好 | Django + `chatapp` 库 | 唯一写者;所有对外契约由 `/api/v1` 定义 |
+| 账号 / 资料 / 照片 / 滑卡 / 配对 / 广场 / 举报 / 通知偏好 | Django + `chatapp` 库 | 唯一写者;所有对外契约由 `/api/v1` 定义 |
 | 会话 / 消息体 / 序号 / 已读位点 / 配对镜像 | imserver + `chatapp_im` 库 | 消息只经 imserver 落库,Django 不写消息表 |
 | 跨进程调用方向 | Django → imserver | `im/self_client.py` 调 HMAC 内部 API,签名串 `ts\nMETHOD\npath\nbody`,带时间戳窗口 |
-| 反向回调 | imserver → Django | 仅 `POST /internal/push/new-message` 一个入口:同密钥 + 300s 窗口 + 按 `msg_id` 幂等 |
+| 反向回调 | imserver → Django | 仅 `POST /internal/push/new-message` 一个入口:同密钥 + 300s 窗口 + 按 `msg_id` 幂等(推送通道固定 `off`,见 §3) |
 | 身份映射 | 两侧一致 | IM 账号 = `u{user_id}`;JWT 里的 `user_id` claim 是字符串 |
 
 **为什么这样切分**:消息的写入热点在长连接侧,业务事实的写入热点在 REST 侧。把两者放进同一个进程会让
@@ -85,8 +85,8 @@
 ### 1.2 三条贯穿全栈的约束
 
 1. **响应路径零第三方调用** —— 请求处理过程中不发起任何外部网络调用。所有跨系统副作用
-   (IM 建号、发消息、刷头像、系统通知、推送)在 `transaction.on_commit(fn, robust=True)` 中投递 Celery 任务。
-   接口耗时因此与 IM / 推送通道的抖动解耦,失败可重试且有独立指标。
+   (IM 建号、发消息、刷头像、系统通知)在 `transaction.on_commit(fn, robust=True)` 中投递 Celery 任务。
+   接口耗时因此与 IM 通道的抖动解耦,失败可重试且有独立指标。
 2. **IM 副作用唯一出入口 `im/tasks.py`** —— 任务参数只传 `user_id`,任务内部自行查库,任务体内不接触 request 对象;
    `im/client.py`(语义层)与 `im/self_client.py`(传输层)对外永不抛异常,失败以状态位与指标表达。
 3. **错误信封唯一形状** —— 失败一律 `{"code": <HTTP 状态码>, "message": "<中文>", "request_id": "..."}`,
@@ -159,7 +159,7 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
 
 - **指标**:`prometheus_client` 自建 registry;gunicorn `-w 2` 下必须用 `PROMETHEUS_MULTIPROC_DIR` +
   `MultiProcessCollector`,否则计数器按进程分裂、`rate()` 误判重置。业务指标含
-  `logins_total` / `swipes_total` / `matches_total` / `im_calls_total` / `push_sent_total` / `push_skipped_total`。
+  `logins_total` / `swipes_total` / `matches_total` / `im_calls_total`。
 - **采集**:Prometheus 6 个 target(api / im / node / celery / mysqld / redis),Grafana 概览看板,
   Alertmanager 17 条规则经宿主机 relay 转邮件(与 22:00 服务器日报同一条链路,去重键 `groupKey + status`);
   Loki 作为可选 profile 按需启用。
@@ -207,7 +207,7 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
 | 聊天 | 自建 IM:文本 / 图片 / 语音 / 表情;会话列表四态;消息搜索与定位;已读回执;撤回与解除配对后的双向拉黑;在线状态(120 秒内有认证请求) |
 | 广场 | 动态发布 / 点赞 / 评论(两级楼中楼 + 回复提醒) |
 | 治理 | 举报、拉黑、两级封禁、举报处理通知;运营审核台(`/ops/`:举报队列 / 照片审核 / 意见反馈 / 准入名单 / 封禁操作),TOTP + IP 白名单 + 登录锁定保护 |
-| 通知 | 推送设备上报与解绑、四类通知偏好;通道抽象 `off / log / jpush`,imserver 在「消息落库 + 目标不在线」时回调触发 |
+| 通知 | 站内系统消息(配对成功、举报处理结果、封禁提示)与四类通知偏好开关。**不做离线推送**(2026-11-05 决定):服务端保留设备/偏好接口与 `off / log / jpush` 通道抽象,通道固定 `off`,客户端不集成推送 SDK |
 | 客户端 | Flutter App(Android 已发签名包;iOS 工程就绪未签名)与 Vue 3 网页端(仅 PC 浏览器,移动端进引导页),共用同一套接口 |
 
 ---
@@ -253,7 +253,7 @@ chat_app/
 │   ├── moderation/             #   举报 / 拉黑 / 封禁
 │   ├── ops/                    #   运营审核台(服务端渲染)+ 安全中间件
 │   ├── feed/                   #   广场动态
-│   ├── notifications/          #   推送设备 / 通知偏好 / 通道抽象 / 内部回调
+│   ├── notifications/          #   通知偏好 / 推送通道(固定 off)/ 内部回调
 │   ├── feedback/               #   意见反馈
 │   ├── telemetry/              #   客户端错误上报
 │   └── .env.example            #   环境变量模板(.env 不入库)
@@ -416,7 +416,7 @@ nginx 的三条硬要求与两个易错点:
 | 文档 | 内容 |
 |---|---|
 | [`docs/api/`](docs/api/README.md) | 对外交付级接口文档:13 份分册 / 51 个操作 + `openapi.yml` 机器可读契约 |
-| [`docs/ops/`](docs/ops/) | 运维与容量:imserver 协议、runbook、容量与可靠性、压测与基线报告、推送契约 |
+| [`docs/ops/`](docs/ops/) | 运维与容量:imserver 协议、runbook、容量与可靠性、压测与基线报告、通知与推送通道契约 |
 | [`docs/pitfalls/`](docs/pitfalls/README.md) | 踩坑手册,按 IM / 前端 / 后端 / 测试 / 网页端 / 模拟器分册 |
 | [`docs/milestones.md`](docs/milestones.md) | 里程碑时间线(每次交付的改动、PR 号与上线 SHA) |
 | [`docs/superpowers/`](docs/superpowers/README.md) | 设计 spec 与实施计划:工作面 1 份,已交付 85 份归档于 `archive/` |
@@ -435,8 +435,8 @@ nginx 的三条硬要求与两个易错点:
 `DEBUG` / `SMS_DEV_MODE` / `AUTO_APPROVE` 三个开发期开关。
 
 **已知取舍**:照片存储使用本地磁盘(生产建议对象存储 + CDN);无深色模式(v1 列为非目标,避免半成品);
-iOS 仅工程层面就绪;App 端推送客户端未接入(后端链路与通道抽象已就绪,待推送服务商凭据);
-备份的异地副本依赖内网设备,尚无对象存储预算。
+iOS 仅工程层面就绪;**不做离线推送**(服务端保留设备/偏好接口与通道抽象,`PUSH_PROVIDER` 固定 `off`,
+客户端不集成推送 SDK,未读状态由站内会话列表承担);备份的异地副本依赖内网设备,尚无对象存储预算。
 
 ---
 
