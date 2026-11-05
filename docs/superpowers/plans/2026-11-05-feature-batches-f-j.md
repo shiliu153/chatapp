@@ -501,4 +501,70 @@ H 批积累的「新页面 + 游标分页 + 双主题」经验可直接复用。
 
 (每批次执行后在此追加;格式:`### 批次 X 执行于 YYYY-MM-DD / PR #N`,写清偏差与踩坑)
 
-_尚未开始执行。_
+### 批次 F 执行于 2026-11-05 / PR #79
+
+**交付范围**:F-1 → F-6 全部完成,版本升到 **1.0.5**。
+
+#### 与计划的偏差
+
+| 计划 | 实际 | 原因 |
+|---|---|---|
+| 新增测试放 `app/test/theme/*.dart` | 放 `app/test/core/theme/*.dart` | 仓库既有约定是 `test/core/theme/`(app_theme_test / tokens_test 都在那),不另开目录 |
+| 暗色值「写死在 `HeartColors.dark`」 | 单独成 `HeartDarkColors` 类 | `tokens.spec.ts` 用正则解析 `static const x = Color(0xAARRGGBB);`,内联进构造参数解析不到,暗色漏改就抓不住 |
+| F-1 只要求 `theme` / `darkTheme` / `themeMode` | 顺带新增 `AppGradients.heartOf/systemOf/heartSweepOf` | §2.1.1 里 `heartOrange` 暗色要提亮,渐变若还用静态常量,暗色下渐变终点会留在浅色值 |
+| F-3 只要求 store + App.vue | 顺带在 Web 设置页加了「外观」三态分段控件 | 否则 Web 侧无法手动切三态,F-5 的「切三态」无从验证 |
+| F-5「13 条路由逐页手测」 | 改成 **24 个页面的自动化暗色巡检** + Web 静态门禁 | 本环境无 Android 模拟器、且沙箱禁止监听端口(浏览器跑不起来),人工逐页看无法在此完成;自动化巡检能**回归**,比一次性手测更值 |
+
+#### 踩到的坑
+
+1. **`const` 上下文是最大工作量来源**。`const Icon(... color: colors.text1)` 这类写法会被分析器报成
+   `Undefined name 'colors'`(而不是「非常量」),一开始很难看出根因。最后写了一个通用的「去 const」脚本:
+   凡是 `const X(...)` / `const [...]` 片段里出现 `colors` 或 `context.heart` 的,把那个 `const` 去掉
+   —— 去掉 const 只损失常量折叠,不改语义。
+2. **表达式体 `build`(`=> X;`)没法插语句**,必须整段改写成块体;而且替换 `=>` 时要连 `=>` 一起去掉,
+   否则 `=> {` 会被解析成 Set 字面量。
+3. **CustomPainter 拿不到 BuildContext**(`paint` 只有 `PaintingContext`)。4 个自绘点
+   (`_GradientRangeTrackShape` / `_BubblesPainter` / `MatchParticlesPainter` / `_RingPainter`)
+   一律改成构造注入 `HeartColors`,并在 `shouldRepaint` 里比较色板。
+4. **裸 `MaterialApp()` 的组件测试全炸**:组件取色改走 `context.heart` 后,测试里没有注册
+   ThemeExtension,debug 断言直接抛。加了 `test/support/heart_theme.dart`(`heartTheme` / `heartThemeDark`)
+   并给 51 个测试文件的 `MaterialApp` 补 `theme:`。**新增组件测试务必带上它。**
+5. **`AnimatedTheme` 会 lerp 主题**,切换瞬间取到的是插值色板;断言「最终色板」的用例要把
+   `themeAnimationDuration` 设成 `Duration.zero`。
+6. **设置页新增一张卡把「退出登录」挤出了懒加载列表**,`settings_page_test` 的 `find.byKey` 直接找不到
+   (ListView 只挂载可见子树)。解法:把「外观」卡放**最后一张**,危险动作留在原位置,既有用例零改动。
+
+#### F-5 暗色回归记录(自动化)
+
+`app/test/core/theme/dark_mode_sweep_test.dart`,24 个用例,逐页在**暗色主题**下渲染并断言:
+
+- 渲染不抛异常;
+- 每个 `Scaffold.backgroundColor` == 深色 `bgPage`(#0E1015);
+- 渲染树里所有「面」(Material / ColoredBox / DecoratedBox 的底色与渐变两端)**不得**出现浅色
+  `bgPage`(#F6F7FB)或 `divider`(#EEF0F4) —— 那正是漏迁移的典型症状。
+
+覆盖页面:登录 / 引导 / 首页(四 Tab 各切一遍)/ 广场 / 我的 / 编辑资料 / 想找的人 / 他人资料 /
+喜欢我 / 访客 / 聊天 / 搜索 / 发布动态 / 我的动态 / 动态详情 / 设置 / 黑名单 / 通知设置 / 关于 /
+意见反馈 / 协议 / 隐私 —— 共 24 条(22 个页面 + 首页 4 Tab 合并 1 条 + 重点元素 1 条)。
+
+重点项(照片 scrim、心跳渐变按钮、骨架屏、Toast、对话框、空态)都在上述页面里出现,断言同样生效。
+**故意把设置页底色改回浅色验证过:2 条用例立刻变红。**
+
+Web 侧(`web/`)无法在本环境起浏览器(沙箱禁 listen),因此用两条静态门禁代替,并留了手测清单:
+
+- `tokens.spec.ts`:分别解析 `:root` 与 `[data-theme='dark']`,与 Dart 的 `HeartColors.light` /
+  `HeartDarkColors` **逐字段双向比对**,并断言暗色块覆盖了 `:root` 的每一个色板变量。
+- `no-raw-color.spec.ts`:`src/**`(除 `tokens.css`)零裸 hex / 零裸 `rgb()`。
+- 手测清单(本地 `npm run dev` 后过一遍,三态各看一次):登录 / 首页四 Tab / 聊天(照片 scrim、
+  语音气泡、输入框)/ 广场(卡片、骨架)/ 资料页(头图 scrim、完成度环)/ 设置(分段控件)/ 协议弹窗。
+
+#### 零裸色值最终状态
+
+```bash
+git grep -n "Color(0x"      -- app/lib/features   # 0
+git grep -n "AppColors\."   -- app/lib | grep -v core/theme   # 0
+git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
+```
+
+两条硬门禁(App `no_raw_colors_test.dart`、Web `no-raw-color.spec.ts`)都做过「故意违规 → 变红」验证。
+

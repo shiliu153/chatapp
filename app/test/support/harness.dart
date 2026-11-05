@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chatapp_app/app.dart';
 import 'package:chatapp_app/core/app_config.dart';
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/core/theme/app_theme.dart';
 import 'package:chatapp_app/core/theme/theme_controller.dart';
 import 'package:chatapp_app/core/theme/theme_mode_store.dart';
 import 'package:chatapp_app/core/token_storage.dart';
@@ -59,6 +61,41 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
 /// 底部导航栏里的 Tab 标签(避开与各页 AppBar 标题重名)。
 Finder navTab(String label) =>
     find.descendant(of: find.byType(AppBottomBar), matching: find.text(label));
+
+/// 直接 pump 单个页面(真实 provider + 假网络 + 真实主题),不走路由。
+///
+/// 给「逐页暗色巡检」这类用例用:一次只关心一个页面,不需要 go_router 的跳转链。
+/// [brightness] 决定挂哪套主题 —— 组件取色走 `context.heart`,所以必须是真实主题。
+Future<void> pumpPage(
+  WidgetTester tester,
+  ScriptedAdapter adapter,
+  Widget page, {
+  Map<String, Object> prefs = const {},
+  Brightness brightness = Brightness.light,
+  FakeImClient? imClient,
+  List<Override> overrides = const [],
+}) async {
+  SharedPreferences.setMockInitialValues({'legal.agreed_version': legalVersion, ...prefs});
+  final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
+  final refreshDio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
+  await tester.pumpWidget(ProviderScope(
+    overrides: [
+      baseDioProvider.overrideWithValue(dio),
+      refreshDioProvider.overrideWithValue(refreshDio),
+      tokenStoreProvider
+          .overrideWithValue(TokenStore(storage: SharedPreferencesTokenStorage())),
+      imClientProvider.overrideWithValue(imClient ?? FakeImClient()),
+      appConfigCheckEnabledProvider.overrideWithValue(false),
+      heartbeatIntervalProvider.overrideWithValue(null),
+      presenceRefreshIntervalProvider.overrideWithValue(null),
+      ...overrides,
+    ],
+    child: MaterialApp(
+      theme: buildAppTheme(brightness: brightness),
+      home: page,
+    ),
+  ));
+}
 
 /// 页面含无限动画(涟漪/骨架/在线点)时,替代 pumpAndSettle 的「够用即停」推进:
 /// 假时钟步进若干帧,放行网络链与入场动画后即可断言。
