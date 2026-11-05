@@ -127,7 +127,7 @@ const currentSection = computed(() => {
 }
 /* 选中态:本屏唯一高音(spec §6.2) */
 .app-sidebar__item--active {
-  background: rgb(255 44 85 / 8%);
+  background: var(--tint-brand);
   color: var(--color-brand);
   font-weight: var(--weight-semibold);
 }
