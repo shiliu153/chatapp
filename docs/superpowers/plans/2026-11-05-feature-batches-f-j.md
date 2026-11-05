@@ -635,4 +635,12 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 | Web | `vue-tsc` / `eslint --max-warnings 0` 零告警;`vitest` **432 绿**(新增 `icebreaker.spec.ts` 6 例 + `match-moment.spec.ts` 3 例 + `matches-list.spec.ts` 1 例 + `discovery-store.spec.ts` 2 例) |
 | 版本 | `python scripts/sync_version.py --check` 绿(1.0.6) |
 
+#### 发版(G-4)
 
+- PR #83 squash 合并 → `ba24f93`;`v1.0.6` 附注 tag 指向它;Release
+  [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6) 已建,
+  附件 `chatapp-1.0.6.apk`(57.4 MB,SHA-1 `8d6353147abb6088c245d40df64a7a7825774cf9`,
+  从 `ba24f93` 构建)。
+- **未做**:后端 / `dist` / APK 上服务器,`.env` 的 `LATEST_APP_VERSION` 未改。
+  后端接口是纯增量(只加字段),旧后端 + 新客户端可正常工作,可以延后部署;细节见
+  `docs/ops/release.md` §6.2。
