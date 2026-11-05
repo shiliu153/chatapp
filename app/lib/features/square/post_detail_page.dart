@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -120,13 +120,14 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final post = ref.watch(postDetailProvider(widget.postId));
     final comments = ref.watch(commentsProvider(widget.postId));
     final presenceById = ref.watch(presenceProvider);
     final myId = ref.watch(profileProvider).value?.userId;
     final args = widget.args;
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -301,14 +302,16 @@ class _CommentBar extends StatelessWidget {
   static const _barHeight = 44.0; // 紧凑输入场景(附录 D 修订 B.4)
 
   @override
-  Widget build(BuildContext context) => Container(
-        color: AppColors.bgCard,
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
+        color: colors.bgCard,
         child: SafeArea(
           top: false,
           child: Container(
             padding: const EdgeInsets.all(AppSpacing.sm),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppColors.divider)),
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: colors.divider)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -320,14 +323,14 @@ class _CommentBar extends StatelessWidget {
                       children: [
                         Flexible(
                           child: Text('回复 @${replyTo!.author.nickname}',
-                              style: AppText.micro.copyWith(color: AppColors.text2)),
+                              style: AppText.micro.copyWith(color: colors.text2)),
                         ),
                         GestureDetector(
                           key: const Key('post.comment.reply.cancel'),
                           behavior: HitTestBehavior.opaque,
                           onTap: onCancelReply,
                           child: Icon(Icons.close_rounded,
-                              size: 16, color: AppColors.text3),
+                              size: 16, color: colors.text3),
                         ),
                       ],
                     ),
@@ -340,17 +343,17 @@ class _CommentBar extends StatelessWidget {
                     builder: (context, child) => Container(
                       height: _barHeight,
                       decoration: BoxDecoration(
-                        color: AppColors.bgCard,
+                        color: colors.bgCard,
                         borderRadius: BorderRadius.circular(AppRadius.input),
                         border: Border.all(
                           color:
-                              focus.hasFocus ? AppColors.brand : AppColors.divider,
+                              focus.hasFocus ? colors.brand : colors.divider,
                           width: focus.hasFocus ? 1.5 : 1,
                         ),
                         boxShadow: focus.hasFocus
                             ? [
                                 BoxShadow(
-                                  color: AppColors.brand.withValues(alpha: .12),
+                                  color: colors.brand.withValues(alpha: .12),
                                   blurRadius: 12,
                                 ),
                               ]
@@ -363,12 +366,12 @@ class _CommentBar extends StatelessWidget {
                       controller: input,
                       focusNode: focus,
                       maxLength: 200,
-                      style: AppText.body.copyWith(color: AppColors.text1),
+                      style: AppText.body.copyWith(color: colors.text1),
                       decoration: InputDecoration(
                         hintText: replyTo == null
                             ? '说点什么…'
                             : '回复 @${replyTo!.author.nickname}…',
-                        hintStyle: AppText.body.copyWith(color: AppColors.text3),
+                        hintStyle: AppText.body.copyWith(color: colors.text3),
                         counterText: '',
                         border: InputBorder.none,
                         isCollapsed: true,
@@ -387,8 +390,8 @@ class _CommentBar extends StatelessWidget {
                     icon: Icon(Icons.send_rounded,
                         size: 24,
                         color: input.text.trim().isEmpty
-                            ? AppColors.text3
-                            : AppColors.brand),
+                            ? colors.text3
+                            : colors.brand),
                   ),
                 ),
                   ],
@@ -398,4 +401,5 @@ class _CommentBar extends StatelessWidget {
           ),
         ),
       );
+  }
 }

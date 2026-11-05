@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_gradients.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
@@ -95,11 +95,12 @@ class _SquarePageState extends ConsumerState<SquarePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final posts = ref.watch(squareProvider);
     final presenceById = ref.watch(presenceProvider);
     final myId = ref.watch(profileProvider).value?.userId;
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       // FAB 上移 84:默认 endFloat 会压在悬浮胶囊底栏(64+10)上(附录 D)
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: Padding(
@@ -116,7 +117,7 @@ class _SquarePageState extends ConsumerState<SquarePage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(
                   AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.md),
-              child: Text('广场', style: AppText.display.copyWith(color: AppColors.text1)),
+              child: Text('广场', style: AppText.display.copyWith(color: colors.text1)),
             ),
             Expanded(
               child: posts.when(
@@ -147,8 +148,8 @@ class _SquarePageState extends ConsumerState<SquarePage> {
                           ),
                         )
                       : RefreshIndicator(
-                          backgroundColor: AppColors.bgCard,
-                          color: AppColors.brand,
+                          backgroundColor: colors.bgCard,
+                          color: colors.brand,
                           onRefresh: () =>
                               ref.read(squareProvider.notifier).reload(),
                           child: ListView.separated(
@@ -207,13 +208,15 @@ class _ComposeFab extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         key: const Key('square.fab'),
         width: 56,
         height: 56,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: AppGradients.heart,
+          gradient: AppGradients.heartOf(colors),
           boxShadow: AppShadows.primaryButton,
         ),
         child: Material(
@@ -225,4 +228,5 @@ class _ComposeFab extends StatelessWidget {
           ),
         ),
       );
+  }
 }

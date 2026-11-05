@@ -73,7 +73,7 @@ class AppRangeField extends StatelessWidget {
 /// 所以色板由外部构造时注入。
 class _GradientRangeTrackShape extends RangeSliderTrackShape
     with BaseRangeSliderTrackShape {
-  const _GradientRangeTrackShape(this.colors);
+  _GradientRangeTrackShape(this.colors);
 
   /// 当前主题的语义色板。
   final HeartColors colors;

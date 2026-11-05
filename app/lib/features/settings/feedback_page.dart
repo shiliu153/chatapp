@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_button.dart';
@@ -11,6 +10,7 @@ import '../../core/widgets/app_sub_page_bar.dart';
 import '../../core/widgets/app_text_field.dart';
 import '../../core/widgets/app_toast.dart';
 import 'settings_repository.dart';
+import '../../core/theme/heart_theme_context.dart';
 
 /// 意见反馈页:类型 + 内容 + 可选联系方式。
 class FeedbackPage extends ConsumerStatefulWidget {
@@ -61,8 +61,10 @@ class _FeedbackPageState extends ConsumerState<FeedbackPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.bgPage,
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Scaffold(
+        backgroundColor: colors.bgPage,
         body: SafeArea(
           bottom: false,
           child: Column(
@@ -74,7 +76,7 @@ class _FeedbackPageState extends ConsumerState<FeedbackPage> {
                       AppSpacing.md, AppSpacing.pageH, AppSpacing.xxl),
                   children: [
                     Text('反馈类型',
-                        style: AppText.caption.copyWith(color: AppColors.text2)),
+                        style: AppText.caption.copyWith(color: colors.text2)),
                     const SizedBox(height: AppSpacing.xs),
                     AppOptionGroup<String>(
                       key: const Key('feedback.type'),
@@ -115,4 +117,5 @@ class _FeedbackPageState extends ConsumerState<FeedbackPage> {
           ),
         ),
       );
+  }
 }

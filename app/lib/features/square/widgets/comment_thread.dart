@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api_exception.dart';
 import '../../../core/format.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -38,6 +38,7 @@ class CommentThread extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     return comments.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(AppSpacing.xxl),
@@ -55,7 +56,7 @@ class CommentThread extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const Divider(height: 1, color: AppColors.divider),
+                  if (i > 0) Divider(height: 1, color: colors.divider),
                   CommentTile(
                     comment: items[i],
                     depth: 0,
@@ -105,6 +106,7 @@ class CommentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final indent = depth == 0 ? 0.0 : AppSpacing.xxl;
     final size = depth == 0 ? 28.0 : 24.0;
     final heroTag = 'avatar-comment-${comment.id}';
@@ -147,25 +149,25 @@ class CommentTile extends StatelessWidget {
                           extra: heroTag),
                   child: Text(comment.author.nickname,
                       style: AppText.caption.copyWith(
-                          fontWeight: FontWeight.w600, color: AppColors.text2)),
+                          fontWeight: FontWeight.w600, color: colors.text2)),
                 ),
                 const SizedBox(height: 2),
                 Text.rich(TextSpan(children: [
                   if (replyTo != null)
                     TextSpan(
                       text: '回复 @${replyTo.nickname} ',
-                      style: AppText.body.copyWith(color: AppColors.text3),
+                      style: AppText.body.copyWith(color: colors.text3),
                     ),
                   TextSpan(
                     text: comment.text,
-                    style: AppText.body.copyWith(color: AppColors.text1),
+                    style: AppText.body.copyWith(color: colors.text1),
                   ),
                 ])),
                 const SizedBox(height: 2),
                 Row(
                   children: [
                     Text(formatPostTime(comment.createdAt),
-                        style: AppText.micro.copyWith(color: AppColors.text3)),
+                        style: AppText.micro.copyWith(color: colors.text3)),
                     const SizedBox(width: AppSpacing.md),
                     _TextButton(
                       key: Key('post.comment.reply.${comment.id}'),
@@ -198,15 +200,18 @@ class _TextButton extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
           child: Text(label,
-              style: AppText.micro.copyWith(color: AppColors.text2)),
+              style: AppText.micro.copyWith(color: colors.text2)),
         ),
       );
+  }
 }
 
 /// 「查看全部 N 条回复」:点击后走独立接口拉全量,原地展开。
@@ -234,6 +239,7 @@ class _MoreRepliesState extends ConsumerState<_MoreReplies> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final root = widget.root;
     if (!_expanded) {
       return Padding(
@@ -243,7 +249,7 @@ class _MoreRepliesState extends ConsumerState<_MoreReplies> {
           behavior: HitTestBehavior.opaque,
           onTap: () => setState(() => _expanded = true),
           child: Text('查看全部 ${root.replyCount} 条回复',
-              style: AppText.micro.copyWith(color: AppColors.text2)),
+              style: AppText.micro.copyWith(color: colors.text2)),
         ),
       );
     }
@@ -260,7 +266,7 @@ class _MoreRepliesState extends ConsumerState<_MoreReplies> {
         error: (error, _) => Padding(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
           child: Text(apiMessageOf(error),
-              style: AppText.micro.copyWith(color: AppColors.text3)),
+              style: AppText.micro.copyWith(color: colors.text3)),
         ),
         data: (items) => Column(
           children: [

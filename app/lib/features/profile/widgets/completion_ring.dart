@@ -46,7 +46,7 @@ class CompletionRing extends StatelessWidget {
 }
 
 class _RingPainter extends CustomPainter {
-  const _RingPainter({
+  _RingPainter({
     required this.progress,
     required this.stroke,
     required this.colors,
