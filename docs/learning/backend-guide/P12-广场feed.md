@@ -269,7 +269,7 @@ python manage.py test feed --noinput
 | 需要 | 去处 |
 |---|---|
 | 广场接口契约（分页、字段、四态） | [../../api/feed.md](../../api/feed.md) |
-| 广场设计意图 | [../../superpowers/specs/2026-09-12-square-feed-design.md](../../superpowers/specs/2026-09-12-square-feed-design.md) |
+| 广场设计意图 | [../../superpowers/archive/specs/2026-09-12-square-feed-design.md](../../superpowers/archive/specs/2026-09-12-square-feed-design.md) |
 | 图片上传相关坑 | [../../pitfalls/frontend.md](../../pitfalls/frontend.md)（前端视角）、[../../pitfalls/backend.md](../../pitfalls/backend.md) |
 | ORM 聚合语义 | Django `annotate` / `aggregation` 文档（只查这两处） |
 

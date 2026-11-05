@@ -1,6 +1,6 @@
 # 双机负载均衡 vs 只升配:决策记录(2026-11-04)
 
-> 对应 backlog **D-3**。输入:[双机负载均衡设计 v2](../superpowers/specs/2026-10-28-dual-server-load-balancing-design.md)
+> 对应 backlog **D-3**。输入:[双机负载均衡设计 v2](../superpowers/archive/specs/2026-10-28-dual-server-load-balancing-design.md)
 > (只有设计、无实施计划)+ [D-2 容量归因](read-baseline-2026-11-04.md)(2026-11-04 实测)。
 > **本文只做决策,不含实施计划;拍板后才写 plan。**
 

@@ -227,7 +227,7 @@ python manage.py test ops --noinput
 
 | 需要 | 去处 |
 |---|---|
-| 审核台设计意图 | [../../superpowers/specs/2026-09-11-moderation-console-design.md](../../superpowers/specs/2026-09-11-moderation-console-design.md)、[../../superpowers/specs/2026-09-11-ops-console-ui-design.md](../../superpowers/specs/2026-09-11-ops-console-ui-design.md) |
+| 审核台设计意图 | [../../superpowers/archive/specs/2026-09-11-moderation-console-design.md](../../superpowers/archive/specs/2026-09-11-moderation-console-design.md)、[../../superpowers/archive/specs/2026-09-11-ops-console-ui-design.md](../../superpowers/archive/specs/2026-09-11-ops-console-ui-design.md) |
 | 封禁/审核的业务规则 | P11、[../../api/errors.md](../../api/errors.md) §封禁行为 |
 | Django 模板视图 / 内置 auth 视图 | Django 官方 `topics/class-based-views`、`django.contrib.auth.views`（只查你要用的那个） |
 

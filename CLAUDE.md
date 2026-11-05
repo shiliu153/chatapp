@@ -17,9 +17,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 想知道 | 去哪 |
 |---|---|
-| **现在该做什么** | [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)(待办总表,按批次排好,每条可独立开新对话执行) |
+| **现在该做什么** | [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)(待办总表,按批次排好;A–E 已全部闭环,剩余未闭环项见 §7) |
 | 已交付了什么、哪天、哪个 PR | [docs/milestones.md](docs/milestones.md)(完整时间线) |
-| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(工作面 3 份 + 归档 80 份的索引) |
+| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(工作面 1 份 + 归档 85 份的索引) |
 | 写代码 / 排障前 | [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选:IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包 → android-emulator.md;测试 → testing.md;网页端 → web.md |
 | 接口(对外交付级) | [docs/api/README.md](docs/api/README.md) |
 | 部署与运维 | [README.md](README.md)「部署」;服务器细节 → [docs/ops/imserver.md](docs/ops/imserver.md)、[docs/ops/runbook.md](docs/ops/runbook.md) |
@@ -32,7 +32,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。
 
-> **项目定位(2026-11-04 用户决定):个人项目,不对外发行。** 不上架应用商店、不开放自助注册(手机号白名单收口)、不做合规轨(备案材料 / 软著 / 安全评估 / PIPIA 已否决);backlog 批次 B「上线阻断」整批关闭,**C/D/E 三批照常推进**。各类历史文档里的「上线阻断项 / 上线前必须做」口径一律作废,以 [backlog §4.2](docs/backlog/2026-11-03-todo.md) 为准;**安全基线不因此降级**。
+> **项目定位(2026-11-04 用户决定):个人项目,不对外发行。** 不上架应用商店、不开放自助注册(手机号白名单收口)、不做合规轨(备案材料 / 软著 / 安全评估 / PIPIA 已否决);backlog 批次 B「上线阻断」整批关闭,**C/D/E 三批已于 2026-11-05 全部交付**。各类历史文档里的「上线阻断项 / 上线前必须做」口径一律作废,以 [backlog §4.2](docs/backlog/2026-11-03-todo.md) 为准;**安全基线不因此降级**。
 
 **完整时间线见 [docs/milestones.md](docs/milestones.md)**,这里只留骨架:
 
@@ -189,4 +189,4 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 
 ## 下一步
 
-**所有待办统一在 [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)**:按批次(A 止血 → B 准入收敛「已关闭」→ C 产品闭环 → D 规模架构 → E 工程纪律)排好序,每条都带证据、验收口径和「开新对话提示词」。**当前进度:A 全完成、B 轨已关闭(定位改个人项目,见里程碑段的说明与 backlog §4.2),从 C 轨开始。不要在本文件里另起一份待办清单。**
+**所有待办统一在 [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)**:按批次(A 止血 → B 准入收敛「已关闭」→ C 产品闭环 → D 规模架构 → E 工程纪律)排好序,每条都带证据、验收口径和「开新对话提示词」。**当前进度(2026-11-05):A–E 五批全部闭环,本表已无待办;唯一未闭环的功能项是「App 端消息推送」(后端链路已上线,缺极光 key 与客户端 SDK),连同备份异地、树莓派容量、TOTP 重绑确认等一并列在 backlog §7。不要在本文件里另起一份待办清单。**

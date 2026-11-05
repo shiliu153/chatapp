@@ -1,7 +1,7 @@
 # 读基线重跑 + `candidates` 归因 + 场景矩阵补齐（2026-11-04）
 
 > 对应 backlog **D-2**（`docs/backlog/2026-11-03-todo.md`）与
-> [observability 计划 B.2 未勾项](../superpowers/plans/2026-11-02-observability-and-capacity.md)。
+> [observability 计划 B.2 未勾项](../superpowers/archive/plans/2026-11-02-observability-and-capacity.md)。
 > 前置报告：[stress-test-2026-11-01](stress-test-2026-11-01.md)（读点来源）、
 > [write-baseline-2026-11-03](write-baseline-2026-11-03.md)（§4.3/§7 提的三个问题）。
 >

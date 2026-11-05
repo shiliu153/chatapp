@@ -1,6 +1,6 @@
 # cursor/keyset 分页替代 offset(backlog D-1)
 
-> **来源**:[backlog D-1](../../backlog/2026-11-03-todo.md)、[全栈审查 §N-5](../../reviews/2026-11-03-fullstack-review.md)、
+> **来源**:[backlog D-1](../../../backlog/2026-11-03-todo.md)、[全栈审查 §N-5](../../../reviews/2026-11-03-fullstack-review.md)、
 > [可观测性与容量 B.3 未勾项](2026-11-02-observability-and-capacity.md)(深翻页 OFFSET 跳读 106ms)。
 > **Goal**:把「头部持续插入」的四类列表从 `limit/offset` 换成复合游标(keyset)分页,
 > 翻页不再重复/漏读,深翻页耗时与页深无关;App / Web / 接口文档三端同改。
