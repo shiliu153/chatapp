@@ -1,4 +1,4 @@
-"""Prometheus 指标:HTTP RED(rate / errors / duration)与在途请求数。
+"""Prometheus 指标:HTTP RED(rate / errors / duration)、在途请求、缓存与业务计数。
 
 设计要点:
     1. **只按路由模板打标签**(``request.resolver_match.route``),不用真实路径 ——
@@ -6,18 +6,41 @@
     2. 自建 ``CollectorRegistry``:测试里模块会被反复导入/重载,用默认注册表会抛
        ``Duplicated timeseries``;
     3. ``/metrics`` 自身不计数,否则每次抓取都会污染延迟分布;
-    4. 只做进程内聚合,不落库、不发网络请求(响应路径禁止第三方调用的约定)。
+    4. **多进程(gunicorn 2 个 worker)必须开 ``PROMETHEUS_MULTIPROC_DIR``**:
+       计数器默认是进程内的,各 worker 各记一份,而 Prometheus 每次抓取只落在一个 worker 上
+       —— 实测 20 次请求后两个 worker 分别是 10 / 12,抓取结果在两者之间跳,``rate()`` 还会
+       把「另一个 worker 的数更小」当成计数器重置。配好该目录后各 worker 写共享 mmap 文件,
+       抓取时用 ``MultiProcessCollector`` 合并(见 ``chatapp/gunicorn.conf.py``);
+    5. 只做进程内聚合,不落库、不发网络请求(响应路径禁止第三方调用的约定)。
 """
 
 import hmac
 import ipaddress
+import logging
+import os
 
 from django.conf import settings
 from django.http import HttpResponse
 from prometheus_client import (CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge,
-                               Histogram, generate_latest)
+                               Histogram, generate_latest, multiprocess)
+
+logger = logging.getLogger(__name__)
 
 REGISTRY = CollectorRegistry(auto_describe=True)
+
+# 多进程模式由环境变量开启(生产 .env 指向 /dev/shm 下的目录);未配置时保持单进程语义,
+# 本地 runserver / 测试 / 单 worker 部署都不需要它。
+MULTIPROC_DIR = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "")
+
+
+def multiprocess_enabled() -> bool:
+    """是否启用 Prometheus 多进程合并。
+
+    Returns:
+        True 表示 ``PROMETHEUS_MULTIPROC_DIR`` 已配置且目录存在;否则 False(单进程语义)。
+    """
+    return bool(MULTIPROC_DIR) and os.path.isdir(MULTIPROC_DIR)
+
 
 REQUESTS = Counter(
     "http_requests_total",
@@ -38,6 +61,8 @@ INFLIGHT = Gauge(
     "http_inflight",
     "当前正在处理的请求数",
     registry=REGISTRY,
+    # 多进程下「在途请求」要跨 worker 相加,否则合并后只剩某一个 worker 的读数。
+    multiprocess_mode="livesum",
 )
 
 # --- 缓存指标:命中率是「加缓存到底有没有用」的唯一证据 ---
@@ -105,6 +130,8 @@ CELERY_QUEUE_DEPTH = Gauge(
     "各 Celery 队列的待处理任务数",
     ["queue"],
     registry=REGISTRY,
+    # 抓取时由进程自己从 broker 读;多进程合并要取 max,取 sum 会变成「队列长度 × worker 数」。
+    multiprocess_mode="max",
 )
 
 QUEUES = ("critical", "default", "notify", "bulk")
@@ -171,9 +198,21 @@ def observe(method: str, route: str, status: int, seconds: float) -> None:
 def render() -> bytes:
     """渲染 Prometheus 文本格式的指标快照。
 
+    多进程模式(``PROMETHEUS_MULTIPROC_DIR`` 已配置)下用 ``MultiProcessCollector`` 把各
+    worker 的 mmap 文件合并成一份;合并失败时退回本进程视图并记一次 ``cache_errors_total``
+    —— 抓取宁可少几个数,也不能返回 500 让整条监控链路哑掉。
+
     Returns:
         exposition 格式的字节串。
     """
+    if multiprocess_enabled():
+        try:
+            registry = CollectorRegistry(auto_describe=True)
+            multiprocess.MultiProcessCollector(registry)
+            return generate_latest(registry)
+        except Exception:  # noqa: BLE001  mmap 目录被删/权限变化都不能让抓取失败
+            logger.exception("多进程指标合并失败,退回本进程视图")
+            CACHE_ERRORS.labels(name="metrics_multiprocess").inc()
     return generate_latest(REGISTRY)
 
 
