@@ -957,6 +957,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/push/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description 上报推送设备(POST /api/v1/push/devices)。
+         *
+         *     幂等:同一 registration_id 重复上报只更新归属与版本;同账号的其他设备被删除。
+         *
+         *     Args:
+         *         request: DRF 请求对象,body 需带 ``registration_id`` 与 ``platform``。
+         *
+         *     Returns:
+         *         ``{"registration_id": str, "platform": str}``。
+         */
+        post: operations["push_devices_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/push/devices/{registration_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description 解绑推送设备(DELETE /api/v1/push/devices/{registration_id})。
+         *
+         *     幂等:设备不存在、或属于别人,一律 204(不泄漏他人设备信息)。
+         *
+         *     Args:
+         *         request: DRF 请求对象。
+         *         registration_id: 极光 registration_id。
+         *
+         *     Returns:
+         *         204 空响应。
+         */
+        delete: operations["push_devices_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/push/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 读取或修改通知偏好(GET/PATCH /api/v1/push/preferences)。
+         *
+         *     PATCH 为局部更新:只改传入的字段,未传的保持不变。
+         *
+         *     Args:
+         *         request: DRF 请求对象;PATCH 时 body 可带
+         *             ``likes`` / ``matches`` / ``messages`` / ``system``。
+         *
+         *     Returns:
+         *         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool}``。
+         */
+        get: operations["push_preferences_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description 读取或修改通知偏好(GET/PATCH /api/v1/push/preferences)。
+         *
+         *     PATCH 为局部更新:只改传入的字段,未传的保持不变。
+         *
+         *     Args:
+         *         request: DRF 请求对象;PATCH 时 body 可带
+         *             ``likes`` / ``matches`` / ``messages`` / ``system``。
+         *
+         *     Returns:
+         *         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool}``。
+         */
+        patch: operations["push_preferences_partial_update"];
+        trace?: never;
+    };
     "/api/v1/readyz": {
         parameters: {
             query?: never;
@@ -1316,6 +1411,12 @@ export interface components {
             size: number;
         };
         /**
+         * @description * `web` - web
+         *     * `app` - app
+         * @enum {string}
+         */
+        ClientErrorPlatformEnum: "web" | "app";
+        /**
          * @description 一条客户端错误上报。
          *
          *     Attributes:
@@ -1327,7 +1428,7 @@ export interface components {
          *         request_id: 客户端最后收到的 ``X-Request-Id``,用来和服务端日志对账。
          */
         ClientErrorRequest: {
-            platform: components["schemas"]["PlatformEnum"];
+            platform: components["schemas"]["ClientErrorPlatformEnum"];
             message: string;
             /** @default  */
             stack: string;
@@ -1343,6 +1444,24 @@ export interface components {
             next: string | null;
             previous: string | null;
             results: components["schemas"]["PostComment"][];
+        };
+        /**
+         * @description * `android` - Android
+         *     * `ios` - iOS
+         * @enum {string}
+         */
+        DevicePlatformEnum: "android" | "ios";
+        /** @description 设备上报的入参。 */
+        DeviceRequest: {
+            registration_id: string;
+            platform: components["schemas"]["DevicePlatformEnum"];
+            /** @default  */
+            app_version: string;
+        };
+        /** @description 设备上报的回执。 */
+        DeviceResponse: {
+            registration_id: string;
+            platform: string;
         };
         /** @description 反馈的对外回执(不回显处理状态与处理人)。 */
         Feedback: {
@@ -1458,6 +1577,17 @@ export interface components {
             tag_ids?: number[];
             visits_hidden?: boolean;
         };
+        /** @description 通知偏好的读写形状(四个布尔字段,对应四类通知)。 */
+        PatchedPushPreferenceRequest: {
+            /** 新的喜欢 */
+            likes?: boolean;
+            /** 配对成功 */
+            matches?: boolean;
+            /** 新消息 */
+            messages?: boolean;
+            /** 系统通知 */
+            system?: boolean;
+        };
         /** @description 只接收一个手机号的入参。 */
         PhoneRequest: {
             phone: string;
@@ -1484,12 +1614,6 @@ export interface components {
             /** Format: binary */
             file: string;
         };
-        /**
-         * @description * `web` - web
-         *     * `app` - app
-         * @enum {string}
-         */
-        PlatformEnum: "web" | "app";
         /** @description 动态的对外表示,含作者、配图与互动计数。 */
         Post: {
             readonly id: number;
@@ -1635,6 +1759,17 @@ export interface components {
             bio?: string;
             readonly tags: components["schemas"]["Tag"][];
             readonly photos: components["schemas"]["Photo"][];
+        };
+        /** @description 通知偏好的读写形状(四个布尔字段,对应四类通知)。 */
+        PushPreference: {
+            /** 新的喜欢 */
+            likes?: boolean;
+            /** 配对成功 */
+            matches?: boolean;
+            /** 新消息 */
+            messages?: boolean;
+            /** 系统通知 */
+            system?: boolean;
         };
         ReadyStatus: {
             status: string;
@@ -2604,6 +2739,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PresenceResult"];
+                };
+            };
+        };
+    };
+    push_devices_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeviceRequest"];
+                "multipart/form-data": components["schemas"]["DeviceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceResponse"];
+                };
+            };
+        };
+    };
+    push_devices_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                registration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    push_preferences_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushPreference"];
+                };
+            };
+        };
+    };
+    push_preferences_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedPushPreferenceRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedPushPreferenceRequest"];
+                "multipart/form-data": components["schemas"]["PatchedPushPreferenceRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushPreference"];
                 };
             };
         };
