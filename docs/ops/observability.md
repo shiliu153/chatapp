@@ -320,4 +320,26 @@ cd chatapp && python manage.py runserver 127.0.0.1:8000
 curl -s http://127.0.0.1:8000/metrics | head        # 未配 METRICS_TOKEN 时回环可抓
 ```
 
-测试覆盖:`config.tests.MetricsTests`(路由模板打标签、令牌、回环 404、抓取自身不计数)。
+测试覆盖:`config.tests.MetricsTests`(路由模板打标签、令牌、回环 404、抓取自身不计数)、
+`config.tests.MetricsRenderTests`(多进程开关、合并失败降级)、
+`config.tests.BusinessMetricTests`(登录/滑卡/配对/IM 调用的增量)、
+`deploy/observability/test_alert_relay.py`(告警载荷渲染、去重键、HTTP 入口、发信失败收敛;CI 的 contract 轨会跑)。
+
+## 8. 上线记录(2026-11-05,E-4)
+
+| 步骤 | 结果 |
+|---|---|
+| 代码 | 服务器 `master` `74f920f1` → **`630cd3ba`**(PR #65/#66/#67) |
+| 容器 | 6 个:prometheus / alertmanager / grafana / node-exporter / mysqld-exporter / redis-exporter(**新增 2 个**;旧的 alert-relay 容器已删除) |
+| systemd | `chatapp-alert-relay`(≈10MB)、`chatapp-celery-exporter`(≈20MB) |
+| 抓取 | 6 个 target 全 `up`(api / im / node / celery / mysql / redis) |
+| 规则 | **17 条**告警加载,`promtool check rules` SUCCESS |
+| 看板 | 12 块(新增业务漏斗、Celery、缓存命中率与 IM 失败率、MySQL/Redis 读数) |
+| 告警链路 | 合成告警 `SyntheticProbe` → relay → 邮件到达(relay 日志 `email:directmail ok`);恢复后再发一封 |
+| 探针 | 手动跑 `exit=0`(31ms);上线首小时的 301 假故障已修(见 §2.2 第 6 条) |
+| 多进程指标 | `.env` 加 `PROMETHEUS_MULTIPROC_DIR` + supervisor 命令加 `-c gunicorn.conf.py`;实测连打 8 次后连续两次抓取同为 10 |
+| 资源 | 容器合计 ≈150MB 实测(上限 376MB);systemd 两个服务 ≈30MB;整机 used 1400MB / available 470MB(swap 570MB,压测遗留) |
+
+上线后复查发现并修掉的两个问题(都记在 backlog E-4 的完成note里):**gunicorn 多 worker 指标分裂**、
+**探针把 Django 的 301 当不健康**。两条都是「看着绿的,其实不准」,只有真的去对数字才会发现。
+
