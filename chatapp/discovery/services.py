@@ -77,21 +77,28 @@ def _query_pool_ids(me, preference, pool_size: int) -> list[int]:
 def candidate_pool_ids(me, preference, pool_size: int) -> list[int]:
     """候选池(带缓存):同一用户在同一版本内复用同一份 id 列表。
 
+    ``CANDIDATE_CACHE_TTL <= 0`` 表示**显式关闭缓存**(直接查库、不读也不写缓存)。
+    为什么需要这个开关:``ttl_with_jitter`` 会把 0 兜成 1 秒,只把 TTL 设 0 并不能
+    真正关掉缓存,于是「开/关缓存」的对比实验没法做(E-7);顺带它也是线上可用的
+    缓存熔断手段(缓存怀疑有问题时设 0 重启即可退回纯查库)。
+
     Args:
         me: 当前用户。
         preference: 「想找的人」偏好。
         pool_size: 池子大小。
 
     Returns:
-        候选用户 id 列表;缓存不可用时退化为直接查库。
+        候选用户 id 列表;缓存关闭或不可用时退化为直接查库。
     """
+    ttl = int(getattr(settings, "CANDIDATE_CACHE_TTL", 30))
+    if ttl <= 0:
+        return _query_pool_ids(me, preference, pool_size)
     key = "disc:cand:{}:u{}:g{}:p{}".format(
         me.id,
         cache_utils.version(user_version_key(me.id)),
         cache_utils.version(POOL_VERSION_KEY),
         pool_size,
     )
-    ttl = int(getattr(settings, "CANDIDATE_CACHE_TTL", 30))
     ids = cache_utils.get_or_load(
         key, ttl, lambda: _query_pool_ids(me, preference, pool_size), name="candidates")
     return ids or []

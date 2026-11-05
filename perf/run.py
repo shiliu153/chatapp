@@ -34,6 +34,11 @@
 `--ramp` 让连接在 N 秒内逐步建立(默认 0 = 全部立刻建),用来区分「0→1000 瞬间突发」
 与「0→1000 爬坡」;`--sample-interval` 控制内存曲线的采样间隔(秒,默认 15)。
 
+读连接同样能限速:`--read-interval 0.6` = 每条连接每次请求后等 0.6 秒。
+压 `GET /discovery/candidates` 这种 per-user 限额的读接口时必须用它
+(默认闭循环几秒就把 60 次/小时的额度打光,压出来的是 429 而不是容量;
+E-7 的开/关缓存对比实验就是靠它把每账号请求数压在额度内的)。
+
 请求头有两层,按「默认 → --header → --headers-file 里该连接那一套」合并(后者覆盖前者):
     --header        公共头,可重复,例如 --header 'Content-Type: application/json'
     --headers-file  一行一个 JSON 对象,连接按行轮转 —— 一个账号一个令牌,
@@ -512,7 +517,8 @@ def request_specs(args) -> tuple[list[dict], list[dict]]:
     """
     encoding = getattr(args, "body_encoding", "utf-8")
     read_spec = {"method": args.method, "path": args.path, "body": args.body,
-                 "encoding": encoding, "interval": 0}
+                 "encoding": encoding,
+                 "interval": getattr(args, "read_interval", 0) or 0}
     if args.scenario != "api_mixed":
         return [read_spec], []
     write_spec = {"method": args.write_method, "path": args.write_path,
@@ -760,6 +766,8 @@ def build_payload(args, header_sets: list[dict[str, str]], result: dict,
         "duration_s": args.dur,
         "count": args.count if args.scenario == "ws_burst" else None,
         "interval": args.interval if args.scenario == "ws_steady" else None,
+        "read_interval_s": getattr(args, "read_interval", 0) or 0,
+        "write_interval_s": getattr(args, "write_interval", 0) or 0,
         "tls": args.tls,
         "body_bytes": len(args.body.encode(getattr(args, "body_encoding", "utf-8")))
         if args.body else 0,
@@ -831,6 +839,9 @@ def normalize_args(args) -> str:
         args.body_encoding = "latin-1"
         args.header = list(args.header) + [("Content-Type", content_type)]
 
+    if getattr(args, "read_interval", 0) < 0:
+        return f"--read-interval 不能为负,收到 {args.read_interval}"
+
     if args.scenario == "api_mixed":
         if not args.write_path:
             return "api_mixed 必须给 --write-path(写侧接口)"
@@ -887,6 +898,9 @@ def main() -> int:
     parser.add_argument("--write-interval", type=float, default=0,
                         help="api_mixed:写连接每次请求后的间隔秒(0=不限速;"
                              "写接口都是 per-user 限流,长跑时要靠它打散节奏)")
+    parser.add_argument("--read-interval", type=float, default=0,
+                        help="读连接每次请求后的间隔秒(0=闭循环不限速;"
+                             "压 per-user 限流的读接口时靠它把每账号请求数压在额度内)")
     parser.add_argument("--ramp", type=float, default=0,
                         help="建连爬坡秒数:0=全部立刻建(瞬间突发),N=在 N 秒内摊开")
     parser.add_argument("--sample-interval", type=float, default=15,

@@ -567,6 +567,9 @@ CANDIDATE_POOL_SIZE = int(os.getenv("CANDIDATE_POOL_SIZE", "200"))
 # 2026-11-04 实测(D-2):冷池查询在 2 万资料时 **114.6ms**(全表扫 + 4 个反连接 + 排序),
 # 热池 0.95ms;30s 时每个活跃用户每 30 秒就吃一次 115ms。拉到 300s 后冷查询频率降 10 倍,
 # 而「划走一个人/配对/拉黑」仍然靠版本号立刻失效,不需要靠 TTL。
+# **``<= 0`` 表示显式关闭缓存**(直接查库,不读也不写):E-7 的「开/关缓存」对比实验要用它,
+# 线上怀疑缓存有问题时也是同一套熔断手段。注意别指望「设 0 就等于 1 秒」——
+# ``ttl_with_jitter`` 只兜住非零小值,0 会被 services 判成关闭(2026-11-05)。
 CANDIDATE_CACHE_TTL = int(os.getenv("CANDIDATE_CACHE_TTL", "300"))
 
 MEDIA_URL = "/media/"

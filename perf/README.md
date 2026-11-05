@@ -46,6 +46,11 @@ docker compose -f imserver/docker-compose.test.yml run --rm test \
 写路径要登录态,而**写接口的限流都按用户计**(滑卡 300/小时、发动态 20/天),
 单账号跑几秒就撞 429 —— 那时压出来的是限额,不是容量。所以写场景一律多账号:
 
+> **读接口也有按用户限流的**:`GET /discovery/candidates` 是 **60 次/小时/账号**。
+> 压它必须给 `--read-interval`(例如 `0.6` = 每条连接每次请求后等 0.6 秒),
+> 否则闭循环几秒就打光额度、压出的是成片 429。每轮可用请求数上限 = 账号数 × 60。
+> 例:10 个账号 × `--read-interval 0.6` × `--dur 30` ≈ 500 次(50/账号),安全。
+
 ```bash
 # ① 造数与签令牌(在服务器上,cwd = chatapp/)
 python manage.py seed_scale_users --count 1000          # 199 号段测试号(幂等)
