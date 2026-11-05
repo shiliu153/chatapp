@@ -23,6 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 写代码 / 排障前 | [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选:IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包 → android-emulator.md;测试 → testing.md;网页端 → web.md |
 | 接口(对外交付级) | [docs/api/README.md](docs/api/README.md) |
 | 部署与运维 | [README.md](README.md)「部署」;服务器细节 → [docs/ops/imserver.md](docs/ops/imserver.md)、[docs/ops/runbook.md](docs/ops/runbook.md) |
+| **发版(版本号 / tag / Release)** | [docs/ops/release.md](docs/ops/release.md)(强制清单 + 发版记录表,CI 门禁读它) |
 | 容量 / 观测 / 削峰的数字与口径 | [docs/ops/capacity-and-reliability.md](docs/ops/capacity-and-reliability.md) |
 | 安全审计与整改 | [docs/security/](docs/security/)(三轮报告) |
 | 工程审查结论 | [docs/reviews/2026-11-03-fullstack-review.md](docs/reviews/2026-11-03-fullstack-review.md) |
@@ -119,7 +120,7 @@ npm run type-check && npm run lint   # 必须零错误 / 零告警
 ```bash
 cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=https://chat.shiliu153.cn/api/v1 --dart-define=ERROR_REPORTING=true
 ```
-产物 `app/build/app/outputs/flutter-apk/app-release.apk`。`--dart-define=ERROR_REPORTING=true` **必须带**(否则线上崩溃与白屏不会上报,见 backlog A-4);Web 侧对应 `web/.env.production` 的 `VITE_ERROR_REPORTING=1`。**发版必须同时**:`pubspec.yaml` 的 `version:` + `lib/core/app_info.dart` 的 `appVersion` + 关于页测试期望三处一起改,再上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk` 并更新 `.env` 的 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。
+产物 `app/build/app/outputs/flutter-apk/app-release.apk`。`--dart-define=ERROR_REPORTING=true` **必须带**(否则线上崩溃与白屏不会上报,见 backlog A-4);Web 侧对应 `web/.env.production` 的 `VITE_ERROR_REPORTING=1`。**发版必须同时**:`pubspec.yaml` 的 `version:` + `lib/core/app_info.dart` 的 `appVersion` + 关于页测试期望三处一起改,再上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk` 并更新 `.env` 的 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。**完整发版清单(含 tag 与远端 Release)见 [docs/ops/release.md](docs/ops/release.md)。**
 
 **服务器**:`ssh root@<SERVER_IP>`(免密);部署形态与更新流程见 [README.md](README.md)「部署」。服务器私有的运维手册(面板口令/路径/端口)不入库,本地保留。
 
@@ -148,6 +149,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/master` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。CI 跑在 Ubuntu + MySQL 8 + Redis 上,与本地 Windows 不同;顺序错了会变成「CI 红时生产已在跑未验证代码」
 - **网页端测试纪律**:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + vitest 全绿(覆盖率门槛 70/60/70/70);**端到端冒烟进 CI**(`web-e2e.yml`:真 MySQL + Redis + Django + preview,跑 `npm run e2e:smoke`);全量 8 条仍需后端 + Redis + Celery + imserver,本地 `npm run e2e`(E-3)
 - **发版版本号必须双端同改**:`app/pubspec.yaml` + `app/lib/core/app_info.dart` + `web/package.json`(连带 App 关于页与 Web 关于页测试的期望)。**事实来源只有 `app/pubspec.yaml`**:改完跑 `python scripts/sync_version.py --check`(CI 的 `contract.yml` 会拦),`--write` 自动写回另外两处。`MIN_APP_VERSION` 同时卡网页端——只升 App 会让整站被「需要更新后才能继续使用」挡住(2026-10-28 实测,见 `docs/pitfalls/web.md` #23);改完 Web 必须 `npm run build` 并部署 `dist`
+- **版本更新必须同步更新远端 Release(2026-11-05 起,强制)**:升版本号 = 三件事同时做 —— ① 三处版本号一致;② 打附注 tag `v<版本>` 并推送,指向**部署用的那个合并 SHA**;③ 建/更新远端 GitHub Release(title `v<版本> — <主题>`、notes 写新增/变更/修复/运维注意、附件挂 `chatapp-<版本>.apk`)。**不是「下次补」**。发版后必须在 [`docs/ops/release.md`](docs/ops/release.md) §5 记录表加一行(版本 / 日期 / tag / Release / 上线 SHA / APK),`python scripts/sync_version.py --check` 会校验这一行缺失即红(`contract.yml` 拦截)。清单、命令与 notes 规范见该文档 §3–§4
 - **接口文档**:`docs/api/` 是接口的对外交付文档;新增/修改/删除任何 `/api/v1` 接口,**同一次改动内**必须同步更新对应分册;`python manage.py test` 会跑 `ApiDocsCoverageTests` 双向比对,漏写即红。模板与维护规则见 `docs/api/README.md`
 - **OpenAPI 生成物(D-5)**:`docs/api/openapi.yml` 是**机器可读契约**,由 `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` 从视图上的 `@extend_schema` 生成,**禁止手改**;改了对外字段(改名/增删/改类型)必须在同一次改动内重新生成并提交,CI 会重新生成后 `git diff --exit-code` 比对。`config/tests.py::OpenApiSchemaTests` 校验「schema 操作集合 == URLconf 操作集合」,`config/test_schema_contract.py` 做**字段级双向门禁**(`docs/api/*.md` 的参数表 ↔ schema 字段,漏写/多写即红)。派生门禁:Web `npm run gen:api` → `web/src/api/schema.d.ts`(`web.yml` 比对生成物,`web/src/api/contract.ts` 做手写类型的字段名编译期断言);App 由 `scripts/check_app_models.py` 扫 `models.dart` 的 `json['...']` 键比对契约(`contract.yml`)
 - **注释规范**:`docs/standards/python.md` 是 Python 注释的单一事实来源;新增/修改任何 `.py` 文件,**同一次改动内**必须补齐模块 docstring 与函数/类 docstring(`test_*` 用例、`setUp` 等生命周期钩子、`Meta` 声明式内部类、函数内闭包豁免),**公开函数带参数必须写 `Args:` 小节**;`python manage.py test` 会跑 `CommentCoverageTests` 比对,漏写即红。本地快速自查:`cd chatapp && python config/comment_coverage.py`(秒级,不依赖 Django),`--warnings` 看口语词提示、`--structure` 看 `Args` 结构提示(均不拦截)

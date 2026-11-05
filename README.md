@@ -353,6 +353,20 @@ flutter build apk --release \
 
 `ERROR_REPORTING=true` 必须携带,否则线上崩溃与白屏不会进入上报链路(Web 侧对应 `VITE_ERROR_REPORTING=1`)。
 
+### 发版:版本号、tag 与 Release 三者同步
+
+**升版本号不是改一个数字**,而是三件事同时完成(2026-11-05 起强制,清单见 [`docs/ops/release.md`](docs/ops/release.md)):
+
+1. **三处版本号一致** —— 事实来源 `app/pubspec.yaml`,`python scripts/sync_version.py --write` 写回
+   `app/lib/core/app_info.dart` 与 `web/package.json`;`--check` 由 CI 的 `contract.yml` 执行。
+2. **打 tag 并推送** —— `git tag -a v<版本> -m "<主题>" <部署用的合并 SHA>` + `git push origin v<版本>`。
+3. **建 / 更新远端 Release** —— 标题 `v<版本> — <主题>`,notes 写新增 / 变更 / 修复 / 运维注意,
+   附件挂签名包 `chatapp-<版本>.apk`。
+
+发版后须在 `docs/ops/release.md` §5 的记录表加一行(版本 / 日期 / tag / Release / 上线 SHA / APK)——
+该行缺失会让 `sync_version.py --check` 失败,即 CI 变红。**版本号、tag、Release 指向同一个提交**,
+半年后回答「线上这个包是哪份代码」才有据可查。
+
 ### 网页端
 
 ```bash
@@ -416,7 +430,7 @@ nginx 的三条硬要求与两个易错点:
 | 文档 | 内容 |
 |---|---|
 | [`docs/api/`](docs/api/README.md) | 对外交付级接口文档:13 份分册 / 51 个操作 + `openapi.yml` 机器可读契约 |
-| [`docs/ops/`](docs/ops/) | 运维与容量:imserver 协议、runbook、容量与可靠性、压测与基线报告、通知与推送通道契约 |
+| [`docs/ops/`](docs/ops/) | 运维与容量:发版与 Release 清单、imserver 协议、runbook、容量与可靠性、压测与基线报告、通知与推送通道契约 |
 | [`docs/pitfalls/`](docs/pitfalls/README.md) | 踩坑手册,按 IM / 前端 / 后端 / 测试 / 网页端 / 模拟器分册 |
 | [`docs/milestones.md`](docs/milestones.md) | 里程碑时间线(每次交付的改动、PR 号与上线 SHA) |
 | [`docs/superpowers/`](docs/superpowers/README.md) | 设计 spec 与实施计划:工作面 1 份,已交付 85 份归档于 `archive/` |

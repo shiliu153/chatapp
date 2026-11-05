@@ -31,6 +31,21 @@ WEB_PACKAGE_BODY = """{
 }
 """
 
+RELEASE_DOC_BODY = """# 发版与远端 Release
+
+## 3. 发版清单
+
+| # | 动作 | 完成标志 |
+|---|---|---|
+| 1 | 合 PR | 记下 SHA |
+
+## 5. 发版记录
+
+| 版本 | 日期 | tag | Release | 上线 SHA | APK |
+|---|---|---|---|---|---|
+| 1.0.4 | 2026-11-04 | `v1.0.4` | https://example.com/r/1 | `ae7099f` | `chatapp-1.0.4.apk` |
+"""
+
 
 class SyncVersionTests(unittest.TestCase):
     """三处版本号的读取、写回与比对。"""
@@ -84,6 +99,51 @@ class SyncVersionTests(unittest.TestCase):
 
     def test_main_check_returns_zero_when_consistent(self):
         self.assertEqual(sync_version.main(["--check"]), 0)
+
+
+class ReleaseRecordTests(unittest.TestCase):
+    """发版记录表(``docs/ops/release.md`` §5)的解析与门禁。"""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.release_doc = Path(self._tmp.name) / "release.md"
+        self.release_doc.write_text(RELEASE_DOC_BODY, encoding="utf-8")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_reads_row_of_target_version(self):
+        record = sync_version.read_release_record("1.0.4", self.release_doc)
+        self.assertIsNotNone(record)
+        self.assertEqual(record["tag"], "`v1.0.4`")
+        self.assertEqual(record["上线 SHA"], "`ae7099f`")
+
+    def test_other_tables_are_not_mistaken_for_the_record(self):
+        # §3 的发版清单表首列是序号,不应被当成版本行
+        self.assertIsNone(sync_version.read_release_record("1", self.release_doc))
+
+    def test_consistent_record_passes(self):
+        self.assertEqual(sync_version.check_release_record("1.0.4", self.release_doc), [])
+
+    def test_missing_version_is_reported(self):
+        problems = sync_version.check_release_record("1.0.5", self.release_doc)
+        self.assertTrue(any("没有 1.0.5" in problem for problem in problems), problems)
+
+    def test_empty_release_column_is_reported(self):
+        self.release_doc.write_text(
+            RELEASE_DOC_BODY.replace("https://example.com/r/1", ""), encoding="utf-8")
+        problems = sync_version.check_release_record("1.0.4", self.release_doc)
+        self.assertTrue(any("Release 为空" in problem for problem in problems), problems)
+
+    def test_tag_mismatch_is_reported(self):
+        self.release_doc.write_text(
+            RELEASE_DOC_BODY.replace("`v1.0.4`", "`v1.0.3`"), encoding="utf-8")
+        problems = sync_version.check_release_record("1.0.4", self.release_doc)
+        self.assertTrue(any("应写成 `v1.0.4`" in problem for problem in problems), problems)
+
+    def test_missing_document_is_reported(self):
+        problems = sync_version.check_release_record("1.0.4", Path(self._tmp.name) / "nope.md")
+        self.assertTrue(any("不存在" in problem for problem in problems), problems)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""发版版本号的单一来源同步器(D-5 第 3 步)。
+"""发版版本号与发版记录的单一来源同步器(D-5 第 3 步)。
 
 设计要点:
     版本号的事实来源**只有一个**:``app/pubspec.yaml`` 的 ``version:`` 行(形如
@@ -13,9 +13,14 @@
         python scripts/sync_version.py --check   # 只校验,CI 用;不一致退出码 1
         python scripts/sync_version.py --write   # 以 pubspec.yaml 为准写回另外两处
 
+    2026-11-05 起 ``--check`` 还校验**发版记录**:``docs/ops/release.md`` §5 的表里必须有为当前
+    版本留痕的一行,且 ``tag`` 列含 ``v<版本>``、``Release`` 列非空。理由见该文档 §6 ——
+    版本号、tag、Release 是同一件事的三个面,只做前两件时半年后无法回答「线上这个包是哪份代码」。
+
 注意事项:
     只同步「版本名」(``1.0.4``),不同步构建号(``+5``):构建号只在 App 侧有意义。
-    脚本只做**字符串替换**,不改动文件其余内容与换行风格。
+    脚本只做**字符串替换**,不改动文件其余内容与换行风格;发版记录表是人工维护的,
+    ``--write`` 不会替你写它,只会提示。
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PUBSPEC = REPO_ROOT / "app" / "pubspec.yaml"
 APP_INFO = REPO_ROOT / "app" / "lib" / "core" / "app_info.dart"
 WEB_PACKAGE = REPO_ROOT / "web" / "package.json"
+RELEASE_DOC = REPO_ROOT / "docs" / "ops" / "release.md"
 
 # pubspec 里 ``version: 1.0.4+5`` 的版本名部分
 PUBSPEC_VERSION_RE = re.compile(r"^version:\s*([0-9][^\s+]*)", re.MULTILINE)
@@ -150,6 +156,94 @@ def collect_mismatches(pubspec: Path = PUBSPEC, app_info: Path = APP_INFO,
     return problems
 
 
+def read_release_record(version: str, path: Path = RELEASE_DOC) -> dict[str, str] | None:
+    """在发版记录表里查某一版本的行。
+
+    只认**表头同时含「版本」与「tag」**的那张表(即 ``docs/ops/release.md`` §5),
+    因此文档里其它表格(发版清单、Release 规范)不会被误读;遇到非表格行即结束当前表。
+
+    Args:
+        version: 版本名,如 ``1.0.4``。
+        path: 发版记录文档,默认仓库里的 ``docs/ops/release.md``。
+
+    Returns:
+        ``{"列名": "单元格文本"}``;文档不存在、表头缺失或没有该版本行时返回 ``None``。
+    """
+    if not path.exists():
+        return None
+    headers: list[str] | None = None
+    in_record_table = False
+    for raw in _read(path).splitlines():
+        line = raw.strip()
+        if not line.startswith("|"):
+            headers, in_record_table = None, False
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if headers is None:
+            headers = cells
+            in_record_table = "版本" in cells and "tag" in cells
+            continue
+        if not in_record_table:
+            continue
+        if all(set(cell) <= set("-: ") for cell in cells):
+            continue  # 分隔行 |---|---|
+        if not cells or cells[0].strip("`") != version:
+            continue
+        return {headers[i]: cells[i] for i in range(min(len(headers), len(cells)))}
+    return None
+
+
+def check_release_record(version: str, path: Path = RELEASE_DOC) -> list[str]:
+    """校验发版记录表已为指定版本留痕,且 tag / Release 两列可用。
+
+    Args:
+        version: 版本名,如 ``1.0.4``。
+        path: 发版记录文档,默认仓库里的 ``docs/ops/release.md``。
+
+    Returns:
+        问题描述列表;空列表表示通过。缺行时返回两条(现象 + 修复动作)。
+    """
+    if not path.exists():
+        return [
+            f"发版记录文档 {_display(path)} 不存在",
+            "修复:恢复 docs/ops/release.md(规则见该文档 §1–§5)",
+        ]
+    record = read_release_record(version, path)
+    if record is None:
+        return [
+            f"发版记录表 {_display(path)} 里没有 {version} 这一行",
+            "修复:按 docs/ops/release.md §3 走完发版,并在 §5 记录表加一行"
+            "(版本 / 日期 / tag / Release / 上线 SHA / APK)",
+        ]
+    problems = []
+    tag = record.get("tag", "")
+    if f"v{version}" not in tag:
+        problems.append(f"发版记录 {version} 行的 tag 是 {tag or '(空)'},应写成 `v{version}`")
+    if not record.get("Release", ""):
+        problems.append(
+            f"发版记录 {version} 行的 Release 为空 —— 建好后填链接;"
+            "暂时建不了写「待建」并注明原因(例:本机无 gh/token)"
+        )
+    if problems:
+        problems.append(f"修复:编辑 {_display(path)} §5 后再跑 python scripts/sync_version.py --check")
+    return problems
+
+
+def _display(path: Path) -> str:
+    """把绝对路径转成相对仓库根的展示形式(路径不在仓库内时原样返回)。
+
+    Args:
+        path: 文件路径。
+
+    Returns:
+        便于阅读的路径字符串。
+    """
+    try:
+        return str(path.relative_to(REPO_ROOT)).replace("\\", "/")
+    except ValueError:
+        return str(path)
+
+
 def _read(path: Path) -> str:
     """读文本文件(UTF-8)。
 
@@ -205,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         argv: 命令行参数;``None`` 表示取 ``sys.argv[1:]``。
 
     Returns:
-        退出码:0 一致(或已写回),1 不一致(``--check`` 模式)。
+        退出码:0 一致(或已写回),1 不一致 / 发版记录缺失(``--check`` 模式)。
     """
     parser = argparse.ArgumentParser(description="发版版本号同步(app/pubspec.yaml 为准)")
     mode = parser.add_mutually_exclusive_group()
@@ -217,14 +311,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.write:
         changed = [write_app_info_version(expected), write_web_version(expected)]
         print(f"[版本号] 已按 {expected} 同步;改动 {sum(changed)} 个文件")
+        print(
+            f"[发版] 还差三步:① 打 tag 并推送 git tag -a v{expected};"
+            f"② 建/更新远端 Release;③ 在 docs/ops/release.md §5 加 {expected} 一行"
+        )
         return 0
 
-    problems = collect_mismatches()
+    problems = collect_mismatches() + check_release_record(expected)
     if problems:
         for problem in problems:
             print(f"[版本号] {problem}", file=sys.stderr)
         return 1
-    print(f"[版本号] 三处一致:{expected}")
+    print(f"[版本号] 三处一致:{expected};发版记录已留痕")
     return 0
 
 
