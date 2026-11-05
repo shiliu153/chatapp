@@ -214,6 +214,23 @@ gh release create v1.0.5 \
 
 建好后把 §5 表里 1.0.5 行的 `Release` 列改成 Release 链接。
 
+### 1.0.5 上线实况(2026-11-05 23:17–23:26)
+
+| 项 | 结果 |
+|---|---|
+| 代码 SHA | `3390ab5`(PR #79 squash 合并提交,`v1.0.5` 指向它) |
+| 后端 | **未变更**,仍是 `3f2d73d0` —— 批次 F 零后端改动、零迁移,不做无谓重启 |
+| Web `dist` | 已覆盖 `/www/wwwroot/chatapp-web`(index.html + 91 个 assets;新 CSS 含 `[data-theme=dark]` 块,`--color-bg-page` 两套值 `#f6f7fb` / `#0e1015` 均在) |
+| APK | `chatapp-1.0.5.apk` 58 MB,SHA-1 `ba136f38aaf3152b10595a7f74c5e84cca83fdf8`(与本地构建逐字节一致) |
+| `.env` | `LATEST_APP_VERSION=1.0.5`、`APP_DOWNLOAD_URL=…/chatapp-1.0.5.apk`;**`MIN_APP_VERSION` 保持 1.0.1** |
+| 重启 | `supervisorctl restart "chatapp-web:*"`(宝塔 supervisor 的程序名是 `组:实例` 形式,直接写 `chatapp-web` 会报 no such process);celery 未重启 |
+| 验证 | `/api/v1/app/config` → `latest_version=1.0.5`、`download_url` 指向新包、`min_app_version=1.0.1`;`/health` 200、`/readyz` 200;APK Range 请求 206;`/` 200(新构建) |
+| 回滚点 | 代码 `3a71568`;`.env` `/www/backup/chatapp-env-20261105-2325.bak`;旧 dist `/www/backup/chatapp-web-dist-20261105-2325-pre105.tar.gz` |
+
+> 注:批次 F 的前端产物与 APK 才是本次交付物,后端 SHA 落后于 `origin/master` 属预期
+> (后端在 C-1 之后没有必须随本版上线的改动)。下次有后端改动时再按 §3 走完整部署。
+
+
 ## 7. 为什么这条约束值得存在
 
 版本号、tag、Release 是**同一件事的三个面**:版本号给客户端判升级,tag 给 git 定位「这个包是哪份代码」,
