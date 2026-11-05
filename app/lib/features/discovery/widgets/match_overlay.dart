@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -75,6 +75,7 @@ class _MatchOverlayState extends State<MatchOverlay> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final theirAvatarUrl =
         widget.candidate.photos.isEmpty ? null : widget.candidate.photos.first.url;
     return Scaffold(
@@ -103,8 +104,8 @@ class _MatchOverlayState extends State<MatchOverlay> with SingleTickerProviderSt
                             shape: BoxShape.circle,
                             gradient: RadialGradient(
                               colors: [
-                                AppColors.brand.withValues(alpha: 0.55),
-                                AppColors.heartOrange.withValues(alpha: 0.28),
+                                colors.brand.withValues(alpha: 0.55),
+                                colors.heartOrange.withValues(alpha: 0.28),
                                 Colors.transparent,
                               ],
                             ),
@@ -120,7 +121,7 @@ class _MatchOverlayState extends State<MatchOverlay> with SingleTickerProviderSt
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: AppColors.brand.withValues(alpha: 0.65),
+                              color: colors.brand.withValues(alpha: 0.65),
                               width: 2,
                             ),
                           ),
@@ -129,7 +130,8 @@ class _MatchOverlayState extends State<MatchOverlay> with SingleTickerProviderSt
                       // 粒子飘散
                       Positioned.fill(
                         child: CustomPaint(
-                          painter: MatchParticlesPainter(progress: _particles.value),
+                          painter: MatchParticlesPainter(
+                              progress: _particles.value, colors: colors),
                         ),
                       ),
                       // 双头像相向滑入(定格圆心间距 66)
@@ -147,10 +149,10 @@ class _MatchOverlayState extends State<MatchOverlay> with SingleTickerProviderSt
                         child: Icon(
                           Icons.favorite_rounded,
                           size: 30,
-                          color: AppColors.brand,
+                          color: colors.brand,
                           shadows: [
                             Shadow(
-                              color: AppColors.brand.withValues(alpha: 0.8),
+                              color: colors.brand.withValues(alpha: 0.8),
                               blurRadius: 18,
                             ),
                           ],
@@ -221,12 +223,14 @@ Future<void> showMatchOverlay(
   required Candidate candidate,
   String? myAvatarUrl,
   VoidCallback? onGoChat,
-}) =>
+}) {
+  final colors = context.heart;
+  return
     showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
       barrierLabel: '配对成功',
-      barrierColor: AppColors.text1.withValues(alpha: 0.94),
+      barrierColor: colors.text1.withValues(alpha: 0.94),
       transitionDuration: AppMotion.base,
       pageBuilder: (dialogContext, animation, secondary) => MatchOverlay(
         candidate: candidate,
@@ -243,3 +247,4 @@ Future<void> showMatchOverlay(
       transitionBuilder: (context, animation, secondary, child) =>
           FadeTransition(opacity: animation, child: child),
     );
+}

@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_gradients.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
@@ -28,6 +28,7 @@ class ChatsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.heart;
     final status = ref.watch(imStatusProvider);
     return Scaffold(
       body: SafeArea(
@@ -42,7 +43,7 @@ class ChatsPage extends ConsumerWidget {
                 children: [
                   Expanded(
                     child: Text('消息',
-                        style: AppText.display.copyWith(color: AppColors.text1)),
+                        style: AppText.display.copyWith(color: colors.text1)),
                   ),
                   // 搜索入口:仅支持搜索的实现显示
                   if (ref.read(imClientProvider).capabilities.search)
@@ -50,8 +51,8 @@ class ChatsPage extends ConsumerWidget {
                       key: const Key('chats.search'),
                       tooltip: '搜索聊天记录',
                       onPressed: () => context.push('/search'),
-                      icon: const Icon(Icons.search_rounded,
-                          size: 24, color: AppColors.text1),
+                      icon: Icon(Icons.search_rounded,
+                          size: 24, color: colors.text1),
                     ),
                 ],
               ),
@@ -79,6 +80,7 @@ class _ConversationList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.heart;
     final conversations = ref.watch(conversationsProvider);
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final presenceById = ref.watch(presenceProvider);
@@ -123,11 +125,11 @@ class _ConversationList extends ConsumerWidget {
                 children: [
                   if (system != null) ...[
                     _SystemNoticeTile(conversation: system),
-                    Container(height: AppSpacing.sm, color: AppColors.bgPage),
+                    Container(height: AppSpacing.sm, color: colors.bgPage),
                   ],
                   for (var i = 0; i < others.length; i++) ...[
                     if (i > 0)
-                      const Divider(height: 1, thickness: 1, color: AppColors.divider),
+                      Divider(height: 1, thickness: 1, color: colors.divider),
                     _ConversationTile(
                         conversation: others[i], cache: cache, presenceById: presenceById),
                   ],
@@ -151,6 +153,7 @@ class _RecentStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final recent = friends.take(10).toList();
     return SizedBox(
       height: 88,
@@ -188,7 +191,7 @@ class _RecentStrip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: AppText.micro.copyWith(color: AppColors.text2),
+                    style: AppText.micro.copyWith(color: colors.text2),
                   ),
                 ),
               ],
@@ -208,6 +211,7 @@ class _SystemNoticeTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final last = conversation.lastMessage;
     return ListTile(
       key: const Key('chats.systemNotice'),
@@ -215,9 +219,9 @@ class _SystemNoticeTile extends StatelessWidget {
       leading: Container(
         width: 48,
         height: 48,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: AppGradients.system,
+          gradient: AppGradients.systemOf(colors),
         ),
         child: const Icon(Icons.notifications_rounded, color: Colors.white, size: 24),
       ),
@@ -228,21 +232,21 @@ class _SystemNoticeTile extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             decoration: BoxDecoration(
-              border: Border.all(color: AppColors.violet),
+              border: Border.all(color: colors.violet),
               borderRadius: BorderRadius.circular(AppRadius.chip),
             ),
             child: Text('官方',
                 style: AppText.micro.copyWith(
                     fontSize: 10,
                     fontWeight: FontWeight.w500,
-                    color: AppColors.violet)),
+                    color: colors.violet)),
           ),
         ],
       ),
       subtitle: Text(_previewOf(last),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: AppText.caption.copyWith(color: AppColors.text2)),
+          style: AppText.caption.copyWith(color: colors.text2)),
       trailing: _TimeBadge(last: last, unread: conversation.unreadCount),
     );
   }
@@ -258,6 +262,7 @@ class _ConversationTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final name = displayNameFor(cache, conversation.peerId, imName: conversation.showName);
     final avatar = avatarUrlFor(cache, conversation.peerId, imFaceUrl: conversation.faceUrl);
     final uid = userIdFromImId(conversation.peerId);
@@ -270,11 +275,11 @@ class _ConversationTile extends StatelessWidget {
       title: Text(name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: AppText.subtitle.copyWith(color: AppColors.text1)),
+          style: AppText.subtitle.copyWith(color: colors.text1)),
       subtitle: Text(_previewOf(conversation.lastMessage),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: AppText.caption.copyWith(color: AppColors.text2)),
+          style: AppText.caption.copyWith(color: colors.text2)),
       trailing: _TimeBadge(last: conversation.lastMessage, unread: conversation.unreadCount),
     );
   }
@@ -287,19 +292,22 @@ class _TimeBadge extends StatelessWidget {
   final int unread;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (last != null)
             Text(
               formatMessageTime(DateTime.fromMillisecondsSinceEpoch(last!.timestamp)),
-              style: AppText.micro.copyWith(color: AppColors.text3),
+              style: AppText.micro.copyWith(color: colors.text3),
             ),
           const SizedBox(height: AppSpacing.xs),
           AppBadge(count: unread),
         ],
       );
+  }
 }
 
 String _previewOf(ChatMessage? last) {

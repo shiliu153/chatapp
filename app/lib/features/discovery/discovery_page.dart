@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -29,6 +29,7 @@ class DiscoveryPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.heart;
     final profile = ref.watch(profileProvider);
     return Scaffold(
       body: SafeArea(
@@ -42,14 +43,14 @@ class DiscoveryPage extends ConsumerWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('发现', style: AppText.display.copyWith(color: AppColors.text1)),
+                  Text('发现', style: AppText.display.copyWith(color: colors.text1)),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       _TopEntry(
                         entryKey: const Key('discovery.likes'),
                         icon: Icons.favorite_rounded,
-                        iconColor: AppColors.brand,
+                        iconColor: colors.brand,
                         label: '喜欢我的人',
                         count: ref.watch(likesReceivedCountProvider).value ?? 0,
                         onTap: () => context.push('/likes'),
@@ -58,7 +59,7 @@ class DiscoveryPage extends ConsumerWidget {
                       _TopEntry(
                         entryKey: const Key('discovery.visits'),
                         icon: Icons.visibility_rounded,
-                        iconColor: AppColors.text2,
+                        iconColor: colors.text2,
                         label: '谁看过我',
                         count: ref.watch(visitsCountProvider).value ?? 0,
                         onTap: () => context.push('/visits'),
@@ -214,6 +215,7 @@ class _TopEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final showLabel = MediaQuery.sizeOf(context).width >= 360;
     final semantic = count > 0 ? '$label,$count 人' : label;
     return Semantics(
@@ -232,7 +234,7 @@ class _TopEntry extends StatelessWidget {
               Icon(icon, size: 20, color: iconColor),
               if (showLabel) ...[
                 const SizedBox(width: AppSpacing.xs),
-                Text(label, style: AppText.caption.copyWith(color: AppColors.text2)),
+                Text(label, style: AppText.caption.copyWith(color: colors.text2)),
               ],
               if (count > 0) ...[
                 const SizedBox(width: AppSpacing.xs),

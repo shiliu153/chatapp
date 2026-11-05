@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/heart_theme_context.dart';
 
 const chatEmojis = [
   '😀', '😄', '😁', '😊', '🥰', '😍', '😘', '😜', '🤗', '🤔',
@@ -17,12 +17,14 @@ class EmojiPanel extends StatelessWidget {
   final ValueChanged<String> onSelect;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         key: const Key('chat.emoji.panel'),
         height: 220,
-        decoration: const BoxDecoration(
-          color: AppColors.bgCard,
-          border: Border(top: BorderSide(color: AppColors.divider)),
+        decoration: BoxDecoration(
+          color: colors.bgCard,
+          border: Border(top: BorderSide(color: colors.divider)),
         ),
         child: GridView.count(
           crossAxisCount: 8,
@@ -37,4 +39,5 @@ class EmojiPanel extends StatelessWidget {
           ],
         ),
       );
+  }
 }

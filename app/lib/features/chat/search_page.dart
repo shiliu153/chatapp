@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_avatar.dart';
@@ -16,6 +16,7 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_sub_page_bar.dart';
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
+import '../../core/theme/heart_colors.dart';
 
 /// 聊天记录搜索页:输入关键词 → 300ms 防抖 → 调 IM 的 searchMessages;
 /// 点结果进聊天页并按 focus 定位(见 ChatPage.focusMsgId)。
@@ -90,6 +91,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -110,7 +112,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                   hintText: '搜索聊天记录',
                   prefixIcon: const Icon(Icons.search_rounded, size: 22),
                   filled: true,
-                  fillColor: AppColors.bgPage,
+                  fillColor: colors.bgPage,
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -127,6 +129,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   }
 
   Widget _body() {
+    final colors = context.heart;
     if (_keyword.isEmpty) {
       return const Center(
         child: AppEmptyState(
@@ -179,7 +182,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             child: TextButton(
               key: const Key('search.more'),
               onPressed: _loading ? null : () => _run(_keyword, append: true),
-              child: Text('加载更多', style: AppText.body.copyWith(color: AppColors.brand)),
+              child: Text('加载更多', style: AppText.body.copyWith(color: colors.brand)),
             ),
           ),
       ],
@@ -195,6 +198,7 @@ class _SearchHitTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final name = hit.peerName ?? hit.peerId;
     return ListTile(
       key: Key('search.hit:${hit.msgId}'),
@@ -204,24 +208,25 @@ class _SearchHitTile extends StatelessWidget {
       title: Text(name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: AppText.subtitle.copyWith(color: AppColors.text1)),
+          style: AppText.subtitle.copyWith(color: colors.text1)),
       subtitle: Text.rich(
-        TextSpan(children: _highlight(hit.text, keyword)),
+        TextSpan(children: _highlight(hit.text, keyword, colors)),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
       trailing: Text(
         formatMessageTime(DateTime.fromMillisecondsSinceEpoch(hit.timestamp)),
-        style: AppText.micro.copyWith(color: AppColors.text3),
+        style: AppText.micro.copyWith(color: colors.text3),
       ),
     );
   }
 
   /// 把命中片段切成若干 TextSpan,命中部分主色加粗;过长时保留命中前后各 20 字。
-  static List<TextSpan> _highlight(String text, String keyword) {
-    final plain = AppText.body.copyWith(color: AppColors.text2);
+  static List<TextSpan> _highlight(
+      String text, String keyword, HeartColors colors) {
+    final plain = AppText.body.copyWith(color: colors.text2);
     final marked = AppText.body
-        .copyWith(color: AppColors.brand, fontWeight: FontWeight.w600);
+        .copyWith(color: colors.brand, fontWeight: FontWeight.w600);
     final lower = text.toLowerCase();
     final key = keyword.toLowerCase();
     final first = key.isEmpty ? -1 : lower.indexOf(key);

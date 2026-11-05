@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../im/im_client.dart';
@@ -55,9 +55,10 @@ class _VoiceBubbleState extends ConsumerState<VoiceBubble> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final seconds = (widget.message.voiceDurationMs / 1000).round().clamp(1, 60);
     final width = (72 + seconds * 2).clamp(96, 200).toDouble();
-    final foreground = widget.message.isSelf ? Colors.white : AppColors.text1;
+    final foreground = widget.message.isSelf ? Colors.white : colors.text1;
     return GestureDetector(
       key: const Key('voice.bubble'),
       onTap: _toggle,
@@ -65,7 +66,7 @@ class _VoiceBubbleState extends ConsumerState<VoiceBubble> {
         width: width,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: widget.message.isSelf ? AppColors.brand : AppColors.bgCard,
+          color: widget.message.isSelf ? colors.brand : colors.bgCard,
           borderRadius: BorderRadius.circular(AppRadius.bubble),
         ),
         child: Row(

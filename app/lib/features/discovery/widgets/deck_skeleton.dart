@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 
 /// 发现页加载骨架:与卡面等大的呼吸块 + 操作钮位。
 /// 无限动画:可见状态的测试只用有限 pump,禁 pumpAndSettle。
@@ -25,7 +26,9 @@ class _DeckSkeletonState extends State<DeckSkeleton> with SingleTickerProviderSt
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return AnimatedBuilder(
         animation: _c,
         builder: (context, _) => Opacity(
           opacity: 0.5 + 0.5 * _c.value,
@@ -37,7 +40,7 @@ class _DeckSkeletonState extends State<DeckSkeleton> with SingleTickerProviderSt
                       AppSpacing.pageH, AppSpacing.sm, AppSpacing.pageH, 0),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: AppColors.divider,
+                      color: colors.divider,
                       borderRadius: BorderRadius.circular(AppRadius.discoveryCard),
                     ),
                     child: Align(
@@ -48,11 +51,11 @@ class _DeckSkeletonState extends State<DeckSkeleton> with SingleTickerProviderSt
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _bar(0.62),
+                            _bar(0.62, colors),
                             const SizedBox(height: 9),
-                            _bar(0.38),
+                            _bar(0.38, colors),
                             const SizedBox(height: 9),
-                            _bar(0.84),
+                            _bar(0.84, colors),
                             const SizedBox(height: AppSpacing.md),
                             const Row(children: [_Chip(), SizedBox(width: 6), _Chip()]),
                           ],
@@ -78,14 +81,15 @@ class _DeckSkeletonState extends State<DeckSkeleton> with SingleTickerProviderSt
           ),
         ),
       );
+  }
 
-  Widget _bar(double widthFactor) => FractionallySizedBox(
+  Widget _bar(double widthFactor, HeartColors colors) => FractionallySizedBox(
         alignment: Alignment.centerLeft,
         widthFactor: widthFactor,
         child: Container(
           height: 10,
           decoration: BoxDecoration(
-            color: AppColors.bgCard.withValues(alpha: 0.75),
+            color: colors.bgCard.withValues(alpha: 0.75),
             borderRadius: BorderRadius.circular(5),
           ),
         ),
@@ -96,14 +100,17 @@ class _Chip extends StatelessWidget {
   const _Chip();
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         width: 44,
         height: 16,
         decoration: BoxDecoration(
-          color: AppColors.bgCard.withValues(alpha: 0.75),
+          color: colors.bgCard.withValues(alpha: 0.75),
           borderRadius: BorderRadius.circular(AppRadius.chip),
         ),
       );
+  }
 }
 
 class _Circle extends StatelessWidget {
@@ -112,9 +119,12 @@ class _Circle extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         width: size,
         height: size,
-        decoration: const BoxDecoration(color: AppColors.divider, shape: BoxShape.circle),
+        decoration: BoxDecoration(color: colors.divider, shape: BoxShape.circle),
       );
+  }
 }
