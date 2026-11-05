@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_gradients.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_shadows.dart';
@@ -113,6 +113,7 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final candidates = widget.candidates;
     if (candidates.isEmpty) return const SizedBox.shrink();
     final top = candidates.first;
@@ -160,9 +161,9 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
                 buttonKey: const Key('discovery.pass'),
                 icon: Icons.close_rounded,
                 size: 56,
-                foreground: AppColors.text3,
-                background: AppColors.bgCard,
-                borderColor: AppColors.divider,
+                foreground: colors.text3,
+                background: colors.bgCard,
+                borderColor: colors.divider,
                 shadow: AppShadows.card,
                 onPressed: _flying ? null : () => _flyOut(like: false),
               ),
@@ -172,7 +173,7 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
                 icon: Icons.favorite_rounded,
                 size: 64,
                 foreground: Colors.white,
-                gradient: AppGradients.heart,
+                gradient: AppGradients.heartOf(colors),
                 shadow: AppShadows.primaryButton,
                 pulse: true,
                 onPressed: _flying ? null : () => _flyOut(like: true),

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_section_card.dart';
 import '../../core/widgets/app_sub_page_bar.dart';
 import 'legal_texts.dart';
+import '../../core/theme/heart_theme_context.dart';
 
 /// 协议/隐私全文页(附录 E):二级页顶栏 + 白卡长文。
 /// 正文来自 `legal_texts.dart`,**一字不动**。
@@ -18,8 +18,10 @@ class LegalPage extends StatelessWidget {
   final String _text;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.bgPage,
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Scaffold(
+        backgroundColor: colors.bgPage,
         body: SafeArea(
           bottom: false,
           child: Column(
@@ -34,7 +36,7 @@ class LegalPage extends StatelessWidget {
                       Text(
                         _text,
                         style: AppText.body.copyWith(
-                          color: AppColors.text1,
+                          color: colors.text1,
                           height: 1.6,
                         ),
                       ),
@@ -46,4 +48,5 @@ class LegalPage extends StatelessWidget {
           ),
         ),
       );
+  }
 }

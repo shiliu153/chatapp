@@ -2,7 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_gradients.dart';
 import '../../../core/theme/app_typography.dart';
 
@@ -24,6 +25,7 @@ class CompletionRing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     // total=0 时不画弧,避免除零
     final progress = total <= 0 ? 0.0 : (done / total).clamp(0.0, 1.0);
     return SizedBox.square(
@@ -34,9 +36,9 @@ class CompletionRing extends StatelessWidget {
         children: [
           CustomPaint(
             size: Size.square(size),
-            painter: _RingPainter(progress: progress, stroke: _stroke),
+            painter: _RingPainter(progress: progress, stroke: _stroke, colors: colors),
           ),
-          Text('$done/$total', style: AppText.micro.copyWith(color: AppColors.text1)),
+          Text('$done/$total', style: AppText.micro.copyWith(color: colors.text1)),
         ],
       ),
     );
@@ -44,10 +46,17 @@ class CompletionRing extends StatelessWidget {
 }
 
 class _RingPainter extends CustomPainter {
-  const _RingPainter({required this.progress, required this.stroke});
+  const _RingPainter({
+    required this.progress,
+    required this.stroke,
+    required this.colors,
+  });
 
   final double progress;
   final double stroke;
+
+  /// 自绘发生在 paint 阶段(拿不到 BuildContext),色板由外部注入。
+  final HeartColors colors;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -56,7 +65,7 @@ class _RingPainter extends CustomPainter {
     final base = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
-      ..color = AppColors.divider;
+      ..color = colors.divider;
     canvas.drawArc(rect, 0, math.pi * 2, false, base);
 
     if (progress <= 0) return;
@@ -64,12 +73,12 @@ class _RingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round
-      ..shader = AppGradients.heartSweep.createShader(rect);
+      ..shader = AppGradients.heartSweepOf(colors).createShader(rect);
     // 从 12 点方向起画,顺时针
     canvas.drawArc(rect, -math.pi / 2, math.pi * 2 * progress, false, arc);
   }
 
   @override
   bool shouldRepaint(_RingPainter old) =>
-      old.progress != progress || old.stroke != stroke;
+      old.progress != progress || old.stroke != stroke || old.colors != colors;
 }

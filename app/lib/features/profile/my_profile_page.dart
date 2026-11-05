@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -23,6 +23,7 @@ class MyProfilePage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.heart;
     final profile = ref.watch(profileProvider);
     return Scaffold(
       body: SafeArea(
@@ -33,7 +34,7 @@ class MyProfilePage extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(
                   AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.md),
-              child: Text('我的', style: AppText.display.copyWith(color: AppColors.text1)),
+              child: Text('我的', style: AppText.display.copyWith(color: colors.text1)),
             ),
             Expanded(
               child: profile.when(
@@ -136,6 +137,7 @@ class _IdentityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final missing = profile.missingFields;
     final done = (_profileFieldCount - missing.length).clamp(0, _profileFieldCount);
     return AppCard(
@@ -162,11 +164,11 @@ class _IdentityCard extends StatelessWidget {
                         profile.nickname,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppText.title.copyWith(color: AppColors.text1),
+                        style: AppText.title.copyWith(color: colors.text1),
                       ),
                       const SizedBox(height: AppSpacing.xs),
                       Text('ID:u${profile.userId}',
-                          style: AppText.micro.copyWith(color: AppColors.text3)),
+                          style: AppText.micro.copyWith(color: colors.text3)),
                     ],
                   ),
                 ),
@@ -175,7 +177,7 @@ class _IdentityCard extends StatelessWidget {
           ),
           if (missing.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
-            const Divider(height: 1, thickness: 1, color: AppColors.divider),
+            Divider(height: 1, thickness: 1, color: colors.divider),
             const SizedBox(height: AppSpacing.md),
             Row(
               children: [
@@ -184,7 +186,7 @@ class _IdentityCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     '还差:${missing.map(missingFieldLabel).join('、')}',
-                    style: AppText.caption.copyWith(color: AppColors.text2),
+                    style: AppText.caption.copyWith(color: colors.text2),
                   ),
                 ),
                 TextButton(
@@ -192,7 +194,7 @@ class _IdentityCard extends StatelessWidget {
                   onPressed: () => context.go('/onboarding'),
                   child: Text('去完善',
                       style: AppText.body
-                          .copyWith(color: AppColors.brand, fontWeight: FontWeight.w600)),
+                          .copyWith(color: colors.brand, fontWeight: FontWeight.w600)),
                 ),
               ],
             ),
@@ -210,14 +212,17 @@ class _Group extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         decoration: BoxDecoration(
-          color: AppColors.bgCard,
+          color: colors.bgCard,
           borderRadius: BorderRadius.circular(AppRadius.card),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(children: children),
       );
+  }
 }
 
 /// 附录 C.3 行:标签 13 text2 定宽 72 + 取值 15 text1 + chevron;空值显示「未填」。
@@ -238,6 +243,7 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     // value == null:纯入口行,不显示取值;空串:数据字段未填
     final text = value == null ? '' : (value!.isEmpty ? '未填' : value!);
     final leading = icon;
@@ -247,28 +253,28 @@ class _InfoRow extends StatelessWidget {
       child: Container(
         constraints: const BoxConstraints(minHeight: 56),
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppColors.divider)),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: colors.divider)),
         ),
         child: Row(
           children: [
             if (leading != null) ...[
-              Icon(leading, size: 22, color: AppColors.text2),
+              Icon(leading, size: 22, color: colors.text2),
               const SizedBox(width: AppSpacing.md),
             ],
             SizedBox(
               width: 72,
-              child: Text(label, style: AppText.caption.copyWith(color: AppColors.text2)),
+              child: Text(label, style: AppText.caption.copyWith(color: colors.text2)),
             ),
             Expanded(
               child: Text(
                 text,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppText.body.copyWith(color: AppColors.text1),
+                style: AppText.body.copyWith(color: colors.text1),
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: AppColors.text3, size: 20),
+            Icon(Icons.chevron_right_rounded, color: colors.text3, size: 20),
           ],
         ),
       ),

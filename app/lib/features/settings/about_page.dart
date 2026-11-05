@@ -2,21 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/app_info.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_brand_mark.dart';
 import '../../core/widgets/app_list_row.dart';
 import '../../core/widgets/app_row_group.dart';
 import '../../core/widgets/app_sub_page_bar.dart';
+import '../../core/theme/heart_theme_context.dart';
 
 /// 关于页:应用名、版本、协议入口与版权。
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.bgPage,
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Scaffold(
+        backgroundColor: colors.bgPage,
         body: SafeArea(
           bottom: false,
           child: Column(
@@ -31,14 +33,14 @@ class AboutPage extends StatelessWidget {
                     const SizedBox(height: AppSpacing.md),
                     Center(
                       child: Text(appDisplayName,
-                          style: AppText.title.copyWith(color: AppColors.text1)),
+                          style: AppText.title.copyWith(color: colors.text1)),
                     ),
                     const SizedBox(height: AppSpacing.xs),
                     Center(
                       child: Text(
                         '版本 $appVersion',
                         key: const Key('about.version'),
-                        style: AppText.caption.copyWith(color: AppColors.text3),
+                        style: AppText.caption.copyWith(color: colors.text3),
                       ),
                     ),
                     const SizedBox(height: AppSpacing.xxl),
@@ -62,11 +64,11 @@ class AboutPage extends StatelessWidget {
                     if (appIcpNumber.isNotEmpty)
                       Center(
                         child: Text(appIcpNumber,
-                            style: AppText.micro.copyWith(color: AppColors.text3)),
+                            style: AppText.micro.copyWith(color: colors.text3)),
                       ),
                     Center(
                       child: Text('© 2026 $appDisplayName',
-                          style: AppText.micro.copyWith(color: AppColors.text3)),
+                          style: AppText.micro.copyWith(color: colors.text3)),
                     ),
                   ],
                 ),
@@ -75,4 +77,5 @@ class AboutPage extends StatelessWidget {
           ),
         ),
       );
+  }
 }

@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_button.dart';
@@ -144,9 +144,10 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final profile = ref.watch(profileProvider);
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: SafeArea(
         bottom: false,
         child: profile.when(
@@ -183,7 +184,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                       const SizedBox(height: AppSpacing.sm),
                       Text('第 ${_step + 1} 步 / 共 3 步',
                           style:
-                              AppText.caption.copyWith(color: AppColors.text2)),
+                              AppText.caption.copyWith(color: colors.text2)),
                     ],
                   ),
                 ),
@@ -287,7 +288,9 @@ class _StepAbout extends StatelessWidget {
   final ValueChanged<Set<int>> onTagsChanged;
 
   @override
-  Widget build(BuildContext context) => ListView(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return ListView(
         padding: const EdgeInsets.all(AppSpacing.pageH),
         children: [
           AppSectionCard(
@@ -299,7 +302,7 @@ class _StepAbout extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('标签(可多选)',
-                      style: AppText.caption.copyWith(color: AppColors.text2)),
+                      style: AppText.caption.copyWith(color: colors.text2)),
                   const SizedBox(height: AppSpacing.sm),
                   TagSelector(selectedIds: tagIds, onChanged: onTagsChanged),
                 ],
@@ -308,24 +311,28 @@ class _StepAbout extends StatelessWidget {
           ),
         ],
       );
+  }
 }
 
 class _StepPhotos extends StatelessWidget {
   const _StepPhotos();
 
   @override
-  Widget build(BuildContext context) => ListView(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return ListView(
         padding: const EdgeInsets.all(AppSpacing.pageH),
         children: [
           AppSectionCard(
             title: '照片',
             children: [
               Text('上传至少 1 张照片(最多 6 张),让别人认识你',
-                  style: AppText.caption.copyWith(color: AppColors.text2)),
+                  style: AppText.caption.copyWith(color: colors.text2)),
               const SizedBox(height: AppSpacing.md),
               const PhotoGrid(),
             ],
           ),
         ],
       );
+  }
 }

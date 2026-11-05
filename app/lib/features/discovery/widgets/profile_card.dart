@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_shadows.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -39,6 +39,7 @@ class _ProfileCardState extends State<ProfileCard> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final candidate = widget.candidate;
     final photos = candidate.photos;
     final photo = photos.isEmpty ? null : photos[_photoIndex];
@@ -50,7 +51,7 @@ class _ProfileCardState extends State<ProfileCard> {
         boxShadow: AppShadows.card,
       ),
       child: Material(
-        color: AppColors.bgCard,
+        color: colors.bgCard,
         borderRadius: BorderRadius.circular(AppRadius.discoveryCard),
         clipBehavior: Clip.antiAlias,
         child: Stack(
@@ -58,9 +59,9 @@ class _ProfileCardState extends State<ProfileCard> {
           children: [
             if (photo == null)
               Container(
-                color: AppColors.divider,
-                child: const Center(
-                  child: Icon(Icons.person_rounded, size: 64, color: AppColors.text3),
+                color: colors.divider,
+                child: Center(
+                  child: Icon(Icons.person_rounded, size: 64, color: colors.text3),
                 ),
               )
             else
@@ -69,9 +70,9 @@ class _ProfileCardState extends State<ProfileCard> {
                 key: ValueKey('card.photo.${photo.id}'),
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stack) => Container(
-                  color: AppColors.divider,
-                  child: const Center(
-                    child: Icon(Icons.person_rounded, size: 64, color: AppColors.text3),
+                  color: colors.divider,
+                  child: Center(
+                    child: Icon(Icons.person_rounded, size: 64, color: colors.text3),
                   ),
                 ),
               ),
@@ -136,11 +137,11 @@ class _ProfileCardState extends State<ProfileCard> {
               bottom: 0,
               child: Container(
                 padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 46, AppSpacing.lg, 14),
-                decoration: const BoxDecoration(
+                decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, AppColors.photoScrim],
+                    colors: [Colors.transparent, colors.photoScrim],
                   ),
                 ),
                 child: Column(

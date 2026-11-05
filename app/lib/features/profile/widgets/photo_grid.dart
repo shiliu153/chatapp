@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api_exception.dart';
 import '../../../core/image_pick.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -13,6 +12,7 @@ import '../../../core/widgets/app_toast.dart';
 import '../models.dart';
 import '../profile_controller.dart';
 import '../profile_repository.dart';
+import '../../../core/theme/heart_theme_context.dart';
 
 const _maxBytes = 5 * 1024 * 1024;
 
@@ -93,7 +93,9 @@ class _PhotoTile extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
-  Widget build(BuildContext context) => Stack(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Stack(
         fit: StackFit.expand,
         children: [
           ClipRRect(
@@ -101,10 +103,10 @@ class _PhotoTile extends StatelessWidget {
             child: Image.network(
               photo.url,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stack) => const ColoredBox(
-                color: AppColors.divider,
+              errorBuilder: (context, error, stack) => ColoredBox(
+                color: colors.divider,
                 child: Center(
-                  child: Icon(Icons.image_rounded, color: AppColors.text3),
+                  child: Icon(Icons.image_rounded, color: colors.text3),
                 ),
               ),
             ),
@@ -117,7 +119,7 @@ class _PhotoTile extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.sm, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AppColors.amber,
+                  color: colors.amber,
                   borderRadius: BorderRadius.circular(AppRadius.chip),
                 ),
                 child: Text(
@@ -138,6 +140,7 @@ class _PhotoTile extends StatelessWidget {
           ),
         ],
       );
+  }
 }
 
 /// 半透明深底圆 + 白叉(照片右上角删除钮)。
@@ -146,15 +149,18 @@ class _RemoveBadge extends StatelessWidget {
   const _RemoveBadge();
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         width: 22,
         height: 22,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: AppColors.text1.withValues(alpha: .55),
+          color: colors.text1.withValues(alpha: .55),
         ),
         child: const Icon(Icons.close_rounded, size: 14, color: Colors.white),
       );
+  }
 }
 
 class _AddTile extends StatefulWidget {
@@ -171,7 +177,9 @@ class _AddTileState extends State<_AddTile> {
   var _pressed = false;
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return GestureDetector(
         key: const Key('photo.add'),
         behavior: HitTestBehavior.opaque,
         onTapDown:
@@ -187,23 +195,24 @@ class _AddTileState extends State<_AddTile> {
           duration: AppMotion.fast,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: AppColors.bgCard,
+              color: colors.bgCard,
               borderRadius: BorderRadius.circular(AppRadius.image),
-              border: Border.all(color: AppColors.divider),
+              border: Border.all(color: colors.divider),
             ),
             child: Center(
               child: widget.busy
                   // §7 加载:按钮内用小转圈(白底上用 brand)
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: AppColors.brand),
+                          strokeWidth: 2, color: colors.brand),
                     )
-                  : const Icon(Icons.add_photo_alternate_rounded,
-                      size: 24, color: AppColors.text3),
+                  : Icon(Icons.add_photo_alternate_rounded,
+                      size: 24, color: colors.text3),
             ),
           ),
         ),
       );
+  }
 }

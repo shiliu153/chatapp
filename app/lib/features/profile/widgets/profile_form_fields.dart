@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/format.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_option_group.dart';
 import '../../../core/widgets/app_picker_field.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/theme/heart_theme_context.dart';
 
 /// 资料表单字段(批次⑥ 表单控件规范):全部是 core 组件的薄包装,
 /// 对外构造签名与批次① 一致,编辑资料页与引导页共用。
@@ -34,10 +34,12 @@ class GenderSelector extends StatelessWidget {
   final ValueChanged<String> onChanged;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('性别', style: AppText.caption.copyWith(color: AppColors.text2)),
+          Text('性别', style: AppText.caption.copyWith(color: colors.text2)),
           const SizedBox(height: AppSpacing.xs),
           AppOptionGroup<String>(
             options: const [
@@ -49,6 +51,7 @@ class GenderSelector extends StatelessWidget {
           ),
         ],
       );
+  }
 }
 
 class BirthdayField extends StatelessWidget {

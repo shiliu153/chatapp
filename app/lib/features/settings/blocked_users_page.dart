@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_avatar.dart';
 import '../../core/widgets/app_dialog.dart';
@@ -42,9 +42,10 @@ class BlockedUsersPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.heart;
     final blocked = ref.watch(blockedUsersProvider);
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -73,10 +74,10 @@ class BlockedUsersPage extends ConsumerWidget {
                         padding:
                             const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                         itemCount: items.length,
-                        separatorBuilder: (_, _) => const Divider(
+                        separatorBuilder: (_, _) => Divider(
                           height: 1,
                           indent: 72,
-                          color: AppColors.divider,
+                          color: colors.divider,
                         ),
                         itemBuilder: (context, index) {
                           final user = items[index];

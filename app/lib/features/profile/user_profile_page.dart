@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -177,6 +177,7 @@ class _ProfileBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final photos = profile.photos.map((photo) => photo.url).toList();
     return Stack(
       children: [
@@ -202,7 +203,7 @@ class _ProfileBody extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('ID:u${profile.userId}',
-                            style: AppText.micro.copyWith(color: AppColors.text3)),
+                            style: AppText.micro.copyWith(color: colors.text3)),
                         const SizedBox(height: AppSpacing.md),
                         _LabeledBlock(label: '个性签名', value: profile.bio),
                         if (profile.tags.isNotEmpty) ...[
@@ -219,12 +220,12 @@ class _ProfileBody extends StatelessWidget {
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: AppSpacing.sm, vertical: 3),
                                   decoration: BoxDecoration(
-                                    color: AppColors.divider,
+                                    color: colors.divider,
                                     borderRadius: BorderRadius.circular(AppRadius.chip),
                                   ),
                                   child: Text(tag.name,
                                       style:
-                                          AppText.micro.copyWith(color: AppColors.text1)),
+                                          AppText.micro.copyWith(color: colors.text1)),
                                 ),
                             ],
                           ),
@@ -257,10 +258,10 @@ class _ProfileBody extends StatelessWidget {
                                     child: Image.network(
                                       photos[i],
                                       fit: BoxFit.cover,
-                                      errorBuilder: (c, e, s) => const ColoredBox(
-                                        color: AppColors.divider,
+                                      errorBuilder: (c, e, s) => ColoredBox(
+                                        color: colors.divider,
                                         child: Icon(Icons.image_rounded,
-                                            color: AppColors.text3),
+                                            color: colors.text3),
                                       ),
                                     ),
                                   ),
@@ -319,15 +320,18 @@ class _LabeledBlock extends StatelessWidget {
   final String value;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _FieldLabel(label: label),
           const SizedBox(height: AppSpacing.xs),
           Text(value.isEmpty ? '未填' : value,
-              style: AppText.body.copyWith(color: AppColors.text1)),
+              style: AppText.body.copyWith(color: colors.text1)),
         ],
       );
+  }
 }
 
 /// 只有标签、内容自带渲染的块(如标签 chip 组):**不会**在空值时补「未填」。
@@ -337,6 +341,9 @@ class _FieldLabel extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) =>
-      Text(label, style: AppText.caption.copyWith(color: AppColors.text2));
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return
+      Text(label, style: AppText.caption.copyWith(color: colors.text2));
+  }
 }

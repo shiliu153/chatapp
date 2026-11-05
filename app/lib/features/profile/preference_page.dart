@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_error_view.dart';
 import '../../core/widgets/app_form_skeleton.dart';
@@ -70,9 +70,10 @@ class _PreferencePageState extends ConsumerState<PreferencePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final profile = ref.watch(profileProvider);
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: SafeArea(
         bottom: false,
         child: Column(
