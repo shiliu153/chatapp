@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
+import 'core/theme/theme_controller.dart';
 import 'router.dart';
 
 class ChatApp extends ConsumerWidget {
@@ -14,9 +15,9 @@ class ChatApp extends ConsumerWidget {
       title: '交友 Chat',
       theme: buildAppTheme(brightness: Brightness.light),
       darkTheme: buildAppTheme(brightness: Brightness.dark),
-      // F-4 会把这里换成用户选择(跟随系统 / 浅色 / 深色,shared_preferences 持久化);
-      // 底座先按「跟随系统」,保证暗色页面从 F-1 起就能跑通。
-      themeMode: ThemeMode.system,
+      // 跟随系统 / 浅色 / 深色,由设置页的「外观」切换并落 shared_preferences。
+      // 启动时的初值由 main.dart 预读注入(见 initialThemeModeProvider)。
+      themeMode: ref.watch(themeModeProvider),
       locale: const Locale('zh', 'CN'),
       supportedLocales: const [Locale('zh', 'CN')],
       localizationsDelegates: const [

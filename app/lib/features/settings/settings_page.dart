@@ -12,6 +12,7 @@ import '../../core/widgets/app_toast.dart';
 import '../auth/session.dart';
 import 'settings_repository.dart';
 import 'widgets/delete_account_dialog.dart';
+import 'widgets/theme_mode_row.dart';
 import 'widgets/visits_hidden_row.dart';
 import '../../core/theme/heart_theme_context.dart';
 
@@ -138,6 +139,13 @@ class SettingsPage extends ConsumerWidget {
                           danger: true,
                           onTap: () => _logout(context, ref),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.cardGap),
+                    // 外观放最后:注销/退出登录这类危险动作仍留在上方一屏内(§7 操作层级)
+                    AppRowGroup(
+                      children: [
+                        const ThemeModeRow(),
                       ],
                     ),
                   ],

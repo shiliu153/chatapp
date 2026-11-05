@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:chatapp_app/app.dart';
 import 'package:chatapp_app/core/app_config.dart';
 import 'package:chatapp_app/core/providers.dart';
+import 'package:chatapp_app/core/theme/theme_controller.dart';
+import 'package:chatapp_app/core/theme/theme_mode_store.dart';
 import 'package:chatapp_app/core/token_storage.dart';
 import 'package:chatapp_app/core/token_store.dart';
 import 'package:chatapp_app/features/auth/session.dart';
@@ -32,6 +34,9 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
   // 单元测试没有平台通道:令牌存储换成 SharedPreferences 实现,
   // 这样 `prefs:` 参数仍然等价于「已登录」,用例无需改动
   final tokenStore = TokenStore(storage: SharedPreferencesTokenStorage());
+  // 与 main.dart 同一条路径:启动前先把外观模式从 prefs 读出来注入,
+  // 这样 `prefs: {'theme_mode': 'dark'}` 就等于「用户上次选了深色」。
+  final themeMode = await const ThemeModeStore().read();
   await tester.pumpWidget(ProviderScope(
     overrides: [
       baseDioProvider.overrideWithValue(dio),
@@ -39,6 +44,7 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
       tokenStoreProvider.overrideWithValue(tokenStore),
       imClientProvider.overrideWithValue(fake),
       appConfigCheckEnabledProvider.overrideWithValue(false),
+      initialThemeModeProvider.overrideWithValue(themeMode),
       // 默认关掉登录态心跳:避免测试里周期性假请求干扰用例,心跳用例自己 override
       heartbeatIntervalProvider.overrideWithValue(null),
       // 同样默认关掉在线状态的周期刷新;需要测定时的用例自己 override
