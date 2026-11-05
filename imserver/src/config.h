@@ -50,6 +50,13 @@ struct Config {
   // 聊天图片签名密钥与有效期;密钥为空 = 不签名(仅开发环境)
   std::string media_sign_secret;
   int media_sign_ttl = 86400;
+  /// 离线新消息推送的目标地址(Django 内部事件入口)。空 = 关闭(C-1)。
+  /// 例:`http://127.0.0.1:8000/internal/push/new-message`
+  std::string push_url;
+  /// 单次推送事件的 HTTP 超时(毫秒)。
+  int push_timeout_ms = 2000;
+  /// 推送事件队列长度;满了就丢(绝不反压发送路径)。
+  std::size_t push_queue = 256;
 
   static Config from_env();
   static Config from_map(const std::map<std::string, std::string>& env);

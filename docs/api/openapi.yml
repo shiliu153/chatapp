@@ -1256,6 +1256,129 @@ paths:
               schema:
                 $ref: '#/components/schemas/PresenceResult'
           description: ''
+  /api/v1/push/devices:
+    post:
+      operationId: push_devices_create
+      description: |-
+        上报推送设备(POST /api/v1/push/devices)。
+
+        幂等:同一 registration_id 重复上报只更新归属与版本;同账号的其他设备被删除。
+
+        Args:
+            request: DRF 请求对象,body 需带 ``registration_id`` 与 ``platform``。
+
+        Returns:
+            ``{"registration_id": str, "platform": str}``。
+      tags:
+      - push
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DeviceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DeviceRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResponse'
+          description: ''
+  /api/v1/push/devices/{registration_id}:
+    delete:
+      operationId: push_devices_destroy
+      description: |-
+        解绑推送设备(DELETE /api/v1/push/devices/{registration_id})。
+
+        幂等:设备不存在、或属于别人,一律 204(不泄漏他人设备信息)。
+
+        Args:
+            request: DRF 请求对象。
+            registration_id: 极光 registration_id。
+
+        Returns:
+            204 空响应。
+      parameters:
+      - in: path
+        name: registration_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - push
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/push/preferences:
+    get:
+      operationId: push_preferences_retrieve
+      description: |-
+        读取或修改通知偏好(GET/PATCH /api/v1/push/preferences)。
+
+        PATCH 为局部更新:只改传入的字段,未传的保持不变。
+
+        Args:
+            request: DRF 请求对象;PATCH 时 body 可带
+                ``likes`` / ``matches`` / ``messages`` / ``system``。
+
+        Returns:
+            ``{"likes": bool, "matches": bool, "messages": bool, "system": bool}``。
+      tags:
+      - push
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushPreference'
+          description: ''
+    patch:
+      operationId: push_preferences_partial_update
+      description: |-
+        读取或修改通知偏好(GET/PATCH /api/v1/push/preferences)。
+
+        PATCH 为局部更新:只改传入的字段,未传的保持不变。
+
+        Args:
+            request: DRF 请求对象;PATCH 时 body 可带
+                ``likes`` / ``matches`` / ``messages`` / ``system``。
+
+        Returns:
+            ``{"likes": bool, "matches": bool, "messages": bool, "system": bool}``。
+      tags:
+      - push
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPushPreferenceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPushPreferenceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPushPreferenceRequest'
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushPreference'
+          description: ''
   /api/v1/readyz:
     get:
       operationId: readyz_retrieve
@@ -1797,6 +1920,14 @@ components:
       - id
       - size
       - url
+    ClientErrorPlatformEnum:
+      enum:
+      - web
+      - app
+      type: string
+      description: |-
+        * `web` - web
+        * `app` - app
     ClientErrorRequest:
       type: object
       description: |-
@@ -1811,7 +1942,7 @@ components:
             request_id: 客户端最后收到的 ``X-Request-Id``,用来和服务端日志对账。
       properties:
         platform:
-          $ref: '#/components/schemas/PlatformEnum'
+          $ref: '#/components/schemas/ClientErrorPlatformEnum'
         message:
           type: string
           minLength: 1
@@ -1855,6 +1986,42 @@ components:
       - next
       - previous
       - results
+    DevicePlatformEnum:
+      enum:
+      - android
+      - ios
+      type: string
+      description: |-
+        * `android` - Android
+        * `ios` - iOS
+    DeviceRequest:
+      type: object
+      description: 设备上报的入参。
+      properties:
+        registration_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        platform:
+          $ref: '#/components/schemas/DevicePlatformEnum'
+        app_version:
+          type: string
+          default: ''
+          maxLength: 32
+      required:
+      - platform
+      - registration_id
+    DeviceResponse:
+      type: object
+      description: 设备上报的回执。
+      properties:
+        registration_id:
+          type: string
+        platform:
+          type: string
+      required:
+      - platform
+      - registration_id
     Feedback:
       type: object
       description: 反馈的对外回执(不回显处理状态与处理人)。
@@ -2146,6 +2313,22 @@ components:
             type: integer
         visits_hidden:
           type: boolean
+    PatchedPushPreferenceRequest:
+      type: object
+      description: 通知偏好的读写形状(四个布尔字段,对应四类通知)。
+      properties:
+        likes:
+          type: boolean
+          title: 新的喜欢
+        matches:
+          type: boolean
+          title: 配对成功
+        messages:
+          type: boolean
+          title: 新消息
+        system:
+          type: boolean
+          title: 系统通知
     PhoneRequest:
       type: object
       description: 只接收一个手机号的入参。
@@ -2199,14 +2382,6 @@ components:
           format: binary
       required:
       - file
-    PlatformEnum:
-      enum:
-      - web
-      - app
-      type: string
-      description: |-
-        * `web` - web
-        * `app` - app
     Post:
       type: object
       description: 动态的对外表示,含作者、配图与互动计数。
@@ -2561,6 +2736,22 @@ components:
       - photos
       - tags
       - user_id
+    PushPreference:
+      type: object
+      description: 通知偏好的读写形状(四个布尔字段,对应四类通知)。
+      properties:
+        likes:
+          type: boolean
+          title: 新的喜欢
+        matches:
+          type: boolean
+          title: 配对成功
+        messages:
+          type: boolean
+          title: 新消息
+        system:
+          type: boolean
+          title: 系统通知
     ReadyStatus:
       type: object
       properties:

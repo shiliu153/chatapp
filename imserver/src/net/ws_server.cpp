@@ -111,13 +111,15 @@ std::size_t IpCounter::auth_bucket_count() const {
 
 WsSession::WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
                      RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
-                     boost::asio::thread_pool& db_pool, const net_guard::ProxyTrust& trust)
+                     PushNotifier& push, boost::asio::thread_pool& db_pool,
+                     const net_guard::ProxyTrust& trust)
     : ws_(std::move(socket)),
       cfg_(cfg),
       registry_(registry),
       redis_(redis),
       ip_counter_(ip_counter),
       messages_(messages),
+      push_(push),
       db_pool_(db_pool),
       trust_(trust),
       auth_timer_(ws_.get_executor()),
@@ -436,7 +438,15 @@ void WsSession::handle_send(const nlohmann::json& frame) {
 void WsSession::on_send_result(const std::variant<SendResult, int>& result,
                                const SendRequest& request) {
   if (const auto* ok = std::get_if<SendResult>(&result)) {
-    registry_.send_to(request.to, build_message_frame(*ok, request, messages_.signer()));
+    const bool delivered =
+        registry_.send_to(request.to, build_message_frame(*ok, request, messages_.signer()));
+    // C-1:对端**不在线**才推。send_to 的返回值就是「有没有活跃会话」,
+    // 比再查一次 is_online 少一次加锁、也没有两次调用之间的竞态。
+    // 这里只入队,不发网络请求 —— 推送失败/关闭都不该影响这次发送的 ack。
+    if (!delivered) {
+      push_.notify_offline_message(request.to, request.from, ok->msg_id, request.kind,
+                                   request.text, ok->from_nickname);
+    }
     send_raw(send_ack_frame(request.client_msg_id, ok->msg_id, ok->seq, ok->ts));
     return;
   }
@@ -645,7 +655,7 @@ void WsSession::kick(const std::string& reason) {
 }
 
 WsServer::WsServer(net::io_context& io, const Config& cfg, SessionRegistry& registry,
-                   RedisClient& redis, MessageService& messages,
+                   RedisClient& redis, MessageService& messages, PushNotifier& push,
                    boost::asio::thread_pool& db_pool)
     : io_(io),
       acceptor_(io),
@@ -653,6 +663,7 @@ WsServer::WsServer(net::io_context& io, const Config& cfg, SessionRegistry& regi
       registry_(registry),
       redis_(redis),
       messages_(messages),
+      push_(push),
       db_pool_(db_pool),
       ip_counter_(cfg.max_conn_per_ip, cfg.auth_rate_per_sec, cfg.auth_burst),
       trust_(net_guard::ProxyTrust::from_list(cfg.trusted_proxies)) {}
@@ -679,7 +690,7 @@ void WsServer::do_accept() {
   acceptor_.async_accept(net::make_strand(io_), [this](error_code ec, tcp::socket socket) {
     if (!ec) {
       std::make_shared<WsSession>(std::move(socket), cfg_, registry_, redis_, ip_counter_,
-                                  messages_, db_pool_, trust_)
+                                  messages_, push_, db_pool_, trust_)
           ->run();
     }
     do_accept();

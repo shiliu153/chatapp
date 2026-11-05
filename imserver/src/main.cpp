@@ -14,6 +14,7 @@
 #include "net/http_api.h"
 #include "net/ws_server.h"
 #include "service/message_service.h"
+#include "service/push_notifier.h"
 #include "service/session_registry.h"
 #include "store/blacklist_repo.h"
 #include "store/conversation_repo.h"
@@ -72,7 +73,9 @@ int main(int argc, char** argv) {
     SessionRegistry registry(redis);
     boost::asio::io_context io;
     boost::asio::thread_pool db_pool(static_cast<std::size_t>(cfg.db_threads));
-    WsServer server(io, cfg, registry, redis, message_service, db_pool);
+    // C-1:离线新消息推送的转发器。IM_PUSH_URL 为空 = 关闭(空壳,不建线程)。
+    PushNotifier push_notifier(cfg);
+    WsServer server(io, cfg, registry, redis, message_service, push_notifier, db_pool);
     server.start();
     HttpApi http(io, cfg, message_service, registry, redis);
     http.start();
