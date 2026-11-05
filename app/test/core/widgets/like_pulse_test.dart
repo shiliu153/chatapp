@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/features/square/models.dart';
 import 'package:chatapp_app/features/square/widgets/post_card.dart';
+import '../../support/heart_theme.dart';
 
 Post _post({required bool liked}) => Post(
       id: 1,
@@ -18,7 +19,7 @@ Post _post({required bool liked}) => Post(
 void main() {
   testWidgets('点赞翻转触发心跳脉冲:scale 峰值 >1(有限 pump)', (tester) async {
     Post post = _post(liked: false);
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: StatefulBuilder(
           builder: (context, setState) => PostCard(
@@ -49,7 +50,7 @@ void main() {
 
   testWidgets('取消赞不触发脉冲', (tester) async {
     Post post = _post(liked: true);
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: StatefulBuilder(
           builder: (context, setState) => PostCard(

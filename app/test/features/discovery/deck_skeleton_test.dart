@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/features/discovery/widgets/deck_skeleton.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('渲染卡片骨架并呼吸(有限 pump,禁 pumpAndSettle)', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: DeckSkeleton()),
     ));
     await tester.pump();

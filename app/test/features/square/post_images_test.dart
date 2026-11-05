@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/features/square/widgets/post_images.dart';
+import '../../support/heart_theme.dart';
 
 // 测试面板宽 800;卡内(内外各 16+16)可用宽 736
 Future<void> _pump(WidgetTester tester, int count) async {
-  await tester.pumpWidget(MaterialApp(
+  await tester.pumpWidget(MaterialApp(theme: heartTheme, 
     home: Scaffold(
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),

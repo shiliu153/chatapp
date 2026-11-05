@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/heart_ripple.dart';
+import '../../support/heart_theme.dart';
 
 double _pingOpacity(WidgetTester tester, int index) => tester
     .widget<Opacity>(
@@ -14,7 +15,7 @@ double _pingOpacity(WidgetTester tester, int index) => tester
 
 void main() {
   testWidgets('中心光点 + 双波扩散、无静态环(有限 pump,禁 pumpAndSettle)', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: Center(child: HeartRipple())),
     ));
 
@@ -33,7 +34,7 @@ void main() {
   });
 
   testWidgets('减弱动态效果 → 波纹静止(不渲染)', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: MediaQuery(
         data: MediaQueryData(disableAnimations: true),
         child: Scaffold(body: Center(child: HeartRipple())),
@@ -46,7 +47,7 @@ void main() {
   });
 
   testWidgets('尺寸参数生效;中心光点不随尺寸缩放', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: Center(child: HeartRipple(size: 180))),
     ));
     expect(tester.getSize(find.byType(HeartRipple)), const Size(180, 180));

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_gradients.dart';
 import '../theme/app_radius.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 品牌 mark(§2 心跳渐变):72 圆角方 + 白色心形图标。
 ///
@@ -14,13 +15,16 @@ class AppBrandMark extends StatelessWidget {
   final double size;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
-          gradient: AppGradients.heart,
+          gradient: AppGradients.heartOf(colors),
           borderRadius: BorderRadius.circular(AppRadius.sheet),
         ),
         child: Icon(Icons.favorite_rounded, size: size * 4 / 9, color: Colors.white),
       );
+  }
 }

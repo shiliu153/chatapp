@@ -6,8 +6,9 @@ import 'package:chatapp_app/features/profile/widgets/profile_skeleton.dart';
 import 'package:chatapp_app/features/profile/widgets/user_profile_skeleton.dart';
 
 import '../../support/harness.dart';
+import '../../support/heart_theme.dart';
 
-Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
+Widget wrap(Widget child) => MaterialApp(theme: heartTheme, home: Scaffold(body: child));
 
 void main() {
   // 骨架是无限呼吸动画:一律有限 pump,禁 pumpAndSettle

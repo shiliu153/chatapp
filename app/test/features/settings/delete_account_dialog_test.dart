@@ -3,11 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/app_button.dart';
 import 'package:chatapp_app/features/settings/widgets/delete_account_dialog.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   /// 照 app_dialog_test.dart 的写法:用按钮打开弹窗,把返回值存进闭包变量。
   Future<void> openDialog(WidgetTester tester, void Function(String?) onResult) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(

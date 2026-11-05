@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_gradients.dart';
 import '../theme/app_typography.dart';
 import 'breathing_dot.dart';
+import '../theme/heart_theme_context.dart';
+import '../theme/heart_colors.dart';
 
 /// 「心跳」规则 §5.3 头像:一律圆形;可选光晕环(可聊/新配对)与在线绿点。
 /// 尺寸档:28/32/40/48/56/96(自由传入,在线点按 ≥48 取 11、否则 8)。
@@ -27,24 +28,26 @@ class AppAvatar extends StatelessWidget {
   /// 无图时的首字占位(附录 B.7);为空则保持人形图标占位。
   final String? fallbackText;
 
-  static const _fallbackTints = [
-    AppColors.brand,
-    AppColors.violet,
-    AppColors.green,
-    AppColors.amber,
-  ];
+  /// 首字占位的取色环(附录 B.7)。随主题走,所以不能是 static const。
+  static List<Color> _fallbackTints(HeartColors colors) => [
+        colors.brand,
+        colors.violet,
+        colors.green,
+        colors.amber,
+      ];
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     Widget avatar = ClipOval(
       child: SizedBox.square(
         dimension: size,
         child: imageUrl == null
-            ? _placeholder()
+            ? _placeholder(colors)
             : Image.network(
                 imageUrl!,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => _placeholder(),
+                errorBuilder: (_, _, _) => _placeholder(colors),
               ),
       ),
     );
@@ -52,7 +55,10 @@ class AppAvatar extends StatelessWidget {
     if (halo) {
       avatar = Container(
         padding: const EdgeInsets.all(2.5),
-        decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppGradients.heart),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: AppGradients.heartOf(colors),
+        ),
         child: Container(
           padding: const EdgeInsets.all(2),
           decoration: BoxDecoration(shape: BoxShape.circle, color: dotBorderColor),
@@ -81,25 +87,26 @@ class AppAvatar extends StatelessWidget {
     return avatar;
   }
 
-  Widget _placeholder() {
+  Widget _placeholder(HeartColors colors) {
     final text = fallbackText;
     if (text == null || text.isEmpty) {
       return Container(
-        color: AppColors.divider,
+        color: colors.divider,
         child: Center(
-          child: Icon(Icons.person_rounded, color: AppColors.text3, size: size * 0.6),
+          child: Icon(Icons.person_rounded, color: colors.text3, size: size * 0.6),
         ),
       );
     }
     // 按名字内容稳定取色:同一人始终同色(不依赖 hashCode 的跨版本稳定性)
-    final tint = _fallbackTints[
-        text.codeUnits.fold<int>(0, (sum, unit) => sum + unit) % _fallbackTints.length];
+    final tints = _fallbackTints(colors);
+    final tint =
+        tints[text.codeUnits.fold<int>(0, (sum, unit) => sum + unit) % tints.length];
     return Container(
       color: tint.withValues(alpha: 0.12),
       child: Center(
         child: Text(
           text.substring(0, 1),
-          style: AppText.subtitle.copyWith(fontSize: size * 0.38, color: AppColors.text1),
+          style: AppText.subtitle.copyWith(fontSize: size * 0.38, color: colors.text1),
         ),
       ),
     );

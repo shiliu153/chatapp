@@ -11,6 +11,7 @@ import 'package:chatapp_app/features/square/post_detail_page.dart';
 
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
+import '../../support/heart_theme.dart';
 
 Future<void> pumpDetail(WidgetTester tester, ScriptedAdapter adapter,
     {required int postId}) async {
@@ -36,7 +37,7 @@ Future<void> pumpDetail(WidgetTester tester, ScriptedAdapter adapter,
       baseDioProvider.overrideWithValue(dio),
       refreshDioProvider.overrideWithValue(dio),
     ],
-    child: MaterialApp.router(routerConfig: router),
+    child: MaterialApp.router(theme: heartTheme, routerConfig: router),
   ));
   await tester.pumpAndSettle();
 }

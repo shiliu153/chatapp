@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/card_hero.dart';
+import '../../support/heart_theme.dart';
 
-Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
+Widget _wrap(Widget child) => MaterialApp(theme: heartTheme, home: Scaffold(body: child));
 
 void main() {
   testWidgets('tag 为 null 时直接返回 child,不包 Hero', (tester) async {

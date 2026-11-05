@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 「心跳」规则 §7 空态:大号彩色元素(mark 优先,emoji 备选)+ 标题 17/w600
 /// + 说明 13 text2 + 可选按钮。禁止灰色图标占位。
@@ -24,7 +24,9 @@ class AppEmptyState extends StatelessWidget {
   final Widget? action;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (mark != null)
@@ -37,7 +39,7 @@ class AppEmptyState extends StatelessWidget {
             const SizedBox(height: AppSpacing.xs),
             Text(
               description!,
-              style: AppText.caption.copyWith(color: AppColors.text2),
+              style: AppText.caption.copyWith(color: colors.text2),
               textAlign: TextAlign.center,
             ),
           ],
@@ -47,4 +49,5 @@ class AppEmptyState extends StatelessWidget {
           ],
         ],
       );
+  }
 }

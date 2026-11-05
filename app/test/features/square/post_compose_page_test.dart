@@ -13,6 +13,7 @@ import 'package:chatapp_app/features/square/post_compose_page.dart';
 
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
+import '../../support/heart_theme.dart';
 
 /// 直接 pump 单页(push 出来,发布成功后的 pop 不会顶掉根路由),相册用注入的假实现。
 Future<void> pumpCompose(WidgetTester tester, ScriptedAdapter adapter,
@@ -27,7 +28,7 @@ Future<void> pumpCompose(WidgetTester tester, ScriptedAdapter adapter,
       baseDioProvider.overrideWithValue(dio),
       refreshDioProvider.overrideWithValue(refreshDio),
     ],
-    child: MaterialApp(navigatorKey: navigatorKey, home: const Scaffold()),
+    child: MaterialApp(theme: heartTheme, navigatorKey: navigatorKey, home: const Scaffold()),
   ));
   navigatorKey.currentState!.push(MaterialPageRoute(
       builder: (_) => PostComposePage(pickImages: pickImages)));

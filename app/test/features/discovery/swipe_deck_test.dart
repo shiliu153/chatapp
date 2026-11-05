@@ -5,6 +5,7 @@ import 'package:chatapp_app/features/discovery/models.dart';
 import 'package:chatapp_app/features/discovery/widgets/swipe_deck.dart';
 
 import '../../support/sample_data.dart';
+import '../../support/heart_theme.dart';
 
 List<Candidate> _candidates() => [
       Candidate.fromJson(candidateJson(userId: 9, nickname: '小红')),
@@ -27,7 +28,7 @@ class _HostState extends State<_Host> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: SwipeDeck(
           candidates: _left,

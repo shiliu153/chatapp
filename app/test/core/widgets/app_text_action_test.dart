@@ -3,11 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/widgets/app_text_action.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('可点:brand 15/w600;点回调', (tester) async {
     var taps = 0;
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppTextAction(
           key: const Key('act'),
@@ -28,7 +29,7 @@ void main() {
 
   testWidgets('禁用:文字 text3,点不动', (tester) async {
     var taps = 0;
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppTextAction(
           key: const Key('act'),

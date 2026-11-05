@@ -4,11 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/theme/app_gradients.dart';
 import 'package:chatapp_app/core/widgets/app_option_group.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('选中项渐变胶囊白字;未选中透明底 text2;点未选中项回调', (tester) async {
     String? picked;
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppOptionGroup<String>(
           options: const [
@@ -39,7 +40,7 @@ void main() {
   });
 
   testWidgets('整体高 52', (tester) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppOptionGroup<String>(
           options: const [

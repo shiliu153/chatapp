@@ -18,6 +18,7 @@ import '../../support/fake_im_client.dart';
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
+import '../../support/heart_theme.dart';
 
 class _LoggedInImManager extends ImManager {
   @override
@@ -69,7 +70,7 @@ void main() {
     );
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(theme: heartTheme, routerConfig: router),
     ));
     await tester.pumpAndSettle();
     router.push('/users/$userId', extra: heroTag);
@@ -206,7 +207,7 @@ void main() {
     );
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(theme: heartTheme, routerConfig: router),
     ));
     await tester.pumpAndSettle();
     expect(find.text('还没有拉黑任何人'), findsOneWidget);   // 预热:空态已缓存
@@ -277,7 +278,7 @@ void main() {
     );
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(theme: heartTheme, routerConfig: router),
     ));
     await tester.pumpAndSettle();
     router.push('/users/9');

@@ -3,11 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/api_exception.dart';
 import 'package:chatapp_app/core/widgets/app_error_view.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('渲染标题、原因与重试回调', (tester) async {
     var retried = 0;
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppErrorView(
           message: '网络开小差了',
@@ -23,7 +24,7 @@ void main() {
   });
 
   testWidgets('不给 onRetry 时不渲染重试', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: AppErrorView(message: '没网')),
     ));
     expect(find.text('重试'), findsNothing);

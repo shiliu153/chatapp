@@ -3,10 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/app_form_skeleton.dart';
 import 'package:chatapp_app/core/widgets/app_skeleton.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('fields=3 渲染 6 个骨架块(3 标签 + 3 输入框);只用有限 pump', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: Padding(
           padding: EdgeInsets.all(16),

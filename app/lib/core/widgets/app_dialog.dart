@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'app_button.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 「心跳」统一对话框:白底 R24、标题 17/w600 居中、正文 `caption` `text2`、
 /// [actions] 等宽横排(次在左、主在右)。
@@ -26,8 +26,10 @@ class AppDialog extends StatelessWidget {
   final List<Widget> actions;
 
   @override
-  Widget build(BuildContext context) => Dialog(
-        backgroundColor: AppColors.bgCard,
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Dialog(
+        backgroundColor: colors.bgCard,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadius.sheet),
         ),
@@ -42,14 +44,14 @@ class AppDialog extends StatelessWidget {
                 title,
                 textAlign: TextAlign.center,
                 style: AppText.subtitle
-                    .copyWith(fontSize: 17, color: AppColors.text1),
+                    .copyWith(fontSize: 17, color: colors.text1),
               ),
               if (message != null) ...[
                 const SizedBox(height: AppSpacing.sm),
                 Text(
                   message!,
                   textAlign: TextAlign.center,
-                  style: AppText.caption.copyWith(color: AppColors.text2),
+                  style: AppText.caption.copyWith(color: colors.text2),
                 ),
               ],
               if (content != null) ...[
@@ -69,6 +71,7 @@ class AppDialog extends StatelessWidget {
           ),
         ),
       );
+  }
 }
 
 /// 二次确认框:确认返回 true;取消 / 点外部返回 false。

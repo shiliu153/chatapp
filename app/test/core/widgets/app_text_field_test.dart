@@ -3,8 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/widgets/app_text_field.dart';
+import '../../support/heart_theme.dart';
 
-Widget _wrap(Widget child) => MaterialApp(
+Widget _wrap(Widget child) => MaterialApp(theme: heartTheme, 
       home: Scaffold(body: Padding(padding: const EdgeInsets.all(16), child: child)),
     );
 

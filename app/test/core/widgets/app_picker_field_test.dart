@@ -3,11 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/widgets/app_picker_field.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('未选显示占位 text3;点击回调', (tester) async {
     var taps = 0;
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppPickerField(
           key: const Key('p'),
@@ -28,7 +29,7 @@ void main() {
   });
 
   testWidgets('有值时文字 text1,盒高 52', (tester) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppPickerField(
           key: const Key('p'),

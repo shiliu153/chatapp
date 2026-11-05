@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/features/chat/widgets/photo_viewer.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('显示指定图片并能左右滑;点关闭退出', (tester) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
         home: Builder(
             builder: (context) => TextButton(
                 onPressed: () => openPhotoViewer(context,

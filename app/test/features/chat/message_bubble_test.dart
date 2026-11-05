@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/widgets/app_avatar.dart';
 import 'package:chatapp_app/features/chat/widgets/message_bubble.dart';
 import 'package:chatapp_app/im/im_client.dart';
+import '../../support/heart_theme.dart';
 
 ChatMessage _m({
   bool isSelf = false,
@@ -25,7 +26,7 @@ ChatMessage _m({
     );
 
 Future<void> _pump(WidgetTester tester, Widget child) =>
-    tester.pumpWidget(MaterialApp(home: Scaffold(body: child)));
+    tester.pumpWidget(MaterialApp(theme: heartTheme, home: Scaffold(body: child)));
 
 void main() {
   testWidgets('对方气泡:头像首字 + 白色气泡', (tester) async {

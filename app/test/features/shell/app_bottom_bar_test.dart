@@ -3,8 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/app_badge.dart';
 import 'package:chatapp_app/features/shell/app_bottom_bar.dart';
+import '../../support/heart_theme.dart';
 
-Widget wrap(Widget bar, {bool disableAnimations = false}) => MaterialApp(
+Widget wrap(Widget bar, {bool disableAnimations = false}) => MaterialApp(theme: heartTheme, 
       home: MediaQuery(
         data: MediaQueryData(disableAnimations: disableAnimations),
         child: Scaffold(bottomNavigationBar: bar),

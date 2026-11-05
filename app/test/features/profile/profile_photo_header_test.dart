@@ -5,8 +5,9 @@ import 'package:chatapp_app/core/widgets/avatar_hero.dart';
 import 'package:chatapp_app/features/profile/widgets/profile_photo_header.dart';
 
 import '../../support/harness.dart';
+import '../../support/heart_theme.dart';
 
-Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
+Widget wrap(Widget child) => MaterialApp(theme: heartTheme, home: Scaffold(body: child));
 
 void main() {
   testWidgets('有照片:渲染网络图 + 昵称·年龄 + 城市', (tester) async {

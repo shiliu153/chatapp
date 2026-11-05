@@ -4,11 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/widgets/app_empty_state.dart';
 import 'package:chatapp_app/core/widgets/app_button.dart';
 import 'package:chatapp_app/core/widgets/heart_ripple.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('四要素渲染,主按钮可点;禁灰色图标占位(§7)', (tester) async {
     var taps = 0;
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: Center(
           child: AppEmptyState(
@@ -28,7 +29,7 @@ void main() {
   });
 
   testWidgets('无说明无按钮也可渲染', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: Center(child: AppEmptyState(emoji: '✨', title: '空空如也'))),
     ));
     expect(find.text('✨'), findsOneWidget);
@@ -36,7 +37,7 @@ void main() {
   });
 
   testWidgets('mark 优先于 emoji;两者皆空不崩', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: Center(
           child: AppEmptyState(
@@ -50,7 +51,7 @@ void main() {
     expect(find.byType(HeartRipple), findsOneWidget);
     expect(find.text('✨'), findsNothing);
 
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: Center(child: AppEmptyState(title: '只有标题'))),
     ));
     expect(find.text('只有标题'), findsOneWidget);

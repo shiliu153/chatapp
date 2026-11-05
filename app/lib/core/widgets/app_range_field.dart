@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_gradients.dart';
 import '../theme/app_typography.dart';
+import '../theme/heart_theme_context.dart';
+import '../theme/heart_colors.dart';
 
 /// 「心跳」§7 区间选择:标题 + 双滑块。
 /// 选中轨道用 `gradientHeart` 着色(§7「选中:填充样式 + gradientHeart 着色」),
@@ -29,18 +30,20 @@ class AppRangeField extends StatelessWidget {
   static const thumbRadius = 12.0;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: AppText.subtitle.copyWith(color: AppColors.text1)),
+          Text(title, style: AppText.subtitle.copyWith(color: colors.text1)),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               trackHeight: trackHeight,
-              activeTrackColor: AppColors.brand, // 自定义 track shape 会盖掉它
-              inactiveTrackColor: AppColors.divider,
-              thumbColor: AppColors.bgCard,
-              overlayColor: AppColors.brand.withValues(alpha: .12),
-              rangeTrackShape: const _GradientRangeTrackShape(),
+              activeTrackColor: colors.brand, // 自定义 track shape 会盖掉它
+              inactiveTrackColor: colors.divider,
+              thumbColor: colors.bgCard,
+              overlayColor: colors.brand.withValues(alpha: .12),
+              rangeTrackShape: _GradientRangeTrackShape(colors),
               rangeThumbShape: const RoundRangeSliderThumbShape(
                 enabledThumbRadius: thumbRadius,
                 elevation: 2,
@@ -61,12 +64,19 @@ class AppRangeField extends StatelessWidget {
           ),
         ],
       );
+  }
 }
 
 /// 选中段画 `gradientHeart`,未选段画 `divider`。
+///
+/// 轨道自绘发生在 paint 阶段(只有 PaintingContext,拿不到 BuildContext),
+/// 所以色板由外部构造时注入。
 class _GradientRangeTrackShape extends RangeSliderTrackShape
     with BaseRangeSliderTrackShape {
-  const _GradientRangeTrackShape();
+  const _GradientRangeTrackShape(this.colors);
+
+  /// 当前主题的语义色板。
+  final HeartColors colors;
 
   @override
   bool get isRounded => true;
@@ -97,7 +107,7 @@ class _GradientRangeTrackShape extends RangeSliderTrackShape
     final canvas = context.canvas;
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, radius),
-      Paint()..color = sliderTheme.inactiveTrackColor ?? AppColors.divider,
+      Paint()..color = sliderTheme.inactiveTrackColor ?? colors.divider,
     );
 
     final left = startThumbCenter.dx < endThumbCenter.dx
@@ -110,7 +120,7 @@ class _GradientRangeTrackShape extends RangeSliderTrackShape
     if (active.isEmpty) return;
     canvas.drawRRect(
       RRect.fromRectAndRadius(active, radius),
-      Paint()..shader = AppGradients.heart.createShader(active),
+      Paint()..shader = AppGradients.heartOf(colors).createShader(active),
     );
   }
 }

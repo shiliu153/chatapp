@@ -3,8 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/features/chat/widgets/chat_skeleton.dart';
 import 'package:chatapp_app/features/chat/widgets/chats_skeleton.dart';
+import '../../support/heart_theme.dart';
 
-Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
+Widget _wrap(Widget child) => MaterialApp(theme: heartTheme, home: Scaffold(body: child));
 
 void main() {
   // 骨架屏是无限呼吸动画:只用有限 pump,禁 pumpAndSettle(pitfalls/testing.md)。

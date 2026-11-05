@@ -3,11 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/widgets/app_list_row.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('图标 + 标题 + 副标题 + 默认 chevron;高 64;点击回调', (tester) async {
     var taps = 0;
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppListRow(
           key: const Key('row'),
@@ -29,7 +30,7 @@ void main() {
   });
 
   testWidgets('trailing 覆盖 chevron', (tester) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppListRow(
           title: '小红',
@@ -42,7 +43,7 @@ void main() {
   });
 
   testWidgets('danger + centerTitle:居中 danger 字,无图标无 chevron', (tester) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppListRow(
           key: const Key('row'),

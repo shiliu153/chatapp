@@ -3,10 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/theme/app_gradients.dart';
 import 'package:chatapp_app/core/widgets/app_brand_mark.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('72 圆角方 + 心跳渐变 + 白心形图标', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: Center(child: AppBrandMark(key: Key('brand')))),
     ));
 
@@ -21,7 +22,7 @@ void main() {
   });
 
   testWidgets('品牌 mark 静态:连推数帧后仍无待处理帧', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: Center(child: AppBrandMark(key: Key('brand')))),
     ));
     await tester.pump(const Duration(milliseconds: 100));

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 「心跳」§7 选择框:外观与 `AppTextField` 同规格(白底 R16 描边 1px 高 52),
 /// 点整块唤起外部选择器(如 `showDatePicker`)。
@@ -24,10 +24,12 @@ class AppPickerField extends StatelessWidget {
   static const height = 52.0;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: AppText.caption.copyWith(color: AppColors.text2)),
+          Text(label, style: AppText.caption.copyWith(color: colors.text2)),
           const SizedBox(height: AppSpacing.xs),
           GestureDetector(
             onTap: onTap,
@@ -36,9 +38,9 @@ class AppPickerField extends StatelessWidget {
               height: height,
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
               decoration: BoxDecoration(
-                color: AppColors.bgCard,
+                color: colors.bgCard,
                 borderRadius: BorderRadius.circular(AppRadius.input),
-                border: Border.all(color: AppColors.divider),
+                border: Border.all(color: colors.divider),
               ),
               child: Row(
                 children: [
@@ -46,16 +48,17 @@ class AppPickerField extends StatelessWidget {
                     child: Text(
                       value ?? placeholder,
                       style: AppText.body.copyWith(
-                        color: value == null ? AppColors.text3 : AppColors.text1,
+                        color: value == null ? colors.text3 : colors.text1,
                       ),
                     ),
                   ),
-                  const Icon(Icons.expand_more_rounded,
-                      size: 20, color: AppColors.text3),
+                  Icon(Icons.expand_more_rounded,
+                      size: 20, color: colors.text3),
                 ],
               ),
             ),
           ),
         ],
       );
+  }
 }

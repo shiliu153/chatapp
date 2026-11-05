@@ -10,6 +10,7 @@ import 'package:chatapp_app/features/settings/feedback_page.dart';
 
 import '../../support/harness.dart';
 import '../../support/scripted_adapter.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   late ScriptedAdapter adapter;
@@ -29,7 +30,7 @@ void main() {
     addTearDown(container.dispose);
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(home: FeedbackPage()),
+      child: MaterialApp(theme: heartTheme, home: FeedbackPage()),
     ));
     await tester.pumpAndSettle();
   }

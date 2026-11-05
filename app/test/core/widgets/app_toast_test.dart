@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/app_toast.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('Toast 出现后 2s 自动消失', (tester) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
