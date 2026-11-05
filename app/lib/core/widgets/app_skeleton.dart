@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_radius.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 「心跳」规则 §7 骨架屏:divider 色块,透明度 .5↔1,1.2s 循环。
 class AppSkeleton extends StatefulWidget {
@@ -32,7 +32,9 @@ class _AppSkeletonState extends State<AppSkeleton> with SingleTickerProviderStat
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return AnimatedBuilder(
         animation: _c,
         builder: (context, _) => Opacity(
           opacity: 0.5 + 0.5 * _c.value,
@@ -40,10 +42,11 @@ class _AppSkeletonState extends State<AppSkeleton> with SingleTickerProviderStat
             width: widget.width,
             height: widget.height,
             decoration: BoxDecoration(
-              color: AppColors.divider,
+              color: colors.divider,
               borderRadius: BorderRadius.circular(widget.radius),
             ),
           ),
         ),
       );
+  }
 }

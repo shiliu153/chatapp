@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
+import '../theme/heart_theme_context.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_shadows.dart';
@@ -22,6 +22,7 @@ class _AppCardState extends State<AppCard> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final tappable = widget.onTap != null;
     return GestureDetector(
       onTapDown: tappable ? (_) => setState(() => _pressed = true) : null,
@@ -34,7 +35,7 @@ class _AppCardState extends State<AppCard> {
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.lg),
           decoration: BoxDecoration(
-            color: AppColors.bgCard,
+            color: colors.bgCard,
             borderRadius: BorderRadius.circular(AppRadius.card),
             boxShadow: AppShadows.card,
           ),

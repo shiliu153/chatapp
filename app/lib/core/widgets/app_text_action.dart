@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
+import '../theme/heart_theme_context.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
@@ -23,10 +23,11 @@ class AppTextAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final disabled = onPressed == null;
     final color = disabled
-        ? AppColors.text3
-        : (danger ? AppColors.danger : AppColors.brand);
+        ? colors.text3
+        : (danger ? colors.danger : colors.brand);
     return GestureDetector(
       onTap: onPressed,
       behavior: HitTestBehavior.opaque,

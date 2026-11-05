@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_gradients.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 选项(单选/多选共用;`AppChipGroup` 也吃这个类型)。
 class AppOption<T> {
@@ -36,13 +36,15 @@ class AppOptionGroup<T> extends StatelessWidget {
   static const _segmentHeight = 44.0;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         height: height,
         padding: const EdgeInsets.all(AppSpacing.xs),
         decoration: BoxDecoration(
-          color: AppColors.bgCard,
+          color: colors.bgCard,
           borderRadius: BorderRadius.circular(AppRadius.input),
-          border: Border.all(color: AppColors.divider),
+          border: Border.all(color: colors.divider),
         ),
         child: Row(
           children: [
@@ -57,7 +59,7 @@ class AppOptionGroup<T> extends StatelessWidget {
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       gradient:
-                          option.value == value ? AppGradients.heart : null,
+                          option.value == value ? AppGradients.heartOf(colors) : null,
                       borderRadius: BorderRadius.circular(AppRadius.full),
                     ),
                     child: Text(
@@ -65,7 +67,7 @@ class AppOptionGroup<T> extends StatelessWidget {
                       style: AppText.body.copyWith(
                         color: option.value == value
                             ? Colors.white
-                            : AppColors.text2,
+                            : colors.text2,
                         fontWeight: option.value == value
                             ? FontWeight.w600
                             : FontWeight.w500,
@@ -77,4 +79,5 @@ class AppOptionGroup<T> extends StatelessWidget {
           ],
         ),
       );
+  }
 }

@@ -6,6 +6,7 @@ import 'package:chatapp_app/features/discovery/models.dart';
 import 'package:chatapp_app/features/discovery/widgets/match_overlay.dart';
 
 import '../../support/sample_data.dart';
+import '../../support/heart_theme.dart';
 
 /// 完成帧文案的不透明度(0=未入场,1=完成帧)。
 double _textOpacity(WidgetTester tester) => tester
@@ -19,7 +20,7 @@ void main() {
     final candidate = Candidate.fromJson(candidateJson(nickname: '小红'));
     var closed = false;
 
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: MatchOverlay(
         candidate: candidate,
         myAvatarUrl: null,
@@ -40,7 +41,7 @@ void main() {
     final candidate = Candidate.fromJson(candidateJson(nickname: '小红'));
     var wentChat = false;
 
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: MatchOverlay(
         candidate: candidate,
         onClose: () {},
@@ -55,7 +56,7 @@ void main() {
   testWidgets('不给 onGoChat 时没有「去聊天」', (tester) async {
     final candidate = Candidate.fromJson(candidateJson(nickname: '小红'));
 
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: MatchOverlay(candidate: candidate, onClose: () {}),
     ));
 
@@ -65,7 +66,7 @@ void main() {
   testWidgets('编排结束后完成帧可见', (tester) async {
     final candidate = Candidate.fromJson(candidateJson(nickname: '小红'));
     await tester.pumpWidget(
-      MaterialApp(home: MatchOverlay(candidate: candidate, onClose: () {})),
+      MaterialApp(theme: heartTheme, home: MatchOverlay(candidate: candidate, onClose: () {})),
     );
     await tester.pumpAndSettle();
 
@@ -75,7 +76,7 @@ void main() {
   testWidgets('点击任意处直达完成帧', (tester) async {
     final candidate = Candidate.fromJson(candidateJson(nickname: '小红'));
     await tester.pumpWidget(
-      MaterialApp(home: MatchOverlay(candidate: candidate, onClose: () {})),
+      MaterialApp(theme: heartTheme, home: MatchOverlay(candidate: candidate, onClose: () {})),
     );
     await tester.pump();
     expect(_textOpacity(tester), lessThan(1)); // 首帧还没走完编排
@@ -87,7 +88,7 @@ void main() {
 
   testWidgets('减弱动态效果 → 初始即完成帧', (tester) async {
     final candidate = Candidate.fromJson(candidateJson(nickname: '小红'));
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: MediaQuery(
         data: const MediaQueryData(disableAnimations: true),
         child: MatchOverlay(candidate: candidate, onClose: () {}),

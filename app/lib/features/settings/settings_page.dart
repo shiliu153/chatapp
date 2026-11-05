@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_list_row.dart';
@@ -13,7 +12,9 @@ import '../../core/widgets/app_toast.dart';
 import '../auth/session.dart';
 import 'settings_repository.dart';
 import 'widgets/delete_account_dialog.dart';
+import 'widgets/theme_mode_row.dart';
 import 'widgets/visits_hidden_row.dart';
+import '../../core/theme/heart_theme_context.dart';
 
 /// 设置页(附录 E):二级页顶栏 + 两张行分组卡。
 class SettingsPage extends ConsumerWidget {
@@ -61,8 +62,10 @@ class SettingsPage extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-        backgroundColor: AppColors.bgPage,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.heart;
+    return Scaffold(
+        backgroundColor: colors.bgPage,
         body: SafeArea(
           bottom: false,
           child: Column(
@@ -138,6 +141,13 @@ class SettingsPage extends ConsumerWidget {
                         ),
                       ],
                     ),
+                    const SizedBox(height: AppSpacing.cardGap),
+                    // 外观放最后:注销/退出登录这类危险动作仍留在上方一屏内(§7 操作层级)
+                    AppRowGroup(
+                      children: [
+                        const ThemeModeRow(),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -145,4 +155,5 @@ class SettingsPage extends ConsumerWidget {
           ),
         ),
       );
+  }
 }

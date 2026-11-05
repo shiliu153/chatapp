@@ -10,6 +10,7 @@ import 'package:chatapp_app/features/discovery/visits_page.dart';
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   late ScriptedAdapter adapter;
@@ -28,7 +29,7 @@ void main() {
     addTearDown(container.dispose);
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: const MaterialApp(home: VisitsPage()),
+      child: MaterialApp(theme: heartTheme, home: VisitsPage()),
     ));
     await pumpFrames(tester); // 骨架/空态涟漪都是无限动画,不能 pumpAndSettle
   }

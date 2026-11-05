@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_radius.dart';
 import '../theme/app_shadows.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 「心跳」§7 表单分组卡:白卡 R20 + 卡片阴影 + 内边距 16;可选分组标题。
 /// 子项按 [gap] 竖排(默认 `AppSpacing.lg` = 16)。
@@ -24,10 +24,12 @@ class AppSectionCard extends StatelessWidget {
   final double gap;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         padding: const EdgeInsets.all(AppSpacing.lg),
         decoration: BoxDecoration(
-          color: AppColors.bgCard,
+          color: colors.bgCard,
           borderRadius: BorderRadius.circular(AppRadius.card),
           boxShadow: AppShadows.card,
         ),
@@ -36,7 +38,7 @@ class AppSectionCard extends StatelessWidget {
           children: [
             if (title != null) ...[
               Text(title!,
-                  style: AppText.subtitle.copyWith(color: AppColors.text1)),
+                  style: AppText.subtitle.copyWith(color: colors.text1)),
               const SizedBox(height: AppSpacing.md),
             ],
             for (var i = 0; i < children.length; i++) ...[
@@ -46,4 +48,5 @@ class AppSectionCard extends StatelessWidget {
           ],
         ),
       );
+  }
 }

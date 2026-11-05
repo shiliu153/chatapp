@@ -4,10 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/theme/app_radius.dart';
 import 'package:chatapp_app/core/widgets/app_section_card.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('白卡 R20 + 分组标题在最上;子项按 gap 竖排', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppSectionCard(
           key: Key('card'),

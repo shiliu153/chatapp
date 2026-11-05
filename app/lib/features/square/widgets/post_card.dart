@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/format.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_typography.dart';
@@ -49,6 +49,7 @@ class PostCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final card = AppCard(
       key: Key('post.card.${post.id}'),
       onTap: onTap,
@@ -88,7 +89,7 @@ class PostCard extends StatelessWidget {
                           onTap: onTapAuthor ?? () {},
                           child: Text(post.author.nickname,
                               style: AppText.subtitle
-                                  .copyWith(color: AppColors.text1)),
+                                  .copyWith(color: colors.text1)),
                         ),
                       ),
                     ),
@@ -99,8 +100,8 @@ class PostCard extends StatelessWidget {
                         child: PopupMenuButton<String>(
                           key: Key('post.more.${post.id}'),
                           padding: EdgeInsets.zero,
-                          icon: const Icon(Icons.more_horiz_rounded,
-                              size: 20, color: AppColors.text3),
+                          icon: Icon(Icons.more_horiz_rounded,
+                              size: 20, color: colors.text3),
                           onSelected: (value) => menuAction!(value),
                           itemBuilder: (context) => [
                             if (isMine)
@@ -120,11 +121,11 @@ class PostCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(formatPostTime(post.createdAt),
-                    style: AppText.micro.copyWith(color: AppColors.text3)),
+                    style: AppText.micro.copyWith(color: colors.text3)),
                 if (post.text.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(post.text,
-                      style: AppText.body.copyWith(color: AppColors.text1)),
+                      style: AppText.body.copyWith(color: colors.text1)),
                 ],
                 if (post.images.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -138,7 +139,7 @@ class PostCard extends StatelessWidget {
                       icon: post.likedByMe
                           ? Icons.favorite_rounded
                           : Icons.favorite_border_rounded,
-                      color: post.likedByMe ? AppColors.brand : AppColors.text3,
+                      color: post.likedByMe ? colors.brand : colors.text3,
                       count: post.likeCount,
                       pulse: post.likedByMe, // didUpdateWidget 里只在「未赞→已赞」触发
                       onTap: onToggleLike,
@@ -146,7 +147,7 @@ class PostCard extends StatelessWidget {
                     const SizedBox(width: 16),
                     _ActionIcon(
                       icon: Icons.mode_comment_rounded,
-                      color: AppColors.text3,
+                      color: colors.text3,
                       count: post.commentCount,
                       onTap: onTap,
                     ),

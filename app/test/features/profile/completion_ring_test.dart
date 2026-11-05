@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/features/profile/widgets/completion_ring.dart';
+import '../../support/heart_theme.dart';
 
-Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: Center(child: child)));
+Widget wrap(Widget child) => MaterialApp(theme: heartTheme, home: Scaffold(body: Center(child: child)));
 
 void main() {
   testWidgets('渲染 done/total 文案', (tester) async {

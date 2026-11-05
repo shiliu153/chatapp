@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
+import '../theme/heart_theme_context.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
@@ -44,8 +44,9 @@ class _AppListRowState extends State<AppListRow> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = widget.danger ? AppColors.danger : AppColors.text1;
-    final iconColor = widget.danger ? AppColors.danger : AppColors.text2;
+    final colors = context.heart;
+    final accent = widget.danger ? colors.danger : colors.text1;
+    final iconColor = widget.danger ? colors.danger : colors.text2;
     final tappable = widget.onTap != null;
 
     final Widget content = widget.centerTitle
@@ -82,7 +83,7 @@ class _AppListRowState extends State<AppListRow> {
                         widget.subtitle!,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppText.micro.copyWith(color: AppColors.text3),
+                        style: AppText.micro.copyWith(color: colors.text3),
                       ),
                     ],
                   ],
@@ -91,8 +92,8 @@ class _AppListRowState extends State<AppListRow> {
               if (widget.trailing != null)
                 widget.trailing!
               else if (widget.showChevron)
-                const Icon(Icons.chevron_right_rounded,
-                    size: 20, color: AppColors.text3),
+                Icon(Icons.chevron_right_rounded,
+                    size: 20, color: colors.text3),
             ],
           );
 

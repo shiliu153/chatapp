@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_gradients.dart';
 import '../../core/theme/app_motion.dart';
 import '../../core/theme/app_shadows.dart';
@@ -42,6 +42,7 @@ class AppBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final moveDuration = reduceMotion ? Duration.zero : AppMotion.medium;
     final popDuration = reduceMotion ? Duration.zero : AppMotion.base;
@@ -52,7 +53,7 @@ class AppBottomBar extends StatelessWidget {
         height: _barHeight,
         margin: const EdgeInsets.fromLTRB(AppSpacing.md, 0, AppSpacing.md, 10), // 底外距 10(§7)
         decoration: BoxDecoration(
-          color: AppColors.bgCard,
+          color: colors.bgCard,
           borderRadius: BorderRadius.circular(22), // R22(§7)
           boxShadow: AppShadows.floatingBar,
         ),
@@ -70,7 +71,7 @@ class AppBottomBar extends StatelessWidget {
                     width: _capsuleWidth,
                     height: _capsuleHeight,
                     decoration: BoxDecoration(
-                      gradient: AppGradients.heart,
+                      gradient: AppGradients.heartOf(colors),
                       borderRadius: BorderRadius.circular(20), // R20(§7)
                     ),
                   ),
@@ -121,6 +122,7 @@ class _BarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
@@ -137,7 +139,7 @@ class _BarItem extends StatelessWidget {
                 child: Icon(
                   selected ? icon : outline,
                   size: selected ? 20 : 22,
-                  color: selected ? Colors.white : AppColors.text3,
+                  color: selected ? Colors.white : colors.text3,
                 ),
               ),
               if (badgeCount > 0)
@@ -153,7 +155,7 @@ class _BarItem extends StatelessWidget {
             label,
             style: selected
                 ? AppText.navLabelSelected.copyWith(color: Colors.white)
-                : AppText.navLabel.copyWith(color: AppColors.text3),
+                : AppText.navLabel.copyWith(color: colors.text3),
           ),
         ],
       ),

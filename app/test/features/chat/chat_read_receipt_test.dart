@@ -16,6 +16,7 @@ import 'package:chatapp_app/im/im_manager.dart';
 import '../../support/fake_im_client.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
+import '../../support/heart_theme.dart';
 
 /// 已读回执的页面级测试:两条链路(实时下行 `read` 帧 / 打开会话补拉)都要覆盖。
 ///
@@ -95,7 +96,7 @@ void main() {
     );
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(theme: heartTheme, routerConfig: router),
     ));
     await tester.pumpAndSettle();
   }

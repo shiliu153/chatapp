@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/providers.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_brand_mark.dart';
@@ -123,8 +123,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.xxl),
@@ -134,11 +135,11 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             const SizedBox(height: AppSpacing.lg),
             Text('交友 Chat',
                 textAlign: TextAlign.center,
-                style: AppText.display.copyWith(color: AppColors.text1)),
+                style: AppText.display.copyWith(color: colors.text1)),
             const SizedBox(height: AppSpacing.xs),
             Text('手机号登录 / 注册',
                 textAlign: TextAlign.center,
-                style: AppText.caption.copyWith(color: AppColors.text2)),
+                style: AppText.caption.copyWith(color: colors.text2)),
             const SizedBox(height: AppSpacing.xxl),
             AppSectionCard(
               children: [
@@ -173,7 +174,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             if (kDebugMode)
               Text('开发模式:验证码固定 123456',
                   textAlign: TextAlign.center,
-                  style: AppText.micro.copyWith(color: AppColors.text3)),
+                  style: AppText.micro.copyWith(color: colors.text3)),
           ],
         ),
       ),

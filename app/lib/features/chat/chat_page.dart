@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/image_pick.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -278,6 +278,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final messages = ref.watch(chatProvider(widget.peerId));
     final imageEnabled = ref.read(imClientProvider).capabilities.image;
     final voiceEnabled = ref.read(imClientProvider).capabilities.voice;
@@ -318,12 +319,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             Container(
               key: const Key('chat.unmatchedBanner'),
               width: double.infinity,
-              color: AppColors.divider,
+              color: colors.divider,
               padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.pageH, vertical: AppSpacing.sm),
               child: Text('你们已解除配对',
                   textAlign: TextAlign.center,
-                  style: AppText.micro.copyWith(color: AppColors.text2)),
+                  style: AppText.micro.copyWith(color: colors.text2)),
             ),
           Expanded(
             child: messages.when(
@@ -429,6 +430,7 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final online = presence?.online ?? false;
     // 在线单独组装(绿点 + 「在线」);离线才用 presenceLabel 的「x 分钟前在线」
     final statusLabel = online ? '在线' : presenceLabel(presence);
@@ -439,8 +441,8 @@ class _ChatHeader extends StatelessWidget {
           IconButton(
             key: const Key('chat.back'),
             onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                size: 22, color: AppColors.text1),
+            icon: Icon(Icons.arrow_back_ios_new_rounded,
+                size: 22, color: colors.text1),
           ),
           Expanded(
             child: GestureDetector(
@@ -468,21 +470,21 @@ class _ChatHeader extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppText.subtitle
-                                .copyWith(fontSize: 17, color: AppColors.text1)),
+                                .copyWith(fontSize: 17, color: colors.text1)),
                         if (statusLabel != null) ...[
                           const SizedBox(height: 1),
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (online) ...[
-                                const BreathingDot(
-                                    key: Key('chat.onlineDot'),
+                                BreathingDot(
+                                    key: const Key('chat.onlineDot'),
                                     size: 8,
-                                    borderColor: AppColors.bgPage),
+                                    borderColor: colors.bgPage),
                                 const SizedBox(width: AppSpacing.xs),
                               ],
                               Text(statusLabel,
-                                  style: AppText.micro.copyWith(color: AppColors.text2)),
+                                  style: AppText.micro.copyWith(color: colors.text2)),
                             ],
                           ),
                         ],
@@ -499,16 +501,16 @@ class _ChatHeader extends StatelessWidget {
             height: 48,
             child: PopupMenuButton<String>(
               key: const Key('chat.more'),
-              icon: const Icon(Icons.more_horiz_rounded, size: 22, color: AppColors.text1),
+              icon: Icon(Icons.more_horiz_rounded, size: 22, color: colors.text1),
               padding: EdgeInsets.zero,
               onSelected: (value) {
                 if (value == 'unmatch') onMore();
               },
-              itemBuilder: (context) => const [
+              itemBuilder: (context) => [
                 PopupMenuItem(
-                  key: Key('chat.menu.unmatch'),
+                  key: const Key('chat.menu.unmatch'),
                   value: 'unmatch',
-                  child: Text('解除配对', style: TextStyle(color: AppColors.danger)),
+                  child: Text('解除配对', style: TextStyle(color: colors.danger)),
                 ),
               ],
             ),
@@ -525,13 +527,16 @@ class _TimeSeparator extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Padding(
         key: const Key('chat.time'),
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
         child: Center(
-          child: Text(label, style: AppText.micro.copyWith(color: AppColors.text3)),
+          child: Text(label, style: AppText.micro.copyWith(color: colors.text3)),
         ),
       );
+  }
 }
 
 class _InputBar extends ConsumerStatefulWidget {
@@ -616,12 +621,13 @@ class _InputBarState extends ConsumerState<_InputBar> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final seconds = _voice.seconds;
     return Stack(
       clipBehavior: Clip.none,
       children: [
         Container(
-          color: AppColors.bgCard,
+          color: colors.bgCard,
           child: SafeArea(
             top: false,
             child: Padding(
@@ -642,7 +648,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
                         child: Icon(
                           Icons.mic_rounded,
                           size: 24,
-                          color: widget.enabled ? AppColors.text2 : AppColors.text3,
+                          color: widget.enabled ? colors.text2 : colors.text3,
                         ),
                       ),
                     ),
@@ -650,7 +656,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
                   _iconButton(
                     key: const Key('chat.emoji.button'),
                     icon: Icons.emoji_emotions_rounded,
-                    color: AppColors.text2,
+                    color: colors.text2,
                     onPressed: widget.enabled ? widget.onToggleEmoji : null,
                   ),
                   Expanded(
@@ -659,18 +665,18 @@ class _InputBarState extends ConsumerState<_InputBar> {
                       builder: (context, child) => Container(
                         height: 44,
                         decoration: BoxDecoration(
-                          color: AppColors.bgCard,
+                          color: colors.bgCard,
                           borderRadius: BorderRadius.circular(AppRadius.input),
                           border: Border.all(
                             color: widget.focusNode.hasFocus
-                                ? AppColors.brand
-                                : AppColors.divider,
+                                ? colors.brand
+                                : colors.divider,
                             width: widget.focusNode.hasFocus ? 1.5 : 1,
                           ),
                           boxShadow: widget.focusNode.hasFocus
                               ? [
                                   BoxShadow(
-                                    color: AppColors.brand.withValues(alpha: .12),
+                                    color: colors.brand.withValues(alpha: .12),
                                     blurRadius: 12,
                                   ),
                                 ]
@@ -691,12 +697,12 @@ class _InputBarState extends ConsumerState<_InputBar> {
                         maxLines: null,
                         minLines: null,
                         textAlignVertical: TextAlignVertical.center,
-                        style: AppText.body.copyWith(color: AppColors.text1),
+                        style: AppText.body.copyWith(color: colors.text1),
                         decoration: InputDecoration(
                           isCollapsed: true,
                           border: InputBorder.none,
                           hintText: '说点什么…',
-                          hintStyle: AppText.body.copyWith(color: AppColors.text3),
+                          hintStyle: AppText.body.copyWith(color: colors.text3),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 14),
                         ),
                       ),
@@ -706,7 +712,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
                     _iconButton(
                       key: const Key('chat.more.button'),
                       icon: Icons.add_circle_rounded,
-                      color: AppColors.text2,
+                      color: colors.text2,
                       onPressed: widget.enabled ? widget.onToggleMore : null,
                     ),
                   ListenableBuilder(
@@ -715,8 +721,8 @@ class _InputBarState extends ConsumerState<_InputBar> {
                       key: const Key('chat.send'),
                       icon: Icons.send_rounded,
                       color: widget.controller.text.trim().isEmpty || !widget.enabled
-                          ? AppColors.text3
-                          : AppColors.brand,
+                          ? colors.text3
+                          : colors.brand,
                       onPressed: widget.sending || !widget.enabled ? null : widget.onSend,
                     ),
                   ),

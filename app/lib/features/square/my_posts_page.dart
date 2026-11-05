@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_empty_state.dart';
@@ -58,9 +58,10 @@ class _MyPostsPageState extends ConsumerState<MyPostsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final posts = ref.watch(myPostsProvider);
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: SafeArea(
         bottom: false,
         child: Column(

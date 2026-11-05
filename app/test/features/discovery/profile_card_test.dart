@@ -6,8 +6,9 @@ import 'package:chatapp_app/features/discovery/widgets/profile_card.dart';
 import 'package:chatapp_app/features/presence/models.dart';
 
 import '../../support/sample_data.dart';
+import '../../support/heart_theme.dart';
 
-Widget _wrap(Candidate candidate, {Presence? presence}) => MaterialApp(
+Widget _wrap(Candidate candidate, {Presence? presence}) => MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: Center(
           child: SizedBox(

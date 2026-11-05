@@ -13,6 +13,7 @@ import 'package:chatapp_app/features/profile/widgets/photo_grid.dart';
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
+import '../../support/heart_theme.dart';
 
 Future<void> pumpGrid(WidgetTester tester, ScriptedAdapter adapter,
     {required Future<XFile?> Function() pickImage}) async {
@@ -24,7 +25,7 @@ Future<void> pumpGrid(WidgetTester tester, ScriptedAdapter adapter,
       baseDioProvider.overrideWithValue(dio),
       refreshDioProvider.overrideWithValue(refreshDio),
     ],
-    child: MaterialApp(
+    child: MaterialApp(theme: heartTheme, 
       home: Scaffold(body: PhotoGrid(pickImage: pickImage)),
     ),
   ));

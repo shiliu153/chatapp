@@ -72,7 +72,9 @@ class _ToastViewState extends State<_ToastView> with SingleTickerProviderStateMi
                 vertical: AppSpacing.md,
               ),
               decoration: BoxDecoration(
-                color: const Color(0xEB16181D), // rgba(22,24,29,.92)
+                // Toast 底色跟 SnackBar 同源(浅色深灰浮层 / 暗色更亮一档),
+                // 单点维护在 buildAppTheme 里,避免这里再写一份裸色值。
+                color: Theme.of(context).snackBarTheme.backgroundColor,
                 borderRadius: BorderRadius.circular(AppRadius.input),
               ),
               child: Text(

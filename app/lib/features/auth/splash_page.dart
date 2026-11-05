@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/app_config.dart';
 import '../../core/app_info.dart';
 import '../../core/providers.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_brand_mark.dart';
@@ -31,18 +31,20 @@ class _ForceUpdateView extends StatelessWidget {
   final AppConfig config;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Column(
         key: const Key('splash.forceUpdate'),
         mainAxisSize: MainAxisSize.min,
         children: [
           const AppBrandMark(key: Key('splash.brand')),
           const SizedBox(height: AppSpacing.lg),
           Text('需要更新后才能继续使用',
-              style: AppText.title.copyWith(color: AppColors.text1)),
+              style: AppText.title.copyWith(color: colors.text1)),
           const SizedBox(height: AppSpacing.sm),
           Text('当前版本 $appVersion,最低要求 ${config.minAppVersion}',
               textAlign: TextAlign.center,
-              style: AppText.caption.copyWith(color: AppColors.text2)),
+              style: AppText.caption.copyWith(color: colors.text2)),
           if (config.downloadUrl.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.xxl),
             AppButton(
@@ -53,6 +55,7 @@ class _ForceUpdateView extends StatelessWidget {
           ],
         ],
       );
+  }
 }
 
 class _SplashPageState extends ConsumerState<SplashPage> {
@@ -96,9 +99,10 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final session = ref.watch(sessionProvider);
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.xxl),
@@ -117,7 +121,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
                   Text(
                     '需要同意《用户协议》与《隐私政策》才能使用本应用',
                     textAlign: TextAlign.center,
-                    style: AppText.caption.copyWith(color: AppColors.text2),
+                    style: AppText.caption.copyWith(color: colors.text2),
                   ),
                   const SizedBox(height: AppSpacing.xxl),
                   AppButton(
@@ -133,10 +137,10 @@ class _SplashPageState extends ConsumerState<SplashPage> {
                   const AppBrandMark(key: Key('splash.brand')),
                   const SizedBox(height: AppSpacing.lg),
                   Text('交友 Chat',
-                      style: AppText.title.copyWith(color: AppColors.text1)),
+                      style: AppText.title.copyWith(color: colors.text1)),
                   const SizedBox(height: AppSpacing.xs),
                   Text('正在启动…',
-                      style: AppText.caption.copyWith(color: AppColors.text2)),
+                      style: AppText.caption.copyWith(color: colors.text2)),
                 ],
               ),
           },

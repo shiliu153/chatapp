@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/avatar_hero.dart';
@@ -34,6 +34,7 @@ class ProfilePhotoHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final width = MediaQuery.sizeOf(context).width;
     final height = width * _ratio > _maxHeight ? _maxHeight : width * _ratio;
     final url = photoUrl;
@@ -74,11 +75,11 @@ class ProfilePhotoHeader extends StatelessWidget {
             bottom: 0,
             child: Container(
               padding: const EdgeInsets.fromLTRB(AppSpacing.lg, 46, AppSpacing.lg, 14),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, AppColors.photoScrim],
+                  colors: [Colors.transparent, colors.photoScrim],
                 ),
               ),
               child: Column(
@@ -128,10 +129,13 @@ class _PhotoPlaceholder extends StatelessWidget {
   const _PhotoPlaceholder();
 
   @override
-  Widget build(BuildContext context) => const ColoredBox(
-        color: AppColors.divider,
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return ColoredBox(
+        color: colors.divider,
         child: Center(
-          child: Icon(Icons.person_rounded, size: 64, color: AppColors.text3),
+          child: Icon(Icons.person_rounded, size: 64, color: colors.text3),
         ),
       );
+  }
 }

@@ -8,6 +8,10 @@ import { installClientErrorReporting } from './api/clientErrors'
 import ForceUpdate from './features/app/ForceUpdate.vue'
 import { APP_VERSION } from './features/settings/appInfo'
 import { isOutdated } from './features/app/version'
+import { applyStoredTheme } from './stores/theme'
+
+// 外观:在 createApp 之前就把 data-theme 写上,深色用户首屏不会先闪一下白
+applyStoredTheme()
 
 interface AppConfig {
   min_app_version: string

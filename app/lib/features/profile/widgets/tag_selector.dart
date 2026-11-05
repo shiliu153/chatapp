@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api_exception.dart';
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -19,6 +19,7 @@ class TagSelector extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.heart;
     final tags = ref.watch(tagsProvider);
     return tags.when(
       // 三个胶囊骨架;AppSkeleton 是无限动画,可见它的用例只用有限 pump
@@ -33,7 +34,7 @@ class TagSelector extends ConsumerWidget {
       ),
       error: (error, _) => Text(
         error is ApiException ? error.message : '标签加载失败',
-        style: AppText.caption.copyWith(color: AppColors.text2),
+        style: AppText.caption.copyWith(color: colors.text2),
       ),
       data: (list) => AppChipGroup<int>(
         items: [

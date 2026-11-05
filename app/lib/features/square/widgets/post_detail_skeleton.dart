@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_skeleton.dart';
+import '../../../core/theme/heart_theme_context.dart';
 
 /// 动态详情加载骨架(附录 D):1 张卡骨架 + 2 条评论行骨架。
 /// 呼吸动画为无限循环 — 可见它的测试只用有限 pump。
@@ -11,7 +11,9 @@ class PostDetailSkeleton extends StatelessWidget {
   const PostDetailSkeleton({super.key});
 
   @override
-  Widget build(BuildContext context) => SingleChildScrollView(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return SingleChildScrollView(
         // 骨架为静态展示,包滚动免疫小屏溢出(同 SquareSkeleton)
         child: Column(
           key: key ?? const Key('post.skeleton'),
@@ -20,7 +22,7 @@ class PostDetailSkeleton extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(AppSpacing.lg),
               decoration: BoxDecoration(
-                color: AppColors.bgCard,
+                color: colors.bgCard,
                 borderRadius: BorderRadius.circular(AppRadius.card),
               ),
               child: Column(
@@ -67,4 +69,5 @@ class PostDetailSkeleton extends StatelessWidget {
           ],
         ),
       );
+  }
 }

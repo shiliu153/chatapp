@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/heart_theme_context.dart';
+import '../../../core/theme/heart_colors.dart';
 
 /// 动态配图(附录 D):1 张通栏大图(高 240);2–9 张统一 3 列正方格。
 /// 假网络/断网时图挂 → divider 底内容占位(非空态)。
@@ -17,6 +18,7 @@ class PostImages extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     if (urls.isEmpty) return const SizedBox.shrink();
     if (urls.length == 1) {
       return GestureDetector(
@@ -27,7 +29,7 @@ class PostImages extends StatelessWidget {
           child: SizedBox(
             width: double.infinity,
             height: _singleHeight,
-            child: _image(0),
+            child: _image(0, colors),
           ),
         ),
       );
@@ -45,20 +47,20 @@ class PostImages extends StatelessWidget {
             onTap: () => onTap?.call(i),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.image),
-              child: _image(i),
+              child: _image(i, colors),
             ),
           ),
       ],
     );
   }
 
-  Widget _image(int index) => Image.network(
+  Widget _image(int index, HeartColors colors) => Image.network(
         urls[index],
         fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => const ColoredBox(
-          color: AppColors.divider,
+        errorBuilder: (_, _, _) => ColoredBox(
+          color: colors.divider,
           child: Center(
-            child: Icon(Icons.image_rounded, color: AppColors.text3),
+            child: Icon(Icons.image_rounded, color: colors.text3),
           ),
         ),
       );

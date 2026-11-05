@@ -26,6 +26,7 @@ import '../../support/fake_voice.dart';
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
+import '../../support/heart_theme.dart';
 
 ChatMessage _text(String id, {required bool isSelf, required String text}) => ChatMessage(
       msgId: id,
@@ -108,7 +109,7 @@ void main() {
     );
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(theme: heartTheme, routerConfig: router),
     ));
     if (settle) {
       await tester.pumpAndSettle();
@@ -587,7 +588,7 @@ void main() {
     );
     await tester.pumpWidget(UncontrolledProviderScope(
       container: container,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(theme: heartTheme, routerConfig: router),
     ));
     // 反序列表会逐屏滚动找目标;给足帧数让它收敛(不 pumpAndSettle,呼吸点在跑)
     for (var i = 0; i < 60; i++) {

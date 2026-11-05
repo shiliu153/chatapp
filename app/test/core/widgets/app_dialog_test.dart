@@ -3,11 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/app_button.dart';
 import 'package:chatapp_app/core/widgets/app_dialog.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('showConfirmDialog:点确认返回 true,点取消返回 false', (tester) async {
     bool? result;
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
@@ -47,7 +48,7 @@ void main() {
   });
 
   testWidgets('AppDialog:标题 + 正文 + 自定义 content + 两个等宽按钮', (tester) async {
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: AppDialog(
           title: '用户协议与隐私政策',

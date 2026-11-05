@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/theme/heart_theme_context.dart';
 
 /// 注销账号的第二步确认:必须输入完整手机号才能提交(不可恢复操作)。
 ///
@@ -42,7 +42,9 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AppDialog(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return AppDialog(
         title: '注销账号',
         message: '以下内容将被永久删除,且无法恢复:',
         content: Column(
@@ -52,7 +54,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.xs),
                 child: Text('· $item',
-                    style: AppText.caption.copyWith(color: AppColors.text2)),
+                    style: AppText.caption.copyWith(color: colors.text2)),
               ),
             const SizedBox(height: AppSpacing.md),
             AppTextField(
@@ -81,4 +83,5 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
           ),
         ],
       );
+  }
 }

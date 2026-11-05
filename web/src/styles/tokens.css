@@ -106,3 +106,40 @@
   --form-card-min: 420px;
   --form-card-max: 520px;
 }
+
+/* ============================================================
+   暗色主题(计划 F / spec §2.1.1)
+   ------------------------------------------------------------
+   只覆盖**语义色**,变量名与 :root 完全同名,所以页面里零改动。
+   取值必须与 app/lib/core/theme/heart_colors.dart 的 HeartDarkColors
+   逐字段一致(tests/unit/tokens.spec.ts 会双向比对,漏一个就红)。
+   非色板 token(间距/圆角/动效/字阶/布局比例)与主题无关,不重复。
+   ============================================================ */
+[data-theme='dark'] {
+  --color-brand: #ff2c55; /* 品牌色不变:心跳渐变是视觉锚点 */
+  --color-violet: #8e72ff;
+  --color-green: #22d89b;
+  --color-amber: #ffc04d;
+  --color-text1: #f2f4f8;
+  --color-text2: #9ba1ae;
+  --color-text3: #6e7482;
+  --color-divider: #262a33;
+  --color-bg-page: #0e1015;
+  --color-bg-card: #171a21;
+  --color-danger: #ff6b6b;
+  --color-heart-orange: #ff8a5b; /* 暗底提亮一档 */
+  --color-system-blue: #6aa0ff;
+  /* photoScrim 不变:照片叠字场景本身就是深色 */
+  --color-photo-scrim: rgb(16 17 20 / 87%);
+
+  /* 派生色随底反相:暗底上的 hover / 焦点圈要用浅色叠加才看得见 */
+  --color-focus-ring: rgb(242 244 248 / 45%);
+  --hover-overlay: rgb(242 244 248 / 6%);
+  --hover-overlay-strong: rgb(242 244 248 / 12%);
+  --overlay-on-photo: rgb(255 255 255 / 22%);
+  --scrim-strong: rgb(0 0 0 / 55%);
+  /* 阴影在暗底几乎不可见,改成纯黑加深,保证卡片浮起感 */
+  --shadow-card: 0 6px 18px rgb(0 0 0 / 45%);
+  --shadow-floating-bar: 0 10px 24px rgb(0 0 0 / 55%);
+}
+

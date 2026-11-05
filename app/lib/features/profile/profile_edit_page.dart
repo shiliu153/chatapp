@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_error_view.dart';
@@ -90,9 +90,10 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final profile = ref.watch(profileProvider);
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -149,7 +150,7 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
                             children: [
                               Text('标签',
                                   style: AppText.caption
-                                      .copyWith(color: AppColors.text2)),
+                                      .copyWith(color: colors.text2)),
                               const SizedBox(height: AppSpacing.sm),
                               TagSelector(
                                 selectedIds: _tagIds,

@@ -7,6 +7,7 @@ import 'package:chatapp_app/features/chat/widgets/voice_bubble.dart';
 import 'package:chatapp_app/im/im_client.dart';
 
 import '../../support/fake_voice.dart';
+import '../../support/heart_theme.dart';
 
 ChatMessage _voice({int durationMs = 12500, bool isSelf = false, String? url}) => ChatMessage(
       msgId: 'v1',
@@ -23,7 +24,7 @@ void main() {
     final player = FakeVoicePlayer();
     await tester.pumpWidget(ProviderScope(
       overrides: [voicePlayerProvider.overrideWithValue(player)],
-      child: MaterialApp(
+      child: MaterialApp(theme: heartTheme, 
         home: Scaffold(body: VoiceBubble(message: _voice())),
       ),
     ));
@@ -43,7 +44,7 @@ void main() {
     final player = FakeVoicePlayer();
     await tester.pumpWidget(ProviderScope(
       overrides: [voicePlayerProvider.overrideWithValue(player)],
-      child: MaterialApp(
+      child: MaterialApp(theme: heartTheme, 
         home: Scaffold(
           body: VoiceBubble(
             message: ChatMessage(

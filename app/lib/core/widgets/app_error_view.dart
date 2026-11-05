@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import 'app_button.dart';
+import '../theme/heart_theme_context.dart';
 
 /// 「心跳」附录 B.8 错误态:标题 17/w600 + 原因 13 text2 + 可选「重试」。
 /// 页面统一用它;原因取接口中文 message,不显示裸异常串。
@@ -22,7 +22,9 @@ class AppErrorView extends StatelessWidget {
   final Key? retryKey;
 
   @override
-  Widget build(BuildContext context) => Center(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Center(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
@@ -33,7 +35,7 @@ class AppErrorView extends StatelessWidget {
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: AppText.caption.copyWith(color: AppColors.text2),
+                style: AppText.caption.copyWith(color: colors.text2),
               ),
               if (onRetry != null) ...[
                 const SizedBox(height: AppSpacing.lg),
@@ -48,4 +50,5 @@ class AppErrorView extends StatelessWidget {
           ),
         ),
       );
+  }
 }

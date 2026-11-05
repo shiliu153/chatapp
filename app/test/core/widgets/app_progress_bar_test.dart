@@ -4,10 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/theme/app_gradients.dart';
 import 'package:chatapp_app/core/widgets/app_progress_bar.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('3 段;第 0 段填充、其余 divider;高 4', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: AppProgressBar(steps: 3, current: 0)),
     ));
 
@@ -27,7 +28,7 @@ void main() {
   });
 
   testWidgets('current=2 时三段全填充', (tester) async {
-    await tester.pumpWidget(const MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(body: AppProgressBar(steps: 3, current: 2)),
     ));
     final bars = find.descendant(

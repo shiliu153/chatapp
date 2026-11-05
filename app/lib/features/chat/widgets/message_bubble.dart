@@ -2,13 +2,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../im/im_client.dart';
 import 'voice_bubble.dart';
+import '../../../core/theme/heart_colors.dart';
 
 /// 单条消息(「心跳」附录 B.3):自己=brand 实底白字、对方=白底,
 /// 圆形头像 40;match_notice/ban_notice 渲染成居中 pill 灰条。
@@ -48,6 +49,7 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     if (message.isRevoked) {
       return Padding(
         key: const Key('chat.revoked'),
@@ -55,7 +57,7 @@ class MessageBubble extends StatelessWidget {
         child: Center(
           child: Text(
             message.isSelf ? '你撤回了一条消息' : '对方撤回了一条消息',
-            style: AppText.micro.copyWith(color: AppColors.text3),
+            style: AppText.micro.copyWith(color: colors.text3),
           ),
         ),
       );
@@ -76,10 +78,10 @@ class MessageBubble extends StatelessWidget {
             padding: const EdgeInsets.symmetric(
                 horizontal: AppSpacing.md, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.divider,
+              color: colors.divider,
               borderRadius: BorderRadius.circular(AppRadius.full),
             ),
-            child: Text(label, style: AppText.micro.copyWith(color: AppColors.text2)),
+            child: Text(label, style: AppText.micro.copyWith(color: colors.text2)),
           ),
         ),
       );
@@ -108,7 +110,7 @@ class MessageBubble extends StatelessWidget {
       key: highlight ? Key('chat.highlight:${message.msgId}') : null,
       duration: const Duration(milliseconds: 300),
       decoration: BoxDecoration(
-        color: highlight ? AppColors.brand.withValues(alpha: 0.08) : Colors.transparent,
+        color: highlight ? colors.brand.withValues(alpha: 0.08) : Colors.transparent,
         borderRadius: BorderRadius.circular(AppRadius.card),
       ),
       child: Padding(
@@ -123,7 +125,7 @@ class MessageBubble extends StatelessWidget {
               IconButton(
                 key: const Key('chat.retry'),
                 onPressed: onRetry,
-                icon: const Icon(Icons.error_rounded, color: AppColors.danger, size: 20),
+                icon: Icon(Icons.error_rounded, color: colors.danger, size: 20),
                 visualDensity: VisualDensity.compact,
               ),
             ],
@@ -133,7 +135,7 @@ class MessageBubble extends StatelessWidget {
                 child: Text(
                   _statusLabel()!,
                   key: _statusKey(),
-                  style: AppText.micro.copyWith(color: AppColors.text3),
+                  style: AppText.micro.copyWith(color: colors.text3),
                 ),
               ),
             bubble,
@@ -166,6 +168,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _bubbleContent(BuildContext context) {
+    final colors = context.heart;
     if (message.kind == ChatMessageKind.voice) {
       return VoiceBubble(message: message);
     }
@@ -182,7 +185,7 @@ class MessageBubble extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: message.isSelf ? AppColors.brand : AppColors.bgCard,
+        color: message.isSelf ? colors.brand : colors.bgCard,
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(message.isSelf ? AppRadius.bubble : 6),
           topRight: Radius.circular(message.isSelf ? 6 : AppRadius.bubble),
@@ -192,7 +195,7 @@ class MessageBubble extends StatelessWidget {
       ),
       child: Text(message.text,
           style: AppText.body
-              .copyWith(color: message.isSelf ? Colors.white : AppColors.text1)),
+              .copyWith(color: message.isSelf ? Colors.white : colors.text1)),
     );
   }
 
@@ -208,8 +211,12 @@ class MessageBubble extends StatelessWidget {
     return _fallback(null, null, null);
   }
 
-  Widget _fallback(BuildContext? c, Object? e, StackTrace? s) => Container(
-        color: AppColors.divider,
-        child: const Center(child: Icon(Icons.image_rounded, color: AppColors.text3)),
-      );
+  Widget _fallback(BuildContext? c, Object? e, StackTrace? s) {
+    // errorBuilder 会给回当前上下文,直接取色板(为 null 时退回浅色板,不至于炸)
+    final colors = c?.heart ?? HeartColors.light;
+    return Container(
+      color: colors.divider,
+      child: Center(child: Icon(Icons.image_rounded, color: colors.text3)),
+    );
+  }
 }

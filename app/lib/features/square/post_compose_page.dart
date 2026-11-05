@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/image_pick.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/widgets/app_sub_page_bar.dart';
 import '../../core/widgets/app_text_action.dart';
@@ -78,10 +78,11 @@ class _PostComposePageState extends ConsumerState<PostComposePage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final canSubmit =
         !_submitting && (_text.text.trim().isNotEmpty || _images.isNotEmpty);
     return Scaffold(
-      backgroundColor: AppColors.bgPage,
+      backgroundColor: colors.bgPage,
       body: SafeArea(
         bottom: false,
         child: Column(

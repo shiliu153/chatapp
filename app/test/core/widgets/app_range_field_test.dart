@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/app_range_field.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('标题 + 双滑块;拖动起点滑块后回调新值', (tester) async {
     RangeValues values = const RangeValues(18, 99);
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: StatefulBuilder(
           builder: (context, setState) => AppRangeField(

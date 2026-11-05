@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
+import '../theme/heart_theme_context.dart';
 import '../theme/app_gradients.dart';
 import '../theme/app_motion.dart';
+import '../theme/heart_colors.dart';
 
 /// 「心跳」规则附录 A.3 涟漪空态元素:中心渐变光点 + 双波循环扩散环
 /// (自光点处诞生、扩大渐隐,无静态环)。波纹 2.4s 循环;
@@ -42,6 +43,7 @@ class _HeartRippleState extends State<HeartRipple> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.heart;
     final size = widget.size;
     final animate = !MediaQuery.disableAnimationsOf(context);
     return SizedBox.square(
@@ -50,17 +52,17 @@ class _HeartRippleState extends State<HeartRipple> with SingleTickerProviderStat
         alignment: Alignment.center,
         children: [
           if (animate) ...[
-            _ping(0, 0),
-            _ping(1, 0.5),
+            _ping(0, 0, colors),
+            _ping(1, 0.5, colors),
           ],
           Container(
             width: _dotSize,
             height: _dotSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: AppGradients.heart,
+              gradient: AppGradients.heartOf(colors),
               boxShadow: [
-                BoxShadow(color: AppColors.brand.withValues(alpha: 0.65), blurRadius: 16),
+                BoxShadow(color: colors.brand.withValues(alpha: 0.65), blurRadius: 16),
               ],
             ),
           ),
@@ -70,7 +72,7 @@ class _HeartRippleState extends State<HeartRipple> with SingleTickerProviderStat
   }
 
   /// 一圈扩散波纹:0.2 → 1.0 倍尺寸(自光点溢出),不透明度 .65 → 0;phase 用于双波错峰。
-  Widget _ping(int index, double phase) => AnimatedBuilder(
+  Widget _ping(int index, double phase, HeartColors colors) => AnimatedBuilder(
         animation: _c,
         builder: (context, child) {
           final t = (_c.value + phase) % 1.0;
@@ -88,7 +90,7 @@ class _HeartRippleState extends State<HeartRipple> with SingleTickerProviderStat
         child: DecoratedBox(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: AppColors.brand, width: 2),
+            border: Border.all(color: colors.brand, width: 2),
           ),
         ),
       );

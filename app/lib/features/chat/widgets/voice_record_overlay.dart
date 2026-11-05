@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/heart_theme_context.dart';
 
 /// 录音浮层:显示已录秒数与「松开发送 / 上滑取消」提示。
 class VoiceRecordOverlay extends StatelessWidget {
@@ -20,12 +20,14 @@ class VoiceRecordOverlay extends StatelessWidget {
   final bool cancelArmed;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         key: const Key('voice.overlay'),
         padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.lg, vertical: AppSpacing.md),
         decoration: BoxDecoration(
-          color: AppColors.text1.withValues(alpha: 0.86),
+          color: colors.text1.withValues(alpha: 0.86),
           borderRadius: BorderRadius.circular(AppRadius.card),
         ),
         child: Column(
@@ -33,7 +35,7 @@ class VoiceRecordOverlay extends StatelessWidget {
           children: [
             Icon(
               cancelArmed ? Icons.delete_rounded : Icons.mic_rounded,
-              color: cancelArmed ? AppColors.danger : Colors.white,
+              color: cancelArmed ? colors.danger : Colors.white,
               size: 28,
             ),
             const SizedBox(height: AppSpacing.xs),
@@ -46,4 +48,5 @@ class VoiceRecordOverlay extends StatelessWidget {
           ],
         ),
       );
+  }
 }

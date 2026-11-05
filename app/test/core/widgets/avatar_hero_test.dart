@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:chatapp_app/core/widgets/avatar_hero.dart';
+import '../../support/heart_theme.dart';
 
-Widget wrap(Widget child, {bool disableAnimations = false}) => MaterialApp(
+Widget wrap(Widget child, {bool disableAnimations = false}) => MaterialApp(theme: heartTheme, 
       home: MediaQuery(
         data: MediaQueryData(disableAnimations: disableAnimations),
         child: Scaffold(body: Center(child: child)),

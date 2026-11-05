@@ -4,11 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/widgets/app_chip_group.dart';
 import 'package:chatapp_app/core/widgets/app_option_group.dart';
+import '../../support/heart_theme.dart';
 
 void main() {
   testWidgets('多选切换:点未选加入,点已选移除', (tester) async {
     Set<int> selected = {1};
-    await tester.pumpWidget(MaterialApp(
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
       home: Scaffold(
         body: StatefulBuilder(
           builder: (context, setState) => AppChipGroup<int>(

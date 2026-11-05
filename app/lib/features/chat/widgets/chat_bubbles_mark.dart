@@ -2,7 +2,9 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/heart_theme_context.dart';
+
 
 /// 「心跳」附录 B.6 空态插画:渐变大气泡 + 白色小气泡(各带小尾),静态。
 /// 消息页/聊天页空态的大号元素;发现页的 HeartRipple 仍归发现页。
@@ -15,11 +17,16 @@ class ChatBubblesMark extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox(
         width: size,
         height: size * 0.88,
-        child: CustomPaint(painter: _BubblesPainter()),
+        child: CustomPaint(painter: _BubblesPainter(context.heart)),
       );
 }
 
 class _BubblesPainter extends CustomPainter {
+  _BubblesPainter(this.colors);
+
+  /// 自绘发生在 paint 阶段(拿不到 BuildContext),色板由外部注入。
+  final HeartColors colors;
+
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
@@ -30,7 +37,7 @@ class _BubblesPainter extends CustomPainter {
       Rect.fromLTWH(w * 0.36, 0, w * 0.62, h * 0.52),
       Radius.circular(w * 0.14),
     );
-    final white = Paint()..color = AppColors.bgCard;
+    final white = Paint()..color = colors.bgCard;
     final backTail = Path()
       ..moveTo(w * 0.86, h * 0.44)
       ..lineTo(w * 0.97, h * 0.60)
@@ -43,7 +50,7 @@ class _BubblesPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = AppColors.divider,
+        ..color = colors.divider,
     );
 
     // 渐变大气泡(左下)
@@ -53,7 +60,7 @@ class _BubblesPainter extends CustomPainter {
       ..shader = ui.Gradient.linear(
         frontRect.topLeft,
         frontRect.bottomRight,
-        const [AppColors.brand, AppColors.heartOrange],
+        [colors.brand, colors.heartOrange],
       );
     final frontTail = Path()
       ..moveTo(w * 0.20, h * 0.90)
@@ -65,5 +72,6 @@ class _BubblesPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _BubblesPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _BubblesPainter oldDelegate) =>
+      oldDelegate.colors != colors;
 }

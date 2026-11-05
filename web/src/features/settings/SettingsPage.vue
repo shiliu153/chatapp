@@ -7,12 +7,21 @@ import { parseApiError } from '@/api/error'
 import { useChatStore } from '@/stores/chat'
 import { useProfileStore } from '@/stores/profile'
 import { useSessionStore } from '@/stores/session'
+import { useThemeStore, type ThemeMode } from '@/stores/theme'
 import DeleteAccountDialog from './DeleteAccountDialog.vue'
 
 const router = useRouter()
 const session = useSessionStore()
 const chat = useChatStore()
 const profile = useProfileStore()
+const theme = useThemeStore()
+
+/** 外观三选一(与 App 侧「跟随系统 / 浅色 / 深色」同一组文案)。 */
+const themeOptions: { value: ThemeMode; label: string }[] = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+]
 
 const deleteOpen = ref(false)
 const deleteError = ref('')
@@ -125,6 +134,23 @@ async function onDeleteSubmitted(phone: string) {
       <p v-if="group.title === '账号与隐私' && toggleError" class="settings__error">
         {{ toggleError }}
       </p>
+    </AppCard>
+
+    <!-- 外观(F-3):三态分段控件,与 App 设置页的「外观」行同口径 -->
+    <AppCard padding="lg">
+      <h2 class="settings__group">外观</h2>
+      <div class="settings__segmented" role="group" aria-label="外观">
+        <button
+          v-for="option in themeOptions"
+          :key="option.value"
+          class="settings__segment"
+          type="button"
+          :aria-pressed="theme.mode === option.value"
+          @click="theme.setMode(option.value)"
+        >
+          {{ option.label }}
+        </button>
+      </div>
     </AppCard>
 
     <AppButton
@@ -244,5 +270,34 @@ async function onDeleteSubmitted(phone: string) {
   font-size: var(--text-caption);
   color: var(--color-danger);
   text-align: center;
+}
+.settings__segmented {
+  display: flex;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  border-radius: var(--radius-chip);
+  background: var(--hover-overlay);
+}
+.settings__segment {
+  flex: 1;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--color-text2);
+  font-family: inherit;
+  font-size: var(--text-body);
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.settings__segment:hover {
+  background: var(--hover-overlay-strong);
+}
+.settings__segment[aria-pressed='true'] {
+  background: var(--color-bg-card);
+  color: var(--color-brand);
+  font-weight: var(--weight-semibold);
 }
 </style>

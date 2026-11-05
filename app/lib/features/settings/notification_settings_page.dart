@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_list_row.dart';
 import '../../core/widgets/app_row_group.dart';
 import '../../core/widgets/app_sub_page_bar.dart';
+import '../../core/theme/heart_theme_context.dart';
 
 /// 通知设置骨架:推送尚未上线,开关只读并明确标注。
 class NotificationSettingsPage extends StatelessWidget {
   const NotificationSettingsPage({super.key});
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.bgPage,
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Scaffold(
+        backgroundColor: colors.bgPage,
         body: SafeArea(
           bottom: false,
           child: Column(
@@ -43,7 +45,7 @@ class NotificationSettingsPage extends StatelessWidget {
                     const SizedBox(height: AppSpacing.lg),
                     Text(
                       '推送功能将在后续版本上线,届时可以分别控制这两类提醒。当前开关仅为占位,不会保存任何设置。',
-                      style: AppText.caption.copyWith(color: AppColors.text3),
+                      style: AppText.caption.copyWith(color: colors.text3),
                     ),
                   ],
                 ),
@@ -52,6 +54,7 @@ class NotificationSettingsPage extends StatelessWidget {
           ),
         ),
       );
+  }
 }
 
 class _NotifyRow extends StatelessWidget {
@@ -67,7 +70,9 @@ class _NotifyRow extends StatelessWidget {
   final String subtitle;
 
   @override
-  Widget build(BuildContext context) => AppListRow(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return AppListRow(
         icon: icon,
         title: title,
         subtitle: subtitle,
@@ -76,10 +81,11 @@ class _NotifyRow extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('即将上线',
-                style: AppText.micro.copyWith(color: AppColors.text3)),
+                style: AppText.micro.copyWith(color: colors.text3)),
             const SizedBox(width: AppSpacing.xs),
             Switch.adaptive(value: false, onChanged: null),
           ],
         ),
       );
+  }
 }

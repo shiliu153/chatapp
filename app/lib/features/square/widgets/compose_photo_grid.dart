@@ -2,10 +2,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/heart_theme_context.dart';
 
 /// 发动态选图(附录 E):3 列 R12 正方格,与广场九宫格同视觉;
 /// 加号格 `divider` 描边,已选图右上角半透明深底删除钮。
@@ -49,7 +49,9 @@ class _PickedTile extends StatelessWidget {
   final VoidCallback onRemove;
 
   @override
-  Widget build(BuildContext context) => Stack(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Stack(
         fit: StackFit.expand,
         children: [
           ClipRRect(
@@ -57,10 +59,10 @@ class _PickedTile extends StatelessWidget {
             child: Image.memory(
               bytes,
               fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const ColoredBox(
-                color: AppColors.divider,
+              errorBuilder: (_, _, _) => ColoredBox(
+                color: colors.divider,
                 child: Center(
-                  child: Icon(Icons.image_rounded, color: AppColors.text3),
+                  child: Icon(Icons.image_rounded, color: colors.text3),
                 ),
               ),
             ),
@@ -76,6 +78,7 @@ class _PickedTile extends StatelessWidget {
           ),
         ],
       );
+  }
 }
 
 /// 半透明深底圆 + 白叉(与资料照片网格同款,各自私有副本,不跨 feature import)。
@@ -83,15 +86,18 @@ class _RemoveBadge extends StatelessWidget {
   const _RemoveBadge();
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
         width: 22,
         height: 22,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: AppColors.text1.withValues(alpha: .55),
+          color: colors.text1.withValues(alpha: .55),
         ),
         child: const Icon(Icons.close_rounded, size: 14, color: Colors.white),
       );
+  }
 }
 
 class _AddTile extends StatefulWidget {
@@ -107,7 +113,9 @@ class _AddTileState extends State<_AddTile> {
   var _pressed = false;
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return GestureDetector(
         key: const Key('compose.add'),
         behavior: HitTestBehavior.opaque,
         onTapDown: (_) => setState(() => _pressed = true),
@@ -119,15 +127,16 @@ class _AddTileState extends State<_AddTile> {
           duration: AppMotion.fast,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: AppColors.bgCard,
+              color: colors.bgCard,
               borderRadius: BorderRadius.circular(AppRadius.image),
-              border: Border.all(color: AppColors.divider),
+              border: Border.all(color: colors.divider),
             ),
-            child: const Center(
+            child: Center(
               child: Icon(Icons.add_photo_alternate_rounded,
-                  size: 24, color: AppColors.text3),
+                  size: 24, color: colors.text3),
             ),
           ),
         ),
       );
+  }
 }
