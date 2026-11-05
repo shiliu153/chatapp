@@ -12,8 +12,9 @@
 ```
 浏览器 / App
    │  80/443(只有 nginx 发布宿主机端口)
+   │  └─ 映射到容器内 8080/8443(nginx 以非 root 运行,E-6①)
    ▼
-nginx 容器(固定 172.28.0.10)
+nginx 容器(固定 172.28.0.10,uid 101)
    ├─ /            → Vue dist(镜像内静态文件)
    ├─ /api /admin /ops → web:8000(gunicorn + Django)
    ├─ /im/ws       → imserver:9100(WebSocket)
@@ -24,6 +25,11 @@ nginx 容器(固定 172.28.0.10)
         ├─ mysql:3306(仅 backend 网络,不发布宿主机)
         └─ redis:6379(仅 backend 网络,不发布宿主机)
 ```
+
+- **nginx 非 root(E-6①,2026-11-05)**:镜像基于 `nginxinc/nginx-unprivileged`,
+  容器内监听 **8080(http)/8443(https)**,compose 把宿主机 `80/443` 映射进去;
+  因此 nginx 进程不需要 root,也不需要 `NET_BIND_SERVICE`(`cap_drop: [ALL]`)。
+  改端口时只改宿主机侧(`--http-port` / `--https-port`),容器内端口是固定的。
 
 - 所有容器在固定子网 `172.28.0.0/16` 内;nginx 固定 `172.28.0.10`,
   Django 与 imserver 的 `TRUSTED_PROXY_IPS` 只信任这一个地址(不再是整个子网),
@@ -272,6 +278,7 @@ docker compose start web worker
 | 所有请求都像来自 127.0.0.1 | nginx 是否设置 `X-Real-IP`;`TRUSTED_PROXY_IPS` 是否包含 nginx 的固定地址 `172.28.0.10` |
 | 聊天全挂 / `user_sig` 503 | 从 web 容器 `curl http://imserver:9101/internal/healthz`:403 说明 `IM_INTERNAL_ALLOW` 没包含 compose 子网(H-1);200 再看 HMAC 密钥是否两边一致 |
 | 登录一直提示版本过低 | `MIN_APP_VERSION` 与 Web/APK 版本不一致;改 `.env` 后重启 web |
+| 首页 404 但 `/healthz` 正常 | nginx 模板缺 `root /usr/share/nginx/html;`(镜像自带的 `default.conf` 被整目录覆盖挂载);E-6① 已补,老配置照抄一行即可 |
 
 ## 11. 与宝塔现网的关系
 
@@ -287,7 +294,9 @@ docker compose start web worker
 
 - MySQL/Redis/Django/imserver 都**没有发布宿主机端口**,只经 nginx 访问;
 - 网络分段:`backend`(internal)只承载 MySQL/Redis,nginx/certbot 无法访问它们(M-6);
-- 容器权限:web/worker/imserver 以非 root 运行,`cap_drop: ALL` + `no-new-privileges`;
+- 容器权限:web/worker/imserver/nginx 全部以非 root 运行(`cap_drop: ALL` + `no-new-privileges`);
+  nginx 用 `nginxinc/nginx-unprivileged`(容器内 8080/8443,宿主机 80/443 映射,E-6①),
+  因此不再需要 `NET_BIND_SERVICE`;
   每个服务有 `mem_limit`/`pids_limit`,单服务失控不会拖垮 2C2G 整机(M-5);
 - `secrets/` 与 `.env` 均为 600,`values.env` 是唯一需要离线备份的密钥文件;
 - 生产默认 `DEBUG=0`、`AUTO_APPROVE=0`、`OPS_OTP_REQUIRED=1`、`HTTPS_ENABLED=1`、
@@ -296,7 +305,7 @@ docker compose start web worker
   - 未接真实短信商时,封闭测试必须显式 `--allow-dev-sms`(固定验证码);
   - 聊天图片/语音没有机器审核,只有 `/ops/` 人工抽审;
   - 媒体存本地磁盘,未接对象存储/CDN;
-  - nginx 容器仍是 root master(绑 80/443 需要),未改 `nginx-unprivileged`(改动大,记录为已知项);
   - 备份文件未自动加密,需运维按 §8 自行加密/离线保存;
-  - Redis 未设 `requirepass`(imserver 的 `parse_redis_url` 尚不支持 AUTH),
-    靠网络隔离兜底,后续接口令需要两边同时改。
+  - **Redis 仍未设 `requirepass`**:imserver 已支持 `redis://:pass@host/db` 并 `AUTH`
+    (E-6②,2026-11-05),但开启口令要同时改 Django `REDIS_URL` 与 imserver
+    `IM_REDIS_URL` 并重启两侧,尚未执行;当前靠 `backend` 网络隔离兜底。

@@ -1,27 +1,66 @@
 #include "store/redis_client.h"
 
+#include <cctype>
 #include <stdexcept>
 #include <string>
 
 namespace {
 
-struct UrlParts {
-  std::string host;
-  int port = 6379;
-  int db = 0;
-};
+/// 把 ``%XX`` 解码成单个字节;非法转义原样保留。
+///
+/// Args:
+///   text: 待解码的字符串。
+///
+/// Returns:
+///   解码后的字符串。
+std::string percent_decode(const std::string& text) {
+  std::string out;
+  out.reserve(text.size());
+  for (std::size_t i = 0; i < text.size(); ++i) {
+    const bool escaped = text[i] == '%' && i + 2 < text.size() &&
+                         std::isxdigit(static_cast<unsigned char>(text[i + 1])) != 0 &&
+                         std::isxdigit(static_cast<unsigned char>(text[i + 2])) != 0;
+    if (escaped) {
+      out.push_back(static_cast<char>(std::stoi(text.substr(i + 1, 2), nullptr, 16)));
+      i += 2;
+    } else {
+      out.push_back(text[i]);
+    }
+  }
+  return out;
+}
 
-UrlParts parse_redis_url(const std::string& url) {
+}  // namespace
+
+RedisUrlParts parse_redis_url(const std::string& url) {
   constexpr const char* kPrefix = "redis://";
   if (url.rfind(kPrefix, 0) != 0) {
     throw std::invalid_argument("redis url must start with redis://");
   }
-  auto rest = url.substr(std::string(kPrefix).size());
-  UrlParts parts;
+  const auto rest = url.substr(std::string(kPrefix).size());
+  RedisUrlParts parts;
 
-  const auto slash = rest.find('/');
+  // userinfo 先按最后一个 '@' 切掉:口令里可能含 '/'、冒号,但 '@' 必须是分隔符
+  // (含 '@' 的口令要写成 %40)。
+  std::string authority = rest;
+  const auto at = rest.rfind('@');
+  if (at != std::string::npos) {
+    const auto userinfo = rest.substr(0, at);
+    authority = rest.substr(at + 1);
+    const auto colon = userinfo.find(':');
+    if (colon == std::string::npos) {
+      // 少见写法 `redis://pass@host`:整段当口令
+      parts.password = percent_decode(userinfo);
+    } else {
+      // 常见写法 `redis://:pass@host` 的 userinfo 是 `:pass` → user 为空、password 正确
+      parts.user = percent_decode(userinfo.substr(0, colon));
+      parts.password = percent_decode(userinfo.substr(colon + 1));
+    }
+  }
+
+  const auto slash = authority.find('/');
   if (slash != std::string::npos) {
-    const auto db_text = rest.substr(slash + 1);
+    const auto db_text = authority.substr(slash + 1);
     if (!db_text.empty()) {
       try {
         parts.db = std::stoi(db_text);
@@ -29,16 +68,16 @@ UrlParts parse_redis_url(const std::string& url) {
         throw std::invalid_argument("invalid redis db");
       }
     }
-    rest = rest.substr(0, slash);
+    authority = authority.substr(0, slash);
   }
 
-  const auto colon = rest.rfind(':');
+  const auto colon = authority.rfind(':');
   if (colon == std::string::npos) {
-    parts.host = rest;
+    parts.host = authority;
   } else {
-    parts.host = rest.substr(0, colon);
+    parts.host = authority.substr(0, colon);
     try {
-      parts.port = std::stoi(rest.substr(colon + 1));
+      parts.port = std::stoi(authority.substr(colon + 1));
     } catch (const std::exception&) {
       throw std::invalid_argument("invalid redis port");
     }
@@ -48,8 +87,6 @@ UrlParts parse_redis_url(const std::string& url) {
   }
   return parts;
 }
-
-}  // namespace
 
 RedisClient::RedisClient(const std::string& url) {
   const auto parts = parse_redis_url(url);
@@ -64,6 +101,28 @@ RedisClient::RedisClient(const std::string& url) {
   }
   timeval timeout{2, 0};
   redisSetTimeout(ctx_, timeout);
+
+  // E-6②:配了口令就先 AUTH(Redis 6 起支持 `AUTH user pass`,老版本只认 `AUTH pass`)。
+  if (!parts.password.empty()) {
+    auto* reply = parts.user.empty()
+                      ? static_cast<redisReply*>(redisCommand(
+                            ctx_, "AUTH %s", parts.password.c_str()))
+                      : static_cast<redisReply*>(redisCommand(
+                            ctx_, "AUTH %s %s", parts.user.c_str(), parts.password.c_str()));
+    const bool ok = reply != nullptr && reply->type != REDIS_REPLY_ERROR;
+    std::string message;
+    if (!ok && reply != nullptr && reply->str != nullptr) {
+      message = reply->str;
+    }
+    if (reply != nullptr) {
+      freeReplyObject(reply);
+    }
+    if (!ok) {
+      redisFree(ctx_);
+      ctx_ = nullptr;
+      throw std::runtime_error("redis AUTH failed" + (message.empty() ? "" : ": " + message));
+    }
+  }
 
   if (parts.db != 0) {
     auto* reply = static_cast<redisReply*>(redisCommand(ctx_, "SELECT %d", parts.db));

@@ -93,6 +93,8 @@ M0–M3 与后续七次追加均已交付(各有 spec+plan);当前处于 M4(运�
 
 | 2026-11-05 | **E-3 端到端冒烟进 CI**(backlog E-3 / 审查 D-5):评估后**只把 1 条冒烟放进 CI,全量 8 条保留人工**(全量要 imserver + Celery,起全栈的 flaky 成本高于收益)。① 新增 `.github/workflows/web-e2e.yml`:MySQL 8 + Redis service containers + Django `runserver`(复用 backend.yml 的「等可认证连接」)+ `npm run e2e:smoke`,失败上传 Playwright 报告;② 新增 `web/tests/e2e/ci-smoke.spec.ts`:注册登录 → 完善资料(含照片)→ 发现页候选 → 广场 `/posts`(不去消息页,它走 imserver);③ `playwright.config.ts` 支持 `PLAYWRIGHT_PORT`(Windows 4173 落在 Hyper-V 保留段会 EACCES),本地用 5000 实测跑通;④ `web.yml` 注释、`CLAUDE.md` 测试纪律、`docs/pitfalls/web.md` 同步 | PR #63 |
 
+| 2026-11-05 | **E-6 安全遗留三项结论**(backlog E-6;用户拍板「只做代码,不动生产」):① **nginx 非 root(做)**:`deploy/docker/web.Dockerfile` 换 `nginxinc/nginx-unprivileged:1.27-alpine`,容器内监听 8080/8443,compose 映射宿主机 80/443 且 `cap_drop: [ALL]`;两个 nginx 模板 listen 同步。本地构建镜像实测:容器 `uid=101(nginx)`,`/healthz` 与 `/`(真 dist,`<title>心跳</title>`)及深链全 200。**顺带修既有缺陷**:模板缺 `root /usr/share/nginx/html;`(官方镜像的 root 在 `default.conf`,而该目录被整目录覆盖)→ docker 路径首页原本 404。② **imserver Redis AUTH(做,生产未开)**:`parse_redis_url` 支持 `redis://[user][:pass]@host:port/db`(ACL 用户名 + `%XX` 解码),连接后 `AUTH`,失败即启动失败;`redis_url_test.cpp` 10 例,unit **55/55** + db **19/19** + 集成/HTTP `e2e ok`;生产 `requirepass` 待低峰窗口(两侧同时改,见 `docs/ops/imserver.md` §1.4)。③ **TOTP 重绑挂起**(预期行为,下次进 `/ops/` 确认) | PR #TBD |
+
 ## 怎么维护
 
 - 新增一行:在该行对应日期位置插入,格式 `| YYYY-MM-DD | **主题**交付(关键文件 / 开关 / 测试数 / PR 号):一句话结论 |`;

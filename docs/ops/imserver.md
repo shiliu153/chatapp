@@ -85,6 +85,11 @@ IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
 
 - `IM_JWT_SECRET` 必须与 Django 的 `IM_SELF_SECRET` **完全一致**;
 - `IM_INTERNAL_SECRET` 必须与 Django 的 `IM_SELF_INTERNAL_SECRET` **完全一致**;
+- **`IM_REDIS_URL` 支持口令(2026-11-05,E-6②)**:写成 `redis://:口令@host:6379/2`
+  (Redis 6 ACL 也可以 `redis://用户名:口令@host:6379/2`);口令里的 `@`、`:`、`/` 用百分号编码
+  (`@` → `%40`)。配了口令后 imserver 启动时会先 `AUTH`,失败直接启动失败并打印
+  `redis AUTH failed`——**不会静默降级**。给 Redis 开 `requirepass` 时,Django 侧
+  `REDIS_URL` 也要同样带口令(两侧都改,只改一边会一半接口 500);
 - `IM_MEDIA_PREFIX` 必须与 Django 的 `MEDIA_BASE_URL` 拼上 `/media/chat/` **完全一致** ——
   服务端按这个前缀校验图片 URL,不一致时客户端发图会被 `42201` 拒掉;
 - `IM_ALLOWED_ORIGINS` 只影响带 `Origin` 头的浏览器 WS;原生 App 不带 Origin。

@@ -137,10 +137,12 @@
 
 - [x] `deploy/docker/Dockerfile`：创建 `app` 用户（uid 10001），`chown /app`，`USER app`；
       预建 `media`/`staticfiles`/`logs`，命名卷初始化时继承属主。
-- [ ] `deploy/docker/web.Dockerfile`：nginx 镜像默认以 root 起 master，评估是否改
+- [x] `deploy/docker/web.Dockerfile`：nginx 镜像默认以 root 起 master，评估是否改
       `nginx-unprivileged`（若改动大，记录为已知项）。
-      **记录为已知项**：nginx 需要绑 80/443，改 unprivileged 要同时改端口映射与模板，
-      本轮不做，已在 `deploy/README.md` §12 标注。
+      **已完成(2026-11-05,E-6①)**:改用 `nginxinc/nginx-unprivileged:1.27-alpine`,
+      容器内监听 8080/8443,compose 映射宿主机 80/443,`cap_drop: [ALL]` 不再需要
+      NET_BIND_SERVICE;`deploy/nginx/*.tmpl` 与 `deploy/README.md` 同步。
+      **只在 docker 部署路径生效**;现网宝塔 nginx 由面板管理,不受影响。
 - [x] `deploy/docker-compose.yml.tmpl`：给 web/worker/imserver/nginx 加
       `mem_limit`（web 384m、worker 256m、imserver 320m、nginx 96m、mysql 700m、
       redis 320m）、`pids_limit`、`security_opt: [no-new-privileges:true]`、
@@ -151,8 +153,10 @@
 
 - [x] 短期：compose 增加独立 `backend` 网络（`internal: true`），只有
       web/worker/imserver/redis/mysql 在内；nginx 只接 `default`。
-- [ ] 长期（记录）：imserver `parse_redis_url` 支持 `redis://:pass@host:port/db` 并 `AUTH`，
-      再给 Redis 开 `requirepass`；本轮不做代码改动，只在 `deploy/README.md` 标注。
+- [x] 长期（2026-11-05,E-6②）：imserver `parse_redis_url` 支持 `redis://:pass@host:port/db`
+      （含 Redis 6 ACL 用户名、百分号编码口令）并在连接后 `AUTH`，`redis_url_test.cpp` 10 例覆盖；
+      **生产还没开 `requirepass`** —— 开启需同时改 Django `REDIS_URL` 与 imserver
+      `IM_REDIS_URL` 并重启两侧，留待低峰窗口，见 `docs/ops/imserver.md` §1.4。
 
 ### C.3 L-9 MySQL root 来源
 

@@ -14,7 +14,12 @@ RUN npm config set registry "${NPM_REGISTRY}" \
 COPY web/ ./
 RUN npm run build
 
-FROM nginx:1.27-alpine
+# E-6①:非 root 运行。`nginx-unprivileged` 默认以 nginx(uid 101)启动,
+# 因此**容器内监听 8080/8443**,由 compose 做 `80→8080`、`443→8443` 的宿主机映射
+# (见 deploy/docker-compose.yml.tmpl 与 deploy/README.md)。
+# 好处:即使 nginx 被拿下,也不是容器里的 uid 0,拿不到 NET_BIND_SERVICE。
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 
 # 只放静态产物;nginx 配置由 compose 把宿主机 conf.d 挂进来
 COPY --from=build /web/dist /usr/share/nginx/html
+EXPOSE 8080 8443
