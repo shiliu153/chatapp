@@ -83,7 +83,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.2 | 2026-11-01 | — | 无(规则生效前发版) | — | `chatapp-1.0.2.apk` |
 | 1.0.3 | 2026-11-04 | — | 无(规则生效前发版) | `56f3f5b` | `chatapp-1.0.3.apk` |
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
-| 1.0.5 | 2026-11-05 | `v1.0.5` | 待建:tag 待推送(SHA 见 PR #79 合并提交),Release 对象待建 —— 本环境无 `gh` CLI 与 GitHub token | 见 PR #79 | `chatapp-1.0.5.apk` |
+| 1.0.5 | 2026-11-05 | `v1.0.5` | 待建:tag 已推送(`3390ab5`),Release 对象待建(现成材料见 §6.1) | `3390ab5` | `chatapp-1.0.5.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -145,6 +145,74 @@ gh release create v1.0.4 \
 ```
 
 建好后把 §5 表里 1.0.4 行的 `Release` 列改成 Release 链接。
+
+## 6.1 补建 v1.0.5 的现成材料
+
+与 1.0.4 同一处境:tag 已推送、Release 对象尚未创建(本环境无 `gh` CLI 与 GitHub token)。
+以下内容可直接粘贴。
+
+**tag / 目标提交**
+
+```
+v1.0.5  →  3390ab5551f55984d540a4eeb42a1cf004dc2063
+          feat(app,web): 暗黑模式(批次 F)+ 禁用裸色值硬门禁 + 版本 1.0.5 (#79)
+```
+
+**标题**:`v1.0.5 — 暗黑模式`
+
+**notes 草稿**(`--notes-file` 用)
+
+```markdown
+## 新增
+
+- App 与 Web 双端支持「跟随系统 / 浅色 / 深色」三态外观,选择落本地,重启后保留。
+- App 设置页新增「外观」卡(三态分段控件);Web 设置页同步新增。
+
+## 变更
+
+- App 取色全量迁移到 `HeartColors`(ThemeExtension,14 个语义色):68 个文件 301 处,
+  暗色下中性色阶与语义色换值,**品牌色 #FF2C55 不变**(心跳渐变仍是视觉锚点)。
+- 渐变(心跳 / 系统 / 完成度环)改为主题感知,暗色下 `heartOrange` 由 #FF7A45 提亮到 #FF8A5B。
+- Web `tokens.css` 新增 `[data-theme='dark']` 覆盖块,页面零改动(一直只用 CSS 变量)。
+
+## 修复
+
+- 无。
+
+## 运维注意
+
+- 本次**无后端改动、无数据库迁移**;后端 SHA 不变,只需覆盖 Web `dist` 并分发新 APK。
+- `LATEST_APP_VERSION` = 1.0.5、`APP_DOWNLOAD_URL` 指向本包;**`MIN_APP_VERSION` 保持 1.0.1**,
+  老客户端不被挡。
+- 回滚点:代码回 `3a71568`(本版之前)、旧 `dist` 备份、`.env` 备份。
+
+## 验证
+
+- App:`flutter analyze` 零告警 + `flutter test` **485 绿**。
+- Web:`vue-tsc` + `eslint --max-warnings 0` 零告警 + `vitest` **420 绿**
+  (覆盖率 85.58 / 78.07 / 80.34 / 88.09)。
+- 后端:`manage.py test` **791 OK**;`python scripts/sync_version.py --check` 绿。
+- 零裸色值:两条硬门禁(App `no_raw_colors_test.dart`、Web `no-raw-color.spec.ts`)
+  均验证过「故意注入违规 → 变红」;暗色回归 24 条用例逐页断言不出现浅色面。
+
+## 附件校验
+
+`app-release.apk` → `chatapp-1.0.5.apk`,57.4 MB
+SHA-1 `ba136f38aaf3152b10595a7f74c5e84cca83fdf8`
+```
+
+**附件**:`app/build/app/outputs/flutter-apk/app-release.apk`(57.4 MB,2026-11-05 22:5x 构建)
+
+**创建命令**
+
+```bash
+gh release create v1.0.5 \
+  --title "v1.0.5 — 暗黑模式" \
+  --notes-file /tmp/notes-1.0.5.md \
+  app/build/app/outputs/flutter-apk/app-release.apk#chatapp-1.0.5.apk
+```
+
+建好后把 §5 表里 1.0.5 行的 `Release` 列改成 Release 链接。
 
 ## 7. 为什么这条约束值得存在
 
