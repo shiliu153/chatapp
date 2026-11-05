@@ -50,7 +50,16 @@ async function mountPage(
   store.deleteConversation = vi.fn(async () => {})
   discovery.loadMatches = vi.fn(async () => {})
   discovery.matchesLoaded = true
-  discovery.matches = [{ user_id: 8, im_user_id: 'u8', nickname: '小雨', avatar_url: null, matched_at: '' }]
+  discovery.matches = [
+    {
+      user_id: 8,
+      im_user_id: 'u8',
+      nickname: '小雨',
+      avatar_url: null,
+      matched_at: '',
+      shared_tags: [],
+    },
+  ]
   options.beforeMount?.(store)
   const router = createRouter({
     history: createMemoryHistory(),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../profile/models.dart';
 import 'discovery_repository.dart';
 import 'models.dart';
 
@@ -25,17 +26,19 @@ class DiscoveryController extends AsyncNotifier<List<Candidate>> {
   }
 
   /// 处理一次滑卡:先把卡从卡组移除(界面立刻响应),再提交后端。
-  /// 失败把卡放回队首并原样抛出(页面弹提示);返回是否配对成功。
-  Future<bool> decide(Candidate candidate, {required bool like}) async {
+  /// 失败把卡放回队首并原样抛出(页面弹提示);返回配对结果与共同标签
+  /// (共同标签只在配对成功时非空,用于「配对那一刻」的破冰文案)。
+  Future<({bool matched, List<Tag> sharedTags})> decide(Candidate candidate,
+      {required bool like}) async {
     final current = state.value ?? const <Candidate>[];
     state = AsyncValue.data(
         current.where((item) => item.userId != candidate.userId).toList());
     try {
-      final matched = await ref
+      final result = await ref
           .read(discoveryRepositoryProvider)
           .swipe(targetUserId: candidate.userId, like: like);
       unawaited(_preloadIfLow());
-      return matched;
+      return result;
     } catch (_) {
       final now = state.value ?? const <Candidate>[];
       state = AsyncValue.data([candidate, ...now]);

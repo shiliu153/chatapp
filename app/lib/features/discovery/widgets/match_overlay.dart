@@ -6,6 +6,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_avatar.dart';
 import '../../../core/widgets/app_button.dart';
+import '../../profile/models.dart';
+import '../icebreaker.dart';
 import '../models.dart';
 import 'match_particles.dart';
 
@@ -17,12 +19,20 @@ class MatchOverlay extends StatefulWidget {
     super.key,
     required this.candidate,
     this.myAvatarUrl,
+    this.sharedTags = const [],
+    this.myCity = '',
     required this.onClose,
     this.onGoChat,
   });
 
   final Candidate candidate;
   final String? myAvatarUrl;
+
+  /// 共同标签(来自滑卡响应),只用于「配对那一刻」的破冰文案。
+  final List<Tag> sharedTags;
+
+  /// 我的城市:与对方城市相同才展示「你们都在 X」。
+  final String myCity;
   final VoidCallback onClose;
 
   /// 有值才显示「去聊天」按钮。
@@ -78,6 +88,12 @@ class _MatchOverlayState extends State<MatchOverlay> with SingleTickerProviderSt
     final colors = context.heart;
     final theirAvatarUrl =
         widget.candidate.photos.isEmpty ? null : widget.candidate.photos.first.url;
+    // 共同点只在「配对那一刻」说一句:有共同标签说标签,否则只在同城时说城市。
+    final icebreaker = matchIcebreaker(
+      sharedTagNames: [for (final tag in widget.sharedTags) tag.name],
+      myCity: widget.myCity,
+      peerCity: widget.candidate.city,
+    );
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: GestureDetector(
@@ -183,6 +199,16 @@ class _MatchOverlayState extends State<MatchOverlay> with SingleTickerProviderSt
                             style: AppText.caption.copyWith(
                                 color: Colors.white.withValues(alpha: 0.72)),
                           ),
+                          if (icebreaker != null) ...[
+                            const SizedBox(height: AppSpacing.sm),
+                            Text(
+                              icebreaker,
+                              key: const Key('match.icebreaker'),
+                              textAlign: TextAlign.center,
+                              style: AppText.caption.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.92)),
+                            ),
+                          ],
                           const SizedBox(height: AppSpacing.xxl),
                           Row(
                             mainAxisSize: MainAxisSize.min,
@@ -218,10 +244,15 @@ class _MatchOverlayState extends State<MatchOverlay> with SingleTickerProviderSt
 }
 
 /// 弹配对动效;等它关闭后 future 才完成。
+///
+/// ``sharedTags`` / ``myCity`` 只用于「配对那一刻」的破冰文案(计划 §2.2),
+/// 拿不到就都不传,整行自动不展示。
 Future<void> showMatchOverlay(
   BuildContext context, {
   required Candidate candidate,
   String? myAvatarUrl,
+  List<Tag> sharedTags = const [],
+  String myCity = '',
   VoidCallback? onGoChat,
 }) {
   final colors = context.heart;
@@ -235,6 +266,8 @@ Future<void> showMatchOverlay(
       pageBuilder: (dialogContext, animation, secondary) => MatchOverlay(
         candidate: candidate,
         myAvatarUrl: myAvatarUrl,
+        sharedTags: sharedTags,
+        myCity: myCity,
         onClose: () => Navigator.of(dialogContext).pop(),
         // 先关弹层再跳,不然路由推在弹层下面
         onGoChat: onGoChat == null

@@ -938,7 +938,7 @@ class BusinessMetricTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(target).access_token}")
         resp = self.client.post("/api/v1/discovery/swipe",
                                 {"target_user_id": me.id, "action": "like"}, format="json")
-        self.assertEqual({"matched": True}, resp.json())
+        self.assertEqual({"matched": True, "shared_tags": []}, resp.json())
 
         self.assertEqual(2.0, metric_value("swipes_total", action="like") - before_swipe)
         self.assertEqual(1.0, metric_value("matches_total") - before_match)

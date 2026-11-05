@@ -25,6 +25,44 @@ class TagSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "icon"]
 
 
+def shared_tags_for_profiles(profiles, viewer) -> dict[int, list[dict]]:
+    """批量求「若干资料 ∩ 当前用户」的共同标签(一次 SQL,供破冰文案使用)。
+
+    标签池只有 12 个,所以按 ``(user_id, tag_id)`` 把「我 + 所有对方」的关系一次取回,
+    再在内存里求交 —— 比给每个对方单独查一次 M2M 省得多,也避免 N+1
+    (``config/test_query_budget.py`` 会拦)。
+
+    Args:
+        profiles: 资料对象序列;只用到 ``user_id``,``None`` 项自动忽略。
+        viewer: 当前登录用户。
+
+    Returns:
+        ``{user_id: [{"id": .., "name": .., "icon": ..}, ...]}``,标签按 id 升序;
+        没有交集的人**不出现在字典里**,调用方用 ``.get(user_id, [])`` 取。
+    """
+    viewer_id = getattr(viewer, "id", None)
+    peer_ids = [profile.user_id for profile in profiles if profile is not None]
+    if viewer_id is None or not peer_ids:
+        return {}
+    rows = (Tag.objects
+            .filter(profiles__user_id__in=[viewer_id, *peer_ids])
+            .values_list("profiles__user_id", "id", "name", "icon"))
+    mine: set[int] = set()
+    per_user: dict[int, list[tuple[int, str, str]]] = {}
+    for user_id, tag_id, name, icon in rows:
+        if user_id == viewer_id:
+            mine.add(tag_id)
+        else:
+            per_user.setdefault(user_id, []).append((tag_id, name, icon))
+    if not mine:
+        return {}
+    return {
+        user_id: [{"id": tag_id, "name": name, "icon": icon}
+                  for tag_id, name, icon in sorted(items) if tag_id in mine]
+        for user_id, items in per_user.items()
+    }
+
+
 class PhotoSerializer(serializers.ModelSerializer):
     """照片的对外表示:只暴露 URL 与审核状态,不暴露存储路径。"""
 
@@ -97,16 +135,50 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class PublicProfileSerializer(serializers.ModelSerializer):
-    """对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。"""
+    """对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。
+
+    ``shared_tags`` 是「对方标签 ∩ 我的标签」,给配对那一刻的破冰文案用;
+    列表场景若已批量算好,可从 ``context["shared_tags_map"]`` 直接注入,避免逐项查询。
+    """
 
     user_id = serializers.IntegerField(source="user.id", read_only=True)
     age = serializers.IntegerField(read_only=True)
     tags = TagSerializer(many=True, read_only=True)
+    shared_tags = serializers.SerializerMethodField()
     photos = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
-        fields = ["user_id", "nickname", "gender", "age", "city", "bio", "tags", "photos"]
+        fields = ["user_id", "nickname", "gender", "age", "city", "bio", "tags",
+                  "shared_tags", "photos"]
+
+    @extend_schema_field(TagSerializer(many=True))
+    def get_shared_tags(self, profile):
+        """返回当前用户与对方的共同标签。
+
+        单条资料卡场景每次只多一条 M2M 查询;列表场景请由调用方批量算好后从
+        ``context["shared_tags_map"]`` 注入(否则每个对象一条查询)。
+
+        Args:
+            profile: 被查看的资料。
+
+        Returns:
+            共同标签数组(``{id, name, icon}``);未登录或没有交集时为空数组。
+        """
+        shared_map = self.context.get("shared_tags_map")
+        if shared_map is not None:
+            return shared_map.get(profile.user_id, [])
+        memo = getattr(self, "_shared_tags_memo", None)
+        if memo is None:
+            memo = {}
+            self._shared_tags_memo = memo
+        if profile.user_id not in memo:
+            request = self.context.get("request")
+            viewer = getattr(request, "user", None)
+            found = ({} if viewer is None or not viewer.is_authenticated
+                     else shared_tags_for_profiles([profile], viewer))
+            memo.update(found)
+        return memo.get(profile.user_id, [])
 
     @extend_schema_field(PhotoSerializer(many=True))
     def get_photos(self, profile):

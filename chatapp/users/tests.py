@@ -11,6 +11,7 @@
     - 偏好:默认值、更新、区间非法、未满 18 下限、目标性别为空表示不限;
     - admin 审核动作:驳回与通过时的状态重算、记录审核人与时间;
     - 他人资料卡:只返回公开字段、重封禁不可见、轻封禁可见、拉黑双向不可见、404;
+    - 共同标签:只返回交集且按 id 升序、无交集/我没标签时为空数组、查询条数不随标签数增长;
     - 抓取监控:同目标一小时只计一次、跨目标累加、超阈值告警、Redis 故障不影响响应;
     - 在线状态服务:写入后在线、窗口边界、未知用户、本地时区 ISO、Redis 故障降级;
     - 在线状态接口:鉴权、返回在线与最后活跃、剔除拉黑/自己/未知/重封禁、去重保序、
@@ -37,9 +38,10 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Q
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APITestCase
@@ -652,6 +654,69 @@ class PublicProfileTests(AuthMixin, APITestCase):
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self._get().status_code, 401)
+
+
+class SharedTagsTests(AuthMixin, APITestCase):
+    """共同标签(``shared_tags``):交集口径、无交集兜底、查询条数不随标签数增长。"""
+
+    def setUp(self):
+        self.me = User.objects.create_user(phone="13800138001")
+        self.login(self.me)
+        self.other = User.objects.create_user(phone="13900139001")
+        Profile.objects.create(user=self.other, nickname="小红", gender="female",
+                               birthday="1998-01-01", city="上海", bio="喜欢爬山",
+                               status=ProfileStatus.COMPLETE)
+        Photo.objects.create(user=self.other, file="photos/a.png", status=PhotoStatus.APPROVED)
+        self.tags = list(Tag.objects.order_by("id")[:4])
+
+    def _set_tags(self, user, tags):
+        """给指定用户设置标签。
+
+        Args:
+            user: 目标用户。
+            tags: 标签对象序列。
+        """
+        services.get_profile(user).tags.set(tags)
+
+    def _shared_tags(self):
+        """请求他人资料卡并取出 ``shared_tags``。
+
+        Returns:
+            ``shared_tags`` 列表。
+        """
+        response = self.client.get(f"/api/v1/users/{self.other.id}")
+        self.assertEqual(response.status_code, 200, response.content[:200])
+        return response.json()["shared_tags"]
+
+    def test_returns_intersection_only(self):
+        """只返回交集,且按标签 id 升序。"""
+        self._set_tags(self.me, [self.tags[0], self.tags[2]])
+        self._set_tags(self.other, [self.tags[1], self.tags[2], self.tags[0]])
+        self.assertEqual([tag["id"] for tag in self._shared_tags()],
+                         [self.tags[0].id, self.tags[2].id])
+
+    def test_empty_when_no_overlap(self):
+        """没有交集时是空数组,不是 404 也不是 null。"""
+        self._set_tags(self.me, [self.tags[0]])
+        self._set_tags(self.other, [self.tags[1]])
+        self.assertEqual(self._shared_tags(), [])
+
+    def test_empty_when_viewer_has_no_tags(self):
+        """我没选标签时同样返回空数组(避免把对方的全部标签当成共同点)。"""
+        self._set_tags(self.other, [self.tags[0], self.tags[1]])
+        self.assertEqual(self._shared_tags(), [])
+
+    def test_query_count_does_not_grow_with_tag_count(self):
+        """共同标签只多一次 M2M 查询,不随标签数量线性增长(N+1 守卫)。"""
+        self._set_tags(self.me, self.tags[:1])
+        self._set_tags(self.other, [self.tags[0]])
+        with CaptureQueriesContext(connection) as one_shared:
+            self._shared_tags()
+        self._set_tags(self.me, self.tags)
+        self._set_tags(self.other, self.tags)
+        with CaptureQueriesContext(connection) as many_shared:
+            self._shared_tags()
+        self.assertEqual(len(one_shared.captured_queries), len(many_shared.captured_queries))
 
 
 class ProfileScrapeMonitorTests(TestCase):

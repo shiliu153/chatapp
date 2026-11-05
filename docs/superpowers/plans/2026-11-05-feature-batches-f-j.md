@@ -599,3 +599,40 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 
 两条硬门禁(App `no_raw_colors_test.dart`、Web `no-raw-color.spec.ts`)都做过「故意违规 → 变红」验证。
 
+### 批次 G 执行于 2026-11-06 / PR #83
+
+**交付范围**:G-1 → G-4 全部完成,版本升到 **1.0.6**。范围严格按 §2.2 收敛:
+共同点**只在配对那一刻**展示,聊天页零改动(没加提示、也没为提示去拉对方资料)。
+
+#### 与计划的偏差
+
+| 计划 | 实际 | 原因 |
+|---|---|---|
+| 数据来源只写 `PublicProfileSerializer` + `GET /matches` | 额外给 `POST /discovery/swipe` 加了 `shared_tags`(配对成功时返回) | 配对动效在**滑卡那一刻**弹出,此时客户端手上只有候选卡(`CandidateSerializer` 没有共同标签)。若为拿共同标签去拉 `GET /users/{id}`,会触发 `record_profile_view` 把这次配对记成一次**访客访问** —— 正是 §2.2 拒绝「聊天页提示」的同一条理由。让滑卡响应直接带回是最省的做法:服务端此刻两人的标签都在手边,一次查询。 |
+| G-2「`match_list` 卡片加最多 2 个共同标签 chip」(双端) | chip 只在 **Web** `MatchesList.vue` 落地;App 的展示点是配对动效 | App 没有「配对列表页」—— 配对在**消息列表**(IM 会话)里呈现,那里给每行挂共同标签等于「把共同点摊到日常界面」,与 §2.2 的收敛口径冲突。后端 `GET /matches` 的 `shared_tags` 仍照计划返回(Web 用),App 侧字段暂不消费。 |
+| 兜底文案「无交集 → 你们都在 {城市}」 | 增加一条前置条件:**双方城市都非空且相同**才展示 | 「你们都在 X」是一句断言;只知道对方城市(不知道我的)时不能替用户说。计划里「城市为空则整行不展示」的精神一致,这里把「为空」扩成「任一方为空或不一致」。 |
+| G-1「该接口查询数 +0 或 +1」 | `GET /users/{id}` **+1 条**(单条 M2M 查询,一次取「我 + 对方」的标签关系) | 该接口不在 `test_query_budget.py` 的 6 条预算里;仍按「不随数据量增长」实现,并新增「1 个共同标签 vs 4 个共同标签查询数相同」的用例守住。 |
+| 破冰文案表「双端各一份常量」 | App `icebreaker.dart` / Web `icebreaker.ts` 两个文件,函数签名与文案**逐字一致**,各 6 例单测 | 双端文案漂移是这类模板最常见的坑;两边测试用例名与期望值一一对应,改一边忘另一边时对照测试就能发现。 |
+
+#### 实现要点
+
+- **批量求交**(`users/serializers.py::shared_tags_for_profiles`):标签池只有 12 个,所以按
+  `(user_id, tag_id)` 把「我 + 本页所有对方」的关系**一次**取回,再在内存里求交。
+  `GET /matches` 因此只多 1 条 SQL(预算 9,实测 8);`test_query_budget.py` 的 `matches` 上限**没有放宽**。
+- **`GET /matches` 的 `shared_tags` 不是 N+1**:新增用例断言「1 个配对 vs 2 个配对的 SQL 条数相同」。
+- **`/discovery/swipe` 的兼容性**:未配对时返回 `shared_tags: []`(不是缺字段),
+  既有 6 处 `assertEqual(resp.json(), {"matched": ...})` 全部更新为带 `shared_tags` 的断言。
+- **文档门禁**:`users.md` §2.8、`discovery.md` §3.2/§3.3 的字段表 + 示例同步;
+  openapi 与 `web/src/api/schema.d.ts` 重新生成(`MatchSummary.shared_tags` / `PublicProfile.shared_tags`
+  都进了 `contract.ts` 的编译期断言)。
+
+#### 测试
+
+| 端 | 结果 |
+|---|---|
+| 后端 | `manage.py test` **799 OK**(新增 8 例:`SharedTagsTests` 4 例 + `MatchListTests` 2 例 + `SwipeApiTests` 2 例);`spectacular --validate` 零 warning;`test_schema_contract` / `ApiDocsCoverageTests` / `comment_coverage` 全绿 |
+| App | `flutter analyze` 零告警;`flutter test` **495 绿**(新增 `icebreaker_test.dart` 6 例 + `match_overlay_test.dart` 3 例 + repository 1 例) |
+| Web | `vue-tsc` / `eslint --max-warnings 0` 零告警;`vitest` **432 绿**(新增 `icebreaker.spec.ts` 6 例 + `match-moment.spec.ts` 3 例 + `matches-list.spec.ts` 1 例 + `discovery-store.spec.ts` 2 例) |
+| 版本 | `python scripts/sync_version.py --check` 绿(1.0.6) |
+
+

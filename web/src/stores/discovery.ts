@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as discoveryApi from '@/api/discovery'
 import { parseApiError } from '@/api/error'
-import type { Candidate, MatchSummary } from '@/api/types'
+import type { Candidate, MatchSummary, Tag } from '@/api/types'
 
 const MATCHES_PAGE_SIZE = 20
 
@@ -10,6 +10,8 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   const candidates = ref<Candidate[]>([])
   const index = ref(0)
   const matched = ref<Candidate | null>(null)
+  /** 配对那一刻的共同标签:只给破冰文案用,关掉配对动效即清空 */
+  const matchedSharedTags = ref<Tag[]>([])
   const matches = ref<MatchSummary[]>([])
   const matchesCount = ref(0)
   /** 配对列表的下一页游标:null = 没有下一页 */
@@ -44,7 +46,10 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     try {
       const result = await discoveryApi.swipe(target.user_id, action)
       index.value += 1
-      if (result.matched) matched.value = target
+      if (result.matched) {
+        matched.value = target
+        matchedSharedTags.value = result.shared_tags
+      }
     } catch (e) {
       const apiError = parseApiError(e)
       if (apiError.status === 404) {
@@ -61,6 +66,7 @@ export const useDiscoveryStore = defineStore('discovery', () => {
 
   function dismissMatched(): void {
     matched.value = null
+    matchedSharedTags.value = []
   }
 
   /** 配对列表;`reset` 用于下拉首刷,否则顺着 next_cursor 追加。 */
@@ -87,6 +93,7 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     candidates,
     index,
     matched,
+    matchedSharedTags,
     matches,
     matchesCount,
     matchesLoaded,

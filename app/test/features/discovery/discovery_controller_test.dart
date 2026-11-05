@@ -52,11 +52,12 @@ void main() {
     addTearDown(container.dispose);
     final candidates = await container.read(discoveryProvider.future);
 
-    final matched = await container
+    final result = await container
         .read(discoveryProvider.notifier)
         .decide(candidates.first, like: true);
 
-    expect(matched, isTrue);
+    expect(result.matched, isTrue);
+    expect(result.sharedTags, isEmpty);
     expect(container.read(discoveryProvider).value!.map((item) => item.userId), [10]);
     final request = adapter.log.lastWhere((item) => item.method == 'POST');
     expect(request.data, {'target_user_id': 9, 'action': 'like'});

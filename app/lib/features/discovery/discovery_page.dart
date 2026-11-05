@@ -119,19 +119,21 @@ class _DeckView extends ConsumerWidget {
   Future<bool> _decide(BuildContext context, WidgetRef ref, Candidate candidate,
       {required bool like}) async {
     try {
-      final matched =
+      final result =
           await ref.read(discoveryProvider.notifier).decide(candidate, like: like);
-      if (matched && context.mounted) {
+      if (result.matched && context.mounted) {
         final me = ref.read(profileProvider).value;
         ref.invalidate(matchCacheProvider); // 刚配对的人,昵称/头像要立刻能显示
         await showMatchOverlay(
           context,
           candidate: candidate,
           myAvatarUrl: me?.avatar?.url,
+          sharedTags: result.sharedTags,
+          myCity: me?.city ?? '',
           onGoChat: () => context.push('/chat/u${candidate.userId}'),
         );
       }
-      return matched;
+      return result.matched;
     } on ApiException catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)

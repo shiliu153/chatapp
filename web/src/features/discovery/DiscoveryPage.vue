@@ -6,6 +6,7 @@ import AppErrorView from '@/components/AppErrorView.vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useDiscoveryStore } from '@/stores/discovery'
 import { usePresenceStore } from '@/stores/presence'
+import { useProfileStore } from '@/stores/profile'
 import LikesEntry from './LikesEntry.vue'
 import MatchesList from './MatchesList.vue'
 import MatchMoment from './MatchMoment.vue'
@@ -14,6 +15,7 @@ import VisitsEntry from './VisitsEntry.vue'
 
 const store = useDiscoveryStore()
 const presence = usePresenceStore()
+const profileStore = useProfileStore()
 const router = useRouter()
 
 const showEmpty = computed(() => !store.loading && !store.error && store.exhausted)
@@ -83,6 +85,8 @@ function onChat() {
     <MatchMoment
       v-if="store.matched"
       :candidate="store.matched"
+      :shared-tags="store.matchedSharedTags"
+      :my-city="profileStore.profile?.city ?? ''"
       @close="store.dismissMatched()"
       @chat="onChat"
     />

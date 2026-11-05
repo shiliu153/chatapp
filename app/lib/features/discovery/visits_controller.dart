@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../chat/match_cache.dart';
+import '../profile/models.dart';
 import 'discovery_repository.dart';
 import 'models.dart';
 
@@ -83,13 +84,13 @@ class VisitsController extends AsyncNotifier<VisitsState> {
     }
   }
 
-  /// 回喜欢;需要弹配对动效时返回被喜欢的人,未配对返回 null。
-  Future<Candidate?> accept(Visit item) async {
+  /// 回喜欢;需要弹配对动效时返回被喜欢的人与共同标签,未配对返回 null。
+  Future<({Candidate candidate, List<Tag> sharedTags})?> accept(Visit item) async {
     final current = state.value;
     if (current == null || current.busyUserId != null) return null;
     state = AsyncValue.data(current.copyWith(busyUserId: item.candidate.userId));
     try {
-      final matched = await ref
+      final result = await ref
           .read(discoveryRepositoryProvider)
           .swipe(targetUserId: item.candidate.userId, like: true);
       final now = state.value ?? current;
@@ -105,7 +106,9 @@ class VisitsController extends AsyncNotifier<VisitsState> {
       ));
       ref.invalidate(matchCacheProvider);
       ref.invalidate(visitsCountProvider);
-      return matched ? item.candidate : null;
+      return result.matched
+          ? (candidate: item.candidate, sharedTags: result.sharedTags)
+          : null;
     } catch (_) {
       final now = state.value ?? current;
       state = AsyncValue.data(now.copyWith(clearBusy: true));

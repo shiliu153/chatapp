@@ -58,6 +58,40 @@ describe('discovery store', () => {
     expect(store.matched).toBeNull()
   })
 
+  it('配对成功时记录共同标签;关掉配对动效即清空', async () => {
+    mockCandidates([7])
+    server.use(
+      mswHttp.post('/api/v1/discovery/swipe', () =>
+        HttpResponse.json({
+          matched: true,
+          shared_tags: [
+            { id: 1, name: '运动', icon: 'sports' },
+            { id: 3, name: '电影', icon: 'movie' },
+          ],
+        }),
+      ),
+    )
+    const store = useDiscoveryStore()
+    await store.loadCandidates()
+
+    await store.decide('like')
+
+    expect(store.matchedSharedTags.map((tag) => tag.name)).toEqual(['运动', '电影'])
+    store.dismissMatched()
+    expect(store.matchedSharedTags).toEqual([])
+  })
+
+  it('未配对时共同标签保持为空', async () => {
+    mockCandidates([7])
+    server.use(mswHttp.post('/api/v1/discovery/swipe', () => HttpResponse.json({ matched: false })))
+    const store = useDiscoveryStore()
+    await store.loadCandidates()
+
+    await store.decide('pass')
+
+    expect(store.matchedSharedTags).toEqual([])
+  })
+
   it('轻封禁(403)时停在当前卡并给出提示', async () => {
     mockCandidates([1])
     server.use(

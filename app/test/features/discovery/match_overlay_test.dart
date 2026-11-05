@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/widgets/app_avatar.dart';
 import 'package:chatapp_app/features/discovery/models.dart';
 import 'package:chatapp_app/features/discovery/widgets/match_overlay.dart';
+import 'package:chatapp_app/features/profile/models.dart';
 
 import '../../support/sample_data.dart';
 import '../../support/heart_theme.dart';
@@ -95,5 +96,51 @@ void main() {
       ),
     ));
     expect(_textOpacity(tester), 1);
+  });
+
+  testWidgets('有共同标签 → 展示「你们都喜欢 X、Y」', (tester) async {
+    final candidate = Candidate.fromJson(candidateJson(nickname: '小红', city: '上海'));
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
+      home: MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: MatchOverlay(
+          candidate: candidate,
+          myCity: '上海',
+          sharedTags: const [
+            Tag(id: 1, name: '运动', icon: 'sports'),
+            Tag(id: 3, name: '电影', icon: 'movie'),
+            Tag(id: 5, name: '音乐', icon: 'music'),
+          ],
+          onClose: () {},
+        ),
+      ),
+    ));
+
+    expect(find.byKey(const Key('match.icebreaker')), findsOneWidget);
+    expect(find.text('你们都喜欢 运动、电影,不如从这儿聊起?'), findsOneWidget);
+  });
+
+  testWidgets('没有共同标签也不同城 → 整行不展示', (tester) async {
+    final candidate = Candidate.fromJson(candidateJson(nickname: '小红', city: '成都'));
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
+      home: MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: MatchOverlay(candidate: candidate, myCity: '杭州', onClose: () {}),
+      ),
+    ));
+
+    expect(find.byKey(const Key('match.icebreaker')), findsNothing);
+  });
+
+  testWidgets('没有共同标签但同城 → 只说城市', (tester) async {
+    final candidate = Candidate.fromJson(candidateJson(nickname: '小红', city: '杭州'));
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, 
+      home: MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: MatchOverlay(candidate: candidate, myCity: '杭州', onClose: () {}),
+      ),
+    ));
+
+    expect(find.text('你们都在 杭州'), findsOneWidget);
   });
 }

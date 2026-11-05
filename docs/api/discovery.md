@@ -90,6 +90,9 @@ curl "http://<域名>/api/v1/discovery/candidates?limit=10" \
 
 互相喜欢时返回 `matched: true`,并触发配对:系统会向**双方**各推送一条配对系统消息(聊天页展示为灰条)。
 
+配对成功时响应同时带 `shared_tags`(共同标签:对方标签与当前用户标签的交集),客户端**直接用它**渲染
+「你们都喜欢 X、Y」的破冰文案,**不要**再去拉 `GET /users/{id}` —— 那会把这次配对记成一次访客访问。
+
 轻封禁(`banned_light`)账号调用返回 `403`(账号已被限制,暂时无法滑卡)。
 
 **请求参数**(Body,`application/json`)
@@ -104,6 +107,7 @@ curl "http://<域名>/api/v1/discovery/candidates?limit=10" \
 | 参数名称 | 类型 | 描述 |
 |----------|------|------|
 | matched | Boolean | 是否已配对成功(双方都 like 过对方)。本接口幂等:重复提交同一目标返回值不变 |
+| shared_tags | Object[] | 共同标签(元素结构 `{id,name,icon}`);未配对或无交集时为空数组 |
 
 **请求示例**
 
@@ -119,13 +123,19 @@ curl -X POST http://<域名>/api/v1/discovery/swipe \
 滑卡成功、尚未配对:
 
 ```json
-{ "matched": false }
+{ "matched": false, "shared_tags": [] }
 ```
 
 滑卡成功、双方互相喜欢(已配对):
 
 ```json
-{ "matched": true }
+{
+  "matched": true,
+  "shared_tags": [
+    { "id": 1, "name": "运动", "icon": "sports" },
+    { "id": 3, "name": "电影", "icon": "movie" }
+  ]
+}
 ```
 
 划自己:
@@ -170,6 +180,9 @@ curl -X POST http://<域名>/api/v1/discovery/swipe \
 
 分页查询自己的全部配对,按配对时间倒序。与你双向拉黑的人不会出现在列表中。
 
+每项带 `shared_tags`(共同标签:对方标签与当前用户标签的交集),供「配对那一刻」的破冰文案使用;
+整页一次批量求交,不随条数增加查询。没有交集时为空数组。
+
 **请求参数**(Query)
 
 | 参数名称 | 必填 | 类型 | 描述 |
@@ -189,6 +202,7 @@ curl -X POST http://<域名>/api/v1/discovery/swipe \
 | nickname | String | 对方昵称 |
 | avatar_url | String / null | 对方头像(取第一张已过审照片);无照片为 `null` |
 | matched_at | String | 配对时间(UTC,ISO 8601) |
+| shared_tags | Object[] | 共同标签(元素结构 `{id,name,icon}`,同 [users.md §2.1](users.md) 的 `tags[]`);无交集为空数组 |
 
 **请求示例**
 
@@ -210,7 +224,11 @@ curl "http://<域名>/api/v1/matches?limit=20" \
       "im_user_id": "u8",
       "nickname": "Bob",
       "avatar_url": "http://<域名>/media/photos/2026/09/bob_avatar.png",
-      "matched_at": "2026-09-19T04:38:32.767758Z"
+      "matched_at": "2026-09-19T04:38:32.767758Z",
+      "shared_tags": [
+        { "id": 1, "name": "运动", "icon": "sports" },
+        { "id": 3, "name": "电影", "icon": "movie" }
+      ]
     }
   ]
 }
