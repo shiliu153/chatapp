@@ -21,11 +21,11 @@
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
+| [plans/2026-11-05-feature-batches-f-j.md](plans/2026-11-05-feature-batches-f-j.md) | **未启动(仅规划)** | 批次 F–J:暗黑模式 / 共同点破冰 / 站内通知中心 / 广场关注 / 聊天表情贴纸,共 27 个 Task、约 13.5 天。设计决策内嵌该文 §2,**执行时分批次开新会话** |
 
-`plans/` 目录已空:最后一份在办的 [observability-and-capacity](archive/plans/2026-11-02-observability-and-capacity.md)
-于 2026-11-05 四轨全部落地后归档;`specs/` 中的
-[dual-server-load-balancing](archive/specs/2026-10-28-dual-server-load-balancing-design.md) 已在
-2026-11-04 拍板「不做双机、暂不升配」,转为历史设计。**新增工作面文档时再建同名目录即可。**
+`specs/` 中的 [dual-server-load-balancing](archive/specs/2026-10-28-dual-server-load-balancing-design.md) 已在
+2026-11-04 拍板「不做双机、暂不升配」,转为历史设计。批次 F–J 全部交付后,
+上面那份 plan 按惯例 `git mv` 到 `archive/plans/` 并在 §4 补一行。
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。
