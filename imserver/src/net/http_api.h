@@ -13,6 +13,7 @@
 #include "config.h"
 #include "net/guard.h"
 #include "service/message_service.h"
+#include "service/push_notifier.h"
 #include "service/session_registry.h"
 #include "store/redis_client.h"
 #include "util/ratelimit.h"
@@ -27,7 +28,7 @@ class HttpApi {
   using response_type = boost::beast::http::response<boost::beast::http::string_body>;
 
   HttpApi(boost::asio::io_context& io, const Config& cfg, MessageService& messages,
-          SessionRegistry& registry, RedisClient& redis);
+          SessionRegistry& registry, RedisClient& redis, PushNotifier& push);
   void start();
   void stop();
 
@@ -60,6 +61,8 @@ class HttpApi {
   MessageService& messages_;
   SessionRegistry& registry_;
   RedisClient& redis_;
+  /// 离线新消息推送(C-1):/internal/send 这条路径也要推(im_send、Django 通知都走它)。
+  PushNotifier& push_;
   // 搜索:每账号 60 次/分钟、burst 20。
   RateTable search_table_{1.0, 20.0};
   // 普通读接口(会话列表 / 历史消息):每账号 120 次/分钟、burst 40。
