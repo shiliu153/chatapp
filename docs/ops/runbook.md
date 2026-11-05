@@ -10,7 +10,7 @@
 | `imserver /internal/readyz` | **30s**(脚本内一次复测) | 连续 2 次非 200 | 邮件(`/opt/notify`,与日报同链路) |
 | `GET /api/v1/health` | **30s**(同上) | 同上 | 同上 |
 | Prometheus 抓 `job=api` / `job=im` | 15s | `up=0` 持续 30s(`ApiDown`)/ 1m(`ImDown`) | Alertmanager → relay → 邮件 |
-| MySQL 3306 探活 | 60s | 一次失败即拉起 | 看门狗脚本 + 邮件 |
+| MySQL 3306 探活 | 60s | 一次失败即拉起 | 看门狗脚本 + 邮件(实测 T0+25s 到达,见 §2.4) |
 | 磁盘/内存 | 5min | 磁盘 >85%、可用内存 <100MB | 同上 |
 
 > 2026-11-01 之前的探针是「每分钟一次、连续 2 轮才 ALERT」,实测 90 秒宕机只记 1 次失败、
@@ -69,21 +69,57 @@ echo '* * * * * root set -a; . /etc/default/mysql-watchdog; set +a; /www/server/
 set -a; . /etc/default/mysql-watchdog; set +a; /www/server/ops/mysql-watchdog.sh; echo $?
 ```
 
-验证(会短暂中断 DB,低峰期做):
+验证(会短暂中断 DB,低峰期做)。**2026-11-05 已按下面这条命令实跑过两次,数字与结论见 §2.4**,别再用「手敲 kill + sleep 90」的老办法,那样测不出检测延迟、也算不出 MTTR:
 
 ```bash
-kill -9 $(pgrep -x mysqld) $(pgrep -f "^/bin/sh /www/server/mysql/bin/mysqld_safe")
-sleep 90
-mysql -e 'SELECT 1' && tail -5 /www/wwwlogs/mysql_watchdog.log
-# 期望:日志出现 "restarted successfully",机器人收到一条「曾宕机,已拉起」
+# 服务器上(先 DRY_RUN 确认前置检查与 dump 都过,再正式跑)
+DRY_RUN=1 bash /www/server/ops/mysql-drill-e5.sh      # 只做前置检查 + 打 dump,不杀进程
+CONFIRM=1 bash /www/server/ops/mysql-drill-e5.sh      # 真演练,约 2 分钟
 ```
+
+脚本(`deploy/ops/mysql-drill-e5.sh`)会:打两份 dump 兜底 → 全表行数基线 → 1 秒粒度采样
+(MySQL 探活 / Django `readyz` / imserver `readyz`)→ `kill -9` mysqld 与 mysqld_safe →
+等看门狗(超过 120 秒它自己接手 `/etc/init.d/mysqld start`)→ 对行数、抓看门狗日志、
+Alertmanager 告警与 `notify` 邮件记录,最后在 `$OUT_DIR/summary.txt` 落一份结论。
+**期望**:看门狗日志出现 `restarted successfully`,并收到一条「MySQL 曾宕机,看门狗已拉起」的邮件。
 
 ### 2.3 注意
 
 - 看门狗用 `flock` 防重入,恢复动作未结束时会跳过本轮。
+- **锁 fd 必须在子进程里关掉(`9>&-`)** —— 2026-11-05 E-5 演练实测踩到的 P0:
+  `/etc/init.d/mysqld start` 拉起的 `mysqld_safe` / `mysqld` 会**继承看门狗持有的锁文件描述符**,
+  守护进程常驻 → flock 被永久持有 → 之后每分钟都 `skip: previous run still in progress`,
+  **看门狗在第一次成功恢复后就把自己关掉了**(当时 12:24、12:25 两条 skip 就是它)。
+  处置:`rm -f /run/lock/mysql-watchdog.lock` 换掉被继承的旧 inode,再装修复后的脚本
+  (所有子进程带 `9>&-`)。**改这个脚本时别把 `9>&-` 删掉**,`deploy/ops/mysql-drill-e5.sh` 也同理(`8>&-`)。
 - 拉起失败只告警一次(状态文件 `/var/lib/mysql-watchdog/down`),避免每分钟刷屏;
   恢复后自动清状态并补一条恢复通知。
 - 脚本默认读 `/root/.my.im.cnf`(现网已有),可用 `MYSQL_CNF` 覆盖。
+
+### 2.4 演练记录:MySQL 双杀(2026-11-05,E-5)
+
+低峰窗口 12:22–12:27 连跑两次(第一次是验收,第二次是**修完锁 bug 后的回归验证**),`kill -9` 同时带走
+`mysqld` 与 `mysqld_safe`,用 1 秒采样记录影响面。全部数字来自服务器上的
+`/root/e5-drill-20261105-122238/` 与 `/root/e5-drill-20261105-122634/`(summary/samples/drill.log 三件套)。
+
+| 轮次 | T0(杀) | 看门狗检测(T1) | 检测延迟 | 恢复(T2) | **MTTR(T2−T0)** | 拉起耗时(T2−T1) | 不可达样本 | 行数核对 |
+|---|---|---|---|---|---|---|---|---|
+| #1 验收 | 12:22:40 | 12:23:01 | **20s** | 12:23:05 | **24.2s** | 4.2s | 16/1s | 33 表一致 |
+| #2 回归 | 12:26:36 | 12:27:01 | **24s** | 12:27:04 | **27.2s** | 2.9s | 20/1s | 33 表一致 |
+
+- **影响面**:`Django /api/v1/readyz` 与 `imserver /internal/readyz` 在整个窗口内都是 `503`,恢复后同时回 `200`(+4s);
+  `https://chat.shiliu153.cn/` 首页 200;`accounts_user` 30 / `feed_post` 8 前后一致,无数据损失。
+- **告警到达**:看门狗邮件在 **T0+25.4s**(#1:12:23:06)与 **T0+28.4s**(#2:12:27:05)投递成功 —— 这是快通道。
+  Prometheus 侧**两次都没有 `MysqlDown`**:它要求 `mysql_up==0` 持续 1 分钟,而本次中断只有 24–27 秒,
+  **短于 `for` 的抖动本来就不该响**,不算漏报。真正响的是 `ApiHighErrorRate`(5 分钟速率窗口):
+  12:25:02 触发(3.488%)、12:25:13 邮件到达,**比故障晚 2 分 33 秒** —— 依赖 5 分钟窗口的规则对 30 秒级
+  故障天然迟钝,快通道仍然只有看门狗邮件那一条。
+- **顺带修掉的 P0(这次演练唯一的“额外收获”)**:第一次恢复成功后看门狗**把自己锁死了**
+  (fd 继承,见 §2.3),若不修,下次真宕机就没有任何东西能拉起 DB。修复:所有子进程 `9>&-`,
+  并 `rm -f /run/lock/mysql-watchdog.lock` 清掉被继承的旧 inode;#2 跑完 12:28、12:29 两轮 cron
+  均静默(无 skip、无锁残留),修复生效。
+- **验收结论**:看门狗自动拉起 ✅、告警到达 ≤60s ✅(25.4s / 28.4s)、MTTR 24.2s / 27.2s ✅(≤30s);
+  数字已按「检测延迟 + 拉起耗时」拆开记录,因为 cron 是整分钟对齐,检测延迟本身有 0–60s 的抖动。
 
 ## 3. 故障处置顺序
 
@@ -103,7 +139,7 @@ mysql -e 'SELECT 1' && tail -5 /www/wwwlogs/mysql_watchdog.log
 | `readyz` 连续失败 | `docker logs imserver` | MySQL 不可达 / 池连接全死 | 先修 DB;池有 idle ping,DB 恢复后自动重连 |
 | `ApiDown`(抓不到 Django) | `supervisorctl status 'chatapp-web:*'` | 进程被 OOM 杀 / 端口占用 / 启动异常 | supervisor 会拉起;连挂两次就 `supervisorctl tail chatapp-web` 看启动日志 |
 | `ImDown`(抓不到 imserver) | `curl 127.0.0.1:9101/internal/readyz` | 503=DB/Redis;000=进程没了 | 按 §3 的依赖顺序恢复 |
-| `MysqlDown` / `RedisDown` | `mysql -e 'SELECT 1'`、`docker ps \| grep redis` | 进程挂了 / 磁盘满 / OOM | 看门狗会拉起 MySQL;Redis 重启后限流计数与缓存为空,属正常 |
+| `MysqlDown` / `RedisDown` | `mysql -e 'SELECT 1'`、`docker ps \| grep redis` | 进程挂了 / 磁盘满 / OOM | 看门狗会拉起 MySQL;Redis 重启后限流计数与缓存为空,属正常。**注意这条规则有 `for: 1m`,30 秒级的抖动(比如演练双杀)它不会响,别把「没告警」读成「没宕机」** —— 短故障的告警快通道是看门狗邮件(§2.4) |
 | `ExporterDown` | `docker compose ps` + `systemctl status chatapp-celery-exporter` | 容器挂了 / 端口冲突 | 指标盲区优先修,不然下一次故障没人知道 |
 | API 5xx >1% | gunicorn 日志 + `request_id` | DB 宕机、代码异常 | 用 `request_id` 在日志里定位单条请求;未预期异常现在返回 JSON 500 并带堆栈 |
 | API p99 >500ms | MySQL 慢查询、连接数 | 慢 SQL、连接池打满 | `SHOW FULL PROCESSLIST`;必要时限流 |
