@@ -164,6 +164,39 @@ install -m 755 imserver/deploy/probe-readyz.sh /www/server/imserver/probe-readyz
    不是口令错,是权限(容器内 nobody 要能读,`chown root:65534` + `640`)。
 5. **celery 的队列长度标签是 `queue_name`**,不是 `queue`(我们自己在 Django 侧抓的
    `celery_queue_depth` 用的是 `queue`)。写告警/看板时别混。
+6. **探针请求必须带 `X-Forwarded-Proto: https`**:Django 配了 `SECURE_SSL_REDIRECT`,
+   直连 `127.0.0.1:8000` 的 http 请求会被 **301**,探针会把「301」当成不健康(踩过一次)。
+
+### 2.3 gunicorn 多 worker 的指标口径(2026-11-05 复查补的既有缺陷)
+
+现网 gunicorn 是 `-w 2 --threads 4`。`prometheus_client` 的计数器默认**进程内**,
+所以每个 worker 各记一份,而 Prometheus 每次抓取只落在其中一个 worker 上 ——
+实测打 20 次 `/api/v1/health` 后,两个 worker 分别记到 **10 / 12**,抓取结果在两者之间跳,
+`rate()` 还会把「另一个 worker 的数更小」当成计数器重置。业务指标更严重:一半事件根本抓不到。
+
+修法是官方方案(已随 E-4 落地):
+
+```bash
+# 1) .env 里开多进程目录(tmpfs,不占磁盘)
+echo 'PROMETHEUS_MULTIPROC_DIR=/dev/shm/chatapp-prometheus' >> /www/wwwroot/chatapp/chatapp/.env
+
+# 2) supervisor 的 gunicorn 命令加 -c gunicorn.conf.py(仓库内 chatapp/gunicorn.conf.py)
+#    宝塔:面板「进程守护」里改命令,或直接改两处配置文件后 reload:
+#    /www/server/panel/plugin/supervisor/profile/chatapp-web.ini
+#    /www/server/panel/plugin/supervisor/config.json   (面板 UI 读这份,两份要一起改)
+#    command=/www/wwwroot/chatapp-venv/bin/gunicorn config.wsgi:application \
+#            -c gunicorn.conf.py -b 127.0.0.1:8000 -w 2 --threads 4 --timeout 120
+
+# 3) 重启后验证:连续打 N 次接口,再连抓两次 /metrics,计数应该一次到位、不再跳
+```
+
+- `chatapp/gunicorn.conf.py` 干两件生命周期的事:master 启动前清空残留的 `*.db`
+  (被 `kill -9` 过的 worker 会留下文件,不清就一直参与合计),worker 退出时
+  `mark_process_dead` 删掉自己的文件。
+- 命令行里的 `-b / -w / --threads` 优先级高于配置文件,不会被覆盖。
+- 合并失败(目录被删/权限变化)时 `render()` 会**退回本进程视图**并记一次
+  `cache_errors_total{name="metrics_multiprocess"}` —— 抓取宁可少几个数,也不能返回 500。
+
 
 
 ## 3. 指标清单

@@ -854,17 +854,17 @@ class MetricsTests(APITestCase):
         self.assertEqual(self.client.get("/api/v1/health").status_code, 301)
 
 
-def metric_value(name: str, **labels) -> float:
+def metric_value(metric_name: str, **labels) -> float:
     """读一个指标的当前值(标签组合还没出现过时按 0 处理)。
 
     Args:
-        name: 指标名(如 ``logins_total``)。
+        metric_name: 指标名(如 ``logins_total``)。
         **labels: 标签组合。
 
     Returns:
         当前累计值;不存在时为 0.0(便于直接断言增量)。
     """
-    value = metrics.REGISTRY.get_sample_value(name, labels)
+    value = metrics.REGISTRY.get_sample_value(metric_name, labels)
     return 0.0 if value is None else value
 
 
@@ -961,6 +961,35 @@ class BusinessMetricTests(APITestCase):
                          - before_ok)
         self.assertEqual(1.0, metric_value("im_calls_total", endpoint=path, result="error")
                          - before_err)
+
+
+class MetricsRenderTests(SimpleTestCase):
+    """``/metrics`` 渲染:多进程合并开关与失败降级。
+
+    背景:现网 gunicorn 是 ``-w 2``,计数器默认进程内 —— 不合并时每次抓取只反映一个 worker
+    (实测 20 次请求后两个 worker 各记 10 / 12)。这里锁住「没有目录就走单进程」「合并出错要降级」。
+    """
+
+    def test_multiprocess_is_off_without_env(self):
+        """没配 ``PROMETHEUS_MULTIPROC_DIR`` 时保持单进程语义(本地/测试/单 worker)。"""
+        self.assertFalse(metrics.multiprocess_enabled())
+
+    def test_render_falls_back_when_merge_fails(self):
+        """多进程合并抛异常时必须降级成本进程视图,不能让抓取变 500。"""
+        before = metric_value("cache_errors_total", name="metrics_multiprocess")
+        with patch.object(metrics, "multiprocess_enabled", return_value=True), \
+                patch.object(metrics.multiprocess, "MultiProcessCollector",
+                             side_effect=OSError("mmap gone")):
+            payload = metrics.render()
+        self.assertIn(b"http_requests_total", payload)
+        self.assertEqual(1.0, metric_value("cache_errors_total",
+                                           name="metrics_multiprocess") - before)
+
+    def test_render_exposes_business_counters(self):
+        """业务指标必须出现在同一份 exposition 里(否则看板上永远是空的)。"""
+        payload = metrics.render()
+        for name in (b"logins_total", b"swipes_total", b"matches_total", b"im_calls_total"):
+            self.assertIn(name, payload)
 
 
 class _BoomView(APIView):

@@ -1,7 +1,7 @@
 services:
   # 2C2G 上的最小观测栈:Prometheus + Alertmanager + Grafana + node_exporter
-  # + 三个 exporter(celery / mysqld / redis,2026-11-05 E-4 ④)。
-  # 除 celery-exporter 外全部 host 网络,直接抓 127.0.0.1 上的 gunicorn:8000 与 imserver:9101,
+  # + 两个容器 exporter(mysqld / redis;celery-exporter 走 systemd,理由见下)。
+  # 全部 host 网络,直接抓 127.0.0.1 上的 gunicorn:8000 与 imserver:9101,
   # 不经过 nginx(所以 /metrics 在 nginx 上被 404 掉也不影响抓取)。
   prometheus:
     image: prom/prometheus:v2.55.1

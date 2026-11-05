@@ -47,9 +47,12 @@ if [ -r "$ENV_FILE" ]; then
 fi
 
 # 取 HTTP 状态码;连不上时统一成 000。
+# 带 ``X-Forwarded-Proto: https``:Django 配了 SECURE_SSL_REDIRECT,直连 8000 的 http 请求
+# 会被 301 到 https(探针会误判成「不健康」);该头命中 SECURE_PROXY_SSL_HEADER 后正常 200。
+# 对 imserver 无害(它不看这个头)。
 code() {
   local c
-  c="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$1" 2>/dev/null)" || true
+  c="$(curl -s -o /dev/null -m 5 -w '%{http_code}' -H 'X-Forwarded-Proto: https' "$1" 2>/dev/null)" || true
   [ -n "$c" ] || c=000
   printf '%s' "$c"
 }
