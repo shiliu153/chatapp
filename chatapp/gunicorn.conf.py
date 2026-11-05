@@ -13,14 +13,20 @@
     * 本文件负责两件生命周期的事:master 启动前清空残留文件、worker 退出时删掉自己的文件
       (否则死进程的数值会一直参与合计,计数器只增不减)。
 
+**本文件绝对不能在模块顶层 import prometheus_client**(2026-11-05 上线时踩过):
+    ``prometheus_client`` 在 import 时按环境变量决定用 mmap 还是进程内字典
+    (``values.ValueClass``),这个判断**只做一次**。master 一旦先 import 了它再 fork,
+    worker 继承的就是「进程内」那个实现 —— .env 里的 ``PROMETHEUS_MULTIPROC_DIR`` 形同虚设,
+    /metrics 只剩旧文件里的残值。实测现象:配置全对、抓取 200,但输出只有两行
+    (没有 http_requests_total)。所以只在真正要用的函数里**延迟导入**,让每个 worker
+    自己(在 Django 读完 .env 之后)首次导入 prometheus_client。
+
 部署:supervisor 的 gunicorn 命令加 ``-c gunicorn.conf.py``(见 docs/ops/observability.md §2.3)。
 命令行里的 ``-b / -w / --threads`` 优先级高于本文件,不会被覆盖。
 """
 
 import glob
 import os
-
-from prometheus_client import multiprocess
 
 
 def _multiproc_dir() -> str:
@@ -60,4 +66,6 @@ def child_exit(server, worker):
     """
     if not _multiproc_dir():
         return
+    from prometheus_client import multiprocess  # 延迟导入,理由见模块头
+
     multiprocess.mark_process_dead(worker.pid)
