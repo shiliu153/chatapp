@@ -448,7 +448,9 @@ METRICS_TOKEN = os.getenv("METRICS_TOKEN", "")
 # /metrics 豁免 HTTPS 强制跳转:Prometheus 在回环上直接抓 http://127.0.0.1:8000,
 # 不豁免会被 301 到 https,跟随重定向后对 8000 做 TLS 握手而失败
 # (2026-11-03 上线时实际踩到)。
-SECURE_REDIRECT_EXEMPT = [r"^metrics$"]
+# /internal 同理:imserver 也是回环直连 http 发内部事件(C-1 离线推送),
+# 被 301 的话事件会静默丢掉(客户端不跟随重定向,只看到 301)。
+SECURE_REDIRECT_EXEMPT = [r"^metrics$", r"^internal/"]
 
 LOGGING = {
     "version": 1,
@@ -510,6 +512,21 @@ if not (TESTING or DEBUG) and not (IM_SELF_SECRET and IM_SELF_INTERNAL_SECRET
                                    and IM_SELF_WS_URL and IM_SELF_HTTP_URL):
     raise ImproperlyConfigured("自建 IM 需要完整的 IM_SELF_* 配置"
                               "(SECRET / INTERNAL_SECRET / WS_URL / HTTP_URL)")
+
+# --- 推送(C-1)---
+# 三态:off / log / jpush。默认 off —— 「看着像推开着、其实只落日志」这种状态不允许
+# 出现,所以 off 就是彻底不发;要发就得把 key 配齐(见 notifications/push.py)。
+PUSH_PROVIDER = os.getenv("PUSH_PROVIDER", "off")
+JPUSH_APP_KEY = os.getenv("JPUSH_APP_KEY", "")
+JPUSH_MASTER_SECRET = os.getenv("JPUSH_MASTER_SECRET", "")
+# iOS 走 APNs 生产环境;用开发证书联调时置 0
+JPUSH_APNS_PRODUCTION = os.getenv("JPUSH_APNS_PRODUCTION", "1") not in ("0", "false", "False")
+# 「新的喜欢」推送冷却(秒):同一个人短时间内被连赞只该响一次
+PUSH_LIKE_COOLDOWN_SECONDS = int(os.getenv("PUSH_LIKE_COOLDOWN_SECONDS", "600"))
+# 同一条消息的推送幂等窗口(秒):imserver 重试/重投都靠它去重
+PUSH_DEDUP_TTL = int(os.getenv("PUSH_DEDUP_TTL", "3600"))
+# imserver → Django 内部事件允许的时间戳偏移(秒),超了按重放拒绝
+PUSH_INTERNAL_MAX_SKEW = int(os.getenv("PUSH_INTERNAL_MAX_SKEW", "300"))
 
 # --- 客户端最小版本(全量切换前必须能挡住旧版本)---
 MIN_APP_VERSION = os.getenv("MIN_APP_VERSION", "1.0.0")

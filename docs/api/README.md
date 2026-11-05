@@ -19,12 +19,13 @@
 | [im.md](im.md) | IM 会话凭证与聊天媒体上传 |
 | [app.md](app.md) | 应用版本配置(启动时最小版本拦截) |
 | [telemetry.md](telemetry.md) | 客户端错误上报(前端未捕获异常 → 日志/指标) |
+| [push.md](push.md) | 推送设备与通知偏好(极光 registration_id 上报、四类通知开关) |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
 | [openapi.yml](openapi.yml) | **机器可读契约**(OpenAPI 3.0,由代码生成,请勿手改;规则见下「机器可读契约」) |
 
 ## 接口一览
 
-共 **47** 个接口(按「方法 + 路径」计)。
+共 **51** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -58,6 +59,10 @@
 | POST | `/api/v1/reports` | 举报用户 | [moderation](moderation.md) |
 | POST | `/api/v1/feedback` | 提交意见反馈 | [feedback](feedback.md) |
 | POST | `/api/v1/client-errors` | 上报客户端未捕获异常 | [telemetry](telemetry.md) |
+| POST | `/api/v1/push/devices` | 上报推送设备(幂等,单设备) | [push](push.md) |
+| DELETE | `/api/v1/push/devices/{registration_id}` | 解绑推送设备(幂等 204) | [push](push.md) |
+| GET | `/api/v1/push/preferences` | 读取通知偏好(四类开关) | [push](push.md) |
+| PATCH | `/api/v1/push/preferences` | 修改通知偏好 | [push](push.md) |
 | GET | `/api/v1/blocks` | 拉黑列表(分页) | [moderation](moderation.md) |
 | POST | `/api/v1/blocks` | 拉黑用户 | [moderation](moderation.md) |
 | DELETE | `/api/v1/blocks/{user_id}` | 解除拉黑 | [moderation](moderation.md) |

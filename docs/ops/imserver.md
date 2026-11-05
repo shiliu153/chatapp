@@ -81,6 +81,10 @@ IM_MAX_FRAME=8192
 IM_TEXT_MAX=2000
 # 聊天图片 URL 前缀:必须与 Django 的 MEDIA_BASE_URL + /media/chat/ 一致;必填,缺失启动失败
 IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
+# 离线新消息推送事件(C-1):空 = 关闭;配了才会在「目标不在线」时回调 Django
+# IM_PUSH_URL=http://127.0.0.1:8000/internal/push/new-message
+# IM_PUSH_TIMEOUT_MS=2000
+# IM_PUSH_QUEUE=256
 ```
 
 - `IM_JWT_SECRET` 必须与 Django 的 `IM_SELF_SECRET` **完全一致**;
@@ -92,6 +96,10 @@ IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
   `REDIS_URL` 也要同样带口令(两侧都改,只改一边会一半接口 500);
 - `IM_MEDIA_PREFIX` 必须与 Django 的 `MEDIA_BASE_URL` 拼上 `/media/chat/` **完全一致** ——
   服务端按这个前缀校验图片 URL,不一致时客户端发图会被 `42201` 拒掉;
+- **`IM_PUSH_URL`(C-1 推送)**:配了才会在「消息落库 + 目标不在线」时回调 Django 的
+  `/internal/push/new-message`(HMAC 用同一个 `IM_INTERNAL_SECRET`);**空 = 关闭**。
+  推送在独立线程入队发送,**不阻塞发送路径**,队列满丢事件并记 `im_push_total{result="dropped"}`;
+  口径与排障见 [push.md](push.md)。
 - `IM_ALLOWED_ORIGINS` 只影响带 `Origin` 头的浏览器 WS;原生 App 不带 Origin。
   站点换域名/HTTPS 后要同步改。**不配也不是「全放行」**:没有白名单时按同源校验
   (`Origin` 的 host 必须等于 `Host` 头),跨站页面会被 403 拒掉。

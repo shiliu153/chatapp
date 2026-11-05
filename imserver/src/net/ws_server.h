@@ -24,6 +24,7 @@
 #include "config.h"
 #include "net/guard.h"
 #include "service/message_service.h"
+#include "service/push_notifier.h"
 #include "service/session_registry.h"
 #include "store/redis_client.h"
 #include "util/ratelimit.h"
@@ -65,7 +66,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
 
   WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
             RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
-            boost::asio::thread_pool& db_pool, const net_guard::ProxyTrust& trust);
+            PushNotifier& push, boost::asio::thread_pool& db_pool,
+            const net_guard::ProxyTrust& trust);
 
   void run();
   void kick(const std::string& reason);
@@ -118,6 +120,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   RedisClient& redis_;
   IpCounter& ip_counter_;
   MessageService& messages_;
+  /// 离线新消息推送(C-1);`IM_PUSH_URL` 没配时是空壳,调用无副作用。
+  PushNotifier& push_;
   boost::asio::thread_pool& db_pool_;
   /// 只有直连对端命中这份表,才采信它带来的 X-Real-IP(L9)。
   const net_guard::ProxyTrust& trust_;
@@ -133,7 +137,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
 class WsServer {
  public:
   WsServer(boost::asio::io_context& io, const Config& cfg, SessionRegistry& registry,
-           RedisClient& redis, MessageService& messages, boost::asio::thread_pool& db_pool);
+           RedisClient& redis, MessageService& messages, PushNotifier& push,
+           boost::asio::thread_pool& db_pool);
   void start();
   void stop();
 
@@ -146,6 +151,7 @@ class WsServer {
   SessionRegistry& registry_;
   RedisClient& redis_;
   MessageService& messages_;
+  PushNotifier& push_;
   boost::asio::thread_pool& db_pool_;
   IpCounter ip_counter_;
   /// 进程级可信代理表,所有会话共享(只读)。

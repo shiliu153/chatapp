@@ -23,6 +23,13 @@ extern std::atomic<uint64_t> deadlock_retries;
 extern std::atomic<uint64_t> db_wait_count;
 extern std::atomic<uint64_t> db_wait_us;
 
+/// 离线新消息推送事件(C-1):已入队 / 投递成功 / 投递失败 / 队列满被丢弃。
+/// 「没推送」和「推送失败」必须能分开看,否则排查时只能猜。
+extern std::atomic<uint64_t> push_queued;
+extern std::atomic<uint64_t> push_sent;
+extern std::atomic<uint64_t> push_failed;
+extern std::atomic<uint64_t> push_dropped;
+
 /// 渲染 Prometheus 文本格式快照。
 ///
 /// Args:

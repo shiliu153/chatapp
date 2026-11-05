@@ -9,6 +9,10 @@ std::atomic<uint64_t> sends_failed{0};
 std::atomic<uint64_t> deadlock_retries{0};
 std::atomic<uint64_t> db_wait_count{0};
 std::atomic<uint64_t> db_wait_us{0};
+std::atomic<uint64_t> push_queued{0};
+std::atomic<uint64_t> push_sent{0};
+std::atomic<uint64_t> push_failed{0};
+std::atomic<uint64_t> push_dropped{0};
 
 std::string render(std::size_t online_connections) {
   std::ostringstream out;
@@ -35,7 +39,16 @@ std::string render(std::size_t online_connections) {
   out << "im_db_pool_wait_seconds " << average << "\n"
       << "# HELP im_db_pool_waits_total 从连接池取连接的次数\n"
       << "# TYPE im_db_pool_waits_total counter\n"
-      << "im_db_pool_waits_total " << waits << "\n";
+      << "im_db_pool_waits_total " << waits << "\n"
+      << "# HELP im_push_total 离线新消息推送事件(按结果)\n"
+      << "# TYPE im_push_total counter\n"
+      << "im_push_total{result=\"queued\"} " << push_queued.load(std::memory_order_relaxed)
+      << "\n"
+      << "im_push_total{result=\"sent\"} " << push_sent.load(std::memory_order_relaxed) << "\n"
+      << "im_push_total{result=\"failed\"} " << push_failed.load(std::memory_order_relaxed)
+      << "\n"
+      << "im_push_total{result=\"dropped\"} " << push_dropped.load(std::memory_order_relaxed)
+      << "\n";
   return out.str();
 }
 

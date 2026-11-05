@@ -124,6 +124,42 @@ IM_CALLS = Counter(
     registry=REGISTRY,
 )
 
+# --- 推送指标(2026-11-05,C-1)---
+# 「推了没有」不能只看 Celery 任务数:偏好关掉、被封禁、没设备都会静默返回,
+# 必须分成 sent / skipped{reason} 两个读数,否则「没推送」和「推送失败」分不清。
+PUSH_SENT = Counter(
+    "push_sent_total",
+    "推送投递结果(按通道与结果)",
+    ["provider", "result"],
+    registry=REGISTRY,
+)
+
+PUSH_SKIPPED = Counter(
+    "push_skipped_total",
+    "推送被短路的原因(无设备 / 偏好关闭 / 封禁 / 重复事件)",
+    ["reason"],
+    registry=REGISTRY,
+)
+
+
+def push_sent(provider: str, ok: bool) -> None:
+    """记录一次推送投递。
+
+    Args:
+        provider: 通道名(``off`` / ``log`` / ``jpush``);基数固定,可安全当标签。
+        ok: 通道是否接受(``off`` 通道也算 ok,它只是不发)。
+    """
+    PUSH_SENT.labels(provider=provider, result="ok" if ok else "error").inc()
+
+
+def push_skipped(reason: str) -> None:
+    """记录一次「没有推送」及其原因。
+
+    Args:
+        reason: 短路原因,取值见 ``notifications.tasks.PUSH_SKIP_*`` 常量。
+    """
+    PUSH_SKIPPED.labels(reason=reason).inc()
+
 # --- 队列指标:积压是「削峰是否生效」的直接读数 ---
 CELERY_QUEUE_DEPTH = Gauge(
     "celery_queue_depth",

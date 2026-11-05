@@ -21,6 +21,7 @@ add_library(imcore STATIC
   src/net/http_api.cpp
   src/net/ws_server.cpp
   src/service/message_service.cpp
+  src/service/push_notifier.cpp
   src/service/session_registry.cpp
   src/store/blacklist_repo.cpp
   src/store/conversation_repo.cpp

@@ -158,6 +158,9 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   cfg.media_prefix = get_or(env, "IM_MEDIA_PREFIX");
   cfg.media_sign_secret = get_or(env, "IM_MEDIA_SIGN_SECRET");
   cfg.media_sign_ttl = get_int(env, "IM_MEDIA_SIGN_TTL", cfg.media_sign_ttl);
+  cfg.push_url = get_or(env, "IM_PUSH_URL");
+  cfg.push_timeout_ms = get_int(env, "IM_PUSH_TIMEOUT_MS", cfg.push_timeout_ms);
+  cfg.push_queue = get_size(env, "IM_PUSH_QUEUE", cfg.push_queue);
 
   if (cfg.mysql_dsn.empty()) {
     throw std::runtime_error("missing IM_MYSQL_DSN");
@@ -193,7 +196,8 @@ Config Config::from_env() {
                           "IM_AUTH_RATE", "IM_AUTH_BURST", "IM_MAX_FRAME",
                           "IM_SEND_PER_MINUTE",
                           "IM_TEXT_MAX", "IM_MEDIA_PREFIX", "IM_MEDIA_SIGN_SECRET",
-                          "IM_MEDIA_SIGN_TTL"}) {
+                          "IM_MEDIA_SIGN_TTL", "IM_PUSH_URL", "IM_PUSH_TIMEOUT_MS",
+                          "IM_PUSH_QUEUE"}) {
     if (const char* value = std::getenv(key)) {
       env.emplace(key, value);
     }
