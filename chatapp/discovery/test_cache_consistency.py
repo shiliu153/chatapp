@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -137,6 +137,50 @@ class CandidateCacheTests(_Base):
         key = "test:null"
         cache.set(key, cache_utils.NULL, 30)
         self.assertIsNone(cache_utils.get_or_load(key, 30, lambda: ["不该被调用"]))
+
+
+class CandidateCacheDisabledTests(_Base):
+    """``CANDIDATE_CACHE_TTL <= 0`` = 显式关闭缓存(E-7 的对比实验与线上熔断都用它)。
+
+    注意别把它当成「TTL 设成 0 秒」:``ttl_with_jitter(0)`` 会被兜成 1 秒,
+    只设 0 不实现关闭的话,同一个用户 1 秒内的重复读仍会命中。
+    """
+
+    def _count_pool_queries(self, requests: int) -> int:
+        """跑 ``requests`` 次候选接口,统计真正查库的次数。
+
+        Args:
+            requests: 请求次数。
+
+        Returns:
+            ``_query_pool_ids`` 被调用的次数。
+        """
+        calls = []
+        original = services._query_pool_ids
+
+        def counting(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        with patch.object(services, "_query_pool_ids", side_effect=counting):
+            for _ in range(requests):
+                self.assertEqual(self.client.get(self.URL).status_code, 200)
+        return len(calls)
+
+    @override_settings(CANDIDATE_CACHE_TTL=0)
+    def test_zero_ttl_bypasses_cache_entirely(self):
+        """TTL=0:每次都查库,不命中缓存。"""
+        self._make_user("13900139000")
+        self.assertEqual(self._count_pool_queries(3), 3)
+
+    @override_settings(CANDIDATE_CACHE_TTL=0)
+    def test_zero_ttl_does_not_populate_cache(self):
+        """TTL=0:关闭期间不往缓存里回填 —— 重新打开后第一次请求仍要查库。"""
+        self._make_user("13900139000")
+        self.client.get(self.URL)
+        with override_settings(CANDIDATE_CACHE_TTL=300):
+            self.assertEqual(self._count_pool_queries(1), 1)
+            self.assertEqual(self._count_pool_queries(1), 0)   # 这一次才是命中
 
 
 class CacheVersionTests(TestCase):

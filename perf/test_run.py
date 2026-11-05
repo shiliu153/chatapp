@@ -50,6 +50,7 @@ def make_args(**overrides) -> Namespace:
         write_body="",
         write_ratio=0.3,
         write_interval=0,
+        read_interval=0,
         ramp=0,
         sample_interval=15,
         uri="",
@@ -247,6 +248,37 @@ class BodyAndNormalizeTests(unittest.TestCase):
     def test_unknown_method_rejected(self):
         args = make_args(method="FETCH")
         self.assertIn("--method", perf_run.normalize_args(args))
+
+
+class ReadIntervalTests(unittest.TestCase):
+    """读连接限速:`--read-interval` 要真的进到读 spec;负数要报参数错。"""
+
+    def test_read_interval_reaches_read_spec(self):
+        args = make_args(scenario="api_read", path="/api/v1/discovery/candidates",
+                         method="", read_interval=0.6)
+        self.assertEqual(perf_run.normalize_args(args), "")
+        read_specs, _write_specs = perf_run.request_specs(args)
+        self.assertEqual(read_specs[0]["interval"], 0.6)
+
+    def test_default_read_interval_is_closed_loop(self):
+        args = make_args(scenario="api_read", path="/api/v1/app/config", method="")
+        self.assertEqual(perf_run.normalize_args(args), "")
+        read_specs, _write_specs = perf_run.request_specs(args)
+        self.assertEqual(read_specs[0]["interval"], 0)
+
+    def test_negative_read_interval_rejected(self):
+        args = make_args(scenario="api_read", path="/api/v1/app/config",
+                         method="", read_interval=-1)
+        self.assertIn("--read-interval", perf_run.normalize_args(args))
+
+    def test_read_interval_recorded_in_payload(self):
+        args = make_args(scenario="api_read", path="/api/v1/app/config",
+                         method="", read_interval=0.6)
+        self.assertEqual(perf_run.normalize_args(args), "")
+        payload = perf_run.build_payload(args, [], {"rps": 1.0, "load_peak": None,
+                                                    "mem_peak": None},
+                                         "2026-11-05T13:00:00+08:00")
+        self.assertEqual(payload["params"]["read_interval_s"], 0.6)
 
 
 class PayloadRedactionTests(unittest.TestCase):
