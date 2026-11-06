@@ -637,10 +637,13 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 
 #### 发版(G-4)
 
-- PR #83 squash 合并 → `ba24f93`;`v1.0.6` 附注 tag 指向它;Release
+- PR #83 squash 合并 → `ba24f93`;docs 记录 PR #84 → `605ad81`(**上线 SHA**)。
+- `v1.0.6` 附注 tag 指向 `ba24f93`;Release
   [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6) 已建,
   附件 `chatapp-1.0.6.apk`(57.4 MB,SHA-1 `8d6353147abb6088c245d40df64a7a7825774cf9`,
   从 `ba24f93` 构建)。
-- **未做**:后端 / `dist` / APK 上服务器,`.env` 的 `LATEST_APP_VERSION` 未改。
-  后端接口是纯增量(只加字段),旧后端 + 新客户端可正常工作,可以延后部署;细节见
-  `docs/ops/release.md` §6.2。
+- **2026-11-06 12:05–12:13 已上线**:后端 `605ad81`(无迁移、无新依赖)→ 重启 web + celery;
+  Web `dist` 覆盖部署;APK 上传服务器;`.env` 只改 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`
+  (`MIN_APP_VERSION` 保持 1.0.1)。冒烟:`/app/config` 返回 1.0.6、`/health` `/readyz` 200、
+  APK Range 206、线上 `GET /matches` 与 `GET /users/{id}` 均返回 `shared_tags`。
+  实况与回滚点见 `docs/ops/release.md` §6.2。

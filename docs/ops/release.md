@@ -84,7 +84,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.3 | 2026-11-04 | — | 无(规则生效前发版) | `56f3f5b` | `chatapp-1.0.3.apk` |
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
 | 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
-| 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | 待部署:合并 SHA `ba24f93`(后端与前端产物尚未上服务器,见 §6.2) | `chatapp-1.0.6.apk` |
+| 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | `605ad81` | `chatapp-1.0.6.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -238,17 +238,29 @@ gh release create v1.0.5 \
 
 ## 6.2 v1.0.6 的发版材料(批次 G · 共同点破冰)
 
-**状态:tag 与 Release 已建;服务器尚未部署。**
+**状态:已发布(2026-11-06 12:05–12:13 上线)。**
 
-- 合并:PR #83 squash 合并 → `ba24f93`(squash 提交);
+- 合并:PR #83 squash 合并 → `ba24f93`(功能提交);随后 docs PR #84 → `605ad81`;
+  **上线用的就是 `605ad81`**(`origin/master` HEAD,后端代码与 `ba24f93` 相同);
 - tag:`v1.0.6` → `ba24f93c4bd6ce905d39f043a52e1e7134533eb2`(附注 tag,指向合并 SHA);
 - Release:2026-11-06 通过 GitHub REST(`POST /repos/shiliu153/chatapp/releases`
   + `uploads.github.com/.../assets`)创建,附件 `chatapp-1.0.6.apk`;
 - APK:57.4 MB,SHA-1 `8d6353147abb6088c245d40df64a7a7825774cf9`(本机 `flutter build apk --release`
-  从 `ba24f93` 构建,带 `ERROR_REPORTING=true`);
-- **未做**:后端部署、`dist` 部署、APK 上传服务器、`.env` 改 `LATEST_APP_VERSION`。
-  后端接口是**纯增量**(只加字段),旧后端 + 新客户端/新网页端可正常工作,因此可以延后部署;
-  但要让「检查更新」推到 1.0.6,必须完成 §3 的三件套。
+  从 `ba24f93` 构建,带 `ERROR_REPORTING=true`)。
+
+### 1.0.6 上线实况(2026-11-06 12:05–12:13)
+
+| 项 | 结果 |
+|---|---|
+| 代码 SHA | `605ad81`(`origin/master` HEAD;服务器 `git rev-parse HEAD` 一致) |
+| 后端 | `git reset --hard 605ad81` → `pip install -r requirements.txt`(无新依赖)→ `migrate`(**无迁移**)→ `collectstatic`(156 未变)→ 重启 `chatapp-web:*` 与 `chatapp-celery:*` |
+| Web `dist` | 本地 `npm run build` 打包上传覆盖 `/www/wwwroot/chatapp-web`(index.html 646 B,新 `index-D31iNva9.js` / `index-DMJDpefF.css`,新增 chunk `MatchMoment-DMMF1Gp8.js` 内含两套破冰文案) |
+| APK | `chatapp-1.0.6.apk` 60,196,766 B,SHA-1 `8d6353147abb6088c245d40df64a7a7825774cf9`(与 Release 附件同源,服务器 `sha1sum` 一致) |
+| `.env` | `LATEST_APP_VERSION=1.0.6`、`APP_DOWNLOAD_URL=…/chatapp-1.0.6.apk`;**`MIN_APP_VERSION` 保持 1.0.1** |
+| 重启 | 面板 supervisor 程序名是 `组:实例` 形式:`/www/server/panel/pyenv/bin/supervisorctl restart "chatapp-web:*" "chatapp-celery:*"`(直接写 `chatapp-web` 会报 no such process);`supervisorctl` 不在 PATH 里 |
+| imserver | **未动**(本批零 IM 改动);`/internal/healthz` 与 `/internal/readyz` 均 200 |
+| 验证 | `/api/v1/app/config` → `latest_version=1.0.6`、`download_url` 指向新包、`min_app_version=1.0.1`;`/health` `/readyz` `/api/v1/health` 200;`/` 200(新构建);`/assets/index-D31iNva9.js` 200;APK Range 请求 206;线上代码实测 `GET /matches` 与 `GET /users/{id}` 均返回 `shared_tags`(样例:`[{"id":1,"name":"运动"},{"id":3,"name":"电影"}]`) |
+| 回滚点 | 后端 `3f2d73d0`;`.env` `/www/backup/chatapp-env-20261106-1205.bak`(改动前另存 `…-1208-pre106env.bak`);旧 dist `/www/backup/chatapp-web-dist-20261106-1205-pre106.tar.gz`;汇总见 `/www/backup/chatapp-rollback-1.0.6.txt` |
 
 以下为创建 Release 时使用的标题与 notes,留档便于以后核对。
 
