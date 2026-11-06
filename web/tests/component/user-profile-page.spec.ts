@@ -14,6 +14,10 @@ const profile = {
   bio: '喜欢爬山',
   tags: [{ id: 1, name: '旅行', icon: 'plane' }],
   photos: [{ id: 1, url: 'https://cdn/a.jpg', status: 'approved', order: 0 }],
+  shared_tags: [],
+  is_followed: false,
+  follower_count: 3,
+  following_count: 5,
 }
 
 function mountPage(id = '8') {
@@ -89,5 +93,73 @@ describe('UserProfilePage', () => {
     expect(confirmSpy).toHaveBeenCalled()
     expect(called).toBe(true)
     expect(w.text()).toContain('已拉黑')
+  })
+
+  it('关注:点按钮 → POST,按钮变「已关注」且粉丝数 +1', async () => {
+    let called = false
+    server.use(
+      mswHttp.get('/api/v1/users/8', () => HttpResponse.json(profile)),
+      mswHttp.post('/api/v1/users/8/follow', () => {
+        called = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    expect(w.find('.user-profile__follow-button').text()).toBe('关注')
+    expect(w.find('.user-profile__follow').text()).toContain('3 粉丝')
+
+    await w.find('.user-profile__follow-button').trigger('click')
+    await flushPromises()
+
+    expect(called).toBe(true)
+    expect(w.find('.user-profile__follow-button').text()).toBe('已关注')
+    expect(w.find('.user-profile__follow').text()).toContain('4 粉丝')
+  })
+
+  it('已关注:再点走 DELETE,回到「关注」', async () => {
+    let called = false
+    server.use(
+      mswHttp.get('/api/v1/users/8', () =>
+        HttpResponse.json({ ...profile, is_followed: true, follower_count: 4 }),
+      ),
+      mswHttp.delete('/api/v1/users/8/follow', () => {
+        called = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    expect(w.find('.user-profile__follow-button').text()).toBe('已关注')
+
+    await w.find('.user-profile__follow-button').trigger('click')
+    await flushPromises()
+
+    expect(called).toBe(true)
+    expect(w.find('.user-profile__follow-button').text()).toBe('关注')
+    expect(w.find('.user-profile__follow').text()).toContain('3 粉丝')
+  })
+
+  it('关注失败:乐观态回滚并提示', async () => {
+    server.use(
+      mswHttp.get('/api/v1/users/8', () => HttpResponse.json(profile)),
+      mswHttp.post('/api/v1/users/8/follow', () =>
+        HttpResponse.json(
+          { code: 50002, message: '服务器开小差了', request_id: 'r' },
+          { status: 500 },
+        ),
+      ),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    await w.find('.user-profile__follow-button').trigger('click')
+    await flushPromises()
+
+    expect(w.find('.user-profile__follow-button').text()).toBe('关注')
+    expect(w.find('.user-profile__follow').text()).toContain('3 粉丝')
+    expect(w.text()).toContain('服务器开小差了')
   })
 })

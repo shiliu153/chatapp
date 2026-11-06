@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { HttpResponse, http as mswHttp } from 'msw'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useFeedStore } from '@/stores/feed'
+import { useFeedStore, useFollowingFeedStore } from '@/stores/feed'
 import { server } from '../support/server'
 
 export const post = (id: number, liked = false) => ({
@@ -106,5 +106,20 @@ describe('feed store', () => {
 
     expect(store.posts[0].id).toBe(99)
     expect(store.count).toBe(2)
+  })
+
+  it('关注流是独立列表:走 /feed/following,不与推荐列表串数据', async () => {
+    server.use(
+      mswHttp.get('/api/v1/posts', () => HttpResponse.json(paged([post(1)]))),
+      mswHttp.get('/api/v1/feed/following', () => HttpResponse.json(paged([post(9)]))),
+    )
+    const feed = useFeedStore()
+    const following = useFollowingFeedStore()
+
+    await feed.load()
+    await following.load()
+
+    expect(feed.posts.map((p) => p.id)).toEqual([1])
+    expect(following.posts.map((p) => p.id)).toEqual([9])
   })
 })

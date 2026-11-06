@@ -66,6 +66,12 @@ export interface PublicProfile {
   /** 与当前用户的标签交集(users.md §2.8);无交集为空数组 */
   shared_tags: Tag[]
   photos: Photo[]
+  /** 当前用户是否已关注对方(批次 I;关注接口见 feed.md §5.13/§5.14) */
+  is_followed: boolean
+  /** 对方的粉丝数(多少人关注了对方) */
+  follower_count: number
+  /** 对方的关注数(对方关注了多少人) */
+  following_count: number
 }
 
 /** offset 分页信封(评论、回复、拉黑名单等旧接口,conventions.md) */
