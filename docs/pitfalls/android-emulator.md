@@ -31,4 +31,8 @@ Google 源在国内不可直连,以下已就位(2026-09-10 `flutter build apk --
 - ⚠️ **`adb shell input tap` 用「设备像素」,但截图预览可能被缩放/加边**:2026-11-07 实测,目测截图把底部 tab 点在 y=1745,而 `uiautomator dump` 里真实 bounds 是 y=2143–2311 —— 点了 5 次都没切换,误判成「tab 点不动」。**正确姿势:先 `adb shell uiautomator dump /sdcard/ui.xml && adb shell cat /sdcard/ui.xml`,按 `content-desc` 找到节点再取 bounds 中点去点**;登录页的 `获取验证码`/`登录` 同理(踩过的假象:以为按钮坏了,实际是点偏)。
 - ⚠️ **输入框聚焦时软键盘会让布局整体上移**:同一坐标「点前有效、点后无效」十有八九是键盘动画期间点的。先 `input keyevent 4` 收键盘、等 1 秒,再按 dump 的 bounds 点。
 - ⚠️ **release 包偶发「网络不给力」而 debug 包同一操作成功**(2026-11-07 实测):先用 `flutter build apk --debug` 复测同一路径,别急着改代码 —— 本次根因是模拟器长跑劣化(见上一条),`adb reboot` 后恢复正常;release 包默认开证书绑定(`CERT_PINNING`),排查时可临时 `--dart-define=CERT_PINNING=off` 对照(该产物**不要**发版)。
+  **2026-11-07 批次 I 复现**:`-no-snapshot-load` 冷启动 + 全新安装的 release 包,登录页点「获取验证码」仍报「网络不给力」,
+  服务端 `/auth/sms/send` **0 条**(同机 `GET /app/config` 正常、每 0.6s 一次在刷);换成 `flutter build apk --debug`
+  同一路径立刻成功(服务端有记录、倒计时 59 秒)。结论:**该模拟器上 UI 验收一律用 debug 包**(与批次 F 一致),
+  release 包只用来验「装得上、能启动」;要复现 release 网络问题先试 `CERT_PINNING=off` 与 `adb reboot`。
 - ⚠️ **release 与 debug 包签名不同**:直接 `install -r` 会 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`,先 `adb uninstall com.chatapp.chatapp_app`。

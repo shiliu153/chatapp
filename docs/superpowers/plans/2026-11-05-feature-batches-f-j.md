@@ -798,7 +798,26 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 
 #### 发版(I-6)
 
-- PR #90(合并 SHA 与上线实况见 `docs/ops/release.md` §5 / §6.4)。
-- 迁移:`feed.0006_follow`(新表 + 唯一约束 + 索引),部署时先 `migrate --noinput`。
-- `.env` 只改 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`(`MIN_APP_VERSION` 保持 1.0.1)。
-- Web 需重新构建 `dist`;APK 上传为 `chatapp-1.0.9.apk`。
+- PR #90 squash 合并 → **`2d32d80`(上线 SHA)**;CI 五轨全绿(contract / test / analyze-and-test / check / smoke)。
+  过程中 `check`(web)红过一次:版本升到 1.0.9 后 `about-page.spec.ts` 仍断言 1.0.8(App 侧同处已改、Web 侧漏了),
+  修完重跑全绿。
+- 版本 **1.0.9**:`pubspec.yaml`(1.0.9+10)/ `app_info.dart` / `web/package.json` 三处一致,
+  关于页测试(App + Web)同步;`openapi.yml` 的 `info.version` 由代码版本生成,已重新生成。
+- 迁移:`feed.0006_follow`(新表 + 唯一约束 + 索引);部署时先 `migrate --noinput`,实测唯一一条 OK。
+- **2026-11-07 01:54–02:00 已上线**:回滚点(代码 `9879d68`、`.env` 与旧 dist 备份、DB 全量 dump)→
+  `git reset --hard 2d32d80` → `migrate` → `collectstatic`(0 复制)→ 重启 web + celery →
+  Web `dist` 覆盖(94 个文件)→ APK 上传(`chatapp-1.0.9.apk`,60,295,070 字节,
+  SHA-1 `b793fdd738a5a3e544089f4f7953dfebe9f892f4`)→ `.env` 只改 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`
+  (`MIN_APP_VERSION` 保持 1.0.1)。tag `v1.0.9` → `2d32d80`;Release 由 `scripts/create_release.py` 创建。
+- **生产冒烟全绿**:`/app/config` 返回 1.0.9、`/health` `/readyz` 200、APK Range 206;
+  未认证两个新接口 401;白名单账号实测「关注 → 资料卡计数 +1 → 关注流只含被关注者 → 取消关注 → 归零」,
+  库内 `feed_follow` 随操作增删。详见 `docs/ops/release.md` §6.4。
+- **App 模拟器验收(debug 包,冷启动)**:广场两个 tab、关注 tab 空态、资料页关注按钮与计数、
+  关注后关注流出现该人的动态、取消关注后计数归零 —— 全部通过并截图留证。
+  **release 包在同一模拟器上仍卡在「获取验证码 → 网络不给力」**(服务端 0 条 `/auth/sms/send`),
+  debug 包同一路径成功;与 1.0.8 记录的是同一环境问题,不是本批代码问题。
+- **Web 生产验收(Chrome)**:`/home/square` 两个 tab、`/users/8` 关注按钮与计数、
+  关注流只含被关注者、取消关注归零 —— 全部通过。
+- **已知限制(记入批次 J 待办)**:关注/取消关注后广场「关注」tab 的列表**不会自动失效**
+  (双端都是:离开再回来仍是旧列表,下拉刷新或重新进入才更新)。最小改法:关注成功/取消成功时
+  `ref.invalidate(followingProvider)`(App)/ `useFollowingFeedStore().load(true)`(Web)。

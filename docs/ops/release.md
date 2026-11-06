@@ -87,7 +87,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | `605ad81` | `chatapp-1.0.6.apk` |
 | 1.0.7 | 2026-11-06 | `v1.0.7` | [v1.0.7 — 站内通知中心](https://github.com/shiliu153/chatapp/releases/tag/v1.0.7)(附件 `chatapp-1.0.7.apk`,60,295,070 字节) | `2bf9d1a` | `chatapp-1.0.7.apk` |
 | 1.0.8 | 2026-11-07 | `v1.0.8` | [v1.0.8 — 二级页顶栏修复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.8)(附件 `chatapp-1.0.8.apk`,60,295,070 字节) | `9879d68` | `chatapp-1.0.8.apk` |
-| 1.0.9 | 2026-11-07 | `v1.0.9` | 待建:合并后按 §6.4 材料建(tag 指向合并 SHA) | 待部署 | `chatapp-1.0.9.apk` |
+| 1.0.9 | 2026-11-07 | `v1.0.9` | [v1.0.9 — 广场关注 + 关注流](https://github.com/shiliu153/chatapp/releases/tag/v1.0.9)(附件 `chatapp-1.0.9.apk`,60,295,070 字节) | `2d32d80` | `chatapp-1.0.9.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -435,7 +435,8 @@ python scripts/create_release.py --version 1.0.7 \
 **tag / 目标提交**
 
 ```
-v1.0.9  →  <合并后的 origin/master SHA>(本文件 §5 的「上线 SHA」同值)
+v1.0.9  →  2d32d800a6bf547cb61b9b352535f9e711a923c3
+          feat(api,app,web): 广场关注 + 关注流(批次 I)+ 版本 1.0.9 (#90)
 ```
 
 **title**
@@ -489,8 +490,51 @@ python scripts/sync_version.py --check
 
 ## 附件校验
 
-`chatapp-1.0.9.apk` 的 SHA-1 见本节末尾(构建后回填)。
+- `chatapp-1.0.9.apk`,60,295,070 字节
+- SHA-1 `b793fdd738a5a3e544089f4f7953dfebe9f892f4`
+- 构建自合并 SHA `2d32d800a6bf547cb61b9b352535f9e711a923c3`
 ```
+
+### 1.0.9 上线实况(2026-11-07 01:54–02:00)
+
+- **回滚点(先记录后动手)**:代码 `9879d68`;`.env` 备份 `/www/backup/chatapp-env-1.0.8-.bak`;
+  旧 Web `dist` 备份 `/www/backup/chatapp-web-dist-1.0.8-20261107-0154.tar.gz`(297 KB,
+  只含 `index.html` + `assets`;第一次误把整个 web 根打包成 264 MB,已删除重做);
+  DB 全量备份 `/www/backup/chatapp-db-preI-20261107-0155.sql`(619,607 字节,
+  `--no-tablespaces --single-transaction`,末行 `-- Dump completed`)。
+- **部署**:`git fetch && git reset --hard 2d32d80` →
+  `migrate --noinput`(唯一一条 `feed.0006_follow` OK)→ `migrate --check` clean →
+  `collectstatic`(0 复制 / 156 未变)→ supervisor 重启 `chatapp-web` / `chatapp-celery`
+  (约 10 秒窗口)→ Web `dist` 覆盖(旧 `assets` 改名 `assets.old.<ts>`,新 94 个文件,
+  `index.html` 引用 `assets/index-DFBN48MP.js`)→ APK 上传为 `chatapp-1.0.9.apk` →
+  `.env` 只改 `LATEST_APP_VERSION=1.0.9` / `APP_DOWNLOAD_URL`
+  (**`MIN_APP_VERSION` 保持 1.0.1**)。
+- **tag / Release**:`v1.0.9` → `2d32d80`(附注 tag,已推送);Release 由
+  `scripts/create_release.py` 创建,附件 `chatapp-1.0.9.apk`(SHA-1 `b793fdd7…`)。
+- **冒烟(全绿)**:
+  - `/api/v1/app/config` → `{"min_app_version":"1.0.1","latest_version":"1.0.9",...}`;
+    `/health` `/readyz` 200;APK `Range: bytes=0-1023` → `206`(`0-1023/60295070`)。
+  - 未认证:`GET /feed/following` 与 `POST /users/8/follow` 均 401。
+  - 用白名单账号 `13900000001`(user 12)登录:`GET /users/8` 返回
+    `is_followed=false, follower_count=0, following_count=0`;`POST /users/8/follow` → 204 →
+    再查 `is_followed=true, follower_count=1`;`GET /feed/following?limit=2` 只返回 user 8 的两条动态;
+    `DELETE /users/8/follow` → 204 → `is_followed=false, follower_count=0`。
+  - 库内 `feed_follow` 表随操作增删,验证后回到 0 行。
+- **App 模拟器验收(debug 包,`emulator-5554` / Android 17,冷启动 `-no-snapshot-load`)**:
+  协议弹窗 → 登录(13900000001 / 123456)→ 广场:顶部出现「推荐 / 关注」两段 tab;
+  切「关注」→ 空态「还没有关注的人 / 去「推荐」看看」+ 按钮切回推荐;
+  点 Bob 进资料页 → 关注行「0 关注 0 粉丝」+ 渐变「关注」按钮 → 点击变「已关注」、粉丝数 1
+  (服务端 `feed_follow` 同步落行 12→8)→ 返回广场切「关注」→ 只看到 Bob 的两条动态 →
+  再进资料页点「已关注」→ 回到「0 粉丝 / 关注」(库内 0 行)。
+  **release 包在同一模拟器上仍卡在「获取验证码 → 网络不给力」**(服务端 0 条 `/auth/sms/send`),
+  同一路径 debug 包成功 —— 与 1.0.8 记录的是同一环境问题,判据与处理见
+  `docs/pitfalls/android-emulator.md`。
+- **Web 生产验收(Chrome)**:`/home/square` 渲染「推荐 / 关注」两个 tab;「关注」空态正确;
+  `/users/8` 显示「0 关注 0 粉丝 + 关注」→ 点击变「已关注 / 1 粉丝」→ 回广场「关注」tab
+  只看到 Bob 的两条动态 → 再点「已关注」回到「关注 / 0 粉丝」。
+- **已知限制(记入下一批待办)**:关注/取消关注后,广场「关注」tab 的列表**不会自动失效**
+  (双端都是:离开再回来仍是旧列表,下拉刷新或重新进入才更新)。最小改法是在关注成功/取消成功时
+  让 `followingProvider`(App)/ `useFollowingFeedStore`(Web)失效一次。
 
 ## 7. 为什么这条约束值得存在
 
