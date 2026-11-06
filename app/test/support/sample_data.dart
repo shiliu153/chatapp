@@ -117,6 +117,31 @@ Map<String, dynamic> blockedUserJson({
       'blocked_at': '2026-09-11T12:00:00+08:00',
     };
 
+/// 造一条站内通知(GET /notifications 里的一条);字段可覆盖。
+Map<String, dynamic> notificationJson({
+  int id = 1,
+  String kind = 'post_like',
+  String text = '小明 赞了你的动态',
+  bool isRead = false,
+  String createdAt = '2026-11-06T12:30:00+08:00',
+  int? actorId = 7,
+  String actorNickname = '小明',
+  String? actorAvatar,
+  String targetKind = 'post',
+  int? targetId = 9,
+}) =>
+    {
+      'id': id,
+      'kind': kind,
+      'text': text,
+      'is_read': isRead,
+      'created_at': createdAt,
+      'actor': actorId == null
+          ? null
+          : {'id': actorId, 'nickname': actorNickname, 'avatar': actorAvatar},
+      'target': {'kind': targetKind, 'id': targetId},
+    };
+
 /// 造一份 LimitOffset 分页响应;hasNext=true 时给一个非空 next(测跟页用)。
 Map<String, dynamic> pageJson(List<dynamic> items, {bool hasNext = false}) => {
       'count': items.length,

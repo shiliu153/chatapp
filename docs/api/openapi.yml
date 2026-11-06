@@ -779,6 +779,99 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/notifications:
+    get:
+      operationId: notifications_retrieve
+      description: |-
+        站内通知列表(GET /api/v1/notifications)。
+
+        只返回自己的、90 天内的通知,按时间倒序;默认走复合游标分页
+        (``{count, next_cursor, has_more, results}``),带 ``offset`` 的老客户端
+        仍走 offset 兼容路径。
+
+        Args:
+            request: DRF 请求对象,提供 ``limit`` / ``before``(或兼容的 ``offset``)。
+
+        Returns:
+            分页后的通知列表;``results[]`` 每项含触发者摘要与跳转目标。
+      parameters:
+      - in: query
+        name: before
+        schema:
+          type: string
+        description: 游标,首页不传;之后原样回传上一页的 next_cursor
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: 每页条数,默认 20,上限 100
+      tags:
+      - notifications
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPage'
+          description: ''
+  /api/v1/notifications/read:
+    post:
+      operationId: notifications_read_create
+      description: |-
+        标记已读(POST /api/v1/notifications/read)。
+
+        两种用法:``{"ids": [...]}`` 只标指定几条,``{"all": true}`` 标全部未读。
+        只影响自己的通知,幂等 204;别人的 id 混进来会被静默过滤。
+
+        Args:
+            request: DRF 请求对象;body 需带 ``ids`` 或 ``all=true``。
+
+        Returns:
+            204 空响应。
+      tags:
+      - notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationReadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NotificationReadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NotificationReadRequest'
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/notifications/unread_count:
+    get:
+      operationId: notifications_unread_count_retrieve
+      description: |-
+        未读通知数(GET /api/v1/notifications/unread_count)。
+
+        口径与列表完全一致(自己的、90 天内),供消息页铃铛角标使用。
+
+        Args:
+            request: DRF 请求对象。
+
+        Returns:
+            ``{"unread": n}``。
+      tags:
+      - notifications
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnreadCount'
+          description: ''
   /api/v1/posts:
     get:
       operationId: posts_list
@@ -1085,6 +1178,7 @@ paths:
         点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
 
         点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+        首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
 
         Args:
             request: DRF 请求对象。
@@ -1121,6 +1215,7 @@ paths:
         点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
 
         点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+        首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
 
         Args:
             request: DRF 请求对象。
@@ -1331,10 +1426,10 @@ paths:
 
         Args:
             request: DRF 请求对象;PATCH 时 body 可带
-                ``likes`` / ``matches`` / ``messages`` / ``system``。
+                ``likes`` / ``matches`` / ``messages`` / ``system`` / ``social``。
 
         Returns:
-            ``{"likes": bool, "matches": bool, "messages": bool, "system": bool}``。
+            ``{"likes": bool, "matches": bool, "messages": bool, "system": bool, "social": bool}``。
       tags:
       - push
       security:
@@ -1355,10 +1450,10 @@ paths:
 
         Args:
             request: DRF 请求对象;PATCH 时 body 可带
-                ``likes`` / ``matches`` / ``messages`` / ``system``。
+                ``likes`` / ``matches`` / ``messages`` / ``system`` / ``social``。
 
         Returns:
-            ``{"likes": bool, "matches": bool, "messages": bool, "system": bool}``。
+            ``{"likes": bool, "matches": bool, "messages": bool, "system": bool, "social": bool}``。
       tags:
       - push
       requestBody:
@@ -2118,6 +2213,16 @@ components:
       - im_user_id
       - token
       - ws_url
+    KindEnum:
+      enum:
+      - post
+      - user
+      - none
+      type: string
+      description: |-
+        * `post` - 动态
+        * `user` - 用户
+        * `none` - 无
     LikePage:
       type: object
       properties:
@@ -2265,6 +2370,99 @@ components:
       - has_more
       - next_cursor
       - results
+    NotificationActor:
+      type: object
+      description: |-
+        通知里的触发者摘要。
+
+        ``id`` 是**账号 id**(即 IM 的 ``u{id}``),可直接拼成 ``/chat/{id}`` 跳转。
+      properties:
+        id:
+          type: integer
+        nickname:
+          type: string
+        avatar:
+          type: string
+          nullable: true
+      required:
+      - avatar
+      - id
+      - nickname
+    NotificationItem:
+      type: object
+      description: 站内通知列表里的一条。
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+        text:
+          type: string
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        actor:
+          allOf:
+          - $ref: '#/components/schemas/NotificationActor'
+          nullable: true
+        target:
+          $ref: '#/components/schemas/NotificationTarget'
+      required:
+      - actor
+      - created_at
+      - id
+      - is_read
+      - kind
+      - target
+      - text
+    NotificationPage:
+      type: object
+      properties:
+        count:
+          type: integer
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationItem'
+      required:
+      - count
+      - has_more
+      - next_cursor
+      - results
+    NotificationReadRequest:
+      type: object
+      description: |-
+        标记已读的入参:``ids`` 与 ``all`` 二选一。
+
+        ``all`` 是 Python 关键字之外的普通字段名,DRF 与 OpenAPI 都按 ``all`` 输出。
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+        all:
+          type: boolean
+          default: false
+    NotificationTarget:
+      type: object
+      description: 通知点击后要跳向的目标;``kind=none`` 时 ``id`` 为 ``null``。
+      properties:
+        kind:
+          $ref: '#/components/schemas/KindEnum'
+        id:
+          type: integer
+          nullable: true
+      required:
+      - id
+      - kind
     NullEnum:
       enum:
       - null
@@ -2322,7 +2520,10 @@ components:
           type: boolean
     PatchedPushPreferenceRequest:
       type: object
-      description: 通知偏好的读写形状(四个布尔字段,对应四类通知)。
+      description: |-
+        通知偏好的读写形状(五个布尔字段,对应五类通知)。
+
+        ``social`` 是站内通知中心(批次 H)新增的开关:动态被赞 / 被评论 / 评论被回复。
       properties:
         likes:
           type: boolean
@@ -2336,6 +2537,9 @@ components:
         system:
           type: boolean
           title: 系统通知
+        social:
+          type: boolean
+          title: 动态互动
     PhoneRequest:
       type: object
       description: 只接收一个手机号的入参。
@@ -2755,7 +2959,10 @@ components:
       - user_id
     PushPreference:
       type: object
-      description: 通知偏好的读写形状(四个布尔字段,对应四类通知)。
+      description: |-
+        通知偏好的读写形状(五个布尔字段,对应五类通知)。
+
+        ``social`` 是站内通知中心(批次 H)新增的开关:动态被赞 / 被评论 / 评论被回复。
       properties:
         likes:
           type: boolean
@@ -2769,6 +2976,9 @@ components:
         system:
           type: boolean
           title: 系统通知
+        social:
+          type: boolean
+          title: 动态互动
     ReadyStatus:
       type: object
       properties:
@@ -2956,6 +3166,14 @@ components:
           type: string
       required:
       - access
+    UnreadCount:
+      type: object
+      description: 未读数回执。
+      properties:
+        unread:
+          type: integer
+      required:
+      - unread
     Visit:
       type: object
       description: 「谁看过我」列表项:对方公开资料 + 最近访问时间。

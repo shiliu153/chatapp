@@ -29,6 +29,8 @@ from config.pagination import DefaultLimitOffsetPagination
 from config.params import int_param
 from config.schema_helpers import cursor_page, cursor_params, offset_page, offset_params
 from moderation.models import ReportStatus
+from notifications.models import NotificationKind, NotificationTarget
+from notifications.services import display_name, notify_on_commit
 
 from .models import Post, PostComment, PostImage, PostLike, PostReport
 from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
@@ -237,6 +239,7 @@ def post_like(request, post_id):
     """点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
 
     点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+    首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
 
     Args:
         request: DRF 请求对象。
@@ -248,6 +251,14 @@ def post_like(request, post_id):
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     if request.method == "POST":
         _, created = PostLike.objects.get_or_create(post=post, user=request.user)
+        if created and post.author_id != request.user.id:
+            # 站内通知(批次 H):只在**首次**点赞时写一条;取消赞不产生通知,
+            # 再次点赞被 dedupe_key 吸收。灰条链路不受影响。
+            notify_on_commit(
+                post.author_id, NotificationKind.POST_LIKE, actor_id=request.user.id,
+                target_kind=NotificationTarget.POST, target_id=post.id,
+                text=f"{display_name(request.user)} 赞了你的动态",
+                dedupe_key=f"like:{post.id}:{request.user.id}")
         return Response({"liked": True}, status=201 if created else 200)
     PostLike.objects.filter(post=post, user=request.user).delete()
     return Response(status=204)

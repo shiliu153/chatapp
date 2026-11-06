@@ -15,6 +15,8 @@ from django.db.models import Exists, OuterRef, Q
 from config import cache_utils
 from im import tasks as im_tasks
 from moderation.services import exclude_blocked
+from notifications.models import NotificationKind, NotificationTarget
+from notifications.services import notify_on_commit
 from users.models import (Photo, PhotoStatus, Profile, ProfileStatus, ProfileVisit,
                           birthday_bounds)
 
@@ -105,9 +107,11 @@ def candidate_pool_ids(me, preference, pool_size: int) -> list[int]:
 
 
 def notify_match(match):
-    """配对成功后给双方各发一条 IM 灰条消息(经任务队列,失败可重试)。
+    """配对成功后给双方各发一条 IM 灰条消息,并各写一条站内通知。
 
     on_commit:配对真正落库后才入队;robust=True:broker 抖动不影响配对结果。
+    站内通知(批次 H)与灰条并存,不互相替代;文案不带昵称 —— 通知项里已经有
+    ``actor`` 摘要,再查一次对方昵称只是多打一条 SQL。
 
     Args:
         match: 刚创建的配对记录,双方 id 从它上面取。
@@ -115,6 +119,12 @@ def notify_match(match):
     a_id, b_id = match.user_a_id, match.user_b_id
     transaction.on_commit(lambda: im_tasks.pair_add.delay(a_id, b_id), robust=True)
     transaction.on_commit(lambda: im_tasks.send_match_notice.delay(a_id, b_id), robust=True)
+    for receiver_id, peer_id in ((a_id, b_id), (b_id, a_id)):
+        notify_on_commit(
+            receiver_id, NotificationKind.MATCH, actor_id=peer_id,
+            target_kind=NotificationTarget.USER, target_id=peer_id,
+            text="你们互相喜欢,配对成功,去打个招呼吧",
+            dedupe_key=f"match:{match.pk}:{receiver_id}")
 
 
 def likes_received_queryset(me):

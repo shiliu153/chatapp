@@ -16,6 +16,8 @@ from django.db.models import Exists, OuterRef
 
 from discovery.cache_keys import invalidate_pool_globally
 from im import tasks as im_tasks
+from notifications.models import NotificationKind, NotificationTarget
+from notifications.services import notify_on_commit
 from users.models import Profile, ProfileStatus
 
 from .models import BanAction, BanLog, Block
@@ -122,15 +124,21 @@ def sync_im_pair(user_a_id: int, user_b_id: int, *, add: bool) -> None:
 
 
 def notify_report_handled(report) -> None:
-    """举报首次标记「已处理」时调用:给举报者发系统通知(经任务队列)。
+    """举报首次标记「已处理」时调用:给举报者发系统通知(灰条 + 站内通知)。
 
     只在处理状态从 pending 变为 handled 的那一刻调用;重复处理不要再调,
-    否则举报者会收到多条同样的通知。
+    否则举报者会收到多条同样的通知。站内通知(批次 H)与灰条并存,用
+    ``dedupe_key`` 兜住「重复处理」这类误调。
 
     Args:
         report: 刚被标记为已处理的举报记录。
     """
     _enqueue(im_tasks.report_handled, report.reporter_id)
+    notify_on_commit(
+        report.reporter_id, NotificationKind.REPORT_HANDLED,
+        target_kind=NotificationTarget.NONE,
+        text="你的举报已处理,感谢你的反馈",
+        dedupe_key=f"report:{report.pk}")
 
 
 def _write_log(user, action, reason, operator) -> None:

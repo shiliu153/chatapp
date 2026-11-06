@@ -19,13 +19,14 @@
 | [im.md](im.md) | IM 会话凭证与聊天媒体上传 |
 | [app.md](app.md) | 应用版本配置(启动时最小版本拦截) |
 | [telemetry.md](telemetry.md) | 客户端错误上报(前端未捕获异常 → 日志/指标) |
-| [push.md](push.md) | 推送设备与通知偏好(极光 registration_id 上报、四类通知开关)。**该能力不启用**:通道固定 `PUSH_PROVIDER=off`,见分册首部说明 |
+| [push.md](push.md) | 推送设备与通知偏好(极光 registration_id 上报、五类通知开关)。**该能力不启用**:通道固定 `PUSH_PROVIDER=off`,见分册首部说明 |
+| [notifications.md](notifications.md) | 站内通知中心(列表 / 未读数 / 标记已读)。**这是「不推送」的替代品**,App 与网页端消息页铃铛入口 |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
 | [openapi.yml](openapi.yml) | **机器可读契约**(OpenAPI 3.0,由代码生成,请勿手改;规则见下「机器可读契约」) |
 
 ## 接口一览
 
-共 **51** 个接口(按「方法 + 路径」计)。
+共 **54** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -61,8 +62,11 @@
 | POST | `/api/v1/client-errors` | 上报客户端未捕获异常 | [telemetry](telemetry.md) |
 | POST | `/api/v1/push/devices` | 上报推送设备(幂等,单设备) | [push](push.md) |
 | DELETE | `/api/v1/push/devices/{registration_id}` | 解绑推送设备(幂等 204) | [push](push.md) |
-| GET | `/api/v1/push/preferences` | 读取通知偏好(四类开关) | [push](push.md) |
+| GET | `/api/v1/push/preferences` | 读取通知偏好(五类开关) | [push](push.md) |
 | PATCH | `/api/v1/push/preferences` | 修改通知偏好 | [push](push.md) |
+| GET | `/api/v1/notifications` | 站内通知列表(游标分页) | [notifications](notifications.md) |
+| GET | `/api/v1/notifications/unread_count` | 未读通知数(角标) | [notifications](notifications.md) |
+| POST | `/api/v1/notifications/read` | 标记通知已读(按 ids 或全部) | [notifications](notifications.md) |
 | GET | `/api/v1/blocks` | 拉黑列表(分页) | [moderation](moderation.md) |
 | POST | `/api/v1/blocks` | 拉黑用户 | [moderation](moderation.md) |
 | DELETE | `/api/v1/blocks/{user_id}` | 解除拉黑 | [moderation](moderation.md) |
@@ -108,7 +112,7 @@ Base URL、鉴权细节、统一错误结构、分页约定、限流额度见 [c
 
 | 项 | 说明 |
 |---|---|
-| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,39 paths / 47 operations) |
+| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,45 paths / 54 operations) |
 | 生成命令 | `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` |
 | 谁在读它 | Web 端类型生成(`web/src/api/schema.d.ts`)、CI 门禁、后续客户端工具链 |
 | 能否手改 | **不能**。它是生成物,手改会在下一次生成时被覆盖,且 CI 会红 |

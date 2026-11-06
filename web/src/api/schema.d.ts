@@ -649,6 +649,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 站内通知列表(GET /api/v1/notifications)。
+         *
+         *     只返回自己的、90 天内的通知,按时间倒序;默认走复合游标分页
+         *     (``{count, next_cursor, has_more, results}``),带 ``offset`` 的老客户端
+         *     仍走 offset 兼容路径。
+         *
+         *     Args:
+         *         request: DRF 请求对象,提供 ``limit`` / ``before``(或兼容的 ``offset``)。
+         *
+         *     Returns:
+         *         分页后的通知列表;``results[]`` 每项含触发者摘要与跳转目标。
+         */
+        get: operations["notifications_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description 标记已读(POST /api/v1/notifications/read)。
+         *
+         *     两种用法:``{"ids": [...]}`` 只标指定几条,``{"all": true}`` 标全部未读。
+         *     只影响自己的通知,幂等 204;别人的 id 混进来会被静默过滤。
+         *
+         *     Args:
+         *         request: DRF 请求对象;body 需带 ``ids`` 或 ``all=true``。
+         *
+         *     Returns:
+         *         204 空响应。
+         */
+        post: operations["notifications_read_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/unread_count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 未读通知数(GET /api/v1/notifications/unread_count)。
+         *
+         *     口径与列表完全一致(自己的、90 天内),供消息页铃铛角标使用。
+         *
+         *     Args:
+         *         request: DRF 请求对象。
+         *
+         *     Returns:
+         *         ``{"unread": n}``。
+         */
+        get: operations["notifications_unread_count_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/posts": {
         parameters: {
             query?: never;
@@ -848,6 +932,7 @@ export interface paths {
          * @description 点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
          *
          *     点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+         *     首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
          *
          *     Args:
          *         request: DRF 请求对象。
@@ -861,6 +946,7 @@ export interface paths {
          * @description 点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
          *
          *     点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+         *     首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
          *
          *     Args:
          *         request: DRF 请求对象。
@@ -1028,10 +1114,10 @@ export interface paths {
          *
          *     Args:
          *         request: DRF 请求对象;PATCH 时 body 可带
-         *             ``likes`` / ``matches`` / ``messages`` / ``system``。
+         *             ``likes`` / ``matches`` / ``messages`` / ``system`` / ``social``。
          *
          *     Returns:
-         *         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool}``。
+         *         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool, "social": bool}``。
          */
         get: operations["push_preferences_retrieve"];
         put?: never;
@@ -1046,10 +1132,10 @@ export interface paths {
          *
          *     Args:
          *         request: DRF 请求对象;PATCH 时 body 可带
-         *             ``likes`` / ``matches`` / ``messages`` / ``system``。
+         *             ``likes`` / ``matches`` / ``messages`` / ``system`` / ``social``。
          *
          *     Returns:
-         *         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool}``。
+         *         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool, "social": bool}``。
          */
         patch: operations["push_preferences_partial_update"];
         trace?: never;
@@ -1509,6 +1595,13 @@ export interface components {
             http_url: string;
             expire: number;
         };
+        /**
+         * @description * `post` - 动态
+         *     * `user` - 用户
+         *     * `none` - 无
+         * @enum {string}
+         */
+        KindEnum: "post" | "user" | "none";
         LikePage: {
             count: number;
             next_cursor: string | null;
@@ -1556,6 +1649,48 @@ export interface components {
             has_more: boolean;
             results: components["schemas"]["Post"][];
         };
+        /**
+         * @description 通知里的触发者摘要。
+         *
+         *     ``id`` 是**账号 id**(即 IM 的 ``u{id}``),可直接拼成 ``/chat/{id}`` 跳转。
+         */
+        NotificationActor: {
+            id: number;
+            nickname: string;
+            avatar: string | null;
+        };
+        /** @description 站内通知列表里的一条。 */
+        NotificationItem: {
+            id: number;
+            kind: string;
+            text: string;
+            is_read: boolean;
+            /** Format: date-time */
+            created_at: string;
+            actor: components["schemas"]["NotificationActor"] | null;
+            target: components["schemas"]["NotificationTarget"];
+        };
+        NotificationPage: {
+            count: number;
+            next_cursor: string | null;
+            has_more: boolean;
+            results: components["schemas"]["NotificationItem"][];
+        };
+        /**
+         * @description 标记已读的入参:``ids`` 与 ``all`` 二选一。
+         *
+         *     ``all`` 是 Python 关键字之外的普通字段名,DRF 与 OpenAPI 都按 ``all`` 输出。
+         */
+        NotificationReadRequest: {
+            ids?: number[];
+            /** @default false */
+            all: boolean;
+        };
+        /** @description 通知点击后要跳向的目标;``kind=none`` 时 ``id`` 为 ``null``。 */
+        NotificationTarget: {
+            kind: components["schemas"]["KindEnum"];
+            id: number | null;
+        };
         /** @enum {unknown} */
         NullEnum: null;
         /** @description 择偶偏好的读写表示。 */
@@ -1580,7 +1715,11 @@ export interface components {
             tag_ids?: number[];
             visits_hidden?: boolean;
         };
-        /** @description 通知偏好的读写形状(四个布尔字段,对应四类通知)。 */
+        /**
+         * @description 通知偏好的读写形状(五个布尔字段,对应五类通知)。
+         *
+         *     ``social`` 是站内通知中心(批次 H)新增的开关:动态被赞 / 被评论 / 评论被回复。
+         */
         PatchedPushPreferenceRequest: {
             /** 新的喜欢 */
             likes?: boolean;
@@ -1590,6 +1729,8 @@ export interface components {
             messages?: boolean;
             /** 系统通知 */
             system?: boolean;
+            /** 动态互动 */
+            social?: boolean;
         };
         /** @description 只接收一个手机号的入参。 */
         PhoneRequest: {
@@ -1769,7 +1910,11 @@ export interface components {
             readonly shared_tags: components["schemas"]["Tag"][];
             readonly photos: components["schemas"]["Photo"][];
         };
-        /** @description 通知偏好的读写形状(四个布尔字段,对应四类通知)。 */
+        /**
+         * @description 通知偏好的读写形状(五个布尔字段,对应五类通知)。
+         *
+         *     ``social`` 是站内通知中心(批次 H)新增的开关:动态被赞 / 被评论 / 评论被回复。
+         */
         PushPreference: {
             /** 新的喜欢 */
             likes?: boolean;
@@ -1779,6 +1924,8 @@ export interface components {
             messages?: boolean;
             /** 系统通知 */
             system?: boolean;
+            /** 动态互动 */
+            social?: boolean;
         };
         ReadyStatus: {
             status: string;
@@ -1862,6 +2009,10 @@ export interface components {
         TokenRefreshResult: {
             access: string;
             refresh?: string;
+        };
+        /** @description 未读数回执。 */
+        UnreadCount: {
+            unread: number;
         };
         /** @description 「谁看过我」列表项:对方公开资料 + 最近访问时间。 */
         Visit: {
@@ -2429,6 +2580,73 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    notifications_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 游标,首页不传;之后原样回传上一页的 next_cursor */
+                before?: string;
+                /** @description 每页条数,默认 20,上限 100 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+        };
+    };
+    notifications_read_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["NotificationReadRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["NotificationReadRequest"];
+                "multipart/form-data": components["schemas"]["NotificationReadRequest"];
+            };
+        };
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    notifications_unread_count_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadCount"];
+                };
             };
         };
     };

@@ -136,6 +136,11 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/features/discovery/VisitsPage.vue'),
   },
   {
+    path: '/notifications',
+    name: 'notifications',
+    component: () => import('@/features/notifications/NotificationsPage.vue'),
+  },
+  {
     path: '/profile/edit',
     name: 'profile-edit',
     component: () => import('@/features/profile/ProfileEditPage.vue'),

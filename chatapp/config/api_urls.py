@@ -13,6 +13,7 @@ from django.urls import include, path
 
 from accounts.views import health, readyz
 from discovery import views as discovery_views
+from notifications import views as notifications_views
 from users import views as users_views
 
 urlpatterns = [
@@ -28,6 +29,8 @@ urlpatterns = [
     path("", include("feedback.urls")),
     path("", include("telemetry.urls")),
     path("push/", include("notifications.urls")),
+    path("notifications", notifications_views.notification_list),
+    path("notifications/", include("notifications.notification_urls")),
     path("matches", discovery_views.match_list),
     path("matches/<int:user_id>", discovery_views.unmatch),
     path("presence", users_views.presence_status),
