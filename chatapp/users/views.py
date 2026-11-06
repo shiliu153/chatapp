@@ -26,6 +26,7 @@ from rest_framework.response import Response
 
 from config import images, storage
 from discovery.cache_keys import invalidate_candidates, invalidate_pool_globally
+from feed.services import follow_state_for_profiles
 from moderation.services import blocked_user_ids
 
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
@@ -110,7 +111,8 @@ def public_profile(request, user_id):
         user_id: 目标账号 id。
 
     Returns:
-        公开资料(不含手机号、生日、偏好与缺失项)。
+        公开资料(不含手机号、生日、偏好与缺失项),含共同标签与关注态
+        (``is_followed`` / ``follower_count`` / ``following_count``)。
 
     Raises:
         NotFound: 对方与当前用户互相拉黑、资料不存在,或对方处于重封禁状态 ——
@@ -124,7 +126,11 @@ def public_profile(request, user_id):
     if profile is None or profile.status == ProfileStatus.BANNED_HEAVY:
         raise NotFound("用户不存在")
     record_profile_view(request.user.id, target.id)   # 抓取广度监控,失败不影响响应
-    return Response(PublicProfileSerializer(profile, context={"request": request}).data)
+    # 关注态一次算好注入(单条资料卡只多一条聚合 SQL),序列化器不再逐字段查库
+    follow_state = follow_state_for_profiles([profile], request.user)
+    return Response(PublicProfileSerializer(
+        profile,
+        context={"request": request, "follow_state_map": follow_state}).data)
 
 
 @extend_schema(request=PhotoUploadSerializer, responses={201: PhotoSerializer})

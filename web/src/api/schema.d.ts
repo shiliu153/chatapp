@@ -421,6 +421,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/feed/following": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 关注流(GET /api/v1/feed/following)。
+         *
+         *     只含**我关注的人**的动态(不含自己),可见性复用广场口径
+         *     (排除双向拉黑与重封禁作者);游标分页,响应形状与广场列表完全一致。
+         *     新接口没有老客户端,因此不提供 ``offset`` 兼容分支。
+         *
+         *     Args:
+         *         request: DRF 请求对象,支持 ``limit`` / ``before``。
+         *
+         *     Returns:
+         *         ``{count, next_cursor, has_more, results}``。
+         */
+        get: operations["feed_following_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/feedback": {
         parameters: {
             query?: never;
@@ -1213,7 +1242,8 @@ export interface paths {
          *         user_id: 目标账号 id。
          *
          *     Returns:
-         *         公开资料(不含手机号、生日、偏好与缺失项)。
+         *         公开资料(不含手机号、生日、偏好与缺失项),含共同标签与关注态
+         *         (``is_followed`` / ``follower_count`` / ``following_count``)。
          *
          *     Raises:
          *         NotFound: 对方与当前用户互相拉黑、资料不存在,或对方处于重封禁状态 ——
@@ -1223,6 +1253,60 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{user_id}/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description 关注与取消关注(POST/DELETE /api/v1/users/{user_id}/follow)。
+         *
+         *     幂等:重复关注、重复取消都返回 204(不返回 201,也不报 409);
+         *     不能关注自己(400);与我互相拉黑、对方不存在或处于重封禁状态一律 404
+         *     (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
+         *     关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
+         *
+         *     Args:
+         *         request: DRF 请求对象。
+         *         user_id: 被关注/被取消关注的账号 id。
+         *
+         *     Returns:
+         *         204 空响应。
+         *
+         *     Raises:
+         *         ValidationError: 关注自己(400)。
+         *         NotFound: 对方不存在、与我互相拉黑,或处于重封禁状态。
+         */
+        post: operations["users_follow_create"];
+        /**
+         * @description 关注与取消关注(POST/DELETE /api/v1/users/{user_id}/follow)。
+         *
+         *     幂等:重复关注、重复取消都返回 204(不返回 201,也不报 409);
+         *     不能关注自己(400);与我互相拉黑、对方不存在或处于重封禁状态一律 404
+         *     (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
+         *     关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
+         *
+         *     Args:
+         *         request: DRF 请求对象。
+         *         user_id: 被关注/被取消关注的账号 id。
+         *
+         *     Returns:
+         *         204 空响应。
+         *
+         *     Raises:
+         *         ValidationError: 关注自己(400)。
+         *         NotFound: 对方不存在、与我互相拉黑,或处于重封禁状态。
+         */
+        delete: operations["users_follow_destroy"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1578,6 +1662,12 @@ export interface components {
          * @enum {string}
          */
         FeedbackTypeEnum: "feature" | "bug" | "account" | "other";
+        FollowingPage: {
+            count: number;
+            next_cursor: string | null;
+            has_more: boolean;
+            results: components["schemas"]["Post"][];
+        };
         /**
          * @description * `male` - 男
          *     * `female` - 女
@@ -1894,6 +1984,10 @@ export interface components {
          *
          *     ``shared_tags`` 是「对方标签 ∩ 我的标签」,给配对那一刻的破冰文案用;
          *     列表场景若已批量算好,可从 ``context["shared_tags_map"]`` 直接注入,避免逐项查询。
+         *
+         *     ``is_followed`` / ``follower_count`` / ``following_count`` 是批次 I 的关注态:
+         *     同样支持 ``context["follow_state_map"]`` 批量注入(见 ``feed.services.follow_state_for_profiles``),
+         *     单条资料卡场景默认只多**一条**聚合 SQL。
          */
         PublicProfile: {
             readonly user_id: number;
@@ -1909,6 +2003,9 @@ export interface components {
             readonly tags: components["schemas"]["Tag"][];
             readonly shared_tags: components["schemas"]["Tag"][];
             readonly photos: components["schemas"]["Photo"][];
+            readonly is_followed: boolean;
+            readonly follower_count: number;
+            readonly following_count: number;
         };
         /**
          * @description 通知偏好的读写形状(五个布尔字段,对应五类通知)。
@@ -2394,6 +2491,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VisitsCount"];
+                };
+            };
+        };
+    };
+    feed_following_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 游标,首页不传;之后原样回传上一页的 next_cursor */
+                before?: string;
+                /** @description 每页条数,默认 20,上限 100 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FollowingPage"];
                 };
             };
         };
@@ -3130,6 +3251,46 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PublicProfile"];
                 };
+            };
+        };
+    };
+    users_follow_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    users_follow_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

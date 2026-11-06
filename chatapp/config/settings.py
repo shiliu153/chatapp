@@ -304,6 +304,8 @@ CANDIDATE_RATE = os.getenv("CANDIDATE_RATE", _RELAXED or "60/hour")      # 候�
 USER_SIG_RATE = os.getenv("USER_SIG_RATE", _RELAXED or "30/hour")        # 每次拉签名都可能同步外部 IM
 POST_LIKE_RATE = os.getenv("POST_LIKE_RATE", _RELAXED or "120/hour")
 BLOCK_RATE = os.getenv("BLOCK_RATE", _RELAXED or "60/hour")
+# 关注/取消关注(批次 I):比点赞更「重」的关系变更,额度取「喜欢我」同档的 120/小时
+FOLLOW_RATE = os.getenv("FOLLOW_RATE", _RELAXED or "120/hour")
 PHOTO_UPLOAD_RATE = os.getenv("PHOTO_UPLOAD_RATE", _RELAXED or "20/hour")
 PUBLIC_PROFILE_RATE = os.getenv("PUBLIC_PROFILE_RATE", _RELAXED or "120/hour")
 # 访客列表/人数(M-3):列表要跑三个子查询,人数接口单请求多次聚合
@@ -358,6 +360,7 @@ REST_FRAMEWORK = {
         "user_sig": USER_SIG_RATE,
         "post_like": POST_LIKE_RATE,
         "blocks": BLOCK_RATE,
+        "follow": FOLLOW_RATE,
         "upload_photo": PHOTO_UPLOAD_RATE,
         "public_profile": PUBLIC_PROFILE_RATE,
         "visits": VISITS_RATE,

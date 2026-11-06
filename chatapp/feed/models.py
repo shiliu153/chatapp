@@ -1,11 +1,13 @@
-"""广场动态的数据模型:动态、配图、点赞、评论与动态举报。
+"""广场动态的数据模型:动态、配图、点赞、评论、动态举报与关注关系。
 
 设计要点:
     1. ``PostLike`` 对 ``(post, user)`` 有唯一约束,点赞天然幂等;
     2. ``PostReport.post`` 用 ``SET_NULL``:动态被删后举报行仍留档,便于运营对账
        (因此读举报时 ``post`` 可能为 ``None``);
     3. 动态列表依赖 ``Post.Meta.ordering``,但一旦 ``annotate`` 触发 GROUP BY,
-       Django 会丢弃 Meta 排序,必须显式 ``order_by`` —— 见 ``services.visible_posts``。
+       Django 会丢弃 Meta 排序,必须显式 ``order_by`` —— 见 ``services.visible_posts``;
+    4. ``Follow`` 是**有向**关系(我关注谁),与配对 ``Match`` 的**对称**语义无关:
+       关注不产生聊天权限,也不进通知(新粉丝不通知,见计划 §2.3)。
 """
 
 from django.conf import settings
@@ -167,3 +169,34 @@ class PostReport(models.Model):
             ``post_report#主键(举报人->动态:类型)``。
         """
         return f"post_report#{self.pk}({self.reporter_id}->{self.post_id}:{self.type})"
+
+
+class Follow(models.Model):
+    """一条关注关系:``follower`` 关注了 ``followee``(有向,非对称)。
+
+    唯一约束 ``(follower, followee)`` 让「重复关注」在数据库层只落一行,
+    接口因此可以做成幂等 204;``(followee, -created_at)`` 索引服务
+    「谁关注了我」的计数与关注流里按作者取动态两处查询。
+    """
+
+    follower = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name="following")
+    followee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                                 related_name="followers")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["follower", "followee"], name="uniq_follow"),
+        ]
+        indexes = [
+            models.Index(fields=["followee", "-created_at"], name="follow_followee_idx"),
+        ]
+
+    def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``follow(关注者 id->被关注者 id)``。
+        """
+        return f"follow({self.follower_id}->{self.followee_id})"

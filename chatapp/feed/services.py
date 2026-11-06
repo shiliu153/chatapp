@@ -1,16 +1,20 @@
-"""广场动态的领域服务:可见性查询、删除与评论通知。
+"""广场动态的领域服务:可见性查询、删除、评论通知与关注关系。
 
 设计要点:
     1. ``visible_posts`` 是广场**唯一的可见性口径**:排除双向拉黑与重封禁作者,
        并统一注解赞数/评数与「我是否已赞」,避免各处各写一份查询;
     2. ``delete_post`` 同时服务作者自删与运营删除,因此必须先关闭待处理举报,
-       否则作者自删后举报会在审核台里悬空。
+       否则作者自删后举报会在审核台里悬空;
+    3. 关注是**有向**关系且不产生聊天权限:``follow`` / ``unfollow`` 只动 ``Follow`` 表,
+       不发通知、不碰 IM(新粉丝不通知,见计划 §2.3);
+    4. ``follow_state_for_profiles`` 是「资料卡关注态」的唯一取数口径:单条走一条
+       聚合 SQL,批量走三条分组 SQL,**不随资料条数增长**。
 """
 
 from typing import NamedTuple
 
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef
+from django.db.models import Count, Exists, OuterRef, Q
 from django.utils import timezone
 
 from config.cursor import apply_before, encode_cursor
@@ -21,7 +25,7 @@ from notifications.models import NotificationKind, NotificationTarget
 from notifications.services import display_name, notify_on_commit
 from users.models import Profile, ProfileStatus
 
-from .models import Post, PostComment, PostLike, PostReport
+from .models import Follow, Post, PostComment, PostLike, PostReport
 
 
 class FeedPage(NamedTuple):
@@ -83,8 +87,27 @@ def visible_posts(viewer, base=None):
             .order_by("-created_at", "-id"))
 
 
+def following_base(viewer):
+    """关注流的可见性基础查询集:只含**我关注的人**,不含自己。
+
+    可见性复用 :func:`visible_base`(排除双向拉黑与重封禁作者),只是把作者范围
+    收窄到我的关注列表 —— 与广场主流程同一套规则,不另立口径。关注流**不含自己**
+    的动态:自己的动态在 ``/posts/mine``,混进来会让「关注」tab 变成第二个「我的」。
+
+    Args:
+        viewer: 当前浏览者。
+
+    Returns:
+        只含关注者动态的基础查询集(未注解、未预取)。
+    """
+    followee_ids = Follow.objects.filter(follower=viewer).values("followee_id")
+    return (visible_base(viewer)
+            .filter(author_id__in=followee_ids)
+            .exclude(author_id=viewer.id))
+
+
 def page_visible_posts(viewer, limit: int, before: tuple | None = None,
-                       offset: int | None = None) -> "FeedPage":
+                       offset: int | None = None, base=None) -> "FeedPage":
     """两段式取一页动态:先按索引取当页 id,再只对这几条做聚合。
 
     为什么不能直接 ``visible_posts(viewer)[offset:offset+limit]``:注解里有
@@ -101,11 +124,13 @@ def page_visible_posts(viewer, limit: int, before: tuple | None = None,
         limit: 每页条数。
         before: 游标 ``(created_at, id)``;``None`` 表示第一页。
         offset: 旧客户端兼容用的跳过条数;``None``/0 表示不用。
+        base: 已构建的可见性查询集(可选)。关注流传 :func:`following_base`,
+            广场主流程不传(等价于 ``visible_base(viewer)``)。
 
     Returns:
         当页的 ``FeedPage``(行、可见总数、是否还有下一页、下一页游标)。
     """
-    base = visible_base(viewer)
+    base = base if base is not None else visible_base(viewer)
     total = base.count()
     ordered = base.order_by("-created_at", "-id")
     if before is not None:
@@ -225,3 +250,77 @@ def delete_comment(comment) -> None:
         comment: 待删除的评论(调用方已校验作者身份)。
     """
     comment.delete()
+
+
+def follow(follower, followee) -> bool:
+    """关注某人(幂等);重复关注不报错、不产生第二行。
+
+    Args:
+        follower: 关注者(当前登录用户)。
+        followee: 被关注者(调用方已校验存在、未重封禁、未互相拉黑、不是自己)。
+
+    Returns:
+        本次是否**新建**了关注关系(已关注过返回 ``False``)。
+    """
+    _, created = Follow.objects.get_or_create(follower=follower, followee=followee)
+    return created
+
+
+def unfollow(follower, followee) -> None:
+    """取消关注(幂等):没有该关系时静默返回。
+
+    Args:
+        follower: 关注者(当前登录用户)。
+        followee: 被取消关注的人。
+    """
+    Follow.objects.filter(follower=follower, followee=followee).delete()
+
+
+def follow_state_for_profiles(profiles, viewer) -> dict[int, dict]:
+    """批量取「资料卡关注态」:是否已关注 + 粉丝数 + 关注数。
+
+    单条资料卡时用**一条**聚合 SQL 同时算三个值(资料页接口因此只多 1 条查询);
+    批量时退化成三条分组 SQL(分别取粉丝数、关注数、我关注了谁),条数与资料数无关,
+    不会出现 N+1(``config/test_query_budget.py`` 会拦)。
+
+    Args:
+        profiles: 资料对象序列;只用到 ``user_id``,``None`` 项自动忽略。
+        viewer: 当前登录用户(未登录传 ``None``)。
+
+    Returns:
+        ``{user_id: {"is_followed": bool, "follower_count": int,
+        "following_count": int}}``;没有资料的 id 不出现在字典里。
+    """
+    user_ids = [profile.user_id for profile in profiles if profile is not None]
+    if not user_ids:
+        return {}
+    viewer_id = getattr(viewer, "id", None)
+    if len(user_ids) == 1:
+        user_id = user_ids[0]
+        aggregates = {
+            "follower_count": Count("id", filter=Q(followee_id=user_id)),
+            "following_count": Count("id", filter=Q(follower_id=user_id)),
+        }
+        if viewer_id is not None:
+            aggregates["followed"] = Count(
+                "id", filter=Q(follower_id=viewer_id, followee_id=user_id))
+        aggregated = Follow.objects.filter(
+            Q(followee_id=user_id) | Q(follower_id=user_id)).aggregate(**aggregates)
+        return {user_id: {"is_followed": bool(aggregated.get("followed")),
+                          "follower_count": aggregated["follower_count"],
+                          "following_count": aggregated["following_count"]}}
+    follower_counts = dict(
+        Follow.objects.filter(followee_id__in=user_ids)
+        .values_list("followee_id").annotate(total=Count("id")))
+    following_counts = dict(
+        Follow.objects.filter(follower_id__in=user_ids)
+        .values_list("follower_id").annotate(total=Count("id")))
+    followed_ids = set()
+    if viewer_id is not None:
+        followed_ids = set(Follow.objects
+                           .filter(follower_id=viewer_id, followee_id__in=user_ids)
+                           .values_list("followee_id", flat=True))
+    return {user_id: {"is_followed": user_id in followed_ids,
+                      "follower_count": follower_counts.get(user_id, 0),
+                      "following_count": following_counts.get(user_id, 0)}
+            for user_id in user_ids}

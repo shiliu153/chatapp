@@ -1,15 +1,17 @@
-"""广场应用的测试:模型约束、发布、可见性、删除、点赞、评论与举报。
+"""广场应用的测试:模型约束、发布、可见性、删除、点赞、评论、举报与关注。
 
 覆盖场景:
     - 模型:动态默认值与排序、点赞唯一、评论按时间正序、举报默认待处理、
-      动态删除后举报行保留(``post`` 置空);
+      动态删除后举报行保留(``post`` 置空)、关注关系有向且成对唯一;
     - 发布:纯文字、配图保序、空内容拒绝、违禁词、图片数量与大小上限、鉴权、限流;
     - 可见性:最新在前、分页、双向拉黑都不可见、重封禁作者隐藏而轻封禁仍可见、
       赞/评数与「我是否已赞」、详情 404 分支、``mine`` 只列自己;
     - 删除:作者可删(含图片文件与子行)、非作者 404、删除时关闭待处理举报并通知;
     - 点赞与取消点赞都幂等、不可见动态 404;
     - 评论:通知作者、自己评自己不通知、违禁词、正序分页、隐藏被拉黑评论者、限流;
-    - 举报动态:建待处理、重复幂等、不能举报自己、不可见 404、非法类型、限流。
+    - 举报动态:建待处理、重复幂等、不能举报自己、不可见 404、非法类型、限流;
+    - 关注:幂等 204、不能关注自己、拉黑/重封禁/不存在一律 404、鉴权与限流;
+    - 关注流:只含关注的人、不含自己、拉黑与重封禁作者过滤、游标翻页不重复。
 """
 
 import base64
@@ -31,7 +33,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from moderation.models import Block, ReportStatus, ReportType
 from users.models import Profile, ProfileStatus
 
-from .models import Post, PostComment, PostImage, PostLike, PostReport
+from .models import Follow, Post, PostComment, PostImage, PostLike, PostReport
 
 User = get_user_model()
 
@@ -716,3 +718,162 @@ class PostCommentThreadTests(FeedApiMixin, APITestCase):
                 self.client.post(self.url, {"text": "自回", "parent_id": root.id},
                                  format="json")
         replied.assert_not_called()
+
+
+class FollowModelTests(TestCase):
+    """关注模型:同一对关系只能有一行,方向不可互换。"""
+
+    def setUp(self):
+        self.a = User.objects.create_user(phone="13800138000")
+        self.b = User.objects.create_user(phone="13900139000")
+
+    def test_follow_pair_is_unique(self):
+        Follow.objects.create(follower=self.a, followee=self.b)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Follow.objects.create(follower=self.a, followee=self.b)
+
+    def test_follow_is_directed(self):
+        Follow.objects.create(follower=self.a, followee=self.b)
+        self.assertEqual(list(self.a.following.values_list("followee_id", flat=True)),
+                         [self.b.id])
+        self.assertEqual(list(self.b.followers.values_list("follower_id", flat=True)),
+                         [self.a.id])
+        self.assertEqual(self.b.following.count(), 0)
+
+
+class FollowApiTests(FeedApiMixin, APITestCase):
+    """关注接口:幂等、自关注 400、拉黑/重封禁/不存在 404、鉴权与限流。"""
+
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.other = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.other, nickname="对方")
+        self.login(self.me)
+
+    def follow_url(self, user_id=None):
+        """关注接口的完整路径。
+
+        Args:
+            user_id: 目标账号 id;``None`` 表示 ``self.other``。
+
+        Returns:
+            ``/api/v1/users/{id}/follow``。
+        """
+        return f"/api/v1/users/{user_id or self.other.id}/follow"
+
+    def test_follow_creates_relation(self):
+        resp = self.client.post(self.follow_url())
+        self.assertEqual(resp.status_code, 204)
+        self.assertTrue(Follow.objects.filter(follower=self.me,
+                                              followee=self.other).exists())
+
+    def test_follow_is_idempotent(self):
+        self.assertEqual(self.client.post(self.follow_url()).status_code, 204)
+        self.assertEqual(self.client.post(self.follow_url()).status_code, 204)
+        self.assertEqual(Follow.objects.count(), 1)
+
+    def test_unfollow_is_idempotent(self):
+        Follow.objects.create(follower=self.me, followee=self.other)
+        self.assertEqual(self.client.delete(self.follow_url()).status_code, 204)
+        self.assertEqual(self.client.delete(self.follow_url()).status_code, 204)
+        self.assertEqual(Follow.objects.count(), 0)
+
+    def test_cannot_follow_self(self):
+        resp = self.client.post(self.follow_url(self.me.id))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(Follow.objects.count(), 0)
+
+    def test_blocked_target_is_404(self):
+        Block.objects.create(blocker=self.other, blocked=self.me)
+        self.assertEqual(self.client.post(self.follow_url()).status_code, 404)
+        self.assertEqual(Follow.objects.count(), 0)
+
+    def test_heavy_banned_target_is_404(self):
+        Profile.objects.filter(user=self.other).update(status=ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(self.client.post(self.follow_url()).status_code, 404)
+
+    def test_missing_target_is_404(self):
+        self.assertEqual(self.client.post(self.follow_url(999999)).status_code, 404)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.post(self.follow_url()).status_code, 401)
+
+    def test_follow_is_throttled(self):
+        from .throttles import FollowThrottle
+
+        with patch.object(FollowThrottle, "rate", "1/day", create=True):
+            self.assertEqual(self.client.post(self.follow_url()).status_code, 204)
+            self.assertEqual(self.client.delete(self.follow_url()).status_code, 429)
+
+
+class FollowingFeedTests(FeedApiMixin, APITestCase):
+    """关注流:只含关注的人、不含自己、拉黑/重封禁过滤、游标翻页不重复。"""
+
+    URL = "/api/v1/feed/following"
+
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.alice = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.alice, nickname="爱丽丝")
+        self.bob = User.objects.create_user(phone="13700137000")
+        Profile.objects.create(user=self.bob, nickname="鲍勃")
+        self.login(self.me)
+
+    def test_empty_when_following_nobody(self):
+        Post.objects.create(author=self.alice, text="别人的动态")
+        data = self.client.get(self.URL).json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(data["results"], [])
+        self.assertIsNone(data["next_cursor"])
+        self.assertFalse(data["has_more"])
+
+    def test_only_followed_authors(self):
+        Follow.objects.create(follower=self.me, followee=self.alice)
+        mine = Post.objects.create(author=self.alice, text="关注的")
+        Post.objects.create(author=self.bob, text="没关注的")
+        results = self.client.get(self.URL).json()["results"]
+        self.assertEqual([row["id"] for row in results], [mine.id])
+
+    def test_excludes_own_posts_even_with_self_follow_row(self):
+        Follow.objects.create(follower=self.me, followee=self.me)   # 脏数据兜底
+        Post.objects.create(author=self.me, text="自己的")
+        followed = Post.objects.create(author=self.alice, text="关注的人")
+        Follow.objects.create(follower=self.me, followee=self.alice)
+        results = self.client.get(self.URL).json()["results"]
+        self.assertEqual([row["id"] for row in results], [followed.id])
+
+    def test_blocked_author_disappears(self):
+        Follow.objects.create(follower=self.me, followee=self.alice)
+        Post.objects.create(author=self.alice, text="将被拉黑")
+        Block.objects.create(blocker=self.me, blocked=self.alice)
+        self.assertEqual(self.client.get(self.URL).json()["results"], [])
+
+    def test_heavy_banned_author_hidden(self):
+        Follow.objects.create(follower=self.me, followee=self.alice)
+        Post.objects.create(author=self.alice, text="封号内容")
+        Profile.objects.filter(user=self.alice).update(status=ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(self.client.get(self.URL).json()["results"], [])
+
+    def test_cursor_pagination_has_no_duplicates(self):
+        Follow.objects.create(follower=self.me, followee=self.alice)
+        for index in range(25):
+            Post.objects.create(author=self.alice, text=f"动态{index}")
+        first = self.client.get(self.URL, {"limit": 10}).json()
+        self.assertEqual(len(first["results"]), 10)
+        self.assertTrue(first["has_more"])
+        self.assertIsNotNone(first["next_cursor"])
+
+        seen = [row["id"] for row in first["results"]]
+        cursor = first["next_cursor"]
+        while cursor:
+            page = self.client.get(self.URL, {"limit": 10, "before": cursor}).json()
+            seen.extend(row["id"] for row in page["results"])
+            cursor = page["next_cursor"]
+        self.assertEqual(len(seen), 25)
+        self.assertEqual(len(set(seen)), 25)   # 翻页不重复、不漏行

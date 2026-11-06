@@ -1,11 +1,13 @@
-"""广场动态接口:发布/列表、我的动态、详情与删除、点赞、评论、举报。
+"""广场动态接口:发布/列表、我的动态、详情与删除、点赞、评论、举报、关注流。
 
 设计要点:
     1. **可见性一律走 ``services.visible_posts``**,它同时排除双向拉黑与重封禁作者;
        评论列表另需单独过滤(评论作者可能是被拉黑或被重封禁的人);
     2. **删除动态与举报联动**:删除前先关闭该动态的全部待处理举报,否则举报会在
        审核台里悬空(作者自删与运营删除共用同一条路径);
-    3. 点赞与举报都幂等:重复点赞返回 200(首次为 201),重复举报返回已有记录。
+    3. 点赞与举报都幂等:重复点赞返回 200(首次为 201),重复举报返回已有记录;
+    4. **关注接口挂在 ``/users/{user_id}/follow``**(路由写在 ``users/urls.py``,视图在本文件):
+       它操作的是「用户关系」而不是「广场动态」,但关系语义归 feed,所以视图放这里。
 
 关联文档:
     - 接口契约:docs/api/feed.md
@@ -13,13 +15,14 @@
 
 import uuid
 
+from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers
 from rest_framework.decorators import api_view, throttle_classes
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
@@ -29,18 +32,22 @@ from config.pagination import DefaultLimitOffsetPagination
 from config.params import int_param
 from config.schema_helpers import cursor_page, cursor_params, offset_page, offset_params
 from moderation.models import ReportStatus
+from moderation.services import blocked_user_ids
 from notifications.models import NotificationKind, NotificationTarget
 from notifications.services import display_name, notify_on_commit
+from users.models import ProfileStatus
 
 from .models import Post, PostComment, PostImage, PostLike, PostReport
 from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
                           PostCreateSerializer, PostReportCreateSerializer,
                           PostSerializer)
-from .services import (create_comment, delete_comment, delete_post,
-                       notify_comment_created, page_visible_posts, visible_comments,
-                       visible_posts)
-from .throttles import (PostCommentThrottle, PostCreateThrottle, PostLikeThrottle,
-                        PostReportThrottle)
+from .services import (create_comment, delete_comment, delete_post, follow,
+                       following_base, notify_comment_created, page_visible_posts,
+                       unfollow, visible_comments, visible_posts)
+from .throttles import (FollowThrottle, PostCommentThrottle, PostCreateThrottle,
+                        PostLikeThrottle, PostReportThrottle)
+
+User = get_user_model()
 
 # 点赞/举报的回执是纯字典,给 schema 用的内联序列化器(200 与 201 共用同一个组件)
 POST_LIKE_SCHEMA = inline_serializer("PostLikeResult", fields={
@@ -387,3 +394,66 @@ def post_report(request, post_id):
                   "detail": serializer.validated_data["detail"]})
     return Response({"id": report.id, "status": report.status},
                     status=201 if created else 200)
+
+
+@extend_schema(parameters=cursor_params(),
+               responses={200: cursor_page("FollowingPage", PostSerializer)})
+@api_view(["GET"])
+def following_posts(request):
+    """关注流(GET /api/v1/feed/following)。
+
+    只含**我关注的人**的动态(不含自己),可见性复用广场口径
+    (排除双向拉黑与重封禁作者);游标分页,响应形状与广场列表完全一致。
+    新接口没有老客户端,因此不提供 ``offset`` 兼容分支。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` / ``before``。
+
+    Returns:
+        ``{count, next_cursor, has_more, results}``。
+    """
+    limit = int_param(request, "limit", default=DefaultLimitOffsetPagination.default_limit,
+                      minimum=1, maximum=DefaultLimitOffsetPagination.max_limit)
+    page = page_visible_posts(request.user, limit, before=read_before(request),
+                              base=following_base(request.user))
+    return Response(cursor_body(
+        PostSerializer(page.rows, many=True, context={"request": request}).data,
+        count=page.total, next_cursor=page.next_cursor, has_more=page.has_more))
+
+
+@extend_schema(methods=["POST"], request=None, responses={204: None})
+@extend_schema(methods=["DELETE"], responses={204: None})
+@api_view(["POST", "DELETE"])
+@throttle_classes([FollowThrottle])
+def follow_user(request, user_id):
+    """关注与取消关注(POST/DELETE /api/v1/users/{user_id}/follow)。
+
+    幂等:重复关注、重复取消都返回 204(不返回 201,也不报 409);
+    不能关注自己(400);与我互相拉黑、对方不存在或处于重封禁状态一律 404
+    (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
+    关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
+
+    Args:
+        request: DRF 请求对象。
+        user_id: 被关注/被取消关注的账号 id。
+
+    Returns:
+        204 空响应。
+
+    Raises:
+        ValidationError: 关注自己(400)。
+        NotFound: 对方不存在、与我互相拉黑,或处于重封禁状态。
+    """
+    if user_id == request.user.id:
+        raise ValidationError("不能关注自己")
+    if user_id in blocked_user_ids(request.user):
+        raise NotFound("用户不存在")
+    target = get_object_or_404(User, id=user_id)
+    profile = getattr(target, "profile", None)
+    if profile is None or profile.status == ProfileStatus.BANNED_HEAVY:
+        raise NotFound("用户不存在")
+    if request.method == "POST":
+        follow(request.user, target)
+    else:
+        unfollow(request.user, target)
+    return Response(status=204)

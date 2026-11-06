@@ -12,6 +12,8 @@
     - admin 审核动作:驳回与通过时的状态重算、记录审核人与时间;
     - 他人资料卡:只返回公开字段、重封禁不可见、轻封禁可见、拉黑双向不可见、404;
     - 共同标签:只返回交集且按 id 升序、无交集/我没标签时为空数组、查询条数不随标签数增长;
+    - 资料卡关注态:默认未关注且计数为 0、关注后 ``is_followed`` 为真、粉丝/关注数正确、
+      查询条数不随关注数增长;
     - 抓取监控:同目标一小时只计一次、跨目标累加、超阈值告警、Redis 故障不影响响应;
     - 在线状态服务:写入后在线、窗口边界、未知用户、本地时区 ISO、Redis 故障降级;
     - 在线状态接口:鉴权、返回在线与最后活跃、剔除拉黑/自己/未知/重封禁、去重保序、
@@ -50,7 +52,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from accounts import sms_codes
 from config import storage
 from discovery.models import Match, Swipe
-from feed.models import Post, PostComment, PostImage
+from feed.models import Follow, Post, PostComment, PostImage
 from im import tasks as im_tasks
 from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import BanLog, Block, Report
@@ -717,6 +719,61 @@ class SharedTagsTests(AuthMixin, APITestCase):
         with CaptureQueriesContext(connection) as many_shared:
             self._shared_tags()
         self.assertEqual(len(one_shared.captured_queries), len(many_shared.captured_queries))
+
+
+class FollowStateTests(AuthMixin, APITestCase):
+    """资料卡关注态:``is_followed`` 口径、粉丝/关注数、查询条数恒定。"""
+
+    def setUp(self):
+        self.me = User.objects.create_user(phone="13800138002")
+        self.login(self.me)
+        self.other = User.objects.create_user(phone="13900139002")
+        Profile.objects.create(user=self.other, nickname="小红", gender="female",
+                               birthday="1998-01-01", city="上海", bio="喜欢爬山",
+                               status=ProfileStatus.COMPLETE)
+        self.fan = User.objects.create_user(phone="13700137002")
+        Profile.objects.create(user=self.fan, nickname="粉丝", status=ProfileStatus.COMPLETE)
+
+    def _state(self):
+        """请求他人资料卡并取出三个关注态字段。
+
+        Returns:
+            ``(is_followed, follower_count, following_count)`` 三元组。
+        """
+        response = self.client.get(f"/api/v1/users/{self.other.id}")
+        self.assertEqual(response.status_code, 200, response.content[:200])
+        data = response.json()
+        return data["is_followed"], data["follower_count"], data["following_count"]
+
+    def test_default_state_is_not_followed(self):
+        """没人关注、我也没有关注时:三个字段都是默认值(不是缺字段)。"""
+        self.assertEqual(self._state(), (False, 0, 0))
+
+    def test_is_followed_true_after_following(self):
+        Follow.objects.create(follower=self.me, followee=self.other)
+        self.assertTrue(self._state()[0])
+
+    def test_counts_are_directional(self):
+        """粉丝数只算「关注对方的人」,关注数只算「对方关注的人」。"""
+        Follow.objects.create(follower=self.me, followee=self.other)
+        Follow.objects.create(follower=self.fan, followee=self.other)
+        Follow.objects.create(follower=self.other, followee=self.fan)
+        is_followed, follower_count, following_count = self._state()
+        self.assertTrue(is_followed)
+        self.assertEqual(follower_count, 2)     # 我 + 粉丝
+        self.assertEqual(following_count, 1)    # 对方只关注了粉丝
+
+    def test_query_count_does_not_grow_with_follow_count(self):
+        """关注态固定只多一条聚合 SQL,不随关注数增长(N+1 守卫)。"""
+        self._state()   # 预热:首次请求会触发偏好/访客等一次性懒创建
+        with CaptureQueriesContext(connection) as few:
+            self._state()
+        for index in range(5):
+            fan = User.objects.create_user(phone=f"1360013{index:04d}")
+            Follow.objects.create(follower=fan, followee=self.other)
+        with CaptureQueriesContext(connection) as many:
+            self._state()
+        self.assertEqual(len(few.captured_queries), len(many.captured_queries))
 
 
 class ProfileScrapeMonitorTests(TestCase):

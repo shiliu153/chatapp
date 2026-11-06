@@ -21,7 +21,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from discovery.models import Match
 from discovery.services import likes_received_queryset, visits_received_queryset
-from feed.models import Post
+from feed.models import Follow, Post
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 User = get_user_model()
@@ -34,6 +34,9 @@ BUDGET = {
     "candidates_warm": 9,
     "matches": 9,
     "posts": 15,
+    # 关注流(批次 I)与广场共用两段式分页链路,只多一个「我关注了谁」的子查询
+    # (子查询内嵌在同一条 SQL 里,不额外产生往返),因此预算与广场同档。
+    "following": 15,
     "likes": 6,
     "visits": 6,
 }
@@ -58,7 +61,7 @@ def _make_user(phone: str, gender: str = "female") -> User:
 
 
 class QueryBudgetTests(APITestCase):
-    """三个列表接口的 SQL 条数上限。"""
+    """列表接口的 SQL 条数上限(含页大小不变性守卫)。"""
 
     def setUp(self):
         cache.clear()
@@ -119,6 +122,22 @@ class QueryBudgetTests(APITestCase):
         self._count("/api/v1/posts?limit=5")   # 预热:触发 Preference 懒创建(3 条一次性 SQL)
         small = self._count("/api/v1/posts?limit=5")
         large = self._count("/api/v1/posts?limit=10")
+        self.assertEqual(small, large)
+
+    def test_following_budget(self):
+        """关注流:只取关注者的动态,与广场共用两段式分页,预算同档。"""
+        for user in User.objects.exclude(id=self.me.id):
+            Follow.objects.create(follower=self.me, followee=user)
+        self.assertLessEqual(self._count("/api/v1/feed/following?limit=10"),
+                             BUDGET["following"])
+
+    def test_following_page_size_does_not_change_query_count(self):
+        """N+1 守卫:关注流每页 5 条与 10 条的 SQL 条数一致。"""
+        for user in User.objects.exclude(id=self.me.id):
+            Follow.objects.create(follower=self.me, followee=user)
+        self._count("/api/v1/feed/following?limit=5")   # 预热:触发 Preference 懒创建(3 条一次性 SQL)
+        small = self._count("/api/v1/feed/following?limit=5")
+        large = self._count("/api/v1/feed/following?limit=10")
         self.assertEqual(small, large)
 
     def test_likes_budget(self):

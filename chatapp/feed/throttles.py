@@ -1,13 +1,20 @@
-"""广场接口的限流:发布动态、发表评论、举报动态。
+"""广场接口的限流:发布动态、发表评论、举报动态、关注。
 
 设计要点:
     读写共用一个视图时(GET/POST 同路径),限流只应作用于写操作 ——
     因此 ``allow_request`` 里对非 POST 直接放行,看列表不受额度影响。
+    关注接口的 POST/DELETE **都是写**,共用同一个额度(关注又取消地刷也会被压住)。
 """
 
 from rest_framework.throttling import SimpleRateThrottle
 
 from config.throttling import UserScopedThrottle
+
+
+class FollowThrottle(UserScopedThrottle):
+    """按用户限流关注/取消关注;额度见 ``settings.DEFAULT_THROTTLE_RATES["follow"]``。"""
+
+    scope = "follow"
 
 
 class PostLikeThrottle(UserScopedThrottle):
