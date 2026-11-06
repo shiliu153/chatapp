@@ -42,4 +42,29 @@ void main() {
     final trailingX = tester.getCenter(find.byKey(const Key('bar.trailing'))).dx;
     expect(trailingX, greaterThan(titleX));
   });
+
+  testWidgets('放进 Column(宽松横向约束)也要撑满整屏,返回键与 trailing 不压标题', (tester) async {
+    // 回归:2026-11-07 模拟器手测发现,只写 height 时 Stack 会缩到标题宽度,
+    // 于是「保存」/「全部已读」直接叠在标题上、返回箭头也看不见。
+    await tester.pumpWidget(_wrap(Column(
+      children: const [
+        AppSubPageBar(
+          title: '编辑资料',
+          backKey: Key('bar.back'),
+          trailing: Text('保存', key: Key('bar.trailing')),
+        ),
+        Expanded(child: SizedBox.shrink()),
+      ],
+    )));
+
+    final screenWidth = tester.getSize(find.byType(Scaffold)).width;
+    expect(tester.getSize(find.byType(AppSubPageBar)).width, screenWidth);
+
+    final backX = tester.getCenter(find.byKey(const Key('bar.back'))).dx;
+    final trailingX = tester.getCenter(find.byKey(const Key('bar.trailing'))).dx;
+    final titleX = tester.getCenter(find.text('编辑资料')).dx;
+    expect(backX, lessThan(screenWidth * 0.15));
+    expect(trailingX, greaterThan(screenWidth * 0.85));
+    expect(titleX, closeTo(screenWidth / 2, 1));
+  });
 }
