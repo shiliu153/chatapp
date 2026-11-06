@@ -166,3 +166,35 @@ export interface Comment {
 }
 
 export type ReportType = 'harassment' | 'porn' | 'fraud' | 'other'
+
+/** 站内通知的触发者摘要(notifications.md §1.1)。 */
+export interface NotificationActor {
+  /** 账号 ID(可直接拼 `/chat/u{id}`) */
+  id: number
+  nickname: string
+  /** 首张已过审照片;无照片为 null */
+  avatar: string | null
+}
+
+/** 通知点击后的跳转目标;`kind=none` 时 `id` 为 null。 */
+export interface NotificationTarget {
+  kind: 'post' | 'user' | 'none'
+  id: number | null
+}
+
+/**
+ * 一条站内通知(notifications.md §1.1)。
+ *
+ * `kind` 取值:`post_like` / `post_comment` / `comment_reply` / `match` /
+ * `report_handled` / `system`。正文由服务端生成(`text`),前端直接展示。
+ */
+export interface AppNotification {
+  id: number
+  kind: string
+  text: string
+  is_read: boolean
+  /** ISO 8601 */
+  created_at: string
+  actor: NotificationActor | null
+  target: NotificationTarget
+}

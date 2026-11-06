@@ -20,10 +20,13 @@
 
 import type { components } from './schema'
 import type {
+  AppNotification,
   Candidate,
   Comment,
   LikeReceived,
   MatchSummary,
+  NotificationActor,
+  NotificationTarget,
   Photo,
   Post,
   PostAuthor,
@@ -56,3 +59,12 @@ export type PostAuthorUnknown = MustBeNever<UnknownFields<PostAuthor, Schema<'Au
 export type PostUnknown = MustBeNever<UnknownFields<Post, Schema<'Post'>>>
 export type ReplyToUnknown = MustBeNever<UnknownFields<ReplyTo, Schema<'ReplyTo'>>>
 export type CommentUnknown = MustBeNever<UnknownFields<Comment, Schema<'PostComment'>>>
+export type NotificationActorUnknown = MustBeNever<
+  UnknownFields<NotificationActor, Schema<'NotificationActor'>>
+>
+export type NotificationTargetUnknown = MustBeNever<
+  UnknownFields<NotificationTarget, Schema<'NotificationTarget'>>
+>
+export type AppNotificationUnknown = MustBeNever<
+  UnknownFields<AppNotification, Schema<'NotificationItem'>>
+>

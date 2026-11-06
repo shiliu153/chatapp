@@ -85,6 +85,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
 | 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
 | 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | `605ad81` | `chatapp-1.0.6.apk` |
+| 1.0.7 | 2026-11-06 | `v1.0.7` | 待建:本环境无 `gh` CLI / GitHub token,Release 对象需在网页创建(材料见 §6.3) | 待上线 | `chatapp-1.0.7.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -311,6 +312,60 @@ gh release create v1.0.6 \
 ```
 
 建好后把 §5 表里 1.0.6 行的 `Release` / `上线 SHA` / APK 三列补齐。
+
+
+## 6.3 v1.0.7 的发版材料(批次 H · 站内通知中心)
+
+- tag:`v1.0.7` → 待补(指向合并后的 `origin/master` SHA;`git tag -a v1.0.7 <SHA> -m "v1.0.7 — 站内通知中心"`)
+- 附件:`app/build/app/outputs/flutter-apk/app-release.apk` → `chatapp-1.0.7.apk`
+- Release 标题:`v1.0.7 — 站内通知中心`
+
+**notes 草稿**
+
+```markdown
+## 新增
+
+- **站内通知中心**(批次 H):点赞 / 评论 / 回复 / 配对成功 / 举报处理五类事件聚合到一个入口,
+  消息页顶栏铃铛 + 未读角标;点开一条标已读并按目标跳转(动态详情 / 与对方聊天),支持「全部已读」。
+- 后端新增 3 个接口:`GET /api/v1/notifications`(游标分页)、`GET /api/v1/notifications/unread_count`、
+  `POST /api/v1/notifications/read`(按 ids 或 all)。文档见 `docs/api/notifications.md`。
+- 通知只保留 90 天(查询侧截断);`notifications_prune` 管理命令回收旧数据(默认 dry-run)。
+- 通知偏好新增 `social` 开关(动态被赞 / 被评论 / 被回复),默认开;`GET/PATCH /push/preferences` 响应多一个字段。
+
+## 变更
+
+- IM 灰条**保留不变**:通知是聚合索引,灰条仍是聊天记录里的事实,两者并存。
+- 「喜欢我的人 / 谁看过我 / 新粉丝」**不产生**通知(它们已有入口角标与列表页)。
+
+## 修复
+
+- 无。
+
+## 运维注意
+
+- **后端有迁移**:新增 `notifications_inappnotification` 表与 `notificationpreference.social` 列,
+  部署时先 `migrate` 再重启 `chatapp-web` / `chatapp-celery`。
+- Web `dist` 需重新构建部署;APK 需重新打包上传。
+- `.env` 只改 `LATEST_APP_VERSION=1.0.7` 与 `APP_DOWNLOAD_URL`;**`MIN_APP_VERSION` 保持 1.0.1**。
+
+## 验证
+
+- 后端:`manage.py test` 全绿;`spectacular --validate` 零 warning;三处文档门禁绿;`comment_coverage` 无缺口。
+- App:`flutter analyze` 零告警 + `flutter test` 全绿。
+- Web:`vue-tsc` + `eslint --max-warnings 0` 零告警 + `vitest` 全绿。
+- `python scripts/sync_version.py --check` 绿。
+```
+
+**创建命令**(本机无 `gh`,走 GitHub REST + PAT,与 1.0.5 / 1.0.6 同法)
+
+```bash
+gh release create v1.0.7 \
+  --title "v1.0.7 — 站内通知中心" \
+  --notes-file /tmp/notes-1.0.7.md \
+  app/build/app/outputs/flutter-apk/app-release.apk#chatapp-1.0.7.apk
+```
+
+建好后把 §5 表里 1.0.7 行的 `Release` / `上线 SHA` / APK 三列补齐。
 
 
 ## 7. 为什么这条约束值得存在

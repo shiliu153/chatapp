@@ -17,6 +17,8 @@ from config.cursor import apply_before, encode_cursor
 from im import tasks as im_tasks
 from moderation.models import ReportStatus
 from moderation.services import blocked_user_ids, notify_report_handled
+from notifications.models import NotificationKind, NotificationTarget
+from notifications.services import display_name, notify_on_commit
 from users.models import Profile, ProfileStatus
 
 from .models import Post, PostComment, PostLike, PostReport
@@ -150,6 +152,9 @@ def notify_comment_created(comment) -> None:
 
     自己评论自己的动态、自己回复自己都不入队(不打扰)。
 
+    站内通知(批次 H)与 IM 灰条**并存**:灰条是聊天记录里的事实,通知是聚合索引;
+    这里只追加通知调用,不改灰条的入队条件与次数。
+
     Args:
         comment: 刚创建的评论或回复。
     """
@@ -158,10 +163,21 @@ def notify_comment_created(comment) -> None:
             return
         transaction.on_commit(lambda: im_tasks.post_commented.delay(comment.id),
                               robust=True)
+        notify_on_commit(
+            comment.post.author_id, NotificationKind.POST_COMMENT,
+            actor_id=comment.author_id, target_kind=NotificationTarget.POST,
+            target_id=comment.post_id,
+            text=f"{display_name(comment.author)} 评论了你的动态:{comment.text[:30]}",
+            dedupe_key=f"comment:{comment.id}")
         return
     if comment.reply_to_id is None or comment.reply_to_id == comment.author_id:
         return
     transaction.on_commit(lambda: im_tasks.post_replied.delay(comment.id), robust=True)
+    notify_on_commit(
+        comment.reply_to_id, NotificationKind.COMMENT_REPLY, actor_id=comment.author_id,
+        target_kind=NotificationTarget.POST, target_id=comment.post_id,
+        text=f"{display_name(comment.author)} 回复了你的评论:{comment.text[:30]}",
+        dedupe_key=f"reply:{comment.id}")
 
 
 def visible_comments(post, viewer):

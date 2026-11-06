@@ -18,6 +18,7 @@ import '../../im/im_manager.dart';
 import '../../im/im_repository.dart';
 import '../presence/models.dart';
 import '../presence/presence_controller.dart';
+import '../notifications/notifications_page.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
 import 'widgets/chat_bubbles_mark.dart';
@@ -54,6 +55,8 @@ class ChatsPage extends ConsumerWidget {
                       icon: Icon(Icons.search_rounded,
                           size: 24, color: colors.text1),
                     ),
+                  // 站内通知入口(批次 H):铃铛 + 未读角标,不加底栏 tab
+                  const NotificationsBell(),
                 ],
               ),
             ),

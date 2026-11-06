@@ -9,10 +9,12 @@ import AppSkeleton from '@/components/AppSkeleton.vue'
 import OnlineDot from '@/components/OnlineDot.vue'
 import { ChatMessageKind } from '@/im/types'
 import { useChatStore } from '@/stores/chat'
+import { useNotificationsStore } from '@/stores/notifications'
 import { usePresenceStore } from '@/stores/presence'
 import type { ChatMessage, ImConversation } from '@/im/types'
 
 const store = useChatStore()
+const notifications = useNotificationsStore()
 const presence = usePresenceStore()
 const router = useRouter()
 
@@ -31,6 +33,8 @@ const recent = computed(() => store.conversations.filter((item) => item.lastMess
 onMounted(() => {
   void store.connect()
   void store.loadConversations().catch(() => {})
+  // 站内通知角标:失败不影响消息页主流程
+  void notifications.loadUnread().catch(() => {})
 })
 
 /** 会话对端(`u9`)→ 数字用户 id;系统通知不是真人,不查在线状态 */
@@ -93,17 +97,30 @@ function timeOf(conversation: ImConversation): string {
   <section class="chats">
     <header class="chats__head">
       <h1 class="chats__title">消息</h1>
-      <!-- 只有自建 IM 后端支持搜索;能力位在连上之后才为 true(见 store.capabilities) -->
-      <button
-        v-if="store.capabilities.search"
-        type="button"
-        class="chats__search"
-        aria-label="搜索聊天记录"
-        title="搜索聊天记录"
-        @click="router.push({ name: 'search' })"
-      >
-        🔍
-      </button>
+      <div class="chats__actions">
+        <!-- 只有自建 IM 后端支持搜索;能力位在连上之后才为 true(见 store.capabilities) -->
+        <button
+          v-if="store.capabilities.search"
+          type="button"
+          class="chats__search"
+          aria-label="搜索聊天记录"
+          title="搜索聊天记录"
+          @click="router.push({ name: 'search' })"
+        >
+          🔍
+        </button>
+        <!-- 站内通知入口(批次 H):铃铛 + 未读角标,不加第 5 个底栏 tab -->
+        <button
+          type="button"
+          class="chats__notifications"
+          aria-label="通知"
+          title="通知"
+          @click="router.push({ name: 'notifications' })"
+        >
+          🔔
+          <AppBadge class="chats__notifications-badge" :count="notifications.unread" />
+        </button>
+      </div>
     </header>
 
     <AppSkeleton v-if="loading" height="64px" />
@@ -195,6 +212,33 @@ function timeOf(conversation: ImConversation): string {
 }
 .chats__search:hover {
   background: var(--hover-overlay-strong);
+}
+.chats__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.chats__notifications {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: var(--radius-chip);
+  background: var(--color-bg-card);
+  font-size: var(--text-subtitle);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.chats__notifications:hover {
+  background: var(--hover-overlay-strong);
+}
+.chats__notifications-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
 }
 .chats__inactive {
   margin: 0;

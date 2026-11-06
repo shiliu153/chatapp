@@ -647,3 +647,68 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
   (`MIN_APP_VERSION` 保持 1.0.1)。冒烟:`/app/config` 返回 1.0.6、`/health` `/readyz` 200、
   APK Range 206、线上 `GET /matches` 与 `GET /users/{id}` 均返回 `shared_tags`。
   实况与回滚点见 `docs/ops/release.md` §6.2。
+
+### 批次 H 执行于 2026-11-06 / PR #86
+
+**交付范围**:H-1 → H-6 全部完成,版本升到 **1.0.7**。严格按 §2.3:灰条保留、喜欢我/访客不通知、
+新增 `social` 开关列、铃铛入口不加底栏 tab。
+
+#### 与计划的偏差
+
+| 计划 | 实际 | 原因 |
+|---|---|---|
+| `path("notifications/", include(...))` + 子路由里 `path("")` 挂列表 | 列表接口直接挂在 `config/api_urls.py`(`path("notifications", ...)`),`notification_urls.py` 只放 `unread_count` / `read` | `include` 下的空路径会生成 `/api/v1/notifications/`,而本仓路由一律不带尾斜杠:实测 `GET /api/v1/notifications` 被 `APPEND_SLASH` 301 到带斜杠版本,**文档门禁还会多出一个不存在的接口**。改法与既有的 `/matches`、`/presence` 一致。 |
+| Meta `ordering = ["-created_at"]` | `["-created_at", "-id"]` | 游标分页是 `(created_at, id)` 的 keyset:只按时间排序时同一秒内的多行顺序不稳定,翻页会重复或漏行(`config/cursor.py` 的文档要求)。 |
+| 「`notify` 由调用方包 `on_commit`」 | 新增 `notify_on_commit`(收 id、内部 `robust=True`、回调里按 id 现查),业务事件统一用它;`notify` 保留为同步入口 | 四处 hook 各写一遍 `transaction.on_commit(lambda: notify(...))` 会把「传实例」带进提交后的回调,账号在提交前注销就会拿悬空实例写外键;传 id 现查更稳,也少四份重复。 |
+| H-4「`user`(match/comment)→ `/chat/:peerId`」 | 跳转**由 `target_kind` 决定**:`post` → 动态详情、`user` → 与对方聊天、`none` → 只标已读 | 评论类通知的目标是**动态**(服务端写的 `target_kind=post`),跳到动态详情才看得到被评论的内容;只有配对通知的目标是**人**。按 kind 硬编码会让「评论」跳到一个没有聊天关系的会话。 |
+| `notifications_prune` 只要求「默认 dry-run、`--apply` 删 90 天前」 | 额外支持 `--days` | 测试与运维都常用短保留期验证,加一个参数比改代码便宜。 |
+| 计划未提偏好页 | App/Web 的「通知设置」页**未加 `social` 开关** | 该页仍是「推送即将上线」的占位页(四个只读开关,不落库);给它加一个真正生效的开关会和旁边四个假开关混淆。`social` 已可通过 `PATCH /push/preferences` 修改,等通知设置页正式改造时一起做。 |
+
+#### 实现要点
+
+- **`dedupe_key` 是「同一件事只留一条」的落点**:点赞 `like:{post}:{actor}`(取消再赞不会重复)、
+  评论 `comment:{id}`、回复 `reply:{id}`、配对 `match:{match_id}:{receiver}`(双方各一条)、
+  举报 `report:{id}`(重复处理不重复通知)。
+- **通知只返回 90 天内、只返回自己的**;`unread_count` 与列表共用 `_visible_notifications`,
+  不会出现「角标 3、列表 0 条」的口径漂移。
+- **已读接口只影响自己**:别人的 id 混进来被 `user=` 条件静默过滤,仍 204(不泄漏存在性)。
+- **事件接入只追加**:灰条的三处 `im_tasks.*.delay` 调用与条件一字未改,新增的只有 `notify_on_commit`;
+  既有测试(断言灰条调用次数)全绿即证明。
+- App 通知页的「点击跳转」先 `markRead` 再 `push`:标已读失败只吞异常、不挡跳转(已读是副作用)。
+
+#### 踩到的坑
+
+1. **`include()` 下的空路径 = 尾斜杠**。`path("", views.list)` 在 `notifications/` 前缀下生成
+   `/api/v1/notifications/`,请求不带斜杠时 `APPEND_SLASH` 先 301,客户端拿到的不是 JSON;
+   同时 `ApiDocsCoverageTests` 会把带斜杠的路径当成「未写文档的接口」。列表接口必须直接挂在
+   `config/api_urls.py`(与 `/matches`、`/presence` 同款)。
+2. **`openapi.yml` 是生成物,路由改了必须重新生成**。第一次生成发生在修路由之前,文件里留下
+   `/api/v1/notifications/`;三处文档门禁用的是**进程内生成**的 schema(与路由一致),所以本地全绿,
+   但 CI 的 `git diff --exit-code openapi.yml` 会红。改路由后重跑 `spectacular` 即可。
+3. **`TestCase` 里 `on_commit` 不执行**。H-1/H-3 的断言必须包 `captureOnCommitCallbacks(execute=True)`,
+   否则「通知没写进去」看起来像 bug(实际是提交回调被测试事务拦住)。
+4. **`--keepdb` 的旧测试库会制造假失败**。复用一份缺数据迁移(tags 池为空)的测试库时,
+   `users`/`accounts`/`discovery` 共 11 个用例报 `IndexError` / 「标签池不足 10 个」;
+   换 `manage.py test --noinput`(重建库)后 **852 全绿**。排查「是不是自己改坏了」时先确认测试库是干净的。
+5. **App 的假网络 `ok()` 只接受 `Object`**:204 空响应要传 `ok(const <String, dynamic>{}, status: 204)`,
+   传 `null` 是编译错误。
+6. **Web 新增页面必须走 token**:通知页的未读点用了 `--color-brand`、气泡底色走 `--color-bg-card`,
+   `no-raw-color.spec.ts` 会拦裸 hex;`eslint` 的 `vue/max-attributes-per-line` 也要求长标签拆行。
+
+#### 测试
+
+| 端 | 结果 |
+|---|---|
+| 后端 | `manage.py test` **852 OK**(新增 53 例:H-1 模型/服务 19、H-2 接口 18、H-3 事件 16);`spectacular --validate` 零 warning;`test_schema_contract` / `ApiDocsCoverageTests` / `comment_coverage` 全绿 |
+| App | `flutter analyze` 零告警;`flutter test` **506 绿**(新增 11 例:controller 7 + 页面/角标 4) |
+| Web | `vue-tsc` 零错误、`eslint --max-warnings 0` 零告警;`vitest` **445 绿**(新增 13 例:store 7 + 页面 6);覆盖率门槛通过 |
+| 版本 | `python scripts/sync_version.py --check` 绿(1.0.7) |
+
+#### 发版(H-6)
+
+- PR #86 squash 合并 → 见 `docs/ops/release.md` §5 的「上线 SHA」列。
+- 版本 **1.0.7**:`pubspec.yaml` / `app_info.dart` / `web/package.json` 三处一致;
+  tag `v1.0.7` 与远端 Release 的材料见 `docs/ops/release.md` §6.3。
+- 部署要点:**本次有迁移**(新增 `notifications_inappnotification` 表 + `notificationpreference.social` 列)
+  → 先 `migrate` 再重启 `chatapp-web` / `chatapp-celery`;Web `dist` 覆盖;APK 上传;
+  `.env` 只改 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`(`MIN_APP_VERSION` 保持 1.0.1)。

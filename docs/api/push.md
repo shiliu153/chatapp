@@ -5,7 +5,7 @@
 > 契约与字段级门禁,删除会牵动 `openapi.yml` 与客户端类型生成,收益为零);决策口径与「若要彻底移除
 > 该怎么做」见 [backlog §4](../backlog/2026-11-03-todo.md)。**新功能不要依赖本分册的接口。**
 >
-> 本分册记录推送设备与通知偏好接口。推送通道为极光 JPush:客户端上报 `registration_id`,服务端按「新的喜欢 / 配对成功 / 新消息 / 系统通知」四类偏好投递;点击通知由客户端按 `extras.deeplink` 跳转。
+> 本分册记录推送设备与通知偏好接口。推送通道为极光 JPush:客户端上报 `registration_id`,服务端按「新的喜欢 / 配对成功 / 新消息 / 系统通知 / 动态互动」五类偏好投递;点击通知由客户端按 `extras.deeplink` 跳转。
 > 
 > **新消息推送的触发方是 imserver**:消息由 imserver 直接写库,Django 收不到「有新消息」,所以由 imserver 在目标不在线时回调 `/internal/push/new-message`(HMAC 共享密钥,不进本分册),再由 Celery 发推送。运维口径见 [docs/ops/push.md](../ops/push.md)。
 >
@@ -123,19 +123,22 @@ HTTP/1.1 204 No Content
 
 **接口描述**
 
-读取账号级通知偏好,四类通知默认全开。没有记录时返回默认值并落库。
+读取账号级通知偏好,五类通知默认全开。没有记录时返回默认值并落库。
 
 - 偏好是**账号级**:App 与网页端改的是同一份设置;
-- 网页端不接收推送,设置只影响 App。
+- 网页端不接收推送,设置只影响 App;
+- `social` 是站内通知中心(批次 H)的开关,**也作用于站内通知**:关掉后动态被赞 /
+  被评论 / 评论被回复都不再落库(见 [notifications.md](notifications.md))。
 
 **响应参数**
 
 | 参数名称 | 类型 | 描述 |
 |---|---|---|
 | likes | Boolean | 新的喜欢:有人喜欢你时推送 |
-| matches | Boolean | 配对成功:互相喜欢时推送 |
+| matches | Boolean | 配对成功:互相喜欢时推送,同时控制站内通知的 `match` |
 | messages | Boolean | 新消息:对方发来消息且你不在线时推送(这就是「免打扰」开关) |
-| system | Boolean | 系统通知:举报处理结果、账号限制/解封 |
+| system | Boolean | 系统通知:举报处理结果、账号限制/解封;同时控制站内通知的 `report_handled` |
+| social | Boolean | 动态互动:你的动态被赞 / 被评论、你的评论被回复(站内通知) |
 
 **请求示例**
 
@@ -151,7 +154,8 @@ curl "http://<域名>/api/v1/push/preferences" \
   "likes": true,
   "matches": true,
   "messages": true,
-  "system": true
+  "system": true,
+  "social": true
 }
 ```
 
@@ -183,10 +187,11 @@ curl "http://<域名>/api/v1/push/preferences" \
 | matches | 否 | Boolean | 配对成功开关 |
 | messages | 否 | Boolean | 新消息开关(关掉后离线消息不再推送) |
 | system | 否 | Boolean | 系统通知开关 |
+| social | 否 | Boolean | 动态互动开关(关掉后站内通知不再落库) |
 
 **响应参数**
 
-同 [2.1 获取通知偏好](#21-获取通知偏好):返回更新后的三个字段。
+同 [2.1 获取通知偏好](#21-获取通知偏好):返回更新后的五个字段。
 
 **请求示例**
 
@@ -204,7 +209,8 @@ curl -X PATCH "http://<域名>/api/v1/push/preferences" \
   "likes": false,
   "matches": true,
   "messages": true,
-  "system": true
+  "system": true,
+  "social": true
 }
 ```
 

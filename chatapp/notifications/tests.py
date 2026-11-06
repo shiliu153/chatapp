@@ -4,7 +4,7 @@
     - 控制台后端把验证码写进日志;
     - 发送任务把调用透传给后端(不真的发短信);
     - 推送设备:registration_id 全局唯一、随用户删除级联清理;
-    - 通知偏好:默认全开(四类)、只建一行、未知类型一律不发;
+    - 通知偏好:默认全开(五类)、只建一行、未知类型一律不发;
     - 推送客户端:三态通道选择、极光载荷正确、网络错误不抛、jpush 缺 key 直接报错;
     - 推送任务:通道/偏好/设备/冷却/失败重试的边界;
     - 新消息推送任务:封禁、偏好、设备、按 msg_id 去重、失败释放幂等位;
@@ -93,6 +93,7 @@ class NotificationPreferenceModelTests(TestCase):
         self.assertTrue(pref.matches)
         self.assertTrue(pref.messages)
         self.assertTrue(pref.system)
+        self.assertTrue(pref.social)
 
         again = NotificationPreference.for_user(self.user)
         self.assertEqual(again.pk, pref.pk)
@@ -104,6 +105,7 @@ class NotificationPreferenceModelTests(TestCase):
         self.assertTrue(pref.allows("match"))
         self.assertTrue(pref.allows("message"))
         self.assertTrue(pref.allows("system"))
+        self.assertTrue(pref.allows("social"))
         self.assertFalse(pref.allows("promo"))
 
     def test_preference_is_deleted_with_user(self):
@@ -202,14 +204,14 @@ class PushPreferenceApiTests(APITestCase):
     def test_get_returns_defaults(self):
         resp = self.client.get("/api/v1/push/preferences")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data, {"likes": True, "matches": True,
-                                     "messages": True, "system": True})
+        self.assertEqual(resp.data, {"likes": True, "matches": True, "messages": True,
+                                     "system": True, "social": True})
 
     def test_patch_updates_only_given_field(self):
         resp = self.client.patch("/api/v1/push/preferences", {"likes": False}, format="json")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data, {"likes": False, "matches": True,
-                                     "messages": True, "system": True})
+        self.assertEqual(resp.data, {"likes": False, "matches": True, "messages": True,
+                                     "system": True, "social": True})
         self.assertFalse(NotificationPreference.for_user(self.me).likes)
 
     def test_patch_can_turn_off_message_push(self):
