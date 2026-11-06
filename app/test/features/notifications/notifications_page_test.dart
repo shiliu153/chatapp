@@ -123,4 +123,34 @@ void main() {
     });
     expect(find.text('动态详情'), findsOneWidget);
   });
+
+  testWidgets('角标按注入的间隔自动刷新(不重启也能看到新通知)', (tester) async {
+    final adapter = _chatAdapter();
+    var unreadCalls = 0;
+    adapter.routes['GET /notifications/unread_count'] = (options) {
+      unreadCalls += 1;
+      return ok({'unread': unreadCalls});
+    };
+    await pumpApp(
+      tester,
+      adapter,
+      prefs: _loggedIn,
+      imClient: FakeImClient(),
+      // 真实值 60s;测试里调快,验证「周期性 invalidate」这条链路
+      notificationsBadgeRefreshInterval: const Duration(milliseconds: 200),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('消息'));
+    await tester.pumpAndSettle();
+
+    final before = unreadCalls;
+    expect(before, greaterThanOrEqualTo(1));
+
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pumpAndSettle();
+
+    expect(unreadCalls, greaterThan(before));
+    // 周期 Timer 会一直挂着:卸载整棵树让它 dispose,否则用例结束报 pending timer
+    await tester.pumpWidget(const SizedBox());
+  });
 }

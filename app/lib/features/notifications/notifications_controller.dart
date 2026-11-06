@@ -120,3 +120,12 @@ final notificationsProvider =
 /// 入口角标:只查数量,不拉整页。
 final notificationsUnreadCountProvider = FutureProvider<int>((ref) async =>
     ref.watch(notificationsRepositoryProvider).fetchUnreadCount());
+
+/// 角标自动刷新间隔(默认 60 秒;`null` = 关闭轮询)。
+///
+/// 为什么需要它:本项目**不做离线推送**(backlog §4),角标只能靠拉。H 批交付时
+/// 角标是纯 `FutureProvider`,App 常驻打开时不会自己更新(要重启或手动 invalidate),
+/// 这是已知限制;轮询是「没有推送也能看到新通知」的最小代价。
+/// 做成 provider 是为了让测试能关掉它(否则每个用例结束都有 pending Timer)或调快它。
+final notificationsBadgeRefreshIntervalProvider =
+    Provider<Duration?>((ref) => const Duration(seconds: 60));

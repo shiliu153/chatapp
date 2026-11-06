@@ -9,6 +9,7 @@ import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_error_view.dart';
@@ -22,6 +23,7 @@ import '../moderation/moderation_controller.dart';
 import '../moderation/moderation_repository.dart';
 import '../moderation/widgets/report_sheet.dart';
 import '../presence/presence_controller.dart';
+import '../square/feed_repository.dart';
 import 'widgets/profile_photo_header.dart';
 import 'widgets/user_profile_skeleton.dart';
 
@@ -194,6 +196,11 @@ class _ProfileBody extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageH, AppSpacing.md, AppSpacing.pageH, 0),
+              child: _FollowBar(profile: profile),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
                   AppSpacing.pageH, AppSpacing.md, AppSpacing.pageH, AppSpacing.xxl),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -345,5 +352,129 @@ class _FieldLabel extends StatelessWidget {
     final colors = context.heart;
     return
       Text(label, style: AppText.caption.copyWith(color: colors.text2));
+  }
+}
+
+/// 资料卡上的「关注 / 粉丝 + 关注按钮」(批次 I)。
+///
+/// 按钮是**乐观更新**:点下去立刻切态与改粉丝数,请求失败再回滚并提示 ——
+/// 关注是低风险动作,等网络往返再变灰会让整页像卡住。
+/// 计数只在本页本地维护(不回写 `userProfileProvider`),所以离开再进来仍以服务端为准。
+class _FollowBar extends ConsumerStatefulWidget {
+  const _FollowBar({required this.profile});
+
+  final UserProfile profile;
+
+  @override
+  ConsumerState<_FollowBar> createState() => _FollowBarState();
+}
+
+class _FollowBarState extends ConsumerState<_FollowBar> {
+  late bool _following;
+  late int _followerCount;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _following = widget.profile.isFollowed;
+    _followerCount = widget.profile.followerCount;
+  }
+
+  @override
+  void didUpdateWidget(covariant _FollowBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 换了个人才重置;同一人刷新时保留乐观态(否则刚关注完会被旧响应打回去)
+    if (oldWidget.profile.userId != widget.profile.userId) {
+      _following = widget.profile.isFollowed;
+      _followerCount = widget.profile.followerCount;
+    }
+  }
+
+  void _toast(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _toggle() async {
+    if (_busy) return;
+    final target = !_following;
+    setState(() {
+      _following = target;
+      _followerCount += target ? 1 : -1;
+      _busy = true;
+    });
+    try {
+      final repository = ref.read(feedRepositoryProvider);
+      if (target) {
+        await repository.follow(widget.profile.userId);
+      } else {
+        await repository.unfollow(widget.profile.userId);
+      }
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _following = !target;
+        _followerCount += target ? -1 : 1;
+      });
+      _toast(error.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _FollowCount(
+          key: const Key('user.followingCount'),
+          label: '关注',
+          value: widget.profile.followingCount,
+        ),
+        const SizedBox(width: AppSpacing.lg),
+        _FollowCount(
+          key: const Key('user.followerCount'),
+          label: '粉丝',
+          value: _followerCount,
+        ),
+        const Spacer(),
+        SizedBox(
+          width: 104,
+          child: AppButton(
+            key: const Key('user.follow'),
+            label: _following ? '已关注' : '关注',
+            variant: _following
+                ? AppButtonVariant.secondary
+                : AppButtonVariant.primary,
+            onPressed: _busy ? null : _toggle,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 「12 关注」这样的一格计数:数字 text1、标签 text2(沿用「心跳」三级字阶)。
+class _FollowCount extends StatelessWidget {
+  const _FollowCount({super.key, required this.label, required this.value});
+
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('$value',
+            style: AppText.body.copyWith(
+                color: colors.text1, fontWeight: FontWeight.w700)),
+        const SizedBox(width: AppSpacing.xs),
+        Text(label, style: AppText.caption.copyWith(color: colors.text2)),
+      ],
+    );
   }
 }

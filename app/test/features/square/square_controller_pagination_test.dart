@@ -57,4 +57,35 @@ void main() {
     expect(posts.map((post) => post.id), [1, 2]);   // 重复的 id 1 被去掉
     expect(adapter.log.last.queryParameters, {'limit': 20, 'before': 'page-2'});
   });
+
+  test('关注流首屏走 /feed/following(与广场同一条游标协议)', () async {
+    adapter.routes['GET /feed/following'] = (options) =>
+        ok(cursorPageJson([postJson(id: 3)], hasMore: true, cursor: 'follow-2'));
+
+    final posts = await container.read(followingProvider.future);
+
+    expect(posts.map((post) => post.id), [3]);
+    expect(adapter.log.last.path, '/feed/following');
+    expect(adapter.log.last.queryParameters, {'limit': 20});
+  });
+
+  test('关注流 loadMore 带 before 游标', () async {
+    var calls = 0;
+    adapter.routes['GET /feed/following'] = (options) {
+      calls += 1;
+      return calls == 1
+          ? ok(cursorPageJson([postJson(id: 3)], hasMore: true, cursor: 'follow-2'))
+          : ok(cursorPageJson([postJson(id: 3), postJson(id: 4)]));
+    };
+    final subscription = container.listen(followingProvider, (_, _) {},
+        fireImmediately: true);
+    addTearDown(subscription.close);
+    await container.read(followingProvider.future);
+
+    await container.read(followingProvider.notifier).loadMore();
+
+    final posts = container.read(followingProvider).value!;
+    expect(posts.map((post) => post.id), [3, 4]);
+    expect(adapter.log.last.queryParameters, {'limit': 20, 'before': 'follow-2'});
+  });
 }

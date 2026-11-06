@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/api_exception.dart';
 import '../../core/theme/heart_theme_context.dart';
 import '../../core/theme/app_gradients.dart';
+import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -24,7 +25,13 @@ import 'square_controller.dart';
 import 'widgets/post_card.dart';
 import 'widgets/square_skeleton.dart';
 
+/// 广场顶部的两个 tab(批次 I):推荐 = 现有 `/posts`,关注 = `/feed/following`。
+enum SquareTab { recommend, following }
+
 /// 广场 Tab(附录 D):大标题页壳 + 白卡流 + 渐变 FAB。
+///
+/// 批次 I 起顶部多一排「推荐 / 关注」tab:两个 tab 的数据链路同构
+/// (见 `PostFeedController`),切换时换 provider,不重建页面。
 class SquarePage extends ConsumerStatefulWidget {
   const SquarePage({super.key});
 
@@ -35,16 +42,25 @@ class SquarePage extends ConsumerStatefulWidget {
 class _SquarePageState extends ConsumerState<SquarePage> {
   final _scroll = ScrollController();
 
+  /// 当前选中的 tab;默认「推荐」(与改造前行为一致)。
+  SquareTab _tab = SquareTab.recommend;
+
   /// 正在飞整卡 Hero 的动态 id;null = 无飞行。
   /// 互斥不变式见 spec §5:飞行期间该卡头像 Hero 让位,返回后还原。
   int? _cardHeroPostId;
+
+  /// 当前 tab 对应的控制器(两个 tab 共用 [PostFeedController] 接口)。
+  PostFeedController get _feed => switch (_tab) {
+        SquareTab.recommend => ref.read(squareProvider.notifier),
+        SquareTab.following => ref.read(followingProvider.notifier),
+      };
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(() {
       if (_scroll.position.extentAfter < 300) {
-        ref.read(squareProvider.notifier).loadMore();
+        _feed.loadMore();
       }
     });
   }
@@ -74,7 +90,7 @@ class _SquarePageState extends ConsumerState<SquarePage> {
 
   Future<void> _toggleLike(Post post) async {
     try {
-      await ref.read(squareProvider.notifier).toggleLike(post);
+      await _feed.toggleLike(post);
     } on ApiException catch (error) {
       if (mounted) AppToast.show(context, error.message);
     }
@@ -85,7 +101,7 @@ class _SquarePageState extends ConsumerState<SquarePage> {
     if (!confirmed || !mounted) return;
     try {
       await ref.read(feedRepositoryProvider).deletePost(post.id);
-      await ref.read(squareProvider.notifier).reload();
+      await _feed.reload();
       ref.invalidate(myPostsProvider);
       if (mounted) AppToast.show(context, '已删除');
     } on ApiException catch (error) {
@@ -93,12 +109,23 @@ class _SquarePageState extends ConsumerState<SquarePage> {
     }
   }
 
+  /// 切 tab:清掉滚动位置,否则从「推荐」翻到第 5 页再切「关注」会落在列表中间。
+  void _switchTab(SquareTab tab) {
+    if (tab == _tab) return;
+    setState(() => _tab = tab);
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.heart;
-    final posts = ref.watch(squareProvider);
+    final posts = switch (_tab) {
+      SquareTab.recommend => ref.watch(squareProvider),
+      SquareTab.following => ref.watch(followingProvider),
+    };
     final presenceById = ref.watch(presenceProvider);
     final myId = ref.watch(profileProvider).value?.userId;
+    final isFollowingTab = _tab == SquareTab.following;
     return Scaffold(
       backgroundColor: colors.bgPage,
       // FAB 上移 84:默认 endFloat 会压在悬浮胶囊底栏(64+10)上(附录 D)
@@ -116,9 +143,14 @@ class _SquarePageState extends ConsumerState<SquarePage> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.md),
+                  AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.sm),
               child: Text('广场', style: AppText.display.copyWith(color: colors.text1)),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageH),
+              child: _SquareTabs(value: _tab, onChanged: _switchTab),
+            ),
+            const SizedBox(height: AppSpacing.sm),
             Expanded(
               child: posts.when(
                 loading: () => const Padding(
@@ -128,32 +160,46 @@ class _SquarePageState extends ConsumerState<SquarePage> {
                 error: (error, _) => AppErrorView(
                   message: apiMessageOf(error),
                   retryKey: const Key('square.retry'),
-                  onRetry: () => ref.invalidate(squareProvider),
+                  onRetry: () => switch (_tab) {
+                    SquareTab.recommend => ref.invalidate(squareProvider),
+                    SquareTab.following => ref.invalidate(followingProvider),
+                  },
                 ),
                 data: (items) {
                   ref.read(presenceProvider.notifier).track(
-                      'square', [for (final post in items) post.author.userId]);
+                      isFollowingTab ? 'square:following' : 'square',
+                      [for (final post in items) post.author.userId]);
                   return items.isEmpty
                       ? Center(
                           child: AppEmptyState(
                             mark: const HeartRipple(),
-                            title: '还没有动态',
-                            description: '发一条,让大家认识你',
-                            action: AppButton(
-                              key: const Key('square.compose'),
-                              label: '发布第一条',
-                              variant: AppButtonVariant.secondary,
-                              onPressed: () => context.push('/posts/compose'),
-                            ),
+                            title: isFollowingTab ? '还没有关注的人' : '还没有动态',
+                            description: isFollowingTab
+                                ? '去「推荐」看看,关注感兴趣的人'
+                                : '发一条,让大家认识你',
+                            action: isFollowingTab
+                                ? AppButton(
+                                    key: const Key('square.empty.toRecommend'),
+                                    label: '去推荐看看',
+                                    variant: AppButtonVariant.secondary,
+                                    onPressed: () => _switchTab(SquareTab.recommend),
+                                  )
+                                : AppButton(
+                                    key: const Key('square.compose'),
+                                    label: '发布第一条',
+                                    variant: AppButtonVariant.secondary,
+                                    onPressed: () => context.push('/posts/compose'),
+                                  ),
                           ),
                         )
                       : RefreshIndicator(
                           backgroundColor: colors.bgCard,
                           color: colors.brand,
-                          onRefresh: () =>
-                              ref.read(squareProvider.notifier).reload(),
+                          onRefresh: _feed.reload,
                           child: ListView.separated(
-                            key: const Key('square.list'),
+                            key: Key(isFollowingTab
+                                ? 'square.following.list'
+                                : 'square.list'),
                             controller: _scroll,
                             padding: const EdgeInsets.fromLTRB(AppSpacing.pageH,
                                 AppSpacing.xs, AppSpacing.pageH, 96),
@@ -228,5 +274,67 @@ class _ComposeFab extends StatelessWidget {
           ),
         ),
       );
+  }
+}
+
+/// 「推荐 / 关注」两段 tab:文字 + 3px 主色下划线(选中)。
+///
+/// 为什么不用 `AppOptionGroup`:那是 52 高的胶囊分段,放在大标题下会把列表
+/// 顶下去一整屏;这里沿用「心跳」§4 的 tab 形态(文字 + 短下划线),高度 44。
+class _SquareTabs extends StatelessWidget {
+  const _SquareTabs({required this.value, required this.onChanged});
+
+  final SquareTab value;
+  final ValueChanged<SquareTab> onChanged;
+
+  static const _tabs = <(SquareTab, String, String)>[
+    (SquareTab.recommend, '推荐', 'square.tab.recommend'),
+    (SquareTab.following, '关注', 'square.tab.following'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Row(
+      children: [
+        for (final (tab, label, keyName) in _tabs)
+          Padding(
+            padding: const EdgeInsets.only(right: AppSpacing.xl),
+            child: GestureDetector(
+              key: Key(keyName),
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onChanged(tab),
+              child: Semantics(
+                selected: value == tab,
+                button: true,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                      child: Text(
+                        label,
+                        style: AppText.body.copyWith(
+                          color: value == tab ? colors.text1 : colors.text2,
+                          fontWeight:
+                              value == tab ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      height: 3,
+                      width: 20,
+                      decoration: BoxDecoration(
+                        color: value == tab ? colors.brand : Colors.transparent,
+                        borderRadius: BorderRadius.circular(AppRadius.full),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }

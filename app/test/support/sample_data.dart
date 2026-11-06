@@ -92,6 +92,9 @@ Map<String, dynamic> publicProfileJson({
   String bio = '喜欢爬山',
   List<Map<String, dynamic>> tags = const [],
   List<Map<String, dynamic>>? photos,
+  bool isFollowed = false,
+  int followerCount = 0,
+  int followingCount = 0,
 }) =>
     {
       'user_id': userId,
@@ -102,6 +105,10 @@ Map<String, dynamic> publicProfileJson({
       'bio': bio,
       'tags': tags,
       'photos': photos ?? [photoJson(userId * 100)],
+      // 批次 I 的关注态;老后端没有这三个字段,App 侧按「未关注 / 0」兜底
+      'is_followed': isFollowed,
+      'follower_count': followerCount,
+      'following_count': followingCount,
     };
 
 /// 造一份 GET /blocks 里的一条。

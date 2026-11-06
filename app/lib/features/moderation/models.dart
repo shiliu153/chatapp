@@ -11,6 +11,9 @@ class UserProfile {
     required this.bio,
     required this.tags,
     required this.photos,
+    this.isFollowed = false,
+    this.followerCount = 0,
+    this.followingCount = 0,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -26,6 +29,10 @@ class UserProfile {
         photos: ((json['photos'] ?? const []) as List<dynamic>)
             .map((item) => Photo.fromJson(item as Map<String, dynamic>))
             .toList(),
+        // 批次 I 的关注态:老版本后端没有这三个字段时按「未关注 / 0」兜底
+        isFollowed: (json['is_followed'] ?? false) as bool,
+        followerCount: (json['follower_count'] ?? 0) as int,
+        followingCount: (json['following_count'] ?? 0) as int,
       );
 
   final int userId;
@@ -36,6 +43,30 @@ class UserProfile {
   final String bio;
   final List<Tag> tags;
   final List<Photo> photos;
+
+  /// 当前用户是否已关注对方(关注按钮的初始态)。
+  final bool isFollowed;
+
+  /// 对方的粉丝数(多少人关注了对方)。
+  final int followerCount;
+
+  /// 对方的关注数(对方关注了多少人)。
+  final int followingCount;
+
+  /// 乐观更新关注态:只改关注相关的两个字段,其余原样保留。
+  UserProfile copyWith({bool? isFollowed, int? followerCount}) => UserProfile(
+        userId: userId,
+        nickname: nickname,
+        gender: gender,
+        age: age,
+        city: city,
+        bio: bio,
+        tags: tags,
+        photos: photos,
+        isFollowed: isFollowed ?? this.isFollowed,
+        followerCount: followerCount ?? this.followerCount,
+        followingCount: followingCount,
+      );
 }
 
 class BlockedUser {
