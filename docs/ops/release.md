@@ -87,6 +87,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | `605ad81` | `chatapp-1.0.6.apk` |
 | 1.0.7 | 2026-11-06 | `v1.0.7` | [v1.0.7 — 站内通知中心](https://github.com/shiliu153/chatapp/releases/tag/v1.0.7)(附件 `chatapp-1.0.7.apk`,60,295,070 字节) | `2bf9d1a` | `chatapp-1.0.7.apk` |
 | 1.0.8 | 2026-11-07 | `v1.0.8` | [v1.0.8 — 二级页顶栏修复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.8)(附件 `chatapp-1.0.8.apk`,60,295,070 字节) | `9879d68` | `chatapp-1.0.8.apk` |
+| 1.0.9 | 2026-11-07 | `v1.0.9` | 待建:合并后按 §6.4 材料建(tag 指向合并 SHA) | 待部署 | `chatapp-1.0.9.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -428,6 +429,68 @@ python scripts/create_release.py --version 1.0.7 \
 - **release 包的「网络超时」**:同机 debug 包同一路径成功,判据见
   `docs/pitfalls/android-emulator.md`(模拟器长跑网络劣化);下一批手测前先冷启动复测。
 
+
+## 6.4 v1.0.9 的发版材料(批次 I · 广场关注 + 关注流)
+
+**tag / 目标提交**
+
+```
+v1.0.9  →  <合并后的 origin/master SHA>(本文件 §5 的「上线 SHA」同值)
+```
+
+**title**
+
+```
+v1.0.9 — 广场关注 + 关注流
+```
+
+**notes**
+
+```markdown
+## 新增
+
+- 广场关注:他人资料页新增「关注 / 已关注」按钮 + 关注数 / 粉丝数(`POST`/`DELETE /api/v1/users/{user_id}/follow`)
+- 广场「关注」tab:只看关注的人的动态(`GET /api/v1/feed/following`),不含自己
+- 资料卡新增 `is_followed` / `follower_count` / `following_count`
+
+## 变更
+
+- App 广场顶部新增「推荐 / 关注」两段 tab;Web 广场同款
+- 通知角标改为每 60 秒自动刷新(补齐 1.0.8 记录的已知限制:App 常驻打开时角标不更新)
+
+## 修复
+
+- 无(本版无缺陷修复;关注按钮与 tab 为新功能)
+
+## 运维注意
+
+- 后端**有迁移**:`feed.0006_follow`(新增 `feed_follow` 表 + 唯一约束 + `(followee, -created_at)` 索引),
+  部署时先 `migrate --noinput` 再重启 web / celery
+- `MIN_APP_VERSION` **保持 1.0.1**(只升 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`)
+- 关注关系没有历史数据回填需求(新表,老用户默认「没关注任何人」)
+- Web 需重新构建 `dist`(广场新增 tab,新 chunk)
+
+## 验证
+
+```bash
+# 后端
+cd chatapp && python manage.py test && python config/comment_coverage.py
+python manage.py spectacular --file ../docs/api/openapi.yml --validate
+
+# App
+cd app && ../flutter/bin/flutter.bat analyze && ../flutter/bin/flutter.bat test
+
+# Web
+cd web && npm run type-check && npm run lint && npm run test:run
+
+# 版本号
+python scripts/sync_version.py --check
+```
+
+## 附件校验
+
+`chatapp-1.0.9.apk` 的 SHA-1 见本节末尾(构建后回填)。
+```
 
 ## 7. 为什么这条约束值得存在
 
