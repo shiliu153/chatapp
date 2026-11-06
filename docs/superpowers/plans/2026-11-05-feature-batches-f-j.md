@@ -708,7 +708,7 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 
 - PR #86 squash 合并 → `2bf9d1a`(**上线 SHA**);tag `v1.0.7` 指向它(附注 tag,已推送)。
 - 版本 **1.0.7**:`pubspec.yaml` / `app_info.dart` / `web/package.json` 三处一致;
-  远端 Release 的材料见 `docs/ops/release.md` §6.3(本机无 `gh`/token,Release 对象待网页创建)。
+  Release 已由 `scripts/create_release.py` 补建(本机 GitHub 凭据;MCP 工具集本身没有 `create_release`)。
 - **2026-11-06 13:19–13:24 已上线**:回滚点(代码 `605ad81`、`.env` 与旧 dist 备份、DB 全量 dump)→
   `git reset --hard 2bf9d1a` → `migrate`(唯一一条 `notifications.0002` OK)→ `collectstatic`(0 复制)→
   重启 web + celery → Web `dist` 覆盖 → APK 上传(`chatapp-1.0.7.apk`,60,295,070 字节)→
@@ -716,3 +716,26 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
   冒烟:`/app/config` 返回 1.0.7、`/health` `/readyz` 200、APK Range 206;三个新接口形状正确、
   未认证 401、`/push/preferences` 带 `social`;**一次真实点赞在生产库写出 `post_like` 通知行**
   (验证后删除该测试行)。实况与回滚点见 `docs/ops/release.md` §6.3。
+
+#### 上线后模拟器验收(2026-11-07,按新规则补做)→ 发现并修复 P1,随 1.0.8 发布
+
+在 `emulator-5554`(Pixel_7 / Android 17)上装签名包走「协议弹窗 → 登录 → 消息 → 铃铛 → 通知页」,
+**发现一个与通知无关、但影响全 App 的布局 bug**:`AppSubPageBar` 只写了 `height: 52`,
+放进 `Column` 后受宽松横向约束,`Stack` 缩到标题文字宽度 —— 返回键与右侧动作全压在标题上
+(编辑资料页「保存」叠字、通知页「全部已读」叠字、返回箭头不可见)。单测一直绿是因为测试把它放在
+`Scaffold(body:)` 的紧约束里。
+
+- 修复:显式 `width: double.infinity` + 一条「放在 Column 里」的回归测试(1.0.8,PR #88 → `9879d68`)。
+- **修复后逐页复验(debug 包,`emulator-5554`)全部通过**:
+  登录(协议 → 手机号 → 固定码)→ 消息页铃铛 + 未读角标「1」→ 通知页(返回键在左、标题居中、
+  「全部已读」在右)→ 列表行(正文「小雨12 赞了你的动态」/「22 分钟前」/未读点)→
+  点一条:**服务端 `is_read=1`** 且跳到「动态详情」→ 返回:未读点消失、「全部已读」变灰不可点 →
+  回消息页角标消失;重启 App 后角标重新按服务端未读数显示。编辑资料页的「保存」也回到右侧。
+- **已知限制(记进下一批待办)**:角标用的是 `FutureProvider`,**App 常驻打开时不会自动刷新**
+  (要等下一次 invalidate / 重启);没有推送的项目里可接受,但要补的话最小改法是给 `NotificationsBell`
+  加 60s `Timer.periodic` 触发 `invalidate`,并补一条 fake timer 用例。
+- **release 包在模拟器上的「网络超时」**:同机 debug 包同一路径成功,按
+  `docs/pitfalls/android-emulator.md` 判据属**模拟器长跑网络劣化**;下一批手测前先冷启动
+  (`-no-snapshot-load`)复测,再判断是否 App 侧问题。
+- 顺带产出:`scripts/create_release.py`(Release 工具化)、`CLAUDE.md` 两条常驻规则
+  (Release 用本机凭据 / App 改动必须模拟器验收)、四条新 pitfall。

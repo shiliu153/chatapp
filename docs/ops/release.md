@@ -86,7 +86,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
 | 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | `605ad81` | `chatapp-1.0.6.apk` |
 | 1.0.7 | 2026-11-06 | `v1.0.7` | [v1.0.7 — 站内通知中心](https://github.com/shiliu153/chatapp/releases/tag/v1.0.7)(附件 `chatapp-1.0.7.apk`,60,295,070 字节) | `2bf9d1a` | `chatapp-1.0.7.apk` |
-| 1.0.8 | 2026-11-07 | `v1.0.8` | 待建:合并后由 `scripts/create_release.py` 创建 | 待上线 | `chatapp-1.0.8.apk` |
+| 1.0.8 | 2026-11-07 | `v1.0.8` | [v1.0.8 — 二级页顶栏修复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.8)(附件 `chatapp-1.0.8.apk`,60,295,070 字节) | `9879d68` | `chatapp-1.0.8.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -405,6 +405,28 @@ python scripts/create_release.py --version 1.0.7 \
   登录页;但**登录提交这一步在模拟器上失败**(见 `docs/pitfalls/android-emulator.md` 新增条目:
   点「获取验证码」报「网络不给力」,服务端 0 条 `/auth/sms/send`,而同机 `GET /app/config` 正常),
   因此通知页的模拟器逐页手测**待网络问题定位后补做**;App 侧目前由 506 条自动化测试覆盖。
+
+
+### 1.0.8 上线实况(2026-11-07 00:54–00:58)
+
+- **为什么有这一版**:1.0.7 发布后按新规则做模拟器验收,发现**所有二级页顶栏被压扁**
+  (`AppSubPageBar` 只写高度,放进 `Column` 后缩成标题宽度,返回键与右侧动作压在标题上)。
+  修一行 + 补回归测试,走 1.0.8。
+- **回滚点**:代码 `2bf9d1a`;`.env` 备份 `/www/backup/chatapp-env-1.0.7-.bak`;
+  旧 dist `/www/backup/chatapp-web-dist-1.0.7-.tar.gz`(404 KB);1.0.7 的 APK 仍在服务器上。
+- **部署**:`git reset --hard 9879d68`(后端代码无变化,`migrate --check` clean,无 collectstatic 变更)→
+  Web `dist` 覆盖 → APK 上传为 `chatapp-1.0.8.apk` → `.env` 只改 `LATEST_APP_VERSION=1.0.8` /
+  `APP_DOWNLOAD_URL`(`MIN_APP_VERSION` 保持 1.0.1)→ 重启 `chatapp-web` / `chatapp-celery`。
+- **tag / Release**:`v1.0.8` → `9879d68`(附注 tag);Release 由 `scripts/create_release.py` 创建,
+  附件 `chatapp-1.0.8.apk`(SHA-1 `adda8f0730a7af2e15dad2b47415689c1cf28a3f`)。
+- **冒烟**:`/api/v1/app/config` → `latest_version=1.0.8`;`/health` `/readyz` 200;
+  APK `Range` → `206`(`0-1023/60295070`)。
+- **模拟器验收(已完成)**:`emulator-5554` 上走通「协议 → 登录 → 消息页铃铛+角标 → 通知页 →
+  点一条(服务端 `is_read=1` + 跳动态详情)→ 返回(未读点消失/全部已读变灰)→ 回消息页角标消失」;
+  编辑资料页「保存」也回到右侧(顶栏修复生效)。**已知限制**:角标是 `FutureProvider`,
+  App 常驻打开时不自动刷新(重启/失效后才更新),已记入计划执行记录的下一批待办。
+- **release 包的「网络超时」**:同机 debug 包同一路径成功,判据见
+  `docs/pitfalls/android-emulator.md`(模拟器长跑网络劣化);下一批手测前先冷启动复测。
 
 
 ## 7. 为什么这条约束值得存在
