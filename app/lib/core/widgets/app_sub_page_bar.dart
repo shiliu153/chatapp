@@ -31,6 +31,10 @@ class AppSubPageBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.heart;
     return SizedBox(
+        // 必须显式撑满宽度:放进 Column 时子件拿到的是**宽松**横向约束,
+        // 只写 height 的话 Stack 会缩到标题文字的宽度,返回键与 trailing 就会
+        // 压在标题上(2026-11-07 模拟器手测发现,编辑资料页的「保存」曾与标题重叠)。
+        width: double.infinity,
         height: height,
         child: Stack(
           alignment: Alignment.center,

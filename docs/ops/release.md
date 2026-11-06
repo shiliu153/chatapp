@@ -85,7 +85,8 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
 | 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
 | 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | `605ad81` | `chatapp-1.0.6.apk` |
-| 1.0.7 | 2026-11-06 | `v1.0.7` | 待建:本环境无 `gh` CLI / GitHub token,Release 对象需在网页创建(材料见 §6.3) | `2bf9d1a` | `chatapp-1.0.7.apk` |
+| 1.0.7 | 2026-11-06 | `v1.0.7` | [v1.0.7 — 站内通知中心](https://github.com/shiliu153/chatapp/releases/tag/v1.0.7)(附件 `chatapp-1.0.7.apk`,60,295,070 字节) | `2bf9d1a` | `chatapp-1.0.7.apk` |
+| 1.0.8 | 2026-11-07 | `v1.0.8` | 待建:合并后由 `scripts/create_release.py` 创建 | 待上线 | `chatapp-1.0.8.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -356,16 +357,23 @@ gh release create v1.0.6 \
 - `python scripts/sync_version.py --check` 绿。
 ```
 
-**创建命令**(本机无 `gh`,走 GitHub REST + PAT,与 1.0.5 / 1.0.6 同法)
+**创建命令**(2026-11-07 起用脚本,见下「Release 通道」)
 
 ```bash
-gh release create v1.0.7 \
+python scripts/create_release.py --version 1.0.7 \
   --title "v1.0.7 — 站内通知中心" \
   --notes-file /tmp/notes-1.0.7.md \
-  app/build/app/outputs/flutter-apk/app-release.apk#chatapp-1.0.7.apk
+  --apk app/build/app/outputs/flutter-apk/app-release.apk \
+  --asset-name chatapp-1.0.7.apk
+# 幂等:已有同 tag 就 PATCH 更新 notes;同名附件先删后传
 ```
 
-建好后把 §5 表里 1.0.7 行的 `Release` / `上线 SHA` / APK 三列补齐。
+**Release 通道(2026-11-07 起)**:本机有 GitHub MCP(`mcp-github`)与它用的同一个 classic PAT
+(`repo` 权限,`~/.dsh/github-mcp-token.txt`)。MCP 的工具集里**只有** `get_latest_release` /
+`list_releases` / `get_release_by_tag`,**没有** `create_release`,所以 Release 走
+`scripts/create_release.py`(标准库 `urllib`,读的就是 MCP 那个 token 文件)。
+**不要再写「本机无 `gh`/token,Release 待建」** —— 1.0.7 的 Release 就是这样建出来的:
+<https://github.com/shiliu153/chatapp/releases/tag/v1.0.7>。
 
 ### 1.0.7 上线实况(2026-11-06 13:19–13:24)
 
@@ -390,8 +398,13 @@ gh release create v1.0.7 \
     `user_id=8, kind=post_like, actor_id=12, target_kind=post, target_id=7, text="小雨12 赞了你的动态",
     dedupe_key=like:7:12`(验证完删除该测试行,库里恢复 0 行)。
   - Web 深链 `/notifications` → 200,新 chunk 200。
-- **未做**:GitHub Release 对象(本机无 `gh` / token,材料已备在本文);真机验收(本机无 Android 模拟器连接,
-  App 侧由 506 条自动化测试覆盖)。
+- **Release(2026-11-07 补建)**:`v1.0.7` 的 GitHub Release 已用 `scripts/create_release.py` 建好
+  (title「v1.0.7 — 站内通知中心」,附件 `chatapp-1.0.7.apk`,60,295,070 字节,
+  SHA-1 `5fe74a4eb1c67e543233577f5ff717b09c325330`),链接见 §5。
+- **App 真机验收**:`emulator-5554`(Pixel_7 / Android 17)已装 1.0.7 签名包并跑通启动 → 协议弹窗 →
+  登录页;但**登录提交这一步在模拟器上失败**(见 `docs/pitfalls/android-emulator.md` 新增条目:
+  点「获取验证码」报「网络不给力」,服务端 0 条 `/auth/sms/send`,而同机 `GET /app/config` 正常),
+  因此通知页的模拟器逐页手测**待网络问题定位后补做**;App 侧目前由 506 条自动化测试覆盖。
 
 
 ## 7. 为什么这条约束值得存在
