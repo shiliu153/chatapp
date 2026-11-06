@@ -85,7 +85,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
 | 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
 | 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | `605ad81` | `chatapp-1.0.6.apk` |
-| 1.0.7 | 2026-11-06 | `v1.0.7` | 待建:本环境无 `gh` CLI / GitHub token,Release 对象需在网页创建(材料见 §6.3) | 待上线 | `chatapp-1.0.7.apk` |
+| 1.0.7 | 2026-11-06 | `v1.0.7` | 待建:本环境无 `gh` CLI / GitHub token,Release 对象需在网页创建(材料见 §6.3) | `2bf9d1a` | `chatapp-1.0.7.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -316,8 +316,8 @@ gh release create v1.0.6 \
 
 ## 6.3 v1.0.7 的发版材料(批次 H · 站内通知中心)
 
-- tag:`v1.0.7` → 待补(指向合并后的 `origin/master` SHA;`git tag -a v1.0.7 <SHA> -m "v1.0.7 — 站内通知中心"`)
-- 附件:`app/build/app/outputs/flutter-apk/app-release.apk` → `chatapp-1.0.7.apk`
+- tag:`v1.0.7` → `2bf9d1a5de52b013e24673e6ad9d2678fe991be2`(附注 tag,指向合并 SHA;已推送)
+- 附件:`app/build/app/outputs/flutter-apk/app-release.apk` → `chatapp-1.0.7.apk`(57.5 MB)
 - Release 标题:`v1.0.7 — 站内通知中心`
 
 **notes 草稿**
@@ -366,6 +366,32 @@ gh release create v1.0.7 \
 ```
 
 建好后把 §5 表里 1.0.7 行的 `Release` / `上线 SHA` / APK 三列补齐。
+
+### 1.0.7 上线实况(2026-11-06 13:19–13:24)
+
+- **回滚点(先记录后动手)**:代码 `605ad81`;`.env` 备份 `/www/backup/chatapp-env-1.0.6-.bak`
+  (`cp -a` 保留源 mtime,内容为 1.0.6);旧 Web `dist` 备份
+  `/www/backup/chatapp-web-dist-1.0.6-.tar.gz`(347 KB);DB 全量备份
+  `/www/backup/chatapp-db-preH-20261106-1320.sql`(601 KB,`--single-transaction`)。
+- **部署**:`git fetch && git reset --hard 2bf9d1a`(origin/master 合并 SHA)→
+  `migrate --noinput`(唯一一条:`notifications.0002_notificationpreference_social_inappnotification` OK)→
+  `collectstatic`(0 复制 / 156 未变)→ `supervisorctl restart chatapp-web:* chatapp-celery:*`
+  (两个进程 RUNNING,重启窗口约 10 秒)→ Web `dist` tar 覆盖 `/www/wwwroot/chatapp-web`
+  (新 chunk `NotificationsPage-D2AYIKrl.js`)→ APK 上传为 `chatapp-1.0.7.apk`(60,295,070 字节)→
+  `.env` 只改 `LATEST_APP_VERSION=1.0.7` / `APP_DOWNLOAD_URL`(**`MIN_APP_VERSION` 保持 1.0.1**)。
+- **冒烟(全绿)**:
+  - `/api/v1/app/config` → `{"min_app_version":"1.0.1","latest_version":"1.0.7",...}`;
+    `/health` `/readyz` 200;APK `Range: bytes=0-1023` → `206`(Content-Range `0-1023/60295070`)。
+  - 用白名单账号 `13900000001`(user 12)登录:`GET /notifications` → `{count:0,...}` 形状正确;
+    `GET /notifications/unread_count` → `{"unread":0}`;`POST /notifications/read {"all":true}` → 204;
+    未认证 → 401;`GET /push/preferences` 多出 `"social":true`。
+  - **事件 hook 端到端**:用该账号首次点赞别人的动态(响应 201)→ 生产库
+    `notifications_inappnotification` 立刻出现一行
+    `user_id=8, kind=post_like, actor_id=12, target_kind=post, target_id=7, text="小雨12 赞了你的动态",
+    dedupe_key=like:7:12`(验证完删除该测试行,库里恢复 0 行)。
+  - Web 深链 `/notifications` → 200,新 chunk 200。
+- **未做**:GitHub Release 对象(本机无 `gh` / token,材料已备在本文);真机验收(本机无 Android 模拟器连接,
+  App 侧由 506 条自动化测试覆盖)。
 
 
 ## 7. 为什么这条约束值得存在

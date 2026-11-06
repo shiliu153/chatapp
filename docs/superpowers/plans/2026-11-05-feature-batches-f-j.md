@@ -706,9 +706,13 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 
 #### 发版(H-6)
 
-- PR #86 squash 合并 → 见 `docs/ops/release.md` §5 的「上线 SHA」列。
+- PR #86 squash 合并 → `2bf9d1a`(**上线 SHA**);tag `v1.0.7` 指向它(附注 tag,已推送)。
 - 版本 **1.0.7**:`pubspec.yaml` / `app_info.dart` / `web/package.json` 三处一致;
-  tag `v1.0.7` 与远端 Release 的材料见 `docs/ops/release.md` §6.3。
-- 部署要点:**本次有迁移**(新增 `notifications_inappnotification` 表 + `notificationpreference.social` 列)
-  → 先 `migrate` 再重启 `chatapp-web` / `chatapp-celery`;Web `dist` 覆盖;APK 上传;
+  远端 Release 的材料见 `docs/ops/release.md` §6.3(本机无 `gh`/token,Release 对象待网页创建)。
+- **2026-11-06 13:19–13:24 已上线**:回滚点(代码 `605ad81`、`.env` 与旧 dist 备份、DB 全量 dump)→
+  `git reset --hard 2bf9d1a` → `migrate`(唯一一条 `notifications.0002` OK)→ `collectstatic`(0 复制)→
+  重启 web + celery → Web `dist` 覆盖 → APK 上传(`chatapp-1.0.7.apk`,60,295,070 字节)→
   `.env` 只改 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`(`MIN_APP_VERSION` 保持 1.0.1)。
+  冒烟:`/app/config` 返回 1.0.7、`/health` `/readyz` 200、APK Range 206;三个新接口形状正确、
+  未认证 401、`/push/preferences` 带 `social`;**一次真实点赞在生产库写出 `post_like` 通知行**
+  (验证后删除该测试行)。实况与回滚点见 `docs/ops/release.md` §6.3。
