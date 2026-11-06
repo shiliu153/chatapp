@@ -18,4 +18,6 @@ urlpatterns = [
          views.post_comment_replies),
     path("posts/<int:post_id>/comments/<int:comment_id>", views.post_comment_detail),
     path("posts/<int:post_id>/report", views.post_report),
+    # 关注流:路径带 ``feed/`` 前缀(计划 §4 I-2 定死的契约,App/Web 都按它接)
+    path("feed/following", views.following_posts),
 ]

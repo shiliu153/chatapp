@@ -739,3 +739,66 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
   (`-no-snapshot-load`)复测,再判断是否 App 侧问题。
 - 顺带产出:`scripts/create_release.py`(Release 工具化)、`CLAUDE.md` 两条常驻规则
   (Release 用本机凭据 / App 改动必须模拟器验收)、四条新 pitfall。
+
+### 批次 I 执行于 2026-11-07 / PR #90
+
+**交付范围**:I-1 → I-6 全部完成,版本升到 **1.0.9**。范围严格按 §2.4:
+关注流只含关注的人、不含自己;新粉丝通知不做;广场结构只加 tab,不动 `/posts` 语义。
+
+#### 与计划的偏差
+
+| 计划 | 实际 | 原因 |
+|---|---|---|
+| I-6 版本号 → **1.0.8** | → **1.0.9** | 1.0.8 已在 2026-11-07 00:54 用于「二级页顶栏修复」紧急发版(PR #88),版本号不可复用;J 批顺延到 1.0.10 |
+| I-3「`PublicProfileSerializer` +2 条查询」 | 单条资料卡只多 **1 条**聚合 SQL | 用一条 `aggregate(follower_count=Count(filter=…), following_count=…, followed=…)` 同时算三个值;批量场景退化成三条分组 SQL,条数与资料数无关 |
+| 计划未写「角标自动刷新」 | 顺带把 1.0.8 记录里的已知限制修掉:通知角标每 60 秒 `invalidate` | 该限制本就写着「记进下一批待办」,批次 I 就是下一批;实现方式与计划建议一致(间隔做成 provider,测试可关可调) |
+| I-1 限流「参照喜欢我 300/小时 → 关注 120/小时(新增 Throttle 类)」 | 照做:`FollowThrottle` + `settings.FOLLOW_RATE`(env 可调) | — |
+| I-2 计划只要求「游标分页」 | 同时补了两条门禁:固定预算 `BUDGET["following"]=15` 与「limit 5 → 10 SQL 条数不变」 | 关注流复用两段式分页,这两条守卫能挡住以后有人给它加 N+1 |
+| I-4「controller 单测 + widget 测试」 | 另加 `PostFeedController` 基类,`SquareController` / `FollowingController` 只声明 `path` | 两个 tab 的首屏/翻页去重/点赞回滚逻辑完全相同,复制两份必然漂移 |
+| Web 计划未指定 store 形态 | `feed` store 抽出 `createFeedState` 工厂 + 独立 `useFollowingFeedStore` | 同一 store 存两份列表会串数据;抽工厂避免两份分页逻辑 |
+
+#### 实现要点
+
+- **关注是有向关系,与配对无关**:`follow` / `unfollow` 只动 `Follow` 表,不发通知、不碰 IM、不建立聊天权限。
+- **`follow_state_for_profiles` 是资料卡关注态的唯一取数口径**:单条走一条聚合 SQL,批量走三条分组 SQL,
+  并用「关注数 0 → 5 条时 SQL 条数不变」的用例守住(N+1 守卫)。
+- **关注流复用 `visible_base`**:只把作者范围收窄到关注列表,可见性规则(双向拉黑 / 重封禁)一字未改;
+  额外 `.exclude(author_id=viewer.id)` 作为「关注流不含自己」的数据级兜底(即使库里有自关注脏行)。
+- **App 两个 tab 共用一个列表实现**:`PostFeedController` 抽象基类提供首屏/`loadMore`/`toggleLike`,
+  子类只声明 `path`;切 tab 时把滚动位置归零,避免从推荐第 5 页切过去落在列表中间。
+- **关注按钮是乐观更新**:App 与 Web 都是点下去立刻切态 + 改粉丝数,请求失败回滚并提示;
+  计数只在本页本地维护,离开再进来以服务端为准。
+- **角标轮询**:`notificationsBadgeRefreshIntervalProvider`(默认 60s,`null` 关闭),
+  `NotificationsBell` 改成 `ConsumerStatefulWidget`,`dispose` 里取消 Timer。
+
+#### 踩到的坑
+
+1. **`User.objects.create_user` 不会自动建 `Profile`**。关注接口对「对方没有资料行」返回 404(与公开资料卡同口径),
+   而测试里只建 User 不建 Profile 时全部用例 404;`users`/`feed` 的既有用例都是显式 `Profile.objects.create`。
+2. **查询预算用例必须「预热」**。同一用例里第一次请求会触发 `Preference` 懒创建等一次性 SQL(实测 13 vs 10 条),
+   直接比「limit 5 vs 10」会假红;既有用例也是先打一次预热请求再测量。
+3. **`pumpApp` 里重复 override 同一个 provider 会抛断言**(`Tried to override a provider twice`)。
+   想让用例自定义「角标轮询间隔」不能走 `overrides:`(harness 已默认注入 `null`),改成给 `pumpApp` 加一个
+   具名参数 `notificationsBadgeRefreshInterval`,由 harness 统一注入一次。
+4. **`find.text('关注')` 会同时命中计数标签与按钮**。资料卡上「关注」既是 `_FollowCount` 的标签也是按钮文案,
+   断言必须 `find.descendant(of: find.byKey(Key('user.follow')), ...)`。
+5. **路由顺序**:`<int:user_id>/follow` 放在 `<int:user_id>` 之前(虽然 int 转换器本来不会吞 `12/follow`,
+   但把具体路由放前面能防以后有人把 `user_id` 改成 `<str:...>` 时静默吞掉子路径)。
+6. **`/api/v1/feed/following` 这个前缀是计划 §4 I-2 定死的契约**,与既有 `/posts` 不在同一命名空间;
+   文档写在 `feed.md` 而路由挂在 `feed/urls.py`(根前缀 include),`ApiDocsCoverageTests` 只按「方法 + 路径」比对,不受影响。
+
+#### 测试
+
+| 端 | 结果 |
+|---|---|
+| 后端 | `manage.py test` **875 OK**(新增 23 例:模型 2、关注接口 9、关注流 6、查询预算 2、资料卡关注态 4);`spectacular --validate` 零 warning;`test_schema_contract` / `ApiDocsCoverageTests` / `comment_coverage` 全绿 |
+| App | `flutter analyze` 零告警;`flutter test` **515 绿**(新增 9 例:关注流分页 2、广场 tab 2、关注按钮 3、角标轮询 1、资料卡字段 1) |
+| Web | `vue-tsc` 零错误、`eslint --max-warnings 0` 零告警;`vitest` **451 绿**(新增 6 例:feed store 1、广场 tab 2、关注按钮 3);覆盖率门槛通过 |
+| 版本 | `python scripts/sync_version.py --check` 绿(1.0.9) |
+
+#### 发版(I-6)
+
+- PR #90(合并 SHA 与上线实况见 `docs/ops/release.md` §5 / §6.4)。
+- 迁移:`feed.0006_follow`(新表 + 唯一约束 + 索引),部署时先 `migrate --noinput`。
+- `.env` 只改 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`(`MIN_APP_VERSION` 保持 1.0.1)。
+- Web 需重新构建 `dist`;APK 上传为 `chatapp-1.0.9.apk`。

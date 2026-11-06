@@ -15,6 +15,20 @@ export async function fetchMyPosts(
   return data as CursorPage<Post>
 }
 
+/**
+ * 关注流(批次 I,feed.md §5.15):只含我关注的人的动态,不含自己。
+ * 分页协议与广场一致(游标),可见性口径也一致(排除双向拉黑与重封禁作者)。
+ */
+export async function fetchFollowing(
+  limit = 20,
+  cursor: string | null = null,
+): Promise<CursorPage<Post>> {
+  const { data } = await http.get('/feed/following', {
+    params: { limit, before: cursor ?? undefined },
+  })
+  return data as CursorPage<Post>
+}
+
 export async function fetchPost(id: number): Promise<Post> {
   const { data } = await http.get(`/posts/${id}`)
   return data as Post

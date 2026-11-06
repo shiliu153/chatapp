@@ -43,6 +43,16 @@ export async function fetchUserProfile(userId: number): Promise<PublicProfile> {
   return data as PublicProfile
 }
 
+/** 关注某人(幂等 204;重复关注不报错,feed.md §5.13)。 */
+export async function followUser(userId: number): Promise<void> {
+  await http.post(`/users/${userId}/follow`)
+}
+
+/** 取消关注(幂等 204;没关注过也成功,feed.md §5.14)。 */
+export async function unfollowUser(userId: number): Promise<void> {
+  await http.delete(`/users/${userId}/follow`)
+}
+
 /** 注销账号(不可恢复)。后端要求带上当前账号的完整手机号做二次确认。 */
 export async function deleteAccount(phone: string): Promise<void> {
   await http.delete('/users/me', { data: { phone } })

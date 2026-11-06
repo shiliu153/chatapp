@@ -3,7 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'feed_repository.dart';
 import 'models.dart';
 
-class SquareController extends AsyncNotifier<List<Post>> {
+/// 游标分页动态流的公共实现。
+///
+/// 广场「推荐」与「关注」两个 tab 的数据链路完全一致,只差一个接口路径:
+/// 首屏、翻页去重、点赞乐观更新与失败回滚都在这里,子类只声明 [path]。
+/// 不抽基类的话两份逻辑必然漂移(改一处忘一处是列表页最常见的 bug)。
+abstract class PostFeedController extends AsyncNotifier<List<Post>> {
+  /// 列表接口路径:`/posts`(推荐)或 `/feed/following`(关注)。
+  String get path;
+
   bool _hasMore = true;
   String? _nextCursor;
 
@@ -11,7 +19,7 @@ class SquareController extends AsyncNotifier<List<Post>> {
   Future<List<Post>> build() => _fetchFirst();
 
   Future<List<Post>> _fetchFirst() async {
-    final page = await ref.read(feedRepositoryProvider).fetchPosts();
+    final page = await ref.read(feedRepositoryProvider).fetchPosts(path: path);
     _nextCursor = page.nextCursor;
     _hasMore = page.nextCursor != null;
     return page.items;
@@ -27,7 +35,7 @@ class SquareController extends AsyncNotifier<List<Post>> {
     if (current == null || !_hasMore) return;
     final page = await ref
         .read(feedRepositoryProvider)
-        .fetchPosts(cursor: _nextCursor);
+        .fetchPosts(path: path, cursor: _nextCursor);
     _nextCursor = page.nextCursor;
     _hasMore = page.nextCursor != null;
     final existing = current.map((post) => post.id).toSet();
@@ -57,10 +65,28 @@ class SquareController extends AsyncNotifier<List<Post>> {
   }
 }
 
+/// 广场「推荐」tab:全站可见动态(`GET /posts`)。
+class SquareController extends PostFeedController {
+  @override
+  String get path => '/posts';
+}
+
+/// 广场「关注」tab:只含我关注的人的动态(`GET /feed/following`,不含自己)。
+class FollowingController extends PostFeedController {
+  @override
+  String get path => '/feed/following';
+}
+
 final squareProvider =
     AsyncNotifierProvider.autoDispose<SquareController, List<Post>>(
   SquareController.new,
   // 页面自己有错误态,关掉 Riverpod 3 的自动重试
+  retry: (retryCount, error) => null,
+);
+
+final followingProvider =
+    AsyncNotifierProvider.autoDispose<FollowingController, List<Post>>(
+  FollowingController.new,
   retry: (retryCount, error) => null,
 );
 

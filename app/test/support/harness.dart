@@ -15,6 +15,7 @@ import 'package:chatapp_app/core/token_storage.dart';
 import 'package:chatapp_app/core/token_store.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/legal/legal_texts.dart';
+import 'package:chatapp_app/features/notifications/notifications_controller.dart';
 import 'package:chatapp_app/features/presence/presence_controller.dart';
 import 'package:chatapp_app/features/shell/app_bottom_bar.dart';
 import 'package:chatapp_app/im/im_manager.dart';
@@ -24,9 +25,13 @@ import 'scripted_adapter.dart';
 
 /// 起整个 App(真实 provider + 假网络 + 假 IM)。prefs 里塞 {'auth.refresh': 'r', ...} 模拟已登录。
 /// 返回注入的 FakeImClient,测试可用它铺数据/断言调用(想自定义就传 imClient)。
+///
+/// [notificationsBadgeRefreshInterval] 是通知角标的轮询间隔:默认 `null` 关掉
+/// (否则每个用例结束都有 pending Timer);要测轮询的用例传一个短间隔。
 Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
     {Map<String, Object> prefs = const {},
     FakeImClient? imClient,
+    Duration? notificationsBadgeRefreshInterval,
     List<Override> overrides = const []}) async {
   final fake = imClient ?? FakeImClient();
   // 默认已同意协议,绝大多数用例直接进 App;协议用例自己传 legal.agreed_version: 0
@@ -51,6 +56,9 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
       heartbeatIntervalProvider.overrideWithValue(null),
       // 同样默认关掉在线状态的周期刷新;需要测定时的用例自己 override
       presenceRefreshIntervalProvider.overrideWithValue(null),
+      // 通知角标默认 60s 轮询:测试里关掉,否则每个用例结束都有 pending Timer
+      notificationsBadgeRefreshIntervalProvider
+          .overrideWithValue(notificationsBadgeRefreshInterval),
       ...overrides,
     ],
     child: const ChatApp(),
@@ -88,6 +96,7 @@ Future<void> pumpPage(
       appConfigCheckEnabledProvider.overrideWithValue(false),
       heartbeatIntervalProvider.overrideWithValue(null),
       presenceRefreshIntervalProvider.overrideWithValue(null),
+      notificationsBadgeRefreshIntervalProvider.overrideWithValue(null),
       ...overrides,
     ],
     child: MaterialApp(

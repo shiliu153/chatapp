@@ -423,6 +423,8 @@ curl -X PATCH http://<域名>/api/v1/users/me/preference \
 
 获取某个用户的公开资料卡(用于资料页/发现卡片)。只返回公开字段:不含手机号、生日、择偶偏好与完善度。照片只返回**已过审**的。
 
+**关注态**(批次 I):`is_followed` 是「我是否关注了对方」,`follower_count` / `following_count` 分别是对方的粉丝数与关注数。关注/取消关注见 [feed.md §5.13/§5.14](feed.md#513-关注)。
+
 **404 语义**:以下三种情况一律返回 `404`「用户不存在」,不区分、不泄露关系——对方不存在、对方与你**双向拉黑**、对方被重封禁。
 
 **请求参数**
@@ -444,6 +446,9 @@ curl -X PATCH http://<域名>/api/v1/users/me/preference \
 | tags | Object[] | 标签,同 2.1 |
 | shared_tags | Object[] | **共同标签**:对方标签与当前用户标签的交集(元素结构同 2.1 的 `tags[]`);无交集或未登录为空数组 |
 | photos | Object[] | 已过审照片,同 2.1 |
+| is_followed | Boolean | 当前用户是否已关注对方 |
+| follower_count | Integer | 对方的粉丝数(多少人关注了对方) |
+| following_count | Integer | 对方的关注数(对方关注了多少人) |
 
 **请求示例**
 
@@ -473,7 +478,10 @@ curl http://<域名>/api/v1/users/8 \
   ],
   "photos": [
     { "id": 3, "url": "http://<域名>/media/photos/2026/09/bob_avatar.png", "status": "approved", "order": 0 }
-  ]
+  ],
+  "is_followed": false,
+  "follower_count": 3,
+  "following_count": 1
 }
 ```
 

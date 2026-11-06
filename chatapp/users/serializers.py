@@ -5,13 +5,16 @@
        资料表主键,两者不同,前端别混用;
     2. ``PublicProfileSerializer`` 是 ``ProfileSerializer`` 的公开子集,刻意不含手机号、
        生日、偏好与缺失项;
-    3. 昵称与简介在写入前统一过 ``moderation.text_check`` 的违禁词检查。
+    3. 昵称与简介在写入前统一过 ``moderation.text_check`` 的违禁词检查;
+    4. 公开资料卡上的 ``shared_tags`` 与关注态三个字段都支持「批量注入 context」,
+       单条场景有各自的兜底查询,不会退化成 N+1。
 """
 
 from django.conf import settings
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from feed.services import follow_state_for_profiles
 from moderation.text_check import find_blocked_word
 
 from .models import Gender, Photo, PhotoStatus, Preference, Profile, Tag, calculate_age
@@ -139,6 +142,10 @@ class PublicProfileSerializer(serializers.ModelSerializer):
 
     ``shared_tags`` 是「对方标签 ∩ 我的标签」,给配对那一刻的破冰文案用;
     列表场景若已批量算好,可从 ``context["shared_tags_map"]`` 直接注入,避免逐项查询。
+
+    ``is_followed`` / ``follower_count`` / ``following_count`` 是批次 I 的关注态:
+    同样支持 ``context["follow_state_map"]`` 批量注入(见 ``feed.services.follow_state_for_profiles``),
+    单条资料卡场景默认只多**一条**聚合 SQL。
     """
 
     user_id = serializers.IntegerField(source="user.id", read_only=True)
@@ -146,11 +153,74 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
     shared_tags = serializers.SerializerMethodField()
     photos = serializers.SerializerMethodField()
+    is_followed = serializers.SerializerMethodField()
+    follower_count = serializers.SerializerMethodField()
+    following_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
         fields = ["user_id", "nickname", "gender", "age", "city", "bio", "tags",
-                  "shared_tags", "photos"]
+                  "shared_tags", "photos", "is_followed", "follower_count",
+                  "following_count"]
+
+    def _follow_state(self, profile) -> dict:
+        """取某条资料的关注态(优先用调用方注入的批量结果)。
+
+        Args:
+            profile: 被查看的资料。
+
+        Returns:
+            ``{"is_followed": bool, "follower_count": int, "following_count": int}``;
+            取不到时返回空字典(三个字段各自兜底成 ``False`` / ``0``)。
+        """
+        state_map = self.context.get("follow_state_map")
+        if state_map is not None:
+            return state_map.get(profile.user_id, {})
+        memo = getattr(self, "_follow_state_memo", None)
+        if memo is None:
+            memo = {}
+            self._follow_state_memo = memo
+        if profile.user_id not in memo:
+            request = self.context.get("request")
+            viewer = getattr(request, "user", None)
+            memo.update(follow_state_for_profiles([profile], viewer))
+        return memo.get(profile.user_id, {})
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_followed(self, profile):
+        """当前用户是否关注了对方。
+
+        Args:
+            profile: 被查看的资料。
+
+        Returns:
+            已关注为 ``True``;未登录或没关注过为 ``False``。
+        """
+        return bool(self._follow_state(profile).get("is_followed", False))
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_follower_count(self, profile):
+        """对方的粉丝数(多少人关注了对方)。
+
+        Args:
+            profile: 被查看的资料。
+
+        Returns:
+            粉丝数;没有记录时为 0。
+        """
+        return int(self._follow_state(profile).get("follower_count", 0))
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_following_count(self, profile):
+        """对方的关注数(对方关注了多少人)。
+
+        Args:
+            profile: 被查看的资料。
+
+        Returns:
+            关注数;没有记录时为 0。
+        """
+        return int(self._follow_state(profile).get("following_count", 0))
 
     @extend_schema_field(TagSerializer(many=True))
     def get_shared_tags(self, profile):

@@ -86,4 +86,40 @@ describe('SquarePage', () => {
 
     expect(w.find('.square__more').exists()).toBe(true)
   })
+
+  it('切到「关注」tab 走 /feed/following,可切回推荐', async () => {
+    server.use(
+      mswHttp.get('/api/v1/posts', () => HttpResponse.json(page([post(1)]))),
+      mswHttp.get('/api/v1/feed/following', () => HttpResponse.json(page([post(9)]))),
+    )
+    const w = mountPage()
+    await flushPromises()
+    expect(w.text()).toContain('第 1 条')
+
+    await w.findAll('.square__tab')[1].trigger('click')
+    await flushPromises()
+
+    expect(w.find('.square__tab--active').text()).toBe('关注')
+    expect(w.text()).toContain('第 9 条')
+    expect(w.text()).not.toContain('第 1 条')
+
+    await w.findAll('.square__tab')[0].trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('第 1 条')
+  })
+
+  it('关注 tab 空态:提示去推荐看看', async () => {
+    server.use(
+      mswHttp.get('/api/v1/posts', () => HttpResponse.json(page([]))),
+      mswHttp.get('/api/v1/feed/following', () => HttpResponse.json(page([]))),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    await w.findAll('.square__tab')[1].trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('还没有关注的人')
+    expect(w.text()).toContain('去「推荐」看看')
+  })
 })

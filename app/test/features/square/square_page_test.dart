@@ -12,12 +12,14 @@ import '../../support/scripted_adapter.dart';
 const _loggedIn = {'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7};
 
 ScriptedAdapter _adapter(Map<String, dynamic> postsPage,
-        {Map<String, dynamic>? presence}) =>
+        {Map<String, dynamic>? presence, Map<String, dynamic>? followingPage}) =>
     ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
       'GET /users/me': (options) => ok(profileJson(nickname: '小明')),
       'GET /posts': (options) => ok(postsPage),
       'GET /presence': (options) => ok(presence ?? {'results': []}),
+      if (followingPage != null)
+        'GET /feed/following': (options) => ok(followingPage),
     });
 
 Future<void> _openSquare(WidgetTester tester) async {
@@ -210,5 +212,48 @@ void main() {
     final request = adapter.log.lastWhere((r) => r.path == '/presence');
     expect(request.queryParameters['user_ids'], contains('9'));
     expect(request.queryParameters['user_ids'], contains('10'));
+  });
+
+  testWidgets('关注 tab:走 /feed/following 并渲染关注流,可切回推荐', (tester) async {
+    final adapter = _adapter(
+      pageJson([postJson(id: 1, text: '推荐的')]),
+      followingPage: pageJson([postJson(id: 5, nickname: '关注的人', text: '关注的动态')]),
+    );
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+    await _openSquare(tester);
+
+    expect(find.text('推荐的'), findsOneWidget);
+    expect(find.text('关注的动态'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('square.tab.following')));
+    await pumpFrames(tester);
+
+    expect(find.text('关注的动态'), findsOneWidget);
+    expect(find.text('推荐的'), findsNothing);
+    expect(adapter.log.where((item) => item.path == '/feed/following'), isNotEmpty);
+
+    await tester.tap(find.byKey(const Key('square.tab.recommend')));
+    await pumpFrames(tester);
+    expect(find.text('推荐的'), findsOneWidget);
+  });
+
+  testWidgets('关注 tab 空态:提示去推荐,按钮切回推荐', (tester) async {
+    final adapter = _adapter(pageJson([]), followingPage: pageJson([]));
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    // 推荐空态有无限涟漪,全程禁 settle
+    await pumpFrames(tester);
+    await tester.tap(navTab('广场'));
+    await pumpFrames(tester);
+
+    await tester.tap(find.byKey(const Key('square.tab.following')));
+    await pumpFrames(tester);
+
+    expect(find.text('还没有关注的人'), findsOneWidget);
+    expect(find.text('去「推荐」看看,关注感兴趣的人'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('square.empty.toRecommend')));
+    await pumpFrames(tester);
+    expect(find.text('还没有动态'), findsOneWidget);
   });
 }

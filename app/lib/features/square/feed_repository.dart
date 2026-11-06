@@ -36,6 +36,12 @@ class FeedRepository {
     }
   }
 
+  /// 关注某人(幂等 204;重复关注不会报错)。
+  Future<void> follow(int userId) async => _api.post('/users/$userId/follow');
+
+  /// 取消关注(幂等 204;没关注过也返回成功)。
+  Future<void> unfollow(int userId) async => _api.delete('/users/$userId/follow');
+
   Future<Post> createPost({
     required String text,
     required List<({Uint8List bytes, String name})> images,

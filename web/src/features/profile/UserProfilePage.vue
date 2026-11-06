@@ -24,11 +24,18 @@ const fatal = ref(false)
 const notice = ref('')
 const reporting = ref(false)
 
+/** 关注态本地副本:乐观更新用(请求失败再回滚),以服务端响应为初始值 */
+const following = ref(false)
+const followerCount = ref(0)
+const followBusy = ref(false)
+
 async function load() {
   error.value = ''
   fatal.value = false
   try {
     profile.value = await usersApi.fetchUserProfile(Number(props.id))
+    following.value = profile.value.is_followed
+    followerCount.value = profile.value.follower_count
     presence.track('profile', [Number(props.id)])
   } catch (e) {
     const apiError = parseApiError(e)
@@ -38,6 +45,29 @@ async function load() {
 }
 
 onMounted(load)
+
+/**
+ * 关注/取消关注:乐观更新(点下去立刻切态与改粉丝数),失败回滚并提示。
+ * 关注是低风险动作,等网络往返再变灰会让整页像卡住。
+ */
+async function onToggleFollow() {
+  if (followBusy.value) return
+  const target = !following.value
+  following.value = target
+  followerCount.value += target ? 1 : -1
+  followBusy.value = true
+  notice.value = ''
+  try {
+    if (target) await usersApi.followUser(numericId.value)
+    else await usersApi.unfollowUser(numericId.value)
+  } catch (e) {
+    following.value = !target
+    followerCount.value += target ? -1 : 1
+    notice.value = parseApiError(e).message
+  } finally {
+    followBusy.value = false
+  }
+}
 
 async function onReport(type: ReportType, detail: string) {
   reporting.value = false
@@ -73,6 +103,22 @@ async function onBlock() {
           </p>
         </div>
         <OnlineDot class="user-profile__online" :online="isOnline" />
+      </div>
+      <div class="user-profile__follow">
+        <span class="user-profile__count">
+          <b>{{ profile.following_count }}</b> 关注
+        </span>
+        <span class="user-profile__count">
+          <b>{{ followerCount }}</b> 粉丝
+        </span>
+        <AppButton
+          class="user-profile__follow-button"
+          :variant="following ? 'ghost' : 'primary'"
+          :loading="followBusy"
+          @click="onToggleFollow"
+        >
+          {{ following ? '已关注' : '关注' }}
+        </AppButton>
       </div>
       <p v-if="profile.bio" class="user-profile__bio">{{ profile.bio }}</p>
       <div v-if="profile.tags.length" class="user-profile__tags">
@@ -122,6 +168,23 @@ async function onBlock() {
   gap: var(--space-lg);
 }
 .user-profile__online {
+  margin-left: auto;
+}
+.user-profile__follow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  margin-top: var(--space-md);
+}
+.user-profile__count {
+  font-size: var(--text-caption);
+  color: var(--color-text2);
+}
+.user-profile__count b {
+  font-size: var(--text-body);
+  color: var(--color-text1);
+}
+.user-profile__follow-button {
   margin-left: auto;
 }
 .user-profile__name {

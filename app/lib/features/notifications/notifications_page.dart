@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -180,11 +182,40 @@ class _UnreadDot extends StatelessWidget {
 ///
 /// 单独抽出来是因为消息页与测试都要用:角标数字来自
 /// [notificationsUnreadCountProvider],点进去就是通知页。
-class NotificationsBell extends ConsumerWidget {
+///
+/// 角标是 `FutureProvider`,默认**每 60 秒**重新拉一次(间隔见
+/// [notificationsBadgeRefreshIntervalProvider]):本项目不做离线推送,
+/// 不轮询的话 App 常驻打开时永远看不到新角标(H 批已知限制,批次 I 补齐)。
+class NotificationsBell extends ConsumerStatefulWidget {
   const NotificationsBell({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NotificationsBell> createState() => _NotificationsBellState();
+}
+
+class _NotificationsBellState extends ConsumerState<NotificationsBell> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    final interval = ref.read(notificationsBadgeRefreshIntervalProvider);
+    if (interval != null) {
+      _timer = Timer.periodic(interval, (_) {
+        if (!mounted) return;
+        ref.invalidate(notificationsUnreadCountProvider);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final colors = context.heart;
     final unread = ref.watch(notificationsUnreadCountProvider).value ?? 0;
     return Stack(

@@ -323,4 +323,80 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('首页'), findsOneWidget);
   });
+
+  testWidgets('关注:点按钮 → POST /users/9/follow,按钮变「已关注」且粉丝数 +1', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(followerCount: 3));
+    adapter.routes['POST /users/9/follow'] =
+        (options) => ok(const <String, dynamic>{}, status: 204);
+    await pumpProfile(tester);
+
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.follow')), matching: find.text('关注')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.followerCount')), matching: find.text('3')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('user.follow')));
+    await tester.pumpAndSettle();
+
+    expect(adapter.log.lastWhere((r) => r.method == 'POST').path, '/users/9/follow');
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.follow')), matching: find.text('已关注')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.followerCount')), matching: find.text('4')),
+        findsOneWidget);
+  });
+
+  testWidgets('已关注:再点 → DELETE /users/9/follow,回到「关注」', (tester) async {
+    adapter.routes['GET /users/9'] =
+        (options) => ok(publicProfileJson(isFollowed: true, followerCount: 4));
+    adapter.routes['DELETE /users/9/follow'] =
+        (options) => ok(const <String, dynamic>{}, status: 204);
+    await pumpProfile(tester);
+
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.follow')), matching: find.text('已关注')),
+        findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('user.follow')));
+    await tester.pumpAndSettle();
+
+    expect(adapter.log.lastWhere((r) => r.method == 'DELETE').path, '/users/9/follow');
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.follow')), matching: find.text('关注')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.followerCount')), matching: find.text('3')),
+        findsOneWidget);
+  });
+
+  testWidgets('关注失败:乐观态回滚并提示', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(followerCount: 3));
+    adapter.routes['POST /users/9/follow'] = offline;
+    await pumpProfile(tester);
+
+    await tester.tap(find.byKey(const Key('user.follow')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.follow')), matching: find.text('关注')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('user.followerCount')), matching: find.text('3')),
+        findsOneWidget);
+    expect(find.text('网络不给力,请检查网络后重试'), findsOneWidget);
+    // SnackBar 自带 4s 自动消失 Timer,收尾推过去,否则报 pending timer
+    await tester.pump(const Duration(seconds: 5));
+  });
 }

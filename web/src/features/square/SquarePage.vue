@@ -1,20 +1,39 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import AppButton from '@/components/AppButton.vue'
 import AppEmpty from '@/components/AppEmpty.vue'
 import AppErrorView from '@/components/AppErrorView.vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import { useSessionStore } from '@/stores/session'
-import { useFeedStore } from '@/stores/feed'
+import { useFeedStore, useFollowingFeedStore } from '@/stores/feed'
 import PostCard from './PostCard.vue'
 
-const store = useFeedStore()
+const feed = useFeedStore()
+const following = useFollowingFeedStore()
 const session = useSessionStore()
 
-const showEmpty = computed(() => !store.loading && !store.error && store.posts.length === 0)
+type Tab = 'recommend' | 'following'
+/** 当前 tab:默认「推荐」,与批次 I 之前的行为一致 */
+const tab = ref<Tab>('recommend')
+
+/** 当前 tab 的数据源(两个 store 形状一致,模板只认这一份) */
+const current = computed(() => (tab.value === 'recommend' ? feed : following))
+
+const showEmpty = computed(
+  () => !current.value.loading && !current.value.error && current.value.posts.length === 0,
+)
+
+function switchTab(next: Tab): void {
+  if (tab.value === next) return
+  tab.value = next
+  // 关注流首次进入才拉;之后切回来复用已加载的列表(下拉/加载更多仍可刷新)
+  if (next === 'following' && following.posts.length === 0 && !following.loading) {
+    following.load().catch(() => {})
+  }
+}
 
 onMounted(() => {
-  store.load().catch(() => {})
+  feed.load().catch(() => {})
 })
 </script>
 
@@ -27,7 +46,30 @@ onMounted(() => {
       </RouterLink>
     </header>
 
-    <div v-if="store.loading" class="square__grid">
+    <div class="square__tabs" role="tablist">
+      <button
+        class="square__tab"
+        :class="{ 'square__tab--active': tab === 'recommend' }"
+        type="button"
+        role="tab"
+        :aria-selected="tab === 'recommend'"
+        @click="switchTab('recommend')"
+      >
+        推荐
+      </button>
+      <button
+        class="square__tab"
+        :class="{ 'square__tab--active': tab === 'following' }"
+        type="button"
+        role="tab"
+        :aria-selected="tab === 'following'"
+        @click="switchTab('following')"
+      >
+        关注
+      </button>
+    </div>
+
+    <div v-if="current.loading" class="square__grid">
       <AppSkeleton
         v-for="n in 4"
         :key="n"
@@ -37,35 +79,37 @@ onMounted(() => {
     </div>
 
     <AppErrorView
-      v-else-if="store.error && store.posts.length === 0"
-      :message="store.error"
-      @retry="store.load(true)"
+      v-else-if="current.error && current.posts.length === 0"
+      :message="current.error"
+      @retry="current.load(true)"
     />
 
     <AppEmpty
       v-else-if="showEmpty"
       emoji="🌟"
-      title="广场还很安静"
-      description="发第一条动态,让大家认识你"
+      :title="tab === 'following' ? '还没有关注的人' : '广场还很安静'"
+      :description="
+        tab === 'following' ? '去「推荐」看看,关注感兴趣的人' : '发第一条动态,让大家认识你'
+      "
     />
 
     <div v-else class="square__grid">
       <PostCard
-        v-for="item in store.posts"
+        v-for="item in current.posts"
         :key="item.id"
         :post="item"
         :mine="item.author.user_id === session.userId"
-        @like="store.toggleLike(item)"
-        @delete="store.removePost(item.id)"
+        @like="current.toggleLike(item)"
+        @delete="current.removePost(item.id)"
       />
     </div>
 
-    <div v-if="store.hasMore" class="square__footer">
+    <div v-if="current.hasMore" class="square__footer">
       <AppButton
         class="square__more"
         variant="ghost"
-        :loading="store.loadingMore"
-        @click="store.load()"
+        :loading="current.loadingMore"
+        @click="current.load()"
       >
         加载更多
       </AppButton>
@@ -89,6 +133,25 @@ onMounted(() => {
   margin: 0;
   font-size: var(--text-display);
   font-weight: var(--weight-extrabold);
+}
+.square__tabs {
+  display: flex;
+  gap: var(--space-xl);
+}
+.square__tab {
+  padding: var(--space-xs) 0;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--color-text2);
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.square__tab--active {
+  border-bottom-color: var(--color-brand);
+  color: var(--color-text1);
+  font-weight: var(--weight-bold);
 }
 .square__grid {
   display: grid;
