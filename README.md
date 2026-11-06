@@ -385,7 +385,7 @@ npm run build      # 产物 web/dist
 
 | 层 | 工具与形态 | 门禁 |
 |---|---|---|
-| 后端 | `manage.py test`,791 个用例;IM 副作用一律 mock(`im.tasks.*.delay`),并发正确性用唯一约束 + `CheckConstraint` 覆盖 | 全量绿 + 查询预算 + 注释覆盖 + 接口文档双向比对 + schema 字段级比对 |
+| 后端 | `manage.py test`,852 个用例;IM 副作用一律 mock(`im.tasks.*.delay`),并发正确性用唯一约束 + `CheckConstraint` 覆盖 | 全量绿 + 查询预算 + 注释覆盖 + 接口文档双向比对 + schema 字段级比对 |
 | 客户端 | `flutter test`;`test/support/` 提供脚本化假网络、假 IM 客户端与 `pumpApp` 组合入口 | `flutter analyze` 零告警 + 全绿 |
 | 网页端 | vitest + MSW(组件与 store 真实);Playwright 端到端跑构建产物 | `vue-tsc` 零错误 + `eslint --max-warnings 0` + 覆盖率门槛 70/60/70/70 |
 | 长连接 | imserver unit / DB / WS / HTTP 四套;跨栈帧 fixture 三端共享 | 三轨 CI 各自校验同一份 fixture |
@@ -429,7 +429,7 @@ nginx 的三条硬要求与两个易错点:
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/api/`](docs/api/README.md) | 对外交付级接口文档:13 份分册 / 51 个操作 + `openapi.yml` 机器可读契约 |
+| [`docs/api/`](docs/api/README.md) | 对外交付级接口文档:14 份分册 / 54 个操作 + `openapi.yml` 机器可读契约 |
 | [`docs/ops/`](docs/ops/) | 运维与容量:发版与 Release 清单、imserver 协议、runbook、容量与可靠性、压测与基线报告、通知与推送通道契约 |
 | [`docs/pitfalls/`](docs/pitfalls/README.md) | 踩坑手册,按 IM / 前端 / 后端 / 测试 / 网页端 / 模拟器分册 |
 | [`docs/milestones.md`](docs/milestones.md) | 里程碑时间线(每次交付的改动、PR 号与上线 SHA) |
