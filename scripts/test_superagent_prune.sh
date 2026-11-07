@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # superagent-prune.sh 的自测:纯本地临时仓库,不碰真实母体。
 #
-# 重点防的是「多提交分支被 squash 合并后判成 merged=no」——
-# 那是 2026-11-07 首次碰到的真故障(L3 工单有 4 个提交,prune 清不掉 worktree)。
+# 重点防两件事:
+#   1. 「多提交分支被 squash 合并后判成 merged=no」——
+#      那是 2026-11-07 首次碰到的真故障(L3 工单有 4 个提交,prune 清不掉 worktree)。
+#   2. issue #108 的两条行为契约:
+#      a. 没有工单 worktree 可清时**不碰网络**(不 fetch)、打「无可清理」、exit 0;
+#      b. 有活时 fetch 失败 → 退出码非 0 + 人话错误,且**一个 worktree 都不删**。
+#      失败场景一律用「不可达 remote」造:worker 的 shell 从 start-superagent.sh 继承
+#      https_proxy,拔网线/关代理造出来的失败不可确定性复现;`remote set-url` 才是确定的。
 set -uo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -22,6 +28,28 @@ assert() { # assert <描述> <期望退出码> <输出里应该出现>
     printf '%s\n' "$OUT" | sed 's/^/     | /'
     fail=1
   fi
+}
+
+assert_fail() { # assert_fail <描述> <输出里应该出现>:期望退出码**非** 0
+  local desc=$1 needle=${2:-} ok=1
+  [ "$RC" != 0 ] || ok=0
+  [ -z "$needle" ] || case $OUT in *"$needle"*) ;; *) ok=0 ;; esac
+  if [ "$ok" = 1 ]; then say "ok   $desc"; else
+    say "FAIL $desc(期望退出码非 0 /「$needle」,实际 $RC)"
+    printf '%s\n' "$OUT" | sed 's/^/     | /'
+    fail=1
+  fi
+}
+
+assert_dir() { # assert_dir <描述> <路径>:目录必须还在(防误删)
+  if [ -d "$2" ]; then say "ok   $1"; else say "FAIL $1(目录不见了:$2)"; fail=1; fi
+}
+
+assert_no() { # assert_no <描述> <输出里不该出现>:用来证明「这件事根本没发生」
+  case $OUT in
+    *"$2"*) say "FAIL $1(输出里不该出现「$2」)"; printf '%s\n' "$OUT" | sed 's/^/     | /'; fail=1 ;;
+    *) say "ok   $1" ;;
+  esac
 }
 
 setup() {
@@ -104,6 +132,68 @@ printf 'x\n' >"$wt/untracked.txt"
 run --apply
 assert "脏 → 只报告不清理" 0 "dirty=1"
 if [ -d "$wt" ]; then say "ok   脏 worktree 保留"; else say "FAIL 脏 worktree 被删了"; fail=1; fi
+
+# ── 下面是 issue #108 的两条行为契约 ────────────────────────────────────────────
+# 把 origin 指到不存在的路径:fetch 必然失败,且与真实网络/proxy 无关(可确定复现)。
+break_remote() { git -C "$T/clone" remote set-url origin "$T/does-not-exist.git"; }
+
+# ── F:WORKROOT 空(没有工单 worktree)+ remote 不可达 → 不碰网络,exit 0 打「无可清理」
+setup
+break_remote
+run
+assert "空 WORKROOT + remote 不可达 → exit 0 且「无可清理」" 0 "无可清理"
+assert_no "空 WORKROOT → 根本没去 fetch(输出里没有那个坏 remote)" "does-not-exist"
+
+# ── G:同上但 --apply → 一样 exit 0(不能因为「要动手」就先去联网),且什么都不动
+setup
+break_remote
+git -C "$T/clone" update-ref refs/dsh-superagent/fake "$(git -C "$T/clone" rev-parse master)"
+run --apply
+assert "空 WORKROOT + 不可达 + --apply → 仍 exit 0「无可清理」" 0 "无可清理"
+assert_no "--apply 时也没去 fetch" "does-not-exist"
+if git -C "$T/clone" rev-parse -q --verify refs/dsh-superagent/fake >/dev/null 2>&1; then
+  say "ok   空 WORKROOT 时连本地 ref 都不动(没活就只报告)"
+else
+  say "FAIL 空 WORKROOT 时居然删了 refs/dsh-superagent/*"
+  fail=1
+fi
+
+# ── H:WORKROOT 目录本身不存在 → 同样「无可清理」exit 0
+setup
+break_remote
+export WORKROOT="$T/no-such-workroot"
+run --apply
+assert "WORKROOT 不存在 + 不可达 → exit 0「无可清理」" 0 "无可清理"
+export WORKROOT="$T/work"
+
+# ── I:WORKROOT 非空(有活)+ remote 不可达 → 非 0 + 人话错误 + 什么都不删
+setup
+wt=$(make_worktree agent/net-fail 1)
+break_remote
+run --apply
+assert_fail "非空 + 不可达 → 退出码非 0 且人话错误「无法判定是否已合并」" "无法判定是否已合并"
+assert_dir "非空 + 不可达 → worktree 原封不动(不误删)" "$wt"
+if git -C "$T/clone" rev-parse -q --verify refs/heads/agent/net-fail >/dev/null 2>&1; then
+  say "ok   非空 + 不可达 → 分支也没被删"
+else
+  say "FAIL 非空 + 不可达 → 分支被删了"
+  fail=1
+fi
+assert_no "非空 + 不可达 → 没有误报「已清理」" "已清理"
+
+# ── J:连「本地看着已合并」也不能拿过期基线去删
+setup
+wt=$(make_worktree agent/net-merged 1)
+merge_squashed agent/net-merged
+break_remote
+run --apply
+assert_fail "已合并 + 不可达 → 仍然非 0(不拿本地旧基线猜)" "无法判定是否已合并"
+assert_dir "已合并 + 不可达 → worktree 保留" "$wt"
+
+# ── K:网络正常 + WORKROOT 空 → 也走「无可清理」这条捷径(不是靠 fetch 失败兜住的)
+setup
+run --apply
+assert "可达 remote + 空 WORKROOT → exit 0「无可清理」" 0 "无可清理"
 
 [ "$fail" = 0 ] && say "全部通过" || say "有失败"
 exit "$fail"
