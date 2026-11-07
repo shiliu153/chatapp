@@ -11,7 +11,7 @@
     - 评论:通知作者、自己评自己不通知、违禁词、正序分页、隐藏被拉黑评论者、限流;
     - 举报动态:建待处理、重复幂等、不能举报自己、不可见 404、非法类型、限流;
     - 关注:幂等 204、不能关注自己、拉黑/重封禁/不存在一律 404、鉴权与限流;
-    - 关注流:只含关注的人、不含自己、拉黑与重封禁作者过滤、游标翻页不重复。
+    - 关注流:只含关注的人、不含自己、拉黑与重封禁作者过滤、游标翻页不重复、限流。
 """
 
 import base64
@@ -34,6 +34,7 @@ from moderation.models import Block, ReportStatus, ReportType
 from users.models import Profile, ProfileStatus
 
 from .models import Follow, Post, PostComment, PostImage, PostLike, PostReport
+from .throttles import CommentRepliesThrottle, FollowingReadThrottle
 
 User = get_user_model()
 
@@ -719,6 +720,15 @@ class PostCommentThreadTests(FeedApiMixin, APITestCase):
                                  format="json")
         replied.assert_not_called()
 
+    def test_replies_are_throttled_per_user(self):
+        """R4-C1:回复列表按用户限流,超限 429(生产额度 360/hour)。"""
+        root = self._comment("一楼", author=self.author)
+        url = f"{self.url}/{root.id}/replies"
+        with patch.dict(CommentRepliesThrottle.THROTTLE_RATES, {"comment_replies": "2/hour"}):
+            responses = [self.client.get(url) for _ in range(3)]
+        self.assertEqual([resp.status_code for resp in responses], [200, 200, 429])
+        self.assertEqual(responses[-1].json()["code"], 429)    # 统一错误信封
+
 
 class FollowModelTests(TestCase):
     """关注模型:同一对关系只能有一行,方向不可互换。"""
@@ -877,3 +887,10 @@ class FollowingFeedTests(FeedApiMixin, APITestCase):
             cursor = page["next_cursor"]
         self.assertEqual(len(seen), 25)
         self.assertEqual(len(set(seen)), 25)   # 翻页不重复、不漏行
+
+    def test_following_feed_is_throttled_per_user(self):
+        """R4-C1:关注流按用户限流,超限 429(生产额度 240/hour)。"""
+        with patch.dict(FollowingReadThrottle.THROTTLE_RATES, {"following_read": "2/hour"}):
+            responses = [self.client.get(self.URL) for _ in range(3)]
+        self.assertEqual([resp.status_code for resp in responses], [200, 200, 429])
+        self.assertEqual(responses[-1].json()["code"], 429)    # 统一错误信封

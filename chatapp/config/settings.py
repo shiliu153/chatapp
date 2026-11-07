@@ -323,6 +323,13 @@ PUBLIC_PROFILE_RATE = os.getenv("PUBLIC_PROFILE_RATE", _RELAXED or "120/hour")
 VISITS_RATE = os.getenv("VISITS_RATE", _RELAXED or "120/hour")
 VISITS_COUNT_RATE = os.getenv("VISITS_COUNT_RATE", _RELAXED or "240/hour")
 PROBE_RATE = os.getenv("PROBE_RATE", _RELAXED or "1200/hour")   # 探针 10s 一次 ≈ 360/h
+# 通知列表/未读数(R4-C1):列表每页一次 COUNT + 预取 actor,未读数单请求多次聚合;
+# 未读数是铃铛角标接口,调用频率天然比列表高,额度宽一档(480/h)
+NOTIFICATIONS_RATE = os.getenv("NOTIFICATIONS_RATE", _RELAXED or "240/hour")
+NOTIFICATIONS_UNREAD_RATE = os.getenv("NOTIFICATIONS_UNREAD_RATE", _RELAXED or "480/hour")
+# 关注流与回复列表(R4-C1):前者三段 SQL,后者带可见性子查询且展开楼中楼会连发多条
+FOLLOWING_READ_RATE = os.getenv("FOLLOWING_READ_RATE", _RELAXED or "240/hour")
+COMMENT_REPLIES_RATE = os.getenv("COMMENT_REPLIES_RATE", _RELAXED or "360/hour")
 FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
 CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传,按用户计数
@@ -376,6 +383,10 @@ REST_FRAMEWORK = {
         "public_profile": PUBLIC_PROFILE_RATE,
         "visits": VISITS_RATE,
         "visits_count": VISITS_COUNT_RATE,
+        "notifications": NOTIFICATIONS_RATE,
+        "notifications_unread": NOTIFICATIONS_UNREAD_RATE,
+        "following_read": FOLLOWING_READ_RATE,
+        "comment_replies": COMMENT_REPLIES_RATE,
         "probe": PROBE_RATE,
         "logout": os.getenv("LOGOUT_RATE", "60/hour"),
         "feedback": FEEDBACK_RATE,

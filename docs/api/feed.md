@@ -618,7 +618,7 @@ curl -X POST http://<域名>/api/v1/posts/9/report \
 
 ### 5.11 回复列表
 
-> `GET` `/api/v1/posts/{post_id}/comments/{comment_id}/replies` · 需要鉴权 · 无额外限流
+> `GET` `/api/v1/posts/{post_id}/comments/{comment_id}/replies` · 需要鉴权 · 限流 360 次/小时(按用户)
 
 **接口描述**
 
@@ -678,6 +678,7 @@ curl "http://<域名>/api/v1/posts/9/comments/3/replies?limit=20&offset=0" \
 |--------|------|------|----------|
 | 404 | 404 | 动态不可见,或评论不存在 / 不属于该动态 / 本身是回复 | 从列表移除该楼层,不要重试 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 429 | 429 | 触发限流(360 次/小时) | 按 `Retry-After` 等待 |
 
 ---
 
@@ -808,7 +809,7 @@ HTTP/1.1 204 No Content
 
 ### 5.15 关注流
 
-> `GET` `/api/v1/feed/following` · 需要鉴权 · 无额外限流
+> `GET` `/api/v1/feed/following` · 需要鉴权 · 限流 240 次/小时(按用户)
 
 **接口描述**
 
@@ -868,3 +869,4 @@ curl "http://<域名>/api/v1/feed/following?limit=20&before=<next_cursor>" \
 |--------|------|------|----------|
 | 400 | 400 | 游标无效(`before` 不是合法游标) | 清空列表,从第一页重拉 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 429 | 429 | 触发限流(240 次/小时) | 按 `Retry-After` 等待 |

@@ -20,7 +20,7 @@ from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.response import Response
 
 from config.cursor import paginated_response
@@ -30,6 +30,7 @@ from .models import InAppNotification, NotificationPreference, PushDevice
 from .serializers import (DeviceResponseSerializer, DeviceSerializer, NotificationItemSerializer,
                           NotificationReadSerializer, PushPreferenceSerializer,
                           UnreadCountSerializer, notification_payload)
+from .throttles import NotificationsThrottle, NotificationsUnreadThrottle
 
 # 通知中心只展示最近 90 天:更早的记录仍留在库里,由 ``notifications_prune`` 回收。
 NOTIFICATION_WINDOW_DAYS = 90
@@ -129,6 +130,7 @@ def _visible_notifications(user):
 @extend_schema(methods=["GET"], parameters=cursor_params(),
                responses={200: cursor_page("NotificationPage", NotificationItemSerializer)})
 @api_view(["GET"])
+@throttle_classes([NotificationsThrottle])
 def notification_list(request):
     """站内通知列表(GET /api/v1/notifications)。
 
@@ -151,6 +153,7 @@ def notification_list(request):
 
 @extend_schema(methods=["GET"], responses={200: UnreadCountSerializer})
 @api_view(["GET"])
+@throttle_classes([NotificationsUnreadThrottle])
 def notification_unread_count(request):
     """未读通知数(GET /api/v1/notifications/unread_count)。
 

@@ -44,8 +44,9 @@ from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
 from .services import (create_comment, delete_comment, delete_post, follow,
                        following_base, notify_comment_created, page_visible_posts,
                        unfollow, visible_comments, visible_posts)
-from .throttles import (FollowThrottle, PostCommentThrottle, PostCreateThrottle,
-                        PostLikeThrottle, PostReportThrottle)
+from .throttles import (CommentRepliesThrottle, FollowThrottle, FollowingReadThrottle,
+                        PostCommentThrottle, PostCreateThrottle, PostLikeThrottle,
+                        PostReportThrottle)
 
 User = get_user_model()
 
@@ -314,6 +315,7 @@ def post_comments(request, post_id):
 @extend_schema(parameters=offset_params(),
                responses={200: offset_page("ReplyPage", PostCommentSerializer)})
 @api_view(["GET"])
+@throttle_classes([CommentRepliesThrottle])
 def post_comment_replies(request, post_id, comment_id):
     """某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
 
@@ -399,6 +401,7 @@ def post_report(request, post_id):
 @extend_schema(parameters=cursor_params(),
                responses={200: cursor_page("FollowingPage", PostSerializer)})
 @api_view(["GET"])
+@throttle_classes([FollowingReadThrottle])
 def following_posts(request):
     """关注流(GET /api/v1/feed/following)。
 
