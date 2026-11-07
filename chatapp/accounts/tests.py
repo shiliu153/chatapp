@@ -6,6 +6,7 @@
     - 发码:落码、60 秒重发间隔、入队失败回滚、手机号格式、IP 限流;
     - 封闭测试白名单(非受邀号码 403、空白名单不限制、纵深防御);
     - 准入名单落库(B-1c):库内命中/未命中/停用、停用优先于 `.env` 种子、快照缓存与失效;
+    - 准入名单操作流水(R4-B2):种子导入逐条留 ``seed_import``(操作人为空),幂等跳过不写;
     - 校验登录:自动建号、幂等重放、错误/过期、连错锁定、IP 限流、响应头;
     - 验证码状态机(HMAC 存储、重放窗口、锁定、不存明文);
     - IM 账号约定 ``u{id}``、新用户导入与老用户「待踢旧会话」标记;
@@ -40,7 +41,7 @@ from accounts import allowlist, services, sms_codes
 from accounts import totp
 from accounts.exceptions import PhoneNotAllowed
 from accounts.management.commands.seed_fake_users import Command
-from accounts.models import PhoneAllowlist
+from accounts.models import PhoneAllowlist, PhoneAllowlistAction, PhoneAllowlistEvent
 from im import tasks as im_tasks
 from accounts.throttles import SmsSendThrottle
 from accounts.tokens import SessionRefreshToken
@@ -859,6 +860,33 @@ class AllowlistSeedImportTests(TestCase):
         output = self.run_cmd()
         self.assertIn("没有可导入的号码", output)
         self.assertFalse(PhoneAllowlist.objects.exists())
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({"13900139000", "13900139001"}))
+    def test_import_records_seed_event_without_operator(self):
+        """每条导入写一条 ``seed_import`` 流水,``operator`` 为空(命令没有操作人)。"""
+        self.run_cmd(note="老号迁移")
+        events = PhoneAllowlistEvent.objects.order_by("phone")
+        self.assertEqual(events.count(), 2)
+        self.assertEqual(
+            set(events.values_list("phone", flat=True)),
+            {"13900139000", "13900139001"},
+        )
+        self.assertEqual({e.action for e in events}, {PhoneAllowlistAction.SEED_IMPORT})
+        self.assertTrue(all(e.operator is None for e in events))
+        self.assertEqual({e.note for e in events}, {"老号迁移"})
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({"13900139000"}))
+    def test_rerun_records_no_extra_event(self):
+        """幂等跳过的不写流水:重复执行不会把审计表刷成噪声。"""
+        self.run_cmd()
+        self.run_cmd()
+        self.assertEqual(PhoneAllowlistEvent.objects.count(), 1)
+
+    @override_settings(SMS_PHONE_WHITELIST=frozenset({"13900139000"}))
+    def test_dry_run_records_no_event(self):
+        """``--dry-run`` 不落库,自然也没有流水。"""
+        self.run_cmd(dry_run=True)
+        self.assertFalse(PhoneAllowlistEvent.objects.exists())
 
 
 class SeedFakeUsersTests(TestCase):

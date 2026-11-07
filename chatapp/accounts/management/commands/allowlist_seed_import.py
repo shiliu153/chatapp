@@ -16,7 +16,10 @@
     1. **幂等**:已存在的号码一律跳过,重复执行不会重复插入、也不会改动备注与启停状态;
     2. **不重新启用**:库里已停用的号码**保持停用** —— 导入是「补齐」而不是「重置」,
        否则一次手误执行就把刚停掉的号全放回来了;
-    3. 输出只打脱敏号码(``139****9000``),清单本身是安全边界,别往日志里抄明文。
+    3. **留一条流水**:每条真正插进来的号码写一条 ``PhoneAllowlistEvent``
+       (``action=seed_import``,``operator`` 为空 —— 命令没有操作人);被幂等跳过的不写,
+       否则重复执行一次就往审计表里刷一批噪声,把真正的人工操作埋掉;
+    4. 输出只打脱敏号码(``139****9000``),清单本身是安全边界,别往日志里抄明文。
 
 关联文档:
     - 运维手册:docs/ops/runbook.md「准入名单的日常运维」
@@ -27,7 +30,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from accounts.allowlist import invalidate
-from accounts.models import PhoneAllowlist
+from accounts.models import PhoneAllowlist, PhoneAllowlistAction, PhoneAllowlistEvent
 from accounts.validators import mask_phone
 
 
@@ -75,10 +78,16 @@ class Command(BaseCommand):
             self.stdout.write("--dry-run:未写库。")
             return
         note = options["note"]
+        imported = 0
         with transaction.atomic():
-            PhoneAllowlist.objects.bulk_create(
-                [PhoneAllowlist(phone=phone, note=note) for phone in missing],
-                ignore_conflicts=True,
-            )
-        invalidate()   # 立刻生效:不让 App/Web 等快照 TTL
-        self.stdout.write(self.style.SUCCESS(f"已导入 {len(missing)} 个号码,立刻生效。"))
+            for phone in missing:
+                _, created = PhoneAllowlist.objects.get_or_create(
+                    phone=phone, defaults={"note": note})
+                if not created:      # 并发下刚被别人插进来:按幂等跳过,不留流水
+                    continue
+                PhoneAllowlistEvent.objects.create(
+                    phone=phone, action=PhoneAllowlistAction.SEED_IMPORT, note=note)
+                imported += 1
+            # 立刻生效:不让 App/Web 等快照 TTL;放在流水之后,理由同 /ops/ 的写路径。
+            invalidate()
+        self.stdout.write(self.style.SUCCESS(f"已导入 {imported} 个号码,立刻生效。"))

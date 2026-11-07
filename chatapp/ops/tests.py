@@ -15,7 +15,9 @@
     - 动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知;
     - 聊天图片抽审:列表可见、删除置 deleted 并删文件、举报详情带最近图片、非运营 403;
     - 私聊媒体审计:每次浏览落一条 ``MediaAccessLog``(含「仅被举报」筛选),审计失败不影响页面;
-    - 准入名单(B-1c):列表带注册状态、加号/停用立刻生效、格式错误不落库、停用后可重新启用。
+    - 准入名单(B-1c):列表带注册状态、加号/停用立刻生效、格式错误不落库、停用后可重新启用;
+    - 准入名单操作流水(R4-B2):加号写 ``add``、停用/启用写 ``disable``/``enable``、
+      只改备注不写,页面底部「最近操作」表号码脱敏。
 """
 
 import json
@@ -34,7 +36,8 @@ from django.utils import timezone
 from accounts import services
 from accounts import totp
 from accounts.exceptions import PhoneNotAllowed
-from accounts.models import PhoneAllowlist, User
+from accounts.models import (PhoneAllowlist, PhoneAllowlistAction,
+                             PhoneAllowlistEvent, User)
 from feed.models import Post, PostLike, PostReport
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
 from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
@@ -888,3 +891,52 @@ class OpsAllowlistTests(TestCase):
         search_page = self.client.get("/ops/allowlist/?status=all&q=运营")
         self.assertContains(search_page, self.NEWCOMER)
         self.assertNotContains(search_page, self.ALLOWED)
+
+    # ---- 操作流水(R4-B2):名单是安全边界,加号/启停都要能事后追到人 ----
+
+    def test_add_records_add_event_with_operator(self):
+        """新增号码写一条 ``add`` 流水,操作人是当前运营账号。"""
+        self.client.post("/ops/allowlist/add",
+                         {"phone": self.NEWCOMER, "note": "测试同事"})
+        event = PhoneAllowlistEvent.objects.get(phone=self.NEWCOMER)
+        self.assertEqual(event.action, PhoneAllowlistAction.ADD)
+        self.assertEqual(event.operator, self.staff)
+        self.assertEqual(event.note, "测试同事")
+
+    def test_toggle_records_disable_then_enable(self):
+        """停用再启用:依次留下 ``disable``、``enable`` 两条流水,操作人都是当前运营。"""
+        record = PhoneAllowlist.objects.create(phone=self.ALLOWED)
+        self.client.post(f"/ops/allowlist/{record.id}/toggle")
+        self.client.post(f"/ops/allowlist/{record.id}/toggle")
+        events = list(PhoneAllowlistEvent.objects.filter(phone=self.ALLOWED).order_by("id"))
+        self.assertEqual([e.action for e in events],
+                         [PhoneAllowlistAction.DISABLE, PhoneAllowlistAction.ENABLE])
+        self.assertTrue(all(e.operator == self.staff for e in events))
+
+    def test_add_existing_active_only_updates_note_without_event(self):
+        """本来就在启用的号码重复提交(只改备注)**不写**流水,免得噪声埋掉真改动。"""
+        record = PhoneAllowlist.objects.create(phone=self.ALLOWED, note="旧备注")
+        resp = self.client.post("/ops/allowlist/add",
+                                {"phone": self.ALLOWED, "note": "新备注"})
+        self.assertContains(resp, "备注已更新")
+        record.refresh_from_db()
+        self.assertEqual(record.note, "新备注")
+        self.assertFalse(PhoneAllowlistEvent.objects.filter(phone=self.ALLOWED).exists())
+
+    def test_add_existing_disabled_records_enable_not_add(self):
+        """重复提交已停用的号码 = 重新启用,流水记 ``enable`` 而不是 ``add``。"""
+        PhoneAllowlist.objects.create(phone=self.ALLOWED, is_active=False)
+        self.client.post("/ops/allowlist/add", {"phone": self.ALLOWED})
+        event = PhoneAllowlistEvent.objects.get(phone=self.ALLOWED)
+        self.assertEqual(event.action, PhoneAllowlistAction.ENABLE)
+
+    def test_page_shows_recent_events_with_masked_phone(self):
+        """页面底部渲染「最近操作」表:出现动作名,号码脱敏(不打全号)。"""
+        PhoneAllowlistEvent.objects.create(
+            phone=self.ALLOWED, action=PhoneAllowlistAction.ADD, operator=self.staff)
+        resp = self.client.get("/ops/allowlist/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "最近操作")
+        self.assertContains(resp, "加入名单")
+        self.assertContains(resp, "139****9000")
+        self.assertNotContains(resp, self.ALLOWED)
