@@ -1280,3 +1280,28 @@ worker 无 `AGENTS.md` 违规(单栈 1 文件、未碰版本号、未自合、�
   ```
 - 与 issue #108 的关系:#108 是**脚本层**该不该因 fetch 失败而 fatal;这条是**人侧环境**该带什么变量。
   两者叠加才会出现「明明没有 worktree 可清,prune 却报错退出」。
+
+### 9. 自动化阶梯四步实施记录(2026-11-07/08)
+
+四步全部落地,**每一步都带可查证据**:
+
+| 步 | 交付 | 合并 | 证据 |
+|---|---|---|---|
+| L1 收尾 | `scripts/superagent-closeout.sh` + 11 条自测 + 每小时定时任务 | #114 → `85a12ec` | 合并后真跑 `pulled=1 … same=yes`;代理不可用时退回本地 ref 判定且 exit 0 |
+| L2 自动合并 | `.github/workflows/auto-merge.yml`(白名单只有 `docs/`)+ `AUTOMERGE` 开关 | #111 → `8853331` | 首个真实样本 PR #113 被 `github-actions[bot]` 合为 `5cd0c7a`;人开的 PR #112 被正确拦下 |
+| L2.5 分支保护 | master ruleset(deletion / non_fast_forward / pull_request,0 approval) | 仓库外动作 | worker 账号直推 master:`push declined due to repository rule violations` |
+| gh 硬拦 | `scripts/gh-guard/`(shim + installer + 13 条自测) | #115 → `678ef14` | 真实环境 `gh pr merge` 退 2 并记账;`pr create/view/checks` 照常 |
+| L3 App UI 进 CI | `integration_test/smoke_test.dart` + `app-ui.yml`(emulator api 34) | #117 → `cb85145` | `app-ui` 绿 8m38;日志 `Boot completed in 24731 ms` / `All tests passed!`;主人 Windows 模拟器手测通过 |
+
+**这一轮新增的坑(全部是「计划没想到、真跑才暴露」)**:
+
+| # | 现象 | 根因 | 处置 |
+|---|---|---|---|
+| 1 | closeout 第一版不认 `--apply`,打印用法退 1 | 我默认 `MODE=apply`,忘了接受 `--apply`(和 `superagent-prune.sh` 的习惯不一致) | 加该选项 + 自测覆盖;教训:**同一套流程里的脚本,参数风格要一致** |
+| 2 | closeout 上线后第一次跑报 `No such file or directory` | **鸡生蛋**:脚本本身也在母体里,母体没 pull 就没有它 | 写进 ops 手册:脚本刚上线/刚更新时先手动 `git pull` 一次 |
+| 3 | `flutter test` 报「Integration tests and unit tests cannot be run in a single invocation」 | `android-emulator-runner` 的 `script:` 是**逐行 `sh -c`** 执行 —— 续行 `\`、跨行 `set -e`、`$?`、重定向全部失效 | `script` 收敛成单行;WSL 里用同一份 Flutter 复现确认不是用例问题 |
+| 4 | Gradle `assembleDebug` 失败:`null cannot be cast to non-null type kotlin.String` | `app/android/app/build.gradle.kts` 在**配置阶段**无条件读 `key.properties`(gitignored,CI 里不存在) | CI 里 `keytool` 现造一次性 keystore + `key.properties`;根治(缺文件回落 debug 签名)需改 `app/android/**`,另开单 |
+| 5 | **L3 合并后 `prune` 清不掉 worktree**:`merged=no`,但 PR 明明已 squash 合并 | `git cherry` 按 patch-id 判,**只对单提交分支成立**;L3 迭代了 4 个提交,squash 成一条后每个提交都算「未应用」 | `patch-id` 判不出来时**再问 GitHub**(`gh-agent pr list --state merged --head <branch>`),命中则记 `merged=yes-pr` 并清理;新增 `scripts/test_superagent_prune.sh` 8 条自测,其中三条专门锁这个回归 |
+| 6 | `flutter pub get` 在 `app/macos/` 下生成 `Flutter/GeneratedPluginRegistrant.swift`,让 worktree 变脏 → prune 拒绝清理 | 本项目 `app/macos/.gitignore` 只忽略了 `**/Flutter/ephemeral/`,没忽略该文件(上游 Flutter 默认会忽略) | 本单由人删掉生成物后重跑 prune;仓库卫生(补 gitignore)另开单 |
+
+**结论**:自动化每加一层,都会把「原本靠人眼兜住的模糊判定」变成必须写死的确定性规则 —— 这一轮 6 个坑里有 5 个是**判定规则太窄**,而不是模型能力不够。
