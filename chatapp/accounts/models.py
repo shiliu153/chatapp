@@ -6,7 +6,10 @@
     2. ``session_version`` 支撑单设备登录:每次登录 +1 并写进 JWT,鉴权时比对;
     3. ``im_user_id`` 是全项目唯一的 IM 账号拼装点(``u{user_id}``),别处一律用它;
     4. ``PhoneAllowlist`` 是封闭测试的准入名单(B-1c):本项目不接短信商,固定验证码
-       ``123456`` + 名单 = 长期准入机制,因此**这张表本身就是安全边界**。
+       ``123456`` + 名单 = 长期准入机制,因此**这张表本身就是安全边界**;
+    5. ``PhoneAllowlistEvent`` 是这份边界的**操作流水**(R4-B2):加号、启停、种子导入
+       各留一条(谁、何时、对哪个号做了什么)。``PhoneAllowlist`` 自己只有
+       ``created_by`` 与 ``updated_at``,回答不了「谁把谁拿掉、谁又放回来」。
 
 注意事项:
     登录一律走短信验证码,普通用户的密码是不可用的(``set_unusable_password``);
@@ -152,3 +155,64 @@ class PhoneAllowlist(models.Model):
             形如 ``139****9000(启用)`` 的脱敏摘要。
         """
         return f"{mask_phone(self.phone)}({'启用' if self.is_active else '停用'})"
+
+
+class PhoneAllowlistAction(models.TextChoices):
+    """准入名单的操作类型:一条流水记录「这是哪一种改动」。
+
+    分四种而不是只有「改」:事后追查时「新放进来一个人」与「把一个人拿掉」的
+    严重程度完全不同,不能混成一条流水。
+    """
+
+    ADD = "add", "加入名单"
+    ENABLE = "enable", "重新启用"
+    DISABLE = "disable", "停用"
+    SEED_IMPORT = "seed_import", "种子导入"
+
+
+class PhoneAllowlistEvent(models.Model):
+    """准入名单的操作流水(append-only):谁、何时、对哪个号码做了什么。
+
+    为什么另起一张表(而不是给 ``PhoneAllowlist`` 加一个 ``updated_by``):
+        启停是**反复发生**的动作,单列 ``updated_by`` 只会留下最后一次,把前面
+        「谁把谁拿掉」的历史全盖掉;而名单是安全边界,历史不能覆盖,只能追加。
+
+    为什么存完整号码(而不是脱敏串):
+        与 ``PhoneAllowlist.phone`` 同口径,审计要能把「这个号」反查到「这个账号」;
+        脱敏只出现在页面与日志里(``accounts.validators.mask_phone``)。
+
+    Attributes:
+        phone: 被操作的手机号,完整 11 位。
+        action: 操作类型,取值见 :class:`PhoneAllowlistAction`。
+        operator: 操作账号;运营账号被删除时置空(SET_NULL),流水本身不删。
+            种子导入命令没有操作人,落 ``None``。
+        note: 操作当时的备注快照,方便回看「加进来时写的是什么」。
+        created_at: 发生时间(流水写入时刻)。
+    """
+
+    phone = models.CharField("手机号", max_length=20)
+    action = models.CharField(
+        "动作", max_length=16, choices=PhoneAllowlistAction.choices)
+    operator = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name="操作人", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+")
+    note = models.CharField("备注", max_length=100, blank=True, default="")
+    created_at = models.DateTimeField("发生时间", auto_now_add=True)
+
+    class Meta:
+        """最新的排最前;号码维度上按时间倒序,便于回答「这个号最近怎么被改的」。"""
+
+        verbose_name = "准入名单操作流水"
+        verbose_name_plural = verbose_name
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["phone", "-created_at"], name="allow_evt_phone_idx"),
+        ]
+
+    def __str__(self):
+        """后台与日志里的可读标识。
+
+        Returns:
+            形如 ``139****9000 加入名单`` 的脱敏摘要。
+        """
+        return f"{mask_phone(self.phone)} {self.get_action_display()}"

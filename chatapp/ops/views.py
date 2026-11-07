@@ -9,7 +9,8 @@
        ``moderation.services.log_ban_change``,与 Django admin 完全同源;
     4. **准入名单(B-1c)是安全边界的操作台**:本项目不接短信商,名单内 = 自己人,
        因此加号/停用都要留操作人;写路径必须调 ``accounts.allowlist.invalidate()``,
-       否则 App/Web 侧还要等快照 TTL 才生效。
+       否则 App/Web 侧还要等快照 TTL 才生效。每次加号/启停还要在同一个事务里写一条
+       ``PhoneAllowlistEvent``(R4-B2):``is_active`` 只存当前状态,历史只能靠流水;
 
 注意事项:
     解封时必须先把状态改回 ``INCOMPLETE`` 再调 ``refresh_status()`` ——
@@ -22,13 +23,15 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts import allowlist as allowlist_module
-from accounts.models import PhoneAllowlist, User
+from accounts.models import (PhoneAllowlist, PhoneAllowlistAction,
+                             PhoneAllowlistEvent, User)
 from accounts.validators import mask_phone
 from config.net import client_ip
 from config.params import optional_id
@@ -54,6 +57,9 @@ MEDIA_REPORT_WINDOW_DAYS = 7
 
 # 准入名单一页最多展示多少条;名单总量是几十到几百的量级,不做分页。
 ALLOWLIST_PAGE_SIZE = 200
+
+# 「最近操作」表最多展示多少条流水;审计才是全量查询,页面只要扫一眼最近发生过什么。
+ALLOWLIST_EVENT_LIMIT = 20
 
 
 def _reported_user_ids(days: int = MEDIA_REPORT_WINDOW_DAYS) -> set[int]:
@@ -759,7 +765,8 @@ def _allowlist_context(request):
 
     Returns:
         模板上下文字典;``registered`` 是「这些号码里哪些已经注册了账号」的集合,
-        用来提醒运营「加了号还没人用过」和「这个号已经有账号了」。
+        用来提醒运营「加了号还没人用过」和「这个号已经有账号了」;``events`` 是
+        最近 ``ALLOWLIST_EVENT_LIMIT`` 条操作流水,号码与操作人都在这里脱敏。
     """
     status = request.POST.get("status") or request.GET.get("status") or "active"
     q = (request.POST.get("q") or request.GET.get("q") or "").strip()
@@ -776,9 +783,20 @@ def _allowlist_context(request):
         User.objects.filter(phone__in=[r.phone for r in records])
         .values_list("phone", flat=True)
     )
+    events = [
+        {
+            "created_at": event.created_at,
+            "phone": mask_phone(event.phone),
+            "action": event.get_action_display(),
+            "operator": mask_phone(event.operator.phone) if event.operator else "—",
+        }
+        for event in PhoneAllowlistEvent.objects.select_related("operator")
+        [:ALLOWLIST_EVENT_LIMIT]
+    ]
     return {
         "records": records,
         "registered": registered,
+        "events": events,
         "status": status,
         "q": q,
         "error": None,
@@ -828,6 +846,13 @@ def allowlist_page(request):
 def allowlist_add(request):
     """把一个手机号加进准入名单;已停用的号码重复提交视为「重新启用」。
 
+    三种情形分别留一条流水(R4-B2):
+
+    1. 库里没有这个号 → 新建,写 ``add``;
+    2. 库里有但已停用 → 重新启用,写 ``enable``;
+    3. 本来就在启用,只是改了备注 → **不写**流水:准入面没变,写进去只是噪声,
+       会把「谁被放进来 / 谁被拿掉」这类真正要紧的记录埋掉。
+
     写库后立刻清名单快照缓存,所以该号码**下一次请求**就能登录,不用重启 web。
 
     Args:
@@ -843,18 +868,31 @@ def allowlist_add(request):
         return _render_allowlist_panel(request, error=errors)
     phone = form.cleaned_data["phone"]
     note = form.cleaned_data["note"]
-    record, created = PhoneAllowlist.objects.get_or_create(
-        phone=phone, defaults={"note": note, "created_by": request.user})
-    if created:
+    # 名单改动与它的流水必须在同一个事务里:要么「放进来并且留下是谁放的」,
+    # 要么两样都没有 —— 只成功一半,这张安全边界就不可审计了。
+    with transaction.atomic():
+        record, created = PhoneAllowlist.objects.get_or_create(
+            phone=phone, defaults={"note": note, "created_by": request.user})
+        was_active = None           # 只有「已存在」分支才有意义,分支外只用于挑提示文案
+        if created:
+            PhoneAllowlistEvent.objects.create(
+                phone=phone, action=PhoneAllowlistAction.ADD,
+                operator=request.user, note=note)
+        else:
+            was_active = record.is_active
+            record.is_active = True
+            if note:
+                record.note = note
+            record.save(update_fields=["is_active", "note", "updated_at"])
+            if not was_active:
+                PhoneAllowlistEvent.objects.create(
+                    phone=phone, action=PhoneAllowlistAction.ENABLE,
+                    operator=request.user, note=record.note)
+        # 放在流水之后:先落事件再让缓存失效,否则可能「缓存已清、事件还没写」。
         allowlist_module.invalidate()
+    if created:
         return _render_allowlist_panel(
             request, notice=f"{mask_phone(phone)} 已加入名单,立即生效")
-    was_active = record.is_active
-    record.is_active = True
-    if note:
-        record.note = note
-    record.save(update_fields=["is_active", "note", "updated_at"])
-    allowlist_module.invalidate()
     if was_active:
         notice = f"{mask_phone(phone)} 已在名单中,备注已更新"
     else:
@@ -868,7 +906,7 @@ def allowlist_toggle(request, entry_id):
     """启用/停用一个号码;停用立刻生效(该号码下一次发码即 403)。
 
     只改 ``is_active``,不删记录 —— 名单本身就是安全边界,「谁曾经被放进来、
-    什么时候被拿掉」要留得住。
+    什么时候被拿掉」要留得住:每次切换都写一条 ``enable`` / ``disable`` 流水。
 
     Args:
         request: Django 请求对象。
@@ -878,9 +916,15 @@ def allowlist_toggle(request, entry_id):
         名单面板的局部片段,带 ``notice``。
     """
     record = get_object_or_404(PhoneAllowlist, pk=entry_id)
-    record.is_active = not record.is_active
-    record.save(update_fields=["is_active", "updated_at"])
-    allowlist_module.invalidate()
+    with transaction.atomic():
+        record.is_active = not record.is_active
+        record.save(update_fields=["is_active", "updated_at"])
+        PhoneAllowlistEvent.objects.create(
+            phone=record.phone,
+            action=(PhoneAllowlistAction.ENABLE if record.is_active
+                    else PhoneAllowlistAction.DISABLE),
+            operator=request.user, note=record.note)
+        allowlist_module.invalidate()      # 与加号同理:先落流水再失效缓存
     masked = mask_phone(record.phone)
     notice = (f"{masked} 已启用,立即生效" if record.is_active
               else f"{masked} 已停用,该号码即刻无法收发验证码")

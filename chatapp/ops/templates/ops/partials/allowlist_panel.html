@@ -77,4 +77,29 @@
       </tbody>
     </table>
   </article>
+
+  <article>
+    <h3>最近操作</h3>
+    <p class="ops-hint">
+      名单的每次加号与启停都留痕(最近 20 条,种子导入记为「种子导入」且没有操作人)。
+      号码在这里脱敏显示;要反查具体号码请看上表的完整记录。
+    </p>
+    <table id="allowlist-events">
+      <thead>
+        <tr><th>时间</th><th>手机号</th><th>动作</th><th>操作人</th></tr>
+      </thead>
+      <tbody>
+      {% for e in events %}
+        <tr>
+          <td>{{ e.created_at|date:"Y-m-d H:i" }}</td>
+          <td>{{ e.phone }}</td>
+          <td>{{ e.action }}</td>
+          <td>{{ e.operator }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="4">还没有操作记录</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </article>
 </div>
