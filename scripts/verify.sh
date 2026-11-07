@@ -165,7 +165,10 @@ stack_contract() {
   run "版本号三处一致" "$PY" "$ROOT/scripts/sync_version.py" --check
   run "App 模型字段 ⊆ OpenAPI" "$PY" "$ROOT/scripts/check_app_models.py"
 }
-stack_imserver() { :; }
+stack_imserver() {
+  run "imserver 单元 / 集成 / HTTP e2e" \
+    docker compose -f "$ROOT/imserver/docker-compose.test.yml" run --rm test bash /src/scripts/test_http.sh
+}
 stack_app() { :; }
 
 stack_bootstrap() {
