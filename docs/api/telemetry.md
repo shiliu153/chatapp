@@ -21,6 +21,10 @@ Web 的 `window.onerror` / `unhandledrejection` / Vue `errorHandler`,以及 App 
 - **不落库**:错误写进服务端单行 JSON 日志(`logger = chatapp.client_error`),
   由 Loki / Grafana 按 `request_id`、`platform`、`route` 检索,并累加指标
   `client_errors_total{platform}`;
+- **日志按 `platform + message` 采样**:同一行错误 60 秒内只落一条(窗口由 Redis
+  `cache.add` 控制),避免「渲染循环抛异常」把磁盘与 Loki 查询窗口打爆;
+  **指标不受采样影响**,仍按每次请求累加,突增告警的数值不失真;
+  采样用的 `cache.add` 失败时 **fail-open** —— 照常写日志;
 - **幂等性无关**:纯上报,不产生任何业务副作用;
 - 客户端**不应当**因为它失败而影响自身流程(建议 fire-and-forget,失败静默丢弃)。
 
@@ -71,8 +75,10 @@ X-Request-Id: 3f2a...
 
 **观测入口**
 
-- 日志:`level=error`, `logger=chatapp.client_error`, 字段 `platform` / `client_message` /
+- 日志:`level=warning`, `logger=chatapp.client_error`, 字段 `platform` / `client_message` /
   `client_stack` / `client_route` / `app_version` / `client_request_id` / `user_id` / `user_agent`;
-- 指标:`client_errors_total{platform="web|app"}`(见 `GET /metrics`);
+  同一 `platform + message` 60 秒内只落一条(见 §1.1「接口描述」的日志采样说明);
+  **本 logger 不参与告警** —— 告警方向是下面的指标,不是日志条数;
+- 指标:`client_errors_total{platform="web|app"}`(见 `GET /metrics`),**每次请求都累加**;
 - 开关:Web 端 `VITE_ERROR_REPORTING=1`、App 端 `--dart-define=ERROR_REPORTING=true`,
   **本地与测试默认关闭**。
