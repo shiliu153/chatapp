@@ -76,6 +76,17 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
    - ⚠️ **鸡生蛋**:脚本自己也在母体里,所以「脚本刚上线 / 刚更新」时要先手动引导一次
      `git -C /root/src/chatapp pull --ff-only`(带代理),之后才能用它。
    - 母体不自动跟随 `origin/master`,而 prune 脚本就住在母体里 —— **先 pull 再 prune** 的顺序不能反。
+
+   **`prune` 的判定值(看 closeout 输出或单独跑时)**:
+
+   | 值 | 含义 | 会不会清 |
+   |---|---|---|
+   | `merged=yes` | `git cherry` 按 patch-id 认出来了(**单提交**分支 + squash 时成立) | 会 |
+   | `merged=yes-pr` | patch-id 认不出(分支有多个提交,被 squash 成一条),改问 GitHub「这个 head 有过已合并的 PR 吗」 | 会 |
+   | `merged=no` | 两条都不成立(或网络不通、`GH_CLI` 不可用) | **不会**,只报告 |
+   | `dirty≠0` | worktree 有未提交/未跟踪文件(常见:`app/macos/Flutter/` 这类生成物) | **不会**,先自己清干净 |
+
+   网络兜底用的是 `/root/.local/bin/gh-agent`(可用 `GH_CLI=...` 覆盖,置空即关掉)。
 5. 纯文档 PR(只动 `docs/**`):六轨都不触发、**没有 check runs 是正常的**,本地
    `scripts/verify.sh contract` 绿即可直接 squash 合并,不必再单独占一轮确认。
    2026-11-08 起这一步已由 `.github/workflows/auto-merge.yml` 自动完成(见 §8)。
