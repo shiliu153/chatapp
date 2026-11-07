@@ -436,7 +436,8 @@ SMS_REPLAY_TTL = 60         # 校验成功后的幂等重放窗口(秒):响应�
 # 名单本体已落到数据库(`accounts.PhoneAllowlist`,运营后台 `/ops/allowlist/` 维护,
 # 加号/停用**立刻生效、不用重启 web**);这里的 .env 值降级为「兜底种子」:
 # 库里还没有这条记录时仍按它放行(冷启动、首次导入前的过渡),但库里显式停用的
-# 号码优先被拒。逗号分隔的 11 位手机号;库与种子都留空 = 不限制(开发/测试)。
+# 号码优先被拒。逗号分隔的 11 位手机号;库与种子都留空时的行为由下面的
+# SMS_ALLOWLIST_STRICT 决定(开发/测试放行,生产拒绝)。
 # 理由:固定验证码 + 任意手机号 = 谁都能接管别人账号;名单把可登录的号码从
 # 「全空间」缩到「我们自己人」。**本项目确定不接短信商(2026-11-03),名单是长期机制**,
 # 不是过渡方案 —— 日常运维见 docs/ops/runbook.md 与 backlog B-1c。
@@ -446,6 +447,12 @@ SMS_PHONE_WHITELIST = frozenset(
 # 名单快照缓存 TTL(秒):写路径(/ops/ 加号、停用、种子导入)会显式清缓存立刻生效,
 # 这个 TTL 只决定「绕过 /ops/ 直接改库」时最多多久被发现。
 SMS_ALLOWLIST_CACHE_TTL = int(os.getenv("SMS_ALLOWLIST_CACHE_TTL", "60"))
+# 名单为空(库与种子都空)时是放行还是拒绝 —— 准入闸门必须 fail-closed(R4 M-1)。
+# "" = 按 DEBUG 自动:开发/测试放行、生产拒绝;"1"/"0" 显式覆盖。
+# 生产留空即严格:库与种子都空 = 谁都登不进来(403 + 40301),而不是「谁都能登进来」。
+# 上线前必须先跑 `manage.py allowlist_seed_import` 或设好 SMS_PHONE_WHITELIST;漏配还有
+# accounts.E001 在部署期把 `manage.py check` 变红(见 accounts/checks.py)。
+SMS_ALLOWLIST_STRICT = os.getenv("SMS_ALLOWLIST_STRICT", "")
 
 # --- 日志:开发期要能在终端看到验证码;每行带 request_id ---
 LOG_FILE = os.getenv("LOG_FILE", "")          # 置为文件路径则额外落盘(手测配 --noreload)
