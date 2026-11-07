@@ -25,7 +25,8 @@
 
 `specs/` 中的 [dual-server-load-balancing](archive/specs/2026-10-28-dual-server-load-balancing-design.md) 已在
 2026-11-04 拍板「不做双机、暂不升配」,转为历史设计。批次 F–J 已于 2026-11-07 全部交付,
-那份 plan 已 `git mv` 到 `archive/plans/` 并在 §4 补了一行 —— **当前 `plans/` 是空的**。
+那份 plan 已 `git mv` 到 `archive/plans/` 并在 §4 补了一行。**当前 `plans/` 只有 1 份**:
+[plans/2026-11-07-superagent-dev-workflow.md](plans/2026-11-07-superagent-dev-workflow.md)(superagent 流程 P0–P3 实施计划)。
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。
