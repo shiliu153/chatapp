@@ -52,7 +52,20 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
 1. 面板 / issue 收到「PR #N 就绪」→ 评审 diff(它只是「就绪」,不等于可合)。
 2. 碰 `app/` 的:PR 应为 draft → 拉分支到 Windows → 装模拟器 → 逐页手测截图 → 贴进 PR → 勾模板第 4 项。
 3. CI 六轨绿 → **squash 合并** → 删分支。
-4. 合并后跑 `bash scripts/superagent-prune.sh --apply` 清 worktree 与 `refs/dsh-superagent/*`。
+   **别在母体里 `git push origin --delete`**:母体没有 credential helper,https remote 会**静默挂住**
+   等输入(不是报错)。删已合并分支用页面,或 REST
+   `DELETE /repos/shiliu153/chatapp/git/refs/heads/<branch>`(token 用 `~/.dsh/github-mcp-token.txt`)。
+4. **合并后立刻同步本机(顺序不能反)**:
+   ```bash
+   git -C /root/src/chatapp pull --ff-only        # WSL 母体:prune 脚本住在这儿
+   # Windows 仓库(本会话 cwd)同样 pull --ff-only:人读的 docs/ 在那边
+   ```
+   母体不自动跟随 `origin/master`。不同步就跑 prune,用的是 #105 之前的旧判定
+   (`merge-base --is-ancestor` 对 squash 合并必然判 `merged=no`),worktree 清不掉。
+5. 母体已是合并后的 master,再跑 `bash scripts/superagent-prune.sh --apply` 清 worktree 与
+   `refs/dsh-superagent/*`。**网络不通时 fetch 会 fatal**(见 issue #108),先确认代理再重试。
+6. 纯文档 PR(只动 `docs/**`):六轨都不触发、**没有 check runs 是正常的**,本地
+   `scripts/verify.sh contract` 绿即可直接 squash 合并,不必再单独占一轮确认。
 
 ## 5. 升级与回滚
 
