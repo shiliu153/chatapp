@@ -1,6 +1,8 @@
 # 踩坑手册 · 测试
 
 > 索引见 [README.md](README.md)。测试纪律是硬要求:后端 `python manage.py test` 全绿、`flutter analyze` 零告警、每步全绿再进下一步。
+>
+> 本地复刻 CI 的统一入口是 `scripts/verify.sh <stack>`(`backend` / `web` / `imserver` / `app` / `contract` / `all`),命令序列与环境变量逐项对齐 `.github/workflows/*.yml`;用法与依赖安装见 [docs/ops/superagent.md](../ops/superagent.md) 与根目录 [AGENTS.md](../../AGENTS.md)。下面「在 WSL / Linux 本地跑验证」一节是它的环境坑。
 
 ## 后端(Django)
 
@@ -10,6 +12,34 @@
 - ⚠️ **测试里 Celery 任务只入队、不执行**(无 worker):断言「入队了什么」用 `patch("im.tasks.ban_notice.delay")` / `patch("im.tasks.sync_profile.delay")` 之类;要测任务体直接 `task.run(...)`,此时 mock `im.client.*`,腾讯 REST 一次都不能真打。
 - ⚠️ **凡会触发 IM 调用的用例都要 mock**:漏 mock 会真打腾讯云(用例仍绿,因为业务函数吞异常——靠跑测试时日志里有没有 `IM ... 返回错误` 发现),且变慢、依赖网络。
 - ⚠️ 限流用例要 `cache.clear()`:计数在 Redis,跨用例残留会导致偶发 429(DB15 与开发 DB0 隔离,clear 不误伤)。
+
+## 在 WSL / Linux 本地跑验证(`scripts/verify.sh`)
+
+这一节只讲**环境**坑:四条都在 WSL 里实测踩到、现已由 `scripts/verify.sh` 兜住(2026-11-07)。看到类似报错先怀疑环境,别当业务用例红了去改用例。
+
+### 1. 测试模式不读 `REDIS_URL`
+
+- **现象**:`manage.py test` 大面积报 `ConnectionInterrupted: Error 111 connecting to 127.0.0.1:6379`(实测 875 个用例里 359 个 error),凡是碰缓存 / 限流计数 / `on_commit` 入队的用例几乎全中;可 Redis 明明在跑(只是不在 6379)。
+- **原因**:`chatapp/config/settings.py` 在 `TESTING`(`sys.argv[1:2] == ["test"]`)分支下**不用 `REDIS_URL`**,而是读 `TEST_REDIS_HOST` / `TEST_REDIS_PORT`(默认 `127.0.0.1:6379`)重新拼地址,并强制切到 **DB15(缓存)/ DB14(broker)** 以免清库误伤开发数据。所以把 `REDIS_URL` 指到 16379 完全不起作用,测试照样去连 6379。
+- **处置**:Redis 不在 6379 时(CI 容器在 16379)把两个变量**一起**指过去:`export TEST_REDIS_HOST=127.0.0.1 TEST_REDIS_PORT=16379`。`scripts/verify.sh backend` 已内置这对变量,并且连 `BROKER_URL` 一起对齐,别只改一半。
+
+### 2. Windows 检出是 CRLF,WSL 的 git 会把全仓算成改动
+
+- **现象**:校验生成物(OpenAPI / `schema.d.ts`)在 WSL 里永远红:`git diff --exit-code` 或 `git status` 把 **1094 个文件**都判成已改,哪怕你一个字节都没动、生成物也确实是刚生成的。
+- **原因**:仓库在 Windows 上检出、以 CRLF 入库,`.gitattributes` **刻意**不做全局换行归一化(做了会制造一次全仓巨型 diff);而 WSL 里的 git 按 LF 读索引,于是每个文件都被判成「行尾变了」。`git diff --exit-code` 在 WSL 里等于恒红,和生成物对不对无关。
+- **处置**:校验生成物要**比内容、忽略行尾**——两边都 `tr -d '\r'` 再去掉差异比较。`scripts/verify.sh` 的 `check_artifact()` 就是这么做的(`git show HEAD:<file> | tr -d '\r'` vs `tr -d '\r' < <file>`),失败时还会贴前 40 行 diff。不要把它退回 `git diff --exit-code`。
+
+### 3. Node 必须是 22(与 `.github/workflows/web.yml` 一致)
+
+- **现象**:`web/tests/unit/profile-store.spec.ts` 的「上传照片走 multipart」用例挂掉,断言里出现 `webidl.is.File`;其余用例全绿,而且没人动过那段业务代码。
+- **原因**:那条用例跑 jsdom + undici,`File` 的 webidl 校验在 Node 24 上与 Node 22 行为不同;CI 钉的是 Node 22,所以这是 **jsdom/undici 的环境差异**,不是业务 bug(报错位置也不在你的代码里)。
+- **处置**:`web` 一律用 **Node 22**。`scripts/verify.sh` 默认优先用 `$HOME/node22`,并校验 major(不对就报错退出,可用 `CHATAPP_NODE_MAJOR` 覆盖);安装方式见 [docs/ops/superagent.md](../ops/superagent.md)。**不要为此改用例或放宽断言。**
+
+### 4. `/mnt/*` 上跑不了 `web` / `app`
+
+- **现象**:在 `/mnt/c/...`、`/mnt/d/...` 下的克隆里跑 `npm run test:run`,vitest 直接起不来,报 `[vitest-pool]: Failed to start forks worker … Timeout waiting for worker to respond`;`flutter test` 同样慢到超时。看起来像用例红了,其实一条都没跑。
+- **原因**:WSL 的 `/mnt/*` 是 9p 挂载,读 `node_modules`(几万个小文件)与 Flutter 缓存的延迟比 Linux 原生文件系统高一个数量级,worker 启动阶段就超时。
+- **处置**:在 **Linux 文件系统上的克隆 / worktree** 里跑(工单 worktree 本来就在 `/root` 下)。`scripts/verify.sh web|app` 已内置 `assert_linux_fs()`:命中 `/mnt/*` 立即拒绝并给出提示,免得你等二十分钟才发现是环境。
 
 ## 前端(Flutter widget 测试)
 
