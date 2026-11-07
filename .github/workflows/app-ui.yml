@@ -45,10 +45,6 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 拉依赖
-        working-directory: app
-        run: flutter pub get
-
       - name: 在模拟器上跑冒烟 integration_test
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
@@ -58,25 +54,20 @@ jobs:
           working-directory: app
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
+          # 注意:android-emulator-runner **逐行**执行 script(每行各起一个 `sh -c`),
+          # 所以这里每行都必须是完整命令 —— 不能用 `\` 续行(续行会把多出来的 `\`
+          # 当成额外参数传给 flutter test,报「Integration tests and unit tests cannot
+          # be run in a single invocation」),也不能指望跨行生效的 `set -e`/`export`。
           script: |
-            set -e
-            # adb 供脚本末尾抓 logcat:action 不一定把它放进 PATH
-            export PATH="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/platform-tools:$PATH"
-
             # 完整日志落文件:失败时不能只留一行 exit 1,否则事后无法判断是
-            # 应用启动失败、断言不符还是模拟器/构建问题
-            set +e
-            flutter test integration_test/smoke_test.dart -d emulator-5554 \
-              --dart-define=API_BASE=http://127.0.0.1:1/api/v1 \
-              --reporter expanded > /tmp/app-ui-test.log 2>&1
-            status=$?
-            set -e
-
-            # 这一步结束时模拟器就被拆了,logcat 只能现在抓
-            adb logcat -d > /tmp/app-ui-logcat.txt || true
-
+            # 应用启动失败、断言不符还是模拟器/构建问题;退出码单独存,本行自身返回 0
+            flutter pub get
+            flutter test integration_test/smoke_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded > /tmp/app-ui-test.log 2>&1; echo $? > /tmp/app-ui-test.rc
+            # 这一步结束时模拟器就被拆了,logcat 只能现在抓(action 不保证把 adb 放进 PATH)
+            "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/platform-tools/adb" logcat -d > /tmp/app-ui-logcat.txt 2>&1 || true
             cat /tmp/app-ui-test.log
-            exit $status
+            # 用记录下来的退出码决定这一步红不红(最后一行非零 = 失败,artifact 步骤才会跑)
+            test "$(cat /tmp/app-ui-test.rc)" = "0"
 
       - name: 失败时上传测试日志与 logcat
         if: failure()
