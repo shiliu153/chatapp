@@ -1229,3 +1229,24 @@ wsl -e bash -lc 'git -C /root/src/chatapp worktree list'
 ### 5. 新增的本机依赖(WSL)
 
 `python3.12-venv`、`unzip`、`xz-utils`、`libglu1-mesa`;`~/venvs/chatapp`(后端)、`~/node22`(Node 22)、`~/flutter`(3.47.2)。已写进 `docs/ops/superagent.md`。
+
+### 6. P4 首单验收(#104 → PR #106)踩到的新坑(2026-11-07)
+
+首单 = `[工单] backend.yml 的 paths 缺 app/pubspec.yaml` → PR **#106**(`04a5e7f`,squash 成 `baab594`)。
+改动本身无悬念(1 文件 +2/−0),下面六条是这轮才暴露的。
+
+| # | 现象 | 原因 | 处置 |
+|---|---|---|---|
+| 1 | 工单原文的验收口径要求「另开一个**只改 `app/pubspec.yaml` 版本号**的 PR,backend 轨被触发」 | ① 与仓库 `AGENTS.md` 第六节「绝对不要做:升版本号」直接冲突,worker 照做即违规;② 「轨道被触发」是**合并后**事件,本单内不可自证 | 开单后先审口径:改成「1 文件 +2/−0 + `verify.sh contract` 绿 + YAML/paths 断言」,把「被触发」挪进「留给人验」段。**口径必须能在不违规的前提下被 worker 自证** |
+| 2 | WSL 母体 `/root/src/chatapp` 停在 `b3dbdaa`,缺 #105 | 母体不会自动跟随 origin/master | worker 不受影响(`prepare` 自己从 GitHub fetch,worktree 基线是当时的 `d07d243`);但**人跑母体里的脚本会用到旧版**:合并后必须先 `git -C /root/src/chatapp pull --ff-only`,再跑 `superagent-prune.sh`——否则用的还是 #105 之前 `merge-base --is-ancestor` 的判定,squash 合并必然判 `merged=no`,清不掉 |
+| 3 | #105 的 patch-id 判定在 squash 合并上**实测有效** | — | `pull` 之后 `superagent-prune.sh` 对该工单目录报 `merged=yes` 并清理成功,`refs/dsh-superagent/*` 也删净。这是真跑出来的结论,不是「理论上应该有效」 |
+| 4 | 母体里 `git push origin --delete <已合并分支>` **不报错也不返回**,一直挂住 | 母体没配 credential helper,https remote 在等输入(不是失败) | 删已合并分支改用 REST:`DELETE /repos/{owner}/{repo}/git/refs/heads/<branch>`,token 用 MCP 那个(`~/.dsh/github-mcp-token.txt`)。**别在 WSL 母体里 push** |
+| 5 | 取证时退出码全变成 `True`,中文输出乱码 | PowerShell 双引号里的 `$?` 被 PowerShell 提前展开(PowerShell 的转义是反引号,不是反斜杠);WSL→PowerShell 的 UTF-8 中文在控制台乱码 | 取证一律 `wsl -e bash -c '...'` **单引号**包裹,把 `echo xxx=$?` 放在 bash 内;别用 `\,` 转义 |
+| 6 | 纯文档 PR 在 GitHub 上「一个 check 都没有」 | 六轨(`backend` / `web` / `app` / `imserver` / `contract` / `web-e2e`)的 `paths` 都不含 `docs/**` | 不是 CI 坏了:纯文档 PR 的「全绿」= 没有 check runs,真正的门是本地 `verify.sh contract`。别拿「CI 没触发」当跳过大验证的理由,也别把它当红 |
+
+**worker 行为取证手法(可复用)**:会话记录在
+`/root/.dsh/sessions/--<cwd 转义>--/worker-<ticket>/session.v4.jsonl.zstd`;`zstd -dc` 解开后按
+`type == "tool/call"` 逐条看命令**顺序**,就能证明「先 verify 再推」——而不是只信 PR 正文里贴的输出。
+
+**本轮指标**:人出手 2 次(补验收口径 / 授权合并),CI 往返 0 轮(首轮即绿),无需重写,
+worker 无 `AGENTS.md` 违规(单栈 1 文件、未碰版本号、未自合、未越界)。
