@@ -9,12 +9,17 @@
     4. 站内通知**只返回 90 天内、只返回自己的**:查询侧截断,物理删除交给
        ``notifications_prune`` 命令(不接 cron,取舍见计划 §2.3);
     5. 已读接口只影响自己的通知:别人的 id 混进来会被 user 条件过滤掉,仍然 204
-       (不泄漏「这条通知是否存在」)。
+       (不泄漏「这条通知是否存在」);
+    6. 设备易主(同一 ``registration_id`` 被另一个账号上报)**保留易主语义**——
+       换成 409 拒绝会破坏「换账号登录后收不到推送」的体验 —— 但必须留痕:写一条
+       warning 日志 + 给原账号写一条系统站内通知。否则原账号只会「推送悄悄没了」,
+       分不清是自己换了设备还是有人在抢(安全审计 R4-E1 / M-5)。
 
 关联文档:
     - 接口契约:docs/api/push.md(推送设备与偏好)、docs/api/notifications.md(站内通知)
 """
 
+import logging
 from datetime import timedelta
 
 from django.db import transaction
@@ -26,14 +31,21 @@ from rest_framework.response import Response
 from config.cursor import paginated_response
 from config.schema_helpers import cursor_page, cursor_params
 
-from .models import InAppNotification, NotificationPreference, PushDevice
+from .models import (InAppNotification, NotificationKind, NotificationPreference,
+                     NotificationTarget, PushDevice)
 from .serializers import (DeviceResponseSerializer, DeviceSerializer, NotificationItemSerializer,
                           NotificationReadSerializer, PushPreferenceSerializer,
                           UnreadCountSerializer, notification_payload)
+from .services import notify_on_commit
 from .throttles import NotificationsThrottle, NotificationsUnreadThrottle
+
+logger = logging.getLogger(__name__)
 
 # 通知中心只展示最近 90 天:更早的记录仍留在库里,由 ``notifications_prune`` 回收。
 NOTIFICATION_WINDOW_DAYS = 90
+
+# 设备易主时发给原账号的站内通知文案(由服务端生成,双端直接显示)。
+DEVICE_TRANSFER_TEXT = "你的设备已在另一账号登录,推送已切换"
 
 
 @extend_schema(request=DeviceSerializer, responses={200: DeviceResponseSerializer})
@@ -42,6 +54,9 @@ def register_device(request):
     """上报推送设备(POST /api/v1/push/devices)。
 
     幂等:同一 registration_id 重复上报只更新归属与版本;同账号的其他设备被删除。
+    设备**易主**(这个 registration_id 原本挂在别的账号下)照旧允许,但会写一条
+    ``push_device_transfer`` warning 日志,并在事务提交后给原账号写一条系统站内通知
+    ——知道别人 registration_id 的人仍然能把设备抢走,但原账号至少看得见这件事。
 
     Args:
         request: DRF 请求对象,body 需带 ``registration_id`` 与 ``platform``。
@@ -54,6 +69,18 @@ def register_device(request):
     data = serializer.validated_data
     me = request.user
     with transaction.atomic():
+        previous = PushDevice.objects.filter(
+            registration_id=data["registration_id"]).first()
+        if previous is not None and previous.user_id != me.id:
+            # 日志走 %s 占位而不是 extra={}:JsonFormatter 只透出白名单字段,
+            # 自定义 extra 会被静默丢掉(见 config/logging.py)。
+            logger.warning("push_device_transfer registration_id=%s from_user=%s to_user=%s",
+                           data["registration_id"], previous.user_id, me.id)
+            # 通知挂在 on_commit 上:回滚了就不该留下「设备被切走了」的脏通知。
+            # 传 id 而非实例:回调在提交后执行,期间原账号可能已被注销。
+            notify_on_commit(previous.user_id, NotificationKind.SYSTEM,
+                             target_kind=NotificationTarget.NONE,
+                             text=DEVICE_TRANSFER_TEXT)
         PushDevice.objects.update_or_create(
             registration_id=data["registration_id"],
             defaults={

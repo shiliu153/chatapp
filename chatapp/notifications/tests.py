@@ -4,6 +4,8 @@
     - 控制台后端把验证码写进日志;
     - 发送任务把调用透传给后端(不真的发短信);
     - 推送设备:registration_id 全局唯一、随用户删除级联清理;
+    - 推送设备易主:设备行归新账号,原账号收到 1 条 system 站内通知 + 一条
+      ``push_device_transfer`` warning 日志;同账号重复上报与新 rid 都不产生这些副作用;
     - 通知偏好:默认全开(五类)、只建一行、未知类型一律不发;
     - 推送客户端:三态通道选择、极光载荷正确、网络错误不抛、jpush 缺 key 直接报错;
     - 推送任务:通道/偏好/设备/冷却/失败重试的边界;
@@ -29,7 +31,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from notifications.backends import ConsoleSmsBackend
 from notifications.internal import INTERNAL_PATH, signature_for
-from notifications.models import NotificationPreference, PushDevice, PushPlatform
+from notifications.models import (InAppNotification, NotificationKind, NotificationPreference,
+                                  NotificationTarget, PushDevice, PushPlatform)
 from notifications.push import (PROVIDER_JPUSH, PROVIDER_LOG, PROVIDER_OFF, JPushClient,
                                 LogPushClient, OffPushClient, get_push_client)
 from notifications.tasks import (like_cooldown_key, message_dedup_key, message_payload,
@@ -167,6 +170,41 @@ class PushDeviceApiTests(APITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(PushDevice.objects.get(registration_id="rid-1").user_id, self.me.id)
         self.assertFalse(PushDevice.objects.filter(user=self.other).exists())
+
+    def test_transfer_notifies_previous_account(self):
+        PushDevice.objects.create(user=self.other, registration_id="rid-1",
+                                  platform=PushPlatform.ANDROID)
+        with self.assertLogs("notifications.views", level="WARNING") as logs:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self._register("rid-1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(PushDevice.objects.get(registration_id="rid-1").user_id, self.me.id)
+        # 原账号拿到唯一一条系统通知:无 actor(不泄漏是谁把设备挂走了)、无跳转目标。
+        notification = InAppNotification.objects.get(user=self.other)
+        self.assertEqual(notification.kind, NotificationKind.SYSTEM)
+        self.assertEqual(notification.target_kind, NotificationTarget.NONE)
+        self.assertIsNone(notification.target_id)
+        self.assertIsNone(notification.actor_id)
+        self.assertEqual(notification.text, "你的设备已在另一账号登录,推送已切换")
+        self.assertFalse(InAppNotification.objects.filter(user=self.me).exists())
+        # 留痕:日志里有 rid 与两端账号 id(推格式化参数,不塞 extra)。
+        self.assertTrue(any(
+            f"push_device_transfer registration_id=rid-1 from_user={self.other.id}"
+            f" to_user={self.me.id}" in line for line in logs.output), logs.output)
+
+    def test_reregister_same_account_does_not_notify_or_log_transfer(self):
+        self._register("rid-1")
+        with self.assertNoLogs("notifications.views", level="WARNING"):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self._register("rid-1")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(InAppNotification.objects.exists())
+
+    def test_new_registration_id_does_not_notify(self):
+        self._register("rid-1")
+        with self.captureOnCommitCallbacks(execute=True):
+            self._register("rid-2")
+        self.assertFalse(InAppNotification.objects.exists())
 
     def test_invalid_platform_rejected(self):
         resp = self._register(platform="windows")
