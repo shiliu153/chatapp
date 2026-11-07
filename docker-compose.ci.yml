@@ -1,0 +1,42 @@
+# CI 等价依赖:与 .github/workflows/backend.yml 的 services 逐项对齐(镜像 / 账号 / 库名 / 健康检查)。
+# 用途:在 WSL / Linux 本地跑 scripts/verify.sh backend,不必等 CI 才知道红绿。
+#
+# 端口刻意不映射成 3306 / 6379:Windows 本机已跑着开发用 MySQL 与 chatapp-redis,
+# 而 Docker Desktop 的发布端口落在 Windows 宿主上,直接照搬会撞车。
+# 这里用 13306 / 16379,scripts/verify.sh 通过 DB_PORT / REDIS_URL 指过来。
+name: chatapp-ci
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: chatapp-ci-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: chatapp_dev
+      MYSQL_USER: chatapp
+      MYSQL_PASSWORD: chatapp_ci
+    ports:
+      - "13306:3306"
+    volumes:
+      # 挂在 initdb.d 下:容器首次初始化时自动执行,补 test 库授权。
+      # 不挂数据卷,保证每次 up 都是干净库;verify.sh 结束默认 down -v。
+      - ./chatapp/db_setup_ci.sql:/docker-entrypoint-initdb.d/10-grant-test-db.sql:ro
+    healthcheck:
+      # 注意:mysqladmin ping 是「未认证探测」,容器刚起来时会先应答。
+      # 真正的就绪判定在 scripts/verify.sh 里再建立一次带认证的连接(与 CI 同口径)。
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: chatapp-ci-redis
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
