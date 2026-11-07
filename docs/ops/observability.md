@@ -260,17 +260,29 @@ echo 'PROMETHEUS_MULTIPROC_DIR=/dev/shm/chatapp-prometheus' >> /www/wwwroot/chat
 Web: window.onerror / unhandledrejection / Vue errorHandler
 App: FlutterError.onError / PlatformDispatcher.onError
         └─→ POST /api/v1/client-errors（匿名可调,120 次/小时/IP）
-              ├─→ 单行 JSON 日志 logger=chatapp.client_error
+              ├─→ 单行 JSON 日志 logger=chatapp.client_error,**level=warning**
               │    （request_id / platform / client_route / client_stack / app_version）
-              └─→ client_errors_total{platform}
+              │    **同一 platform+message 60 秒采样**,且**不参与告警**
+              └─→ client_errors_total{platform}  ← 告警只看这个
 ```
 
 - **开关**:Web 构建期 `VITE_ERROR_REPORTING=1`(`web/.env.production` 已开,开发/测试为 `0`);
   App `--dart-define=ERROR_REPORTING=true`。**未开时监听根本不安装**,零开销。
 - **查错顺序**:Grafana `client_errors_total` 突增 → Loki 查 `{logger="chatapp.client_error"}`
   按 `client_route` 分组 → 用该条的 `request_id`(或 `client_request_id`)对齐服务端那条请求日志。
+- **日志级别是 `warning`,不是 `error`(2026-11-08,R4-E2)**:匿名接口能写 `error` 级日志,
+  等于把「日志污染 → 触发告警」的开口直接交给互联网。级别只为在 Loki 里好筛,
+  **告警一律不挂在这一行日志上** —— 前端一个渲染循环一秒能刷几十条,接进告警只会制造噪音。
+  **若仓库外(服务器上的 `rules/*.yml`)还有按 `level=error` 或 `client_error` 匹配的规则,
+  改成 `level=warning`,或者干脆删掉这条规则**;要监控白屏/崩溃,只看下面的指标。
+- **日志采样:同一 `platform + message` 60 秒只落一条**(`cache.add` 控制,Redis 挂了则
+  fail-open 照常写)。采样**只影响日志**,`client_errors_total{platform}` 仍每次请求都累加 ——
+  否则突增告警的数值会随采样率一起失真。查「某个错误到底报了多少次」看指标,不看日志条数。
 - **限流与配额**:客户端每页面/进程最多 20 条、同 message 去重;服务端按 IP 120 次/小时
   (`CLIENT_ERROR_RATE`),避免「渲染循环抛异常」把自己打成 DDoS。
+- **`client_route` 只含 pathname**(2026-11-08,R4-E3):Web 侧上报前把 `location.search`
+  剥掉(`web/src/api/clientErrors.ts`),分享码之类参数不会进日志;App 侧 `route` 由调用方传入,
+  **同样只传路由路径、别拼 query**(`ErrorReporter.report(route: ...)`)。
 
 
 ## 5. SLO(先定口径,再谈达标)

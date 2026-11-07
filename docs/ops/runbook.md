@@ -290,7 +290,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/api/v1/health
 - 加人 = 扩大可被接管的账号集合,所以加之前先问清楚「是谁、为什么」,并写进备注栏;
 - 名单外一律 `403 + 40301`,发码入口就拦掉(不落码、不占 60 秒重发间隔)。
 
-规则详见 `accounts.services.ensure_phone_allowed()`:库内**停用**优先于 `.env` 种子 → 库内**启用**放行 → `.env` 种子里有则放行 → 名单机制已生效(库或种子非空)则拒 → **库与种子都空 = 不限制**(开发/测试默认)。
+规则详见 `accounts.services.ensure_phone_allowed()`:库内**停用**优先于 `.env` 种子 → 库内**启用**放行 → `.env` 种子里有则放行 → 名单机制已生效(库或种子非空)则拒 → **库与种子都空 = 按 `SMS_ALLOWLIST_STRICT` 判定**:开发/测试放行、**生产(fail-closed)一律拒**,见 §6.4。
 
 ### 6.2 日常动作(都在 `/ops/allowlist/`,不用 SSH)
 
@@ -322,7 +322,38 @@ python manage.py allowlist_seed_import               # 真导,写完立刻生效
 
 导入后 `.env` 的种子**保留不删**:它是上面说的安全网,不是主数据源。
 
-### 6.4 踩坑
+### 6.4 首次部署顺序(按这个顺序就不会被 `accounts.E001` 拦住)
+
+名单为空这件事,现在**部署期就会红**(R4-B1):`SMS_DEV_MODE=1`、`DEBUG=0`、且
+`SMS_PHONE_WHITELIST` 为空时,`python manage.py check` 报一条
+
+```
+accounts.E001: 生产开启了固定验证码(SMS_DEV_MODE=1),但没有任何准入名单种子
+```
+
+新机器/新库照下面四步走。顺序反了会直接卡住:**`check` 对每个 `manage.py` 命令都生效**
+(除非显式 `--skip-checks`),所以「先配种子」这一步不能挪到 `migrate` 之后:
+
+| 步骤 | 做什么 | 为什么是这个位置 |
+|---|---|---|
+| ① 配种子 | `.env` 写 `SMS_PHONE_WHITELIST=139xxx,138xxx`(至少一个号) | 先让它非空,`check` 才不会红;空名单 = 严格模式下谁都进不来 |
+| ② `migrate` | `python manage.py migrate` | 建出 `accounts_phoneallowlist` 表,第 ③ 步才有地方导 |
+| ③ 导入 | `python manage.py allowlist_seed_import --dry-run` → 去掉 `--dry-run` 再跑 | 把种子搬进库,之后运营在 `/ops/allowlist/` 维护;幂等,不会把已停用的号重新启用 |
+| ④ 留种子 | `.env` 的 `SMS_PHONE_WHITELIST` **保留不删** | 它是安全网:万一名单表被清空,老号还能登(见 §6.3) |
+
+> 应急:第 ① 步忘配、命令又被 `check` 拦住时,`python manage.py <命令> --skip-checks`
+> 可以先跑通,但**跑完必须补上名单**,不要把它当常态。
+
+两条口径要记住:
+
+- **严格模式不会锁死运维**。库与种子都空 = 全站发码/校验一律 `403 + 40301`,但 `/ops/`
+  走的是「IP 白名单 + 运营口令 + TOTP」,**不经短信** —— 所以 40301 期间仍然能进
+  `/ops/allowlist/` 加号自救。名单把你关在门外的只是**普通用户入口**,不是后台。
+- **`SMS_ALLOWLIST_STRICT` 留空 = 按 `DEBUG` 自动判定**:开发/测试放行、**生产即严格**;
+  显式写 `"1"` 是同样效果,写 `"0"` 是**封闭测试逃生口**(任意手机号可用固定码登录)——
+  只在你确实知道自己在开什么的时候用,生产别写 `0`。
+
+### 6.5 踩坑
 
 1. **别手改数据库再等生效** —— 快照缓存 TTL 60 秒(`SMS_ALLOWLIST_CACHE_TTL`),直连 MySQL `UPDATE` 最多要等一分钟。走 `/ops/allowlist/` 或 `allowlist_seed_import` 会显式清缓存,是立刻的。
 2. **`.env` 改名单仍然要重启 web** —— 种子是在 `settings` 启动时读成 `frozenset` 的。这也是为什么主数据源搬进了数据库。
