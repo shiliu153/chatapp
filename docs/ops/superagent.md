@@ -99,3 +99,33 @@ wsl -e bash /root/start-superagent.sh status
 - `blockedCommands` 只是按命令名拦的 shim,**不是安全边界**;真正的边界是
   `/root/.ssh` 保持为空 + 人合 PR + 面板不配 merge CLI。
 - agent 以自己的账号(`shiliu655`)提交与评论,所有动作都在仓库可见。
+
+## 8. 自动合并(L2,2026-11-08 起)
+
+> 设计见 [自动化阶梯 spec](../superpowers/specs/2026-11-08-superagent-automation-ladder-design.md) §4。
+> 一句话:**worker 依然没有合并能力**;合并由 GitHub Actions 里的**确定性脚本**按白名单执行。
+
+| 事 | 命令 / 位置 |
+|---|---|
+| 开关(唯一总闸) | `gh variable set AUTOMERGE --body on\|off --repo shiliu153/chatapp` |
+| 白名单(唯一事实来源) | `.github/workflows/auto-merge.yml` 里的 `WHITELIST_PREFIXES`,当前只有 `docs/` |
+| 手动跑一轮(不合并) | `gh workflow run auto-merge.yml -f dry_run=true --repo shiliu153/chatapp` |
+| 看日报 | Actions → `自动合并（白名单）` → 每次运行的 **Summary**(合并了谁 / 跳过了谁 / 为什么) |
+| 看审计痕迹 | 被合并的 PR 上有一条评论(命中白名单、checks 结论、revert 命令) |
+| 紧急停 | 把 `AUTOMERGE` 设为 `off`;下一轮扫描直接退出 0,不合并任何东西 |
+| 回滚一次自动合并 | `git revert --no-edit <sha> && git push origin master`(人做) |
+
+**合并条件**(全部满足才合):开关开 · base=master · 非 draft · 作者是 `shiliu655` · 1–20 个文件**全部**命中白名单 ·
+无 `no-auto-merge`/`blocked`/`needs-human` 标签 · checks 无未完成且无失败(**0 个 check 视为通过**,纯文档 PR 的正常形态)·
+`mergeable=MERGEABLE` · 近 24h 的 `[auto]` 合并数 < 8。
+
+**人的否决票**:给 PR 打 `no-auto-merge` 标签即可永久拦住它(比关总闸精确)。
+
+**已知偏差(出现异常先看这里)**:
+
+- 用 `GITHUB_TOKEN` 合并**不会**触发 master 上的 `push` 轨。要保留那道二次确认,加 secret
+  `AUTOMERGE_TOKEN`(fine-grained PAT),workflow 会自动优先用它。
+- 纯文档 PR 有 **0 个 check run**:「没有红」不等于「跑绿了」,门仍是本地 `scripts/verify.sh contract`。
+- `gh` 在 worker 的 PATH 里,shim 只按命令名拦 ⇒ **技术上**它能 `gh pr merge`。现在靠 `AGENTS.md` 自律;
+  要变成硬拦,加一个拒 `merge`/`release` 子命令的 `gh` 包装器(见 spec §7 未决问题 4)。
+- **master 目前没有任何分支保护 / ruleset**(实测 `404` / `[]`),连直推都允许。要不要开保护见 spec §7 未决问题 1。

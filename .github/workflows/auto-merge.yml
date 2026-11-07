@@ -1,0 +1,147 @@
+name: 自动合并（白名单）
+
+# L2:只合并「白名单路径 + checks 全绿 + 无否决标签」的 worker PR。
+# 决策是**确定性规则**,不是模型:worker 全程没有合并能力,这里也不用任何 LLM。
+# 设计见 docs/superpowers/specs/2026-11-08-superagent-automation-ladder-design.md §4。
+#
+# 开关(仓库 Actions variable):AUTOMERGE=on 才工作;off / 未设置 → 直接退出 0(不算失败)。
+# 紧急停:`gh variable set AUTOMERGE --body off --repo shiliu153/chatapp`
+
+on:
+  schedule:
+    # 定时扫描:GitHub 的 cron 可能延迟几分钟,空转成本几乎为零(没有 PR 就直接结束)
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只打印将要做什么,不执行合并'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write        # 合并 + 删已合并分支
+  pull-requests: write   # 读 PR、留审计评论
+  issues: write          # 评论(PR 评论走 issues API)
+  checks: read
+
+concurrency:
+  group: auto-merge
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 扫描并合并
+        env:
+          # 优先用 PAT(fine-grained):GITHUB_TOKEN 发起的合并**不会**触发 master 上的 push 轨。
+          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
+          AUTOMERGE: ${{ vars.AUTOMERGE }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+
+          # ── 白名单:唯一事实来源。新增前缀前先读 spec §4.1,chatapp/ app/ imserver/ .github/ 永不入内。
+          WHITELIST_PREFIXES=("docs/")
+          VETO_LABELS=("no-auto-merge" "blocked" "needs-human")
+          MAX_FILES=20
+          MAX_PER_DAY=8
+          AUTHOR="shiliu655"
+
+          if [ "${AUTOMERGE:-off}" != "on" ]; then
+            echo "::notice title=自动合并已关闭::repo variable AUTOMERGE=${AUTOMERGE:-未设置}"
+            exit 0
+          fi
+
+          WL_REGEX="^($(IFS='|'; echo "${WHITELIST_PREFIXES[*]}"))"
+          since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          done_today=$(gh api "repos/$REPO/commits?since=$since&per_page=100" \
+            --jq '[.[] | select(.commit.message | test("\\[auto\\]"))] | length')
+
+          {
+            echo "## 自动合并扫描"
+            echo ""
+            echo "- 开关:\`AUTOMERGE=${AUTOMERGE}\` · dry-run:\`${DRY_RUN}\`"
+            echo "- 白名单:\`${WL_REGEX}\`"
+            echo "- 近 24h 自动合并:**${done_today} / ${MAX_PER_DAY}**"
+            echo ""
+            echo "| PR | 结论 | 说明 |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          row() { printf '| #%s | %s | %s |\n' "$1" "$2" "$3" >> "$GITHUB_STEP_SUMMARY"; }
+
+          prs=$(gh pr list --repo "$REPO" --base master --state open --limit 50 --json number --jq '.[].number')
+          if [ -z "$prs" ]; then
+            echo "（没有开着的 PR）" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          for pr in $prs; do
+            json=$(gh pr view "$pr" --repo "$REPO" \
+              --json number,title,isDraft,author,labels,files,mergeable,isCrossRepository,statusCheckRollup,headRefName)
+
+            reason=""
+            add() { reason="${reason}${reason:+;} $1"; }
+
+            [ "$(echo "$json" | jq -r .isDraft)" = "true" ]        && add "draft"
+            [ "$(echo "$json" | jq -r .isCrossRepository)" = "true" ] && add "跨仓库 fork"
+            [ "$(echo "$json" | jq -r .author.login)" != "$AUTHOR" ] && add "作者 $(echo "$json" | jq -r .author.login) 不是 $AUTHOR"
+            [ "$(echo "$json" | jq -r .mergeable)" != "MERGEABLE" ]  && add "mergeable=$(echo "$json" | jq -r .mergeable)"
+
+            veto=$(echo "$json" | jq -r --arg veto "$(IFS=,; echo "${VETO_LABELS[*]}")" \
+              '[.labels[].name | select(. as $n | ($veto | split(",") | index($n)))] | join(",")')
+            [ -n "$veto" ] && add "否决标签 $veto"
+
+            nfiles=$(echo "$json" | jq '.files | length')
+            bad_files=$(echo "$json" | jq -r --arg wl "$WL_REGEX" \
+              '[.files[].path | select(test($wl) | not)] | join(", ")')
+            [ "$nfiles" -eq 0 ]        && add "没有文件改动"
+            [ "$nfiles" -gt "$MAX_FILES" ] && add "文件数 $nfiles > $MAX_FILES"
+            [ -n "$bad_files" ]        && add "越白名单: $bad_files"
+
+            blocked_checks=$(echo "$json" | jq -r '
+              [.statusCheckRollup[]?
+               | select(
+                   (.__typename == "CheckRun"
+                     and ((.status != "COMPLETED")
+                          or ((.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED") | not)))
+                   or (.__typename == "StatusContext" and .state != "SUCCESS")
+                 )
+               | (.name // .context // "?")] | join(", ")')
+            [ -n "$blocked_checks" ] && add "checks 未全绿: $blocked_checks"
+
+            if [ -n "$reason" ]; then
+              row "$pr" "跳过" "$reason"
+              continue
+            fi
+
+            if [ "$done_today" -ge "$MAX_PER_DAY" ]; then
+              row "$pr" "跳过" "已达每日配额 ${MAX_PER_DAY}"
+              continue
+            fi
+
+            title=$(echo "$json" | jq -r .title)
+            head=$(echo "$json" | jq -r .headRefName)
+
+            if [ "${DRY_RUN}" = "true" ]; then
+              row "$pr" "将合并(dry-run)" "白名单命中 · checks 全绿"
+              continue
+            fi
+
+            gh pr comment "$pr" --repo "$REPO" --body "$(printf '**自动合并(L2)**\n\n- 命中白名单:`%s`\n- checks:全绿(或无 check run)\n- 无否决标签\n\n回滚:`git revert --no-edit <此合并的 SHA> && git push origin master`' "$WL_REGEX")" >/dev/null
+
+            if sha=$(gh api -X PUT "repos/$REPO/pulls/$pr/merge" \
+                -f merge_method=squash \
+                -f commit_title="$title (#$pr) [auto]" --jq .sha 2>/dev/null); then
+              gh api -X DELETE "repos/$REPO/git/refs/heads/$head" >/dev/null 2>&1 \
+                || echo "::warning::删分支失败: $head"
+              gh pr comment "$pr" --repo "$REPO" --body "已自动合并为 \`${sha}\`。" >/dev/null
+              row "$pr" "已合并" "$sha"
+              done_today=$((done_today + 1))
+            else
+              row "$pr" "跳过" "合并调用失败(可能 base 刚变,下轮重试)"
+            fi
+          done

@@ -12,7 +12,9 @@
 
 **目标**:把「实现」这一段移交给 WSL 里的 worker,**人的注意力只花在两处——开单确认与 PR 结论**;同时不降低既有的契约门禁与发版纪律。
 
-**非目标**:不追求「无人值守上线」。合并、发版、部署、生产运维永远留给人。
+**非目标**:不追求「无人值守上线」——**发版、部署、生产运维永远留给人**。
+合并已按 [2026-11-08 自动化阶梯设计](2026-11-08-superagent-automation-ladder-design.md) 分级:
+`docs/**` 白名单内可由**确定性 workflow**(不是模型)自动 squash 合并(L2),其余路径仍由人合;详见该文 §5 的修订表。
 
 ## 2. 现状事实(2026-11-07 实测,不是假设)
 
@@ -131,7 +133,9 @@
 - eval 模式:**保持 `observe`**,直到 P0–P2 跑通约 10 单;之后再评估是否对「文档/typo」类开主动规则。主动规则一开就必须先观察一轮再放开。
 - 规则集:保留 `Copy fixes`、`Visual fixes`;建议新增 `deps`(patch 级依赖升级且 CI 绿)。明确**不自动做**:跨栈重构、DB 迁移、imserver 协议帧、发版。
 - `blockedCommands`:`ssh`、`scp`、`rsync`、`gh pr merge`、`gh release`、以及任何生产 compose/部署脚本。**注意:shim 只按名字拦,不是安全边界**(worker 可用绝对路径绕过)。真正的边界是「WSL 里没有生产密钥」——`/root/.ssh` 现在为空,保持为空。
-- 合并:**不配 merge CLI**,agent 永不自合;所有 PR 由人 squash。
+- 合并:**LLM 永不自合** —— worker 没有合并能力(不给它配 `gh pr merge`,并在 `AGENTS.md` 写死禁止)。
+  白名单(`docs/**`)内的自动合并由 `.github/workflows/auto-merge.yml` 执行,**决策权在确定性规则而非模型**;
+  白名单外的 PR 仍由人 squash。见 [自动化阶梯设计](2026-11-08-superagent-automation-ladder-design.md) §4。
 
 ### 3.8 巡检与 superagent 自身运维
 
