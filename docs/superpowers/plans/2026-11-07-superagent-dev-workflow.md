@@ -1250,3 +1250,16 @@ wsl -e bash -lc 'git -C /root/src/chatapp worktree list'
 
 **本轮指标**:人出手 2 次(补验收口径 / 授权合并),CI 往返 0 轮(首轮即绿),无需重写,
 worker 无 `AGENTS.md` 违规(单栈 1 文件、未碰版本号、未自合、未越界)。
+
+### 7. 首单验收后补进流程的三条硬规矩(2026-11-07)
+
+用户在全流程实测后追加,已同步进 spec §3.3 与 `docs/ops/superagent.md` §4:
+
+| # | 规矩 | 为什么要写成规矩 |
+|---|---|---|
+| 1 | **合并后立刻同步本机**:WSL 母体 `/root/src/chatapp` 与 Windows 仓库都 `pull --ff-only`,**先 pull 再 prune** | 母体不自动跟随 `origin/master`,而人要跑的 `superagent-prune.sh` 就住在母体里。首单实测:母体停在 `b3dbdaa`(缺 #105),此时跑 prune 会用 `merge-base --is-ancestor` 判定,squash 合并必然 `merged=no` → worktree 清不掉 |
+| 2 | **纯文档 PR 直接合并**:只动 `docs/**` 的 PR 没有 check runs 是正常的,本地 `verify.sh contract` 绿 + 人看完 diff 即合 | 六轨 `paths` 都不含 `docs/**`。首单之后的记录 PR #107 就是 0 个 check run;若不写明,人和 agent 都会误判成「CI 没跑 = 不敢合」 |
+| 3 | **先分析后开单**:需求分析在本机会话里做完再提 issue —— 改什么、属哪条栈、验收口径能否被 worker **在不违反 `AGENTS.md` 的前提下**自证 | 首单原口径同时踩两颗雷:要 worker 升版本号(违反 `AGENTS.md` 第六节)、要它自证「backend 轨被触发」(合并后事件)。凡是合并后才发生的事,一律写进「留给人验」 |
+
+三条都已落到文档(不是只在本会话里说过):spec §3.3 的「三条硬规矩」、`docs/ops/superagent.md` §4 的
+第 4–6 步,以及不入库的 `~/.dsh/AGENTS.md`(会话侧执行口径)。

@@ -53,16 +53,31 @@
 
 ```
 需求(口语,跟人说人话)
+  → Windows 会话**先做需求分析**(改什么 / 属哪条栈 / 验收口径能否被 worker 在不违规前提下自证)
   → Windows 会话写成 Issue(模板:背景/验收口径/影响面/禁止事项/该跑哪条栈)
   → 评论 @shiliu655 触发(或新 Issue 正文直接提及)
   → superagent 评估 → Ticket → worker 在 worktree 实现
   → scripts/verify.sh <该跑的栈> 全绿 → push + PR
   → CI 六轨绿 → 面板 Overview 与 Issue 收到「PR #N 就绪」
   → 人:评审 + (碰 app/ 则模拟器手测) → squash 合并 → 删分支
+  → **合并后立刻同步本机**:WSL 母体与 Windows 仓库都 pull 到合并后的 master(先 pull,再 prune)
+  → bash scripts/superagent-prune.sh --apply 清 worktree 与 refs/dsh-superagent/*
   → (要上线时)Windows 侧按 docs/ops/release.md 发版
 ```
 
-沿用既有铁律,不因 agent 参与而放宽:**分支 → PR → CI 全绿 → squash 合并 → 只部署 `origin/master` 的 SHA**。
+沿用既有铁律,不因 agent 参与而放宽:**分支 → PR → CI 全绿 → squash 合并 → 同步本机 → 只部署 `origin/master` 的 SHA**。
+
+**三条硬规矩(2026-11-07 首单验收后补,依据见 plans §6–§7):**
+
+1. **合并后必须同步本机,不是「下次再说」。** 母体 `/root/src/chatapp` 不会自己跟随 `origin/master`,
+   而人要跑的 `superagent-prune.sh` 就住在母体里 —— 不同步就会用旧版脚本(#105 之前按
+   `merge-base --is-ancestor` 判定,squash 合并必然判 `merged=no`,worktree 清不掉)。
+   顺序固定:**先 `pull --ff-only`,再 prune**;Windows 仓库同时 pull(人读的 `docs/` 在那儿)。
+2. **纯文档 PR 直接合并。** 只动 `docs/**` 的 PR 六轨 `paths` 都不含它,**没有 check runs 是正常的**;
+   本地 `scripts/verify.sh contract` 绿 + 人看完 diff 即可 squash 合并,不再单独占一轮「等确认」。
+3. **先分析,后提 issue。** 需求分析在本机会话里做完再开单:改什么、属哪条栈、
+   验收口径能不能被 worker 在**不违反 `AGENTS.md`** 的前提下自证。
+   凡是「合并后才发生」的事(例如「某条轨被触发」)一律写进「留给人验」,不要写成 worker 的验收项。
 
 ### 3.4 「一单」的边界
 
