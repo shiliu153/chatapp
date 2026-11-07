@@ -69,7 +69,14 @@ done <<<"$REMOTE_FILES"
 
 log "远端文件 $(printf '%s\n' "$REMOTE_FILES" | wc -l) 个,本地缺 ${#missing[@]} 个"
 if [ ${#missing[@]} -gt 0 ]; then
-    if ! $SSH "$TARGET" "cd $REMOTE_DIR && tar -cf - -- ${missing[*]}" | tar -xf - -C "$LOCAL_DIR"; then
+    # 文件名走 stdin 的 NUL 列表(`tar --null -T -`),**不再**拼进远端 shell 命令行:
+    # 原来的 `tar -cf - -- ${missing[*]}` 是把远端 `find` 的输出直接塞进
+    # `cd $REMOTE_DIR && tar ...`,备份目录里出现 `a b`、`x; echo pwned` 这类名字时,
+    # 分号后的部分会在服务器上以 backup 账号执行(第四轮审计 L-8)。
+    # 现在远端只执行一条固定命令,文件名只是数据。
+    if ! printf '%s\0' "${missing[@]}" \
+        | $SSH "$TARGET" "cd $REMOTE_DIR && tar --null -cf - -T -" \
+        | tar -xf - -C "$LOCAL_DIR"; then
         die "拉取失败(tar over ssh)"
     fi
 fi
