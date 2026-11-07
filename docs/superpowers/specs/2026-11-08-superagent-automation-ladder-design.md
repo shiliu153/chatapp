@@ -140,3 +140,11 @@ git revert --no-edit <merge-sha> && git push origin master   # 需人做
 2. **`AUTOMERGE_TOKEN`(PAT)值不值得加?** 加了才有 master `push` 轨的二次确认,代价是多一个 secret。
 3. **reviewer worker 要不要做?** 现阶段用「确定性断言 + 人抽查」替代;等 L2 跑满 10 单、拿到误合率再定。
 4. **`gh` 包装器**:在 worker 的 PATH 前置一个拒 `merge`/`release` 子命令的 shim,把 §4.4 那条偏差补成硬拦。属 `scripts/` 栈,单独成单。
+
+## 8. 实施记录
+
+| 级别 | 状态 | 证据 |
+|---|---|---|
+| **L2** | ✅ 2026-11-08 已 armed 并实测 | `AUTOMERGE=on`;首个真实样本 PR #113 由 `github-actions[bot]` 自动合并为 `5cd0c7a`,PR 上留有审计评论与回滚命令,分支自动删除;同内容但由人开的 PR #112 被正确拦下(作者条件) |
+| **L1** | ✅ 2026-11-08 | `scripts/superagent-closeout.sh`(fetch→母体 ff→prune→报 Windows 状态,脏/非快进拒绝)+ `scripts/test_superagent_closeout.sh` 11 条自测全通过;实测输出 `CLOSEOUT ok mother=5cd0c7a windows=5cd0c7a same=yes pulled=0 prune=ok(0)`;代理不可用时退回本地 ref 判定并警告,不误报失败 |
+| **L3 / L4** | 未做 | 见 §3 与 §7;L3 需改 `app/`,PR 必须 draft + 人工模拟器验收 |
