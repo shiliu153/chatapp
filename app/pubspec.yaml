@@ -50,6 +50,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # 安卓模拟器冒烟测试(L3):跑「冷启动 → 登录页」,见 integration_test/smoke_test.dart
+  integration_test:
+    sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
