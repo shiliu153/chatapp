@@ -55,11 +55,29 @@ superagent 的并行是**任务并行**,不是**智能体协作**:
 
 **白名单 = 路径前缀,单一事实来源在 `.github/workflows/auto-merge.yml` 的 `WHITELIST_PREFIXES`。**
 
-L2 第一版只有一项:
+L2 第一版只有一项 `docs/**`。**2026-11-08 收窄**(第四轮安全审计 M-4):`docs/` 里存在
+**下一次 agent 会当作指令读**的目录,而「写文档的 worker」与「读文档的下一次 agent」
+不是同一信任级 —— worker 账号一旦被拿下,一个「纯文档」PR 就能**无人工审查**地把指令
+注入 master,之后每个读到它的 agent 都会照做(本仓库的流程正是「读 pitfalls → 按它改代码」)。
+
+因此白名单只留**没有指令语义**的目录:
 
 | 白名单 | 理由 |
 |---|---|
-| `docs/**` | 纯文档:六轨都不触发,`verify.sh contract` 就是它的门;不进构建产物,最坏情况是写错一句话,revert 成本最低 |
+| `docs/api/` | 接口分册:内容受 `ApiDocsCoverageTests` / `test_schema_contract` 双向门禁,写错必红 |
+| `docs/security/` | 审计报告:纯记录,不进任何执行路径 |
+| `docs/reviews/` | 审查结论文档:同上 |
+| `docs/milestones.md` | 时间线:纯记录 |
+
+**显式黑名单(`DENY_PREFIXES`,双保险:即使有人往白名单加前缀,这几处也不会被自动合并)**:
+
+| 黑名单 | 为什么不能自动合 |
+|---|---|
+| `docs/superpowers/`(specs / plans) | 实施计划与设计规范,worker 与主 agent 都按它干活 |
+| `docs/pitfalls/` | 踩坑手册,写代码前必读 —— 天然的指令面 |
+| `docs/ops/` | 运维手册(runbook / release / superagent) |
+| `docs/learning/` | 学习路径,含「先读什么再做什么」的顺序指令 |
+| `CLAUDE.md` / `AGENTS.md` / `CONTRIBUTING.md` / `README.md` | 仓库级约定,改一句就可能改变所有 agent 的行为 |
 
 **永久排除(任何级别都不进白名单)**:
 
@@ -93,7 +111,7 @@ L2 第一版只有一项:
 | 偏差 | 影响 | 处置 |
 |---|---|---|
 | 用 `GITHUB_TOKEN` 合并时,**不会**触发 master 上的 `push` 轨 | 少了「合并后在 master 上再跑一遍」的第二道确认(PR 上的 checks 已覆盖同一棵树) | 若要保留,加 secret `AUTOMERGE_TOKEN`(fine-grained PAT),workflow 会自动优先用它 |
-| 纯文档 PR 有 **0 个 check run** | 「没有红」≠「跑绿了」 | 靠人侧 `verify.sh contract`(v1 硬规矩 #2);这也是白名单只放 `docs/**` 的原因 |
+| 纯文档 PR 有 **0 个 check run** | 「没有红」≠「跑绿了」 | 靠人侧 `verify.sh contract`(v1 硬规矩 #2);这也是白名单只放「无指令语义」的 docs 子集的原因(§4.1) |
 | `blockedCommands` 只按命令名拦 | worker 技术上仍可 `gh pr merge`(靠 `AGENTS.md` 自律) | 见 §5 待办:加 PATH 上的 `gh` 包装器拒 `merge`/`release` 子命令 |
 
 ### 4.5 紧急停与回滚
@@ -109,7 +127,7 @@ git revert --no-edit <merge-sha> && git push origin master   # 需人做
 
 | v1 原文 | 本文修订为 |
 |---|---|
-| §1 非目标:「**不追求无人值守上线**」 | 保留「**上线/发版/部署永远留给人**」;**合并**在 `docs/**` 白名单内允许由确定性 workflow 完成(L2)。生产发布仍必须人闸 |
+| §1 非目标:「**不追求无人值守上线**」 | 保留「**上线/发版/部署永远留给人**」;**合并**在「无指令语义」的 docs 子集(§4.1 白名单)内允许由确定性 workflow 完成(L2)。生产发布仍必须人闸 |
 | §3.7「合并:**不配 merge CLI**,agent 永不自合;所有 PR 由人 squash」 | 「**LLM 永不自合**(worker 无 merge 能力);白名单内的自动合并由 `.github/workflows/auto-merge.yml` 执行,决策权在确定性规则而非模型;白名单外的 PR 仍由人 squash」 |
 
 其余条款(一单一条栈、verify 唯一入口、`app/` 必须人验、CI 是唯一裁判)不变。
