@@ -260,7 +260,7 @@ supervisorctl -c /etc/supervisor/supervisord.conf restart 'chatapp-web:*' 'chata
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/api/v1/health
 ```
 
-**恢复后必做**:`python manage.py im_sync_pairs`(回填配对到 imserver)、确认准入名单表(`accounts_phoneallowlist`)有数据或 `.env` 里仍有 `SMS_PHONE_WHITELIST` 种子(两者都空 = 不限制登录,见 §6)、确认 `IM_MEDIA_SIGN_SECRET` 与 imserver 侧一致 —— 否则「库恢复了但发不出消息/发不了图」。
+**恢复后必做**:`python manage.py im_sync_pairs`(回填配对到 imserver)、确认准入名单表(`accounts_phoneallowlist`)有数据或 `.env` 里仍有 `SMS_PHONE_WHITELIST` 种子(两者都空时**生产会全拒登录**,见 §6.4)、确认 `IM_MEDIA_SIGN_SECRET` 与 imserver 侧一致 —— 否则「库恢复了但发不出消息/发不了图」。
 
 ### 5.4 恢复演练记录
 
@@ -310,7 +310,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/api/v1/health
 
 - 库里**没有**某个号码时,仍按 `.env` 种子放行 —— 这是冷启动/首次导入前的过渡,也是**唯一的安全网**:万一有人清空了名单表,老号还能登;
 - 库里**显式停用**的号码优先被拒 —— 否则「停用」停不掉还留在 `.env` 里的老号;
-- 两边都空 = **不限制**,等于没有防护。生产上线与恢复后都要确认至少一边非空(见 §5.3 恢复后必做)。
+- 两边都空时按 `SMS_ALLOWLIST_STRICT` 判定:**开发/测试放行**(本地与 CI 要能跑),**生产 fail-closed 一律拒**(2026-11-08,R4-B1)。所以生产上线与恢复后都要确认至少一边非空(见 §5.3 与 §6.4),否则全站登录 `403 + 40301`。
 
 首次上线/迁移到库时用命令把种子搬进库(幂等,**不会**把已停用的号重新启用):
 
@@ -357,7 +357,7 @@ accounts.E001: 生产开启了固定验证码(SMS_DEV_MODE=1),但没有任何准
 
 1. **别手改数据库再等生效** —— 快照缓存 TTL 60 秒(`SMS_ALLOWLIST_CACHE_TTL`),直连 MySQL `UPDATE` 最多要等一分钟。走 `/ops/allowlist/` 或 `allowlist_seed_import` 会显式清缓存,是立刻的。
 2. **`.env` 改名单仍然要重启 web** —— 种子是在 `settings` 启动时读成 `frozenset` 的。这也是为什么主数据源搬进了数据库。
-3. **名单表被清空 = 回到「不限制」** —— 不是「谁都登不上」。发现名单表空了,先立刻 `allowlist_seed_import`,再排查是谁清的。
+3. **名单表被清空后不是「不限制」**:`.env` 种子非空 → 只有种子里的号能登(fail-closed 到种子);种子也为空且生产严格 → **全站 `403 + 40301`**(2026-11-08 起 fail-closed,不是放行 —— 这一点与 2026-11-04 上线时的行为相反,别再按老口径判断)。发现名单表空了,先立刻 `allowlist_seed_import`(被 `accounts.E001` 拦住时加 `--skip-checks`),再排查是谁清的。
 4. **`403`/`200` 的差异本身是个探测口子**(受 20 次/小时 IP 限流约束):别拿名单页当对外开放的功能宣传。
 5. **停用不影响已登录的会话** —— 名单只管「能不能重新拿令牌」;已经在线的设备要继续用,得去 `/ops/users/` 封禁(`banned_heavy`)或用单设备登录顶掉。
 
