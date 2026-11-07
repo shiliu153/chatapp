@@ -115,10 +115,18 @@ main() {
     [ -z "$(git -C "$CLONE" status --porcelain)" ] || die "母体有未提交改动,先人工处理:$CLONE"
     git -C "$CLONE" merge-base --is-ancestor HEAD origin/master \
       || die "母体有本地提交,不是快进(HEAD=$MOTHER_SHA,origin/master=$REMOTE_SHA);不自动处理"
-    git -C "$CLONE" pull --ff-only --quiet || die "pull --ff-only 失败"
+    # 这里**不用 `git pull`**:它内部会再 fetch 一次,于是刚被上面容错掉的网络抖动会在这一步变成
+    # die —— 收尾就停在进行到一半(决定要同步之后、prune 之前)。上面已经 fetch 过,
+    # 这里只做纯本地快进,不发任何网络请求:网络问题只影响 fetch 那一步,而它有容错。
+    git -C "$CLONE" merge --ff-only --quiet origin/master \
+      || die "快进到 origin/master 失败(HEAD=$MOTHER_SHA,origin/master=$REMOTE_SHA);不自动处理"
     MOTHER_SHA=$(git -C "$CLONE" rev-parse --short HEAD)
     PULLED=1
-    note "母体已同步:$MOTHER_SHA"
+    if [ -n "$FETCH_ERR" ]; then
+      note "母体已同步:$MOTHER_SHA(依据本地记录的 origin/master;本次 fetch 失败,可能不是 GitHub 最新)"
+    else
+      note "母体已同步:$MOTHER_SHA"
+    fi
   fi
 
   PRUNE=skipped
