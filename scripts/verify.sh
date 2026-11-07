@@ -169,7 +169,18 @@ stack_imserver() {
   run "imserver 单元 / 集成 / HTTP e2e" \
     docker compose -f "$ROOT/imserver/docker-compose.test.yml" run --rm test bash /src/scripts/test_http.sh
 }
-stack_app() { :; }
+stack_app() {
+  local flutter=${FLUTTER_BIN:-$HOME/flutter/bin/flutter}
+  if [ "$DRY_RUN" = 0 ]; then
+    assert_linux_fs app
+    [ -x "$flutter" ] || die "找不到 Linux Flutter:$flutter(安装见 docs/ops/superagent.md)"
+  fi
+  cd "$ROOT/app"
+  run "拉依赖" "$flutter" pub get
+  run "静态检查(零告警)" "$flutter" analyze
+  run "测试" "$flutter" test
+  cd "$ROOT"
+}
 
 stack_bootstrap() {
   run "创建 venv($VENV)" python3 -m venv "$VENV"
