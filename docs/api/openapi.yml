@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: chat_app API
-  version: 1.0.9
+  version: 1.0.10
   description: |-
     交友 App 后端接口(/api/v1)。
 
