@@ -57,6 +57,12 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
    `DELETE /repos/shiliu153/chatapp/git/refs/heads/<branch>`(token 用 `~/.dsh/github-mcp-token.txt`)。
 4. **合并后立刻同步本机(顺序不能反)**:
    ```bash
+   # 人跑 `wsl -e bash -c '...'` 起的 shell **没有**代理环境变量——代理只在
+   # /root/start-superagent.sh 里导出、只给 worker 继承。不导出就直连 github.com:443,
+   # 表现是卡 ~130s 后 `Failed to connect to github.com port 443`(或 `gnutls_handshake() failed`)。
+   GW=$(ip route show default | awk '{print $3}' | head -1)
+   export https_proxy="http://$GW:7897" http_proxy="http://$GW:7897"
+
    git -C /root/src/chatapp pull --ff-only        # WSL 母体:prune 脚本住在这儿
    # Windows 仓库(本会话 cwd)同样 pull --ff-only:人读的 docs/ 在那边
    ```

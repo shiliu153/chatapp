@@ -1263,3 +1263,20 @@ worker 无 `AGENTS.md` 违规(单栈 1 文件、未碰版本号、未自合、�
 
 三条都已落到文档(不是只在本会话里说过):spec §3.3 的「三条硬规矩」、`docs/ops/superagent.md` §4 的
 第 4–6 步,以及不入库的 `~/.dsh/AGENTS.md`(会话侧执行口径)。
+
+### 8. 补记:本机同步必须自带代理(2026-11-07 收尾实测)
+
+规矩 #1 第一次落地就又撞了一次,现象与「网络坏了」极像,实际是**人的 shell 没代理**:
+
+- `wsl -e bash -c '...'` 起的非登录 shell **不带** `https_proxy` —— 代理只在
+  `/root/start-superagent.sh` 里导出、由 worker 进程继承。所以 worker 的 fetch 一直是通的,
+  人手动同步却不通。
+- 表现:`git pull` / `superagent-prune.sh` 的第一步 `git fetch` 卡约 **130s** 后
+  `Failed to connect to github.com port 443 after 132849 ms`,或 `gnutls_handshake() failed`。
+- 处置(写进了 `docs/ops/superagent.md` §4 第 4 步):
+  ```bash
+  GW=$(ip route show default | awk '{print $3}' | head -1)
+  export https_proxy="http://$GW:7897" http_proxy="http://$GW:7897"
+  ```
+- 与 issue #108 的关系:#108 是**脚本层**该不该因 fetch 失败而 fatal;这条是**人侧环境**该带什么变量。
+  两者叠加才会出现「明明没有 worktree 可清,prune 却报错退出」。
