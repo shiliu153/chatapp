@@ -115,5 +115,24 @@ upstream_commit seven
 run_closeout --apply
 assert "--apply 与默认行为一致(会同步)" 0 "pulled=1"
 
+# ── H:fetch 不通、但本地记录的 origin/master 更新 → 仍然纯本地快进
+# 旧实现这一步走 `git pull`,它内部会再 fetch 一次,于是网络不通就 die、收尾停在进行到一半;
+# 现在只 `git merge --ff-only origin/master`(上面已 fetch 过),不发第二次网络请求。
+setup
+upstream_commit eight
+git -C "$T/mother" fetch -q origin master                          # 本地 ref origin/master 前进到 eight
+behind=$(sha "$T/mother")                                          # 母体本身还停在 setup 那条
+git -C "$T/mother" remote set-url origin "$T/does-not-exist.git"   # 之后 fetch 必失败
+run_closeout
+assert "fetch 不通+本地 ref 更新 → 仍然同步" 0 "pulled=1"
+assert "fetch 失败时如实打警告" 0 "退回本地记录的 origin/master"
+if [ "$(sha "$T/mother")" = "$(git -C "$T/mother" rev-parse --short origin/master)" ] \
+   && [ "$(sha "$T/mother")" != "$behind" ]; then
+  say "ok   母体已纯本地快进到本地记录的 origin/master"
+else
+  say "FAIL 母体没快进到本地记录的 origin/master"; fail=1
+fi
+assert "fetch 失败时在同步提示里说明依据" 0 "依据本地记录的 origin/master"
+
 [ "$fail" = 0 ] && say "全部通过" || say "有失败"
 exit "$fail"

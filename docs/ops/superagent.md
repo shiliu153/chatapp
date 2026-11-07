@@ -72,6 +72,10 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
    - **fetch 失败不算失败**(issue #108 那一类):退回本地记录的 `origin/master` 判定 + 打警告;
      只有「落后又拉不动」才退出 2。
    - `--check` 只报告不动手;`--quiet` 只在有动作/异常时说话(定时任务用)。
+   - **快进不发第二次网络请求**:fetch 成功后只用 `git merge --ff-only origin/master` 做纯本地快进。
+     旧版这一步是 `git pull`,而 `pull` 内部会**再 fetch 一次** —— 于是刚被上面容错掉的抖动会在这里变成
+     `die`,收尾停在进行到一半(决定同步之后、prune 之前)。2026-11-07 实测踩到过一次
+     「fetch 成功了、紧接着 pull 报 gnutls 握手失败、收尾退出 1」。
    - 自测:`bash scripts/test_superagent_closeout.sh`(11 条,纯本地 git 仓库,不联网)。
    - ⚠️ **鸡生蛋**:脚本自己也在母体里,所以「脚本刚上线 / 刚更新」时要先手动引导一次
      `git -C /root/src/chatapp pull --ff-only`(带代理),之后才能用它。
