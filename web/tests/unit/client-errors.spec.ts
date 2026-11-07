@@ -119,6 +119,19 @@ describe('clientErrors', () => {
     expect(sent[0].request_id).toBe('9f8c1b2e4d5a')
   })
 
+  it('route 只上报 pathname:query 里的分享码不外泄,且仍按 MAX_ROUTE 截断(L-9)', () => {
+    const { sender, sent } = collector()
+
+    vi.stubGlobal('location', { pathname: '/square', search: '?code=abc' })
+    createReporter(sender).report(new Error('带 query 的错'))
+    expect(sent[0].route).toBe('/square')
+
+    vi.stubGlobal('location', { pathname: `/${'x'.repeat(400)}`, search: '?code=abc123' })
+    createReporter(sender).report(new Error('超长路径的错'))
+    expect(sent[1].route!.length).toBe(180)
+    expect(sent[1].route).not.toContain('?')
+  })
+
   it('超长 message / stack 会被截断(后端有 500 / 8000 字上限)', () => {
     const { sender, sent } = collector()
     createReporter(sender).report(new Error('x'.repeat(2000)), {

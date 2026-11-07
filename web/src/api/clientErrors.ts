@@ -79,10 +79,16 @@ export function describeError(error: unknown): string {
   return String(error)
 }
 
-/** 取当前页面路径;带上 search 便于定位分享链接导致的报错。 */
+/**
+ * 取当前页面路径,只保留 `pathname`(仍按 `MAX_ROUTE` 截断)。
+ *
+ * 不带 search:query 里可能有分享码等半敏感参数,上报后会原样进服务端日志
+ * (审查 L-9)。定位「哪个页面报错」用 pathname 就够了;真要追参数,让用户
+ * 报 `request_id`,后端日志里再对齐。
+ */
 function currentRoute(): string {
   if (typeof location === 'undefined') return ''
-  return `${location.pathname}${location.search}`.slice(0, MAX_ROUTE)
+  return location.pathname.slice(0, MAX_ROUTE)
 }
 
 export interface Reporter {
