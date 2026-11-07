@@ -5,8 +5,10 @@
 
 封闭测试期(B-1 / K-1 / B-1c)多一道白名单闸门:**库内名单**
 (``accounts.PhoneAllowlist``)内的号码才能收发验证码;``.env`` 的
-``SMS_PHONE_WHITELIST`` 退化为「兜底种子」,两者都空表示不限制
-(开发/测试的默认状态)。判定逻辑只在本模块实现一次,别处不要另写。
+``SMS_PHONE_WHITELIST`` 退化为「兜底种子」。名单与种子**都空**时按
+``settings.SMS_ALLOWLIST_STRICT`` 决定放行还是拒绝:开发/测试放行(否则本地和
+CI 全被拦),生产拒绝(漏配名单不能让闸门静默全开,R4 M-1)。判定逻辑只在本模块
+实现一次,别处不要另写。
 
 关联文档:
     - 接口契约:docs/api/auth.md
@@ -37,6 +39,22 @@ def _sent_key(phone):
     return f"sms:send:{phone}"
 
 
+def _strict() -> bool:
+    """判断「库与种子都空」时是拒绝还是放行。
+
+    ``settings.SMS_ALLOWLIST_STRICT`` 为空(默认)时按环境自动:生产(``DEBUG`` 为假、
+    且不是测试运行)走严格模式,其余放行。显式写 ``"0"`` 一律放行(封闭测试的逃生口),
+    其它非空值(``"1"``、``"true"`` 等)一律严格 —— 判断口留在「显式关闭」这一侧。
+
+    Returns:
+        真表示严格模式:名单为空时拒绝所有号码。
+    """
+    raw = str(getattr(settings, "SMS_ALLOWLIST_STRICT", "") or "").strip()
+    if raw == "":
+        return not settings.DEBUG and not getattr(settings, "TESTING", False)
+    return raw != "0"
+
+
 def ensure_phone_allowed(phone: str) -> None:
     """白名单闸门:号码不在准入名单内则直接拒绝。
 
@@ -45,7 +63,9 @@ def ensure_phone_allowed(phone: str) -> None:
         2. **库内启用** → 放行;
         3. **``.env`` 种子里有** → 放行(库里还没导入时的兜底);
         4. **库或种子非空** → 拒(说明名单机制已生效,只放名单内的人);
-        5. **库与种子都空** → 放行(开发/测试默认,避免本地和 CI 全被拦)。
+        5. **库与种子都空 + 严格模式**(见 :func:`_strict`)→ 拒(fail-closed:
+           生产漏配名单时宁可谁都进不来,也不能任意号码用固定码登录);
+        6. **库与种子都空 + 非严格** → 放行(只用于开发/测试)。
 
     校验放在发码与校验两个入口(而不是只放在校验),好处是:非白名单号码
     既拿不到验证码、也不会在 Redis 里留下限流占位,更不会触发短信任务。
@@ -54,7 +74,7 @@ def ensure_phone_allowed(phone: str) -> None:
         phone: 客户端提交的手机号。
 
     Raises:
-        PhoneNotAllowed: 该号码不在准入名单内(含「库内已停用」)。
+        PhoneNotAllowed: 该号码不在准入名单内(含「库内已停用」与严格模式下的空名单)。
     """
     active, disabled = allowlist.snapshot()
     if phone in disabled:
@@ -67,7 +87,12 @@ def ensure_phone_allowed(phone: str) -> None:
     if active or disabled or settings.SMS_PHONE_WHITELIST:
         logger.warning("[白名单] 拒绝非受邀号码 phone=%s", mask_phone(phone))
         raise PhoneNotAllowed()
-    # 库与种子都空 = 不限制:开发/测试的默认状态(生产漏配 = 没防护,见 runbook)
+    if _strict():
+        # 生产漏配名单 = 准入机制没生效。这里必须吵:error 级进日志/告警,
+        # 并拒绝准入 —— 否则「按默认值部署」就是全号码可用固定码登录。
+        logger.error("[白名单] 严格模式下名单为空,拒绝所有号码(先跑 allowlist_seed_import)")
+        raise PhoneNotAllowed()
+    # 非严格 = 库与种子都空的开发/测试默认态:放行,避免本地和 CI 全被拦
 
 
 def issue_code(phone: str) -> str:

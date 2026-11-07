@@ -10,9 +10,13 @@ class AccountsConfig(AppConfig):
     name = "accounts"
 
     def ready(self):
-        """导入 OpenAPI 扩展模块,让自定义 JWT 认证类在 schema 里可见(D-5)。
+        """导入需要在启动时完成「注册」的模块。
 
-        drf-spectacular 的扩展类在定义时注册,只有被导入才生效。放在 ``ready()`` 里显式
-        导入,是为了避免「某个入口忘了 import 就悄悄退化成无认证方案」这种静默漂移。
+        两件事都靠「被导入」生效:
+            1. ``schema``:drf-spectacular 的扩展类在定义时注册,不导入就会悄悄退化成
+               无认证方案(D-5);
+            2. ``checks``:``@register(Tags.security)`` 的系统检查要进 ``manage.py check``,
+               漏导入则 ``accounts.E001`` 永远不会报(R4 M-1 的部署期门禁)。
         """
+        from . import checks  # noqa: F401  # 导入即注册,模块名本身不需要使用
         from . import schema  # noqa: F401  # 导入即注册,模块名本身不需要使用
