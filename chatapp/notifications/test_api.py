@@ -6,12 +6,15 @@
     - 触发者摘要:账号 id / 昵称 / 首张已过审照片头像,无照片为 ``null``;
     - 未读数与列表同口径;
     - 标记已读:按 ids、按 all、幂等、只影响自己、空 body 400;
+    - 限流:通知列表与未读数各按用户计数,超限 429(两个 scope 独立);
     - 未认证一律 401。
 """
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -19,6 +22,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from notifications.models import (InAppNotification, NotificationKind, NotificationPreference,
                                   NotificationTarget)
+from notifications.throttles import NotificationsThrottle, NotificationsUnreadThrottle
 from users.models import Photo, PhotoStatus, Profile
 
 User = get_user_model()
@@ -132,6 +136,29 @@ class NotificationListApiTests(APITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data, {"unread": 1})
         self.assertTrue(InAppNotification.objects.get(pk=read.pk).is_read)
+
+    def test_list_is_throttled_per_user(self):
+        """R4-C1:通知列表按用户限流,超限 429(生产额度 240/hour)。"""
+        cache.clear()                      # 限流计数在缓存里,跨用例残留会误报
+        self.addCleanup(cache.clear)
+        with patch.dict(NotificationsThrottle.THROTTLE_RATES, {"notifications": "2/hour"}):
+            responses = [self._get() for _ in range(3)]
+        self.assertEqual([resp.status_code for resp in responses], [200, 200, 429])
+        self.assertEqual(responses[-1].data["code"], 429)      # 统一错误信封
+        self.assertIn("Retry-After", responses[-1])
+
+    def test_unread_count_is_throttled_per_user(self):
+        """R4-C1:未读数按用户限流,超限 429(生产额度 480/hour),与列表额度互不占用。"""
+        cache.clear()
+        self.addCleanup(cache.clear)
+        path = "/api/v1/notifications/unread_count"
+        with patch.dict(NotificationsUnreadThrottle.THROTTLE_RATES,
+                        {"notifications_unread": "2/hour"}):
+            responses = [self._get(path) for _ in range(3)]
+        self.assertEqual([resp.status_code for resp in responses], [200, 200, 429])
+        self.assertEqual(responses[-1].data["code"], 429)
+        # 各自的 scope 独立计数:未读数被限了,列表照常可用
+        self.assertEqual(self._get().status_code, 200)
 
     def test_requires_auth(self):
         self.client.credentials()

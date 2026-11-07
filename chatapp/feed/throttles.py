@@ -103,3 +103,23 @@ class PostReportThrottle(SimpleRateThrottle):
             该用户在 ``post_report`` 作用域下的缓存键。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
+
+
+class FollowingReadThrottle(UserScopedThrottle):
+    """按用户限流关注流;额度见 ``settings.DEFAULT_THROTTLE_RATES["following_read"]``。
+
+    关注流每次请求要跑三段 SQL(总行数 ``COUNT``、当页 id、当页聚合),
+    因此按用户限流,防止刷流放大查询成本。
+    """
+
+    scope = "following_read"
+
+
+class CommentRepliesThrottle(UserScopedThrottle):
+    """按用户限流回复列表;额度见 ``settings.DEFAULT_THROTTLE_RATES["comment_replies"]``。
+
+    回复列表不是「一页一条 SQL」:可见性过滤会带上拉黑/封禁子查询,
+    且展开楼中楼时客户端会连续请求多条顶级评论,额度比关注流略宽。
+    """
+
+    scope = "comment_replies"

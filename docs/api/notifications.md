@@ -28,7 +28,7 @@
 
 ### 1.1 通知列表
 
-> `GET` `/api/v1/notifications` · 需要鉴权 · 无额外限流
+> `GET` `/api/v1/notifications` · 需要鉴权 · 限流 240 次/小时(按用户)
 
 **接口描述**
 
@@ -133,12 +133,13 @@ curl "http://<域名>/api/v1/notifications?limit=20&before=<next_cursor>" \
 |--------|------|------|----------|
 | 400 | 400 | 游标无效(`before` 不是合法游标) | 清空列表,从第一页重拉 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 429 | 429 | 触发限流(240 次/小时) | 按 `Retry-After` 等待 |
 
 ---
 
 ### 1.2 未读通知数
 
-> `GET` `/api/v1/notifications/unread_count` · 需要鉴权 · 无额外限流
+> `GET` `/api/v1/notifications/unread_count` · 需要鉴权 · 限流 480 次/小时(按用户)
 
 **接口描述**
 
@@ -173,6 +174,7 @@ curl "http://<域名>/api/v1/notifications/unread_count" \
 | 错误码 | HTTP | 描述 | 处理建议 |
 |--------|------|------|----------|
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 429 | 429 | 触发限流(480 次/小时) | 按 `Retry-After` 等待 |
 
 ---
 
