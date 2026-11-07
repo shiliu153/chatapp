@@ -61,6 +61,9 @@ function fakeClient() {
     sendVoice: vi.fn(async (peerId: string) =>
       msg({ msgId: 'm3', peerId, isSelf: true, kind: 'voice' as never }),
     ),
+    sendSticker: vi.fn(async (peerId: string, stickerId: string) =>
+      msg({ msgId: 'm4', peerId, isSelf: true, kind: 'sticker' as never, stickerId }),
+    ),
     deleteMessage: vi.fn(async () => {}),
     revokeMessage: vi.fn(async () => {}),
     markConversationRead: vi.fn(async () => {}),
@@ -468,5 +471,48 @@ describe('chat store', () => {
     await store.resend(failed)
     expect(client.sendImage).toHaveBeenCalledTimes(1)
     expect(store.messagesOf('u8').some((item) => item.msgId === 'img-2')).toBe(true)
+  })
+
+  it('sendSticker 先插入 isPending 占位,成功后替换成真实消息', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    const real = msg({
+      msgId: 'stk-1',
+      peerId: 'u8',
+      isSelf: true,
+      kind: 'sticker' as never,
+      stickerId: 'sticker_01',
+    })
+    client.sendSticker = vi.fn(async () => real)
+
+    const pending = store.sendSticker('u8', 'sticker_01')
+    // 占位同步上屏,且带 stickerId(重发要靠它)
+    expect(store.messagesOf('u8').some((item) => item.isPending)).toBe(true)
+    await pending
+    const stickers = store.messagesOf('u8').filter((item) => item.kind === 'sticker')
+    expect(stickers).toHaveLength(1)
+    expect(stickers[0].msgId).toBe('stk-1')
+    expect(stickers[0].stickerId).toBe('sticker_01')
+    expect(client.sendSticker).toHaveBeenCalledWith('u8', 'sticker_01')
+  })
+
+  it('sendSticker 失败把占位标成 isFailed,resend 直接用 id 重发', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    client.sendSticker = vi.fn(async () => Promise.reject(new Error('boom')))
+    await expect(store.sendSticker('u8', 'sticker_02')).rejects.toThrow('boom')
+
+    const failed = store.messagesOf('u8').find((item) => item.isFailed)!
+    expect(failed.kind).toBe('sticker')
+    expect(failed.stickerId).toBe('sticker_02')
+
+    client.sendSticker = vi.fn(async () =>
+      msg({ msgId: 'stk-2', peerId: 'u8', isSelf: true, kind: 'sticker' as never }),
+    )
+    await store.resend(failed)
+    expect(client.sendSticker).toHaveBeenCalledWith('u8', 'sticker_02')
+    expect(store.messagesOf('u8').some((item) => item.msgId === 'stk-2')).toBe(true)
   })
 })

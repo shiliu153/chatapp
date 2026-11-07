@@ -109,9 +109,19 @@ void expect_client_frame(const std::string& name, const json& frame) {
     ASSERT_TRUE(data.at("to").is_string()) << name;
     EXPECT_EQ(data.at("to").get<std::string>().rfind("u", 0), 0U) << name;
     const auto kind = data.at("kind").get<std::string>();
-    ASSERT_TRUE(kind == "text" || kind == "image" || kind == "voice") << name;
+    ASSERT_TRUE(kind == "text" || kind == "image" || kind == "voice" || kind == "custom")
+        << name;
     if (kind == "text") {
       ASSERT_TRUE(data.at("text").is_string()) << name;
+    } else if (kind == "custom") {
+      // 贴纸(批次 J):上行 custom 只允许 type=sticker + sticker_NN 形状的 id。
+      // match_notice / ban_notice 这类系统灰条不在上行白名单里(服务端会 42201)。
+      const auto& custom = data.at("custom");
+      ASSERT_TRUE(custom.is_object()) << name;
+      EXPECT_EQ(custom.at("type"), "sticker") << name;
+      const auto sticker = custom.at("id").get<std::string>();
+      EXPECT_EQ(sticker.rfind("sticker_", 0), 0U) << name;
+      EXPECT_EQ(sticker.size(), 10U) << name;
     } else if (kind == "image") {
       const auto& image = data.at("image");
       ASSERT_TRUE(image.is_object()) << name;
@@ -178,6 +188,11 @@ TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
   voice.kind = 4;
   voice.voice = {{"url", "http://cdn/media/chat/v.m4a"}, {"duration_ms", 3200}, {"size", 12345}};
 
+  // 贴纸:复用 kind=2 custom(批次 J),下行帧与灰条同构,只是 type=sticker
+  SendRequest sticker = text;
+  sticker.kind = 2;
+  sticker.custom = {{"type", "sticker"}, {"id", "sticker_01"}};
+
   SendResult image_result = result;
   image_result.msg_id = 900125;
   image_result.seq = 43;
@@ -187,6 +202,11 @@ TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
   voice_result.msg_id = 900126;
   voice_result.seq = 44;
   voice_result.ts = 1720000000002;
+
+  SendResult sticker_result = result;
+  sticker_result.msg_id = 900127;
+  sticker_result.seq = 45;
+  sticker_result.ts = 1720000000003;
 
   const std::map<std::string, std::string> generated = {
       {"auth_ok", auth_ok_frame(9, 1720000000000)},
@@ -199,6 +219,7 @@ TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
       {"message_text", build_message_frame(result, text, signer)},
       {"message_image", build_message_frame(image_result, image, signer)},
       {"message_voice", build_message_frame(voice_result, voice, signer)},
+      {"message_sticker", build_message_frame(sticker_result, sticker, signer)},
       {"read_down", read_frame("u2", 42)},
       {"revoked", revoked_frame(900124, 42, "u2", 1720000000000)},
   };

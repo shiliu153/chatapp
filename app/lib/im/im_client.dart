@@ -5,7 +5,7 @@ library;
 
 import 'im_bootstrap.dart';
 
-enum ChatMessageKind { text, matchNotice, banNotice, image, voice, other }
+enum ChatMessageKind { text, matchNotice, banNotice, image, voice, sticker, other }
 
 /// 「系统通知」固定 IM 账号(与后端 im/client.py::SYSTEM_NOTICE_IDENTIFIER 是跨栈契约)。
 const systemNoticePeerId = 'system_notice';
@@ -36,6 +36,7 @@ class ChatMessage {
     this.imageLargeUrl,
     this.voiceUrl,
     this.voiceDurationMs = 0,
+    this.stickerId,
     this.isRevoked = false,
   });
 
@@ -74,11 +75,15 @@ class ChatMessage {
   /// 语音时长(毫秒),气泡宽度与秒数展示用。
   final int voiceDurationMs;
 
+  /// 贴纸 id(如 `sticker_01`)。只有 [ChatMessageKind.sticker] 有值;
+  /// 资源在客户端本地(`assets/stickers/<id>.png`),消息里只传 id。
+  final String? stickerId;
+
   /// 已被撤回(自己撤回或对方撤回):界面渲染成居中灰字,不再显示内容。
   final bool isRevoked;
 
   ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl, bool? isRevoked,
-      String? voiceUrl, int? voiceDurationMs}) =>
+      String? voiceUrl, int? voiceDurationMs, String? stickerId}) =>
       ChatMessage(
         msgId: msgId,
         seq: seq,
@@ -94,6 +99,7 @@ class ChatMessage {
         imageLargeUrl: imageLargeUrl,
         voiceUrl: voiceUrl ?? this.voiceUrl,
         voiceDurationMs: voiceDurationMs ?? this.voiceDurationMs,
+        stickerId: stickerId ?? this.stickerId,
         isRevoked: isRevoked ?? this.isRevoked,
       );
 }
@@ -254,6 +260,13 @@ abstract class ImClient {
       required int durationMs}) =>
       throw const ImException(42202, '当前聊天服务暂不支持语音');
 
+  /// 发送贴纸(不支持时抛 [ImException] 42202)。
+  ///
+  /// 贴纸复用 imserver 的 `kind=2 custom`(批次 J),载荷只有
+  /// `{"type":"sticker","id":<id>}`;资源本身在客户端本地,消息里不传图。
+  Future<ChatMessage> sendSticker({required String peerId, required String stickerId}) =>
+      throw const ImException(42202, '当前聊天服务暂不支持贴纸');
+
   /// 删除本地消息(对方不受影响);本地未发出的消息可直接忽略此调用。
   Future<void> deleteMessage(ChatMessage message);
 
@@ -268,6 +281,9 @@ abstract class ImClient {
     if (message.kind == ChatMessageKind.voice && message.localPath != null) {
       return sendVoice(peerId: message.peerId, localPath: message.localPath!,
           durationMs: message.voiceDurationMs);
+    }
+    if (message.kind == ChatMessageKind.sticker && message.stickerId != null) {
+      return sendSticker(peerId: message.peerId, stickerId: message.stickerId!);
     }
     return sendText(peerId: message.peerId, text: message.text);
   }

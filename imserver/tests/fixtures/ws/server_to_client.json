@@ -109,6 +109,25 @@
       }
     },
     {
+      "name": "message_sticker",
+      "frame": {
+        "v": 1,
+        "type": "message",
+        "data": {
+          "msg_id": "900127",
+          "seq": 45,
+          "from": "u2",
+          "to": "u9",
+          "kind": "custom",
+          "ts": 1720000000003,
+          "revoked": false,
+          "custom": {"type": "sticker", "id": "sticker_01"},
+          "from_profile": {"nickname": "小九", "avatar": "http://cdn/avatar/u2.jpg"}
+        }
+      },
+      "note": "贴纸(批次 J):下行是 kind=custom + custom{type,id};历史接口(GET /im/api/messages)返回同样的形状,离线补拉靠它还原。客户端按 id 取本地资源,未知 id 降级成「[贴纸]」文本"
+    },
+    {
       "name": "read_down",
       "frame": {"v": 1, "type": "read", "data": {"peer": "u2", "seq": 42}},
       "note": "对端(peer)读到 seq=42;没有 id,服务端主动推,客户端不要回 ack"

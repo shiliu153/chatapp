@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.9+10
+version: 1.0.10+11
 
 environment:
   sdk: ^3.13.2
@@ -83,6 +83,9 @@ flutter:
     - assets/fonts/OFL.txt
     # 证书绑定用的根证书(发版前用 tool/verify_pinning.dart 验证)
     - assets/certs/
+    # 聊天贴纸(批次 J):与 web/public/stickers/ 逐字节一致,由
+    # scripts/check_stickers.py 在 contract.yml 里把关
+    - assets/stickers/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

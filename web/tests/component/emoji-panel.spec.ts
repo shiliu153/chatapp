@@ -19,6 +19,27 @@ describe('EmojiPanel', () => {
     expect(w.emitted('pick')).toEqual([['😀']])
   })
 
+  it('切到贴纸 tab:渲染 12 张贴纸,点选派发 sticker', async () => {
+    const w = mountPanel()
+    expect(w.findAll('.emoji-panel__sticker')).toHaveLength(0)
+
+    await w.get('[data-testid="panel-tab-sticker"]').trigger('click')
+    expect(w.findAll('.emoji-panel__item')).toHaveLength(0)
+    expect(w.findAll('.emoji-panel__sticker')).toHaveLength(12)
+
+    await w.get('[data-testid="sticker-sticker_01"]').trigger('click')
+    expect(w.emitted('sticker')).toEqual([['sticker_01']])
+  })
+
+  it('贴纸资源走 public 目录,src 与 id 对应', async () => {
+    const w = mountPanel()
+    await w.get('[data-testid="panel-tab-sticker"]').trigger('click')
+
+    const img = w.get('[data-testid="sticker-sticker_03"]').get('img')
+    expect(img.attributes('src')).toBe('/stickers/sticker_03.png')
+    expect(img.attributes('alt')).toBe('点赞')
+  })
+
   it('按 Esc 关闭面板', async () => {
     const w = mountPanel()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))

@@ -162,6 +162,20 @@ class FakeImClient extends ImClient {
   }
 
   @override
+  Future<ChatMessage> sendSticker({required String peerId, required String stickerId}) async {
+    log.add('sendSticker:$peerId:$stickerId');
+    if (sendError != null) throw sendError!;
+    return ChatMessage(
+      msgId: 'sent-${++_seq}',
+      peerId: peerId,
+      isSelf: true,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      kind: ChatMessageKind.sticker,
+      stickerId: stickerId,
+    );
+  }
+
+  @override
   Future<void> deleteMessage(ChatMessage message) async => log.add('delete:${message.msgId}');
 
   @override

@@ -472,10 +472,51 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * 乐观发送贴纸(批次 J):先上屏占位,成功后就地替换。
+   *
+   * 与图片/语音不同,贴纸**不需要缓存本地内容** —— id 本身就在消息里,
+   * 重发时直接用 `message.stickerId`。
+   */
+  async function sendSticker(peerId: string, stickerId: string): Promise<ChatMessage> {
+    const placeholder: ChatMessage = {
+      msgId: `local-${Date.now()}`,
+      peerId,
+      isSelf: true,
+      seq: 0,
+      timestamp: Date.now(),
+      kind: ChatMessageKind.sticker,
+      text: '',
+      senderName: '',
+      senderAvatar: null,
+      isPending: true,
+      isFailed: false,
+      imageUrl: null,
+      imageLargeUrl: null,
+      stickerId,
+      isRevoked: false,
+    }
+    appendMessage(peerId, placeholder)
+    try {
+      await ensureConnected()
+      const sent = await client.sendSticker(peerId, stickerId)
+      replaceMessage(placeholder.msgId, sent)
+      upsertConversation({ ...sent, isSelf: true })
+      return sent
+    } catch (error) {
+      replaceMessage(placeholder.msgId, { ...placeholder, isPending: false, isFailed: true })
+      throw error
+    }
+  }
+
   /** 重发失败的消息:文本直接重发,图片/语音用缓存的本地内容重发。 */
   async function resend(message: ChatMessage): Promise<void> {
     const list = messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId)
     messages.value = { ...messages.value, [message.peerId]: list }
+    if (message.kind === 'sticker' && message.stickerId) {
+      await sendSticker(message.peerId, message.stickerId)
+      return
+    }
     if (message.kind === 'image') {
       const file = takePendingFile(message.msgId)
       if (!file) return
@@ -573,6 +614,7 @@ export const useChatStore = defineStore('chat', () => {
     sendText,
     sendImage,
     sendVoice,
+    sendSticker,
     resend,
     deleteMessage,
     revokeMessage,

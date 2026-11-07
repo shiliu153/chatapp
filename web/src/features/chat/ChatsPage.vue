@@ -60,6 +60,7 @@ function summaryOf(message: ChatMessage | null): string {
   if (message.isFailed) return '发送失败'
   if (message.kind === ChatMessageKind.image) return '[图片]'
   if (message.kind === ChatMessageKind.voice) return '[语音]'
+  if (message.kind === ChatMessageKind.sticker) return '[贴纸]'
   return message.text || '[消息]'
 }
 

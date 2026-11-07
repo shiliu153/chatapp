@@ -15,6 +15,7 @@ for i in $(seq 1 30); do
 done
 export IM_TEST_HTTP="http://127.0.0.1:19101/im/api"
 python3 /src/tests/integration/test_history.py
+python3 /src/tests/integration/test_sticker.py
 python3 /src/tests/integration/test_internal.py
 python3 /src/tests/integration/test_image.py
 python3 /src/tests/integration/test_search.py

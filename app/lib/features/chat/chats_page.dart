@@ -321,6 +321,7 @@ String _previewOf(ChatMessage? last) {
     ChatMessageKind.banNotice => last.text.isEmpty ? '系统通知' : last.text,
     ChatMessageKind.image => '[图片]',
     ChatMessageKind.voice => '[语音]',
+    ChatMessageKind.sticker => '[贴纸]',
     ChatMessageKind.other => '[消息]',
   };
 }

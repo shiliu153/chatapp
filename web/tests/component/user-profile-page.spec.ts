@@ -95,13 +95,19 @@ describe('UserProfilePage', () => {
     expect(w.text()).toContain('已拉黑')
   })
 
-  it('关注:点按钮 → POST,按钮变「已关注」且粉丝数 +1', async () => {
+  it('关注:点按钮 → POST,按钮变「已关注」且粉丝数 +1,并刷新关注流', async () => {
     let called = false
+    let feedRefreshed = 0
     server.use(
       mswHttp.get('/api/v1/users/8', () => HttpResponse.json(profile)),
       mswHttp.post('/api/v1/users/8/follow', () => {
         called = true
         return new HttpResponse(null, { status: 204 })
+      }),
+      // 关注成功后必须让广场「关注」tab 的列表失效(1.0.9 记录的已知限制)
+      mswHttp.get('/api/v1/feed/following', () => {
+        feedRefreshed += 1
+        return HttpResponse.json({ count: 0, next_cursor: null, has_more: false, results: [] })
       }),
     )
     const w = mountPage()
@@ -114,6 +120,7 @@ describe('UserProfilePage', () => {
     await flushPromises()
 
     expect(called).toBe(true)
+    expect(feedRefreshed).toBeGreaterThan(0)
     expect(w.find('.user-profile__follow-button').text()).toBe('已关注')
     expect(w.find('.user-profile__follow').text()).toContain('4 粉丝')
   })
@@ -128,6 +135,9 @@ describe('UserProfilePage', () => {
         called = true
         return new HttpResponse(null, { status: 204 })
       }),
+      mswHttp.get('/api/v1/feed/following', () =>
+        HttpResponse.json({ count: 0, next_cursor: null, has_more: false, results: [] }),
+      ),
     )
     const w = mountPage()
     await flushPromises()

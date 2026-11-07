@@ -24,6 +24,7 @@ import '../moderation/moderation_repository.dart';
 import '../moderation/widgets/report_sheet.dart';
 import '../presence/presence_controller.dart';
 import '../square/feed_repository.dart';
+import '../square/square_controller.dart';
 import 'widgets/profile_photo_header.dart';
 import 'widgets/user_profile_skeleton.dart';
 
@@ -412,6 +413,9 @@ class _FollowBarState extends ConsumerState<_FollowBar> {
       } else {
         await repository.unfollow(widget.profile.userId);
       }
+      // 关注关系变了 → 广场「关注」tab 的列表必须失效,否则切回去还是旧列表
+      // (1.0.9 记录的已知限制,批次 J 顺手补掉)
+      ref.invalidate(followingProvider);
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {

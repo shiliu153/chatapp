@@ -8,6 +8,7 @@ import AppButton from '@/components/AppButton.vue'
 import AppCard from '@/components/AppCard.vue'
 import OnlineDot from '@/components/OnlineDot.vue'
 import ReportDialog from '@/features/moderation/ReportDialog.vue'
+import { useFollowingFeedStore } from '@/stores/feed'
 import { usePresenceStore } from '@/stores/presence'
 import type { PublicProfile, ReportType } from '@/api/types'
 
@@ -60,6 +61,9 @@ async function onToggleFollow() {
   try {
     if (target) await usersApi.followUser(numericId.value)
     else await usersApi.unfollowUser(numericId.value)
+    // 关注关系变了 → 广场「关注」tab 的列表必须失效,否则切回去还是旧列表
+    // (1.0.9 记录的已知限制,批次 J 顺手补掉)
+    useFollowingFeedStore().load(true).catch(() => {})
   } catch (e) {
     following.value = !target
     followerCount.value += target ? -1 : 1

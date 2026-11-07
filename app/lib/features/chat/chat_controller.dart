@@ -90,6 +90,17 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         isPending: true,
       ));
 
+  /// 发贴纸(批次 J):消息里只带 id,图片资源在客户端本地。
+  Future<void> sendSticker(String stickerId) => _sendOut(ChatMessage(
+        msgId: 'local-${DateTime.now().microsecondsSinceEpoch}',
+        peerId: peerId,
+        isSelf: true,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        kind: ChatMessageKind.sticker,
+        stickerId: stickerId,
+        isPending: true,
+      ));
+
   /// 失败不抛异常、消息保留 isFailed;重发复用同一条(msgId 不变,靠 upsert 就地替换)。
   Future<void> _sendOut(ChatMessage pendingMessage) async {
     _upsert(pendingMessage);

@@ -22,9 +22,14 @@ export function messageFromJson(
   const customType = String(custom.type ?? '')
   let messageKind = ChatMessageKind.text
   if (kind === 'custom') {
-    messageKind = customType === 'match_notice'
-      ? ChatMessageKind.matchNotice
-      : ChatMessageKind.banNotice
+    if (customType === 'match_notice') {
+      messageKind = ChatMessageKind.matchNotice
+    } else if (customType === 'sticker') {
+      // 贴纸(批次 J):资源在本地,消息里只有 id
+      messageKind = ChatMessageKind.sticker
+    } else {
+      messageKind = ChatMessageKind.banNotice
+    }
   }
   if (kind === 'image') {
     messageKind = ChatMessageKind.image
@@ -49,6 +54,8 @@ export function messageFromJson(
     imageLargeUrl: (image.url as string | undefined) ?? null,
     voiceUrl: (voice.url as string | undefined) ?? null,
     voiceDurationMs: Number(voice.duration_ms ?? 0),
+    stickerId:
+      messageKind === ChatMessageKind.sticker ? String(custom.id ?? '') : null,
     isRevoked: json.revoked === true,
   }
 }
