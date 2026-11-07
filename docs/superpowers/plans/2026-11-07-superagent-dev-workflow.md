@@ -1179,3 +1179,53 @@ wsl -e bash -lc 'git -C /root/src/chatapp worktree list'
 | 5 | Task 12(端到端验收) | 无 PR,产出验收记录 |
 
 每完成一个 Task:跑该 Task 的验证命令 → 提交 → 再进下一个。**不要**把多个 Task 攒在一起提交。
+
+---
+
+## 执行记录(2026-11-07)
+
+计划执行完毕:P0–P3 全部落地并验证,Task 12 的端到端验收见 §执行记录.4。
+
+### 1. 与计划的偏差(每一条都是「计划没想到、真跑才暴露」)
+
+| # | 计划怎么写 | 实际怎么改 | 证据 |
+|---|---|---|---|
+| 1 | Task 3 假定 `python3 manage.py` 能跑 | WSL 系统 Python 3.12 上没有 Django/PyMySQL,且 `python3-venv` 未装 → 新增 `bootstrap` 子命令,后端统一走 `~/venvs/chatapp` | 首次 `manage.py` 直接 `ModuleNotFoundError`;`python3 -m venv` 报 `ensurepip is not available` |
+| 2 | 用 `REDIS_URL` 指向容器 Redis | `TESTING` 模式下 `config/settings.py` 读的是 `TEST_REDIS_HOST` / `TEST_REDIS_PORT`(默认 6379,并切 DB15/DB14),**不读 `REDIS_URL`** | 未指过去时全量测试 `Ran 875 tests`,`failures=69, errors=359`,报 `ConnectionInterrupted: Error 111 connecting to 127.0.0.1:6379` |
+| 3 | 用 `git diff --exit-code` 校验生成物 | Windows 检出是 CRLF,WSL 的 git 把 **1094 个文件**都算成改动 → 改成 `check_artifact`:比 `HEAD:path` 的内容、忽略行尾,失败时打印前 40 行差异 | `git diff --stat` 在 WSL 里输出 `1094 files changed, 215971 insertions(+)`;Windows 侧只有 3 个文件 |
+| 4 | 未约束 Node 版本 | `web.yml` 用 Node 22,WSL 默认 24 → 装 `~/node22` 并在脚本里钉住(可用 `CHATAPP_NODE_MAJOR` 覆盖) | Node 24 下 `profile-store.spec.ts`「上传照片走 multipart」报 `webidl.is.File` 断言失败,88/89 文件通过 |
+| 5 | 未约束工作目录的文件系统 | `/mnt/*` 是 9p,`vitest` 起 fork worker 超时 → 新增 `assert_linux_fs`,web/app 在 `/mnt/*` 下直接拒绝并给出原因 | `[vitest-pool]: Failed to start forks worker … Timeout waiting for worker to respond`,54 个 unhandled error |
+| 6 | 计划以为 openapi 生成物是最新的 | master 上 `docs/api/openapi.yml` 停在 `1.0.9` 而代码已是 `1.0.10`:升版本那次只碰了 `app/pubspec.yaml` 与 `web/package.json`,**不在 `backend.yml` 的 paths 过滤里**,backend 轨从未被触发 → 本分支一并重新生成 | `spectacular` 重新生成后 `-version: 1.0.9 / +version: 1.0.10` |
+
+### 2. 交付物与 PR
+
+| 内容 | PR / 位置 |
+|---|---|
+| Task 1–6:依赖容器 + `scripts/verify.sh` 五栈 + 自测 + openapi 同步 | **#99**(已 squash 合并) |
+| Task 7–8:`AGENTS.md` + 工单/PR 模板 | **#100**(已合并) |
+| Task 11:运维手册 + `superagent-prune.sh` | **#101**(已合并) |
+| Task 9:全局约定改为「设计评审内联、实现走工单」 | `~/.dsh/AGENTS.md`(不入库) |
+| Task 10:面板 prompt 项目条款 + `maxWorkers=2` + `blockedCommands=[ssh,scp,rsync]` + `prepare` 去代理 | 面板 `127.0.0.1:3082`(不入库) |
+| 每小时巡检 | schedule `schedule-10c540bf`(target = 当前 Windows 会话,首跑 22:05) |
+
+### 3. 验证结果
+
+- WSL Linux worktree(`/root/verify-tt`)里 `scripts/verify.sh all`:**exit 0**,五栈全过
+  - backend:`Ran 875 tests … OK` + 生成物一致 + 压测自测 `Ran 39 tests … OK`
+  - web:npm ci → gen:api 一致 → type-check → lint → test → build
+  - imserver:单元 / 集成 / HTTP e2e,`e2e ok`
+  - app:`flutter analyze` 零告警 + `flutter test` 通过
+  - contract:版本号三处一致 + App 模型字段 ⊆ 契约
+- `scripts/test_verify.sh`:`全部通过`
+- `scripts/superagent-prune.sh`(只读):正确列出工单 worktree 且不误删(PR #95 当时显示 `merged=no`)
+- 服务状态:`status` 退出 0,`health` 全 `ready`
+
+### 4. Task 12 端到端验收
+
+- 历史遗留 **PR #95** 按新流程收尾:回答问题(括号本期不动)→ squash 合并 → 这是第一条「人合」样本
+- 新开 **issue #102**(docs 栈,无 App 可见变化,验收口径含 `scripts/verify.sh contract`),评论 `@shiliu655` 触发
+- 观察到的行为:Ticket 在 `/root/.dsh/state/superagent/work/testing-pitfalls-section-74ac0662bb76` 起 worktree,基线是该次合并后的 master(`1bdc941`),符合预期
+
+### 5. 新增的本机依赖(WSL)
+
+`python3.12-venv`、`unzip`、`xz-utils`、`libglu1-mesa`;`~/venvs/chatapp`(后端)、`~/node22`(Node 22)、`~/flutter`(3.47.2)。已写进 `docs/ops/superagent.md`。
