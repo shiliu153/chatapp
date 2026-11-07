@@ -16,11 +16,12 @@
 | `plans/` | 进行中 / 未启动的实施计划 |
 | `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(85 份,清单见 §4) |
 
-## 2. 当前工作面(只有 1 份)
+## 2. 当前工作面(2 份)
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
+| [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) | 待实施(P0–P4) | 引入 WSL `dsh-superagent` 后的新开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判 |
 
 `specs/` 中的 [dual-server-load-balancing](archive/specs/2026-10-28-dual-server-load-balancing-design.md) 已在
 2026-11-04 拍板「不做双机、暂不升配」,转为历史设计。批次 F–J 已于 2026-11-07 全部交付,
