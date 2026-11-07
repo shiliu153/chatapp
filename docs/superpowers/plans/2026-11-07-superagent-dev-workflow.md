@@ -1303,5 +1303,6 @@ worker 无 `AGENTS.md` 违规(单栈 1 文件、未碰版本号、未自合、�
 | 4 | Gradle `assembleDebug` 失败:`null cannot be cast to non-null type kotlin.String` | `app/android/app/build.gradle.kts` 在**配置阶段**无条件读 `key.properties`(gitignored,CI 里不存在) | CI 里 `keytool` 现造一次性 keystore + `key.properties`;根治(缺文件回落 debug 签名)需改 `app/android/**`,另开单 |
 | 5 | **L3 合并后 `prune` 清不掉 worktree**:`merged=no`,但 PR 明明已 squash 合并 | `git cherry` 按 patch-id 判,**只对单提交分支成立**;L3 迭代了 4 个提交,squash 成一条后每个提交都算「未应用」 | `patch-id` 判不出来时**再问 GitHub**(`gh-agent pr list --state merged --head <branch>`),命中则记 `merged=yes-pr` 并清理;新增 `scripts/test_superagent_prune.sh` 8 条自测,其中三条专门锁这个回归 |
 | 6 | `flutter pub get` 在 `app/macos/` 下生成 `Flutter/GeneratedPluginRegistrant.swift`,让 worktree 变脏 → prune 拒绝清理 | 本项目 `app/macos/.gitignore` 只忽略了 `**/Flutter/ephemeral/`,没忽略该文件(上游 Flutter 默认会忽略) | 本单由人删掉生成物后重跑 prune;仓库卫生(补 gitignore)另开单 |
+| 7 | 工单收尾后再在这个 issue 下追加一条评论会话,**又长出一个新 worktree**(基线是当时的 master,分支名同旧工单) | 评论落在工单 thread 上会重新触发一次 prepare(`git fetch` + `worktree add`),即使 issue 已 closed、PR 已合并 | 收尾顺序改成:**先评论/关单,再 prune**;本轮由人事后补跑 `prune --apply` 清掉(`merged=yes` 直接识别)。这条直接对应 spec §3.9 的注意力预算 —— 工单结束后不要再往那个 thread 里说话 |
 
 **结论**:自动化每加一层,都会把「原本靠人眼兜住的模糊判定」变成必须写死的确定性规则 —— 这一轮 6 个坑里有 5 个是**判定规则太窄**,而不是模型能力不够。
