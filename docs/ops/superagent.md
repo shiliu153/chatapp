@@ -86,6 +86,10 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
    | `merged=no` | 两条都不成立(或网络不通、`GH_CLI` 不可用) | **不会**,只报告 |
    | `dirty≠0` | worktree 有未提交/未跟踪文件(常见:`app/macos/Flutter/` 这类生成物) | **不会**,先自己清干净 |
 
+   **退出码(2026-11-07 #108 修复后的行为)**:`0` = 正常,含「无可清理」的空转 —— 此时
+   **根本不联网**(不 fetch、不动 `refs/dsh-superagent/*`);`2` = 确实有工单 worktree 但 fetch 不通
+   (或判定 / 清理出错),**一个 worktree 都没删**,修好网络或代理再跑。
+
    网络兜底用的是 `/root/.local/bin/gh-agent`(可用 `GH_CLI=...` 覆盖,置空即关掉)。
 5. 纯文档 PR(只动 `docs/**`):六轨都不触发、**没有 check runs 是正常的**,本地
    `scripts/verify.sh contract` 绿即可直接 squash 合并,不必再单独占一轮确认。
