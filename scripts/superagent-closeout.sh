@@ -128,9 +128,10 @@ main() {
       [ "${PRUNE:-0}" -gt 0 ] && note "prune:清理了 ${PRUNE} 个 worktree"
       PRUNE="ok(${PRUNE:-0})"
     else
-      # prune 的第一步是无条件 fetch(issue #108):网络抖动不该让「收尾」报红。
+      # prune 只在「确实有工单 worktree」时才 fetch(issue #108 修好后:没活就直接 exit 0,不联网);
+      # 走到这里说明有活但 fetch 不通、或判定/清理出错 —— 网络抖动不该让「收尾」报红。
       PRUNE='warn'
-      warn "prune 未成功(通常是 fetch 不通,见 issue #108),详见 /tmp/closeout-prune.$$"
+      warn "prune 未成功(有活时多为 fetch 不通 → 退出码 2,一个 worktree 都没删;见 issue #108),详见 /tmp/closeout-prune.$$"
     fi
     rm -f /tmp/closeout-prune.$$
   fi
