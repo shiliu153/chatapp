@@ -73,6 +73,8 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
      只有「落后又拉不动」才退出 2。
    - `--check` 只报告不动手;`--quiet` 只在有动作/异常时说话(定时任务用)。
    - 自测:`bash scripts/test_superagent_closeout.sh`(11 条,纯本地 git 仓库,不联网)。
+   - ⚠️ **鸡生蛋**:脚本自己也在母体里,所以「脚本刚上线 / 刚更新」时要先手动引导一次
+     `git -C /root/src/chatapp pull --ff-only`(带代理),之后才能用它。
    - 母体不自动跟随 `origin/master`,而 prune 脚本就住在母体里 —— **先 pull 再 prune** 的顺序不能反。
 5. 纯文档 PR(只动 `docs/**`):六轨都不触发、**没有 check runs 是正常的**,本地
    `scripts/verify.sh contract` 绿即可直接 squash 合并,不必再单独占一轮确认。
@@ -131,10 +133,36 @@ wsl -e bash /root/start-superagent.sh status
 **人的否决票**:给 PR 打 `no-auto-merge` 标签即可永久拦住它(比关总闸精确)。
 
 **已知偏差(出现异常先看这里)**:
-
 - 用 `GITHUB_TOKEN` 合并**不会**触发 master 上的 `push` 轨。要保留那道二次确认,加 secret
   `AUTOMERGE_TOKEN`(fine-grained PAT),workflow 会自动优先用它。
 - 纯文档 PR 有 **0 个 check run**:「没有红」不等于「跑绿了」,门仍是本地 `scripts/verify.sh contract`。
 - `gh` 在 worker 的 PATH 里,shim 只按命令名拦 ⇒ **技术上**它能 `gh pr merge`。现在靠 `AGENTS.md` 自律;
   要变成硬拦,加一个拒 `merge`/`release` 子命令的 `gh` 包装器(见 spec §7 未决问题 4)。
-- **master 目前没有任何分支保护 / ruleset**(实测 `404` / `[]`),连直推都允许。要不要开保护见 spec §7 未决问题 1。
+  **2026-11-08 已落地**:见 §9。
+- ~~master 目前没有任何分支保护~~ → **2026-11-08 已开 ruleset**(`master: 必须走 PR + 禁强推`):禁删除、禁强推、
+  必须走 PR(0 个 approval 即可合,以兼容自动合并);`shiliu153` 在 bypass 名单里,worker 账号不在。
+  实测:worker 账号直推 master 被拒(`push declined due to repository rule violations`),推特性分支照常。
+
+## 9. worker 侧硬拦:gh 包装器(gh-guard,2026-11-08 起)
+
+面板的 `blockedCommands` 只按**命令名**拦(`ssh`/`scp`/`rsync`),而 `gh` 在 worker 的 PATH 里 ——
+所以「agent 不自合、不发版」原先只是 `AGENTS.md` 的自律。`scripts/gh-guard/gh` 把它变成机械拦截。
+
+| 事 | 命令 |
+|---|---|
+| 安装(一次性) | `wsl -e bash -c 'bash /path/to/repo/scripts/gh-guard/install.sh'` → 装到 `/usr/local/bin/gh` |
+| 自测(不联网) | `wsl -e bash -c 'sh scripts/gh-guard/selftest.sh'` → 13 条,含 5 条拒绝 / 8 条放行 |
+| 卸载 | `rm /usr/local/bin/gh`(真 gh 在 `/usr/bin/gh`,不受影响) |
+| 被拒记账 | `/tmp/gh-guard.log`(每行 `时间 DENY 动作 :: 完整命令`) |
+
+**拦什么**:`gh pr merge`、`gh release create|edit|delete|upload`、`gh repo delete|edit|archive`、
+`gh api` 里改 `refs/heads/master|main` 的写操作、graphql `mergePullRequest`。
+
+**放什么**:`pr create/view/list/checks/diff`、`api` 只读、`auth git-credential`、`release list` 等 ——
+拦太宽 worker 就干不了活,然后它会去找绕过的办法。
+
+**为什么 PATH 生效**:`/root/start-superagent.sh` 里 `export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"`,
+`/usr/local/bin` 在 `/usr/bin` 之前,所以 worker 与人的 `gh` 都会走 shim。
+
+⚠️ **这不是安全边界**:任何进程都能 `exec /usr/bin/gh`。真正的边界是 §8 的 ruleset(禁直推、必须走 PR)
+与「WSL 里没有生产密钥」。shim 的作用是**把误操作变成一条明确的拒绝信息**,而不是拦住有意的绕过。

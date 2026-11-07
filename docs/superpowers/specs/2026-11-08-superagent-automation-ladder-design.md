@@ -148,3 +148,11 @@ git revert --no-edit <merge-sha> && git push origin master   # 需人做
 | **L2** | ✅ 2026-11-08 已 armed 并实测 | `AUTOMERGE=on`;首个真实样本 PR #113 由 `github-actions[bot]` 自动合并为 `5cd0c7a`,PR 上留有审计评论与回滚命令,分支自动删除;同内容但由人开的 PR #112 被正确拦下(作者条件) |
 | **L1** | ✅ 2026-11-08 | `scripts/superagent-closeout.sh`(fetch→母体 ff→prune→报 Windows 状态,脏/非快进拒绝)+ `scripts/test_superagent_closeout.sh` 11 条自测全通过;实测输出 `CLOSEOUT ok mother=5cd0c7a windows=5cd0c7a same=yes pulled=0 prune=ok(0)`;代理不可用时退回本地 ref 判定并警告,不误报失败 |
 | **L3 / L4** | 未做 | 见 §3 与 §7;L3 需改 `app/`,PR 必须 draft + 人工模拟器验收 |
+
+### 补充落地(2026-11-08,未单列成级)
+
+| 项 | 状态 | 证据 |
+|---|---|---|
+| **master ruleset**(spec §7 未决问题 1 的一半) | ✅ 已开:`master: 必须走 PR + 禁强推`(deletion / non_fast_forward / pull_request,0 approval) | 实测:worker 账号直推 master → `push declined due to repository rule violations`「Changes must be made through a pull request」;推特性分支正常。`shiliu153` 在 bypass 名单 |
+| **`gh` 包装器**(spec §7 未决问题 4) | ✅ `scripts/gh-guard/gh` 装到 `/usr/local/bin/gh` | 自测 13 条全过(拒 `pr merge` / `release create|upload` / 改 master 引用 / graphql mergePullRequest;放行 `pr create|view|checks`、`api` 只读、`auth git-credential`);真实环境 `gh pr merge` 退出 2 并记账 |
+| **串行化防护(§4.4 第一条偏差)** | ⬜ 未决 | `GITHUB_TOKEN` 合并不触发 master `push` 轨;要二次确认需加 secret `AUTOMERGE_TOKEN` |

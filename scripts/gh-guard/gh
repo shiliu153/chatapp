@@ -1,0 +1,69 @@
+#!/bin/sh
+# gh 命令包装器:把「agent 绝不该做的事」从口头约定变成硬拦。
+#
+# 为什么要它:面板的 blockedCommands 只按**命令名**拦(ssh/scp/rsync),`gh` 在 worker 的 PATH 里,
+# 所以 worker 技术上可以 `gh pr merge`(`AGENTS.md` 只能靠自律)。这个 shim 装到
+# /usr/local/bin/gh(PATH 上位于 /usr/bin 之前)后,`pr merge` 与写类 `release` 会被直接拒绝。
+#
+# 其余子命令原样转给真 gh,包括 worker 需要的 `pr create/view/checks/list/diff`、
+# `api`(只读)与 `auth git-credential`(git 推送凭据要用)。
+#
+# 设计约束:
+#   - 只拦**红线动作**,不拦读操作 —— 拦太宽会让 worker 干不了活,然后它就会绕过。
+#   - 这不是安全边界(谁都能 `exec /usr/bin/gh`),真正的边界是分支保护 ruleset 与「无生产密钥」。
+set -u
+
+REAL_GH=${GH_REAL_BIN:-/usr/bin/gh}
+GUARD_LOG=${GH_GUARD_LOG:-/tmp/gh-guard.log}
+
+deny() { # deny <动作> <理由>
+  printf 'gh-guard: 拒绝执行「%s」—— %s\n' "$1" "$2" >&2
+  printf '%s DENY %s :: %s\n' "$(date -u +%FT%TZ)" "$1" "$*" >>"$GUARD_LOG" 2>/dev/null || true
+  exit 2
+}
+
+# 取前两个非选项参数作为 子命令 / 动作
+sub=''
+act=''
+for a in "$@"; do
+  case $a in
+    -*) continue ;;
+  esac
+  if [ -z "$sub" ]; then
+    sub=$a
+  elif [ -z "$act" ]; then
+    act=$a
+    break
+  fi
+done
+
+joined=$(printf '%s ' "$@")
+
+case "${sub} ${act}" in
+  'pr merge') deny 'gh pr merge' 'PR 只能由人合并,或由 .github/workflows/auto-merge.yml 按白名单执行;见 AGENTS.md 第二节' ;;
+esac
+
+case $sub in
+  release)
+    case $act in
+      create|edit|delete|upload) deny "gh release $act" '发版由人执行(docs/ops/release.md);agent 不建/不改 Release' ;;
+    esac
+    ;;
+  repo)
+    case $act in
+      delete|edit|archive) deny "gh repo $act" '仓库级设置不归 agent 管' ;;
+    esac
+    ;;
+  api)
+    case $joined in
+      *mergePullRequest*) deny 'gh api(graphql mergePullRequest)' 'PR 只能由人合并' ;;
+      *refs/heads/master*|*refs/heads/main*)
+        case $joined in
+          *'-X DELETE'*|*'-X PATCH'*|*'-X PUT'*) deny 'gh api(改 master 分支引用)' 'master 受 ruleset 保护' ;;
+        esac
+        ;;
+    esac
+    ;;
+esac
+
+exec "$REAL_GH" "$@"
