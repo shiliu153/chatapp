@@ -44,7 +44,17 @@ jobs:
           set -uo pipefail
 
           # ── 白名单:唯一事实来源。新增前缀前先读 spec §4.1,chatapp/ app/ imserver/ .github/ 永不入内。
-          WHITELIST_PREFIXES=("docs/")
+          #
+          # 2026-11-08 收窄(第四轮安全审计 M-4):原来放的是整个 `docs/`,但 `docs/` 里有
+          # **下一次 agent 会当作指令读**的目录(specs / plans / pitfalls / ops / superpowers)。
+          # worker 账号能写这些文件,而「写文档的 worker」与「读文档的下一次 agent」不是
+          # 同一信任级:worker 账号一旦被拿下,一个「纯文档」PR 就能无人工审查地把指令注入
+          # master。所以白名单只留**没有指令语义**的目录。
+          WHITELIST_PREFIXES=("docs/api/" "docs/security/" "docs/reviews/" "docs/milestones.md")
+          # 显式黑名单(双保险):即使将来有人往白名单加前缀,这几处也不会被自动合并。
+          # 它们要么被 agent 当指令读,要么是仓库级约定文件(改它们必须人看 diff)。
+          DENY_PREFIXES=("docs/superpowers/" "docs/pitfalls/" "docs/ops/" "docs/learning/"
+                         "CLAUDE.md" "AGENTS.md" "CONTRIBUTING.md" "README.md")
           VETO_LABELS=("no-auto-merge" "blocked" "needs-human")
           MAX_FILES=20
           MAX_PER_DAY=8
@@ -56,6 +66,7 @@ jobs:
           fi
 
           WL_REGEX="^($(IFS='|'; echo "${WHITELIST_PREFIXES[*]}"))"
+          DENY_REGEX="^($(IFS='|'; echo "${DENY_PREFIXES[*]}"))"
           since=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
           done_today=$(gh api "repos/$REPO/commits?since=$since&per_page=100" \
             --jq '[.[] | select(.commit.message | test("\\[auto\\]"))] | length')
@@ -65,6 +76,7 @@ jobs:
             echo ""
             echo "- 开关:\`AUTOMERGE=${AUTOMERGE}\` · dry-run:\`${DRY_RUN}\`"
             echo "- 白名单:\`${WL_REGEX}\`"
+            echo "- 黑名单:\`${DENY_REGEX}\`"
             echo "- 近 24h 自动合并:**${done_today} / ${MAX_PER_DAY}**"
             echo ""
             echo "| PR | 结论 | 说明 |"
@@ -98,9 +110,12 @@ jobs:
             nfiles=$(echo "$json" | jq '.files | length')
             bad_files=$(echo "$json" | jq -r --arg wl "$WL_REGEX" \
               '[.files[].path | select(test($wl) | not)] | join(", ")')
+            denied_files=$(echo "$json" | jq -r --arg dl "$DENY_REGEX" \
+              '[.files[].path | select(test($dl))] | join(", ")')
             [ "$nfiles" -eq 0 ]        && add "没有文件改动"
             [ "$nfiles" -gt "$MAX_FILES" ] && add "文件数 $nfiles > $MAX_FILES"
             [ -n "$bad_files" ]        && add "越白名单: $bad_files"
+            [ -n "$denied_files" ]     && add "命中黑名单(需人审): $denied_files"
 
             blocked_checks=$(echo "$json" | jq -r '
               [.statusCheckRollup[]?
