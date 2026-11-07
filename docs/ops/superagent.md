@@ -115,6 +115,10 @@ wsl -e bash /root/start-superagent.sh status
 | 紧急停 | 把 `AUTOMERGE` 设为 `off`;下一轮扫描直接退出 0,不合并任何东西 |
 | 回滚一次自动合并 | `git revert --no-edit <sha> && git push origin master`(人做) |
 
+**启用记录**:2026-11-08 `AUTOMERGE=on` 并当场验证两件事 —— ①`workflow_dispatch` 干跑一轮(exit 0,无 PR 时只写「没有开着的 PR」);
+②首个真实样本就是本文这次改动所在的 PR:它只动 `docs/`,在 checks 通过后被 workflow 自己合并,PR 上留下了
+「自动合并(L2)」审计评论与合并 SHA。此后 `docs/**` 的 PR 不需要人点合并。
+
 **合并条件**(全部满足才合):开关开 · base=master · 非 draft · 作者是 `shiliu655` · 1–20 个文件**全部**命中白名单 ·
 无 `no-auto-merge`/`blocked`/`needs-human` 标签 · checks 无未完成且无失败(**0 个 check 视为通过**,纯文档 PR 的正常形态)·
 `mergeable=MERGEABLE` · 近 24h 的 `[auto]` 合并数 < 8。
