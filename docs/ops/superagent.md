@@ -55,23 +55,28 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
    **别在母体里 `git push origin --delete`**:母体没有 credential helper,https remote 会**静默挂住**
    等输入(不是报错)。删已合并分支用页面,或 REST
    `DELETE /repos/shiliu153/chatapp/git/refs/heads/<branch>`(token 用 `~/.dsh/github-mcp-token.txt`)。
-4. **合并后立刻同步本机(顺序不能反)**:
+4. **合并后立刻收尾:一条命令(L1)**
    ```bash
-   # 人跑 `wsl -e bash -c '...'` 起的 shell **没有**代理环境变量——代理只在
-   # /root/start-superagent.sh 里导出、只给 worker 继承。不导出就直连 github.com:443,
-   # 表现是卡 ~130s 后 `Failed to connect to github.com port 443`(或 `gnutls_handshake() failed`)。
-   GW=$(ip route show default | awk '{print $3}' | head -1)
-   export https_proxy="http://$GW:7897" http_proxy="http://$GW:7897"
-
-   git -C /root/src/chatapp pull --ff-only        # WSL 母体:prune 脚本住在这儿
-   # Windows 仓库(本会话 cwd)同样 pull --ff-only:人读的 docs/ 在那边
+   wsl -e bash -c 'bash /root/src/chatapp/scripts/superagent-closeout.sh --apply'
    ```
-   母体不自动跟随 `origin/master`。不同步就跑 prune,用的是 #105 之前的旧判定
-   (`merge-base --is-ancestor` 对 squash 合并必然判 `merged=no`),worktree 清不掉。
-5. 母体已是合并后的 master,再跑 `bash scripts/superagent-prune.sh --apply` 清 worktree 与
-   `refs/dsh-superagent/*`。**网络不通时 fetch 会 fatal**(见 issue #108),先确认代理再重试。
-6. 纯文档 PR(只动 `docs/**`):六轨都不触发、**没有 check runs 是正常的**,本地
+   它依次做:探测并导出代理 → `fetch origin master` → 母体 `pull --ff-only`
+   (**脏工作区 / 有本地提交时拒绝并退出 2**,绝不猜测)→ `superagent-prune.sh --apply` →
+   报告 Windows 仓库是否跟上。末尾给一行机器可读状态:
+
+   ```
+   CLOSEOUT ok mother=<sha> windows=<sha> same=yes|no pulled=0|1 prune=ok(n)|warn|skipped mode=apply
+   ```
+
+   - **Windows 仓库不由它改动**:WSL 的 git 在 `/mnt/*` 上会把 CRLF 工作区搞乱。`same=no` 时自己在 Windows 侧跑
+     `git -C D:\pycharmproject\chat_app pull --ff-only`(或交给每小时定时任务)。
+   - **fetch 失败不算失败**(issue #108 那一类):退回本地记录的 `origin/master` 判定 + 打警告;
+     只有「落后又拉不动」才退出 2。
+   - `--check` 只报告不动手;`--quiet` 只在有动作/异常时说话(定时任务用)。
+   - 自测:`bash scripts/test_superagent_closeout.sh`(11 条,纯本地 git 仓库,不联网)。
+   - 母体不自动跟随 `origin/master`,而 prune 脚本就住在母体里 —— **先 pull 再 prune** 的顺序不能反。
+5. 纯文档 PR(只动 `docs/**`):六轨都不触发、**没有 check runs 是正常的**,本地
    `scripts/verify.sh contract` 绿即可直接 squash 合并,不必再单独占一轮确认。
+   2026-11-08 起这一步已由 `.github/workflows/auto-merge.yml` 自动完成(见 §8)。
 
 ## 5. 升级与回滚
 
