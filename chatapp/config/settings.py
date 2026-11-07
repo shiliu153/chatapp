@@ -197,7 +197,18 @@ CACHES = {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": REDIS_URL,
         "KEY_PREFIX": "chatapp",
-        "OPTIONS": {"CONNECTION_POOL_KWARGS": {"max_connections": 50}},
+        # 版本号参与键名(实际键形如 ``chatapp:2:sms:allowlist:snapshot``)。
+        # 切 JSON 序列化器时**必须**一起提版本:旧键里存的是 pickle 字节,JSON 解析会抛
+        # 异常,不提版本就等着上线后第一批请求 500。提上去旧键自然不可达、到点自己过期。
+        "VERSION": 2,
+        "OPTIONS": {
+            "CONNECTION_POOL_KWARGS": {"max_connections": 50},
+            # **不要**换回默认的 pickle 序列化器:生产 Redis 无口令且与业务容器同网,
+            # 「能写 Redis」就等于「能在 web/worker 进程里执行任意代码」(R4-A1)。
+            # JSON 只认 dict/list/str/int/float/bool/None,往缓存里塞别的类型会直接报错 ——
+            # 这正是我们要的:宁可写失败,也不要留下反序列化面。改 SERIALIZER 必须同时提 VERSION。
+            "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        },
     }
 }
 
