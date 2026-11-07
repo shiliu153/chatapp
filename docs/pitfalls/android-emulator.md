@@ -36,3 +36,18 @@ Google 源在国内不可直连,以下已就位(2026-09-10 `flutter build apk --
   同一路径立刻成功(服务端有记录、倒计时 59 秒)。结论:**该模拟器上 UI 验收一律用 debug 包**(与批次 F 一致),
   release 包只用来验「装得上、能启动」;要复现 release 网络问题先试 `CERT_PINNING=off` 与 `adb reboot`。
 - ⚠️ **release 与 debug 包签名不同**:直接 `install -r` 会 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`,先 `adb uninstall com.chatapp.chatapp_app`。
+- ⚠️ **模拟器上 App 的 WS「只收不发」**(2026-11-07 批次 J 实测,两次独立复现):聊天气泡一直停在
+  **「发送中」**,10 秒 ×3 次重试后置为失败;**库内没有任何行**。但同一个连接:
+  `auth_ok` 正常、25s 心跳让会话保持在线(`im:online:<uid>` 的 TTL 在刷新)、能收到对端下行消息 ——
+  **只有 `send` 帧不生效**。
+  - **判据(按这个顺序做判别实验,别先改代码)**:
+    1. **同一台电脑的 Chrome 打开 Web 端发同一条消息** → 若立刻成功并落库,说明服务端与协议层没问题;
+    2. **App 里改发一条纯文本** → 若同样卡「发送中」,说明与「哪种消息类型」无关;
+    3. 查服务端份额:`im:sendq:<uid>:<minute>` 是否超 `IM_SEND_PER_MINUTE`(默认 120)、
+       `im_pair` 是否存在、`im_user` 双方是否都有行 —— 都正常时即可排除业务拒绝。
+  - 本批结论:服务端、白名单、配额全部正常,**生产 Web 端端到端通过**;问题只在本机模拟器的
+    App→imserver 发送链路。已试过 `10.0.2.2:9100` 与 `adb reverse tcp:9100/9101/8000` +
+    `ws://127.0.0.1:9100` 两种拓扑,都不通;`adb reboot` 后仍复现。
+  - **绕开办法**:发送类功能的手测改用 **Web 端(Chrome)** 或 `curl`/脚本直连 WS(见
+    `docs/ops/imserver.md` §17.4);模拟器只验「UI 渲染、面板、历史还原」这类不收发帧的路径。
+

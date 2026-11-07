@@ -537,6 +537,61 @@ python scripts/sync_version.py --check
   (双端都是:离开再回来仍是旧列表,下拉刷新或重新进入才更新)。最小改法是在关注成功/取消成功时
   让 `followingProvider`(App)/ `useFollowingFeedStore`(Web)失效一次。
 
+### 1.0.10 上线实况(2026-11-07 19:40–19:55)
+
+**本批特殊:要动 imserver 镜像,且必须「先 imserver 后客户端」。**
+
+- **回滚点(先记录后动手)**:
+  - 代码 `2d32d800`(1.0.9 上线 SHA)
+  - imserver 镜像 `imserver:3ef2b8c`(`docker-compose.yml` 同目录 `.env` 备份 `imserver.env` 侧未改;
+    compose 的 `.env` 备份为 `/www/server/imserver/.env.bak.20261107-j`)
+  - Django `.env` 备份 `/www/wwwroot/chatapp/chatapp/.env.bak.20261107-j`
+  - 旧 Web 前端:`index.html.bak.20261107-1945` + `assets.old.20261107-1945`
+- **imserver(先上)**:本地 `docker build -t imserver:7332fa0 imserver` → `save` + `gzip`(80 MB)→
+  `scp` → 服务器 `docker load` → `sed` 改 `.env` 的 `IMSERVER_IMAGE=imserver:7332fa0` →
+  `docker compose run --rm imserver --migrate`(4 版全部 `skipped`,本批**无新迁移**)→
+  `docker compose up -d`(容器重建,IM 中断数秒)→ `healthz=200` / `readyz=200`
+  (启动后前 4 秒探针会返回 000,等 5 秒再测)。
+- **后端**:`git fetch && git reset --hard 7332fa0` → `migrate --noinput`(**No migrations to apply**)
+  → `collectstatic`(0 复制 / 156 未变)→ supervisor 重启 `chatapp-web` / `chatapp-celery`。
+- **Web**:`npm run build` → `dist` 打包上传 → **覆盖到站点根 `/www/wwwroot/chatapp-web`
+  (nginx `root` 指向它,不是 `dist/` 子目录)**;旧 `assets` 改名 `assets.old.20261107-1945`,
+  `index.html` 引用 `assets/index-Bqbk89-C.js`;`stickers/` 12 张贴纸进根目录。
+  > **坑(本批踩到)**:第一次 `cp -r dist /www/wwwroot/chatapp-web/` 拷成了子目录,
+  > 页面仍加载旧 chunk(`index-DFBN48MP.js`),表现为「线上没有贴纸 tab」。
+  > 判断方法:比对生产 `index.html` 引用的 chunk 与本地 `dist/index.html` 是否一致。
+- **APK**:`chatapp-1.0.10.apk`(60,603,778 字节,SHA-1 `4b27def409caf26e7ea6ce69bd8bfbc926f2a8ba`)。
+- **`.env` 只改两个键**:`LATEST_APP_VERSION=1.0.10` / `APP_DOWNLOAD_URL=.../chatapp-1.0.10.apk`
+  (**`MIN_APP_VERSION` 保持 1.0.1**),改完重启 `chatapp-web`(`/api/v1/app/config` 返回 1.0.10)。
+
+**冒烟**:
+
+- `/api/v1/app/config` → `{"min_app_version":"1.0.1","latest_version":"1.0.10",...}`;
+  `/health` `/readyz` 200;APK `Range: bytes=0-99` → `206`;`/stickers/sticker_01.png` → 200。
+- **协议层(用真实 IM token 连生产 wss)**:白名单号 `13900000001`(user 12)登录 → `user_sig` →
+  连 `wss://chat.shiliu153.cn/im/ws` 发一帧 `{"kind":"custom","custom":{"type":"sticker","id":"sticker_01"}}`
+  → **`ack`(`msg_id=56277, seq=7`)**;伪造 `{"type":"match_notice"}` → **42201「暂不支持该消息类型」**;
+  id 写成 `sticker_1` → **42201「贴纸 id 不合法」**;`GET /im/api/messages` → `kind=custom` +
+  `custom` 原样带回。**验证后删除该行并回退会话聚合**(`im_conversation.last_seq/last_msg_id/last_msg_at`
+  回落到下一条,对端 `unread-1`)。
+- **Web 生产验收(Chrome)**:`/chat/u8` → 点「😊」→ 面板出现「表情 / 贴纸」两个 tab → 贴纸 tab
+  渲染 12 张(`/stickers/sticker_NN.png`,512×512 实际加载)→ 点 `sticker_02` → 气泡上屏且
+  **无「发送中」**(已 ack)→ 库内 `im_message` 出现 `kind=2 + {"id":"sticker_02","type":"sticker"}`
+  (`msg_id=56278`)→ **刷新页面后历史贴纸按 id 还原**。验证后同样删除该行并回退聚合。
+- **App 模拟器验收(debug 包连生产)**:协议弹窗 → 登录 → 消息页(与 Bob 的会话)→ 聊天页 →
+  表情面板「贴纸」tab 的 12 张贴纸按 `assets/stickers/` 正常渲染 → 点选**直接上屏且不画气泡底色**。
+  **但发送一直停在「发送中」,库内无行**。
+  - **判别实验(关键)**:同一时刻、同一台电脑上的 **Chrome(Web 端)发同一张贴纸 → 立刻 ack 并落库**;
+    同一台模拟器上的 App 发**纯文本**也同样失败。所以既不是「贴纸/白名单」问题,也不是服务端问题,
+    而是**本机模拟器的 App WebSocket 发送链路**问题(该连接 auth 与 25s 心跳正常、能收下行)。
+    已知限制记录见 `docs/pitfalls/android-emulator.md`「模拟器 WS 只收不发」。
+
+**已知限制(记入下一批待办)**:
+
+- 本机模拟器的 App WS 发送链路待修(现象与判据见 pitfalls);**生产 Web 与协议层均已验证可用**,
+  所以不影响用户实际使用,只影响「本机无法用 App 做发送类手测」。
+- 聊天记录搜索不含贴纸(`/im/api/search` 只搜 `kind=1`),既有口径,已在 `docs/ops/imserver.md` §17 写明。
+
 ## 7. 为什么这条约束值得存在
 
 版本号、tag、Release 是**同一件事的三个面**:版本号给客户端判升级,tag 给 git 定位「这个包是哪份代码」,

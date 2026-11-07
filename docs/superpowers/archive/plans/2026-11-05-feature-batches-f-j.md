@@ -941,3 +941,30 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 - 无 Django 迁移、无 `openapi.yml` / `schema.d.ts` 变化(没有动 `/api/v1`)。
 - **生产部署尚未执行**(等用户确认):本批要重打 imserver 镜像并替换容器,
   且必须「先 imserver 后客户端」,属线上聊天主链路操作,按纪律先报再动。
+
+#### 生产上线实况(2026-11-07 19:40–19:55,用户确认后执行)
+
+顺序严格按「先 imserver 后客户端」。详见 `docs/ops/release.md` §6「1.0.10 上线实况」。
+
+- **imserver**:`imserver:7332fa0`(本地 build → save/gzip 80 MB → scp → load)→
+  `.env` 改 `IMSERVER_IMAGE` → `run --migrate`(4 版全 skipped,**无新迁移**)→ `up -d` →
+  `healthz/readyz=200`。回滚点 = `imserver:3ef2b8c`。
+- **后端**:`reset --hard 7332fa0` → `migrate`(无迁移)→ `collectstatic` → 重启 web + celery。回滚点 = `2d32d800`。
+- **Web**:`dist` 覆盖**站点根**(nginx root 指向 `/www/wwwroot/chatapp-web`,不是 `dist/` 子目录)。
+  **这里踩了一个坑**:第一次拷进子目录,线上仍加载旧 chunk,表现为「没有贴纸 tab」;
+  判断方法 = 比对生产 `index.html` 引用的 chunk 与本地 `dist/index.html` 是否一致。
+- **APK** `chatapp-1.0.10.apk`(60,603,778 字节);`.env` 只改 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL`。
+
+**生产验证(三层,全部通过前两层)**:
+
+1. **协议层**(真实 IM token 连生产 `wss`):合法贴纸 → `ack`(`msg_id=56277`);
+   伪造 `match_notice` → **42201**;`sticker_1`(非法形状)→ **42201**;历史接口 `kind=custom` 原样带回。
+2. **Web 端(Chrome)**:贴纸 tab 渲染 12 张(512×512 实际加载)→ 点选上屏且**无「发送中」**(已 ack)
+   → 库内 `kind=2 + {"id":"sticker_02","type":"sticker"}`(`msg_id=56278`)→ **刷新后历史按 id 还原**。
+3. **App 模拟器(debug 包连生产)**:面板/资源/上屏都正常,**但发送停在「发送中」且库内无行**。
+   **判别实验**:同一时刻同机 Chrome 发同一张贴纸立刻成功;同机 App 发纯文本也失败 ⇒
+   问题在**本机模拟器的 App WS 发送链路**,与贴纸、白名单、服务端都无关。
+   已写进 `docs/pitfalls/android-emulator.md`「模拟器上 App 的 WS『只收不发』」。
+
+两次验证都在验证后**删除了那条 `im_message` 行并回退会话聚合**(`last_seq/last_msg_id/last_msg_at`
+回落到下一条、对端 `unread-1`),生产数据未留测试痕迹。
