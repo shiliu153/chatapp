@@ -930,6 +930,14 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 
 - **部署顺序有要求**:先上 imserver(否则客户端发贴纸一律 42201),再上后端/Web/APK。
   回滚点 = 旧 imserver 镜像 tag(客户端会退回「发贴纸失败」,不影响文本/图片/语音)。
+- PR **#93** squash 合并 → **`c4d47a4`(上线 SHA)**;CI 六轨全绿(contract / test×2 / check / analyze-and-test / smoke)。
 - 版本 **1.0.10**:`pubspec.yaml`(1.0.10+11)/ `app_info.dart` / `web/package.json` 三处一致;
-  关于页测试(App + Web)同步;tag `v1.0.10` 与 Release 在合并后补(见 `docs/ops/release.md` §5)。
+  关于页测试(App + Web)同步;`python scripts/sync_version.py --check` 绿。
+- 签名 APK:`chatapp-1.0.10.apk`,**60,603,778 字节**,SHA-1 `4b27def409caf26e7ea6ce69bd8bfbc926f2a8ba`
+  (比 1.0.9 的 60,295,070 多 **308,708 字节** —— 12 张贴纸约 208 KB + 代码)。
+- tag `v1.0.10` → `c4d47a4`(附注 tag,已推送);Release
+  [v1.0.10 — 聊天贴纸](https://github.com/shiliu153/chatapp/releases/tag/v1.0.10) 由
+  `scripts/create_release.py` 创建并挂上 APK。
 - 无 Django 迁移、无 `openapi.yml` / `schema.d.ts` 变化(没有动 `/api/v1`)。
+- **生产部署尚未执行**(等用户确认):本批要重打 imserver 镜像并替换容器,
+  且必须「先 imserver 后客户端」,属线上聊天主链路操作,按纪律先报再动。

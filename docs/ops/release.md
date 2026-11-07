@@ -88,7 +88,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.7 | 2026-11-06 | `v1.0.7` | [v1.0.7 — 站内通知中心](https://github.com/shiliu153/chatapp/releases/tag/v1.0.7)(附件 `chatapp-1.0.7.apk`,60,295,070 字节) | `2bf9d1a` | `chatapp-1.0.7.apk` |
 | 1.0.8 | 2026-11-07 | `v1.0.8` | [v1.0.8 — 二级页顶栏修复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.8)(附件 `chatapp-1.0.8.apk`,60,295,070 字节) | `9879d68` | `chatapp-1.0.8.apk` |
 | 1.0.9 | 2026-11-07 | `v1.0.9` | [v1.0.9 — 广场关注 + 关注流](https://github.com/shiliu153/chatapp/releases/tag/v1.0.9)(附件 `chatapp-1.0.9.apk`,60,295,070 字节) | `2d32d80` | `chatapp-1.0.9.apk` |
-| 1.0.10 | 2026-11-07 | `v1.0.10` | 待建:合并后打 tag 并用 `scripts/create_release.py` 建 Release,建好回填链接 | (合并后回填) | `chatapp-1.0.10.apk` |
+| 1.0.10 | 2026-11-07 | `v1.0.10` | [v1.0.10 — 聊天贴纸](https://github.com/shiliu153/chatapp/releases/tag/v1.0.10)(附件 `chatapp-1.0.10.apk`,60,603,778 字节,SHA-1 `4b27def409caf26e7ea6ce69bd8bfbc926f2a8ba`) | `c4d47a4` | `chatapp-1.0.10.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
