@@ -195,5 +195,53 @@ setup
 run --apply
 assert "可达 remote + 空 WORKROOT → exit 0「无可清理」" 0 "无可清理"
 
+# ── L:分支上 0 个提交(工单刚建 worktree)→ 判 merged=empty,绝不清理
+# 2026-11-08 实测:旧版 `git cherry` 对空分支没有 `+` 行,会判 merged=yes;
+# 那天 #125 的 worktree 是靠 dirty=3 才没被删,干净的空 worktree 会被直接刪掉。
+setup
+wt=$(make_worktree agent/fresh 0)
+run --apply
+assert "0 提交(刚建 worktree)→ 判 merged=empty" 0 "merged=empty"
+assert_no "0 提交 → 没有误报「已清理」" "已清理"
+assert_dir "0 提交 → worktree 必须留着(可能在飞)" "$wt"
+if git -C "$T/clone" rev-parse -q --verify refs/heads/agent/fresh >/dev/null 2>&1; then
+  say "ok   0 提交 → 分支也留着"
+else
+  say "FAIL 0 提交 → 分支被删了"
+  fail=1
+fi
+
+# ── M:有在飞工单时不动 refs(已合并的照样清,在飞的保留,refs 全留)
+setup
+git -C "$T/clone" update-ref refs/dsh-superagent/flying "$(git -C "$T/clone" rev-parse master)"
+wt_keep=$(make_worktree agent/inflight 1)
+wt_done=$(make_worktree agent/done 1)
+merge_squashed agent/done
+run --apply
+assert "混合场景 → 已合并的照常清理" 0 "已清理"
+assert_dir "混合场景 → 在飞的 worktree 保留" "$wt_keep"
+if [ -d "$wt_done" ]; then say "FAIL 已合并的 worktree 没清掉:$wt_done"; fail=1; else say "ok   已合并的 worktree 已删除"; fi
+assert "有保留时 → 明确说不动 refs" 0 "本次不动 refs/dsh-superagent/*"
+if git -C "$T/clone" rev-parse -q --verify refs/dsh-superagent/flying >/dev/null 2>&1; then
+  say "ok   有保留时 → refs/dsh-superagent/* 原封不动"
+else
+  say "FAIL 有保留时居然删了 refs/dsh-superagent/*"
+  fail=1
+fi
+
+# ── N:全部都能清(没有在飞工单)→ refs 照旧收掉(原有行为不能退化)
+setup
+git -C "$T/clone" update-ref refs/dsh-superagent/old "$(git -C "$T/clone" rev-parse master)"
+make_worktree agent/allsingle 1 >/dev/null
+merge_squashed agent/allsingle
+run --apply
+assert "全清场景 → 照常清理" 0 "已清理"
+if git -C "$T/clone" rev-parse -q --verify refs/dsh-superagent/old >/dev/null 2>&1; then
+  say "FAIL 全清场景下 refs/dsh-superagent/* 没被收掉"
+  fail=1
+else
+  say "ok   全清场景 → refs/dsh-superagent/* 已收掉"
+fi
+
 [ "$fail" = 0 ] && say "全部通过" || say "有失败"
 exit "$fail"
