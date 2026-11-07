@@ -1352,3 +1352,24 @@ for t in ('trigger_thread', 'ticket'):
     print(t, list(db.execute(f"select * from {t} where value like '%github:108%'")))
 PY
 ```
+
+#### 10.3 同一缺口复发:已存在的 issue、合并后紧接派单,评论照样被吞(2026-11-08)
+
+- **现象**:19:02:23 在 **#129 / #130** 派单(两单都是 18:12 就建好的 issue,不是「新建 60 秒内」),
+  13 分钟后 `work/` 仍然空、issue 里没有回执;而 `scripts/dsh-superagent status` 所有组件 `ready`、
+  模型兜底代理 `/__failover/health` = `ok`、面板无 Working —— **看起来一切正常**。
+- **取证**:`github-cursor:129` / `:130` 都已推进到 `19:04:55`(晚于我 19:02:23 的评论),但
+  `trigger`(当时 40 行)、`thread`、`trigger_thread`、`ticket` 四张表里**没有任何 129/130 的记录**。
+  即「线程被读了、评论没被读、游标照常前移」—— 与 §10.2 的现象完全同构。
+- **与 §10.2 的差别(为什么旧经验不够)**:§10.2 归因为「新建 issue 没有自己的游标,只能拿全局游标当起点」,
+  于是处置写成「新建 issue 后 ≥90 秒再派」。今天这条不成立 —— issue 已存在 50 分钟,派单仍被吞。
+  真正的机制是取数起点 `max(该线程游标, 全局通知游标)` 加 `fresh()` 过滤:
+  **只要评论的时间戳早于上一轮通知扫描的游标,它就会被结构性过滤掉**,与 issue 新旧无关;
+  而 cursor 无论是否产出 trigger 都会前移,所以这条评论**永久丢失且无任何错误日志**。
+- **处置**:19:17 在两条 issue 各补发一条**新**评论(时间戳必然晚于旧游标)→ 19:19:07
+  `thread` / `trigger_thread` / `ticket` / `work/<ticket-id>` 四样齐全,worker 立即回了认领评论。
+  **改 issue 正文无效**:正文触发(`issueTrigger`)取的是 `created_at`,后改正文不会被读。
+- **制度化**:写进 `docs/ops/superagent.md` §4.1「入队三连」—— 判据是
+  `thread` / `trigger_thread` / `ticket` / `work/` 四样,**不是** `github-cursor` 是否推进;
+  并且明确「`work/` 长时间为空 + `status` 全绿 = 先查入队,再查 worker」,免得按「worker 卡住」的方向白等十几分钟。
+
