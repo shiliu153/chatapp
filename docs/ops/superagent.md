@@ -14,7 +14,7 @@
 | agent 检出 | `/root/dsh-superagent`(升级就是 `git pull && pnpm install && pnpm build`) |
 | 仓库母体 | `/root/src/chatapp`;工单 worktree 在 `/root/.dsh/state/superagent/work/` |
 | 数据 | `/root/.dsh/state/superagent/orchestrator.sqlite`(**升级前必须备份**) |
-| 模型 | `wb-pool` / `cn:deepseek-v4.1-flash`,密钥在 `/root/.dsh/superagent.env` |
+| 模型 | `wb-pool` / `cn:deepseek-v4.1-flash`,经本地兜底代理(`127.0.0.1:8788`,见 §10),密钥在 `/root/.dsh/superagent.env` |
 | 代理 | `start-superagent.sh` 启动时导出宿主网关 `:7897`;代理挂了表现为 fetch / npm / pub 全部超时 |
 
 **面板当前设置**(2026-11-07):`maxWorkers=2`、`blockedCommands=[ssh, scp, rsync]`、
@@ -195,3 +195,51 @@ wsl -e bash /root/start-superagent.sh status
 
 ⚠️ **这不是安全边界**:任何进程都能 `exec /usr/bin/gh`。真正的边界是 §8 的 ruleset(禁直推、必须走 PR)
 与「WSL 里没有生产密钥」。shim 的作用是**把误操作变成一条明确的拒绝信息**,而不是拦住有意的绕过。
+
+## 10. 模型兜底(cn → global → global-sg,2026-11-08 起)
+
+**为什么**:DSH 没有模型回退链 —— `@deepseek-ai/dsh-agent-default-model` 与 `@deepseek-ai/dsh-llm-pi-ai`
+都只认「一个 provider + 一个模型 id」。cn 线路一挂(`model_unavailable` / `no_healthy_account` / 直接超时),
+所有工单会在同一条错误上一起停摆。而 wb-pool 网关下同一份 key 本来就有三条线路。
+
+**做法**:`scripts/superagent-failover/`(源码在仓库,运行副本在 `/usr/local/lib/superagent-failover/`)
+是一个只听 `127.0.0.1:8788` 的小代理,挡在 DSH 与网关之间,把请求体里的 `model` 依次换成回退链上的
+下一个,直到某次真的成功。除 `model`(与随之变化的 `content-length`)外字节原样转发,不需要密钥 ——
+`Authorization` 由 DSH 自己带上。profile 里的 `baseURL` 因此指向它(见 `/root/.dsh/profiles/superagent/cordis.patch.yml`)。
+
+| 事 | 命令 |
+|---|---|
+| 装 / 升级(幂等) | `wsl -e bash -c 'bash /root/src/chatapp/scripts/superagent-failover/install.sh'` |
+| 状态 | `systemctl status superagent-failover --no-pager` |
+| 日志 | `journalctl -u superagent-failover -n 50 --no-pager`(`served model=…` 每请求一行,`failover A -> B(code)` 只在切换时) |
+| 看了算数的实时状态 | `curl -s http://127.0.0.1:8788/__failover/status`(每条线路的 served/failed/冷却剩余) |
+| 自测(不联网) | `cd /root/src/chatapp && node --test scripts/superagent-failover/selftest.mjs`(12 条) |
+| 回退到直连 | `systemctl disable --now superagent-failover`,再把 profile 的 `baseURL` 改回 `https://wb.shiliu153.me/v1`,重启 superagent |
+
+**回退链**:`cn:deepseek-v4.1-flash` → `global:deepseek-v4.1-flash` → `global:deepseek-v4.1-flash-sg`。
+一条线路失败后进冷却 30s,期间直接跳过;冷却一过下一次请求重新试它 —— **cn 恢复后会自动切回,不用人管**。
+
+**什么时候换、什么时候不换**(判错方向比不换更糟,所以口径写死):
+
+| 触发 | 结果 |
+|---|---|
+| 网关线路类错误码(`model_unavailable` / `no_healthy_account` 等)、5xx、402、连接失败/等头超时 | 换下一条 |
+| SSE 已回 200 但**首帧**就是 `error` 事件(客户端还没收到任何字节) | 换下一条 |
+| 400 参数错、401/403 鉴权 | **不换**,原样返回 —— 换了也是同样报错,只会把真 bug 藏进噪声 |
+| 请求的模型不在链上(有人把模型换成了别的) | **不换**,原样单发 |
+| 流已经开始往客户端写字节之后才失败 | **救不回来**(会串话),交给 DSH 自己的 `llm-retry`;下一次请求会因冷却落在更好的线路上 |
+
+**验收证据(2026-11-08,真网关 + 真 DSH)**:
+① `node --test selftest.mjs` 12/12 绿(假上游,覆盖换/不换、SSE 首帧、冷却、恢复);
+② `dsh headless --patch <走代理> "用三个字回答"` → 代理日志 `served model=cn:deepseek-v4.1-flash status=200 attempts=1`;
+③ 演练:把主线路换成 `cn:no-such-model`,同一条命令仍答出结果,代理日志
+`failover cn:no-such-model -> global:deepseek-v4.1-flash(http_503)` → `served model=global:deepseek-v4.1-flash attempts=2`。
+
+**已知偏差 / 排障**:
+- **代理是单点**:它挂了 = superagent 的模型调用全挂(表现为 `failover_upstream_unreachable` 或直接 ECONNREFUSED)。
+  所以它是自己的 systemd 服务(`Restart=always`),不挂在 DSH 的进程树里;`start-superagent.sh` 在
+  `start|restart|status` 时会顺手探一下它,探不到就在 stderr 上喊一声。
+- 面板与 session 日志里显示的模型仍是**请求方写的那条**(通常是 cn),不代表实际服务的线路 ——
+  真实线路只看代理日志或 `/__failover/status`。
+- 代理强制 `accept-encoding: identity`:它要读响应体才能识破「200 其实是错误」,让上游压缩就换掉了这个判断能力。
+- 代理**不是**安全边界也不记账:不鉴权、不校验、不做额度控制,额度仍由网关按账号算。

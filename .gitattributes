@@ -15,6 +15,10 @@ scripts/gh-guard/gh text eol=lf
 # Windows 检出若带 CRLF,`chatapp status` 会报 `bad interpreter: /usr/bin/env: bash\r`
 deploy/chatapp text eol=lf
 
+# superagent 兜底代理:WSL 里按源码跑(install.sh 把它拷到 /usr/local/lib 并由 systemd 启动),
+# 与上面 .sh 同理,固定 LF —— Windows 检出带 CRLF 的 .mjs 虽能跑,但会让 WSL 侧的 diff 全脏。
+scripts/superagent-failover/* text eol=lf
+
 # 明确二进制,避免 Git 对它们做文本 diff
 *.png  binary
 *.jpg  binary
