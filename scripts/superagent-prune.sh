@@ -17,9 +17,15 @@ git -C "$CLONE" worktree list --porcelain | awk '/^worktree /{print $2}' | while
   case $wt in "$WORKROOT"/*) ;; *) continue ;; esac
   br=$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
   dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l)
+  # 判断「已并入 master」不能用 `merge-base --is-ancestor`:本仓库一律 squash 合并,
+  # 分支 tip 永远不是 master 的祖先,那样判会恒为「未合并」。
+  # 改用 `git cherry`:它按 patch-id 比较,把「同内容的改动已进 master」认成已应用,
+  # 且 s 合并后的 squash 提交与该分支唯一提交的 patch 相同,所以单个提交的分支能正确判定。
   merged=no
-  if git -C "$CLONE" merge-base --is-ancestor "$br" "$BASE" 2>/dev/null; then
-    merged=yes
+  if git -C "$CLONE" rev-parse -q --verify "refs/heads/$br" >/dev/null 2>&1; then
+    if [ -z "$(git -C "$CLONE" cherry "$BASE" "$br" 2>/dev/null | grep '^+' || true)" ]; then
+      merged=yes
+    fi
   fi
   printf '%-62s branch=%-46s dirty=%s merged=%s\n' "$wt" "$br" "$dirty" "$merged"
   if [ "$APPLY" = 1 ] && [ "$dirty" = 0 ] && [ "$merged" = yes ]; then
