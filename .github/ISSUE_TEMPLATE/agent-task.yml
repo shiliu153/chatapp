@@ -1,0 +1,61 @@
+name: 交给 agent 的工单
+description: 一条可独立验收的改动。一单一条栈。
+title: "[工单] "
+labels: ["agent"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        填完在评论里 `@<agent 账号>` 触发。**一单一条栈**;跨栈请拆单。
+        验收口径要写成「跑什么命令、看到什么」,不要写「优化一下」。
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: 现在是什么样、为什么不对;相关文件、issue、报错原文。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收口径
+      description: 可执行、可判断。至少包含一条 verify 命令与它的期望输出。
+      placeholder: |
+        1. `scripts/verify.sh backend` 全绿
+        2. GET /api/v1/xxx 返回 {a,b,c}
+        3. 老客户端行为不变(回归用例 xxx 仍绿)
+    validations:
+      required: true
+  - type: dropdown
+    id: stack
+    attributes:
+      label: 影响栈(只能选一条)
+      options:
+        - backend
+        - web
+        - imserver
+        - app
+        - docs
+    validations:
+      required: true
+  - type: dropdown
+    id: touches_app_ui
+    attributes:
+      label: 是否有 App 端可见变化
+      description: 选「是」时 PR 必须开 draft,由人在模拟器上验收后才合并。
+      options:
+        - "否"
+        - "是"
+    validations:
+      required: true
+  - type: textarea
+    id: forbidden
+    attributes:
+      label: 禁止事项
+      description: 明确不许顺手做的事,例如「不要动 xxx 表结构」「不要改版本号」。
+      value: "不改版本号、不发版、不合并 PR、不碰 flutter/ 与 .remember/、不手改生成物。"
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: 明确不在本期范围
+      description: 想得到但这次不做的相邻改动,避免 PR 变大。
