@@ -1306,3 +1306,49 @@ worker 无 `AGENTS.md` 违规(单栈 1 文件、未碰版本号、未自合、�
 | 7 | 工单收尾后再在这个 issue 下追加一条评论会话,**又长出一个新 worktree**(基线是当时的 master,分支名同旧工单) | 评论落在工单 thread 上会重新触发一次 prepare(`git fetch` + `worktree add`),即使 issue 已 closed、PR 已合并 | 收尾顺序改成:**先评论/关单,再 prune**;本轮由人事后补跑 `prune --apply` 清掉(`merged=yes` 直接识别)。这条直接对应 spec §3.9 的注意力预算 —— 工单结束后不要再往那个 thread 里说话 |
 
 **结论**:自动化每加一层,都会把「原本靠人眼兜住的模糊判定」变成必须写死的确定性规则 —— 这一轮 6 个坑里有 5 个是**判定规则太窄**,而不是模型能力不够。
+
+### 10. 工单闭环的两个投递 / 记账缺口(2026-11-07 收尾实测)
+
+两条的共同点:**活其实都干了,流程没合上,而且全程没有任何报错 —— 只有沉默。**
+沉默比报错贵,因为它要等到人下次想起来翻 issue 列表才会被发现(本轮就是 16:00 复盘时才发现两条开着的单)。
+
+#### 10.1 PR 正文漏 `Closes #<本单>` → issue 合并后一直悬着
+
+- **现象**:#102 的交付物 13:30 就随 PR #103 合并进 master(`f7e8945` 改了 `docs/pitfalls/testing.md`),
+  但 issue 一直开着,两小时无人察觉。
+- **原因**:PR #103 正文里确实出现过 `#102`,但位置是「遗留」段的「issue #102 已明确不做:…」。
+  GitHub 的自动关单**只认 `Closes` / `Fixes` / `Resolves` 关键字**;正文别处提到编号、或 squash 提交信息里带编号,
+  都不算 —— 而本仓库的合并方式恰好是 squash,更容易让人误以为「提交信息里写了就会关」。
+- **处置**:`.github/pull_request_template.md` 顶部新增「## 关闭的 issue」段,要求写明 `Closes #<编号>`;
+  派工评论(如 #108)也逐条写上这条要求。**对人和对 worker 同样适用** —— 人手动合并时也别只回一句「已合并」。
+
+#### 10.2 新建 issue 后 60 秒内派工,整条可能被轮询游标吞掉
+
+- **现象**:16:03:43 在 #108 下评论 `@shiliu655 按本 issue 的验收口径执行…`,5 分钟没有任何回执;
+  而 1 秒前发在 #102 上的同类评论立刻触发并起了 worktree。
+- **取证**(只读库,不用看面板):`orchestrator.sqlite` 的 `ticket` / `trigger` 表里
+  **没有 `github:108` 的任何记录**,只有 `github-cursor:108` 被推到 `16:05:27` ——
+  即「issue 被读到了,但那条评论没被读」。
+- **原因**:`src/sources/github.ts::pollNotifications()` 对新 thread 的取数起点是
+
+  ```js
+  items.set(number, { since: [state.get(KV.github.cursor(number)) ?? since, since].sort().at(-1), pr })
+  ```
+
+  新 thread 没有自己的游标,于是拿**全局轮询游标**当起点;那条评论比当轮的 `since` 早 26 秒,
+  落在窗口之外,而游标随后被推过它,于是永不重读。
+  #102 之所以没这事:thread 早在 13:28 就建立、有自己的游标,走的是 `pollThreads()` 那条路。
+- **处置**:派工评论发出后 **≥90 秒**再核回执;没有回执**不要怀疑 worker**,先查
+  `select * from trigger_thread where thread='github:108'` —— 缺记录就是没送达,
+  **原样重发一条**并说明是重发。本轮重发后 15 秒内就出了 `trigger`、worktree 与 worker 回执。
+
+**可复用的体检命令**(WSL):
+
+```bash
+python3 - <<'PY'
+import sqlite3
+db = sqlite3.connect('file:/root/.dsh/state/superagent/orchestrator.sqlite?mode=ro', uri=True)
+for t in ('trigger_thread', 'ticket'):
+    print(t, list(db.execute(f"select * from {t} where value like '%github:108%'")))
+PY
+```

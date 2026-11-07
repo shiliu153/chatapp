@@ -91,6 +91,16 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
    `scripts/verify.sh contract` 绿即可直接 squash 合并,不必再单独占一轮确认。
    2026-11-08 起这一步已由 `.github/workflows/auto-merge.yml` 自动完成(见 §8)。
 
+**派工与关单的两条硬规矩(2026-11-07 补,两条都是「不报错、只沉默」的坑)**:
+
+- **派工后 ≥90 秒再核回执**。新建 issue 后 60 秒内发 `@shiliu655`,评论可能落在轮询游标之外被**永久跳过**
+  (新 thread 没有自己的游标,取数起点是全局游标,见 `src/sources/github.ts::pollNotifications`)。
+  没回执**不要怀疑 worker**,先查 `select * from trigger_thread where thread='github:<号>'`:
+  缺记录就是没送达,原样重发一条。实测记录见计划文档 §10.2。
+- **PR 正文必须有 `Closes #<编号>`**。GitHub 只认 `Closes` / `Fixes` / `Resolves`,
+  正文别处提到编号不算,squash 提交信息里带编号也不算。漏写 = 合并后 issue 一直悬着
+  (#102 就这么悬了两小时)。实测记录见计划文档 §10.1。
+
 ## 5. 升级与回滚
 
 ```bash
