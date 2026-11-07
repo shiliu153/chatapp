@@ -41,6 +41,7 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
 
 | 现象 | 处置 |
 |---|---|
+| **派单后一直没动静**(面板 Overview 无 Working、`work/` 下没有新目录) | **先确认「是否入队」**,不要先怀疑 worker / Docker / 模型 —— 见 §4 的「入队三连」。`status` 全绿也不能证明评论已进队列 |
 | `person / blocked`、`person / failed` | 在面板上直接回一句让它继续;或 **Retry**(新 Assignment,同 Session / 同目录 / 同分支) |
 | `person / delivery` | Input 没送达,重试是唯一解法,**不要**删工单 |
 | `The prepare command failed` | 输出里写着原因(克隆路径、代理、ref 冲突)。修好后 Retry |
@@ -111,13 +112,55 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
 
 **派工与关单的两条硬规矩(2026-11-07 补,两条都是「不报错、只沉默」的坑)**:
 
-- **派工后 ≥90 秒再核回执**。新建 issue 后 60 秒内发 `@shiliu655`,评论可能落在轮询游标之外被**永久跳过**
-  (新 thread 没有自己的游标,取数起点是全局游标,见 `src/sources/github.ts::pollNotifications`)。
-  没回执**不要怀疑 worker**,先查 `select * from trigger_thread where thread='github:<号>'`:
-  缺记录就是没送达,原样重发一条。实测记录见计划文档 §10.2。
+- **派工后 ≥90 秒核回执,而且要用「入队三连」核,不能只看游标**。见下面 §4.1。
 - **PR 正文必须有 `Closes #<编号>`**。GitHub 只认 `Closes` / `Fixes` / `Resolves`,
   正文别处提到编号不算,squash 提交信息里带编号也不算。漏写 = 合并后 issue 一直悬着
   (#102 就这么悬了两小时)。实测记录见计划文档 §10.1。
+
+### 4.1 派单后必须做「入队三连」(2026-11-08 补,踩过一次真的丢单)
+
+`@shiliu655` 的评论**不等于**工单已入队。2026-11-08 实测:#129 / #130 两台单在 19:02 派发,
+13 分钟后 `work/` 仍然空、issue 里连回执都没有,而 `status` 全部 `ready`、模型兜底代理也 `ok` ——
+最后查明是**评论压根没进队列**。
+
+**三件都要真、缺一就是没入队**(把 `<n>` 换成 issue 号):
+
+```bash
+# 1) 线程是否建立 + 是否真的产生了 trigger
+wsl -e bash -c 'python3 - <<PY
+import sqlite3
+db=sqlite3.connect("file:/root/.dsh/state/superagent/orchestrator.sqlite?mode=ro",uri=True);c=db.cursor()
+n="<n>"
+print("thread        :", c.execute("select count(*) from thread where key=?",(f"github:{n}",)).fetchone()[0])
+print("trigger_thread:", c.execute("select count(*) from trigger_thread where thread=?",(f"github:{n}",)).fetchone()[0])
+print("cursor        :", c.execute("select value from kv where key=?",(f"github-cursor:{n}",)).fetchone())
+print("tickets       :", c.execute("select count(*) from ticket where value like ?",(f"%github%{n}%",)).fetchone()[0])
+PY'
+# 2) 有没有真的开了 worktree(目录名带 ticket id)
+wsl -e bash -c 'ls -1 /root/.dsh/state/superagent/work/'
+# 3) issue 里有没有回执评论(面板 Overview 有没有 Working)
+```
+
+**⚠️ 最容易误判的一点:游标前移 ≠ 入队。** `github-cursor:<n>` 在读取该线程后**无论有没有产出
+trigger 都会前移**;真正的判据是 `thread` / `trigger_thread` / `ticket` 三张表有没有记录。
+今天的现象正是「`github-cursor:129` 已推进到 19:04:55,而 `trigger` / `thread` / `ticket` 全空」。
+
+**机制**(`src/sources/github.ts::pollNotifications` + `readThread`):读线程评论的取数起点是
+`max(该线程自己的游标, 全局通知游标)`,再对每条评论做 `fresh()` 过滤。于是「评论早于上一轮通知
+游标」时会被结构性过滤掉,而游标照常前移 —— 这条评论就**永久丢失**,且**没有任何错误日志**
+(所以 `status` 不会报错)。新建 issue 60 秒内派单是高发场景,但 2026-11-08 证实在
+**已存在的 issue 上、合并后紧接派单**时同样会发生。
+
+**处置:补发一条新评论,不要改 issue 正文。** 正文触发只认 opening(`issueTrigger` 取
+`created_at`),后改正文不会被读;而新评论的时间戳一定晚于旧游标,能被正常收进来。
+重发同一条指令是无害的(trigger id 幂等),**漏发才是时间损失**。今天补发后 2 分钟内
+`thread` / `ticket` / `worktree` 三样齐全,worker 也立刻回了认领评论。
+
+**顺带记住**:`work/` 长时间为空 + `status` 全绿 = 先查入队,再查 worker。排查顺序反了会白等十几分钟。
+
+实测记录:计划文档 §10.2(2026-11-07 首例,新建 issue 60 秒内派工)、§10.3(2026-11-08 复发,
+已存在的 issue + 合并后紧接派单,证明旧经验「≥90 秒再核」不够 —— 判据只能看 `thread` /
+`trigger_thread` / `ticket` / `work/` 四样,不能看游标)。
 
 ## 5. 升级与回滚
 
