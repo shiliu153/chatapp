@@ -15,6 +15,29 @@ PY="$VENV/bin/python"
 DRY_RUN=0
 KEEP_DEPS=0
 
+# Node 版本必须与 CI 对齐(web.yml / web-e2e.yml 都用 22)。
+# 实测 Node 24 会让 web 的一条 jsdom/undici 用例失败(profile-store 的上传照片用例,
+# 报 webidl.is.File 断言),那是环境差异不是代码问题——所以这里直接钉住并优先用
+# $HOME/node22(安装方式见 docs/ops/superagent.md)。
+NODE_DIR=${CHATAPP_NODE_DIR:-$HOME/node22}
+if [ -x "$NODE_DIR/bin/node" ]; then
+  PATH="$NODE_DIR/bin:$PATH"
+  export PATH
+fi
+REQUIRED_NODE_MAJOR=${CHATAPP_NODE_MAJOR:-22}
+
+# web / app 两条栈拒绝在 /mnt/* 上跑:那是 WSL 的 9p 挂载,读 node_modules 与 flutter
+# 缓存极慢,实测 vitest 起 fork worker 会直接超时(报 "[vitest-pool] Failed to start
+# forks worker … Timeout waiting for worker to respond"),看上去像用例红了其实是环境。
+# 正确做法是在 Linux 文件系统上的克隆里跑(worker 的 worktree 本来就在 /root 下)。
+assert_linux_fs() { # assert_linux_fs <栈名>
+  case $ROOT in
+    /mnt/*)
+      die "$1 不能在 /mnt/ 下跑(9p 太慢,vitest/flutter 会超时)。请在 WSL 的 Linux 文件系统上的克隆里执行,例如 /root/src/chatapp 的 worktree"
+      ;;
+  esac
+}
+
 # 与 backend.yml 的 env 对齐;端口用 compose 里避让后的 13306 / 16379。
 export SECRET_KEY=ci-only-not-a-real-secret
 export DEBUG=1
@@ -118,10 +141,32 @@ stack_backend() {
   cd "$ROOT"
   run "压测脚本自测" "$PY" -m unittest perf.test_run -v
 }
-stack_web() { :; }
+stack_web() {
+  if [ "$DRY_RUN" = 0 ]; then
+    assert_linux_fs web
+    local major
+    major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+    if [ "$major" != "$REQUIRED_NODE_MAJOR" ]; then
+      die "web 需要 Node $REQUIRED_NODE_MAJOR(与 CI 一致),当前是 $major。装好 $NODE_DIR 或设 CHATAPP_NODE_MAJOR 覆盖"
+    fi
+  fi
+  cd "$ROOT/web"
+  run "安装依赖" npm ci
+  run "重新生成 API 类型" npm run gen:api
+  check_artifact web/src/api/schema.d.ts
+  run "类型检查" npm run type-check
+  run "代码规范(零告警)" npm run lint
+  run "单元/组件测试" npm run test:run
+  run "构建" npm run build
+  cd "$ROOT"
+}
+
+stack_contract() {
+  run "版本号三处一致" "$PY" "$ROOT/scripts/sync_version.py" --check
+  run "App 模型字段 ⊆ OpenAPI" "$PY" "$ROOT/scripts/check_app_models.py"
+}
 stack_imserver() { :; }
 stack_app() { :; }
-stack_contract() { :; }
 
 stack_bootstrap() {
   run "创建 venv($VENV)" python3 -m venv "$VENV"

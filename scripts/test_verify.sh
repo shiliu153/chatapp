@@ -28,5 +28,11 @@ for needle in "manage.py migrate" "manage.py test" "manage.py spectacular" "perf
   case $bdry in *"$needle"*) printf 'ok   backend dry-run 含 %s\n' "$needle";;
     *) printf 'FAIL backend dry-run 缺 %s\n' "$needle"; fail=1;; esac
 done
+wdry=$(bash "$V" web --dry-run 2>/dev/null)
+case $wdry in *"npm run type-check"*) printf 'ok   web dry-run 含 type-check\n';;
+  *) printf 'FAIL web dry-run 缺 type-check\n'; fail=1;; esac
+cdry=$(bash "$V" contract --dry-run 2>/dev/null)
+case $cdry in *"sync_version.py --check"*) printf 'ok   contract dry-run 含 sync_version\n';;
+  *) printf 'FAIL contract dry-run 缺 sync_version\n'; fail=1;; esac
 [ "$fail" = 0 ] && echo "全部通过" || echo "有失败"
 exit "$fail"
