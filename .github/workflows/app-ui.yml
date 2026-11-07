@@ -1,0 +1,87 @@
+name: App UI (emulator smoke)
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/app-ui.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/app-ui.yml'
+  workflow_dispatch:
+
+# L3 第一半:把「App 跑得起来」搬进 CI。
+#
+# 真安卓模拟器(api-level 34)+ integration_test/smoke_test.dart。后端**故意不可达**
+# (API_BASE 指到 127.0.0.1:1),所以这一轨只验「冷启动 → 登录页」这一条底线,
+# 不需要真 MySQL / Redis / Django;人工验收因此从「跑得起来」降级为「好不好看」。
+#
+# 与 app.yml 分工:app.yml 管静态检查 + 单元/组件测试(假网络),不需要模拟器;
+# 本轨只在模拟器上跑 integration_test(真 App、真插件)。
+jobs:
+  smoke:
+    name: app-ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub 的 Linux runner 上 /dev/kvm 默认只有 root 可读写,不放开的话模拟器
+      # 只能退回软件渲染,启动慢到会撞 30 分钟超时(报错看着像测试红,其实是环境)。
+      - name: 打开 KVM 硬件加速
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # 与 app.yml 钉同一个 Flutter 版本:两条轨若不一致,会出现「本轨红/本轨绿」的假象
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+
+      - name: 拉依赖
+        working-directory: app
+        run: flutter pub get
+
+      # 第 2 轮 CI 暴露的坑(与本 workflow 的写法无关):`app/android/app/build.gradle.kts`
+      # 在**配置阶段**就无条件读 `app/android/key.properties`(gitignored,CI 里不存在),
+      # 缺了直接报 `null cannot be cast to non-null type kotlin.String`,连 assembleDebug
+      # 都过不去。debug 包用不到发布签名,给一组非空的一次性值即可;keystore 现造在
+      # $RUNNER_TEMP,不进仓库(`key.properties` / `*.jks` 都在 `app/android/.gitignore` 里)。
+      - name: 造 CI 一次性签名配置(Gradle 配置期要求 key.properties 存在)
+        working-directory: app/android
+        run: |
+          keytool -genkeypair \
+            -keystore "$RUNNER_TEMP/ci-debug.jks" \
+            -storetype JKS -alias ci -keyalg RSA -keysize 2048 -validity 1 \
+            -storepass cipass -keypass cipass \
+            -dname "CN=CI, OU=CI, O=CI, L=CI, ST=CI, C=CN"
+          {
+            echo "storeFile=$RUNNER_TEMP/ci-debug.jks"
+            echo "storePassword=cipass"
+            echo "keyAlias=ci"
+            echo "keyPassword=cipass"
+          } > key.properties
+          echo "已生成 app/android/key.properties(指向一次性 keystore)"
+
+      # script 必须是**单行**:android-emulator-runner 逐行 `sh -c` 执行 script
+      # (每行一个独立进程),所以续行 `\`、跨行 `set -e`、`$?`/重定向都会失效 ——
+      # 第 1 轮 CI 就红在续行上(多出来的 `\` 被当成第三个测试路径,flutter 于是
+      # 报「Integration tests and unit tests cannot be run in a single invocation」)。
+      # `--reporter expanded` 的完整输出本身就在 job log 里,不再另外上传 artifact。
+      - name: 在模拟器上跑冒烟 integration_test
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          working-directory: app
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: flutter test integration_test/smoke_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
