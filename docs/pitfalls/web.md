@@ -130,7 +130,7 @@
 - **只把「登录 → 完善资料 → 发现/广场列表」1 条放进 CI**(`web-e2e.yml` → `npm run e2e:smoke`):
   真 MySQL + Redis + Django(`runserver`)+ `vite preview`。全量 8 条要 imserver + Celery
   (发消息、灰条、已读、媒体上传),在 Actions 里起全栈的收益抵不过 flaky 风险,继续本地人工跑。
-- **CI 环境变量有两个坑**:`SMS_PHONE_WHITELIST` 必须留空(空库 + 空种子 = 不限制,否则新号 403);
+- **CI 环境变量有两个坑**:`SMS_PHONE_WHITELIST` 必须留空(空库 + 空种子时,测试环境走 `SMS_ALLOWLIST_STRICT` 的非严格分支放行;写进种子反而会让名单外的号 403);
   `AUTO_APPROVE=1`,否则新上传的照片是 `pending`,资料永远 `incomplete`,发现页永远空。
 - **冒烟别去消息页**:会话列表走 imserver 的 `/im/api/conversations`,冒烟轨不起 imserver,
   只会看到「消息加载失败」。验证列表用**广场** `/posts`(纯 Django)或发现页候选。
