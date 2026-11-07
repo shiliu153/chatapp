@@ -26,6 +26,11 @@ export DB_PORT=13306
 export DB_SSL_DISABLED=0
 export BROKER_URL=redis://127.0.0.1:16379/1
 export REDIS_URL=redis://127.0.0.1:16379/0
+# 注意:TESTING 模式下 config/settings.py 不读 REDIS_URL,而是读 TEST_REDIS_HOST/PORT
+# (见 settings.py「测试隔离」一节),用独立 DB 15/14 以免碰开发数据。这里必须一起指过来,
+# 否则测试会去连 127.0.0.1:6379(Windows 上那个开发用 redis),在 WSL 里必然 Connection refused。
+export TEST_REDIS_HOST=127.0.0.1
+export TEST_REDIS_PORT=16379
 export IM_SELF_URL=http://127.0.0.1:9101
 export IM_SELF_WS_URL=ws://127.0.0.1:9100/im/ws
 export IM_SELF_HTTP_URL=http://127.0.0.1:9101/im/api
@@ -57,6 +62,28 @@ EOF
 
 die() { printf '错误: %s\n' "$*" >&2; exit 2; }
 
+# 校验「生成物 == HEAD 里的那一版」。
+#
+# 为什么不用 `git diff --exit-code`:本仓库在 Windows 上检出是 CRLF,而 WSL 里的 git
+# 按 LF 理解索引,`git diff` 会把上千个文件都算成改动(实测 1094 个),这条判定在
+# WSL 里等于永远红。改成「比内容、忽略行尾」:把两边的 \r 都去掉再比。
+check_artifact() { # check_artifact <仓库相对路径>
+  local f=$1
+  if [ "$DRY_RUN" = 1 ]; then
+    printf '\n=== 校验生成物与 HEAD 一致 ===\n+ %s\n' "$f"
+    return 0
+  fi
+  if ! git -C "$ROOT" cat-file -e "HEAD:$f" 2>/dev/null; then
+    die "$f 不在 HEAD 里:新增生成物请先提交,否则 CI 会对不上"
+  fi
+  if ! diff -q <(git -C "$ROOT" show "HEAD:$f" | tr -d '\r') <(tr -d '\r' < "$ROOT/$f") >/dev/null; then
+    echo "--- $f 与 HEAD 的差异(前 40 行) ---" >&2
+    diff -u <(git -C "$ROOT" show "HEAD:$f" | tr -d '\r') <(tr -d '\r' < "$ROOT/$f") 2>&1 | head -40 >&2 || true
+    die "$f 与代码不一致:重新生成并提交"
+  fi
+  echo "生成物一致: $f"
+}
+
 run() { # run <说明> <命令...>
   local label=$1; shift
   printf '\n=== %s ===\n' "$label"
@@ -79,7 +106,18 @@ deps_down() {
   run "拆除依赖容器" docker compose -f "$COMPOSE" down -v
 }
 
-stack_backend() { :; }
+stack_backend() {
+  if [ "$DRY_RUN" = 0 ] && [ ! -x "$PY" ]; then
+    die "没有可用的 venv:$PY。先跑 scripts/verify.sh bootstrap"
+  fi
+  cd "$ROOT/chatapp"
+  run "迁移" "$PY" manage.py migrate --noinput
+  run "后端全量测试" "$PY" manage.py test --noinput
+  run "OpenAPI 生成物同改校验" "$PY" manage.py spectacular --file ../docs/api/openapi.yml --validate
+  check_artifact docs/api/openapi.yml
+  cd "$ROOT"
+  run "压测脚本自测" "$PY" -m unittest perf.test_run -v
+}
 stack_web() { :; }
 stack_imserver() { :; }
 stack_app() { :; }

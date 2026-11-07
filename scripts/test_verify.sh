@@ -23,5 +23,10 @@ done
 check "deps --dry-run 退出 0" 0 bash "$V" deps --dry-run
 dry=$(bash "$V" deps --dry-run 2>/dev/null)
 case $dry in *"docker compose"*) echo "ok   --dry-run 打印 docker compose";; *) echo "FAIL --dry-run 未打印 docker compose"; fail=1;; esac
+bdry=$(bash "$V" backend --dry-run 2>/dev/null)
+for needle in "manage.py migrate" "manage.py test" "manage.py spectacular" "perf.test_run"; do
+  case $bdry in *"$needle"*) printf 'ok   backend dry-run 含 %s\n' "$needle";;
+    *) printf 'FAIL backend dry-run 缺 %s\n' "$needle"; fail=1;; esac
+done
 [ "$fail" = 0 ] && echo "全部通过" || echo "有失败"
 exit "$fail"
