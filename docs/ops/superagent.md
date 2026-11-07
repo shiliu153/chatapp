@@ -88,7 +88,17 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
    | `merged=yes` | `git cherry` 按 patch-id 认出来了(**单提交**分支 + squash 时成立) | 会 |
    | `merged=yes-pr` | patch-id 认不出(分支有多个提交,被 squash 成一条),改问 GitHub「这个 head 有过已合并的 PR 吗」 | 会 |
    | `merged=no` | 两条都不成立(或网络不通、`GH_CLI` 不可用) | **不会**,只报告 |
+   | `merged=empty` | 分支上**一个提交都没有**(`ahead=0`)—— 工单刚建 worktree / 正在写第一个文件 | **不会**,只报告(2026-11-08 补) |
    | `dirty≠0` | worktree 有未提交/未跟踪文件(常见:`app/macos/Flutter/` 这类生成物) | **不会**,先自己清干净 |
+
+   **`merged=empty` 为什么必须单独一档**:空分支在 `git cherry` 下没有任何 `+` 行,
+   旧版会因此判成 `merged=yes` —— 干净的空 worktree 会被 `worktree remove --force` 删掉,
+   而它很可能正在干活。2026-11-08 实测时 #125 的 worktree 是靠 `dirty=3` 才没被删的。
+   判不出来时唯一安全的动作是保留;真的废弃了,人手 `git worktree remove` 收尾。
+
+   **`refs/dsh-superagent/*` 的清理(2026-11-08 补)**:这些临时引用**无法反查属于哪个工单**,
+   所以只在「本轮一个 worktree 都没保留」时才删;只要还有在飞 / 未合并 / 有改动的 worktree,
+   就打印「本次不动 refs/dsh-superagent/*」并原封不动(旧版一刀切删,会把在飞工单的引用一起删掉)。
 
    **退出码(2026-11-07 #108 修复后的行为)**:`0` = 正常,含「无可清理」的空转 —— 此时
    **根本不联网**(不 fetch、不动 `refs/dsh-superagent/*`);`2` = 确实有工单 worktree 但 fetch 不通
