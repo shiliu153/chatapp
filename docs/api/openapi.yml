@@ -1397,6 +1397,9 @@ paths:
         上报推送设备(POST /api/v1/push/devices)。
 
         幂等:同一 registration_id 重复上报只更新归属与版本;同账号的其他设备被删除。
+        设备**易主**(这个 registration_id 原本挂在别的账号下)照旧允许,但会写一条
+        ``push_device_transfer`` warning 日志,并在事务提交后给原账号写一条系统站内通知
+        ——知道别人 registration_id 的人仍然能把设备抢走,但原账号至少看得见这件事。
 
         Args:
             request: DRF 请求对象,body 需带 ``registration_id`` 与 ``platform``。
