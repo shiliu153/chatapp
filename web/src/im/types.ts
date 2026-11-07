@@ -12,6 +12,8 @@ export enum ChatMessageKind {
   banNotice = 'banNotice',
   image = 'image',
   voice = 'voice',
+  /** 贴纸(批次 J):消息里只有 id,图片资源在客户端本地 `public/stickers/` */
+  sticker = 'sticker',
   other = 'other',
 }
 
@@ -42,6 +44,8 @@ export interface ChatMessage {
   voiceUrl?: string | null
   /** 语音时长(毫秒),气泡宽度与秒数展示用 */
   voiceDurationMs?: number
+  /** 贴纸 id(如 `sticker_01`),只有 kind=sticker 有值 */
+  stickerId?: string | null
   /** 已撤回:渲染成居中灰字,不再显示内容 */
   isRevoked: boolean
 }
@@ -124,6 +128,8 @@ export interface ImClient {
   sendImage(peerId: string, file: File): Promise<ChatMessage>
   /** 发送语音(不支持时抛错) */
   sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage>
+  /** 发送贴纸(不支持时抛错):消息里只带 id,资源在客户端本地 */
+  sendSticker(peerId: string, stickerId: string): Promise<ChatMessage>
   deleteMessage(msgId: string): Promise<void>
   revokeMessage(msgId: string): Promise<void>
   markConversationRead(peerId: string): Promise<void>

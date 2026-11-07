@@ -57,6 +57,26 @@ std::string peer_id(uint64_t uid) {
   return uid == 0 ? "system_notice" : "u" + std::to_string(uid);
 }
 
+/// 贴纸 id 的合法形状:`sticker_` + 两位数字(`sticker_01` … `sticker_99`)。
+///
+/// 为什么要在这里校验:贴纸复用 `kind=2 custom`(2026-11-07 批次 J),而 custom 原本
+/// 是**服务端专用**的消息类型(灰条 / 系统通知,只走 `/internal/send`)。放开上行
+/// 后如果照单全收,任何客户端都能伪造 `match_notice` / `ban_notice` 灰条冒充系统通知。
+/// 因此上行只放行 `type=sticker` 且 id 形状合法的那一种,其余一律 42201。
+///
+/// Args:
+///   id: 客户端带上来的贴纸 id。
+///
+/// Returns:
+///   形状合法返回 true。
+bool is_sticker_id(const std::string& id) {
+  if (id.size() != 10 || id.compare(0, 8, "sticker_") != 0) {
+    return false;
+  }
+  return std::isdigit(static_cast<unsigned char>(id[8])) != 0 &&
+         std::isdigit(static_cast<unsigned char>(id[9])) != 0;
+}
+
 }  // namespace
 
 bool IpCounter::acquire(const std::string& ip) {
@@ -419,6 +439,24 @@ void WsSession::handle_send(const nlohmann::json& frame) {
     } else if (kind == "text") {
       request.kind = 1;
       request.text = data.value("text", std::string());
+    } else if (kind == "custom") {
+      // 贴纸(2026-11-07 批次 J):复用 kind=2,落库 / 历史 / 下行帧全部零改动。
+      // 只放行 type=sticker 且 id 形状合法的载荷;`match_notice` / `ban_notice`
+      // 这类系统灰条仍然只能由服务端经 `/internal/send` 发出。
+      const auto custom = data.at("custom");
+      if (!custom.is_object() ||
+          custom.value("type", std::string()) != "sticker") {
+        send_raw(error_frame(42201, "暂不支持该消息类型"));
+        return;
+      }
+      const auto sticker = custom.value("id", std::string());
+      if (!is_sticker_id(sticker)) {
+        send_raw(error_frame(42201, "贴纸 id 不合法"));
+        return;
+      }
+      request.kind = 2;
+      // 只落白名单字段:客户端夹带的其它键一律丢弃,不给 custom 留夹带通道
+      request.custom = {{"type", "sticker"}, {"id", sticker}};
     } else {
       send_raw(error_frame(42201, "暂不支持该消息类型"));
       return;

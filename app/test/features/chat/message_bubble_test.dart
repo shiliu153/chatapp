@@ -11,6 +11,7 @@ ChatMessage _m({
   String text = '你好',
   bool isFailed = false,
   String? localPath,
+  String? stickerId,
   bool isRevoked = false,
 }) =>
     ChatMessage(
@@ -22,6 +23,7 @@ ChatMessage _m({
       text: text,
       isFailed: isFailed,
       localPath: localPath,
+      stickerId: stickerId,
       isRevoked: isRevoked,
     );
 
@@ -77,5 +79,27 @@ void main() {
   testWidgets('撤回态:对方 → 「对方撤回了一条消息」', (tester) async {
     await _pump(tester, MessageBubble(message: _m(isRevoked: true)));
     expect(find.text('对方撤回了一条消息'), findsOneWidget);
+  });
+
+  testWidgets('贴纸消息:按 id 渲染本地资源,不画气泡底色', (tester) async {
+    await _pump(
+        tester,
+        MessageBubble(
+            message: _m(
+                isSelf: true, kind: ChatMessageKind.sticker, text: '', stickerId: 'sticker_01')));
+    await tester.pump();
+    expect(find.byKey(const Key('chat.sticker.sticker_01')), findsOneWidget);
+    // 贴纸不走灰条分支
+    expect(find.byKey(const Key('chat.notice')), findsNothing);
+  });
+
+  testWidgets('未知贴纸 id:降级「[贴纸]」,不白屏', (tester) async {
+    await _pump(
+        tester,
+        MessageBubble(
+            message: _m(kind: ChatMessageKind.sticker, text: '', stickerId: 'sticker_99')));
+    await tester.pump();
+    expect(find.byKey(const Key('chat.sticker.unknown')), findsOneWidget);
+    expect(find.text('[贴纸]'), findsOneWidget);
   });
 }

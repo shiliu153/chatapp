@@ -168,6 +168,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
+  /// 贴纸是**直接发送**(不插输入框):点一下就是一条消息。
+  Future<void> _sendSticker(String stickerId) async {
+    await ref.read(chatProvider(widget.peerId).notifier).sendSticker(stickerId);
+  }
+
   Future<void> _pickAndSendImage() async {
     final file = await widget.pickImage();
     if (file == null || !mounted) return;
@@ -400,7 +405,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 .sendVoice(path, durationMs),
           ),
           if (_showEmoji)
-            EmojiPanel(onSelect: _insertEmoji)
+            EmojiPanel(onSelect: _insertEmoji, onSendSticker: _sendSticker)
           else if (_showMore && imageEnabled)
             MorePanel(onPickImage: _pickAndSendImage),
         ],

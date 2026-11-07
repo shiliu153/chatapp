@@ -35,8 +35,10 @@
 - **媒体签名**:`image.url` / `image.thumb_url` / `voice.url` 在 fixture 里是**不带 query**
   的规范地址;线上帧会追加 `?e=&s=` 限时签名,服务端测试比对前统一剥掉 query
   (签名算法本身由 `imserver/tests/media_sign_test.cpp` 覆盖)。
-- **枚举**:`kind` 只能是 `text` / `image` / `voice`;`custom`(灰条)不走 `send` 帧,
-  由服务端内部产生,不在本 fixture 范围。
+- **枚举**:上行 `send` 的 `kind` 只能是 `text` / `image` / `voice` / `custom`;
+  `custom` **只放行贴纸**(`{"type":"sticker","id":"sticker_NN"}`,2026-11-07 批次 J),
+  `match_notice` / `ban_notice` 等系统灰条仍由服务端内部产生(`/internal/send`),
+  客户端发这类载荷会被 imserver 以 `42201` 拒绝(防止冒充系统通知)。
 - **新增帧**:fixture 里加一条 `{"name","frame"}` 后,服务端测试会因为
   「fixture 新增了帧但服务端没有对应构造」而红 —— 先把序列化函数加进
   `imserver/src/net/frames.h`,再补 App/Web 的解析与断言。

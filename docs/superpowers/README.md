@@ -21,11 +21,10 @@
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
-| [plans/2026-11-05-feature-batches-f-j.md](plans/2026-11-05-feature-batches-f-j.md) | **未启动(仅规划)** | 批次 F–J:暗黑模式 / 共同点破冰 / 站内通知中心 / 广场关注 / 聊天表情贴纸,共 27 个 Task、约 13.5 天。设计决策内嵌该文 §2,**执行时分批次开新会话** |
 
 `specs/` 中的 [dual-server-load-balancing](archive/specs/2026-10-28-dual-server-load-balancing-design.md) 已在
-2026-11-04 拍板「不做双机、暂不升配」,转为历史设计。批次 F–J 全部交付后,
-上面那份 plan 按惯例 `git mv` 到 `archive/plans/` 并在 §4 补一行。
+2026-11-04 拍板「不做双机、暂不升配」,转为历史设计。批次 F–J 已于 2026-11-07 全部交付,
+那份 plan 已 `git mv` 到 `archive/plans/` 并在 §4 补了一行 —— **当前 `plans/` 是空的**。
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。
@@ -38,7 +37,7 @@
 - 交付后在文件末尾写「执行记录 / 与计划的偏差 / 踩到的坑」,**不要**回头补勾旧 checkbox(见 §4 注)
 - 交付即归档:同一提交内 `git mv` 到 `archive/` + 更新本文 §4 + 更新 `CLAUDE.md` 里程碑摘要
 
-## 4. 归档清单(已交付,共 85 份)
+## 4. 归档清单(已交付,共 86 份)
 
 > **注**:2026-10 之前的计划普遍存在「已交付但 checkbox 未回填」的情况(M0–M2、UI 批次②③、广场楼中楼、自建 IM、账号注销、访客等)。
 > 判断是否交付**以本表结论与 git log 为准**,不要以文件内 checkbox 为准。
@@ -111,6 +110,7 @@
 | 11-05 | [dual-server-load-balancing](archive/specs/2026-10-28-dual-server-load-balancing-design.md)(仅 spec) | — | 双机负载均衡方案 v2:**已决策不做**(2026-11-04 用户拍板选「不做双机、暂不升配」),决策记录见 [ops/dual-server-vs-upgrade](../ops/dual-server-vs-upgrade-2026-11-04.md);升配触发条件写在记录 §5 |
 | 11-05 | [observability-and-capacity](archive/plans/2026-11-02-observability-and-capacity.md) | — | 可观测性 + 容量工程 + 削峰整改四轨全部落地(A 可观测 / B 容量 / C 后端深度 / D 叙事);未勾项逐条对应交付证据见文件 §9(PR #53/#50/#69/#70/#71) |
 | 11-08 | [tencent-im-removal](archive/plans/2026-11-04-tencent-im-removal.md) | — | 删除腾讯云 IM 分支:App/Web/后端三端 + 配置/CI/文档收敛,灰度开关移除、回退改镜像;backlog D-4 |
+| 11-07 | [feature-batches-f-j](archive/plans/2026-11-05-feature-batches-f-j.md) | — | 第五轮功能开发五批全交付:**F** 暗黑模式(1.0.5)/ **G** 共同点破冰(1.0.6)/ **H** 站内通知中心(1.0.7)/ **I** 广场关注 + 关注流(1.0.9)/ **J** 聊天表情贴纸(1.0.10)。设计决策内嵌该文 §2;J 批的 J-1 闸门核实了 `kind=2 custom` 持久化与补拉,并据实改为「kind=2 + 上行白名单」(计划里「imserver 零改动」的前提被证伪) |
 
 > 文件名用**立项日期**,与「日期」列的交付日期可能不同(如 `2026-11-04-tencent-im-removal.md` 于 11-08 交付)。
 

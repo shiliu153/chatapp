@@ -189,6 +189,16 @@ void main() {
     expect(voice.voiceUrl, 'http://cdn/media/chat/v.m4a');
     expect(voice.voiceDurationMs, 3200);
 
+    // 贴纸消息(批次 J):kind=custom + custom{type,id},资源在本地
+    events.clear();
+    transport.emit(jsonEncode(frameOf(server, 'message_sticker')));
+    await pumpEventQueue();
+    final sticker = events.whereType<ImNewMessage>().single.message;
+    expect(sticker.kind, ChatMessageKind.sticker);
+    expect(sticker.stickerId, 'sticker_01');
+    expect(sticker.text, '');
+    expect(sticker.seq, 45);
+
     // 下行已读回执
     events.clear();
     transport.emit(jsonEncode(frameOf(server, 'read_down')));
@@ -280,6 +290,19 @@ void main() {
     voiceAck['id'] = sendVoice['id'];
     transport.emit(jsonEncode(voiceAck));
     await sendingVoice;
+
+    // send_sticker(批次 J):kind=custom,载荷只有 type/id
+    final sendingSticker = client.sendSticker(peerId: 'u2', stickerId: 'sticker_01');
+    await pumpEventQueue();
+    final sendSticker = jsonDecode(transport.sent.last) as Map<String, dynamic>;
+    expectFrameMatches(sendSticker, frameOf(clientToServer, 'send_sticker'));
+    final stickerAck = jsonDecode(jsonEncode(frameOf(server, 'ack_send')))
+        as Map<String, dynamic>;
+    stickerAck['id'] = sendSticker['id'];
+    transport.emit(jsonEncode(stickerAck));
+    final stickerMessage = await sendingSticker;
+    expect(stickerMessage.kind, ChatMessageKind.sticker);
+    expect(stickerMessage.stickerId, 'sticker_01');
 
     // read
     await client.markConversationRead('u2');

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import AppAvatar from '@/components/AppAvatar.vue'
 import MessageImage from './MessageImage.vue'
 import MessageVoice from './MessageVoice.vue'
+import { stickerById, UNKNOWN_STICKER_LABEL } from './stickers'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
 
@@ -57,6 +58,9 @@ const isNotice = computed(
 const isImage = computed(() => props.message.kind === ChatMessageKind.image)
 const isVoice = computed(() => props.message.kind === ChatMessageKind.voice)
 const isUnsupported = computed(() => props.message.kind === ChatMessageKind.other)
+/** 贴纸(批次 J):资源在本地,未知 id 降级成「[贴纸]」文本 */
+const isSticker = computed(() => props.message.kind === ChatMessageKind.sticker)
+const sticker = computed(() => stickerById(props.message.stickerId))
 </script>
 
 <template>
@@ -107,9 +111,22 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
       ⋯
     </button>
 
-    <div class="message-bubble__body">
+    <div
+      class="message-bubble__body"
+      :class="{ 'message-bubble__body--sticker': isSticker }"
+    >
+      <img
+        v-if="isSticker && sticker"
+        class="message-bubble__sticker"
+        :src="sticker.src"
+        :alt="sticker.label"
+        :data-testid="`sticker-${sticker.id}`"
+      />
+      <span v-else-if="isSticker" class="message-bubble__text" data-testid="sticker-unknown">
+        {{ UNKNOWN_STICKER_LABEL }}
+      </span>
       <MessageImage
-        v-if="isImage"
+        v-else-if="isImage"
         :message="props.message"
         :local-file="props.localFile"
         @open="$emit('openImage', props.message)"
@@ -162,6 +179,20 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
 .message-bubble--self .message-bubble__body {
   background: var(--gradient-heart);
   color: var(--color-bg-card);
+}
+/* 贴纸:不画气泡底色/阴影(贴纸自带描边与圆角),文字降级时用正文色 */
+.message-bubble__body--sticker,
+.message-bubble--self .message-bubble__body--sticker {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--color-text1);
+}
+.message-bubble__sticker {
+  width: 132px;
+  height: 132px;
+  border-radius: var(--radius-image);
+  object-fit: contain;
 }
 /* 搜索定位命中:用外扩阴影做淡底,不改变布局(避免滚动位置跳动) */
 .message-bubble--hit {

@@ -461,27 +461,27 @@ H 批积累的「新页面 + 游标分页 + 双主题」经验可直接复用。
 ## 7. 开新会话提示词(可直接复制)
 
 **批次 F**
-> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 F(§4),按 F-1→F-6 顺序执行。
+> `读 docs/superpowers/archive/plans/2026-11-05-feature-batches-f-j.md 的批次 F(§4),按 F-1→F-6 顺序执行。
 > 先做 F-1 双主题底座,再每 15 个文件一批迁移取色并跑 analyze+test;新增的「禁用裸色值」硬门禁必须落地。
 > 完成后按 §5 门禁清单走 PR,并升版本到 1.0.5 发版。`
 
 **批次 G**
-> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 G(§4),按 G-1→G-4 执行。
+> `读 docs/superpowers/archive/plans/2026-11-05-feature-batches-f-j.md 的批次 G(§4),按 G-1→G-4 执行。
 > 注意 §2.2 的范围收敛:只在配对那一刻展示共同点,不动聊天页;查询预算门禁不能红。
 > 完成后走 PR 并升版本到 1.0.6。`
 
 **批次 H**
-> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 H(§4),按 H-1→H-6 执行。
+> `读 docs/superpowers/archive/plans/2026-11-05-feature-batches-f-j.md 的批次 H(§4),按 H-1→H-6 执行。
 > 严格遵守 §2.3 的决策:灰条保留、喜欢我/访客不通知、新增 social 开关列、铃铛入口不加底栏 tab。
 > H-3 只追加不改既有调用,先跑全量测试。完成后走 PR 并升版本到 1.0.7。`
 
 **批次 I**
-> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 I(§4),按 I-1→I-6 执行。
+> `读 docs/superpowers/archive/plans/2026-11-05-feature-batches-f-j.md 的批次 I(§4),按 I-1→I-6 执行。
 > 关注流口径见 §2.4(只含关注的人,不含自己);openapi 冲突一律重新生成不要手工解。
 > 完成后走 PR 并升版本到 1.0.8。`
 
 **批次 J**
-> `读 docs/superpowers/plans/2026-11-05-feature-batches-f-j.md 的批次 J(§4)。**先做 J-1 闸门**:
+> `读 docs/superpowers/archive/plans/2026-11-05-feature-batches-f-j.md 的批次 J(§4)。**先做 J-1 闸门**:
 > 核实 imserver 的 kind=2 custom 是否持久化且 history 能带回,把结论报给我再决定走 kind=2 还是 kind=5。
 > 不要跳过闸门直接写代码。完成后走 PR 并升版本到 1.0.9。`
 
@@ -821,3 +821,115 @@ git grep -n "#[0-9a-fA-F]\{3,8\}" -- web/src | grep -v tokens.css   # 0
 - **已知限制(记入批次 J 待办)**:关注/取消关注后广场「关注」tab 的列表**不会自动失效**
   (双端都是:离开再回来仍是旧列表,下拉刷新或重新进入才更新)。最小改法:关注成功/取消成功时
   `ref.invalidate(followingProvider)`(App)/ `useFollowingFeedStore().load(true)`(Web)。
+
+### 批次 J 执行于 2026-11-07 / PR #93
+
+**交付范围**:J-1 → J-5 全部完成,版本升到 **1.0.10**(1.0.8 被顶栏修复占用、1.0.9 是批次 I,
+故 J 顺延到 1.0.10)。**J-1 闸门走了「kind=2 + 上行白名单」**,imserver 有一处改动(见下)。
+
+#### J-1 闸门结论(核实 + 运行时实证)
+
+| 问题 | 结论 | 证据 |
+|---|---|---|
+| `kind=2` 的 content 是否落库 | **通过** | `store/message_repo.cpp::insert` 把 `kind` 与 `body` 一起写 `im_message`;`kind` 是 `TINYINT`,无枚举约束;单测 `MessageServiceTest.StoresCustomAsKindTwo` |
+| `GET /im/api/messages` / 离线补拉是否带回 `custom` | **通过** | `net/http_api.cpp::message_json` 对 `kind==2` 输出 `{"kind":"custom","custom":…}`;历史、会话列表 `last_message` 同构。容器内实证:对端**离线**时发贴纸 → 再拉历史,`custom` 原样带回 |
+| 「imserver 零改动」是否成立 | **不成立** | 上行 `send` 帧原本只认 `text`/`image`/`voice`,客户端发 `custom` 直接 `42201`;`custom` 原本只能由 Django 经 `/internal/send` 产生 |
+
+**用户决策(2026-11-07)**:走 **A 方案 —— kind=2 + 上行白名单**,不新增 `kind=5`。
+理由:落库/历史/下行帧全部零改动,只放开上行一种载荷;`kind=5` 要动 `frames.h` +
+`ws_server` + `http_api` + 三端解析,成本 +1 天而收益只是「类型更纯」。
+
+**安全边界(白名单,不是「照单全收」)**:上行 `custom` 只放行 `type=sticker` 且
+`id` 形如 `sticker_NN`,落库只保留 `{"type","id"}`。否则任何账号都能伪造
+`{"type":"match_notice"}` 假系统灰条 —— 灰条是服务端身份的象征。集成测试
+`tests/integration/test_sticker.py` 把这条边界钉住(伪造灰条 → 42201、id 形状不合法 → 42201、
+夹带字段被丢弃)。
+
+#### 与计划的偏差
+
+| 计划 | 实际 | 原因 |
+|---|---|---|
+| §2.5 / J-1「imserver 预期零改动,通过即零改动」 | **改了 1 个文件约 20 行**(`ws_server.cpp` 上行白名单 + `is_sticker_id`)+ 1 条集成测试 | 闸门发现上行 `send` 原本拒绝 `custom`(见上表),无论走 kind=2 还是 kind=5 都必须改服务端;选 kind=2 已是改动最小的路 |
+| J-2「12 个 512×512 贴纸,统一风格」 | 用一次性脚本生成(品牌渐变圆角底 + 白色两字文案),**产物入库、生成脚本不入库** | 个人项目没有设计资源;脚本依赖 Pillow(CI 只装 PyYAML),留着也没法在 CI 跑。12 张的版式一致,`check_stickers.py` 保证两端逐字节相同 |
+| J-3「输入框旁加表情按钮 → 底部面板两 tab」 | 面板**本来就存在**(`emoji_panel.dart`,单 tab),本批改成两 tab 并保留既有 key(`chat.emoji.panel` / `chat.emoji.$emoji`) | 表情面板是 1.0.x 已交付的能力;重写会让既有 `chat_page_test` 的 4 条用例无谓重写 |
+| 计划未提「撤回」 | 贴纸纳入 2 分钟撤回(与文本/图片一致) | 贴纸是普通消息,发错了同样要能撤回;语音仍不支持撤回,不在本批扩大范围 |
+| 计划未提「老客户端」渲染 | 明确记录:1.0.9 及以前的客户端把未知 `custom` 当 `ban_notice` 渲染成**空白灰条**(不白屏) | `MIN_APP_VERSION` 不动(仍 1.0.1),所以这条降级路径是真实存在的,必须写进文档 |
+| 计划未提 1.0.9 的已知限制 | 顺手补掉:关注/取消关注后让广场「关注」tab 失效(App `ref.invalidate(followingProvider)` / Web `useFollowingFeedStore().load(true)`),Web 侧补了断言 | 该限制在 1.0.9 记录里明写「记入批次 J 待办」,J 就是下一批 |
+
+#### 实现要点
+
+- **消息类型仍是 5 种**(text/custom/image/voice + 撤回),贴纸是 `kind=2 custom` 的一种
+  `type`;`ChatMessageKind` 只加了客户端侧的 `sticker`,线上协议没有新 `kind`。
+- **两端都只传 id**:`{"type":"sticker","id":"sticker_01"}`,资源打包进
+  `app/assets/stickers/` 与 `web/public/stickers/`;未知 id 降级「[贴纸]」文本。
+- **跨栈 fixture 各加 2 帧**:上行 `send_sticker`、下行 `message_sticker`,
+  三端契约测试(App `protocol_fixture_test` / Web `im-protocol-fixture.spec` /
+  imserver `frames_fixture_test`)全部断言到字段级。
+- **`scripts/check_stickers.py` 进 `contract.yml`**:两端文件名集合一致 + 逐字节相同 +
+  512×512(只读 PNG IHDR,不依赖 Pillow)。做过「删一张 → 变红」验证。
+- **会话列表摘要**:贴纸显示「[贴纸]」(App `_previewOf` / Web `summaryOf`)。
+
+#### 踩到的坑
+
+1. **`custom` 原来不是「客户端可发」的类型**。三端 fixture README 里写死了「custom 不走 send 帧」,
+   `handle_send` 也只认三种 kind —— 计划里「imserver 零改动」的假设正是踩在这条上。
+   **教训**:协议类闸门要连「谁有权限发」一起核实,不能只看「存不存、能不能读」。
+2. **`im_message.kind` 是 `TINYINT`**,所以 kind=2 与 kind=5 都不需要迁移 —— 这条让 A 方案更划算。
+3. **App 的 `_PendingSend` 只有 text/image/voice 三态**,贴纸要加第 4 态,并且 ack 回来时
+   要按 `stickerId` 还原 `ChatMessageKind.sticker`(否则会退化成文本消息)。
+4. **App 的 `MessageBubble` 先把「非 text/image/voice」一律当灰条**,贴纸不加分支就会被渲染成
+   居中灰条(空白)。Web 的 `messageFromJson` 同理:任何非 `match_notice` 的 `custom`
+   都映射成 `banNotice`。
+5. **`chatEmojis` 面板高度固定 220**,加 tab 后要留 40px 给 tab 栏(改成 248),否则贴纸被裁。
+6. **贴纸资源必须两端逐字节一致**。用同一份脚本生成再拷贝,不要各端各存一次
+   (PNG 重新编码后字节不同,`check_stickers.py` 会红)。
+
+#### 测试
+
+| 端 | 结果 |
+|---|---|
+| imserver | unit **62** 绿(含 fixture 契约 2 条,新增 `message_sticker`/`send_sticker`);HTTP/WS 集成 `test_sticker.py` + `test_history.py` + `test_internal.py` 全绿 |
+| 后端(Django) | **本批零改动**(无新接口/无迁移/无模型改动),未跑 `manage.py test`;CI 会跑 |
+| App | `flutter analyze` 零告警;`flutter test` **519 绿**(新增 4:面板贴纸 tab 1、历史贴纸渲染 1、气泡贴纸/未知降级 2) |
+| Web | `vue-tsc` 零错误、`eslint --max-warnings 0` 零告警;`vitest` **459 绿**(新增 8:store 2、面板 2、气泡 3、聊天页 1) |
+| 版本 | `python scripts/sync_version.py --check` 绿(1.0.10) |
+
+#### App 模拟器验收(2026-11-07,debug 包,`emulator-5554` / Pixel_7 / Android 17)
+
+本地起了完整链路:`imserver`(新代码,容器内自编译)+ MySQL/Redis + Django `runserver`;
+账号 `13900000001`(user 12,资料完善 + 3 张过审照片),与之配对的 user 13。
+
+**通过的项**(逐屏截图留证):
+
+| 步骤 | 结果 |
+|---|---|
+| 登录 → 消息页 | 「在吗」会话可见,铃铛在位 |
+| 表情面板 → 「贴纸」tab | 两个 tab 正常切换,12 张贴纸按本地资源渲染(`assets/stickers/` 打包生效) |
+| 点某张贴纸 | **不上输入框、直接上屏**;我方贴纸气泡**不画底色**,显示「发送中」占位 |
+| 重新进入会话 | 历史里的贴纸(`GET /im/api/messages` 返回的 `kind=custom`)按 id 还原成图片气泡,**不会退化成灰条/文本** —— J-1 闸门要验的「离线补拉能还原」在真机上成立 |
+| 会话列表摘要 | 最后一条是贴纸时显示「[贴纸]」 |
+
+**未通过的项(环境问题,已定位不是本批代码)**:
+
+> **App → imserver 的 `send` 帧在本机模拟器拓扑下整体不通**:贴纸发出去停在「发送中」,
+> 10s ×3 重试后置失败。**判别实验**:同一次会话里改发一条**纯文本**消息,同样停在「发送中」且
+> 库内无行 —— 文本路径与本批改动无关,所以不是贴纸/白名单的问题。
+>
+> 同一台机器上,用容器里以**真实客户端身份**(user 12 的 IM token)发出的同构贴纸帧
+> `{"kind":"custom","custom":{"type":"sticker","id":"sticker_02"}}` **立即拿到 ack**
+> (`msg_id=3506`),库里落 `kind=2` + `{"id":"sticker_02","type":"sticker"}`,
+> 且历史接口原样带回。
+>
+> 排查过的点:auth 与 25s 心跳都正常(`im:online:12` 在刷新)、`im:pair(12,13)` 存在、
+> `im_user` 双方都在、发送配额只用了 3/120。模拟器侧已试过 `10.0.2.2:9100` 与
+> `adb reverse tcp:9100/9101/8000` + `ws://127.0.0.1:9100` 两种拓扑,均未打通发送。
+> 按 `docs/pitfalls/android-emulator.md` 的既有判据(1.0.8/1.0.9 记录过同一现象),归为
+> **本机模拟器长跑网络劣化**,不是 App 代码问题;本批 UI 与解析路径已由单测 + 上面的真机截图覆盖。
+
+#### 发版(J-5)
+
+- **部署顺序有要求**:先上 imserver(否则客户端发贴纸一律 42201),再上后端/Web/APK。
+  回滚点 = 旧 imserver 镜像 tag(客户端会退回「发贴纸失败」,不影响文本/图片/语音)。
+- 版本 **1.0.10**:`pubspec.yaml`(1.0.10+11)/ `app_info.dart` / `web/package.json` 三处一致;
+  关于页测试(App + Web)同步;tag `v1.0.10` 与 Release 在合并后补(见 `docs/ops/release.md` §5)。
+- 无 Django 迁移、无 `openapi.yml` / `schema.d.ts` 变化(没有动 `/api/v1`)。

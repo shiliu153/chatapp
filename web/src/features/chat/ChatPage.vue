@@ -247,6 +247,11 @@ async function onRetry(message: ChatMessage) {
   await store.resend(message).catch(() => {})
 }
 
+/** 贴纸是**直接发送**(不插输入框):点一下就是一条消息(批次 J)。 */
+async function onSendSticker(stickerId: string) {
+  await store.sendSticker(props.peerId, stickerId).catch(() => {})
+}
+
 function onOpenImage(message: ChatMessage) {
   const urls = messages.value
     .filter((item) => item.kind === ChatMessageKind.image)
@@ -368,7 +373,12 @@ async function onPickImage(event: Event) {
       </template>
     </footer>
 
-    <EmojiPanel v-if="showEmoji" @pick="pickEmoji" @close="showEmoji = false" />
+    <EmojiPanel
+      v-if="showEmoji"
+      @pick="pickEmoji"
+      @sticker="onSendSticker"
+      @close="showEmoji = false"
+    />
 
     <AppToast :text="toast.text.value" />
 

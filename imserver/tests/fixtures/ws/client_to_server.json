@@ -60,6 +60,21 @@
       }
     },
     {
+      "name": "send_sticker",
+      "frame": {
+        "v": 1,
+        "type": "send",
+        "id": "c-4",
+        "data": {
+          "client_msg_id": "c-4",
+          "to": "u2",
+          "kind": "custom",
+          "custom": {"type": "sticker", "id": "sticker_01"}
+        }
+      },
+      "note": "贴纸(批次 J):复用 kind=custom,服务端落库为 kind=2。**上行只放行 type=sticker 且 id 形如 sticker_NN**;match_notice / ban_notice 等系统灰条仍只能由服务端内部发出"
+    },
+    {
       "name": "read",
       "frame": {
         "v": 1,

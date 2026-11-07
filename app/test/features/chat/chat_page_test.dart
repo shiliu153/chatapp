@@ -328,6 +328,43 @@ void main() {
         contains('😀'));
   });
 
+  testWidgets('贴纸面板:切 tab 点选直接发送贴纸', (tester) async {
+    await pumpChat(tester);
+    await tester.tap(find.byKey(const Key('chat.emoji.button')));
+    await tester.pumpAndSettle();
+    // 默认停在表情 tab,贴纸在第二个 tab
+    expect(find.byKey(const Key('chat.emoji.😀')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('chat.panel.tab.sticker')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('chat.emoji.😀')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('chat.sticker.sticker_01')));
+    await tester.pumpAndSettle();
+
+    expect(fake.log, contains('sendSticker:u9:sticker_01'));
+    // 气泡已上屏(面板里的资源 + 气泡里的资源各一个)
+    expect(find.byKey(const Key('chat.sticker.sticker_01')), findsWidgets);
+  });
+
+  testWidgets('历史里的贴纸消息能还原成图片气泡', (tester) async {
+    fake.history = {
+      'u9': [
+        const ChatMessage(
+            msgId: 's1',
+            peerId: 'u9',
+            isSelf: false,
+            timestamp: 1,
+            kind: ChatMessageKind.sticker,
+            stickerId: 'sticker_03'),
+      ],
+    };
+    await pumpChat(tester);
+    await tester.pump();
+
+    expect(find.byKey(const Key('chat.sticker.sticker_03')), findsOneWidget);
+    expect(find.byKey(const Key('chat.notice')), findsNothing);
+  });
+
   testWidgets('＋面板选图 → 发出图片消息', (tester) async {
     await pumpChat(tester, pickImage: () async => XFile('fake.png'));
     await tester.tap(find.byKey(const Key('chat.more.button')));

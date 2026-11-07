@@ -47,6 +47,7 @@ async function mountPage(
   // loadOlder 内部会走 ensureConnected(闭包里的真 connect),组件测试里一律替换掉
   store.loadOlder = vi.fn(async () => {})
   store.sendText = vi.fn(async () => msg({ isSelf: true }))
+  store.sendSticker = vi.fn(async () => msg({ isSelf: true, kind: ChatMessageKind.sticker }))
   store.deleteConversation = vi.fn(async () => {})
   discovery.loadMatches = vi.fn(async () => {})
   discovery.matchesLoaded = true
@@ -118,6 +119,20 @@ describe('ChatPage', () => {
     await flushPromises()
 
     expect(store.sendText).toHaveBeenCalledWith('u8', '在吗')
+    expect((w.find('input[type="text"]').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('贴纸面板:切 tab 点选直接发送,不插输入框', async () => {
+    const { w, store } = await mountPage()
+    await flushPromises()
+
+    await w.find('[aria-label="表情"]').trigger('click')
+    await w.find('[data-testid="panel-tab-sticker"]').trigger('click')
+    await w.find('[data-testid="sticker-sticker_01"]').trigger('click')
+    await flushPromises()
+
+    expect(store.sendSticker).toHaveBeenCalledWith('u8', 'sticker_01')
+    // 贴纸是直接发送:输入框不该被写进任何东西
     expect((w.find('input[type="text"]').element as HTMLInputElement).value).toBe('')
   })
 

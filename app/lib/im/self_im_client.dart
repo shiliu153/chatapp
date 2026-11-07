@@ -8,11 +8,15 @@ import 'self_transport.dart';
 import 'self_voice_uploader.dart';
 
 class _PendingSend {
-  _PendingSend(this.peerId, this.completer, {this.text = '', this.image, this.voice});
+  _PendingSend(this.peerId, this.completer,
+      {this.text = '', this.image, this.voice, this.stickerId});
   final String peerId;
   final String text;
   final ChatImageUpload? image;
   final ChatVoiceUpload? voice;
+
+  /// 贴纸 id(批次 J):ack 回来时用它把乐观消息还原成 sticker。
+  final String? stickerId;
   final Completer<ChatMessage> completer;
 }
 
@@ -155,19 +159,23 @@ class SelfImClient extends ImClient {
     if (pending == null || pending.completer.isCompleted) return;
     final image = pending.image;
     final voice = pending.voice;
+    final stickerId = pending.stickerId;
     pending.completer.complete(ChatMessage(
       msgId: '${data['msg_id'] ?? ''}',
       peerId: pending.peerId,
       isSelf: true,
       timestamp: (data['ts'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
-      kind: voice != null
-          ? ChatMessageKind.voice
-          : (image == null ? ChatMessageKind.text : ChatMessageKind.image),
+      kind: stickerId != null
+          ? ChatMessageKind.sticker
+          : (voice != null
+              ? ChatMessageKind.voice
+              : (image == null ? ChatMessageKind.text : ChatMessageKind.image)),
       text: pending.text,
       imageUrl: image?.thumbUrl,
       imageLargeUrl: image?.url,
       voiceUrl: voice?.url,
       voiceDurationMs: voice?.durationMs ?? 0,
+      stickerId: stickerId,
     ));
   }
 
@@ -306,6 +314,36 @@ class SelfImClient extends ImClient {
   }
 
   @override
+  Future<ChatMessage> sendSticker({required String peerId,
+      required String stickerId}) async {
+    // 贴纸复用 kind=2 custom(批次 J):载荷只有 type/id,资源在客户端本地。
+    // 服务端会校验 id 形状,不合法回 42201。
+    final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
+    final completer = Completer<ChatMessage>();
+    _pendingSends[id] = _PendingSend(peerId, completer, stickerId: stickerId);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      _transport?.send(jsonEncode({
+        'v': 1,
+        'type': 'send',
+        'id': id,
+        'data': {
+          'client_msg_id': id,
+          'to': peerId,
+          'kind': 'custom',
+          'custom': {'type': 'sticker', 'id': stickerId},
+        },
+      }));
+      try {
+        return await completer.future.timeout(const Duration(seconds: 10));
+      } on TimeoutException {
+        if (attempt == 2) break;
+      }
+    }
+    _pendingSends.remove(id);
+    throw const ImException(50001, '发送失败,请重试');
+  }
+
+  @override
   Future<List<ImConversation>> fetchConversations() async {
     final data = await _http!.get('/conversations', {'limit': '100'});
     final items = (data['items'] as List? ?? const []).cast<Map<String, dynamic>>();
@@ -413,6 +451,8 @@ class SelfImClient extends ImClient {
     final customType = custom['type'] as String? ?? '';
     final messageKind = switch (kind) {
       'custom' when customType == 'match_notice' => ChatMessageKind.matchNotice,
+      // 贴纸(批次 J):`{type:"sticker", id:"sticker_NN"}`,资源在本地
+      'custom' when customType == 'sticker' => ChatMessageKind.sticker,
       'custom' when customType.isNotEmpty => ChatMessageKind.banNotice,
       'custom' => ChatMessageKind.other,
       'image' => ChatMessageKind.image,
@@ -433,6 +473,9 @@ class SelfImClient extends ImClient {
       imageLargeUrl: image['url'] as String?,
       voiceUrl: voice['url'] as String?,
       voiceDurationMs: (voice['duration_ms'] as num?)?.toInt() ?? 0,
+      stickerId: messageKind == ChatMessageKind.sticker
+          ? (custom['id'] as String? ?? '')
+          : null,
       isRevoked: json['revoked'] == true,
     );
   }

@@ -20,6 +20,8 @@ interface PendingSend {
   image?: UploadedImage
   /** 语音消息才有:上传结果,ack 回来时用它还原 ChatMessage */
   voice?: UploadedVoice
+  /** 贴纸消息才有:贴纸 id,ack 回来时用它还原 ChatMessage */
+  stickerId?: string
   resolve: (message: ChatMessage) => void
   reject: (error: Error) => void
 }
@@ -210,17 +212,20 @@ export class SelfImClient implements ImClient {
       this.pending.delete(id)
       const image = pending.image
       const voice = pending.voice
+      const stickerId = pending.stickerId
       pending.resolve({
         msgId: String(data.msg_id ?? ''),
         peerId: pending.peerId,
         isSelf: true,
         seq: Number(data.seq ?? 0),
         timestamp: Number(data.ts ?? Date.now()),
-        kind: voice
-          ? ChatMessageKind.voice
-          : image
-            ? ChatMessageKind.image
-            : ChatMessageKind.text,
+        kind: stickerId
+          ? ChatMessageKind.sticker
+          : voice
+            ? ChatMessageKind.voice
+            : image
+              ? ChatMessageKind.image
+              : ChatMessageKind.text,
         text: pending.text,
         senderName: '',
         senderAvatar: null,
@@ -230,6 +235,7 @@ export class SelfImClient implements ImClient {
         imageLargeUrl: image ? image.url : null,
         voiceUrl: voice ? voice.url : null,
         voiceDurationMs: voice ? voice.duration_ms : 0,
+        stickerId: stickerId ?? null,
         isRevoked: false,
       })
       return
@@ -383,6 +389,44 @@ export class SelfImClient implements ImClient {
             duration_ms: voice.duration_ms,
             size: voice.size,
           },
+        },
+      }))
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<ChatMessage>((_, reject) =>
+            setTimeout(() => reject(new Error('发送超时')), 10000)),
+        ])
+      } catch (error) {
+        this.pending.delete(id)
+        // 连接已断:再重试也发不出去,立刻把失败交给 UI(否则要连等 3 × 10 秒)
+        if (!this.authed) throw error instanceof Error ? error : new Error('IM 连接已断开')
+      }
+    }
+    throw new Error('发送失败,请重试')
+  }
+
+  /**
+   * 发贴纸(批次 J):复用 `kind=custom`,载荷只有 `{type:'sticker', id}`。
+   *
+   * 资源在客户端本地(`public/stickers/`),消息里不传图;服务端会校验 id 形状,
+   * 不合法回 42201。
+   */
+  async sendSticker(peerId: string, stickerId: string): Promise<ChatMessage> {
+    const id = `local-${Date.now()}${Math.floor(Math.random() * 1000)}`
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const promise = new Promise<ChatMessage>((resolve, reject) => {
+        this.pending.set(id, { peerId, text: '', stickerId, resolve, reject })
+      })
+      this.sendFrame(JSON.stringify({
+        v: 1,
+        type: 'send',
+        id,
+        data: {
+          client_msg_id: id,
+          to: peerId,
+          kind: 'custom',
+          custom: { type: 'sticker', id: stickerId },
         },
       }))
       try {

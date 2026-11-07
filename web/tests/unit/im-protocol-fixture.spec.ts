@@ -181,6 +181,15 @@ describe('IM 协议 fixture', () => {
     expect(voice.message.voiceDurationMs).toBe(3200)
 
     events.length = 0
+    transport.emit(JSON.stringify(frameOf(server, 'message_sticker')))
+    await flush()
+    const sticker = events.find((event) => event.type === 'newMessage')
+    if (sticker?.type !== 'newMessage') throw new Error('没有收到贴纸消息')
+    expect(sticker.message.kind).toBe('sticker')
+    expect(sticker.message.stickerId).toBe('sticker_01')
+    expect(sticker.message.text).toBe('')
+
+    events.length = 0
     transport.emit(JSON.stringify(frameOf(server, 'read_down')))
     await flush()
     expect(events).toContainEqual({ type: 'peerRead', peerId: 'u2', seq: 42 })
@@ -286,6 +295,24 @@ describe('IM 协议 fixture', () => {
     voiceAck.id = sendVoice.id
     transport.emit(JSON.stringify(voiceAck))
     await sendingVoice
+
+    // send_sticker(批次 J):kind=custom,载荷只有 type/id
+    const sendingSticker = client.sendSticker('u2', 'sticker_01')
+    await flush()
+    const sendSticker = JSON.parse(transport.sent[transport.sent.length - 1]) as Record<
+      string,
+      unknown
+    >
+    expectFrameMatches(sendSticker, frameOf(clientToServer, 'send_sticker'))
+    const stickerAck = JSON.parse(JSON.stringify(frameOf(server, 'ack_send'))) as Record<
+      string,
+      unknown
+    >
+    stickerAck.id = sendSticker.id
+    transport.emit(JSON.stringify(stickerAck))
+    const stickerMessage = await sendingSticker
+    expect(stickerMessage.kind).toBe('sticker')
+    expect(stickerMessage.stickerId).toBe('sticker_01')
 
     // read
     await client.markConversationRead('u2')

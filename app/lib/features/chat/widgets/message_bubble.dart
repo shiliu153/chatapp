@@ -10,6 +10,7 @@ import '../../../core/widgets/app_avatar.dart';
 import '../../../im/im_client.dart';
 import 'voice_bubble.dart';
 import '../../../core/theme/heart_colors.dart';
+import '../stickers.dart';
 
 /// 单条消息(「心跳」附录 B.3):自己=brand 实底白字、对方=白底,
 /// 圆形头像 40;match_notice/ban_notice 渲染成居中 pill 灰条。
@@ -64,7 +65,8 @@ class MessageBubble extends StatelessWidget {
     }
     if (message.kind != ChatMessageKind.text &&
         message.kind != ChatMessageKind.image &&
-        message.kind != ChatMessageKind.voice) {
+        message.kind != ChatMessageKind.voice &&
+        message.kind != ChatMessageKind.sticker) {
       final label = switch (message.kind) {
         ChatMessageKind.matchNotice => message.text.isEmpty ? noticeFallback : message.text,
         ChatMessageKind.banNotice => message.text.isEmpty ? '系统通知' : message.text,
@@ -172,6 +174,9 @@ class MessageBubble extends StatelessWidget {
     if (message.kind == ChatMessageKind.voice) {
       return VoiceBubble(message: message);
     }
+    if (message.kind == ChatMessageKind.sticker) {
+      return _sticker(colors);
+    }
     if (message.kind == ChatMessageKind.image) {
       return GestureDetector(
         key: const Key('chat.image'),
@@ -196,6 +201,43 @@ class MessageBubble extends StatelessWidget {
       child: Text(message.text,
           style: AppText.body
               .copyWith(color: message.isSelf ? Colors.white : colors.text1)),
+    );
+  }
+
+  /// 贴纸气泡(批次 J):**不画气泡底色**,只显示图片本身(贴纸自带描边与圆角)。
+  ///
+  /// 未知 id(老版本收到新贴纸)降级成 `[贴纸]` 文本 pill,不白屏、不抛异常。
+  Widget _sticker(HeartColors colors) {
+    final sticker = stickerById(message.stickerId);
+    if (sticker == null) {
+      return Container(
+        key: const Key('chat.sticker.unknown'),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: colors.divider,
+          borderRadius: BorderRadius.circular(AppRadius.bubble),
+        ),
+        child: Text(unknownStickerLabel,
+            style: AppText.body.copyWith(color: colors.text2)),
+      );
+    }
+    return Image.asset(
+      sticker.assetPath,
+      key: Key('chat.sticker.${sticker.id}'),
+      width: 132,
+      height: 132,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stack) => Container(
+        width: 132,
+        height: 132,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: colors.divider,
+          borderRadius: BorderRadius.circular(AppRadius.image),
+        ),
+        child: Text(unknownStickerLabel,
+            style: AppText.micro.copyWith(color: colors.text3)),
+      ),
     );
   }
 

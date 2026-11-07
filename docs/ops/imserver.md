@@ -773,7 +773,7 @@ curl -G 'https://<域名>/im/api/search' \
 
 ### 16.4 搜索口径(排序与过滤)
 
-- **只搜文本**(`kind=1`):图片、语音、系统灰条不参与;
+- **只搜文本**(`kind=1`):图片、语音、系统灰条、贴纸不参与;
 - 已撤回的消息不可见(`revoked_at IS NOT NULL` 排除);
 - **我删掉的会话**整段不可见(`im_conversation_state.deleted=1`);
 - 我拉黑的对端消息不出现(`im_blacklist` 反连接);
@@ -818,6 +818,112 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | 429 | 是否绕过了 300ms 防抖;是否多个标签页同时搜 |
 | 翻页重复或漏条 | 是否把上一页最后一条的 `msg_id` 原样传给 `before_id`(严格小于) |
 | 搜「100%」命中一切 | 客户端是否在本地又拼了一次 `%`(服务端已转义,前端不要预处理) |
+
+## 17. 自定义消息 `kind=2 custom`(灰条 / 贴纸,2026-11-07)
+
+`custom` 是 imserver 里唯一的「非文本非媒体」消息类型,库里存成 `kind=2`,
+`body` 是客户端/服务端给的 JSON 原样。两类用法:
+
+| 用法 | `custom.type` | 谁发 | 形态 |
+|---|---|---|---|
+| 系统灰条(配对/封禁/举报处理/评论回复提醒) | `match_notice` / `ban_notice` / `report_handled` / `post_commented` / `post_replied` | **只有服务端**:Django 经 HMAC 内部接口 `POST /internal/send` | 居中灰条,不进搜索、不推离线推送 |
+| 聊天贴纸(批次 J) | `sticker` | **客户端**(App / Web) | `{"type":"sticker","id":"sticker_01"}`,资源在客户端本地 |
+
+### 17.1 闸门结论:持久化与补拉都是「是」(2026-11-07 核实)
+
+J-1 闸门要回答两件事,结论都是通过(代码 + 运行时实证):
+
+| 问题 | 结论 | 证据 |
+|---|---|---|
+| `kind=2` 的 content 是否落库 | **是** | `store/message_repo.cpp::insert` 把 `kind` 与 `body` 一起写 `im_message`;`kind` 是 `TINYINT`(`migrations/001_init.sql`),无枚举约束。单测 `MessageServiceTest.StoresCustomAsKindTwo` |
+| `GET /im/api/messages` 与离线补拉是否带回 `custom` | **是** | `net/http_api.cpp::message_json` 对 `kind==2` 输出 `{"kind":"custom","custom":<body>}`;历史接口、会话列表 `last_message` 都走它。集成测试 `tests/integration/test_sticker.py`(对端离线时发贴纸 → 再拉历史) |
+
+**但计划里「imserver 零改动」的前提不成立**:上行 `send` 帧原本只认
+`text` / `image` / `voice`(见下),`custom` 只能由服务端内部产生。所以贴纸走
+`kind=2` 需要 imserver **放开上行白名单**(本批唯一一处服务端改动,约 20 行),
+不需要新增消息类型、不需要迁移。
+
+### 17.2 上行 `send` 帧(客户端 → 服务端)
+
+```json
+{
+  "v": 1,
+  "type": "send",
+  "id": "local-1720000000000",
+  "data": {
+    "client_msg_id": "local-1720000000000",
+    "to": "u2",
+    "kind": "custom",
+    "custom": {"type": "sticker", "id": "sticker_01"}
+  }
+}
+```
+
+**白名单规则**(`net/ws_server.cpp::handle_send` + `is_sticker_id`):
+
+- `kind` 只认 `text` / `image` / `voice` / `custom`;
+- `kind=custom` 时 `custom.type` 必须等于 `sticker`,否则 `42201 暂不支持该消息类型`;
+- `custom.id` 必须形如 `sticker_` + **两位数字**(`sticker_01` … `sticker_99`),
+  否则 `42201 贴纸 id 不合法`;
+- 落库时**只保留 `{"type","id"}` 两个键**,客户端夹带的其它字段一律丢弃。
+
+> 为什么必须白名单:不校验就等于让任何账号能给对端发一条
+> `{"type":"match_notice","desc":"你们已互相喜欢"}` 的**假系统灰条**。
+> 灰条是服务端身份的象征,客户端不能有这条通道。
+
+### 17.3 下行帧与历史
+
+下行实时帧、`GET /im/api/messages` 历史、会话列表 `last_message` **三者同构**:
+
+```json
+{
+  "v": 1,
+  "type": "message",
+  "data": {
+    "msg_id": "900127",
+    "seq": 45,
+    "from": "u2",
+    "to": "u9",
+    "kind": "custom",
+    "ts": 1720000000003,
+    "revoked": false,
+    "custom": {"type": "sticker", "id": "sticker_01"},
+    "from_profile": {"nickname": "小九", "avatar": "…"}
+  }
+}
+```
+
+- 贴纸**只传 id**,图片是打包进两端的静态资源(`app/assets/stickers/` 与
+  `web/public/stickers/`,逐字节一致,`scripts/check_stickers.py` 把关);
+- 客户端按 id 取本地资源,**未知 id 降级成「[贴纸]」文本**(老版本收到新贴纸);
+- 贴纸不参与搜索(`/im/api/search` 只看 `kind=1`);
+- 贴纸**不触发离线推送**(`PushNotifier` 对 `kind=2` 与 `from=0` 一律跳过;
+  本项目推送通道本来就固定 `off`);
+- 撤回对贴纸同样生效(2 分钟窗口),撤回后历史里只剩 `revoked=true`。
+
+### 17.4 验证
+
+```bash
+# unit(含跨栈帧 fixture 契约:message_sticker / send_sticker)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test.sh
+
+# HTTP/WS 集成(贴纸落库 + 历史带回 + 伪造灰条被拒 + id 形状校验)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
+```
+
+贴纸相关的断言在 `imserver/tests/integration/test_sticker.py`;跨栈帧契约在
+`imserver/tests/fixtures/ws/*.json`,三端各有一份契约测试(App / Web / imserver)。
+
+### 17.5 排查
+
+| 现象 | 先查 |
+|---|---|
+| 发贴纸返回 `42201 暂不支持该消息类型` | imserver 镜像是否已升级到含本批改动的版本(旧镜像不认上行 `custom`) |
+| 发贴纸返回 `42201 贴纸 id 不合法` | id 是不是 `sticker_NN` 形状(两位数字);客户端有没有自己拼 id |
+| 贴纸在历史里变成「[贴纸]」文本 | 该客户端版本不认识这个 id(资源没打包进去,或 id 比客户端新) |
+| 贴纸显示成空白灰条 | 更老的客户端(1.0.9 及以前)把未知 `custom` 当 `ban_notice` 渲染 —— 不会白屏,升级后正常 |
+| 贴纸消息在聊天记录搜索里搜不到 | 预期行为:搜索只看 `kind=1` 文本 |
+
 
 
 

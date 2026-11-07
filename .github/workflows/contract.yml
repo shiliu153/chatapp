@@ -11,8 +11,10 @@ on:
     paths:
       - 'docs/api/**'
       - 'app/lib/**'
+      - 'app/assets/stickers/**'
       - 'app/pubspec.yaml'
       - 'web/package.json'
+      - 'web/public/stickers/**'
       - 'scripts/**'
       - 'deploy/observability/**'
       - '.github/workflows/contract.yml'
@@ -20,8 +22,10 @@ on:
     paths:
       - 'docs/api/**'
       - 'app/lib/**'
+      - 'app/assets/stickers/**'
       - 'app/pubspec.yaml'
       - 'web/package.json'
+      - 'web/public/stickers/**'
       - 'scripts/**'
       - 'deploy/observability/**'
       - '.github/workflows/contract.yml'
@@ -48,6 +52,11 @@ jobs:
 
       - name: App 手写模型字段 ⊆ OpenAPI 契约
         run: python scripts/check_app_models.py --verbose
+
+      # 贴纸是打包进两端的静态资源:两端文件名/字节/尺寸必须完全一致,
+      # 否则同一条贴纸消息在 App 与 Web 会渲染出不同的图(单测看不出来)。
+      - name: 贴纸资源两端一致(app/assets ↔ web/public)
+        run: python scripts/check_stickers.py
 
       # 告警中转脚本只用标准库,秒级可测:载荷渲染、去重键、HTTP 入口与失败收敛。
       # 这条链路哑了没人会发现(告警本来就不常发),所以必须有回归。
