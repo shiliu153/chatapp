@@ -167,7 +167,13 @@ git commit -m "chore(scripts): 新增 CI 等价依赖容器 mysql8+redis7(端口
 - Create: `scripts/verify.sh`
 
 **Interfaces:**
-- Produces:`scripts/verify.sh <子命令>...`,子命令集合 = `backend|web|imserver|app|contract|all|deps`;选项 `--list`、`--dry-run`、`--keep-deps`。退出码:0 全绿;1 用法错误;2 未知子命令或自检失败。后续所有任务只往里加函数,不改骨架。
+- Produces:`scripts/verify.sh [选项] <子命令>...`,子命令集合 = `backend|web|imserver|app|contract|all|deps|bootstrap`;选项 `--list`、`--dry-run`、`--keep-deps`。退出码:0 全绿;1 用法错误;2 未知子命令或自检失败。后续所有任务只往里加函数,不改骨架。
+
+> **执行中发现的缺口(2026-11-07 补):** WSL 系统 Python 是 3.12.3 且没有 Django/PyMySQL,
+> 而 CI 用 3.11。因此 `backend` / `contract` 必须走一个专用 venv(`$HOME/venvs/chatapp`),
+> 由新增的 `bootstrap` 子命令按 `chatapp/requirements.txt` 装好。
+> 版本差异(3.12 本地 / 3.11 CI)是已知偏差:Django 5.2 两边都支持,真正的裁判仍是 CI;
+> 若出现过只在一边红的用例,先怀疑版本差异,再考虑给 compose 加 python:3.11 服务。
 
 - [ ] **Step 1: 先写自测(此时 `verify.sh` 还不存在,必须红)**
 
@@ -222,6 +228,9 @@ wsl -e bash -lc 'cd /mnt/d/pycharmproject/chat_app && bash scripts/test_verify.s
 set -euo pipefail
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 COMPOSE="$ROOT/docker-compose.ci.yml"
+# 后端/契约用的解释器:专用 venv(见 Task 2 Interfaces 里的缺口说明)。
+VENV=${CHATAPP_VENV:-$HOME/venvs/chatapp}
+PY="$VENV/bin/python"
 DRY_RUN=0
 KEEP_DEPS=0
 
@@ -256,6 +265,7 @@ usage() {
   contract   版本号三处一致 + App 模型字段 ⊆ OpenAPI
   all        依次跑 backend web imserver app contract
   deps       只起依赖容器
+  bootstrap  建后端 venv 并装 requirements.txt(首次或依赖变更后跑一次)
 
 选项:
   --list       列出子命令
@@ -294,6 +304,13 @@ stack_imserver() { :; }
 stack_app() { :; }
 stack_contract() { :; }
 
+stack_bootstrap() {
+  run "创建 venv($VENV)" python3 -m venv "$VENV"
+  run "升级 pip" "$VENV/bin/pip" install --upgrade pip
+  run "安装后端依赖" "$VENV/bin/pip" install -r "$ROOT/chatapp/requirements.txt"
+  run "自检" "$PY" -c "import django, pymysql; print('django', django.get_version())"
+}
+
 main() {
   local stacks=()
   while [ $# -gt 0 ]; do
@@ -301,7 +318,7 @@ main() {
       --list|--help|-h) usage; exit 0 ;;
       --dry-run) DRY_RUN=1 ;;
       --keep-deps) KEEP_DEPS=1 ;;
-      backend|web|imserver|app|contract|deps|all) stacks+=("$1") ;;
+      backend|web|imserver|app|contract|deps|all|bootstrap) stacks+=("$1") ;;
       -*) die "未知选项 $1" ;;
       *) die "未知子命令 $1(用 --list 看清单)" ;;
     esac
@@ -313,6 +330,7 @@ main() {
   for s in "${stacks[@]}"; do
     case $s in
       deps) deps_up ;;
+      bootstrap) stack_bootstrap ;;
       all) deps_up; stack_backend; stack_web; stack_imserver; stack_app; stack_contract; ran_backend=1 ;;
       backend) deps_up; stack_backend; ran_backend=1 ;;
       web) stack_web ;;
@@ -373,20 +391,31 @@ done
 
 ```bash
 stack_backend() {
+  if [ "$DRY_RUN" = 0 ] && [ ! -x "$PY" ]; then
+    die "没有可用的 venv:$PY。先跑 scripts/verify.sh bootstrap"
+  fi
   cd "$ROOT/chatapp"
-  run "迁移" python3 manage.py migrate --noinput
-  run "后端全量测试" python3 manage.py test --noinput
-  run "OpenAPI 生成物同改校验" python3 manage.py spectacular --file ../docs/api/openapi.yml --validate
+  run "迁移" "$PY" manage.py migrate --noinput
+  run "后端全量测试" "$PY" manage.py test --noinput
+  run "OpenAPI 生成物同改校验" "$PY" manage.py spectacular --file ../docs/api/openapi.yml --validate
   if [ "$DRY_RUN" = 0 ]; then
     git -C "$ROOT" diff --exit-code -- docs/api/openapi.yml \
       || die "docs/api/openapi.yml 落后于代码:重新生成并提交"
   fi
   cd "$ROOT"
-  run "压测脚本自测" python3 -m unittest perf.test_run -v
+  run "压测脚本自测" "$PY" -m unittest perf.test_run -v
 }
 ```
 
-- [ ] **Step 3: 自测转绿**
+- [ ] **Step 3: 建 venv 并装依赖(一次性,约 1–2 分钟)**
+
+```bash
+wsl -e bash -lc 'cd /mnt/d/pycharmproject/chat_app && export https_proxy="http://$(ip route show default | awk "{print \$3}" | head -1):7897" http_proxy="$https_proxy" && bash scripts/verify.sh bootstrap'
+```
+
+期望:最后打印 `django 5.2.x`。装不动先查代理(宿主 7897),别改脚本。
+
+- [ ] **Step 4: 自测转绿**
 
 ```bash
 wsl -e bash -lc 'cd /mnt/d/pycharmproject/chat_app && bash scripts/test_verify.sh'
@@ -394,7 +423,7 @@ wsl -e bash -lc 'cd /mnt/d/pycharmproject/chat_app && bash scripts/test_verify.s
 
 期望:`全部通过`。
 
-- [ ] **Step 4: 真跑一次(这条最慢,3–5 分钟)**
+- [ ] **Step 5: 真跑一次(这条最慢,3–5 分钟)**
 
 ```bash
 wsl -e bash -lc 'cd /mnt/d/pycharmproject/chat_app && bash scripts/verify.sh backend'
@@ -402,7 +431,7 @@ wsl -e bash -lc 'cd /mnt/d/pycharmproject/chat_app && bash scripts/verify.sh bac
 
 期望:最后一行 `全部通过`;退出码 0。若 `CommentCoverageTests` / `ApiDocsCoverageTests` / `OpenApiSchemaTests` 红,说明**代码本身有问题**(不是脚本问题),按报错修或不属本计划的改动就停下回报。
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 6: 提交**
 
 ```bash
 git add scripts/verify.sh scripts/test_verify.sh
@@ -415,7 +444,7 @@ git commit -m "feat(scripts): verify.sh 支持 backend(与 backend.yml 四步对
 
 **Files:**
 - Modify: `scripts/verify.sh`
-- Modify: `scripts/test_verify.sh`(把 Task 2 Step 4 的临时替换改回 `web` / `npm run type-check`)
+- Modify: `scripts/test_verify.sh`(追加 web / contract 断言)
 
 **Interfaces:**
 - Consumes:`web/package.json` 的脚本(`gen:api` / `type-check` / `lint` / `test:run` / `build`)、`scripts/sync_version.py --check`、`scripts/check_app_models.py`。
@@ -455,8 +484,8 @@ stack_web() {
 }
 
 stack_contract() {
-  run "版本号三处一致" python3 "$ROOT/scripts/sync_version.py" --check
-  run "App 模型字段 ⊆ OpenAPI" python3 "$ROOT/scripts/check_app_models.py"
+  run "版本号三处一致" "$PY" "$ROOT/scripts/sync_version.py" --check
+  run "App 模型字段 ⊆ OpenAPI" "$PY" "$ROOT/scripts/check_app_models.py"
 }
 ```
 
