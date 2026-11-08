@@ -1,9 +1,10 @@
-"""账号与鉴权接口:健康检查、发码、校验登录、刷新令牌。
+"""账号与鉴权接口:健康检查、发码、校验登录、刷新令牌、注销与退出所有设备。
 
 设计要点:
     1. **响应路径不做任何第三方网络调用**:短信发送与 IM 建号/踢会话一律入队
        Celery 任务,避免第三方抖动拖垮接口响应;
-    2. 登录成功即 ``session_version += 1``,旧设备令牌随即失效(单设备登录);
+    2. 登录成功即把**本端**的会话版本 +1(``accounts.device_session.bump``),
+       同类端的旧设备令牌随即失效;另一端不受影响(多端在线,批次 K);
     3. 短信任务入队失败时回滚限流占位并返回 503(fail-closed)—— 否则用户会被
        60 秒重发间隔卡死,既拿不到码也不能重试。
 
@@ -17,13 +18,12 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
-from django.db.models import F
 from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import (APIException, AuthenticationFailed, ParseError,
                                        PermissionDenied)
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import TokenBackendError, TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
@@ -35,7 +35,7 @@ from config import metrics
 from im import tasks as im_tasks
 from notifications.tasks import send_sms_code
 
-from . import services
+from . import device_session, services
 from .cookies import (clear_refresh_cookie, same_origin, set_refresh_cookie,
                       wants_cookie)
 from .exceptions import SingleDeviceSessionConflict, SmsServiceUnavailable
@@ -164,8 +164,11 @@ def sms_send(request):
 def sms_verify(request):
     """校验验证码并登录(POST /api/v1/auth/sms/verify)。
 
-    号码未注册过则自动建号;登录成功即递增 ``session_version`` 使旧设备令牌失效,
-    并在事务提交后入队 IM 建号或标记待踢旧会话。
+    号码未注册过则自动建号;登录成功即把**本端**的会话版本 +1,使同类端的旧设备
+    令牌失效(另一端不受影响),并在事务提交后入队 IM 建号或标记待踢旧会话。
+
+    端类型由请求头 ``X-Client`` 决定(``web`` / 其余与缺省一律 ``app``);
+    之后一律按令牌里的 ``ct`` 回查,不再看请求头。
 
     Args:
         request: DRF 请求对象,body 需带 ``phone`` 与 ``code``。
@@ -205,28 +208,30 @@ def sms_verify(request):
     if (user.is_staff or user.is_superuser) and not settings.SMS_ALLOW_STAFF_LOGIN:
         metrics.LOGINS.labels(result="rejected").inc()
         raise PermissionDenied("运营账号请使用运营后台登录")
-    # 单设备登录:版本 +1 作废旧令牌;IM 建号/踢旧会话交给队列(响应路径不做外部调用)。
-    # 用 F() 在数据库内自增,避免「读—加一—写」在并发登录时两个请求都拿到同一个旧版本,
-    # 结果两台设备都以为自己是有效会话(M12)。
-    User.objects.filter(pk=user.pk).update(session_version=F("session_version") + 1)
-    user.refresh_from_db(fields=["session_version"])
+    # 多端:只递增**本端**版本(同类互顶),另一端不受影响。用 F() 在数据库内自增,
+    # 避免「读—加一—写」在并发登录时两个请求都拿到同一个旧版本,结果两台设备都以为
+    # 自己是有效会话(M12)。IM 建号/踢旧会话交给队列(响应路径不做外部调用)。
+    client_type = device_session.client_type_of(request)
+    device_session.bump(user, client_type)
 
     def _after_commit():
         # robust=True:broker 抖动不会把已提交的登录拖成 500
         if created:
             im_tasks.import_account.delay(user.id)
         else:
-            # 单设备:标记「待踢旧 IM 会话」,由新设备在 /im/user_sig 拉签名前同步踢
-            # (踢必须早于新会话建立;延迟任务只兜底 App 不来拉签名的情况)
-            cache.set(im_tasks.kick_pending_key(user.id), 1, im_tasks.KICK_PENDING_TTL)
+            # 标记「本端待踢旧 IM 会话」,由新设备在 /im/user_sig 拉签名前同步踢
+            # (踢必须早于新会话建立;延迟任务只兜底 App 不来拉签名的情况)。
+            # 标记必须带端维度:否则 Web 登录会把 App 的在线 IM 会话也踢掉。
+            cache.set(im_tasks.kick_pending_key(user.id, client_type), 1,
+                      im_tasks.KICK_PENDING_TTL)
             im_tasks.kick_pending.apply_async(
-                args=[user.id], countdown=im_tasks.KICK_BACKSTOP_DELAY)
+                args=[user.id, client_type], countdown=im_tasks.KICK_BACKSTOP_DELAY)
         # 会话版本同步给 imserver:新设备即使不拉签名,旧 token 也会在任务完成后失效
         im_tasks.sync_session_version.delay(user.id)
 
     transaction.on_commit(_after_commit, robust=True)
 
-    refresh = SessionRefreshToken.for_user(user)
+    refresh = SessionRefreshToken.for_user(user, client_type)
     payload = {
         "access": str(refresh.access_token),
         "is_new_user": created,
@@ -289,7 +294,9 @@ def _reuse_within_grace(raw_token: str) -> str | None:
     if not cached:
         return None
     user = User.objects.filter(id=claims.get("user_id")).first()
-    if user is None or claims.get("session_version") != user.session_version:
+    client_type = device_session.client_type_of_token(claims)
+    if user is None or device_session.legacy_token_version(claims) != \
+            device_session.current_version(user, client_type):
         raise SingleDeviceSessionConflict()
     return cached
 
@@ -340,7 +347,12 @@ class SessionTokenRefreshView(TokenRefreshView):
             raise AuthenticationFailed("登录状态已失效,请重新登录")
 
         user = User.objects.filter(id=token.get("user_id")).first()
-        if user is None or token.get("session_version") != user.session_version:
+        # 按令牌里的 ct 校验**该端**版本:Web 的 refresh 换出来的 access 仍是 web 端,
+        # 不会把 App 顶掉;轮换后的 refresh 由 simplejwt 从旧 refresh 复制全部 claim,
+        # 因此 ct / session_version 自动带过去(有专门的用例钉住)。
+        client_type = device_session.client_type_of_token(token)
+        if user is None or device_session.legacy_token_version(token) != \
+                device_session.current_version(user, client_type):
             raise SingleDeviceSessionConflict()
 
         serializer = TokenRefreshSerializer(data={"refresh": raw})
@@ -404,6 +416,32 @@ def logout(request):
         except Exception:
             # 已过期/已拉黑/缺 OutstandingToken 都无需处理:注销的目标是「以后不能用」。
             logger.info("注销时 refresh 已失效,忽略")
+    response = Response(status=204)
+    clear_refresh_cookie(response)
+    return response
+
+
+@extend_schema(request=None, responses={204: None})
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@throttle_classes([LogoutThrottle])
+def logout_all(request):
+    """退出所有设备:两端会话版本各 +1,并踢掉全部在线 IM 会话。
+
+    为什么两个端都 +1:这是「手机丢了,一键全端下线」的语义 —— 只递增本端会让
+    另一台设备继续在线。踢 IM 会话必须走 Celery:响应路径禁止外部调用。
+
+    Args:
+        request: DRF 请求对象(必须已认证)。
+
+    Returns:
+        204 空响应,附带清除 Cookie 的 ``Set-Cookie``;之后两端的 access 与
+        refresh 全部失效。
+    """
+    user = request.user
+    for client_type in device_session.CLIENT_TYPES:
+        device_session.bump(user, client_type)
+    im_tasks.kick_all_devices.delay(user.id)   # 响应路径不做外部调用
     response = Response(status=204)
     clear_refresh_cookie(response)
     return response

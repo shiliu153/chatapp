@@ -590,12 +590,12 @@ class ImImportOnRegisterTests(APITestCase):
     def test_existing_login_marks_kick_pending(self):
         self.verify()
         user = User.objects.get(phone=self.phone)
-        cache.delete(im_tasks.kick_pending_key(user.id))
+        cache.delete(im_tasks.kick_pending_key(user.id, "app"))
         with patch("im.tasks.kick_pending.apply_async") as enqueue:
             with self.captureOnCommitCallbacks(execute=True):
                 self.verify()
-        self.assertEqual(cache.get(im_tasks.kick_pending_key(user.id)), 1)
-        enqueue.assert_called_once_with(args=[user.id],
+        self.assertEqual(cache.get(im_tasks.kick_pending_key(user.id, "app")), 1)
+        enqueue.assert_called_once_with(args=[user.id, "app"],
                                         countdown=im_tasks.KICK_BACKSTOP_DELAY)
 
     def test_enqueue_failure_does_not_break_login(self):

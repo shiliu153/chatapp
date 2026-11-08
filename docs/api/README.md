@@ -26,7 +26,7 @@
 
 ## 接口一览
 
-共 **57** 个接口(按「方法 + 路径」计)。
+共 **58** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -34,6 +34,7 @@
 | POST | `/api/v1/auth/sms/verify` | 校验验证码并登录(未注册自动建号) | [auth](auth.md) |
 | POST | `/api/v1/auth/token/refresh` | 刷新访问令牌 | [auth](auth.md) |
 | POST | `/api/v1/auth/logout` | 注销(拉黑 refresh + 清 Cookie,幂等 204) | [auth](auth.md) |
+| POST | `/api/v1/auth/logout/all` | 退出所有设备(两端会话版本各 +1 并踢 IM 会话,204) | [auth](auth.md) |
 | GET | `/api/v1/users/me` | 获取我的资料 | [users](users.md) |
 | PATCH | `/api/v1/users/me` | 修改我的资料 | [users](users.md) |
 | DELETE | `/api/v1/users/me` | 注销账号(手机号二次确认,立即硬删除) | [users](users.md) |

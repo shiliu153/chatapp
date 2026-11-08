@@ -131,14 +131,14 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **响应路径禁止任何第三方网络调用**(短信商/任何外部 REST);跨系统副作用一律走 Celery 任务;`transaction.on_commit(fn, robust=True)` 的语义是「DB 提交后」
 - **IM 副作用唯一入口 `im/tasks.py`**(任务参数一律 user_id,任务内查库;任务体内不查 request);`im/client.py` 与 `im/self_client.py` 对外永不抛异常;`.env` **禁用 `CELERY_` 前缀键**(用 `BROKER_URL`)。唯一例外:`im/tasks.py::delete_account` 的参数是 `im_user_id` 字符串 —— 它在用户行删除后入队,任务内查库必然拿到 `None`,详见 `docs/pitfalls/backend.md`「账号注销」
 - **自建 IM(唯一后端)**:`im/client.py` 是语义层(消息类型/灰条文案/系统通知身份),传输统一转调 `im/self_client.py` 的 HMAC 内部 API;没有 `IM_BACKEND` 开关、没有灰度名单,**回退方式 = 回退 imserver 镜像/后端 SHA**(不再有「切回腾讯」);`imserver/` 的 WS/HTTP 端口、JWT/HMAC 密钥与 Django `.env` 必须一致;**图片消息与语音消息**要求 `IM_MEDIA_PREFIX` = Django 的 `MEDIA_BASE_URL + /media/chat/`(必填,缺失 imserver 起不来;不一致则发图/发语音 42201);语音上传还要求服务器装 `ffmpeg`/`ffprobe`(缺失时 503+`50302`)
-- **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101,**WS 握手与 `/im/api/*` 两个入口同口径**;登录时把 `session_version` 同步到 imserver,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
+- **IM 会话版本与聊天权限(2026-10-28 起)**:IM token 带 `sv`,imserver 与 `im_user.session_version` 比对,不一致 40101(批次 K 起 `sv` 是**该端**版本、token 多一个 `ct`,按 `(uid, client_type)` 比对,见「多端在线」),**WS 握手与 `/im/api/*` 两个入口同口径**;登录时把 `session_version` 同步到 imserver,同步失败 503。发送要求 `im_pair` 存在(未配对 40302),目标必须已存在(不再为任意 uid 建行),单账号 `IM_SEND_PER_MINUTE` 配额。**上线新版本后必须跑一次 `python manage.py im_sync_pairs` 回填现有配对**,否则老用户发不出消息
 - **imserver 入口防护(2026-10-28 起)**:监听默认只允许回环,写成非回环地址必须显式 `IM_ALLOW_PUBLIC_BIND=1`,否则启动失败;`X-Real-IP` 只在对端命中 `IM_TRUSTED_PROXIES`(默认 `127.0.0.1,::1`,支持 CIDR)时才采信;`Origin` 未配 `IM_ALLOWED_ORIGINS` 时按同源兜底(不是全放行)
 - **图片上传**:资料图/广场图/聊天图统一走 `config/images.py`(仅 jpg/png/webp、≤2000 万像素、长边 4096、`exif_transpose` 后重编码剥离 EXIF/GPS);聊天媒体签名生产缺 `IM_MEDIA_SIGN_SECRET` 直接启动失败,TTL 默认 3600
 - **存储配额(2026-10-28 起)**:四类媒体(资料图/广场图/聊天图/语音)按库内 `bytes` 求和,单账号上限 `USER_STORAGE_QUOTA_MB`(默认 200),超限上传 **413 + `41301`**;检查必须在落盘前;删除与 30 天过期自动回收,不做计数列;上线必须跑一次 `media_bytes_backfill`
 - **运营后台安全**:`/admin/`、`/ops/` 受 `ops.middleware.StaffSecurityMiddleware` 保护 —— `OPS_ALLOWED_IPS` 非空时只放白名单;`OPS_OTP_REQUIRED=1`(生产默认)时运营账号必须绑定 TOTP(`/ops/otp/`);登录失败 5 次锁 15 分钟(账号+IP)。生产 `AUTO_APPROVE` 默认 0,新资料图进 `/ops/photos/` 待审队列
 - **跨栈约定**:IM 账号 = `u{user_id}`(`accounts/models.py::im_user_id`);`system_notice` 相关常量两边别单改
 - **已读回执(2026-11-04)**:事实来源是 `im_conversation_state.read_seq`,语义是「**我**读到哪」;对端视角叫 `peer_read_seq`(`GET /im/api/conversations` 的字段)。判定永远是「**我方**消息 `seq <= peer_read_seq` = 已读」,`unread`(我没读的条数)是另一条链路,不可互推。服务端在 `read` 帧落库后**回读实库**再向对端推下行 `read` 帧(`GREATEST` 语义,乱序旧帧不会把已读推回去),客户端只增不减;`read` 帧有 2/s 限流,超限静默丢弃。协议与排查见 `docs/ops/imserver.md` §15
-- **单设备登录**:一个账号同时只允许一台设备在线;被顶设备收 **401 + `40101`**(三条退出路径互为兜底,细节见 pitfalls)
+- **多端在线(2026-11-08 起,批次 K)**:一个账号可同时在线 **1 个 App + 1 个网页**,**同类端互顶**;被顶设备收 **401 + `40101`**。会话版本从 `User` 单列下沉到 `accounts.DeviceSession(user, client_type, version)`(`unique(user, client_type)`),JWT 与 IM token 都带 `ct` claim;**判端只在签发时看请求头 `X-Client`(缺省 `app`),鉴权一律看令牌里的 `ct`**;IM 踢人按端(`kick_user(..., client_type=...)`),`client_type=None` 才是「踢全部」(封禁 / 注销);一键全端下线用 `POST /auth/logout/all`。设计与取舍见 `docs/superpowers/specs/2026-11-08-multi-device-session-design.md`,踩坑见 `docs/pitfalls/backend.md`「多端会话」。
 - **封禁两级**:`banned_light` 只禁滑卡;`banned_heavy` 全域 403——全局权限类自动覆盖新接口,白名单仅 `GET /users/me`、`GET /users/tags`
 - **在线状态是公开信息**(不依赖配对);「在线」= 120 秒内有认证请求(45s 心跳)
 - **前端**:401 只走 `AuthInterceptor` 刷新通道;错误统一 `ApiException`;写操作后检查相关 provider 失效
@@ -166,6 +166,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 | `POST /auth/sms/verify` | 校验并登录(号码没注册过自动建号)→ `{access, refresh, is_new_user, user_id}`;带 `X-Client: web` 时 refresh 改为 HttpOnly Cookie、响应体不含 refresh;连错 5 次锁 15 分钟(42902);60 秒幂等重放窗口;**staff/superuser 一律 403(运营账号走 `/ops/`,封闭测试可用 `SMS_ALLOW_STAFF_LOGIN=1` 放开)** |
 | `POST /auth/token/refresh` | 刷新 access(响应同时给新 refresh);refresh 可放请求体或 Cookie;轮换后 60 秒宽限内允许并发标签页复用 |
 | `POST /auth/logout` | 注销:拉黑 refresh + 清 Cookie;幂等 204;按 IP 60 次/小时;带 `Origin` 时校验同源 |
+| `POST /auth/logout/all` | **退出所有设备**(需鉴权):两端会话版本各 +1 → 两端 access/refresh 全失效,并**经 Celery** 踢掉全部在线 IM 会话;204 + 清 Cookie;按 IP 60 次/小时 |
 | `GET/PATCH/DELETE /users/me` | 我的资料(昵称/性别/生日/城市/简介/`tag_ids`);未满 18 岁 400;`id`=profile 主键。**DELETE = 注销账号**:body 带 `phone` 二次确认,立即硬删除全部数据 + 释放手机号(同号可重注册为全新账号);重封禁 403 |
 | `GET /users/tags` | 标签池(12 个,数据迁移写入) |
 | `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB、jpg/png/webp);生产 `AUTO_APPROVE=0` 时新照片为 `pending`,需 ops 审核 |

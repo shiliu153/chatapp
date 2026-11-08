@@ -5,7 +5,9 @@
        这里把 ``False`` 转成异常,让 Celery 的重试策略真正生效;
     2. **任务参数一律是 ``user_id``,任务体内自己查库** —— 唯一的例外是
        ``delete_account``,原因见该函数的说明;
-    3. 统一套用 ``RETRY_POLICY``(指数退避 + 抖动,最多 5 次)。
+    3. 统一套用 ``RETRY_POLICY``(指数退避 + 抖动,最多 5 次);
+    4. 多端在线后「踢谁」要分清:按端踢(同类互顶 / 登录)带 ``client_type``,
+       踢全部端(封禁 / 注销 / 退出所有设备)不带它。
 
 关联文档:
     - 踩坑记录:docs/pitfalls/im.md
@@ -18,6 +20,8 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 
+from accounts import device_session
+from accounts.device_session import CLIENT_APP, CLIENT_TYPES
 from users.models import PhotoStatus
 
 from . import client as im_client
@@ -31,16 +35,21 @@ KICK_PENDING_TTL = 300        # 「待踢旧会话」标记有效期(秒)
 KICK_BACKSTOP_DELAY = 20      # 兜底任务延迟(秒):App 一直不拉签名时才补踢
 
 
-def kick_pending_key(user_id: int) -> str:
-    """拼出「待踢旧会话」标记的缓存键。
+def kick_pending_key(user_id: int, client_type: str = CLIENT_APP) -> str:
+    """拼出「待踢旧会话」标记的缓存键(**按端**)。
+
+    为什么键里必须带端:一个 App + 一个网页同时在线时,Web 登录只能踢 Web 的旧
+    IM 会话。键不带端的话,两端共用一个标记,谁先来拉签名谁就把对方的在线会话踢了。
 
     Args:
         user_id: 账号 id。
+        client_type: ``app`` 或 ``web``。
 
     Returns:
-        Redis 键名;登录时置位,``im/views.user_sig`` 踢完旧会话后清除。
+        Redis 键名 ``im:kick_pending:{user_id}:{client_type}``;登录时置位,
+        ``im/views.user_sig`` 踢完本端旧会话后清除。
     """
-    return f"im:kick_pending:{user_id}"
+    return f"im:kick_pending:{user_id}:{client_type}"
 
 
 def _require(ok: bool, what: str) -> None:
@@ -284,29 +293,46 @@ def import_account(user_id: int) -> None:
 
 
 @shared_task(**RETRY_POLICY)
-def kick_pending(user_id: int) -> None:
-    """兜底:登录后 App 没来拉签名(标记仍在)时,补踢一次旧 IM 会话。
+def kick_pending(user_id: int, client_type: str = CLIENT_APP) -> None:
+    """兜底:登录后 App 没来拉签名(标记仍在)时,补踢一次本端的旧 IM 会话。
 
     正常路径由 ``im/views.user_sig`` 在签发签名前同步踢掉并清标记(顺序保证
     踢的永远是新会话建立之前的旧会话);本任务只覆盖「App 从未登 IM」的情况。
 
     Args:
         user_id: 刚登录用户的账号 id。
+        client_type: 刚登录的端(``app`` / ``web``);只踢这一端。
 
     Raises:
         RuntimeError: 踢下线失败,交给 ``RETRY_POLICY`` 重试。
     """
-    key = kick_pending_key(user_id)
+    key = kick_pending_key(user_id, client_type)
     if not cache.get(key):
         return
     user = get_user_model().objects.filter(id=user_id).first()
     if user is None:
         cache.delete(key)
         return
-    if im_client.kick_user(user.im_user_id):
+    if im_client.kick_user(user.im_user_id, client_type=client_type):
         cache.delete(key)
     else:
         raise RuntimeError("IM kick 失败")
+
+
+@shared_task(**RETRY_POLICY)
+def kick_all_devices(user_id: int) -> None:
+    """把账号**所有端**的在线 IM 会话踢下线(退出所有设备 / 重封禁兜底)。
+
+    Args:
+        user_id: 账号 id。
+
+    Raises:
+        RuntimeError: 踢下线失败,交给 ``RETRY_POLICY`` 重试。
+    """
+    user = _user(user_id)
+    if user is None:
+        return
+    _require(im_client.kick_user(user.im_user_id), "kick_user")
 
 
 @shared_task(**RETRY_POLICY)
@@ -345,10 +371,14 @@ def pair_remove(user_a_id: int, user_b_id: int) -> None:
 
 @shared_task(**RETRY_POLICY)
 def sync_session_version(user_id: int) -> None:
-    """把账号当前会话版本同步给自建 IM(旧 token 随即失效,H3)。
+    """把账号**两端**的会话版本同步给自建 IM(旧 token 随即失效,H3)。
 
     登录时先入队一次:即使新设备还没来拉签名,旧设备的 token 也会在任务完成后
     被 imserver 拒绝;``user_sig`` 里还有一次同步,保证签发前版本一定已落库。
+
+    为什么循环两端而不是只同步登录那一端:登录只递增本端版本,另一端的在线会话
+    必须继续有效,而它的 imserver 侧版本号也需要在「该端还没登过 IM」时补齐 ——
+    否则 imserver 按 ``(uid, ct)`` 查不到行,无法判断新旧。
 
     Args:
         user_id: 刚登录用户的账号 id。
@@ -359,8 +389,13 @@ def sync_session_version(user_id: int) -> None:
     user = _user(user_id)
     if user is None:
         return
-    _require(im_client.set_session_version(user.im_user_id, user.session_version),
-             "set_session_version")
+    for client_type in CLIENT_TYPES:
+        version = device_session.version_of(user.id, client_type)
+        if version is None:
+            continue
+        _require(im_client.set_session_version(user.im_user_id, version,
+                                               client_type=client_type),
+                 "set_session_version")
 
 
 @shared_task(**RETRY_POLICY)

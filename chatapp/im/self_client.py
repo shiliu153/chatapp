@@ -127,25 +127,44 @@ def black_list_delete(owner_identifier: str, other_identifier: str) -> bool:
                   "action": "remove"})
 
 
-def kick_user(identifier: str, block: bool = False) -> bool:
-    """踢下线;``block=True`` 同时写入封禁键。"""
-    return _post("/internal/kick", {"uid": _uid(identifier), "block": block})
+def kick_user(identifier: str, block: bool = False,
+              client_type: str | None = None) -> bool:
+    """踢下线;``block=True`` 同时写入封禁键。
+
+    请求体里的 ``client_type`` 只在按端踢时出现:不带它 = **踢全部端**
+    (封禁 / 注销的语义),带上就只踢该端(同类端顶号)。
+
+    Args:
+        identifier: 目标 IM 账号,如 ``u9``。
+        block: 是否同时写入封禁键。
+        client_type: ``app`` / ``web``;``None`` 表示踢全部端。
+
+    Returns:
+        成功返回 ``True``;网络/HTTP 错误返回 ``False``。
+    """
+    body = {"uid": _uid(identifier), "block": block}
+    if client_type is not None:
+        body["client_type"] = client_type
+    return _post("/internal/kick", body)
 
 
-def set_session_version(identifier: str, version: int) -> bool:
-    """把账号当前会话版本同步给自建 IM。
+def set_session_version(identifier: str, version: int,
+                        client_type: str = "app") -> bool:
+    """把账号在某一端上的会话版本同步给自建 IM。
 
     imserver 在 WS 鉴权时比对 token 里的 ``sv``;不一致即拒绝旧 token(H3)。
 
     Args:
         identifier: IM 账号,如 ``u9``。
-        version: 账号当前的 ``session_version``。
+        version: 该端当前的会话版本。
+        client_type: ``app`` 或 ``web``;imserver 按 ``(uid, ct)`` 落库。
 
     Returns:
         同步成功返回 ``True``;网络/HTTP 错误返回 ``False``。
     """
     return _post("/internal/session_version",
-                 {"uid": _uid(identifier), "version": int(version)})
+                 {"uid": _uid(identifier), "version": int(version),
+                  "client_type": client_type})
 
 
 def pair_add(user_a_identifier: str, user_b_identifier: str) -> bool:
