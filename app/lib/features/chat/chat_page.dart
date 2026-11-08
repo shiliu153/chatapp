@@ -220,9 +220,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return null;
   }
 
-  Future<void> _showMessageMenu(BuildContext context, ChatMessage message) async {
-    final renderObject = context.findRenderObject();
-    final overlay = Overlay.of(context).context.findRenderObject();
+  /// 长按气泡弹出操作菜单。
+  ///
+  /// Args:
+  ///   itemContext: **气泡自己的** context(菜单要定位到它)。它只用来算菜单位置 ——
+  ///     菜单关掉之后就不能再碰它:真机上输入框重新获得焦点会弹起键盘、把视口压小,
+  ///     `ListView` 随之回收这条气泡,`itemContext.mounted` 立刻变成 false。曾经
+  ///     这里用 `!context.mounted` 做守卫,结果「引用 / 复制 / 撤回 / 删除」在真机上
+  ///     全部静默失效(菜单关了、什么都没发生)。判活要用页面自己的 [mounted]。
+  ///   message: 被长按的消息。
+  Future<void> _showMessageMenu(BuildContext itemContext, ChatMessage message) async {
+    final renderObject = itemContext.findRenderObject();
+    final overlay = Overlay.of(itemContext).context.findRenderObject();
     final position = (renderObject is RenderBox && overlay is RenderBox)
         ? RelativeRect.fromRect(
             Rect.fromPoints(
@@ -234,7 +243,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           )
         : RelativeRect.fill;
     final action = await showMenu<String>(
-      context: context,
+      context: itemContext,
       position: position,
       items: [
         // 引用(批次 L-2):灰条 / 已撤回的消息没有可引用的内容,不给入口。
@@ -251,20 +260,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             key: Key('chat.menu.delete'), value: 'delete', child: Text('删除')),
       ],
     );
-    if (action == null || !context.mounted) return;
+    // 判活用**页面**的 mounted,不是气泡的 itemContext(见方法注释)。
+    if (action == null || !mounted) return;
     if (action == 'quote') {
       _startQuote(message);
     } else if (action == 'copy') {
       await Clipboard.setData(ClipboardData(text: message.text));
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制')));
       }
     } else if (action == 'recall') {
       try {
         await ref.read(chatProvider(widget.peerId).notifier).revoke(message);
-        if (context.mounted) AppToast.show(context, '已撤回');
+        if (mounted) AppToast.show(context, '已撤回');
       } on ImException catch (error) {
-        if (context.mounted) AppToast.show(context, error.message);
+        if (mounted) AppToast.show(context, error.message);
       }
     } else if (action == 'delete') {
       await ref.read(chatProvider(widget.peerId).notifier).deleteLocal(message);

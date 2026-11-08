@@ -229,6 +229,38 @@ void main() {
     expect(find.text('消息已撤回'), findsOneWidget);
   });
 
+  testWidgets('菜单打开后列表把气泡回收,仍然能选中引用(真机键盘压缩视口)', (tester) async {
+    // 真机验收现场:点「引用」→ 菜单关闭 → 输入框重新获得焦点 → 键盘弹起 →
+    // Scaffold 视口被压小 → ListView 把刚才那条气泡回收掉,它的 BuildContext
+    // 当场失效。所以「菜单关掉之后」绝不能再拿 itemContext.mounted 做判断,
+    // 否则引用 / 复制 / 撤回 / 删除全都会被静默吞掉(菜单关了、什么都没发生)。
+    fake.history['u9'] = [
+      for (var i = 0; i < 40; i++)
+        _text('${900000 + i}', isSelf: false, text: '第 $i 条'),
+    ];
+    await pumpChat(tester);
+
+    // 长按最新那条(列表底部,视口内)
+    await tester.longPress(find.text('第 39 条'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('chat.menu.quote')), findsOneWidget);
+
+    // 把列表滚到另一端:被长按的气泡被回收,itemContext 失效(等价于键盘压小视口)
+    final scrollable = tester.state<ScrollableState>(find.descendant(
+      of: find.byKey(const Key('chat.list')),
+      matching: find.byType(Scrollable),
+    ));
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('chat.menu.quote')));
+    await tester.pumpAndSettle();
+
+    // 引用条照样要出来
+    expect(find.byKey(const Key('chat.quoteBar')), findsOneWidget);
+    expect(find.byKey(const Key('chat.quoteBar.text')), findsOneWidget);
+  });
+
   testWidgets('点引用块:原消息在记录里就滚过去并高亮', (tester) async {
     fake.history['u9'] = [
       _text('900124', isSelf: false, text: '今晚吃饭?'),
