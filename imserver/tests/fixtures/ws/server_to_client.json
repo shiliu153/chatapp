@@ -149,6 +149,11 @@
       "name": "conversation_deleted",
       "frame": {"v": 1, "type": "conversation_deleted", "data": {"peer": "u8"}},
       "note": "**我**在另一台设备上删除了与 peer 的会话(多端在线 K-3)。只发给本人的其他端,绝不发给对方(删会话是单方行为)"
+    },
+    {
+      "name": "typing",
+      "frame": {"v": 1, "type": "typing", "data": {"peer": "u8"}},
+      "note": "对端正在输入(批次 L-1)。`peer` 是**收帧者**的对端(正在打字的人);没有 id、不要求 ack。只发给对端 —— 发起端自己的其他端收不到"
     }
   ]
 }

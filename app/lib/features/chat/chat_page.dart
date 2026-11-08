@@ -67,6 +67,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _focusStarted = false;
   String? _highlightMsgId;
 
+  /// build 里存下的会话控制器:State.dispose 不能用 `ref`,而「离开页面清掉
+  /// 正在输入」必须在那里同步做(见 [dispose])。
+  ChatController? _chat;
+
   @override
   void initState() {
     super.initState();
@@ -85,6 +89,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   @override
   void dispose() {
+    // 离开聊天页(批次 L-1):立即清掉「对方正在输入…」并取消 3 秒节流定时器。
+    // 两个 provider 都是 autoDispose,但回收是**异步**的 —— 只靠它的话,退出瞬间
+    // 还可能留着上一个人的提示与一个未取消的定时器。这里同步清一次。
+    //
+    // 用 build 里存下的控制器、而不是 `ref`:State.dispose 里碰 ref 是明确禁止的
+    // (`ConsumerStatefulElement` 会抛「about to or has been unmounted is unsafe」)。
+    _chat?.leaveChat();
     _input.dispose();
     _focusNode.dispose();
     _scroll.dispose();
@@ -285,11 +296,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Widget build(BuildContext context) {
     final colors = context.heart;
     final messages = ref.watch(chatProvider(widget.peerId));
+    // 存一份控制器:dispose 里不能用 ref,而「离开页面清掉正在输入」必须同步做
+    _chat = ref.read(chatProvider(widget.peerId).notifier);
     final imageEnabled = ref.read(imClientProvider).capabilities.image;
     final voiceEnabled = ref.read(imClientProvider).capabilities.voice;
     final readReceiptEnabled = ref.read(imClientProvider).capabilities.readReceipt;
     // 对端读到哪:下行 read 帧实时更新,打开会话时由 controller 从会话列表补拉一次
     final peerReadSeq = ref.watch(chatPeerReadSeqProvider(widget.peerId));
+    // 对端是否正在输入(批次 L-1):收到 typing 帧置真,5 秒没有新帧自动置假。
+    // 这个 provider 是 autoDispose,离开聊天页即销毁 —— 下次进来一定是干净的 false。
+    final peerTyping = ref.watch(chatPeerTypingProvider(widget.peerId));
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final selfAvatarUrl = ref.watch(profileProvider).value?.avatar?.url;
     final peerName = displayNameFor(cache, widget.peerId, imName: _imNameOf(ref));
@@ -315,6 +331,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           _ChatHeader(
             name: peerName,
             presence: peerPresence,
+            typing: peerTyping,
             avatarUrl: peerAvatarUrl,
             heroTag: 'avatar-chat-${widget.peerId}',
             onTapTitle: () => _openProfile(context, cache),
@@ -398,6 +415,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             showMore: imageEnabled,
             showVoice: voiceEnabled && !unmatched,
             onSend: _send,
+            // 输入中状态(批次 L-1):节流在 controller 里(3 秒一次),这里只管转发
+            onInputChanged: (text) =>
+                ref.read(chatProvider(widget.peerId).notifier).notifyTyping(text),
             onToggleEmoji: _toggleEmoji,
             onToggleMore: _toggleMore,
             onSendVoice: (path, durationMs) => ref
@@ -422,12 +442,16 @@ class _ChatHeader extends StatelessWidget {
     required this.presence,
     required this.onTapTitle,
     required this.onMore,
+    this.typing = false,
     this.avatarUrl,
     this.heroTag,
   });
 
   final String name;
   final Presence? presence;
+
+  /// 对端正在输入(批次 L-1)。为真时状态行换成「对方正在输入…」。
+  final bool typing;
   final VoidCallback onTapTitle;
   final VoidCallback onMore;
   final String? avatarUrl;
@@ -437,8 +461,11 @@ class _ChatHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.heart;
     final online = presence?.online ?? false;
-    // 在线单独组装(绿点 + 「在线」);离线才用 presenceLabel 的「x 分钟前在线」
-    final statusLabel = online ? '在线' : presenceLabel(presence);
+    // 在线单独组装(绿点 + 「在线」);离线才用 presenceLabel 的「x 分钟前在线」。
+    // 正在输入时**只显示这一句**:它比在线状态更具体,两行挤在一起反而看不清;
+    // 绿点也一起收起来,避免「绿点 + 正在输入」两种信号打架。
+    final statusLabel =
+        typing ? '对方正在输入…' : (online ? '在线' : presenceLabel(presence));
     return SizedBox(
       height: 62,
       child: Row(
@@ -481,7 +508,7 @@ class _ChatHeader extends StatelessWidget {
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (online) ...[
+                              if (online && !typing) ...[
                                 BreathingDot(
                                     key: const Key('chat.onlineDot'),
                                     size: 8,
@@ -489,7 +516,11 @@ class _ChatHeader extends StatelessWidget {
                                 const SizedBox(width: AppSpacing.xs),
                               ],
                               Text(statusLabel,
-                                  style: AppText.micro.copyWith(color: colors.text2)),
+                                  // 正在输入单独给个 key:页面测试按 key 断言,
+                                  // 不去比文案(文案以后可能改)
+                                  key: typing ? const Key('chat.typing') : null,
+                                  style: AppText.micro.copyWith(
+                                      color: typing ? colors.brand : colors.text2)),
                             ],
                           ),
                         ],
@@ -553,6 +584,7 @@ class _InputBar extends ConsumerStatefulWidget {
     this.showMore = true,
     this.showVoice = false,
     required this.onSend,
+    required this.onInputChanged,
     required this.onToggleEmoji,
     required this.onToggleMore,
     required this.onSendVoice,
@@ -571,6 +603,9 @@ class _InputBar extends ConsumerStatefulWidget {
   /// 当前实现是否支持语音;不支持时隐藏麦克风。
   final bool showVoice;
   final VoidCallback onSend;
+
+  /// 输入框内容变化(批次 L-1):转发给控制器做 3 秒节流的「正在输入」。
+  final ValueChanged<String> onInputChanged;
   final VoidCallback onToggleEmoji;
   final VoidCallback onToggleMore;
 
@@ -697,6 +732,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
                         focusNode: widget.focusNode,
                         enabled: widget.enabled,
                         textInputAction: TextInputAction.send,
+                        onChanged: widget.onInputChanged,
                         onSubmitted: (_) => widget.onSend(),
                         expands: true,
                         maxLines: null,

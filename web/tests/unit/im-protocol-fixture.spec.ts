@@ -213,6 +213,13 @@ describe('IM 协议 fixture', () => {
     await flush()
     expect(events).toContainEqual({ type: 'conversationDeleted', peerId: 'u8' })
 
+    // 输入中状态(批次 L-1):可丢信号,只产出 typing 事件、绝不产出新消息
+    events.length = 0
+    transport.emit(JSON.stringify(frameOf(server, 'typing')))
+    await flush()
+    expect(events).toContainEqual({ type: 'typing', peerId: 'u8' })
+    expect(events.some((event) => event.type === 'newMessage')).toBe(false)
+
     events.length = 0
     transport.emit(JSON.stringify(frameOf(server, 'pong')))
     transport.emit(JSON.stringify(frameOf(server, 'error_42201')))
@@ -334,6 +341,14 @@ describe('IM 协议 fixture', () => {
       JSON.parse(transport.sent[transport.sent.length - 1]) as Record<string, unknown>,
       frameOf(clientToServer, 'read'),
     )
+
+    // typing(批次 L-1):可丢信号,**没有 id**。expectFrameMatches 会往实际帧里补 `id`,
+    // 所以这里直接整帧比对 —— 多出一个 id 键就是契约漂移(客户端会误以为要等 ack)
+    await client.sendTyping('u8')
+    expect(
+      JSON.parse(transport.sent[transport.sent.length - 1]),
+      '上行 typing 帧必须与 fixture 逐字段一致,且不含 id',
+    ).toEqual(frameOf(clientToServer, 'typing'))
 
     // revoke:等 ack_ok 才返回
     const revoking = client.revokeMessage('900123')

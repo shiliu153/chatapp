@@ -66,7 +66,9 @@ class ImManager extends Notifier<ImStatus> {
             ImPeerRead() ||
             // 跨端同步帧(多端在线 K-3):由会话列表控制器消费,这里只声明不处理。
             ImSelfRead() ||
-            ImConversationDeleted():
+            ImConversationDeleted() ||
+            // 输入中状态(批次 L-1):聊天页顶栏消费,IM 登录态不关心(可丢信号)。
+            ImTyping():
         break; // 会话/聊天控制器各自消费
     }
   }

@@ -11,6 +11,16 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
 
   final String peerId;
 
+  /// 上一次发出「正在输入」的冷却定时器(客户端 3 秒节流用)。
+  ///
+  /// 为什么客户端还要节流:服务端有令牌桶(1 次 / 2 秒)兜底,但每敲一个字就发一帧
+  /// 纯属浪费流量与连接;3 秒一次足够让对方看到提示。两层都要有 —— 客户端可被改,
+  /// 服务端那层才是防伪造的那层。
+  Timer? _typingCooldown;
+
+  /// 客户端节流窗口:3 秒内最多发一次。
+  static const typingThrottle = Duration(seconds: 3);
+
   @override
   Future<List<ChatMessage>> build() async {
     final status = ref.watch(imStatusProvider);
@@ -25,12 +35,39 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
       } else if (event is ImPeerRead && event.peerId == peerId) {
         // 对端读到 seq:我方 seq <= N 的气泡改显示「已读」
         ref.read(chatPeerReadSeqProvider(peerId).notifier).advance(event.seq);
+      } else if (event is ImTyping && event.peerId == peerId) {
+        // 对端正在输入:顶栏提示,5 秒内没有新帧自动消失
+        ref.read(chatPeerTypingProvider(peerId).notifier).ping();
       }
     });
     ref.onDispose(sub.cancel);
+    ref.onDispose(() => _typingCooldown?.cancel());
     _markRead(client);
     unawaited(_seedPeerReadSeq(client));
     return client.fetchHistory(peerId);
+  }
+
+  /// 离开聊天页时调用(批次 L-1):清掉「对方正在输入…」并取消 3 秒节流定时器。
+  ///
+  /// 为什么不让 autoDispose 兜底:provider 回收是异步的,退出瞬间仍可能留着上一个人
+  /// 的提示;定时器也要当场取消,否则页面关掉后它还会回调。
+  void leaveChat() {
+    _typingCooldown?.cancel();
+    _typingCooldown = null;
+    ref.read(chatPeerTypingProvider(peerId).notifier).clear();
+  }
+
+  /// 输入框有变化时调用(批次 L-1):按 3 秒节流发一次 `typing`。
+  ///
+  /// Args:
+  ///   text: 输入框当前内容。**空串不发** —— 清空输入框意味着「不打了」,
+  ///     这时再发一帧只会让对端多显示 5 秒「正在输入」。
+  void notifyTyping(String text) {
+    if (text.isEmpty) return;
+    if (_typingCooldown != null) return; // 冷却中:3 秒内只发一次
+    _typingCooldown = Timer(typingThrottle, () => _typingCooldown = null);
+    // 可丢信号:失败(没连上 / 服务端静默丢弃)都不该冒泡到界面
+    unawaited(ref.read(imClientProvider).sendTyping(peerId).catchError((Object _) {}));
   }
 
   /// 补拉「对端读到哪」。
@@ -205,4 +242,54 @@ class ChatPeerReadSeq extends Notifier<int> {
 final chatPeerReadSeqProvider =
     NotifierProvider.autoDispose.family<ChatPeerReadSeq, int, String>(
   ChatPeerReadSeq.new,
+);
+
+/// 对端是否正在输入(批次 L-1)。
+///
+/// 语义是「**最近 5 秒内**收到过对端的 `typing` 帧」,不是持久状态:typing 是可丢信号,
+/// 服务端不落库、不补发、超限静默丢弃,所以这里必须自己过期 —— 否则对端打完字停手
+/// 之后,「正在输入…」会一直挂着。
+///
+/// autoDispose:离开聊天页即丢,下次进来一定是干净的 false(不能残留上一次的提示);
+/// `ref.onDispose` 取消定时器,否则页面关掉后定时器还会 setState after dispose。
+class ChatPeerTyping extends Notifier<bool> {
+  ChatPeerTyping(this.peerId);
+
+  final String peerId;
+
+  /// 收帧后多久自动置假(与设计文档 §3.3 一致)。
+  static const expiry = Duration(seconds: 5);
+
+  Timer? _expiryTimer;
+
+  @override
+  bool build() {
+    ref.onDispose(() {
+      _expiryTimer?.cancel();
+      _expiryTimer = null;
+    });
+    return false;
+  }
+
+  /// 收到一帧 `typing`:置真并把过期时间往后推 5 秒。
+  void ping() {
+    _expiryTimer?.cancel();
+    if (!state) state = true;
+    _expiryTimer = Timer(expiry, () {
+      _expiryTimer = null;
+      state = false;
+    });
+  }
+
+  /// 立即清零(离开聊天页 / 切会话时用)。
+  void clear() {
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
+    if (state) state = false;
+  }
+}
+
+final chatPeerTypingProvider =
+    NotifierProvider.autoDispose.family<ChatPeerTyping, bool, String>(
+  ChatPeerTyping.new,
 );

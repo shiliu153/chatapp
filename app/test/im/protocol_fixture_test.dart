@@ -229,6 +229,14 @@ void main() {
     await pumpEventQueue();
     expect(events.whereType<ImConversationDeleted>().single.peerId, 'u8');
 
+    // 输入中状态(批次 L-1):可丢信号,只产出事件、绝不产出消息
+    // (它不落库也没有 msg_id,当成消息上屏就会多出一条空气泡)。
+    events.clear();
+    transport.emit(jsonEncode(frameOf(server, 'typing')));
+    await pumpEventQueue();
+    expect(events.whereType<ImTyping>().single.peerId, 'u8');
+    expect(events.whereType<ImNewMessage>(), isEmpty);
+
     // pong 与普通错误不产生业务事件
     events.clear();
     transport.emit(jsonEncode(frameOf(server, 'pong')));
@@ -325,6 +333,15 @@ void main() {
     expectFrameMatches(
       jsonDecode(transport.sent.last) as Map<String, dynamic>,
       frameOf(clientToServer, 'read'),
+    );
+
+    // typing(批次 L-1):可丢信号,**没有 id**。expectFrameMatches 会往实际帧里补
+    // `id`,所以这里直接整帧比对 —— 多出一个 id 键就是契约漂移(客户端会误以为要等 ack)
+    await client.sendTyping('u8');
+    expect(
+      jsonDecode(transport.sent.last),
+      frameOf(clientToServer, 'typing'),
+      reason: '上行 typing 帧必须与 fixture 逐字段一致,且不含 id',
     );
 
     // revoke:等 ack_ok 才返回
