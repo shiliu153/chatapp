@@ -1,9 +1,11 @@
-"""账号模型:以手机号为登录标识的自定义用户,以及准入名单。
+"""账号模型:以手机号为登录标识的自定义用户、端会话表,以及准入名单。
 
 设计要点:
     1. 继承 ``AbstractUser`` 但把 ``username`` 置空、``USERNAME_FIELD`` 改为 ``phone``,
        因此必须自带 ``UserManager``(默认管理器按 username 建号会失败);
-    2. ``session_version`` 支撑单设备登录:每次登录 +1 并写进 JWT,鉴权时比对;
+    2. ``DeviceSession`` 支撑**多端在线**(批次 K):会话版本按 ``(user, client_type)``
+       各存一行,一个 App + 一个网页可同时在线,同类互顶;``User.session_version``
+       已弃用,只作为迁移桥接的历史值保留;
     3. ``im_user_id`` 是全项目唯一的 IM 账号拼装点(``u{user_id}``),别处一律用它;
     4. ``PhoneAllowlist`` 是封闭测试的准入名单(B-1c):本项目不接短信商,固定验证码
        ``123456`` + 名单 = 长期准入机制,因此**这张表本身就是安全边界**;
@@ -70,7 +72,7 @@ class UserManager(BaseUserManager):
         return user
 
 
-SESSION_VERSION_DEFAULT = 1   # 单设备登录:登录时 version+1,>1 说明已有过会话
+SESSION_VERSION_DEFAULT = 1   # 会话版本初值;登录时该端 version+1,>1 说明已有过会话
 
 
 class User(AbstractUser):
@@ -78,14 +80,18 @@ class User(AbstractUser):
 
     Attributes:
         phone: 手机号,全局唯一,同时是 ``USERNAME_FIELD``。
-        session_version: 会话版本;JWT 里带签发时的值,与数据库当前值不一致即作废。
+        session_version: **已弃用**(批次 K)。多端在线后鉴权改看
+            ``accounts.DeviceSession.version``(按端各一行);本列只作为迁移桥接的
+            历史值保留,新代码不写它。删除是独立清理项。
         totp_secret: 运营账号的 TOTP 密钥(base32);普通用户为空。
     """
 
     username = None
     phone = models.CharField("手机号", max_length=20, unique=True)
-    # 单设备登录:每次登录 +1;JWT 里带签发时的版本,鉴权时对不上 = 已在别处登录
-    session_version = models.PositiveIntegerField("会话版本", default=SESSION_VERSION_DEFAULT)
+    # DEPRECATED(批次 K):多端在线后鉴权改看 accounts.DeviceSession.version;
+    # 本列只作为迁移桥接的历史值保留,不再读写。删除是独立清理项。
+    session_version = models.PositiveIntegerField("会话版本(已弃用)",
+                                                 default=SESSION_VERSION_DEFAULT)
     # 运营后台的第二因子;空串表示尚未绑定,首次登录后台时引导绑定
     totp_secret = models.CharField("TOTP 密钥", max_length=64, blank=True, default="")
 
@@ -106,6 +112,47 @@ class User(AbstractUser):
             用户手机号。
         """
         return self.phone
+
+
+CLIENT_TYPE_CHOICES = [("app", "App"), ("web", "网页端")]
+
+
+class DeviceSession(models.Model):
+    """一个账号在某一类端上的会话(多端在线,批次 K)。
+
+    设计要点:
+        ``unique(user, client_type)`` 就是「同类互顶」的全部实现 —— 同端第二次
+        登录把该行 ``version + 1``,旧令牌随即对不上;一个 App + 一个网页各一行,
+        互不影响。读写的唯一入口是 ``accounts.device_session``,别在别处直接改本表。
+
+    Attributes:
+        user: 所属账号。
+        client_type: ``app`` 或 ``web``。
+        version: 该端的会话版本;JWT 与 IM token 都带这个值。
+        created_at: 首次在该端登录的时间。
+    """
+
+    user = models.ForeignKey("accounts.User", on_delete=models.CASCADE,
+                             related_name="device_sessions", verbose_name="账号")
+    client_type = models.CharField("端类型", max_length=8, choices=CLIENT_TYPE_CHOICES)
+    version = models.PositiveIntegerField("会话版本", default=SESSION_VERSION_DEFAULT)
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+
+    class Meta:
+        """约束:一个账号每类端只有一行(同类互顶的数据基础)。"""
+
+        constraints = [
+            models.UniqueConstraint(fields=["user", "client_type"],
+                                    name="uniq_device_session_user_client"),
+        ]
+
+    def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``<账号 id>:<端类型>@v<版本>``。
+        """
+        return f"{self.user_id}:{self.client_type}@v{self.version}"
 
 
 class PhoneAllowlist(models.Model):

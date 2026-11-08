@@ -7,6 +7,8 @@
 注意事项:
     踢旧会话必须发生在**签发新签名之前**,顺序不能反 —— 反了会把本机刚建立的会话
     一起踢掉,客户端收到 KickOffline 会误报「账号已在其他设备登录」(2026-09-12 手测回归)。
+    多端在线后「踢旧会话」只踢**本端**(``X-Client`` 决定的端类型),另一端的在线
+    会话必须留着 —— 否则一个网页登录就把手机踢下线了。
 
     聊天图片上传是**同步落盘 + 同步生成缩略图**:这条路径没有任何第三方调用,
     符合「响应路径禁止外部调用」纪律;文件名带随机 uuid,不可枚举。
@@ -31,6 +33,7 @@ from rest_framework.decorators import (api_view, authentication_classes,
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+from accounts import device_session
 from config import error_codes, images, storage
 
 from . import media_sign, voice
@@ -61,6 +64,9 @@ def user_sig(request):
 
     重封禁用户由全局权限类 ``IsNotHeavyBanned`` 直接拦成 403,本函数不再重复检查。
 
+    端类型取请求头 ``X-Client``(缺省 ``app``):只踢**本端**旧会话、按**本端**版本
+    签发 token(``sv`` 是该端版本,``ct`` 是端类型),另一端的在线会话不受影响。
+
     Args:
         request: DRF 请求对象。
 
@@ -76,23 +82,27 @@ def user_sig(request):
     if not cache.get(imported_flag) and ensure_account(user.im_user_id):
         cache.set(imported_flag, 1, IMPORTED_FLAG_TTL)
 
-    # 单设备:本次登录作废了旧会话(verify 时打了标记)→ 先踢旧 IM 会话再发凭证。
+    # 多端:本次登录只作废**本端**旧会话(verify 时打了按端的标记)→ 先踢本端旧 IM
+    # 会话再发凭证,另一端的在线会话必须留着。
     # 顺序不能反:踢必须发生在新会话建立之前,否则会把本机刚建的会话一起踢掉,
     # 客户端收到 KickOffline 会误报「账号已在其他设备登录」(2026-09-12 手测回归)
-    kick_flag = kick_pending_key(user.id)
-    if cache.get(kick_flag) and kick_user(user.im_user_id):
+    client_type = device_session.client_type_of(request)
+    kick_flag = kick_pending_key(user.id, client_type)
+    if cache.get(kick_flag) and kick_user(user.im_user_id, client_type=client_type):
         cache.delete(kick_flag)
 
     nickname = getattr(getattr(user, "profile", None), "nickname", "") or ""
     ensure_account(user.im_user_id, nickname)   # 失败不阻断签发
-    # 会话版本必须先落到 imserver 再签发 token:否则新 token 带的是
-    # imserver 还没见过的版本,连接会被自己拒绝;同步失败则 fail-closed(H3)。
-    if not set_session_version(user.im_user_id, user.session_version):
+    # 版本必须先落到 imserver 再签发 token:否则新 token 带的是 imserver 还没见过的
+    # 版本,连接会被自己拒绝;同步失败则 fail-closed(H3)。
+    # 取不到端会话行时按历史列补建一行(不递增),绝不签一个「谁都没见过」的版本。
+    version = device_session.ensure_version(user, client_type)
+    if not set_session_version(user.im_user_id, version, client_type=client_type):
         return Response({"code": 503, "message": "IM 暂不可用,请稍后重试"}, status=503)
     return Response({
         "backend": "self",
         "token": mint_im_token(user.id, settings.IM_SELF_TOKEN_TTL,
-                               user.session_version),
+                               version, client_type),
         "im_user_id": user.im_user_id,
         "ws_url": settings.IM_SELF_WS_URL,
         "http_url": settings.IM_SELF_HTTP_URL,

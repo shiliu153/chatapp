@@ -1074,14 +1074,14 @@ class DeleteAccountTests(AuthMixin, APITestCase):
     def test_clears_presence_and_kick_pending_flag(self):
         user_id = self.user.id
         presence.touch(user_id)
-        cache.set(im_tasks.kick_pending_key(user_id), 1, 60)
+        cache.set(im_tasks.kick_pending_key(user_id, "app"), 1, 60)
         self.assertIsNotNone(presence.get_presence([user_id])[user_id]["last_active_at"])
 
         with self.captureOnCommitCallbacks(execute=True):
             self._delete()
 
         self.assertIsNone(presence.get_presence([user_id])[user_id]["last_active_at"])
-        self.assertIsNone(cache.get(im_tasks.kick_pending_key(user_id)))
+        self.assertIsNone(cache.get(im_tasks.kick_pending_key(user_id, "app")))
 
     @patch("im.tasks.delete_account.delay")
     def test_enqueues_im_delete_with_im_user_id_after_commit(self, delay):

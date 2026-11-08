@@ -20,6 +20,7 @@ from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from accounts.device_session import CLIENT_TYPES
 from im import tasks as im_tasks
 
 from . import presence
@@ -237,7 +238,9 @@ def delete_account(user) -> None:
             except Exception:
                 logger.warning("注销删文件失败 name=%s", name, exc_info=True)
         presence.clear(user_id)
-        cache.delete(im_tasks.kick_pending_key(user_id))
+        # 「待踢旧会话」标记是按端的(多端在线),两端都要清
+        for client_type in CLIENT_TYPES:
+            cache.delete(im_tasks.kick_pending_key(user_id, client_type))
         im_tasks.delete_account.delay(im_user_id)
 
     transaction.on_commit(_cleanup, robust=True)

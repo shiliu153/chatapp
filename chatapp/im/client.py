@@ -136,30 +136,35 @@ def black_list_delete(owner_identifier: str, other_identifier: str) -> bool:
     return self_client.black_list_delete(owner_identifier, other_identifier)
 
 
-def kick_user(identifier: str, block: bool = False) -> bool:
-    """把账号的在线 IM 会话踢下线(重封禁/单设备登录;否则已有 token 还能继续用)。
+def kick_user(identifier: str, block: bool = False,
+              client_type: str | None = None) -> bool:
+    """把账号的在线 IM 会话踢下线(重封禁/同类端顶号/退出所有设备)。
 
     Args:
         identifier: 目标 IM 账号。
         block: 是否同时写封禁键(重封禁时为 True)。
+        client_type: ``app`` / ``web`` 时只踢该端(同类互顶);``None`` = **踢全部**
+            端,封禁与注销走这个语义,别改成按端。
 
     Returns:
         成功返回 ``True``,失败返回 ``False``。
     """
-    return self_client.kick_user(identifier, block)
+    return self_client.kick_user(identifier, block, client_type)
 
 
-def set_session_version(identifier: str, version: int) -> bool:
-    """把账号当前会话版本同步给 imserver。
+def set_session_version(identifier: str, version: int,
+                        client_type: str = "app") -> bool:
+    """把账号在某一端上的会话版本同步给 imserver。
 
     Args:
         identifier: IM 账号。
-        version: 账号当前的 ``session_version``。
+        version: 该端当前的会话版本(``accounts.DeviceSession.version``)。
+        client_type: ``app`` 或 ``web``;imserver 按 ``(uid, ct)`` 落库。
 
     Returns:
         同步结果;失败返回 ``False``(调用方按 fail-closed 处理)。
     """
-    return self_client.set_session_version(identifier, version)
+    return self_client.set_session_version(identifier, version, client_type)
 
 
 def pair_add(identifier_a: str, identifier_b: str) -> bool:

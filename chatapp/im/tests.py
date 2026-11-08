@@ -106,14 +106,14 @@ class ClientFacadeTests(SimpleTestCase):
                 patch("im.client.self_client.kick_user", return_value=True) as kick:
             self.assertTrue(set_profile_nick("u9", "小明"))
             self.assertTrue(set_profile_avatar("u9", "https://x/a.png"))
-            self.assertTrue(set_session_version("u9", 3))
+            self.assertTrue(set_session_version("u9", 3, "web"))
             self.assertTrue(pair_add("u1", "u2"))
-            self.assertTrue(kick_user("u9", True))
+            self.assertTrue(kick_user("u9", True, "app"))
         nick.assert_called_once_with("u9", "小明")
         avatar.assert_called_once_with("u9", "https://x/a.png")
-        sync.assert_called_once_with("u9", 3)
+        sync.assert_called_once_with("u9", 3, "web")
         pair.assert_called_once_with("u1", "u2")
-        kick.assert_called_once_with("u9", True)
+        kick.assert_called_once_with("u9", True, "app")
 
     def test_system_notices_use_system_identity(self):
         """封禁/举报/评论通知都以 ``system_notice`` 身份发出,文案不变。"""
@@ -280,7 +280,8 @@ class UserSigApiTests(APITestCase):
             resp = self.client.post("/api/v1/im/user_sig")
         ensure.assert_called_with(self.user.im_user_id,
                                   getattr(getattr(self.user, "profile", None), "nickname", ""))
-        sync.assert_called_once_with(self.user.im_user_id, self.user.session_version)
+        sync.assert_called_once_with(self.user.im_user_id, self.user.session_version,
+                                    client_type="app")
         kick.assert_not_called()   # 没有待踢标记时不踢(否则会把本机会话踢掉)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -300,14 +301,14 @@ class UserSigApiTests(APITestCase):
         self.assertNotIn("token", resp.json())
 
     def test_pending_kick_runs_before_issuing_sig(self):
-        cache.set(kick_pending_key(self.user.id), 1, 60)
+        cache.set(kick_pending_key(self.user.id, "app"), 1, 60)
         with patch("im.views.ensure_account", return_value=True), \
                 patch("im.views.set_session_version", return_value=True), \
                 patch("im.views.kick_user", return_value=True) as kick:
             resp = self.client.post("/api/v1/im/user_sig")
         self.assertEqual(resp.status_code, 200)
-        kick.assert_called_once_with(self.user.im_user_id)
-        self.assertIsNone(cache.get(kick_pending_key(self.user.id)))
+        kick.assert_called_once_with(self.user.im_user_id, client_type="app")
+        self.assertIsNone(cache.get(kick_pending_key(self.user.id, "app")))
 
     def test_requires_auth(self):
         self.client.credentials()
@@ -357,18 +358,18 @@ class ImTaskTests(TestCase):
         kick.assert_not_called()
 
     def test_kick_pending_kicks_and_clears_flag(self):
-        cache.set(kick_pending_key(self.user.id), 1, 60)
+        cache.set(kick_pending_key(self.user.id, "app"), 1, 60)
         with patch("im.client.kick_user", return_value=True) as kick:
             kick_pending.run(self.user.id)
-        kick.assert_called_once_with(self.user.im_user_id)
-        self.assertIsNone(cache.get(kick_pending_key(self.user.id)))
+        kick.assert_called_once_with(self.user.im_user_id, client_type="app")
+        self.assertIsNone(cache.get(kick_pending_key(self.user.id, "app")))
 
     def test_kick_pending_keeps_flag_and_raises_on_failure(self):
-        cache.set(kick_pending_key(self.user.id), 1, 60)
+        cache.set(kick_pending_key(self.user.id, "app"), 1, 60)
         with patch("im.client.kick_user", return_value=False):
             with self.assertRaises(RuntimeError):
-                kick_pending.run(self.user.id)
-        self.assertIsNotNone(cache.get(kick_pending_key(self.user.id)))
+                kick_pending.run(self.user.id, "app")
+        self.assertIsNotNone(cache.get(kick_pending_key(self.user.id, "app")))
 
 
 class ImSideEffectTaskTests(TestCase):
@@ -519,6 +520,13 @@ class ImTokenTests(SimpleTestCase):
         self.assertEqual(claims["uid"], 9)
         self.assertEqual(claims["sub"], "u9")
         self.assertEqual(claims["sv"], 7)
+        self.assertEqual(claims["ct"], "app")   # 缺省端类型;多端在线按 (uid, ct) 查会话
+
+    @override_settings(IM_SELF_SECRET="t" * 32)
+    def test_mint_carries_client_type(self):
+        claims = verify_im_token(mint_im_token(9, 3600, 4, "web"))
+        self.assertEqual(claims["ct"], "web")
+        self.assertEqual(claims["sv"], 4)
 
     @override_settings(IM_SELF_SECRET="t" * 32)
     def test_reject_tampered(self):
@@ -542,7 +550,7 @@ class SelfNoticeTests(SimpleTestCase):
             user.return_value.im_user_id = "u9"
             ban_notice.run(9, "heavy", "违规")
         send.assert_called_once()
-        kick.assert_called_once_with("u9", True)
+        kick.assert_called_once_with("u9", True, None)   # None = 踢全部端(封禁语义)
 
     @patch("im.client.self_client.send_ban_lifted", return_value=True)
     def test_ban_lifted_unblocks(self, lifted):
