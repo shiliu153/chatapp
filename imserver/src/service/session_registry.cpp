@@ -118,6 +118,28 @@ bool SessionRegistry::send_to(uint64_t uid, const std::string& frame) {
   return !targets.empty();
 }
 
+void SessionRegistry::send_to_other_clients(uint64_t uid, const WsSession* except,
+                                            const std::string& frame) {
+  // 与 send_to 同样:锁内只收集目标,发送放到锁外(不该持着注册表的锁投递 io 任务)。
+  std::vector<std::shared_ptr<WsSession>> targets;
+  {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = sessions_.find(uid);
+    if (it == sessions_.end()) {
+      return;
+    }
+    for (const auto& entry : it->second) {
+      auto session = entry.second.lock();
+      if (session != nullptr && session.get() != except) {
+        targets.push_back(std::move(session));
+      }
+    }
+  }
+  for (const auto& session : targets) {
+    session->send_raw(frame);
+  }
+}
+
 bool SessionRegistry::is_online(uint64_t uid) {
   const std::lock_guard<std::mutex> lock(mutex_);
   const auto it = sessions_.find(uid);

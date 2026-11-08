@@ -146,3 +146,9 @@ print('done', len(ids))
 - **`parse_uid` 必须整串数字**:`std::stoull("12abc")` 会成功返回 12,`u12abc` 于是被当成 uid 12。现在要求 `u` 之后全是 ASCII 数字且长度 ≤20,`handle_send` 也复用它,不合法统一 42201。新增用例在 `tests/integration/test_internal.py`。
 - **`IM_MEDIA_SIGN_SECRET` 缺失只告警不 fatal**:本地/测试不配也能跑,但生产漏配会让图片/语音 URL 不带签名,经 nginx 验签后全部 403。启动日志出现 `media_sign_disabled` 就是漏配,不是普通 warning。
 
+## 多端在线(2026-11-08,批次 K)
+
+- **`self_read` 不是「对端已读」,混用就是假已读**:多端之后一个账号可以同时有 `app` 与 `web` 两条连接,「**我**在另一台设备上读到 seq」用独立下行帧 `self_read` 同步(收帧人 = 我自己的其他端,不含发起的那条)。收帧端只清自己这边的未读,`peerReadSeq` **一律不动**。下行 `read` 帧的语义是「**对端**读到 seq」,发给自己的另一台设备会被读成「对方已读」—— 表现为对方红点莫名消失、自己的未读不动。两个帧必须同时发:`read` 只给对端,`self_read` 只给自己的其他端(`ws_server.cpp::handle_read`)。
+- **删会话不通知对方,只同步自己的其他端**:`conversation_delete` 是**按 uid 的软删**(`im_conversation_state` 每个 owner 一行),所以另一端必须靠 `conversation_deleted` 帧把列表里的这条移除;而这个帧**只发给本人的其他端**,绝不发给对方 —— 删会话是单方行为,对方不该知道,更不该因此丢记录。别图省事用 `send_to`(那是按 uid 扇出全部端),用 `SessionRegistry::send_to_other_clients`。
+- **`self_read` 的 seq 必须是回读实库后的值**:与下行 `read` 同口径(`GREATEST` 语义),拿请求里带的 seq 会让乱序/重复的旧帧把另一端的已读位置推回去。
+- **会话版本按端存**:`im_device_session(user_id, client_type, version)`,token 的 `sv` 只与**本端**那一行比(`ct` 缺省按 `app`);某个端从没登录过 = 没有那一行 = 带 `sv` 的 token 一律 40101。`im_user.session_version` 只是回退兜底,别再拿它排查 40101。

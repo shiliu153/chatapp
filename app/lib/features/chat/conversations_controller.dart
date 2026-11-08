@@ -14,10 +14,42 @@ class ConversationsController extends AsyncNotifier<List<ImConversation>> {
     final sub = ref.read(imClientProvider).events.listen((event) {
       if (event is ImNewMessage || event is ImConversationsChanged) {
         unawaited(reload());
+      } else if (event is ImSelfRead) {
+        // 我在另一台设备上读完了这个会话(多端在线 K-3):本机未读清零。
+        // 只动 unreadCount —— `peerReadSeq` 是「**对方**读我」,与这一帧无关。
+        clearUnread(event.peerId);
+      } else if (event is ImConversationDeleted) {
+        // 我在另一台设备上删了这个会话(K-3):列表里立刻移除,不等下次全量刷新。
+        removeConversation(event.peerId);
       }
     });
     ref.onDispose(sub.cancel);
     return ref.read(imClientProvider).fetchConversations();
+  }
+
+  /// 把某个会话的未读清零(跨端已读同步用)。
+  ///
+  /// Args:
+  ///   peerId: 会话对端的 IM id。
+  void clearUnread(String peerId) {
+    final current = state.value;
+    if (current == null) return;
+    final index = current.indexWhere((item) => item.peerId == peerId && item.unreadCount != 0);
+    if (index < 0) return;
+    final next = [...current];
+    next[index] = next[index].copyWith(unreadCount: 0);
+    state = AsyncValue.data(next);
+  }
+
+  /// 从列表移除某个会话(跨端删除同步用)。
+  ///
+  /// Args:
+  ///   peerId: 会话对端的 IM id。
+  void removeConversation(String peerId) {
+    final current = state.value;
+    if (current == null) return;
+    final next = current.where((item) => item.peerId != peerId).toList();
+    if (next.length != current.length) state = AsyncValue.data(next);
   }
 
   /// 静默刷新:不动 loading,列表和角标不闪。

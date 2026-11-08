@@ -1049,3 +1049,31 @@ git commit -m "feat(app): 显式上报端类型 X-Client(K-4)"
 ```
 
 **回滚**:后端 SHA 与 imserver 镜像 tag **成对回退**;两个迁移都是新建表,留着不影响旧代码。
+
+---
+
+## 执行记录
+
+### K-3(Task 4 + 本单增补的 `conversation_deleted`,2026-11-08)
+
+**实际完成**:`self_read`(Task 4 原定)+ `conversation_deleted`(issue #152 正文新增),
+按「fixture 先行 → imserver → App → Web → 文档」的顺序做,三端在同一个 PR 里。
+
+| 端 | 改动 |
+|---|---|
+| fixture | `server_to_client.json` 追加 `self_read`(`peer=u8, seq=42`)与 `conversation_deleted`(`peer=u8`),README 的下行帧清单同步 |
+| imserver | `frames.h` 加 `self_read_frame` / `conversation_deleted_frame`;`SessionRegistry::send_to_other_clients(uid, except, frame)`;`ws_server.cpp` 的 `handle_read` 与 `handle_delete` 各补一次扇出;`frames_fixture_test.cpp` 加两条真实序列化断言;新增 `tests/integration/test_self_read.py`(四条用例)并挂进 `scripts/test_http.sh` |
+| App | `im_client.dart` 加 `ImSelfRead` / `ImConversationDeleted` 事件与 `ImConversation.copyWith`;`self_im_client.dart` 分发两帧;`im_manager.dart` 的 switch 补分支(sealed class 必须穷尽);`conversations_controller.dart` 消费事件(未读清零 / 移除会话);`protocol_fixture_test.dart` 两条断言 + `conversations_controller_test.dart` 一条用例 |
+| Web | `im/types.ts` 加 `selfRead` / `conversationDeleted` 事件;`im/self/client.ts` 分发;`stores/chat.ts` 的 `clearUnread` / `removeConversation`;`ChatPage.vue` 会话被跨端删除后自动退回列表;`im-protocol-fixture.spec.ts` 两条断言 + 新增 `chat-self-sync.spec.ts` + `chat-page.spec.ts` 一条组件用例 |
+| docs | `docs/ops/imserver.md` §14.1 迁移表补 `005_device_session.sql`、§14.5 与 §16.1 的 40101 口径改成 `im_device_session`、新增 §18 写这两个帧;`docs/pitfalls/im.md` 新增「多端在线(2026-11-08,批次 K)」四条 |
+
+**与原计划的偏差**(按仓库约定记在这里,不改 Task 4 正文):
+
+1. **App 多做了「消费」这一步**。Task 4 只要求 `self_im_client.dart` 解析成事件;但事件没人消费就等于 App 端没有可见行为(未读不清零、会话不消失)。实际把 `ImSelfRead` → 未读清零、`ImConversationDeleted` → 列表移除放进了 `conversations_controller.dart`,只动未读数、不碰 `peerReadSeq`,与 Web store 一一对应。
+2. **Web 的 `src/im/self/types.ts` 不存在**。Task 4 写的这个路径实际是 `web/src/im/types.ts`(`ImEvent` 联合类型在那里,`src/im/self/` 只有 `client/map/image/voice/transport`)。
+3. **Web 聊天页新增「会话被删 → 退回列表」的 watch**。issue 要求「若当前正打开该会话则退回列表」,而 store 不该依赖路由,所以导航放在 `ChatPage.vue`(用 `hadConversation` 区分「被跨端删除」与「深链进来列表还没拉到」)。
+4. **`conversation_deleted` 只在软删成功(`ack ok=true`)时扇出**,避免对已不存在的会话做无意义的跨端移除。
+
+**验证**:`scripts/verify.sh imserver` / `app` / `web` 全绿(输出贴在 PR 正文);契约自测做过 —— 把 fixture 里 `self_read` 的 `seq` 改成 `sequence`、`conversation_deleted` 的 `peer` 改成 `to`,三端同时红,还原后全绿。
+
+**留给后续**:App 端「正打开的会话被跨端删除」时不会自动退出聊天页(Web 已做),需要 go_router 层配合,本单不动。

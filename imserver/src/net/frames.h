@@ -93,6 +93,35 @@ inline std::string read_frame(const std::string& peer, uint64_t seq) {
   return nlohmann::json{{"v", 1}, {"type", "read"}, {"data", {{"peer", peer}, {"seq", seq}}}}.dump();
 }
 
+/// 跨端已读:告诉**我自己的其他设备**「我在这一端把与 `peer` 的会话读到了 seq」。
+///
+/// 为什么不能复用下行 `read` 帧:那一帧的语义是「**对端**读到 seq」,发给自己的
+/// 另一台设备会被读成「对方已读」—— 表现为对方的红点莫名消失、自己的未读不动,
+/// 是假已读。多端在线(K-3)起两个帧必须同时发:`read` 只给对端,`self_read`
+/// 只给自己的其他端(不含发起的这条连接)。
+///
+/// Args:
+///   peer: 会话对端的 id 串(`u12`)。
+///   seq: 回读实库后的真实已读位置(`GREATEST` 之后的值)。
+inline std::string self_read_frame(const std::string& peer, uint64_t seq) {
+  return nlohmann::json{{"v", 1},
+                        {"type", "self_read"},
+                        {"data", {{"peer", peer}, {"seq", seq}}}}
+      .dump();
+}
+
+/// 跨端删除:告诉**我自己的其他设备**「我在这一端删掉了与 `peer` 的会话」。
+///
+/// 只发给本人的其他端,**绝不发给对方**:删除会话是单方行为,对方不该知道,
+/// 更不该因此丢掉自己那边的记录。收帧端把该会话从列表移除即可,不必再拉全量。
+///
+/// Args:
+///   peer: 被删除会话的对端 id 串(`u12`)。
+inline std::string conversation_deleted_frame(const std::string& peer) {
+  return nlohmann::json{{"v", 1}, {"type", "conversation_deleted"}, {"data", {{"peer", peer}}}}
+      .dump();
+}
+
 /// 撤回广播:双方各收一帧,`peer` 是收帧者的对端(即撤回者)。
 inline std::string revoked_frame(uint64_t msg_id, uint64_t seq, const std::string& peer,
                                  int64_t ts) {

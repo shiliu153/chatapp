@@ -21,6 +21,8 @@ python3 /src/tests/integration/test_image.py
 python3 /src/tests/integration/test_search.py
 # 多端在线(K-2):两端并存 / 扇出 / 同类互顶 / 按端版本 / 按端踢 / 在线键
 python3 /src/tests/integration/test_multi_device.py
+# 多端在线(K-3):跨端已读 self_read / 跨端删除 conversation_deleted
+python3 /src/tests/integration/test_self_read.py
 export IM_BASE_WS="ws://127.0.0.1:19100/im/ws"
 export IM_BASE_HTTP="http://127.0.0.1:19101/im/api"
 python3 /repo/tools/im_e2e.py

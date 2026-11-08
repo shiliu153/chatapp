@@ -586,6 +586,11 @@ curl -s -X POST http://<SERVER_IP>/api/v1/im/voices -H "Authorization: Bearer <a
 |---|---|---|
 | 3 | `003_session_version.sql` | `im_user.session_version BIGINT NOT NULL DEFAULT 0` |
 | 4 | `004_pair.sql` | `im_pair(user_a,user_b,created_at)` 主键 `(user_a,user_b)` |
+| 5 | `005_device_session.sql` | `im_device_session(user_id,client_type,version)` 主键 `(user_id,client_type)`;并从 `im_user.session_version` 回填每个用户的两行(`app` / `web`,版本同旧值) |
+
+> **第 5 条是多端在线(K-1/K-2,2026-11-08)的迁移**:会话版本从 `im_user.session_version`
+> 一列下沉到 `im_device_session`,按 `(uid, client_type)` 各存一份。`im_user.session_version`
+> 保留但**不再参与鉴权**(旧镜像还在读它,回退时靠它兜底)。多端同步的两个新下行帧见本文件 §18。
 
 `imserver --migrate` 会自动应用;旧镜像不认识新列/新表,但不会因此报错,回退镜像时
 可以保留表结构(不要手工 drop,避免再次上线又要重放)。
@@ -624,7 +629,8 @@ IM_MEDIA_SIGN_TTL=3600
 | 现象 | 先查 |
 |---|---|
 | 正常配对用户发送 40302 | `im_pair` 是否有该对;`im_sync_pairs` 是否跑过 |
-| 所有设备重连 40101 | `im_user.session_version` 与 token `sv` 是否一致;Django 登录任务是否成功 |
+| 某端重连 40101 | 会话版本在 `im_device_session`,按 `(uid, client_type)` 各存一行:token 的 `sv` 要与**本端**那一行的 `version` 一致(`ct` 缺省按 `app` 算);该端从没登录过 = 没有那一行 = 一律拒;Django 登录任务是否成功 |
+| **所有**端重连 40101 | 先确认迁移 `005_device_session.sql` 跑过(没跑就没有任何会话行);再看 Django 是否两边都没同步成功 |
 | 发图/发语音 42201 | `IM_MEDIA_PREFIX` 与 Django `MEDIA_BASE_URL + /media/chat/` 是否一致 |
 | 图片 403 | `IM_MEDIA_SIGN_SECRET` 两侧是否一致、`IM_MEDIA_SIGN_TTL` 是否过期 |
 
@@ -713,8 +719,9 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 
 - 基址 = `POST /api/v1/im/user_sig` 返回的 `http_url`(生产 `https://<域名>/im/api`);
 - 请求头 `Authorization: Bearer <IM token>`:用的是 `user_sig` 发的 JWT,**不是** Django 的 access token;
-- 返回 401 的情况:没带或前缀不对、JWT 过期/签名错、会话版本 `sv` 与 `im_user.session_version`
-  不一致(被别的设备顶下线)、账号在 IM 侧被拉黑(`im:block:*`)。
+- 返回 401 的情况:没带或前缀不对、JWT 过期/签名错、会话版本 `sv` 与
+  `im_device_session` 里 `(uid, ct)` 那一行的 `version` 不一致(被别的设备顶下线;
+  `ct` 缺省按 `app` 算)、账号在 IM 侧被拉黑(`im:block:*`)。
 
 ### 16.2 请求参数
 
@@ -924,7 +931,65 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | 贴纸显示成空白灰条 | 更老的客户端(1.0.9 及以前)把未知 `custom` 当 `ban_notice` 渲染 —— 不会白屏,升级后正常 |
 | 贴纸消息在聊天记录搜索里搜不到 | 预期行为:搜索只看 `kind=1` 文本 |
 
+## 18. 多端同步帧 `self_read` / `conversation_deleted`(2026-11-08,批次 K-3)
 
+一个账号可以同时在线 **1 个 App + 1 个网页**(见 [docs/superpowers/specs/2026-11-08-multi-device-session-design.md](../superpowers/specs/2026-11-08-multi-device-session-design.md))。
+多端之后有两类状态是「**我自己**在另一端做的事」,必须同步给我的其他端,但对端不该知道。
+这两类各有一个专属下行帧,**收帧人都是「我自己的其他端」,不含发起的那条连接**。
 
+### 18.1 `self_read`:我在另一台设备上读到哪
 
+```json
+{"v": 1, "type": "self_read", "data": {"peer": "u12", "seq": 42}}
+```
 
+- 触发:`handle_read` 落库并**回读** `read_seq` 之后,与发给对端的下行 `read` 帧**同时**发出;
+- `peer` 是**会话对端**(`u12`),`seq` 是回读实库后的真实位置(不是请求里带的 seq);
+- 收帧端动作:把自己这边与 `peer` 的会话**未读清零**,`read_seq` 只增不减;
+- **`peerReadSeq` 一律不动** —— 那一栏是「**对方**读我」,与这一帧无关。
+
+> ⚠️ **不能复用下行 `read` 帧**。`read` 的语义是「**对端**读到 seq」,发给自己的另一台设备
+> 会被读成「对方已读」:表现为对方的红点莫名消失、自己的未读不动,是**假已读**。
+
+### 18.2 `conversation_deleted`:我在另一台设备上删了会话
+
+```json
+{"v": 1, "type": "conversation_deleted", "data": {"peer": "u12"}}
+```
+
+- 触发:`handle_delete` 的 `conversation_delete` 软删成功(`ack ok=true`)之后发出;
+- 收帧端动作:把该会话从列表移除(正打开着就退回列表),不必再拉全量;
+- **只发给本人的其他端,绝不发给对方**:删会话是单方行为,对方不该知道,更不该因此丢记录。
+  `im_conversation_state` 是按 `owner_id` 一行,删的只是**我**这一份。
+
+### 18.3 为什么要两个新帧(而不是复用一个)
+
+| 帧 | 收帧人 | 语义 | 客户端落点 |
+|---|---|---|---|
+| 下行 `read` | **对端** | 对端读到 seq(把我方气泡标「已读」) | `peerReadSeq` |
+| `self_read` | **我自己的其他端** | 我在另一端读到 seq(清我这边未读) | 未读清零,`peerReadSeq` 不动 |
+| `conversation_deleted` | **我自己的其他端** | 我在另一端删了会话 | 从列表移除 |
+
+跨栈契约的样例在 `imserver/tests/fixtures/ws/server_to_client.json`(三端各有一份契约测试)。
+
+### 18.4 验证
+
+```bash
+# 单元(含跨栈帧契约:self_read / conversation_deleted 与真实序列化逐字段比对)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test.sh
+
+# 集成(两端并存下的扇出、对端收不到、单端不产生下行、seq 不回退)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
+```
+
+集成断言在 `imserver/tests/integration/test_self_read.py`。
+
+### 18.5 排查
+
+| 现象 | 先查 |
+|---|---|
+| 一端读完,另一端红点不消失 | 客户端版本是否含 K-3(旧客户端不认 `self_read`);imserver 镜像是否已升级 |
+| 自己读完,对方气泡却显示「已读」 | 有实现把 `self_read` 当成了 `read` 处理 —— 这是假已读,必须修客户端 |
+| 另一端删了会话,这一端还在列表里 | 同上:客户端没处理 `conversation_deleted`;先确认 imserver 日志里有 `conversation_delete` 的 ack |
+| 对方收到了 `conversation_deleted` | 不该发生:`send_to_other_clients` 只发给本人;**误用 `send_to`(扇出全 uid)才会串到对端** |
+| `self_read` 的 seq 比实际已读小 | 客户端拿请求里的 seq 当结果;必须是回读实库后的值(`GREATEST` 语义) |

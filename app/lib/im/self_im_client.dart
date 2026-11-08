@@ -145,6 +145,16 @@ class SelfImClient extends ImClient {
           peerId: '${data['peer'] ?? ''}',
           seq: (data['seq'] as num?)?.toInt() ?? 0,
         ));
+      case 'self_read':
+        // **我**在另一台设备上读到哪(多端在线 K-3)。服务端主动推,不要求 ack。
+        // 别和上面的 read 混:那个是「对端读我」,这个只清我这边的未读。
+        _events.add(ImSelfRead(
+          peerId: '${data['peer'] ?? ''}',
+          seq: (data['seq'] as num?)?.toInt() ?? 0,
+        ));
+      case 'conversation_deleted':
+        // **我**在另一台设备上删了与 peer 的会话(多端在线 K-3)。只发给本人的其他端。
+        _events.add(ImConversationDeleted('${data['peer'] ?? ''}'));
       case 'pong':
         break;
     }
