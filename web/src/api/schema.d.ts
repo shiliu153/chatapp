@@ -60,6 +60,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/logout/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description 退出所有设备:两端会话版本各 +1,并踢掉全部在线 IM 会话。
+         *
+         *     为什么两个端都 +1:这是「手机丢了,一键全端下线」的语义 —— 只递增本端会让
+         *     另一台设备继续在线。踢 IM 会话必须走 Celery:响应路径禁止外部调用。
+         *
+         *     Args:
+         *         request: DRF 请求对象(必须已认证)。
+         *
+         *     Returns:
+         *         204 空响应,附带清除 Cookie 的 ``Set-Cookie``;之后两端的 access 与
+         *         refresh 全部失效。
+         */
+        post: operations["auth_logout_all_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/sms/send": {
         parameters: {
             query?: never;
@@ -105,8 +134,11 @@ export interface paths {
         /**
          * @description 校验验证码并登录(POST /api/v1/auth/sms/verify)。
          *
-         *     号码未注册过则自动建号;登录成功即递增 ``session_version`` 使旧设备令牌失效,
-         *     并在事务提交后入队 IM 建号或标记待踢旧会话。
+         *     号码未注册过则自动建号;登录成功即把**本端**的会话版本 +1,使同类端的旧设备
+         *     令牌失效(另一端不受影响),并在事务提交后入队 IM 建号或标记待踢旧会话。
+         *
+         *     端类型由请求头 ``X-Client`` 决定(``web`` / 其余与缺省一律 ``app``);
+         *     之后一律按令牌里的 ``ct`` 回查,不再看请求头。
          *
          *     Args:
          *         request: DRF 请求对象,body 需带 ``phone`` 与 ``code``。
@@ -574,6 +606,9 @@ export interface paths {
          * @description 签发当前用户的 IM 登录凭证(POST /api/v1/im/user_sig)。
          *
          *     重封禁用户由全局权限类 ``IsNotHeavyBanned`` 直接拦成 403,本函数不再重复检查。
+         *
+         *     端类型取请求头 ``X-Client``(缺省 ``app``):只踢**本端**旧会话、按**本端**版本
+         *     签发 token(``sv`` 是该端版本,``ct`` 是端类型),另一端的在线会话不受影响。
          *
          *     Args:
          *         request: DRF 请求对象。
@@ -2179,6 +2214,24 @@ export interface operations {
                 "multipart/form-data": components["schemas"]["LogoutBodyRequest"];
             };
         };
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_logout_all_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description No response body */
             204: {
