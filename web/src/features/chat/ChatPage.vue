@@ -12,6 +12,7 @@ import ImageViewer from './ImageViewer.vue'
 import MessageBubble from './MessageBubble.vue'
 import MessageMenu from './MessageMenu.vue'
 import UnmatchDialog from './UnmatchDialog.vue'
+import { canQuote, quoteSummaryOf } from './quote'
 import { formatTime, shouldShowTime } from './time'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
@@ -86,10 +87,16 @@ function openMenu(message: ChatMessage, event: MouseEvent) {
   menu.value = { message, x: event.clientX, y: event.clientY }
 }
 
-async function onMenuAction(action: 'copy' | 'delete' | 'retry' | 'recall') {
+async function onMenuAction(
+  action: 'copy' | 'delete' | 'retry' | 'recall' | 'quote',
+) {
   const target = menu.value?.message
   menu.value = null
   if (!target) return
+  if (action === 'quote') {
+    if (canQuote(target)) startQuote(target)
+    return
+  }
   if (action === 'copy') {
     await navigator.clipboard?.writeText(target.text).catch(() => {})
     toast.show('已复制')
@@ -130,6 +137,41 @@ const peerTyping = computed(() => store.peerTyping[props.peerId] === true)
 watch(draft, (value) => {
   if (value) store.notifyTyping(props.peerId)
 })
+
+/**
+ * 当前引用目标(批次 L-2)。只显示「引用谁 + 摘要」;**上行只发 id**,
+ * 真正发给对端的快照由服务端回库查后生成。
+ */
+const quoteTarget = computed(() => store.quoteTarget)
+const quoteSender = computed(() => {
+  const target = quoteTarget.value
+  if (!target) return ''
+  return target.from === props.peerId ? peerName.value || '对方' : '我'
+})
+
+/** 选中一条消息作为引用目标:输入栏上方出现引用条。 */
+function startQuote(message: ChatMessage): void {
+  store.setQuoteTarget({
+    msgId: Number(message.msgId),
+    // 自己的消息用当前登录的 IM id 署名;对端的就是会话对端
+    from: message.isSelf ? store.selfImId : props.peerId,
+    text: quoteSummaryOf(message),
+  })
+}
+
+/**
+ * 点引用块:跳到被引用的原消息。
+ *
+ * 原消息不在当前已加载的记录里(翻页翻出去了 / 被删除)时只提示,不假装跳过去。
+ */
+function jumpToQuote(msgId: number): void {
+  const id = String(msgId)
+  if (!messages.value.some((item) => item.msgId === id)) {
+    toast.show('原消息不在当前记录中')
+    return
+  }
+  void focusMessage(id)
+}
 
 /** 配对列表已加载且没有这个人 → 已被对方解除(系统通知不是配对,排除)。 */
 const unmatched = computed(
@@ -339,8 +381,26 @@ async function onPickImage(event: Event) {
           @retry="onRetry(row.message)"
           @open-image="onOpenImage"
           @menu="openMenu(row.message, $event)"
+          @jump-quote="jumpToQuote"
         />
       </template>
+    </div>
+
+    <!-- 引用条(批次 L-2):长按/右键「引用」后出现在输入栏**上方**,可点 × 取消 -->
+    <div v-if="quoteTarget" class="chat__quote-bar" data-test="chat-quote-bar">
+      <div class="chat__quote-main">
+        <span class="chat__quote-name">引用 {{ quoteSender }}</span>
+        <span class="chat__quote-text">{{ quoteTarget.text }}</span>
+      </div>
+      <button
+        type="button"
+        class="chat__quote-close"
+        aria-label="取消引用"
+        data-test="chat-quote-close"
+        @click="store.clearQuoteTarget()"
+      >
+        ×
+      </button>
     </div>
 
     <footer class="chat__composer">
@@ -514,6 +574,49 @@ async function onPickImage(event: Event) {
   margin: 0;
   font-size: var(--text-badge);
   color: var(--color-text3);
+}
+/* 引用条:输入栏上方的窄条,显示「引用谁 + 摘要」 */
+.chat__quote-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-section-gap) 0;
+  background: var(--color-bg-card);
+}
+.chat__quote-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border-left: 3px solid var(--color-brand);
+  border-radius: var(--radius-chip);
+  background: var(--color-divider);
+}
+.chat__quote-name {
+  font-size: var(--text-badge);
+  color: var(--color-brand);
+}
+.chat__quote-text {
+  font-size: var(--text-badge);
+  color: var(--color-text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat__quote-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--color-text2);
+  font-size: var(--text-subtitle);
+  cursor: pointer;
+}
+.chat__quote-close:hover {
+  background: var(--hover-overlay);
 }
 .chat__composer {
   display: flex;

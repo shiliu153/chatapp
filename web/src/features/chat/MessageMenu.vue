@@ -2,10 +2,14 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
+import { canQuote } from './quote'
 import { canRecall } from './recall'
 
 const props = defineProps<{ message: ChatMessage; x: number; y: number }>()
-const emit = defineEmits<{ close: []; action: ['copy' | 'delete' | 'retry' | 'recall'] }>()
+const emit = defineEmits<{
+  close: []
+  action: ['copy' | 'delete' | 'retry' | 'recall' | 'quote']
+}>()
 
 const MENU_WIDTH = 160
 
@@ -33,6 +37,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <div class="message-menu" :style="style" role="menu">
+    <button
+      v-if="canQuote(props.message)"
+      type="button"
+      class="message-menu__quote"
+      role="menuitem"
+      data-testid="menu-quote"
+      @click="emit('action', 'quote')"
+    >
+      引用
+    </button>
     <button
       v-if="canRecall(props.message)"
       type="button"

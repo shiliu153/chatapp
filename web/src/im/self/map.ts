@@ -2,6 +2,7 @@ import {
   ChatMessageKind,
   type ChatMessage,
   type ImConversation,
+  type QuoteRef,
 } from '../types'
 
 function isSelf(uid: string, me: string): boolean {
@@ -57,6 +58,29 @@ export function messageFromJson(
     stickerId:
       messageKind === ChatMessageKind.sticker ? String(custom.id ?? '') : null,
     isRevoked: json.revoked === true,
+    // 引用(批次 L-2):**没有引用时服务端根本不下发这个键**,所以这里必须容忍缺省。
+    ref: quoteRefFromJson(json.ref),
+  }
+}
+
+/**
+ * 解析下行 `ref` 对象(批次 L-2)。
+ *
+ * Args:
+ *   raw: 下行帧 / 历史接口里的 `ref`;没有引用时是 undefined。
+ *
+ * Returns:
+ *   引用快照;没有引用时返回 null(不要给一个空对象,那会渲染出空引用块)。
+ */
+export function quoteRefFromJson(raw: unknown): QuoteRef | null {
+  if (!raw || typeof raw !== 'object') return null
+  const json = raw as Record<string, unknown>
+  return {
+    msgId: Number(json.msg_id ?? 0),
+    from: String(json.from ?? ''),
+    kind: String(json.kind ?? 'text'),
+    text: String(json.text ?? ''),
+    revoked: json.revoked === true,
   }
 }
 

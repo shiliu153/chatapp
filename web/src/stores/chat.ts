@@ -11,6 +11,8 @@ import type {
   ImCapabilities,
   ImConversation,
   ImSearchResult,
+  QuoteRef,
+  QuoteTarget,
 } from '@/im/types'
 
 export type ChatStatus = 'idle' | 'connecting' | 'ready' | 'reconnecting' | 'inactive' | 'error'
@@ -72,6 +74,15 @@ export const useChatStore = defineStore('chat', () => {
   const typingExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** 每个会话的 3 秒发送冷却(客户端节流,服务端另有令牌桶兜底) */
   const typingCooldownTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /**
+   * 当前会话的引用目标(批次 L-2):输入栏上方的引用条读它,发送成功后清空。
+   *
+   * 只存 id + 本地摘要 —— 上行**只发 `ref_msg_id`**,真正的内容由服务端回库查后
+   * 生成快照(客户端传内容等于允许伪造「对方说过 X」)。
+   */
+  const quoteTarget = ref<QuoteTarget | null>(null)
+  /** 自己的 IM id:引用条上判断「这句话是我说的还是对端说的」。连上之后才有值。 */
+  const selfImId = ref('')
   /** 收帧后多久自动隐藏「正在输入…」(与设计文档 §3.3 一致) */
   const TYPING_EXPIRY_MS = 5000
   /** 客户端节流窗口:3 秒内最多发一次 */
@@ -164,6 +175,32 @@ export const useChatStore = defineStore('chat', () => {
   function clearUnread(peerId: string): void {
     if (!peerId) return
     setLocalUnread(peerId, 0)
+  }
+
+  /** 选中一条消息作为引用目标(批次 L-2)。 */
+  function setQuoteTarget(target: QuoteTarget): void {
+    quoteTarget.value = target
+  }
+
+  /** 取消引用(发送成功 / 点关闭按钮 / 切会话 / 退出登录)。 */
+  function clearQuoteTarget(): void {
+    quoteTarget.value = null
+  }
+
+  /**
+   * 把引用目标变成一份**本地**快照,只用于刚发出的气泡上屏。
+   *
+   * 上行只发了 id,回执里自然没有 `ref`;不补这一份的话,引用块会在发送成功的
+   * 一瞬间从气泡上消失。下次拉历史时由服务端的快照替换。
+   */
+  function localRefOf(target: QuoteTarget): QuoteRef {
+    return {
+      msgId: target.msgId,
+      from: target.from,
+      kind: 'text',
+      text: target.text,
+      revoked: false,
+    }
   }
 
   /** 清掉某个会话的「正在输入」(连同它的 5 秒过期定时器)。 */
@@ -313,6 +350,7 @@ export const useChatStore = defineStore('chat', () => {
         httpUrl,
         imUserId: raw.im_user_id,
       }
+      selfImId.value = raw.im_user_id
       await client.init(bootstrap)
       await client.login(raw.im_user_id, raw.token ?? '')
       // 连上之后才拿得到真实能力位(init 之前客户端还没握手)
@@ -464,7 +502,11 @@ export const useChatStore = defineStore('chat', () => {
   async function openConversation(peerId: string): Promise<ChatMessage[]> {
     // 切会话先清掉上一个会话的「正在输入」(批次 L-1):它是瞬时状态,不能跨会话残留
     const previous = activePeerId.value
-    if (previous && previous !== peerId) clearTyping(previous)
+    if (previous && previous !== peerId) {
+      clearTyping(previous)
+      // 引用条也不能跨会话残留:切走就等于「不引用了」(批次 L-2)
+      clearQuoteTarget()
+    }
     // 记下来:断线重连后要补拉「当前正在看的会话」(见 refetchAfterReconnect)
     activePeerId.value = peerId
     const list = await loadHistory(peerId)
@@ -485,9 +527,13 @@ export const useChatStore = defineStore('chat', () => {
 
   async function sendText(peerId: string, text: string): Promise<ChatMessage> {
     await ensureConnected()
-    const message = await client.sendText(peerId, text)
+    const target = quoteTarget.value
+    const sent = await client.sendText(peerId, text, target?.msgId)
+    const message = target ? { ...sent, ref: localRefOf(target) } : sent
     appendMessage(peerId, message)
     upsertConversation({ ...message, isSelf: true })
+    // 发出去就清掉引用条:下一条消息默认不带引用(失败时上面会抛,引用条留着)
+    if (target) clearQuoteTarget()
     return message
   }
 
@@ -528,13 +574,16 @@ export const useChatStore = defineStore('chat', () => {
     pendingFiles.value = { ...pendingFiles.value, [placeholder.msgId]: file }
     try {
       await ensureConnected()
-      const sent = await client.sendImage(peerId, file)
-      replaceMessage(placeholder.msgId, sent)
+      const target = quoteTarget.value
+      const sent = await client.sendImage(peerId, file, target?.msgId)
+      const message = target ? { ...sent, ref: localRefOf(target) } : sent
+      replaceMessage(placeholder.msgId, message)
       // 本地文件改挂到真实 msgId 上,重发时还能用
       const kept = takePendingFile(placeholder.msgId)
       if (kept) pendingFiles.value = { ...pendingFiles.value, [sent.msgId]: kept }
-      upsertConversation({ ...sent, isSelf: true })
-      return sent
+      upsertConversation({ ...message, isSelf: true })
+      if (target) clearQuoteTarget()
+      return message
     } catch (error) {
       replaceMessage(placeholder.msgId, { ...placeholder, isPending: false, isFailed: true })
       throw error
@@ -570,12 +619,15 @@ export const useChatStore = defineStore('chat', () => {
     pendingVoices.set(placeholder.msgId, { blob, durationMs })
     try {
       await ensureConnected()
-      const sent = await client.sendVoice(peerId, blob, durationMs)
-      replaceMessage(placeholder.msgId, sent)
+      const target = quoteTarget.value
+      const sent = await client.sendVoice(peerId, blob, durationMs, target?.msgId)
+      const message = target ? { ...sent, ref: localRefOf(target) } : sent
+      replaceMessage(placeholder.msgId, message)
       pendingVoices.delete(placeholder.msgId)
       pendingVoices.set(sent.msgId, { blob, durationMs })
-      upsertConversation({ ...sent, isSelf: true })
-      return sent
+      upsertConversation({ ...message, isSelf: true })
+      if (target) clearQuoteTarget()
+      return message
     } catch (error) {
       replaceMessage(placeholder.msgId, { ...placeholder, isPending: false, isFailed: true })
       throw error
@@ -609,10 +661,13 @@ export const useChatStore = defineStore('chat', () => {
     appendMessage(peerId, placeholder)
     try {
       await ensureConnected()
-      const sent = await client.sendSticker(peerId, stickerId)
-      replaceMessage(placeholder.msgId, sent)
-      upsertConversation({ ...sent, isSelf: true })
-      return sent
+      const target = quoteTarget.value
+      const sent = await client.sendSticker(peerId, stickerId, target?.msgId)
+      const message = target ? { ...sent, ref: localRefOf(target) } : sent
+      replaceMessage(placeholder.msgId, message)
+      upsertConversation({ ...message, isSelf: true })
+      if (target) clearQuoteTarget()
+      return message
     } catch (error) {
       replaceMessage(placeholder.msgId, { ...placeholder, isPending: false, isFailed: true })
       throw error
@@ -694,6 +749,7 @@ export const useChatStore = defineStore('chat', () => {
     for (const timer of typingCooldownTimers.values()) clearTimeout(timer)
     typingCooldownTimers.clear()
     activePeerId.value = null
+    quoteTarget.value = null
     await client.logout().catch(() => {})
     conversations.value = []
     messages.value = {}
@@ -722,6 +778,14 @@ export const useChatStore = defineStore('chat', () => {
     notifyTyping,
     /** 离开会话页时立即清掉「正在输入…」(批次 L-1) */
     clearPeerTyping: clearTyping,
+    /** 当前会话的引用目标(批次 L-2);输入栏上方的引用条读它 */
+    quoteTarget,
+    /** 自己的 IM id(引用条署名用) */
+    selfImId,
+    /** 选中一条消息作为引用目标(批次 L-2) */
+    setQuoteTarget,
+    /** 取消引用(批次 L-2) */
+    clearQuoteTarget,
     /** 待发送图片的本地文件(键 = 消息 id),页面用它做发送中预览 */
     pendingFiles,
     connect,

@@ -321,7 +321,7 @@ export class SelfImClient implements ImClient {
     return { items, hasMore: data.has_more === true }
   }
 
-  async sendText(peerId: string, text: string): Promise<ChatMessage> {
+  async sendText(peerId: string, text: string, refMsgId?: number): Promise<ChatMessage> {
     const id = `local-${Date.now()}${Math.floor(Math.random() * 1000)}`
     for (let attempt = 0; attempt < 3; attempt++) {
       const promise = new Promise<ChatMessage>((resolve, reject) => {
@@ -331,7 +331,8 @@ export class SelfImClient implements ImClient {
         v: 1,
         type: 'send',
         id,
-        data: { client_msg_id: id, to: peerId, kind: 'text', text },
+        // 引用(批次 L-2):**只上行 id**,被引用内容由服务端回库查后生成快照。
+        data: { client_msg_id: id, to: peerId, kind: 'text', text, ...refField(refMsgId) },
       }))
       try {
         return await Promise.race([
@@ -348,7 +349,7 @@ export class SelfImClient implements ImClient {
     throw new Error('发送失败,请重试')
   }
 
-  async sendImage(peerId: string, file: File): Promise<ChatMessage> {
+  async sendImage(peerId: string, file: File, refMsgId?: number): Promise<ChatMessage> {
     // 先上传到 Django 拿 URL,再发 WS 帧:帧里要带服务端校验过的地址
     const image = await this.uploadImage(file)
     const id = `local-${Date.now()}${Math.floor(Math.random() * 1000)}`
@@ -371,6 +372,7 @@ export class SelfImClient implements ImClient {
             height: image.height,
             size: image.size,
           },
+          ...refField(refMsgId),
         },
       }))
       try {
@@ -388,7 +390,12 @@ export class SelfImClient implements ImClient {
     throw new Error('发送失败,请重试')
   }
 
-  async sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage> {
+  async sendVoice(
+    peerId: string,
+    blob: Blob,
+    durationMs: number,
+    refMsgId?: number,
+  ): Promise<ChatMessage> {
     // 先上传(Django 统一转 m4a 并校验时长),再发 WS 帧
     const voice = await this.uploadVoice(blob, durationMs)
     const id = `local-${Date.now()}${Math.floor(Math.random() * 1000)}`
@@ -409,6 +416,7 @@ export class SelfImClient implements ImClient {
             duration_ms: voice.duration_ms,
             size: voice.size,
           },
+          ...refField(refMsgId),
         },
       }))
       try {
@@ -432,7 +440,8 @@ export class SelfImClient implements ImClient {
    * 资源在客户端本地(`public/stickers/`),消息里不传图;服务端会校验 id 形状,
    * 不合法回 42201。
    */
-  async sendSticker(peerId: string, stickerId: string): Promise<ChatMessage> {
+  async sendSticker(peerId: string, stickerId: string, refMsgId?: number):
+    Promise<ChatMessage> {
     const id = `local-${Date.now()}${Math.floor(Math.random() * 1000)}`
     for (let attempt = 0; attempt < 3; attempt++) {
       const promise = new Promise<ChatMessage>((resolve, reject) => {
@@ -447,6 +456,7 @@ export class SelfImClient implements ImClient {
           to: peerId,
           kind: 'custom',
           custom: { type: 'sticker', id: stickerId },
+          ...refField(refMsgId),
         },
       }))
       try {
@@ -526,4 +536,20 @@ export class SelfImClient implements ImClient {
     if (!response.ok) throw new Error(`IM HTTP ${response.status}`)
     return (await response.json()) as Record<string, unknown>
   }
+}
+
+/**
+ * 上行帧里的引用字段(批次 L-2)。
+ *
+ * 单独抽出来是为了「没有引用时**完全不出现** `ref_msg_id` 键」:写
+ * `ref_msg_id: undefined` 会被 `JSON.stringify` 丢掉,但显式展开更不容易看错。
+ *
+ * Args:
+ *   refMsgId: 被引用消息 id;没有引用时是 undefined。
+ *
+ * Returns:
+ *   带 `ref_msg_id` 的对象,或空对象。
+ */
+function refField(refMsgId?: number): Record<string, number> {
+  return refMsgId === undefined ? {} : { ref_msg_id: refMsgId }
 }
