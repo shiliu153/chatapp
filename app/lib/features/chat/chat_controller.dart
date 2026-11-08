@@ -55,6 +55,8 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     _typingCooldown?.cancel();
     _typingCooldown = null;
     ref.read(chatPeerTypingProvider(peerId).notifier).clear();
+    // 引用条也不能跨会话残留:离开页面就等于「不引用了」。
+    ref.read(chatQuoteTargetProvider(peerId).notifier).clear();
   }
 
   /// 输入框有变化时调用(批次 L-1):按 3 秒节流发一次 `typing`。
@@ -96,15 +98,22 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     state = AsyncValue.data([...current, message]);
   }
 
-  Future<void> send(String text) => _sendOut(ChatMessage(
-        msgId: 'local-${DateTime.now().microsecondsSinceEpoch}',
-        peerId: peerId,
-        isSelf: true,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-        kind: ChatMessageKind.text,
-        text: text,
-        isPending: true,
-      ));
+  Future<void> send(String text) {
+    // 引用(批次 L-2):上行只带 id;这里给乐观气泡挂一份**本地**快照,
+    // 好让「发送中」的气泡也显示引用块。真正的快照由服务端生成,
+    // 下次拉历史时会被服务端的版本替换。
+    final quote = ref.read(chatQuoteTargetProvider(peerId));
+    return _sendOut(ChatMessage(
+      msgId: 'local-${DateTime.now().microsecondsSinceEpoch}',
+      peerId: peerId,
+      isSelf: true,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      kind: ChatMessageKind.text,
+      text: text,
+      isPending: true,
+      ref: _localRef(quote),
+    ));
+  }
 
   Future<void> sendImage(String imagePath) => _sendOut(ChatMessage(
         msgId: 'local-${DateTime.now().microsecondsSinceEpoch}',
@@ -114,6 +123,7 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         kind: ChatMessageKind.image,
         localPath: imagePath,
         isPending: true,
+        ref: _localRef(ref.read(chatQuoteTargetProvider(peerId))),
       ));
 
   Future<void> sendVoice(String path, int durationMs) => _sendOut(ChatMessage(
@@ -125,6 +135,7 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         localPath: path,
         voiceDurationMs: durationMs,
         isPending: true,
+        ref: _localRef(ref.read(chatQuoteTargetProvider(peerId))),
       ));
 
   /// 发贴纸(批次 J):消息里只带 id,图片资源在客户端本地。
@@ -136,7 +147,25 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         kind: ChatMessageKind.sticker,
         stickerId: stickerId,
         isPending: true,
+        ref: _localRef(ref.read(chatQuoteTargetProvider(peerId))),
       ));
+
+  /// 把「我选中的引用目标」变成一份本地快照(只用于乐观上屏)。
+  ///
+  /// Args:
+  ///   target: 当前会话的引用目标;为空表示这条消息不带引用。
+  ///
+  /// Returns:
+  ///   给待发送气泡用的 [QuoteRef];没有引用时返回 null。
+  QuoteRef? _localRef(QuoteTarget? target) => target == null
+      ? null
+      : QuoteRef(
+          msgId: target.msgId,
+          from: target.from,
+          kind: 'text',
+          text: target.text,
+          revoked: false,
+        );
 
   /// 失败不抛异常、消息保留 isFailed;重发复用同一条(msgId 不变,靠 upsert 就地替换)。
   Future<void> _sendOut(ChatMessage pendingMessage) async {
@@ -144,7 +173,11 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     final client = ref.read(imClientProvider);
     try {
       final sent = await client.resend(pendingMessage);
-      _replace(pendingMessage.msgId, sent);
+      // 上行只发了 `ref_msg_id`,回执里自然没有快照:把本地那份留在气泡上,
+      // 否则「发送中」的引用块会在发送成功的一瞬间消失。
+      _replace(pendingMessage.msgId, sent.copyWith(ref: pendingMessage.ref));
+      // 发出去就清掉引用条:下一条消息默认不带引用。
+      ref.read(chatQuoteTargetProvider(peerId).notifier).clear();
     } catch (_) {
       _replace(pendingMessage.msgId, pendingMessage.copyWith(isPending: false, isFailed: true));
     }
@@ -292,4 +325,35 @@ class ChatPeerTyping extends Notifier<bool> {
 final chatPeerTypingProvider =
     NotifierProvider.autoDispose.family<ChatPeerTyping, bool, String>(
   ChatPeerTyping.new,
+);
+
+/// 当前会话的引用目标(批次 L-2):长按消息选「引用」后置上,发送成功或关掉引用条即清空。
+///
+/// 为什么单独一个 provider 而不是塞进 [ChatController]:引用条是**输入区**的状态,
+/// 它要跟着输入框一起重建,却与消息列表的生命周期无关;放一起会让「打字」和
+/// 「加载历史」互相触发重建。autoDispose + 按会话 family:离开页面 / 切会话即丢,
+/// 不会把上一段对话的引用带到下一段。
+class ChatQuoteTarget extends Notifier<QuoteTarget?> {
+  ChatQuoteTarget(this.peerId);
+
+  final String peerId;
+
+  @override
+  QuoteTarget? build() => null;
+
+  /// 设为新的引用目标。
+  ///
+  /// Args:
+  ///   target: 被引用的那条消息。
+  void set(QuoteTarget target) => state = target;
+
+  /// 取消引用(发送成功 / 点关闭按钮 / 离开页面)。
+  void clear() {
+    if (state != null) state = null;
+  }
+}
+
+final chatQuoteTargetProvider =
+    NotifierProvider.autoDispose.family<ChatQuoteTarget, QuoteTarget?, String>(
+  ChatQuoteTarget.new,
 );

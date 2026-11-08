@@ -24,6 +24,7 @@ class MessageBubble extends StatelessWidget {
     this.onLongPress,
     this.onRetry,
     this.onTapImage,
+    this.onTapQuote,
     this.highlight = false,
     this.isRead = false,
     this.readReceiptEnabled = false,
@@ -36,6 +37,9 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onLongPress;
   final VoidCallback? onRetry;
   final VoidCallback? onTapImage;
+
+  /// 点了气泡上方的引用块:跳到被引用的原消息(批次 L-2)。
+  final VoidCallback? onTapQuote;
 
   /// 搜索定位命中的气泡:主色淡底高亮 1.5s 后由外层取消。
   final bool highlight;
@@ -102,7 +106,16 @@ class MessageBubble extends StatelessWidget {
         child: ConstrainedBox(
           constraints:
               BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
-          child: _bubbleContent(context),
+          // 引用块在气泡**上方**(批次 L-2):它是「我在回应什么」,不该抢正文的视线。
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment:
+                isSelf ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              if (message.ref != null) _quoteBlock(context, message.ref!),
+              _bubbleContent(context),
+            ],
+          ),
         ),
       ),
     );
@@ -167,6 +180,54 @@ class MessageBubble extends StatelessWidget {
     if (message.isPending) return const Key('chat.status.pending');
     if (isRead) return const Key('chat.status.read');
     return null;
+  }
+
+  /// 气泡上方的引用块(批次 L-2)。
+  ///
+  /// 摘要来自**服务端快照**(`ref.text`):文本前 120 字,图片 / 语音 / 贴纸是
+  /// `[图片]` / `[语音]` / `[贴纸]`;`revoked` 时只显示「消息已撤回」,不显示原文。
+  ///
+  /// Args:
+  ///   context: 构建上下文(取「心跳」色板)。
+  ///   ref: 服务端生成的引用快照。
+  ///
+  /// Returns:
+  ///   可点击的引用块(点击跳回原消息)。
+  Widget _quoteBlock(BuildContext context, QuoteRef ref) {
+    final colors = context.heart;
+    // 一个会话只有两个人:引用块的署名不是对端就是我自己。
+    final sender = ref.from == message.peerId ? (peerName ?? '对方') : '我';
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.chip),
+      child: GestureDetector(
+        key: Key('chat.quote:${message.msgId}'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onTapQuote,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: AppSpacing.xs),
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.sm, vertical: 6),
+          decoration: BoxDecoration(
+            color: colors.divider,
+            border: Border(left: BorderSide(color: colors.brand, width: 3)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(sender, style: AppText.micro.copyWith(color: colors.brand)),
+              Text(
+                ref.displayText,
+                key: ref.revoked ? const Key('chat.quote.revoked') : null,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.micro.copyWith(color: colors.text2),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _bubbleContent(BuildContext context) {

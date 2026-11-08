@@ -20,6 +20,71 @@ int? userIdFromImId(String imUserId) {
 /// 账号在另一台设备登录(被 imserver 踢下线)时给用户的提示。
 const kickedOfflineMessage = '账号已在其他设备登录,请重新登录';
 
+/// 引用快照(批次 L-2):被引用消息的**服务端摘要**。
+///
+/// 为什么客户端不自己拼:让客户端传快照等于允许任何人伪造「对方说过 X」。
+/// 上行只发 `ref_msg_id`,这里的内容全部由服务端回库查后生成。
+class QuoteRef {
+  const QuoteRef({
+    required this.msgId,
+    required this.from,
+    required this.kind,
+    required this.text,
+    required this.revoked,
+  });
+
+  /// 被引用消息的 id(数字;下行 `ref.msg_id`)。
+  final int msgId;
+
+  /// 被引用消息的发送者 IM id(如 `u9`),用来判断引用块该署谁的名。
+  final String from;
+
+  /// `text` / `image` / `voice` / `custom`(贴纸)。
+  final String kind;
+
+  /// 摘要:文本取前 120 字,图片/语音/贴纸是 `[图片]` / `[语音]` / `[贴纸]`;
+  /// 已撤回时为空串。
+  final String text;
+
+  /// 被引用消息已撤回:引用块只显示「消息已撤回」,不显示原文。
+  final bool revoked;
+
+  /// 引用块里的摘要文案。
+  String get displayText {
+    if (revoked) return '消息已撤回';
+    return text.isEmpty ? '[消息]' : text;
+  }
+
+  /// 从下行 `ref` 对象解析。
+  ///
+  /// Args:
+  ///   json: 下行帧 / 历史接口里的 `ref` 对象。
+  ///
+  /// Returns:
+  ///   引用快照模型。
+  factory QuoteRef.fromJson(Map<String, dynamic> json) => QuoteRef(
+        msgId: (json['msg_id'] as num?)?.toInt() ?? 0,
+        from: json['from'] as String? ?? '',
+        kind: json['kind'] as String? ?? 'text',
+        text: json['text'] as String? ?? '',
+        revoked: json['revoked'] == true,
+      );
+}
+
+/// 我在输入框里选中的引用目标(批次 L-2):只活在当前会话,发送后即清空。
+class QuoteTarget {
+  const QuoteTarget({required this.msgId, required this.from, required this.text});
+
+  /// 被引用消息 id(上行 `ref_msg_id`)。
+  final int msgId;
+
+  /// 被引用消息的发送者 IM id(引用条上署名用)。
+  final String from;
+
+  /// 本地摘要(引用条上展示);**上行不发送它**,服务端会自己生成快照。
+  final String text;
+}
+
 class ChatMessage {
   const ChatMessage({
     required this.msgId,
@@ -38,6 +103,7 @@ class ChatMessage {
     this.voiceDurationMs = 0,
     this.stickerId,
     this.isRevoked = false,
+    this.ref,
   });
 
   final String msgId;
@@ -82,8 +148,13 @@ class ChatMessage {
   /// 已被撤回(自己撤回或对方撤回):界面渲染成居中灰字,不再显示内容。
   final bool isRevoked;
 
+  /// 引用快照(批次 L-2):这条消息引用的是哪条、摘要是什么。
+  ///
+  /// 为 null = 没有引用。**上行只发 `ref_msg_id`**,这里的快照一律由服务端生成。
+  final QuoteRef? ref;
+
   ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl, bool? isRevoked,
-      String? voiceUrl, int? voiceDurationMs, String? stickerId}) =>
+      String? voiceUrl, int? voiceDurationMs, String? stickerId, QuoteRef? ref}) =>
       ChatMessage(
         msgId: msgId,
         seq: seq,
@@ -101,6 +172,7 @@ class ChatMessage {
         voiceDurationMs: voiceDurationMs ?? this.voiceDurationMs,
         stickerId: stickerId ?? this.stickerId,
         isRevoked: isRevoked ?? this.isRevoked,
+        ref: ref ?? this.ref,
       );
 }
 
@@ -295,21 +367,31 @@ abstract class ImClient {
   Future<ImSearchResult> searchMessages(String keyword, {int limit = 20, String? beforeId}) =>
       throw const ImException(42202, '当前聊天服务暂不支持搜索');
 
+  /// 发送文本。
+  ///
+  /// Args:
+  ///   peerId: 对端 IM id。
+  ///   text: 正文。
+  ///   clientMsgId: 幂等 id(重发时复用同一条)。
+  ///   refMsgId: 引用回复时被引用消息的 id(批次 L-2)。**只传 id**,
+  ///     被引用内容由服务端回库查并生成快照 —— 客户端传内容没有入口。
   Future<ChatMessage> sendText({required String peerId, required String text,
-      String? clientMsgId});
+      String? clientMsgId, int? refMsgId});
 
-  Future<ChatMessage> sendImage({required String peerId, required String imagePath});
+  Future<ChatMessage> sendImage({required String peerId, required String imagePath,
+      int? refMsgId});
 
   /// 发送语音(不支持时抛 [ImException] 42202)。
   Future<ChatMessage> sendVoice({required String peerId, required String localPath,
-      required int durationMs}) =>
+      required int durationMs, int? refMsgId}) =>
       throw const ImException(42202, '当前聊天服务暂不支持语音');
 
   /// 发送贴纸(不支持时抛 [ImException] 42202)。
   ///
   /// 贴纸复用 imserver 的 `kind=2 custom`(批次 J),载荷只有
   /// `{"type":"sticker","id":<id>}`;资源本身在客户端本地,消息里不传图。
-  Future<ChatMessage> sendSticker({required String peerId, required String stickerId}) =>
+  Future<ChatMessage> sendSticker({required String peerId, required String stickerId,
+          int? refMsgId}) =>
       throw const ImException(42202, '当前聊天服务暂不支持贴纸');
 
   /// 删除本地消息(对方不受影响);本地未发出的消息可直接忽略此调用。
@@ -318,19 +400,22 @@ abstract class ImClient {
   /// 撤回已发送消息(时限 2 分钟,超时抛 [ImException])。
   Future<void> revokeMessage(String msgId);
 
-  /// 该 SDK 版本无原生重发:等价于用原内容重新发送。
+  /// 该 SDK 版本无原生重发:等价于用原内容重新发送(引用关系一并带回去)。
   Future<ChatMessage> resend(ChatMessage message) {
+    final refMsgId = message.ref?.msgId;
     if (message.kind == ChatMessageKind.image && message.localPath != null) {
-      return sendImage(peerId: message.peerId, imagePath: message.localPath!);
+      return sendImage(peerId: message.peerId, imagePath: message.localPath!,
+          refMsgId: refMsgId);
     }
     if (message.kind == ChatMessageKind.voice && message.localPath != null) {
       return sendVoice(peerId: message.peerId, localPath: message.localPath!,
-          durationMs: message.voiceDurationMs);
+          durationMs: message.voiceDurationMs, refMsgId: refMsgId);
     }
     if (message.kind == ChatMessageKind.sticker && message.stickerId != null) {
-      return sendSticker(peerId: message.peerId, stickerId: message.stickerId!);
+      return sendSticker(peerId: message.peerId, stickerId: message.stickerId!,
+          refMsgId: refMsgId);
     }
-    return sendText(peerId: message.peerId, text: message.text);
+    return sendText(peerId: message.peerId, text: message.text, refMsgId: refMsgId);
   }
 
   Future<void> markConversationRead(String peerId);

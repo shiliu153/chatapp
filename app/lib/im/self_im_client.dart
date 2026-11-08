@@ -224,7 +224,7 @@ class SelfImClient extends ImClient {
 
   @override
   Future<ChatMessage> sendText({required String peerId, required String text,
-      String? clientMsgId}) async {
+      String? clientMsgId, int? refMsgId}) async {
     final id = clientMsgId ?? 'local-${DateTime.now().microsecondsSinceEpoch}';
     final completer = Completer<ChatMessage>();
     _pendingSends[id] = _PendingSend(peerId, completer, text: text);
@@ -238,6 +238,8 @@ class SelfImClient extends ImClient {
           'to': peerId,
           'kind': 'text',
           'text': text,
+          // 引用(批次 L-2):**只上行 id**,被引用内容由服务端回库查后自己生成快照。
+          'ref_msg_id': ?refMsgId,
         },
       }));
       try {
@@ -252,15 +254,18 @@ class SelfImClient extends ImClient {
 
   @override
   Future<ChatMessage> resend(ChatMessage message) {
+    final refMsgId = message.ref?.msgId;
     if (message.kind == ChatMessageKind.image && message.localPath != null) {
-      return sendImage(peerId: message.peerId, imagePath: message.localPath!);
+      return sendImage(peerId: message.peerId, imagePath: message.localPath!,
+          refMsgId: refMsgId);
     }
     return sendText(peerId: message.peerId, text: message.text,
-        clientMsgId: message.msgId);
+        clientMsgId: message.msgId, refMsgId: refMsgId);
   }
 
   @override
-  Future<ChatMessage> sendImage({required String peerId, required String imagePath}) async {
+  Future<ChatMessage> sendImage({required String peerId, required String imagePath,
+      int? refMsgId}) async {
     final uploader = _uploader;
     if (uploader == null) {
       throw const ImException(42202, '当前聊天服务暂不支持图片');
@@ -280,6 +285,7 @@ class SelfImClient extends ImClient {
           'to': peerId,
           'kind': 'image',
           'image': image.toPayload(),
+          'ref_msg_id': ?refMsgId,
         },
       }));
       try {
@@ -294,7 +300,7 @@ class SelfImClient extends ImClient {
 
   @override
   Future<ChatMessage> sendVoice({required String peerId, required String localPath,
-      required int durationMs}) async {
+      required int durationMs, int? refMsgId}) async {
     final uploader = _voiceUpload;
     if (uploader == null) {
       throw const ImException(42202, '当前聊天服务暂不支持语音');
@@ -314,6 +320,7 @@ class SelfImClient extends ImClient {
           'to': peerId,
           'kind': 'voice',
           'voice': voice.toPayload(),
+          'ref_msg_id': ?refMsgId,
         },
       }));
       try {
@@ -328,7 +335,7 @@ class SelfImClient extends ImClient {
 
   @override
   Future<ChatMessage> sendSticker({required String peerId,
-      required String stickerId}) async {
+      required String stickerId, int? refMsgId}) async {
     // 贴纸复用 kind=2 custom(批次 J):载荷只有 type/id,资源在客户端本地。
     // 服务端会校验 id 形状,不合法回 42201。
     final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
@@ -344,6 +351,7 @@ class SelfImClient extends ImClient {
           'to': peerId,
           'kind': 'custom',
           'custom': {'type': 'sticker', 'id': stickerId},
+          'ref_msg_id': ?refMsgId,
         },
       }));
       try {
@@ -472,6 +480,8 @@ class SelfImClient extends ImClient {
     final custom = (json['custom'] as Map?)?.cast<String, dynamic>() ?? const {};
     final image = (json['image'] as Map?)?.cast<String, dynamic>() ?? const {};
     final voice = (json['voice'] as Map?)?.cast<String, dynamic>() ?? const {};
+    // 引用(批次 L-2):**没有引用时服务端根本不下发这个键**,所以这里必须容忍 null。
+    final refJson = (json['ref'] as Map?)?.cast<String, dynamic>();
     final customType = custom['type'] as String? ?? '';
     final messageKind = switch (kind) {
       'custom' when customType == 'match_notice' => ChatMessageKind.matchNotice,
@@ -501,6 +511,7 @@ class SelfImClient extends ImClient {
           ? (custom['id'] as String? ?? '')
           : null,
       isRevoked: json['revoked'] == true,
+      ref: refJson == null ? null : QuoteRef.fromJson(refJson),
     );
   }
 }

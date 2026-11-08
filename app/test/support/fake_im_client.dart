@@ -117,8 +117,9 @@ class FakeImClient extends ImClient {
 
   @override
   Future<ChatMessage> sendText({required String peerId, required String text,
-      String? clientMsgId}) async {
-    log.add('send:$peerId:$text');
+      String? clientMsgId, int? refMsgId}) async {
+    // 引用(批次 L-2):上行只带 id,流水里记下来好断言「发出去时带没带引用」。
+    log.add(refMsgId == null ? 'send:$peerId:$text' : 'send:$peerId:$text:ref=$refMsgId');
     if (sendError != null) throw sendError!;
     return ChatMessage(
       msgId: 'sent-${++_seq}',
@@ -131,8 +132,11 @@ class FakeImClient extends ImClient {
   }
 
   @override
-  Future<ChatMessage> sendImage({required String peerId, required String imagePath}) async {
-    log.add('sendImage:$peerId:$imagePath');
+  Future<ChatMessage> sendImage({required String peerId, required String imagePath,
+      int? refMsgId}) async {
+    log.add(refMsgId == null
+        ? 'sendImage:$peerId:$imagePath'
+        : 'sendImage:$peerId:$imagePath:ref=$refMsgId');
     if (sendError != null) throw sendError!;
     return ChatMessage(
       msgId: 'sent-${++_seq}',
@@ -146,8 +150,10 @@ class FakeImClient extends ImClient {
 
   @override
   Future<ChatMessage> sendVoice({required String peerId, required String localPath,
-      required int durationMs}) async {
-    log.add('sendVoice:$peerId:$localPath:$durationMs');
+      required int durationMs, int? refMsgId}) async {
+    log.add(refMsgId == null
+        ? 'sendVoice:$peerId:$localPath:$durationMs'
+        : 'sendVoice:$peerId:$localPath:$durationMs:ref=$refMsgId');
     if (sendError != null) throw sendError!;
     return ChatMessage(
       msgId: 'sent-${++_seq}',
@@ -162,8 +168,11 @@ class FakeImClient extends ImClient {
   }
 
   @override
-  Future<ChatMessage> sendSticker({required String peerId, required String stickerId}) async {
-    log.add('sendSticker:$peerId:$stickerId');
+  Future<ChatMessage> sendSticker({required String peerId, required String stickerId,
+      int? refMsgId}) async {
+    log.add(refMsgId == null
+        ? 'sendSticker:$peerId:$stickerId'
+        : 'sendSticker:$peerId:$stickerId:ref=$refMsgId');
     if (sendError != null) throw sendError!;
     return ChatMessage(
       msgId: 'sent-${++_seq}',
