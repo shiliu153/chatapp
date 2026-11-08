@@ -15,7 +15,7 @@ int64_t now_ms() {
       .count();
 }
 
-/// 在线键 TTL:与「120 秒内有认证请求 = 在线」同口径(见 docs/architecture 的在线语义)。
+/// 在线键 TTL:与「120 秒内有认证请求 = 在线」同口径(见 CLAUDE.md「在线状态是公开信息」)。
 constexpr int kOnlineTtlSeconds = 90;
 
 }  // namespace
