@@ -170,6 +170,8 @@ void main() {
     expect(text.timestamp, 1720000000000);
     expect(text.kind, ChatMessageKind.text);
     expect(text.isRevoked, isFalse);
+    // 没有引用时服务端**根本不下发 `ref` 键**,模型里必须是 null
+    expect(text.ref, isNull);
 
     // 图片消息:thumb_url 给缩略图,url 给大图
     events.clear();
@@ -198,6 +200,19 @@ void main() {
     expect(sticker.stickerId, 'sticker_01');
     expect(sticker.text, '');
     expect(sticker.seq, 45);
+
+    // 引用回复(批次 L-2):`ref` 是**服务端生成的快照**,字段全部来自下行帧
+    events.clear();
+    transport.emit(jsonEncode(frameOf(server, 'message_quote')));
+    await pumpEventQueue();
+    final quoted = events.whereType<ImNewMessage>().single.message;
+    expect(quoted.text, '好,六点');
+    expect(quoted.ref, isNotNull);
+    expect(quoted.ref!.msgId, 900120);
+    expect(quoted.ref!.from, 'u9');
+    expect(quoted.ref!.kind, 'text');
+    expect(quoted.ref!.text, '今晚吃饭?');
+    expect(quoted.ref!.revoked, isFalse);
 
     // 下行已读回执
     events.clear();
@@ -327,6 +342,18 @@ void main() {
     final stickerMessage = await sendingSticker;
     expect(stickerMessage.kind, ChatMessageKind.sticker);
     expect(stickerMessage.stickerId, 'sticker_01');
+
+    // send_quote(批次 L-2):上行**只带 ref_msg_id**,不带任何引用内容
+    final sendingQuote = client.sendText(peerId: 'u2', text: '好,六点', refMsgId: 900120);
+    await pumpEventQueue();
+    final sendQuote = jsonDecode(transport.sent.last) as Map<String, dynamic>;
+    expectFrameMatches(sendQuote, frameOf(clientToServer, 'send_quote'));
+    final quoteAck = jsonDecode(jsonEncode(frameOf(server, 'ack_send')))
+        as Map<String, dynamic>;
+    quoteAck['id'] = sendQuote['id'];
+    transport.emit(jsonEncode(quoteAck));
+    final quoteMessage = await sendingQuote;
+    expect(quoteMessage.text, '好,六点');
 
     // read
     await client.markConversationRead('u2');

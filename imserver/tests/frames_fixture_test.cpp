@@ -137,6 +137,15 @@ void expect_client_frame(const std::string& name, const json& frame) {
       ASSERT_TRUE(voice.at("url").is_string()) << name;
       ASSERT_TRUE(voice.at("duration_ms").is_number()) << name;
     }
+    // 引用回复(批次 L-2):`ref_msg_id` 可选,出现时必须是正整数。
+    // 上行**只允许**这一个字段 —— 夹带 `ref` 快照的帧在这里不算合法契约。
+    if (data.contains("ref_msg_id")) {
+      ASSERT_TRUE(data.at("ref_msg_id").is_number_unsigned() ||
+                  data.at("ref_msg_id").is_number_integer())
+          << name;
+      EXPECT_GT(data.at("ref_msg_id").get<int64_t>(), 0) << name;
+      EXPECT_FALSE(data.contains("ref")) << name;
+    }
   } else if (type == "read") {
     ASSERT_TRUE(frame.at("id").is_string()) << name;
     ASSERT_TRUE(data.at("peer").is_string()) << name;
@@ -171,50 +180,64 @@ TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
   const MediaSigner signer("test-media-secret", 86400, "http://cdn/media/chat/");
 
   // 固定值:fixture 里的 msg_id / seq / ts / server_time 都是这些常量。
-  SendResult result;
-  result.msg_id = 900124;
-  result.seq = 42;
-  result.ts = 1720000000000;
-  result.from_nickname = "小九";
-  result.from_avatar = "http://cdn/avatar/u2.jpg";
+  // 下行 `message` 帧现在由 `message_json` 从**消息行**拼(批次 L-2 统一构造函数),
+  // 所以这里造的是 MessageRow 而不是 SendRequest。
+  const UserRow profile{2, "小九", "http://cdn/avatar/u2.jpg"};
 
-  SendRequest text;
-  text.from = 2;
-  text.to = 9;
+  MessageRow text;
+  text.msg_id = 900124;
+  text.conv_id = 7;
+  text.seq = 42;
+  text.from_id = 2;
+  text.to_id = 9;
   text.kind = 1;
-  text.text = "你好";
+  text.body = json{{"text", "你好"}}.dump();
+  text.created_at = 1720000000000;
 
-  SendRequest image = text;
+  MessageRow image = text;
+  image.msg_id = 900125;
+  image.seq = 43;
+  image.created_at = 1720000000001;
   image.kind = 3;
-  image.image = {{"url", "http://cdn/media/chat/a.jpg"},
-                 {"thumb_url", "http://cdn/media/chat/a_thumb.jpg"},
-                 {"width", 1080},
-                 {"height", 1440},
-                 {"size", 345678}};
+  image.body = json{{"image", {{"url", "http://cdn/media/chat/a.jpg"},
+                               {"thumb_url", "http://cdn/media/chat/a_thumb.jpg"},
+                               {"width", 1080},
+                               {"height", 1440},
+                               {"size", 345678}}}}
+                   .dump();
 
-  SendRequest voice = text;
+  MessageRow voice = text;
+  voice.msg_id = 900126;
+  voice.seq = 44;
+  voice.created_at = 1720000000002;
   voice.kind = 4;
-  voice.voice = {{"url", "http://cdn/media/chat/v.m4a"}, {"duration_ms", 3200}, {"size", 12345}};
+  voice.body = json{{"voice", {{"url", "http://cdn/media/chat/v.m4a"},
+                               {"duration_ms", 3200},
+                               {"size", 12345}}}}
+                   .dump();
 
   // 贴纸:复用 kind=2 custom(批次 J),下行帧与灰条同构,只是 type=sticker
-  SendRequest sticker = text;
+  MessageRow sticker = text;
+  sticker.msg_id = 900127;
+  sticker.seq = 45;
+  sticker.created_at = 1720000000003;
   sticker.kind = 2;
-  sticker.custom = {{"type", "sticker"}, {"id", "sticker_01"}};
+  sticker.body = json{{"type", "sticker"}, {"id", "sticker_01"}}.dump();
 
-  SendResult image_result = result;
-  image_result.msg_id = 900125;
-  image_result.seq = 43;
-  image_result.ts = 1720000000001;
-
-  SendResult voice_result = result;
-  voice_result.msg_id = 900126;
-  voice_result.seq = 44;
-  voice_result.ts = 1720000000002;
-
-  SendResult sticker_result = result;
-  sticker_result.msg_id = 900127;
-  sticker_result.seq = 45;
-  sticker_result.ts = 1720000000003;
+  // 引用回复(批次 L-2):ref_snapshot 是服务端生成好存下来的 JSON 文本,
+  // 读时原样透出(字段顺序无关,比较的是解析后的对象)。
+  MessageRow quote = text;
+  quote.msg_id = 900128;
+  quote.seq = 46;
+  quote.created_at = 1720000000004;
+  quote.body = json{{"text", "好,六点"}}.dump();
+  quote.ref_msg_id = 900120;
+  quote.ref_snapshot = json{{"msg_id", 900120},
+                            {"from", "u9"},
+                            {"kind", "text"},
+                            {"text", "今晚吃饭?"},
+                            {"revoked", false}}
+                           .dump();
 
   const std::map<std::string, std::string> generated = {
       {"auth_ok", auth_ok_frame(9, 1720000000000)},
@@ -224,10 +247,11 @@ TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
       {"error_42201", error_frame(42201, "未知帧类型")},
       {"ack_send", send_ack_frame("c-1", 900124, 42, 1720000000000)},
       {"ack_ok", ack_frame("read-1", true)},
-      {"message_text", build_message_frame(result, text, signer)},
-      {"message_image", build_message_frame(image_result, image, signer)},
-      {"message_voice", build_message_frame(voice_result, voice, signer)},
-      {"message_sticker", build_message_frame(sticker_result, sticker, signer)},
+      {"message_text", build_message_frame(text, profile, signer)},
+      {"message_image", build_message_frame(image, profile, signer)},
+      {"message_voice", build_message_frame(voice, profile, signer)},
+      {"message_sticker", build_message_frame(sticker, profile, signer)},
+      {"message_quote", build_message_frame(quote, profile, signer)},
       {"read_down", read_frame("u2", 42)},
       {"revoked", revoked_frame(900124, 42, "u2", 1720000000000)},
       // 多端在线(K-3):跨端已读 / 跨端删除。两者都只发给本人的其他端,

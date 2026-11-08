@@ -75,6 +75,22 @@
       "note": "贴纸(批次 J):复用 kind=custom,服务端落库为 kind=2。**上行只放行 type=sticker 且 id 形如 sticker_NN**;match_notice / ban_notice 等系统灰条仍只能由服务端内部发出"
     },
     {
+      "name": "send_quote",
+      "frame": {
+        "v": 1,
+        "type": "send",
+        "id": "c-5",
+        "data": {
+          "client_msg_id": "c-5",
+          "to": "u2",
+          "kind": "text",
+          "text": "好,六点",
+          "ref_msg_id": 900120
+        }
+      },
+      "note": "引用回复(批次 L-2):上行**只带 ref_msg_id**,被引用内容一律由服务端回库查并生成快照。客户端夹带的任何 ref 载荷服务端都不读 —— 这条边界就是「不许伪造对方说过 X」"
+    },
+    {
       "name": "read",
       "frame": {
         "v": 1,

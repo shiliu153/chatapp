@@ -20,6 +20,35 @@ export enum ChatMessageKind {
 /** 「系统通知」固定 IM 账号(与后端 `im/client.py::SYSTEM_NOTICE_IDENTIFIER` 是跨栈契约)。 */
 export const SYSTEM_NOTICE_PEER_ID = 'system_notice'
 
+/**
+ * 引用快照(批次 L-2):被引用消息的**服务端摘要**。
+ *
+ * 为什么客户端不自己拼:让客户端传快照等于允许任何人伪造「对方说过 X」。
+ * 上行只发 `ref_msg_id`,这里的内容全部由服务端回库查后生成。
+ */
+export interface QuoteRef {
+  /** 被引用消息的 id(数字;下行 `ref.msg_id`) */
+  msgId: number
+  /** 被引用消息的发送者 IM id(如 `u9`),用来判断引用块该署谁的名 */
+  from: string
+  /** `text` / `image` / `voice` / `custom`(贴纸) */
+  kind: string
+  /** 摘要:文本前 120 字,图片/语音/贴纸是 `[图片]` / `[语音]` / `[贴纸]`;已撤回时为空串 */
+  text: string
+  /** 被引用消息已撤回:引用块只显示「消息已撤回」,不显示原文 */
+  revoked: boolean
+}
+
+/** 我在输入框里选中的引用目标(批次 L-2):只活在当前会话,发送后即清空。 */
+export interface QuoteTarget {
+  /** 被引用消息 id(上行 `ref_msg_id`) */
+  msgId: number
+  /** 被引用消息的发送者 IM id(引用条上署名用) */
+  from: string
+  /** 本地摘要(引用条上展示);**上行不发送它**,服务端会自己生成快照 */
+  text: string
+}
+
 export interface ChatMessage {
   msgId: string
   /** 对端 IM id,如 'u9' */
@@ -48,6 +77,12 @@ export interface ChatMessage {
   stickerId?: string | null
   /** 已撤回:渲染成居中灰字,不再显示内容 */
   isRevoked: boolean
+  /**
+   * 引用快照(批次 L-2):这条消息引用的是哪条、摘要是什么。
+   *
+   * 没有引用时**服务端根本不下发 `ref` 键**,所以这里是可选的。
+   */
+  ref?: QuoteRef | null
 }
 
 export interface ImConversation {
@@ -141,12 +176,19 @@ export interface ImClient {
   fetchHistory(peerId: string, count?: number, beforeSeq?: number): Promise<ChatMessage[]>
   /** 搜索聊天记录(不支持时抛错) */
   searchMessages(keyword: string, limit?: number, beforeId?: string): Promise<ImSearchResult>
-  sendText(peerId: string, text: string): Promise<ChatMessage>
-  sendImage(peerId: string, file: File): Promise<ChatMessage>
+  /**
+   * 发送文本。
+   *
+   * `refMsgId` 是引用回复时被引用消息的 id(批次 L-2)。**只传 id**:
+   * 被引用内容由服务端回库查并生成快照,客户端没有传内容的入口。
+   */
+  sendText(peerId: string, text: string, refMsgId?: number): Promise<ChatMessage>
+  sendImage(peerId: string, file: File, refMsgId?: number): Promise<ChatMessage>
   /** 发送语音(不支持时抛错) */
-  sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage>
+  sendVoice(peerId: string, blob: Blob, durationMs: number, refMsgId?: number):
+    Promise<ChatMessage>
   /** 发送贴纸(不支持时抛错):消息里只带 id,资源在客户端本地 */
-  sendSticker(peerId: string, stickerId: string): Promise<ChatMessage>
+  sendSticker(peerId: string, stickerId: string, refMsgId?: number): Promise<ChatMessage>
   deleteMessage(msgId: string): Promise<void>
   revokeMessage(msgId: string): Promise<void>
   markConversationRead(peerId: string): Promise<void>

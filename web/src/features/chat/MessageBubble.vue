@@ -29,7 +29,13 @@ const props = withDefaults(
     readReceiptEnabled: false,
   },
 )
-defineEmits<{ retry: []; openImage: [ChatMessage]; menu: [MouseEvent] }>()
+defineEmits<{
+  retry: []
+  openImage: [ChatMessage]
+  menu: [MouseEvent]
+  /** 点了气泡上方的引用块:跳到被引用的原消息(批次 L-2) */
+  jumpQuote: [number]
+}>()
 
 /**
  * 我方消息的已读标记。
@@ -61,6 +67,27 @@ const isUnsupported = computed(() => props.message.kind === ChatMessageKind.othe
 /** 贴纸(批次 J):资源在本地,未知 id 降级成「[贴纸]」文本 */
 const isSticker = computed(() => props.message.kind === ChatMessageKind.sticker)
 const sticker = computed(() => stickerById(props.message.stickerId))
+
+/**
+ * 引用块(批次 L-2):摘要来自**服务端快照**(`message.ref`),客户端不自己拼。
+ *
+ * 没有引用时服务端根本不下发 `ref` 键,所以这里整块都不渲染 —— 老消息、
+ * 老服务端都不会因此多出一个空框。
+ */
+const quote = computed(() => props.message.ref ?? null)
+/** 引用块的署名:同一会话只有两个人,不是对端就是我。 */
+const quoteSender = computed(() => {
+  const current = quote.value
+  if (!current) return ''
+  return current.from === props.message.peerId ? props.peerName || '对方' : '我'
+})
+/** 引用块的摘要:已撤回只显示「消息已撤回」,不显示原文。 */
+const quoteText = computed(() => {
+  const current = quote.value
+  if (!current) return ''
+  if (current.revoked) return '消息已撤回'
+  return current.text || '[消息]'
+})
 </script>
 
 <template>
@@ -111,40 +138,58 @@ const sticker = computed(() => stickerById(props.message.stickerId))
       ⋯
     </button>
 
-    <div
-      class="message-bubble__body"
-      :class="{ 'message-bubble__body--sticker': isSticker }"
-    >
-      <img
-        v-if="isSticker && sticker"
-        class="message-bubble__sticker"
-        :src="sticker.src"
-        :alt="sticker.label"
-        :data-testid="`sticker-${sticker.id}`"
-      />
-      <span v-else-if="isSticker" class="message-bubble__text" data-testid="sticker-unknown">
-        {{ UNKNOWN_STICKER_LABEL }}
-      </span>
-      <MessageImage
-        v-else-if="isImage"
-        :message="props.message"
-        :local-file="props.localFile"
-        @open="$emit('openImage', props.message)"
-      />
-      <MessageVoice v-else-if="isVoice" :message="props.message" />
-      <span v-else-if="isUnsupported" class="message-bubble__text">[暂不支持的消息类型]</span>
-      <span v-else class="message-bubble__text">{{ props.message.text }}</span>
-
+    <div class="message-bubble__stack">
+      <!-- 引用块在气泡**上方**:它是「我在回应什么」,不该抢正文的视线 -->
       <button
-        v-if="props.message.isFailed"
+        v-if="quote"
         type="button"
-        class="message-bubble__retry"
-        @click="$emit('retry')"
+        class="message-bubble__quote"
+        data-testid="quote-block"
+        @click="$emit('jumpQuote', quote.msgId)"
       >
-        重发
+        <span class="message-bubble__quote-name">{{ quoteSender }}</span>
+        <span
+          class="message-bubble__quote-text"
+          :data-testid="quote.revoked ? 'quote-revoked' : undefined"
+        >
+          {{ quoteText }}
+        </span>
       </button>
-      <span v-else-if="props.message.isPending" class="message-bubble__pending">发送中…</span>
-      <span v-else-if="showRead" class="message-bubble__read" data-testid="chat-read">已读</span>
+      <div
+        class="message-bubble__body"
+        :class="{ 'message-bubble__body--sticker': isSticker }"
+      >
+        <img
+          v-if="isSticker && sticker"
+          class="message-bubble__sticker"
+          :src="sticker.src"
+          :alt="sticker.label"
+          :data-testid="`sticker-${sticker.id}`"
+        />
+        <span v-else-if="isSticker" class="message-bubble__text" data-testid="sticker-unknown">
+          {{ UNKNOWN_STICKER_LABEL }}
+        </span>
+        <MessageImage
+          v-else-if="isImage"
+          :message="props.message"
+          :local-file="props.localFile"
+          @open="$emit('openImage', props.message)"
+        />
+        <MessageVoice v-else-if="isVoice" :message="props.message" />
+        <span v-else-if="isUnsupported" class="message-bubble__text">[暂不支持的消息类型]</span>
+        <span v-else class="message-bubble__text">{{ props.message.text }}</span>
+
+        <button
+          v-if="props.message.isFailed"
+          type="button"
+          class="message-bubble__retry"
+          @click="$emit('retry')"
+        >
+          重发
+        </button>
+        <span v-else-if="props.message.isPending" class="message-bubble__pending">发送中…</span>
+        <span v-else-if="showRead" class="message-bubble__read" data-testid="chat-read">已读</span>
+      </div>
     </div>
   </div>
 </template>
@@ -162,6 +207,43 @@ const sticker = computed(() => stickerById(props.message.stickerId))
 .message-bubble--self {
   align-self: flex-end;
   flex-direction: row-reverse;
+}
+/* 引用块 + 气泡:竖排,自己的消息靠右对齐 */
+.message-bubble__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.message-bubble--self .message-bubble__stack {
+  align-items: flex-end;
+}
+/* 引用块:左侧一条主色竖条 + 弱化底,点击跳回原消息 */
+.message-bubble__quote {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  border: none;
+  border-left: 3px solid var(--color-brand);
+  border-radius: var(--radius-chip);
+  background: var(--color-divider);
+  text-align: left;
+  cursor: pointer;
+}
+.message-bubble__quote-name {
+  font-size: var(--text-badge);
+  color: var(--color-brand);
+}
+.message-bubble__quote-text {
+  font-size: var(--text-badge);
+  color: var(--color-text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .message-bubble__body {
   display: flex;

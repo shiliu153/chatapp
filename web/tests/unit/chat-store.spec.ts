@@ -494,7 +494,8 @@ describe('chat store', () => {
     expect(stickers).toHaveLength(1)
     expect(stickers[0].msgId).toBe('stk-1')
     expect(stickers[0].stickerId).toBe('sticker_01')
-    expect(client.sendSticker).toHaveBeenCalledWith('u8', 'sticker_01')
+    // 第三个参数是引用回复的 `ref_msg_id`(批次 L-2);没引用时就是 undefined
+    expect(client.sendSticker).toHaveBeenCalledWith('u8', 'sticker_01', undefined)
   })
 
   it('sendSticker 失败把占位标成 isFailed,resend 直接用 id 重发', async () => {
@@ -512,7 +513,7 @@ describe('chat store', () => {
       msg({ msgId: 'stk-2', peerId: 'u8', isSelf: true, kind: 'sticker' as never }),
     )
     await store.resend(failed)
-    expect(client.sendSticker).toHaveBeenCalledWith('u8', 'sticker_02')
+    expect(client.sendSticker).toHaveBeenCalledWith('u8', 'sticker_02', undefined)
     expect(store.messagesOf('u8').some((item) => item.msgId === 'stk-2')).toBe(true)
   })
 })

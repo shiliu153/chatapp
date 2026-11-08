@@ -128,6 +128,32 @@
       "note": "贴纸(批次 J):下行是 kind=custom + custom{type,id};历史接口(GET /im/api/messages)返回同样的形状,离线补拉靠它还原。客户端按 id 取本地资源,未知 id 降级成「[贴纸]」文本"
     },
     {
+      "name": "message_quote",
+      "frame": {
+        "v": 1,
+        "type": "message",
+        "data": {
+          "msg_id": "900128",
+          "seq": 46,
+          "from": "u2",
+          "to": "u9",
+          "kind": "text",
+          "ts": 1720000000004,
+          "revoked": false,
+          "text": "好,六点",
+          "ref": {
+            "msg_id": 900120,
+            "from": "u9",
+            "kind": "text",
+            "text": "今晚吃饭?",
+            "revoked": false
+          },
+          "from_profile": {"nickname": "小九", "avatar": "http://cdn/avatar/u2.jpg"}
+        }
+      },
+      "note": "引用回复(批次 L-2):`ref` 是**服务端生成的快照**,并且**只在有引用时出现这个键**(老客户端不解析也不会崩)。`ref.text` 按类型截断:文本前 120 字 / [图片] / [语音] / [贴纸];已撤回时是空串 + revoked=true。`ref.msg_id` 是数字,其余同下行消息的命名"
+    },
+    {
       "name": "read_down",
       "frame": {"v": 1, "type": "read", "data": {"peer": "u2", "seq": 42}},
       "note": "对端(peer)读到 seq=42;没有 id,服务端主动推,客户端不要回 ack"

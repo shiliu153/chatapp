@@ -38,6 +38,14 @@ struct MessageRow {
   std::string client_msg_id;
   int64_t created_at = 0;
   std::optional<int64_t> revoked_at;
+  /// 引用的原消息 id(批次 L-2)。没有引用时为空 —— 这正是「`ref` 键只在有引用时出现」的源头。
+  std::optional<uint64_t> ref_msg_id;
+  /// **服务端生成的**引用快照(JSON 文本,字段同下行 `ref` 对象)。
+  ///
+  /// 为什么存快照而不是每次回查:历史分页意味着被引用消息常常不在当前页里,
+  /// 只存 id 会让客户端大量显示「原消息不可见」。快照只由服务端生成,
+  /// 客户端传上来的一律丢弃(见 `MessageService::send`)。
+  std::optional<std::string> ref_snapshot;
 };
 
 struct ConversationView {

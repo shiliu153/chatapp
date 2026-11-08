@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -22,6 +23,10 @@ struct SendRequest {
   nlohmann::json image;     // kind=3 的载荷
   nlohmann::json voice;     // kind=4 的载荷
   nlohmann::json custom;    // kind=2 的载荷
+  /// 引用回复(批次 L-2):被引用消息的 id。**只有这一个字段来自客户端** ——
+  /// 引用内容(谁说的、说了什么、是否已撤回)一律由服务端回库查并生成快照,
+  /// 客户端夹带的 `ref` 载荷在这里根本无处可放。
+  std::optional<uint64_t> ref_msg_id;
 };
 
 struct SendResult {
@@ -30,6 +35,12 @@ struct SendResult {
   int64_t ts = 0;
   std::string from_nickname;
   std::string from_avatar;
+  /// 刚落库的那一行(含 kind/body/ref_snapshot)。
+  ///
+  /// 为什么把它带出来:下行 `message` 帧必须与 `/im/api/messages` 用**同一个**
+  /// 序列化函数(`frames.h::message_json`),那份函数吃的是 `MessageRow`。
+  /// 否则两个构造函数迟早有一边漏字段(引用就是这样漏的)。
+  MessageRow row;
 };
 
 class MessageService {

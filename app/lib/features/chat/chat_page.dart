@@ -29,6 +29,7 @@ import 'chat_controller.dart';
 import 'chat_items.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
+import 'quote.dart';
 import 'recall.dart';
 import 'voice_record_controller.dart';
 import 'widgets/chat_bubbles_mark.dart';
@@ -219,9 +220,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return null;
   }
 
-  Future<void> _showMessageMenu(BuildContext context, ChatMessage message) async {
-    final renderObject = context.findRenderObject();
-    final overlay = Overlay.of(context).context.findRenderObject();
+  /// 长按气泡弹出操作菜单。
+  ///
+  /// Args:
+  ///   itemContext: **气泡自己的** context(菜单要定位到它)。它只用来算菜单位置 ——
+  ///     菜单关掉之后就不能再碰它:真机上输入框重新获得焦点会弹起键盘、把视口压小,
+  ///     `ListView` 随之回收这条气泡,`itemContext.mounted` 立刻变成 false。曾经
+  ///     这里用 `!context.mounted` 做守卫,结果「引用 / 复制 / 撤回 / 删除」在真机上
+  ///     全部静默失效(菜单关了、什么都没发生)。判活要用页面自己的 [mounted]。
+  ///   message: 被长按的消息。
+  Future<void> _showMessageMenu(BuildContext itemContext, ChatMessage message) async {
+    final renderObject = itemContext.findRenderObject();
+    final overlay = Overlay.of(itemContext).context.findRenderObject();
     final position = (renderObject is RenderBox && overlay is RenderBox)
         ? RelativeRect.fromRect(
             Rect.fromPoints(
@@ -233,9 +243,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           )
         : RelativeRect.fill;
     final action = await showMenu<String>(
-      context: context,
+      context: itemContext,
       position: position,
       items: [
+        // 引用(批次 L-2):灰条 / 已撤回的消息没有可引用的内容,不给入口。
+        if (canQuote(message))
+          const PopupMenuItem(
+              key: Key('chat.menu.quote'), value: 'quote', child: Text('引用')),
         if (canRecall(message))
           const PopupMenuItem(
               key: Key('chat.menu.recall'), value: 'recall', child: Text('撤回')),
@@ -246,22 +260,59 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             key: Key('chat.menu.delete'), value: 'delete', child: Text('删除')),
       ],
     );
-    if (action == null || !context.mounted) return;
-    if (action == 'copy') {
+    // 判活用**页面**的 mounted,不是气泡的 itemContext(见方法注释)。
+    if (action == null || !mounted) return;
+    if (action == 'quote') {
+      _startQuote(message);
+    } else if (action == 'copy') {
       await Clipboard.setData(ClipboardData(text: message.text));
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制')));
       }
     } else if (action == 'recall') {
       try {
         await ref.read(chatProvider(widget.peerId).notifier).revoke(message);
-        if (context.mounted) AppToast.show(context, '已撤回');
+        if (mounted) AppToast.show(context, '已撤回');
       } on ImException catch (error) {
-        if (context.mounted) AppToast.show(context, error.message);
+        if (mounted) AppToast.show(context, error.message);
       }
     } else if (action == 'delete') {
       await ref.read(chatProvider(widget.peerId).notifier).deleteLocal(message);
     }
+  }
+
+  /// 选中一条消息作为引用目标(批次 L-2):输入栏上方出现引用条。
+  ///
+  /// 只记 id 与本地摘要;发送时**只上行 `ref_msg_id`**,内容由服务端回库查后生成快照。
+  ///
+  /// Args:
+  ///   message: 被引用的消息(调用方已用 [canQuote] 判过)。
+  void _startQuote(ChatMessage message) {
+    final msgId = int.tryParse(message.msgId);
+    if (msgId == null) return;
+    // 自己的消息用当前登录的 IM id 署名;对端的就是会话对端。
+    final status = ref.read(imStatusProvider);
+    final selfId = status is ImLoggedIn ? status.imUserId : '';
+    ref.read(chatQuoteTargetProvider(widget.peerId).notifier).set(QuoteTarget(
+          msgId: msgId,
+          from: message.isSelf ? selfId : widget.peerId,
+          text: quoteSummaryOf(message),
+        ));
+  }
+
+  /// 点引用块:跳到被引用的原消息。
+  ///
+  /// 原消息不在当前已加载的记录里(翻页翻出去了 / 被删除)时只提示,不假装跳过去。
+  ///
+  /// Args:
+  ///   msgId: 被引用消息的 id。
+  void _jumpToQuote(String msgId) {
+    final items = ref.read(chatProvider(widget.peerId)).value ?? const <ChatMessage>[];
+    if (!items.any((item) => item.msgId == msgId)) {
+      AppToast.show(context, '原消息不在当前记录中');
+      return;
+    }
+    unawaited(_focusOn(msgId));
   }
 
   Future<void> _unmatch() async {
@@ -306,6 +357,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // 对端是否正在输入(批次 L-1):收到 typing 帧置真,5 秒没有新帧自动置假。
     // 这个 provider 是 autoDispose,离开聊天页即销毁 —— 下次进来一定是干净的 false。
     final peerTyping = ref.watch(chatPeerTypingProvider(widget.peerId));
+    // 引用目标(批次 L-2):长按「引用」后出现在输入栏上方;发送成功即清空。
+    final quoteTarget = ref.watch(chatQuoteTargetProvider(widget.peerId));
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final selfAvatarUrl = ref.watch(profileProvider).value?.avatar?.url;
     final peerName = displayNameFor(cache, widget.peerId, imName: _imNameOf(ref));
@@ -397,6 +450,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             isRead: message.seq > 0 && message.seq <= peerReadSeq,
                             onLongPress: () => _showMessageMenu(itemContext, message),
                             onTapImage: () => _openImage(message),
+                            // 点引用块跳回原消息(批次 L-2)
+                            onTapQuote: message.ref == null
+                                ? null
+                                : () => _jumpToQuote('${message.ref!.msgId}'),
                             onRetry: () =>
                                 ref.read(chatProvider(widget.peerId).notifier).retry(message),
                           ),
@@ -407,6 +464,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               },
             ),
           ),
+          // 引用条(批次 L-2):长按「引用」后出现在输入栏上方,可点 × 取消。
+          if (quoteTarget != null)
+            _QuoteBar(
+              key: const Key('chat.quoteBar'),
+              sender: quoteTarget.from == widget.peerId ? peerName : '我',
+              text: quoteTarget.text,
+              onClose: () =>
+                  ref.read(chatQuoteTargetProvider(widget.peerId).notifier).clear(),
+            ),
           _InputBar(
             controller: _input,
             focusNode: _focusNode,
@@ -550,6 +616,80 @@ class _ChatHeader extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 输入栏上方的引用条(批次 L-2):显示「引用谁 + 摘要」,点 × 取消引用。
+///
+/// 只显示本地摘要 —— 真正发给对端的快照由服务端生成,两边文案口径一致
+/// (见 `imserver` 的 `build_ref_snapshot` 与 `quote.dart::quoteSummaryOf`)。
+class _QuoteBar extends StatelessWidget {
+  const _QuoteBar({
+    super.key,
+    required this.sender,
+    required this.text,
+    required this.onClose,
+  });
+
+  /// 被引用消息的发送者(显示名:「我」或对端昵称)。
+  final String sender;
+
+  /// 被引用内容的摘要。
+  final String text;
+
+  /// 取消引用。
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
+      width: double.infinity,
+      color: colors.bgCard,
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.pageH, AppSpacing.sm, AppSpacing.sm, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.chip),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm, vertical: 6),
+                decoration: BoxDecoration(
+                  color: colors.divider,
+                  border:
+                      Border(left: BorderSide(color: colors.brand, width: 3)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('引用 $sender',
+                        key: const Key('chat.quoteBar.sender'),
+                        style: AppText.micro.copyWith(color: colors.brand)),
+                    Text(
+                      text,
+                      key: const Key('chat.quoteBar.text'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.micro.copyWith(color: colors.text2),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            key: const Key('chat.quoteBar.close'),
+            onPressed: onClose,
+            tooltip: '取消引用',
+            visualDensity: VisualDensity.compact,
+            icon: Icon(Icons.close_rounded, size: 20, color: colors.text2),
           ),
         ],
       ),

@@ -11,9 +11,28 @@ class MessageRepo {
  public:
   explicit MessageRepo(MysqlPool& pool);
 
+  /// 落一条消息,返回新行的 msg_id。
+  ///
+  /// Args:
+  ///   lease: 借出的数据库连接(调用方已开事务)。
+  ///   conv_id: 会话 id。
+  ///   seq: 会话内序号(调用方已加锁分配)。
+  ///   from_id: 发送者;0 是系统通知。
+  ///   to_id: 接收者。
+  ///   kind: 1=text 2=custom 3=image 4=voice。
+  ///   body: 已校验并序列化的载荷 JSON 文本。
+  ///   client_msg_id: 客户端幂等 id。
+  ///   now_ms: 服务端时间(毫秒)。
+  ///   ref_msg_id: 引用的原消息 id(批次 L-2);无引用时为空。
+  ///   ref_snapshot: **服务端生成的**引用快照 JSON 文本;无引用时为空。
+  ///
+  /// Returns:
+  ///   新插入行的自增 id。
   uint64_t insert(MysqlPool::Lease& lease, uint64_t conv_id, uint64_t seq, uint64_t from_id,
                   uint64_t to_id, int kind, const std::string& body,
-                  const std::string& client_msg_id, int64_t now_ms);
+                  const std::string& client_msg_id, int64_t now_ms,
+                  const std::optional<uint64_t>& ref_msg_id = std::nullopt,
+                  const std::optional<std::string>& ref_snapshot = std::nullopt);
   std::optional<MessageRow> find_by_client(MysqlPool::Lease& lease, uint64_t from_id,
                                            const std::string& client_msg_id);
   std::optional<MessageRow> find_by_client(uint64_t from_id, const std::string& client_msg_id);

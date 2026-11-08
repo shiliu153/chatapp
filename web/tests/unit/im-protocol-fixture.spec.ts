@@ -189,6 +189,23 @@ describe('IM 协议 fixture', () => {
     expect(sticker.message.stickerId).toBe('sticker_01')
     expect(sticker.message.text).toBe('')
 
+    // 引用回复(批次 L-2):`ref` 是**服务端生成的快照**,字段全部来自下行帧
+    events.length = 0
+    transport.emit(JSON.stringify(frameOf(server, 'message_quote')))
+    await flush()
+    const quoted = events.find((event) => event.type === 'newMessage')
+    if (quoted?.type !== 'newMessage') throw new Error('没有收到引用消息')
+    expect(quoted.message.text).toBe('好,六点')
+    expect(quoted.message.ref).toEqual({
+      msgId: 900120,
+      from: 'u9',
+      kind: 'text',
+      text: '今晚吃饭?',
+      revoked: false,
+    })
+    // 没有引用时服务端不下发 `ref` 键:模型里必须是 null,不能是空对象
+    expect(text.message.ref).toBeNull()
+
     events.length = 0
     transport.emit(JSON.stringify(frameOf(server, 'read_down')))
     await flush()
@@ -334,6 +351,22 @@ describe('IM 协议 fixture', () => {
     const stickerMessage = await sendingSticker
     expect(stickerMessage.kind).toBe('sticker')
     expect(stickerMessage.stickerId).toBe('sticker_01')
+
+    // send_quote(批次 L-2):上行**只带 ref_msg_id**,不带任何引用内容
+    const sendingQuote = client.sendText('u2', '好,六点', 900120)
+    await flush()
+    const sendQuote = JSON.parse(transport.sent[transport.sent.length - 1]) as Record<
+      string,
+      unknown
+    >
+    expectFrameMatches(sendQuote, frameOf(clientToServer, 'send_quote'))
+    const quoteAck = JSON.parse(JSON.stringify(frameOf(server, 'ack_send'))) as Record<
+      string,
+      unknown
+    >
+    quoteAck.id = sendQuote.id
+    transport.emit(JSON.stringify(quoteAck))
+    await sendingQuote
 
     // read
     await client.markConversationRead('u2')
