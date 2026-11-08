@@ -231,6 +231,24 @@ watch(
   },
 )
 
+/**
+ * 跨端删除(多端在线 K-3):我在另一台设备上删了这个会话后,store 会把它从列表移除。
+ * 正停在这一页就退回会话列表 —— 否则会停在一个已经不存在的会话里继续发消息。
+ *
+ * `hadConversation` 兜住「深链进来、列表还没拉到」的情况:那种时候 conversation
+ * 本来就为空,不是被删了,不能跳走。所以初值要按挂载那一刻的状态取。
+ */
+let hadConversation = conversation.value !== undefined
+watch(conversation, (current) => {
+  if (current) {
+    hadConversation = true
+    return
+  }
+  if (!hadConversation) return
+  hadConversation = false
+  void router.push({ name: 'chats' })
+})
+
 async function onSend() {
   const text = draft.value.trim()
   if (!text || sending.value) return

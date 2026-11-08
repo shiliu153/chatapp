@@ -188,6 +188,31 @@ describe('ChatPage', () => {
     expect((w.find('input[type="text"]').element as HTMLInputElement).disabled).toBe(true)
   })
 
+  it('会话被另一台设备删掉(多端在线 K-3):自动退回消息列表', async () => {
+    const { store, router } = await mountPage([msg()], {
+      beforeMount: (chat) => {
+        chat.conversations = [
+          {
+            peerId: 'u8',
+            unreadCount: 0,
+            showName: '小雨',
+            faceUrl: null,
+            lastMessage: null,
+            peerReadSeq: 0,
+          },
+        ]
+      },
+    })
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('chat')
+
+    // store 收到 conversation_deleted 后移除该会话(见 stores/chat.ts::removeConversation)
+    store.conversations = []
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('chats')
+  })
+
   it('带 focus 进聊天页:往前翻到目标消息并高亮', async () => {
     const target = msg({
       msgId: 'target',

@@ -69,4 +69,29 @@ void main() {
     expect(list, isEmpty);
     expect(fake.log, isEmpty);
   });
+
+  test('跨端已读只清未读、跨端删除移除会话(多端在线 K-3)', () async {
+    fake.conversations = [
+      const ImConversation(peerId: 'u9', unreadCount: 3, peerReadSeq: 7),
+      conv('u8', unread: 1),
+    ];
+    final container = makeContainer();
+    await container.read(imStatusProvider.notifier).login();
+    await container.read(conversationsProvider.future);
+    expect(container.read(unreadTotalProvider), 4);
+
+    // 我在另一台设备上读完了与 u9 的会话:未读清零,「对方读我」的位置不动
+    fake.emitSelfRead('u9', 42);
+    await pumpEventQueue();
+    final afterRead = container.read(conversationsProvider).value!;
+    expect(afterRead.firstWhere((item) => item.peerId == 'u9').unreadCount, 0);
+    expect(afterRead.firstWhere((item) => item.peerId == 'u9').peerReadSeq, 7);
+    expect(container.read(unreadTotalProvider), 1);
+
+    // 我在另一台设备上删了与 u8 的会话:列表里立刻消失
+    fake.emitConversationDeleted('u8');
+    await pumpEventQueue();
+    expect(container.read(conversationsProvider).value!.map((item) => item.peerId), ['u9']);
+    expect(container.read(unreadTotalProvider), 0);
+  });
 }

@@ -139,6 +139,35 @@ export const useChatStore = defineStore('chat', () => {
     peerReadSeq.value = { ...peerReadSeq.value, [peerId]: seq }
   }
 
+  /**
+   * 跨端已读(多端在线 K-3):我在另一台设备上读完了这个会话。
+   *
+   * 只把**未读**清零 —— `peerReadSeq`(对端读我)一律不动,那是另一条链路,
+   * 动了就是假已读。`seq` 只是服务端回读后的真实位置,这里用不到(未读由服务端算好)。
+   */
+  function clearUnread(peerId: string): void {
+    if (!peerId) return
+    setLocalUnread(peerId, 0)
+  }
+
+  /**
+   * 跨端删除(多端在线 K-3):我在另一台设备上删了这个会话。
+   *
+   * 立刻从列表移除并丢掉本地消息缓存;正看着它就把 activePeerId 清掉,
+   * 聊天页据此退回列表(`ChatPage.vue` 的 watch)。**对方不会收到这个事件** ——
+   * 删除是单方行为。
+   */
+  function removeConversation(peerId: string): void {
+    if (!peerId) return
+    conversations.value = conversations.value.filter((item) => item.peerId !== peerId)
+    if (peerId in messages.value) {
+      const rest = { ...messages.value }
+      delete rest[peerId]
+      messages.value = rest
+    }
+    if (activePeerId.value === peerId) activePeerId.value = null
+  }
+
   client.onEvent((event) => {
     if (event.type === 'newMessage') {
       appendMessage(event.message.peerId, event.message)
@@ -155,6 +184,14 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (event.type === 'peerRead') {
       advancePeerRead(event.peerId, event.seq)
+      return
+    }
+    if (event.type === 'selfRead') {
+      clearUnread(event.peerId)
+      return
+    }
+    if (event.type === 'conversationDeleted') {
+      removeConversation(event.peerId)
       return
     }
     if (event.type === 'ready') {

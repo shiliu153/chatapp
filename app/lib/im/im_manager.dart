@@ -63,7 +63,10 @@ class ImManager extends Notifier<ImStatus> {
       case ImNewMessage() ||
             ImConversationsChanged() ||
             ImMessageRevoked() ||
-            ImPeerRead():
+            ImPeerRead() ||
+            // 跨端同步帧(多端在线 K-3):由会话列表控制器消费,这里只声明不处理。
+            ImSelfRead() ||
+            ImConversationDeleted():
         break; // 会话/聊天控制器各自消费
     }
   }

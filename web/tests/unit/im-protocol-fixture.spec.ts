@@ -199,6 +199,20 @@ describe('IM 协议 fixture', () => {
     await flush()
     expect(events).toContainEqual({ type: 'messageRevoked', msgId: '900124' })
 
+    // 跨端已读(多端在线 K-3):「**我**在另一台设备上读到 seq」。
+    // 必须是 selfRead 而不是 peerRead —— 后者是「对端读我」,混用就是假已读。
+    events.length = 0
+    transport.emit(JSON.stringify(frameOf(server, 'self_read')))
+    await flush()
+    expect(events).toContainEqual({ type: 'selfRead', peerId: 'u8', seq: 42 })
+    expect(events.some((event) => event.type === 'peerRead')).toBe(false)
+
+    // 跨端删除(多端在线 K-3):「**我**在另一台设备上删了与 peer 的会话」。
+    events.length = 0
+    transport.emit(JSON.stringify(frameOf(server, 'conversation_deleted')))
+    await flush()
+    expect(events).toContainEqual({ type: 'conversationDeleted', peerId: 'u8' })
+
     events.length = 0
     transport.emit(JSON.stringify(frameOf(server, 'pong')))
     transport.emit(JSON.stringify(frameOf(server, 'error_42201')))

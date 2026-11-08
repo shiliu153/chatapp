@@ -222,6 +222,10 @@ TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
       {"message_sticker", build_message_frame(sticker_result, sticker, signer)},
       {"read_down", read_frame("u2", 42)},
       {"revoked", revoked_frame(900124, 42, "u2", 1720000000000)},
+      // 多端在线(K-3):跨端已读 / 跨端删除。两者都只发给本人的其他端,
+      // 与 `read` 帧(发给对端)语义不同,所以是独立的帧类型。
+      {"self_read", self_read_frame("u8", 42)},
+      {"conversation_deleted", conversation_deleted_frame("u8")},
   };
 
   for (const auto& item : document.at("frames")) {

@@ -216,5 +216,11 @@ class FakeImClient extends ImClient {
   /// 模拟「对端读到 seq」的下行 read 帧。
   void emitPeerRead(String peerId, int seq) => emit(ImPeerRead(peerId: peerId, seq: seq));
 
+  /// 模拟「**我**在另一台设备上读到 seq」的 `self_read` 帧(多端在线 K-3)。
+  void emitSelfRead(String peerId, int seq) => emit(ImSelfRead(peerId: peerId, seq: seq));
+
+  /// 模拟「**我**在另一台设备上删了会话」的 `conversation_deleted` 帧(多端在线 K-3)。
+  void emitConversationDeleted(String peerId) => emit(ImConversationDeleted(peerId));
+
   void dispose() => _events.close();
 }

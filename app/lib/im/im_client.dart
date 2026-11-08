@@ -125,6 +125,22 @@ class ImConversation {
   /// **对端**读到哪(0 = 从没读过)。`seq <= peerReadSeq` 的我方消息算已读。
   /// 与 `unreadCount`(我没读的条数)是两条独立链路,别混。
   final int peerReadSeq;
+
+  /// 只换未读条数,其余字段原样保留(跨端已读同步 K-3 用)。
+  ///
+  /// Args:
+  ///   unreadCount: 新的未读条数;省略则保持原值。
+  ///
+  /// Returns:
+  ///   新的 [ImConversation] 实例(模型不可变,不就地改)。
+  ImConversation copyWith({int? unreadCount}) => ImConversation(
+        peerId: peerId,
+        unreadCount: unreadCount ?? this.unreadCount,
+        showName: showName,
+        faceUrl: faceUrl,
+        lastMessage: lastMessage,
+        peerReadSeq: peerReadSeq,
+      );
 }
 
 sealed class ImEvent {
@@ -152,6 +168,25 @@ class ImPeerRead extends ImEvent {
   const ImPeerRead({required this.peerId, required this.seq});
   final String peerId;
   final int seq;
+}
+
+/// **我**在另一台设备上把与 [peerId] 的会话读到了 [seq](多端在线 K-3)。
+///
+/// 与 [ImPeerRead] 的区别是视角:[ImPeerRead] 是「**对端**读到 seq」,用来把我方气泡
+/// 标成「已读」;这个是「**我自己**在另一台设备上读到 seq」,收帧端只把自己这边的
+/// 未读清零,**绝不能**拿去推进「对端读到哪」——那会变成假已读。
+class ImSelfRead extends ImEvent {
+  const ImSelfRead({required this.peerId, required this.seq});
+  final String peerId;
+  final int seq;
+}
+
+/// **我**在另一台设备上删除了与 [peerId] 的会话(多端在线 K-3)。
+///
+/// 只发给我自己的其他端:删会话是单方行为,对方不会收到这个事件。
+class ImConversationDeleted extends ImEvent {
+  const ImConversationDeleted(this.peerId);
+  final String peerId;
 }
 
 class ImSigExpired extends ImEvent {

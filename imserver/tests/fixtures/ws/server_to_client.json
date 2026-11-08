@@ -139,6 +139,16 @@
         "type": "revoked",
         "data": {"msg_id": "900124", "seq": 42, "peer": "u2", "ts": 1720000000000}
       }
+    },
+    {
+      "name": "self_read",
+      "frame": {"v": 1, "type": "self_read", "data": {"peer": "u8", "seq": 42}},
+      "note": "**我**在另一台设备上把与 peer 的会话读到了 seq(多端在线 K-3)。收帧端清零自己这边的未读,peerReadSeq 一律不动 —— 那一栏是「对方读我」,与下行 read 帧的语义正好相反"
+    },
+    {
+      "name": "conversation_deleted",
+      "frame": {"v": 1, "type": "conversation_deleted", "data": {"peer": "u8"}},
+      "note": "**我**在另一台设备上删除了与 peer 的会话(多端在线 K-3)。只发给本人的其他端,绝不发给对方(删会话是单方行为)"
     }
   ]
 }

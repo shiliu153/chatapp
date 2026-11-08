@@ -59,6 +59,16 @@ class SessionRegistry {
   /// Returns:
   ///   至少投给了一条活跃连接时返回 true(离线推送用它判「目标是否在线」)。
   bool send_to(uint64_t uid, const std::string& frame);
+  /// 发给本人**除 `except` 之外**的所有端(跨端同步 `self_read` / `conversation_deleted` 用)。
+  ///
+  /// 与 `send_to` 的区别只有「跳过发起这条动作的连接」:本人另一台设备要收到,
+  /// 发起端自己不需要(它的状态已经由本地操作更新,再收一遍是重复)。
+  ///
+  /// Args:
+  ///   uid: 账号 id。
+  ///   except: 不发的那条连接(通常是当前正在处理的会话)。
+  ///   frame: 已序列化的帧。
+  void send_to_other_clients(uint64_t uid, const WsSession* except, const std::string& frame);
   bool is_online(uint64_t uid);
   std::size_t online_count();
   void touch_online(uint64_t uid);

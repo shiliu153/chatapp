@@ -257,6 +257,21 @@ export class SelfImClient implements ImClient {
         peerId: String(data.peer ?? ''),
         seq: Number(data.seq ?? 0),
       })
+      return
+    }
+    if (type === 'self_read') {
+      // **我**在另一台设备上读到哪(多端在线 K-3)。别和上面的 read 混:
+      // 那个是「对端读我」,这个只清我这边的未读。
+      this.emit({
+        type: 'selfRead',
+        peerId: String(data.peer ?? ''),
+        seq: Number(data.seq ?? 0),
+      })
+      return
+    }
+    if (type === 'conversation_deleted') {
+      // **我**在另一台设备上删了与 peer 的会话(K-3)。只发给本人的其他端。
+      this.emit({ type: 'conversationDeleted', peerId: String(data.peer ?? '') })
     }
   }
 

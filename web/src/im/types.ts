@@ -105,6 +105,16 @@ export type ImEvent =
   | { type: 'messageRevoked'; msgId: string }
   /** 对端读到了 `seq`(已读回执)。**只增不减**:收到更小的值直接忽略。 */
   | { type: 'peerRead'; peerId: string; seq: number }
+  /**
+   * **我**在另一台设备上把与 `peerId` 的会话读到了 `seq`(多端在线 K-3)。
+   *
+   * 与 `peerRead` 的视角正好相反:`peerRead` 是「**对端**读我」(用来把我方气泡标已读),
+   * 这个是「**我自己**在别处读了」—— 只清自己这边的未读,**绝不能**推进 `peerReadSeq`,
+   * 否则就是假已读。
+   */
+  | { type: 'selfRead'; peerId: string; seq: number }
+  /** **我**在另一台设备上删除了与 `peerId` 的会话(K-3)。只发给本人的其他端,对方收不到。 */
+  | { type: 'conversationDeleted'; peerId: string }
   | { type: 'kickedOffline'; reason: KickReason }
   /**
    * 连接断了(服务端 75s 空闲踢出、网络中断等),**不是**被顶号。

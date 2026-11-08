@@ -533,6 +533,12 @@ void WsSession::handle_read(const nlohmann::json& frame) {
         // 多端(K-2):send_to 是扇出,对端的两端都会收到;我自己另一端靠 K-3 的
         // `self_read` 帧同步(这一帧的语义是「**对端**读到 seq」,不能拿来同步自己)。
         self->registry_.send_to(peer_uid, read_frame(peer_id(self->uid_), *marked));
+        // 我自己的其他端(K-3):告诉它们「我在那一端读到了 *marked」,它们据此把
+        // 与 peer 的未读清零。用独立帧而不是复用上面的 read 帧:read 帧的语义是
+        // 「**对端**读到 seq」,发给自己的另一台设备会被读成「对方已读」。
+        // 只有一端在线时这里没有目标,天然不会发给自己这条连接。
+        self->registry_.send_to_other_clients(
+            self->uid_, self.get(), self_read_frame(peer_id(peer_uid), *marked));
       });
     });
   } catch (const std::exception&) {
@@ -582,12 +588,19 @@ void WsSession::handle_delete(const nlohmann::json& frame) {
     const std::string id = frame.value("id", std::string());
     auto self = shared_from_this();
     run_db([self, peer = *peer, id] {
-      // 删除是**按 uid** 的软删(set_deleted),只给发起连接回 ack。
-      // 多端遗留(K-2 Step 0):自己的另一端要等重新拉会话列表才看不到这条 ——
-      // 补扇出必须新增下行帧(如 conversation_deleted),属三端契约联动,留给后续契约单。
+      // 删除是**按 uid** 的软删(set_deleted):只删我这一份,对方那份不受影响。
       const bool ok = self->messages_.delete_conversation(self->uid_, peer);
-      boost::asio::post(self->ws_.get_executor(),
-                        [self, ok, id] { self->send_raw(ack_frame(id, ok)); });
+      boost::asio::post(self->ws_.get_executor(), [self, ok, peer_uid = peer, id] {
+        self->send_raw(ack_frame(id, ok));
+        if (!ok) {
+          return;  // 没删成(会话不存在 / 已删过):没必要让另一台设备做无谓的移除
+        }
+        // 我自己的其他端(K-3):同步「这条会话已被我删掉」,它们立刻从列表移除,
+        // 不必等重新拉全量。**只发给本人的其他端,绝不发给对方** —— 删会话是单方
+        // 行为,对方不该知道,更不该因此丢记录。
+        self->registry_.send_to_other_clients(self->uid_, self.get(),
+                                              conversation_deleted_frame(peer_id(peer_uid)));
+      });
     });
   } catch (const std::exception&) {
     send_raw(error_frame(42201, "删除参数错误"));
