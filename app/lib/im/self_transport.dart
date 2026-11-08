@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../core/client_header.dart';
 import '../core/pinned_tls.dart';
 
 /// 自建 IM 的 WebSocket 传输抽象:测试注入假实现。
@@ -60,9 +62,15 @@ class DioSelfHttpClient implements SelfHttpClient {
           connectTimeout: const Duration(seconds: 5),
           receiveTimeout: const Duration(seconds: 5),
         ))
-          ..httpClientAdapter = PinnedTls.adapter();
+          ..httpClientAdapter = PinnedTls.adapter()
+          // 与业务请求同口径:IM 的 HTTP 调用也走 App 端身份(批次 K / K-4)
+          ..interceptors.add(const ClientHeaderInterceptor());
 
   final Dio _dio;
+
+  /// 测试用:换掉底层适配器,以便断言真正发出的请求头。
+  @visibleForTesting
+  Dio get dio => _dio;
 
   @override
   Future<Map<String, dynamic>> get(String path, Map<String, String> query) async {
