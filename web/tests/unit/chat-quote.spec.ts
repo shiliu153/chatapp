@@ -1,3 +1,4 @@
+import { defineComponent, ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { HttpResponse, http as mswHttp } from 'msw'
 import { mount } from '@vue/test-utils'
@@ -6,6 +7,7 @@ import { useChatStore } from '@/stores/chat'
 import { setImClientFactory } from '@/im/client'
 import { messageFromJson } from '@/im/self/map'
 import MessageBubble from '@/features/chat/MessageBubble.vue'
+import MessageMenu from '@/features/chat/MessageMenu.vue'
 import { canQuote, quoteSummaryOf } from '@/features/chat/quote'
 import { server } from '../support/server'
 import type { ChatMessage, ImClient, ImConversation, ImEvent } from '@/im/types'
@@ -241,5 +243,94 @@ describe('引用回复:气泡渲染(批次 L-2)', () => {
       props: { message: msg({ msgId: '900202', text: '普通消息' }) },
     })
     expect(wrapper.find('[data-testid="quote-block"]').exists()).toBe(false)
+  })
+})
+
+/**
+ * 菜单**真实点击链路**回归(验收现场抓到的 bug)。
+ *
+ * 曾经的实现用 `window.addEventListener('mousedown', () => emit('close'))` 做「点别处关闭」。
+ * 用户点菜单项时事件顺序是 `mousedown → mouseup → click`:mousedown 先把菜单关掉
+ * (父组件 `menu.value = null` → 组件卸载),随后的 click 落在已卸载的节点上,
+ * `onMenuAction` 根本不会被调用 —— 于是「引用 / 复制 / 撤回 / 删除」**全都点不动**。
+ *
+ * 所以这条用例必须走真实的事件序列(`mousedown` 再 `click`),只调 store 是抓不到的。
+ */
+describe('引用回复:菜单真实点击链路(批次 L-2 验收回归)', () => {
+  /** 让出一拍,等菜单挂上「点别处关闭」的监听(setTimeout 0)。 */
+  async function nextTickTask(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  /** 一个最小宿主:负责开菜单、收 action、点别处关闭(与 ChatPage 同构)。 */
+  const Host = defineComponent({
+    components: { MessageMenu },
+    setup() {
+      const open = ref(false)
+      const actions: string[] = []
+      const target = msg({ msgId: '900124', text: '今晚吃饭?' })
+      return {
+        open,
+        actions,
+        target,
+        show() {
+          open.value = true
+        },
+        onAction(action: string) {
+          actions.push(action)
+          open.value = false
+        },
+        onClose() {
+          open.value = false
+        },
+      }
+    },
+    template: `
+      <div>
+        <button data-testid="open" @click="show">⋯</button>
+        <MessageMenu
+          v-if="open"
+          :message="target"
+          :x="10"
+          :y="10"
+          @action="onAction"
+          @close="onClose"
+        />
+      </div>
+    `,
+  })
+
+  it('点「引用」真的会触发 action(mousedown → click 的真实序列)', async () => {
+    // attachTo:必须挂到 document 上,否则事件冒泡到不了 window,
+    // 「点别处关闭」的监听根本不会被触发 —— 那样这条用例就测不到真 bug 了。
+    const wrapper = mount(Host, { attachTo: document.body })
+    await wrapper.find('[data-testid="open"]').trigger('click')
+    await nextTickTask()
+
+    const item = wrapper.find('[data-testid="menu-quote"]')
+    expect(item.exists()).toBe(true)
+
+    // 真实用户操作:mousedown 先到,click 后到。
+    await item.trigger('mousedown')
+    // 关键断言:按下鼠标时菜单**必须还开着**。旧实现用 window mousedown 关菜单,
+    // 按下就卸载了组件,随后真实浏览器里的 click 落在已经不存在的节点上 → 回调永不执行
+    // (jsdom 的 trigger 仍能派发到游离节点,所以必须在这里断言「还开着」,不能只看 actions)。
+    expect(wrapper.find('[data-testid="menu-quote"]').exists()).toBe(true)
+
+    await item.trigger('click')
+    expect(wrapper.vm.actions).toEqual(['quote'])
+    wrapper.unmount()
+  })
+
+  it('点菜单外面仍然会关闭菜单', async () => {
+    const wrapper = mount(Host, { attachTo: document.body })
+    await wrapper.find('[data-testid="open"]').trigger('click')
+    await nextTickTask()
+    expect(wrapper.find('[data-testid="menu-quote"]').exists()).toBe(true)
+
+    document.body.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="menu-quote"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 })

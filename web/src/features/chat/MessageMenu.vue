@@ -27,12 +27,38 @@ function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') emit('close')
 }
 
+/** 下一拍挂「点别处关闭」的定时器(卸载时要清掉,否则菜单关掉后它还会跑)。 */
+let dismissTimer: ReturnType<typeof setTimeout> | undefined
+/** 打开菜单的那次点击还在冒泡链上:挂好监听后先等它过去,再开始响应外部点击。 */
+let dismissArmed = false
+
+/**
+ * 点菜单**外面**才关闭。
+ *
+ * ⚠️ 必须监听 `click`,不能监听 `mousedown`(2026-11-08 验收现场抓到的真 bug):
+ * 用户点菜单项时事件顺序是 `mousedown → mouseup → click`。用 mousedown 关菜单,
+ * 按下那一刻父组件就把 `menu` 置空、组件被卸载,随后的 click 落在已经不存在的
+ * 节点上 —— `onMenuAction` 永不执行,表现为「引用 / 复制 / 撤回 / 删除全都点不动」。
+ * 菜单内部的点击也不该走到这里:菜单项自带 `@click.stop`。
+ */
+function onWindowClick(): void {
+  if (dismissArmed) emit('close')
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
-  // 点别处即关闭(下一帧再监听,避免把「打开菜单」的那次点击也算进去)
-  setTimeout(() => window.addEventListener('mousedown', () => emit('close'), { once: true }), 0)
+  // 下一拍再挂:打开菜单的那次点击还在冒泡,当场挂上会把自己关掉。
+  dismissTimer = setTimeout(() => {
+    dismissArmed = true
+    window.addEventListener('click', onWindowClick)
+  }, 0)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('click', onWindowClick)
+  if (dismissTimer) clearTimeout(dismissTimer)
+})
 </script>
 
 <template>
@@ -43,7 +69,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       class="message-menu__quote"
       role="menuitem"
       data-testid="menu-quote"
-      @click="emit('action', 'quote')"
+      @click.stop="emit('action', 'quote')"
     >
       引用
     </button>
@@ -52,7 +78,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       type="button"
       class="message-menu__recall"
       role="menuitem"
-      @click="emit('action', 'recall')"
+      @click.stop="emit('action', 'recall')"
     >
       撤回
     </button>
@@ -61,7 +87,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       type="button"
       class="message-menu__copy"
       role="menuitem"
-      @click="emit('action', 'copy')"
+      @click.stop="emit('action', 'copy')"
     >
       复制
     </button>
@@ -70,7 +96,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       type="button"
       class="message-menu__retry"
       role="menuitem"
-      @click="emit('action', 'retry')"
+      @click.stop="emit('action', 'retry')"
     >
       重发
     </button>
@@ -79,7 +105,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       type="button"
       class="message-menu__delete"
       role="menuitem"
-      @click="emit('action', 'delete')"
+      @click.stop="emit('action', 'delete')"
     >
       删除
     </button>
