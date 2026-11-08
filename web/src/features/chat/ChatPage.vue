@@ -118,6 +118,19 @@ const peerName = computed(() => conversation.value?.showName ?? '')
 const peerAvatar = computed(() => conversation.value?.faceUrl ?? null)
 const title = computed(() => peerName.value || (props.peerId === 'system_notice' ? '系统通知' : props.peerId))
 
+/**
+ * 对端是否正在输入(批次 L-1)。
+ *
+ * 只在 store 为这个会话记着 true 时显示;store 收到 `typing` 帧置真,
+ * 5 秒没有新帧自动清掉(typing 是可丢信号,服务端不补发,「停手」只能靠超时)。
+ */
+const peerTyping = computed(() => store.peerTyping[props.peerId] === true)
+
+// 输入框有变化就按 3 秒节流发一次 typing;清空输入框不发(那意味着「不打了」)
+watch(draft, (value) => {
+  if (value) store.notifyTyping(props.peerId)
+})
+
 /** 配对列表已加载且没有这个人 → 已被对方解除(系统通知不是配对,排除)。 */
 const unmatched = computed(
   () =>
@@ -211,6 +224,8 @@ onMounted(async () => {
 onUnmounted(() => {
   clearTimeout(highlightTimer)
   document.removeEventListener('keydown', onEscape)
+  // 离开聊天页立即清掉「正在输入…」(批次 L-1):不能把上一个人的提示留到下次进来
+  store.clearPeerTyping(props.peerId)
   // 离开页面一律取消:绝不把没录完的话发出去
   voice.dispose()
 })
@@ -294,7 +309,10 @@ async function onPickImage(event: Event) {
     <header class="chat__head">
       <RouterLink class="chat__back" :to="{ name: 'chats' }">←</RouterLink>
       <AppAvatar :src="peerAvatar" :name="peerName || title" :size="32" />
-      <h1 class="chat__title">{{ title }}</h1>
+      <div class="chat__head-text">
+        <h1 class="chat__title">{{ title }}</h1>
+        <p v-if="peerTyping" class="chat__typing" data-test="chat-typing">对方正在输入…</p>
+      </div>
       <button
         type="button"
         class="chat__more"
@@ -452,6 +470,19 @@ async function onPickImage(event: Event) {
   margin: 0;
   font-size: var(--text-subtitle);
   font-weight: var(--weight-semibold);
+}
+/* 标题块:昵称 + 「对方正在输入…」(批次 L-1),两行紧凑排列,不挤压头像 */
+.chat__head-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.chat__typing {
+  margin: 0;
+  font-size: var(--text-micro);
+  line-height: 1.2;
+  color: var(--color-brand);
 }
 .chat__more {
   margin-left: auto;

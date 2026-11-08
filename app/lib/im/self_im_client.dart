@@ -155,6 +155,9 @@ class SelfImClient extends ImClient {
       case 'conversation_deleted':
         // **我**在另一台设备上删了与 peer 的会话(多端在线 K-3)。只发给本人的其他端。
         _events.add(ImConversationDeleted('${data['peer'] ?? ''}'));
+      case 'typing':
+        // 对端正在输入(批次 L-1)。可丢信号:没有 id、不用 ack、服务端不补发。
+        _events.add(ImTyping(peerId: '${data['peer'] ?? ''}'));
       case 'pong':
         break;
     }
@@ -406,6 +409,17 @@ class SelfImClient extends ImClient {
       }).toList(),
       hasMore: data['has_more'] == true,
     );
+  }
+
+  @override
+  Future<void> sendTyping(String peerId) async {
+    // 上行 `typing`(批次 L-1):**没有 id、不等 ack**。服务端超限 / 未配对时静默
+    // 丢弃,所以这里不登记 _pendingAcks —— 登记了就会永远等不到回执。
+    _transport?.send(jsonEncode({
+      'v': 1,
+      'type': 'typing',
+      'data': {'to': peerId},
+    }));
   }
 
   @override

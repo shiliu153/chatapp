@@ -149,6 +149,14 @@ void expect_client_frame(const std::string& name, const json& frame) {
   } else if (type == "conversation_delete") {
     ASSERT_TRUE(frame.at("id").is_string()) << name;
     ASSERT_TRUE(data.at("peer").is_string()) << name;
+  } else if (type == "typing") {
+    // 输入中状态(批次 L-1):**没有 id**(不 ack)、只有 `to`。
+    // 这两条断言就是契约本身 —— 少了 id 才是「可丢信号」,多一个 id 就会诱使
+    // 客户端等 ack,而服务端超限时是静默丢弃的,等不到。
+    EXPECT_FALSE(frame.contains("id")) << name;
+    ASSERT_TRUE(data.at("to").is_string()) << name;
+    EXPECT_EQ(data.at("to").get<std::string>().rfind("u", 0), 0U) << name;
+    EXPECT_EQ(data.size(), 1U) << name;
   } else {
     FAIL() << name << " 是未知的上行帧类型: " << type;
   }
@@ -226,6 +234,8 @@ TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
       // 与 `read` 帧(发给对端)语义不同,所以是独立的帧类型。
       {"self_read", self_read_frame("u8", 42)},
       {"conversation_deleted", conversation_deleted_frame("u8")},
+      // 输入中状态(批次 L-1):可丢信号,无 id、不 ack,只发给对端。
+      {"typing", typing_frame("u8")},
   };
 
   for (const auto& item : document.at("frames")) {

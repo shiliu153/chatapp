@@ -115,6 +115,13 @@ export type ImEvent =
   | { type: 'selfRead'; peerId: string; seq: number }
   /** **我**在另一台设备上删除了与 `peerId` 的会话(K-3)。只发给本人的其他端,对方收不到。 */
   | { type: 'conversationDeleted'; peerId: string }
+  /**
+   * 对端 `peerId` 正在输入(批次 L-1)。
+   *
+   * **可丢信号**:服务端不落库、不补拉、超限静默丢弃,收不到是常态。
+   * 只当作「最近 5 秒对方在打字」的瞬时提示,别拿它推断任何持久状态。
+   */
+  | { type: 'typing'; peerId: string }
   | { type: 'kickedOffline'; reason: KickReason }
   /**
    * 连接断了(服务端 75s 空闲踢出、网络中断等),**不是**被顶号。
@@ -143,5 +150,12 @@ export interface ImClient {
   deleteMessage(msgId: string): Promise<void>
   revokeMessage(msgId: string): Promise<void>
   markConversationRead(peerId: string): Promise<void>
+  /**
+   * 告诉服务端「我在跟 `peerId` 聊天,正在输入」(批次 L-1)。
+   *
+   * 只发一次信号,不产生消息:服务端不落库、不 ack,超限或未配对时静默丢弃。
+   * 因此这里不抛错 —— 调用方(聊天 store)按 3 秒节流调用即可。
+   */
+  sendTyping(peerId: string): Promise<void>
   deleteConversation(peerId: string): Promise<void>
 }

@@ -189,6 +189,16 @@ class ImConversationDeleted extends ImEvent {
   final String peerId;
 }
 
+/// 对端 [peerId] 正在输入(批次 L-1)。
+///
+/// **可丢信号**:服务端不落库、不补拉、超限静默丢弃,所以收不到是常态。
+/// 客户端只该把它当成「最近 5 秒对方在打字」的瞬时提示,不能拿它推断任何
+/// 持久状态(比如「对方在不在」——那是在线状态的事)。
+class ImTyping extends ImEvent {
+  const ImTyping({required this.peerId});
+  final String peerId;
+}
+
 class ImSigExpired extends ImEvent {
   const ImSigExpired();
 }
@@ -324,6 +334,13 @@ abstract class ImClient {
   }
 
   Future<void> markConversationRead(String peerId);
+
+  /// 告诉服务端「我在跟 [peerId] 聊天,正在输入」(批次 L-1)。
+  ///
+  /// 只发一次**信号**,不产生消息:服务端不落库、不 ack,超限或未配对时**静默丢弃**。
+  /// 因此这里**不抛异常、不返回结果** —— 调用方(聊天控制器)按 3 秒节流调用即可,
+  /// 失败与否都不该影响用户正在打的字。
+  Future<void> sendTyping(String peerId);
 
   /// 删除本机会话(拉黑后清理用;对方设备上的会话不受影响)。
   Future<void> deleteConversation(String peerId);

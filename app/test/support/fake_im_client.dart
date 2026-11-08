@@ -188,6 +188,9 @@ class FakeImClient extends ImClient {
   Future<void> markConversationRead(String peerId) async => log.add('read:$peerId');
 
   @override
+  Future<void> sendTyping(String peerId) async => log.add('typing:$peerId');
+
+  @override
   Future<void> deleteConversation(String peerId) async {
     log.add('deleteConversation:$peerId');
     conversations = conversations.where((item) => item.peerId != peerId).toList();
@@ -221,6 +224,9 @@ class FakeImClient extends ImClient {
 
   /// 模拟「**我**在另一台设备上删了会话」的 `conversation_deleted` 帧(多端在线 K-3)。
   void emitConversationDeleted(String peerId) => emit(ImConversationDeleted(peerId));
+
+  /// 模拟对端正在输入的 `typing` 下行帧(批次 L-1)。
+  void emitTyping(String peerId) => emit(ImTyping(peerId: peerId));
 
   void dispose() => _events.close();
 }

@@ -60,6 +60,22 @@ export const useChatStore = defineStore('chat', () => {
    * 否则会出现「已读」跳回「未读」。`seq <= peerReadSeq[peerId]` 的我方消息算已读。
    */
   const peerReadSeq = ref<Record<string, number>>({})
+  /**
+   * 对端是否正在输入(批次 L-1),按会话记。
+   *
+   * 语义是「**最近 5 秒内**收到过对端的 `typing` 帧」,不是持久状态:typing 是可丢
+   * 信号,服务端不落库、不补发、超限静默丢弃,所以必须自己过期 —— 否则对端停手
+   * 之后「正在输入…」会一直挂着。
+   */
+  const peerTyping = ref<Record<string, boolean>>({})
+  /** 每个会话的 5 秒过期定时器(收到新帧就续期) */
+  const typingExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** 每个会话的 3 秒发送冷却(客户端节流,服务端另有令牌桶兜底) */
+  const typingCooldownTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** 收帧后多久自动隐藏「正在输入…」(与设计文档 §3.3 一致) */
+  const TYPING_EXPIRY_MS = 5000
+  /** 客户端节流窗口:3 秒内最多发一次 */
+  const TYPING_THROTTLE_MS = 3000
   /** 断线重连的退避定时器(同一时刻只排一个) */
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   /** 第几次退避,成功连上后清零 */
@@ -150,6 +166,55 @@ export const useChatStore = defineStore('chat', () => {
     setLocalUnread(peerId, 0)
   }
 
+  /** 清掉某个会话的「正在输入」(连同它的 5 秒过期定时器)。 */
+  function clearTyping(peerId: string): void {
+    if (!peerId) return
+    const timer = typingExpiryTimers.get(peerId)
+    if (timer) {
+      clearTimeout(timer)
+      typingExpiryTimers.delete(peerId)
+    }
+    if (!(peerId in peerTyping.value)) return
+    const rest = { ...peerTyping.value }
+    delete rest[peerId]
+    peerTyping.value = rest
+  }
+
+  /**
+   * 收到对端的 `typing` 帧(批次 L-1):置真,并把 5 秒过期往后推。
+   *
+   * 为什么要自己过期:typing 是可丢信号,服务端不落库、不补发,「对端停手了」
+   * 这件事没有任何帧会告诉客户端 —— 只能靠超时。
+   */
+  function markPeerTyping(peerId: string): void {
+    if (!peerId) return
+    const timer = typingExpiryTimers.get(peerId)
+    if (timer) clearTimeout(timer)
+    peerTyping.value = { ...peerTyping.value, [peerId]: true }
+    typingExpiryTimers.set(
+      peerId,
+      setTimeout(() => {
+        typingExpiryTimers.delete(peerId)
+        clearTyping(peerId)
+      }, TYPING_EXPIRY_MS),
+    )
+  }
+
+  /**
+   * 我在输入框里打字(批次 L-1):按 **3 秒**节流给服务端发一次 `typing`。
+   *
+   * 客户端节流只省流量;服务端另有 1 次 / 2 秒的令牌桶 —— 那层才是防伪造的。
+   * 发不出去(没连上 / 被服务端静默丢弃)一律吞掉:这是可丢信号,不该弹错。
+   */
+  function notifyTyping(peerId: string): void {
+    if (!peerId || typingCooldownTimers.has(peerId)) return
+    typingCooldownTimers.set(
+      peerId,
+      setTimeout(() => typingCooldownTimers.delete(peerId), TYPING_THROTTLE_MS),
+    )
+    void client.sendTyping(peerId).catch(() => {})
+  }
+
   /**
    * 跨端删除(多端在线 K-3):我在另一台设备上删了这个会话。
    *
@@ -192,6 +257,11 @@ export const useChatStore = defineStore('chat', () => {
     }
     if (event.type === 'conversationDeleted') {
       removeConversation(event.peerId)
+      return
+    }
+    if (event.type === 'typing') {
+      // 对端正在输入(批次 L-1)。只对**当前会话**有意义,其它会话的帧直接忽略。
+      if (event.peerId === activePeerId.value) markPeerTyping(event.peerId)
       return
     }
     if (event.type === 'ready') {
@@ -392,6 +462,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function openConversation(peerId: string): Promise<ChatMessage[]> {
+    // 切会话先清掉上一个会话的「正在输入」(批次 L-1):它是瞬时状态,不能跨会话残留
+    const previous = activePeerId.value
+    if (previous && previous !== peerId) clearTyping(previous)
     // 记下来:断线重连后要补拉「当前正在看的会话」(见 refetchAfterReconnect)
     activePeerId.value = peerId
     const list = await loadHistory(peerId)
@@ -616,6 +689,10 @@ export const useChatStore = defineStore('chat', () => {
   async function close(): Promise<void> {
     cancelReconnect()
     reconnectAttempt = 0
+    // 输入中状态的定时器一并收掉(批次 L-1):否则退出登录后它们还会回调
+    for (const peerId of [...typingExpiryTimers.keys()]) clearTyping(peerId)
+    for (const timer of typingCooldownTimers.values()) clearTimeout(timer)
+    typingCooldownTimers.clear()
     activePeerId.value = null
     await client.logout().catch(() => {})
     conversations.value = []
@@ -639,6 +716,12 @@ export const useChatStore = defineStore('chat', () => {
     unreadTotal,
     /** 对端在每个会话里读到哪(已读回执);`seq <= peerReadSeq[peerId]` 的我方消息算已读 */
     peerReadSeq,
+    /** 对端是否正在输入(批次 L-1),按会话记;5 秒没有新帧自动清掉 */
+    peerTyping,
+    /** 我在输入框里打字:按 3 秒节流发一次 `typing`(批次 L-1) */
+    notifyTyping,
+    /** 离开会话页时立即清掉「正在输入…」(批次 L-1) */
+    clearPeerTyping: clearTyping,
     /** 待发送图片的本地文件(键 = 消息 id),页面用它做发送中预览 */
     pendingFiles,
     connect,

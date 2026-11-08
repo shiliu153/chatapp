@@ -272,6 +272,11 @@ export class SelfImClient implements ImClient {
     if (type === 'conversation_deleted') {
       // **我**在另一台设备上删了与 peer 的会话(K-3)。只发给本人的其他端。
       this.emit({ type: 'conversationDeleted', peerId: String(data.peer ?? '') })
+      return
+    }
+    if (type === 'typing') {
+      // 对端正在输入(批次 L-1)。可丢信号:没有 id、不用 ack、服务端不补发。
+      this.emit({ type: 'typing', peerId: String(data.peer ?? '') })
     }
   }
 
@@ -485,6 +490,16 @@ export class SelfImClient implements ImClient {
       type: 'read',
       id: `read-${Date.now()}`,
       data: { peer: peerId, seq: 0 },
+    }))
+  }
+
+  async sendTyping(peerId: string): Promise<void> {
+    // 上行 `typing`(批次 L-1):**没有 id、不等 ack**。服务端超限 / 未配对时静默
+    // 丢弃,所以这里不登记 ackWaiter —— 登记了就会永远等不到回执。
+    this.sendFrame(JSON.stringify({
+      v: 1,
+      type: 'typing',
+      data: { to: peerId },
     }))
   }
 

@@ -5,8 +5,8 @@
 
 | 文件 | 方向 |
 |---|---|
-| `client_to_server.json` | 客户端 → 服务端(上行:auth / ping / send / read / revoke / conversation_delete) |
-| `server_to_client.json` | 服务端 → 客户端(下行:auth_ok / pong / kicked / error / ack / message / read / revoked / self_read / conversation_deleted) |
+| `client_to_server.json` | 客户端 → 服务端(上行:auth / ping / send / read / revoke / conversation_delete / typing) |
+| `server_to_client.json` | 服务端 → 客户端(下行:auth_ok / pong / kicked / error / ack / message / read / revoked / self_read / conversation_deleted / typing) |
 
 ## 谁在读它
 

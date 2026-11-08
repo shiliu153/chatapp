@@ -122,6 +122,18 @@ inline std::string conversation_deleted_frame(const std::string& peer) {
       .dump();
 }
 
+/// 输入中状态(批次 L-1):只发给**对端**,不落库、不补拉。
+///
+/// 为什么没有 id、也不 ack:它是「可丢」信号 —— 丢一帧最多是对方晚一点看到
+/// 「正在输入」,而补发 / 重试只会放大流量。同理,服务端在任何异常路径
+/// (限流超限 / 未配对 / 目标不存在)都**静默丢弃**,绝不回错误帧。
+///
+/// Args:
+///   peer: **收帧者**的对端 id 串(`u12`),即正在打字的人。
+inline std::string typing_frame(const std::string& peer) {
+  return nlohmann::json{{"v", 1}, {"type", "typing"}, {"data", {{"peer", peer}}}}.dump();
+}
+
 /// 撤回广播:双方各收一帧,`peer` 是收帧者的对端(即撤回者)。
 inline std::string revoked_frame(uint64_t msg_id, uint64_t seq, const std::string& peer,
                                  int64_t ts) {

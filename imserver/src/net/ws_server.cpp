@@ -350,6 +350,10 @@ void WsSession::on_frame(const std::string& payload) {
     handle_read(frame);
     return;
   }
+  if (type == "typing") {
+    handle_typing(frame);
+    return;
+  }
   if (type == "revoke") {
     handle_revoke(frame);
     return;
@@ -544,6 +548,41 @@ void WsSession::handle_read(const nlohmann::json& frame) {
   } catch (const std::exception&) {
     send_raw(error_frame(42201, "read 参数错误"));
   }
+}
+
+void WsSession::handle_typing(const nlohmann::json& frame) {
+  // 输入中状态(批次 L-1)是**可丢信号**:不落库、无 id、不 ack。
+  //
+  // 这条路径上**任何情况下都不回错误帧** —— 限流超限、`to` 不合法、未配对、
+  // 目标不存在,一律静默返回。原因:给洪泛者任何反馈(42901 / 42201)都只会
+  // 告诉他「帧收到了,继续打」;而正常用户这边丢一帧的代价只是「对方晚一点
+  // 看到正在输入」,本来就不该被感知到。
+  if (!typing_bucket_.allow(now_ms())) {
+    return;  // 限流:静默丢弃(1 次 / 2 秒、突发 3)
+  }
+  const auto data = frame.value("data", nlohmann::json::object());
+  const auto to_uid = parse_uid(data.value("to", std::string()));
+  if (!to_uid.has_value() || *to_uid == uid_) {
+    return;  // `to` 不合法或发给自己:静默丢弃
+  }
+  auto self = shared_from_this();
+  run_db([self, peer = *to_uid] {
+    try {
+      // 前置与 `send` 同口径:复用同一个配对校验函数(`MessageService::pair_exists`,
+      // `send()` 里也是它),别在这里另写一份判定 —— 两份判定迟早会漂移。
+      if (!self->messages_.pair_exists(self->uid_, peer)) {
+        return;  // 未配对 / 目标不存在:静默丢弃
+      }
+      // 只发对端。`send_to` 是**多端扇出**:对端若两端都在线会两端都收到(这是对的,
+      // 用户在哪个端都该看到「正在输入」);但发起端自己的另一台设备绝不能收到,
+      // 所以这里不能用 send_to(self->uid_, ...),也不用 send_to_other_clients。
+      self->registry_.send_to(peer, typing_frame(peer_id(self->uid_)));
+    } catch (const std::exception&) {
+      // 数据库/连接池不可用也别回错误帧(run_db 默认会给发起端发 50001):
+      // typing 丢了就丢了,回一个错误只会让客户端以为「正在输入」需要重试。
+      return;
+    }
+  });
 }
 
 void WsSession::handle_revoke(const nlohmann::json& frame) {

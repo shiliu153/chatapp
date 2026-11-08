@@ -82,6 +82,7 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   void handle_auth(const nlohmann::json& frame);
   void handle_send(const nlohmann::json& frame);
   void handle_read(const nlohmann::json& frame);
+  void handle_typing(const nlohmann::json& frame);
   void handle_revoke(const nlohmann::json& frame);
   void handle_delete(const nlohmann::json& frame);
   void on_send_result(const std::variant<SendResult, int>& result,
@@ -134,6 +135,11 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   TokenBucket send_bucket_{20, 40};
   /// 已读回执帧的令牌桶(2/s、突发 30):每次 read 都会给对端推一帧,必须限流。
   TokenBucket read_bucket_{2, 30};
+  /// 输入中状态的令牌桶(0.5/s = 1 次 / 2 秒、突发 3),批次 L-1。
+  ///
+  /// 客户端自己也有 3 秒节流,但那只省流量 —— 客户端可以被改、可以伪造,
+  /// 服务端这一层才是防洪泛的那层。超限**静默丢弃**,不回 42901。
+  TokenBucket typing_bucket_{0.5, 3};
 };
 
 class WsServer {

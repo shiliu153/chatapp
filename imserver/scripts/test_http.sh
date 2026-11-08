@@ -23,6 +23,8 @@ python3 /src/tests/integration/test_search.py
 python3 /src/tests/integration/test_multi_device.py
 # 多端在线(K-3):跨端已读 self_read / 跨端删除 conversation_deleted
 python3 /src/tests/integration/test_self_read.py
+# 输入中状态(L-1):只发对端 / 限流静默 / 未配对不发
+python3 /src/tests/integration/test_typing.py
 export IM_BASE_WS="ws://127.0.0.1:19100/im/ws"
 export IM_BASE_HTTP="http://127.0.0.1:19101/im/api"
 python3 /repo/tools/im_e2e.py
