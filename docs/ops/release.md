@@ -593,6 +593,64 @@ python scripts/sync_version.py --check
   所以不影响用户实际使用,只影响「本机无法用 App 做发送类手测」。
 - 聊天记录搜索不含贴纸(`/im/api/search` 只搜 `kind=1`),既有口径,已在 `docs/ops/imserver.md` §17 写明。
 
+## 6.5 1.0.10 之后的纯服务端部署(第四轮安全整改 R4,2026-11-08 11:36–11:40)
+
+**本批不升版本**,依据 §1「纯服务端、不需要重新分发的改动不升版本」:
+
+- App **零运行时改动**(差异只有 `pubspec.lock` 与 `integration_test/smoke_test.dart`),不出新 APK;
+- imserver **零改动**(`git diff 892b2b2..dfa641d -- imserver/` 为空),不动镜像;
+- 只有后端与 Web 需要上 —— Web 因 `clientErrors.ts` 有改动而重新构建 `dist`。
+
+所以 `LATEST_APP_VERSION` / `APP_DOWNLOAD_URL` / `MIN_APP_VERSION` **全部保持 1.0.10 / 1.0.10 / 1.0.1**,
+不打 tag、不建 Release、§5 记录表不加行(`sync_version.py --check` 仍绿,因为 1.0.10 那行已在)。
+
+### 上线内容
+
+| 栈 | 改动 | 部署动作 |
+|---|---|---|
+| 后端 | 缓存切 JSON 序列化器 + `VERSION=2`(R4-A1);名单为空 fail-closed + `accounts.E001` 部署检查(R4-B1/M-1);四个读接口按用户限流(R4-C1);准入名单启停写审计事件(R4);推送设备易主留痕并通知原账号;客户端错误日志降级 + 60 秒采样 | `migrate`(新迁移 `accounts.0005_phoneallowlistevent`)+ 重启 web/celery |
+| Web | `clientErrors.ts` 的 `currentRoute()` 只保留 `pathname`(R4 L-9,query 里的分享码不再进服务端日志) | 重新 `npm run build` 并覆盖站点根 |
+
+### 上线实况
+
+- **回滚点(先记录后动手)**:
+  - 代码 `bb01bc66b47dcb65cb70f3f43e2d87aca7fd6016`(1.0.10 上线提交);
+  - DB 全量 `/www/backup/chatapp-db-preR4-20261108-1136.sql`(632,020 字节,`--no-tablespaces --single-transaction`,末行 `-- Dump completed`);
+  - `.env` `/www/backup/chatapp-env-preR4-20261108-1136.bak`(2,584 字节);
+  - 旧 Web 前端 `/www/backup/chatapp-web-dist-preR4-20261108-1136.tar.gz`(126,458 字节,96 条目 = `index.html` + 94 个 `assets`),服务器侧另留 `index.html.bak.<ts>` 与 `assets.old.<ts>`。
+- **上线 SHA**:`dfa641d4bb8f576386356f4cd3140b0d34f442d5`(`origin/master` HEAD,服务器 `git rev-parse HEAD` 一致)。
+- **后端**:`git fetch --prune && git reset --hard dfa641d` → `manage.py check` **零 issues**
+  (`accounts.E001` 未触发 —— 生产 `.env` 的 `SMS_PHONE_WHITELIST` 非空、库内 30 行全启用,这一条是 R4-B1 上线时最该先确认的前置)
+  → `migrate --noinput`(唯一一条 `accounts.0005_phoneallowlistevent` OK)→ `migrate --check` clean
+  → `collectstatic`(0 复制 / 156 未变)→ `supervisorctl restart "chatapp-web:*" "chatapp-celery:*"`(两个进程 RUNNING)。
+- **Web**:`npm run build` → `dist` 打包(scp 后 SHA256 逐字节比对一致)→ 旧 `assets` 改名 `assets.old.<ts>`、
+  `index.html` 另存 → **解压覆盖到站点根 `/www/wwwroot/chatapp-web`**(不是 `dist/` 子目录,1.0.10 踩过这个坑);
+  新 `index.html` 引用 `assets/index-DVFe6Zjj.js` + `assets/index-DMJDpefF.css`,94 个 assets / 12 张贴纸 / 4 个字体文件到位。
+- **`.env` 未改任何键**(版本号三项都不动)。
+
+### 冒烟(全绿)
+
+| 项 | 结果 |
+|---|---|
+| `/health` `/readyz` | 200 / 200 |
+| `/api/v1/app/config` | `{"min_app_version":"1.0.1","latest_version":"1.0.10",...}`(与部署前一致,符合「不升版本」) |
+| 迁移 | `accounts` 0001–0005 全部 `[X]`;新表 `accounts_phoneallowlistevent` 可查(0 行) |
+| **名单快照缓存(R4-A1 核心)** | 白名单号 `13900000001` → `200 {"status":"ok"}`;名单外 `13512345678` → `403` + `40301`;Redis 键为 `chatapp:2:sms:allowlist:snapshot`(**`VERSION=2` 生效,pickle 旧键已不可达**) |
+| **新增按用户限流(R4-C1)** | `DEFAULT_THROTTLE_RATES` 实测 `notifications 240/hour`、`notifications_unread 480/hour`、`following_read 240/hour`、`comment_replies 360/hour`;登录后 `GET /notifications`、`/notifications/unread_count`、`/feed/following`、`/users/me` 均 200;未认证均 401 |
+| 登录链路 | `sms/send` 200 → `sms/verify` 200(拿到 access)→ `logout` 204;Celery 侧 `send_sms_code` 与 `im.tasks.sync_session_version` 均 succeeded |
+| **Web 静态资源** | `/` 200、`/assets/index-DVFe6Zjj.js` 200、`/assets/index-DMJDpefF.css` 200、`/stickers/sticker_01.png` 200;深链 `/notifications`、`/home/square` 均 200 |
+| **client-errors 只留 pathname(R4 L-9)** | 真浏览器访问 `https://chat.shiliu153.cn/login?share_code=SECRET123&utm=x#frag` 并触发未捕获异常 → 上报 body 的 `route` 为 `"/login"`(**query 与 hash 都被剥掉**,而请求头 `referer` 仍是完整 URL,证明是前端裁剪而非浏览器行为) |
+| 日志 | `app.log` 近 300 行 **0 条 error、0 个 5xx**(仅 98 条 401,来自未登录的 `/users/me` 与 `token/refresh`) |
+
+### 运维注意(本批新增口径)
+
+- **生产从此是名单 fail-closed**:库与 `.env` 种子**同时**为空时全站发码/校验一律 `403 + 40301`
+  (与 2026-11-04 上线时的「空 = 不限制」相反)。当前生产两边都非空,不受影响;
+  但**以后任何恢复演练/换库后,先确认名单非空再放流量**,否则谁都登不进来(见 runbook §5.3、§6.4)。
+- **缓存换序列化器后旧键不会自动清理**:`chatapp:1:*` 的 pickle 键已不可达,到点自己过期;
+  不要手工 `KEYS`/`DEL` 去「清理」,也不要为了「省内存」把 `VERSION` 降回去 —— 那会让 JSON 解析撞上 pickle 字节。
+- **`SMS_ALLOWLIST_STRICT` 生产留空 = 严格**(按 `DEBUG=0` 自动判定),`.env` 不需要新增这个键。
+
 ## 7. 为什么这条约束值得存在
 
 版本号、tag、Release 是**同一件事的三个面**:版本号给客户端判升级,tag 给 git 定位「这个包是哪份代码」,
