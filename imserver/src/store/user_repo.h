@@ -3,6 +3,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -18,10 +19,28 @@ class UserRepo {
   void ensure(uint64_t uid, const std::string& nickname);
   std::optional<UserRow> get(MysqlPool::Lease& lease, uint64_t uid);
   std::optional<UserRow> get(uint64_t uid);
-  std::optional<int64_t> session_version(MysqlPool::Lease& lease, uint64_t uid);
-  std::optional<int64_t> session_version(uint64_t uid);
-  void set_session_version(MysqlPool::Lease& lease, uint64_t uid, int64_t version);
-  void set_session_version(uint64_t uid, int64_t version);
+  /// 取某账号**某一端**的会话版本(多端在线 K-2,数据源 `im_device_session`)。
+  ///
+  /// Args:
+  ///   lease: 已借出的数据库连接。
+  ///   uid: 账号 id。
+  ///   ct: 端类型 `app` / `web`(来自 token 的 `ct` claim,已归一化)。
+  ///
+  /// Returns:
+  ///   该端的会话版本;该端没有会话行(从未登录过该端)时为空。
+  std::optional<int64_t> session_version(MysqlPool::Lease& lease, uint64_t uid,
+                                        std::string_view ct);
+  std::optional<int64_t> session_version(uint64_t uid, std::string_view ct);
+  /// 写某账号**某一端**的会话版本(upsert,同步任务可能早于端会话行存在)。
+  ///
+  /// Args:
+  ///   lease: 已借出的数据库连接。
+  ///   uid: 账号 id。
+  ///   ct: 端类型 `app` / `web`。
+  ///   version: 该端的新会话版本。
+  void set_session_version(MysqlPool::Lease& lease, uint64_t uid, std::string_view ct,
+                           int64_t version);
+  void set_session_version(uint64_t uid, std::string_view ct, int64_t version);
   void update_profile(MysqlPool::Lease& lease, uint64_t uid,
                       const std::optional<std::string>& nickname,
                       const std::optional<std::string>& avatar, int64_t now_ms);

@@ -112,9 +112,13 @@ std::optional<UserRow> UserRepo::get(uint64_t uid) {
   return get(lease, uid);
 }
 
-std::optional<int64_t> UserRepo::session_version(MysqlPool::Lease& lease, uint64_t uid) {
-  auto* result = lease.query("SELECT session_version FROM im_user WHERE user_id=" +
-                             std::to_string(uid));
+std::optional<int64_t> UserRepo::session_version(MysqlPool::Lease& lease, uint64_t uid,
+                                                 std::string_view ct) {
+  // 多端在线(K-2):版本从 im_user 单列下沉到 im_device_session 的 (user_id, client_type)。
+  // ct 只可能是 app / web(由 token 的 ct claim 归一化而来),仍按仓库既有写法走 escape()。
+  auto* result = lease.query("SELECT session_version FROM im_device_session WHERE user_id=" +
+                             std::to_string(uid) + " AND client_type='" + lease.escape(
+                                 std::string(ct)) + "'");
   if (result == nullptr) {
     return std::nullopt;
   }
@@ -126,33 +130,37 @@ std::optional<int64_t> UserRepo::session_version(MysqlPool::Lease& lease, uint64
   return version;
 }
 
-std::optional<int64_t> UserRepo::session_version(uint64_t uid) {
+std::optional<int64_t> UserRepo::session_version(uint64_t uid, std::string_view ct) {
   auto lease = pool_.acquire();
-  return session_version(lease, uid);
+  return session_version(lease, uid, ct);
 }
 
-void UserRepo::set_session_version(MysqlPool::Lease& lease, uint64_t uid, int64_t version) {
-  // 用 upsert 而不是纯 UPDATE:同步任务可能早于 ensure_account 到达,
-  // 此时补一行(昵称/头像留空),由后续资料同步补齐。
+void UserRepo::set_session_version(MysqlPool::Lease& lease, uint64_t uid, std::string_view ct,
+                                   int64_t version) {
+  // upsert:同步任务可能早于端会话行存在(该端还没登录过就收到同步),补一行。
   Stmt stmt(lease.get(),
-            "INSERT INTO im_user (user_id,nickname,avatar_url,updated_at,session_version) "
-            "VALUES (?,'','',?,?) "
-            "ON DUPLICATE KEY UPDATE session_version=VALUES(session_version)");
+            "INSERT INTO im_device_session (user_id,client_type,session_version) "
+            "VALUES (?,?,?) ON DUPLICATE KEY UPDATE session_version=VALUES(session_version)");
   stmt.bind_uint(0, uid);
-  stmt.bind_uint(1, static_cast<uint64_t>(now_ms()));
+  stmt.bind_string(1, std::string(ct));
   stmt.bind_uint(2, static_cast<uint64_t>(version));
   stmt.execute();
 }
 
-void UserRepo::set_session_version(uint64_t uid, int64_t version) {
+void UserRepo::set_session_version(uint64_t uid, std::string_view ct, int64_t version) {
   auto lease = pool_.acquire();
-  set_session_version(lease, uid, version);
+  set_session_version(lease, uid, ct, version);
 }
 
 void UserRepo::remove(MysqlPool::Lease& lease, uint64_t uid) {
   Stmt stmt(lease.get(), "DELETE FROM im_user WHERE user_id=?");
   stmt.bind_uint(0, uid);
   stmt.execute();
+  // 端会话行随账号一起清:版本已经不在 im_user 上了(多端在线 K-2),
+  // 不显式删就会留下孤儿行。注销路径在同一个事务里调用本方法。
+  Stmt sessions(lease.get(), "DELETE FROM im_device_session WHERE user_id=?");
+  sessions.bind_uint(0, uid);
+  sessions.execute();
   forget(uid);
   const std::lock_guard<std::mutex> lock(profile_mu_);
   profiles_.erase(uid);

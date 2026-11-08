@@ -114,6 +114,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   bool ip_acquired_ = false;
   std::optional<int> close_code_;
   uint64_t uid_ = 0;
+  /// 端类型(多端在线 K-2):来自 token 的 `ct` claim,鉴权前为空串。
+  std::string client_type_;
   std::string client_ip_;
   Config cfg_;
   SessionRegistry& registry_;

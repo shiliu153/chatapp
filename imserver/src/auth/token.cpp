@@ -104,15 +104,20 @@ std::vector<std::string_view> split_dots(std::string_view token) {
 
 }  // namespace
 
+std::string normalize_client_type(std::string_view value) {
+  return value == kClientWeb ? std::string(kClientWeb) : std::string(kClientApp);
+}
+
 std::string mint_token(uint64_t uid, std::string_view secret, int64_t now_ms,
-                       int64_t ttl_seconds) {
+                       int64_t ttl_seconds, std::string_view ct) {
   const int64_t now_s = now_ms / 1000;
   nlohmann::json header = {{"alg", "HS256"}, {"typ", "JWT"}};
   nlohmann::json payload = {{"sub", "u" + std::to_string(uid)},
                             {"uid", uid},
                             {"iat", now_s},
                             {"exp", now_s + ttl_seconds},
-                            {"jti", random_jti()}};
+                            {"jti", random_jti()},
+                            {"ct", normalize_client_type(ct)}};
   const auto header_part = base64url_encode(header.dump());
   const auto payload_part = base64url_encode(payload.dump());
   const auto signing_input = header_part + "." + payload_part;
@@ -148,6 +153,8 @@ std::optional<TokenClaims> verify_token(std::string_view token,
     claims.exp = payload.at("exp").get<int64_t>();
     claims.jti = payload.value("jti", "");
     claims.sv = payload.value("sv", 0);
+    // ct 缺省 app:2026-11-08 之前签发的 token 没有这个 claim,必须继续按 App 放行。
+    claims.ct = normalize_client_type(payload.value("ct", std::string(kClientApp)));
 
     const int64_t now_s = now_ms / 1000;
     if (claims.exp <= now_s) {
@@ -167,7 +174,7 @@ std::optional<TokenClaims> verify_token(std::string_view token,
 
 bool session_version_matches(int64_t token_sv, const std::optional<int64_t>& stored) {
   // sv=0 是 2026-10-28 之前签发的旧 token(过渡期最多 24h),放行;
-  // 其余必须与库里的当前版本完全一致 —— 不一致说明账号已在别处登录。
+  // 其余必须与库里的当前版本完全一致 —— 不一致说明**该端**已在别处登录(同类互顶)。
   if (token_sv == 0) {
     return true;
   }

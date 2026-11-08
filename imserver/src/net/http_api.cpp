@@ -257,8 +257,10 @@ std::optional<uint64_t> HttpApi::authenticate(
   }
   // 会话版本必须与 WS 侧同口径校验:否则被顶下线的旧设备还能用旧 token
   // 通过 /im/api/* 读历史与搜索(H-1)。sv=0 是过渡期旧 token,放行。
+  // 多端(K-2):版本按端查(token 的 ct claim,缺省 app),与 WS 完全同一份判定。
   if (claims->sv != 0 &&
-      !session_version_matches(claims->sv, messages_.users().session_version(claims->uid))) {
+      !session_version_matches(
+          claims->sv, messages_.users().session_version(claims->uid, claims->ct))) {
     return std::nullopt;
   }
   return claims->uid;
@@ -403,7 +405,14 @@ HttpApi::response_type HttpApi::internal_route(
     }
     if (target.path == "/internal/kick") {
       const auto uid = body.at("uid").get<uint64_t>();
-      registry_.kick(uid, "banned");
+      // 多端(K-2):带 client_type 只踢该端 —— 这条只来自「同端换设备登录」(同类互顶),
+      // 所以原因用 multi_device;缺省踢全部,保持封禁 / 注销的语义与原因(banned)不变。
+      const auto client_type = body.value("client_type", std::string());
+      if (client_type.empty()) {
+        registry_.kick(uid, "banned");
+      } else {
+        registry_.kick_client(uid, normalize_client_type(client_type), "multi_device");
+      }
       if (body.value("block", false)) {
         redis_.setex("im:block:" + std::to_string(uid), 86400, "1");
       }
@@ -429,7 +438,15 @@ HttpApi::response_type HttpApi::internal_route(
     if (target.path == "/internal/session_version") {
       const auto uid = body.at("uid").get<uint64_t>();
       const auto version = body.at("version").get<int64_t>();
-      messages_.users().set_session_version(uid, version);
+      // 多端(K-2):带 client_type 只写该端;缺省把 app / web 两行都写成同一个值 ——
+      // 与 K-1 之前「一个账号一个版本」的旧调用方保持兼容,不会让网页端令牌错位。
+      const auto client_type = body.value("client_type", std::string());
+      if (client_type.empty()) {
+        messages_.users().set_session_version(uid, kClientApp, version);
+        messages_.users().set_session_version(uid, kClientWeb, version);
+      } else {
+        messages_.users().set_session_version(uid, normalize_client_type(client_type), version);
+      }
       return json_response(req, http::status::ok, {{"ok", true}});
     }
     if (target.path == "/internal/delete_account") {
