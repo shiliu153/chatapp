@@ -391,10 +391,12 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
 
     return;
   }
-  // 会话版本:登录会把版本 +1 并同步到 im_user;旧设备的 token 带的是旧版本,
-  // 这里直接拒绝,避免「被顶下线后还能重连收消息」(H3)。sv=0 是过渡期的旧 token。
+  // 会话版本:登录会把**该端**的版本 +1 并同步到 im_device_session;旧设备的 token
+  // 带的是旧版本,这里直接拒绝,避免「被顶下线后还能重连收消息」(H3)。
+  // sv=0 是过渡期的旧 token;ct 缺省 app 见 verify_token(老 token 继续按 App 放行)。
   if (claims->sv != 0 &&
-      !session_version_matches(claims->sv, messages_.users().session_version(claims->uid))) {
+      !session_version_matches(
+          claims->sv, messages_.users().session_version(claims->uid, claims->ct))) {
     send_raw(error_frame(40101, "登录已过期"));
     close_code_ = 4002;
 
@@ -402,10 +404,11 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
   }
 
   uid_ = claims->uid;
+  client_type_ = claims->ct;
   authed_ = true;
   auth_timer_.cancel();
   messages_.users().ensure(uid_, "");
-  registry_.register_session(uid_, shared_from_this());
+  registry_.register_session(uid_, client_type_, shared_from_this());
   send_raw(auth_ok_frame(uid_, now_ms()));
 }
 
@@ -527,6 +530,8 @@ void WsSession::handle_read(const nlohmann::json& frame) {
         }
         // 通知对端「我读到 *marked」:对端据此把自己 seq <= N 的消息标已读。
         // 不带 id —— 这是服务端主动推的,不要求 ack(客户端也不该回)。
+        // 多端(K-2):send_to 是扇出,对端的两端都会收到;我自己另一端靠 K-3 的
+        // `self_read` 帧同步(这一帧的语义是「**对端**读到 seq」,不能拿来同步自己)。
         self->registry_.send_to(peer_uid, read_frame(peer_id(self->uid_), *marked));
       });
     });
@@ -548,6 +553,9 @@ void WsSession::handle_revoke(const nlohmann::json& frame) {
           const auto frame_for = [&](uint64_t other) {
             return revoked_frame(revoked->msg_id, revoked->seq, peer_id(other), revoked->ts);
           };
+          // 多端(K-2,Step 0 核实结论):这两帧经 send_to 扇出,撤回者**自己**的另一端
+          // 也会收到;帧里的 `peer` 是相对收帧者的对端,对本人另一端同样正确,
+          // 所以撤回不需要额外代码。
           self->registry_.send_to(revoked->from_id,
                                   frame_for(revoked->to_id));
           self->registry_.send_to(revoked->to_id,
@@ -574,6 +582,9 @@ void WsSession::handle_delete(const nlohmann::json& frame) {
     const std::string id = frame.value("id", std::string());
     auto self = shared_from_this();
     run_db([self, peer = *peer, id] {
+      // 删除是**按 uid** 的软删(set_deleted),只给发起连接回 ack。
+      // 多端遗留(K-2 Step 0):自己的另一端要等重新拉会话列表才看不到这条 ——
+      // 补扇出必须新增下行帧(如 conversation_deleted),属三端契约联动,留给后续契约单。
       const bool ok = self->messages_.delete_conversation(self->uid_, peer);
       boost::asio::post(self->ws_.get_executor(),
                         [self, ok, id] { self->send_raw(ack_frame(id, ok)); });
@@ -649,7 +660,10 @@ void WsSession::do_close(int code) {
 void WsSession::on_close(error_code ec) {
   (void)ec;
   release_ip();
-  if (uid_ != 0 && registry_.unregister(uid_, this)) {
+  // 多端在线(K-2):只有该账号**最后一个**连接关掉才抹在线键。
+  // 否则 App 断开会把仍在线的网页一起标成离线(Step 0 核实出的真实缺口)。
+  if (uid_ != 0 && registry_.unregister(uid_, client_type_, this) &&
+      !registry_.is_online(uid_)) {
     redis_.del("im:online:" + std::to_string(uid_));
   }
   error_code ignored;

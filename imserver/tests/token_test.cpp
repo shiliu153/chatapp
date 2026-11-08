@@ -106,6 +106,37 @@ TEST(TokenTest, RejectsExpiryAtBoundary) {
   EXPECT_FALSE(verify_token(token, kSecret, kNow).has_value());
 }
 
+TEST(TokenTest, MintCarriesClientType) {
+  // 多端在线(K-2):签 web 端令牌,验签后 ct 必须是 web
+  const auto token = mint_token(9, kSecret, kNow, 3600, "web");
+  const auto claims = verify_token(token, kSecret, kNow);
+  ASSERT_TRUE(claims.has_value());
+  EXPECT_EQ(claims->ct, "web");
+}
+
+TEST(TokenTest, ClientTypeDefaultsToApp) {
+  // 不带 ct 的签发(以及线上 1.0.10 的老 token)必须按 app 兜底,否则升级即集体掉线
+  const auto token = mint_token(9, kSecret, kNow, 3600);
+  const auto claims = verify_token(token, kSecret, kNow);
+  ASSERT_TRUE(claims.has_value());
+  EXPECT_EQ(claims->ct, "app");
+}
+
+TEST(TokenTest, UnknownClientTypeFallsBackToApp) {
+  // 未知取值不该凭空造出新的端会话行
+  nlohmann::json header = {{"alg", "HS256"}, {"typ", "JWT"}};
+  nlohmann::json payload = {{"sub", "u9"}, {"uid", 9}, {"iat", kNow / 1000},
+                            {"exp", kNow / 1000 + 3600}, {"jti", "ct"}, {"ct", "tablet"}};
+  const auto signing_input = b64url(header.dump()) + "." + b64url(payload.dump());
+  const auto token = signing_input + "." + hmac_b64(signing_input);
+  const auto claims = verify_token(token, kSecret, kNow);
+  ASSERT_TRUE(claims.has_value());
+  EXPECT_EQ(claims->ct, "app");
+  EXPECT_EQ(normalize_client_type(""), "app");
+  EXPECT_EQ(normalize_client_type("WEB"), "app");
+  EXPECT_EQ(normalize_client_type("web"), "web");
+}
+
 TEST(TokenTest, SessionVersionMatchesStored) {
   EXPECT_TRUE(session_version_matches(7, std::optional<int64_t>(7)));
   EXPECT_FALSE(session_version_matches(7, std::optional<int64_t>(6)));

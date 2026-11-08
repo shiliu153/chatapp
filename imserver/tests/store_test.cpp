@@ -7,9 +7,11 @@
 #include <thread>
 #include <vector>
 
+#include "auth/token.h"
 #include "store/conversation_repo.h"
 #include "store/mysql_pool.h"
 #include "store/redis_client.h"
+#include "store/user_repo.h"
 
 TEST(StoreTest, TablesAndSystemUserExist) {
   const char* dsn = std::getenv("IM_TEST_MYSQL_DSN");
@@ -113,4 +115,42 @@ TEST(StoreTest, RedisSetGetDel) {
   ASSERT_EQ(redis.get("im:test:key").value_or(""), "v");
   ASSERT_TRUE(redis.del("im:test:key"));
   EXPECT_FALSE(redis.get("im:test:key").has_value());
+}
+
+TEST(StoreTest, SessionVersionIsPerClient) {
+  // 多端在线(K-2):版本按 (user_id, client_type) 存,两端互不覆盖;
+  // 从未写过的那一端没有行,读出来是空(带 sv 的 token 因此会被拒)。
+  const char* dsn = std::getenv("IM_TEST_MYSQL_DSN");
+  ASSERT_NE(dsn, nullptr);
+  MysqlPool pool(parse_mysql_dsn(dsn), 2);
+  UserRepo users(pool);
+  constexpr uint64_t kUid = 990000001ULL;
+  {
+    auto lease = pool.acquire();
+    users.ensure(lease, kUid, "T");
+    auto* cleanup = lease.query("DELETE FROM im_device_session WHERE user_id=" +
+                                std::to_string(kUid));
+    if (cleanup != nullptr) {
+      mysql_free_result(cleanup);
+    }
+  }
+  EXPECT_FALSE(users.session_version(kUid, kClientApp).has_value());
+
+  users.set_session_version(kUid, kClientApp, 5);
+  users.set_session_version(kUid, kClientWeb, 7);
+  EXPECT_EQ(users.session_version(kUid, kClientApp), std::optional<int64_t>(5));
+  EXPECT_EQ(users.session_version(kUid, kClientWeb), std::optional<int64_t>(7));
+
+  // 写 web 不能碰 app 那一行(同类互顶靠这个隔离)
+  users.set_session_version(kUid, kClientWeb, 8);
+  EXPECT_EQ(users.session_version(kUid, kClientApp), std::optional<int64_t>(5));
+  EXPECT_EQ(users.session_version(kUid, kClientWeb), std::optional<int64_t>(8));
+
+  auto lease = pool.acquire();
+  users.remove(lease, kUid);
+  auto* cleanup = lease.query("DELETE FROM im_device_session WHERE user_id=" +
+                              std::to_string(kUid));
+  if (cleanup != nullptr) {
+    mysql_free_result(cleanup);
+  }
 }
