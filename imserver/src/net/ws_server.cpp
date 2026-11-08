@@ -53,9 +53,7 @@ std::optional<uint64_t> parse_uid(const std::string& value) {
   }
 }
 
-std::string peer_id(uint64_t uid) {
-  return uid == 0 ? "system_notice" : "u" + std::to_string(uid);
-}
+// `peer_id()` 在 `net/frames.h`:与下行 `message` 帧共用一份 id 映射。
 
 /// 贴纸 id 的合法形状:`sticker_` + 两位数字(`sticker_01` … `sticker_99`)。
 ///
@@ -469,6 +467,18 @@ void WsSession::handle_send(const nlohmann::json& frame) {
       return;
     }
 
+    // 引用回复(批次 L-2):**只接受 `ref_msg_id` 这一个数字**。
+    // 客户端夹带的任何 `ref` 内容(哪怕长得像快照)在这里根本不被读取 ——
+    // 快照由服务端回库查后自己生成(见 MessageService::send)。
+    if (data.contains("ref_msg_id") && !data["ref_msg_id"].is_null()) {
+      const auto& ref = data["ref_msg_id"];
+      if (!ref.is_number_unsigned() && !ref.is_number_integer()) {
+        send_raw(error_frame(42201, "引用的消息不合法"));
+        return;
+      }
+      request.ref_msg_id = ref.get<uint64_t>();
+    }
+
     auto self = shared_from_this();
     run_db([self, request] {
       const auto result = self->messages_.send(request);
@@ -483,8 +493,12 @@ void WsSession::handle_send(const nlohmann::json& frame) {
 void WsSession::on_send_result(const std::variant<SendResult, int>& result,
                                const SendRequest& request) {
   if (const auto* ok = std::get_if<SendResult>(&result)) {
+    // 下行 `message` 帧与 `/im/api/messages` 用**同一个** `message_json`
+    // (见 frames.h):两边各写一份迟早有一边漏字段(引用就是这样漏的)。
     const bool delivered =
-        registry_.send_to(request.to, build_message_frame(*ok, request, messages_.signer()));
+        registry_.send_to(request.to, build_message_frame(
+                                          ok->row, messages_.users().get(ok->row.from_id),
+                                          messages_.signer()));
     // C-1:对端**不在线**才推。send_to 的返回值就是「有没有活跃会话」,
     // 比再查一次 is_online 少一次加锁、也没有两次调用之间的竞态。
     // 这里只入队,不发网络请求 —— 推送失败/关闭都不该影响这次发送的 ack。

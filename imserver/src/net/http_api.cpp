@@ -77,9 +77,8 @@ std::optional<uint64_t> parse_peer(const std::string& peer) {
   }
 }
 
-std::string peer_id(uint64_t uid) {
-  return uid == 0 ? "system_notice" : "u" + std::to_string(uid);
-}
+// `peer_id()` 与 `message_json()` 都在 `net/frames.h` —— 下行 `message` 帧与这里的
+// HTTP 响应必须共用同一个序列化函数(批次 L-2 的引用就是这么漏的)。
 
 int hex_value(char c) {
   if (c >= '0' && c <= '9') {
@@ -127,37 +126,18 @@ std::string trim_ascii(const std::string& input) {
   return input.substr(begin, end - begin + 1);
 }
 
-nlohmann::json message_json(const MessageRow& row, UserRepo& users, const MediaSigner& signer) {
-  nlohmann::json data = {{"msg_id", std::to_string(row.msg_id)},
-                         {"seq", row.seq},
-                         {"from", peer_id(row.from_id)},
-                         {"to", peer_id(row.to_id)},
-                         {"ts", row.created_at},
-                         {"revoked", row.revoked_at.has_value()}};
-  if (row.revoked_at.has_value()) {
-    data["kind"] = "text";
-  } else {
-    const auto body = nlohmann::json::parse(row.body);
-    if (row.kind == 3) {
-      data["kind"] = "image";
-      data["image"] = body.value("image", nlohmann::json::object());
-      signer.sign_image(data["image"]);
-    } else if (row.kind == 4) {
-      data["kind"] = "voice";
-      data["voice"] = body.value("voice", nlohmann::json::object());
-      signer.sign_media(data["voice"], {"url"});
-    } else if (row.kind == 2) {
-      data["kind"] = "custom";
-      data["custom"] = body;
-    } else {
-      data["kind"] = "text";
-      data["text"] = body.value("text", "");
-    }
-  }
-  if (auto profile = users.get(row.from_id)) {
-    data["from_profile"] = {{"nickname", profile->nickname}, {"avatar", profile->avatar}};
-  }
-  return data;
+/// 一条消息的 JSON:**转调 `frames.h::message_json`**,不再在这里另写一份。
+///
+/// Args:
+///   row: 库里的消息行。
+///   users: 账号仓库(只为取发送者画像,取不到就不下发 `from_profile`)。
+///   signer: 媒体签名器。
+///
+/// Returns:
+///   消息的 `data` 对象。
+nlohmann::json message_json_of(const MessageRow& row, UserRepo& users,
+                               const MediaSigner& signer) {
+  return message_json(row, users.get(row.from_id), signer);
 }
 
 }  // namespace
@@ -377,8 +357,12 @@ HttpApi::response_type HttpApi::internal_route(
       }
       const auto result = messages_.send(request);
       if (const auto* ok = std::get_if<SendResult>(&result)) {
+        // 与 `/im/api/messages` 同一个构造函数(见 frames.h::message_json):
+        // 灰条也是消息,少一处就会有一端看不到它。
         const bool delivered = registry_.send_to(
-            request.to, build_message_frame(*ok, request, messages_.signer()));
+            request.to,
+            build_message_frame(ok->row, messages_.users().get(ok->row.from_id),
+                                messages_.signer()));
         // C-1:走内部 API 发出去的消息(im_send / Django 灰条)同样要照顾离线对端。
         // kind=2(灰条/系统通知)由 PushNotifier 自己过滤掉。
         if (!delivered) {
@@ -523,7 +507,7 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
                              {"peer_read_seq", view.peer_read_seq},
                              {"updated_at", view.updated_at}};
       if (view.has_last) {
-        item["last_message"] = message_json(view.last, messages_.users(), messages_.signer());
+        item["last_message"] = message_json_of(view.last, messages_.users(), messages_.signer());
       }
       items.push_back(std::move(item));
     }
@@ -558,7 +542,7 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     }
     nlohmann::json items = nlohmann::json::array();
     for (const auto& row : rows) {
-      nlohmann::json item = message_json(row, messages_.users(), messages_.signer());
+      nlohmann::json item = message_json_of(row, messages_.users(), messages_.signer());
       const uint64_t peer = row.from_id == *uid ? row.to_id : row.from_id;
       nlohmann::json profile = {{"id", peer_id(peer)}, {"nickname", ""}, {"avatar", ""}};
       if (auto user = messages_.users().get(peer)) {
@@ -589,7 +573,7 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
   nlohmann::json items = nlohmann::json::array();
   const auto rows = messages_.list_messages(*uid, *peer, before, limit);
   for (const auto& row : rows) {
-    items.push_back(message_json(row, messages_.users(), messages_.signer()));
+    items.push_back(message_json_of(row, messages_.users(), messages_.signer()));
   }
   response_type response(http::status::ok, req.version());
   response.set(http::field::content_type, "application/json");

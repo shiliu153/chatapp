@@ -1,50 +1,83 @@
 #pragma once
 #include <nlohmann/json.hpp>
 
+#include <exception>
+#include <optional>
 #include <string>
 
 #include "service/message_service.h"
+#include "util/im_id.h"
 #include "util/media_sign.h"
+#include "util/message_kind.h"
 
-inline std::string kind_name(int kind) {
-  switch (kind) {
-    case 2:
-      return "custom";
-    case 3:
-      return "image";
-    case 4:
-      return "voice";
-    default:
-      return "text";
+/// **一条消息的唯一序列化入口**。
+///
+/// 为什么只能有一份:下行 `message` 帧(WS)与 `/im/api/messages`、会话列表的
+/// `last_message`、搜索结果(HTTP)都表示「同一条消息」。以前两边各写一份构造函数,
+/// 结果引用(`ref`)这种新字段只要漏改一处,就有一端看不到 —— 这正是批次 L-2
+/// 踩的坑。现在 HTTP 侧与 WS 侧都调这里。
+///
+/// Args:
+///   row: 库里的消息行(含 kind / body / revoked_at / ref_snapshot)。
+///   from_profile: 发送者画像;为空时不下发 `from_profile`(系统通知就是这种)。
+///   signer: 媒体签名器,图片 / 语音 URL 在这里**读时**现签。
+///
+/// Returns:
+///   消息的 `data` 对象(`msg_id` / `seq` / `from` / `to` / `kind` / `ts` / `revoked` …)。
+inline nlohmann::json message_json(const MessageRow& row,
+                                   const std::optional<UserRow>& from_profile,
+                                   const MediaSigner& signer) {
+  nlohmann::json data = {{"msg_id", std::to_string(row.msg_id)},
+                         {"seq", row.seq},
+                         {"from", peer_id(row.from_id)},
+                         {"to", peer_id(row.to_id)},
+                         {"ts", row.created_at},
+                         {"revoked", row.revoked_at.has_value()}};
+  if (row.revoked_at.has_value()) {
+    data["kind"] = "text";
+  } else {
+    const auto body = nlohmann::json::parse(row.body);
+    if (row.kind == 3) {
+      data["kind"] = "image";
+      data["image"] = body.value("image", nlohmann::json::object());
+      signer.sign_image(data["image"]);
+    } else if (row.kind == 4) {
+      data["kind"] = "voice";
+      data["voice"] = body.value("voice", nlohmann::json::object());
+      signer.sign_media(data["voice"], {"url"});
+    } else if (row.kind == 2) {
+      data["kind"] = "custom";
+      data["custom"] = body;
+    } else {
+      data["kind"] = "text";
+      data["text"] = body.value("text", "");
+    }
   }
+  // 引用(批次 L-2):**只在有引用时出现这个键** —— 老客户端不解析新键也不会崩。
+  // 快照是服务端生成好存下来的,这里原样透出,不再回查被引用消息(那正是快照的意义)。
+  if (row.ref_snapshot.has_value()) {
+    try {
+      data["ref"] = nlohmann::json::parse(*row.ref_snapshot);
+    } catch (const std::exception&) {
+      // 快照坏了宁可少一个引用块,也不能让整条消息读不出来。
+    }
+  }
+  if (from_profile.has_value()) {
+    data["from_profile"] = {{"nickname", from_profile->nickname},
+                            {"avatar", from_profile->avatar}};
+  }
+  return data;
 }
 
-// 按 kind 拼推送帧:text 带 text,custom 带 custom,image 带 image。
+// 下行 `message` 帧:与 `/im/api/messages` 用同一个 `message_json`,只多一层信封。
 // 图片 URL 在**读时**签名(库里存的是去掉 query 的规范 URL)。
-inline std::string build_message_frame(const SendResult& result, const SendRequest& request,
+inline std::string build_message_frame(const MessageRow& row,
+                                       const std::optional<UserRow>& from_profile,
                                        const MediaSigner& signer) {
-  nlohmann::json data = {
-      {"msg_id", std::to_string(result.msg_id)},
-      {"seq", result.seq},
-      {"from", "u" + std::to_string(request.from)},
-      {"to", "u" + std::to_string(request.to)},
-      {"kind", kind_name(request.kind)},
-      {"ts", result.ts},
-      {"revoked", false},
-      {"from_profile",
-       {{"nickname", result.from_nickname}, {"avatar", result.from_avatar}}}};
-  if (request.kind == 2) {
-    data["custom"] = request.custom;
-  } else if (request.kind == 3) {
-    data["image"] = request.image;
-    signer.sign_image(data["image"]);
-  } else if (request.kind == 4) {
-    data["voice"] = request.voice;
-    signer.sign_media(data["voice"], {"url"});
-  } else {
-    data["text"] = request.text;
-  }
-  return nlohmann::json{{"v", 1}, {"type", "message"}, {"data", data}}.dump();
+  return nlohmann::json{{"v", 1},
+                        {"type", "message"},
+                        {"data", message_json(row, from_profile, signer)}}
+      .dump();
 }
 
 // ---- 其余下行帧的构造 ----

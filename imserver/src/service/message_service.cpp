@@ -12,10 +12,15 @@
 #include <nlohmann/json.hpp>
 
 #include "store/stmt.h"
+#include "util/im_id.h"
 #include "util/log.h"
+#include "util/message_kind.h"
 #include "util/metrics.h"
 
 namespace {
+
+/// 引用摘要最多保留多少个字符(与设计文档 §4.2 一致)。
+constexpr std::size_t kRefTextMax = 120;
 
 int64_t now_ms() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -76,7 +81,75 @@ SendResult result_for(const MessageRow& row, UserRepo& users) {
     result.from_nickname = profile->nickname;
     result.from_avatar = profile->avatar;
   }
+  // 幂等重放(同一个 client_msg_id)也要带上整行:下行帧照样走 message_json。
+  result.row = row;
   return result;
+}
+
+/// 这条消息能不能被引用。
+///
+/// 系统灰条(配对成功 / 封禁通知…)不是「人说的话」,引用它既没有内容也没有意义,
+/// 一律拒。注意贴纸也走 `kind=2`,但它是用户发的 —— 所以判据是载荷的 `type`,
+/// 不是 kind。
+///
+/// Args:
+///   row: 被引用的消息行。
+///
+/// Returns:
+///   可引用返回 true。
+bool quotable(const MessageRow& row) {
+  if (row.kind != 2) {
+    return true;
+  }
+  try {
+    return nlohmann::json::parse(row.body).value("type", std::string()) == "sticker";
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+/// 生成引用快照(**只能由服务端做**)。
+///
+/// 为什么不信客户端:让客户端传快照等于允许任何人伪造「对方说过 X」。
+/// 这里吃的是**回库查到的行**,只摘 id / 发送者 / 类型 / 摘要 / 是否已撤回。
+///
+/// Args:
+///   row: 被引用的消息行(已确认在同一会话里)。
+///
+/// Returns:
+///   下行 `ref` 对象:`{msg_id, from, kind, text, revoked}`。
+nlohmann::json build_ref_snapshot(const MessageRow& row) {
+  nlohmann::json snapshot = {{"msg_id", row.msg_id},
+                             {"from", peer_id(row.from_id)},
+                             {"kind", kind_name(row.kind)},
+                             {"revoked", row.revoked_at.has_value()}};
+  if (row.revoked_at.has_value()) {
+    // 已撤回:只留「这条被撤回了」这件事,不泄漏原文(撤回了就该看不见)。
+    snapshot["text"] = "";
+    return snapshot;
+  }
+  switch (row.kind) {
+    case 1: {
+      std::string text;
+      try {
+        text = nlohmann::json::parse(row.body).value("text", std::string());
+      } catch (const std::exception&) {
+        text.clear();
+      }
+      snapshot["text"] = truncate_utf8(text, kRefTextMax);
+      break;
+    }
+    case 3:
+      snapshot["text"] = "[图片]";
+      break;
+    case 4:
+      snapshot["text"] = "[语音]";
+      break;
+    default:
+      snapshot["text"] = "[贴纸]";
+      break;
+  }
+  return snapshot;
 }
 
 }  // namespace
@@ -369,10 +442,26 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
       const uint64_t seq = conversation.last_seq + 1;
       const std::string body_json = body.dump();
 
+      // 引用回复(批次 L-2):只认 id,**回库查**内容并自己生成快照。
+      // 三条拒绝理由都归到 42201(不新增业务码):
+      //   ① 消息不存在;② 不在同一个会话里(否则就是跨会话引用);
+      //   ③ 引用的是系统灰条(它不是「人说的话」,没有可显示的内容)。
+      std::optional<std::string> ref_snapshot;
+      if (request.ref_msg_id.has_value()) {
+        const auto referenced = messages_.get(lease, *request.ref_msg_id);
+        if (!referenced.has_value() || referenced->conv_id != conversation.id ||
+            !quotable(*referenced)) {
+          lease.rollback();
+          return 42201;
+        }
+        ref_snapshot = build_ref_snapshot(*referenced).dump();
+      }
+
       uint64_t msg_id = 0;
       try {
         msg_id = messages_.insert(lease, conversation.id, seq, request.from, request.to,
-                                  request.kind, body_json, request.client_msg_id, now);
+                                  request.kind, body_json, request.client_msg_id, now,
+                                  request.ref_msg_id, ref_snapshot);
       } catch (const MysqlError& error) {
         if (error.code() != 1062) {
           throw;
@@ -406,6 +495,19 @@ std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
         result.from_nickname = profile->nickname;
         result.from_avatar = profile->avatar;
       }
+      // 把刚落库的这一行带出去:下行帧要按**库里的真实内容**拼(文本已 trim、
+      // 媒体 URL 已规范、引用快照已生成),不能拿 request 再拼一遍。
+      result.row.msg_id = msg_id;
+      result.row.conv_id = conversation.id;
+      result.row.seq = seq;
+      result.row.from_id = request.from;
+      result.row.to_id = request.to;
+      result.row.kind = request.kind;
+      result.row.body = body_json;
+      result.row.client_msg_id = request.client_msg_id;
+      result.row.created_at = now;
+      result.row.ref_msg_id = request.ref_msg_id;
+      result.row.ref_snapshot = ref_snapshot;
       const auto m_total = since();
       if (slow_send_ms_ > 0 && m_total >= slow_send_ms_ * 1000LL) {
         log_error("slow_send", {{"from", std::to_string(request.from)},

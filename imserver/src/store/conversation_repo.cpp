@@ -240,6 +240,9 @@ std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, ui
       "IFNULL(m.msg_id,0),IFNULL(m.conv_id,0),IFNULL(m.seq,0),IFNULL(m.from_id,0),"
       "IFNULL(m.to_id,0),IFNULL(m.kind,1),IFNULL(m.body,''),"
       "IFNULL(m.client_msg_id,''),IFNULL(m.created_at,0),m.revoked_at,"
+      // 引用(批次 L-2):会话列表的 last_message 也走同一个序列化函数,
+      // 少这两列就会出现「进会话能看到引用、列表里那条摘要却没有」。
+      "m.ref_msg_id,m.ref_snapshot,"
       "s.unread,c.last_seq,s.updated_at,IFNULL(ps.read_seq,0) "
       "FROM im_conversation_state s "
       "JOIN im_conversation c ON c.id=s.conv_id "
@@ -277,11 +280,17 @@ std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, ui
       if (values[12] != nullptr) {
         view.last.revoked_at = std::stoll(values[12]);
       }
+      if (values[13] != nullptr) {
+        view.last.ref_msg_id = std::stoull(values[13]);
+      }
+      if (values[14] != nullptr) {
+        view.last.ref_snapshot = values[14];
+      }
     }
-    view.unread = static_cast<uint32_t>(std::stoul(values[13]));
-    view.last_seq = std::stoull(values[14]);
-    view.updated_at = std::stoll(values[15]);
-    view.peer_read_seq = std::stoull(values[16]);
+    view.unread = static_cast<uint32_t>(std::stoul(values[15]));
+    view.last_seq = std::stoull(values[16]);
+    view.updated_at = std::stoll(values[17]);
+    view.peer_read_seq = std::stoull(values[18]);
     rows.push_back(std::move(view));
   }
   mysql_free_result(result);

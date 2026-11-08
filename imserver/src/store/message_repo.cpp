@@ -26,11 +26,20 @@ MessageRow parse_row(MYSQL_ROW values) {
   if (values[9] != nullptr) {
     row.revoked_at = std::stoll(values[9]);
   }
+  // 引用(批次 L-2):两列都可空。**所有**读路径都必须带上它们,否则会出现
+  // 「实时帧有引用、翻历史就没有」这类一端看不到引用的问题。
+  if (values[10] != nullptr) {
+    row.ref_msg_id = std::stoull(values[10]);
+  }
+  if (values[11] != nullptr) {
+    row.ref_snapshot = values[11];
+  }
   return row;
 }
 
 constexpr const char* kSelect =
-    "SELECT msg_id,conv_id,seq,from_id,to_id,kind,body,client_msg_id,created_at,revoked_at "
+    "SELECT msg_id,conv_id,seq,from_id,to_id,kind,body,client_msg_id,created_at,revoked_at,"
+    "ref_msg_id,ref_snapshot "
     "FROM im_message ";
 
 }  // namespace
@@ -40,11 +49,13 @@ MessageRepo::MessageRepo(MysqlPool& pool) : pool_(pool) {}
 uint64_t MessageRepo::insert(MysqlPool::Lease& lease, uint64_t conv_id, uint64_t seq,
                              uint64_t from_id, uint64_t to_id, int kind,
                              const std::string& body, const std::string& client_msg_id,
-                             int64_t now_ms) {
+                             int64_t now_ms, const std::optional<uint64_t>& ref_msg_id,
+                             const std::optional<std::string>& ref_snapshot) {
   Stmt stmt(lease.get(),
             "INSERT INTO im_message "
-            "(conv_id,seq,from_id,to_id,kind,body,client_msg_id,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)");
+            "(conv_id,seq,from_id,to_id,kind,body,client_msg_id,created_at,ref_msg_id,"
+            "ref_snapshot) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)");
   stmt.bind_uint(0, conv_id);
   stmt.bind_uint(1, seq);
   stmt.bind_uint(2, from_id);
@@ -53,6 +64,17 @@ uint64_t MessageRepo::insert(MysqlPool::Lease& lease, uint64_t conv_id, uint64_t
   stmt.bind_string(5, body);
   stmt.bind_string(6, client_msg_id);
   stmt.bind_uint(7, static_cast<uint64_t>(now_ms));
+  // 无引用时写 NULL(而不是 0 / 空串):读侧据此决定「`ref` 键是否出现」。
+  if (ref_msg_id.has_value()) {
+    stmt.bind_uint(8, *ref_msg_id);
+  } else {
+    stmt.bind_null(8);
+  }
+  if (ref_snapshot.has_value()) {
+    stmt.bind_string(9, *ref_snapshot);
+  } else {
+    stmt.bind_null(9);
+  }
   stmt.execute();
   return stmt.insert_id();
 }
@@ -156,7 +178,7 @@ std::vector<MessageRow> MessageRepo::search(MysqlPool::Lease& lease, uint64_t ui
   const std::string pattern = lease.escape(like_pattern(keyword));
   std::string sql =
       "SELECT m.msg_id,m.conv_id,m.seq,m.from_id,m.to_id,m.kind,m.body,"
-      "m.client_msg_id,m.created_at,m.revoked_at "
+      "m.client_msg_id,m.created_at,m.revoked_at,m.ref_msg_id,m.ref_snapshot "
       "FROM im_conversation c JOIN im_message m ON m.conv_id=c.id "
       "LEFT JOIN im_conversation_state s ON s.conv_id=c.id AND s.owner_id=" + owner + " "
       "WHERE (c.user_a=" + owner + " OR c.user_b=" + owner + ") "
