@@ -20,6 +20,8 @@ const conversation = (overrides: Partial<ImConversation>): ImConversation => ({
   faceUrl: null,
   lastMessage: null,
   peerReadSeq: 0,
+  pinned: false,
+  muted: false,
   ...overrides,
 })
 

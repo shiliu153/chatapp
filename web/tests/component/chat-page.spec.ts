@@ -199,6 +199,8 @@ describe('ChatPage', () => {
             faceUrl: null,
             lastMessage: null,
             peerReadSeq: 0,
+            pinned: false,
+            muted: false,
           },
         ]
       },

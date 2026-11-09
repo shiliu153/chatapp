@@ -1,3 +1,4 @@
+import { ApiError } from '@/api/error'
 import {
   ChatMessageKind,
   type ChatMessage,
@@ -5,6 +6,8 @@ import {
   type ImCapabilities,
   type ImClient,
   type ImConversation,
+  type ImConversationFlags,
+  type ImConversationFlagsResult,
   type ImEvent,
   type ImSearchResult,
 } from '../types'
@@ -522,6 +525,23 @@ export class SelfImClient implements ImClient {
     }))
   }
 
+  /**
+   * 写会话偏好(批次 N):`POST /im/api/conversations/flags`。
+   *
+   * **没传的那一项不上行** —— 服务端语义是「缺省 = 这一项不改」,传 `muted: undefined`
+   * 会被 `JSON.stringify` 丢掉、传 `muted: false` 则是「取消免打扰」,两者不能混。
+   */
+  async setConversationFlags(
+    peerId: string,
+    flags: ImConversationFlags,
+  ): Promise<ImConversationFlagsResult> {
+    const body: Record<string, unknown> = { peer: peerId }
+    if (flags.pinned !== undefined) body.pinned = flags.pinned
+    if (flags.muted !== undefined) body.muted = flags.muted
+    const data = await this.post('/conversations/flags', body)
+    return { pinned: data.pinned === true, muted: data.muted === true }
+  }
+
   private async get(path: string, query: Record<string, string>):
       Promise<Record<string, unknown>> {
     const bootstrap = this.bootstrap
@@ -533,9 +553,80 @@ export class SelfImClient implements ImClient {
     const response = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${bootstrap.token}` },
     })
-    if (!response.ok) throw new Error(`IM HTTP ${response.status}`)
+    return await this.decode(response)
+  }
+
+  /**
+   * POST 一个 JSON body(`/im/api/*` 的写路径)。
+   *
+   * Args:
+   *   path: 相对 `http_url` 的路径,如 `/conversations/flags`。
+   *   body: 请求体(会被 `JSON.stringify`)。
+   *
+   * Returns:
+   *   响应 JSON 对象。
+   */
+  private async post(
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const bootstrap = this.bootstrap
+    if (!bootstrap) throw new Error('IM 未初始化')
+    const response = await fetch(`${bootstrap.httpUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${bootstrap.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+    return await this.decode(response)
+  }
+
+  /**
+   * 把 `/im/api/*` 的响应解成 JSON;非 2xx 时抛**统一** `ApiError`。
+   *
+   * 为什么不再抛 `new Error('IM HTTP 500')`:imserver 的错误体本来就是
+   * `{"code":<业务码>,"message":"<中文>"}`,把业务码丢掉的话调用方没法分流
+   * (`40401` 会话不存在要刷新列表、`42901` 要提示限流)。`ApiError` 是前端唯一的
+   * 错误类型,`parseApiError` 遇到它原样透传,所以 UI 侧照旧只认一种错误。
+   *
+   * Args:
+   *   response: `fetch` 的响应。
+   *
+   * Returns:
+   *   解析后的 JSON 对象。
+   *
+   * Raises:
+   *   ApiError: HTTP 非 2xx;`code` 取错误体里的业务码,缺失时退回 HTTP 状态码。
+   */
+  private async decode(response: Response): Promise<Record<string, unknown>> {
+    if (!response.ok) throw await imHttpError(response)
     return (await response.json()) as Record<string, unknown>
   }
+}
+
+/**
+ * 把 `/im/api/*` 的错误响应变成 `ApiError`。
+ *
+ * Args:
+ *   response: 状态码非 2xx 的响应(imserver 的 body 形如 `{"code":40401,"message":"…"}`)。
+ *
+ * Returns:
+ *   填好 `code` / `status` 的 `ApiError`,由调用方 `throw`。
+ */
+async function imHttpError(response: Response): Promise<ApiError> {
+  const status = response.status
+  let code = status
+  let message = `IM HTTP ${status}`
+  try {
+    const body = (await response.json()) as Record<string, unknown>
+    if (typeof body.code === 'number') code = body.code
+    if (typeof body.message === 'string' && body.message) message = body.message
+  } catch {
+    // 非 JSON 错误体(nginx 502 之类的 HTML):保留 HTTP 状态码与兜底文案
+  }
+  return new ApiError(code, message, undefined, status)
 }
 
 /**

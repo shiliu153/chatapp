@@ -98,5 +98,9 @@ export function conversationFromJson(
     lastMessage: last ? messageFromJson(last as Record<string, unknown>, me) : null,
     // 已读回执的**离线补拉**入口:断线期间对方读过什么,重连后靠这个字段算
     peerReadSeq: Number(json.peer_read_seq ?? 0),
+    // 置顶 / 免打扰(批次 N):缺字段时按 false 兜底 —— 老版本 imserver 不回这两个键时
+    // 会话行退化成本单之前的观感,不能因为 undefined 被当成「已置顶 / 已免打扰」。
+    pinned: json.pinned === true,
+    muted: json.muted === true,
   }
 }
