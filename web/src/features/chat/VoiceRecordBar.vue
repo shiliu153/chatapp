@@ -1,12 +1,33 @@
 <script setup lang="ts">
 import type { VoicePhase } from './useVoiceRecorder'
 
-/** 录音时替换整个输入栏的三段式:取消 | 计时 | 发送。 */
-const props = defineProps<{ phase: VoicePhase; seconds: number }>()
+/**
+ * 录音时替换整个输入栏的三段式:取消 | 计时 | 确认。
+ *
+ * 聊天页用默认文案(取消 / 发送);资料页「语音自我介绍」传入自己的上限与文案
+ * (30 秒 / 停止 / 处理中…),不复制一份布局。
+ */
+const props = withDefaults(
+  defineProps<{
+    phase: VoicePhase
+    seconds: number
+    /** 计时上限(秒):只影响显示,真正的自动停由 useVoiceRecorder 的 maxDurationMs 决定 */
+    maxSeconds?: number
+    cancelLabel?: string
+    confirmLabel?: string
+    sendingLabel?: string
+  }>(),
+  {
+    maxSeconds: 60,
+    cancelLabel: '取消',
+    confirmLabel: '发送',
+    sendingLabel: '发送中…',
+  },
+)
 defineEmits<{ cancel: []; send: [] }>()
 
 function clock(total: number): string {
-  const safe = Math.max(0, Math.min(60, total))
+  const safe = Math.max(0, Math.min(props.maxSeconds, total))
   return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`
 }
 </script>
@@ -19,7 +40,7 @@ function clock(total: number): string {
       :disabled="props.phase === 'sending'"
       @click="$emit('cancel')"
     >
-      取消
+      {{ props.cancelLabel }}
     </button>
 
     <span class="voice-bar__clock">
@@ -33,7 +54,7 @@ function clock(total: number): string {
       :disabled="props.phase === 'sending'"
       @click="$emit('send')"
     >
-      {{ props.phase === 'sending' ? '发送中…' : '发送' }}
+      {{ props.phase === 'sending' ? props.sendingLabel : props.confirmLabel }}
     </button>
   </div>
 </template>

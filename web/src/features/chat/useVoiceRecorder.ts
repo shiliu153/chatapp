@@ -1,8 +1,13 @@
 /**
- * 聊天语音录制状态机(契约见 specs/2026-11-01-voice-recording-interaction-design.md §4)。
+ * 语音录制状态机(契约见 specs/2026-11-01-voice-recording-interaction-design.md §4)。
  *
  * 状态:idle → requesting → recording → sending → idle
- * 关键约束:不足 1 秒不发、60 秒自动发、离开页面只取消不发送。
+ * 关键约束:不足 1 秒不发、到上限自动停、离开页面只取消不发送。
+ *
+ * 上限是**参数**(`maxDurationMs`):聊天语音 60 秒(默认值,行为不变),资料语音自我介绍
+ * 30 秒(`PROFILE_VOICE_MAX_MS`,与 App 端 `VoiceRecordController.maxDurationMs` 同口径)。
+ * 不复制第二份状态机 —— 这套状态机踩过的坑(见坑灵手册 web.md「录音这类有副作用的状态机
+ * 别写在组件里」)会在副本里重新长出来。
  */
 
 import { ref } from 'vue'
@@ -22,6 +27,7 @@ export const VOICE_TEXT = {
 } as const
 
 const MIN_DURATION_MS = 1000
+/** 聊天语音上限;资料语音通过 `maxDurationMs` 传入 30 秒,不改这里的默认值。 */
 const MAX_DURATION_MS = 60_000
 
 export interface VoiceRecorderOptions {
@@ -31,6 +37,8 @@ export interface VoiceRecorderOptions {
   onSend: (blob: Blob, durationMs: number) => Promise<void>
   /** 需要提示用户的话术(权限/设备/太短/启动失败) */
   onNotice: (text: string) => void
+  /** 录音上限(毫秒),超时自动 `stopAndSend`;缺省 60 秒(聊天口径) */
+  maxDurationMs?: number
 }
 
 export interface VoiceRecorderHandle {
@@ -45,6 +53,9 @@ export interface VoiceRecorderHandle {
 export function useVoiceRecorder(options: VoiceRecorderOptions): VoiceRecorderHandle {
   const phase = ref<VoicePhase>('idle')
   const seconds = ref(0)
+  /** 本次录制的上限:调用方没传就按聊天口径 60 秒 */
+  const maxMs = options.maxDurationMs ?? MAX_DURATION_MS
+  const maxSeconds = Math.max(1, Math.round(maxMs / 1000))
 
   let recorder: MediaRecorder | null = null
   let stream: MediaStream | null = null
@@ -111,9 +122,9 @@ export function useVoiceRecorder(options: VoiceRecorderOptions): VoiceRecorderHa
     seconds.value = 0
     phase.value = 'recording'
     ticker = setInterval(() => {
-      seconds.value = Math.min(60, Math.ceil((Date.now() - startedAt) / 1000))
+      seconds.value = Math.min(maxSeconds, Math.ceil((Date.now() - startedAt) / 1000))
     }, 200)
-    timeout = setTimeout(() => void stopAndSend(), MAX_DURATION_MS)
+    timeout = setTimeout(() => void stopAndSend(), maxMs)
   }
 
   async function stopAndSend(): Promise<void> {

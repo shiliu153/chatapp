@@ -32,13 +32,14 @@ function installRecorder(): void {
   })
 }
 
-function setup(overrides: Partial<{ enabled: () => boolean }> = {}) {
+function setup(overrides: Partial<{ enabled: () => boolean; maxDurationMs: number }> = {}) {
   const onSend = vi.fn(async () => {})
   const onNotice = vi.fn()
   const voice = useVoiceRecorder({
     enabled: overrides.enabled ?? (() => true),
     onSend,
     onNotice,
+    maxDurationMs: overrides.maxDurationMs,
   })
   return { voice, onSend, onNotice }
 }
@@ -85,6 +86,24 @@ describe('useVoiceRecorder', () => {
     await voice.start()
     await vi.advanceTimersByTimeAsync(60_000)
     expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
+  it('资料语音口径:maxDurationMs=30 秒 时 30 秒自动停(聊天仍 60 秒)', async () => {
+    const { voice, onSend } = setup({ maxDurationMs: 30_000 })
+    await voice.start()
+    await vi.advanceTimersByTimeAsync(29_000)
+    expect(onSend).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(onSend).toHaveBeenCalledTimes(1)
+    // 计时显示也按 30 秒封顶,不会冒到 00:31
+    expect(voice.seconds.value).toBe(0) // 发完回 idle 时归零
+  })
+
+  it('资料语音口径:计时在上限处封顶', async () => {
+    const { voice } = setup({ maxDurationMs: 30_000 })
+    await voice.start()
+    await vi.advanceTimersByTimeAsync(29_500)
+    expect(voice.seconds.value).toBe(30)
   })
 
   it('取消不发任何消息', async () => {

@@ -1,5 +1,7 @@
 /** 与后端接口一一对应的出入参类型;字段以 docs/api/ 为准,不臆造。 */
 
+import type { components } from './schema'
+
 export interface LoginResult {
   access: string
   isNewUser: boolean
@@ -22,6 +24,17 @@ export interface Photo {
   status: PhotoStatus
   order: number
 }
+
+/**
+ * 资料语音自我介绍(users.md §2.1 / §2.6)。
+ *
+ * 直接引用**生成类型**(`npm run gen:api` 的产物),不手写一份同样形状的结构:
+ * 后端改字段时前端要么跟着改、要么编译期就红,不会出现「两处声明各说各话」。
+ *
+ * 语义提醒:`url` 是 **m4a 公开绝对地址**(与照片同口径:不签名、不过期),原样交给播放器,
+ * **不要拼 `API_BASE`**;`duration_ms` 是服务端 ffprobe 实测(≤30000),客户端不声明。
+ */
+export type ProfileVoice = components['schemas']['ProfileVoice']
 
 export interface Preference {
   /** null = 不限 */
@@ -53,6 +66,8 @@ export interface Profile {
   preference: Preference
   /** 隐身浏览:开启后自己的访问不写进他人访客列表 */
   visits_hidden: boolean
+  /** 语音自我介绍;没录过为 null(users.md §2.1,上传/删除见 §2.6) */
+  voice: ProfileVoice | null
 }
 
 export interface PublicProfile {
@@ -66,6 +81,8 @@ export interface PublicProfile {
   /** 与当前用户的标签交集(users.md §2.8);无交集为空数组 */
   shared_tags: Tag[]
   photos: Photo[]
+  /** 对方的语音自我介绍;**公开**(能看资料的人都能听),没录过为 null(users.md §2.8) */
+  voice: ProfileVoice | null
   /** 当前用户是否已关注对方(批次 I;关注接口见 feed.md §5.13/§5.14) */
   is_followed: boolean
   /** 对方的粉丝数(多少人关注了对方) */
