@@ -205,4 +205,19 @@ void main() {
     expect(find.text('2026-11-09 ~ 2026-11-15'), findsOneWidget);
     expect(find.byKey(const Key('stats.card.new_followers')), findsOneWidget);
   });
+
+  testWidgets('窄屏(360×640)也能排下:两列卡片不溢出', (tester) async {
+    // 数字卡的卡高由字阶决定,不用 GridView 的固定宽高比正是为了这里不溢出;
+    // 万一有人改回 GridView 或调大字号,这条会红。
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final adapter = _adapter();
+    await pumpPage(tester, adapter, const StatsPage(), prefs: _loggedIn);
+    await pumpFrames(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('stats.card.matches')), findsOneWidget);
+    expect(find.byKey(const Key('stats.card.new_followers')), findsOneWidget);
+  });
 }
