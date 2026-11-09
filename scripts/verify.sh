@@ -168,6 +168,10 @@ stack_contract() {
   # 那会让「本地绿 ≈ CI 绿」在这两个门禁自己坏掉时不成立。
   run "版本号同步脚本自测" "$PY" -m unittest scripts.test_sync_version
   run "发版准备脚本自测" "$PY" -m unittest scripts.test_release_prep
+  # 出口代理的渲染脚本是「坏订阅」的唯一防线:机场偶尔返回 HTML 错误页或残配置,
+  # 写进 config.yaml 会让 mihomo 起不来 → worker 全断网,而现场看起来像「代理没开」。
+  # 纯离线、秒级,和上面几条同性质。
+  run "出口代理渲染自测" bash "$ROOT/scripts/superagent-proxy/selftest.sh"
 }
 stack_imserver() {
   # 三段与 .github/workflows/imserver.yml 的三个 step 逐项对齐:

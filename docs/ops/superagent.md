@@ -15,7 +15,8 @@
 | 仓库母体 | `/root/src/chatapp`;工单 worktree 在 `/root/.dsh/state/superagent/work/` |
 | 数据 | `/root/.dsh/state/superagent/orchestrator.sqlite`(**升级前必须备份**) |
 | 模型 | `wb-pool` / `cn:deepseek-v4.1-flash`,经本地兜底代理(`127.0.0.1:8788`,见 §10),密钥在 `/root/.dsh/superagent.env` |
-| 代理 | `start-superagent.sh` 启动时导出宿主网关 `:7897`;代理挂了表现为 fetch / npm / pub 全部超时 |
+| 代理 | WSL 内自建 **mihomo**(`127.0.0.1:7890`,systemd `superagent-proxy`),宿主 `:7897` 兜底 —— 见 §12 |
+| 启动脚本源码 | `scripts/superagent-start/start-superagent.sh`(部署到 `/root/start-superagent.sh`,2026-11-09 前是无版本控制的孤儿文件) |
 
 **面板当前设置**(2026-11-07):`maxWorkers=2`、`blockedCommands=[ssh, scp, rsync]`、
 `prepare` 只做 `git fetch` + `git worktree add`(代理不写在这里)、
@@ -50,6 +51,22 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
 | 面板 `github` 亮红、报 `N consecutive failed polls … EOF` | 网络层断连(不是 token、不是限流),**新评论/派工不会被读到**。先按 §11 的探针确认,再重打补丁 |
 
 ## 4. 一次工单的完整闭环(人工部分)
+
+**第 0 步(强制):派单前确认 WSL 与 superagent 在跑。**
+
+派单动作是「在 issue 里评论 `@shiliu655`」,而读评论的 superagent 跑在 WSL 里。
+WSL 没起来时那条评论**不会有人读** —— 单子看起来派了、实际在空转,和下面 §4.1
+记的「静默丢单」长得一模一样。所以每次派单前先跑:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running.ps1
+```
+
+退出码 `0` = 可以派单;`1` = 拉不起来,别派。它会自动拉起 WSL(冷启动实测 ~20s)、
+清掉 WSL 被强杀留下的 stale 锁、等到 superagent 能接单,并顺带报告出口代理 /
+模型兜底 / docker 是否就绪。细节与实测见 §13。
+
+然后才是:
 
 1. 面板 / issue 收到「PR #N 就绪」→ 评审 diff(它只是「就绪」,不等于可合)。
 2. 碰 `app/` 的:PR 应为 draft → 拉分支到 Windows → 装模拟器 → 逐页手测截图 → 贴进 PR → 勾模板第 4 项。
@@ -367,3 +384,194 @@ bash /root/start-superagent.sh restart
 - 它只让「偶发断连」不再毁掉整轮。**链路整体断掉时仍然会报 error** —— 这是有意的:那时重试也救不回来,该报。
 - 同一台机器上 `tests/sources.spec.ts` 里那条 Feishu 用例(「takes in the event lines …」)本来就红,
   **打补丁前后都红**,与本补丁无关,别当回归。
+
+## 12. 出口代理:WSL 内自建 mihomo(2026-11-09 起)
+
+### 12.1 为什么要换掉宿主代理
+
+改造前 worker 的出口是 `WSL → 宿主 NAT → 宿主 Clash(:7897) → 境外`。§11 排查时就已经发现
+「走宿主代理和直连一样差」,2026-11-09 用并发探针把这件事量了出来(`scripts/superagent-proxy/probe.sh`):
+
+| 轮次(20 路并发,目标 `api.github.com/rate_limit`) | 直连 | 宿主 Clash :7897 | WSL mihomo :7890 |
+|---|---|---|---|
+| 1 | 20/20 | 19/20 | 20/20 |
+| 2 | 20/20 | **16/20** | 20/20 |
+| 3 | 20/20 | **16/20** | 20/20 |
+
+宿主代理在并发下**掉 8%**(55/60),而这正是 worker 一轮轮询的样子(60~100 次读)。掉的那几个
+就是 §11 里把健康位打成 `error` 的来源。换掉宿主那一跳之后 60/60 全通。
+
+**为什么不是「干脆不用代理、全直连」**:GitHub 直连确实快(`gh` 单次 1.59s vs 经 mihomo 1.57s,
+基本没差),但 worker 还要 `npm ci` / `pub get` / 拉 Flutter 依赖,那些国内不可达。所以代理要留,
+只是不该留在宿主那一跳上。
+
+### 12.2 拓扑
+
+```
+DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
+ ├─ 模型流量 → 127.0.0.1:8788(superagent-failover)→ wb.shiliu153.me   ← 在 no_proxy 内,不进机场
+ └─ 其余外网 → 127.0.0.1:7890(mihomo,systemd)→ 机场节点
+                └─ 兜底:172.26.240.1:7897(宿主 Clash)
+```
+
+`no_proxy` 里每一项都不能删:`localhost` / `127.0.0.1`(本地服务含 8788)、`wb.shiliu153.me`
+(模型网关在国内,送进机场等于绕出国再绕回来)、宿主网关本身。
+
+### 12.3 组件与命令
+
+源码在 `scripts/superagent-proxy/`(运行副本在 `/root/.dsh/proxy/`,配置与密钥都在那里,**不在仓库**)。
+
+| 事 | 命令 |
+|---|---|
+| 安装 / 升级(幂等) | `wsl -e bash -c 'SUB_URL="https://…" bash /root/src/chatapp/scripts/superagent-proxy/install.sh'`(首次要带 `SUB_URL`,之后读 `$DIR/subscription.url`) |
+| 三路对比探针 | `bash /root/.dsh/proxy/bin/probe.sh`(默认各 30 次;`--count 20` 快跑) |
+| 手动刷订阅 | `bash /root/.dsh/proxy/bin/refresh.sh`(`--dry-run` 只报差异) |
+| 状态 / 日志 | `systemctl status superagent-proxy` · `journalctl -u superagent-proxy -n 50 --no-pager` |
+| 当前选中节点 | `curl -H "Authorization: Bearer $(cat /root/.dsh/proxy/controller.secret)" http://127.0.0.1:9091/proxies/github` |
+| 定时刷新 | `systemctl list-timers superagent-proxy-refresh`(每 6 小时 `:20`,随机延迟 ≤10min) |
+| 自测(不联网) | `bash scripts/superagent-proxy/selftest.sh` → 17 条 |
+| 切换 worker 出口 | `wsl -e bash -c 'bash /root/src/chatapp/scripts/superagent-start/install.sh'` 然后 `start-superagent.sh restart` |
+
+订阅地址只存在 `/root/.dsh/proxy/subscription.url`(600),**绝不入库**;`config.yaml` 含全部节点凭据,
+权限 600,同样不入库。
+
+### 12.4 五个关键设计决策
+
+| 决策 | 为什么 |
+|---|---|
+| 端口 `7890`(mixed)/ `9091`(controller) | 机场下发的是 `9090`,而 Windows 侧 Clash 客户端的 controller 惯例也占 9090;WSL 的 localhostForwarding 会把 WSL 端口映射到 Windows localhost,两者必然打架。7890 在 Windows 侧是空的(现有客户端用 7897),可以并存 |
+| 强制 `allow-lan: false` + `bind-address: 127.0.0.1` | 机场默认 `allow-lan: true` + `bind-address: '*'`,在无人值守的 WSL 里等于给局域网开了一个免认证开放代理。`render-config.py` 在覆写之后再强制写一遍,override 写错也翻不了车 |
+| 另建 `github` 测速组 | 机场的「自动选择」测的是 `http://cp.cloudflare.com`,选出的是「连 cloudflare 最快」,不等于「能稳定拉 GitHub」。新组直接拿 `https://api.github.com/rate_limit` 当测速 URL,只收名字含 `IEPL` 的专线节点(≤12 个),并插到「节点选择」首位当默认出口 —— 不动 rules,机场自带的「国际媒体」「电报代理」等分流组照旧 |
+| 预下 `geoip.metadb` | 订阅里有 `GEOIP,CN` / `GEOIP,NETFLIX`,mihomo 首次启动要这份数据;而那时代理还没起来,直连 GitHub release 实测 504。`install.sh` 会先试三个源;全失败也**不算致命** —— mihomo 启动时会用自己的 CDN 补上(实测 3s) |
+| 刷新用热重载而非重启 | `PUT /configs` 不断已建立的连接;内容没变时连重载都不做。订阅的端口每次都在变(见 12.6),所以实际每轮都会重载一次,影响 <1s |
+
+### 12.5 为什么这些脚本在仓库里而不是工单里
+
+它们是**流程自身的引导** —— worker 赖以存在的东西(`AGENTS.md` 例外条款),而且涉及 WSL 系统级改动
+与订阅密钥,worker 既没该有的权限也不该碰。所以 2026-11-09 这一批是在主会话内联做的,没开工单。
+
+启动脚本此前只存在于 `/root/start-superagent.sh`(无版本控制),换机器/重装就丢 —— 现在源码在
+`scripts/superagent-start/`,`install.sh` 会先备份旧的再原子替换,`bash -n` 检查语法。
+
+### 12.6 已知偏差
+
+- **重启后首轮轮询要 ~20 分钟**。`pollRound` 每轮要串行读完 67 个订阅 Thread(每个还要读评论/PR/CI),
+  首轮没有任何增量可省。这与代理无关:改造前后都是这个量级。**重启后不要以为「派单丢了」** ——
+  `work/` 空 + `github: starting` 时先等,别按 §4.1 去补发评论(会多开 worktree)。
+  稳态是增量轮询,`github: ready` 会一直保持。
+- **机场端口是端口池随机分配**:每次拉订阅返回的端口都不一样(实测两次差 27 个节点),
+  多端口并存、旧端口短期内仍可用。所以刷新定在每 6 小时:万一某天旧端口被回收,
+  最长 6 小时能自愈。`refresh.sh` 的差异报告会把「端口/地址变化」单独归一类,不混进节点增减。
+- **代理是单点**:mihomo 挂了 → worker 外网全断。缓解:`Restart=always` + `StartLimitBurst=5`
+  (配置坏了会停下来而不是刷爆 journal)+ `start-superagent.sh` 探测不到 7890 时自动回退宿主 7897,
+  两条都不通时**大声警告但仍启动**(不因为网络暂时不通就把整个 superagent 拦下)。
+- **选路看「端口活没活」,不看「出网成功与否」**。拿会抖的探针去选路,只会在抖动时把 worker
+  切到更差的那条(宿主那 8% 就是这么来的)。出网质量交给 `probe.sh` 去量。
+- `start-superagent.sh` 的探测会给启动加约 1~3s;`status` 也会探一次,输出里会多两行 stderr
+  (`出口代理:…` / `出网探针:…`),不影响 JSON 与退出码。
+
+### 12.7 排障
+
+| 现象 | 先看 |
+|---|---|
+| `start-superagent.sh` 报「没有任何代理在听」 | `systemctl status superagent-proxy`;没装就按 12.3 装 |
+| 冒烟失败但服务 active | 刚启动要 3s 加载 867 条规则;`install.sh` 已改成轮询等端口,还失败就 `journalctl` |
+| `probe.sh` 判 mihomo 比直连差 | 换线路:`/root/.dsh/proxy/bin/override.yaml` 的 `include_pattern`(默认只收 IEPL);改完跑 `refresh.sh` |
+| 某天突然全部超时 | 端口可能被回收:先 `refresh.sh`,再看 `journalctl` |
+| 想确认到底走没走代理 | `curl -x http://127.0.0.1:7890 https://api.ipify.org` 看出口 IP |
+
+### 12.8 回退
+
+```bash
+systemctl disable --now superagent-proxy superagent-proxy-refresh.timer
+```
+
+`start-superagent.sh` 探测不到 7890 会自动回退宿主 7897,等于回到改造前,**不用改脚本、不用重启**。
+要连启动脚本一起回退:`ls -1 /root/start-superagent.sh.bak-*` 找最近那份 `cp -a` 回去。
+
+## 13. 派单前守门:WSL 没起来先拉起(2026-11-09 起)
+
+### 13.1 为什么要有这一步
+
+派工单 = 在 issue 里评论 `@shiliu655`。**评论是发到 GitHub 上的,不需要 WSL 在跑;
+但读评论的 superagent 跑在 WSL 里。** 于是 WSL 没起来时会出现最坏的组合:
+
+- issue 里评论正常发出去,看起来一切正常;
+- 没人读它,`work/` 一直空;
+- `status` 也查不了(它本身就在 WSL 里);
+- 等 WSL 起来后,那条评论还可能因为「早于上一轮通知游标」被 `fresh()` 过滤掉(§4.1),
+  **永久丢失且没有任何错误日志**。
+
+所以规矩是:**派单前先确认这一环**,一条命令:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running.ps1
+# 退出码 0 = 可以派单;1 = 别派
+```
+
+它做三件事:探测 WSL(短超时)→ 冷状态就显式拉起 → 调 WSL 里的
+`/root/ensure-superagent.sh`(没跑就 `start`,并等到能接单),最后报告出口代理 /
+模型兜底 / docker 是否就绪(缺了只警告不拦)。
+
+WSL 侧也可以直接跑:`bash /root/ensure-superagent.sh`。
+
+### 13.2 冷启动实测(2026-11-09,`wsl --shutdown` 后)
+
+| 阶段 | 耗时 | 说明 |
+|---|---|---|
+| WSL 起来 | ~10s | `wsl -e /bin/true` 返回 |
+| systemd 就绪 | 秒级 | `systemctl is-system-running` = running |
+| mihomo / failover | 秒级 | 两个都是 `enabled`,`Restart=always` 自己回来 |
+| DSH 初始化 | ~10s | 到 `/orchestrator/api/state` 可用 |
+| **总计到「可以派单」** | **19.6s** | 含清 stale 锁 |
+
+### 13.3 两个只在冷启动才出现的坑
+
+**坑 1:`Lock file is already being held` —— 必须清 stale 锁。**
+
+`wsl --shutdown` 是 SIGKILL,DSH 来不及释放 `proper-lockfile` 的锁
+(`src/app/runtime.ts` 锁的是**整个 state 目录**,锁目录是 `/root/.dsh/state/superagent.lock`)。
+WSL 再起来时新实例看到锁目录还在就报:
+
+```
+dsh-superagent (dsh-superagent): Error: Lock file is already being held
+dsh-superagent-github (dsh-superagent/github-watch): pending (waiting for service: orchestrator)
+```
+
+现象是**最容易被误判的那种**:`wsl` 能进、mihomo 正常、DSH 进程也在,
+但 `status` 一直返回 `1`、`health` 是 `null`、管理 API 一直 404。
+`start` 重跑不管用(锁还在),看起来像「superagent 坏了」。
+
+`ensure-superagent.sh` 的处理:**只有在「没有任何 dsh 进程」且「锁目录存在」时才删锁** ——
+有进程却抢不到锁说明是真并发,清了会打架。这个判据是安全的:锁的持有者如果活着,
+`pgrep -f 'node /usr/local/bin/dsh'` 一定看得到。
+
+**坑 2:容器 `restart=no`,不会自己回来。**
+
+`chatapp-ci-mysql` / `chatapp-ci-redis` 的 restart 策略是 `no`(实测 2026-11-09),
+WSL 一重启就全部 `Exited (255)`。它们不影响派单,但 worker 接单后跑 `verify.sh` 会全红。
+守门脚本会点名这两个容器并给出恢复命令:
+
+```bash
+cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait
+```
+
+(其余 `dev374-*` / `im-lead` / `chatapp-iso-*` / `imserver-*` 属于别的活儿,不在此列。)
+
+### 13.4 「能接单」的判据为什么不等 `github: ready`
+
+`github` 的首轮轮询要串行读完所有订阅 Thread(冷启动后约 20 分钟,见 §12.6)。
+如果守门脚本等它 ready,每次冷启动都要干等 20 分钟 —— 那就没人愿意用这个脚本了。
+
+所以判据是:**`status` 退出码 0**,或 **`health` 里除 `github` 外全部 `ready` 且 `github` 为 `starting`**。
+后者意味着 orchestrator 已在轮询,现在派单不会被漏掉(游标会推进),只是按 §4.1 核回执时
+`thread` / `ticket` 三张表可能要等首轮结束。脚本会把这件事在 stderr 上说明。
+
+### 13.5 排障
+
+| 现象 | 处理 |
+|---|---|
+| `[gate] WSL 未运行`,然后拉不起来 | 手动 `wsl -d Ubuntu-24.04 -e /bin/true` 看报什么;必要时 `wsl --update` |
+| 脚本报「等了 150s 仍不能接单」 | `bash /root/start-superagent.sh status`;`journalctl -u superagent-proxy`;面板 Overview |
+| 反复出现 `Lock file is already being held` | 确认 `pgrep -f 'node /usr/local/bin/dsh'` 为空后 `rm -rf /root/.dsh/state/superagent.lock`,再 start |
+| 守门通过但派单后 `work/` 一直空 | 那是 §4.1 的丢单问题(游标前移 ≠ 入队),按那里的「3 分钟仍为空再补发」处理 |
