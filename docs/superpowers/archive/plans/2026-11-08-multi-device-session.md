@@ -1083,7 +1083,7 @@ git commit -m "feat(app): 显式上报端类型 X-Client(K-4)"
 ## 收尾记录(2026-11-09 归档)
 
 **状态:四单全部合并进 `origin/master`,已于 2026-11-09 随 1.0.11 上线**(imserver 换镜像 +
-`005_device_session.sql` 迁移 + 随下一版本发 App/Web),归档时生产仍是 1.0.10 与旧 imserver 镜像。
+`005_device_session.sql` 迁移 + 随下一版本发 App/Web);上线后生产即为 1.0.11 + `imserver:919a63a`。
 
 | 单 | 栈 | PR | 合并 SHA | 结果 |
 |---|---|---|---|---|
