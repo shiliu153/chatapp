@@ -5,6 +5,8 @@ import type {
   LikeReceived,
   MatchSummary,
   ProfileVisit,
+  SwipeQuota,
+  SwipeUndoResult,
   Tag,
 } from './types'
 
@@ -30,6 +32,32 @@ export async function swipe(
     matched: Boolean(data.matched),
     shared_tags: (data.shared_tags ?? []) as Tag[],
   }
+}
+
+/**
+ * 撤销最近一次滑卡(discovery.md §3.9):不需要请求体。
+ *
+ * 能不能撤销由后端判定(30 秒内 / 未产生配对 / 还有记录),失败一律 `400` + `40003`,
+ * 客户端不要自己重试;`target_user_id` 是那张卡的主人,**按它把卡放回卡堆**。
+ */
+export async function undoSwipe(): Promise<SwipeUndoResult> {
+  const { data } = await http.post('/discovery/swipe/undo')
+  return {
+    undone: Boolean(data.undone),
+    target_user_id: Number(data.target_user_id),
+  }
+}
+
+/**
+ * 每日喜欢额度(discovery.md §3.10)。
+ *
+ * `like_limit = 0` 表示不限(`likes_remaining` 为 `null`),此时页面**不显示**任何额度文案。
+ * 接口无额外限流,但也不必每次滑卡都调:成功 like 时本地递减、撤销 like 时退回,
+ * 页面挂载与额度封禁到期时再各对账一次。
+ */
+export async function fetchQuota(): Promise<SwipeQuota> {
+  const { data } = await http.get('/discovery/quota')
+  return data as SwipeQuota
 }
 
 /** 配对列表:游标分页(首页 cursor 传 null,之后传上一页的 next_cursor)。 */
