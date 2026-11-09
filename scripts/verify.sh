@@ -164,9 +164,13 @@ stack_web() {
 stack_contract() {
   run "版本号三处一致" "$PY" "$ROOT/scripts/sync_version.py" --check
   run "App 模型字段 ⊆ OpenAPI" "$PY" "$ROOT/scripts/check_app_models.py"
+  # 两个脚本的自测:contract.yml 一直在跑它们,本地这条轨此前漏了 ——
+  # 那会让「本地绿 ≈ CI 绿」在这两个门禁自己坏掉时不成立。
+  run "版本号同步脚本自测" "$PY" -m unittest scripts.test_sync_version
+  run "发版准备脚本自测" "$PY" -m unittest scripts.test_release_prep
   # 出口代理的渲染脚本是「坏订阅」的唯一防线:机场偶尔返回 HTML 错误页或残配置,
   # 写进 config.yaml 会让 mihomo 起不来 → worker 全断网,而现场看起来像「代理没开」。
-  # 纯离线、秒级,和上面两条同性质。
+  # 纯离线、秒级,和上面几条同性质。
   run "出口代理渲染自测" bash "$ROOT/scripts/superagent-proxy/selftest.sh"
 }
 stack_imserver() {

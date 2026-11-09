@@ -264,6 +264,40 @@ class Preference(models.Model):
         """
         return f"preference({self.profile_id})"
 
+class ProfileVoice(models.Model):
+    """资料语音自我介绍:一人一条,重复上传即覆盖(批次 R)。
+
+    设计要点:
+        1. **不进「资料完善」判定**:``Profile.missing_fields`` 不看它,老用户不会因为
+           没录语音就掉回 ``incomplete``;
+        2. 时长上限由视图保证(≤30 秒),这里只存 ``ffprobe`` 实测值,不信客户端声明;
+        3. 文件与聊天语音同源:``im.voice.normalize`` 统一转成 m4a/AAC,播放兼容性由
+           转码层负责,本表不关心原始格式;
+        4. ``bytes`` 计入账号存储配额的第五类(见 ``config.storage.usage_bytes``);
+        5. **对外地址不签名**:语音与照片同口径是**公开**媒体(``/media/voices/`` 由 nginx
+           裸静态直出),所以序列化器直接用 DRF 的绝对 URL,不做「签了名却没人验」的样子货。
+
+    Attributes:
+        duration_ms: ``ffprobe`` 实测时长(毫秒),对外原样返回。
+        bytes: 转码后文件字节数,配额按它求和。
+    """
+
+    profile = models.OneToOneField(Profile, on_delete=models.CASCADE, related_name="voice")
+    file = models.FileField("语音", upload_to="voices/%Y/%m/")
+    duration_ms = models.PositiveIntegerField("时长(毫秒)")
+    bytes = models.PositiveIntegerField("字节数")
+    created_at = models.DateTimeField("首次上传", auto_now_add=True)
+    updated_at = models.DateTimeField("最近更新", auto_now=True)
+
+    def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``profile_voice#主键(资料 id)``。
+        """
+        return f"profile_voice#{self.pk}(profile={self.profile_id})"
+
+
 class ProfileVisit(models.Model):
     """一次「谁看过我」的访问记录。
 

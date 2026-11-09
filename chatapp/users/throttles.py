@@ -1,7 +1,8 @@
 """资料相关接口的限流。
 
-目前只有在线状态查询需要限流:一个前台页面约每小时轮询 80 次,
-额度见 ``settings.DEFAULT_THROTTLE_RATES["presence"]``。
+照片上传、他人资料卡、在线状态与资料语音(批次 R)都按账号计数,额度统一配在
+``settings.DEFAULT_THROTTLE_RATES`` 里;在线状态的额度说明见
+``settings.PRESENCE_RATE``(一个前台页面约每小时轮询 80 次)。
 """
 
 from rest_framework.throttling import SimpleRateThrottle
@@ -19,6 +20,16 @@ class PublicProfileThrottle(UserScopedThrottle):
     """按用户限流他人资料卡;额度见 ``settings.DEFAULT_THROTTLE_RATES["public_profile"]``。"""
 
     scope = "public_profile"
+
+
+class ProfileVoiceThrottle(UserScopedThrottle):
+    """按用户限流资料语音上传/删除;额度见 ``settings.PROFILE_VOICE_RATE``。
+
+    上传与删除共用一个计数桶:两者都是「改资料」动作,额度(默认 10 次/小时)
+    对正常用户(录一次 + 一两次替换)足够,对脚本则够紧。
+    """
+
+    scope = "profile_voice"
 
 
 class PresenceThrottle(SimpleRateThrottle):

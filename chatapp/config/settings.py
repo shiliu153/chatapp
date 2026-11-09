@@ -334,6 +334,9 @@ COMMENT_REPLIES_RATE = os.getenv("COMMENT_REPLIES_RATE", _RELAXED or "360/hour")
 FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
 CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传,按用户计数
+# 资料语音自我介绍(批次 R):一人一条、覆盖式替换,正常使用一小时最多改几次;
+# 额度只用来挡住「反复上传大文件」的脚本。
+PROFILE_VOICE_RATE = os.getenv("PROFILE_VOICE_RATE", _RELAXED or "10/hour")
 # 撤销滑卡(批次 O):30 秒窗口一次一个,正常使用一小时最多几十次;额度只用来挡住
 # 「撤销—重滑」脚本,与业务语义无关(见 discovery/quota.py)。
 SWIPE_UNDO_RATE = os.getenv("SWIPE_UNDO_RATE", _RELAXED or "120/hour")
@@ -397,6 +400,7 @@ REST_FRAMEWORK = {
         "feedback": FEEDBACK_RATE,
         "chat_image": CHAT_IMAGE_RATE,
         "chat_voice": CHAT_VOICE_RATE,
+        "profile_voice": PROFILE_VOICE_RATE,
         "client_error": os.getenv("CLIENT_ERROR_RATE", "120/hour"),
     },
 }
@@ -603,8 +607,13 @@ CHAT_VOICE_SAMPLE_RATE = 16000
 CHAT_VOICE_BITRATE = "32k"
 CHAT_VOICE_RETENTION_DAYS = int(os.getenv("CHAT_VOICE_RETENTION_DAYS", "30"))
 
+# --- 资料语音自我介绍(批次 R,复用聊天语音的转码链路)---
+# 时长上限比聊天语音更严(30 秒):这是「一段自我介绍」而不是一条消息,超限直接 400。
+PROFILE_VOICE_MAX_MS = 30000
+PROFILE_VOICE_MAX_BYTES = 5 * 1024 * 1024
+
 # --- 存储配额与磁盘告警(M7)---
-# 单账号媒体总量上限(资料图 + 广场图 + 聊天图 + 聊天语音)。按审计估算,
+# 单账号媒体总量上限(资料图 + 广场图 + 聊天图 + 聊天语音 + 资料语音)。按审计估算,
 # 聊天图 30 次/小时 × 5MB 单日可达 3.6GB,200MB 把单个小号的天花板压住;
 # 置 0 表示关闭配额(本地手测可关)。
 USER_STORAGE_QUOTA_MB = int(os.getenv("USER_STORAGE_QUOTA_MB", "200"))

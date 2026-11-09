@@ -50,6 +50,9 @@ jobs:
       - name: 版本号同步脚本自测
         run: python -m unittest scripts.test_sync_version -v
 
+      - name: 发版准备脚本自测(W 批:release_prep.py 的闸门/版本号/notes)
+        run: python -m unittest scripts.test_release_prep -v
+
       - name: App 手写模型字段 ⊆ OpenAPI 契约
         run: python scripts/check_app_models.py --verbose
 
