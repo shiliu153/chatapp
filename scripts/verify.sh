@@ -164,6 +164,10 @@ stack_web() {
 stack_contract() {
   run "版本号三处一致" "$PY" "$ROOT/scripts/sync_version.py" --check
   run "App 模型字段 ⊆ OpenAPI" "$PY" "$ROOT/scripts/check_app_models.py"
+  # 出口代理的渲染脚本是「坏订阅」的唯一防线:机场偶尔返回 HTML 错误页或残配置,
+  # 写进 config.yaml 会让 mihomo 起不来 → worker 全断网,而现场看起来像「代理没开」。
+  # 纯离线、秒级,和上面两条同性质。
+  run "出口代理渲染自测" bash "$ROOT/scripts/superagent-proxy/selftest.sh"
 }
 stack_imserver() {
   # 三段与 .github/workflows/imserver.yml 的三个 step 逐项对齐:

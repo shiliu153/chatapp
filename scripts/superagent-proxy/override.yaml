@@ -1,0 +1,36 @@
+# 本地覆写:盖掉机场订阅里那几项「在无人值守 WSL 里不安全或会撞车」的设置。
+#
+# 为什么需要这一层(而不是直接用机场下发的配置):
+#   1. 机场默认 allow-lan: true + bind-address: '*'
+#      → 等于给局域网开了一个免认证的开放代理。这台机器在 WSL 里,
+#        一旦宿主网络可被同网段访问,任何人都能拿它当跳板。
+#        render-config.py 还会再强制写一遍 false / 127.0.0.1 兜底。
+#   2. 机场默认 external-controller: 127.0.0.1:9090
+#      → Windows 侧 Clash 客户端的 controller 惯例也占 9090,而 WSL 的
+#        localhostForwarding 会把 WSL 端口映射到 Windows localhost,必然打架。
+#        改用 9091,并只监听回环。
+#   3. mixed-port 7890:Windows 侧现有客户端用 7897,7890 是空的(已实测)。
+#        这样两套代理可以并存 —— 宿主那套留着当兜底。
+#
+# 端口改了要同步改 /root/start-superagent.sh 的探测顺序(见
+# scripts/superagent-start/start-superagent.sh 的 PROXY_PORT)。
+
+mixed-port: 7890
+allow-lan: false
+bind-address: 127.0.0.1
+external-controller: 127.0.0.1:9091
+mode: rule
+log-level: info
+
+# GitHub 专用测速组。机场自带的「自动选择」测的是 http://cp.cloudflare.com,
+# 选出来的是「连 cloudflare 最快的节点」,不等于「能稳定拉 GitHub 的节点」。
+# 本项目的实际痛点是 api.github.com 新建 TLS 连接被间歇重置(§11),
+# 所以这里直接拿 GitHub 当测速目标。
+github_group:
+  name: github
+  url: https://api.github.com/rate_limit
+  interval: 300        # 5 分钟一次;106 个节点全测太吵,只测 IEPL 精选
+  tolerance: 100       # ms;差值小于这个不切,避免来回抖
+  max_nodes: 12
+  include_pattern: IEPL   # 只挑专线;中转/直连线路实测更差
+  exclude_pattern: 流量|套餐|重置|到期
