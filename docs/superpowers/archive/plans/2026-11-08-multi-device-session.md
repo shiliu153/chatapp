@@ -1082,8 +1082,8 @@ git commit -m "feat(app): 显式上报端类型 X-Client(K-4)"
 
 ## 收尾记录(2026-11-09 归档)
 
-**状态:四单全部合并进 `origin/master`,尚未上线。** 上线动作按上面「上线顺序」走(imserver 换镜像 +
-`005_device_session.sql` 迁移 + 随下一版本发 App/Web),归档时生产仍是 1.0.10 与旧 imserver 镜像。
+**状态:四单全部合并进 `origin/master`,已于 2026-11-09 随 1.0.11 上线**(imserver 换镜像 +
+`005_device_session.sql` 迁移 + 随下一版本发 App/Web);上线后生产即为 1.0.11 + `imserver:919a63a`。
 
 | 单 | 栈 | PR | 合并 SHA | 结果 |
 |---|---|---|---|---|
@@ -1098,6 +1098,6 @@ git commit -m "feat(app): 显式上报端类型 X-Client(K-4)"
 
 **遗留(未闭环)**:
 - App 端「正打开的会话被跨端删除」不自动退出聊天页(Web 已做),需 go_router 层配合。
-- 生产未上线(见上)。
+- 生产已上线(`919a63a`,2026-11-09),实况见 `docs/ops/release.md` §6.6。
 - 本文与 spec 引用的「第六轮功能开发拆批(K → L → M → N → O)」**从未写进 backlog**,M/N/O 至今未立项 ——
   2026-11-09 收尾时核实:`git log -S'第六轮' -- docs/backlog/` 无痕迹。

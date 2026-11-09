@@ -89,7 +89,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.8 | 2026-11-07 | `v1.0.8` | [v1.0.8 — 二级页顶栏修复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.8)(附件 `chatapp-1.0.8.apk`,60,295,070 字节) | `9879d68` | `chatapp-1.0.8.apk` |
 | 1.0.9 | 2026-11-07 | `v1.0.9` | [v1.0.9 — 广场关注 + 关注流](https://github.com/shiliu153/chatapp/releases/tag/v1.0.9)(附件 `chatapp-1.0.9.apk`,60,295,070 字节) | `2d32d80` | `chatapp-1.0.9.apk` |
 | 1.0.10 | 2026-11-07 | `v1.0.10` | [v1.0.10 — 聊天贴纸](https://github.com/shiliu153/chatapp/releases/tag/v1.0.10)(附件 `chatapp-1.0.10.apk`,60,603,778 字节,SHA-1 `4b27def409caf26e7ea6ce69bd8bfbc926f2a8ba`) | `892b2b2` | `chatapp-1.0.10.apk` |
-| 1.0.11 | 2026-11-09 | `v1.0.11` | 待建:APK 构建完成、tag 推送后由 `scripts/create_release.py` 创建 | 待填(本次发版合并 SHA) | `chatapp-1.0.11.apk` |
+| 1.0.11 | 2026-11-09 | `v1.0.11` | [v1.0.11 — 多端在线 + 输入中状态/引用回复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.11)(附件 `chatapp-1.0.11.apk`,60,767,474 字节,SHA-1 `c8790b2c93a22287c63b26ef4a825596243cc136`) | `919a63a` | `chatapp-1.0.11.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -651,6 +651,59 @@ python scripts/sync_version.py --check
 - **缓存换序列化器后旧键不会自动清理**:`chatapp:1:*` 的 pickle 键已不可达,到点自己过期;
   不要手工 `KEYS`/`DEL` 去「清理」,也不要为了「省内存」把 `VERSION` 降回去 —— 那会让 JSON 解析撞上 pickle 字节。
 - **`SMS_ALLOWLIST_STRICT` 生产留空 = 严格**(按 `DEBUG=0` 自动判定),`.env` 不需要新增这个键。
+
+## 6.6 v1.0.11 上线实况(2026-11-09 10:56–11:05,批次 K + L)
+
+**本批要动 imserver 镜像与两套迁移,顺序是硬要求:先 imserver,再后端,最后客户端。**
+
+- **回滚点(先记录后动手)**:
+  - 代码 `b47c35bd`(R4 后的生产 SHA);本批上线 SHA = **`919a63a`**
+  - imserver 镜像 `imserver:7332fa0`
+  - Django `.env` 备份 `/www/backup/chatapp-env-1.0.10-20261109-1110.bak`
+  - imserver compose `.env` 备份 `/www/backup/imserver-env-1.0.10-20261109-1110.bak`
+  - 旧 Web 前端 `/www/backup/chatapp-web-dist-1.0.10-20261109-1110.tar.gz`(125 KB,只含 `index.html` + `assets`)
+  - 双库全量:`deploy/ops/chatapp-backup.sh` 现场跑一次 → `backups/db/chatapp-db-20261109-105742.sql.gz`(188K / 38 表)、`chatapp-im-db-20261109-105742.sql.gz`(24K / 7 表),另含 media 与配置快照
+- **imserver(先上)**:本地 `docker build -t imserver:919a63a imserver` → `docker save | gzip`(81 MB)→ `scp` → 服务器 `docker load` →
+  `sed` 改 `.env` 的 `IMSERVER_IMAGE=imserver:919a63a` → `docker compose run --rm imserver --migrate`
+  (**迁移 5 `005_device_session.sql`、6 `006_quote.sql` 实际应用**,1–4 `skipped`)→ `docker compose up -d` →
+  `/internal/healthz` `/internal/readyz` 均 200。
+- **后端**:`git fetch && git reset --hard 919a63a` → `migrate --noinput`(**`accounts.0006_devicesession` 应用**)→
+  `migrate --check` 干净 → `collectstatic`(0 复制 / 156 未变)→ supervisor 重启 `chatapp-web` / `chatapp-celery`。
+- **Web**:`npm run build` → `dist` 打包上传 → 覆盖站点根 `/www/wwwroot/chatapp-web`(旧 `index.html` 备份、旧 `assets` 改名
+  `assets.old.20261109-1101`),新 94 个文件,`index.html` 引用 `assets/index-iUmtczAy.js`。
+- **APK**:`chatapp-1.0.11.apk`(60,767,474 字节,SHA-1 `c8790b2c93a22287c63b26ef4a825596243cc136`)。
+- **`.env` 只改两个键**:`LATEST_APP_VERSION=1.0.11` / `APP_DOWNLOAD_URL=.../chatapp-1.0.11.apk`
+  (**`MIN_APP_VERSION` 保持 1.0.1**),重启 `chatapp-web` 后 `/api/v1/app/config` 返回 1.0.11。
+
+**冒烟(全绿)**:`/api/v1/app/config` → `latest_version=1.0.11`;`/health` `/readyz` 200;APK `Range: bytes=0-99` → `206`;
+站点首页 200 且引用新 chunk;`/assets/index-iUmtczAy.js` 200;`/stickers/sticker_01.png` 200。
+
+**生产验收(2026-11-09,两轮)**:
+
+1. **协议层(生产 wss,12 条断言全通过)**:白名单号 `13900000001`(user 12)登录两次拿 app / web 两种端令牌,
+   两条 WS 同时在线(即批次 K 的多端在线本身)→
+   - `typing` 只发对端:**自己的另一端收不到**;目标不存在静默;连发 10 帧不产生任何 error 帧;
+   - 发文本 `ack`(msg_id/seq);引用后 `GET /im/api/messages` 带回**服务端生成的 `ref`**(`msg_id`/`from`/`kind`/`text`/`revoked`);
+   - **客户端夹带的伪造 `ref` 被丢弃**(快照文本等于被引用原文,不是「伪造的快照」);
+   - 非法 `ref_msg_id` → `42201 内容不合法`;引用**已撤回**消息 → `revoked=true` 且 `text=""`;
+   - 跨端已读:app 发 `read` 帧后,自己的 web 端收到 `self_read`。
+2. **Web 端(生产 Chrome)**:聊天页消息菜单出现「**引用**」→ 点后输入栏上方出现引用条(「引用 我 / 原文摘要」+ 取消引用)
+   → 发送后气泡上方渲染引用块 → **刷新页面引用块仍在**(说明走的是服务端快照,不是本地状态)。
+
+**验收数据清理**:上述写入的测试消息按 `client_msg_id LIKE 'acc-%'` 与正文精确删除(共 7 条),
+会话 `last_seq/last_msg_id/last_msg_at` 与双方 `unread` 已按剩余消息回滚;清理后 `last_seq=6`(测试前原值)。
+
+**未完成项(App 端 UI 验收)**:`emulator-5554` 上装包成功、能启动,但**点击事件不生效**
+(`input tap` / `input touchscreen tap` / 零位移 swipe 均无响应,DPAD 只把窗口焦点框点亮;时钟在走、画面正常渲染,
+说明不是应用卡死)。按 `docs/pitfalls/android-emulator.md`「动模拟器前先和用户确认」的约定,本轮**没有**重启模拟器,
+App 端 UI 验收待模拟器恢复后补做。**App 端协议能力已被上面第 1 条覆盖**(同一套帧、同一台服务端),缺的只是本机渲染确认。
+
+**踩到的坑(记进 pitfalls 备查)**:
+- 本机 `Pub/Cache/hosted/pub.dev/jni-1.0.3` 目录**只剩空壳**(下载中断残留),`flutter build apk` 报
+  `Error when reading .../jni-1.0.3/lib/jni.dart: 系统找不到指定的路径`,连带 `path_provider_android` 的生成代码一片
+  `JObject isn't a type`。删掉该缓存目录 + `flutter pub get` 重新拉取即恢复 —— 看起来像代码错误,实际是缓存坏了。
+- 升版本号会让 `docs/api/openapi.yml` 的 `info.version` 漂移(由版本号注入),`verify.sh backend` 与 backend 轨都会红:
+  必须重生成,不能手改。
 
 ## 7. 为什么这条约束值得存在
 
