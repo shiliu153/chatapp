@@ -245,7 +245,7 @@
   - “单设备登录”在 IM 层没有强制力，旧设备仍能收消息；
   - 结合 H4，可长期冒充/骚扰。
 
-> **状态注记(2026-11-08,批次 K)**:本条里「单设备登录」作为防账号共享手段的结论**已作废** —— 自 2026-11-08 起一个账号可同时在线 **1 个 App + 1 个网页**(同类端仍互顶)。替代措施见 [`docs/superpowers/specs/2026-11-08-multi-device-session-design.md`](../superpowers/specs/2026-11-08-multi-device-session-design.md) §8。**不要把它当成回归来修**。
+> **状态注记(2026-11-08,批次 K)**:本条里「单设备登录」作为防账号共享手段的结论**已作废** —— 自 2026-11-08 起一个账号可同时在线 **1 个 App + 1 个网页**(同类端仍互顶)。替代措施见 [`docs/superpowers/specs/2026-11-08-multi-device-session-design.md`](../superpowers/archive/specs/2026-11-08-multi-device-session-design.md) §8。**不要把它当成回归来修**。
 - **修复方案（推荐 Redis 会话纪元）**：
   1. Django 登录成功、`session_version += 1` 后，把新版本写入 imserver 使用的同一个 Redis DB：
      ```python
@@ -663,7 +663,7 @@
   - 并发举报可产生重复待处理记录，增加运营噪音；
   - `get_or_create` 并发还可能抛 IntegrityError 500。
 
-> **状态注记(2026-11-08,批次 K)**:本条里「单设备登录」作为防账号共享手段的结论**已作废** —— 自 2026-11-08 起一个账号可同时在线 **1 个 App + 1 个网页**(同类端仍互顶)。替代措施见 [`docs/superpowers/specs/2026-11-08-multi-device-session-design.md`](../superpowers/specs/2026-11-08-multi-device-session-design.md) §8。**不要把它当成回归来修**。
+> **状态注记(2026-11-08,批次 K)**:本条里「单设备登录」作为防账号共享手段的结论**已作废** —— 自 2026-11-08 起一个账号可同时在线 **1 个 App + 1 个网页**(同类端仍互顶)。替代措施见 [`docs/superpowers/specs/2026-11-08-multi-device-session-design.md`](../superpowers/archive/specs/2026-11-08-multi-device-session-design.md) §8。**不要把它当成回归来修**。
 - **修复方案**：
   1. 会话版本：
      ```python

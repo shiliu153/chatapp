@@ -1,7 +1,7 @@
 # 输入中状态 + 引用回复实施计划
 
 > **For agentic workers:** 本仓库**不使用** subagent-driven-development / executing-plans 派子 agent ——
-> 实现按 [`~/.dsh/AGENTS.md`](../../../AGENTS.md) 走**工单**:每张工单开成 issue 评论 `@agent` 交给 WSL 的 superagent worker,
+> 实现按 [`~/.dsh/AGENTS.md`](../../../../AGENTS.md) 走**工单**:每张工单开成 issue 评论 `@agent` 交给 WSL 的 superagent worker,
 > 本会话只做设计与验收。步骤用 checkbox(`- [ ]`)跟踪。
 
 **Spec:** [2026-11-08-typing-and-quote-design.md](../specs/2026-11-08-typing-and-quote-design.md)
@@ -586,3 +586,22 @@ git commit -m "feat(web): 引用回复展示与发送(批次 L-2)"
 ```
 
 **回滚**:回退 imserver 镜像即可(006 只加可空列,旧代码不读也不影响)。
+
+---
+
+## 执行记录(2026-11-09 归档)
+
+**状态:两单均合并进 `origin/master`,尚未上线。** 上线按上面「上线顺序」走(imserver 换镜像 + 跑
+`006_quote.sql`,再随下一版本发 App/Web);归档时生产仍是 1.0.10 与旧 imserver 镜像。
+
+| 单 | 栈 | PR | 合并 SHA | 结果 |
+|---|---|---|---|---|
+| L-1 | imserver + App + Web | #158 | `22b00aa` | `typing` 上下行帧;**只发对端**、未配对静默丢弃、令牌桶限流超限也静默(不给洪泛者任何反馈);App/Web 顶栏「对方正在输入…」5 秒过期、输入侧 3 秒节流 |
+| L-2 | imserver + App + Web | #159 | `949a4e0` | `send` 帧加可选 `ref_msg_id`,服务端**回库查并自己生成快照**(客户端夹带的 `ref` 一律丢弃),`im_message` 加 `ref_msg_id` / `ref_snapshot` 两列;下行 `message` 与 `GET /im/api/messages` 共用同一个 `message_json` 透出 `ref`;两端引用条 + 气泡引用块 + 点击跳转 |
+
+**与计划的偏差**:两单都是「一单一条栈」的**契约联动例外**(改 WS 帧必须 fixture + imserver + App + Web
+同一次 PR),这一点计划 §工单映射 已预先声明,执行未破例。
+
+**人工验收状态**:计划「验收(整批 L)」列的四条(两端同时在线看 typing、引用文本/图片/语音/贴纸、
+引用已撤回消息、自己的另一端不显示自己触发的 typing)**在归档时未见留证记录**;自动化侧
+(`scripts/verify.sh imserver/app/web` + 三端契约测试)已覆盖。下一轮发布前需在模拟器 + 浏览器补跑。

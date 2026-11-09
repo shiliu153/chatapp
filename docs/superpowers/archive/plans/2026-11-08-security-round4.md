@@ -1,8 +1,8 @@
 # 第四轮安全审计整改设计（2026-11-08）
 
 - 状态:**已实施 / 已合并**（7 张实现单与两项人侧内联全部落地，只剩 A2「Redis 口令」在人侧未做；
-  逐单结果见 §0 的「状态」列与 §11「执行结果」，风险闭环口径见 [报告 §3](../security/2026-11-08-api-security-audit-round4.md)）
-- 依据:[docs/security/2026-11-08-api-security-audit-round4.md](../security/2026-11-08-api-security-audit-round4.md)（以下简称「报告」）
+  逐单结果见 §0 的「状态」列与 §11「执行结果」，风险闭环口径见 [报告 §3](../../../security/2026-11-08-api-security-audit-round4.md)）
+- 依据:[docs/security/2026-11-08-api-security-audit-round4.md](../../../security/2026-11-08-api-security-audit-round4.md)（以下简称「报告」）
 - 执行方式:设计与评审在本机会话内联完成；**实现走 Issue → superagent worker**。
   只有两项留在人侧内联（`deploy/` 与 CI 工作流，`AGENTS.md` §六 明确禁止 agent 改 `deploy/`）。
 - 一单一条栈；契约联动（OpenAPI / `docs/api/*.md` / 注释覆盖）算同栈附带改动。

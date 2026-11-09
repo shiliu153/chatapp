@@ -933,7 +933,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 
 ## 18. 多端同步帧 `self_read` / `conversation_deleted`(2026-11-08,批次 K-3)
 
-一个账号可以同时在线 **1 个 App + 1 个网页**(见 [docs/superpowers/specs/2026-11-08-multi-device-session-design.md](../superpowers/specs/2026-11-08-multi-device-session-design.md))。
+一个账号可以同时在线 **1 个 App + 1 个网页**(见 [docs/superpowers/specs/2026-11-08-multi-device-session-design.md](../superpowers/archive/specs/2026-11-08-multi-device-session-design.md))。
 多端之后有两类状态是「**我自己**在另一端做的事」,必须同步给我的其他端,但对端不该知道。
 这两类各有一个专属下行帧,**收帧人都是「我自己的其他端」,不含发起的那条连接**。
 

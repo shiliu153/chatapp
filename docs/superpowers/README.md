@@ -14,19 +14,25 @@
 |---|---|
 | `specs/` | 进行中 / 未启动 / 常驻的设计文档 |
 | `plans/` | 进行中 / 未启动的实施计划 |
-| `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(85 份,清单见 §4) |
+| `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(93 份 = 37 份 spec + 56 份 plan,清单见 §4) |
 
-## 2. 当前工作面(2 份)
+## 2. 当前工作面(4 份)
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
-| [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) | 待实施(P0–P4) | 引入 WSL `dsh-superagent` 后的新开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判 |
+| [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) + [plans/2026-11-07-superagent-dev-workflow.md](plans/2026-11-07-superagent-dev-workflow.md) | 待实施(P0–P4) | 引入 WSL `dsh-superagent` 后的新开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判。plan 是 P0–P3 的实施计划(流程自身的引导,按约定必须内联做,不派工单) |
+| [specs/2026-11-08-superagent-automation-ladder-design.md](specs/2026-11-08-superagent-automation-ladder-design.md) | 进行中(仅 L2 已实现) | 自动化阶梯 L0–L4:把「人出现在流程里的那几处」逐个换成确定性机制。**L2 白名单自动合已上线;L1(closeout 一条命令)/ L3(模拟器进 CI)/ L4(需求自动入队)未做**,各自单独成单 |
 
 `specs/` 中的 [dual-server-load-balancing](archive/specs/2026-10-28-dual-server-load-balancing-design.md) 已在
 2026-11-04 拍板「不做双机、暂不升配」,转为历史设计。批次 F–J 已于 2026-11-07 全部交付,
-那份 plan 已 `git mv` 到 `archive/plans/` 并在 §4 补了一行。**当前 `plans/` 只有 1 份**:
-[plans/2026-11-07-superagent-dev-workflow.md](plans/2026-11-07-superagent-dev-workflow.md)(superagent 流程 P0–P3 实施计划)。
+那份 plan 已 `git mv` 到 `archive/plans/` 并在 §4 补了一行。**批次 K(多端在线)与 L(输入中 + 引用回复)
+已于 2026-11-09 归档**(K-1~K-4 / L-1~L-2 全部合并进 `master`,**生产尚未上线**),
+第四轮安全审计整改 plan 一并归档(其自身状态即「已实施 / 已合并」)。
+
+> **悬空引用提醒(2026-11-09 核实)**:K 与 L 的 spec 都写着「第六轮功能开发拆批(K → L → M → N → O)」,
+> 但**这个拆批从未落进 [`docs/backlog/`](../backlog/2026-11-03-todo.md)**(`git log -S'第六轮'` 无痕迹),
+> **M / N / O 三批至今未立项**。下一轮要做什么,须先把这个拆批补进 backlog 或重新拍板,不要凭引用推断。
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。
@@ -39,7 +45,7 @@
 - 交付后在文件末尾写「执行记录 / 与计划的偏差 / 踩到的坑」,**不要**回头补勾旧 checkbox(见 §4 注)
 - 交付即归档:同一提交内 `git mv` 到 `archive/` + 更新本文 §4 + 更新 `CLAUDE.md` 里程碑摘要
 
-## 4. 归档清单(已交付,共 86 份)
+## 4. 归档清单(已交付,共 93 份 = 37 份 spec + 56 份 plan)
 
 > **注**:2026-10 之前的计划普遍存在「已交付但 checkbox 未回填」的情况(M0–M2、UI 批次②③、广场楼中楼、自建 IM、账号注销、访客等)。
 > 判断是否交付**以本表结论与 git log 为准**,不要以文件内 checkbox 为准。
@@ -113,6 +119,9 @@
 | 11-05 | [observability-and-capacity](archive/plans/2026-11-02-observability-and-capacity.md) | — | 可观测性 + 容量工程 + 削峰整改四轨全部落地(A 可观测 / B 容量 / C 后端深度 / D 叙事);未勾项逐条对应交付证据见文件 §9(PR #53/#50/#69/#70/#71) |
 | 11-08 | [tencent-im-removal](archive/plans/2026-11-04-tencent-im-removal.md) | — | 删除腾讯云 IM 分支:App/Web/后端三端 + 配置/CI/文档收敛,灰度开关移除、回退改镜像;backlog D-4 |
 | 11-07 | [feature-batches-f-j](archive/plans/2026-11-05-feature-batches-f-j.md) | — | 第五轮功能开发五批全交付:**F** 暗黑模式(1.0.5)/ **G** 共同点破冰(1.0.6)/ **H** 站内通知中心(1.0.7)/ **I** 广场关注 + 关注流(1.0.9)/ **J** 聊天表情贴纸(1.0.10)。设计决策内嵌该文 §2;J 批的 J-1 闸门核实了 `kind=2 custom` 持久化与补拉,并据实改为「kind=2 + 上行白名单」(计划里「imserver 零改动」的前提被证伪) |
+| 11-08 | [security-round4](archive/plans/2026-11-08-security-round4.md) | — | 第四轮安全审计整改 R4:7 张实现单 + 2 项人侧内联全部落地,只剩 A2「Redis 口令」留人侧未做;已上线 `dfa641d`(纯服务端,不升版本) |
+| 11-08 | [multi-device-session](archive/plans/2026-11-08-multi-device-session.md) | [✓](archive/specs/2026-11-08-multi-device-session-design.md) | 批次 K 多端在线(1 App + 1 Web):端会话版本下沉 `accounts.DeviceSession` / `im_device_session`、imserver 按端注册·扇出·踢人、跨端已读 `self_read`、统一上报 `X-Client`;K-1~K-4 = PR #150/#151/#154/#155。**已合并、未上线** |
+| 11-09 | [typing-and-quote](archive/plans/2026-11-08-typing-and-quote.md) | [✓](archive/specs/2026-11-08-typing-and-quote-design.md) | 批次 L 输入中状态 + 引用回复:`typing` 帧(只发对端、未配对与限流超限一律静默)+ 服务端生成引用快照(`ref_msg_id` / `ref_snapshot`,不信客户端);L-1/L-2 = PR #158/#159。**已合并、未上线,四条人工验收未留证** |
 
 > 文件名用**立项日期**,与「日期」列的交付日期可能不同(如 `2026-11-04-tencent-im-removal.md` 于 11-08 交付)。
 
