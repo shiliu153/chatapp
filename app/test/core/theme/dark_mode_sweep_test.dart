@@ -25,6 +25,7 @@ import 'package:chatapp_app/features/square/my_posts_page.dart';
 import 'package:chatapp_app/features/square/post_compose_page.dart';
 import 'package:chatapp_app/features/square/post_detail_page.dart';
 import 'package:chatapp_app/features/square/square_page.dart';
+import 'package:chatapp_app/features/stats/stats_page.dart';
 
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
@@ -117,6 +118,18 @@ ScriptedAdapter _adapter() => ScriptedAdapter({
               deviceJson(clientType: 'web', clientLabel: '网页端'),
             ],
           }),
+      'GET /stats/me': (options) => ok({
+            'period': 'week',
+            'start': '2026-11-09',
+            'end': '2026-11-15',
+            'matches': 2,
+            'likes_given': 14,
+            'likes_received': 9,
+            'visits': 6,
+            'posts': 3,
+            'post_likes': 11,
+            'new_followers': 1,
+          }),
       'GET /presence': (options) => ok({'results': []}),
     });
 
@@ -141,6 +154,7 @@ void main() {
     'SettingsPage': () => const SettingsPage(),
     'BlockedUsersPage': () => const BlockedUsersPage(),
     'DevicesPage': () => const DevicesPage(),
+    'StatsPage': () => const StatsPage(),
     'NotificationSettingsPage': () => const NotificationSettingsPage(),
     'AboutPage': () => const AboutPage(),
     'FeedbackPage': () => const FeedbackPage(),

@@ -20,13 +20,18 @@ Future<void> _openSettings(WidgetTester tester) async {
 }
 
 /// 把设置页滚到某一行可见。
-/// 设置页用 ListView,行数超过一屏后未滚到的行**根本没被 build**,`ensureVisible`
-/// 会报「Found 0 widgets」,必须先 drag 到它进入构建范围。
+///
+/// 两个理由叠在一起:
+/// 1. 设置页用 ListView,行数超过一屏后**没滚到的行根本没被 build**,
+///    `ensureVisible` / `find.byKey` 都会报「Found 0 widgets」,必须先滚过去;
+/// 2. `scrollUntilVisible` 的 `scrollable:` 要求 finder 指向 `Scrollable`(不是外层
+///    ListView),而树里**不止一个** Scrollable —— 用 `find.descendant(of: 设置页列表
+///    的 key, matching: Scrollable)` 精确定位,比 `find.byType(Scrollable).first`
+///    更稳:后者靠遍历顺序碰运气,哪天设置页里多一个可滚区域就会静默滚错列表。
 Future<void> _scrollSettingsTo(WidgetTester tester, Key key) async {
   await tester.scrollUntilVisible(
     find.byKey(key),
     120,
-    // scrollUntilVisible 要求 finder 指向 Scrollable(不是外层 ListView)
     scrollable: find.descendant(
       of: find.byKey(const Key('settings.list')),
       matching: find.byType(Scrollable),
@@ -47,11 +52,13 @@ void main() {
     await _openSettings(tester);
 
     // 设置页行数已超过一屏,ListView 懒加载:逐个滚到可见再断言,
-    // 以后再加行也不用改这里
+    // 以后再加行也不用改这里。
+    // 顺序必须**自上而下**:滚动只会往下翻,先查靠下的行会把靠上的行顶出构建范围。
     for (final key in const [
       'settings.row.blocks',
       'settings.row.notifications',
       'settings.row.devices',
+      'settings.row.stats',
       'settings.row.feedback',
       'settings.row.about',
       'settings.row.agreement',
@@ -198,5 +205,38 @@ void main() {
     expect(find.byKey(const Key('devices.row.app')), findsOneWidget);
     expect(find.byKey(const Key('devices.row.web')), findsOneWidget);
     expect(find.byKey(const Key('devices.current.app')), findsOneWidget);
+  });
+
+  testWidgets('「我的数据」入口 → 报告页(默认周)', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'GET /stats/me': (options) => ok({
+            'period': 'week',
+            'start': '2026-11-09',
+            'end': '2026-11-15',
+            'matches': 2,
+            'likes_given': 14,
+            'likes_received': 9,
+            'visits': 6,
+            'posts': 3,
+            'post_likes': 11,
+            'new_followers': 1,
+          }),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    await _openSettings(tester);
+
+    await _scrollSettingsTo(tester, const Key('settings.row.stats'));
+    await tester.tap(find.byKey(const Key('settings.row.stats')));
+    // 报告页首帧是骨架(带无限呼吸动画),只能有限 pump,不能 pumpAndSettle
+    await pumpFrames(tester);
+
+    expect(find.text('我的数据'), findsOneWidget); // 二级页顶栏
+    expect(find.byKey(const Key('stats.card.matches')), findsOneWidget);
+    final request = adapter.log.lastWhere((item) => item.path == '/stats/me');
+    expect(request.queryParameters['period'], 'week');
   });
 }
