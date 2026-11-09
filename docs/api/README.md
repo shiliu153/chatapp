@@ -22,11 +22,12 @@
 | [push.md](push.md) | 推送设备与通知偏好(极光 registration_id 上报、五类通知开关)。**该能力不启用**:通道固定 `PUSH_PROVIDER=off`,见分册首部说明 |
 | [notifications.md](notifications.md) | 站内通知中心(列表 / 未读数 / 标记已读)。**这是「不推送」的替代品**,App 与网页端消息页铃铛入口 |
 | [health.md](health.md) | 运维探针(供监控使用,客户端不需要调用) |
+| [stats.md](stats.md) | 个人使用报告(周/月/年:配对、喜欢、访客、动态、粉丝七项数字) |
 | [openapi.yml](openapi.yml) | **机器可读契约**(OpenAPI 3.0,由代码生成,请勿手改;规则见下「机器可读契约」) |
 
 ## 接口一览
 
-共 **60** 个接口(按「方法 + 路径」计)。
+共 **61** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -88,6 +89,7 @@
 | POST | `/api/v1/users/{user_id}/follow` | 关注用户(幂等 204) | [feed](feed.md) |
 | DELETE | `/api/v1/users/{user_id}/follow` | 取消关注(幂等 204) | [feed](feed.md) |
 | GET | `/api/v1/feed/following` | 关注流(我关注的人的动态) | [feed](feed.md) |
+| GET | `/api/v1/stats/me` | 个人使用报告(周/月/年七项数字) | [stats](stats.md) |
 | GET | `/api/v1/health` | 存活探针 | [health](health.md) |
 | GET | `/api/v1/readyz` | 就绪探针(DB/Redis) | [health](health.md) |
 
@@ -118,7 +120,7 @@ Base URL、鉴权细节、统一错误结构、分页约定、限流额度见 [c
 
 | 项 | 说明 |
 |---|---|
-| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,50 paths / 60 operations) |
+| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,51 paths / 61 operations) |
 | 生成命令 | `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` |
 | 谁在读它 | Web 端类型生成(`web/src/api/schema.d.ts`)、CI 门禁、后续客户端工具链 |
 | 能否手改 | **不能**。它是生成物,手改会在下一次生成时被覆盖,且 CI 会红 |

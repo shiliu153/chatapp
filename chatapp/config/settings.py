@@ -106,6 +106,7 @@ INSTALLED_APPS = [
     "feedback",
     "appconfig",
     "telemetry",
+    "stats",
 ]
 
 MIDDLEWARE = [
