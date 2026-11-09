@@ -334,6 +334,9 @@ COMMENT_REPLIES_RATE = os.getenv("COMMENT_REPLIES_RATE", _RELAXED or "360/hour")
 FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
 CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传,按用户计数
+# 撤销滑卡(批次 O):30 秒窗口一次一个,正常使用一小时最多几十次;额度只用来挡住
+# 「撤销—重滑」脚本,与业务语义无关(见 discovery/quota.py)。
+SWIPE_UNDO_RATE = os.getenv("SWIPE_UNDO_RATE", _RELAXED or "120/hour")
 
 # 资料抓取监控(M2):同一账号一小时内浏览「多少个不同的人」超过该值就记 WARNING。
 # 限流只能压慢抓取,这个计数是发现「正在被批量爬」的早期信号;只告警不拦截。
@@ -370,6 +373,7 @@ REST_FRAMEWORK = {
         "sms_send": SMS_SEND_IP_RATE,
         "sms_verify": SMS_VERIFY_IP_RATE,
         "swipe": "300/hour",
+        "swipe_undo": SWIPE_UNDO_RATE,
         "report": "20/day",
         "post_create": "20/day",
         "post_comment": "60/day",
@@ -621,6 +625,13 @@ CANDIDATE_POOL_SIZE = int(os.getenv("CANDIDATE_POOL_SIZE", "200"))
 # 线上怀疑缓存有问题时也是同一套熔断手段。注意别指望「设 0 就等于 1 秒」——
 # ``ttl_with_jitter`` 只兜住非零小值,0 会被 services 判成关闭(2026-11-05)。
 CANDIDATE_CACHE_TTL = int(os.getenv("CANDIDATE_CACHE_TTL", "300"))
+
+# --- 每日喜欢额度(批次 O)---
+# 一个账号在一个自然日(``Asia/Shanghai``)里最多能「喜欢」多少人;``0``(默认)= 不限。
+# 默认不配就等于没有这个功能:计数、查询、拦截全部短路,行为与加额度前完全一致。
+# 计数键 ``swipe_like:{user_id}:{yyyymmdd}`` 落在 Redis,过期时间对齐到次日 00:00,
+# 不需要定时任务清理(实现见 discovery/quota.py)。
+SWIPE_DAILY_LIKE_LIMIT = int(os.getenv("SWIPE_DAILY_LIKE_LIMIT", "0"))
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"

@@ -47,6 +47,28 @@ class SwipeSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=SwipeAction.choices)
 
 
+class SwipeUndoSerializer(serializers.Serializer):
+    """撤销滑卡的响应:撤销结果与被撤销的目标(批次 O)。
+
+    只用于 ``@extend_schema`` 声明响应形状,视图直接拼字典返回。
+    """
+
+    undone = serializers.BooleanField(help_text="是否撤销成功;失败走错误信封")
+    target_user_id = serializers.IntegerField(help_text="被撤销的那次滑卡的目标账号 ID")
+
+
+class SwipeQuotaSerializer(serializers.Serializer):
+    """每日喜欢额度的响应(批次 O)。
+
+    ``like_limit = 0`` 表示不限,此时 ``likes_used`` 恒为 0、``likes_remaining`` 为 ``null``。
+    """
+
+    like_limit = serializers.IntegerField(help_text="每日喜欢上限,0 = 不限")
+    likes_used = serializers.IntegerField(help_text="今天已用掉的喜欢次数")
+    likes_remaining = serializers.IntegerField(
+        allow_null=True, help_text="今天还剩多少次;不限时为 null")
+
+
 class LikeReceivedSerializer(serializers.ModelSerializer):
     """「喜欢我的人」列表项:对方公开资料 + 喜欢时间。"""
 

@@ -8,7 +8,10 @@
       不能划自己、目标不存在/未完善/被轻封禁的处理、非法动作、限流;
     - 配对列表:双向都能列出、无过审照片时头像为 null、只列自己的、分页、
       共同标签只返回交集且整页一次批量求交(条数翻倍不增加 SQL);
-    - ``dev_reset_pair`` 命令:只清这一对、不动其他对、非法 IM id 报错。
+    - ``dev_reset_pair`` 命令:只清这一对、不动其他对、非法 IM id 报错;
+    - 撤销滑卡(批次 O):硬删除、30 秒窗口、已配对/已解除拒绝、候选池复位、轻封禁 403;
+    - 每日喜欢额度(批次 O):超限 ``429`` + ``42904``、``pass`` 与重放不占额度、撤销退回、
+      默认 ``0`` 时行为与加额度前一致。
 """
 
 from datetime import date, timedelta
@@ -20,7 +23,7 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -1086,3 +1089,302 @@ class VisitsReceivedTests(APITestCase):
         self.client.credentials(
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(a).access_token}")
         self.assertEqual(self._ids(self.client.get(self.URL)), [self.me.id])
+
+def _make_swipe_user(phone, gender="female"):
+    """造一个资料完善、带已过审照片的用户(撤销与每日额度用例共用)。
+
+    Args:
+        phone: 手机号,同时用作昵称。
+        gender: 性别。
+
+    Returns:
+        新建的用户实例。
+    """
+    user = User.objects.create_user(phone=phone)
+    Profile.objects.create(user=user, nickname=phone, gender=gender, birthday="2000-01-01",
+                           city="上海", bio="你好", status=ProfileStatus.COMPLETE)
+    Photo.objects.create(user=user, file="photos/x.png", status=PhotoStatus.APPROVED)
+    return user
+
+
+class SwipeUndoTests(APITestCase):
+    """撤销上一次滑卡(批次 O):窗口、配对拒绝、候选池复位、日志与鉴权。"""
+
+    URL = "/api/v1/discovery/swipe/undo"
+    SWIPE_URL = "/api/v1/discovery/swipe"
+    CANDIDATES_URL = "/api/v1/discovery/candidates"
+
+    def setUp(self):
+        cache.clear()               # 候选池版本键与限流计数都在缓存里
+        self.addCleanup(cache.clear)
+        self.me = _make_swipe_user("13800138000", gender="male")
+        self.target = _make_swipe_user("13900139000")
+        self.other = _make_swipe_user("13900139001")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _swipe(self, target_id, action="like"):
+        """提交一次滑卡。
+
+        Args:
+            target_id: 目标账号 id。
+            action: ``like`` 或 ``pass``。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post(self.SWIPE_URL,
+                                {"target_user_id": target_id, "action": action}, format="json")
+
+    def _undo(self):
+        """调用撤销接口(无请求体)。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post(self.URL)
+
+    def _candidate_ids(self):
+        """拉一页候选卡,返回其账号 id。
+
+        Returns:
+            候选卡片上的 ``user_id`` 列表。
+        """
+        resp = self.client.get(self.CANDIDATES_URL, {"limit": 20})
+        self.assertEqual(resp.status_code, 200)
+        return [card["user_id"] for card in resp.json()]
+
+    def test_undo_deletes_swipe_and_returns_target(self):
+        self.assertEqual(self._swipe(self.target.id).status_code, 200)
+        resp = self._undo()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"undone": True, "target_user_id": self.target.id})
+        # 实现是硬删除:行不在了,不是软删
+        self.assertFalse(Swipe.objects.filter(swiper=self.me, target=self.target).exists())
+
+    def test_undo_restores_target_to_candidates(self):
+        """撤销后该目标重新出现在候选池(靠 cache_keys 的版本号失效)。"""
+        self.assertIn(self.target.id, self._candidate_ids())
+        self._swipe(self.target.id)
+        self.assertNotIn(self.target.id, self._candidate_ids())
+        self.assertEqual(self._undo().status_code, 200)
+        self.assertIn(self.target.id, self._candidate_ids())
+
+    def test_undo_writes_info_log_with_uid_and_target(self):
+        self._swipe(self.target.id)
+        with self.assertLogs("discovery.views", level="INFO") as captured:
+            self.assertEqual(self._undo().status_code, 200)
+        lines = "\n".join(captured.output)
+        self.assertIn(f"uid={self.me.id}", lines)
+        self.assertIn(f"target={self.target.id}", lines)
+
+    def test_undo_of_pass_is_allowed(self):
+        self._swipe(self.target.id, action="pass")
+        resp = self._undo()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["target_user_id"], self.target.id)
+
+    def test_undo_rejected_when_swipe_produced_match(self):
+        """已产生配对的滑卡不撤销:Match 保留,Swipe 行也在。"""
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        with patch("im.tasks.send_match_notice.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertEqual(self._swipe(self.target.id).json()["matched"], True)
+        resp = self._undo()
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], 40003)     # error_codes.SWIPE_UNDO_UNAVAILABLE
+        self.assertTrue(Match.objects.filter(user_a=self.me, user_b=self.target).exists())
+        self.assertTrue(Swipe.objects.filter(swiper=self.me, target=self.target).exists())
+
+    def test_undo_rejected_after_unmatch(self):
+        """已解除的配对同样拒绝:灰条与 IM 拉黑都发生过,撤销它是另一码事。"""
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.LIKE)
+        with patch("im.tasks.send_match_notice.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                self._swipe(self.target.id)
+        Match.objects.update(unmatched_at=timezone.now())
+        resp = self._undo()
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], 40003)
+
+    def test_undo_rejected_after_window(self):
+        """超过 30 秒不能再撤销(把 created_at 往前挪 31 秒)。"""
+        self._swipe(self.target.id)
+        Swipe.objects.filter(swiper=self.me, target=self.target).update(
+            created_at=timezone.now() - timedelta(seconds=31))
+        resp = self._undo()
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], 40003)
+        self.assertTrue(Swipe.objects.filter(swiper=self.me, target=self.target).exists())
+
+    def test_undo_without_swipe_is_400(self):
+        resp = self._undo()
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], 40003)
+
+    def test_second_undo_is_400(self):
+        self._swipe(self.target.id)
+        self.assertEqual(self._undo().status_code, 200)
+        again = self._undo()
+        self.assertEqual(again.status_code, 400)
+        self.assertEqual(again.json()["code"], 40003)
+
+    def test_undo_only_removes_latest_swipe(self):
+        """只撤销最近那一次:更早的那条留在库里(候选池照旧排除)。"""
+        self._swipe(self.target.id)
+        self._swipe(self.other.id)
+        resp = self._undo()
+        self.assertEqual(resp.json()["target_user_id"], self.other.id)
+        self.assertTrue(Swipe.objects.filter(swiper=self.me, target=self.target).exists())
+        self.assertFalse(Swipe.objects.filter(swiper=self.me, target=self.other).exists())
+
+    def test_undo_does_not_touch_received_swipes(self):
+        """别人划我的记录不受影响。"""
+        Swipe.objects.create(swiper=self.target, target=self.me, action=SwipeAction.PASS)
+        self._swipe(self.target.id, action="pass")
+        self.assertEqual(self._undo().status_code, 200)
+        self.assertTrue(Swipe.objects.filter(swiper=self.target, target=self.me).exists())
+
+    def test_banned_light_cannot_undo(self):
+        self._swipe(self.target.id)
+        Profile.objects.filter(user=self.me).update(status=ProfileStatus.BANNED_LIGHT)
+        resp = self._undo()
+        self.assertEqual(resp.status_code, 403)
+        self.assertTrue(Swipe.objects.filter(swiper=self.me, target=self.target).exists())
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.post(self.URL).status_code, 401)
+
+
+class SwipeDailyLikeQuotaTests(APITestCase):
+    """每日喜欢额度(批次 O):超限 429/42904、pass 不限、重放不重复计、撤销退回。"""
+
+    SWIPE_URL = "/api/v1/discovery/swipe"
+    UNDO_URL = "/api/v1/discovery/swipe/undo"
+    QUOTA_URL = "/api/v1/discovery/quota"
+
+    def setUp(self):
+        cache.clear()               # 额度计数就是 Redis 键,必须逐用例清
+        self.addCleanup(cache.clear)
+        self.me = _make_swipe_user("13800138000", gender="male")
+        self.targets = [_make_swipe_user(f"1390013900{index}") for index in range(3)]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _swipe(self, target_id, action="like"):
+        """提交一次滑卡。
+
+        Args:
+            target_id: 目标账号 id。
+            action: ``like`` 或 ``pass``。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post(self.SWIPE_URL,
+                                {"target_user_id": target_id, "action": action}, format="json")
+
+    def _quota(self):
+        """查询额度接口。
+
+        Returns:
+            响应体字典。
+        """
+        resp = self.client.get(self.QUOTA_URL)
+        self.assertEqual(resp.status_code, 200)
+        return resp.json()
+
+    @override_settings(SWIPE_DAILY_LIKE_LIMIT=2)
+    def test_over_limit_returns_429_with_business_code(self):
+        self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)
+        self.assertEqual(self._swipe(self.targets[1].id).status_code, 200)
+        blocked = self._swipe(self.targets[2].id)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.json()["code"], 42904)   # error_codes.SWIPE_LIKE_QUOTA_EXCEEDED
+        self.assertIn("Retry-After", blocked.headers)
+        # 被拒的那次不留痕迹:不落 Swipe 行,额度也不再多计一次
+        self.assertFalse(Swipe.objects.filter(swiper=self.me, target=self.targets[2]).exists())
+        self.assertEqual(self._quota()["likes_used"], 2)
+
+    @override_settings(SWIPE_DAILY_LIKE_LIMIT=1)
+    def test_pass_is_not_limited(self):
+        self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)
+        self.assertEqual(self._swipe(self.targets[1].id, action="pass").status_code, 200)
+        self.assertEqual(self._swipe(self.targets[2].id, action="pass").status_code, 200)
+
+    @override_settings(SWIPE_DAILY_LIKE_LIMIT=1)
+    def test_idempotent_replay_does_not_consume_quota(self):
+        self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)
+        self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)   # 重放:不算新喜欢
+        self.assertEqual(self._swipe(self.targets[1].id).status_code, 429)
+
+    @override_settings(SWIPE_DAILY_LIKE_LIMIT=1)
+    def test_undo_refunds_the_like(self):
+        self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)
+        self.assertEqual(self._quota()["likes_remaining"], 0)
+        self.assertEqual(self.client.post(self.UNDO_URL).status_code, 200)
+        self.assertEqual(self._quota()["likes_used"], 0)
+        self.assertEqual(self._quota()["likes_remaining"], 1)
+        self.assertEqual(self._swipe(self.targets[1].id).status_code, 200)
+
+    @override_settings(SWIPE_DAILY_LIKE_LIMIT=3)
+    def test_quota_endpoint_reports_usage(self):
+        self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)
+        self.assertEqual(self._quota(),
+                         {"like_limit": 3, "likes_used": 1, "likes_remaining": 2})
+
+    @override_settings(SWIPE_DAILY_LIKE_LIMIT=2)
+    def test_counter_key_is_per_user_and_per_day(self):
+        """计数键形如 ``swipe_like:{uid}:{yyyymmdd}``,TTL 不超过一天。"""
+        self._swipe(self.targets[0].id)
+        now = timezone.localtime()
+        key = f"swipe_like:{self.me.id}:{now.strftime('%Y%m%d')}"
+        self.assertEqual(cache.get(key), 1)
+        self.assertLessEqual(cache.ttl(key), 86400)
+
+    @override_settings(SWIPE_DAILY_LIKE_LIMIT=2)
+    def test_counter_resets_on_next_day(self):
+        """跨自然日(``Asia/Shanghai``)重新计数。"""
+        self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)
+        with patch("discovery.quota._now", return_value=timezone.localtime() + timedelta(days=1)):
+            self.assertEqual(self._quota()["likes_used"], 0)
+            self.assertEqual(self._swipe(self.targets[1].id).status_code, 200)
+
+
+class SwipeQuotaDisabledTests(APITestCase):
+    """默认值 ``SWIPE_DAILY_LIKE_LIMIT=0`` 时,行为与加额度前完全一致。"""
+
+    SWIPE_URL = "/api/v1/discovery/swipe"
+    QUOTA_URL = "/api/v1/discovery/quota"
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.me = _make_swipe_user("13800138000", gender="male")
+        self.targets = [_make_swipe_user(f"1390013900{index}") for index in range(3)]
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def test_unlimited_likes_when_limit_is_zero(self):
+        statuses = [self.client.post(
+            self.SWIPE_URL, {"target_user_id": target.id, "action": "like"},
+            format="json").status_code for target in self.targets]
+        self.assertEqual(statuses, [200, 200, 200])
+
+    def test_quota_endpoint_reports_unlimited(self):
+        resp = self.client.get(self.QUOTA_URL)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(),
+                         {"like_limit": 0, "likes_used": 0, "likes_remaining": None})
+
+    def test_no_counter_is_written(self):
+        """关闭额度时不写 Redis 键:线上不配这个值就等于没有这个功能。"""
+        self.client.post(self.SWIPE_URL,
+                         {"target_user_id": self.targets[0].id, "action": "like"}, format="json")
+        now = timezone.localtime()
+        self.assertIsNone(cache.get(f"swipe_like:{self.me.id}:{now.strftime('%Y%m%d')}"))
+
+    def test_quota_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get(self.QUOTA_URL).status_code, 401)

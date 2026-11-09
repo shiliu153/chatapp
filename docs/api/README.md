@@ -27,7 +27,7 @@
 
 ## 接口一览
 
-共 **61** 个接口(按「方法 + 路径」计)。
+共 **63** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -50,6 +50,8 @@
 | GET | `/api/v1/presence` | 批量查询在线状态 | [users](users.md) |
 | GET | `/api/v1/discovery/candidates` | 拉取候选卡 | [discovery](discovery.md) |
 | POST | `/api/v1/discovery/swipe` | 提交滑卡动作 | [discovery](discovery.md) |
+| POST | `/api/v1/discovery/swipe/undo` | 撤销上一次滑卡(30 秒内、未配对) | [discovery](discovery.md) |
+| GET | `/api/v1/discovery/quota` | 查询每日喜欢额度 | [discovery](discovery.md) |
 | GET | `/api/v1/discovery/likes` | 喜欢我的人列表(分页) | [discovery](discovery.md) |
 | GET | `/api/v1/discovery/likes/count` | 喜欢我的人数 | [discovery](discovery.md) |
 | GET | `/api/v1/discovery/visits` | 谁看过我列表(分页) | [discovery](discovery.md) |
@@ -120,7 +122,7 @@ Base URL、鉴权细节、统一错误结构、分页约定、限流额度见 [c
 
 | 项 | 说明 |
 |---|---|
-| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,51 paths / 61 operations) |
+| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,53 paths / 63 operations) |
 | 生成命令 | `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` |
 | 谁在读它 | Web 端类型生成(`web/src/api/schema.d.ts`)、CI 门禁、后续客户端工具链 |
 | 能否手改 | **不能**。它是生成物,手改会在下一次生成时被覆盖,且 CI 会红 |
