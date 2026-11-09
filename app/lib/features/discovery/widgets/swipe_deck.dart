@@ -17,11 +17,20 @@ typedef DecideCallback = Future<bool> Function(Candidate candidate, {required bo
 /// 卡组:顶层卡可拖拽,松手超出阈值 → 飞出并回调 [onDecide];没超出 → 弹回。
 class SwipeDeck extends StatefulWidget {
   const SwipeDeck({super.key, required this.candidates, required this.onDecide,
-      this.presenceById = const {}});
+      this.presenceById = const {}, this.undoAction, this.likeBlocked = false});
 
   final List<Candidate> candidates;
   final DecideCallback onDecide;
   final Map<int, Presence> presenceById;
+
+  /// 卡面下方最左侧的次要操作(发现页放撤销按钮);为 null 时不给它留位置。
+  final Widget? undoAction;
+
+  /// 每日喜欢额度用完(429 + 42904):喜欢钮置灰不可点,拖拽仍交给后端判定。
+  final bool likeBlocked;
+
+  /// 附录 A.1 的操作钮间距。
+  static const actionGap = 44.0;
 
   @override
   State<SwipeDeck> createState() => _SwipeDeckState();
@@ -157,6 +166,10 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              if (widget.undoAction != null) ...[
+                widget.undoAction!,
+                const SizedBox(width: SwipeDeck.actionGap),
+              ],
               _DeckActionButton(
                 buttonKey: const Key('discovery.pass'),
                 icon: Icons.close_rounded,
@@ -167,16 +180,19 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
                 shadow: AppShadows.card,
                 onPressed: _flying ? null : () => _flyOut(like: false),
               ),
-              const SizedBox(width: 44),
+              const SizedBox(width: SwipeDeck.actionGap),
               _DeckActionButton(
                 buttonKey: const Key('discovery.like'),
                 icon: Icons.favorite_rounded,
                 size: 64,
-                foreground: Colors.white,
-                gradient: AppGradients.heartOf(colors),
-                shadow: AppShadows.primaryButton,
-                pulse: true,
-                onPressed: _flying ? null : () => _flyOut(like: true),
+                // 额度用完时退成与「跳过」同款中性钮:不点渐变高音,一眼看出不可点
+                foreground: widget.likeBlocked ? colors.text3 : Colors.white,
+                background: widget.likeBlocked ? colors.bgCard : null,
+                gradient: widget.likeBlocked ? null : AppGradients.heartOf(colors),
+                borderColor: widget.likeBlocked ? colors.divider : null,
+                shadow: widget.likeBlocked ? AppShadows.card : AppShadows.primaryButton,
+                pulse: !widget.likeBlocked,
+                onPressed: _flying || widget.likeBlocked ? null : () => _flyOut(like: true),
               ),
             ],
           ),

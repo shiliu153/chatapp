@@ -46,6 +46,16 @@ class DiscoveryController extends AsyncNotifier<List<Candidate>> {
     }
   }
 
+  /// 撤销成功后把那张卡放回**卡堆顶部**(批次 O,discovery.md §3.9)。
+  ///
+  /// 用滑卡时缓存下来的那份卡面数据直出,不再请求后端(也避免续拉把他又发回来
+  /// 时的重复卡);如果卡组里他已经被续拉回来了,只把他挪到队首。
+  void restore(Candidate candidate) {
+    final current = state.value ?? const <Candidate>[];
+    final rest = current.where((item) => item.userId != candidate.userId).toList();
+    state = AsyncValue.data([candidate, ...rest]);
+  }
+
   /// 卡组快见底时续拉下一批;失败不打扰用户(空态里有「刷新」可以重来)。
   Future<void> _preloadIfLow() async {
     final current = state.value;

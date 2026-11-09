@@ -66,6 +66,8 @@ void main() {
 
     expect(find.text('你们已互相喜欢'), findsNothing);
     expect(find.text('小刚,25'), findsOneWidget);
+    // 已配对的滑卡后端不允许撤销,按钮不该出现(§3.9)
+    expect(find.byKey(const Key('discovery.undo')), findsNothing);
   });
 
   testWidgets('没有候选 → 空态;点刷新重新拉', (tester) async {
@@ -131,6 +133,8 @@ void main() {
 
     expect(find.text('操作太快了,休息一下吧'), findsOneWidget);
     expect(find.text('小红,25'), findsOneWidget);
+
+    await drainToast(tester); // 失败提示走 AppToast,2s 后自己消失(否则报 pending timer)
   });
 
   testWidgets('空态用涟漪元素与主按钮「刷新」', (tester) async {

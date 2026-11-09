@@ -41,5 +41,24 @@ Future<ResponseBody> jsonError(int status, [String message = '出错了']) async
     ResponseBody.fromString(jsonEncode({'code': status, 'message': message}), status,
         headers: _jsonHeaders);
 
+/// 业务码与 HTTP 状态码不一致、且要带响应头的错误(429 + `42904` + `Retry-After` 那种)。
+///
+/// [code] 不传时等于 [status];[headers] 里的每个键值都按单值头塞进去,
+/// `content-type` 由这里统一给,别自己再带。
+Future<ResponseBody> jsonErrorWithHeaders(
+  int status, {
+  int? code,
+  String message = '出错了',
+  Map<String, String> headers = const {},
+}) async =>
+    ResponseBody.fromString(
+      jsonEncode({'code': code ?? status, 'message': message}),
+      status,
+      headers: {
+        ..._jsonHeaders,
+        for (final entry in headers.entries) entry.key: [entry.value],
+      },
+    );
+
 Future<ResponseBody> offline(RequestOptions options) =>
     throw DioException.connectionError(requestOptions: options, reason: 'offline');
