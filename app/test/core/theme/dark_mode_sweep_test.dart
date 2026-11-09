@@ -15,6 +15,7 @@ import 'package:chatapp_app/features/profile/profile_edit_page.dart';
 import 'package:chatapp_app/features/profile/user_profile_page.dart';
 import 'package:chatapp_app/features/settings/about_page.dart';
 import 'package:chatapp_app/features/settings/blocked_users_page.dart';
+import 'package:chatapp_app/features/settings/devices_page.dart';
 import 'package:chatapp_app/features/settings/feedback_page.dart';
 import 'package:chatapp_app/features/settings/notification_settings_page.dart';
 import 'package:chatapp_app/features/settings/settings_page.dart';
@@ -107,6 +108,12 @@ ScriptedAdapter _adapter() => ScriptedAdapter({
       'GET /discovery/visits': (options) => ok(pageJson([candidateJson()])),
       'GET /discovery/visits/count': (options) => ok({'count': 1}),
       'GET /blocks': (options) => ok(pageJson([])),
+      'GET /devices': (options) => ok({
+            'results': [
+              deviceJson(current: true),
+              deviceJson(clientType: 'web', clientLabel: '网页端'),
+            ],
+          }),
       'GET /presence': (options) => ok({'results': []}),
     });
 
@@ -130,6 +137,7 @@ void main() {
     'PostDetailPage': () => const PostDetailPage(postId: 1),
     'SettingsPage': () => const SettingsPage(),
     'BlockedUsersPage': () => const BlockedUsersPage(),
+    'DevicesPage': () => const DevicesPage(),
     'NotificationSettingsPage': () => const NotificationSettingsPage(),
     'AboutPage': () => const AboutPage(),
     'FeedbackPage': () => const FeedbackPage(),

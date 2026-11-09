@@ -8,6 +8,33 @@ import '../../support/scripted_adapter.dart';
 
 const _loggedIn = {'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7};
 
+/// 进设置页(「我的」→ 设置)。
+Future<void> _openSettings(WidgetTester tester) async {
+  await tester.tap(navTab('我的'));
+  await tester.pumpAndSettle();
+  // 「设置」行在列表底部,可能折叠线以下;先滚到可见再点
+  await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('my.row.settings')));
+  await tester.pumpAndSettle();
+}
+
+/// 把设置页滚到某一行可见。
+/// 设置页用 ListView,行数超过一屏后未滚到的行**根本没被 build**,`ensureVisible`
+/// 会报「Found 0 widgets」,必须先 drag 到它进入构建范围。
+Future<void> _scrollSettingsTo(WidgetTester tester, Key key) async {
+  await tester.scrollUntilVisible(
+    find.byKey(key),
+    120,
+    // scrollUntilVisible 要求 finder 指向 Scrollable(不是外层 ListView)
+    scrollable: find.descendant(
+      of: find.byKey(const Key('settings.list')),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('退出登录 → 清空凭证回到登录页', (tester) async {
     final adapter = ScriptedAdapter({
@@ -17,25 +44,25 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('我的'));
-    await tester.pumpAndSettle();
-    // 「设置」行在列表底部,可能折叠线以下;先滚到可见再点
-    await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
+    await _openSettings(tester);
 
-    expect(find.byKey(const Key('settings.row.blocks')), findsOneWidget);
-    expect(find.byKey(const Key('settings.row.notifications')), findsOneWidget);
-    expect(find.byKey(const Key('settings.row.feedback')), findsOneWidget);
-    expect(find.byKey(const Key('settings.row.about')), findsOneWidget);
-    expect(find.byKey(const Key('settings.row.agreement')), findsOneWidget);
-    expect(find.byKey(const Key('settings.row.privacy')), findsOneWidget);
-    expect(find.byKey(const Key('settings.logout')), findsOneWidget);
+    // 设置页行数已超过一屏,ListView 懒加载:逐个滚到可见再断言,
+    // 以后再加行也不用改这里
+    for (final key in const [
+      'settings.row.blocks',
+      'settings.row.notifications',
+      'settings.row.devices',
+      'settings.row.feedback',
+      'settings.row.about',
+      'settings.row.agreement',
+      'settings.row.privacy',
+      'settings.row.deleteAccount',
+      'settings.logout',
+    ]) {
+      await _scrollSettingsTo(tester, Key(key));
+      expect(find.byKey(Key(key)), findsOneWidget);
+    }
 
-    // 新增「隐身浏览」行后,退出登录按钮落到首屏以下;先滚到可见再点
-    await tester.ensureVisible(find.byKey(const Key('settings.logout')));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('退出登录'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('退出'));
@@ -55,13 +82,9 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('我的'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
+    await _openSettings(tester);
 
+    await _scrollSettingsTo(tester, const Key('settings.row.deleteAccount'));
     expect(find.byKey(const Key('settings.row.deleteAccount')), findsOneWidget);
 
     // 第一步:后果说明
@@ -96,13 +119,9 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('我的'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
+    await _openSettings(tester);
 
+    await _scrollSettingsTo(tester, const Key('settings.row.deleteAccount'));
     await tester.tap(find.byKey(const Key('settings.row.deleteAccount')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('继续'));
@@ -129,12 +148,7 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('我的'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
+    await _openSettings(tester);
 
     await tester.tap(find.byKey(const Key('settings.row.visitsHidden')));
     await tester.pumpAndSettle();
@@ -152,17 +166,37 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('我的'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('my.row.settings')));
-    await tester.pumpAndSettle();
+    await _openSettings(tester);
 
     await tester.tap(find.byKey(const Key('settings.row.visitsHidden')));
     await tester.pumpAndSettle();
 
     expect(find.text('服务器开小差了'), findsOneWidget);
     await drainToast(tester);   // Toast 的 2s Timer 要推过去,否则用例以 pending timer 失败
+  });
+
+  testWidgets('登录设备入口 → 二级页列出各端', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'GET /devices': (options) => ok({
+            'results': [
+              deviceJson(current: true),
+              deviceJson(clientType: 'web', clientLabel: '网页端'),
+            ],
+          }),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    await _openSettings(tester);
+
+    await _scrollSettingsTo(tester, const Key('settings.row.devices'));
+    await tester.tap(find.byKey(const Key('settings.row.devices')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('devices.row.app')), findsOneWidget);
+    expect(find.byKey(const Key('devices.row.web')), findsOneWidget);
+    expect(find.byKey(const Key('devices.current.app')), findsOneWidget);
   });
 }
