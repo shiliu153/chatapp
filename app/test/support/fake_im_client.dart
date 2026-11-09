@@ -205,6 +205,44 @@ class FakeImClient extends ImClient {
     conversations = conversations.where((item) => item.peerId != peerId).toList();
   }
 
+  /// 置上就让 setConversationFlags 抛这个错(测 40401 / 42901 / 失败保留原状态)。
+  Object? flagsError;
+
+  @override
+  Future<ImConversationFlags> setConversationFlags(String peerId,
+      {bool? pinned, bool? muted}) async {
+    // 流水里把「只传了哪一项」记清楚:没传的那项必须是 null,不能被当成 false 上行。
+    log.add('setFlags:$peerId:pinned=${pinned ?? '-'}:muted=${muted ?? '-'}');
+    if (flagsError != null) throw flagsError!;
+    var pinnedNow = false;
+    var mutedNow = false;
+    conversations = conversations.map((item) {
+      if (item.peerId != peerId) return item;
+      pinnedNow = pinned ?? item.pinned;
+      mutedNow = muted ?? item.muted;
+      return item.copyWith(pinned: pinnedNow, muted: mutedNow);
+    }).toList();
+    if (pinned != null) _restackAfterPin(peerId);
+    return ImConversationFlags(pinned: pinnedNow, muted: mutedNow);
+  }
+
+  /// 近似服务端的置顶排序(`pinned_at` 倒序在前,其余按最近消息):
+  /// 刚置顶的排到最前,取消置顶的排到置顶组之后。真实顺序以服务端为准,
+  /// 客户端一个字段都不自己排(imserver.md §19.6)。
+  void _restackAfterPin(String peerId) {
+    final index = conversations.indexWhere((item) => item.peerId == peerId);
+    if (index < 0) return;
+    final self = conversations[index];
+    final pinnedOthers = conversations
+        .where((item) => item.peerId != peerId && item.pinned)
+        .toList();
+    final rest = conversations
+        .where((item) => item.peerId != peerId && !item.pinned)
+        .toList();
+    conversations =
+        self.pinned ? [self, ...pinnedOthers, ...rest] : [...pinnedOthers, self, ...rest];
+  }
+
   /// 模拟服务器推事件。
   void emit(ImEvent event) => _events.add(event);
 

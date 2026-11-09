@@ -52,6 +52,52 @@ class ConversationsController extends AsyncNotifier<List<ImConversation>> {
     if (next.length != current.length) state = AsyncValue.data(next);
   }
 
+  /// 置顶 / 免打扰某个会话(批次 N)。
+  ///
+  /// 写成功才动本地:服务端回读值落进模型,再重拉一次列表拿**服务端排好的顺序**
+  /// (客户端不自己排,见 imserver.md §19.6)。写失败直接抛出,列表保持原样 ——
+  /// 不让用户看到「以为置顶了」的假象。
+  ///
+  /// Args:
+  ///   peerId: 会话对端的 IM id。
+  ///   pinned: 置顶开关;null = 不改这一项。
+  ///   muted: 免打扰开关;null = 不改这一项。
+  ///
+  /// Throws:
+  ///   [ImException]:会话不存在 40401 / 限流 42901 等;HTTP 侧为 ApiException。
+  Future<void> setFlags(String peerId, {bool? pinned, bool? muted}) async {
+    if (pinned == null && muted == null) return;
+    final client = ref.read(imClientProvider);
+    final flags = await client.setConversationFlags(peerId, pinned: pinned, muted: muted);
+    _applyFlags(peerId, flags);
+    try {
+      state = AsyncValue.data(await client.fetchConversations());
+    } catch (_) {
+      // 重拉失败不影响刚写成功的标志位:本地已按回读值更新,顺序下次刷新自然会正。
+    }
+  }
+
+  /// 把服务端回读的标志位落进列表里的那一行(排序不动,它归服务端管)。
+  void _applyFlags(String peerId, ImConversationFlags flags) {
+    final current = state.value;
+    if (current == null) return;
+    final index = current.indexWhere((item) => item.peerId == peerId);
+    if (index < 0) return;
+    final next = [...current];
+    next[index] = next[index].copyWith(pinned: flags.pinned, muted: flags.muted);
+    state = AsyncValue.data(next);
+  }
+
+  /// 删除会话(批次 N):走既有的 `deleteConversation`(WS 帧,没有回执),
+  /// 成功后立刻把这一行从列表移除;对方设备上的会话不受影响。
+  ///
+  /// Args:
+  ///   peerId: 会话对端的 IM id。
+  Future<void> deleteConversation(String peerId) async {
+    await ref.read(imClientProvider).deleteConversation(peerId);
+    removeConversation(peerId);
+  }
+
   /// 静默刷新:不动 loading,列表和角标不闪。
   Future<void> reload() async {
     if (ref.read(imStatusProvider) is! ImLoggedIn) return;

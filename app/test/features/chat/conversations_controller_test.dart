@@ -94,4 +94,49 @@ void main() {
     expect(container.read(conversationsProvider).value!.map((item) => item.peerId), ['u9']);
     expect(container.read(unreadTotalProvider), 0);
   });
+
+  test('setFlags 写成功 → 标志位落进模型,并重拉一次拿服务端顺序(批次 N)', () async {
+    fake.conversations = [conv('u8', unread: 1), conv('u9', unread: 2)];
+    final container = makeContainer();
+    await container.read(imStatusProvider.notifier).login();
+    await container.read(conversationsProvider.future);
+
+    await container.read(conversationsProvider.notifier).setFlags('u9', pinned: true);
+
+    expect(fake.log, contains('setFlags:u9:pinned=true:muted=-'));
+    final list = container.read(conversationsProvider).value!;
+    // 顺序以服务端为准:置顶的在最前,并且模型里带上了 pinned
+    expect(list.first.peerId, 'u9');
+    expect(list.first.pinned, isTrue);
+    expect(list.last.muted, isFalse);
+  });
+
+  test('setFlags 写失败 → 抛出且列表保持原样(不假装置顶成功)', () async {
+    fake.conversations = [conv('u8', unread: 1), conv('u9', unread: 2)];
+    final container = makeContainer();
+    await container.read(imStatusProvider.notifier).login();
+    await container.read(conversationsProvider.future);
+    fake.flagsError = const ImException(40401, '会话不存在');
+
+    await expectLater(
+      container.read(conversationsProvider.notifier).setFlags('u9', muted: true),
+      throwsA(isA<ImException>()),
+    );
+
+    final list = container.read(conversationsProvider).value!;
+    expect(list.map((item) => item.peerId), ['u8', 'u9']);
+    expect(list.every((item) => !item.pinned && !item.muted), isTrue);
+  });
+
+  test('deleteConversation 调既有 deleteConversation 并把行移除(批次 N)', () async {
+    fake.conversations = [conv('u8', unread: 1), conv('u9', unread: 2)];
+    final container = makeContainer();
+    await container.read(imStatusProvider.notifier).login();
+    await container.read(conversationsProvider.future);
+
+    await container.read(conversationsProvider.notifier).deleteConversation('u9');
+
+    expect(fake.log, contains('deleteConversation:u9'));
+    expect(container.read(conversationsProvider).value!.map((item) => item.peerId), ['u8']);
+  });
 }

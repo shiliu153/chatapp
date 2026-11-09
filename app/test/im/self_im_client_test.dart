@@ -31,6 +31,18 @@ class FakeTransport implements SelfTransport {
 }
 
 class FakeHttpClient implements SelfHttpClient {
+  /// 记下 POST 过来的路径与请求体(批次 N 会话 flags 用)。
+  final posts = <({String path, Map<String, dynamic> body})>[];
+
+  /// POST 的固定响应(会话 flags 回读值)。
+  Map<String, dynamic> postResponse = const {'pinned': false, 'muted': false};
+
+  @override
+  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
+    posts.add((path: path, body: body));
+    return postResponse;
+  }
+
   @override
   Future<Map<String, dynamic>> get(String path, Map<String, String> query) async {
     if (path == '/messages') {
@@ -258,6 +270,49 @@ void main() {
     expect(http.calls.single, '/messages?peer=u2&limit=50&before_seq=12');
   });
 
+  test('setConversationFlags 只上行要改的那一项,返回服务端回读值', () async {
+    final http = RecordingHttpClient({'pinned': true, 'muted': false});
+    final client = SelfImClient(httpClient: http);
+    await client.init(bootstrap);
+
+    final pinnedOnly = await client.setConversationFlags('u9', pinned: true);
+    expect(http.posts.single.path, '/conversations/flags');
+    // 没传 muted 时请求体里**不能有** muted(服务端把缺省当「不改」,false 才是改)
+    expect(http.posts.single.body, {'peer': 'u9', 'pinned': true});
+    expect(pinnedOnly.pinned, isTrue);
+    expect(pinnedOnly.muted, isFalse);
+
+    await client.setConversationFlags('u9', muted: true);
+    expect(http.posts.last.body, {'peer': 'u9', 'muted': true});
+  });
+
+  test('fetchConversations 解析 pinned / muted;老服务端缺字段时按 false 兜底', () async {
+    final http = RecordingHttpClient({
+      'items': [
+        {
+          'peer': {'id': 'u2', 'nickname': '小九', 'avatar': ''},
+          'unread': 0,
+          'peer_read_seq': 0,
+          'pinned': true,
+          'muted': true,
+        },
+        {
+          'peer': {'id': 'u8', 'nickname': '小八', 'avatar': ''},
+          'unread': 1,
+          'peer_read_seq': 0,
+        },
+      ],
+    });
+    final client = SelfImClient(httpClient: http);
+    await client.init(bootstrap);
+
+    final items = await client.fetchConversations();
+    expect(items[0].pinned, isTrue);
+    expect(items[0].muted, isTrue);
+    expect(items[1].pinned, isFalse);
+    expect(items[1].muted, isFalse);
+  });
+
   test('sendVoice 上传后发 kind=voice 帧并在 ack 后返回语音消息', () async {
     final transport = FakeTransport();
     final uploader = FakeVoiceUploader();
@@ -344,6 +399,15 @@ class RecordingHttpClient implements SelfHttpClient {
   RecordingHttpClient(this.response);
   final Map<String, dynamic> response;
   final List<String> calls = [];
+
+  /// POST 流水(批次 N 会话 flags):路径 + 请求体,用来断言「只传了要改的那一项」。
+  final List<({String path, Map<String, dynamic> body})> posts = [];
+
+  @override
+  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
+    posts.add((path: path, body: body));
+    return response;
+  }
 
   @override
   Future<Map<String, dynamic>> get(String path, Map<String, String> query) async {

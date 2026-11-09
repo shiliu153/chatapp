@@ -176,6 +176,31 @@ class ChatMessage {
       );
 }
 
+/// 会话的两个个人偏好(批次 N):服务端**回读实库**后的真实值,不是请求回显。
+///
+/// 都是单方设置:只影响我这边的列表,对端看不到,也不产生消息。
+class ImConversationFlags {
+  const ImConversationFlags({required this.pinned, required this.muted});
+
+  /// 从 `POST /im/api/conversations/flags` 的响应解析。
+  ///
+  /// Args:
+  ///   json: 响应体 `{"pinned": bool, "muted": bool}`。
+  ///
+  /// Returns:
+  ///   置顶 / 免打扰两个开关;**缺字段按 false 兜底**(兼容老 imserver)。
+  factory ImConversationFlags.fromJson(Map<String, dynamic> json) => ImConversationFlags(
+        pinned: json['pinned'] == true,
+        muted: json['muted'] == true,
+      );
+
+  /// 是否置顶(排序由服务端负责,客户端只管展示)。
+  final bool pinned;
+
+  /// 是否免打扰(客户端展示语义:静音图标 + 未读只显示灰点)。
+  final bool muted;
+}
+
 class ImConversation {
   const ImConversation({
     required this.peerId,
@@ -184,6 +209,8 @@ class ImConversation {
     this.faceUrl,
     this.lastMessage,
     this.peerReadSeq = 0,
+    this.pinned = false,
+    this.muted = false,
   });
 
   final String peerId;
@@ -198,20 +225,31 @@ class ImConversation {
   /// 与 `unreadCount`(我没读的条数)是两条独立链路,别混。
   final int peerReadSeq;
 
-  /// 只换未读条数,其余字段原样保留(跨端已读同步 K-3 用)。
+  /// 是否置顶(批次 N)。**列表顺序以服务端为准**,客户端不自己再排一遍。
+  /// 老服务端不下发这个字段 → 按 false 兜底。
+  final bool pinned;
+
+  /// 是否免打扰(批次 N)。语义只在客户端:静音图标 + 未读只显示灰点。
+  final bool muted;
+
+  /// 换若干字段,其余原样保留(跨端已读同步 K-3、标志位回读批次 N 用)。
   ///
   /// Args:
   ///   unreadCount: 新的未读条数;省略则保持原值。
+  ///   pinned: 新的置顶状态;省略则保持原值。
+  ///   muted: 新的免打扰状态;省略则保持原值。
   ///
   /// Returns:
   ///   新的 [ImConversation] 实例(模型不可变,不就地改)。
-  ImConversation copyWith({int? unreadCount}) => ImConversation(
+  ImConversation copyWith({int? unreadCount, bool? pinned, bool? muted}) => ImConversation(
         peerId: peerId,
         unreadCount: unreadCount ?? this.unreadCount,
         showName: showName,
         faceUrl: faceUrl,
         lastMessage: lastMessage,
         peerReadSeq: peerReadSeq,
+        pinned: pinned ?? this.pinned,
+        muted: muted ?? this.muted,
       );
 }
 
@@ -426,6 +464,25 @@ abstract class ImClient {
   /// 因此这里**不抛异常、不返回结果** —— 调用方(聊天控制器)按 3 秒节流调用即可,
   /// 失败与否都不该影响用户正在打的字。
   Future<void> sendTyping(String peerId);
+
+  /// 置顶 / 免打扰某个会话(批次 N)。
+  ///
+  /// 走 imserver 的 HTTP `POST /im/api/conversations/flags`(不加 WS 帧:这是低频
+  /// 写操作,加帧要三端同改 fixture)。**只改自己这一行**,对端看不到。
+  ///
+  /// Args:
+  ///   peerId: 会话对端的 IM id(形如 `u9`)。
+  ///   pinned: 置顶开关;**null = 这一项不改**(与 `false` 不同)。
+  ///   muted: 免打扰开关;**null = 这一项不改**。
+  ///
+  /// Returns:
+  ///   服务端回读实库后的真实值(不是请求回显)。
+  ///
+  /// Throws:
+  ///   [ImException]:不支持时 42202;会话不存在时 40401;限流 42901。
+  Future<ImConversationFlags> setConversationFlags(String peerId,
+          {bool? pinned, bool? muted}) =>
+      throw const ImException(42202, '当前聊天服务暂不支持会话置顶');
 
   /// 删除本机会话(拉黑后清理用;对方设备上的会话不受影响)。
   Future<void> deleteConversation(String peerId);
