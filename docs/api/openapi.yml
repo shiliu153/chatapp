@@ -1687,6 +1687,46 @@ paths:
               schema:
                 $ref: '#/components/schemas/Report'
           description: ''
+  /api/v1/stats/me:
+    get:
+      operationId: stats_me_retrieve
+      description: |-
+        个人使用报告(GET /api/v1/stats/me)。
+
+        口径是「区间内发生的事件」:配对数按创建时间(解除过的也算),访客数按最近访问
+        时间(一人一行去重),关注数按关注关系创建时间。**不含消息条数** —— 消息在
+        imserver 的库里,Django 读不到。
+
+        Args:
+            request: DRF 请求对象,支持 ``period`` 查询参数(``week`` / ``month`` / ``year``)。
+
+        Returns:
+            ``{period, start, end, matches, likes_given, likes_received, visits, posts,
+            post_likes, new_followers}``;``start`` / ``end`` 是含首含尾的日期字符串。
+
+        Raises:
+            InvalidPeriod: ``period`` 不在 ``week`` / ``month`` / ``year`` 之内。
+      parameters:
+      - in: query
+        name: period
+        schema:
+          type: string
+          enum:
+          - month
+          - week
+          - year
+        description: 统计周期:week(自然周,周一起)/ month(自然月)/ year(自然年),缺省 week
+      tags:
+      - stats
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyStats'
+          description: ''
   /api/v1/users/{user_id}:
     get:
       operationId: users_retrieve
@@ -2628,6 +2668,42 @@ components:
       - has_more
       - next_cursor
       - results
+    MyStats:
+      type: object
+      properties:
+        period:
+          type: string
+        start:
+          type: string
+          format: date
+        end:
+          type: string
+          format: date
+        matches:
+          type: integer
+        likes_given:
+          type: integer
+        likes_received:
+          type: integer
+        visits:
+          type: integer
+        posts:
+          type: integer
+        post_likes:
+          type: integer
+        new_followers:
+          type: integer
+      required:
+      - end
+      - likes_given
+      - likes_received
+      - matches
+      - new_followers
+      - period
+      - post_likes
+      - posts
+      - start
+      - visits
     NotificationActor:
       type: object
       description: |-

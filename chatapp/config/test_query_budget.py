@@ -39,6 +39,10 @@ BUDGET = {
     "following": 15,
     "likes": 6,
     "visits": 6,
+    # 个人使用报告(批次 P):七个计数写成同一条 SQL 里的标量子查询,鉴权那 4 条
+    # (用户 / 端会话 / 资料 / 偏好)之外只多 1 条;七次独立 count() 实测到 11 条,
+    # 超出工单给的 8 条口径。
+    "stats": 8,
 }
 
 
@@ -149,6 +153,11 @@ class QueryBudgetTests(APITestCase):
         """谁看过我:与「喜欢我的人」同口径。"""
         self._count("/api/v1/discovery/visits")   # 预热:触发 Preference 懒创建
         self.assertLessEqual(self._count("/api/v1/discovery/visits"), BUDGET["visits"])
+
+    def test_stats_budget(self):
+        """个人使用报告:七个计数压在同一条 SQL 里,不能退化成七次 count()。"""
+        self._count("/api/v1/stats/me")   # 预热:触发 Preference 懒创建
+        self.assertLessEqual(self._count("/api/v1/stats/me"), BUDGET["stats"])
 
 
 class IndexAndExistsTests(APITestCase):

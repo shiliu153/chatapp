@@ -1335,6 +1335,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stats/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 个人使用报告(GET /api/v1/stats/me)。
+         *
+         *     口径是「区间内发生的事件」:配对数按创建时间(解除过的也算),访客数按最近访问
+         *     时间(一人一行去重),关注数按关注关系创建时间。**不含消息条数** —— 消息在
+         *     imserver 的库里,Django 读不到。
+         *
+         *     Args:
+         *         request: DRF 请求对象,支持 ``period`` 查询参数(``week`` / ``month`` / ``year``)。
+         *
+         *     Returns:
+         *         ``{period, start, end, matches, likes_given, likes_received, visits, posts,
+         *         post_likes, new_followers}``;``start`` / ``end`` 是含首含尾的日期字符串。
+         *
+         *     Raises:
+         *         InvalidPeriod: ``period`` 不在 ``week`` / ``month`` / ``year`` 之内。
+         */
+        get: operations["stats_me_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{user_id}": {
         parameters: {
             query?: never;
@@ -1858,6 +1891,20 @@ export interface components {
             next_cursor: string | null;
             has_more: boolean;
             results: components["schemas"]["Post"][];
+        };
+        MyStats: {
+            period: string;
+            /** Format: date */
+            start: string;
+            /** Format: date */
+            end: string;
+            matches: number;
+            likes_given: number;
+            likes_received: number;
+            visits: number;
+            posts: number;
+            post_likes: number;
+            new_followers: number;
         };
         /**
          * @description 通知里的触发者摘要。
@@ -3409,6 +3456,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Report"];
+                };
+            };
+        };
+    };
+    stats_me_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 统计周期:week(自然周,周一起)/ month(自然月)/ year(自然年),缺省 week */
+                period?: "month" | "week" | "year";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyStats"];
                 };
             };
         };
