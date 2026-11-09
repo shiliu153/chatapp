@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | **现在该做什么** | [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)(待办总表,按批次排好;A–E 已全部闭环,剩余未闭环项见 §7) |
 | 已交付了什么、哪天、哪个 PR | [docs/milestones.md](docs/milestones.md)(完整时间线) |
-| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(当前工作面只剩「心跳」常驻 spec + 归档 86 份的索引) |
+| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(当前工作面 4 份 + 归档 93 份的索引) |
 | 写代码 / 排障前 | [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选:IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包 → android-emulator.md;测试 → testing.md;网页端 → web.md |
 | 接口(对外交付级) | [docs/api/README.md](docs/api/README.md) |
 | 部署与运维 | [README.md](README.md)「部署」;服务器细节 → [docs/ops/imserver.md](docs/ops/imserver.md)、[docs/ops/runbook.md](docs/ops/runbook.md) |
@@ -45,6 +45,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。
 | M4 第一步 | 服务器跑通(宝塔全托管) |
 | 2026-09~10 | 「心跳」UI 六批整改 / 网页端 Vue 3 / 接口文档体系 / 自建 IM 全量切换 / P1 功能群 / 聊天图片·语音·搜索 |
 | 2026-10-28~11-03 | 三轮安全审计整改 + 令牌硬化 + HTTPS 上线 + 可观测性与容量工程 + 压测基线 |
+| 2026-11-08~09 | 第四轮安全审计整改上线(纯服务端)+ 第六轮功能开发 **K** 多端在线(1 App + 1 Web)/ **L** 输入中状态 + 引用回复(均**已合并、未上线**) |
 
 **当前风险最高的两项**(与代码质量无关,优先于任何性能项):① **固定验证码 `123456` + 手机号白名单** —— 2026-11-03 已确定**本项目不接入短信商**,白名单(`SMS_PHONE_WHITELIST`)是**长期准入机制**而非过渡方案:名单外一律 `403 + 40301`,名单内仍是固定码,因此「名单里有哪些号」本身就是安全边界(一个号泄露 = 该账号被接管)。名单存在数据库 `accounts.PhoneAllowlist`,运营在 **`/ops/allowlist/`** 加号/停用(**立刻生效,不用重启**);`.env` 的 `SMS_PHONE_WHITELIST` 降级为兜底种子(库里没这条记录时按它放行,库里显式停用的优先被拒),库与种子都空 = 不限制。日常运维见 `docs/ops/runbook.md` §6;② **备份** —— 每天 03:20 自建双库全量(应用库 + IM 库 + 媒体 + 配置,保留 14 天,`deploy/ops/chatapp-backup.sh`),另有宝塔 03:30 的原生备份作为独立第二份,树莓派每天 04:10 主动拉走(`deploy/ops/pull-backup-pi.sh`),三项都进 22:00 服务器日报;**恢复演练已真跑通过**。剩余风险:防得住「服务器磁盘/整机没了」,防不住「服务器和树莓派同时没了」(无对象存储预算)。详见 backlog 的 B-1/B-1c 与 A-3、`docs/ops/runbook.md` §5。
 
@@ -138,7 +139,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **运营后台安全**:`/admin/`、`/ops/` 受 `ops.middleware.StaffSecurityMiddleware` 保护 —— `OPS_ALLOWED_IPS` 非空时只放白名单;`OPS_OTP_REQUIRED=1`(生产默认)时运营账号必须绑定 TOTP(`/ops/otp/`);登录失败 5 次锁 15 分钟(账号+IP)。生产 `AUTO_APPROVE` 默认 0,新资料图进 `/ops/photos/` 待审队列
 - **跨栈约定**:IM 账号 = `u{user_id}`(`accounts/models.py::im_user_id`);`system_notice` 相关常量两边别单改
 - **已读回执(2026-11-04)**:事实来源是 `im_conversation_state.read_seq`,语义是「**我**读到哪」;对端视角叫 `peer_read_seq`(`GET /im/api/conversations` 的字段)。判定永远是「**我方**消息 `seq <= peer_read_seq` = 已读」,`unread`(我没读的条数)是另一条链路,不可互推。服务端在 `read` 帧落库后**回读实库**再向对端推下行 `read` 帧(`GREATEST` 语义,乱序旧帧不会把已读推回去),客户端只增不减;`read` 帧有 2/s 限流,超限静默丢弃。协议与排查见 `docs/ops/imserver.md` §15
-- **多端在线(2026-11-08 起,批次 K)**:一个账号可同时在线 **1 个 App + 1 个网页**,**同类端互顶**;被顶设备收 **401 + `40101`**。会话版本从 `User` 单列下沉到 `accounts.DeviceSession(user, client_type, version)`(`unique(user, client_type)`),JWT 与 IM token 都带 `ct` claim;**判端只在签发时看请求头 `X-Client`(缺省 `app`),鉴权一律看令牌里的 `ct`**;IM 踢人按端(`kick_user(..., client_type=...)`),`client_type=None` 才是「踢全部」(封禁 / 注销);一键全端下线用 `POST /auth/logout/all`。设计与取舍见 `docs/superpowers/specs/2026-11-08-multi-device-session-design.md`,踩坑见 `docs/pitfalls/backend.md`「多端会话」。
+- **多端在线(2026-11-08 起,批次 K)**:一个账号可同时在线 **1 个 App + 1 个网页**,**同类端互顶**;被顶设备收 **401 + `40101`**。会话版本从 `User` 单列下沉到 `accounts.DeviceSession(user, client_type, version)`(`unique(user, client_type)`),JWT 与 IM token 都带 `ct` claim;**判端只在签发时看请求头 `X-Client`(缺省 `app`),鉴权一律看令牌里的 `ct`**;IM 踢人按端(`kick_user(..., client_type=...)`),`client_type=None` 才是「踢全部」(封禁 / 注销);一键全端下线用 `POST /auth/logout/all`。设计与取舍见 `docs/superpowers/archive/specs/2026-11-08-multi-device-session-design.md`,踩坑见 `docs/pitfalls/backend.md`「多端会话」。
 - **封禁两级**:`banned_light` 只禁滑卡;`banned_heavy` 全域 403——全局权限类自动覆盖新接口,白名单仅 `GET /users/me`、`GET /users/tags`
 - **在线状态是公开信息**(不依赖配对);「在线」= 120 秒内有认证请求(45s 心跳)
 - **前端**:401 只走 `AuthInterceptor` 刷新通道;错误统一 `ApiException`;写操作后检查相关 provider 失效

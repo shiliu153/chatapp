@@ -119,7 +119,7 @@ nginx 把 `/im/api/` 直连到 9101，因此被顶下线的旧设备只要还握
 
 **影响**：单设备登录与「踢下线即吊销」在 HTTP 面失效；手机丢失/转卖后的旧设备仍可翻历史。
 
-> **状态注记(2026-11-08,批次 K)**:本条里「单设备登录」作为防账号共享手段的结论**已作废** —— 自 2026-11-08 起一个账号可同时在线 **1 个 App + 1 个网页**(同类端仍互顶)。替代措施见 [`docs/superpowers/specs/2026-11-08-multi-device-session-design.md`](../superpowers/specs/2026-11-08-multi-device-session-design.md) §8。**不要把它当成回归来修**。
+> **状态注记(2026-11-08,批次 K)**:本条里「单设备登录」作为防账号共享手段的结论**已作废** —— 自 2026-11-08 起一个账号可同时在线 **1 个 App + 1 个网页**(同类端仍互顶)。替代措施见 [`docs/superpowers/specs/2026-11-08-multi-device-session-design.md`](../superpowers/archive/specs/2026-11-08-multi-device-session-design.md) §8。**不要把它当成回归来修**。
 
 
 **验收**：用旧 `sv` 的 token 请求 `/im/api/messages` 返回 401/`40101`；新 token 正常。

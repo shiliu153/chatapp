@@ -1,7 +1,7 @@
 # 多端同时在线(一个 App + 一个网页)实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: 本仓库**不使用** subagent-driven-development / executing-plans 派子 agent ——
-> 实现按 [`~/.dsh/AGENTS.md`](../../../AGENTS.md) 走**工单**:每张工单开成 issue 评论 `@agent` 交给 WSL 的 superagent worker,
+> 实现按 [`~/.dsh/AGENTS.md`](../../../../AGENTS.md) 走**工单**:每张工单开成 issue 评论 `@agent` 交给 WSL 的 superagent worker,
 > 本会话只做设计与验收。步骤用 checkbox(`- [ ]`)跟踪,worker 在 issue 里勾。
 
 **Spec:** [2026-11-08-multi-device-session-design.md](../specs/2026-11-08-multi-device-session-design.md)
@@ -1077,3 +1077,27 @@ git commit -m "feat(app): 显式上报端类型 X-Client(K-4)"
 **验证**:`scripts/verify.sh imserver` / `app` / `web` 全绿(输出贴在 PR 正文);契约自测做过 —— 把 fixture 里 `self_read` 的 `seq` 改成 `sequence`、`conversation_deleted` 的 `peer` 改成 `to`,三端同时红,还原后全绿。
 
 **留给后续**:App 端「正打开的会话被跨端删除」时不会自动退出聊天页(Web 已做),需要 go_router 层配合,本单不动。
+
+---
+
+## 收尾记录(2026-11-09 归档)
+
+**状态:四单全部合并进 `origin/master`,尚未上线。** 上线动作按上面「上线顺序」走(imserver 换镜像 +
+`005_device_session.sql` 迁移 + 随下一版本发 App/Web),归档时生产仍是 1.0.10 与旧 imserver 镜像。
+
+| 单 | 栈 | PR | 合并 SHA | 结果 |
+|---|---|---|---|---|
+| K-1 | backend | #151 | `6aa772f` | 会话版本从 `User` 单列下沉为 `accounts.DeviceSession(user, client_type, version)`;JWT 与 IM token 都带 `ct`;判端只看**签发时**的 `X-Client` |
+| K-2 | imserver | #150 | `f5802f2` | `SessionRegistry` 由 `uid → 单连接` 改为 `uid → {端 → 连接}`,按端注册与扇出;踢人按端(`kick_user(..., client_type=)`) |
+| K-3 | imserver + App + Web | #155 | `37eaf56` | 下行 `self_read` / `conversation_deleted` 两帧,三端同 PR(契约联动);细节见上一节 |
+| K-4 | App + Web | #154 | `fabf85a` | 统一上报端类型 `X-Client`,并复核 Web 多标签互顶 |
+
+**与计划的偏差**:见上一节 K-3 的四条。另有一条**纪律性**的:后端与 imserver 各自维护一套端会话版本
+(`accounts.DeviceSession` / `im_device_session`),所以回滚必须两端成对 —— 计划 Global Constraints 已写明,
+执行时未破例,但这是本批最容易踩的一处。
+
+**遗留(未闭环)**:
+- App 端「正打开的会话被跨端删除」不自动退出聊天页(Web 已做),需 go_router 层配合。
+- 生产未上线(见上)。
+- 本文与 spec 引用的「第六轮功能开发拆批(K → L → M → N → O)」**从未写进 backlog**,M/N/O 至今未立项 ——
+  2026-11-09 收尾时核实:`git log -S'第六轮' -- docs/backlog/` 无痕迹。
