@@ -270,7 +270,7 @@ def my_voice(request):
         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
 
     Returns:
-        POST 201 + ``{url, duration_ms}``(``url`` 为限时签名绝对地址);
+        POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
         DELETE 幂等 204(没有语音时也返回 204)。
 
     Raises:
@@ -309,7 +309,8 @@ def my_voice(request):
     record.save()
     if old_name and old_name != record.file.name:
         record.file.storage.delete(old_name)
-    return Response(ProfileVoiceSerializer(record).data, status=201)
+    return Response(ProfileVoiceSerializer(record, context={"request": request}).data,
+                    status=201)
 
 
 @extend_schema(parameters=[OpenApiParameter(

@@ -1704,7 +1704,7 @@ export interface paths {
          *         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
          *
          *     Returns:
-         *         POST 201 + ``{url, duration_ms}``(``url`` 为限时签名绝对地址);
+         *         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
          *         DELETE 幂等 204(没有语音时也返回 204)。
          *
          *     Raises:
@@ -1727,7 +1727,7 @@ export interface paths {
          *         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
          *
          *     Returns:
-         *         POST 201 + ``{url, duration_ms}``(``url`` 为限时签名绝对地址);
+         *         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
          *         DELETE 幂等 204(没有语音时也返回 204)。
          *
          *     Raises:
@@ -2287,9 +2287,16 @@ export interface components {
          * @enum {string}
          */
         ProfileStatusEnum: "incomplete" | "complete" | "banned_light" | "banned_heavy";
-        /** @description 资料语音的只读表示(嵌套在资料里,同时也是上传接口的响应体)。 */
+        /**
+         * @description 资料语音的只读表示(嵌套在资料里,同时也是上传接口的响应体)。
+         *
+         *     ``url`` 与 ``PhotoSerializer`` 完全同口径:交给 DRF 的 ``FileField`` 拼绝对地址,
+         *     **不签名**。语音是公开媒体(``/media/voices/`` 由 nginx 裸静态直出),签一个没人
+         *     校验的 ``e``/``s`` 只会让人误以为「过期即失效」。
+         */
         ProfileVoice: {
-            readonly url: string;
+            /** Format: uri */
+            readonly url: string | null;
             /**
              * 时长(毫秒)
              * Format: int64

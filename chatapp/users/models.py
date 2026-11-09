@@ -19,8 +19,6 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from im import media_sign
-
 SHUFFLE_KEY_UPPER = 1_000_000_000
 
 
@@ -275,7 +273,9 @@ class ProfileVoice(models.Model):
         2. 时长上限由视图保证(≤30 秒),这里只存 ``ffprobe`` 实测值,不信客户端声明;
         3. 文件与聊天语音同源:``im.voice.normalize`` 统一转成 m4a/AAC,播放兼容性由
            转码层负责,本表不关心原始格式;
-        4. ``bytes`` 计入账号存储配额的第五类(见 ``config.storage.usage_bytes``)。
+        4. ``bytes`` 计入账号存储配额的第五类(见 ``config.storage.usage_bytes``);
+        5. **对外地址不签名**:语音与照片同口径是**公开**媒体(``/media/voices/`` 由 nginx
+           裸静态直出),所以序列化器直接用 DRF 的绝对 URL,不做「签了名却没人验」的样子货。
 
     Attributes:
         duration_ms: ``ffprobe`` 实测时长(毫秒),对外原样返回。
@@ -296,19 +296,6 @@ class ProfileVoice(models.Model):
             ``profile_voice#主键(资料 id)``。
         """
         return f"profile_voice#{self.pk}(profile={self.profile_id})"
-
-    @property
-    def signed_url(self):
-        """对外的播放地址:``MEDIA_BASE_URL`` + 文件路径,并附限时签名。
-
-        与聊天语音同一套签名(``im.media_sign``):客户端拿到的永远是**绝对地址**,
-        不会因为 ``file.url`` 只是相对路径而在 App 播放器里变成坏链。
-
-        Returns:
-            完整的带签名 URL;未配置签名密钥时返回不带 query 的绝对地址。
-        """
-        base = settings.MEDIA_BASE_URL.rstrip("/")
-        return media_sign.sign_url(f"{base}{self.file.url}")
 
 
 class ProfileVisit(models.Model):

@@ -9,7 +9,8 @@
     4. 公开资料卡上的 ``shared_tags`` 与关注态三个字段都支持「批量注入 context」,
        单条场景有各自的兜底查询,不会退化成 N+1;
     5. 资料语音(批次 R)在「我的资料」与「他人公开资料」里都是 ``voice: {url,
-       duration_ms} | null``,``url`` 走 ``im.media_sign`` 的限时签名,与聊天语音同机制。
+       duration_ms} | null``;``url`` 是 DRF 拼的**公开绝对地址**(与照片同口径,不签名、
+       不过期 —— 语音本来就是「能看我资料的人都能听」)。
 """
 
 from django.conf import settings
@@ -123,43 +124,37 @@ class PreferenceSerializer(serializers.ModelSerializer):
         return attrs
 
 
-def voice_payload(profile) -> dict | None:
+def voice_payload(profile, context=None) -> dict | None:
     """把资料语音序列化成对外载荷 ``{url, duration_ms}``。
 
     没有语音的人返回 ``None``(API 里是 JSON ``null``),客户端据此隐藏播放器。
 
     Args:
         profile: 资料对象;``voice`` 反向一对一不存在时按「没录过」处理。
+        context: 序列化器上下文,必须带 ``request`` —— 缺了它 ``url`` 会退化成相对路径。
 
     Returns:
-        ``{"url": 绝对签名地址, "duration_ms": 实测毫秒}``;没有语音时为 ``None``。
+        ``{"url": 公开绝对地址, "duration_ms": 实测毫秒}``;没有语音时为 ``None``。
     """
     record = getattr(profile, "voice", None)
     if record is None:
         return None
-    return {"url": record.signed_url, "duration_ms": record.duration_ms}
+    return ProfileVoiceSerializer(record, context=context or {}).data
 
 
 class ProfileVoiceSerializer(serializers.ModelSerializer):
-    """资料语音的只读表示(嵌套在资料里,同时也是上传接口的响应体)。"""
+    """资料语音的只读表示(嵌套在资料里,同时也是上传接口的响应体)。
 
-    url = serializers.SerializerMethodField()
+    ``url`` 与 ``PhotoSerializer`` 完全同口径:交给 DRF 的 ``FileField`` 拼绝对地址,
+    **不签名**。语音是公开媒体(``/media/voices/`` 由 nginx 裸静态直出),签一个没人
+    校验的 ``e``/``s`` 只会让人误以为「过期即失效」。
+    """
+
+    url = serializers.FileField(source="file", read_only=True)
 
     class Meta:
         model = ProfileVoice
         fields = ["url", "duration_ms"]
-
-    @extend_schema_field(serializers.CharField())
-    def get_url(self, record):
-        """播放地址:``MEDIA_BASE_URL`` + 文件路径,并附限时签名。
-
-        Args:
-            record: 资料语音行。
-
-        Returns:
-            完整的带签名绝对 URL。
-        """
-        return record.signed_url
 
 
 class ProfileSerializer(serializers.ModelSerializer):
@@ -191,7 +186,7 @@ class ProfileSerializer(serializers.ModelSerializer):
         Returns:
             ``{"url", "duration_ms"}`` 或 ``None``。
         """
-        return voice_payload(profile)
+        return voice_payload(profile, self.context)
 
 
 class PublicProfileSerializer(serializers.ModelSerializer):
@@ -321,7 +316,7 @@ class PublicProfileSerializer(serializers.ModelSerializer):
         Returns:
             ``{"url", "duration_ms"}`` 或 ``None``。
         """
-        return voice_payload(profile)
+        return voice_payload(profile, self.context)
 
     @extend_schema_field(PhotoSerializer(many=True))
     def get_photos(self, profile):

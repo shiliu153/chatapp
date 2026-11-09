@@ -35,7 +35,6 @@ from datetime import date, timedelta
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -416,8 +415,7 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
     def setUp(self):
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
-        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
-                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
         override.enable()
         self.addCleanup(override.disable)
         cache.clear()
@@ -453,13 +451,13 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
     @patch("im.voice._probe_ms", return_value=3000)
-    def test_upload_three_seconds_returns_signed_url(self, _probe, _transcode, _ffmpeg):
-        """3 秒语音:201 + 签名地址 + 实测时长,文件与行都落库。"""
+    def test_upload_three_seconds_returns_public_url(self, _probe, _transcode, _ffmpeg):
+        """3 秒语音:201 + 公开绝对地址(无 query)+ 实测时长,文件与行都落库。"""
         resp = self.upload()
         self.assertEqual(resp.status_code, 201, resp.json())
         data = resp.json()
-        self.assertTrue(data["url"].startswith("http://cdn.test/media/voices/"))
-        self.assertIn("?e=", data["url"])
+        self.assertTrue(data["url"].startswith("http://testserver/media/voices/"))
+        self.assertNotIn("?", data["url"])
         self.assertEqual(data["duration_ms"], 3000)
         record = ProfileVoice.objects.get()
         self.assertEqual(record.profile.user_id, self.user.id)
@@ -495,8 +493,8 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
     @patch("im.voice._probe_ms", return_value=3000)
-    def test_me_and_public_profile_expose_signed_voice(self, _probe, _transcode, _ffmpeg):
-        """``GET /users/me`` 与他人资料卡都返回 ``voice``,URL 带 exp/sig。"""
+    def test_me_and_public_profile_expose_voice_url(self, _probe, _transcode, _ffmpeg):
+        """``GET /users/me`` 与他人资料卡都返回 ``voice``,URL 是公开绝对地址。"""
         self.assertEqual(self.upload().status_code, 201)
         mine = self.client.get("/api/v1/users/me").json()["voice"]
         self.assertIsNotNone(mine)
@@ -509,14 +507,10 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
         voice = public.json()["voice"]
         self.assertEqual(voice["duration_ms"], 3000)
         for url in (mine["url"], voice["url"]):
-            parts = urlsplit(url)
-            query = parse_qs(parts.query)
-            self.assertIn("e", query)
-            self.assertIn("s", query)
-            # 资料语音与照片同口径(**公开**),所以落在 /media/voices/ 而不是需要
-            # nginx 验签的 /media/chat/;签名参数与聊天语音同一套算法,只是这一侧
-            # 不做过期拦截(与「任何人都能听」的产品口径一致)。
-            self.assertTrue(parts.path.startswith("/media/voices/"))
+            # 与照片完全同口径:公开绝对地址、**不带任何 query**。语音落在
+            # /media/voices/,nginx 是裸静态直出,签 e/s 也没有人校验,所以干脆不签。
+            self.assertTrue(url.startswith("http://testserver/media/voices/"))
+            self.assertNotIn("?", url)
 
     def test_voice_is_null_without_upload(self):
         """没录过语音时字段是 ``null``,而不是报错或空对象。"""
