@@ -27,6 +27,8 @@ python3 /src/tests/integration/test_self_read.py
 python3 /src/tests/integration/test_typing.py
 # 引用回复(L-2):快照由服务端生成 / 跨会话 42201 / 已撤回标注 / 历史回放
 python3 /src/tests/integration/test_quote.py
+# 会话置顶 / 免打扰(N):401 / 42201 / 40401 / 置顶优先与组内排序 / 幂等 / 单方
+python3 /src/tests/integration/test_flags.py
 export IM_BASE_WS="ws://127.0.0.1:19100/im/ws"
 export IM_BASE_HTTP="http://127.0.0.1:19101/im/api"
 python3 /repo/tools/im_e2e.py

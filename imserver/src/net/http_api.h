@@ -68,6 +68,10 @@ class HttpApi {
   // 普通读接口(会话列表 / 历史消息):每账号 120 次/分钟、burst 40。
   // 之前这两个接口完全没有按账号限流,单账号即可持续打库(M-2)。
   RateTable read_table_{2.0, 40.0};
+  // 会话标志位写接口(POST /im/api/conversations/flags,批次 N):每账号
+  // 60 次/分钟、burst 20。单列一张表而不是复用 read_table_:它是写路径,
+  // 不该和「刷列表」抢同一桶令牌。
+  RateTable flags_table_{1.0, 20.0};
   // 内部管理接口(/internal/*)的来源网段;容器部署下 Django 不在回环上(H-1)。
   net_guard::ProxyTrust internal_allow_;
 };

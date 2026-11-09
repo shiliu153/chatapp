@@ -993,3 +993,163 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | 另一端删了会话,这一端还在列表里 | 同上:客户端没处理 `conversation_deleted`;先确认 imserver 日志里有 `conversation_delete` 的 ack |
 | 对方收到了 `conversation_deleted` | 不该发生:`send_to_other_clients` 只发给本人;**误用 `send_to`(扇出全 uid)才会串到对端** |
 | `self_read` 的 seq 比实际已读小 | 客户端拿请求里的 seq 当结果;必须是回读实库后的值(`GREATEST` 语义) |
+
+## 19. 会话置顶 / 免打扰 `POST /im/api/conversations/flags`(2026-11-09,批次 N)
+
+会话列表的两个「个人偏好」:**置顶**(排在列表最前)与**免打扰**(客户端静音图标 + 未读只显示灰点)。
+两者都只写 `im_conversation_state` 里**自己那一行**,是**单方**行为 —— 置顶/免打扰不通知对端、
+不影响对端看到的任何东西。
+
+> 为什么写在这里:`/im/api/*` 是 imserver 的内部契约,不归 `docs/api/` 的 `/api/v1` 门禁管
+> (同 §15 / §16 开头的说明)。`docs/api/im.md` 只有指路一行。
+
+### 19.1 为什么不加 WS 帧
+
+加一个 WS 帧要**三端 fixture 同改**(`imserver/tests/fixtures/ws/*.json` + imserver + App + Web,
+三份 CI 各红一次,成本 ×3),而置顶/免打扰是**一天点不了几次的低频写操作**。
+所以协议面**一个字都没动**:`imserver/tests/fixtures/ws/*.json` 保持原样,写走 HTTP,
+读走既有的 `GET /im/api/conversations`(每项多两个字段)。
+
+代价(已知、可接受):**多端不同步** —— 在 App 上置顶,网页端要等下次拉会话列表才看到。
+真需要实时同步时再按 §18 的方式加帧,那时三端一起改。
+
+### 19.2 存储与迁移
+
+迁移 `007_conversation_flags.sql`(版本号 **7**):
+
+```sql
+ALTER TABLE im_conversation_state
+  ADD COLUMN pinned_at BIGINT NOT NULL DEFAULT 0,   -- 置顶时刻(毫秒),0 = 未置顶
+  ADD COLUMN muted TINYINT NOT NULL DEFAULT 0;      -- 免打扰 0/1
+```
+
+- 存的是**置顶时间**而不是 bool:排序要按「置顶时间倒序」(后置顶的更靠前),bool 排不出来。
+- **不新增索引**:个人项目会话数 < 100,排序表达式可接受;`idx_owner_updated` 本来就不覆盖这个排序
+  (它按 `updated_at`,列表一直按 `last_msg_at` 排),所以既没让它失效,也没新拖慢别的查询。
+- `muted` / `pinned_at` **不改 `updated_at`** —— 那是「会话活动时间」,标志位变化不是活动。
+
+### 19.3 鉴权与地址
+
+与 `/im/api/conversations|messages|search` **完全同口径**:
+
+- 基址 = `POST /api/v1/im/user_sig` 返回的 `http_url`,路径 `/conversations/flags`,**只接受 POST**;
+- `Authorization: Bearer <IM token>`(不是 Django 的 access token);
+- 令牌里的 `sv` 与 `im_device_session` 的 `(uid, ct)` 行不一致(被同类端顶下线)、账号被 IM 拉黑 → `401` + `40101`。
+
+### 19.4 请求
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|---|---|---|---|
+| peer | 是 | String | 会话对端的 IM 账号,形如 `u9`(与 WS 帧、`/im/api/messages?peer=` 同口径) |
+| pinned | 否 | Boolean | 置顶开关;**缺省 = 这一项不改**(与 `false` 不同) |
+| muted | 否 | Boolean | 免打扰开关;缺省 = 这一项不改 |
+
+```bash
+# 凭证从 POST /api/v1/im/user_sig 拿(见 docs/api/im.md 6.1)
+curl -X POST 'https://<域名>/im/api/conversations/flags' \
+  -H 'Authorization: Bearer <user_sig 里的 token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"peer":"u9","pinned":true,"muted":false}'
+```
+
+只改一个开关就只传一个(另一个保持原值,不会被当成 `false`):
+
+```bash
+curl -X POST 'https://<域名>/im/api/conversations/flags' \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{"peer":"u9","muted":true}'
+```
+
+### 19.5 响应
+
+`200` + **回读实库后的真实值**(不是回显请求参数):
+
+```json
+{"pinned": true, "muted": false}
+```
+
+语义:
+
+- `pinned` 由假变真时把 `pinned_at` 写成当前毫秒;**已经置顶再置顶一次不重写时间**(幂等,
+  否则连点两次会把会话顶到置顶组最前);取消置顶写 0。
+- `muted` 直接写 0/1。
+- 重复设置同值仍回 `200`,状态不变。
+
+### 19.6 会话列表的两个新字段
+
+`GET /im/api/conversations` 每项多两个字段(`pinned` / `muted`,都是布尔):
+
+```json
+{"peer":{"id":"u9","nickname":"…","avatar":"…"},"unread":0,"last_seq":42,
+ "peer_read_seq":17,"pinned":true,"muted":true,"updated_at":1720000000000}
+```
+
+**排序口径**(服务端已排好,客户端照顺序渲染即可):
+
+```sql
+ORDER BY (s.pinned_at>0) DESC, s.pinned_at DESC, c.last_msg_at DESC
+```
+
+即:置顶组在前,置顶组内**按置顶时间倒序**(后置顶的更靠前),两组内部都仍按最近消息排。
+`pinned_at` 不下发 —— 客户端只需要知道「排在哪一组」,不需要自己再排一次(自己再排反而会与
+服务端顺序打架)。
+
+免打扰的**语义只在客户端**:会话行显示静音图标,未读只显示灰点不显示数字。
+服务端**不改 `unread` 统计**,也不抑制任何推送(本项目不做离线推送,没有可抑制的通道)。
+
+### 19.7 限流
+
+每账号令牌桶 **1 次/秒、突发 20**(约 60 次/分钟,`HttpApi::flags_table_`),超限 `429 + 42901`。
+单列一张表而不是复用读接口的桶:这是写路径,不该和「刷列表」抢同一桶令牌。
+
+### 19.8 错误码
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|---|---|---|---|
+| 40101 | 401 | 未登录 / 令牌过期 / 被同类端顶下线 / 被 IM 拉黑 | 重新 `POST /api/v1/im/user_sig` 换 token |
+| 42201 | 400 | body 不是合法 JSON 对象 / `peer` 格式错 / `pinned`、`muted` 不是布尔 | 客户端修正请求;`peer` 必须是 `u<数字>` |
+| 40401 | 404 | 会话不存在(未配对 / 从没聊过 / 路径拼错) | 会话不存在时不要给用户「置顶」入口;检查 `http_url` 拼接 |
+| 40501 | 405 | 用了 GET 等非 POST 方法 | 用 POST |
+| 42901 | 429 | 操作过于频繁 | 退避后再试,别连点 |
+| 50001 | 500 | 内部错误 | 看 imserver 日志 |
+
+> 注意 `42201` 在这里配的是 **HTTP 400**(不是 422):参数类错误给 400、业务码仍是 42201,
+> 与 `/internal/send` 的写法一致。imserver 的错误体是 `{"code","message"}`,**没有** `request_id`。
+
+### 19.9 部署顺序(硬约束)
+
+**迁移 `007` 必须先于新镜像生效**:
+
+```bash
+cd /www/server/imserver
+docker compose run --rm imserver --migrate   # 1–6 skipped,7 applied
+docker compose up -d                          # 再换新镜像
+```
+
+原因:新代码的 `SELECT` 读 `pinned_at` / `muted` 两列,**旧表没有这两列会直接报「列不存在」**,
+会话列表整页 500。反过来的顺序(先换镜像)不是「降级」而是「故障」。
+回滚镜像时迁移**不回滚**(多出来的两列旧代码不读,向前兼容)。
+
+### 19.10 验证
+
+```bash
+# unit + DB 测试(flags 写入/回读/幂等/未配对/置顶组排序)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test.sh
+
+# HTTP 集成(401 / 42201 / 40401 / 顺序 / muted 回显 / 幂等 / 单方)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
+```
+
+断言在 `imserver/tests/integration/test_flags.py` 与 `message_service_test.cpp` 的
+`ConversationFlagsTest.*`;`scripts/verify.sh imserver` 一次跑完 unit + db + 集成 + e2e。
+
+### 19.11 排查
+
+| 现象 | 先查 |
+|---|---|
+| 置顶了但列表顺序没变 | `im_conversation_state.pinned_at` 是否为 0(写入失败);客户端是否自己又按时间排了一遍 |
+| `404 + 40401` | 双方是否已配对;**是否真的聊过**(只有配对没有消息 = 没有会话) |
+| `400 + 42201` | `peer` 是否写成 `9`(少了 `u`)或 `u9 ` (带空格);开关是否传了 `"true"` 字符串 |
+| 连点置顶反而跳到最前 | 这是设计:`pinned_at` 只在「由未置顶 → 置顶」时写,重复置顶不改时间;若真跳了,说明客户端先发了 `false` 再发 `true` |
+| 换台设备看不到置顶 | 已知限制:`/im/api/*` 无实时同步,重拉一次 `GET /im/api/conversations` 即可(见 §19.1) |
+| 会话列表整页 500 且日志有 `Unknown column 'pinned_at'` | 部署顺序反了:先跑 `--migrate`(见 §19.9) |

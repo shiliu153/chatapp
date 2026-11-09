@@ -72,6 +72,7 @@ constexpr Migration kMigrations[] = {
     {4, "004_pair.sql"},
     {5, "005_device_session.sql"},
     {6, "006_quote.sql"},
+    {7, "007_conversation_flags.sql"},
 };
 
 }  // namespace

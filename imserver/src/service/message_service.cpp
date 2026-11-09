@@ -206,6 +206,14 @@ std::optional<uint64_t> MessageService::mark_read(uint64_t uid, uint64_t peer, u
   return conversations_.read_seq_for(lease, uid, peer);
 }
 
+std::optional<ConversationFlags> MessageService::set_conversation_flags(
+    uint64_t uid, uint64_t peer, std::optional<bool> pinned, std::optional<bool> muted) {
+  auto lease = pool_.acquire();
+  // 会话不存在 = 未配对 / 从没聊过:直接 nullopt,由 HTTP 层回 404。
+  // 判断放在 repo 里(一次等值查询就能拿到 conv_id 与现值),不在这里先 find_pair 再写。
+  return conversations_.set_flags(lease, uid, peer, pinned, muted, now_ms());
+}
+
 std::variant<RevokeResult, int> MessageService::revoke(uint64_t uid, uint64_t msg_id) {
   auto lease = pool_.acquire();
   const auto message = messages_.get(lease, msg_id);

@@ -140,6 +140,30 @@ nlohmann::json message_json_of(const MessageRow& row, UserRepo& users,
   return message_json(row, users.get(row.from_id), signer);
 }
 
+/// 从会话标志位的请求体里取一个**可选**布尔开关(批次 N)。
+///
+/// 「可选」的语义要落在类型上:`nullopt` = 这次请求不改这一项,与 `false` 不同 ——
+/// 用 `false` 当缺省值会把「只改 muted」的请求当成「顺便取消置顶」。
+///
+/// Args:
+///   body: 已解析的请求体(必须是 JSON 对象)。
+///   key: 字段名,`pinned` 或 `muted`。
+///   value: 出参;字段不存在时保持 `nullopt`。
+///
+/// Returns:
+///   字段缺省或类型正确时为 true;字段存在但不是布尔时为 false(调用方回 42201)。
+bool read_flag(const nlohmann::json& body, const char* key, std::optional<bool>& value) {
+  const auto it = body.find(key);
+  if (it == body.end()) {
+    return true;
+  }
+  if (!it->is_boolean()) {
+    return false;
+  }
+  value = it->get<bool>();
+  return true;
+}
+
 }  // namespace
 
 class HttpSession : public std::enable_shared_from_this<HttpSession> {
@@ -474,8 +498,8 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     }
     return internal_route(req, target);
   }
-  if (target.path != "/im/api/conversations" && target.path != "/im/api/messages" &&
-      target.path != "/im/api/search") {
+  if (target.path != "/im/api/conversations" && target.path != "/im/api/conversations/flags" &&
+      target.path != "/im/api/messages" && target.path != "/im/api/search") {
     return error_response(req, http::status::not_found, 40401, "not found");
   }
 
@@ -505,6 +529,10 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
                              // 对端读到哪(0 = 从没读过)。已读回执的离线补拉入口:
                              // 客户端打开会话/重连后靠它把 seq <= peer_read_seq 的我方消息标已读。
                              {"peer_read_seq", view.peer_read_seq},
+                             // 置顶 / 免打扰(批次 N):`pinned` 是布尔,`pinned_at` 不下发 ——
+                             // 客户端只需要知道「排在哪一组」,组内顺序服务端已经排好。
+                             {"pinned", view.pinned_at > 0},
+                             {"muted", view.muted},
                              {"updated_at", view.updated_at}};
       if (view.has_last) {
         item["last_message"] = message_json_of(view.last, messages_.users(), messages_.signer());
@@ -516,6 +544,50 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     response.body() = nlohmann::json{{"items", items}, {"has_more", false}}.dump();
     response.prepare_payload();
     return response;
+  }
+
+  // 会话置顶 / 免打扰(批次 N):**低频写操作走 HTTP,不加 WS 帧** ——
+  // 加帧要三端 fixture 同改(成本 ×3),而这两个开关一天也点不了几次。
+  // 只有 POST 一种方法;两个开关都可选,缺省表示「这一项不改」。
+  if (target.path == "/im/api/conversations/flags") {
+    if (req.method() != http::verb::post) {
+      return error_response(req, http::status::method_not_allowed, 40501, "只支持 POST");
+    }
+    if (!flags_table_.allow(*uid, now_ms)) {
+      return error_response(req, http::status::too_many_requests, 42901,
+                            "操作过于频繁,请稍后再试");
+    }
+    nlohmann::json body;
+    try {
+      body = req.body().empty() ? nlohmann::json::object() : nlohmann::json::parse(req.body());
+    } catch (const std::exception&) {
+      return error_response(req, http::status::bad_request, 42201, "body 不合法");
+    }
+    if (!body.is_object()) {
+      return error_response(req, http::status::bad_request, 42201, "body 不合法");
+    }
+    const auto peer_text = body.contains("peer") && body["peer"].is_string()
+                               ? body["peer"].get<std::string>()
+                               : std::string();
+    const auto peer = parse_peer(peer_text);
+    if (!peer.has_value()) {
+      // 这里用 400 而不是 422:本接口的对外口径见 docs/ops/imserver.md §19
+      // (与 /internal/send 一样,HTTP 状态给 400、业务码仍是 42201)。
+      return error_response(req, http::status::bad_request, 42201, "peer 不合法");
+    }
+    std::optional<bool> pinned;
+    std::optional<bool> muted;
+    if (!read_flag(body, "pinned", pinned) || !read_flag(body, "muted", muted)) {
+      return error_response(req, http::status::bad_request, 42201, "pinned/muted 必须是布尔");
+    }
+    const auto flags = messages_.set_conversation_flags(*uid, *peer, pinned, muted);
+    if (!flags.has_value()) {
+      // 会话不存在 = 未配对 / 从没聊过(口径同 /im/api/messages 的「没有会话就没有历史」)。
+      return error_response(req, http::status::not_found, 40401, "会话不存在");
+    }
+    // 回的是**回读实库**后的真实值,不是回显请求参数:客户端据此刷新本地状态即可。
+    return json_response(req, http::status::ok,
+                         {{"pinned", flags->pinned}, {"muted", flags->muted}});
   }
 
   if (target.path == "/im/api/search") {
