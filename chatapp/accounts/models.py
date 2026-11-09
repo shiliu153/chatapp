@@ -132,6 +132,10 @@ class DeviceSession(models.Model):
         created_at: 首次在该端登录的时间。
         last_active_at: 最近一次在该端登录或刷新令牌的时间(批次 M)。只用于
             「登录设备」列表展示,**不参与鉴权** —— 「在线」仍是账号级 presence。
+        logged_out_at: 该端被「下线」的时间;``None`` = 在用(批次 M 补丁)。**下线
+            是打标记,不是删行** —— 行留着版本号才能保持单调递增,旧令牌才不会因为
+            「行被删了、版本回到默认值」重新变有效。登录设备列表只列
+            ``logged_out_at IS NULL`` 的端(唯一读写入口 ``accounts.device_session``)。
     """
 
     user = models.ForeignKey("accounts.User", on_delete=models.CASCADE,
@@ -141,6 +145,8 @@ class DeviceSession(models.Model):
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
     # 可空:批次 K 之前建的行没有这个值,不给历史数据补写(补写等于谎报活跃时间)
     last_active_at = models.DateTimeField("最后活跃时间", null=True, blank=True)
+    # 可空:None = 该端在用;有值 = 该端已被下线(不再出现在登录设备列表里)
+    logged_out_at = models.DateTimeField("下线时间", null=True, blank=True)
 
     class Meta:
         """约束:一个账号每类端只有一行(同类互顶的数据基础)。"""
