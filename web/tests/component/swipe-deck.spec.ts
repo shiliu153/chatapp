@@ -45,4 +45,27 @@ describe('SwipeDeck', () => {
     await w.find('.swipe-deck__like').trigger('click')
     expect(w.emitted('decide')).toBeUndefined()
   })
+
+  it('额度用完只挡住「喜欢」:「跳过」照常可点', async () => {
+    const w = mount(SwipeDeck, { props: { candidate, likeDisabled: true } })
+
+    expect(w.find('.swipe-deck__like').attributes('disabled')).toBeDefined()
+    expect(w.find('.swipe-deck__like').attributes('aria-label')).toContain('额度已用完')
+
+    await w.find('.swipe-deck__like').trigger('click')
+    expect(w.emitted('decide')).toBeUndefined()
+
+    await w.find('.swipe-deck__pass').trigger('click')
+    expect(w.emitted('decide')).toEqual([['pass']])
+  })
+
+  it('额度用完时方向键也不触发「喜欢」', async () => {
+    const w = mount(SwipeDeck, {
+      props: { candidate, likeDisabled: true },
+      attachTo: document.body,
+    })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
+    expect(w.emitted('decide')).toBeUndefined()
+    w.unmount()
+  })
 })

@@ -120,6 +120,28 @@ export interface MatchSummary {
   shared_tags: Tag[]
 }
 
+/** 撤销滑卡的结果(discovery.md §3.9);失败走 `400` + `40003` 错误信封,不会是 `undone: false`。 */
+export interface SwipeUndoResult {
+  undone: boolean
+  /** 被撤销的那次滑卡的目标账号 ID:按它把卡放回卡堆 */
+  target_user_id: number
+}
+
+/**
+ * 每日喜欢额度(discovery.md §3.10)。
+ *
+ * 额度按自然日(`Asia/Shanghai`)算;`like_limit = 0` 表示不限,此时 `likes_used` 恒为 0、
+ * `likes_remaining` 为 `null` —— 页面据此**整块不显示**额度文案。
+ */
+export interface SwipeQuota {
+  /** 每日喜欢上限,0 = 不限 */
+  like_limit: number
+  /** 今天已用掉的喜欢次数(不限时恒为 0) */
+  likes_used: number
+  /** 今天还剩多少次(不小于 0);不限时为 `null` */
+  likes_remaining: number | null
+}
+
 /** 「喜欢我的人」列表项:公开资料 + 喜欢时间(discovery.md §3.4)。 */
 export interface LikeReceived extends Candidate {
   /** ISO 8601 */

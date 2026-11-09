@@ -37,6 +37,8 @@ import type {
   ProfileVisit,
   PublicProfile,
   ReplyTo,
+  SwipeQuota,
+  SwipeUndoResult,
   Tag,
 } from './types'
 
@@ -57,6 +59,10 @@ export type CandidateUnknown = MustBeNever<UnknownFields<Candidate, Schema<'Cand
 export type MatchSummaryUnknown = MustBeNever<UnknownFields<MatchSummary, Schema<'MatchEntry'>>>
 export type LikeReceivedUnknown = MustBeNever<UnknownFields<LikeReceived, Schema<'LikeReceived'>>>
 export type ProfileVisitUnknown = MustBeNever<UnknownFields<ProfileVisit, Schema<'Visit'>>>
+export type SwipeQuotaUnknown = MustBeNever<UnknownFields<SwipeQuota, Schema<'SwipeQuota'>>>
+export type SwipeUndoResultUnknown = MustBeNever<
+  UnknownFields<SwipeUndoResult, Schema<'SwipeUndo'>>
+>
 export type PostAuthorUnknown = MustBeNever<UnknownFields<PostAuthor, Schema<'AuthorBrief'>>>
 export type PostUnknown = MustBeNever<UnknownFields<Post, Schema<'Post'>>>
 export type ReplyToUnknown = MustBeNever<UnknownFields<ReplyTo, Schema<'ReplyTo'>>>

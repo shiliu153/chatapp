@@ -19,7 +19,14 @@ const card: Candidate = {
 
 const emptyMatches = { count: 0, next_cursor: null, has_more: false, results: [] }
 
-function mountPage() {
+/** 额度默认关闭(like_limit = 0 = 不限),与生产默认一致 */
+const unlimitedQuota = { like_limit: 0, likes_used: 0, likes_remaining: null }
+
+type Quota = { like_limit: number; likes_used: number; likes_remaining: number | null }
+
+function mountPage(quota: Quota = unlimitedQuota) {
+  // 每个用例都会打一次额度对账(页面挂载时),不给 handler 会被 msw 当成未处理请求
+  server.use(mswHttp.get('/api/v1/discovery/quota', () => HttpResponse.json(quota)))
   return mount(DiscoveryPage, {
     global: {
       plugins: [createPinia()],
@@ -105,6 +112,104 @@ describe('DiscoveryPage', () => {
     await flushPromises()
 
     expect(w.find('.match-moment').exists()).toBe(true)
+  })
+
+  it('额度开启时显示「今日还可喜欢 N 次」', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+    )
+    const w = mountPage({ like_limit: 10, likes_used: 7, likes_remaining: 3 })
+    await flushPromises()
+
+    expect(w.text()).toContain('今日还可喜欢 3 次')
+  })
+
+  it('额度不限(like_limit = 0)时整块不显示', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    expect(w.text()).not.toContain('今日还可喜欢')
+  })
+
+  it('滑卡后出现撤销按钮,撤销把卡放回卡堆并提示「已撤销」', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.post('/api/v1/discovery/swipe', () => HttpResponse.json({ matched: false })),
+      mswHttp.post('/api/v1/discovery/swipe/undo', () =>
+        HttpResponse.json({ undone: true, target_user_id: card.user_id }),
+      ),
+    )
+    const w = mountPage()
+    await flushPromises()
+    expect(w.find('.undo-button').exists()).toBe(false) // 还没划过
+
+    await w.find('.swipe-deck__pass').trigger('click')
+    await flushPromises()
+    expect(w.find('.undo-button').exists()).toBe(true)
+    expect(w.find('.app-empty').exists()).toBe(true) // 只有一张卡,划完即空态
+
+    await w.find('.undo-button').trigger('click')
+    await flushPromises()
+
+    expect(w.find('.swipe-deck').exists()).toBe(true) // 卡回来了
+    expect(w.text()).toContain('小雨')
+    expect(w.text()).toContain('已撤销')
+    expect(w.find('.undo-button').exists()).toBe(false) // 撤销后收起
+    w.unmount()
+  })
+
+  it('撤销被拒(40003)时提示「没有可撤销的操作」并收起按钮', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.post('/api/v1/discovery/swipe', () => HttpResponse.json({ matched: false })),
+      mswHttp.post('/api/v1/discovery/swipe/undo', () =>
+        HttpResponse.json(
+          { code: 40003, message: '没有可撤销的滑卡', request_id: 'r' },
+          { status: 400 },
+        ),
+      ),
+    )
+    const w = mountPage()
+    await flushPromises()
+    await w.find('.swipe-deck__pass').trigger('click')
+    await flushPromises()
+
+    await w.find('.undo-button').trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('没有可撤销的操作')
+    expect(w.find('.undo-button').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('额度用完(429 + 42904)时置灰「喜欢」并提示明天再来', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card, card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.post('/api/v1/discovery/swipe', () =>
+        HttpResponse.json(
+          { code: 42904, message: '今天的喜欢次数已用完', request_id: 'r' },
+          { status: 429, headers: { 'Retry-After': '60' } },
+        ),
+      ),
+    )
+    const w = mountPage({ like_limit: 5, likes_used: 4, likes_remaining: 1 })
+    await flushPromises()
+
+    await w.find('.swipe-deck__like').trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('今日喜欢次数已用完,明天再来')
+    expect(w.find('.swipe-deck__like').attributes('disabled')).toBeDefined()
+    expect(w.text()).toContain('今日还可喜欢 0 次')
+    w.unmount()
   })
 
   it('显示喜欢我的人入口与数量', async () => {

@@ -5,8 +5,17 @@ import CandidateCard from './CandidateCard.vue'
 import { swipeDirection } from './swipe'
 
 const props = withDefaults(
-  defineProps<{ candidate: Candidate | null; submitting?: boolean; online?: boolean }>(),
-  { submitting: false, online: false },
+  defineProps<{
+    candidate: Candidate | null
+    submitting?: boolean
+    /**
+     * 「喜欢」被每日额度挡住(discovery.md §3.10:429 + 42904 后按 Retry-After 禁用)。
+     * 只挡 like —— 跳过不消耗额度,永远可点。
+     */
+    likeDisabled?: boolean
+    online?: boolean
+  }>(),
+  { submitting: false, likeDisabled: false, online: false },
 )
 const emit = defineEmits<{ decide: ['like' | 'pass'] }>()
 
@@ -16,6 +25,8 @@ let startX = 0
 
 function decide(action: 'like' | 'pass') {
   if (props.submitting) return
+  // 额度用完只挡「喜欢」:跳过不受限,别把整块操作区锁死
+  if (action === 'like' && props.likeDisabled) return
   emit('decide', action)
 }
 
@@ -94,8 +105,8 @@ const cardStyle = computed(() => ({
       <button
         type="button"
         class="swipe-deck__button swipe-deck__like"
-        aria-label="喜欢"
-        :disabled="props.submitting"
+        :aria-label="props.likeDisabled ? '喜欢(今日额度已用完)' : '喜欢'"
+        :disabled="props.submitting || props.likeDisabled"
         @click="decide('like')"
       >
         ♥
