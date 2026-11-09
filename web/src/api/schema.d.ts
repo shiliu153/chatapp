@@ -439,6 +439,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/discovery/quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 查询每日喜欢额度(GET /api/v1/discovery/quota)。
+         *
+         *     只读一个 Redis 计数,不查库;``like_limit = 0``(不限)时 ``likes_used`` 恒为 0、
+         *     ``likes_remaining`` 为 ``null``,客户端据此决定要不要显示额度文案。
+         *
+         *     Args:
+         *         request: DRF 请求对象。
+         *
+         *     Returns:
+         *         ``{"like_limit": int, "likes_used": int, "likes_remaining": int|null}``。
+         */
+        get: operations["discovery_quota_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/discovery/swipe": {
         parameters: {
             query?: never;
@@ -465,8 +493,48 @@ export interface paths {
          *     Raises:
          *         PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
          *         ValidationError: 划自己,或对方资料不完整。
+         *         SwipeLikeQuotaExceeded: 当日喜欢额度已用完(``429`` + ``42904``)。
          */
         post: operations["discovery_swipe_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discovery/swipe/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description 撤销最近一次滑卡(POST /api/v1/discovery/swipe/undo)。
+         *
+         *     只撤销「**我最近一次**、``UNDO_WINDOW_SECONDS`` 秒内、且**未产生配对**」的滑卡:
+         *
+         *     - 实现是**硬删除**那一条 ``Swipe`` 行 —— 软删除要连带改候选池的 ``NOT EXISTS``
+         *       排除条件(索引与 ``test_query_budget`` 的预算都会被牵动),收益为零;
+         *     - 删完之后该目标会重新出现在 ``GET /discovery/candidates`` 里,所以顺带让本人的
+         *       候选池缓存失效;
+         *     - **已产生配对的滑卡一律不撤销**:回滚 ``Match`` + 解除 IM 拉黑 + 回收两条灰条,
+         *       风险远大于「误划」的收益,因此只给 ``400``;
+         *     - 额度也跟着退回(``quota.refund_like``):撤销意味着「那次操作没有发生」。
+         *
+         *     Args:
+         *         request: DRF 请求对象;无请求体。
+         *
+         *     Returns:
+         *         ``{"undone": true, "target_user_id": <int>}``,被撤销的那次滑卡的目标账号 id。
+         *
+         *     Raises:
+         *         PermissionDenied: 当前账号被轻封禁(与 ``POST /discovery/swipe`` 同口径)。
+         *         SwipeUndoUnavailable: 没有可撤销的滑卡(无记录 / 超过 30 秒 / 已配对),``400`` + ``40003``。
+         */
+        post: operations["discovery_swipe_undo_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2250,6 +2318,19 @@ export interface components {
             is_new_user: boolean;
             user_id: number;
         };
+        /**
+         * @description 每日喜欢额度的响应(批次 O)。
+         *
+         *     ``like_limit = 0`` 表示不限,此时 ``likes_used`` 恒为 0、``likes_remaining`` 为 ``null``。
+         */
+        SwipeQuota: {
+            /** @description 每日喜欢上限,0 = 不限 */
+            like_limit: number;
+            /** @description 今天已用掉的喜欢次数 */
+            likes_used: number;
+            /** @description 今天还剩多少次;不限时为 null */
+            likes_remaining: number | null;
+        };
         /** @description 滑卡入参:目标用户与动作。 */
         SwipeRequest: {
             target_user_id: number;
@@ -2258,6 +2339,17 @@ export interface components {
         SwipeResult: {
             matched: boolean;
             shared_tags: components["schemas"]["Tag"][];
+        };
+        /**
+         * @description 撤销滑卡的响应:撤销结果与被撤销的目标(批次 O)。
+         *
+         *     只用于 ``@extend_schema`` 声明响应形状,视图直接拼字典返回。
+         */
+        SwipeUndo: {
+            /** @description 是否撤销成功;失败走错误信封 */
+            undone: boolean;
+            /** @description 被撤销的那次滑卡的目标账号 ID */
+            target_user_id: number;
         };
         /** @description 标签的对外表示。 */
         Tag: {
@@ -2654,6 +2746,25 @@ export interface operations {
             };
         };
     };
+    discovery_quota_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwipeQuota"];
+                };
+            };
+        };
+    };
     discovery_swipe_create: {
         parameters: {
             query?: never;
@@ -2675,6 +2786,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SwipeResult"];
+                };
+            };
+        };
+    };
+    discovery_swipe_undo_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwipeUndo"];
                 };
             };
         };

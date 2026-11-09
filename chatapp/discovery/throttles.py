@@ -1,7 +1,8 @@
 """滑卡接口的限流。
 
 额度见 ``settings.DEFAULT_THROTTLE_RATES["swipe"]``(300/小时)——
-正常手速远达不到,主要用于挡住脚本刷卡。
+正常手速远达不到,主要用于挡住脚本刷卡。撤销单独占一个 scope(``swipe_undo``):
+它不该和「正常滑卡」抢同一份额度,否则划得多的人会先被撤销卡住。
 """
 
 from rest_framework.throttling import SimpleRateThrottle
@@ -31,6 +32,16 @@ class SwipeThrottle(SimpleRateThrottle):
             该用户在 ``swipe`` 作用域下的缓存键。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
+
+
+class SwipeUndoThrottle(UserScopedThrottle):
+    """按用户限流撤销滑卡;额度见 ``settings.DEFAULT_THROTTLE_RATES["swipe_undo"]``。
+
+    撤销本身只删一行,但它会「让卡片复活」,配合重新滑卡可以无限刷候选池 ——
+    所以单独给一份额度,挡住「撤销—重滑」循环。
+    """
+
+    scope = "swipe_undo"
 
 
 class VisitsThrottle(UserScopedThrottle):

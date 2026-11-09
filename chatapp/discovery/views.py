@@ -8,13 +8,19 @@
     3. **配对是互喜的结果**:只有双方都是 ``like`` 才建 ``Match``,并在事务提交后
        给双方各发一条 IM 灰条;
     4. **解除配对是软删除 + 双向拉黑**:``DELETE /matches/{user_id}`` 只打时间戳,
-       读侧统一过滤 ``unmatched_at__isnull=True``;已解除的配对不会被再次滑卡复活。
+       读侧统一过滤 ``unmatched_at__isnull=True``;已解除的配对不会被再次滑卡复活;
+    5. **撤销滑卡是硬删除**(批次 O):只撤销「最近一次、30 秒内、未产生配对」的记录,
+       删行后该目标重新回到候选池(候选池的 ``NOT EXISTS`` 排除条件一个字没改);
+    6. **每日喜欢额度**(批次 O):``SWIPE_DAILY_LIKE_LIMIT`` 默认 0 = 不限,超限
+       ``429`` + ``42904``;``action=pass`` 与幂等重放不占额度,详见 ``quota.py``。
 
 关联文档:
     - 接口契约:docs/api/discovery.md
 """
 
+import logging
 import random
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -38,19 +44,26 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus, birthday_bo
 from users.serializers import TagSerializer, shared_tags_for_profiles
 from users.services import get_profile
 
+from . import quota
 from .cache_keys import invalidate_candidates
+from .exceptions import SwipeUndoUnavailable
 from .models import Match, Swipe, SwipeAction
-from .serializers import (CandidateSerializer, LikeReceivedSerializer, SwipeSerializer,
-                          VisitSerializer)
+from .serializers import (CandidateSerializer, LikeReceivedSerializer, SwipeQuotaSerializer,
+                          SwipeSerializer, SwipeUndoSerializer, VisitSerializer)
 from .services import (candidate_pool_ids, likes_received_queryset, notify_match,
                        visits_received_queryset)
-from .throttles import (CandidateThrottle, SwipeThrottle, VisitsCountThrottle,
-                        VisitsThrottle)
+from .throttles import (CandidateThrottle, SwipeThrottle, SwipeUndoThrottle,
+                        VisitsCountThrottle, VisitsThrottle)
 
 User = get_user_model()
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 20
+
+# 撤销窗口(秒):前端按钮的倒计时环按同一个数字渲染,docs/api/discovery.md §3.9 有写。
+UNDO_WINDOW_SECONDS = 30
 
 # 配对列表条目:由 ``_match_entry`` 直接拼字典,没有对应序列化器,这里给 schema 用
 MATCH_ENTRY_SCHEMA = inline_serializer("MatchEntry", fields={
@@ -125,6 +138,7 @@ def swipe(request):
     Raises:
         PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
         ValidationError: 划自己,或对方资料不完整。
+        SwipeLikeQuotaExceeded: 当日喜欢额度已用完(``429`` + ``42904``)。
     """
     me = request.user
     serializer = SwipeSerializer(data=request.data)
@@ -143,6 +157,12 @@ def swipe(request):
         raise NotFound("用户不存在")
     if not Profile.objects.filter(user=target, status=ProfileStatus.COMPLETE).exists():
         raise ValidationError("对方资料不完整,无法操作")
+
+    # 每日额度(批次 O):只有「注定会新写一条 like」的请求才占用额度 ——
+    # 幂等重放(这一对我已经划过)与 action=pass 都不计,否则重试与跳过会白吃额度。
+    # 必须在写库之前判断:超限的请求不该留下任何 Swipe 行。
+    if action == SwipeAction.LIKE and not Swipe.objects.filter(swiper=me, target=target).exists():
+        quota.consume_like(me.id)
 
     # 幂等:重复提交保留第一次的动作与结果
     swipe_obj, _ = Swipe.objects.get_or_create(swiper=me, target=target, defaults={"action": action})
@@ -171,6 +191,85 @@ def swipe(request):
     shared_tags = (shared_tags_for_profiles([getattr(target, "profile", None)], me)
                    .get(target.id, []) if matched else [])
     return Response({"matched": matched, "shared_tags": shared_tags})
+
+
+@extend_schema(request=None, responses={200: SwipeUndoSerializer})
+@api_view(["POST"])
+@throttle_classes([SwipeUndoThrottle])
+def swipe_undo(request):
+    """撤销最近一次滑卡(POST /api/v1/discovery/swipe/undo)。
+
+    只撤销「**我最近一次**、``UNDO_WINDOW_SECONDS`` 秒内、且**未产生配对**」的滑卡:
+
+    - 实现是**硬删除**那一条 ``Swipe`` 行 —— 软删除要连带改候选池的 ``NOT EXISTS``
+      排除条件(索引与 ``test_query_budget`` 的预算都会被牵动),收益为零;
+    - 删完之后该目标会重新出现在 ``GET /discovery/candidates`` 里,所以顺带让本人的
+      候选池缓存失效;
+    - **已产生配对的滑卡一律不撤销**:回滚 ``Match`` + 解除 IM 拉黑 + 回收两条灰条,
+      风险远大于「误划」的收益,因此只给 ``400``;
+    - 额度也跟着退回(``quota.refund_like``):撤销意味着「那次操作没有发生」。
+
+    Args:
+        request: DRF 请求对象;无请求体。
+
+    Returns:
+        ``{"undone": true, "target_user_id": <int>}``,被撤销的那次滑卡的目标账号 id。
+
+    Raises:
+        PermissionDenied: 当前账号被轻封禁(与 ``POST /discovery/swipe`` 同口径)。
+        SwipeUndoUnavailable: 没有可撤销的滑卡(无记录 / 超过 30 秒 / 已配对),``400`` + ``40003``。
+    """
+    me = request.user
+    # 与滑卡同口径:轻封禁只禁滑卡,撤销也算滑卡的一部分。
+    if get_profile(me).is_banned:
+        raise PermissionDenied("账号已被限制,暂时无法滑卡")
+
+    # ``Swipe.Meta.ordering`` 是 ``-created_at``,这里补 ``-id`` 兜底:同一微秒内的两条
+    # 记录在 MySQL 里顺序不保证,撤销必须落在「最新那条」上。
+    latest = Swipe.objects.filter(swiper=me).order_by("-created_at", "-id").first()
+    if latest is None:
+        raise SwipeUndoUnavailable("没有可撤销的滑卡")
+    if latest.created_at < timezone.now() - timedelta(seconds=UNDO_WINDOW_SECONDS):
+        raise SwipeUndoUnavailable(f"滑卡已超过 {UNDO_WINDOW_SECONDS} 秒,不能再撤销")
+
+    target_id = latest.target_id
+    if Match.objects.filter(Q(user_a=me, user_b_id=target_id)
+                            | Q(user_b=me, user_a_id=target_id)).exists():
+        # 含已解除的配对:那一对已经建立过关系(灰条、IM 拉黑都发生过),撤销它是另一码事。
+        raise SwipeUndoUnavailable("这条滑卡已经配对成功,不能撤销")
+
+    # 条件删除 + 检查影响行数:并发两次撤销只有一次能删到行,另一次拿到 0 行。
+    deleted, _ = Swipe.objects.filter(pk=latest.pk).delete()
+    if not deleted:
+        raise SwipeUndoUnavailable("没有可撤销的滑卡")
+
+    if latest.action == SwipeAction.LIKE:
+        quota.refund_like(me.id)
+    # 目标重新回到我的候选池:升版本让旧缓存(里面还排除了他)立刻不可达。
+    invalidate_candidates(me.id)
+    logger.info(
+        "swipe_undo uid=%s target=%s action=%s swipe_id=%s",
+        me.id, target_id, latest.action, latest.pk,
+        extra={"user_id": me.id},
+    )
+    return Response({"undone": True, "target_user_id": target_id})
+
+
+@extend_schema(responses={200: SwipeQuotaSerializer})
+@api_view(["GET"])
+def quota_view(request):
+    """查询每日喜欢额度(GET /api/v1/discovery/quota)。
+
+    只读一个 Redis 计数,不查库;``like_limit = 0``(不限)时 ``likes_used`` 恒为 0、
+    ``likes_remaining`` 为 ``null``,客户端据此决定要不要显示额度文案。
+
+    Args:
+        request: DRF 请求对象。
+
+    Returns:
+        ``{"like_limit": int, "likes_used": int, "likes_remaining": int|null}``。
+    """
+    return Response(quota.quota_snapshot(request.user.id))
 
 
 @extend_schema(parameters=cursor_params(),
