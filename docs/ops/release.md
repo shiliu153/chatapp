@@ -90,7 +90,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.9 | 2026-11-07 | `v1.0.9` | [v1.0.9 — 广场关注 + 关注流](https://github.com/shiliu153/chatapp/releases/tag/v1.0.9)(附件 `chatapp-1.0.9.apk`,60,295,070 字节) | `2d32d80` | `chatapp-1.0.9.apk` |
 | 1.0.10 | 2026-11-07 | `v1.0.10` | [v1.0.10 — 聊天贴纸](https://github.com/shiliu153/chatapp/releases/tag/v1.0.10)(附件 `chatapp-1.0.10.apk`,60,603,778 字节,SHA-1 `4b27def409caf26e7ea6ce69bd8bfbc926f2a8ba`) | `892b2b2` | `chatapp-1.0.10.apk` |
 | 1.0.11 | 2026-11-09 | `v1.0.11` | [v1.0.11 — 多端在线 + 输入中状态/引用回复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.11)(附件 `chatapp-1.0.11.apk`,60,767,474 字节,SHA-1 `c8790b2c93a22287c63b26ef4a825596243cc136`) | `919a63a` | `chatapp-1.0.11.apk` |
-| 1.0.12 | 2026-11-09 | `v1.0.12` | 待建:随本次部署创建(材料见 §6.7) | 待定 | `chatapp-1.0.12.apk` |
+| 1.0.12 | 2026-11-09 | `v1.0.12` | [v1.0.12 — 设备管理 / 会话管理 / 滑卡增强 / 使用报告 / 聊天敏感词](https://github.com/shiliu153/chatapp/releases/tag/v1.0.12)(附件 `chatapp-1.0.12.apk`,60,899,154 字节,SHA-1 `e389eaf80f117c1810de95cba226ae38d4460bee`) | `abc6889` | `chatapp-1.0.12.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -705,6 +705,45 @@ App 端 UI 验收待模拟器恢复后补做。**App 端协议能力已被上面
   `JObject isn't a type`。删掉该缓存目录 + `flutter pub get` 重新拉取即恢复 —— 看起来像代码错误,实际是缓存坏了。
 - 升版本号会让 `docs/api/openapi.yml` 的 `info.version` 漂移(由版本号注入),`verify.sh backend` 与 backend 轨都会红:
   必须重生成,不能手改。
+
+## 6.7 v1.0.12 上线实况(2026-11-09 14:36–15:00,批次 M–Q)
+
+**本批同时动 imserver 镜像、两套迁移与双端客户端,顺序是硬要求:先 imserver,再后端,最后客户端。**
+
+- **回滚点(先记录后动手)**:
+  - 代码 `919a63a5`(1.0.11);本批上线 SHA = **`abc6889`**
+  - imserver 镜像 `imserver:919a63a`(仍留在服务器上)
+  - Django `.env` `/www/backup/chatapp-env-1.0.11-20261109-1438.bak`
+  - imserver compose `.env` `/www/backup/imserver-env-1.0.11-20261109-1438.bak`
+  - 旧 Web 前端 `/www/backup/chatapp-web-dist-1.0.11-20261109-1438.tar.gz`(128 KB)
+  - 双库全量:`deploy/ops/chatapp-backup.sh` 现场跑一次 → `backups/db/chatapp-db-20261109-143758.sql.gz`(188K / 39 表)、
+    `chatapp-im-db-20261109-143758.sql.gz`(24K / 8 表),另含 media(1.6M)与配置快照
+- **imserver(先上)**:本地 `docker build -t imserver:abc6889 imserver` → `docker save | gzip -1`(94 MB)→ `scp` →
+  服务器 `gunzip -c | docker load` → `sed` 改 `.env` 的 `IMSERVER_IMAGE=imserver:abc6889` →
+  `docker compose run --rm imserver --migrate`(**迁移 7 `007_conversation_flags.sql` 实际应用**,1–6 `skipped`)→
+  `docker compose up -d` → `internal/healthz` / `internal/readyz` 均 200;
+  启动日志出现 **`sensitive_words_loaded words=26`**(敏感词表生效)。
+- **后端**:`git fetch && git reset --hard abc6889` → `migrate --noinput`
+  (**`accounts.0007_devicesession_last_active_at` + `accounts.0008_devicesession_logged_out_at` 应用**)→
+  `migrate --check` 退出 0 → `collectstatic`(0 复制 / 156 未变)→ supervisor 重启 `chatapp-web` / `chatapp-celery`。
+- **Web**:`npm run build` → `dist` 打包(467 KB)上传 → 旧 `assets` 改名 `assets.old.20261109-1457` → 解包覆盖,
+  `index.html` 646 B 引用 `assets/index-DDyO2vjx.js`。
+- **APK**:`chatapp-1.0.12.apk`(60,899,154 字节,SHA-1 `e389eaf80f117c1810de95cba226ae38d4460bee`)。
+- **`.env` 只改两个键**:`LATEST_APP_VERSION=1.0.12` / `APP_DOWNLOAD_URL=.../chatapp-1.0.12.apk`
+  (**`MIN_APP_VERSION` 保持 1.0.1**),重启 `chatapp-web` 后 `/api/v1/app/config` 返回 1.0.12。
+- **版本号 PR**:#194(三处版本号 + 重生成 openapi + 关于页测试期望同步),合并 SHA `abc6889`。
+
+**冒烟(全绿)**:`/api/v1/app/config` → `latest_version=1.0.12` / `min_app_version=1.0.1`;
+`/health` `/readyz` `/` 均 200;APK `Range: bytes=0-99` → `206`;`/assets/index-DDyO2vjx.js` → 200;
+新接口未鉴权均 `401`(`/api/v1/devices`、`/api/v1/stats/me`、`/api/v1/discovery/quota`)、`/im/api/conversations` → `401`;
+`app.log` 窗口内 **0 个 5xx**。
+
+**踩到的坑**:
+- 升版本号后 **CI 两条轨红了**:`app/test/features/settings/about_page_test.dart` 与
+  `web/tests/component/about-page.spec.ts` 里硬编码的「1.0.11」期望值没跟着改(`sync_version.py` 只同步三处版本号,
+  不管测试)。已补一个提交(同一 PR 内),后续升版本记得一起改这两处。
+- `scripts/create_release.py` 第一次报 `[SSL: UNEXPECTED_EOF_WHILE_READING]`(本机到 `api.github.com` 的 TLS 抖动),
+  重试一次即成功 —— 建 Release 失败先重试,不要立刻改用别的通道。
 
 ## 7. 为什么这条约束值得存在
 
