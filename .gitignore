@@ -33,6 +33,9 @@ app/windows/flutter/
 app/android/key.properties
 *.jks
 
+# --- 发版准备产物(scripts/release_prep.py 生成的 notes 草稿) ---
+.release-notes/
+
 # --- IDE / OS ---
 .idea/
 .vscode/
