@@ -14,14 +14,13 @@
 |---|---|
 | `specs/` | 进行中 / 未启动 / 常驻的设计文档 |
 | `plans/` | 进行中 / 未启动的实施计划 |
-| `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(93 份 = 37 份 spec + 56 份 plan,清单见 §4) |
+| `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(95 份 = 38 份 spec + 57 份 plan,清单见 §4) |
 
-## 2. 当前工作面(6 份)
+## 2. 当前工作面(4 份)
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
-| [specs/2026-11-09-batch-m-q-design.md](specs/2026-11-09-batch-m-q-design.md) + [plans/2026-11-09-batch-m-q.md](plans/2026-11-09-batch-m-q.md) | 进行中(2026-11-09 立项) | 第六轮功能开发五批:**M** 登录设备 / **N** 会话管理三件套(置顶·免打扰·删除) / **O** 滑卡增强(撤销·每日额度) / **P** 使用报告 / **Q** 聊天文字敏感词。共 13 张单,按栈拆分 |
 | [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) + [plans/2026-11-07-superagent-dev-workflow.md](plans/2026-11-07-superagent-dev-workflow.md) | 待实施(P0–P4) | 引入 WSL `dsh-superagent` 后的新开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判。plan 是 P0–P3 的实施计划(流程自身的引导,按约定必须内联做,不派工单) |
 | [specs/2026-11-08-superagent-automation-ladder-design.md](specs/2026-11-08-superagent-automation-ladder-design.md) | 进行中(仅 L2 已实现) | 自动化阶梯 L0–L4:把「人出现在流程里的那几处」逐个换成确定性机制。**L2 白名单自动合已上线;L1(closeout 一条命令)/ L3(模拟器进 CI)/ L4(需求自动入队)未做**,各自单独成单 |
 
@@ -33,8 +32,8 @@
 
 > **悬空引用已消除(2026-11-09)**:K 与 L 的 spec 里那句「第六轮功能开发拆批(K → L → M → N → O)」
 > 当年没有落进 backlog。2026-11-09 已按**主人在 6 个候选中选定 5 项**重新立项为
-> [批次 M–Q](specs/2026-11-09-batch-m-q-design.md)(M 登录设备 / N 会话管理 / O 滑卡增强 / P 使用报告 / Q 敏感词),
-> 与旧引用的字母编号不冲突,旧引用按本条作废。
+> [批次 M–Q](archive/specs/2026-11-09-batch-m-q-design.md)(M 登录设备 / N 会话管理 / O 滑卡增强 / P 使用报告 / Q 敏感词),
+> 与旧引用的字母编号不冲突,旧引用按本条作废。**该批已于同日全部交付并归档**,见 §4。
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。
@@ -47,7 +46,7 @@
 - 交付后在文件末尾写「执行记录 / 与计划的偏差 / 踩到的坑」,**不要**回头补勾旧 checkbox(见 §4 注)
 - 交付即归档:同一提交内 `git mv` 到 `archive/` + 更新本文 §4 + 更新 `CLAUDE.md` 里程碑摘要
 
-## 4. 归档清单(已交付,共 93 份 = 37 份 spec + 56 份 plan)
+## 4. 归档清单(已交付,共 95 份 = 38 份 spec + 57 份 plan)
 
 > **注**:2026-10 之前的计划普遍存在「已交付但 checkbox 未回填」的情况(M0–M2、UI 批次②③、广场楼中楼、自建 IM、账号注销、访客等)。
 > 判断是否交付**以本表结论与 git log 为准**,不要以文件内 checkbox 为准。
@@ -124,6 +123,7 @@
 | 11-08 | [security-round4](archive/plans/2026-11-08-security-round4.md) | — | 第四轮安全审计整改 R4:7 张实现单 + 2 项人侧内联全部落地,只剩 A2「Redis 口令」留人侧未做;已上线 `dfa641d`(纯服务端,不升版本) |
 | 11-08 | [multi-device-session](archive/plans/2026-11-08-multi-device-session.md) | [✓](archive/specs/2026-11-08-multi-device-session-design.md) | 批次 K 多端在线(1 App + 1 Web):端会话版本下沉 `accounts.DeviceSession` / `im_device_session`、imserver 按端注册·扇出·踢人、跨端已读 `self_read`、统一上报 `X-Client`;K-1~K-4 = PR #150/#151/#154/#155。已随 1.0.11 上线 |
 | 11-09 | [typing-and-quote](archive/plans/2026-11-08-typing-and-quote.md) | [✓](archive/specs/2026-11-08-typing-and-quote-design.md) | 批次 L 输入中状态 + 引用回复:`typing` 帧(只发对端、未配对与限流超限一律静默)+ 服务端生成引用快照(`ref_msg_id` / `ref_snapshot`,不信客户端);L-1/L-2 = PR #158/#159。已随 1.0.11 上线(验收结果见 release.md §6.6) |
+| 11-09 | [batch-m-q](archive/plans/2026-11-09-batch-m-q.md) | [✓](archive/specs/2026-11-09-batch-m-q-design.md) | 第六轮功能开发五批全交付:**M** 登录设备(列表 + 单端下线,`DeviceSession.last_active_at` / `logged_out_at`)/ **N** 会话管理三件套(置顶·免打扰·删除,imserver `007` + `/im/api/conversations/flags`)/ **O** 滑卡增强(30 秒撤销 + 每日喜欢额度)/ **P** 使用报告(`GET /stats/me` 七项数字)/ **Q** 聊天文字敏感词(本地词库 + AC 自动机)。15 个 PR:立项 #164、M #168/#189/#180/#174、N #175/#187/#188、O #170/#190/#191、P #169/#181/#186、Q #192;`master` 末次合并 `72589f9`。**未发版**(不升版本号、不打 tag、不部署) |
 
 > 文件名用**立项日期**,与「日期」列的交付日期可能不同(如 `2026-11-04-tencent-im-removal.md` 于 11-08 交付)。
 

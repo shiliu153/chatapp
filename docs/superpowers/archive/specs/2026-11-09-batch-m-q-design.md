@@ -205,7 +205,7 @@ worker 网络修复(宿主代理 LAN 共享或 `netsh portproxy`)**另立事项*
 | 指标(7 项) | 新增配对 / 喜欢给出 / 喜欢收到 / 访客 / 动态数 / 动态获赞 / 新粉丝 | 全部在 Django 库内,单库聚合 |
 | **不含消息数** | 消息在 IM 库,要 imserver 加统计接口 —— 本轮不做,写进「后续」 | 跨栈成本大于价值 |
 | 接口 | `GET /api/v1/stats/me?period=week|month|year`(默认 `week`) | 一次返回全部数字 |
-| 时间口径 | 自然周(周一起)/ 自然月 / 自然年,`Asia/Shanghai` | 与运营日报同口径 |
+| 时间口径 | 自然周(周一起)/ 自然月 / 自然年,`Asia/Shanghai` | 与运营日报同口径。**注意**:工单初稿举的 `2026-11-03 ~ 2026-11-09` 是滚动 7 天的形状,与本条自相矛盾,已作废;以文字规则为准(2026-11-09 是周一,本周应为 `2026-11-09 ~ 2026-11-15`) |
 | 性能 | 7 条 `count()`,依赖既有 `(user, created_at)` 类索引;查询数预算 ≤ 8 | 量级小 |
 | 缓存 | 不加 | 一次 7 条 count 可接受 |
 | 文档 | 新分册 `docs/api/stats.md` + `docs/api/README.md` 索引 + openapi + `schema.d.ts` | `ApiDocsCoverageTests` 双向门禁 |
