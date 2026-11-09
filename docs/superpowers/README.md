@@ -16,10 +16,11 @@
 | `plans/` | 进行中 / 未启动的实施计划 |
 | `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(95 份 = 38 份 spec + 57 份 plan,清单见 §4) |
 
-## 2. 当前工作面(4 份)
+## 2. 当前工作面(5 份)
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
+| [specs/2026-11-09-batch-r-w-design.md](specs/2026-11-09-batch-r-w-design.md) | **进行中(已定稿)** | 第七轮功能开发 R–W 六批:语音自我介绍 / 发现筛选+精选 / 聊天打磨 / 广场点赞列表+收藏 / 运营看板 / 发版自动化。顺序 W→R→S→U→V→T,主人已授权「每批自行验收后直接合并」,发版留给主人 |
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
 | [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) + [plans/2026-11-07-superagent-dev-workflow.md](plans/2026-11-07-superagent-dev-workflow.md) | 待实施(P0–P4) | 引入 WSL `dsh-superagent` 后的新开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判。plan 是 P0–P3 的实施计划(流程自身的引导,按约定必须内联做,不派工单) |
 | [specs/2026-11-08-superagent-automation-ladder-design.md](specs/2026-11-08-superagent-automation-ladder-design.md) | 进行中(仅 L2 已实现) | 自动化阶梯 L0–L4:把「人出现在流程里的那几处」逐个换成确定性机制。**L2 白名单自动合已上线;L1(closeout 一条命令)/ L3(模拟器进 CI)/ L4(需求自动入队)未做**,各自单独成单 |
