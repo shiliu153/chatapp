@@ -175,7 +175,11 @@ const quoteText = computed(() => {
           :local-file="props.localFile"
           @open="$emit('openImage', props.message)"
         />
-        <MessageVoice v-else-if="isVoice" :message="props.message" />
+        <MessageVoice
+          v-else-if="isVoice"
+          :url="props.message.voiceUrl ?? null"
+          :duration-ms="props.message.voiceDurationMs ?? 0"
+        />
         <span v-else-if="isUnsupported" class="message-bubble__text">[暂不支持的消息类型]</span>
         <span v-else class="message-bubble__text">{{ props.message.text }}</span>
 

@@ -67,6 +67,21 @@ export const useProfileStore = defineStore('profile', () => {
     if (profile.value) profile.value.preference = preference
   }
 
+  /**
+   * 上传/覆盖语音自我介绍。后端是覆盖式的,所以成功后直接替换本地 `voice`,
+   * 不需要先删旧的(旧文件由服务端删)。
+   */
+  async function uploadVoice(blob: Blob): Promise<void> {
+    const voice = await usersApi.uploadProfileVoice(blob)
+    if (profile.value) profile.value.voice = voice
+  }
+
+  /** 删除语音自我介绍(幂等;成功后本地置 null,页面据此隐藏播放条)。 */
+  async function removeVoice(): Promise<void> {
+    await usersApi.deleteProfileVoice()
+    if (profile.value) profile.value.voice = null
+  }
+
   return {
     profile,
     tags,
@@ -82,5 +97,7 @@ export const useProfileStore = defineStore('profile', () => {
     uploadPhoto,
     removePhoto,
     savePreference,
+    uploadVoice,
+    removeVoice,
   }
 })

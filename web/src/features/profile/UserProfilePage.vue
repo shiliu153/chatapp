@@ -7,10 +7,12 @@ import AppAvatar from '@/components/AppAvatar.vue'
 import AppButton from '@/components/AppButton.vue'
 import AppCard from '@/components/AppCard.vue'
 import OnlineDot from '@/components/OnlineDot.vue'
+import MessageVoice from '@/features/chat/MessageVoice.vue'
 import ReportDialog from '@/features/moderation/ReportDialog.vue'
 import { useFollowingFeedStore } from '@/stores/feed'
 import { usePresenceStore } from '@/stores/presence'
 import type { PublicProfile, ReportType } from '@/api/types'
+import { PROFILE_VOICE_MAX_SECONDS } from './voiceIntro'
 
 const props = defineProps<{ id: string }>()
 
@@ -130,6 +132,15 @@ async function onBlock() {
           {{ tag.name }}
         </span>
       </div>
+      <!-- 语音自我介绍是公开的;没录过(voice == null)时整块不渲染,不留空占位 -->
+      <div v-if="profile.voice" class="user-profile__voice">
+        <span class="user-profile__voice-label">语音自我介绍</span>
+        <MessageVoice
+          :url="profile.voice.url"
+          :duration-ms="profile.voice.duration_ms"
+          :max-seconds="PROFILE_VOICE_MAX_SECONDS"
+        />
+      </div>
       <div class="user-profile__photos">
         <img
           v-for="photo in profile.photos"
@@ -216,6 +227,19 @@ async function onBlock() {
   border-radius: var(--radius-full);
   background: var(--color-bg-page);
   font-size: var(--text-caption);
+}
+.user-profile__voice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-input);
+  background: var(--color-bg-page);
+}
+.user-profile__voice-label {
+  font-size: var(--text-caption);
+  color: var(--color-text2);
 }
 .user-profile__photos {
   display: grid;

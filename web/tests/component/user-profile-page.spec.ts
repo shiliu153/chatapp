@@ -5,6 +5,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import UserProfilePage from '@/features/profile/UserProfilePage.vue'
 import { server } from '../support/server'
 
+/** 播放走全局单例,这里只验「点了会把 voice.url 送进播放器」 */
+const playVoice = vi.fn((_url: string, onEnd: () => void) => onEnd())
+
+vi.mock('@/im/voicePlayer', () => ({
+  playVoice: (url: string, onEnd: () => void) => playVoice(url, onEnd),
+  stopVoice: () => {},
+}))
+
 const profile = {
   user_id: 8,
   nickname: '小雨',
@@ -15,6 +23,7 @@ const profile = {
   tags: [{ id: 1, name: '旅行', icon: 'plane' }],
   photos: [{ id: 1, url: 'https://cdn/a.jpg', status: 'approved', order: 0 }],
   shared_tags: [],
+  voice: null,
   is_followed: false,
   follower_count: 3,
   following_count: 5,
@@ -37,6 +46,38 @@ describe('UserProfilePage', () => {
 
     expect(w.text()).toContain('小雨')
     expect(w.text()).toContain('喜欢爬山')
+  })
+
+  it('没录过语音时整块不渲染(voice == null 不留空占位)', async () => {
+    server.use(mswHttp.get('/api/v1/users/8', () => HttpResponse.json(profile)))
+    const w = mountPage()
+    await flushPromises()
+
+    expect(w.find('.user-profile__voice').exists()).toBe(false)
+  })
+
+  it('有语音时渲染播放条,点了播放公开的 voice.url(不拼 API_BASE)', async () => {
+    playVoice.mockClear()
+    server.use(
+      mswHttp.get('/api/v1/users/8', () =>
+        HttpResponse.json({
+          ...profile,
+          voice: { url: 'https://cdn.example.com/media/voices/abc.m4a', duration_ms: 12_400 },
+        }),
+      ),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    expect(w.find('.user-profile__voice').exists()).toBe(true)
+    expect(w.text()).toContain('语音自我介绍')
+    expect(w.text()).toContain('12″')
+
+    await w.find('.user-profile__voice button').trigger('click')
+    expect(playVoice).toHaveBeenCalledWith(
+      'https://cdn.example.com/media/voices/abc.m4a',
+      expect.any(Function),
+    )
   })
 
   it('404(已拉黑/重封禁)展示不可见提示且不重试', async () => {
