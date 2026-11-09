@@ -20,6 +20,9 @@ on:
 #
 # 与 app.yml 分工:app.yml 管静态检查 + 单元/组件测试(假网络),不需要模拟器;
 # 本轨只在模拟器上跑 integration_test(真 App、真插件)。
+#
+# 2026-11-08 加固:Gradle 依赖走缓存 + 预热带退避重试,专门防「上游 504 把这条轨
+# 打成假红」。来龙去脉见下方两个 step 的注释,别把缓存/预热当成可以随手删的优化。
 jobs:
   smoke:
     name: app-ui
@@ -69,6 +72,48 @@ jobs:
             echo "keyPassword=cipass"
           } > key.properties
           echo "已生成 app/android/key.properties(指向一次性 keystore)"
+
+      # ── 抗上游抖动(2026-11-08 加固)────────────────────────────────────────────
+      # 背景:2026-11-08 这条轨连着红了三次,根因**不是代码也不是配置**,而是
+      # `kotlin-compiler-embeddable-2.2.21.jar` 从 repo.maven.apache.org 拉取时被
+      # 重定向到 github.com/JetBrains/kotlin/releases 并吃到 **504 Gateway Time-out**;
+      # 同一份代码 8 分钟后重跑就绿。Flutter 自带的「Retrying Gradle Build」只等 100ms,
+      # 等于没有重试。而且 Flutter SDK 自带的 gradle 插件(settings.gradle.kts 只声明
+      # google()+mavenCentral())绕不过我们仓库里配的阿里云镜像,只能走国际链路。
+      #
+      # 两道保险:
+      #   ① 缓存 `~/.gradle/caches/modules-2`(下载产物)+ `~/.gradle/wrapper/dists`
+      #      (gradle-9.3.1 发行包):**一次成功后 jar 就留在缓存里**,后续 run 不再重下;
+      #   ② 在模拟器之外先跑一遍 debug 构建,失败退避重试 3 次 —— 抖动时在这里重试,
+      #      而不是让整条轨在模拟器里红掉。
+      # key 只跟「会改变依赖图」的文件走;restore-keys 保证换 key 时仍能吃到旧缓存
+      # (缓存条目本身不可变,命中旧 key 时 Gradle 只会补下缺的那几个 artifact)。
+      - name: 缓存 Gradle 依赖与 wrapper 发行包
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/android/gradle/wrapper/gradle-wrapper.properties', 'app/android/settings.gradle.kts', 'app/android/build.gradle.kts', 'app/android/app/build.gradle.kts', 'app/pubspec.lock') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # 预热:把 assembleDebug 依赖的整条链(app 的依赖图 + Flutter 自带 gradle 插件
+      # 那个 includeBuild 的 Kotlin 编译器)先拉齐并落进缓存。失败退避重试 3 次。
+      # 这一遍构建同时让后面模拟器里的 assembleDebug 变成增量构建。
+      - name: 预热 Gradle 依赖(失败退避重试,抗上游 504)
+        working-directory: app
+        run: |
+          for attempt in 1 2 3; do
+            if flutter build apk --debug --dart-define=API_BASE=http://127.0.0.1:1/api/v1; then
+              echo "Gradle 预热成功(第 ${attempt} 次)"
+              exit 0
+            fi
+            echo "::warning title=Gradle 预热失败::第 ${attempt}/3 次失败,等待 $((attempt * 30))s 后重试"
+            sleep $((attempt * 30))
+          done
+          echo "::error title=Gradle 预热失败::连续 3 次失败 —— 按上游不可用处理,不要当代码红去查"
+          exit 1
 
       # script 必须是**单行**:android-emulator-runner 逐行 `sh -c` 执行 script
       # (每行一个独立进程),所以续行 `\`、跨行 `set -e`、`$?`/重定向都会失效 ——
