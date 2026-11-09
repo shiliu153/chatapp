@@ -2105,6 +2105,83 @@ paths:
               schema:
                 $ref: '#/components/schemas/Preference'
           description: ''
+  /api/v1/users/me/voice:
+    post:
+      operationId: users_me_voice_create
+      description: |-
+        资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
+
+        POST 是**覆盖式**的:一个账号只有一条语音,重复上传替换内容并删掉旧文件。
+        处理顺序刻意写成「转码 → 时长 → 配额 → 落盘」:
+
+        1. 转码与时长校验都在临时目录里完成,不碰媒体目录;
+        2. **配额检查必须在 ``file.save()`` 之前** —— ``FileField.save`` 会立即把文件写进
+           存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
+        3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
+
+        Args:
+            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+
+        Returns:
+            POST 201 + ``{url, duration_ms}``(``url`` 为限时签名绝对地址);
+            DELETE 幂等 204(没有语音时也返回 204)。
+
+        Raises:
+            serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
+            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+      tags:
+      - users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileVoiceUploadRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProfileVoiceUploadRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProfileVoiceUploadRequest'
+        required: true
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileVoice'
+          description: ''
+    delete:
+      operationId: users_me_voice_destroy
+      description: |-
+        资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
+
+        POST 是**覆盖式**的:一个账号只有一条语音,重复上传替换内容并删掉旧文件。
+        处理顺序刻意写成「转码 → 时长 → 配额 → 落盘」:
+
+        1. 转码与时长校验都在临时目录里完成,不碰媒体目录;
+        2. **配额检查必须在 ``file.save()`` 之前** —— ``FileField.save`` 会立即把文件写进
+           存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
+        3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
+
+        Args:
+            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+
+        Returns:
+            POST 201 + ``{url, duration_ms}``(``url`` 为限时签名绝对地址);
+            DELETE 幂等 204(没有语音时也返回 204)。
+
+        Raises:
+            serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
+            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/users/tags:
     get:
       operationId: users_tags_list
@@ -3292,6 +3369,11 @@ components:
         visits_hidden:
           type: boolean
           title: 隐身浏览
+        voice:
+          allOf:
+          - $ref: '#/components/schemas/ProfileVoice'
+          nullable: true
+          readOnly: true
       required:
       - age
       - id
@@ -3301,6 +3383,7 @@ components:
       - preference
       - tags
       - user_id
+      - voice
     ProfileStatusEnum:
       enum:
       - incomplete
@@ -3313,6 +3396,35 @@ components:
         * `complete` - 已完善
         * `banned_light` - 轻度封禁
         * `banned_heavy` - 重度封禁
+    ProfileVoice:
+      type: object
+      description: 资料语音的只读表示(嵌套在资料里,同时也是上传接口的响应体)。
+      properties:
+        url:
+          type: string
+          readOnly: true
+        duration_ms:
+          type: integer
+          maximum: 4294967295
+          minimum: 0
+          format: int64
+          title: 时长(毫秒)
+      required:
+      - duration_ms
+      - url
+    ProfileVoiceUploadRequest:
+      type: object
+      description: |-
+        资料语音上传入参(multipart 字段 ``file``)。
+
+        时长不靠客户端声明:服务端用 ``ffprobe`` 实测(见 ``users.views.my_voice``),
+        所以这里只校验大小与容器格式。
+      properties:
+        file:
+          type: string
+          format: binary
+      required:
+      - file
     PublicProfile:
       type: object
       description: |-
@@ -3363,6 +3475,11 @@ components:
           items:
             $ref: '#/components/schemas/Photo'
           readOnly: true
+        voice:
+          allOf:
+          - $ref: '#/components/schemas/ProfileVoice'
+          nullable: true
+          readOnly: true
         is_followed:
           type: boolean
           readOnly: true
@@ -3381,6 +3498,7 @@ components:
       - shared_tags
       - tags
       - user_id
+      - voice
     PushPreference:
       type: object
       description: |-

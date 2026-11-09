@@ -51,7 +51,8 @@ def quota_limit_bytes() -> int:
 def usage_bytes(user_id: int) -> int:
     """统计一个账号已占用的媒体字节数。
 
-    口径与上传入口一致:资料图 + 广场图 + 未过期的聊天图 + 未过期的聊天语音。
+    口径与上传入口一致:资料图 + 广场图 + 未过期的聊天图 + 未过期的聊天语音 +
+    资料语音自我介绍(一人一条,无过期概念)。
     已删除/已过期清理的行不计入(文件已经不在磁盘上)。
 
     Args:
@@ -63,7 +64,7 @@ def usage_bytes(user_id: int) -> int:
     # 局部导入:本模块被多个 app 的 views 引用,模块级导入模型容易形成循环依赖
     from feed.models import PostImage
     from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
-    from users.models import Photo
+    from users.models import Photo, ProfileVoice
 
     total = 0
     total += Photo.objects.filter(user_id=user_id).aggregate(
@@ -75,6 +76,9 @@ def usage_bytes(user_id: int) -> int:
         value=Sum("bytes"))["value"] or 0
     total += ChatVoice.objects.filter(
         owner_id=user_id, status=ChatVoiceStatus.VISIBLE).aggregate(
+        value=Sum("bytes"))["value"] or 0
+    # 第五类:资料语音自我介绍(批次 R),一人一条,没有「已删除」状态一说
+    total += ProfileVoice.objects.filter(profile__user_id=user_id).aggregate(
         value=Sum("bytes"))["value"] or 0
     return total
 

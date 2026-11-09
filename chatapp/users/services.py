@@ -24,7 +24,8 @@ from accounts.device_session import CLIENT_TYPES
 from im import tasks as im_tasks
 
 from . import presence
-from .models import Photo, PhotoStatus, Preference, Profile, ProfileStatus, ProfileVisit
+from .models import (Photo, PhotoStatus, Preference, Profile, ProfileStatus, ProfileVisit,
+                     ProfileVoice)
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +227,8 @@ def delete_account(user) -> None:
     file_names += list(ChatImage.objects.filter(owner=user).values_list("file", flat=True))
     file_names += list(ChatImage.objects.filter(owner=user).values_list("thumb", flat=True))
     file_names += list(ChatVoice.objects.filter(owner=user).values_list("file", flat=True))
+    file_names += list(ProfileVoice.objects.filter(profile__user=user)
+                       .values_list("file", flat=True))
     user_id = user.id
     im_user_id = user.im_user_id
 

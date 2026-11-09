@@ -21,6 +21,7 @@ urlpatterns = [
     path("me", views.me),
     path("me/photos", views.upload_photo),
     path("me/photos/<int:photo_id>", views.delete_photo),
+    path("me/voice", views.my_voice),
     path("me/preference", views.my_preference),
     path("tags", views.tag_list),
     path("<int:user_id>/follow", feed_views.follow_user),
