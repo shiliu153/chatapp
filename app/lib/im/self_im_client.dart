@@ -379,6 +379,10 @@ class SelfImClient extends ImClient {
         lastMessage: last is Map<String, dynamic> ? _messageFromJson(last) : null,
         // 已读回执的**离线补拉**入口:断线期间对方读过什么,重连后靠这个字段算。
         peerReadSeq: (item['peer_read_seq'] as num?)?.toInt() ?? 0,
+        // 批次 N:置顶 / 免打扰。老 imserver 没有这两个字段 → 一律按 false 兜底,
+        // 所以这里必须容忍 null(不能写 `as bool`)。
+        pinned: item['pinned'] == true,
+        muted: item['muted'] == true,
       );
     }).toList();
   }
@@ -461,6 +465,18 @@ class SelfImClient extends ImClient {
 
   @override
   Future<void> deleteMessage(ChatMessage message) async {}
+
+  @override
+  Future<ImConversationFlags> setConversationFlags(String peerId,
+      {bool? pinned, bool? muted}) async {
+    // 只上行要改的那一项:另一项缺省 = 不改(服务端不会把它当成 false)。
+    final data = await _http!.post('/conversations/flags', {
+      'peer': peerId,
+      'pinned': ?pinned,
+      'muted': ?muted,
+    });
+    return ImConversationFlags.fromJson(data);
+  }
 
   @override
   Future<void> deleteConversation(String peerId) async {

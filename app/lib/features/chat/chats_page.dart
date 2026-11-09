@@ -19,6 +19,7 @@ import '../../im/im_repository.dart';
 import '../presence/models.dart';
 import '../presence/presence_controller.dart';
 import '../notifications/notifications_page.dart';
+import 'conversation_actions.dart';
 import 'conversations_controller.dart';
 import 'match_cache.dart';
 import 'widgets/chat_bubbles_mark.dart';
@@ -119,6 +120,12 @@ class _ConversationList extends ConsumerWidget {
           if (uid != null) ids.add(uid);
         }
         ref.read(presenceProvider.notifier).track('chats', ids);
+        // 置顶分组(批次 N):顺序由服务端排好(`pinned_at` 倒序在前),客户端只数
+        // 出「最前面有几个置顶的」用来插分组标题,绝不自己再排一遍。
+        var pinnedCount = 0;
+        while (pinnedCount < others.length && others[pinnedCount].pinned) {
+          pinnedCount++;
+        }
         return Column(
           children: [
             if (others.isNotEmpty)
@@ -131,10 +138,16 @@ class _ConversationList extends ConsumerWidget {
                     Container(height: AppSpacing.sm, color: colors.bgPage),
                   ],
                   for (var i = 0; i < others.length; i++) ...[
+                    if (i == 0 && pinnedCount > 0)
+                      const _GroupHeader(key: Key('chats.groupHeader.pinned'), label: '置顶'),
                     if (i > 0)
                       Divider(height: 1, thickness: 1, color: colors.divider),
                     _ConversationTile(
-                        conversation: others[i], cache: cache, presenceById: presenceById),
+                      conversation: others[i],
+                      cache: cache,
+                      presenceById: presenceById,
+                      onLongPress: () => showConversationActions(context, ref, others[i]),
+                    ),
                   ],
                 ],
               ),
@@ -250,18 +263,25 @@ class _SystemNoticeTile extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: AppText.caption.copyWith(color: colors.text2)),
-      trailing: _TimeBadge(last: last, unread: conversation.unreadCount),
+      trailing: _TimeBadge(
+          last: last, unread: conversation.unreadCount, muted: false, peerId: conversation.peerId),
     );
   }
 }
 
 class _ConversationTile extends StatelessWidget {
   const _ConversationTile(
-      {required this.conversation, required this.cache, required this.presenceById});
+      {required this.conversation,
+      required this.cache,
+      required this.presenceById,
+      required this.onLongPress});
 
   final ImConversation conversation;
   final Map<String, MatchEntry> cache;
   final Map<int, Presence> presenceById;
+
+  /// 长按 → 置顶 / 免打扰 / 删除会话(批次 N,见 conversation_actions.dart)。
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -273,30 +293,74 @@ class _ConversationTile extends StatelessWidget {
     return ListTile(
       key: Key('chats.tile:${conversation.peerId}'),
       onTap: () => context.push('/chat/${conversation.peerId}'),
+      onLongPress: onLongPress,
       leading: AppAvatar(
           imageUrl: avatar, size: 48, showOnlineDot: online, fallbackText: name),
-      title: Text(name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppText.subtitle.copyWith(color: colors.text1)),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.subtitle.copyWith(color: colors.text1)),
+          ),
+          // 免打扰标记(批次 N):声音关掉了,用静音铃铛代替「有声音」的暗示。
+          if (conversation.muted) ...[
+            const SizedBox(width: AppSpacing.xs),
+            Icon(Icons.notifications_off_rounded,
+                key: Key('chats.muted:${conversation.peerId}'),
+                size: 16,
+                color: colors.text3),
+          ],
+        ],
+      ),
       subtitle: Text(_previewOf(conversation.lastMessage),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: AppText.caption.copyWith(color: colors.text2)),
-      trailing: _TimeBadge(last: conversation.lastMessage, unread: conversation.unreadCount),
+      trailing: _TimeBadge(
+        last: conversation.lastMessage,
+        unread: conversation.unreadCount,
+        muted: conversation.muted,
+        peerId: conversation.peerId,
+      ),
+    );
+  }
+}
+
+/// 分组标题(批次 N「置顶」组):13/w600 `text2`,贴左,不用卡片底。
+class _GroupHeader extends StatelessWidget {
+  const _GroupHeader({super.key, required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.pageH, AppSpacing.md, AppSpacing.pageH, AppSpacing.xs),
+      child: Text(label,
+          style: AppText.caption
+              .copyWith(color: colors.text2, fontWeight: FontWeight.w600)),
     );
   }
 }
 
 class _TimeBadge extends StatelessWidget {
-  const _TimeBadge({required this.last, required this.unread});
+  const _TimeBadge(
+      {required this.last, required this.unread, required this.muted, required this.peerId});
 
   final ChatMessage? last;
   final int unread;
+  final bool muted;
+  final String peerId;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.heart;
+    // 免打扰的未读只给灰点(批次 N):不显示数字,避免用户以为要立刻处理。
+    final showDot = muted && unread > 0;
     return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
@@ -307,9 +371,29 @@ class _TimeBadge extends StatelessWidget {
               style: AppText.micro.copyWith(color: colors.text3),
             ),
           const SizedBox(height: AppSpacing.xs),
-          AppBadge(count: unread),
+          if (showDot)
+            _MutedDot(key: Key('chats.mutedDot:$peerId'))
+          else
+            AppBadge(count: unread),
         ],
       );
+  }
+}
+
+/// 免打扰会话的未读灰点:直径 8(§5.3 小场景在线点同档),`text3` 实心圆。
+class _MutedDot extends StatelessWidget {
+  const _MutedDot({super.key});
+
+  static const _diameter = 8.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
+      width: _diameter,
+      height: _diameter,
+      decoration: BoxDecoration(color: colors.text3, shape: BoxShape.circle),
+    );
   }
 }
 
