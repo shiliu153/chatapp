@@ -16,11 +16,12 @@
 | `plans/` | 进行中 / 未启动的实施计划 |
 | `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(93 份 = 37 份 spec + 56 份 plan,清单见 §4) |
 
-## 2. 当前工作面(4 份)
+## 2. 当前工作面(6 份)
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
+| [specs/2026-11-09-batch-m-q-design.md](specs/2026-11-09-batch-m-q-design.md) + [plans/2026-11-09-batch-m-q.md](plans/2026-11-09-batch-m-q.md) | 进行中(2026-11-09 立项) | 第六轮功能开发五批:**M** 登录设备 / **N** 会话管理三件套(置顶·免打扰·删除) / **O** 滑卡增强(撤销·每日额度) / **P** 使用报告 / **Q** 聊天文字敏感词。共 13 张单,按栈拆分 |
 | [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) + [plans/2026-11-07-superagent-dev-workflow.md](plans/2026-11-07-superagent-dev-workflow.md) | 待实施(P0–P4) | 引入 WSL `dsh-superagent` 后的新开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判。plan 是 P0–P3 的实施计划(流程自身的引导,按约定必须内联做,不派工单) |
 | [specs/2026-11-08-superagent-automation-ladder-design.md](specs/2026-11-08-superagent-automation-ladder-design.md) | 进行中(仅 L2 已实现) | 自动化阶梯 L0–L4:把「人出现在流程里的那几处」逐个换成确定性机制。**L2 白名单自动合已上线;L1(closeout 一条命令)/ L3(模拟器进 CI)/ L4(需求自动入队)未做**,各自单独成单 |
 
@@ -30,9 +31,10 @@
 已于 2026-11-09 归档**(K-1~K-4 / L-1~L-2 全部合并进 `master`,已随 **1.0.11** 上线(2026-11-09)),
 第四轮安全审计整改 plan 一并归档(其自身状态即「已实施 / 已合并」)。
 
-> **悬空引用提醒(2026-11-09 核实)**:K 与 L 的 spec 都写着「第六轮功能开发拆批(K → L → M → N → O)」,
-> 但**这个拆批从未落进 [`docs/backlog/`](../backlog/2026-11-03-todo.md)**(`git log -S'第六轮'` 无痕迹),
-> **M / N / O 三批至今未立项**。下一轮要做什么,须先把这个拆批补进 backlog 或重新拍板,不要凭引用推断。
+> **悬空引用已消除(2026-11-09)**:K 与 L 的 spec 里那句「第六轮功能开发拆批(K → L → M → N → O)」
+> 当年没有落进 backlog。2026-11-09 已按**主人在 6 个候选中选定 5 项**重新立项为
+> [批次 M–Q](specs/2026-11-09-batch-m-q-design.md)(M 登录设备 / N 会话管理 / O 滑卡增强 / P 使用报告 / Q 敏感词),
+> 与旧引用的字母编号不冲突,旧引用按本条作废。
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。
