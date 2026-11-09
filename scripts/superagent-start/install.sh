@@ -31,6 +31,13 @@ fi
 bash -n "$DEST" || { echo "错误:语法检查没过" >&2; exit 1; }
 echo "[install] 语法检查通过"
 
+# 派单前的守门脚本装到固定路径,供 Windows 侧的 ensure-running.ps1 调用。
+# 为什么不用母体里的路径:母体要人工 pull 才更新,而「派单前确认在跑」这件事
+# 恰恰是在母体可能还没同步的时候最需要 —— 不能让它依赖 pull。
+install -m 755 "$(dirname "$0")/ensure-running.sh" /root/ensure-superagent.sh
+bash -n /root/ensure-superagent.sh || { echo "错误:ensure-running.sh 语法检查没过" >&2; exit 1; }
+echo "[install] 已部署 /root/ensure-superagent.sh"
+
 cat <<'EOF'
 
 下一步(会打断在飞的工单,自己挑时机):

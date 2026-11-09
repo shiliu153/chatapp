@@ -52,6 +52,22 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
 
 ## 4. 一次工单的完整闭环(人工部分)
 
+**第 0 步(强制):派单前确认 WSL 与 superagent 在跑。**
+
+派单动作是「在 issue 里评论 `@shiliu655`」,而读评论的 superagent 跑在 WSL 里。
+WSL 没起来时那条评论**不会有人读** —— 单子看起来派了、实际在空转,和下面 §4.1
+记的「静默丢单」长得一模一样。所以每次派单前先跑:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running.ps1
+```
+
+退出码 `0` = 可以派单;`1` = 拉不起来,别派。它会自动拉起 WSL(冷启动实测 ~20s)、
+清掉 WSL 被强杀留下的 stale 锁、等到 superagent 能接单,并顺带报告出口代理 /
+模型兜底 / docker 是否就绪。细节与实测见 §13。
+
+然后才是:
+
 1. 面板 / issue 收到「PR #N 就绪」→ 评审 diff(它只是「就绪」,不等于可合)。
 2. 碰 `app/` 的:PR 应为 draft → 拉分支到 Windows → 装模拟器 → 逐页手测截图 → 贴进 PR → 勾模板第 4 项。
 3. CI 六轨绿 → **squash 合并** → 删分支。
@@ -472,3 +488,90 @@ systemctl disable --now superagent-proxy superagent-proxy-refresh.timer
 
 `start-superagent.sh` 探测不到 7890 会自动回退宿主 7897,等于回到改造前,**不用改脚本、不用重启**。
 要连启动脚本一起回退:`ls -1 /root/start-superagent.sh.bak-*` 找最近那份 `cp -a` 回去。
+
+## 13. 派单前守门:WSL 没起来先拉起(2026-11-09 起)
+
+### 13.1 为什么要有这一步
+
+派工单 = 在 issue 里评论 `@shiliu655`。**评论是发到 GitHub 上的,不需要 WSL 在跑;
+但读评论的 superagent 跑在 WSL 里。** 于是 WSL 没起来时会出现最坏的组合:
+
+- issue 里评论正常发出去,看起来一切正常;
+- 没人读它,`work/` 一直空;
+- `status` 也查不了(它本身就在 WSL 里);
+- 等 WSL 起来后,那条评论还可能因为「早于上一轮通知游标」被 `fresh()` 过滤掉(§4.1),
+  **永久丢失且没有任何错误日志**。
+
+所以规矩是:**派单前先确认这一环**,一条命令:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running.ps1
+# 退出码 0 = 可以派单;1 = 别派
+```
+
+它做三件事:探测 WSL(短超时)→ 冷状态就显式拉起 → 调 WSL 里的
+`/root/ensure-superagent.sh`(没跑就 `start`,并等到能接单),最后报告出口代理 /
+模型兜底 / docker 是否就绪(缺了只警告不拦)。
+
+WSL 侧也可以直接跑:`bash /root/ensure-superagent.sh`。
+
+### 13.2 冷启动实测(2026-11-09,`wsl --shutdown` 后)
+
+| 阶段 | 耗时 | 说明 |
+|---|---|---|
+| WSL 起来 | ~10s | `wsl -e /bin/true` 返回 |
+| systemd 就绪 | 秒级 | `systemctl is-system-running` = running |
+| mihomo / failover | 秒级 | 两个都是 `enabled`,`Restart=always` 自己回来 |
+| DSH 初始化 | ~10s | 到 `/orchestrator/api/state` 可用 |
+| **总计到「可以派单」** | **19.6s** | 含清 stale 锁 |
+
+### 13.3 两个只在冷启动才出现的坑
+
+**坑 1:`Lock file is already being held` —— 必须清 stale 锁。**
+
+`wsl --shutdown` 是 SIGKILL,DSH 来不及释放 `proper-lockfile` 的锁
+(`src/app/runtime.ts` 锁的是**整个 state 目录**,锁目录是 `/root/.dsh/state/superagent.lock`)。
+WSL 再起来时新实例看到锁目录还在就报:
+
+```
+dsh-superagent (dsh-superagent): Error: Lock file is already being held
+dsh-superagent-github (dsh-superagent/github-watch): pending (waiting for service: orchestrator)
+```
+
+现象是**最容易被误判的那种**:`wsl` 能进、mihomo 正常、DSH 进程也在,
+但 `status` 一直返回 `1`、`health` 是 `null`、管理 API 一直 404。
+`start` 重跑不管用(锁还在),看起来像「superagent 坏了」。
+
+`ensure-superagent.sh` 的处理:**只有在「没有任何 dsh 进程」且「锁目录存在」时才删锁** ——
+有进程却抢不到锁说明是真并发,清了会打架。这个判据是安全的:锁的持有者如果活着,
+`pgrep -f 'node /usr/local/bin/dsh'` 一定看得到。
+
+**坑 2:容器 `restart=no`,不会自己回来。**
+
+`chatapp-ci-mysql` / `chatapp-ci-redis` 的 restart 策略是 `no`(实测 2026-11-09),
+WSL 一重启就全部 `Exited (255)`。它们不影响派单,但 worker 接单后跑 `verify.sh` 会全红。
+守门脚本会点名这两个容器并给出恢复命令:
+
+```bash
+cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait
+```
+
+(其余 `dev374-*` / `im-lead` / `chatapp-iso-*` / `imserver-*` 属于别的活儿,不在此列。)
+
+### 13.4 「能接单」的判据为什么不等 `github: ready`
+
+`github` 的首轮轮询要串行读完所有订阅 Thread(冷启动后约 20 分钟,见 §12.6)。
+如果守门脚本等它 ready,每次冷启动都要干等 20 分钟 —— 那就没人愿意用这个脚本了。
+
+所以判据是:**`status` 退出码 0**,或 **`health` 里除 `github` 外全部 `ready` 且 `github` 为 `starting`**。
+后者意味着 orchestrator 已在轮询,现在派单不会被漏掉(游标会推进),只是按 §4.1 核回执时
+`thread` / `ticket` 三张表可能要等首轮结束。脚本会把这件事在 stderr 上说明。
+
+### 13.5 排障
+
+| 现象 | 处理 |
+|---|---|
+| `[gate] WSL 未运行`,然后拉不起来 | 手动 `wsl -d Ubuntu-24.04 -e /bin/true` 看报什么;必要时 `wsl --update` |
+| 脚本报「等了 150s 仍不能接单」 | `bash /root/start-superagent.sh status`;`journalctl -u superagent-proxy`;面板 Overview |
+| 反复出现 `Lock file is already being held` | 确认 `pgrep -f 'node /usr/local/bin/dsh'` 为空后 `rm -rf /root/.dsh/state/superagent.lock`,再 start |
+| 守门通过但派单后 `work/` 一直空 | 那是 §4.1 的丢单问题(游标前移 ≠ 入队),按那里的「3 分钟仍为空再补发」处理 |
