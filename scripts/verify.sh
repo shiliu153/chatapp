@@ -166,7 +166,14 @@ stack_contract() {
   run "App 模型字段 ⊆ OpenAPI" "$PY" "$ROOT/scripts/check_app_models.py"
 }
 stack_imserver() {
-  run "imserver 单元 / 集成 / HTTP e2e" \
+  # 三段与 .github/workflows/imserver.yml 的三个 step 逐项对齐:
+  # 早先这里只跑 test_http.sh(集成 / e2e),unit 与 db 两条在本地形同没跑过 ——
+  # 改了 C++ 却只有 CI 才看得见红,和本脚本「本地绿 ≈ CI 绿」的定位矛盾。
+  run "imserver unit(AC 匹配 / config / metrics …)" \
+    docker compose -f "$ROOT/imserver/docker-compose.test.yml" run --rm test bash /src/scripts/test.sh
+  run "imserver db(store / message_service)" \
+    docker compose -f "$ROOT/imserver/docker-compose.test.yml" run --rm test bash /src/scripts/test_integration.sh
+  run "imserver 集成 / HTTP e2e" \
     docker compose -f "$ROOT/imserver/docker-compose.test.yml" run --rm test bash /src/scripts/test_http.sh
 }
 stack_app() {

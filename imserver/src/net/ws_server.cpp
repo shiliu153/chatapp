@@ -15,6 +15,7 @@
 #include "auth/token.h"
 #include "net/frames.h"
 #include "util/log.h"
+#include "util/metrics.h"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -130,7 +131,7 @@ std::size_t IpCounter::auth_bucket_count() const {
 WsSession::WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
                      RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
                      PushNotifier& push, boost::asio::thread_pool& db_pool,
-                     const net_guard::ProxyTrust& trust)
+                     const net_guard::ProxyTrust& trust, const sensitive::Matcher& sensitive)
     : ws_(std::move(socket)),
       cfg_(cfg),
       registry_(registry),
@@ -140,6 +141,7 @@ WsSession::WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& reg
       push_(push),
       db_pool_(db_pool),
       trust_(trust),
+      sensitive_(sensitive),
       auth_timer_(ws_.get_executor()),
       idle_timer_(ws_.get_executor()) {}
 
@@ -444,6 +446,19 @@ void WsSession::handle_send(const nlohmann::json& frame) {
     } else if (kind == "text") {
       request.kind = 1;
       request.text = data.value("text", std::string());
+      // 批次 Q:聊天文字敏感词(**只**拦上行文本)。命中就在发送路径上直接回 42201 ——
+      // 不落库、不推送、不计未读。图片 / 语音 / 贴纸 / 系统灰条一律不查
+      // (图片语音走 /ops/ 人工抽审;灰条只由服务端 /internal/send 发出,不经这里)。
+      // 词表为空(没配/清空)= 整段跳过,与「没有这个功能」等价。
+      if (!sensitive_.empty() && sensitive_.hit(request.text)) {
+        metrics::sensitive_blocked.fetch_add(1, std::memory_order_relaxed);
+        // 日志只记「谁发给谁、多少字节」:违规文本本身不该再抄一遍到日志里。
+        log_warn("sensitive_blocked", {{"uid", std::to_string(uid_)},
+                                       {"to", std::to_string(*to_uid)},
+                                       {"bytes", std::to_string(request.text.size())}});
+        send_raw(error_frame(42201, "消息包含违规内容"));
+        return;
+      }
     } else if (kind == "custom") {
       // 贴纸(2026-11-07 批次 J):复用 kind=2,落库 / 历史 / 下行帧全部零改动。
       // 只放行 type=sticker 且 id 形状合法的载荷;`match_notice` / `ban_notice`
@@ -784,7 +799,11 @@ WsServer::WsServer(net::io_context& io, const Config& cfg, SessionRegistry& regi
       push_(push),
       db_pool_(db_pool),
       ip_counter_(cfg.max_conn_per_ip, cfg.auth_rate_per_sec, cfg.auth_burst),
-      trust_(net_guard::ProxyTrust::from_list(cfg.trusted_proxies)) {}
+      trust_(net_guard::ProxyTrust::from_list(cfg.trusted_proxies)) {
+  // 词表只在启动时读一次:改词表 = 重启容器(见 docs/ops/imserver.md)。
+  // 读不到/为空只是「这个功能没开」,不影响其它一切。
+  sensitive_.load(cfg_.sensitive_words_file);
+}
 
 void WsServer::start() {
   const auto listen = net_guard::parse_listen(cfg_.listen_ws);
@@ -808,7 +827,7 @@ void WsServer::do_accept() {
   acceptor_.async_accept(net::make_strand(io_), [this](error_code ec, tcp::socket socket) {
     if (!ec) {
       std::make_shared<WsSession>(std::move(socket), cfg_, registry_, redis_, ip_counter_,
-                                  messages_, push_, db_pool_, trust_)
+                                  messages_, push_, db_pool_, trust_, sensitive_)
           ->run();
     }
     do_accept();

@@ -79,6 +79,8 @@ IM_AUTH_RATE=1
 IM_AUTH_BURST=60
 IM_MAX_FRAME=8192
 IM_TEXT_MAX=2000
+# 聊天文字敏感词表(批次 Q);默认就是镜像里打包的那份,留空/文件不存在 = 不启用
+# IM_SENSITIVE_WORDS_FILE=/usr/local/share/imserver/data/sensitive_words.txt
 # 聊天图片 URL 前缀:必须与 Django 的 MEDIA_BASE_URL + /media/chat/ 一致;必填,缺失启动失败
 IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
 # 离线新消息推送事件(C-1):空 = 关闭;配了才会在「目标不在线」时回调 Django
@@ -1153,3 +1155,94 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | 连点置顶反而跳到最前 | 这是设计:`pinned_at` 只在「由未置顶 → 置顶」时写,重复置顶不改时间;若真跳了,说明客户端先发了 `false` 再发 `true` |
 | 换台设备看不到置顶 | 已知限制:`/im/api/*` 无实时同步,重拉一次 `GET /im/api/conversations` 即可(见 §19.1) |
 | 会话列表整页 500 且日志有 `Unknown column 'pinned_at'` | 部署顺序反了:先跑 `--migrate`(见 §19.9) |
+
+## 20. 聊天文字敏感词(2026-11-09,批次 Q)
+
+聊天的**文字**消息在 imserver 的发送路径上过一遍本地词表,命中就**拒发**。
+设计见 `docs/superpowers/specs/2026-11-09-batch-m-q-design.md` §7。
+
+> 为什么在 imserver 而不是 Django:聊天消息由客户端 WS **直连 imserver** 落库,不经过 Django;
+> 昵称 / 简介 / 动态 / 评论那套 Django 侧校验够不到聊天正文。所以这一条链路**一个字都没改**,
+> 只在 imserver 的 `send` 处理里加了一次文本判断。
+
+### 20.1 词表文件
+
+| 项 | 值 |
+|---|---|
+| 路径 | `/usr/local/share/imserver/data/sensitive_words.txt`(随镜像打包,见 `imserver/Dockerfile`) |
+| 覆盖 | 环境变量 `IM_SENSITIVE_WORDS_FILE`(可指到宿主机挂载的文件,例如 `/data/sensitive_words.txt`) |
+| 格式 | UTF-8,**一行一词**;`#` 开头为注释;空行忽略;行尾空白与 CRLF 自动去掉 |
+| 大小写 | **ASCII 不敏感**(`FUCK` / `Fuck` / `fuck` 命中同一条);中文按字节精确匹配 |
+| 匹配口径 | 子串匹配(词出现在句子任意位置都算),词表里写多长就匹配多长 —— 短词易误伤,宁可写长 |
+
+仓库里的那份(`imserver/data/sensitive_words.txt`)是**示例词表**(26 条暴力 / 毒品 / 诈骗 / 引流类),
+文件头写明「主人按需增删」。算法是 Aho-Corasick(AC 自动机,启动时构建一次,
+单条消息匹配 O(n),4KB 文本也不到 10µs),词表扩到几千条也不影响发送吞吐。
+
+### 20.2 命中行为
+
+- **只作用于 `kind=text`**:`image` / `voice` / `custom`(贴纸、灰条)**一律不查**
+  —— 图片语音已有 `/ops/` 人工抽审,灰条只能由服务端 `/internal/send` 发出。
+- 命中 → WS 回 `{"type":"error","data":{"code":42201,"message":"消息包含违规内容"}}`,
+  **不落库、不推送、不计未读、不占 seq**(下一条正常消息的 seq 还是接着来)。
+- **只拦发送**:`GET /im/api/messages` 的历史照常回放;服务端经 `/internal/send` 发的
+  文本(灰条、`python manage.py im_send`)也不过这道闸。
+- **文件不存在 / 读不到 / 为空 = 不启用**:启动日志打 `sensitive_words_disabled`(warning),
+  聊天不受影响 —— **刻意不 fail-closed**,词库配错不该把整个聊天挂掉。
+  日志里 `reason` 分三种:`missing`(路径没这个文件)、`unreadable`(文件在但没读权限,
+  常见于容器以非 root 跑而文件是 0600)、`empty`(只有注释/空行)。
+  正常加载时打 `sensitive_words_loaded`(`words=<词条数>`)。
+
+### 20.3 指标
+
+`GET :9101/metrics`(只允许回环,与 `/internal/*` 同口径):
+
+```
+im_sensitive_blocked_total 3      # 因命中敏感词被拒的发送次数
+```
+
+- 长期为 0 且词表非空 → 先看启动日志有没有 `sensitive_words_loaded`;
+- 突然变高 → 有人在刷违规词,日志里有 `sensitive_blocked`(`uid` / `to` / `bytes`,
+  **不记文本本身**,别把违规内容再抄进日志)。
+
+### 20.4 怎么改词表 / 怎么关掉
+
+```bash
+# 1) 改词表:编辑宿主机上的文件(或换一份),然后重启 imserver 容器
+vim /www/server/imserver/data/sensitive_words.txt   # 一行一词
+docker compose -f /www/server/imserver/docker-compose.yml up -d   # 词表只在启动时读一次
+
+# 2) 想彻底关掉这个功能(两种都行,等价):
+#    a. 把词表清空(只留注释/空行也算空)
+: > /www/server/imserver/data/sensitive_words.txt && docker compose up -d
+#    b. 或者指到一个空文件/不存在的路径
+#       IM_SENSITIVE_WORDS_FILE=/data/empty.txt
+```
+
+- **改词表必须重启容器**:词表是启动时构建进 AC 自动机的(不重启就是旧词表)。
+- 想在不重启的前提下改行为是做不到的,也没必要 —— 这不是热更新场景。
+- 部署时若用宿主机文件覆盖,记得把目录挂进容器(compose 的 `volumes:`),
+  并保证 `IM_SENSITIVE_WORDS_FILE` 指向**容器内**的路径。
+
+### 20.5 验证
+
+```bash
+# unit:AC 中文命中 / 英文大小写 / 词边界 / 4KB 长文本 / 空词表 / 注释与空行 / 真实词表可加载
+# db :store / message_service(本次未改,回归用)
+# 集成:test_sensitive.py(命中 42201 且不落库不推送 / 不占 seq / 正常文本照发 / 贴纸不受影响 / 内部发的不拦 / 指标)
+scripts/verify.sh imserver
+```
+
+集成测试用的是**另一份**词表(`imserver/tests/fixtures/sensitive_words_test.txt`,
+由 `docker-compose.test.yml` 的 `IM_SENSITIVE_WORDS_FILE` 指过去),
+这样主人增删 `imserver/data/sensitive_words.txt` 不会把测试打红。
+
+### 20.6 排查
+
+| 现象 | 先查 |
+|---|---|
+| 正常聊天被拦 | 词表里是不是有太短的词(如单独的「贷款」「兼职」);日志 `sensitive_blocked` 的 `bytes` 能看出是短消息还是长消息 |
+| 什么都不拦(疑似没生效) | 启动日志有 `sensitive_words_loaded` 吗?`IM_SENSITIVE_WORDS_FILE` 指向的路径在**容器里**存在吗? |
+| 改了词表没变化 | 没重启容器(词表只在启动时构建) |
+| 启动日志刷 `sensitive_words_disabled` | 看 `reason`:`missing` = 路径不对/没挂载;`unreadable` = 权限(文件要 `a+r`,镜像里已 `chmod a+rX`);`empty` = 只有注释。三种都属于「功能关闭」的正常提示,不是错误 |
+| 贴纸被拦? | 不会:过滤只走 `kind=text`;贴纸被拒是另外的 `42201`(id 形状 / `type` 不是 `sticker`),见 §17 |

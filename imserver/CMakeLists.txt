@@ -35,6 +35,7 @@ add_library(imcore STATIC
   src/util/media_sign.cpp
   src/util/metrics.cpp
   src/util/ratelimit.cpp
+  src/util/sensitive.cpp
   src/util/uuid.cpp
 )
 target_include_directories(imcore PUBLIC src ${MYSQLCLIENT_INCLUDE_DIRS} ${HIREDIS_INCLUDE_DIRS})

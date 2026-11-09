@@ -23,6 +23,10 @@ extern std::atomic<uint64_t> deadlock_retries;
 extern std::atomic<uint64_t> db_wait_count;
 extern std::atomic<uint64_t> db_wait_us;
 
+/// 因命中敏感词被拒绝的发送次数(批次 Q)。>0 说明词表正在生效;
+/// 长期为 0 且词表非空 = 词表可能没加载上(看启动日志 sensitive_words_loaded)。
+extern std::atomic<uint64_t> sensitive_blocked;
+
 /// 离线新消息推送事件(C-1):已入队 / 投递成功 / 投递失败 / 队列满被丢弃。
 /// 「没推送」和「推送失败」必须能分开看,否则排查时只能猜。
 extern std::atomic<uint64_t> push_queued;

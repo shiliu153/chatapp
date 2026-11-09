@@ -11,6 +11,7 @@ TEST(MetricsTest, RenderExposesCoreSeries) {
   const uint64_t retries = metrics::deadlock_retries.exchange(2);
   const uint64_t waits = metrics::db_wait_count.exchange(4);
   const uint64_t wait_us = metrics::db_wait_us.exchange(2000);
+  const uint64_t blocked = metrics::sensitive_blocked.exchange(5);
 
   const std::string text = metrics::render(7);
 
@@ -19,6 +20,7 @@ TEST(MetricsTest, RenderExposesCoreSeries) {
   EXPECT_NE(text.find("im_sends_total{result=\"failed\"} 1"), std::string::npos);
   EXPECT_NE(text.find("im_deadlock_retries_total 2"), std::string::npos);
   EXPECT_NE(text.find("im_db_pool_waits_total 4"), std::string::npos);
+  EXPECT_NE(text.find("im_sensitive_blocked_total 5"), std::string::npos);
   // 4 次等待共 2000us → 平均 0.0005s
   EXPECT_NE(text.find("im_db_pool_wait_seconds 0.0005"), std::string::npos);
 
@@ -27,6 +29,7 @@ TEST(MetricsTest, RenderExposesCoreSeries) {
   metrics::deadlock_retries.store(retries);
   metrics::db_wait_count.store(waits);
   metrics::db_wait_us.store(wait_us);
+  metrics::sensitive_blocked.store(blocked);
 }
 
 TEST(MetricsTest, EmptyPoolWaitRendersZero) {

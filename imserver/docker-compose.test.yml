@@ -36,6 +36,8 @@ services:
       IM_INTERNAL_SECRET: test-internal-secret
       IM_MIGRATIONS_DIR: /src/migrations
       IM_MEDIA_PREFIX: http://cdn/media/chat/
+      # 批次 Q:集成测试用专用词表(不含镜像里那份真词表),见 tests/fixtures/sensitive_words_test.txt
+      IM_SENSITIVE_WORDS_FILE: /src/tests/fixtures/sensitive_words_test.txt
       IM_MEDIA_SIGN_SECRET: test-media-secret
       IM_MEDIA_SIGN_TTL: "86400"
     command: bash /src/scripts/test_integration.sh
