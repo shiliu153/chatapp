@@ -12,7 +12,4 @@ SMS_SERVICE_UNAVAILABLE = 50301   # 短信任务入队失败
 PHONE_NOT_ALLOWED = 40301         # 封闭测试:号码不在受邀白名单内
 CHAT_VOICE_UNAVAILABLE = 50302    # 服务器缺 ffmpeg/ffprobe,语音上传暂不可用
 STORAGE_QUOTA_EXCEEDED = 41301    # 单账号媒体存储配额已满
-# 使用报告的 ``period`` 取值非法(只允许 week / month / year)。数值沿用批次 P 工单
-# 口径 40001,与「验证码已过期」同码 —— 两者分属不同接口,客户端按调用上下文解读,
-# 见 docs/api/errors.md「业务码总表」的备注。
-INVALID_PERIOD = 40001
+INVALID_PERIOD = 40005            # 使用报告的 period 取值非法(只允许 week/month/year)

@@ -78,7 +78,7 @@ curl "http://<域名>/api/v1/stats/me?period=week" \
 
 ```json
 {
-  "code": 40001,
+  "code": 40005,
   "message": "统计周期只能是 week / month / year",
   "request_id": "9f8c1b2e4d5a"
 }
@@ -88,6 +88,6 @@ curl "http://<域名>/api/v1/stats/me?period=week" \
 
 | 错误码 | HTTP | 描述 | 处理建议 |
 |---|---|---|---|
-| 40001 | 400 | `period` 不在 `week` / `month` / `year` 之内 | 客户端只应传这三个取值;不传即按 `week` |
+| 40005 | 400 | `period` 不在 `week` / `month` / `year` 之内 | 客户端只应传这三个取值;不传即按 `week` |
 | 401 | 401 | 未认证或令牌失效(被顶号时带 `40101`) | 重新登录或刷新令牌 |
 | 403 | 403 | 账号已被封禁(重封禁) | 提示用户账号受限 |

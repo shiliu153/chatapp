@@ -3,7 +3,7 @@
 覆盖场景:
     1. 三种周期的起止日期:自然周(周一起)/ 自然月 / 自然年,含闰年 2 月;
     2. 七项数字只数**区间内**、只数**我自己**的行,区间外与他人活动一律不计;
-    3. 缺省周期是 ``week``;``period`` 非法 400 + ``40001``;未登录 401;
+    3. 缺省周期是 ``week``;``period`` 非法 400 + ``40005``;未登录 401;
     4. 解除过配对的记录仍按创建时间计入(口径是「区间内新产生的配对」);
     5. 访客表是「一人一行」,按 ``last_at`` 落区间:很久以前首次看过、本周期又来看的人
        算本周期,只有首次在本周期而最近访问在周期外的不算。
@@ -205,12 +205,12 @@ class StatsApiTests(APITestCase):
         self.assertEqual(data["start"], start.isoformat())
         self.assertEqual(data["end"], end.isoformat())
 
-    def test_invalid_period_returns_40001(self):
-        """非法周期 400 + 业务码 40001。"""
+    def test_invalid_period_returns_40005(self):
+        """非法周期 400 + 业务码 40005。"""
         response = self.client.get(URL, {"period": "day"})
         self.assertEqual(response.status_code, 400)
         body = response.json()
-        self.assertEqual(body["code"], 40001)
+        self.assertEqual(body["code"], 40005)
         self.assertIn("week", body["message"])
         self.assertIn("request_id", body)
 
