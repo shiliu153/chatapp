@@ -16,12 +16,16 @@ const String voiceTextTooShort = '说话时间太短';
 const String voiceTextSendFailed = '语音发送失败，点击重试';
 
 const int _minDurationMs = 1000;
-const int _maxDurationMs = 60000;
+
+/// 聊天语音上限 60 秒。资料语音自我介绍是 **30 秒**,由调用方传
+/// [VoiceRecordController.maxDurationMs] 覆盖(见 `profile_voice_controller.dart`),
+/// 不复制第二份控制器。
+const int voiceChatMaxDurationMs = 60000;
 
 /// 录音控制器:把原来埋在输入栏里的录音逻辑收拢成可单测的状态机。
 ///
-/// 时间来源可注入([now]),测试里用假时钟驱动「满 1 秒 / 60 秒自动结束」,
-/// 不必真的等两秒。
+/// 时间来源可注入([now]),测试里用假时钟驱动「满 1 秒 / 到上限自动结束」,
+/// 不必真的等几十秒。
 class VoiceRecordController extends ChangeNotifier {
   VoiceRecordController({
     required this.recorder,
@@ -29,6 +33,7 @@ class VoiceRecordController extends ChangeNotifier {
     required this.onNotice,
     required this.onSend,
     DateTime Function()? now,
+    this.maxDurationMs = voiceChatMaxDurationMs,
   }) : _now = now ?? DateTime.now;
 
   final VoiceRecorder recorder;
@@ -36,6 +41,12 @@ class VoiceRecordController extends ChangeNotifier {
   final void Function(String message) onNotice;
   final Future<void> Function(String path, int durationMs) onSend;
   final DateTime Function() _now;
+
+  /// 单段录音上限(毫秒):聊天 60 秒,资料语音 30 秒。
+  final int maxDurationMs;
+
+  /// 上限对应的整秒数,用于倒计时与秒数上限收敛。
+  int get maxSeconds => (maxDurationMs / 1000).ceil();
 
   VoicePhase _phase = VoicePhase.idle;
   VoicePhase get phase => _phase;
@@ -48,11 +59,11 @@ class VoiceRecordController extends ChangeNotifier {
   Timer? _autoStop;
   bool _disposed = false;
 
-  /// 已录秒数(向上取整,0–60)。
+  /// 已录秒数(向上取整,0 到 [maxSeconds])。
   int get seconds {
     if (_phase == VoicePhase.idle) return 0;
     final ms = _now().difference(_startedAt).inMilliseconds;
-    return (ms / 1000).ceil().clamp(0, 60);
+    return (ms / 1000).ceil().clamp(0, maxSeconds);
   }
 
   @override
@@ -61,7 +72,7 @@ class VoiceRecordController extends ChangeNotifier {
     super.notifyListeners();
   }
 
-  /// 开始录音:申请权限 → 启动设备 → 起计时与 60 秒上限。
+  /// 开始录音:申请权限 → 启动设备 → 起计时与 [maxDurationMs] 上限。
   Future<void> start() async {
     if (_phase != VoicePhase.idle) return;
     _phase = VoicePhase.requesting;
@@ -85,7 +96,7 @@ class VoiceRecordController extends ChangeNotifier {
     _cancelArmed = false;
     _startedAt = _now();
     _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) => notifyListeners());
-    _autoStop = Timer(const Duration(milliseconds: _maxDurationMs), () {
+    _autoStop = Timer(Duration(milliseconds: maxDurationMs), () {
       unawaited(stopAndSend());
     });
     notifyListeners();

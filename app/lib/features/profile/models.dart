@@ -30,6 +30,40 @@ class Photo {
   bool get isApproved => status == 'approved';
 }
 
+/// 资料语音自我介绍(`GET /users/me` 与 `GET /users/{user_id}` 的 `voice` 字段)。
+///
+/// 没录过语音时后端返回 JSON `null`(不是空对象),所以 [parse] 收 `Object?`:
+/// 只认 Map,其余一律按「没录过」处理。
+class VoiceIntro {
+  const VoiceIntro({required this.url, required this.durationMs});
+
+  /// 解析 `voice` 字段;`null` / 非对象原样返回 `null`。
+  static VoiceIntro? parse(Object? json) => json is Map<String, dynamic>
+      ? VoiceIntro(
+          url: (json['url'] ?? '') as String,
+          durationMs: (json['duration_ms'] ?? 0) as int,
+        )
+      : null;
+
+  /// 公开绝对地址(`/media/voices/…`,与照片同口径:不签名、不过期)。
+  /// 直接喂 `UrlSource`,**不要**再拼 `API_BASE`。
+  final String url;
+
+  /// 服务端实测时长(毫秒),≤30000。
+  final int durationMs;
+
+  /// 播放条上的时长文案,如 `0:18`。
+  String get durationLabel => formatVoiceDuration(durationMs);
+}
+
+/// 毫秒 → `m:ss`;语音播放条与录音卡共用。
+String formatVoiceDuration(int milliseconds) {
+  final total = (milliseconds / 1000).round();
+  final minutes = total ~/ 60;
+  final seconds = total % 60;
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
 class Preference {
   const Preference({this.targetGender, this.ageMin = 18, this.ageMax = 99, this.city = ''});
 
@@ -65,6 +99,7 @@ class Profile {
     required this.preference,
     this.banReason = '',
     this.visitsHidden = false,
+    this.voice,
   });
 
   factory Profile.fromJson(Map<String, dynamic> json) => Profile(
@@ -88,6 +123,7 @@ class Profile {
             .toList(),
         preference: Preference.fromJson(json['preference'] as Map<String, dynamic>?),
         visitsHidden: (json['visits_hidden'] ?? false) as bool,
+        voice: VoiceIntro.parse(json['voice']),
       );
 
   /// profile 表主键(仅内部用;对外标识一律 userId)
@@ -110,6 +146,29 @@ class Profile {
 
   /// 隐身浏览:开启后自己的访问不写进他人访客列表
   final bool visitsHidden;
+
+  /// 语音自我介绍;没录过为 null。
+  final VoiceIntro? voice;
+
+  /// 只换语音(上传/删除后原地更新,不用整页 reload)。
+  Profile withVoice(VoiceIntro? voice) => Profile(
+        id: id,
+        userId: userId,
+        nickname: nickname,
+        gender: gender,
+        birthday: birthday,
+        age: age,
+        city: city,
+        bio: bio,
+        status: status,
+        banReason: banReason,
+        missingFields: missingFields,
+        tags: tags,
+        photos: photos,
+        preference: preference,
+        visitsHidden: visitsHidden,
+        voice: voice,
+      );
 
   bool get isComplete => missingFields.isEmpty;
 

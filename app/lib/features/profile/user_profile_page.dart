@@ -26,6 +26,7 @@ import '../presence/presence_controller.dart';
 import '../square/feed_repository.dart';
 import '../square/square_controller.dart';
 import 'widgets/profile_photo_header.dart';
+import 'widgets/voice_intro_bar.dart';
 import 'widgets/user_profile_skeleton.dart';
 
 class UserProfilePage extends ConsumerWidget {
@@ -241,6 +242,26 @@ class _ProfileBody extends StatelessWidget {
                       ],
                     ),
                   ),
+                  // 批次 R:语音自我介绍是公开的;没录过(voice == null)时整块不渲染,
+                  // 不留空白占位。
+                  if (profile.voice != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel(label: '语音自我介绍'),
+                          const SizedBox(height: AppSpacing.md),
+                          VoiceIntroBar(
+                            key: const Key('user.voice.bar'),
+                            source: profile.voice!.url,
+                            durationMs: profile.voice!.durationMs,
+                            keyPrefix: 'user.voice',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (photos.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.md),
                     AppCard(

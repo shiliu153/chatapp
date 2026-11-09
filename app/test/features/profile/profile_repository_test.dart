@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,6 +36,36 @@ void main() {
     expect(profile.nickname, '新昵称');
     expect(adapter.log.last.method, 'PATCH');
     expect(adapter.log.last.data, {'nickname': '新昵称'});
+  });
+
+  test('fetchMe 解析 voice(没录过是 null)', () async {
+    adapter.routes['GET /users/me'] = (options) => ok(profileJson());
+    expect((await repository.fetchMe()).voice, isNull);
+
+    adapter.routes['GET /users/me'] = (options) => ok(profileJson(voice: voiceJson()));
+    final profile = await repository.fetchMe();
+    expect(profile.voice?.url, 'http://test/media/voices/intro.m4a');
+    expect(profile.voice?.durationMs, 18000);
+    expect(profile.voice?.durationLabel, '0:18');
+  });
+
+  test('uploadVoice 以 multipart 打 POST /users/me/voice 并解析响应', () async {
+    adapter.routes['POST /users/me/voice'] = (options) => ok(voiceJson(), status: 201);
+    final voice = await repository.uploadVoice(Uint8List.fromList([1, 2, 3]), 'intro.m4a');
+
+    expect(voice.url, 'http://test/media/voices/intro.m4a');
+    expect(voice.durationMs, 18000);
+    expect(adapter.log.last.method, 'POST');
+    expect(adapter.log.last.path, '/users/me/voice');
+    expect(adapter.log.last.data, isA<FormData>());
+  });
+
+  test('deleteVoice 打 DELETE /users/me/voice', () async {
+    adapter.routes['DELETE /users/me/voice'] =
+        (options) => ok(const <String, dynamic>{}, status: 204);
+    await repository.deleteVoice();
+    expect(adapter.log.last.method, 'DELETE');
+    expect(adapter.log.last.path, '/users/me/voice');
   });
 
   test('fetchTags 解析标签池', () async {

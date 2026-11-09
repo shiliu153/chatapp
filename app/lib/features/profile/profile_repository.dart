@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
+import '../../core/api_exception.dart';
 import '../../core/providers.dart';
 import 'models.dart';
 
@@ -31,6 +32,22 @@ class ProfileRepository {
 
   Future<void> deletePhoto(int photoId) async {
     await _api.delete('/users/me/photos/$photoId');
+  }
+
+  /// 上传语音自我介绍(multipart 字段 `file`;覆盖式,一人一条)。
+  ///
+  /// 响应里的 `url` 已经是公开绝对地址,直接用,别再拼 `API_BASE`。
+  Future<VoiceIntro> uploadVoice(Uint8List bytes, String filename) async {
+    final data = await _api.post('/users/me/voice',
+        data: FormData.fromMap({'file': MultipartFile.fromBytes(bytes, filename: filename)}));
+    final voice = VoiceIntro.parse(data);
+    if (voice == null) throw ApiException('语音上传失败,请重试');
+    return voice;
+  }
+
+  /// 删除语音自我介绍(幂等 204)。
+  Future<void> deleteVoice() async {
+    await _api.delete('/users/me/voice');
   }
 
   Future<Preference> fetchPreference() async =>
