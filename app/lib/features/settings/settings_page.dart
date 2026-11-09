@@ -108,6 +108,13 @@ class SettingsPage extends ConsumerWidget {
                     const SizedBox(height: AppSpacing.cardGap),
                     AppRowGroup(
                       children: [
+                        // 我的数据(批次 P):纯只读报告页,放「查看类」这一组的第一行
+                        AppListRow(
+                          key: const Key('settings.row.stats'),
+                          icon: Icons.insights_rounded,
+                          title: '我的数据',
+                          onTap: () => context.push('/settings/stats'),
+                        ),
                         AppListRow(
                           key: const Key('settings.row.feedback'),
                           icon: Icons.feedback_rounded,

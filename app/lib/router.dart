@@ -26,6 +26,7 @@ import 'features/square/my_posts_page.dart';
 import 'features/square/post_compose_page.dart';
 import 'features/square/post_detail_args.dart';
 import 'features/square/post_detail_page.dart';
+import 'features/stats/stats_page.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   // 会话状态变化 → 让 GoRouter 重新跑一遍 redirect
@@ -49,6 +50,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/settings/notifications',
           builder: (context, state) => const NotificationSettingsPage()),
       GoRoute(path: '/settings/about', builder: (context, state) => const AboutPage()),
+      GoRoute(path: '/settings/stats', builder: (context, state) => const StatsPage()),
       GoRoute(path: '/settings/feedback',
           builder: (context, state) => const FeedbackPage()),
       GoRoute(path: '/likes', builder: (context, state) => const LikesReceivedPage()),
