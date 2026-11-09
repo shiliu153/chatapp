@@ -30,6 +30,7 @@ const REQUIRED_ROUTES = [
   'my-posts',
   'settings',
   'settings-blocks',
+  'settings-devices',
   'profile-edit',
   'preference',
   'notifications',

@@ -55,6 +55,7 @@ const groups = [
       { name: 'preference', label: '想找的人' },
       { name: 'my-posts', label: '我的动态' },
       { name: 'settings-blocks', label: '黑名单' },
+      { name: 'settings-devices', label: '登录设备' },
       { name: 'settings-notifications', label: '通知设置' },
     ],
   },
