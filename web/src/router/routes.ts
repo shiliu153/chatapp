@@ -101,6 +101,11 @@ export const routes: RouteRecordRaw[] = [
     props: true,
   },
   {
+    path: '/stats',
+    name: 'stats',
+    component: () => import('@/features/stats/StatsPage.vue'),
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/features/settings/SettingsPage.vue'),

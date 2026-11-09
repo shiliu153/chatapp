@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppButton from '@/components/AppButton.vue'
 import AppCard from '@/components/AppCard.vue'
+import AppSegmented from '@/components/AppSegmented.vue'
 import { parseApiError } from '@/api/error'
 import { useChatStore } from '@/stores/chat'
 import { useProfileStore } from '@/stores/profile'
@@ -56,6 +57,7 @@ const groups = [
       { name: 'my-posts', label: '我的动态' },
       { name: 'settings-blocks', label: '黑名单' },
       { name: 'settings-devices', label: '登录设备' },
+      { name: 'stats', label: '我的数据' },
       { name: 'settings-notifications', label: '通知设置' },
     ],
   },
@@ -140,18 +142,12 @@ async function onDeleteSubmitted(phone: string) {
     <!-- 外观(F-3):三态分段控件,与 App 设置页的「外观」行同口径 -->
     <AppCard padding="lg">
       <h2 class="settings__group">外观</h2>
-      <div class="settings__segmented" role="group" aria-label="外观">
-        <button
-          v-for="option in themeOptions"
-          :key="option.value"
-          class="settings__segment"
-          type="button"
-          :aria-pressed="theme.mode === option.value"
-          @click="theme.setMode(option.value)"
-        >
-          {{ option.label }}
-        </button>
-      </div>
+      <AppSegmented
+        :options="themeOptions"
+        :model-value="theme.mode"
+        label="外观"
+        @update:model-value="theme.setMode"
+      />
     </AppCard>
 
     <AppButton
@@ -271,34 +267,5 @@ async function onDeleteSubmitted(phone: string) {
   font-size: var(--text-caption);
   color: var(--color-danger);
   text-align: center;
-}
-.settings__segmented {
-  display: flex;
-  gap: var(--space-xs);
-  padding: var(--space-xs);
-  border-radius: var(--radius-chip);
-  background: var(--hover-overlay);
-}
-.settings__segment {
-  flex: 1;
-  height: 36px;
-  border: none;
-  border-radius: var(--radius-chip);
-  background: transparent;
-  color: var(--color-text2);
-  font-family: inherit;
-  font-size: var(--text-body);
-  cursor: pointer;
-  transition:
-    background var(--motion-fast) var(--ease-out),
-    color var(--motion-fast) var(--ease-out);
-}
-.settings__segment:hover {
-  background: var(--hover-overlay-strong);
-}
-.settings__segment[aria-pressed='true'] {
-  background: var(--color-bg-card);
-  color: var(--color-brand);
-  font-weight: var(--weight-semibold);
 }
 </style>

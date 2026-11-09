@@ -221,3 +221,30 @@ export interface LoginDevice {
   /** 最近一次登录或刷新令牌的时间;批次 M 之前建的行、或从未刷新过为 null */
   last_active_at: string | null
 }
+
+/** 使用报告的统计周期(stats.md §1.1):自然周 / 自然月 / 自然年。 */
+export type StatsPeriod = 'week' | 'month' | 'year'
+
+/**
+ * 我的使用报告(stats.md §1.1)。
+ *
+ * 口径是「区间内发生的事件」,不是当前存量;`start` / `end` 是**含首含尾**的日期
+ * (`YYYY-MM-DD`),一律按 `Asia/Shanghai` 的自然周期算。
+ * 七项计数都是非负整数,**0 也是有效值**,页面必须原样显示 `0`。
+ */
+export interface MyStats {
+  period: StatsPeriod
+  /** YYYY-MM-DD */
+  start: string
+  /** YYYY-MM-DD */
+  end: string
+  /** 区间内新产生的配对(我参与的,含事后已解除的) */
+  matches: number
+  likes_given: number
+  likes_received: number
+  /** 区间内看过我资料的人数(一人一行,按最近访问时间) */
+  visits: number
+  posts: number
+  post_likes: number
+  new_followers: number
+}
