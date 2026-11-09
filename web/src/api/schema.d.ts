@@ -354,7 +354,7 @@ export interface paths {
          *         204 空响应。
          *
          *     Raises:
-         *         InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40001)。
+         *         InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40004)。
          */
         delete: operations["devices_destroy"];
         options?: never;

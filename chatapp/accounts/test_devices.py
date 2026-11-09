@@ -6,7 +6,7 @@
     2. ``DELETE /api/v1/devices/{client_type}`` 递增该端版本并经 Celery 踢该端 IM,
        返回 204;另一端不受影响;
     3. 踢 ``web`` 之后:web 的旧 access 返 ``401`` + ``40101``,app 的 access 仍 ``200``;
-    4. 重复 ``DELETE`` 同一端仍 204(幂等);非法 ``client_type`` 返 ``400`` + ``40001``;
+    4. 重复 ``DELETE`` 同一端仍 204(幂等);非法 ``client_type`` 返 ``400`` + ``40004``;
     5. ``last_active_at`` 在登录签发令牌与 ``/auth/token/refresh`` 成功时更新;
     6. 刷新 / 登录都不会误刷另一端的活跃时间(端维度不串)。
 
@@ -181,12 +181,12 @@ class DeviceLogoutTests(DeviceApiTestCase):
         self.assertEqual(kick.call_count, 2)
 
     def test_invalid_client_type_is_rejected(self):
-        """非法端类型 → 400 + 40001,且不入队踢人。"""
+        """非法端类型 → 400 + 40004,且不入队踢人。"""
         access = self.login(CLIENT_APP).data["access"]
         with patch("im.tasks.kick_device.delay") as kick:
             response = self.delete_device(access, "pad")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data["code"], 40001)
+        self.assertEqual(response.data["code"], 40004)
         kick.assert_not_called()
 
     def test_kick_requires_authentication(self):

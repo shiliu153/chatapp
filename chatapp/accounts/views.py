@@ -516,7 +516,7 @@ def device_logout(request, client_type):
         204 空响应。
 
     Raises:
-        InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40001)。
+        InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40004)。
     """
     if client_type not in device_session.CLIENT_TYPES:
         raise InvalidClientType()

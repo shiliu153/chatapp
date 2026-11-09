@@ -418,7 +418,7 @@ paths:
             204 空响应。
 
         Raises:
-            InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40001)。
+            InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40004)。
       parameters:
       - in: path
         name: client_type
