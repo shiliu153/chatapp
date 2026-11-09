@@ -5,14 +5,18 @@
        重封禁(``banned_heavy``)的人对外不可见,轻封禁仍可见、仍能聊天;
     2. ``DELETE /users/me`` 是账号注销,要求 body 带手机号二次确认,成功后**立即硬删除**
        全部数据并释放手机号(同号可重新注册为全新账号);
-    3. 照片数量变化会影响「资料完善」判定,因此上传与删除后都要 ``refresh_status()``。
+    3. 照片数量变化会影响「资料完善」判定,因此上传与删除后都要 ``refresh_status()``;
+       资料语音(批次 R)刻意**不**参与该判定,所以语音上传/删除都不调 ``refresh_status()``。
 
 关联文档:
     - 接口契约:docs/api/users.md
     - 踩坑记录:docs/pitfalls/backend.md「账号注销」
 """
 
+import logging
+import tempfile
 import uuid
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -24,21 +28,25 @@ from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from config import images, storage
+from config import error_codes, images, storage
 from discovery.cache_keys import invalidate_candidates, invalidate_pool_globally
 from feed.services import follow_state_for_profiles
+from im import voice
 from moderation.services import blocked_user_ids
 
-from .models import Photo, PhotoStatus, Profile, ProfileStatus, Tag
+from .models import Photo, PhotoStatus, Profile, ProfileStatus, ProfileVoice, Tag
 from .presence import PRESENCE_MAX_IDS, get_presence
 from .serializers import (DeleteAccountSerializer, PhotoSerializer, PhotoUploadSerializer,
-                          PreferenceSerializer, ProfileSerializer, ProfileUpdateSerializer,
+                          PreferenceSerializer, ProfileSerializer, ProfileVoiceSerializer,
+                          ProfileVoiceUploadSerializer, ProfileUpdateSerializer,
                           PublicProfileSerializer, TagSerializer)
 from .services import (delete_account, get_profile, record_profile_view, sync_im_avatar,
                        sync_im_nickname)
-from .throttles import PhotoUploadThrottle, PresenceThrottle, PublicProfileThrottle
+from .throttles import (PhotoUploadThrottle, PresenceThrottle, ProfileVoiceThrottle,
+                        PublicProfileThrottle)
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 @extend_schema(methods=["GET"], responses={200: ProfileSerializer})
@@ -200,6 +208,109 @@ def delete_photo(request, photo_id):
     invalidate_pool_globally()
     invalidate_candidates(request.user.id)
     return Response(status=204)
+
+
+def normalize_profile_voice(raw: bytes, content_type: str) -> tuple[bytes, int]:
+    """校验并转码一段资料语音自我介绍(≤30 秒)。
+
+    转码本身**完全复用** ``im.voice.normalize``(ffprobe 校验 → ffmpeg 转 m4a/AAC,
+    含协议白名单、资源上限与最小环境),这里不重写任何 ffmpeg 调用。与聊天语音的差别只有两点:
+
+    1. 资料语音的契约只有一个 ``file`` 字段,**没有客户端声明的时长**;
+       ``im.voice.normalize`` 却要求 ``declared_ms`` 并与实测值比对。所以先用
+       ``ffprobe`` 探一次真实时长,再把它作为 ``declared_ms`` 传进去 —— 等价于
+       「不信任客户端声明」的原始意图,同时不用改 ``im/`` 一行代码;
+    2. 上限是 **30 秒**(聊天语音是 60 秒),超限抛 :class:`im.voice.VoiceError`,
+       由视图回 400(不新增业务码)。
+
+    Args:
+        raw: 上传文件的原始字节。
+        content_type: 上传声明的 MIME(可带 ``;codecs=...`` 参数)。
+
+    Returns:
+        ``(m4a 字节, 实测毫秒)``。
+
+    Raises:
+        voice.VoiceUnavailable: 服务器缺 ffmpeg/ffprobe(视图回 503 + ``50302``)。
+        voice.VoiceError: 格式/大小/解码不合法,或时长超过 30 秒。
+    """
+    suffix = voice.ALLOWED_CONTENT_TYPES.get(voice.base_content_type(content_type))
+    if suffix is None:
+        raise voice.VoiceError("只支持 M4A/AAC/WebM/OGG 音频")
+    if not voice.ffmpeg_available():
+        raise voice.VoiceUnavailable()
+    with tempfile.TemporaryDirectory() as workdir:
+        probe_path = Path(workdir) / f"probe{suffix}"
+        probe_path.write_bytes(raw)
+        declared_ms = voice._probe_ms(probe_path)
+    data, duration_ms = voice.normalize(raw, content_type, declared_ms)
+    if duration_ms > settings.PROFILE_VOICE_MAX_MS:
+        raise voice.VoiceError(
+            f"语音自我介绍不能超过 {settings.PROFILE_VOICE_MAX_MS // 1000} 秒")
+    return data, duration_ms
+
+
+@extend_schema(methods=["POST"], request=ProfileVoiceUploadSerializer,
+               responses={201: ProfileVoiceSerializer})
+@extend_schema(methods=["DELETE"], request=None, responses={204: None})
+@api_view(["POST", "DELETE"])
+@throttle_classes([ProfileVoiceThrottle])
+def my_voice(request):
+    """资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
+
+    POST 是**覆盖式**的:一个账号只有一条语音,重复上传替换内容并删掉旧文件。
+    处理顺序刻意写成「转码 → 时长 → 配额 → 落盘」:
+
+    1. 转码与时长校验都在临时目录里完成,不碰媒体目录;
+    2. **配额检查必须在 ``file.save()`` 之前** —— ``FileField.save`` 会立即把文件写进
+       存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
+    3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
+
+    Args:
+        request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+
+    Returns:
+        POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
+        DELETE 幂等 204(没有语音时也返回 204)。
+
+    Raises:
+        serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
+        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+    """
+    profile = get_profile(request.user)
+    if request.method == "DELETE":
+        existing = getattr(profile, "voice", None)
+        if existing is not None:
+            existing.file.delete(save=False)   # 连磁盘文件一起删
+            existing.delete()
+        return Response(status=204)
+
+    serializer = ProfileVoiceUploadSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    upload = serializer.validated_data["file"]
+    try:
+        data, duration_ms = normalize_profile_voice(upload.read(), upload.content_type)
+    except voice.VoiceUnavailable:
+        logger.error("资料语音上传失败:服务器缺少 ffmpeg/ffprobe")
+        return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                         "message": "语音自我介绍暂不可用"}, status=503)
+    except voice.VoiceError as error:
+        return Response({"code": 400, "message": str(error)}, status=400)
+
+    # 配额检查在落盘之前(M7):超限时一个字节都不写进媒体目录。
+    storage.ensure_quota(request.user, len(data))
+
+    record = getattr(profile, "voice", None) or ProfileVoice(profile=profile)
+    old_name = record.file.name or ""
+    stem = f"{request.user.id}-{uuid.uuid4().hex}"
+    record.file.save(f"{stem}.m4a", ContentFile(data), save=False)
+    record.duration_ms = duration_ms
+    record.bytes = len(data)
+    record.save()
+    if old_name and old_name != record.file.name:
+        record.file.storage.delete(old_name)
+    return Response(ProfileVoiceSerializer(record, context={"request": request}).data,
+                    status=201)
 
 
 @extend_schema(parameters=[OpenApiParameter(

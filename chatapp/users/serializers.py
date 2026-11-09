@@ -7,7 +7,10 @@
        生日、偏好与缺失项;
     3. 昵称与简介在写入前统一过 ``moderation.text_check`` 的违禁词检查;
     4. 公开资料卡上的 ``shared_tags`` 与关注态三个字段都支持「批量注入 context」,
-       单条场景有各自的兜底查询,不会退化成 N+1。
+       单条场景有各自的兜底查询,不会退化成 N+1;
+    5. 资料语音(批次 R)在「我的资料」与「他人公开资料」里都是 ``voice: {url,
+       duration_ms} | null``;``url`` 是 DRF 拼的**公开绝对地址**(与照片同口径,不签名、
+       不过期 —— 语音本来就是「能看我资料的人都能听」)。
 """
 
 from django.conf import settings
@@ -15,9 +18,12 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from feed.services import follow_state_for_profiles
+from im.voice import ALLOWED_CONTENT_TYPES as ALLOWED_AUDIO_CONTENT_TYPES
+from im.voice import base_content_type
 from moderation.text_check import find_blocked_word
 
-from .models import Gender, Photo, PhotoStatus, Preference, Profile, Tag, calculate_age
+from .models import (Gender, Photo, PhotoStatus, Preference, Profile, ProfileVoice, Tag,
+                     calculate_age)
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -118,6 +124,39 @@ class PreferenceSerializer(serializers.ModelSerializer):
         return attrs
 
 
+def voice_payload(profile, context=None) -> dict | None:
+    """把资料语音序列化成对外载荷 ``{url, duration_ms}``。
+
+    没有语音的人返回 ``None``(API 里是 JSON ``null``),客户端据此隐藏播放器。
+
+    Args:
+        profile: 资料对象;``voice`` 反向一对一不存在时按「没录过」处理。
+        context: 序列化器上下文,必须带 ``request`` —— 缺了它 ``url`` 会退化成相对路径。
+
+    Returns:
+        ``{"url": 公开绝对地址, "duration_ms": 实测毫秒}``;没有语音时为 ``None``。
+    """
+    record = getattr(profile, "voice", None)
+    if record is None:
+        return None
+    return ProfileVoiceSerializer(record, context=context or {}).data
+
+
+class ProfileVoiceSerializer(serializers.ModelSerializer):
+    """资料语音的只读表示(嵌套在资料里,同时也是上传接口的响应体)。
+
+    ``url`` 与 ``PhotoSerializer`` 完全同口径:交给 DRF 的 ``FileField`` 拼绝对地址,
+    **不签名**。语音是公开媒体(``/media/voices/`` 由 nginx 裸静态直出),签一个没人
+    校验的 ``e``/``s`` 只会让人误以为「过期即失效」。
+    """
+
+    url = serializers.FileField(source="file", read_only=True)
+
+    class Meta:
+        model = ProfileVoice
+        fields = ["url", "duration_ms"]
+
+
 class ProfileSerializer(serializers.ModelSerializer):
     """「我的资料」的完整表示,含隐私字段与完善度提示。"""
 
@@ -129,12 +168,25 @@ class ProfileSerializer(serializers.ModelSerializer):
     photos = PhotoSerializer(source="user.photos", many=True, read_only=True)
     preference = PreferenceSerializer(read_only=True)
     missing_fields = serializers.ListField(child=serializers.CharField(), read_only=True)
+    voice = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
         fields = ["id", "user_id", "phone", "nickname", "gender", "birthday", "age", "city", "bio",
                   "status", "ban_reason", "missing_fields", "tags", "photos", "preference",
-                  "visits_hidden"]
+                  "visits_hidden", "voice"]
+
+    @extend_schema_field(ProfileVoiceSerializer(allow_null=True))
+    def get_voice(self, profile):
+        """资料语音自我介绍,没录过为 ``null``。
+
+        Args:
+            profile: 当前用户的资料。
+
+        Returns:
+            ``{"url", "duration_ms"}`` 或 ``None``。
+        """
+        return voice_payload(profile, self.context)
 
 
 class PublicProfileSerializer(serializers.ModelSerializer):
@@ -153,6 +205,7 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
     shared_tags = serializers.SerializerMethodField()
     photos = serializers.SerializerMethodField()
+    voice = serializers.SerializerMethodField()
     is_followed = serializers.SerializerMethodField()
     follower_count = serializers.SerializerMethodField()
     following_count = serializers.SerializerMethodField()
@@ -160,7 +213,7 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = ["user_id", "nickname", "gender", "age", "city", "bio", "tags",
-                  "shared_tags", "photos", "is_followed", "follower_count",
+                  "shared_tags", "photos", "voice", "is_followed", "follower_count",
                   "following_count"]
 
     def _follow_state(self, profile) -> dict:
@@ -249,6 +302,21 @@ class PublicProfileSerializer(serializers.ModelSerializer):
                      else shared_tags_for_profiles([profile], viewer))
             memo.update(found)
         return memo.get(profile.user_id, [])
+
+    @extend_schema_field(ProfileVoiceSerializer(allow_null=True))
+    def get_voice(self, profile):
+        """对方的资料语音;没录过为 ``null``。
+
+        语音是**公开**的:任何能看这条资料卡的人都能听到(与照片同口径,不做
+        「仅配对后可听」)。可见性由 ``public_profile`` 视图保证,这里不再过滤。
+
+        Args:
+            profile: 被查看的资料。
+
+        Returns:
+            ``{"url", "duration_ms"}`` 或 ``None``。
+        """
+        return voice_payload(profile, self.context)
 
     @extend_schema_field(PhotoSerializer(many=True))
     def get_photos(self, profile):
@@ -360,6 +428,34 @@ class PhotoUploadSerializer(serializers.Serializer):
         """
         if value.size > settings.PHOTO_MAX_BYTES:
             raise serializers.ValidationError("图片不能超过 5MB")
+        return value
+
+
+class ProfileVoiceUploadSerializer(serializers.Serializer):
+    """资料语音上传入参(multipart 字段 ``file``)。
+
+    时长不靠客户端声明:服务端用 ``ffprobe`` 实测(见 ``users.views.my_voice``),
+    所以这里只校验大小与容器格式。
+    """
+
+    file = serializers.FileField()
+
+    def validate_file(self, value):
+        """校验语音大小与 MIME 白名单。
+
+        Args:
+            value: 上传的文件对象。
+
+        Returns:
+            通过校验的文件对象。
+
+        Raises:
+            serializers.ValidationError: 超过大小上限,或格式不在音频白名单。
+        """
+        if value.size > settings.PROFILE_VOICE_MAX_BYTES:
+            raise serializers.ValidationError("语音不能超过 5MB")
+        if base_content_type(value.content_type) not in ALLOWED_AUDIO_CONTENT_TYPES:
+            raise serializers.ValidationError("只支持 M4A/AAC/WebM/OGG 音频")
         return value
 
 

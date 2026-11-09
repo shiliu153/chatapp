@@ -8,6 +8,9 @@
     - 编辑资料:局部更新、昵称变化才同步 IM、未满 18 拒绝、违禁词、非法标签与性别;
     - 照片:开发期上传即过审、过审同步头像、非图片拒绝、6 张上限、删自己的照片与文件、
       不能删别人的、状态随照片增减在完善/未完善间流转;
+    - 资料语音:3 秒 201 + 签名地址、31 秒 400(提示 30 秒)、覆盖上传只剩一条且旧文件已删、
+      我的/他人资料都返回 ``voice``、没录过为 ``null``、DELETE 幂等且删文件、
+      配额超限 413+41301 且不落盘、缺 ffmpeg 503+50302、不进「资料完善」判定、限流;
     - 偏好:默认值、更新、区间非法、未满 18 下限、目标性别为空表示不限;
     - admin 审核动作:驳回与通过时的状态重算、记录审核人与时间;
     - 他人资料卡:只返回公开字段、重封禁不可见、轻封禁可见、拉黑双向不可见、404;
@@ -58,8 +61,8 @@ from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import BanLog, Block, Report
 
 from . import presence, services
-from .models import (Photo, PhotoStatus, Profile, ProfileStatus, ProfileVisit, Tag,
-                     birthday_bounds, calculate_age)
+from .models import (Photo, PhotoStatus, Profile, ProfileStatus, ProfileVisit, ProfileVoice,
+                     Tag, birthday_bounds, calculate_age)
 
 User = get_user_model()
 
@@ -406,8 +409,180 @@ class PhotoTests(AuthMixin, APITestCase):
             self.assertEqual(self.upload().status_code, 201)
 
 
+class ProfileVoiceTests(AuthMixin, APITestCase):
+    """资料语音自我介绍(批次 R):上传/覆盖/删除、30 秒上限、签名 URL、配额不落盘。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        cache.clear()
+        self.user = User.objects.create_user(phone="13800138000")
+        self.login(self.user)
+        self.url = "/api/v1/users/me/voice"
+
+    def upload(self, content=b"fake-m4a", name="a.m4a", content_type="audio/mp4"):
+        """上传一段资料语音。
+
+        Args:
+            content: 文件字节。
+            name: 文件名。
+            content_type: MIME 类型。
+
+        Returns:
+            DRF 测试客户端的响应对象。
+        """
+        return self.client.post(
+            self.url,
+            {"file": SimpleUploadedFile(name, content, content_type=content_type)},
+            format="multipart")
+
+    def voice_files(self):
+        """列出媒体目录里已落盘的语音文件。
+
+        Returns:
+            语音文件的 ``Path`` 列表(覆盖上传的断言用「只剩一个」)。
+        """
+        root = Path(self.media_dir) / "voices"
+        return sorted(root.rglob("*.m4a")) if root.exists() else []
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_upload_three_seconds_returns_public_url(self, _probe, _transcode, _ffmpeg):
+        """3 秒语音:201 + 公开绝对地址(无 query)+ 实测时长,文件与行都落库。"""
+        resp = self.upload()
+        self.assertEqual(resp.status_code, 201, resp.json())
+        data = resp.json()
+        self.assertTrue(data["url"].startswith("http://testserver/media/voices/"))
+        self.assertNotIn("?", data["url"])
+        self.assertEqual(data["duration_ms"], 3000)
+        record = ProfileVoice.objects.get()
+        self.assertEqual(record.profile.user_id, self.user.id)
+        self.assertEqual(record.bytes, len(b"transcoded"))
+        self.assertRegex(record.file.name, r"^voices/\d{4}/\d{2}/\d+-[0-9a-f]{32}\.m4a$")
+        self.assertTrue(record.file.storage.exists(record.file.name))
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=31000)
+    def test_rejects_over_thirty_seconds(self, _probe, _transcode, _ffmpeg):
+        """31 秒 → 400,提示里写明上限是 30 秒,且不落库不落盘。"""
+        resp = self.upload()
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("30 秒", resp.json()["message"])
+        self.assertEqual(ProfileVoice.objects.count(), 0)
+        self.assertEqual(self.voice_files(), [])
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_second_upload_replaces_and_deletes_old_file(self, _probe, _transcode, _ffmpeg):
+        """重复上传 = 覆盖:库里仍只有一条,旧文件已从磁盘删除。"""
+        self.assertEqual(self.upload().status_code, 201)
+        first = ProfileVoice.objects.get().file.name
+        self.assertEqual(self.upload(content=b"second").status_code, 201)
+        self.assertEqual(ProfileVoice.objects.count(), 1)
+        current = ProfileVoice.objects.get()
+        self.assertNotEqual(current.file.name, first)
+        self.assertFalse(default_storage.exists(first))
+        self.assertEqual(len(self.voice_files()), 1)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_me_and_public_profile_expose_voice_url(self, _probe, _transcode, _ffmpeg):
+        """``GET /users/me`` 与他人资料卡都返回 ``voice``,URL 是公开绝对地址。"""
+        self.assertEqual(self.upload().status_code, 201)
+        mine = self.client.get("/api/v1/users/me").json()["voice"]
+        self.assertIsNotNone(mine)
+        self.assertEqual(mine["duration_ms"], 3000)
+
+        viewer = User.objects.create_user(phone="13900139000")
+        self.login(viewer)
+        public = self.client.get(f"/api/v1/users/{self.user.id}")
+        self.assertEqual(public.status_code, 200, public.json())
+        voice = public.json()["voice"]
+        self.assertEqual(voice["duration_ms"], 3000)
+        for url in (mine["url"], voice["url"]):
+            # 与照片完全同口径:公开绝对地址、**不带任何 query**。语音落在
+            # /media/voices/,nginx 是裸静态直出,签 e/s 也没有人校验,所以干脆不签。
+            self.assertTrue(url.startswith("http://testserver/media/voices/"))
+            self.assertNotIn("?", url)
+
+    def test_voice_is_null_without_upload(self):
+        """没录过语音时字段是 ``null``,而不是报错或空对象。"""
+        self.assertIsNone(self.client.get("/api/v1/users/me").json()["voice"])
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_delete_is_idempotent_and_removes_file(self, _probe, _transcode, _ffmpeg):
+        """DELETE 两次都 204;之后 ``voice`` 为 ``null`` 且磁盘文件已删。"""
+        self.assertEqual(self.upload().status_code, 201)
+        name = ProfileVoice.objects.get().file.name
+        self.assertEqual(self.client.delete(self.url).status_code, 204)
+        self.assertEqual(self.client.delete(self.url).status_code, 204)
+        self.assertEqual(ProfileVoice.objects.count(), 0)
+        self.assertFalse(default_storage.exists(name))
+        self.assertIsNone(self.client.get("/api/v1/users/me").json()["voice"])
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_quota_exceeded_returns_413_and_writes_nothing(self, _probe, _transcode, _ffmpeg):
+        """配额超限:413 + ``41301``,既不建行**也不落盘**(检查在 ``file.save()`` 之前)。"""
+        with self.settings(USER_STORAGE_QUOTA_BYTES=1):
+            resp = self.upload()
+        self.assertEqual(resp.status_code, 413)
+        self.assertEqual(resp.json()["code"], 41301)
+        self.assertEqual(ProfileVoice.objects.count(), 0)
+        self.assertEqual(self.voice_files(), [])
+
+    @patch("im.voice.ffmpeg_available", return_value=False)
+    def test_returns_503_without_ffmpeg(self, _ffmpeg):
+        """服务器没装 ffmpeg/ffprobe:503 + ``50302``(不新增业务码)。"""
+        resp = self.upload()
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json()["code"], 50302)
+
+    def test_rejects_non_audio(self):
+        resp = self.upload(name="a.png", content=b"png", content_type="image/png")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get("/api/v1/users/me").status_code, 401)
+        self.assertEqual(self.upload().status_code, 401)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_voice_does_not_affect_profile_status(self, _probe, _transcode, _ffmpeg):
+        """回归:语音**不进**「资料完善」判定 —— 有语音不改变状态,没有也不会退化。"""
+        profile = services.get_profile(self.user)
+        before = profile.status
+        self.assertEqual(self.upload().status_code, 201)
+        profile.refresh_from_db()
+        self.assertEqual(profile.status, before)
+        self.assertIn("nickname", profile.missing_fields())
+        self.assertNotIn("voice", profile.missing_fields())
+
+    @patch("users.throttles.ProfileVoiceThrottle.get_rate", return_value="1/hour")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"x"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_upload_is_throttled(self, _rate, _probe, _transcode, _ffmpeg):
+        """上传按账号限流(默认 10 次/小时)。"""
+        cache.clear()
+        self.assertEqual(self.upload().status_code, 201)
+        self.assertEqual(self.upload().status_code, 429)
+
+
 class StorageUsageTests(TestCase):
-    """存储用量口径:四类媒体相加,已删除/已过期的不计,按账号隔离(M7)。"""
+    """存储用量口径:五类媒体相加,已删除/已过期的不计,按账号隔离(M7)。"""
 
     def setUp(self):
         self.user = User.objects.create_user(phone="13800138000")
@@ -433,7 +608,9 @@ class StorageUsageTests(TestCase):
         self._chat_image(30)
         ChatVoice.objects.create(owner=self.user, file="chat/voices/a.m4a",
                                  duration_ms=1000, bytes=40)
-        self.assertEqual(storage.usage_bytes(self.user.id), 100)
+        ProfileVoice.objects.create(profile=services.get_profile(self.user),
+                                    file="voices/a.m4a", duration_ms=1000, bytes=50)
+        self.assertEqual(storage.usage_bytes(self.user.id), 150)
 
     def test_expired_or_deleted_media_not_counted(self):
         self._chat_image(30, status=ChatImageStatus.EXPIRED)

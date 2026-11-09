@@ -1680,6 +1680,66 @@ export interface paths {
         patch: operations["users_me_preference_partial_update"];
         trace?: never;
     };
+    "/api/v1/users/me/voice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description 资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
+         *
+         *     POST 是**覆盖式**的:一个账号只有一条语音,重复上传替换内容并删掉旧文件。
+         *     处理顺序刻意写成「转码 → 时长 → 配额 → 落盘」:
+         *
+         *     1. 转码与时长校验都在临时目录里完成,不碰媒体目录;
+         *     2. **配额检查必须在 ``file.save()`` 之前** —— ``FileField.save`` 会立即把文件写进
+         *        存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
+         *     3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
+         *
+         *     Args:
+         *         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+         *
+         *     Returns:
+         *         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
+         *         DELETE 幂等 204(没有语音时也返回 204)。
+         *
+         *     Raises:
+         *         serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
+         *         config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+         */
+        post: operations["users_me_voice_create"];
+        /**
+         * @description 资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
+         *
+         *     POST 是**覆盖式**的:一个账号只有一条语音,重复上传替换内容并删掉旧文件。
+         *     处理顺序刻意写成「转码 → 时长 → 配额 → 落盘」:
+         *
+         *     1. 转码与时长校验都在临时目录里完成,不碰媒体目录;
+         *     2. **配额检查必须在 ``file.save()`` 之前** —— ``FileField.save`` 会立即把文件写进
+         *        存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
+         *     3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
+         *
+         *     Args:
+         *         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+         *
+         *     Returns:
+         *         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
+         *         DELETE 幂等 204(没有语音时也返回 204)。
+         *
+         *     Raises:
+         *         serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
+         *         config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+         */
+        delete: operations["users_me_voice_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/tags": {
         parameters: {
             query?: never;
@@ -2217,6 +2277,7 @@ export interface components {
             readonly preference: components["schemas"]["Preference"];
             /** 隐身浏览 */
             visits_hidden?: boolean;
+            readonly voice: components["schemas"]["ProfileVoice"] | null;
         };
         /**
          * @description * `incomplete` - 未完善
@@ -2226,6 +2287,32 @@ export interface components {
          * @enum {string}
          */
         ProfileStatusEnum: "incomplete" | "complete" | "banned_light" | "banned_heavy";
+        /**
+         * @description 资料语音的只读表示(嵌套在资料里,同时也是上传接口的响应体)。
+         *
+         *     ``url`` 与 ``PhotoSerializer`` 完全同口径:交给 DRF 的 ``FileField`` 拼绝对地址,
+         *     **不签名**。语音是公开媒体(``/media/voices/`` 由 nginx 裸静态直出),签一个没人
+         *     校验的 ``e``/``s`` 只会让人误以为「过期即失效」。
+         */
+        ProfileVoice: {
+            /** Format: uri */
+            readonly url: string | null;
+            /**
+             * 时长(毫秒)
+             * Format: int64
+             */
+            duration_ms: number;
+        };
+        /**
+         * @description 资料语音上传入参(multipart 字段 ``file``)。
+         *
+         *     时长不靠客户端声明:服务端用 ``ffprobe`` 实测(见 ``users.views.my_voice``),
+         *     所以这里只校验大小与容器格式。
+         */
+        ProfileVoiceUploadRequest: {
+            /** Format: binary */
+            file: string;
+        };
         /**
          * @description 对方资料卡:只比 ProfileSerializer 少了隐私字段(手机号/生日/偏好/缺项)。
          *
@@ -2250,6 +2337,7 @@ export interface components {
             readonly tags: components["schemas"]["Tag"][];
             readonly shared_tags: components["schemas"]["Tag"][];
             readonly photos: components["schemas"]["Photo"][];
+            readonly voice: components["schemas"]["ProfileVoice"] | null;
             readonly is_followed: boolean;
             readonly follower_count: number;
             readonly following_count: number;
@@ -3833,6 +3921,49 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Preference"];
                 };
+            };
+        };
+    };
+    users_me_voice_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileVoiceUploadRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["ProfileVoiceUploadRequest"];
+                "multipart/form-data": components["schemas"]["ProfileVoiceUploadRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileVoice"];
+                };
+            };
+        };
+    };
+    users_me_voice_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
