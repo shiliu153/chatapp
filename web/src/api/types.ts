@@ -204,3 +204,20 @@ export interface AppNotification {
   actor: NotificationActor | null
   target: NotificationTarget
 }
+
+/**
+ * 一个「登录过的端」(auth.md §1.6)。
+ *
+ * 一类端一行,最多两行(`app` / `web`);从没登录过的端不会出现。
+ * `current` 由**请求头** `X-Client` 判定(不是令牌里的 `ct`),有且只有一项为 `true`。
+ */
+export interface LoginDevice {
+  client_type: string
+  /** 端展示名,服务端给的就是「App」/「网页端」,前端不再自己映射 */
+  client_label: string
+  current: boolean
+  /** 该端首次登录时间(ISO 8601) */
+  created_at: string
+  /** 最近一次登录或刷新令牌的时间;批次 M 之前建的行、或从未刷新过为 null */
+  last_active_at: string | null
+}

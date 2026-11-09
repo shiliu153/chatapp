@@ -111,6 +111,11 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/features/settings/BlockedUsersPage.vue'),
   },
   {
+    path: '/settings/devices',
+    name: 'settings-devices',
+    component: () => import('@/features/settings/DevicesPage.vue'),
+  },
+  {
     path: '/settings/notifications',
     name: 'settings-notifications',
     component: () => import('@/features/settings/NotificationSettingsPage.vue'),
