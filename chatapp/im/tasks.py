@@ -336,6 +336,26 @@ def kick_all_devices(user_id: int) -> None:
 
 
 @shared_task(**RETRY_POLICY)
+def kick_device(user_id: int, client_type: str) -> None:
+    """把账号**某一端**的在线 IM 会话踢下线(登录设备页「下线该设备」,批次 M)。
+
+    与 ``kick_all_devices`` 的区别只在踢的范围:这里带 ``client_type`` 只踢该端,
+    另一端的 IM 连接必须留着 —— 用户点掉网页,手机上的 App 不能跟着掉线。
+
+    Args:
+        user_id: 账号 id(任务参数一律 user_id,任务内查库)。
+        client_type: ``app`` / ``web``;只踢这一端。
+
+    Raises:
+        RuntimeError: 踢下线失败,交给 ``RETRY_POLICY`` 重试。
+    """
+    user = _user(user_id)
+    if user is None:
+        return
+    _require(im_client.kick_user(user.im_user_id, client_type=client_type), "kick_device")
+
+
+@shared_task(**RETRY_POLICY)
 def pair_add(user_a_id: int, user_b_id: int) -> None:
     """配对成功:建立两人的聊天权限(H4)。
 

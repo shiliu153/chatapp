@@ -26,7 +26,7 @@
 
 ## 接口一览
 
-共 **58** 个接口(按「方法 + 路径」计)。
+共 **60** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -35,6 +35,8 @@
 | POST | `/api/v1/auth/token/refresh` | 刷新访问令牌 | [auth](auth.md) |
 | POST | `/api/v1/auth/logout` | 注销(拉黑 refresh + 清 Cookie,幂等 204) | [auth](auth.md) |
 | POST | `/api/v1/auth/logout/all` | 退出所有设备(两端会话版本各 +1 并踢 IM 会话,204) | [auth](auth.md) |
+| GET | `/api/v1/devices` | 登录设备列表(按端一行,标出当前端) | [auth](auth.md) |
+| DELETE | `/api/v1/devices/{client_type}` | 下线指定端(该端令牌失效 + 踢该端 IM 会话,幂等 204) | [auth](auth.md) |
 | GET | `/api/v1/users/me` | 获取我的资料 | [users](users.md) |
 | PATCH | `/api/v1/users/me` | 修改我的资料 | [users](users.md) |
 | DELETE | `/api/v1/users/me` | 注销账号(手机号二次确认,立即硬删除) | [users](users.md) |
@@ -116,7 +118,7 @@ Base URL、鉴权细节、统一错误结构、分页约定、限流额度见 [c
 
 | 项 | 说明 |
 |---|---|
-| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,45 paths / 54 operations) |
+| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,50 paths / 60 operations) |
 | 生成命令 | `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` |
 | 谁在读它 | Web 端类型生成(`web/src/api/schema.d.ts`)、CI 门禁、后续客户端工具链 |
 | 能否手改 | **不能**。它是生成物,手改会在下一次生成时被覆盖,且 CI 会红 |

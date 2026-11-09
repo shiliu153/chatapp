@@ -292,6 +292,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 登录设备列表(GET /api/v1/devices)。
+         *
+         *     只列**确实登录过**的端(一类端一行,最多两行),``current`` 由请求头 ``X-Client``
+         *     判定 —— 缺省与未知取值一律按 ``app``,与签发令牌时的口径完全一致。
+         *
+         *     为什么不在服务端判「在线」:在线是**账号级**的 ``presence``(120 秒窗口),
+         *     按端拆要动心跳链路;这里只给「最近活跃时间」,让用户自己判断哪台设备还在用。
+         *
+         *     Args:
+         *         request: DRF 请求对象(必须已认证)。
+         *
+         *     Returns:
+         *         ``{"results": [{client_type, client_label, current, created_at,
+         *         last_active_at}]}``;``last_active_at`` 为 ``null`` 表示该端只有登录记录、
+         *         还没刷新过令牌(批次 M 上线前建的行)。
+         */
+        get: operations["devices_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{client_type}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description 下线指定端的登录会话(DELETE /api/v1/devices/{client_type})。
+         *
+         *     两步走:① 该端的会话版本 +1,让这台设备的 access / refresh 立刻失效
+         *     (下一次请求拿到 ``401`` + ``40101``);② 经 Celery 踢掉该端在线的 IM 连接 ——
+         *     响应路径禁止外部调用。**另一端不受影响**。
+         *
+         *     幂等:该端本来就没有会话行、或重复下线,都返回 204(与 ``POST /auth/logout``
+         *     同口径)。允许踢当前正在用的这一端:语义等同「注销本端」,服务端不做特判,
+         *     客户端收到 204 后自行回登录页。
+         *
+         *     Args:
+         *         request: DRF 请求对象(必须已认证)。
+         *         client_type: 路径参数,``app`` 或 ``web``。
+         *
+         *     Returns:
+         *         204 空响应。
+         *
+         *     Raises:
+         *         InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40001)。
+         */
+        delete: operations["devices_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/discovery/candidates": {
         parameters: {
             query?: never;
@@ -1655,6 +1725,18 @@ export interface components {
             previous: string | null;
             results: components["schemas"]["PostComment"][];
         };
+        DeviceItem: {
+            client_type: string;
+            client_label: string;
+            current: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_active_at: string | null;
+        };
+        DeviceListResult: {
+            results: components["schemas"]["DeviceItem"][];
+        };
         /**
          * @description * `android` - Android
          *     * `ios` - iOS
@@ -2408,6 +2490,48 @@ export interface operations {
                 "multipart/form-data": components["schemas"]["ClientErrorRequest"];
             };
         };
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    devices_retrieve: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description 客户端类型。填 web 表示网页端,current 落在 web 那行;缺省(含不带该头)按 app 处理 */
+                "X-Client"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceListResult"];
+                };
+            };
+        };
+    };
+    devices_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description No response body */
             204: {

@@ -5,17 +5,25 @@
        之后一律用令牌里的 ``ct`` claim 回查,避免某个请求漏带头就把另一端顶掉;
     2. 缺省一律 ``app``:线上 1.0.10 及更早的 APK 不带 ``X-Client``,不能因此掉线;
     3. 版本递增用 ``F()`` 在数据库内自增,并发登录不会两个请求都拿到同一个旧版本;
-    4. 本模块是鉴权 / 登录 / 刷新 / IM 签发四处**唯一**的版本读写入口,
+    4. 本模块是鉴权 / 登录 / 刷新 / IM 签发 / 登录设备列表五处**唯一**的读写入口,
        别在别处直接读写 ``DeviceSession`` 或 ``User.session_version``。
+
+注意事项:
+    「在线」是**账号级**的(``users.presence``,120 秒窗口),本模块的
+    ``last_active_at`` 只记录「这一端最近一次登录或刷新的时间」,两者不可互推:
+    一端挂着心跳不打请求 ≠ 在线,反之亦然。
 """
 
 from django.db.models import F
+from django.utils import timezone
 
-from .models import SESSION_VERSION_DEFAULT, DeviceSession
+from .models import CLIENT_TYPE_CHOICES, SESSION_VERSION_DEFAULT, DeviceSession
 
 CLIENT_APP = "app"
 CLIENT_WEB = "web"
 CLIENT_TYPES = (CLIENT_APP, CLIENT_WEB)
+# 端类型的展示名(登录设备列表的 ``client_label``);文案与模型 choices 同源
+CLIENT_LABELS = dict(CLIENT_TYPE_CHOICES)
 
 
 def client_type_of(request) -> str:
@@ -46,6 +54,49 @@ def bump(user, client_type: str) -> int:
     DeviceSession.objects.filter(pk=session.pk).update(version=F("version") + 1)
     session.refresh_from_db(fields=["version"])
     return session.version
+
+
+def touch(user, client_type: str) -> None:
+    """把账号在某一端上的「最后活跃时间」刷成当前时间。
+
+    只在**登录签发令牌**与 ``/auth/token/refresh`` 成功时调用:这两处才是「这一端
+    确实在被使用」的证据。鉴权路径不调它 —— 每个请求都写一次库会把读接口拖成写接口,
+    而「在线」另有账号级的 presence 通道。
+
+    Args:
+        user: 目标账号(需要 ``id``)。
+        client_type: ``"app"`` 或 ``"web"``。
+
+    Returns:
+        ``None``。该端还没有会话行时静默跳过(登录路径先 ``bump`` 建行,正常不会走到)。
+    """
+    DeviceSession.objects.filter(user_id=user.id, client_type=client_type).update(
+        last_active_at=timezone.now())
+
+
+def sessions_of(user):
+    """列出账号已经有会话行的那几端(登录设备列表的数据源)。
+
+    Args:
+        user: 目标账号(需要 ``id``)。
+
+    Returns:
+        ``DeviceSession`` 查询集,按 ``client_type`` 排序(``app`` 在前);
+        **从没登录过的端没有行,因此不会出现在结果里**(最多两行)。
+    """
+    return DeviceSession.objects.filter(user_id=user.id).order_by("client_type")
+
+
+def label_of(client_type: str) -> str:
+    """取端类型的展示名(给客户端的 ``client_label``)。
+
+    Args:
+        client_type: ``"app"`` 或 ``"web"``。
+
+    Returns:
+        中文展示名(如 ``App`` / ``网页端``);未知取值原样返回,不抛异常。
+    """
+    return CLIENT_LABELS.get(client_type, client_type)
 
 
 def version_of(user_id: int, client_type: str):

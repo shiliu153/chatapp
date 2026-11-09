@@ -59,8 +59,9 @@ from .throttles import ChatImageThrottle
 from .token import mint_im_token, verify_im_token
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
                     delete_account as delete_account_task,
-                    import_account as import_account_task, kick_pending,
-                    kick_pending_key, post_commented as post_commented_task,
+                    import_account as import_account_task, kick_device,
+                    kick_pending, kick_pending_key,
+                    post_commented as post_commented_task,
                     report_handled as report_handled_task, sync_profile,
                     unmatch_blacklist)
 from .tasks import send_match_notice as send_match_notice_task
@@ -363,6 +364,18 @@ class ImTaskTests(TestCase):
             kick_pending.run(self.user.id)
         kick.assert_called_once_with(self.user.im_user_id, client_type="app")
         self.assertIsNone(cache.get(kick_pending_key(self.user.id, "app")))
+
+    def test_kick_device_kicks_only_given_client(self):
+        """登录设备「下线该端」只踢这一端:``client_type`` 必须透传给 IM。"""
+        with patch("im.client.kick_user", return_value=True) as kick:
+            kick_device.run(self.user.id, "web")
+        kick.assert_called_once_with(self.user.im_user_id, client_type="web")
+
+    def test_kick_device_failure_raises_so_celery_retries(self):
+        """IM 调用失败要抛异常交给重试,不能静默吞掉(用户会以为已经下线)。"""
+        with patch("im.client.kick_user", return_value=False):
+            with self.assertRaises(RuntimeError):
+                kick_device.run(self.user.id, "app")
 
     def test_kick_pending_keeps_flag_and_raises_on_failure(self):
         cache.set(kick_pending_key(self.user.id, "app"), 1, 60)
