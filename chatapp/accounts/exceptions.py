@@ -81,3 +81,16 @@ class PhoneNotAllowed(APIException):
     status_code = 403
     default_detail = "当前为封闭测试,该手机号未在受邀名单内"
     detail_code = error_codes.PHONE_NOT_ALLOWED
+
+
+class InvalidClientType(APIException):
+    """端类型不是 ``app`` / ``web``(登录设备的「下线该端」用)。
+
+    为什么是 400 而不是 404:路径里的 ``{client_type}`` 是**取值**不合法,不是资源不存在
+    —— 端类型只有两种,写错就是客户端 bug,按参数校验失败返回,便于客户端定位。
+    """
+
+    status_code = 400
+    default_detail = "客户端类型不合法,只能是 app 或 web"
+    default_code = "invalid_client_type"
+    detail_code = error_codes.INVALID_CLIENT_TYPE

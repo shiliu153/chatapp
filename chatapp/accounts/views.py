@@ -1,4 +1,4 @@
-"""账号与鉴权接口:健康检查、发码、校验登录、刷新令牌、注销与退出所有设备。
+"""账号与鉴权接口:健康检查、发码、校验登录、刷新令牌、注销、退出所有设备、登录设备。
 
 设计要点:
     1. **响应路径不做任何第三方网络调用**:短信发送与 IM 建号/踢会话一律入队
@@ -6,7 +6,9 @@
     2. 登录成功即把**本端**的会话版本 +1(``accounts.device_session.bump``),
        同类端的旧设备令牌随即失效;另一端不受影响(多端在线,批次 K);
     3. 短信任务入队失败时回滚限流占位并返回 503(fail-closed)—— 否则用户会被
-       60 秒重发间隔卡死,既拿不到码也不能重试。
+       60 秒重发间隔卡死,既拿不到码也不能重试;
+    4. 登录设备(批次 M)的「看」与「踢单端」都只经 ``accounts.device_session``
+       与 ``im.tasks`` 两个入口,视图里不直接读写 ``DeviceSession``。
 
 关联文档:
     - 接口契约:docs/api/auth.md、docs/api/health.md
@@ -18,7 +20,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import (APIException, AuthenticationFailed, ParseError,
@@ -38,7 +40,7 @@ from notifications.tasks import send_sms_code
 from . import device_session, services
 from .cookies import (clear_refresh_cookie, same_origin, set_refresh_cookie,
                       wants_cookie)
-from .exceptions import SingleDeviceSessionConflict, SmsServiceUnavailable
+from .exceptions import InvalidClientType, SingleDeviceSessionConflict, SmsServiceUnavailable
 from .serializers import PhoneSerializer, SmsVerifySerializer
 from .throttles import (LogoutThrottle, ProbeThrottle, SmsSendThrottle,
                         SmsVerifyThrottle)
@@ -213,6 +215,7 @@ def sms_verify(request):
     # 自己是有效会话(M12)。IM 建号/踢旧会话交给队列(响应路径不做外部调用)。
     client_type = device_session.client_type_of(request)
     device_session.bump(user, client_type)
+    device_session.touch(user, client_type)   # 登录设备列表的「最近活跃」
 
     def _after_commit():
         # robust=True:broker 抖动不会把已提交的登录拖成 500
@@ -357,6 +360,8 @@ class SessionTokenRefreshView(TokenRefreshView):
 
         serializer = TokenRefreshSerializer(data={"refresh": raw})
         serializer.is_valid(raise_exception=True)
+        # 刷新成功 = 这一端确实还在用,顺带刷新登录设备列表的「最近活跃时间」
+        device_session.touch(user, client_type)
         new_refresh = serializer.validated_data.get("refresh", "")
         if new_refresh:
             cache.set(_grace_key(token.get("jti", "")), new_refresh,
@@ -445,3 +450,76 @@ def logout_all(request):
     response = Response(status=204)
     clear_refresh_cookie(response)
     return response
+
+
+@extend_schema(parameters=[OpenApiParameter(
+    "X-Client", str, OpenApiParameter.HEADER, required=False,
+    description="客户端类型。填 web 表示网页端,current 落在 web 那行;"
+                "缺省(含不带该头)按 app 处理")],
+    responses={200: inline_serializer("DeviceListResult", fields={
+        "results": serializers.ListField(child=inline_serializer("DeviceItem", fields={
+            "client_type": serializers.CharField(),
+            "client_label": serializers.CharField(),
+            "current": serializers.BooleanField(),
+            "created_at": serializers.DateTimeField(),
+            "last_active_at": serializers.DateTimeField(allow_null=True),
+        }))})})
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def devices(request):
+    """登录设备列表(GET /api/v1/devices)。
+
+    只列**确实登录过**的端(一类端一行,最多两行),``current`` 由请求头 ``X-Client``
+    判定 —— 缺省与未知取值一律按 ``app``,与签发令牌时的口径完全一致。
+
+    为什么不在服务端判「在线」:在线是**账号级**的 ``presence``(120 秒窗口),
+    按端拆要动心跳链路;这里只给「最近活跃时间」,让用户自己判断哪台设备还在用。
+
+    Args:
+        request: DRF 请求对象(必须已认证)。
+
+    Returns:
+        ``{"results": [{client_type, client_label, current, created_at,
+        last_active_at}]}``;``last_active_at`` 为 ``null`` 表示该端只有登录记录、
+        还没刷新过令牌(批次 M 上线前建的行)。
+    """
+    current = device_session.client_type_of(request)
+    rows = [{
+        "client_type": session.client_type,
+        "client_label": device_session.label_of(session.client_type),
+        "current": session.client_type == current,
+        "created_at": session.created_at,
+        "last_active_at": session.last_active_at,
+    } for session in device_session.sessions_of(request.user)]
+    return Response({"results": rows})
+
+
+@extend_schema(responses={204: None})
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def device_logout(request, client_type):
+    """下线指定端的登录会话(DELETE /api/v1/devices/{client_type})。
+
+    两步走:① 该端的会话版本 +1,让这台设备的 access / refresh 立刻失效
+    (下一次请求拿到 ``401`` + ``40101``);② 经 Celery 踢掉该端在线的 IM 连接 ——
+    响应路径禁止外部调用。**另一端不受影响**。
+
+    幂等:该端本来就没有会话行、或重复下线,都返回 204(与 ``POST /auth/logout``
+    同口径)。允许踢当前正在用的这一端:语义等同「注销本端」,服务端不做特判,
+    客户端收到 204 后自行回登录页。
+
+    Args:
+        request: DRF 请求对象(必须已认证)。
+        client_type: 路径参数,``app`` 或 ``web``。
+
+    Returns:
+        204 空响应。
+
+    Raises:
+        InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40004)。
+    """
+    if client_type not in device_session.CLIENT_TYPES:
+        raise InvalidClientType()
+    device_session.bump(request.user, client_type)
+    im_tasks.kick_device.delay(request.user.id, client_type)   # 响应路径不做外部调用
+    return Response(status=204)

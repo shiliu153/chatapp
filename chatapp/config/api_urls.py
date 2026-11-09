@@ -1,8 +1,8 @@
 """``/api/v1`` 的路由表:把各业务 app 的 URLconf 挂到对应前缀下。
 
 设计要点:
-    ``matches`` 与 ``presence`` 直接挂在根前缀(即 ``/api/v1/matches``、
-    ``/api/v1/presence``),其余接口按 app 分组。
+    ``matches``、``presence``、``devices`` 直接挂在根前缀(即 ``/api/v1/matches``、
+    ``/api/v1/presence``、``/api/v1/devices``),其余接口按 app 分组。
 
 注意事项:
     改动本文件的路径会同时影响 ``ApiDocsCoverageTests`` 的双向比对 ——
@@ -11,7 +11,7 @@
 
 from django.urls import include, path
 
-from accounts.views import health, readyz
+from accounts.views import device_logout, devices, health, readyz
 from discovery import views as discovery_views
 from notifications import views as notifications_views
 from users import views as users_views
@@ -34,4 +34,6 @@ urlpatterns = [
     path("matches", discovery_views.match_list),
     path("matches/<int:user_id>", discovery_views.unmatch),
     path("presence", users_views.presence_status),
+    path("devices", devices),
+    path("devices/<str:client_type>", device_logout),
 ]

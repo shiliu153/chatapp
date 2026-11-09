@@ -360,6 +360,78 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/v1/devices:
+    get:
+      operationId: devices_retrieve
+      description: |-
+        登录设备列表(GET /api/v1/devices)。
+
+        只列**确实登录过**的端(一类端一行,最多两行),``current`` 由请求头 ``X-Client``
+        判定 —— 缺省与未知取值一律按 ``app``,与签发令牌时的口径完全一致。
+
+        为什么不在服务端判「在线」:在线是**账号级**的 ``presence``(120 秒窗口),
+        按端拆要动心跳链路;这里只给「最近活跃时间」,让用户自己判断哪台设备还在用。
+
+        Args:
+            request: DRF 请求对象(必须已认证)。
+
+        Returns:
+            ``{"results": [{client_type, client_label, current, created_at,
+            last_active_at}]}``;``last_active_at`` 为 ``null`` 表示该端只有登录记录、
+            还没刷新过令牌(批次 M 上线前建的行)。
+      parameters:
+      - in: header
+        name: X-Client
+        schema:
+          type: string
+        description: 客户端类型。填 web 表示网页端,current 落在 web 那行;缺省(含不带该头)按 app 处理
+      tags:
+      - devices
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceListResult'
+          description: ''
+  /api/v1/devices/{client_type}:
+    delete:
+      operationId: devices_destroy
+      description: |-
+        下线指定端的登录会话(DELETE /api/v1/devices/{client_type})。
+
+        两步走:① 该端的会话版本 +1,让这台设备的 access / refresh 立刻失效
+        (下一次请求拿到 ``401`` + ``40101``);② 经 Celery 踢掉该端在线的 IM 连接 ——
+        响应路径禁止外部调用。**另一端不受影响**。
+
+        幂等:该端本来就没有会话行、或重复下线,都返回 204(与 ``POST /auth/logout``
+        同口径)。允许踢当前正在用的这一端:语义等同「注销本端」,服务端不做特判,
+        客户端收到 204 后自行回登录页。
+
+        Args:
+            request: DRF 请求对象(必须已认证)。
+            client_type: 路径参数,``app`` 或 ``web``。
+
+        Returns:
+            204 空响应。
+
+        Raises:
+            InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40004)。
+      parameters:
+      - in: path
+        name: client_type
+        schema:
+          type: string
+        required: true
+      tags:
+      - devices
+      security:
+      - bearerAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/v1/discovery/candidates:
     get:
       operationId: discovery_candidates_list
@@ -2218,6 +2290,37 @@ components:
       - count
       - next
       - previous
+      - results
+    DeviceItem:
+      type: object
+      properties:
+        client_type:
+          type: string
+        client_label:
+          type: string
+        current:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        last_active_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - client_label
+      - client_type
+      - created_at
+      - current
+      - last_active_at
+    DeviceListResult:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceItem'
+      required:
       - results
     DevicePlatformEnum:
       enum:

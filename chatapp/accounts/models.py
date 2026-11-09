@@ -130,6 +130,8 @@ class DeviceSession(models.Model):
         client_type: ``app`` 或 ``web``。
         version: 该端的会话版本;JWT 与 IM token 都带这个值。
         created_at: 首次在该端登录的时间。
+        last_active_at: 最近一次在该端登录或刷新令牌的时间(批次 M)。只用于
+            「登录设备」列表展示,**不参与鉴权** —— 「在线」仍是账号级 presence。
     """
 
     user = models.ForeignKey("accounts.User", on_delete=models.CASCADE,
@@ -137,6 +139,8 @@ class DeviceSession(models.Model):
     client_type = models.CharField("端类型", max_length=8, choices=CLIENT_TYPE_CHOICES)
     version = models.PositiveIntegerField("会话版本", default=SESSION_VERSION_DEFAULT)
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    # 可空:批次 K 之前建的行没有这个值,不给历史数据补写(补写等于谎报活跃时间)
+    last_active_at = models.DateTimeField("最后活跃时间", null=True, blank=True)
 
     class Meta:
         """约束:一个账号每类端只有一行(同类互顶的数据基础)。"""
