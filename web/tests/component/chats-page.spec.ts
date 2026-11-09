@@ -45,8 +45,19 @@ describe('ChatsPage', () => {
         faceUrl: null,
         lastMessage: null,
         peerReadSeq: 0,
+        pinned: false,
+        muted: false,
       },
-      { peerId: 'u8', unreadCount: 2, showName: '小雨', faceUrl: null, lastMessage: null, peerReadSeq: 0 },
+      {
+        peerId: 'u8',
+        unreadCount: 2,
+        showName: '小雨',
+        faceUrl: null,
+        lastMessage: null,
+        peerReadSeq: 0,
+        pinned: false,
+        muted: false,
+      },
     ])
     const w = mountPage(pinia)
     await flushPromises()

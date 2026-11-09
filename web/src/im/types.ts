@@ -93,6 +93,30 @@ export interface ImConversation {
   lastMessage: ChatMessage | null
   /** **对端**读到哪(0 = 从没读过)。`seq <= peerReadSeq` 的我方消息算已读。 */
   peerReadSeq: number
+  /**
+   * 置顶(批次 N,服务端 `im_conversation_state.pinned_at > 0` 的布尔投影)。
+   *
+   * 服务端**已经按「置顶组在前、组内按置顶时间倒序」排好**,客户端照顺序渲染即可 ——
+   * 自己再排一次只会和服务端顺序打架(而且 `pinned_at` 根本不下发,排不出来)。
+   */
+  pinned: boolean
+  /**
+   * 免打扰(批次 N)。**语义只在客户端**:会话行显示静音图标,未读只显示灰点
+   * 不显示数字 —— 服务端不改 `unread` 统计,本项目也没有可抑制的离线推送通道。
+   */
+  muted: boolean
+}
+
+/** 会话偏好的写入参数(批次 N):**没传的那一项 = 不改**,与传 `false` 不同。 */
+export interface ImConversationFlags {
+  pinned?: boolean
+  muted?: boolean
+}
+
+/** 会话偏好的回读结果(服务端回的是实库真值,不是请求参数的回显)。 */
+export interface ImConversationFlagsResult {
+  pinned: boolean
+  muted: boolean
 }
 
 export type KickReason = 'multiDevice' | 'multiAccount' | 'sigExpired' | 'restApi'
@@ -200,4 +224,18 @@ export interface ImClient {
    */
   sendTyping(peerId: string): Promise<void>
   deleteConversation(peerId: string): Promise<void>
+  /**
+   * 改会话的两个个人偏好(批次 N):置顶 / 免打扰。
+   *
+   * 走 imserver 的 HTTP `POST /im/api/conversations/flags`(**不是 WS 帧**:低频写操作,
+   * 加帧要三端 fixture 同改)。只传要改的那一项 —— 缺省 = 这一项不改。
+   * 返回服务端**回读实库**后的真值,调用方照它刷新本地状态,不要自己猜。
+   *
+   * 失败时抛 `ApiError`(`code` 是 imserver 的业务码):`40401` = 会话不存在,
+   * `42901` = 操作过于频繁。
+   */
+  setConversationFlags(
+    peerId: string,
+    flags: ImConversationFlags,
+  ): Promise<ImConversationFlagsResult>
 }

@@ -10,6 +10,8 @@ import type {
   ImBootstrap,
   ImCapabilities,
   ImConversation,
+  ImConversationFlags,
+  ImConversationFlagsResult,
   ImSearchResult,
   QuoteRef,
   QuoteTarget,
@@ -98,13 +100,33 @@ export const useChatStore = defineStore('chat', () => {
     conversations.value.reduce((sum, item) => sum + item.unreadCount, 0),
   )
 
+  /**
+   * 这个会话算不算「置顶组」。
+   *
+   * 系统通知是伪会话(不算用户的置顶偏好),但老规矩是恒在最前(spec §8),
+   * 所以把它一并归进置顶组 —— 规则只写这一处,排序与分组标题都从这里派生。
+   */
+  function inPinnedGroup(item: ImConversation): boolean {
+    return item.pinned || item.peerId === SYSTEM_NOTICE_PEER_ID
+  }
+
+  /**
+   * 置顶组:组内**保持服务端返回顺序**(客户端不再排一次)。
+   *
+   * 服务端按 `ORDER BY (pinned_at>0) DESC, pinned_at DESC, last_msg_at DESC` 排好,
+   * 后置顶的更靠前 —— 而 `pinned_at` 不下发,客户端根本排不出同样的顺序,重排只会打架。
+   */
+  const pinnedConversations = computed(() => conversations.value.filter(inPinnedGroup))
+
+  /** 非置顶组:按最近消息排(本地新消息到达时也要能往上浮)。 */
+  const otherConversations = computed(() =>
+    conversations.value
+      .filter((item) => !inPinnedGroup(item))
+      .sort((a, b) => (b.lastMessage?.timestamp ?? 0) - (a.lastMessage?.timestamp ?? 0)),
+  )
+
   function sortConversations(): void {
-    conversations.value = [...conversations.value].sort((a, b) => {
-      // 系统通知永远置顶(spec §8)
-      if (a.peerId === SYSTEM_NOTICE_PEER_ID) return -1
-      if (b.peerId === SYSTEM_NOTICE_PEER_ID) return 1
-      return (b.lastMessage?.timestamp ?? 0) - (a.lastMessage?.timestamp ?? 0)
-    })
+    conversations.value = [...pinnedConversations.value, ...otherConversations.value]
   }
 
   function upsertConversation(message: ChatMessage): void {
@@ -127,6 +149,10 @@ export const useChatStore = defineStore('chat', () => {
           lastMessage: message,
           // 新会话还没同步过已读位置;下一次 loadConversations 会带上真值
           peerReadSeq: peerReadSeq.value[message.peerId] ?? 0,
+          // 只有服务端知道置顶/免打扰(批次 N):新会话先按「都没有」显示,
+          // 下一次 loadConversations 会用真值覆盖。
+          pinned: false,
+          muted: false,
         },
       ]
     }
@@ -734,11 +760,39 @@ export const useChatStore = defineStore('chat', () => {
   async function deleteConversation(peerId: string): Promise<void> {
     await ensureConnected()
     await client.deleteConversation(peerId)
-    conversations.value = conversations.value.filter((item) => item.peerId !== peerId)
-    const rest = { ...messages.value }
-    delete rest[peerId]
-    messages.value = rest
-    if (activePeerId.value === peerId) activePeerId.value = null
+    removeConversation(peerId)
+  }
+
+  /**
+   * 改会话的置顶 / 免打扰(批次 N)。
+   *
+   * 写入成功后按**服务端回读的真值**更新本地标志位,然后重拉一次会话列表 ——
+   * 顺序以服务端为准(置顶组按置顶时间倒序,`pinned_at` 不下发,客户端排不出来)。
+   * 重拉失败只吞掉:标志位已经生效,没必要因为它把成功变成失败。
+   *
+   * 失败(含会话不存在 `40401`、限流 `42901`)时**本地状态原样保留**,错误上抛给
+   * 调用方提示 —— 不做乐观更新,免得失败后界面显示一个并不存在的状态。
+   *
+   * Args:
+   *   peerId: 会话对端的 IM id,如 `u9`。
+   *   flags: 要改的那几项;缺省的那一项不改。
+   *
+   * Returns:
+   *   服务端回读后的 `{pinned, muted}`。
+   */
+  async function setConversationFlags(
+    peerId: string,
+    flags: ImConversationFlags,
+  ): Promise<ImConversationFlagsResult> {
+    await ensureConnected()
+    const result = await client.setConversationFlags(peerId, flags)
+    const target = conversations.value.find((item) => item.peerId === peerId)
+    if (target) {
+      target.pinned = result.pinned
+      target.muted = result.muted
+    }
+    await loadConversations().catch(() => {})
+    return result
   }
 
   async function close(): Promise<void> {
@@ -765,6 +819,10 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations,
+    /** 置顶组(含系统通知):顺序 = 服务端返回顺序,消息页据此分组渲染(批次 N) */
+    pinnedConversations,
+    /** 非置顶组:按最近消息排,消息页「全部会话」分组读它(批次 N) */
+    otherConversations,
     messages,
     status,
     error,
@@ -803,6 +861,8 @@ export const useChatStore = defineStore('chat', () => {
     deleteMessage,
     revokeMessage,
     deleteConversation,
+    /** 置顶 / 免打扰(批次 N):写入后按服务端真值更新本地并重拉列表 */
+    setConversationFlags,
     messagesOf,
     close,
   }

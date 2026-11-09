@@ -1,22 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppAvatar from '@/components/AppAvatar.vue'
 import AppBadge from '@/components/AppBadge.vue'
 import AppEmpty from '@/components/AppEmpty.vue'
 import AppErrorView from '@/components/AppErrorView.vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
-import OnlineDot from '@/components/OnlineDot.vue'
-import { ChatMessageKind } from '@/im/types'
+import AppToast from '@/components/AppToast.vue'
+import { useToast } from '@/composables/useToast'
+import { parseApiError } from '@/api/error'
 import { useChatStore } from '@/stores/chat'
 import { useNotificationsStore } from '@/stores/notifications'
 import { usePresenceStore } from '@/stores/presence'
-import type { ChatMessage, ImConversation } from '@/im/types'
+import type { ImConversation } from '@/im/types'
+import ConversationMenu from './ConversationMenu.vue'
+import ConversationRow from './ConversationRow.vue'
+import DeleteConversationDialog from './DeleteConversationDialog.vue'
+import { conversationNameOf } from './conversation'
 
 const store = useChatStore()
 const notifications = useNotificationsStore()
 const presence = usePresenceStore()
 const router = useRouter()
+const toast = useToast()
 
 /** 连接中/重连中且还没有内容 → 骨架 */
 const loading = computed(
@@ -29,6 +35,11 @@ const inactive = computed(() => store.status === 'inactive')
 
 /** 最近联系人:有最后一条消息的前 10 个会话 */
 const recent = computed(() => store.conversations.filter((item) => item.lastMessage).slice(0, 10))
+
+/** 打开中的「更多」菜单:记住是哪一行(不靠坐标反查,行更新了也不会认错) */
+const menu = ref<{ conversation: ImConversation; x: number; y: number } | null>(null)
+/** 删除确认:待删会话 + 进行中/错误态 */
+const deleting = ref<{ conversation: ImConversation; busy: boolean; error: string } | null>(null)
 
 onMounted(() => {
   void store.connect()
@@ -55,42 +66,83 @@ function isOnline(conversation: ImConversation): boolean {
   return id !== null && presence.isOnline(id)
 }
 
-function summaryOf(message: ChatMessage | null): string {
-  if (!message) return '打个招呼吧'
-  if (message.isFailed) return '发送失败'
-  if (message.kind === ChatMessageKind.image) return '[图片]'
-  if (message.kind === ChatMessageKind.voice) return '[语音]'
-  if (message.kind === ChatMessageKind.sticker) return '[贴纸]'
-  return message.text || '[消息]'
+function openMenu(conversation: ImConversation, anchor: { x: number; y: number }): void {
+  menu.value = { conversation, x: anchor.x, y: anchor.y }
 }
 
-/** 服务端资料还没补全时,名字先落到 peerId,不要留空 */
-function nameOf(conversation: ImConversation): string {
-  return conversation.showName || conversation.peerId
+/** 菜单开着时,若那一行已经不在列表里(跨端删除等),直接收掉菜单 */
+watch(
+  () => store.conversations.map((item) => item.peerId).join(','),
+  () => {
+    if (menu.value && !store.conversations.some((item) => item.peerId === menu.value?.conversation.peerId)) {
+      menu.value = null
+    }
+  },
+)
+
+/**
+ * 统一错误提示(批次 N 的验收口径):
+ * - `40401` 会话不存在 → 提示已不存在,并刷新列表(本地那条是过期数据);
+ * - `42901`/429 → 限流提示,退避再试;
+ * - 其他 → 走统一 `ApiError` 的文案。
+ *
+ * 返回 true 表示「会话已不存在」,调用方据此决定要不要清掉本地那一行。
+ */
+function reportError(error: unknown): boolean {
+  const apiError = parseApiError(error)
+  if (apiError.code === 40401 || apiError.status === 404) {
+    toast.show('该会话已不存在,正在刷新列表')
+    void store.loadConversations().catch(() => {})
+    return true
+  }
+  if (apiError.isThrottled || apiError.code === 42901) {
+    toast.show('操作太频繁,请稍后再试')
+    return false
+  }
+  toast.show(apiError.message || '操作失败,请稍后再试')
+  return false
 }
 
-function timeOf(conversation: ImConversation): string {
-  const timestamp = conversation.lastMessage?.timestamp
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  const now = new Date()
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  if (sameDay) {
-    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+/** 置顶 / 取消置顶、免打扰 / 取消免打扰:同一个 HTTP 接口,只是改的字段不同 */
+async function onMenuAction(action: 'pin' | 'mute' | 'delete'): Promise<void> {
+  const target = menu.value?.conversation
+  menu.value = null
+  if (!target) return
+  if (action === 'delete') {
+    deleting.value = { conversation: target, busy: false, error: '' }
+    return
   }
-  const yesterday = new Date(now)
-  yesterday.setDate(now.getDate() - 1)
-  if (
-    date.getFullYear() === yesterday.getFullYear() &&
-    date.getMonth() === yesterday.getMonth() &&
-    date.getDate() === yesterday.getDate()
-  ) {
-    return '昨天'
+  // 先记下「改之前」的状态:store 成功后会**就地**改这个对象,事后再读就成了新值
+  const wasPinned = target.pinned
+  const wasMuted = target.muted
+  const flags = action === 'pin' ? { pinned: !wasPinned } : { muted: !wasMuted }
+  try {
+    await store.setConversationFlags(target.peerId, flags)
+    if (action === 'pin') toast.show(wasPinned ? '已取消置顶' : '已置顶')
+    else toast.show(wasMuted ? '已取消免打扰' : '已开启免打扰')
+  } catch (error) {
+    reportError(error)
   }
-  return `${date.getMonth() + 1}-${date.getDate()}`
+}
+
+async function onDeleteConfirm(): Promise<void> {
+  const target = deleting.value
+  if (!target || target.busy) return
+  target.busy = true
+  target.error = ''
+  try {
+    await store.deleteConversation(target.conversation.peerId)
+    deleting.value = null
+  } catch (error) {
+    // 会话本来就不存在(404):删除的目的一样达成了,直接收掉对话框
+    const apiError = parseApiError(error)
+    if (reportError(error)) {
+      deleting.value = null
+      return
+    }
+    target.busy = false
+    target.error = apiError.message || '删除失败,请稍后再试'
+  }
 }
 </script>
 
@@ -153,31 +205,60 @@ function timeOf(conversation: ImConversation): string {
           class="chats__recent-item"
           :to="{ name: 'chat', params: { peerId: item.peerId } }"
         >
-          <AppAvatar :src="item.faceUrl" :name="nameOf(item)" :size="52" />
-          <span class="chats__recent-name">{{ nameOf(item) }}</span>
+          <AppAvatar :src="item.faceUrl" :name="conversationNameOf(item)" :size="52" />
+          <span class="chats__recent-name">{{ conversationNameOf(item) }}</span>
         </RouterLink>
       </div>
 
-      <ul class="chats__list">
-        <li v-for="item in store.conversations" :key="item.peerId">
-          <RouterLink
-            class="chats__row"
-            :to="{ name: 'chat', params: { peerId: item.peerId } }"
-          >
-            <AppAvatar :src="item.faceUrl" :name="nameOf(item)" :size="48" />
-            <OnlineDot :online="isOnline(item)" />
-            <div class="chats__main">
-              <div class="chats__line">
-                <span class="chats__name">{{ nameOf(item) }}</span>
-                <span class="chats__time">{{ timeOf(item) }}</span>
-              </div>
-              <p class="chats__summary">{{ summaryOf(item.lastMessage) }}</p>
-            </div>
-            <AppBadge :count="item.unreadCount" />
-          </RouterLink>
-        </li>
-      </ul>
+      <!-- 置顶组(批次 N):组内顺序 = 服务端返回顺序,客户端不再排一次 -->
+      <section v-if="store.pinnedConversations.length" class="chats__group">
+        <h2 class="chats__group-title">置顶</h2>
+        <ul class="chats__list">
+          <li v-for="item in store.pinnedConversations" :key="item.peerId">
+            <ConversationRow
+              :conversation="item"
+              :online="isOnline(item)"
+              @more="openMenu(item, $event)"
+            />
+          </li>
+        </ul>
+      </section>
+
+      <section v-if="store.otherConversations.length" class="chats__group">
+        <!-- 只有和置顶组并存时才需要标题,否则多一行纯属噪音 -->
+        <h2 v-if="store.pinnedConversations.length" class="chats__group-title">全部会话</h2>
+        <ul class="chats__list">
+          <li v-for="item in store.otherConversations" :key="item.peerId">
+            <ConversationRow
+              :conversation="item"
+              :online="isOnline(item)"
+              @more="openMenu(item, $event)"
+            />
+          </li>
+        </ul>
+      </section>
     </template>
+
+    <ConversationMenu
+      v-if="menu"
+      :pinned="menu.conversation.pinned"
+      :muted="menu.conversation.muted"
+      :x="menu.x"
+      :y="menu.y"
+      @close="menu = null"
+      @action="onMenuAction"
+    />
+
+    <DeleteConversationDialog
+      :open="deleting !== null"
+      :name="deleting ? conversationNameOf(deleting.conversation) : ''"
+      :busy="deleting?.busy ?? false"
+      :error="deleting?.error ?? ''"
+      @close="deleting = null"
+      @confirm="onDeleteConfirm"
+    />
+
+    <AppToast :text="toast.text.value" />
   </section>
 </template>
 
@@ -280,6 +361,19 @@ function timeOf(conversation: ImConversation): string {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.chats__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.chats__group-title {
+  margin: var(--space-xs) 0 0;
+  padding: 0 var(--space-xs);
+  color: var(--color-text2);
+  font-size: var(--text-badge);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+}
 .chats__list {
   display: flex;
   flex-direction: column;
@@ -287,50 +381,5 @@ function timeOf(conversation: ImConversation): string {
   margin: 0;
   padding: 0;
   list-style: none;
-}
-.chats__row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  border-radius: var(--radius-card);
-  background: var(--color-bg-card);
-  transition: background var(--motion-fast) var(--ease-out);
-}
-.chats__row:hover {
-  background: var(--hover-overlay);
-}
-.chats__main {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-.chats__line {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-sm);
-}
-.chats__name {
-  overflow: hidden;
-  font-size: var(--text-body);
-  font-weight: var(--weight-semibold);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chats__time {
-  flex: none;
-  font-size: var(--text-badge);
-  color: var(--color-text3);
-}
-.chats__summary {
-  margin: 0;
-  overflow: hidden;
-  font-size: var(--text-caption);
-  color: var(--color-text2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>

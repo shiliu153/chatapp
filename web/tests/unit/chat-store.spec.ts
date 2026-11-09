@@ -35,6 +35,8 @@ function fakeClient() {
       faceUrl: null,
       lastMessage: null,
       peerReadSeq: 0,
+      pinned: false,
+      muted: false,
     },
     {
       peerId: 'system_notice',
@@ -43,6 +45,8 @@ function fakeClient() {
       faceUrl: null,
       lastMessage: null,
       peerReadSeq: 0,
+      pinned: false,
+      muted: false,
     },
   ]
   const client = {
@@ -135,6 +139,8 @@ describe('chat store', () => {
         faceUrl: null,
         lastMessage: msg({ msgId: 'm9', peerId: '', text: '你好呀', timestamp: 0 }),
         peerReadSeq: 0,
+        pinned: false,
+        muted: false,
       },
     ])
     await store.loadConversations()
