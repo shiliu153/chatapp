@@ -120,7 +120,7 @@ Base URL、鉴权细节、统一错误结构、分页约定、限流额度见 [c
 
 | 项 | 说明 |
 |---|---|
-| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,50 paths / 61 operations) |
+| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,51 paths / 61 operations) |
 | 生成命令 | `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` |
 | 谁在读它 | Web 端类型生成(`web/src/api/schema.d.ts`)、CI 门禁、后续客户端工具链 |
 | 能否手改 | **不能**。它是生成物,手改会在下一次生成时被覆盖,且 CI 会红 |
