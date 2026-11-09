@@ -185,3 +185,4 @@
 - **`kick_user` 的 `client_type=None` 是「踢全部」,别改成必填**:封禁(`ban_notice`)、注销(`delete_account`)、退出所有设备(`kick_all_devices`)都走这个语义。改成「按端踢」会让被封禁的账号在另一端继续在线。
 - **端会话行缺失时按历史列兜底,不要一律拒绝**:`User.session_version` 停用后,`accounts.device_session.current_version()` 在该端没有行时退回读它 —— 造数脚本、压测账号(`perf_tokens`)以及升级前从没在该端登录过的账号都属于这种情况,直接拒绝会把这些账号的令牌全判成 `40101`。`user_sig` 里用 `ensure_version()` 补建行(不递增),保证签发的 `sv` 一定是 imserver 见过的值。
 - **迁移里必须带桥接数据迁移**:`0006_devicesession` 除了建表还要给存量账号按 `User.session_version` 补 `app` + `web` 两行(同值)。漏了这一步,线上老令牌(无 `ct`、`sv` 等于 `User.session_version`)在升级瞬间集体 `401 + 40101`。两行取同一个值是有意的:升级前网页端签的 refresh 同样没有 `ct`。
+- **「下线」是打标记,不是删行(2026-11-09,issue #182)**:`DELETE /devices/{ct}` 只 `version + 1` 而不标记时,`GET /devices` 照旧返回那一行 —— 用户眼里「点了没生效」(批次 M 的模拟器验收就是这么发现的),于是 `DeviceSession` 加了 `logged_out_at`。但**别把「从列表消失」实现成删行**:行一删,该端版本号回到默认值,被下线设备手里的旧令牌反而又对得上,等于把下线做成了安全漏洞。正确姿势是版本继续单调递增 + 列表只查 `logged_out_at IS NULL` + 该端登录时清空标记(`device_session.login/logout` 是仅有的两个写入口)。

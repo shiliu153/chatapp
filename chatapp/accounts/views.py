@@ -213,9 +213,10 @@ def sms_verify(request):
     # 多端:只递增**本端**版本(同类互顶),另一端不受影响。用 F() 在数据库内自增,
     # 避免「读—加一—写」在并发登录时两个请求都拿到同一个旧版本,结果两台设备都以为
     # 自己是有效会话(M12)。IM 建号/踢旧会话交给队列(响应路径不做外部调用)。
+    # 同一个入口顺带清掉该端的「已下线」标记与刷新活跃时间:被下线过的端重新登录后
+    # 必须重新出现在登录设备列表里,而版本号继续单调递增,下线前的旧令牌仍然无效。
     client_type = device_session.client_type_of(request)
-    device_session.bump(user, client_type)
-    device_session.touch(user, client_type)   # 登录设备列表的「最近活跃」
+    device_session.login(user, client_type)
 
     def _after_commit():
         # robust=True:broker 抖动不会把已提交的登录拖成 500
@@ -436,6 +437,10 @@ def logout_all(request):
     为什么两个端都 +1:这是「手机丢了,一键全端下线」的语义 —— 只递增本端会让
     另一台设备继续在线。踢 IM 会话必须走 Celery:响应路径禁止外部调用。
 
+    两端同样打上 ``logged_out_at`` 标记(下线 = 打标记不是删行),于是退出之后
+    ``GET /api/v1/devices`` 是空列表 —— 与 1.7 单端下线的可观察语义保持一致;
+    哪一端重新登录,哪一端就重新出现,版本号继续单调递增,旧令牌始终无效。
+
     Args:
         request: DRF 请求对象(必须已认证)。
 
@@ -445,7 +450,7 @@ def logout_all(request):
     """
     user = request.user
     for client_type in device_session.CLIENT_TYPES:
-        device_session.bump(user, client_type)
+        device_session.logout(user, client_type)
     im_tasks.kick_all_devices.delay(user.id)   # 响应路径不做外部调用
     response = Response(status=204)
     clear_refresh_cookie(response)
@@ -469,8 +474,13 @@ def logout_all(request):
 def devices(request):
     """登录设备列表(GET /api/v1/devices)。
 
-    只列**确实登录过**的端(一类端一行,最多两行),``current`` 由请求头 ``X-Client``
+    只列**当前在用**的端(一类端一行,最多两行),``current`` 由请求头 ``X-Client``
     判定 —— 缺省与未知取值一律按 ``app``,与签发令牌时的口径完全一致。
+
+    **已下线的端不返回**:被 ``DELETE /api/v1/devices/{client_type}``(或
+    ``POST /auth/logout/all``)下线过的端,会话行还留着(版本号要单调递增,好让它的
+    旧令牌一直失效),但 ``logged_out_at`` 有值,因此从列表里消失;该端**重新登录**
+    后标记被清空,就会重新出现。
 
     为什么不在服务端判「在线」:在线是**账号级**的 ``presence``(120 秒窗口),
     按端拆要动心跳链路;这里只给「最近活跃时间」,让用户自己判断哪台设备还在用。
@@ -481,7 +491,7 @@ def devices(request):
     Returns:
         ``{"results": [{client_type, client_label, current, created_at,
         last_active_at}]}``;``last_active_at`` 为 ``null`` 表示该端只有登录记录、
-        还没刷新过令牌(批次 M 上线前建的行)。
+        还没刷新过令牌(批次 M 上线前建的行)。从没登录过、已下线的端不出现。
     """
     current = device_session.client_type_of(request)
     rows = [{
@@ -500,13 +510,16 @@ def devices(request):
 def device_logout(request, client_type):
     """下线指定端的登录会话(DELETE /api/v1/devices/{client_type})。
 
-    两步走:① 该端的会话版本 +1,让这台设备的 access / refresh 立刻失效
-    (下一次请求拿到 ``401`` + ``40101``);② 经 Celery 踢掉该端在线的 IM 连接 ——
-    响应路径禁止外部调用。**另一端不受影响**。
+    三步走:① 该端的会话版本 +1,让这台设备的 access / refresh 立刻失效
+    (下一次请求拿到 ``401`` + ``40101``);② 打上 ``logged_out_at`` 标记 ——
+    **下线是标记,不是删行**,该端随即从 ``GET /api/v1/devices`` 里消失,但会话行
+    留着、版本号继续单调递增,免得上线前的旧令牌因为「行没了、版本回到默认值」
+    重新变有效;③ 经 Celery 踢掉该端在线的 IM 连接 —— 响应路径禁止外部调用。
+    **另一端不受影响**。
 
     幂等:该端本来就没有会话行、或重复下线,都返回 204(与 ``POST /auth/logout``
-    同口径)。允许踢当前正在用的这一端:语义等同「注销本端」,服务端不做特判,
-    客户端收到 204 后自行回登录页。
+    同口径),``logged_out_at`` 只刷新成最新时间。允许踢当前正在用的这一端:语义等同
+    「注销本端」,服务端不做特判,客户端收到 204 后自行回登录页。
 
     Args:
         request: DRF 请求对象(必须已认证)。
@@ -520,6 +533,6 @@ def device_logout(request, client_type):
     """
     if client_type not in device_session.CLIENT_TYPES:
         raise InvalidClientType()
-    device_session.bump(request.user, client_type)
+    device_session.logout(request.user, client_type)
     im_tasks.kick_device.delay(request.user.id, client_type)   # 响应路径不做外部调用
     return Response(status=204)

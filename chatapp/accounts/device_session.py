@@ -6,7 +6,9 @@
     2. 缺省一律 ``app``:线上 1.0.10 及更早的 APK 不带 ``X-Client``,不能因此掉线;
     3. 版本递增用 ``F()`` 在数据库内自增,并发登录不会两个请求都拿到同一个旧版本;
     4. 本模块是鉴权 / 登录 / 刷新 / IM 签发 / 登录设备列表五处**唯一**的读写入口,
-       别在别处直接读写 ``DeviceSession`` 或 ``User.session_version``。
+       别在别处直接读写 ``DeviceSession`` 或 ``User.session_version``;
+    5. **下线是打标记(``logged_out_at``),不是删行**:行留着版本号才单调递增,
+       旧令牌不会因为版本回到默认值而复活;列表只列 ``logged_out_at IS NULL`` 的端。
 
 注意事项:
     「在线」是**账号级**的(``users.presence``,120 秒窗口),本模块的
@@ -56,35 +58,85 @@ def bump(user, client_type: str) -> int:
     return session.version
 
 
+def login(user, client_type: str) -> int:
+    """登录这一端:版本 +1、清空下线标记、刷新最后活跃时间。
+
+    登录必须一次做完这三件事:版本 +1 顶掉同端旧设备;清空 ``logged_out_at`` 让
+    这一端**重新出现在**登录设备列表里(否则被下线过的端再登录也看不见自己);
+    ``last_active_at`` 是列表里的「最近活跃」。
+
+    Args:
+        user: 目标账号。
+        client_type: ``"app"`` 或 ``"web"``。
+
+    Returns:
+        递增后的新版本号(**继续单调递增**:下线过的那一端再次登录不会复用旧版本,
+        因此下线前签发的旧令牌依然对不上、依然 401)。
+    """
+    version = bump(user, client_type)
+    DeviceSession.objects.filter(user_id=user.id, client_type=client_type).update(
+        logged_out_at=None, last_active_at=timezone.now())
+    return version
+
+
+def logout(user, client_type: str) -> None:
+    """把这一端下线:版本 +1(旧令牌失效)**并**打上下线标记(不再出现在列表里)。
+
+    **打标记而不是删行**:删行会让该端版本号回到默认值,被下线设备手里的旧令牌
+    反而又对得上 —— 那是安全问题。行留着按端唯一,版本照常单调递增,列表只看
+    ``logged_out_at``。
+
+    幂等:重复调用只会把 ``logged_out_at`` 刷成最新时间,版本继续 +1(无害,
+    只会让更早的令牌更失效);该端从没登录过时也会建一行并标记为已下线,于是
+    「踢一个从没登录过的端」不会让它凭空出现在列表里。
+
+    Args:
+        user: 目标账号。
+        client_type: ``"app"`` 或 ``"web"``。
+
+    Returns:
+        ``None``。IM 侧的踢人由调用方经 Celery 入队,不在本函数里。
+    """
+    bump(user, client_type)
+    DeviceSession.objects.filter(user_id=user.id, client_type=client_type).update(
+        logged_out_at=timezone.now())
+
+
 def touch(user, client_type: str) -> None:
     """把账号在某一端上的「最后活跃时间」刷成当前时间。
 
-    只在**登录签发令牌**与 ``/auth/token/refresh`` 成功时调用:这两处才是「这一端
-    确实在被使用」的证据。鉴权路径不调它 —— 每个请求都写一次库会把读接口拖成写接口,
-    而「在线」另有账号级的 presence 通道。
+    只在 ``/auth/token/refresh`` 成功时单独调用(登录路径已由 ``login`` 一并落库):
+    这两处才是「这一端确实在被使用」的证据。鉴权路径不调它 —— 每个请求都写一次库
+    会把读接口拖成写接口,而「在线」另有账号级的 presence 通道。
 
     Args:
         user: 目标账号(需要 ``id``)。
         client_type: ``"app"`` 或 ``"web"``。
 
     Returns:
-        ``None``。该端还没有会话行时静默跳过(登录路径先 ``bump`` 建行,正常不会走到)。
+        ``None``。该端还没有会话行时静默跳过(登录路径先 ``login`` 建行,正常不会走到)。
     """
     DeviceSession.objects.filter(user_id=user.id, client_type=client_type).update(
         last_active_at=timezone.now())
 
 
 def sessions_of(user):
-    """列出账号已经有会话行的那几端(登录设备列表的数据源)。
+    """列出账号**当前在用**的那几端(登录设备列表的数据源)。
+
+    已经被下线(``logged_out_at`` 有值)的端不返回 —— 「下线」对用户的可观察语义
+    就是「从列表里消失」;那一端的会话行仍然留着,版本号继续单调递增,好让它的旧
+    令牌保持失效。
 
     Args:
         user: 目标账号(需要 ``id``)。
 
     Returns:
         ``DeviceSession`` 查询集,按 ``client_type`` 排序(``app`` 在前);
-        **从没登录过的端没有行,因此不会出现在结果里**(最多两行)。
+        **从没登录过、或已下线的端不会出现在结果里**(最多两行)。
     """
-    return DeviceSession.objects.filter(user_id=user.id).order_by("client_type")
+    return (DeviceSession.objects
+            .filter(user_id=user.id, logged_out_at__isnull=True)
+            .order_by("client_type"))
 
 
 def label_of(client_type: str) -> str:

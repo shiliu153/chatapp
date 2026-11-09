@@ -10,6 +10,10 @@
     5. ``last_active_at`` 在登录签发令牌与 ``/auth/token/refresh`` 成功时更新;
     6. 刷新 / 登录都不会误刷另一端的活跃时间(端维度不串)。
 
+批次 M 补丁(issue #182)再加一组「下线 = 不再出现在列表里」:
+    ``DELETE`` 除了版本 +1 还打 ``logged_out_at`` 标记,列表只列未下线的端;该端
+    重新登录后标记清空、重新出现,而**下线前的旧令牌仍然 401**(行没被删、版本没回退)。
+
 测试一律把 ``im.tasks`` 的入队打桩:响应路径不许有外部调用,断言只看「是否入队」。
 """
 
@@ -195,6 +199,112 @@ class DeviceLogoutTests(DeviceApiTestCase):
             response = self.client.delete("/api/v1/devices/web")
         self.assertEqual(response.status_code, 401)
         kick.assert_not_called()
+
+
+class DeviceLoggedOutTests(DeviceApiTestCase):
+    """下线 = 打标记(issue #182):从列表消失、重新登录后回来、旧令牌始终无效。"""
+
+    def row_of(self, client_type):
+        """取该端的端会话行。
+
+        Args:
+            client_type: ``app`` / ``web``。
+
+        Returns:
+            ``DeviceSession`` 实例。
+        """
+        return DeviceSession.objects.get(user=self.user, client_type=client_type)
+
+    def listed_clients(self, access, client_type=CLIENT_APP):
+        """请求列表并返回其中的端类型序列。
+
+        Args:
+            access: access token 原文。
+            client_type: 请求头 ``X-Client`` 的取值。
+
+        Returns:
+            ``["app", ...]`` 形式的端类型列表。
+        """
+        response = self.get_devices(access, client_type)
+        self.assertEqual(response.status_code, 200)
+        return [row["client_type"] for row in response.data["results"]]
+
+    def test_kicked_client_disappears_from_list(self):
+        """踢 web 之后列表只剩 app;web 的行还在、版本 +1、只多了下线标记。"""
+        access_app = self.login(CLIENT_APP).data["access"]
+        self.login(CLIENT_WEB)
+        version_before = self.row_of(CLIENT_WEB).version
+
+        with patch("im.tasks.kick_device.delay"):
+            self.assertEqual(self.delete_device(access_app, CLIENT_WEB).status_code, 204)
+
+        self.assertEqual(self.listed_clients(access_app), [CLIENT_APP])
+        web_row = self.row_of(CLIENT_WEB)
+        self.assertIsNotNone(web_row.logged_out_at)             # 下线 = 打标记
+        self.assertEqual(web_row.version, version_before + 1)   # 真·删行的反面:版本继续涨
+        self.assertIsNone(self.row_of(CLIENT_APP).logged_out_at)  # 另一端不受影响
+
+    def test_relogin_restores_row_and_old_token_stays_dead(self):
+        """重新登录后该端回到列表;下线前的旧 access 仍 401/40101(行没删、版本没回退)。"""
+        access_app = self.login(CLIENT_APP).data["access"]
+        access_web_old = self.login(CLIENT_WEB).data["access"]
+
+        with patch("im.tasks.kick_device.delay"):
+            self.delete_device(access_app, CLIENT_WEB)
+        version_kicked = self.row_of(CLIENT_WEB).version
+
+        access_web_new = self.login(CLIENT_WEB).data["access"]
+
+        self.assertEqual(self.listed_clients(access_app), [CLIENT_APP, CLIENT_WEB])
+        web_row = self.row_of(CLIENT_WEB)
+        self.assertIsNone(web_row.logged_out_at)                        # 标记被清空
+        self.assertGreater(web_row.version, version_kicked)             # 版本继续单调递增
+        self.assertIsNotNone(web_row.last_active_at)
+
+        self.assertEqual(self.get_me(access_web_new).status_code, 200)
+        stale = self.get_me(access_web_old)      # 这条最关键:删行方案会让它复活
+        self.assertEqual(stale.status_code, 401)
+        self.assertEqual(stale.data["code"], 40101)
+
+    def test_repeat_kick_only_refreshes_logged_out_at(self):
+        """重复踢同一端仍 204,``logged_out_at`` 刷成最新时间,行数与另一端不变。"""
+        access_app = self.login(CLIENT_APP).data["access"]
+        self.login(CLIENT_WEB)
+        with patch("im.tasks.kick_device.delay"):
+            self.delete_device(access_app, CLIENT_WEB)
+        stale = timezone.now() - timedelta(days=2)
+        DeviceSession.objects.filter(user=self.user, client_type=CLIENT_WEB).update(
+            logged_out_at=stale)
+
+        with patch("im.tasks.kick_device.delay"):
+            self.assertEqual(self.delete_device(access_app, CLIENT_WEB).status_code, 204)
+
+        self.assertGreater(self.row_of(CLIENT_WEB).logged_out_at, stale)
+        self.assertEqual(DeviceSession.objects.filter(user=self.user).count(), 2)
+        self.assertEqual(self.listed_clients(access_app), [CLIENT_APP])
+
+    def test_kick_never_logged_in_client_does_not_add_row(self):
+        """踢一个从没登录过的端:不报错,也不会因此凭空多出一行。"""
+        access_app = self.login(CLIENT_APP).data["access"]
+        with patch("im.tasks.kick_device.delay"):
+            self.assertEqual(self.delete_device(access_app, CLIENT_WEB).status_code, 204)
+        self.assertEqual(self.listed_clients(access_app), [CLIENT_APP])
+
+    def test_logout_all_marks_both_clients(self):
+        """退出所有设备同样打标记:两端都从列表消失,重新登录的那一端才回来。"""
+        access_app = self.login(CLIENT_APP).data["access"]
+        self.login(CLIENT_WEB)
+
+        with patch("im.tasks.kick_all_devices.delay"):
+            response = self.client.post("/api/v1/auth/logout/all",
+                                       HTTP_AUTHORIZATION=f"Bearer {access_app}")
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            DeviceSession.objects.filter(user=self.user,
+                                         logged_out_at__isnull=False).count(), 2)
+
+        access_app_new = self.login(CLIENT_APP).data["access"]
+        self.assertEqual(self.listed_clients(access_app_new), [CLIENT_APP])
 
 
 class LastActiveTests(TestCase):
