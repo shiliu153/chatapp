@@ -45,6 +45,8 @@ struct Config {
   int send_per_minute = 120;
   std::size_t max_frame = 8192;
   std::size_t text_max = 2000;
+  /// 聊天文字敏感词表路径(批次 Q)。空 / 文件不存在 = 不启用(只打 warning)。
+  std::string sensitive_words_file = "/usr/local/share/imserver/data/sensitive_words.txt";
   // 聊天图片 URL 前缀(例:https://<host>/media/chat/);必填,缺失则启动失败
   std::string media_prefix;
   // 聊天图片签名密钥与有效期;密钥为空 = 不签名(仅开发环境)

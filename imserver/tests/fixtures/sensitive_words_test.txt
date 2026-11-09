@@ -1,0 +1,9 @@
+# 集成测试专用敏感词表(批次 Q,2026-11-09)
+#
+# 只在 test_http.sh 起的那个 imserver 里生效(见 docker-compose.test.yml 的
+# IM_SENSITIVE_WORDS_FILE),**不进镜像**。镜像里打包的是 imserver/data/sensitive_words.txt。
+#
+# 为什么单独一份:镜像里那份是真词表,主人随时会增删;集成测试若绑在它上面,
+# 改一个词就可能让测试红,而测试真正要钉住的是「命中就拒发」这个行为本身。
+违禁测试词
+testviolation

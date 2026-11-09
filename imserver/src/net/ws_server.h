@@ -28,6 +28,7 @@
 #include "service/session_registry.h"
 #include "store/redis_client.h"
 #include "util/ratelimit.h"
+#include "util/sensitive.h"
 
 class IpCounter {
  public:
@@ -67,7 +68,7 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
             RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
             PushNotifier& push, boost::asio::thread_pool& db_pool,
-            const net_guard::ProxyTrust& trust);
+            const net_guard::ProxyTrust& trust, const sensitive::Matcher& sensitive);
 
   void run();
   void kick(const std::string& reason);
@@ -128,6 +129,8 @@ class WsSession : public std::enable_shared_from_this<WsSession> {
   boost::asio::thread_pool& db_pool_;
   /// 只有直连对端命中这份表,才采信它带来的 X-Real-IP(L9)。
   const net_guard::ProxyTrust& trust_;
+  /// 聊天文字敏感词匹配器(批次 Q):进程级只读,所有会话共享。
+  const sensitive::Matcher& sensitive_;
   boost::asio::steady_timer auth_timer_;
   boost::asio::steady_timer idle_timer_;
   std::chrono::steady_clock::time_point last_frame_;
@@ -164,4 +167,6 @@ class WsServer {
   IpCounter ip_counter_;
   /// 进程级可信代理表,所有会话共享(只读)。
   net_guard::ProxyTrust trust_;
+  /// 聊天文字敏感词表(批次 Q):启动时构建一次,之后所有会话只读共享。
+  sensitive::Matcher sensitive_;
 };

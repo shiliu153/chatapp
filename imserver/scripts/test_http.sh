@@ -29,6 +29,8 @@ python3 /src/tests/integration/test_typing.py
 python3 /src/tests/integration/test_quote.py
 # 会话置顶 / 免打扰(N):401 / 42201 / 40401 / 置顶优先与组内排序 / 幂等 / 单方
 python3 /src/tests/integration/test_flags.py
+# 聊天文字敏感词(Q):命中 42201 且不落库不推送 / 不占 seq / 贴纸不受影响 / 内部发的不拦 / 指标
+python3 /src/tests/integration/test_sensitive.py
 export IM_BASE_WS="ws://127.0.0.1:19100/im/ws"
 export IM_BASE_HTTP="http://127.0.0.1:19101/im/api"
 python3 /repo/tools/im_e2e.py

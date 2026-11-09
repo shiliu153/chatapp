@@ -33,6 +33,9 @@ TEST(ConfigTest, AppliesDefaults) {
   EXPECT_EQ(cfg.io_threads, 2);
   EXPECT_EQ(cfg.max_frame, 8192u);
   EXPECT_EQ(cfg.max_conn_per_ip, 20);
+  // 批次 Q:敏感词表默认指向镜像里打包的那份(/usr/local/share/imserver/data)
+  EXPECT_EQ(cfg.sensitive_words_file,
+            "/usr/local/share/imserver/data/sensitive_words.txt");
   EXPECT_DOUBLE_EQ(cfg.auth_rate_per_sec, 1.0);
   EXPECT_DOUBLE_EQ(cfg.auth_burst, 60.0);
   EXPECT_TRUE(cfg.allowed_origins.empty());
@@ -105,3 +108,12 @@ TEST(ConfigTest, ReadsMediaPrefix) {
   EXPECT_EQ(Config::from_map(env).media_prefix, "http://127.0.0.1:8000/media/chat/");
 }
 
+TEST(ConfigTest, ReadsSensitiveWordsFile) {
+  std::map<std::string, std::string> env{
+      {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
+      {"IM_JWT_SECRET", "jwt"},
+      {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MEDIA_PREFIX", "http://cdn/media/chat/"},
+      {"IM_SENSITIVE_WORDS_FILE", "/etc/imserver/words.txt"}};
+  EXPECT_EQ(Config::from_map(env).sensitive_words_file, "/etc/imserver/words.txt");
+}
