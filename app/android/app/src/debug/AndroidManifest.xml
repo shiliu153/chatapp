@@ -4,4 +4,9 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 本地/模拟器验收用:后端 API_BASE 是 http://10.0.2.2:8000,而 audioplayers 走原生
+         ExoPlayer,targetSdk>=28 默认禁明文 HTTP;Dart 的 Dio/HttpClient 直接用 socket,
+         不受这条限制,所以症状只是「接口全通、语音播不了」。
+         仅 debug 构建放开明文,release 仍禁止(生产是 https://chat.shiliu153.cn)。 -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>
