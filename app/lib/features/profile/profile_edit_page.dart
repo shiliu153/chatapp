@@ -15,6 +15,7 @@ import '../../core/widgets/app_toast.dart';
 import 'models.dart';
 import 'profile_controller.dart';
 import 'widgets/photo_grid.dart';
+import 'widgets/profile_voice_card.dart';
 import 'widgets/profile_form_fields.dart';
 import 'widgets/tag_selector.dart';
 
@@ -166,6 +167,9 @@ class _ProfileEditPageState extends ConsumerState<ProfileEditPage> {
                         title: '照片',
                         children: [PhotoGrid()],
                       ),
+                      const SizedBox(height: AppSpacing.cardGap),
+                      // 批次 R:语音自我介绍(最长 30 秒;与聊天语音共用录音链路)
+                      const ProfileVoiceCard(),
                     ],
                   );
                 },

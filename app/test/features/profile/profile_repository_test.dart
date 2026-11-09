@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,6 +36,44 @@ void main() {
     expect(profile.nickname, '新昵称');
     expect(adapter.log.last.method, 'PATCH');
     expect(adapter.log.last.data, {'nickname': '新昵称'});
+  });
+
+  test('fetchMe 解析 voice(没录过是 null)', () async {
+    adapter.routes['GET /users/me'] = (options) => ok(profileJson());
+    expect((await repository.fetchMe()).voice, isNull);
+
+    adapter.routes['GET /users/me'] = (options) => ok(profileJson(voice: voiceJson()));
+    final profile = await repository.fetchMe();
+    expect(profile.voice?.url, 'http://test/media/voices/intro.m4a');
+    expect(profile.voice?.durationMs, 18000);
+    expect(profile.voice?.durationLabel, '0:18');
+  });
+
+  test('uploadVoice 以 multipart 打 POST /users/me/voice 并解析响应', () async {
+    adapter.routes['POST /users/me/voice'] = (options) => ok(voiceJson(), status: 201);
+    final voice = await repository.uploadVoice(Uint8List.fromList([1, 2, 3]), 'intro.m4a');
+
+    expect(voice.url, 'http://test/media/voices/intro.m4a');
+    expect(voice.durationMs, 18000);
+    expect(adapter.log.last.method, 'POST');
+    expect(adapter.log.last.path, '/users/me/voice');
+
+    // 回归:P0(2026-11-09 真机实测)——`.m4a` 不在 mime 包里,不显式给 contentType
+    // 会退化成 application/octet-stream,被服务端白名单拒成 400。ScriptedAdapter 看不到
+    // multipart 头,只能在这里直接断言 part 的 contentType。
+    final form = adapter.log.last.data as FormData;
+    final part = form.files.first;
+    expect(part.key, 'file');
+    expect(part.value.filename, 'intro.m4a');
+    expect(part.value.contentType?.mimeType, 'audio/mp4');
+  });
+
+  test('deleteVoice 打 DELETE /users/me/voice', () async {
+    adapter.routes['DELETE /users/me/voice'] =
+        (options) => ok(const <String, dynamic>{}, status: 204);
+    await repository.deleteVoice();
+    expect(adapter.log.last.method, 'DELETE');
+    expect(adapter.log.last.path, '/users/me/voice');
   });
 
   test('fetchTags 解析标签池', () async {

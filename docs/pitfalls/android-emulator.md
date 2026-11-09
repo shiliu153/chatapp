@@ -28,6 +28,14 @@ Google 源在国内不可直连,以下已就位(2026-09-10 `flutter build apk --
 - ⚠️ **模拟器长跑数小时后 IM 长连接劣化**(2026-09-12 实测,腾讯 SDK 时代;自建 imserver 下 45s 心跳已解决,保留作历史参考):消息最长隔 ~2 分钟才到、记录加载慢、偶发「网络不给力」;`adb logcat -d | grep -c ERR_CONNECTION_RESET` 每 ~2 分钟一次(SDK 心跳 120s 踩线跑不过链路重置)。判据:同机裸 TCP 空闲不断、后端接口全 15~60ms、宿主直连腾讯正常 → 模拟器侧劣化。处理:**冷启动重启(`-no-snapshot-load`)即恢复**——⚠️ 动模拟器前先和用户确认。
 - ⚠️ **模拟器相册默认是空的**:测照片上传先 `adb push 本地图.png /sdcard/Pictures/x.png` 并触发媒体扫描(`adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/x.png`),或改用 `-d windows` 走文件选择。
 - ⚠️ 模拟器访问宿主机一律 **`10.0.2.2`**(不是 127.0.0.1——那指向模拟器自己)。
+- ⚠️ **Android 明文 HTTP 下「接口全通、语音播不了」**(2026-11-09 批次 R 实测,排查花了半小时):
+  现象=资料语音点播放 → 图标短暂变暂停 → 2 秒后「播放失败,点击重试」,同机登录/列表/上传却全部正常(上传还 201)。
+  根因=`targetSdk ≥ 28` 时原生播放器(`audioplayers` 走 ExoPlayer)**禁止 `http://`**,而 Dart 的 `dart:io HttpClient`
+  (Dio 走这条)直接用 socket,**不受** Android network security config 约束 —— 于是 API 全通、媒体加载失败。
+  `flutter` 的 `Image.network` 也走 dart:io,所以只有**原生解码**的媒体(语音/视频)会中招。
+  生产是 `https://chat.shiliu153.cn`,线上不暴露;只有模拟器/内网 `http://10.0.2.2:8000` 这类环境才踩。
+  修法=在 `app/android/app/src/debug/AndroidManifest.xml` 加 `<application android:usesCleartextTraffic="true" />`,
+  **只放开 debug**(`profile`/`release` 构建仍禁明文)。看到「播放失败」先查这个,别先怀疑播放器封装或 URL 拼接。
 - ⚠️ **`adb shell input tap` 用「设备像素」,但截图预览可能被缩放/加边**:2026-11-07 实测,目测截图把底部 tab 点在 y=1745,而 `uiautomator dump` 里真实 bounds 是 y=2143–2311 —— 点了 5 次都没切换,误判成「tab 点不动」。**正确姿势:先 `adb shell uiautomator dump /sdcard/ui.xml && adb shell cat /sdcard/ui.xml`,按 `content-desc` 找到节点再取 bounds 中点去点**;登录页的 `获取验证码`/`登录` 同理(踩过的假象:以为按钮坏了,实际是点偏)。
 - ⚠️ **输入框聚焦时软键盘会让布局整体上移**:同一坐标「点前有效、点后无效」十有八九是键盘动画期间点的。先 `input keyevent 4` 收键盘、等 1 秒,再按 dump 的 bounds 点。
 - ⚠️ **release 包偶发「网络不给力」而 debug 包同一操作成功**(2026-11-07 实测):先用 `flutter build apk --debug` 复测同一路径,别急着改代码 —— 本次根因是模拟器长跑劣化(见上一条),`adb reboot` 后恢复正常;release 包默认开证书绑定(`CERT_PINNING`),排查时可临时 `--dart-define=CERT_PINNING=off` 对照(该产物**不要**发版)。

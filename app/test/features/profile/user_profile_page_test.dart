@@ -129,6 +129,26 @@ void main() {
     expect(find.byKey(const Key('viewer.page')), findsOneWidget);
   });
 
+  testWidgets('有语音自我介绍 → 渲染播放条(公开信息,任何能看资料的人都能听)', (tester) async {
+    adapter.routes['GET /users/9'] =
+        (options) => ok(publicProfileJson(voice: voiceJson()));
+    await pumpProfile(tester);
+
+    await tester.ensureVisible(find.byKey(const Key('user.voice.bar')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('user.voice.bar')), findsOneWidget);
+    expect(find.text('语音自我介绍'), findsOneWidget);
+    expect(find.text('0:00 / 0:18'), findsOneWidget);
+  });
+
+  testWidgets('没录过语音(voice == null)→ 播放条整块不渲染,不留占位', (tester) async {
+    adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson());
+    await pumpProfile(tester);
+
+    expect(find.byKey(const Key('user.voice.bar')), findsNothing);
+    expect(find.text('语音自我介绍'), findsNothing);
+  });
+
   testWidgets('404 → 「用户不存在」+ 重试按钮', (tester) async {
     adapter.routes['GET /users/9'] = (options) => jsonError(404, '用户不存在');
     await pumpProfile(tester);

@@ -14,6 +14,7 @@ class UserProfile {
     this.isFollowed = false,
     this.followerCount = 0,
     this.followingCount = 0,
+    this.voice,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
@@ -33,6 +34,8 @@ class UserProfile {
         isFollowed: (json['is_followed'] ?? false) as bool,
         followerCount: (json['follower_count'] ?? 0) as int,
         followingCount: (json['following_count'] ?? 0) as int,
+        // 批次 R:语音自我介绍是公开信息,没录过为 null
+        voice: VoiceIntro.parse(json['voice']),
       );
 
   final int userId;
@@ -53,6 +56,9 @@ class UserProfile {
   /// 对方的关注数(对方关注了多少人)。
   final int followingCount;
 
+  /// 对方的语音自我介绍;没录过为 null(整块播放条不渲染)。
+  final VoiceIntro? voice;
+
   /// 乐观更新关注态:只改关注相关的两个字段,其余原样保留。
   UserProfile copyWith({bool? isFollowed, int? followerCount}) => UserProfile(
         userId: userId,
@@ -66,6 +72,7 @@ class UserProfile {
         isFollowed: isFollowed ?? this.isFollowed,
         followerCount: followerCount ?? this.followerCount,
         followingCount: followingCount,
+        voice: voice,
       );
 }
 

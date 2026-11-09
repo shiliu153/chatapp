@@ -13,6 +13,10 @@ abstract class VoicePlayer {
 
   /// 一条播完时触发(用于复位气泡图标)。
   Stream<void> get onComplete;
+
+  /// 播放进度;资料语音播放条用它画进度。默认空流:只关心「播没播完」的实现
+  /// (聊天气泡)不必实现它。
+  Stream<Duration> get onPosition => const Stream<Duration>.empty();
 }
 
 /// `audioplayers` 实现。
@@ -26,6 +30,9 @@ class DeviceVoicePlayer implements VoicePlayer {
 
   @override
   Stream<void> get onComplete => _complete.stream;
+
+  @override
+  Stream<Duration> get onPosition => _player.onPositionChanged;
 
   @override
   Future<void> play(String source, {required bool isLocal}) async {

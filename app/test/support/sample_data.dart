@@ -16,6 +16,7 @@ Map<String, dynamic> profileJson({
   String? status,
   String banReason = '',
   bool visitsHidden = false,
+  Map<String, dynamic>? voice,
 }) =>
     {
       'id': id,
@@ -35,6 +36,8 @@ Map<String, dynamic> profileJson({
       'preference': preference ??
           {'target_gender': null, 'age_min': 18, 'age_max': 99, 'city': ''},
       'visits_hidden': visitsHidden,
+      // 批次 R:没录过语音时后端给 null(不是空对象)
+      'voice': voice,
     };
 
 Map<String, dynamic> tagJson(int id, String name, {String icon = ''}) =>
@@ -95,6 +98,7 @@ Map<String, dynamic> publicProfileJson({
   bool isFollowed = false,
   int followerCount = 0,
   int followingCount = 0,
+  Map<String, dynamic>? voice,
 }) =>
     {
       'user_id': userId,
@@ -109,7 +113,15 @@ Map<String, dynamic> publicProfileJson({
       'is_followed': isFollowed,
       'follower_count': followerCount,
       'following_count': followingCount,
+      'voice': voice,
     };
+
+/// 造一份 `voice` 字段(资料语音自我介绍)。
+Map<String, dynamic> voiceJson({
+  String url = 'http://test/media/voices/intro.m4a',
+  int durationMs = 18000,
+}) =>
+    {'url': url, 'duration_ms': durationMs};
 
 /// 造一份 GET /blocks 里的一条。
 Map<String, dynamic> blockedUserJson({
