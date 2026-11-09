@@ -26,6 +26,7 @@ import type {
   LikeReceived,
   LoginDevice,
   MatchSummary,
+  MyStats,
   NotificationActor,
   NotificationTarget,
   Photo,
@@ -70,3 +71,4 @@ export type AppNotificationUnknown = MustBeNever<
   UnknownFields<AppNotification, Schema<'NotificationItem'>>
 >
 export type LoginDeviceUnknown = MustBeNever<UnknownFields<LoginDevice, Schema<'DeviceItem'>>>
+export type MyStatsUnknown = MustBeNever<UnknownFields<MyStats, Schema<'MyStats'>>>
