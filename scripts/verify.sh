@@ -164,6 +164,10 @@ stack_web() {
 stack_contract() {
   run "版本号三处一致" "$PY" "$ROOT/scripts/sync_version.py" --check
   run "App 模型字段 ⊆ OpenAPI" "$PY" "$ROOT/scripts/check_app_models.py"
+  # 两个脚本的自测:contract.yml 一直在跑它们,本地这条轨此前漏了 ——
+  # 那会让「本地绿 ≈ CI 绿」在这两个门禁自己坏掉时不成立。
+  run "版本号同步脚本自测" "$PY" -m unittest scripts.test_sync_version
+  run "发版准备脚本自测" "$PY" -m unittest scripts.test_release_prep
 }
 stack_imserver() {
   # 三段与 .github/workflows/imserver.yml 的三个 step 逐项对齐:

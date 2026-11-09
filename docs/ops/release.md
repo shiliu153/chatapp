@@ -45,6 +45,20 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 
 > 步骤 5 的 tag **必须指向步骤 1 的合并 SHA**,不要指向本地未合并提交 —— 与「部署只认 `origin/master` 的 SHA」同一条纪律。
 
+### 3.1 步骤 2 之前先跑一条命令(2026-11-09 起)
+
+```bash
+python scripts/release_prep.py --version <版本> --topic "<一句话主题>" --dry-run   # 先看计划
+python scripts/release_prep.py --version <版本> --topic "<一句话主题>"            # 真改
+```
+
+它把**上表步骤 2 / 5 / 6 / 7 的机械部分**收进一条命令:前置闸门(干净工作区 + `master` + `HEAD == origin/master`)
+→ 写三处版本号(构建号自增)→ 跑 `sync_version` 门禁 → 按 `feat` / `fix` / 运维把上个 tag 以来的提交
+分类成 `notes` 草稿(`.release-notes/v<版本>.md`,已 gitignore)→ **打印**打 tag / `create_release.py` /
+§5 表格行的命令。
+
+**它绝不执行**打 tag、建 Release、部署、构建 —— 这四件仍由人做。自测见 `scripts/test_release_prep.py`(进 `contract` 轨)。
+
 ## 4. Release 规范
 
 | 项 | 规则 |
