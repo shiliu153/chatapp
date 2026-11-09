@@ -19,6 +19,10 @@ deploy/chatapp text eol=lf
 # 与上面 .sh 同理,固定 LF —— Windows 检出带 CRLF 的 .mjs 虽能跑,但会让 WSL 侧的 diff 全脏。
 scripts/superagent-failover/* text eol=lf
 
+# 运维补丁固定 LF:docs/ops/patches/*.patch 是给 WSL 里 `git apply` 用的,
+# Windows 检出若带 CRLF,补丁会一个 hunk 都应用不上(2026-11-09 加)。
+*.patch text eol=lf
+
 # 明确二进制,避免 Git 对它们做文本 diff
 *.png  binary
 *.jpg  binary

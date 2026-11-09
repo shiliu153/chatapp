@@ -47,6 +47,7 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
 | `The prepare command failed` | 输出里写着原因(克隆路径、代理、ref 冲突)。修好后 Retry |
 | 工单跑到一半不动 | 先看面板 `load` 与 `worker` 健康位;进程在就 Retry,进程没了按 §1 重启 |
 | `verify.sh` 报「没有可用的 venv」 | 跑 `scripts/verify.sh bootstrap` |
+| 面板 `github` 亮红、报 `N consecutive failed polls … EOF` | 网络层断连(不是 token、不是限流),**新评论/派工不会被读到**。先按 §11 的探针确认,再重打补丁 |
 
 ## 4. 一次工单的完整闭环(人工部分)
 
@@ -305,3 +306,64 @@ wsl -e bash /root/start-superagent.sh status
   真实线路只看代理日志或 `/__failover/status`。
 - 代理强制 `accept-encoding: identity`:它要读响应体才能识破「200 其实是错误」,让上游压缩就换掉了这个判断能力。
 - 代理**不是**安全边界也不记账:不鉴权、不校验、不做额度控制,额度仍由网关按账号算。
+
+## 11. GitHub 轮询断连重试(2026-11-09 本地补丁)
+
+**症状**:面板 Overview 的 `github` 亮红,`status` 退出码 `2`,报错形如
+
+```
+31 consecutive failed polls; last: Error: 28 GitHub reads failed:
+github:139: Error: Get "https://api.github.com/repos/shiliu153/chatapp/pulls/139": EOF; …
+```
+
+轮询本身没停(游标照旧推进),但**每一轮都至少有一个读失败**,而 `failuresBeforeError=3` 数的是「轮」——
+于是三轮之后健康位就一直挂着 error:PR 评论、`@` 派工、CI 变化都读不进来。
+
+**根因(2026-11-09 实测)**:这台机器到 `api.github.com` / `github.com` 的**新建 TLS 连接会被间歇重置**。
+不是 token、不是限流、也不是代理没开:
+
+| 探针(各 30 次,同一时段交错跑) | 结果 |
+|---|---|
+| `curl https://api.github.com/rate_limit` 直连 | ok 21 / fail 9(`SSL_ERROR_SYSCALL`,握手阶段就被断) |
+| 同上,走宿主代理 `172.26.240.1:7897` | ok 21 / fail 9 —— **和直连一样差**,代理救不了 |
+| `curl https://www.baidu.com/`(对照) | ok 30 / fail 0 |
+| `gh-agent api rate_limit` | `remaining` 4400+/5000,**不是限流** |
+| DNS / MTU | 稳定单值 `20.205.243.168`;`eth0` MTU 已是 1400 |
+
+`gh` 侧的表现是 `Get "https://…": EOF`(Go 的 `url.Error`):**请求还没拿到任何 HTTP 状态**,连接就没了。
+一轮轮询有 60~100 个这样的读,单请求 15~30% 的失败率 ⇒ 整轮必然踩雷。
+
+**修法**:在 `/root/dsh-superagent` 打本地补丁,把「网络层失败」和「GitHub 给了 HTTP 应答」分开:
+
+- `src/infra/commands.ts` 新增 `retried()`:只读的 GitHub 调用失败后最多重试 **3 次**(等 0.4s / 1.2s / 3s,
+  可被 abort 打断),即共 4 次尝试。退避跨到秒级,因为重置是**成串**出现的,毫秒级重试会撞进同一串。
+- **只重试只读调用**:`api()` / `pages()` 里带 `-X` `--method` `-f` `--field` `-F` `--raw-field` `--input` `--upload-file`
+  的一律不重试 —— 重发一条评论会变成两条。
+- **只重试传输层错误**(`error.code === undefined` 且消息命中 `EOF` / `connection reset` / `i/o timeout` /
+  `TLS handshake timeout` / `proxyconnect` / `no such host` / `GOAWAY` / `stream error` …):
+  404 / 410 / 403 / 500 这些 HTTP 应答原样上抛,`failuresBeforeError` 的判定语义不变。
+
+补丁全文(含 2 条新用例):[`docs/ops/patches/2026-11-09-dsh-superagent-github-poll-retry.patch`](patches/2026-11-09-dsh-superagent-github-poll-retry.patch)。
+
+**应用 / 升级后重打**(`lib/` 才是运行产物,不重建等于没打)。补丁文件住在仓库里,
+母体要先 `git -C /root/src/chatapp pull --ff-only` 拿到它;临时也放了一份在 `/root/dsh-superagent/.local-patches/`:
+
+```bash
+cd /root/dsh-superagent
+git apply --3way /root/src/chatapp/docs/ops/patches/2026-11-09-dsh-superagent-github-poll-retry.patch
+export PATH=/usr/local/bin:$PATH
+npx vitest run tests/commands.spec.ts   # 21 passed
+npx tsc --noEmit && npx tsdown
+bash /root/start-superagent.sh restart
+```
+
+**验收(2026-11-09 15:14)**:重启后第一轮(67 个订阅 Thread、100+ 次读)**零失败**跑完,
+`status` 给出 `github: ready`、退出码 `0`;此前是 `error` + 连续 32 轮失败。
+
+**已知偏差**:
+
+- 这是**本地补丁**,不是上游改动。`git pull` 升级 dsh-superagent 后要按上面重打;
+  打完必须 `npx tsdown` 重建 `lib/`,否则跑的还是旧的。
+- 它只让「偶发断连」不再毁掉整轮。**链路整体断掉时仍然会报 error** —— 这是有意的:那时重试也救不回来,该报。
+- 同一台机器上 `tests/sources.spec.ts` 里那条 Feishu 用例(「takes in the event lines …」)本来就红,
+  **打补丁前后都红**,与本补丁无关,别当回归。

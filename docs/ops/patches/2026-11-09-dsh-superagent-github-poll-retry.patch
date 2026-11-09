@@ -1,0 +1,125 @@
+diff --git a/src/infra/commands.ts b/src/infra/commands.ts
+index 120f5a4..9168146 100644
+--- a/src/infra/commands.ts
++++ b/src/infra/commands.ts
+@@ -7,6 +7,26 @@ import type { Deployment } from '../deployment.ts'
+ 
+ const exec = promisify(execFile)
+ const TIMEOUT_MS = 90_000
++/**
++ * Transport-level failures worth repeating: this link to GitHub drops a share of new TLS connections, and a reset arrives as
++ * EOF instead of an HTTP answer. An HTTP status is never repeated, because a repeated write could duplicate it.
++ */
++const TRANSIENT = /(?:unexpected EOF|EOF|connection reset by peer|broken pipe|i\/o timeout|TLS handshake timeout|proxyconnect|no such host|temporary failure in name resolution|network is unreachable|GOAWAY|stream error)/i
++/** Waits between attempts, so a burst of resets ends before the call is abandoned. */
++const RETRY_DELAYS_MS = [400, 1_200, 3_000]
++/** GitHub API flags that make a call a write; repeating one could post the same comment twice. */
++const MUTATING = new Set(['-X', '--method', '-f', '--field', '-F', '--raw-field', '--input', '--upload-file'])
++/** True when `flags` leave the call a read, which is safe to repeat. */
++const readOnly = (flags: readonly string[]): boolean => !flags.some(flag => MUTATING.has(flag))
++/** Resolves after `ms`, or as soon as `signal` aborts. */
++function delay(ms: number, signal: AbortSignal): Promise<void> {
++  return new Promise(resolve => {
++    if (signal.aborted) { resolve(); return }
++    const stop = () => { clearTimeout(timer); resolve() }
++    const timer = setTimeout(() => { signal.removeEventListener('abort', stop); resolve() }, ms)
++    signal.addEventListener('abort', stop, { once: true })
++  })
++}
+ /**
+  * Error thrown by Commands when a CLI invocation fails, capturing stderr diagnostics, API error codes, and exit status without echoing command arguments.
+  * Source channels and pollers inspect its code to distinguish deleted conversations from retryable failures.
+@@ -30,6 +50,10 @@ export function commandError(error: unknown, program = 'command'): Error {
+   }
+   return new CliError(`${basename(program)} ${ended(error)}`, undefined, exitCode)
+ }
++/** True when a CLI call failed before GitHub answered: a transport-level message and no HTTP status to report. */
++export function transient(error: unknown): boolean {
++  return error instanceof CliError && error.code === undefined && TRANSIENT.test(error.message)
++}
+ function ended(error: unknown): string {
+   const { killed, signal, code } = (error ?? {}) as { killed?: boolean; signal?: string | null; code?: unknown }
+   if (code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return 'printed more output than it may'
+@@ -72,6 +96,18 @@ export class Commands {
+       return stdout
+     } catch (error) { throw commandError(error, program) }
+   }
++  /**
++   * Repeats a read that failed on the network, so one reset connection does not fail a whole polling round.
++   * @throws the last failure when every attempt failed, the call was aborted, or GitHub answered with an HTTP status.
++   */
++  private async retried<T>(call: () => Promise<T>): Promise<T> {
++    for (let attempt = 0; ; attempt += 1) {
++      try { return await call() } catch (error) {
++        if (attempt >= RETRY_DELAYS_MS.length || !transient(error) || this.signal.aborted) throw error
++        await delay(RETRY_DELAYS_MS[attempt]!, this.signal)
++      }
++    }
++  }
+   /** Runs the agent's GitHub CLI and parses its JSON output; callers should prefer `api`, which is restricted to the configured repository and validates output. */
+   async gh<T>(args: string[]): Promise<T> { return JSON.parse(await this.run(this.deployment.github.cli, args)) as T }
+   /**
+@@ -82,13 +118,20 @@ export class Commands {
+   async api<T>(schema: z.ZodType<T>, path: string, ...flags: string[]): Promise<T>
+   async api(path: string, ...flags: string[]): Promise<string>
+   async api<T>(schema: z.ZodType<T> | string, ...rest: string[]): Promise<T | string> {
+-    if (typeof schema === 'string') return this.run(this.deployment.github.cli, ['api', this.path(schema), ...rest])
+-    const [path = '', ...flags] = rest
+-    return schema.parse(await this.gh(['api', this.path(path), ...flags]))
++    if (typeof schema === 'string') {
++      const path = this.path(schema)
++      const call = () => this.run(this.deployment.github.cli, ['api', path, ...rest])
++      return readOnly(rest) ? this.retried(call) : call()
++    }
++    const [target = '', ...flags] = rest
++    const path = this.path(target)
++    const call = () => this.gh(['api', path, ...flags])
++    return schema.parse(await (readOnly(flags) ? this.retried(call) : call()))
+   }
+   /** Fetches all pages of a GitHub API list within the configured repository, skipping items that fail schema validation. */
+   async pages<T>(item: z.ZodType<T>, path: string, tally?: Tally): Promise<T[]> {
+-    const pages = z.array(z.array(z.unknown())).parse(await this.gh(['api', this.path(path), '--paginate', '--slurp']))
++    const target = this.path(path)
++    const pages = z.array(z.array(z.unknown())).parse(await this.retried(() => this.gh(['api', target, '--paginate', '--slurp'])))
+     return validItems(item, pages.flat(), tally)
+   }
+   private path(path: string): string {
+diff --git a/tests/commands.spec.ts b/tests/commands.spec.ts
+index 004e65e..08c4dbd 100644
+--- a/tests/commands.spec.ts
++++ b/tests/commands.spec.ts
+@@ -213,3 +213,34 @@ it('stops a running command when the signal of its work aborts, or the lifetime,
+   await expect(other).rejects.toThrow()
+   expect(Date.now() - started).toBeLessThan(4000)
+ })
++
++describe('network retries', () => {
++  const commands = () => new Commands(() => deployment, {}, new AbortController().signal)
++  const reset = () => new CliError('Get "https://api.github.com/repos/x/y/issues/12": EOF')
++  it('repeats a read the network dropped, and never repeats an HTTP answer or a write', async () => {
++    const value = commands()
++    const run = vi.spyOn(value, 'run').mockRejectedValueOnce(reset()).mockResolvedValue('{"number":12}')
++    expect(await value.api(z.looseObject({ number: z.number() }), 'issues/12')).toEqual({ number: 12 })
++    expect(run).toHaveBeenCalledTimes(2)
++    run.mockReset()
++    run.mockRejectedValue(commandError({ stderr: 'gh: Not Found (HTTP 404)', code: 1 }))
++    await expect(value.api(z.unknown(), 'issues/12')).rejects.toThrow('HTTP 404')
++    expect(run).toHaveBeenCalledTimes(1)
++    // A write is never repeated: the same comment would be posted twice.
++    const gh = vi.spyOn(value, 'gh').mockRejectedValueOnce(reset()).mockResolvedValue({})
++    await expect(value.api(z.unknown(), 'issues/12/comments', '--method', 'POST', '-f', 'body=x')).rejects.toThrow('EOF')
++    expect(gh).toHaveBeenCalledTimes(1)
++  })
++  it('gives up after the last attempt, so a link that stays broken still reaches the polling round', async () => {
++    vi.useFakeTimers()
++    try {
++      const value = commands()
++      const run = vi.spyOn(value, 'run').mockRejectedValue(reset())
++      const failed = value.api(z.unknown(), 'issues/12')
++      const assertion = expect(failed).rejects.toThrow('EOF')
++      await vi.advanceTimersByTimeAsync(5_000)
++      await assertion
++      expect(run).toHaveBeenCalledTimes(4)
++    } finally { vi.useRealTimers() }
++  })
++})
