@@ -23,6 +23,11 @@ app/android/.gradle/
 app/android/local.properties
 app/ios/Pods/
 app/ios/.symlinks/
+# 各平台 Flutter 生成的脚手架(`flutter test`/`analyze` 会顺手生成):
+# 不入库,否则 WSL 母体一跑 flutter 就变脏,scripts/superagent-closeout.sh 会拒绝同步
+app/macos/Flutter/
+app/linux/flutter/
+app/windows/flutter/
 
 # --- Android 签名(密钥与口令永不入库存) ---
 app/android/key.properties
