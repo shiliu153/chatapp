@@ -54,6 +54,38 @@ void main() {
     expect(adapter.log.last.data, {'target_user_id': 10, 'action': 'pass'});
   });
 
+  test('undoSwipe → 无 body 的 POST,返回被撤销的目标 userId', () async {
+    adapter.routes['POST /discovery/swipe/undo'] =
+        (options) => ok({'undone': true, 'target_user_id': 30});
+
+    final targetUserId = await repository.undoSwipe();
+
+    expect(targetUserId, 30);
+    expect(adapter.log.last.method, 'POST');
+    expect(adapter.log.last.path, '/discovery/swipe/undo');
+    expect(adapter.log.last.data, isNull);
+  });
+
+  test('fetchQuota 解析额度快照;like_limit=0 时 likes_remaining 为 null', () async {
+    adapter.routes['GET /discovery/quota'] =
+        (options) => ok({'like_limit': 10, 'likes_used': 3, 'likes_remaining': 7});
+
+    final quota = await repository.fetchQuota();
+
+    expect(quota.likeLimit, 10);
+    expect(quota.likesUsed, 3);
+    expect(quota.likesRemaining, 7);
+    expect(quota.limited, isTrue);
+
+    adapter.routes['GET /discovery/quota'] =
+        (options) => ok({'like_limit': 0, 'likes_used': 0, 'likes_remaining': null});
+
+    final unlimited = await repository.fetchQuota();
+
+    expect(unlimited.limited, isFalse);
+    expect(unlimited.likesRemaining, isNull);
+  });
+
   test('配对成功 → 解析响应里的共同标签(破冰文案用)', () async {
     adapter.routes['POST /discovery/swipe'] = (options) => ok({
           'matched': true,

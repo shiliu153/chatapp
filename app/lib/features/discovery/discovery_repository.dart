@@ -35,6 +35,21 @@ class DiscoveryRepository {
     );
   }
 
+  /// 撤销最近一次滑卡(discovery.md §3.9);返回被撤销的目标账号 ID。
+  ///
+  /// 没有可撤销的滑卡时后端回 `400` + `40003`(无记录 / 超 30 秒 / 已配对),
+  /// 由调用方按业务码处理,这里只管转发、不改写错误。
+  Future<int> undoSwipe() async {
+    final data = await _api.post('/discovery/swipe/undo') as Map<String, dynamic>;
+    return data['target_user_id'] as int;
+  }
+
+  /// 每日喜欢额度快照(discovery.md §3.10)。
+  Future<LikeQuota> fetchQuota() async {
+    final data = await _api.get('/discovery/quota') as Map<String, dynamic>;
+    return LikeQuota.fromJson(data);
+  }
+
   /// 喜欢我的人(游标分页);返回本页条目、后端总数与下一页游标。
   Future<({List<LikeReceived> items, int count, String? nextCursor})> fetchLikesReceived(
       {int limit = 20, String? cursor}) async {

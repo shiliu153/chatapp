@@ -36,6 +36,47 @@ class Candidate {
   final List<Photo> photos;
 }
 
+/// 每日喜欢额度快照;字段与 `GET /discovery/quota` 一一对应(discovery.md §3.10)。
+///
+/// `likeLimit == 0` 表示后端没开额度(`likesRemaining` 为 `null`),此时界面
+/// **整块不渲染**额度文案 —— 用 [limited] 判断,不要自己拿"剩余是否 0"去推。
+class LikeQuota {
+  const LikeQuota({
+    required this.likeLimit,
+    required this.likesUsed,
+    required this.likesRemaining,
+  });
+
+  factory LikeQuota.fromJson(Map<String, dynamic> json) => LikeQuota(
+        likeLimit: (json['like_limit'] ?? 0) as int,
+        likesUsed: (json['likes_used'] ?? 0) as int,
+        likesRemaining: json['likes_remaining'] as int?,
+      );
+
+  /// 每日喜欢上限;`0` = 不限。
+  final int likeLimit;
+
+  /// 今天已用掉的喜欢次数(不限时恒为 `0`)。
+  final int likesUsed;
+
+  /// 今天还剩多少次;不限时为 `null`。
+  final int? likesRemaining;
+
+  /// 后端是否开启了每日额度。
+  bool get limited => likeLimit > 0;
+
+  /// 用掉一次喜欢;没开额度或已到 0 时原样返回。
+  LikeQuota useOne() {
+    final remaining = likesRemaining;
+    if (!limited || remaining == null || remaining <= 0) return this;
+    return LikeQuota(
+      likeLimit: likeLimit,
+      likesUsed: likesUsed + 1,
+      likesRemaining: remaining - 1,
+    );
+  }
+}
+
 /// 收到的一次喜欢;字段与 GET /discovery/likes 的单项一一对应。
 class LikeReceived {
   const LikeReceived({required this.candidate, required this.likedAt});

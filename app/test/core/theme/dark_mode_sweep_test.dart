@@ -5,6 +5,7 @@ import 'package:chatapp_app/core/theme/heart_colors.dart';
 import 'package:chatapp_app/features/auth/login_page.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
 import 'package:chatapp_app/features/chat/search_page.dart';
+import 'package:chatapp_app/features/discovery/discovery_page.dart';
 import 'package:chatapp_app/features/discovery/likes_received_page.dart';
 import 'package:chatapp_app/features/discovery/visits_page.dart';
 import 'package:chatapp_app/features/legal/legal_page.dart';
@@ -102,6 +103,8 @@ ScriptedAdapter _adapter() => ScriptedAdapter({
       'GET /posts/1/comments': (options) => ok(pageJson([])),
       'GET /matches': (options) => ok(pageJson([])),
       'GET /discovery/candidates': (options) => ok(pageJson([candidateJson()])),
+      'GET /discovery/quota': (options) =>
+          ok({'like_limit': 10, 'likes_used': 3, 'likes_remaining': 7}),
       'GET /discovery/likes': (options) => ok(pageJson([candidateJson()])),
       'GET /discovery/likes/count': (options) => ok({'count': 1}),
       'GET /discovery/visits': (options) => ok(pageJson([candidateJson()])),
@@ -157,6 +160,27 @@ void main() {
       await pumpFrames(tester);
       expectNoLightSurfaces(tester, '首页/$tab');
     }
+  });
+
+  testWidgets('暗色回归:发现页撤销按钮(滑卡后才出现)', (tester) async {
+    // 撤销按钮与额度文案只在滑卡动作之后才在树里,上面那张页面清单覆盖不到
+    final adapter = _adapter();
+    // 共用的 _adapter 给候选池铺的是 pageJson(错误形状),这里要给真列表才出得了卡
+    adapter.routes['GET /discovery/candidates'] =
+        (options) => ok([candidateJson(userId: 9, nickname: '小红')]);
+    adapter.routes['POST /discovery/swipe'] = (options) => ok({'matched': false});
+    adapter.routes['POST /discovery/swipe/undo'] =
+        (options) => ok({'undone': true, 'target_user_id': 9});
+    await pumpPage(tester, adapter, const DiscoveryPage(),
+        prefs: _loggedIn, brightness: Brightness.dark);
+    await pumpFrames(tester, frames: 12);
+
+    await tester.tap(find.byKey(const Key('discovery.like')));
+    // 倒计时环一直在走,不能 pumpAndSettle
+    await pumpFrames(tester);
+
+    expect(find.byKey(const Key('discovery.undo')), findsOneWidget);
+    expectNoLightSurfaces(tester, '发现页(撤销按钮)');
   });
 
   testWidgets('暗色重点元素:渐变主按钮 / 卡片 / 骨架 / Toast / 对话框 / 空态', (tester) async {

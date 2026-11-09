@@ -6,6 +6,8 @@ import '../../core/api_exception.dart';
 import '../../core/providers.dart';
 import '../../im/im_manager.dart';
 import '../discovery/discovery_controller.dart';
+import '../discovery/like_quota_controller.dart';
+import '../discovery/swipe_undo_controller.dart';
 import '../moderation/moderation_controller.dart';
 import '../profile/profile_controller.dart';
 import '../profile/profile_repository.dart';
@@ -121,6 +123,9 @@ class SessionController extends Notifier<SessionState> {
   void _resetUserScopedCaches() {
     ref.invalidate(profileProvider);
     ref.invalidate(discoveryProvider);
+    // 批次 O:撤销窗口与每日喜欢额度都是「这个号」的状态,换号必须重来
+    ref.invalidate(swipeUndoProvider);
+    ref.invalidate(likeQuotaProvider);
     ref.invalidate(blockedUsersProvider);
     // 整族失效:资料卡是公开数据,但「能不能看到」随号主而变(拉黑/重封禁),
     // 留着上一个号看过的卡会让新号绕过可见性判断
