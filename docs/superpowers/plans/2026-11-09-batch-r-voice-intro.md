@@ -1,5 +1,6 @@
 # 批次 R 实施计划:资料语音自我介绍
 
+- **状态**:已交付(2026-11-09)
 - **Spec 链接**:[批次 R–W 设计](../../specs/2026-11-09-batch-r-w-design.md) §4.1
 - **Goal**:用户能给自己的资料录一段 **≤30 秒**语音自我介绍;任何能看他资料的人都能播放。
 - **Architecture**:复用聊天语音的整条链路 —— `im/voice.py::normalize`(ffprobe 校验 → ffmpeg 转 m4a/AAC)、
@@ -98,4 +99,41 @@
 
 ## 执行记录
 
-(交付时回填:实际改动 / 与计划的偏差 / 踩到的坑 / 各栈测试数)
+**交付于 2026-11-09,三单全部合并**(`master` = `4f1f8b5`),按计划顺序 backend → app → web。
+
+| 单 | PR | 合并 SHA | 关键交付 |
+|---|---|---|---|
+| R-1 后端 | #203 | `92665dd` | `users.ProfileVoice`(迁移 `0008`)+ `POST/DELETE /api/v1/users/me/voice` + `voice` 字段进 `ProfileSerializer` / `PublicProfileSerializer`;13 个新用例 |
+| R-2 App | #207 | `bfff120` | 编辑页录音卡(30 秒)+ 他人资料页播放条;`VoiceRecordController.maxDurationMs` 参数化;+27 用例(582 → 609) |
+| R-3 Web | #208 | `4f1f8b5` | `ProfileVoiceCard.vue` + `UserProfilePage` 播放条;`useVoiceRecorder.maxDurationMs` 参数化;+22 用例(568 → 590) |
+
+### 与计划的偏差
+
+1. **`voice.url` 不签名**(计划里写的是「复用 `media_sign.sign_url`」)。worker 第一版照做了,评审时发现
+   `/media/voices/` 命中的是 nginx 的**裸静态** `location ^~ /media/`(`/media/chat/` 才有
+   `auth_request`),`e`/`s` 两个参数没有任何人校验 —— 「看着像限时、实际是永久公开地址」。
+   改为与照片完全同口径:DRF `FileField` 拼绝对地址、不签名。**签名只有在有人验签时才是签名。**
+2. **语音不进「资料完善」判定**已按计划落实;`delete_account` 顺带补了语音文件的清理(计划里没写)。
+3. **U 批(广场)的「多图」在 R 批之前就存在**,与 R 无关;此处仅备忘。
+
+### 踩到的坑(两条都已进坑灵手册)
+
+1. **multipart 的 part MIME 必须显式声明**。App 侧 `MultipartFile.fromBytes` 不传 `contentType` 会退化成
+   `application/octet-stream`,后端白名单不含它 → **必然 400**。仓库里 `self_voice_uploader.dart` 早有这条注释,
+   新写的 `profile_repository.uploadVoice` 漏了。Web 侧同理(`Blob.type` 为空时),`uploadProfileVoice`
+   重新包一层带白名单 `type` 的 Blob 兜底。
+2. **Android 明文 HTTP 会让原生播放器失败,而 Dart 的 HTTP 栈不受限**。`targetSdk >= 28` 时
+   audioplayers(ExoPlayer)禁止 `http://`,Dio 直接用 socket 照常通 —— 症状是「接口全通、上传 201、语音播不了」,
+   排查成本很高。修法:debug manifest 加 `<application android:usesCleartextTraffic="true" />`
+   (只影响 debug,release 仍禁明文;生产是 HTTPS 不暴露)。**`Image.network` 走 dart:io 不受影响,
+   所以只有原生解码的语音/视频会中招。**
+
+### 模拟器验收(2026-11-09,`emulator-5554` + 本地 Django + ffmpeg)
+
+编辑页:语音卡渲染 ✅ → 麦克风权限弹窗 ✅ → 录音「已录好 5 秒」✅ → 本地试听进度推进 ✅ →
+上传 `201`(库有行、盘有文件)✅ → 已保存态 + 删除按钮 ✅。
+他人资料页:播放条 `0:00 / 0:08` ✅ → **点播放进度走到 `0:05 / 0:08`** ✅;`voice == null` 整块不渲染 ✅。
+
+> **验收方法教训**:模拟器手测**不要从截图预览目测坐标**。预览常被缩放,目测 y 值可能差上百像素,
+> 表现为「点了没反应」,极易误判成组件手势 bug —— 本次一度误报「资料页播放按钮点不动」,实际坐标偏了 100px。
+> 用 Pillow 扫目标色块量出真实 bounds 再点。
