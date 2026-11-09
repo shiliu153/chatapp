@@ -73,6 +73,7 @@ class SettingsPage extends ConsumerWidget {
               const AppSubPageBar(title: '设置'),
               Expanded(
                 child: ListView(
+                  key: const Key('settings.list'),
                   // 底部额外让开系统手势条:设置页内容会随分组增长(2026-11-05 新增「外观」卡后
                   // 已贴到底),edge-to-edge 设备上最后一张卡会压进手势区
                   padding: EdgeInsets.fromLTRB(
@@ -95,6 +96,12 @@ class SettingsPage extends ConsumerWidget {
                           icon: Icons.notifications_rounded,
                           title: '通知设置',
                           onTap: () => context.push('/settings/notifications'),
+                        ),
+                        AppListRow(
+                          key: const Key('settings.row.devices'),
+                          icon: Icons.devices_rounded,
+                          title: '登录设备',
+                          onTap: () => context.push('/settings/devices'),
                         ),
                       ],
                     ),

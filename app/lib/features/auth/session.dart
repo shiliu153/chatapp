@@ -9,6 +9,7 @@ import '../discovery/discovery_controller.dart';
 import '../moderation/moderation_controller.dart';
 import '../profile/profile_controller.dart';
 import '../profile/profile_repository.dart';
+import '../settings/devices_controller.dart';
 import 'auth_repository.dart';
 
 /// 登录态心跳间隔;override 成 null 可关闭(测试用)。
@@ -122,6 +123,8 @@ class SessionController extends Notifier<SessionState> {
     ref.invalidate(profileProvider);
     ref.invalidate(discoveryProvider);
     ref.invalidate(blockedUsersProvider);
+    // 登录设备列表也是按账号隔离的:换号后必须重拉,否则新号会看到上一个号的端
+    ref.invalidate(devicesProvider);
     // 整族失效:资料卡是公开数据,但「能不能看到」随号主而变(拉黑/重封禁),
     // 留着上一个号看过的卡会让新号绕过可见性判断
     ref.invalidate(userProfileProvider);

@@ -250,3 +250,20 @@ Map<String, dynamic> visitJson({
       ...candidateJson(userId: userId, nickname: nickname, age: age, city: city, tags: tags),
       'visited_at': visitedAt,
     };
+
+/// 造一份 GET /devices 的 `results[]` 项(一类端一行)。
+/// `lastActiveAt` 传 null = 只登录过、还没刷新过令牌(批次 M 之前的会话行)。
+Map<String, dynamic> deviceJson({
+  String clientType = 'app',
+  String clientLabel = 'App',
+  bool current = false,
+  DateTime? createdAt,
+  DateTime? lastActiveAt,
+}) =>
+    {
+      'client_type': clientType,
+      'client_label': clientLabel,
+      'current': current,
+      'created_at': (createdAt ?? DateTime(2026, 11, 9, 10, 20, 31)).toIso8601String(),
+      'last_active_at': lastActiveAt?.toIso8601String(),
+    };
