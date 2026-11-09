@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <cstdlib>
+#include <optional>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -356,4 +359,103 @@ TEST(MessageServiceSearchTest, ExcludesSystemNoticeAndEscapesWildcards) {
 
   // 系统通知(uid=0)不参与检索
   EXPECT_TRUE(svc.search(1, "系统通知", 0, 50).empty());
+}
+
+TEST(ConversationFlagsTest, WritesAndReadsBackRealValues) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+  ASSERT_TRUE(std::holds_alternative<SendResult>(svc.send({1, 2, "f-1", "hi"})));
+
+  // 置顶 + 免打扰一次写完:返回值是**回读实库**后的真实值
+  const auto flags = svc.set_conversation_flags(2, 1, true, true);
+  ASSERT_TRUE(flags.has_value());
+  EXPECT_TRUE(flags->pinned);
+  EXPECT_TRUE(flags->muted);
+
+  // 会话列表回显(客户端切列表时的刷新入口)
+  const auto items = svc.list_conversations(2, 100);
+  ASSERT_EQ(items.size(), 1u);
+  EXPECT_GT(items[0].pinned_at, 0);
+  EXPECT_TRUE(items[0].muted);
+
+  // 只改一项:另一项保持不动 —— 缺省是「不改」,不是「改成 false」
+  const auto muted_only = svc.set_conversation_flags(2, 1, std::nullopt, false);
+  ASSERT_TRUE(muted_only.has_value());
+  EXPECT_TRUE(muted_only->pinned);
+  EXPECT_FALSE(muted_only->muted);
+  EXPECT_GT(svc.list_conversations(2, 100)[0].pinned_at, 0);
+}
+
+TEST(ConversationFlagsTest, RepeatedPinKeepsOriginalTimestamp) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+  ASSERT_TRUE(std::holds_alternative<SendResult>(svc.send({1, 2, "f-2", "hi"})));
+
+  ASSERT_TRUE(svc.set_conversation_flags(2, 1, true, std::nullopt).has_value());
+  const int64_t first = svc.list_conversations(2, 100)[0].pinned_at;
+  ASSERT_GT(first, 0);
+
+  // 幂等:再置顶一次不重写时间。否则连点两次就会把会话顶到置顶组最前,
+  // 「置顶组按置顶时间倒序」就不再是用户看到的那次操作顺序。
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  ASSERT_TRUE(svc.set_conversation_flags(2, 1, true, std::nullopt).has_value());
+  EXPECT_EQ(svc.list_conversations(2, 100)[0].pinned_at, first);
+
+  // 取消置顶写 0;再置顶是一个**新**时间(重新置顶就该排在旧置顶前面)
+  ASSERT_TRUE(svc.set_conversation_flags(2, 1, false, std::nullopt).has_value());
+  EXPECT_EQ(svc.list_conversations(2, 100)[0].pinned_at, 0);
+  ASSERT_TRUE(svc.set_conversation_flags(2, 1, true, std::nullopt).has_value());
+  EXPECT_GT(svc.list_conversations(2, 100)[0].pinned_at, first);
+}
+
+TEST(ConversationFlagsTest, UnknownConversationFails) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(4, "D");
+  // (1,4) 有配对但**从没聊过** = 没有会话 → 失败,且不能凭空写出一行状态
+  EXPECT_FALSE(svc.set_conversation_flags(1, 4, true, true).has_value());
+  EXPECT_TRUE(svc.list_conversations(1, 100).empty());
+}
+
+TEST(ConversationFlagsTest, PinnedGroupComesFirstOrderedByPinTime) {
+  reset();
+  auto& svc = make_service();
+  for (uint64_t uid : {1, 2, 3}) {
+    svc.users().ensure(uid, "U");
+  }
+  // 1↔2 先聊、1↔3 后聊:不置顶时最近消息优先 → [3, 2]
+  ASSERT_TRUE(std::holds_alternative<SendResult>(svc.send({1, 2, "o-1", "hi"})));
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  ASSERT_TRUE(std::holds_alternative<SendResult>(svc.send({1, 3, "o-2", "hi"})));
+
+  const auto peers = [&svc] {
+    std::vector<uint64_t> out;
+    for (const auto& view : svc.list_conversations(1, 100)) {
+      out.push_back(view.peer.id);
+    }
+    return out;
+  };
+  EXPECT_EQ(peers(), (std::vector<uint64_t>{3, 2}));
+
+  // 置顶更早聊过的 2:进置顶组并排到最前
+  ASSERT_TRUE(svc.set_conversation_flags(1, 2, true, std::nullopt).has_value());
+  EXPECT_EQ(peers(), (std::vector<uint64_t>{2, 3}));
+
+  // 再置顶 3(置顶时间更晚):置顶组内按**置顶时间**倒序 → [3, 2]
+  std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  ASSERT_TRUE(svc.set_conversation_flags(1, 3, true, std::nullopt).has_value());
+  EXPECT_EQ(peers(), (std::vector<uint64_t>{3, 2}));
+
+  // 免打扰不改排序
+  ASSERT_TRUE(svc.set_conversation_flags(1, 2, std::nullopt, true).has_value());
+  EXPECT_EQ(peers(), (std::vector<uint64_t>{3, 2}));
+
+  // 取消 3 的置顶:置顶的 2 仍在最前,3 回落到「最近消息优先」组
+  ASSERT_TRUE(svc.set_conversation_flags(1, 3, false, std::nullopt).has_value());
+  EXPECT_EQ(peers(), (std::vector<uint64_t>{2, 3}));
 }

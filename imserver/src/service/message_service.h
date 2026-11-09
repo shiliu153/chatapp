@@ -76,6 +76,23 @@ class MessageService {
   /// Returns:
   ///   成功时返回实库里的 `read_seq`(已 `GREATEST`,不会回退),会话不存在时 `nullopt`。
   std::optional<uint64_t> mark_read(uint64_t uid, uint64_t peer, uint64_t seq);
+  /// 设置会话的置顶 / 免打扰(批次 N),返回**回读实库**后的真实标志位。
+  ///
+  /// 这是**单方**操作:只写 `uid` 自己那一行,不给对端发任何帧(对端不该知道我置顶了谁)。
+  /// 也不加 WS 帧 —— 低频写操作走 HTTP,客户端切列表时靠 `GET /im/api/conversations`
+  /// 的 `pinned` / `muted` 字段刷新。
+  ///
+  /// Args:
+  ///   uid: 会话主人。
+  ///   peer: 会话对端。
+  ///   pinned: 置顶开关;`nullopt` = 不改。置顶写当前毫秒,取消写 0,重复置顶不改时间。
+  ///   muted: 免打扰开关;`nullopt` = 不改。
+  ///
+  /// Returns:
+  ///   真实标志位;会话不存在(未配对 / 从没聊过)时 `nullopt`,由上层回 404。
+  std::optional<ConversationFlags> set_conversation_flags(uint64_t uid, uint64_t peer,
+                                                          std::optional<bool> pinned,
+                                                          std::optional<bool> muted);
   std::variant<RevokeResult, int> revoke(uint64_t uid, uint64_t msg_id);
   bool delete_conversation(uint64_t uid, uint64_t peer);
   bool delete_account(uint64_t uid);

@@ -60,6 +60,17 @@ struct ConversationView {
   /// `unread` 是「我」没读的条数,`peer_read_seq` 是「对端」读到哪 —— 两者是
   /// 两条独立链路,别混。客户端用它把 `seq <= peer_read_seq` 的**我方**消息标成已读。
   uint64_t peer_read_seq = 0;
+  /// 置顶时刻(毫秒时间戳)。0 = 未置顶 —— 存时间而不是 bool,是因为列表要按
+  /// 「置顶时间倒序」排(批次 N)。
+  int64_t pinned_at = 0;
+  /// 免打扰。**只影响客户端表现**(静音图标 + 未读只显示灰点),服务端不抑制任何东西。
+  bool muted = false;
+};
+
+/// 一个会话的置顶 / 免打扰标志位(批次 N,owner 维度,存在 `im_conversation_state`)。
+struct ConversationFlags {
+  bool pinned = false;
+  bool muted = false;
 };
 
 struct RevokeResult {

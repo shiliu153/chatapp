@@ -213,6 +213,81 @@ void ConversationRepo::set_deleted(MysqlPool::Lease& lease, uint64_t owner, uint
   stmt.execute();
 }
 
+std::optional<ConversationFlags> ConversationRepo::flags_of(MysqlPool::Lease& lease,
+                                                            uint64_t owner, uint64_t conv_id) {
+  auto* result = lease.query("SELECT pinned_at,muted FROM im_conversation_state WHERE owner_id=" +
+                             std::to_string(owner) +
+                             " AND conv_id=" + std::to_string(conv_id));
+  if (result == nullptr) {
+    return std::nullopt;
+  }
+  std::optional<ConversationFlags> flags;
+  if (MYSQL_ROW values = mysql_fetch_row(result)) {
+    ConversationFlags row;
+    row.pinned = std::stoll(values[0]) > 0;
+    row.muted = std::stoi(values[1]) != 0;
+    flags = row;
+  }
+  mysql_free_result(result);
+  return flags;
+}
+
+std::optional<ConversationFlags> ConversationRepo::set_flags(MysqlPool::Lease& lease,
+                                                            uint64_t owner, uint64_t peer,
+                                                            std::optional<bool> pinned,
+                                                            std::optional<bool> muted,
+                                                            int64_t now_ms) {
+  const auto [user_a, user_b] = ordered(owner, peer);
+  // 先按 (owner, conv_id) 唯一键拿到这一行:会话不存在(未配对 / 从没聊过)时直接返回
+  // nullopt,由上层回 404 —— 不能顺手 INSERT 一行,那会让一个从没聊过的会话凭空出现在列表里。
+  auto* result = lease.query(
+      "SELECT s.conv_id,s.pinned_at,s.muted FROM im_conversation_state s "
+      "JOIN im_conversation c ON c.id=s.conv_id "
+      "WHERE s.owner_id=" + std::to_string(owner) +
+      " AND c.user_a=" + std::to_string(user_a) +
+      " AND c.user_b=" + std::to_string(user_b));
+  if (result == nullptr) {
+    return std::nullopt;
+  }
+  uint64_t conv_id = 0;
+  int64_t current_pinned_at = 0;
+  bool current_muted = false;
+  if (MYSQL_ROW values = mysql_fetch_row(result)) {
+    conv_id = std::stoull(values[0]);
+    current_pinned_at = std::stoll(values[1]);
+    current_muted = std::stoi(values[2]) != 0;
+  }
+  mysql_free_result(result);
+  if (conv_id == 0) {
+    return std::nullopt;
+  }
+
+  int64_t pinned_at = current_pinned_at;
+  if (pinned.has_value()) {
+    if (!*pinned) {
+      pinned_at = 0;
+    } else if (pinned_at == 0) {
+      // 只在「本来没置顶」时写当前毫秒:已经是置顶状态再置顶一次不重写时间,
+      // 重复请求才是幂等的(否则连点两次会把会话顶到置顶组最前)。
+      pinned_at = now_ms;
+    }
+  }
+  const bool muted_value = muted.value_or(current_muted);
+
+  if (pinned_at != current_pinned_at || muted_value != current_muted) {
+    Stmt stmt(lease.get(),
+              "UPDATE im_conversation_state SET pinned_at=?,muted=? WHERE owner_id=? AND conv_id=?");
+    stmt.bind_uint(0, static_cast<uint64_t>(pinned_at));
+    stmt.bind_int(1, muted_value ? 1 : 0);
+    stmt.bind_uint(2, owner);
+    stmt.bind_uint(3, conv_id);
+    stmt.execute();
+  }
+
+  // 回读而不是回显请求参数:接口承诺的是「库里现在的真实值」,与 mark_read 同一个理由。
+  return flags_of(lease, owner, conv_id);
+}
+
 void ConversationRepo::delete_for_user(MysqlPool::Lease& lease, uint64_t uid) {
   {
     Stmt states(lease.get(), "DELETE FROM im_conversation_state WHERE owner_id=?");
@@ -243,7 +318,7 @@ std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, ui
       // 引用(批次 L-2):会话列表的 last_message 也走同一个序列化函数,
       // 少这两列就会出现「进会话能看到引用、列表里那条摘要却没有」。
       "m.ref_msg_id,m.ref_snapshot,"
-      "s.unread,c.last_seq,s.updated_at,IFNULL(ps.read_seq,0) "
+      "s.unread,c.last_seq,s.updated_at,IFNULL(ps.read_seq,0),s.pinned_at,s.muted "
       "FROM im_conversation_state s "
       "JOIN im_conversation c ON c.id=s.conv_id "
       "JOIN im_user u ON u.user_id=IF(c.user_a=" + std::to_string(owner) +
@@ -252,7 +327,12 @@ std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, ui
       "LEFT JOIN im_conversation_state ps ON ps.conv_id=s.conv_id AND ps.owner_id="
       "IF(c.user_a=" + std::to_string(owner) + ",c.user_b,c.user_a) "
       "WHERE s.owner_id=" + std::to_string(owner) +
-      " AND s.deleted=0 ORDER BY c.last_msg_at DESC LIMIT " + std::to_string(limit);
+      // 置顶优先(批次 N):先按「是否置顶」分组,置顶组内按置顶时间**倒序**
+      // (后置顶的更靠前),两组内部都仍按最近消息排。
+      // 排序表达式用不上 idx_owner_updated —— 个人项目会话数 < 100,可接受;
+      // 若将来上千再谈索引(设计见 batch-m-q §4.2)。
+      " AND s.deleted=0 ORDER BY (s.pinned_at>0) DESC, s.pinned_at DESC, c.last_msg_at DESC "
+      "LIMIT " + std::to_string(limit);
 
   std::vector<ConversationView> rows;
   auto* result = lease.query(sql);
@@ -291,6 +371,8 @@ std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, ui
     view.last_seq = std::stoull(values[16]);
     view.updated_at = std::stoll(values[17]);
     view.peer_read_seq = std::stoull(values[18]);
+    view.pinned_at = std::stoll(values[19]);
+    view.muted = std::stoi(values[20]) != 0;
     rows.push_back(std::move(view));
   }
   mysql_free_result(result);
