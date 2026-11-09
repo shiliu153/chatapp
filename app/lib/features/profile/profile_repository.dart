@@ -36,10 +36,20 @@ class ProfileRepository {
 
   /// 上传语音自我介绍(multipart 字段 `file`;覆盖式,一人一条)。
   ///
+  /// `contentType` **必须显式给**:`.m4a` 不在 `mime` 包里,Dio 会退化成
+  /// `application/octet-stream`,而服务端白名单(`im/voice.py::ALLOWED_CONTENT_TYPES`)
+  /// 只收 audio/mp4、audio/m4a、audio/x-m4a、audio/aac、audio/webm、audio/ogg ——
+  /// 漏了它上传必然 400「只支持 M4A/AAC/WebM/OGG 音频」。
+  /// 录音器输出固定是 AAC-LC 的 m4a(见 `im/voice_recorder.dart`),所以恒为 audio/mp4,
+  /// 与聊天语音上传(`im/self_voice_uploader.dart`)同一条写法。
+  ///
   /// 响应里的 `url` 已经是公开绝对地址,直接用,别再拼 `API_BASE`。
   Future<VoiceIntro> uploadVoice(Uint8List bytes, String filename) async {
     final data = await _api.post('/users/me/voice',
-        data: FormData.fromMap({'file': MultipartFile.fromBytes(bytes, filename: filename)}));
+        data: FormData.fromMap({
+          'file': MultipartFile.fromBytes(bytes,
+              filename: filename, contentType: DioMediaType('audio', 'mp4')),
+        }));
     final voice = VoiceIntro.parse(data);
     if (voice == null) throw ApiException('语音上传失败,请重试');
     return voice;

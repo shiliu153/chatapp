@@ -57,7 +57,15 @@ void main() {
     expect(voice.durationMs, 18000);
     expect(adapter.log.last.method, 'POST');
     expect(adapter.log.last.path, '/users/me/voice');
-    expect(adapter.log.last.data, isA<FormData>());
+
+    // 回归:P0(2026-11-09 真机实测)——`.m4a` 不在 mime 包里,不显式给 contentType
+    // 会退化成 application/octet-stream,被服务端白名单拒成 400。ScriptedAdapter 看不到
+    // multipart 头,只能在这里直接断言 part 的 contentType。
+    final form = adapter.log.last.data as FormData;
+    final part = form.files.first;
+    expect(part.key, 'file');
+    expect(part.value.filename, 'intro.m4a');
+    expect(part.value.contentType?.mimeType, 'audio/mp4');
   });
 
   test('deleteVoice 打 DELETE /users/me/voice', () async {
