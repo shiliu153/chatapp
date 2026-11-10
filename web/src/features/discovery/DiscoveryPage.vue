@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppEmpty from '@/components/AppEmpty.vue'
 import AppErrorView from '@/components/AppErrorView.vue'
 import AppSkeleton from '@/components/AppSkeleton.vue'
 import AppToast from '@/components/AppToast.vue'
 import { useToast } from '@/composables/useToast'
+import type { DiscoveryFilters, Preference } from '@/api/types'
 import { useDiscoveryStore } from '@/stores/discovery'
 import { usePresenceStore } from '@/stores/presence'
 import { useProfileStore } from '@/stores/profile'
+import DailyStrip from './DailyStrip.vue'
+import DiscoveryFilterPanel from './DiscoveryFilterPanel.vue'
 import LikesEntry from './LikesEntry.vue'
 import MatchesList from './MatchesList.vue'
 import MatchMoment from './MatchMoment.vue'
@@ -16,12 +19,24 @@ import SwipeDeck from './SwipeDeck.vue'
 import UndoButton from './UndoButton.vue'
 import VisitsEntry from './VisitsEntry.vue'
 
+/**
+ * 偏好还没拉回来时的占位默认值:与后端 `Preference` 的默认一致(不限性别 / 18–99 / 不限城市)。
+ * 守卫进发现页前一般已经 `GET /users/me` 过,这里只是兜底,不会把默认值当成用户偏好写回去。
+ */
+const DEFAULT_PREFERENCE: Preference = { target_gender: null, age_min: 18, age_max: 99, city: '' }
+
 const store = useDiscoveryStore()
 const presence = usePresenceStore()
 const profileStore = useProfileStore()
 const router = useRouter()
 /** 撤销/划卡的结果提示(「已撤销」),2 秒后自动消失 */
 const toast = useToast(2000)
+
+/** 筛选面板开关:面板用 `v-if` 挂载,每次打开都按「当前筛选 → 偏好」重新取默认值 */
+const filterOpen = ref(false)
+const filterPreference = computed<Preference>(
+  () => profileStore.profile?.preference ?? DEFAULT_PREFERENCE,
+)
 
 const showEmpty = computed(() => !store.loading && !store.error && store.exhausted)
 const currentOnline = computed(() => {
@@ -42,7 +57,23 @@ onMounted(() => {
   store.loadCandidates()
   // 额度只在挂载时对一次账:之后成功 like 本地递减、撤销退回,不必每滑一次多打一个请求
   store.loadQuota()
+  // 今日精选每天固定一批(discovery.md §3.11);失败就整块不渲染,不当错误抛给用户
+  store.loadDaily()
+  // 筛选面板的默认值来自偏好;正常由路由守卫拉过,兜底再拉一次
+  if (!profileStore.profile) profileStore.load().catch(() => {})
 })
+
+/** 应用筛选:面板已经把「没改过的字段」减掉了,这里只负责换筛选态并重拉候选池 */
+async function onApplyFilters(next: DiscoveryFilters) {
+  filterOpen.value = false
+  await store.applyFilters(next)
+}
+
+/** 重置 = 回到完全按偏好(请求里不带任何筛选参数) */
+async function onResetFilters() {
+  filterOpen.value = false
+  await store.resetFilters()
+}
 
 async function onDecide(action: 'like' | 'pass') {
   await store.decide(action)
@@ -69,8 +100,31 @@ function onChat() {
     </div>
     <MatchesList />
 
-    <div v-if="store.quotaVisible || store.undoVisible" class="discovery__status">
+    <div class="discovery__toolbar">
+      <button
+        type="button"
+        class="discovery__filter"
+        :class="{ 'discovery__filter--active': store.filtersActive }"
+        :aria-label="store.filtersActive ? '筛选,已生效' : '筛选'"
+        @click="filterOpen = true"
+      >
+        <svg class="discovery__filter-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M4 7h16M7 12h10M10 17h4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+        筛选
+      </button>
       <p v-if="store.quotaVisible" class="discovery__quota">{{ store.quotaText }}</p>
+    </div>
+
+    <DailyStrip />
+
+    <div v-if="store.undoVisible" class="discovery__status">
       <UndoButton
         v-if="store.undoVisible"
         :seconds-left="store.undoSecondsLeft"
@@ -93,8 +147,10 @@ function onChat() {
     <AppEmpty
       v-else-if="showEmpty"
       emoji="🫧"
-      title="附近的卡都滑完了"
-      description="过一会儿再来看看,或者去广场逛逛"
+      :title="store.filtersActive ? '这个范围里暂时没人' : '附近的卡都滑完了'"
+      :description="
+        store.filtersActive ? '把年龄、城市或标签放宽一点再试试' : '过一会儿再来看看,或者去广场逛逛'
+      "
     />
 
     <SwipeDeck
@@ -104,6 +160,15 @@ function onChat() {
       :like-disabled="store.likeBlocked"
       :online="currentOnline"
       @decide="onDecide"
+    />
+
+    <DiscoveryFilterPanel
+      v-if="filterOpen"
+      :preference="filterPreference"
+      :initial="store.filters"
+      @close="filterOpen = false"
+      @apply="onApplyFilters"
+      @reset="onResetFilters"
     />
 
     <MatchMoment
@@ -132,6 +197,44 @@ function onChat() {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-xs);
+}
+.discovery__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+/* 筛选入口:与「喜欢我的人」等入口同款胶囊;有筛选生效时换成品牌色描边 + 淡底 */
+.discovery__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-card);
+  color: var(--color-text2);
+  font-family: var(--font-latin);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+.discovery__filter:hover {
+  background: var(--hover-overlay);
+}
+.discovery__filter--active {
+  border-color: var(--color-brand);
+  background: var(--tint-brand);
+  color: var(--color-brand);
+  font-weight: var(--weight-semibold);
+}
+.discovery__filter-icon {
+  width: 16px;
+  height: 16px;
 }
 .discovery__status {
   display: flex;

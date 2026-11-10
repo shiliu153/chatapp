@@ -23,14 +23,50 @@ const emptyMatches = { count: 0, next_cursor: null, has_more: false, results: []
 const unlimitedQuota = { like_limit: 0, likes_used: 0, likes_remaining: null }
 
 type Quota = { like_limit: number; likes_used: number; likes_remaining: number | null }
+type Daily = { date: string; candidates: Candidate[] }
 
-function mountPage(quota: Quota = unlimitedQuota) {
-  // 每个用例都会打一次额度对账(页面挂载时),不给 handler 会被 msw 当成未处理请求
-  server.use(mswHttp.get('/api/v1/discovery/quota', () => HttpResponse.json(quota)))
+/** 今日精选默认给空:区块整块不渲染(它是滑卡之上的加餐,不该污染其它用例的 DOM) */
+const emptyDaily: Daily = { date: '2026-11-10', candidates: [] }
+
+/** 筛选面板的默认值来自「想找的人」偏好(GET /users/me 里带回来) */
+const me = {
+  id: 11,
+  user_id: 9,
+  phone: '13800000001',
+  nickname: '小雨',
+  gender: 'female',
+  birthday: '2000-01-01',
+  age: 26,
+  city: '上海',
+  bio: '',
+  status: 'complete',
+  ban_reason: '',
+  missing_fields: [],
+  tags: [],
+  photos: [],
+  preference: { target_gender: null, age_min: 25, age_max: 35, city: '上海' },
+}
+
+const tags = [
+  { id: 1, name: '运动', icon: 'sports' },
+  { id: 2, name: '电影', icon: 'movie' },
+]
+
+function mountPage(quota: Quota = unlimitedQuota, daily: Daily = emptyDaily) {
+  // 页面挂载时会打额度、今日精选、我的资料(筛选默认值)三个请求;
+  // 不给 handler 会被 msw 当成未处理请求
+  server.use(
+    mswHttp.get('/api/v1/discovery/quota', () => HttpResponse.json(quota)),
+    mswHttp.get('/api/v1/discovery/daily', () => HttpResponse.json(daily)),
+    mswHttp.get('/api/v1/users/me', () => HttpResponse.json(me)),
+  )
   return mount(DiscoveryPage, {
     global: {
       plugins: [createPinia()],
-      stubs: { RouterLink: { template: '<a><slot /></a>' } },
+      stubs: {
+        // 把 to 渲染成 data-to:精选卡要断言「点进去是对方资料页」
+        RouterLink: { props: ['to'], template: '<a :data-to="JSON.stringify(to)"><slot /></a>' },
+      },
     },
   })
 }
@@ -238,5 +274,131 @@ describe('DiscoveryPage', () => {
     expect(w.findAll('.top-entry')).toHaveLength(2)
     expect(w.text()).toContain('谁看过我')
     expect(w.text()).toContain('5')
+  })
+
+  it('今日精选渲染 6 张卡,点一张进对方资料页', async () => {
+    const dailyCards = Array.from({ length: 6 }, (_, i) => ({
+      ...card,
+      user_id: 100 + i,
+      nickname: `精选${i}`,
+    }))
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+    )
+    const w = mountPage(unlimitedQuota, { date: '2026-11-10', candidates: dailyCards })
+    await flushPromises()
+
+    expect(w.find('.daily-strip').exists()).toBe(true)
+    expect(w.text()).toContain('今日精选')
+    const items = w.findAll('.daily-strip__card')
+    expect(items).toHaveLength(6)
+    // 链接指向对方资料页(路由 /users/:id)
+    expect(items[0].attributes('data-to')).toContain('"id":100')
+    expect(items[5].attributes('data-to')).toContain('"id":105')
+    w.unmount()
+  })
+
+  it('今日精选为空时整块不渲染', async () => {
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => HttpResponse.json([card])),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    expect(w.find('.daily-strip').exists()).toBe(false)
+    expect(w.text()).not.toContain('今日精选')
+    w.unmount()
+  })
+
+  it('打开筛选 → 只改城市 → 应用:请求带 city,不多发没改的字段', async () => {
+    const queries: URLSearchParams[] = []
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', ({ request }) => {
+        queries.push(new URL(request.url).searchParams)
+        return HttpResponse.json([card])
+      }),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.get('/api/v1/users/tags', () => HttpResponse.json(tags)),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    await w.find('.discovery__filter').trigger('click')
+    await flushPromises()
+    // 面板默认值 = 偏好:年龄 25–35、城市「上海」
+    const inputs = w.findAll('.filter-panel__body input')
+    expect((inputs[0].element as HTMLInputElement).value).toBe('25')
+    await inputs[2].setValue('杭州')
+    await w.find('.filter-panel__apply').trigger('click')
+    await flushPromises()
+
+    const last = queries[queries.length - 1]
+    expect(last.get('city')).toBe('杭州')
+    // 覆盖语义:没改的年龄区间继续沿用偏好,不能当成筛选发出去
+    expect(last.has('age_min')).toBe(false)
+    expect(last.has('age_max')).toBe(false)
+    expect(last.has('tag_ids')).toBe(false)
+    expect(w.find('.filter-panel').exists()).toBe(false) // 应用后关面板
+    expect(w.find('.discovery__filter').classes()).toContain('discovery__filter--active')
+    w.unmount()
+  })
+
+  it('筛选后候选为空:给「这个范围里暂时没人」的空态,不崩', async () => {
+    let calls = 0
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', () => {
+        calls += 1
+        return HttpResponse.json(calls === 1 ? [card] : [])
+      }),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.get('/api/v1/users/tags', () => HttpResponse.json(tags)),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    await w.find('.discovery__filter').trigger('click')
+    await flushPromises()
+    await w.findAll('.filter-panel__body input')[2].setValue('杭州')
+    await w.find('.filter-panel__apply').trigger('click')
+    await flushPromises()
+
+    expect(w.find('.app-empty').exists()).toBe(true)
+    expect(w.text()).toContain('这个范围里暂时没人')
+    expect(w.find('.discovery__filter').classes()).toContain('discovery__filter--active')
+    w.unmount()
+  })
+
+  it('「重置」后请求不带筛选参数,按钮回到未激活态', async () => {
+    const queries: URLSearchParams[] = []
+    server.use(
+      mswHttp.get('/api/v1/discovery/candidates', ({ request }) => {
+        queries.push(new URL(request.url).searchParams)
+        return HttpResponse.json([card])
+      }),
+      mswHttp.get('/api/v1/matches', () => HttpResponse.json(emptyMatches)),
+      mswHttp.get('/api/v1/users/tags', () => HttpResponse.json(tags)),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    await w.find('.discovery__filter').trigger('click')
+    await flushPromises()
+    await w.findAll('.filter-panel__body input')[2].setValue('杭州')
+    await w.find('.filter-panel__apply').trigger('click')
+    await flushPromises()
+    expect(queries[queries.length - 1].get('city')).toBe('杭州')
+
+    await w.find('.discovery__filter').trigger('click')
+    await flushPromises()
+    await w.find('.filter-panel__reset').trigger('click')
+    await flushPromises()
+
+    const last = queries[queries.length - 1]
+    expect(last.get('city')).toBeNull()
+    expect(last.has('age_min')).toBe(false)
+    expect(w.find('.discovery__filter').classes()).not.toContain('discovery__filter--active')
+    w.unmount()
   })
 })

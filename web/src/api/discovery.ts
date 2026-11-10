@@ -2,6 +2,8 @@ import { http } from './http'
 import type {
   Candidate,
   CursorPage,
+  DailyCandidates,
+  DiscoveryFilters,
   LikeReceived,
   MatchSummary,
   ProfileVisit,
@@ -10,9 +12,53 @@ import type {
   Tag,
 } from './types'
 
-export async function fetchCandidates(limit = 10): Promise<Candidate[]> {
-  const { data } = await http.get('/discovery/candidates', { params: { limit } })
+/** 「今日精选」固定 6 张(discovery.md §3.11:默认 6、上限 12)。 */
+export const DAILY_LIMIT = 6
+
+/**
+ * 把筛选对象翻译成**查询参数**:只发用户真正改过的字段。
+ *
+ * 后端对缺省字段沿用「想找的人」偏好(discovery.md §3.1),所以空串 / 空数组 / undefined
+ * 一律不进请求 —— 「只改城市」时年龄区间不会顺带被钉死成面板里的默认值。
+ * 抽成纯函数是为了让 store 能直接用它判断「当前是否处于筛选态」。
+ */
+export function filtersToParams(filters: DiscoveryFilters): Record<string, string | number> {
+  const params: Record<string, string | number> = {}
+  if (filters.age_min !== undefined) params.age_min = filters.age_min
+  if (filters.age_max !== undefined) params.age_max = filters.age_max
+  const city = filters.city?.trim()
+  if (city) params.city = city
+  if (filters.tag_ids && filters.tag_ids.length > 0) params.tag_ids = [...filters.tag_ids].join(',')
+  return params
+}
+
+/**
+ * 候选卡(discovery.md §3.1);响应是**裸数组**。
+ *
+ * `filters` 里的字段**覆盖**偏好,缺省的字段继续按偏好筛 —— 不传就是改动前的行为。
+ */
+export async function fetchCandidates(
+  limit = 10,
+  filters: DiscoveryFilters = {},
+): Promise<Candidate[]> {
+  const { data } = await http.get('/discovery/candidates', {
+    params: { limit, ...filtersToParams(filters) },
+  })
   return data as Candidate[]
+}
+
+/**
+ * 「今日精选」(discovery.md §3.11)。
+ *
+ * 响应是**包装对象** `{date, candidates}` —— 不是 `candidates` 接口那种裸数组,
+ * 按数组解析会直接拿到 `undefined`。
+ */
+export async function fetchDaily(limit = DAILY_LIMIT): Promise<DailyCandidates> {
+  const { data } = await http.get('/discovery/daily', { params: { limit } })
+  return {
+    date: String(data?.date ?? ''),
+    candidates: (data?.candidates ?? []) as Candidate[],
+  }
 }
 
 /**
