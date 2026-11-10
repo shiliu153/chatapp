@@ -1,10 +1,12 @@
 # 广场动态
 
-本分册含 15 个接口:动态流(列表/发布)、我的动态、详情/删除、点赞/取消、评论(列表/发表/回复列表/删除)、举报动态、关注/取消关注、关注流。
+本分册含 19 个接口:动态流(列表/发布)、我的动态、详情/删除、点赞/取消、点赞列表、收藏/取消收藏、我的收藏、评论(列表/发表/回复列表/删除)、举报动态、关注/取消关注、关注流。
 
 **可见性规则**(贯穿全分册):被双向拉黑或被重封禁的作者,其动态与评论对你看不到(列表过滤、详情 404)。动态作者本人是唯一能删除该动态的人。
 
 **关注关系**(批次 I):`POST`/`DELETE /api/v1/users/{user_id}/follow` 建立/解除单向关注;`GET /api/v1/feed/following` 只看关注的人的动态。关注**不产生聊天权限、不发通知**(新粉丝不通知),只影响「关注」tab 的内容。
+
+**收藏**(批次 U):`POST`/`DELETE /api/v1/posts/{post_id}/favorite` 收藏/取消收藏一条动态(恒 204 幂等),`GET /api/v1/feed/favorites` 拉「我的收藏」。收藏是**私密书签**:不通知作者、不产生聊天灰条;**排序按收藏时间倒序**(不是发帖时间);动态序列化器的 `is_favorited` 表示「当前用户是否已收藏这条」。
 
 ---
 
@@ -36,6 +38,7 @@
 | like_count | Integer | 点赞数 |
 | comment_count | Integer | 评论数 |
 | liked_by_me | Boolean | 当前用户是否已点赞 |
+| is_favorited | Boolean | 当前用户是否已收藏(批次 U;收藏是私密书签,见 [5.17 收藏动态](#517-收藏动态)) |
 | created_at | String | 发布时间(ISO 8601) |
 
 `author` 字段:
@@ -77,6 +80,7 @@ curl "http://<域名>/api/v1/posts?limit=20&before=<next_cursor>" \
       "like_count": 2,
       "comment_count": 0,
       "liked_by_me": false,
+      "is_favorited": false,
       "created_at": "2026-09-18T21:33:44.962751+08:00"
     }
   ]
@@ -207,6 +211,7 @@ curl "http://<域名>/api/v1/posts/mine?limit=20" \
       "like_count": 0,
       "comment_count": 0,
       "liked_by_me": false,
+      "is_favorited": true,
       "created_at": "2026-09-21T18:24:54.674857+08:00"
     }
   ]
@@ -262,6 +267,7 @@ curl http://<域名>/api/v1/posts/9 \
   "like_count": 2,
   "comment_count": 0,
   "liked_by_me": false,
+  "is_favorited": false,
   "created_at": "2026-09-18T21:33:44.962751+08:00"
 }
 ```
@@ -857,6 +863,7 @@ curl "http://<域名>/api/v1/feed/following?limit=20&before=<next_cursor>" \
       "like_count": 0,
       "comment_count": 0,
       "liked_by_me": false,
+      "is_favorited": false,
       "created_at": "2026-11-07T01:20:00.000000+08:00"
     }
   ]
@@ -870,3 +877,221 @@ curl "http://<域名>/api/v1/feed/following?limit=20&before=<next_cursor>" \
 | 400 | 400 | 游标无效(`before` 不是合法游标) | 清空列表,从第一页重拉 |
 | 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
 | 429 | 429 | 触发限流(240 次/小时) | 按 `Retry-After` 等待 |
+
+---
+
+### 5.16 点赞列表
+
+> `GET` `/api/v1/posts/{post_id}/likes` · 需要鉴权 · 限流 120 次/小时(按用户)
+
+**接口描述**
+
+拉取「谁点了赞」,按**点赞时间倒序**(同一毫秒按主键倒序)。计数口径与列表一致:被双向拉黑(任一方向)或被重封禁的账号**既不出现也不计入** `count`,因此 `count` 是**过滤后**的可见人数,不是动态上的 `like_count`。
+
+没人点赞返回 200 + `results: []`(不 404);动态不存在、与你互相拉黑、作者被重封禁一律 404。新接口没有老客户端,**不提供 `offset` 兼容分支**(与 [5.15 关注流](#515-关注流)同口径)。
+
+**请求参数**
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|----------|------|------|------|
+| post_id | 是 | Integer | 动态 ID(路径参数) |
+| limit | 否 | Integer | 每页条数,默认 20,上限 100 |
+| before | 否 | String | 游标。首页不传;之后原样回传上一页的 `next_cursor`(见 [conventions.md §分页约定](conventions.md#分页约定)) |
+
+**响应参数**
+
+`results[]` 的元素:
+
+| 参数名称 | 类型 | 描述 |
+|----------|------|------|
+| user_id | Integer | 点赞者的账号 ID |
+| nickname | String | 点赞者昵称(未填资料为空字符串) |
+| avatar_url | String / null | 点赞者头像;无已过审照片为 `null` |
+| liked_at | String | 点赞时间(ISO 8601) |
+
+**请求示例**
+
+```bash
+curl "http://<域名>/api/v1/posts/9/likes?limit=20" \
+  -H "Authorization: Bearer <access>"
+
+# 第二页:把上一页响应里的 next_cursor 原样带回来
+curl "http://<域名>/api/v1/posts/9/likes?limit=20&before=<next_cursor>" \
+  -H "Authorization: Bearer <access>"
+```
+
+**响应示例**
+
+```json
+{
+  "count": 2,
+  "next_cursor": null,
+  "has_more": false,
+  "results": [
+    {
+      "user_id": 8,
+      "nickname": "小雨8",
+      "avatar_url": null,
+      "liked_at": "2026-11-10T14:02:11.482931+08:00"
+    }
+  ]
+}
+```
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 400 | 400 | 游标无效(`before` 不是合法游标) | 清空列表,从第一页重拉 |
+| 404 | 404 | 动态不存在或不可见 | 返回上一页,从列表移除该条 |
+| 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 429 | 429 | 触发限流(120 次/小时) | 按 `Retry-After` 等待 |
+
+---
+
+### 5.17 收藏动态
+
+> `POST` `/api/v1/posts/{post_id}/favorite` · 需要鉴权 · 限流 300 次/小时(按用户,与取消收藏共用额度)
+
+**接口描述**
+
+把一条动态加入「我的收藏」。**恒 204**,首次收藏与重复收藏都是 204(与 [5.13 关注](#513-关注)同口径:客户端只做乐观翻转,不需要知道「是不是第一次」)。
+
+收藏是**私密书签**:不给作者发通知、不产生聊天灰条。收藏自己的动态允许。动态不可见时 404。
+
+**请求参数**
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|----------|------|------|------|
+| post_id | 是 | Integer | 动态 ID(路径参数) |
+
+**响应参数**
+
+无(HTTP 204,响应体为空)。
+
+**请求示例**
+
+```bash
+curl -X POST http://<域名>/api/v1/posts/9/favorite \
+  -H "Authorization: Bearer <access>"
+```
+
+**响应示例**
+
+```
+HTTP/1.1 204 No Content
+```
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 404 | 404 | 动态不存在或不可见 | 从列表移除该条,不要重试 |
+| 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 429 | 429 | 触发限流(300 次/小时) | 按 `Retry-After` 等待 |
+
+---
+
+### 5.18 取消收藏
+
+> `DELETE` `/api/v1/posts/{post_id}/favorite` · 需要鉴权 · 限流 300 次/小时(按用户,与收藏共用额度)
+
+**接口描述**
+
+把一条动态移出「我的收藏」。**恒 204**:没收藏过也返回 204(幂等)。
+
+**请求参数**
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|----------|------|------|------|
+| post_id | 是 | Integer | 动态 ID(路径参数) |
+
+**响应参数**
+
+无(HTTP 204,响应体为空)。
+
+**请求示例**
+
+```bash
+curl -X DELETE http://<域名>/api/v1/posts/9/favorite \
+  -H "Authorization: Bearer <access>"
+```
+
+**响应示例**
+
+```
+HTTP/1.1 204 No Content
+```
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 404 | 404 | 动态不存在或不可见 | 从列表移除该条,不要重试 |
+| 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 429 | 429 | 触发限流(300 次/小时) | 按 `Retry-After` 等待 |
+
+---
+
+### 5.19 我的收藏
+
+> `GET` `/api/v1/feed/favorites` · 需要鉴权 · 限流 120 次/小时(按用户)
+
+**接口描述**
+
+分页拉取我收藏过的动态,**按收藏时间倒序**(不是发帖时间:先收藏新帖、后收藏老帖时,老帖排在前面)。响应形状与 [5.1 动态流](#51-动态流)逐字段一致。
+
+可见性沿用广场口径:收藏了但已不可见的动态(被双向拉黑、作者被重封禁)**既不返回也不计入 `count`**;动态被删除时收藏关系一并消失,列表自动少一条。新接口不提供 `offset` 兼容分支。
+
+**请求参数**(Query)
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|----------|------|------|------|
+| limit | 否 | Integer | 每页条数,默认 20,上限 100 |
+| before | 否 | String | 游标。首页不传;之后原样回传上一页的 `next_cursor` |
+
+**响应参数**
+
+同 [5.1 动态流](#51-动态流)(游标分页对象,`results[]` 为动态对象,含 `is_favorited`)。
+
+**请求示例**
+
+```bash
+curl "http://<域名>/api/v1/feed/favorites?limit=20" \
+  -H "Authorization: Bearer <access>"
+```
+
+**响应示例**
+
+```json
+{
+  "count": 1,
+  "next_cursor": null,
+  "has_more": false,
+  "results": [
+    {
+      "id": 9,
+      "author": {
+        "user_id": 12,
+        "nickname": "小雨12",
+        "avatar_url": "http://<域名>/media/photos/2026/09/seed_12_0.jpg"
+      },
+      "text": "今天去看了日落",
+      "images": [],
+      "like_count": 2,
+      "comment_count": 0,
+      "liked_by_me": false,
+      "is_favorited": true,
+      "created_at": "2026-09-18T21:33:44.962751+08:00"
+    }
+  ]
+}
+```
+
+**错误码**
+
+| 错误码 | HTTP | 描述 | 处理建议 |
+|--------|------|------|----------|
+| 400 | 400 | 游标无效(`before` 不是合法游标) | 清空列表,从第一页重拉 |
+| 401 | 401 | 未认证或令牌失效 | 重新登录或刷新令牌 |
+| 429 | 429 | 触发限流(120 次/小时) | 按 `Retry-After` 等待 |

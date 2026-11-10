@@ -21,7 +21,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from discovery.models import Match
 from discovery.services import likes_received_queryset, visits_received_queryset
-from feed.models import Follow, Post
+from feed.models import Follow, Post, PostFavorite, PostLike
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 User = get_user_model()
@@ -50,6 +50,15 @@ BUDGET = {
     # + 卡片批量取 3 条,整条链路不随池子大小(≤200)增长。冷请求实测 15 条
     # (含首次取「想找的人」偏好的 3 条一次性 SQL,与 candidates_cold 同源)。
     "daily": 16,
+    # 点赞列表(批次 U):实测 12 条 = 鉴权 4(用户/端会话/资料/偏好)
+    # + 可见性排拉黑 4(动态可见性一次、点赞者过滤一次,各正反两向)
+    # + 动态存在性 1 + 可见总数 COUNT 1 + 当页点赞行 1 + 头像预取 1,
+    # 真实值就是 12,不留余量:多一条必定是「按行查库」或重复拉了排除列表。
+    "post_likes": 12,
+    # 我的收藏(批次 U):实测 11 条 = 鉴权 4 + 可见性排拉黑 2 + 可见总数 COUNT 1
+    # + 收藏行游标 1 + 当页聚合 1 + 头像/配图预取 2;
+    # ``is_favorited`` 是 EXISTS 子查询,嵌在当页那条 SQL 里,不新增往返。
+    "favorites": 11,
 }
 
 
@@ -180,6 +189,46 @@ class QueryBudgetTests(APITestCase):
         """喜欢我的人:排除列表必须是 NOT EXISTS,不能按活跃度涨占位符。"""
         self._count("/api/v1/discovery/likes")   # 预热:触发 Preference 懒创建
         self.assertLessEqual(self._count("/api/v1/discovery/likes"), BUDGET["likes"])
+
+    def test_post_likes_budget(self):
+        """点赞列表(批次 U):固定三条 SQL,不随点赞人数增长。"""
+        post = Post.objects.first()
+        for user in User.objects.exclude(id=self.me.id)[:3]:
+            PostLike.objects.create(post=post, user=user)
+        self._count(f"/api/v1/posts/{post.id}/likes?limit=10")   # 预热:触发 Preference 懒创建(3 条一次性 SQL)
+        self.assertLessEqual(self._count(f"/api/v1/posts/{post.id}/likes?limit=10"),
+                             BUDGET["post_likes"])
+
+    def test_post_likes_page_size_does_not_change_query_count(self):
+        """N+1 守卫:点赞列表每页 3 人与 10 人的 SQL 条数一致。
+
+        若退化成「循环里 ``User.objects.get``」或「序列化器里查头像」,
+        条数会跟着页大小一起涨,这条立刻红。
+        """
+        post = Post.objects.first()
+        for user in User.objects.exclude(id=self.me.id):
+            PostLike.objects.create(post=post, user=user)
+        self._count(f"/api/v1/posts/{post.id}/likes?limit=3")   # 预热:触发 Preference 懒创建(3 条一次性 SQL)
+        small = self._count(f"/api/v1/posts/{post.id}/likes?limit=3")
+        large = self._count(f"/api/v1/posts/{post.id}/likes?limit=10")
+        self.assertEqual(small, large)
+
+    def test_favorites_budget(self):
+        """我的收藏(批次 U):两段式取数,``is_favorited`` 不新增往返。"""
+        for post in Post.objects.all()[:3]:
+            PostFavorite.objects.create(post=post, user=self.me)
+        self._count("/api/v1/feed/favorites?limit=10")   # 预热:触发 Preference 懒创建(3 条一次性 SQL)
+        self.assertLessEqual(self._count("/api/v1/feed/favorites?limit=10"),
+                             BUDGET["favorites"])
+
+    def test_favorites_page_size_does_not_change_query_count(self):
+        """N+1 守卫:我的收藏每页 3 条与 10 条的 SQL 条数一致。"""
+        for post in Post.objects.all():
+            PostFavorite.objects.create(post=post, user=self.me)
+        self._count("/api/v1/feed/favorites?limit=3")   # 预热:触发 Preference 懒创建(3 条一次性 SQL)
+        small = self._count("/api/v1/feed/favorites?limit=3")
+        large = self._count("/api/v1/feed/favorites?limit=10")
+        self.assertEqual(small, large)
 
     def test_visits_budget(self):
         """谁看过我:与「喜欢我的人」同口径。"""

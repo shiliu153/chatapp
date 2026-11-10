@@ -1,9 +1,10 @@
-"""广场接口的限流:发布动态、发表评论、举报动态、关注。
+"""广场接口的限流:发布动态、发表评论、举报动态、关注、点赞列表、收藏与我的收藏。
 
 设计要点:
     读写共用一个视图时(GET/POST 同路径),限流只应作用于写操作 ——
     因此 ``allow_request`` 里对非 POST 直接放行,看列表不受额度影响。
-    关注接口的 POST/DELETE **都是写**,共用同一个额度(关注又取消地刷也会被压住)。
+    关注接口的 POST/DELETE **都是写**,共用同一个额度(关注又取消地刷也会被压住);
+    收藏同理(POST/DELETE 共用 ``post_favorite`` 一个额度)。
 """
 
 from rest_framework.throttling import SimpleRateThrottle
@@ -123,3 +124,33 @@ class CommentRepliesThrottle(UserScopedThrottle):
     """
 
     scope = "comment_replies"
+
+
+class PostLikesReadThrottle(UserScopedThrottle):
+    """按用户限流点赞列表;额度见 ``settings.DEFAULT_THROTTLE_RATES["post_likes_read"]``。
+
+    点赞列表每页要跑「可见总数 COUNT + 当页点赞行 + 头像预取」三条 SQL,
+    且每次点击点赞数都会请求一次,额度与关注流同档(120 次/小时)。
+    """
+
+    scope = "post_likes_read"
+
+
+class PostFavoriteThrottle(UserScopedThrottle):
+    """按用户限流收藏/取消收藏;额度见 ``settings.DEFAULT_THROTTLE_RATES["post_favorite"]``。
+
+    POST 与 DELETE **都是写**,共用同一个额度(收藏又取消地刷同样会被压住),
+    与关注接口同口径。额度比点赞宽松:收藏是私密书签,正常使用会成串点。
+    """
+
+    scope = "post_favorite"
+
+
+class FavoritesReadThrottle(UserScopedThrottle):
+    """按用户限流「我的收藏」;额度见 ``settings.DEFAULT_THROTTLE_RATES["favorites_read"]``。
+
+    我的收藏是两段式取数(可见帖子集 + 收藏行游标 + 当页聚合),成本与关注流同级。
+    """
+
+    scope = "favorites_read"
+

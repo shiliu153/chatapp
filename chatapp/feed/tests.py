@@ -1,13 +1,16 @@
-"""广场应用的测试:模型约束、发布、可见性、删除、点赞、评论、举报与关注。
+"""广场应用的测试:模型约束、发布、可见性、删除、点赞、收藏、评论、举报与关注。
 
 覆盖场景:
-    - 模型:动态默认值与排序、点赞唯一、评论按时间正序、举报默认待处理、
+    - 模型:动态默认值与排序、点赞唯一、收藏唯一、评论按时间正序、举报默认待处理、
       动态删除后举报行保留(``post`` 置空)、关注关系有向且成对唯一;
     - 发布:纯文字、配图保序、空内容拒绝、违禁词、图片数量与大小上限、鉴权、限流;
     - 可见性:最新在前、分页、双向拉黑都不可见、重封禁作者隐藏而轻封禁仍可见、
-      赞/评数与「我是否已赞」、详情 404 分支、``mine`` 只列自己;
+      赞/评数与「我是否已赞」「我是否已收藏」、详情 404 分支、``mine`` 只列自己;
     - 删除:作者可删(含图片文件与子行)、非作者 404、删除时关闭待处理举报并通知;
     - 点赞与取消点赞都幂等、不可见动态 404;
+    - 点赞列表:按点赞时间倒序、拉黑与重封禁过滤、``count`` 是可见人数、空列表不 404;
+    - 收藏:POST/DELETE 都恒 204 且幂等、不发通知、不可见 404、可收藏自己的动态;
+    - 我的收藏:按**收藏时间**倒序(与发帖时间相反)、帖子删除/作者拉黑后消失、游标翻页;
     - 评论:通知作者、自己评自己不通知、违禁词、正序分页、隐藏被拉黑评论者、限流;
     - 举报动态:建待处理、重复幂等、不能举报自己、不可见 404、非法类型、限流;
     - 关注:幂等 204、不能关注自己、拉黑/重封禁/不存在一律 404、鉴权与限流;
@@ -19,6 +22,7 @@ import io
 import os
 import shutil
 import tempfile
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -26,15 +30,20 @@ from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from moderation.models import Block, ReportStatus, ReportType
+from notifications.models import InAppNotification
 from users.models import Profile, ProfileStatus
 
-from .models import Follow, Post, PostComment, PostImage, PostLike, PostReport
-from .throttles import CommentRepliesThrottle, FollowingReadThrottle
+from .models import (Follow, Post, PostComment, PostFavorite, PostImage, PostLike,
+                     PostReport)
+from .throttles import (CommentRepliesThrottle, FavoritesReadThrottle,
+                        FollowingReadThrottle, PostFavoriteThrottle,
+                        PostLikesReadThrottle)
 
 User = get_user_model()
 
@@ -98,6 +107,21 @@ class FeedModelTests(TestCase):
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 PostLike.objects.create(post=post, user=self.b)
+
+    def test_post_favorite_unique_per_user(self):
+        """收藏在库层唯一:重复收藏只能落一行(接口的恒 204 幂等靠它兜底)。"""
+        post = Post.objects.create(author=self.a, text="你好")
+        PostFavorite.objects.create(post=post, user=self.b)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                PostFavorite.objects.create(post=post, user=self.b)
+
+    def test_deleting_post_deletes_favorites(self):
+        """动态删除时收藏行随 CASCADE 消失(「我的收藏」不需要额外清理逻辑)。"""
+        post = Post.objects.create(author=self.a, text="你好")
+        PostFavorite.objects.create(post=post, user=self.b)
+        post.delete()
+        self.assertEqual(PostFavorite.objects.count(), 0)
 
     def test_comment_ordering_oldest_first(self):
         post = Post.objects.create(author=self.a, text="你好")
@@ -894,3 +918,370 @@ class FollowingFeedTests(FeedApiMixin, APITestCase):
             responses = [self.client.get(self.URL) for _ in range(3)]
         self.assertEqual([resp.status_code for resp in responses], [200, 200, 429])
         self.assertEqual(responses[-1].json()["code"], 429)    # 统一错误信封
+
+
+class PostLikesListTests(FeedApiMixin, APITestCase):
+    """点赞列表:按点赞时间倒序、拉黑与重封禁过滤、``count`` 口径、空列表与 404、翻页。"""
+
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.author = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.author, nickname="作者")
+        self.post = Post.objects.create(author=self.author, text="谁赞了我")
+        self.login(self.me)
+
+    def url(self, post_id=None):
+        """点赞列表的路径(默认指向 ``setUp`` 里那条动态)。
+
+        Args:
+            post_id: 目标动态主键;``None`` 表示 ``setUp`` 里的动态。
+
+        Returns:
+            接口路径。
+        """
+        return f"/api/v1/posts/{post_id or self.post.id}/likes"
+
+    def _liker(self, phone, nickname, at):
+        """造一个点赞者,并把点赞时间钉死(避免同一微秒造成顺序不稳定)。
+
+        Args:
+            phone: 手机号(唯一)。
+            nickname: 昵称。
+            at: 点赞时间。
+
+        Returns:
+            新建的点赞者用户。
+        """
+        user = User.objects.create_user(phone=phone)
+        Profile.objects.create(user=user, nickname=nickname)
+        like = PostLike.objects.create(post=self.post, user=user)
+        PostLike.objects.filter(pk=like.pk).update(created_at=at)
+        return user
+
+    def test_three_likers_newest_first(self):
+        """3 人点赞 → 3 条,按点赞时间倒序,字段齐全。"""
+        now = timezone.now()
+        first = self._liker("13700137000", "最早", now - timedelta(minutes=3))
+        second = self._liker("13700137001", "中间", now - timedelta(minutes=2))
+        third = self._liker("13700137002", "最后", now - timedelta(minutes=1))
+        data = self.client.get(self.url()).json()
+        self.assertEqual(data["count"], 3)
+        self.assertEqual([row["user_id"] for row in data["results"]],
+                         [third.id, second.id, first.id])
+        self.assertEqual(data["results"][0]["nickname"], "最后")
+        self.assertIsNone(data["results"][0]["avatar_url"])   # 无照片 → null
+        self.assertEqual(sorted(data["results"][0]),
+                         ["avatar_url", "liked_at", "nickname", "user_id"])
+        self.assertFalse(data["has_more"])
+        self.assertIsNone(data["next_cursor"])
+
+    def test_blocked_liker_is_filtered_and_count_follows(self):
+        """我拉黑的人不出现,``count`` 是**过滤后**的人数(不是原始点赞数)。"""
+        now = timezone.now()
+        blocked = self._liker("13700137000", "被拉黑", now - timedelta(minutes=3))
+        kept = self._liker("13700137001", "可见", now - timedelta(minutes=2))
+        self._liker("13700137002", "也可见", now - timedelta(minutes=1))
+        Block.objects.create(blocker=self.me, blocked=blocked)
+        data = self.client.get(self.url()).json()
+        self.assertEqual(data["count"], 2)
+        visible_ids = [row["user_id"] for row in data["results"]]
+        self.assertEqual(len(visible_ids), 2)
+        self.assertNotIn(blocked.id, visible_ids)
+        self.assertIn(kept.id, visible_ids)
+
+    def test_liker_who_blocked_me_is_filtered_too(self):
+        """反方向拉黑同样过滤:对方拉黑我,他也从我的点赞列表里消失。"""
+        now = timezone.now()
+        blocker = self._liker("13700137000", "拉黑我的人", now - timedelta(minutes=2))
+        self._liker("13700137001", "可见", now - timedelta(minutes=1))
+        Block.objects.create(blocker=blocker, blocked=self.me)
+        data = self.client.get(self.url()).json()
+        self.assertEqual(data["count"], 1)
+        self.assertNotIn(blocker.id, [row["user_id"] for row in data["results"]])
+
+    def test_heavy_banned_liker_is_filtered(self):
+        """被重封禁的账号不出现,且不计入 ``count``。"""
+        now = timezone.now()
+        banned = self._liker("13700137000", "封号", now - timedelta(minutes=2))
+        self._liker("13700137001", "可见", now - timedelta(minutes=1))
+        Profile.objects.filter(user=banned).update(status=ProfileStatus.BANNED_HEAVY)
+        data = self.client.get(self.url()).json()
+        self.assertEqual(data["count"], 1)
+        self.assertNotIn(banned.id, [row["user_id"] for row in data["results"]])
+
+    def test_heavy_banned_author_returns_404(self):
+        """动态作者被重封禁 → 整个接口 404(不是空列表)。"""
+        Profile.objects.filter(user=self.author).update(status=ProfileStatus.BANNED_HEAVY)
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+
+    def test_invisible_post_returns_404(self):
+        """与作者互相拉黑 → 404(不暴露动态是否存在)。"""
+        Block.objects.create(blocker=self.author, blocked=self.me)
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+
+    def test_missing_post_returns_404(self):
+        """动态不存在 → 404。"""
+        self.assertEqual(self.client.get(self.url(post_id=999999)).status_code, 404)
+
+    def test_no_likes_returns_empty_list(self):
+        """没人点赞 → 200 + ``results: []`` + ``count: 0``(不 404)。"""
+        resp = self.client.get(self.url())
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(data["results"], [])
+        self.assertFalse(data["has_more"])
+
+    def test_cursor_pagination_has_no_duplicates(self):
+        """游标翻页不重复、不漏行(游标建在点赞行上)。"""
+        now = timezone.now()
+        expected = [
+            self._liker(f"1370013{index:04d}", f"赞{index}",
+                        now - timedelta(minutes=10 - index)).id
+            for index in range(5)
+        ]
+        seen = []
+        cursor = None
+        while True:
+            params = {"limit": 2}
+            if cursor:
+                params["before"] = cursor
+            page = self.client.get(self.url(), params).json()
+            seen.extend(row["user_id"] for row in page["results"])
+            cursor = page["next_cursor"]
+            if not cursor:
+                break
+        self.assertEqual(seen, list(reversed(expected)))
+
+    def test_likes_list_is_throttled_per_user(self):
+        """按用户限流,超限 429(生产额度 120/hour)。"""
+        with patch.dict(PostLikesReadThrottle.THROTTLE_RATES, {"post_likes_read": "2/hour"}):
+            responses = [self.client.get(self.url()) for _ in range(3)]
+        self.assertEqual([resp.status_code for resp in responses], [200, 200, 429])
+        self.assertEqual(responses[-1].json()["code"], 429)    # 统一错误信封
+
+
+class PostFavoriteApiTests(FeedApiMixin, APITestCase):
+    """收藏/取消收藏:恒 204 幂等、不发通知、不可见 404、可收藏自己的动态、限流。"""
+
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.author = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.author, nickname="作者")
+        self.post = Post.objects.create(author=self.author, text="收藏我")
+        self.login(self.me)
+
+    def url(self, post_id=None):
+        """收藏接口的路径(默认指向 ``setUp`` 里那条动态)。
+
+        Args:
+            post_id: 目标动态主键;``None`` 表示 ``setUp`` 里的动态。
+
+        Returns:
+            接口路径。
+        """
+        return f"/api/v1/posts/{post_id or self.post.id}/favorite"
+
+    def test_favorite_is_idempotent(self):
+        """POST 两次都 204,表里只落一行。"""
+        first = self.client.post(self.url())
+        second = self.client.post(self.url())
+        self.assertEqual([first.status_code, second.status_code], [204, 204])
+        self.assertEqual(first.content, b"")
+        self.assertEqual(PostFavorite.objects.count(), 1)
+
+    def test_unfavorite_is_idempotent(self):
+        """DELETE 两次都 204,表里 0 行(没收藏过取消也是 204)。"""
+        PostFavorite.objects.create(post=self.post, user=self.me)
+        self.assertEqual(self.client.delete(self.url()).status_code, 204)
+        self.assertEqual(self.client.delete(self.url()).status_code, 204)
+        self.assertEqual(PostFavorite.objects.count(), 0)
+
+    def test_favorite_does_not_notify_or_enqueue_im(self):
+        """收藏前后站内通知条数不变;不动通知服务,也不入队任何 IM 灰条。"""
+        before = InAppNotification.objects.count()
+        with patch("feed.views.notify_on_commit") as notify, \
+                patch("im.tasks.post_commented.delay") as im_commented, \
+                patch("im.tasks.post_replied.delay") as im_replied:
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(self.url())
+        self.assertEqual(resp.status_code, 204)
+        notify.assert_not_called()
+        im_commented.assert_not_called()
+        im_replied.assert_not_called()
+        self.assertEqual(InAppNotification.objects.count(), before)
+
+    def test_favorite_invisible_post_404(self):
+        Block.objects.create(blocker=self.author, blocked=self.me)
+        self.assertEqual(self.client.post(self.url()).status_code, 404)
+
+    def test_favorite_missing_post_404(self):
+        self.assertEqual(self.client.post(self.url(post_id=999999)).status_code, 404)
+
+    def test_can_favorite_own_post(self):
+        """书签语义:收藏自己的动态允许。"""
+        mine = Post.objects.create(author=self.me, text="自己的")
+        self.assertEqual(self.client.post(self.url(mine.id)).status_code, 204)
+        self.assertEqual(PostFavorite.objects.filter(post=mine).count(), 1)
+
+    def test_favorite_is_throttled_per_user(self):
+        """POST/DELETE 共用 ``post_favorite`` 额度(生产 300/hour)。"""
+        with patch.dict(PostFavoriteThrottle.THROTTLE_RATES, {"post_favorite": "2/hour"}):
+            responses = [self.client.post(self.url()) for _ in range(3)]
+        self.assertEqual([resp.status_code for resp in responses], [204, 204, 429])
+        self.assertEqual(responses[-1].json()["code"], 429)
+
+
+class FavoritesFeedTests(FeedApiMixin, APITestCase):
+    """我的收藏:按收藏时间倒序(不是发帖时间)、帖子删除/作者拉黑后消失、翻页。"""
+
+    URL = "/api/v1/feed/favorites"
+
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.author = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.author, nickname="作者")
+        self.login(self.me)
+
+    def _favorite(self, post, at):
+        """收藏一条动态并把收藏时间钉死。
+
+        Args:
+            post: 目标动态。
+            at: 收藏时间。
+
+        Returns:
+            新建的收藏行。
+        """
+        favorite = PostFavorite.objects.create(post=post, user=self.me)
+        PostFavorite.objects.filter(pk=favorite.pk).update(created_at=at)
+        return favorite
+
+    def test_empty_when_nothing_favorited(self):
+        Post.objects.create(author=self.author, text="没人收藏")
+        data = self.client.get(self.URL).json()
+        self.assertEqual(data["count"], 0)
+        self.assertEqual(data["results"], [])
+        self.assertIsNone(data["next_cursor"])
+
+    def test_ordered_by_favorite_time_not_post_time(self):
+        """先收藏新帖、后收藏老帖 → 返回顺序与**发帖时间相反**(抓「按发帖时间排」)。"""
+        now = timezone.now()
+        old_post = Post.objects.create(author=self.author, text="老帖")
+        new_post = Post.objects.create(author=self.author, text="新帖")
+        Post.objects.filter(pk=old_post.pk).update(created_at=now - timedelta(days=2))
+        Post.objects.filter(pk=new_post.pk).update(created_at=now)
+        self._favorite(new_post, now - timedelta(minutes=2))   # 先收藏的是新帖
+        self._favorite(old_post, now - timedelta(minutes=1))   # 后收藏的是老帖
+        data = self.client.get(self.URL).json()
+        self.assertEqual([row["id"] for row in data["results"]],
+                         [old_post.id, new_post.id])
+
+    def test_deleted_post_disappears(self):
+        """删掉中间那条帖子 → 列表少一条,``count`` 也跟着减。"""
+        now = timezone.now()
+        posts = [Post.objects.create(author=self.author, text=f"帖{index}") for index in range(3)]
+        for index, post in enumerate(posts):
+            self._favorite(post, now - timedelta(minutes=3 - index))
+        posts[1].delete()
+        data = self.client.get(self.URL).json()
+        self.assertEqual(data["count"], 2)
+        self.assertEqual([row["id"] for row in data["results"]],
+                         [posts[2].id, posts[0].id])
+
+    def test_blocked_author_disappears(self):
+        """某条动态的作者把我拉黑 → 那条消失,另一条照常返回。"""
+        now = timezone.now()
+        blocker = User.objects.create_user(phone="13700137000")
+        Profile.objects.create(user=blocker, nickname="会拉黑我")
+        kept = Post.objects.create(author=self.author, text="留着")
+        gone = Post.objects.create(author=blocker, text="会被拉黑")
+        self._favorite(kept, now - timedelta(minutes=2))
+        self._favorite(gone, now - timedelta(minutes=1))
+        Block.objects.create(blocker=blocker, blocked=self.me)
+        data = self.client.get(self.URL).json()
+        self.assertEqual([row["id"] for row in data["results"]], [kept.id])
+        self.assertEqual(data["count"], 1)
+    def test_cursor_pagination_has_no_duplicates(self):
+        """游标翻页按收藏时间倒序,不重复、不漏行。"""
+        now = timezone.now()
+        posts = [Post.objects.create(author=self.author, text=f"帖{index}") for index in range(5)]
+        for index, post in enumerate(posts):
+            self._favorite(post, now - timedelta(minutes=10 - index))
+        seen = []
+        cursor = None
+        while True:
+            params = {"limit": 2}
+            if cursor:
+                params["before"] = cursor
+            page = self.client.get(self.URL, params).json()
+            seen.extend(row["id"] for row in page["results"])
+            cursor = page["next_cursor"]
+            if not cursor:
+                break
+        self.assertEqual(seen, [post.id for post in reversed(posts)])
+
+    def test_favorites_feed_is_throttled_per_user(self):
+        """按用户限流,超限 429(生产额度 120/hour)。"""
+        with patch.dict(FavoritesReadThrottle.THROTTLE_RATES, {"favorites_read": "2/hour"}):
+            responses = [self.client.get(self.URL) for _ in range(3)]
+        self.assertEqual([resp.status_code for resp in responses], [200, 200, 429])
+
+
+class PostFavoriteStateTests(FeedApiMixin, APITestCase):
+    """``is_favorited``:广场/详情/我的动态都随收藏翻转,``liked_by_me`` 行为不变。"""
+
+    def setUp(self):
+        self.clear_throttle_cache()
+        self.me = User.objects.create_user(phone="13800138000")
+        Profile.objects.create(user=self.me, nickname="我")
+        self.author = User.objects.create_user(phone="13900139000")
+        Profile.objects.create(user=self.author, nickname="作者")
+        self.login(self.me)
+
+    def test_square_marks_only_favorited_post(self):
+        """广场一页里只有收藏过的那条 ``is_favorited`` 为 true。"""
+        favorited = Post.objects.create(author=self.author, text="收藏了")
+        Post.objects.create(author=self.author, text="没收藏")
+        PostFavorite.objects.create(post=favorited, user=self.me)
+        rows = {row["id"]: row for row in self.client.get("/api/v1/posts").json()["results"]}
+        self.assertTrue(rows[favorited.id]["is_favorited"])
+        others = [row for row_id, row in rows.items() if row_id != favorited.id]
+        self.assertEqual(len(others), 1)
+        self.assertFalse(others[0]["is_favorited"])
+
+    def test_liked_by_me_is_unaffected(self):
+        """收藏不影响 ``liked_by_me``:只收藏不点赞时它是 false,两者互相独立。"""
+        post = Post.objects.create(author=self.author, text="只收藏")
+        PostFavorite.objects.create(post=post, user=self.me)
+        row = self.client.get("/api/v1/posts").json()["results"][0]
+        self.assertTrue(row["is_favorited"])
+        self.assertFalse(row["liked_by_me"])
+        self.assertEqual(row["like_count"], 0)
+
+    def test_detail_exposes_is_favorited(self):
+        post = Post.objects.create(author=self.author, text="详情")
+        PostFavorite.objects.create(post=post, user=self.me)
+        self.assertTrue(self.client.get(f"/api/v1/posts/{post.id}").json()["is_favorited"])
+
+    def test_my_posts_exposes_is_favorited(self):
+        """``views.my_posts`` 也走了同一行注解,自己的收藏同样能看到。"""
+        mine = Post.objects.create(author=self.me, text="我的")
+        PostFavorite.objects.create(post=mine, user=self.me)
+        rows = self.client.get("/api/v1/posts/mine").json()["results"]
+        self.assertEqual([row["id"] for row in rows], [mine.id])
+        self.assertTrue(rows[0]["is_favorited"])
+
+    def test_following_feed_exposes_is_favorited(self):
+        """关注流复用 ``visible_posts``,因此同样带 ``is_favorited``。"""
+        Follow.objects.create(follower=self.me, followee=self.author)
+        post = Post.objects.create(author=self.author, text="关注的")
+        PostFavorite.objects.create(post=post, user=self.me)
+        rows = self.client.get("/api/v1/feed/following").json()["results"]
+        self.assertTrue(rows[0]["is_favorited"])

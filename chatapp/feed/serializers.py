@@ -4,7 +4,9 @@
     1. 作者信息统一走 ``author_brief``:昵称取本地资料,头像取第一张**已过审**照片;
     2. 图片在入参阶段就用 ``ImageField.run_validation`` 过一遍 PIL 校验,
        避免把非图片文件写进磁盘;
-    3. 正文与评论写入前统一过 ``moderation.text_check`` 的违禁词检查。
+    3. 正文与评论写入前统一过 ``moderation.text_check`` 的违禁词检查;
+    4. ``liked_by_me`` / ``is_favorited`` 只读查询集上的**注解值**,序列化器里
+       不做任何逐条查询(否则广场一页 20 条 = 20 次 SQL,查询预算会红)。
 """
 
 from drf_spectacular.utils import extend_schema_field, inline_serializer
@@ -25,6 +27,14 @@ AUTHOR_BRIEF_SCHEMA = inline_serializer("AuthorBrief", fields={
 REPLY_TO_SCHEMA = inline_serializer("ReplyTo", fields={
     "user_id": serializers.IntegerField(),
     "nickname": serializers.CharField(),
+})
+# 点赞列表 ``results[]`` 的元素。组件名 ``PostLiker`` 是**跨栈契约**:
+# App / Web 的手写类型拿它做字段名断言,改名会让那两单的 CI 直接红。
+POST_LIKER_SCHEMA = inline_serializer("PostLiker", fields={
+    "user_id": serializers.IntegerField(),
+    "nickname": serializers.CharField(),
+    "avatar_url": serializers.CharField(allow_null=True),
+    "liked_at": serializers.DateTimeField(),
 })
 
 
@@ -56,11 +66,12 @@ class PostSerializer(serializers.ModelSerializer):
     like_count = serializers.IntegerField(read_only=True, default=0)
     comment_count = serializers.IntegerField(read_only=True, default=0)
     liked_by_me = serializers.BooleanField(read_only=True, default=False)
+    is_favorited = serializers.BooleanField(read_only=True, default=False)
 
     class Meta:
         model = Post
         fields = ["id", "author", "text", "images", "like_count", "comment_count",
-                  "liked_by_me", "created_at"]
+                  "liked_by_me", "is_favorited", "created_at"]
 
     @extend_schema_field(AUTHOR_BRIEF_SCHEMA)
     def get_author(self, post):

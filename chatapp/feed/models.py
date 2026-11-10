@@ -1,7 +1,9 @@
-"""广场动态的数据模型:动态、配图、点赞、评论、动态举报与关注关系。
+"""广场动态的数据模型:动态、配图、点赞、收藏、评论、动态举报与关注关系。
 
 设计要点:
     1. ``PostLike`` 对 ``(post, user)`` 有唯一约束,点赞天然幂等;
+       ``PostFavorite`` 同样在库层唯一,收藏才能做成恒 204 的幂等写 ——
+       收藏是**私密书签**:不通知作者、不产生 IM 灰条(批次 U);
     2. ``PostReport.post`` 用 ``SET_NULL``:动态被删后举报行仍留档,便于运营对账
        (因此读举报时 ``post`` 可能为 ``None``);
     3. 动态列表依赖 ``Post.Meta.ordering``,但一旦 ``annotate`` 触发 GROUP BY,
@@ -80,6 +82,42 @@ class PostLike(models.Model):
             ``post_like(动态 id:用户 id)``。
         """
         return f"post_like({self.post_id}:{self.user_id})"
+
+
+class PostFavorite(models.Model):
+    """一条收藏记录(私密书签:不通知作者、不产生 IM 灰条)。
+
+    唯一约束 ``(post, user)`` 让「重复收藏」在库层只落一行,接口因此可以做成恒 204
+    的幂等写;``(user, -created_at)`` 索引服务「我的收藏」—— 那个列表的排序键是
+    **收藏时间**而不是发帖时间,没有这条索引就要对全表分组后 filesort。
+
+    Attributes:
+        post: 被收藏的动态;动态删除时收藏行随 ``CASCADE`` 一起消失。
+        user: 收藏者。
+        created_at: 收藏时间(也是「我的收藏」的排序与游标字段)。
+    """
+
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name="favorites")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="post_favorites")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["post", "user"], name="uniq_post_favorite"),
+        ]
+        indexes = [
+            models.Index(fields=["user", "-created_at"], name="fav_user_time_idx"),
+        ]
+
+    def __str__(self):
+        """后台与日志中的可读表示。
+
+        Returns:
+            ``post_favorite(动态 id:用户 id)``。
+        """
+        return f"post_favorite({self.post_id}:{self.user_id})"
 
 
 class PostComment(models.Model):

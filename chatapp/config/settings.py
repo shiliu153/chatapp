@@ -331,6 +331,12 @@ NOTIFICATIONS_UNREAD_RATE = os.getenv("NOTIFICATIONS_UNREAD_RATE", _RELAXED or "
 # 关注流与回复列表(R4-C1):前者三段 SQL,后者带可见性子查询且展开楼中楼会连发多条
 FOLLOWING_READ_RATE = os.getenv("FOLLOWING_READ_RATE", _RELAXED or "240/hour")
 COMMENT_REPLIES_RATE = os.getenv("COMMENT_REPLIES_RATE", _RELAXED or "360/hour")
+# 广场点赞列表与收藏(批次 U):点赞列表点一次点赞数就请求一次,额度与关注流同档;
+# 收藏是私密书签、正常使用会成串点,POST/DELETE 共用一个额度,取点赞的 2.5 倍;
+# 我的收藏列表与关注流同为两段式取数,额度也同档。
+POST_LIKES_READ_RATE = os.getenv("POST_LIKES_READ_RATE", _RELAXED or "120/hour")
+POST_FAVORITE_RATE = os.getenv("POST_FAVORITE_RATE", _RELAXED or "300/hour")
+FAVORITES_READ_RATE = os.getenv("FAVORITES_READ_RATE", _RELAXED or "120/hour")
 FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
 CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传,按用户计数
@@ -395,6 +401,9 @@ REST_FRAMEWORK = {
         "notifications_unread": NOTIFICATIONS_UNREAD_RATE,
         "following_read": FOLLOWING_READ_RATE,
         "comment_replies": COMMENT_REPLIES_RATE,
+        "post_likes_read": POST_LIKES_READ_RATE,
+        "post_favorite": POST_FAVORITE_RATE,
+        "favorites_read": FAVORITES_READ_RATE,
         "probe": PROBE_RATE,
         "logout": os.getenv("LOGOUT_RATE", "60/hour"),
         "feedback": FEEDBACK_RATE,
