@@ -32,6 +32,10 @@ Future<DiscoveryFilter?> showDiscoveryFilterSheet(
   return showModalBottomSheet<DiscoveryFilter>(
     context: context,
     isScrollControlled: true,
+    // 关掉「竖向拖拽关闭」:面板中部本身就是可滚区(矮屏 / 大字号时内容会超出一屏),
+    // BottomSheet 自带的竖向拖拽会和滚动抢同一串手势 —— 表现为「拖不动内容,
+    // 反而把面板拖走」。面板靠「重置」/「应用」/点遮罩 /返回键关,不靠拖。
+    enableDrag: false,
     // 显式给深浅两套底色:不写就吃主题 CanvasColor,暗色下会闪一块浅面
     backgroundColor: colors.bgCard,
     shape: const RoundedRectangleBorder(

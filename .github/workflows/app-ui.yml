@@ -120,7 +120,13 @@ jobs:
       # 第 1 轮 CI 就红在续行上(多出来的 `\` 被当成第三个测试路径,flutter 于是
       # 报「Integration tests and unit tests cannot be run in a single invocation」)。
       # `--reporter expanded` 的完整输出本身就在 job log 里,不再另外上传 artifact。
-      - name: 在模拟器上跑冒烟 integration_test
+      # 两个 integration 文件放在**同一次** flutter test 调用里(路径并列),不要拆成两行
+      # script —— `android-emulator-runner` 逐行起进程,拆开等于让第二条在模拟器已经
+      # 被前一条占用/清理之后重跑一遍构建,白烧几分钟。
+      # 两条都用 `--dart-define=API_BASE=http://127.0.0.1:1/api/v1` 把后端打死:
+      # `smoke_test` 验「连不上也落在登录页」,`discovery_filter_test` 把标签池
+      # override 成固定值、只验面板的**真实命中测试**(chip 选中 / 滑块拖动)。
+      - name: 在模拟器上跑 integration_test(冒烟 + 筛选面板指针事件)
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -129,4 +135,4 @@ jobs:
           working-directory: app
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: flutter test integration_test/smoke_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
+          script: flutter test integration_test/smoke_test.dart integration_test/discovery_filter_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
