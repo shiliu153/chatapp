@@ -58,6 +58,43 @@ describe('MessageMenu', () => {
     expect(w.find('.message-menu__recall').exists()).toBe(false)
   })
 
+  // --- 多选入口(批次 T)---
+
+  it('普通消息提供「多选」入口,点了 enters multi', async () => {
+    const w = mount(MessageMenu, { props: { message, x: 0, y: 0 } })
+    const multi = w.get('[data-testid="menu-multi"]')
+    expect(multi.text()).toBe('多选')
+
+    await multi.trigger('click')
+    expect(w.emitted('action')?.[0]).toEqual(['multi'])
+  })
+
+  it('对方的消息也提供「多选」(多选删除对双方消息都生效,只删我这一侧)', () => {
+    const w = mount(MessageMenu, { props: { message: { ...message, isSelf: false }, x: 0, y: 0 } })
+    expect(w.find('[data-testid="menu-multi"]').exists()).toBe(true)
+  })
+
+  it('发送中的消息不能进多选(还没落库,服务端没有这一行)', () => {
+    const w = mount(MessageMenu, {
+      props: { message: { ...message, isPending: true }, x: 0, y: 0 },
+    })
+    expect(w.find('[data-testid="menu-multi"]').exists()).toBe(false)
+  })
+
+  it('已撤回的消息不能进多选', () => {
+    const w = mount(MessageMenu, {
+      props: { message: { ...message, isRevoked: true }, x: 0, y: 0 },
+    })
+    expect(w.find('[data-testid="menu-multi"]').exists()).toBe(false)
+  })
+
+  it('系统灰条不能进多选(不是气泡、也不属于用户内容)', () => {
+    const w = mount(MessageMenu, {
+      props: { message: { ...message, kind: ChatMessageKind.matchNotice }, x: 0, y: 0 },
+    })
+    expect(w.find('[data-testid="menu-multi"]').exists()).toBe(false)
+  })
+
   it('按 Esc 关闭', async () => {
     const w = mount(MessageMenu, {
       props: { message, x: 0, y: 0 },

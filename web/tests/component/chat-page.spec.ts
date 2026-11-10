@@ -6,6 +6,8 @@ import ChatPage from '@/features/chat/ChatPage.vue'
 import { useChatStore } from '@/stores/chat'
 import { useDiscoveryStore } from '@/stores/discovery'
 import { freshPinia } from '../support/pinia'
+import { ApiError } from '@/api/error'
+import { resetDrafts, saveDraft } from '@/features/chat/draft'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
 
@@ -49,6 +51,7 @@ async function mountPage(
   store.sendText = vi.fn(async () => msg({ isSelf: true }))
   store.sendSticker = vi.fn(async () => msg({ isSelf: true, kind: ChatMessageKind.sticker }))
   store.deleteConversation = vi.fn(async () => {})
+  store.deleteMessages = vi.fn(async (_peerId: string, ids: string[]) => ids.length)
   discovery.loadMatches = vi.fn(async () => {})
   discovery.matchesLoaded = true
   discovery.matches = [
@@ -83,8 +86,20 @@ async function mountPage(
   return { w, store, discovery, router }
 }
 
+/** 挂载 → 打开菜单 → 点「多选」:多选模式的唯一入口(与 App 一致) */
+async function enterMultiSelect(w: ReturnType<typeof mount>, msgId: string) {
+  await w.find(`[data-msg-id="${msgId}"] .message-bubble__more`).trigger('click')
+  await w.find('[data-testid="menu-multi"]').trigger('click')
+  await flushPromises()
+}
+
 describe('ChatPage', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    // 草稿是模块级镜像 + localStorage:不逐用例清会互相污染
+    localStorage.clear()
+    resetDrafts()
+  })
 
   it('渲染气泡与文本', async () => {
     const { w } = await mountPage()
@@ -293,5 +308,215 @@ describe('ChatPage', () => {
 
     w.unmount()
     vi.unstubAllGlobals()
+  })
+  // --- 多选删除(批次 T)---
+
+  it('多选:菜单「多选」→ 勾选两条 → 确认框 → 调接口并从列表移除', async () => {
+    const { w, store } = await mountPage([
+      msg({ msgId: 'm1', seq: 1, text: '一' }),
+      msg({ msgId: 'm2', seq: 2, text: '二' }),
+      msg({ msgId: 'm3', seq: 3, text: '三' }),
+    ])
+    // store 真的把消息摘掉,才能验证「删除后列表少两条」而不只是「接口被调过」
+    store.deleteMessages = vi.fn(async (peerId: string, ids: string[]) => {
+      store.messages = {
+        [peerId]: store.messagesOf(peerId).filter((item) => !ids.includes(item.msgId)),
+      }
+      return ids.length
+    })
+    await flushPromises()
+
+    await enterMultiSelect(w, 'm1')
+    // 进多选时顺手勾上触发它的那条
+    expect(w.get('[data-test="chat-multi-count"]').text()).toBe('已选 1 条')
+    // 普通顶栏与输入区让位
+    expect(w.find('.chat__composer').exists()).toBe(false)
+
+    await w.find('[data-msg-id="m2"]').trigger('click')
+    expect(w.get('[data-test="chat-multi-count"]').text()).toBe('已选 2 条')
+
+    await w.find('[data-test="chat-multi-delete"]').trigger('click')
+    expect(w.text()).toContain('只在你这边删除,对方仍可见')
+
+    await w.find('.delete-messages__confirm').trigger('click')
+    await flushPromises()
+
+    expect(store.deleteMessages).toHaveBeenCalledWith('u8', ['m1', 'm2'])
+    // 删完退出多选、恢复普通顶栏
+    expect(w.find('[data-test="chat-multi-count"]').exists()).toBe(false)
+    expect(w.findAll('[data-msg-id]')).toHaveLength(1)
+    expect(w.text()).toContain('三')
+  })
+
+  it('多选:点同一条再点一次就取消勾选', async () => {
+    const { w } = await mountPage([msg({ msgId: 'm1', seq: 1 })])
+    await flushPromises()
+
+    await enterMultiSelect(w, 'm1')
+    expect(w.get('[data-test="chat-multi-count"]').text()).toBe('已选 1 条')
+
+    await w.find('[data-msg-id="m1"]').trigger('click')
+    expect(w.get('[data-test="chat-multi-count"]').text()).toBe('已选 0 条')
+  })
+
+  it('多选:删除失败保留选中并 toast,不退多选', async () => {
+    const { w, store } = await mountPage([
+      msg({ msgId: 'm1', seq: 1 }),
+      msg({ msgId: 'm2', seq: 2 }),
+    ])
+    store.deleteMessages = vi.fn(async () => {
+      throw new ApiError(42901, '操作过于频繁')
+    })
+    await flushPromises()
+
+    await enterMultiSelect(w, 'm1')
+    await w.find('[data-msg-id="m2"]').trigger('click')
+    await w.find('[data-test="chat-multi-delete"]').trigger('click')
+    await w.find('.delete-messages__confirm').trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('操作过于频繁')
+    // 选中与多选模式都原样保留,用户可以原地重试
+    expect(w.get('[data-test="chat-multi-count"]').text()).toBe('已选 2 条')
+    expect(w.findAll('[data-msg-id]')).toHaveLength(2)
+  })
+
+  it('多选模式下长按/右键不再弹菜单(点消息只切换勾选)', async () => {
+    const { w } = await mountPage([msg({ msgId: 'm1', seq: 1 })])
+    await flushPromises()
+
+    await enterMultiSelect(w, 'm1')
+    await w.find('[data-msg-id="m1"]').trigger('contextmenu')
+    await flushPromises()
+
+    expect(w.find('.message-menu').exists()).toBe(false)
+  })
+
+  it('已撤回的消息不可勾选(点它不加计数)', async () => {
+    const { w } = await mountPage([
+      msg({ msgId: 'm1', seq: 1 }),
+      msg({ msgId: 'm2', seq: 2, isRevoked: true, isSelf: true }),
+    ])
+    await flushPromises()
+
+    await enterMultiSelect(w, 'm1')
+    await w.find('[data-msg-id="m2"]').trigger('click')
+    expect(w.get('[data-test="chat-multi-count"]').text()).toBe('已选 1 条')
+  })
+
+  it('发送中的消息不可勾选,也不提供多选入口', async () => {
+    const { w } = await mountPage([
+      msg({ msgId: 'm1', seq: 1 }),
+      msg({ msgId: 'm2', seq: 0, isPending: true, isSelf: true }),
+    ])
+    await flushPromises()
+
+    await enterMultiSelect(w, 'm1')
+    await w.find('[data-msg-id="m2"]').trigger('click')
+    expect(w.get('[data-test="chat-multi-count"]').text()).toBe('已选 1 条')
+  })
+
+  it('多选:复制文本把选中的文本按顺序用换行连接', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    const { w } = await mountPage([
+      msg({ msgId: 'm1', seq: 1, text: '你好' }),
+      msg({ msgId: 'm2', seq: 2, text: '在吗' }),
+      msg({ msgId: 'm3', seq: 3, text: '', kind: ChatMessageKind.image }),
+    ])
+    await flushPromises()
+
+    await enterMultiSelect(w, 'm1')
+    await w.find('[data-msg-id="m2"]').trigger('click')
+    await w.find('[data-msg-id="m3"]').trigger('click')
+
+    await w.find('[data-test="chat-multi-copy"]').trigger('click')
+    await flushPromises()
+
+    // 图片消息没有正文,不参与拼接
+    expect(writeText).toHaveBeenCalledWith('你好\n在吗')
+    expect(w.text()).toContain('已复制')
+  })
+
+  it('多选:「取消」退出多选,回到普通顶栏与输入区', async () => {
+    const { w } = await mountPage([msg({ msgId: 'm1', seq: 1 })])
+    await flushPromises()
+
+    await enterMultiSelect(w, 'm1')
+    await w.find('[data-test="chat-multi-cancel"]').trigger('click')
+
+    expect(w.find('[data-test="chat-multi-count"]').exists()).toBe(false)
+    expect(w.find('.chat__composer').exists()).toBe(true)
+  })
+
+  // --- 草稿(批次 T)---
+
+  it('草稿:进会话回填,输入防抖 300ms 落盘', async () => {
+    saveDraft('u8', '上次没说完')
+    const { w } = await mountPage()
+    await flushPromises()
+
+    expect((w.find('input[type="text"]').element as HTMLInputElement).value).toBe('上次没说完')
+
+    vi.useFakeTimers()
+    try {
+      await w.find('input[type="text"]').setValue('这次接着说')
+      // 300ms 内不落盘(边打字边写 localStorage 没必要)
+      vi.advanceTimersByTime(299)
+      expect(localStorage.getItem('chat_draft:u8')).toBe('上次没说完')
+
+      vi.advanceTimersByTime(1)
+      expect(localStorage.getItem('chat_draft:u8')).toBe('这次接着说')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('草稿:发送成功后删掉键(不会留下「[草稿] 」前缀)', async () => {
+    const { w } = await mountPage()
+    await flushPromises()
+
+    vi.useFakeTimers()
+    try {
+      await w.find('input[type="text"]').setValue('马上发出去')
+      vi.advanceTimersByTime(300)
+      expect(localStorage.getItem('chat_draft:u8')).toBe('马上发出去')
+    } finally {
+      vi.useRealTimers()
+    }
+
+    await w.find('.chat__send').trigger('click')
+    await flushPromises()
+
+    expect(localStorage.getItem('chat_draft:u8')).toBeNull()
+    expect((w.find('input[type="text"]').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('草稿:清空输入框等于删掉草稿', async () => {
+    saveDraft('u8', '算了不说了')
+    const { w } = await mountPage()
+    await flushPromises()
+
+    vi.useFakeTimers()
+    try {
+      await w.find('input[type="text"]').setValue('')
+      vi.advanceTimersByTime(300)
+      expect(localStorage.getItem('chat_draft:u8')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('离开聊天页立刻把没落盘的草稿写下来(不能丢最后几个字)', async () => {
+    const { w } = await mountPage()
+    await flushPromises()
+
+    await w.find('input[type="text"]').setValue('打了一半就走')
+    w.unmount()
+
+    expect(localStorage.getItem('chat_draft:u8')).toBe('打了一半就走')
   })
 })

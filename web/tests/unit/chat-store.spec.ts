@@ -69,6 +69,7 @@ function fakeClient() {
       msg({ msgId: 'm4', peerId, isSelf: true, kind: 'sticker' as never, stickerId }),
     ),
     deleteMessage: vi.fn(async () => {}),
+    deleteMessages: vi.fn(async (ids: string[]) => ids.length),
     revokeMessage: vi.fn(async () => {}),
     markConversationRead: vi.fn(async () => {}),
     deleteConversation: vi.fn(async () => {}),
@@ -521,5 +522,91 @@ describe('chat store', () => {
     await store.resend(failed)
     expect(client.sendSticker).toHaveBeenCalledWith('u8', 'sticker_02', undefined)
     expect(store.messagesOf('u8').some((item) => item.msgId === 'stk-2')).toBe(true)
+  })
+  // --- 多选删除(批次 T)---
+
+  it('批量删除:先调服务端、成功后从 store 摘掉这几条', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    store.messages = {
+      u8: [
+        msg({ msgId: '101', peerId: 'u8', seq: 1, text: '一' }),
+        msg({ msgId: '102', peerId: 'u8', seq: 2, text: '二' }),
+        msg({ msgId: '103', peerId: 'u8', seq: 3, text: '三' }),
+      ],
+    }
+
+    const deleted = await store.deleteMessages('u8', ['101', '103'])
+
+    expect(client.deleteMessages).toHaveBeenCalledWith(['101', '103'])
+    expect(deleted).toBe(2)
+    expect(store.messagesOf('u8').map((item) => item.msgId)).toEqual(['102'])
+  })
+
+  it('批量删除失败:上抛且**一条都不摘**(不留「界面没了、刷新又回来」)', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    store.messages = {
+      u8: [msg({ msgId: '101', peerId: 'u8', seq: 1 }), msg({ msgId: '102', peerId: 'u8', seq: 2 })],
+    }
+    client.deleteMessages = vi.fn(async () => Promise.reject(new Error('IM HTTP 500')))
+
+    await expect(store.deleteMessages('u8', ['101', '102'])).rejects.toThrow('IM HTTP 500')
+    expect(store.messagesOf('u8').map((item) => item.msgId)).toEqual(['101', '102'])
+  })
+
+  it('本地占位消息(还没落库)不上行,只在本地摘掉', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    store.messages = {
+      u8: [
+        msg({ msgId: 'local-1', peerId: 'u8', isSelf: true, isFailed: true }),
+        msg({ msgId: '101', peerId: 'u8', seq: 1 }),
+      ],
+    }
+
+    const deleted = await store.deleteMessages('u8', ['local-1', '101'])
+
+    // 服务端只收到真实 id:占位 id 上行会被判 42201
+    expect(client.deleteMessages).toHaveBeenCalledWith(['101'])
+    expect(deleted).toBe(1)
+    expect(store.messagesOf('u8')).toHaveLength(0)
+  })
+
+  it('只选本地占位时不发请求,直接本地摘掉', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    store.messages = { u8: [msg({ msgId: 'local-9', peerId: 'u8', isSelf: true, isFailed: true })] }
+
+    const deleted = await store.deleteMessages('u8', ['local-9'])
+
+    expect(client.deleteMessages).not.toHaveBeenCalled()
+    expect(deleted).toBe(0)
+    expect(store.messagesOf('u8')).toHaveLength(0)
+  })
+
+  it('空列表是空操作(服务端把空数组判 42201,不能白白发出去)', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+
+    await expect(store.deleteMessages('u8', [])).resolves.toBe(0)
+    expect(client.deleteMessages).not.toHaveBeenCalled()
+  })
+
+  it('单条「删除」走同一个批量接口(两条路径不会走样)', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    store.messages = { u8: [msg({ msgId: '101', peerId: 'u8', seq: 1 })] }
+
+    await store.deleteMessage(store.messagesOf('u8')[0])
+
+    expect(client.deleteMessages).toHaveBeenCalledWith(['101'])
+    expect(store.messagesOf('u8')).toHaveLength(0)
   })
 })

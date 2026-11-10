@@ -13,6 +13,7 @@ import AppBadge from '@/components/AppBadge.vue'
 import OnlineDot from '@/components/OnlineDot.vue'
 import type { ImConversation } from '@/im/types'
 import { conversationNameOf, conversationSummaryOf, conversationTimeOf } from './conversation'
+import { hasDraft } from './draft'
 
 const props = defineProps<{ conversation: ImConversation; online: boolean }>()
 /** 菜单锚点(视口坐标):右键取鼠标位置,`⋯` 按钮取按钮下沿 */
@@ -21,6 +22,13 @@ const emit = defineEmits<{ more: [anchor: { x: number; y: number }] }>()
 const name = computed(() => conversationNameOf(props.conversation))
 const summary = computed(() => conversationSummaryOf(props.conversation.lastMessage))
 const time = computed(() => conversationTimeOf(props.conversation))
+/**
+ * 有草稿 → 摘要前挂「[草稿] 」(批次 T,微信口径)。
+ *
+ * 草稿与摘要**并列展示**,不覆盖摘要:用户既要知道自己没发出去什么,
+ * 也要知道对方最后说了什么。
+ */
+const drafted = computed(() => hasDraft(props.conversation.peerId))
 const target = computed(() => ({
   name: 'chat',
   params: { peerId: props.conversation.peerId },
@@ -65,7 +73,10 @@ function onContextMenu(event: MouseEvent): void {
           </span>
           <span class="chats__time">{{ time }}</span>
         </div>
-        <p class="chats__summary">{{ summary }}</p>
+        <p class="chats__summary">
+          <span v-if="drafted" class="chats__draft" data-testid="chats-draft">[草稿] </span>
+          {{ summary }}
+        </p>
       </div>
       <span
         v-if="props.conversation.muted && props.conversation.unreadCount > 0"
@@ -150,6 +161,11 @@ function onContextMenu(event: MouseEvent): void {
   color: var(--color-text2);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 草稿前缀:用主色标出「这是你没发出去的话」,与对端的摘要区分开 */
+.chats__draft {
+  color: var(--color-brand);
+  font-weight: var(--weight-semibold);
 }
 .chats__unread-dot {
   flex: none;

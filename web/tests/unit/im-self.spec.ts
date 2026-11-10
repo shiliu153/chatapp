@@ -238,4 +238,83 @@ describe('SelfImClient', () => {
       vi.unstubAllGlobals()
     }
   })
+  // --- 多选删除(批次 T)---
+
+  it('deleteMessages 走 POST /messages/delete,回传本次新隐藏的条数', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init })
+      return new Response(JSON.stringify({ deleted: 2 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+    try {
+      const client = new SelfImClient()
+      await client.init(bootstrap)
+
+      const deleted = await client.deleteMessages(['123', '124'])
+
+      expect(calls[0].url).toBe('http://test/im/api/messages/delete')
+      expect(calls[0].init?.method).toBe('POST')
+      expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer tok')
+      expect(JSON.parse(String(calls[0].init?.body))).toEqual({ ids: ['123', '124'] })
+      expect(deleted).toBe(2)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('deleteMessages 空列表不发请求(服务端把空数组判 42201)', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const client = new SelfImClient()
+      await client.init(bootstrap)
+
+      await expect(client.deleteMessages([])).resolves.toBe(0)
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('deleteMessage(单条)复用批量接口,响应里没有 deleted 时按 0 算', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      calls.push(String(input))
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }))
+    try {
+      const client = new SelfImClient()
+      await client.init(bootstrap)
+
+      await expect(client.deleteMessage('55')).resolves.toBeUndefined()
+      expect(calls[0]).toBe('http://test/im/api/messages/delete')
+      expect(await client.deleteMessages(['55'])).toBe(0)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('deleteMessages 失败时抛带业务码的 ApiError(42901 限流)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ code: 42901, message: '操作过于频繁' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    )))
+    try {
+      const client = new SelfImClient()
+      await client.init(bootstrap)
+
+      await expect(client.deleteMessages(['1'])).rejects.toMatchObject({
+        code: 42901,
+        message: '操作过于频繁',
+      })
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
