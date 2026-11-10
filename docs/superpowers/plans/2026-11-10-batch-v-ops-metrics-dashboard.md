@@ -255,4 +255,41 @@ Grafana 新面板、漏斗归因、用户分群、按端(App/Web)拆分指标、
 
 ## 执行记录
 
-(合并后补:每单 PR / 合并 SHA / 关键交付 / 与计划的偏差 / 踩到的坑 / 验收结论 / 遗留)
+**交付于 2026-11-10,两单全部合并**(`master` = `89ab7ef`)。
+
+| 单 | PR | 合并 SHA | 关键交付 |
+|---|---|---|---|
+| V-1 采集 + 快照 | #231 | `e6a0e7f` | `users/activity.py`(日活 / 小时桶两个 Redis 集合,45 天 TTL,`touch()` 接在 `presence.touch()` 末尾,认证热路径口径天然一致)+ `stats.DailyMetric`(本 app 第一张表,5 个 nullable 字段)+ `stats/metrics.py`(口径与 upsert)+ `stats/im_source.py`(IM 库只读,失败降级)+ `manage.py metrics_daily`(`--date` / `--backfill` / `--dry-run`)+ `docs/ops/runbook.md` §9;新增 30 例 |
+| V-2 看板页 | #232 | `89ab7ef` | `/ops/metrics/`(`@staff_required`,一条 SQL 取 30 行,汇总 / 配对率 / 横条宽度全在视图里算)+ `ops/metrics.html` + `ops.css` 追加样式 + 导航项(在「日志」前)+ runbook §9.5;新增 19 例 |
+
+### 与计划的偏差
+
+1. **看板样式写进了既有 `ops/static/ops/ops.css`**(计划只说「纯 CSS 横条」,没指定落点)。照运营台既有做法追加,没新建 css 文件 —— 运营台只有一个样式表。
+2. **活跃时段退到「最近一行**真的采到**小时分布的快照」**(V-2)。计划写「最近一天有数据的行」;实现把「有数据」判定成 `active_hours` 非空,比「最新那行」更有用(最新那行的时段分布可能是空的)。
+3. **顶部卡片的「昨日」严格取昨天那一行,缺失就 `—`**(V-2)。计划没写这条;实现选择「不拿前天的数字冒充昨天」,并配了用例。
+4. **`profiles_completed` 的口径最终按「当日新注册且**当前** `Profile.status=complete`」**(计划 §3 原文)。回填历史日期时算的是「这批人现在完善没完善」——这是 `Profile` 没有 `completed_at` 的必然近似,已写进 runbook §9.1 与 PR 正文。
+
+### 踩到的坑
+
+1. **03:40 已被占用**(计划阶段就发现,见 §0):`refresh_shuffle_keys` 在 03:40,备份在 03:20,媒体维护占 04:00–04:20,所以本批排 **04:30**。交接文档里「cron 03:40」那句是错的。
+2. **`verify.sh` 不带 `--keep-deps` 会清空 dev 库**:脚本末尾 `docker compose down -v` 删卷,MySQL 下次启动重新 initdb,`chatapp_dev` 里的手测数据全没。表现是「昨天 dry-run 明明 `new=3`,今天再跑变 0」——不是口径变了,是库被重置了。**要保留手测数据就一律加 `--keep-deps`。**
+3. **`ALLOWED_HOSTS` 不含 `testserver`**:想在 `manage.py shell` 里用 Django test client 渲染运营页(不开浏览器也能看真页面),会直接 400 `DisallowedHost`。解法:`c.get("/ops/metrics/", HTTP_HOST="127.0.0.1")` 且把 `127.0.0.1` 放进 `ALLOWED_HOSTS`。本批就是用这条路径验的 V-2 页面。
+4. **入队核验的「假丢单」**:派 #230 后 3 分钟,`thread` / `trigger_thread` 全 0、`work/` 也空,长得和 §4.1 的丢单一模一样;实际是**上一轮轮询还在飞**(`kv` 里 `github-since` 停在 3 分钟前的时间戳),第 10 分钟三样齐全、worktree 也建了。**判据要加一条:看 `github-since` 有没有在推进 —— 停在旧时间 = 轮在跑,不是丢单。**「3 分钟补发一条」照旧做(补发无害),但别把轮询慢误判成 worker 坏了。
+
+### 验收结论
+
+| 项 | 结果 |
+|---|---|
+| 本地 `scripts/verify.sh backend`(两单各一次) | ✅ 全绿(1096 例 + 39 例压测自测;V-1 时是 1077 例) |
+| CI(两单) | ✅ `test` + `smoke` 双绿 |
+| V-1 命令在真 MySQL + 真 Redis 上跑 | ✅ `2026-11-09 dau=2 new=3 done=1 like=2 pass=1 match=1 msg=-` —— `dau` 不再是 `-`,日活集合生效 |
+| V-2 页面真渲染(dev 库 seed → `metrics_daily` → test client) | ✅ staff 200 / 非 staff 403 / 匿名 302;四个数字卡 `2 / 3 / 50.0% / —`;趋势表 5 行;缺失值全 `—`;活跃时段 10:00 与 15:00 各 1 人,与种子一致 |
+
+### 遗留(不在本期)
+
+1. **`retention_d1` 在 cohort 为 0 人时显示 `0`**(0 ∩ N = 0)而不是 `—`。同一行的「新注册」也是 0,读得出来是 0/0,语义可接受;要更严就改成「cohort 为空 → `None`」。
+2. **`test_query_budget_is_fixed` 是固定数字门禁**(`assertNumQueries(7)`:会话 1 + 当前用户 1 + 导航角标 4 + 快照 1)。以后给 `/ops/` 导航加角标会红 —— 那时把数字跟着改,**别把这条门禁删了**。
+3. **注销账号不会清 `activity:dau:*` 里的 id**(`presence.clear()` 有对应清理,activity 没有)。id 最多留 45 天、不含任何内容,按「统计残留」处理;要清得按 45 天 × 24 小时扫键 `SREM`,收益不抵成本。
+4. **`profiles_completed` 是近似值**(见偏差 4);要精确得给 `Profile` 加「完善时间」列,另开一单。
+5. **DAU / 活跃时段 / 留存最多回看 45 天**(`ACTIVITY_TTL_SECONDS`);更早的日期补不出来,这是 TTL 的必然结果。
+6. **`stats.DailyMetric` 没注册 Django admin**;将来要手工订正某天的数字再单开一单。
