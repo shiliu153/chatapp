@@ -21,6 +21,7 @@ import '../presence/presence_controller.dart';
 import '../notifications/notifications_page.dart';
 import 'conversation_actions.dart';
 import 'conversations_controller.dart';
+import 'draft_store.dart';
 import 'match_cache.dart';
 import 'widgets/chat_bubbles_mark.dart';
 import 'widgets/chats_skeleton.dart';
@@ -88,6 +89,8 @@ class _ConversationList extends ConsumerWidget {
     final conversations = ref.watch(conversationsProvider);
     final cache = ref.watch(matchCacheProvider).value ?? const <String, MatchEntry>{};
     final presenceById = ref.watch(presenceProvider);
+    // 草稿(批次 T-2):watch 着,输入框里存/删草稿时这一行会跟着变。
+    final drafts = ref.watch(draftStoreProvider);
     return conversations.when(
       loading: () => const ChatsSkeleton(),
       error: (error, _) => AppErrorView(
@@ -146,6 +149,7 @@ class _ConversationList extends ConsumerWidget {
                       conversation: others[i],
                       cache: cache,
                       presenceById: presenceById,
+                      draft: drafts[others[i].peerId],
                       onLongPress: () => showConversationActions(context, ref, others[i]),
                     ),
                   ],
@@ -274,11 +278,15 @@ class _ConversationTile extends StatelessWidget {
       {required this.conversation,
       required this.cache,
       required this.presenceById,
-      required this.onLongPress});
+      required this.onLongPress,
+      this.draft});
 
   final ImConversation conversation;
   final Map<String, MatchEntry> cache;
   final Map<int, Presence> presenceById;
+
+  /// 这个会话里没发出去的草稿(批次 T-2);null = 没有草稿。
+  final String? draft;
 
   /// 长按 → 置顶 / 免打扰 / 删除会话(批次 N,见 conversation_actions.dart)。
   final VoidCallback onLongPress;
@@ -314,7 +322,8 @@ class _ConversationTile extends StatelessWidget {
           ],
         ],
       ),
-      subtitle: Text(_previewOf(conversation.lastMessage),
+      subtitle: Text(_previewOf(conversation.lastMessage, draft: draft),
+          key: draft == null ? null : Key('chats.draft:${conversation.peerId}'),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: AppText.caption.copyWith(color: colors.text2)),
@@ -397,7 +406,19 @@ class _MutedDot extends StatelessWidget {
   }
 }
 
-String _previewOf(ChatMessage? last) {
+/// 列表行摘要:有草稿就显示草稿(批次 T-2),否则按最后一条消息的类型出文案。
+///
+/// 草稿走「[草稿] 」前缀而不是替换成同一段灰字:微信口径 —— 一眼能分清
+/// 「对方说了这句」和「我还没发出去」。
+///
+/// Args:
+///   last: 会话的最后一条可见消息(可能为 null)。
+///   draft: 该会话的草稿;null / 全空白 = 没有草稿。
+///
+/// Returns:
+///   列表行的一句话摘要。
+String _previewOf(ChatMessage? last, {String? draft}) {
+  if (draft != null && draft.trim().isNotEmpty) return '[草稿] $draft';
   if (last == null) return '';
   return switch (last.kind) {
     ChatMessageKind.text => last.text,

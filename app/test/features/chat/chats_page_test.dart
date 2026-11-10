@@ -206,6 +206,29 @@ void main() {
     expect(request.queryParameters['user_ids'], contains('9'));
   });
 
+  testWidgets('有草稿时摘要显示「[草稿] + 草稿原文」,不是最后一条消息', (tester) async {
+    final fake = FakeImClient()..conversations = [_conversation(text: '对方最后一句')];
+    await pumpApp(tester, _adapter(),
+        prefs: {..._loggedIn, 'chat_draft:u9': '我还没发出去的话'}, imClient: fake);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('消息'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('[草稿] 我还没发出去的话'), findsOneWidget);
+    expect(find.text('对方最后一句'), findsNothing);
+  });
+
+  testWidgets('没草稿时不加「[草稿] 」前缀', (tester) async {
+    final fake = FakeImClient()..conversations = [_conversation(text: '对方最后一句')];
+    await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('消息'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('对方最后一句'), findsOneWidget);
+    expect(find.textContaining('[草稿]'), findsNothing);
+  });
+
   testWidgets('IM 连接中 → 行骨架(有限 pump,不 settle)', (tester) async {
     final fake = FakeImClient()..conversations = [_conversation()];
     await pumpApp(tester, _adapter(),

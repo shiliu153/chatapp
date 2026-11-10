@@ -4,12 +4,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
+import 'conversations_controller.dart';
 
 /// 单个会话的消息流:历史 + 实时,外加乐观发送。
 class ChatController extends AsyncNotifier<List<ChatMessage>> {
   ChatController(this.peerId);
 
   final String peerId;
+
+  /// 一次批量删除的上限,与 imserver `POST /im/api/messages/delete` 的契约一致
+  /// (`ids` ≤ 50,超了回 400 + 42201)。页面按它限制勾选条数,而不是让用户勾满
+  /// 一屏再收到一个错误。
+  static const maxDeleteBatch = 50;
 
   /// 上一次发出「正在输入」的冷却定时器(客户端 3 秒节流用)。
   ///
@@ -213,6 +219,36 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     }
     final current = state.value ?? const <ChatMessage>[];
     state = AsyncValue.data(current.where((item) => item.msgId != message.msgId).toList());
+  }
+
+  /// 批量删除(批次 T-2,多选删除):**单方删除**,对方仍可见。
+  ///
+  /// 两步分开、顺序不能反:
+  /// 1. 先把「服务端认得的」id 一次性发给 imserver(`local-` 开头的本地乐观消息
+  ///    不在服务端,混进去会整批 42201,所以挡在外面、本地直接移除);
+  /// 2. 服务端删成功后才动本地列表 —— 失败时**一条都不移除**并让异常冒到页面,
+  ///    页面保留用户的选择,这就是「删失败不要丢掉我选的」。
+  ///
+  /// 成功后顺手刷新会话列表:列表摘要里的 `last_message` 与未读数都由服务端算,
+  /// 不刷新就会出现「删了但列表还显示那条」的假象。
+  ///
+  /// Args:
+  ///   msgIds: 要删的消息 id(可含 `local-` 乐观消息)。
+  ///
+  /// Throws:
+  ///   [ImException]:imserver 拒绝(42201 / 42901)或 HTTP 侧 [ApiException]。
+  Future<void> deleteMessages(Iterable<String> msgIds) async {
+    final ids = msgIds.toSet().toList();
+    if (ids.isEmpty) return;
+    final remote = ids.where((id) => !id.startsWith('local-')).toList();
+    if (remote.isNotEmpty) {
+      // 不 catch:失败必须让调用方知道(多选删除要保留选中并 toast)。
+      await ref.read(imClientProvider).deleteMessages(remote);
+    }
+    final gone = ids.toSet();
+    final current = state.value ?? const <ChatMessage>[];
+    state = AsyncValue.data(current.where((item) => !gone.contains(item.msgId)).toList());
+    unawaited(ref.read(conversationsProvider.notifier).reload().catchError((Object _) {}));
   }
 
   /// 撤回:成功才置灰;失败让异常冒到页面提示,不改本地状态。

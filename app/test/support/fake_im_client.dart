@@ -184,8 +184,16 @@ class FakeImClient extends ImClient {
     );
   }
 
+  /// 置上就让 deleteMessages 抛这个错(测「删除失败保留选中 + toast」)。
+  Object? deleteError;
+
   @override
-  Future<void> deleteMessage(ChatMessage message) async => log.add('delete:${message.msgId}');
+  Future<void> deleteMessages(List<String> msgIds) async {
+    // 一次调用记一行、id 用逗号连起来:既能断言「批量只发了一次请求」,
+    // 也能断言「带上去的是哪几条」。单条删除走 ImClient 的默认委托,同一条流水。
+    log.add('delete:${msgIds.join(",")}');
+    if (deleteError != null) throw deleteError!;
+  }
 
   @override
   Future<void> revokeMessage(String msgId) async {

@@ -464,7 +464,14 @@ class SelfImClient extends ImClient {
   }
 
   @override
-  Future<void> deleteMessage(ChatMessage message) async {}
+  Future<void> deleteMessages(List<String> msgIds) async {
+    // 单方删除走 HTTP 写接口(批次 T-1/T-2):`POST /messages/delete` 回
+    // `{"deleted": n}`。本端**不读这个 n** —— 它就是「本次新隐藏了几条」,
+    // 幂等重删时是 0,拿来判断成功与否会把「早就删过」误当失败。
+    // 失败(ApiException:401/42201/42901)直接抛给调用方,让页面提示并保留选中。
+    if (msgIds.isEmpty) return;
+    await _http!.post('/messages/delete', {'ids': msgIds});
+  }
 
   @override
   Future<ImConversationFlags> setConversationFlags(String peerId,

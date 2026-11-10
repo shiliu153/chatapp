@@ -432,8 +432,28 @@ abstract class ImClient {
           int? refMsgId}) =>
       throw const ImException(42202, '当前聊天服务暂不支持贴纸');
 
-  /// 删除本地消息(对方不受影响);本地未发出的消息可直接忽略此调用。
-  Future<void> deleteMessage(ChatMessage message);
+  /// 批量删除**我这一侧**的消息(批次 T-2)。
+  ///
+  /// 语义与单条删除完全一致:只影响我这边 —— 消息本体不动、不通知对端、对端历史里
+  /// 还在、不可恢复。走 imserver 的 HTTP `POST /im/api/messages/delete`
+  /// (契约见 `docs/ops/imserver.md` §21),**零 WS 帧改动**。
+  ///
+  /// 调用方负责把「本地乐观消息」(msgId 以 `local-` 开头、服务端根本不知道的)
+  /// 挡在外面 —— 服务端只认数字 id,传进来会整批 42201。
+  ///
+  /// Args:
+  ///   msgIds: 消息 id 列表,非空且 ≤ 50 条(超限服务端回 400 + 42201)。
+  ///
+  /// Throws:
+  ///   [ImException]:不支持时 42202;服务端校验失败 42201;限流 42901。
+  Future<void> deleteMessages(List<String> msgIds) =>
+      throw const ImException(42202, '当前聊天服务暂不支持删除消息');
+
+  /// 删除单条本地消息(对方不受影响);本地未发出的消息可直接忽略此调用。
+  ///
+  /// 只是 [deleteMessages] 的单条便捷形式 —— 批量与单条走**同一条**链路,
+  /// 免得两处口径分叉(比如批量删了不通知、单条删了又走另一套)。
+  Future<void> deleteMessage(ChatMessage message) => deleteMessages([message.msgId]);
 
   /// 撤回已发送消息(时限 2 分钟,超时抛 [ImException])。
   Future<void> revokeMessage(String msgId);

@@ -15,6 +15,7 @@ import 'package:chatapp_app/core/theme/app_colors.dart';
 import 'package:chatapp_app/core/widgets/avatar_hero.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
+import 'package:chatapp_app/features/chat/widgets/photo_viewer.dart';
 import 'package:chatapp_app/features/presence/presence_controller.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:image_picker/image_picker.dart';
@@ -400,6 +401,41 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('viewer.page')), findsOneWidget);
+  });
+
+  testWidgets('点图片气泡 → 全屏收到**会话内全部**图片,initialIndex 是当前这张', (tester) async {
+    fake.history = {
+      'u9': [
+        const ChatMessage(
+            msgId: 'i1',
+            peerId: 'u9',
+            isSelf: false,
+            timestamp: 1,
+            kind: ChatMessageKind.image,
+            imageUrl: 'https://x/1.png',
+            imageLargeUrl: 'https://x/1-large.png'),
+        // 中间夹一条文本:全屏列表只收图片,index 也要按「第几张图」算,不是按消息序号
+        _text('t1', isSelf: false, text: '夹一条文字'),
+        const ChatMessage(
+            msgId: 'i2',
+            peerId: 'u9',
+            isSelf: true,
+            timestamp: 2,
+            kind: ChatMessageKind.image,
+            imageUrl: 'https://x/2.png'),
+      ],
+    };
+    await pumpChat(tester);
+
+    // 点第二张图(i2):按消息 id 精确定位,不靠列表里「第几个」的顺序
+    await tester.tap(find.descendant(
+        of: find.byKey(const Key('chat.bubble:i2')),
+        matching: find.byKey(const Key('chat.image'))));
+    await tester.pumpAndSettle();
+
+    final viewer = tester.widget<PhotoViewerPage>(find.byType(PhotoViewerPage));
+    expect(viewer.urls, ['https://x/1-large.png', 'https://x/2.png']);
+    expect(viewer.initialIndex, 1);
   });
 
   testWidgets('对方在线 → 标题下呼吸绿点 + 「在线」', (tester) async {

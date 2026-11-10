@@ -12,6 +12,7 @@ import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/app_avatar.dart';
+import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_dialog.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
@@ -28,6 +29,7 @@ import '../profile/profile_controller.dart';
 import 'chat_controller.dart';
 import 'chat_items.dart';
 import 'conversations_controller.dart';
+import 'draft_store.dart';
 import 'match_cache.dart';
 import 'quote.dart';
 import 'recall.dart';
@@ -68,6 +70,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _focusStarted = false;
   String? _highlightMsgId;
 
+  /// 多选模式(批次 T-2):顶栏换「已选 N 条」+ 取消,每条左侧出勾选圈,
+  /// 底部输入栏换成「复制文本 / 删除」操作条。
+  bool _selectMode = false;
+
+  /// 已勾选的消息 id(按集合存:去重、与顺序无关,渲染时再按历史顺序取)。
+  final _selected = <String>{};
+
+  /// 草稿防抖定时器(批次 T-2):输入 300ms 没有新字符才落盘,免得一个字一次写。
+  Timer? _draftTimer;
+
+  /// 草稿读写的入口。存成字段是因为 `dispose` 里不能用 `ref`(同 [_chat])。
+  DraftStore? _drafts;
+
+  /// 输入停止多久后把草稿落盘。
+  static const draftDebounce = Duration(milliseconds: 300);
+
   /// build 里存下的会话控制器:State.dispose 不能用 `ref`,而「离开页面清掉
   /// 正在输入」必须在那里同步做(见 [dispose])。
   ChatController? _chat;
@@ -77,6 +95,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     super.initState();
     // 被对方解除配对时,本地缓存还是登录时的旧数据;进聊天页刷一次才能发现
     unawaited(ref.read(matchCacheProvider.notifier).refresh());
+    // 回填草稿(批次 T-2):预加载是后台跑的,这里等它一次再读,读不到就空着。
+    _drafts = ref.read(draftStoreProvider.notifier);
+    unawaited(_restoreDraft());
     // 键盘弹起时收起表情/＋面板
     _focusNode.addListener(() {
       if (_focusNode.hasFocus && (_showEmoji || _showMore)) {
@@ -88,6 +109,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     });
   }
 
+  /// 把本机会话草稿回填进输入框(只回填一次,且不覆盖用户已经打的字)。
+  Future<void> _restoreDraft() async {
+    await _drafts?.preload();
+    if (!mounted) return;
+    final draft = _drafts?.draftOf(widget.peerId);
+    if (draft == null || _input.text.isNotEmpty) return;
+    // 光标放到末尾:回填的草稿是「接着写」,不是「选中重写」。
+    _input.value = TextEditingValue(
+      text: draft,
+      selection: TextSelection.collapsed(offset: draft.length),
+    );
+  }
+
   @override
   void dispose() {
     // 离开聊天页(批次 L-1):立即清掉「对方正在输入…」并取消 3 秒节流定时器。
@@ -97,6 +131,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // 用 build 里存下的控制器、而不是 `ref`:State.dispose 里碰 ref 是明确禁止的
     // (`ConsumerStatefulElement` 会抛「about to or has been unmounted is unsafe」)。
     _chat?.leaveChat();
+    // 还有没落盘的草稿(打完字 300ms 内就按了返回):当场补存一次,
+    // 否则「手快」会白打。这里不能 await、也不该 await —— 写 prefs 是页面生命周期
+    // 之外的 I/O,用字段 [_drafts] 而不是 ref(dispose 里碰 ref 是禁止的)。
+    if ((_draftTimer?.isActive ?? false) && _input.text.trim().isNotEmpty) {
+      unawaited(_drafts?.save(widget.peerId, _input.text) ?? Future<void>.value());
+    }
+    _draftTimer?.cancel();
     _input.dispose();
     _focusNode.dispose();
     _scroll.dispose();
@@ -142,7 +183,162 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     setState(() => _sending = true);
     await ref.read(chatProvider(widget.peerId).notifier).send(text);
     _input.clear();
+    // 草稿的生命周期止于「发出去了」:输入框已清空,再留着 key 会让列表一直挂
+    // 「[草稿] 」—— 而这段话已经变成气泡了(失败也还在气泡上,能点重发)。
+    _draftTimer?.cancel();
+    unawaited(_drafts?.clear(widget.peerId) ?? Future<void>.value());
     if (mounted) setState(() => _sending = false);
+  }
+
+  /// 输入框内容变化:转发「正在输入」+ 排一次草稿落盘。
+  ///
+  /// Args:
+  ///   text: 输入框当前内容。
+  void _onInputChanged(String text) {
+    // 输入中状态(批次 L-1):节流在 controller 里(3 秒一次),这里只管转发
+    ref.read(chatProvider(widget.peerId).notifier).notifyTyping(text);
+    _draftTimer?.cancel();
+    if (text.trim().isEmpty) {
+      // 清空 = 这条不写了:立刻删 key,不留一个空草稿让列表挂前缀。
+      unawaited(_drafts?.clear(widget.peerId) ?? Future<void>.value());
+      return;
+    }
+    _draftTimer = Timer(draftDebounce, () {
+      unawaited(_drafts?.save(widget.peerId, text) ?? Future<void>.value());
+    });
+  }
+
+  /// 这条消息能不能进多选:已撤回 / 发送中 / 居中灰条都不给选。
+  ///
+  /// 已撤回本来就只剩一行灰字,删它没有意义;发送中的消息 id 还是 `local-` 前缀,
+  /// 服务端不认识,混进批量会让整批 42201;灰条(系统通知)没有气泡本体可点。
+  ///
+  /// Args:
+  ///   message: 待判断的消息。
+  ///
+  /// Returns:
+  ///   可选返回 true。
+  bool _canSelect(ChatMessage message) =>
+      !message.isRevoked &&
+      !message.isPending &&
+      message.msgId.isNotEmpty &&
+      (message.kind == ChatMessageKind.text ||
+          message.kind == ChatMessageKind.image ||
+          message.kind == ChatMessageKind.voice ||
+          message.kind == ChatMessageKind.sticker);
+
+  /// 进入多选模式:收掉输入区(表情/＋面板、引用条),清空上一次的选择。
+  void _enterSelectMode() {
+    setState(() {
+      _selectMode = true;
+      _selected.clear();
+      _showEmoji = false;
+      _showMore = false;
+    });
+    FocusScope.of(context).unfocus();
+    // 引用是「下一条要发的内容」,多选期间输入栏都不在,留着只会误导。
+    ref.read(chatQuoteTargetProvider(widget.peerId).notifier).clear();
+  }
+
+  /// 退出多选模式(取消 / 删除成功后调用)。
+  void _exitSelectMode() {
+    if (!_selectMode) return;
+    setState(() {
+      _selectMode = false;
+      _selected.clear();
+    });
+  }
+
+  /// 多选模式下点消息本体:切换这一条的选中状态。
+  ///
+  /// 上限 [ChatController.maxDeleteBatch] 条:imserver 的 `ids` 最多 50 条,超了整批
+  /// 会 400。与其让用户勾满一屏再吃一个错误,不如在勾不动的那一刻就告诉他。
+  ///
+  /// Args:
+  ///   message: 被点的消息(不可选的消息直接忽略)。
+  void _toggleSelect(ChatMessage message) {
+    if (!_canSelect(message)) return;
+    final selected = _selected.contains(message.msgId);
+    if (!selected && _selected.length >= ChatController.maxDeleteBatch) {
+      AppToast.show(context, '一次最多选 ${ChatController.maxDeleteBatch} 条');
+      return;
+    }
+    setState(() {
+      if (selected) {
+        _selected.remove(message.msgId);
+      } else {
+        _selected.add(message.msgId);
+      }
+    });
+  }
+
+  /// 把当前**还在列表里**的选中项挑出来(按历史顺序,旧 → 新)。
+  ///
+  /// 剪掉「已经不在了」的 id:对方撤回 / 别的端删掉的消息会让集合里留下幽灵 id,
+  /// 顶部「已选 N 条」就会比实际能删的多。
+  ///
+  /// Args:
+  ///   messages: 当前会话的完整消息列表。
+  ///
+  /// Returns:
+  ///   选中的消息,按历史顺序。
+  List<ChatMessage> _selectedMessages(List<ChatMessage> messages) =>
+      [for (final message in messages) if (_selected.contains(message.msgId)) message];
+
+  /// 复制选中里的**文本**消息:按时间顺序用换行连接(多条粘出去仍是一条一句)。
+  ///
+  /// Args:
+  ///   messages: 当前会话的完整消息列表。
+  Future<void> _copySelected(List<ChatMessage> messages) async {
+    final texts = [
+      for (final message in _selectedMessages(messages))
+        if (message.kind == ChatMessageKind.text && message.text.isNotEmpty) message.text,
+    ];
+    if (texts.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: texts.join('\n')));
+    if (mounted) AppToast.show(context, '已复制');
+  }
+
+  /// 删除选中的消息:先确认,再走 IM 的批量删除。
+  ///
+  /// 失败时**保留选中**并 toast —— 清空等于把用户一条条勾出来的选择丢了,而失败
+  /// 多半是网络 / 限流,重试一次远比重勾一遍便宜。
+  Future<void> _deleteSelected() async {
+    final messages = ref.read(chatProvider(widget.peerId)).value ?? const <ChatMessage>[];
+    final ids = [for (final message in _selectedMessages(messages)) message.msgId];
+    if (ids.isEmpty) return;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: '删除这 ${ids.length} 条?',
+      message: '只在你这边删除,对方仍可见。',
+      confirmLabel: '删除',
+      danger: true,
+      confirmKey: const Key('chat.select.confirm'),
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await ref.read(chatProvider(widget.peerId).notifier).deleteMessages(ids);
+    } catch (error) {
+      if (!mounted) return;
+      AppToast.show(context, _errorMessageOf(error));
+      return; // 选中原样保留
+    }
+    if (!mounted) return;
+    _exitSelectMode();
+    AppToast.show(context, '已删除');
+  }
+
+  /// 删除失败的提示文案:业务错误用服务端的话,其余给一句人话。
+  ///
+  /// Args:
+  ///   error: 抛出物([ApiException] / [ImException] / 其它)。
+  ///
+  /// Returns:
+  ///   给 toast 用的中文文案。
+  String _errorMessageOf(Object error) {
+    if (error is ApiException) return error.message;
+    if (error is ImException) return error.message;
+    return '删除失败,请重试';
   }
 
   void _openProfile(BuildContext context, Map<String, MatchEntry> cache) {
@@ -192,12 +388,48 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await ref.read(chatProvider(widget.peerId).notifier).sendImage(file.path);
   }
 
+  /// 点图片气泡 → 全屏(批次 T-2)。
+  ///
+  /// 传的是**会话内全部图片** + 当前这条的下标,这样全屏里能左右滑着看这一串图,
+  /// 而不是「退出去再点下一张」。`PhotoViewerPage` 本身早就支持缩放 + 左右切,
+  /// 这里只是把「只有一张」改成「一串」。
+  ///
+  /// 没有可用地址的图片(如刚发出、只有本地文件的)跳过;当前这条跳过了就退回第一张。
+  ///
+  /// Args:
+  ///   message: 被点的那条图片消息。
   void _openImage(ChatMessage message) {
-    final url = (message.imageLargeUrl?.isNotEmpty ?? false)
-        ? message.imageLargeUrl!
-        : message.imageUrl;
-    if (url == null || url.isEmpty) return;
-    openPhotoViewer(context, urls: [url]);
+    final messages = ref.read(chatProvider(widget.peerId)).value ?? const <ChatMessage>[];
+    final images = [
+      for (final item in messages)
+        if (item.kind == ChatMessageKind.image && !item.isRevoked) item,
+    ];
+    final urls = <String>[];
+    final owners = <String>[];
+    for (final item in images) {
+      final url = _imageUrlOf(item);
+      if (url == null) continue;
+      urls.add(url);
+      owners.add(item.msgId);
+    }
+    if (urls.isEmpty) return;
+    final index = owners.indexOf(message.msgId);
+    openPhotoViewer(context, urls: urls, initialIndex: index < 0 ? 0 : index);
+  }
+
+  /// 全屏看图用的地址:优先原图,没有原图用缩略图;两者都空返回 null。
+  ///
+  /// Args:
+  ///   message: 图片消息。
+  ///
+  /// Returns:
+  ///   可直接给 `Image.network` 的地址。
+  String? _imageUrlOf(ChatMessage message) {
+    final large = message.imageLargeUrl;
+    if (large != null && large.isNotEmpty) return large;
+    final thumb = message.imageUrl;
+    if (thumb != null && thumb.isNotEmpty) return thumb;
+    return null;
   }
 
   /// 标题降级链的第三级:IM 会话名(昵称已由后端同步到 IM 资料)。
@@ -256,6 +488,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         if (message.kind == ChatMessageKind.text)
           const PopupMenuItem(
               key: Key('chat.menu.copy'), value: 'copy', child: Text('复制')),
+        // 多选(批次 T-2):从这里进「勾选 → 删除 / 复制」模式。
+        const PopupMenuItem(
+            key: Key('chat.menu.multi'), value: 'multi', child: Text('多选')),
         const PopupMenuItem(
             key: Key('chat.menu.delete'), value: 'delete', child: Text('删除')),
       ],
@@ -269,6 +504,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制')));
       }
+    } else if (action == 'multi') {
+      _enterSelectMode();
     } else if (action == 'recall') {
       try {
         await ref.read(chatProvider(widget.peerId).notifier).revoke(message);
@@ -376,20 +613,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final unmatched = cacheReady &&
         widget.peerId != systemNoticePeerId &&
         !matchesAsync.value!.containsKey(widget.peerId);
+    // 多选模式的计数只在**还在列表里**的选中项上算:撤回 / 别的端删除会让集合里
+    // 留下幽灵 id,直接拿 _selected.length 会多算(详见 [_selectedMessages])。
+    final liveMessages = messages.value ?? const <ChatMessage>[];
+    final selectedMessages = _selectedMessages(liveMessages);
+    final selectedCount = selectedMessages.length;
+    final hasSelectedText = selectedMessages.any((item) => item.kind == ChatMessageKind.text);
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: Column(
         children: [
-          _ChatHeader(
-            name: peerName,
-            presence: peerPresence,
-            typing: peerTyping,
-            avatarUrl: peerAvatarUrl,
-            heroTag: 'avatar-chat-${widget.peerId}',
-            onTapTitle: () => _openProfile(context, cache),
-            onMore: _unmatch,
-          ),
+          if (_selectMode)
+            _SelectHeader(count: selectedCount, onCancel: _exitSelectMode)
+          else
+            _ChatHeader(
+              name: peerName,
+              presence: peerPresence,
+              typing: peerTyping,
+              avatarUrl: peerAvatarUrl,
+              heroTag: 'avatar-chat-${widget.peerId}',
+              onTapTitle: () => _openProfile(context, cache),
+              onMore: _unmatch,
+            ),
           if (unmatched)
             Container(
               key: const Key('chat.unmatchedBanner'),
@@ -448,6 +694,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             // 我方消息 seq <= 对端已读位置 → 已读。seq=0 是本地乐观消息
                             // (还没拿到服务端序号),不能算已读。
                             isRead: message.seq > 0 && message.seq <= peerReadSeq,
+                            // 多选模式(批次 T-2):点本体=切换选中,长按菜单失效;
+                            // 入场时机体动作全部让给勾选(见 MessageBubble.selectionMode)。
+                            selectionMode: _selectMode,
+                            selectable: _canSelect(message),
+                            selected: _selected.contains(message.msgId),
+                            onToggleSelect: () => _toggleSelect(message),
                             onLongPress: () => _showMessageMenu(itemContext, message),
                             onTapImage: () => _openImage(message),
                             // 点引用块跳回原消息(批次 L-2)
@@ -464,37 +716,146 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               },
             ),
           ),
-          // 引用条(批次 L-2):长按「引用」后出现在输入栏上方,可点 × 取消。
-          if (quoteTarget != null)
-            _QuoteBar(
-              key: const Key('chat.quoteBar'),
-              sender: quoteTarget.from == widget.peerId ? peerName : '我',
-              text: quoteTarget.text,
-              onClose: () =>
-                  ref.read(chatQuoteTargetProvider(widget.peerId).notifier).clear(),
+          // 多选模式(批次 T-2):输入区整块让位给操作条。引用条也一起收掉 ——
+          // 它的作用域是「下一条要发的消息」,多选期间不该出现。
+          if (_selectMode)
+            _SelectActionBar(
+              count: selectedCount,
+              canCopy: hasSelectedText,
+              onCopy: () => _copySelected(liveMessages),
+              onDelete: _deleteSelected,
+            )
+          else ...[
+            // 引用条(批次 L-2):长按「引用」后出现在输入栏上方,可点 × 取消。
+            if (quoteTarget != null)
+              _QuoteBar(
+                key: const Key('chat.quoteBar'),
+                sender: quoteTarget.from == widget.peerId ? peerName : '我',
+                text: quoteTarget.text,
+                onClose: () =>
+                    ref.read(chatQuoteTargetProvider(widget.peerId).notifier).clear(),
+              ),
+            _InputBar(
+              controller: _input,
+              focusNode: _focusNode,
+              sending: _sending,
+              enabled: !unmatched,
+              showMore: imageEnabled,
+              showVoice: voiceEnabled && !unmatched,
+              onSend: _send,
+              // 输入中状态(批次 L-1)+ 草稿落盘(批次 T-2),都在 _onInputChanged 里
+              onInputChanged: _onInputChanged,
+              onToggleEmoji: _toggleEmoji,
+              onToggleMore: _toggleMore,
+              onSendVoice: (path, durationMs) => ref
+                  .read(chatProvider(widget.peerId).notifier)
+                  .sendVoice(path, durationMs),
             ),
-          _InputBar(
-            controller: _input,
-            focusNode: _focusNode,
-            sending: _sending,
-            enabled: !unmatched,
-            showMore: imageEnabled,
-            showVoice: voiceEnabled && !unmatched,
-            onSend: _send,
-            // 输入中状态(批次 L-1):节流在 controller 里(3 秒一次),这里只管转发
-            onInputChanged: (text) =>
-                ref.read(chatProvider(widget.peerId).notifier).notifyTyping(text),
-            onToggleEmoji: _toggleEmoji,
-            onToggleMore: _toggleMore,
-            onSendVoice: (path, durationMs) => ref
-                .read(chatProvider(widget.peerId).notifier)
-                .sendVoice(path, durationMs),
-          ),
-          if (_showEmoji)
-            EmojiPanel(onSelect: _insertEmoji, onSendSticker: _sendSticker)
-          else if (_showMore && imageEnabled)
-            MorePanel(onPickImage: _pickAndSendImage),
+            if (_showEmoji)
+              EmojiPanel(onSelect: _insertEmoji, onSendSticker: _sendSticker)
+            else if (_showMore && imageEnabled)
+              MorePanel(onPickImage: _pickAndSendImage),
+          ],
         ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 多选模式的顶栏(批次 T-2):左「×」退出、中间「已选 N 条」。
+///
+/// 与 [_ChatHeader] 同高 62,保证进出多选时消息列表不跳一下。
+class _SelectHeader extends StatelessWidget {
+  const _SelectHeader({required this.count, required this.onCancel});
+
+  /// 已选条数(只算还在列表里的,见 `_ChatPageState._selectedMessages`)。
+  final int count;
+
+  /// 退出多选。
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return SizedBox(
+      height: 62,
+      child: Row(
+        children: [
+          IconButton(
+            key: const Key('chat.select.cancel'),
+            tooltip: '退出多选',
+            onPressed: onCancel,
+            icon: Icon(Icons.close_rounded, size: 22, color: colors.text1),
+          ),
+          Expanded(
+            child: Text(
+              '已选 $count 条',
+              key: const Key('chat.select.count'),
+              style: AppText.subtitle.copyWith(fontSize: 17, color: colors.text1),
+            ),
+          ),
+          // 与左侧关闭键等宽:文字左对齐贴住关闭键,不居中飘着
+          const SizedBox(width: 48),
+        ],
+      ),
+    );
+  }
+}
+
+/// 多选模式的底部操作条(批次 T-2):复制文本(仅当选中里有文本)/ 删除。
+///
+/// 没有选中任何一条时两个按钮都是禁用态 —— 不给「点了没反应」的按钮。
+class _SelectActionBar extends StatelessWidget {
+  const _SelectActionBar({
+    required this.count,
+    required this.canCopy,
+    required this.onCopy,
+    required this.onDelete,
+  });
+
+  /// 已选条数。
+  final int count;
+
+  /// 选中里是否至少有一条文本消息(否则「复制文本」没内容可复制)。
+  final bool canCopy;
+
+  /// 复制选中的文本。
+  final VoidCallback onCopy;
+
+  /// 删除选中的消息(内部会先弹确认框)。
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.heart;
+    return Container(
+      color: colors.bgCard,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.sm),
+          child: Row(
+            children: [
+              Expanded(
+                child: AppButton(
+                  key: const Key('chat.select.copy'),
+                  label: '复制文本',
+                  variant: AppButtonVariant.secondary,
+                  onPressed: canCopy ? onCopy : null,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: AppButton(
+                  key: const Key('chat.select.delete'),
+                  label: '删除',
+                  variant: AppButtonVariant.dangerFilled,
+                  onPressed: count == 0 ? null : onDelete,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

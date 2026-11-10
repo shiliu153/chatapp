@@ -126,7 +126,10 @@ jobs:
       # 两条都用 `--dart-define=API_BASE=http://127.0.0.1:1/api/v1` 把后端打死:
       # `smoke_test` 验「连不上也落在登录页」,`discovery_filter_test` 把标签池
       # override 成固定值、只验面板的**真实命中测试**(chip 选中 / 滑块拖动)。
-      - name: 在模拟器上跑 integration_test(冒烟 + 筛选面板指针事件)
+      # `post_card_actions_test` / `chat_multi_select_test` 同理:假 IM + 假网络,
+      # 只验手势(动态卡三块热区互不串 / 多选模式下点气泡是切换勾选)。
+      # **新增 integration 文件必须加进下面这一行的路径列表**,否则 CI 根本不会跑它。
+      - name: 在模拟器上跑 integration_test(冒烟 + 筛选面板 + 动态卡 + 聊天多选)
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -135,4 +138,4 @@ jobs:
           working-directory: app
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: flutter test integration_test/smoke_test.dart integration_test/discovery_filter_test.dart integration_test/post_card_actions_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
+          script: flutter test integration_test/smoke_test.dart integration_test/discovery_filter_test.dart integration_test/post_card_actions_test.dart integration_test/chat_multi_select_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
