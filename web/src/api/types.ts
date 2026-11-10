@@ -125,6 +125,35 @@ export interface Candidate {
   photos: Photo[]
 }
 
+/**
+ * 发现页的**临时筛选**(discovery.md §3.1「请求参数」,批次 S)。
+ *
+ * 语义是**覆盖**而不是替换:字段缺省 = 该字段没改过,后端继续沿用「想找的人」偏好
+ * (设置页仍是偏好的唯一持久化入口)。所以「只填城市」的对象里不能出现
+ * `age_min` / `age_max` —— 否则年龄区间会被钉死成面板里的默认值。
+ */
+export interface DiscoveryFilters {
+  /** 年龄下限(含),`18`–`99`;缺省沿用偏好 */
+  age_min?: number
+  /** 年龄上限(含),`18`–`99`;缺省沿用偏好 */
+  age_max?: number
+  /** 只看这个城市;缺省 / 空串 = 沿用偏好 */
+  city?: string
+  /** 标签 ID,**命中其一即可**;空数组 / 缺省 = 不筛标签 */
+  tag_ids?: number[]
+}
+
+/**
+ * 「今日精选」(discovery.md §3.11)。
+ *
+ * ⚠️ 响应是**包装对象** `{date, candidates}`,不是裸数组 —— 别按 `GET /discovery/candidates`
+ * 的形状解析。`date` 是服务端算种子用的日期(`YYYY-MM-DD`),本期只展示,不做「今天已看过」。
+ */
+export interface DailyCandidates {
+  date: string
+  candidates: Candidate[]
+}
+
 export interface MatchSummary {
   user_id: number
   /** 形如 u9,聊天时用它 */

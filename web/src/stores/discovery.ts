@@ -2,9 +2,19 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as discoveryApi from '@/api/discovery'
 import { parseApiError } from '@/api/error'
-import type { Candidate, MatchSummary, SwipeQuota, Tag } from '@/api/types'
+import type {
+  Candidate,
+  DailyCandidates,
+  DiscoveryFilters,
+  MatchSummary,
+  SwipeQuota,
+  Tag,
+} from '@/api/types'
 
 const MATCHES_PAGE_SIZE = 20
+
+/** 一次拉多少张候选卡(discovery.md §3.1 默认 10)。 */
+const CANDIDATES_LIMIT = 10
 
 /**
  * 撤销窗口(discovery.md §3.9):从客户端拿到滑卡响应起 **30 秒**。
@@ -54,6 +64,16 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   const submitting = ref(false)
   const error = ref('')
 
+  /**
+   * 发现页的临时筛选(discovery.md §3.1,批次 S)。
+   *
+   * **纯内存**:不写 localStorage、不调 `PATCH /users/me/preference` —— 筛选是
+   * 「这一次想换个范围看看」,偏好仍然只在设置页改。空对象 = 完全按偏好。
+   */
+  const filters = ref<DiscoveryFilters>({})
+  /** 「今日精选」(discovery.md §3.11);`null` = 还没拿到 / 拉失败,区块整块不渲染 */
+  const daily = ref<DailyCandidates | null>(null)
+
   /** 每日喜欢额度(discovery.md §3.10);`null` = 还不知道或拿不到,页面不显示 */
   const quota = ref<SwipeQuota | null>(null)
   /** 最近一次滑卡;`null` = 没有可撤销的操作(没划过 / 已撤销 / 已配对) */
@@ -68,6 +88,11 @@ export const useDiscoveryStore = defineStore('discovery', () => {
 
   const current = computed<Candidate | null>(() => candidates.value[index.value] ?? null)
   const exhausted = computed(() => !loading.value && current.value === null)
+
+  /** 有任一筛选字段生效:入口按钮显示激活态,空态文案也跟着变(否则用户不知道是「筛没了」) */
+  const filtersActive = computed(() => Object.keys(discoveryApi.filtersToParams(filters.value)).length > 0)
+  /** 精选卡片:直接用,空数组 = 区块不渲染(`daily` 为空时也是空数组) */
+  const dailyCandidates = computed<Candidate[]>(() => daily.value?.candidates ?? [])
 
   /** 额度条只在 `like_limit > 0`(额度开启)时显示;`0` = 不限,整块不显示 */
   const quotaVisible = computed(() => (quota.value?.like_limit ?? 0) > 0)
@@ -195,11 +220,12 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     syncTicker()
   }
 
+  /** 拉一批候选卡;带上当前筛选态(空对象 = 一个筛选参数都不发,后端按偏好筛)。 */
   async function loadCandidates(): Promise<void> {
     loading.value = true
     error.value = ''
     try {
-      candidates.value = await discoveryApi.fetchCandidates()
+      candidates.value = await discoveryApi.fetchCandidates(CANDIDATES_LIMIT, filters.value)
       index.value = 0
       // 新一批候选 = 旧的撤销目标已经不在卡堆里,收起撤销入口
       clearUndo()
@@ -209,6 +235,38 @@ export const useDiscoveryStore = defineStore('discovery', () => {
       loading.value = false
     }
   }
+
+  /**
+   * 应用筛选面板里选好的条件并重拉候选池。
+   *
+   * 传进来的对象**只含用户真正改过的字段**(面板负责减掉偏好默认值),所以
+   * 「只改城市」不会把年龄区间也发出去。值没变也照常重拉 —— 「应用」的语义是
+   * 「按这个范围重新给我一批」,不是「记住这个值」。
+   */
+  async function applyFilters(next: DiscoveryFilters): Promise<void> {
+    filters.value = next
+    await loadCandidates()
+  }
+
+  /** 「重置」= 回到完全按偏好:清空筛选并重拉,请求里不带任何筛选参数。 */
+  async function resetFilters(): Promise<void> {
+    await applyFilters({})
+  }
+
+  /**
+   * 拉「今日精选」(discovery.md §3.11)。
+   *
+   * 失败就当没有:它是滑卡主流程之上的加餐,不值得为它弹错误或挡住滑卡,
+   * 页面看到空数组就整块不渲染。
+   */
+  async function loadDaily(): Promise<void> {
+    try {
+      daily.value = await discoveryApi.fetchDaily()
+    } catch {
+      daily.value = null
+    }
+  }
+
 
   async function decide(action: 'like' | 'pass'): Promise<void> {
     const target = current.value
@@ -314,6 +372,10 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     error,
     quota,
     undoing,
+    filters,
+    daily,
+    dailyCandidates,
+    filtersActive,
     current,
     exhausted,
     quotaVisible,
@@ -326,6 +388,9 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     likeBlocked,
     loadQuota,
     loadCandidates,
+    applyFilters,
+    resetFilters,
+    loadDaily,
     decide,
     undo,
     dismissMatched,
