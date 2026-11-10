@@ -12,7 +12,12 @@
     5. **撤销滑卡是硬删除**(批次 O):只撤销「最近一次、30 秒内、未产生配对」的记录,
        删行后该目标重新回到候选池(候选池的 ``NOT EXISTS`` 排除条件一个字没改);
     6. **每日喜欢额度**(批次 O):``SWIPE_DAILY_LIKE_LIMIT`` 默认 0 = 不限,超限
-       ``429`` + ``42904``;``action=pass`` 与幂等重放不占额度,详见 ``quota.py``。
+       ``429`` + ``42904``;``action=pass`` 与幂等重放不占额度,详见 ``quota.py``;
+    7. **临时筛选**(批次 S):``candidates`` 的 ``age_min`` / ``age_max`` / ``city`` /
+       ``tag_ids`` 是查询参数,**不落库、不写回 Preference**;空值时行为与加筛选前
+       完全一致(连缓存键都不变);
+    8. **今日精选**(批次 S):``daily`` 复用同一套候选池,按「共同标签数 → 同城 → 种子
+       随机」排序,种子 = ``(日期, 用户 id)``,当天稳定、跨天自动换。
 
 关联文档:
     - 接口契约:docs/api/discovery.md
@@ -48,10 +53,11 @@ from . import quota
 from .cache_keys import invalidate_candidates
 from .exceptions import SwipeUndoUnavailable
 from .models import Match, Swipe, SwipeAction
-from .serializers import (CandidateSerializer, LikeReceivedSerializer, SwipeQuotaSerializer,
-                          SwipeSerializer, SwipeUndoSerializer, VisitSerializer)
-from .services import (candidate_pool_ids, likes_received_queryset, notify_match,
-                       visits_received_queryset)
+from .serializers import (CandidateSerializer, DailyCandidatesSerializer,
+                          LikeReceivedSerializer, SwipeQuotaSerializer, SwipeSerializer,
+                          SwipeUndoSerializer, VisitSerializer)
+from .services import (CandidateFilters, candidate_pool_ids, daily_candidate_ids,
+                       likes_received_queryset, notify_match, visits_received_queryset)
 from .throttles import (CandidateThrottle, SwipeThrottle, SwipeUndoThrottle,
                         VisitsCountThrottle, VisitsThrottle)
 
@@ -61,6 +67,17 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 20
+
+# 今日精选(批次 S):默认 6 张、上限 12,客户端按 ``date`` 判断「今天已看过」。
+DEFAULT_DAILY_LIMIT = 6
+MAX_DAILY_LIMIT = 12
+
+# 筛选参数的合法区间:18 岁是合规下限(与 PreferenceSerializer 同口径),
+# 城市长度对齐 Profile.city 的 max_length,标签数与标签池(12 个)同量级留点余量。
+FILTER_AGE_MIN = 18
+FILTER_AGE_MAX = 99
+FILTER_CITY_MAX_LENGTH = 50
+FILTER_TAG_IDS_MAX = 20
 
 # 撤销窗口(秒):前端按钮的倒计时环按同一个数字渲染,docs/api/discovery.md §3.9 有写。
 UNDO_WINDOW_SECONDS = 30
@@ -76,19 +93,125 @@ MATCH_ENTRY_SCHEMA = inline_serializer("MatchEntry", fields={
 })
 
 
-@extend_schema(parameters=[OpenApiParameter(
-    "limit", int, OpenApiParameter.QUERY, required=False,
-    description="拉取条数,默认 10,上限 20")],
+def _param_given(request, name: str) -> bool:
+    """查询参数是否「给了且非空串」(用于区分「没传」与「传了空值」)。
+
+    Args:
+        request: DRF 请求对象。
+        name: 参数名。
+
+    Returns:
+        参数存在且去掉空白后非空时为 ``True``。
+    """
+    value = request.query_params.get(name)
+    return value is not None and value.strip() != ""
+
+
+def _parse_tag_ids(request) -> tuple[int, ...]:
+    """解析逗号分隔的 ``tag_ids``。
+
+    Args:
+        request: DRF 请求对象。
+
+    Returns:
+        去重后升序的标签 id 元组;没传或空串返回空元组。
+
+    Raises:
+        ValidationError: 含非整数 / 非正整数,或个数超过 ``FILTER_TAG_IDS_MAX``。
+    """
+    raw = (request.query_params.get("tag_ids") or "").strip()
+    if not raw:
+        return ()
+    tag_ids: list[int] = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            tag_id = int(chunk)
+        except (TypeError, ValueError) as error:
+            raise ValidationError({"tag_ids": "必须是逗号分隔的整数"}) from error
+        if tag_id <= 0:
+            raise ValidationError({"tag_ids": "必须是正整数"})
+        if tag_id not in tag_ids:
+            tag_ids.append(tag_id)
+    if len(tag_ids) > FILTER_TAG_IDS_MAX:
+        raise ValidationError({"tag_ids": f"最多 {FILTER_TAG_IDS_MAX} 个"})
+    return tuple(sorted(tag_ids))
+
+
+def _parse_filters(request) -> CandidateFilters:
+    """解析候选池的临时筛选参数(缺省 = 不筛,非法值一律 400)。
+
+    参数缺省时 ``CandidateFilters`` 的字段留 ``None``,由服务层回落到「想找的人」
+    偏好 —— 这也是「不带任何筛选时缓存键一字不改」的前提。
+
+    Args:
+        request: DRF 请求对象。
+
+    Returns:
+        解析好的筛选条件(可能全空)。
+
+    Raises:
+        ValidationError: 年龄不是整数 / 超出 18–99、城市过长、``tag_ids`` 非法。
+    """
+    age_min = age_max = None
+    if _param_given(request, "age_min"):
+        age_min = int_param(request, "age_min", default=FILTER_AGE_MIN,
+                            minimum=FILTER_AGE_MIN, maximum=FILTER_AGE_MAX)
+    if _param_given(request, "age_max"):
+        age_max = int_param(request, "age_max", default=FILTER_AGE_MAX,
+                            minimum=FILTER_AGE_MIN, maximum=FILTER_AGE_MAX)
+    city = (request.query_params.get("city") or "").strip()
+    if len(city) > FILTER_CITY_MAX_LENGTH:
+        raise ValidationError({"city": f"城市名最长 {FILTER_CITY_MAX_LENGTH} 个字符"})
+    return CandidateFilters(age_min=age_min, age_max=age_max, city=city or None,
+                            tag_ids=_parse_tag_ids(request))
+
+
+def _candidate_cards(user_ids, request) -> list[dict]:
+    """按给定顺序取候选卡片(批量取资料 + 预取标签照片,不随张数增长)。
+
+    Args:
+        user_ids: 候选人账号 id 序列,顺序即响应顺序。
+        request: 当前请求,用于构造照片的绝对 URL。
+
+    Returns:
+        序列化后的候选卡片数组。
+    """
+    # ``user_id__in`` 查出来的顺序不保证,所以按入参顺序回排
+    profiles = {
+        profile.user_id: profile
+        for profile in Profile.objects.filter(user_id__in=user_ids)
+        .prefetch_related("tags", "user__photos")
+    }
+    ordered = [profiles[user_id] for user_id in user_ids if user_id in profiles]
+    return CandidateSerializer(ordered, many=True, context={"request": request}).data
+
+
+@extend_schema(parameters=[
+    OpenApiParameter("limit", int, OpenApiParameter.QUERY, required=False,
+                     description="拉取条数,默认 10,上限 20"),
+    OpenApiParameter("age_min", int, OpenApiParameter.QUERY, required=False,
+                     description="年龄下限(含),18–99;缺省沿用「想找的人」偏好"),
+    OpenApiParameter("age_max", int, OpenApiParameter.QUERY, required=False,
+                     description="年龄上限(含),18–99;缺省沿用「想找的人」偏好"),
+    OpenApiParameter("city", str, OpenApiParameter.QUERY, required=False,
+                     description="只看这个城市;缺省沿用偏好"),
+    OpenApiParameter("tag_ids", str, OpenApiParameter.QUERY, required=False,
+                     description="标签 id,逗号分隔(命中其一即可);缺省不筛标签")],
     responses={200: CandidateSerializer(many=True)})
 @api_view(["GET"])
 @throttle_classes([CandidateThrottle])
 def candidates(request):
     """候选卡片列表(GET /api/v1/discovery/candidates)。
 
-    按「想找的人」偏好过滤(性别、城市、年龄区间),再套用候选池的排除规则。
+    按「想找的人」偏好过滤(性别、城市、年龄区间),再套用候选池的排除规则;
+    可选的 ``age_min`` / ``age_max`` / ``city`` / ``tag_ids`` 在**本次请求内**覆盖
+    对应的偏好字段(不写回偏好),缺省时行为与加筛选前完全一致。
 
     Args:
-        request: DRF 请求对象,支持 ``limit`` 查询参数(默认 10,上限 20)。
+        request: DRF 请求对象,支持 ``limit``(默认 10,上限 20)与四个筛选参数。
 
     Returns:
         候选卡片数组,字段见 ``CandidateSerializer``。
@@ -99,21 +222,45 @@ def candidates(request):
     # 非法值统一 400,越界收敛到 [1, MAX_LIMIT];不再把负数透传给切片导致 500。
     limit = int_param(request, "limit", default=DEFAULT_LIMIT,
                       minimum=1, maximum=MAX_LIMIT)
+    filters = _parse_filters(request)
 
     # 候选池走缓存(键带用户版本 + 全局版本,写路径升版本即失效):
     # 池子查询是这条接口最贵的一段,缓存后每次只做内存抽样 + 取 10 张资料卡。
+    # 注意:只有真的带了筛选才会走带指纹的分桶键,默认路径命中原来那份缓存。
     pool_size = max(limit, getattr(settings, "CANDIDATE_POOL_SIZE", 200))
-    pool_ids = candidate_pool_ids(me, preference, pool_size)
+    pool_ids = candidate_pool_ids(me, preference, pool_size, filters)
     picked = random.sample(pool_ids, min(limit, len(pool_ids)))
-    # 抽样后按 picked 的顺序回排;``user_id__in`` 查出来的顺序不保证
-    profiles = {
-        profile.user_id: profile
-        for profile in Profile.objects.filter(user_id__in=picked)
-        .prefetch_related("tags", "user__photos")
-    }
-    ordered = [profiles[user_id] for user_id in picked if user_id in profiles]
-    return Response(CandidateSerializer(ordered, many=True,
-                                        context={"request": request}).data)
+    return Response(_candidate_cards(picked, request))
+
+
+@extend_schema(parameters=[OpenApiParameter(
+    "limit", int, OpenApiParameter.QUERY, required=False,
+    description="精选张数,默认 6,上限 12")],
+    responses={200: DailyCandidatesSerializer})
+@api_view(["GET"])
+@throttle_classes([CandidateThrottle])
+def daily(request):
+    """今日精选(GET /api/v1/discovery/daily)。
+
+    从同一套候选池里取 N 张(排除规则与 ``candidates`` 完全一致),按
+    「共同标签数 desc → 同城优先 → 种子随机」排序;种子 = ``(日期, 用户 id)``,
+    因此**同一天反复刷新结果与顺序都不变**,第二天自动换一批。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit``(默认 6,上限 12)。
+
+    Returns:
+        ``{"date": <日期>, "candidates": [候选卡...]}``,卡片字段与
+        ``GET /discovery/candidates`` 一致。
+    """
+    me = request.user
+    preference = get_profile(me).preference
+    # 与 candidates 同款限流:精选每刷新一次都要过一遍池子,不能变成免限流的旁路。
+    limit = int_param(request, "limit", default=DEFAULT_DAILY_LIMIT,
+                      minimum=1, maximum=MAX_DAILY_LIMIT)
+    day, user_ids = daily_candidate_ids(me, preference, limit)
+    return Response({"date": day.isoformat(),
+                     "candidates": _candidate_cards(user_ids, request)})
 
 
 @extend_schema(request=SwipeSerializer, responses={200: inline_serializer(

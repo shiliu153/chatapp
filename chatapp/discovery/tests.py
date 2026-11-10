@@ -1388,3 +1388,312 @@ class SwipeQuotaDisabledTests(APITestCase):
     def test_quota_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get(self.QUOTA_URL).status_code, 401)
+
+
+def _make_tag(name):
+    """造一个兴趣标签(批次 S 的标签筛选用例共用)。
+
+    Args:
+        name: 标签名(唯一)。
+
+    Returns:
+        新建或已存在的标签。
+    """
+    tag, _ = Tag.objects.get_or_create(name=name, defaults={"icon": "star"})
+    return tag
+
+
+class CandidateFilterTests(APITestCase):
+    """候选池的临时筛选(批次 S):覆盖偏好、非法值 400、缓存键不变与去重。"""
+
+    URL = "/api/v1/discovery/candidates"
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.me = _make_swipe_user("13800138000", gender="male")
+        Profile.objects.filter(user=self.me).update(city="上海")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make(self, phone, city="上海", birthday="2000-01-01", tags=()):
+        """造一个候选用户,可附带标签。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+            city: 城市。
+            birthday: 生日。
+            tags: 要挂上的标签序列。
+
+        Returns:
+            新建的用户实例。
+        """
+        user = _make_swipe_user(phone)
+        Profile.objects.filter(user=user).update(city=city, birthday=birthday)
+        if tags:
+            user.profile.tags.set(tags)
+        return user
+
+    def _ids(self, resp):
+        """从响应里取出 ``user_id`` 列表(保持顺序)。
+
+        Args:
+            resp: 接口响应。
+
+        Returns:
+            账号 id 列表。
+        """
+        return [item["user_id"] for item in resp.json()]
+
+    def _pool_keys(self):
+        """Redis 里所有候选池键(去掉前缀,便于断言后缀)。
+
+        Returns:
+            键名字符串列表。
+        """
+        from django_redis import get_redis_connection
+
+        prefix = f"chatapp:2:disc:cand:{self.me.id}:"
+        keys = [raw.decode() for raw in get_redis_connection("default").keys("*disc:cand:*")]
+        return [key.split("chatapp:2:", 1)[-1] for key in keys if prefix in key]
+
+    def test_city_filter_overrides_preference(self):
+        """``city`` 覆盖偏好里的城市(偏好不动)。"""
+        Preference.objects.create(profile=self.me.profile, city="上海",
+                                  age_min=18, age_max=99)
+        hangzhou = self._make("13900139000", city="杭州")
+        self._make("13900139001", city="上海")
+        self.assertEqual(self._ids(self.client.get(f"{self.URL}?city=杭州")), [hangzhou.id])
+        # 偏好没被写回:不带筛选时仍按上海过滤
+        self.assertEqual(len(self._ids(self.client.get(self.URL))), 1)
+        self.assertEqual(Preference.objects.get(profile=self.me.profile).city, "上海")
+
+    def test_age_range_filter_overrides_preference(self):
+        """``age_min`` / ``age_max`` 覆盖偏好的年龄区间,边界含端点。"""
+        today = timezone.localdate()
+        Preference.objects.create(profile=self.me.profile, age_min=18, age_max=99)
+        in_range = self._make("13900139000", birthday=_years_ago(today, 28))
+        self._make("13900139001", birthday=_years_ago(today, 24))    # 太小
+        self._make("13900139002", birthday=_years_ago(today, 31))    # 太大
+        resp = self.client.get(f"{self.URL}?age_min=25&age_max=30")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._ids(resp), [in_range.id])
+
+    def test_inverted_age_range_is_400(self):
+        """``age_min=40&age_max=20`` → 400(非法参数不新增业务码)。"""
+        resp = self.client.get(f"{self.URL}?age_min=40&age_max=20")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], 400)
+
+    def test_non_numeric_filters_are_400(self):
+        """非整数年龄 / 非整数或非正标签 id 一律 400。"""
+        for query in ("age_min=abc", "age_max=25.5", "tag_ids=1,x", "tag_ids=-1", "tag_ids=0"):
+            with self.subTest(query=query):
+                self.assertEqual(self.client.get(f"{self.URL}?{query}").status_code, 400)
+
+    def test_city_too_long_is_400(self):
+        """城市名超过 ``Profile.city`` 的长度上限时 400。"""
+        self.assertEqual(self.client.get(f"{self.URL}?city={'长' * 51}").status_code, 400)
+
+    def test_tag_ids_filter_requires_one_match(self):
+        """``tag_ids`` 是「命中其一即可」,且重复标签不会让人重复出现。"""
+        hiking = _make_tag("徒步")
+        reading = _make_tag("读书")
+        music = _make_tag("音乐")
+        Profile.objects.get(user=self.me).tags.set([hiking, reading])
+        both = self._make("13900139000", tags=[hiking, reading])
+        only_hiking = self._make("13900139001", tags=[hiking])
+        self._make("13900139002", tags=[music])
+        resp = self.client.get(f"{self.URL}?tag_ids={hiking.id},{reading.id}")
+        self.assertEqual(resp.status_code, 200)
+        # 命中两个标签的人只出现一次,不因 M2M JOIN 产生重复行
+        self.assertEqual(sorted(self._ids(resp)), sorted([both.id, only_hiking.id]))
+
+    def test_tag_filter_excludes_people_without_tag(self):
+        """没有该标签的人不进结果。"""
+        hiking = _make_tag("徒步")
+        music = _make_tag("音乐")
+        tagged = self._make("13900139000", tags=[hiking])
+        self._make("13900139001", tags=[music])
+        self.assertEqual(self._ids(self.client.get(f"{self.URL}?tag_ids={hiking.id}")), [tagged.id])
+
+    def test_default_path_keeps_cache_key_and_filter_adds_fingerprint(self):
+        """无筛选时缓存键与改动前完全一致,只有带筛选才追加 ``:f{指纹}``。"""
+        self._make("13900139000", city="杭州")
+        self.assertEqual(self.client.get(self.URL).status_code, 200)
+        default_key = f"disc:cand:{self.me.id}:u0:g0:p200"
+        self.assertIsNotNone(cache.get(default_key), self._pool_keys())
+        self.assertFalse([key for key in self._pool_keys() if ":f" in key.split(":p", 1)[-1]])
+
+        self.assertEqual(self.client.get(f"{self.URL}?city=杭州").status_code, 200)
+        filtered = [key for key in self._pool_keys() if ":f" in key.split(":p", 1)[-1]]
+        self.assertEqual(len(filtered), 1, self._pool_keys())
+
+    def test_same_filter_reuses_one_bucket(self):
+        """同一份筛选重复请求只占一个分桶(指纹稳定,不按请求次数膨胀)。"""
+        self._make("13900139000", city="杭州")
+        for _ in range(3):
+            self.assertEqual(self.client.get(f"{self.URL}?city=杭州").status_code, 200)
+        filtered = [key for key in self._pool_keys() if ":f" in key.split(":p", 1)[-1]]
+        self.assertEqual(len(filtered), 1, self._pool_keys())
+
+    def test_different_filters_get_different_buckets(self):
+        """不同筛选各自成桶,不会互相污染结果。"""
+        self._make("13900139000", city="杭州")
+        self._make("13900139001", city="北京")
+        self.assertEqual(len(self._ids(self.client.get(f"{self.URL}?city=杭州"))), 1)
+        self.assertEqual(len(self._ids(self.client.get(f"{self.URL}?city=北京"))), 1)
+        filtered = [key for key in self._pool_keys() if ":f" in key.split(":p", 1)[-1]]
+        self.assertEqual(len(filtered), 2, self._pool_keys())
+
+
+class DailyPicksTests(APITestCase):
+    """今日精选(批次 S):当天稳定、跨天变化、同口径排除、共同标签数排序。"""
+
+    URL = "/api/v1/discovery/daily"
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.me = _make_swipe_user("13800138000", gender="male")
+        Profile.objects.filter(user=self.me).update(city="上海")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
+
+    def _make(self, phone, city="上海", tags=()):
+        """造一个候选用户,可指定城市与标签。
+
+        Args:
+            phone: 手机号,同时用作昵称。
+            city: 城市。
+            tags: 要挂上的标签序列。
+
+        Returns:
+            新建的用户实例。
+        """
+        user = _make_swipe_user(phone)
+        Profile.objects.filter(user=user).update(city=city)
+        if tags:
+            user.profile.tags.set(tags)
+        return user
+
+    def _ids(self, resp):
+        """从响应里取出精选卡片的 ``user_id`` 列表(保持顺序)。
+
+        Args:
+            resp: 接口响应。
+
+        Returns:
+            账号 id 列表。
+        """
+        return [item["user_id"] for item in resp.json()["candidates"]]
+
+    def test_same_day_is_stable(self):
+        """同一天连续两次调用,结果与顺序完全相同。"""
+        for index in range(8):
+            self._make(f"1390013900{index}")
+        first = self.client.get(self.URL).json()
+        second = self.client.get(self.URL).json()
+        self.assertEqual(first, second)
+
+    def test_next_day_changes(self):
+        """把日期 monkeypatch 成明天,结果变化(同一天内仍稳定)。"""
+        for index in range(10):
+            self._make(f"1390013900{index}")
+        today = timezone.localdate()
+        first = self.client.get(self.URL).json()
+        with patch("discovery.services.today_date",
+                   return_value=today + timedelta(days=1)):
+            tomorrow = self.client.get(self.URL).json()
+        self.assertEqual(tomorrow["date"], (today + timedelta(days=1)).isoformat())
+        self.assertNotEqual(first["candidates"], tomorrow["candidates"])
+
+    def test_response_shape_and_date(self):
+        """返回 ``{date, candidates}``,date 是服务端当天,卡片字段与候选卡一致。"""
+        self._make("13900139000")
+        resp = self.client.get(self.URL)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["date"], timezone.localdate().isoformat())
+        self.assertEqual(set(body["candidates"][0]),
+                         {"user_id", "nickname", "gender", "age", "city", "bio", "tags", "photos"})
+
+    def test_default_limit_and_cap(self):
+        """默认 6 张、上限 12;候选不足时有多少给多少。"""
+        for index in range(15):
+            self._make(f"139001390{index:02d}")
+        self.assertEqual(len(self._ids(self.client.get(self.URL))), 6)
+        self.assertEqual(len(self._ids(self.client.get(f"{self.URL}?limit=12"))), 12)
+        self.assertEqual(len(self._ids(self.client.get(f"{self.URL}?limit=99"))), 12)
+        self.assertEqual(self.client.get(f"{self.URL}?limit=abc").status_code, 400)
+
+    def test_empty_pool_is_empty_list(self):
+        """候选池为空时返回空数组,不报错。"""
+        resp = self.client.get(self.URL)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["candidates"], [])
+
+    def test_excludes_self_swiped_matched_and_incomplete(self):
+        """排除自己 / 已划过 / 已配对 / 资料不全 / 无过审照片,与 candidates 同口径。"""
+        fresh = self._make("13900139000")
+        swiped = self._make("13900139001")
+        matched = self._make("13900139002")
+        incomplete = self._make("13900139003")
+        Swipe.objects.create(swiper=self.me, target=swiped, action=SwipeAction.PASS)
+        Match.objects.create(**Match.pair_kwargs(self.me, matched))
+        Profile.objects.filter(user=incomplete).update(status=ProfileStatus.INCOMPLETE)
+        no_photo = self._make("13900139004")
+        Photo.objects.filter(user=no_photo).delete()
+        self.assertEqual(self._ids(self.client.get(self.URL)), [fresh.id])
+
+    def test_orders_by_shared_tag_count(self):
+        """共同标签多的排前面(2 个 > 0 个)。"""
+        hiking = _make_tag("徒步")
+        reading = _make_tag("读书")
+        Profile.objects.get(user=self.me).tags.set([hiking, reading])
+        two_shared = self._make("13900139000", tags=[hiking, reading])
+        none_shared = self._make("13900139001")
+        self.assertEqual(self._ids(self.client.get(self.URL)), [two_shared.id, none_shared.id])
+
+    def test_same_city_comes_before_other_city(self):
+        """共同标签数相同时同城优先。"""
+        same_city = self._make("13900139000", city="上海")
+        other_city = self._make("13900139001", city="北京")
+        self.assertEqual(self._ids(self.client.get(self.URL)), [same_city.id, other_city.id])
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        self.assertEqual(self.client.get(self.URL).status_code, 401)
+
+
+class SharedTagCountTests(TestCase):
+    """共同标签数聚合(批次 S):一条分组查询,不按人循环。"""
+
+    def setUp(self):
+        self.me = _make_swipe_user("13800138000", gender="male")
+        self.hiking = _make_tag("徒步")
+        self.reading = _make_tag("读书")
+        self.music = _make_tag("音乐")
+        Profile.objects.get(user=self.me).tags.set([self.hiking, self.reading])
+
+    def test_counts_shared_tags_in_one_query(self):
+        """只数与我共有的标签,并给出 ``{user_id: n}``。"""
+        from .services import shared_tag_counts
+
+        two = _make_swipe_user("13900139000")
+        two.profile.tags.set([self.hiking, self.reading, self.music])
+        none = _make_swipe_user("13900139001")
+        none.profile.tags.set([self.music])
+        with CaptureQueriesContext(connection) as queries:
+            counts = shared_tag_counts(self.me, [two.id, none.id])
+        self.assertEqual(counts, {two.id: 2})
+        self.assertEqual(len(queries.captured_queries), 2)   # 我的标签 + 分组聚合,不随人数增长
+
+    def test_empty_inputs_return_empty_dict(self):
+        """我没有标签或池子为空时返回空字典。"""
+        from .services import shared_tag_counts
+
+        other = _make_swipe_user("13900139000")
+        self.assertEqual(shared_tag_counts(self.me, []), {})
+        Profile.objects.get(user=self.me).tags.clear()
+        self.assertEqual(shared_tag_counts(self.me, [other.id]), {})

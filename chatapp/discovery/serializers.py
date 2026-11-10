@@ -40,6 +40,17 @@ class CandidateSerializer(serializers.ModelSerializer):
         return PhotoSerializer(approved, many=True, context=self.context).data
 
 
+class DailyCandidatesSerializer(serializers.Serializer):
+    """「今日精选」的响应:当天日期 + 与候选卡同构的卡片数组(批次 S)。
+
+    ``date`` 是服务端算种子用的日期,客户端据此判断「今天已看过」;
+    只用于 ``@extend_schema`` 声明响应形状,视图直接拼字典返回。
+    """
+
+    date = serializers.DateField(help_text="本次精选对应的日期(服务端时区)")
+    candidates = CandidateSerializer(many=True, help_text="精选卡片,字段与候选卡一致")
+
+
 class SwipeSerializer(serializers.Serializer):
     """滑卡入参:目标用户与动作。"""
 
