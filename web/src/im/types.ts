@@ -213,7 +213,25 @@ export interface ImClient {
     Promise<ChatMessage>
   /** 发送贴纸(不支持时抛错):消息里只带 id,资源在客户端本地 */
   sendSticker(peerId: string, stickerId: string, refMsgId?: number): Promise<ChatMessage>
+  /** 删一条聊天记录。菜单里的「删除」用它;实现按批量接口走,别各写一份。 */
   deleteMessage(msgId: string): Promise<void>
+  /**
+   * 批量删除聊天记录(批次 T):**单方删除** —— 只删我这一侧的副本。
+   *
+   * 消息本体不动、不通知对端、对端历史里还在、不可恢复。它和「撤回」不是一回事:
+   * 撤回是 2 分钟内对**双方**生效,删除只删自己这边。
+   *
+   * 走 imserver 的 HTTP `POST /im/api/messages/delete`(**不是 WS 帧**:低频写操作,
+   * 加一个帧要三端 fixture 同改,见 `docs/ops/imserver.md` §21)。
+   * 服务端上限 **50 条/次**(超过 → `400` + `42201`),拆批是调用方的事。
+   *
+   * Args:
+   *   ids: 消息 id 列表(服务端接受字符串或整数,这里统一传字符串)。
+   *
+   * Returns:
+   *   本次**新**隐藏的条数(幂等:同一批删第二次返回 0)。
+   */
+  deleteMessages(ids: string[]): Promise<number>
   revokeMessage(msgId: string): Promise<void>
   markConversationRead(peerId: string): Promise<void>
   /**

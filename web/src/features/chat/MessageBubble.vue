@@ -19,6 +19,12 @@ const props = withDefaults(
     isRead?: boolean
     /** 是否支持已读回执(不支持时宁可不显示,也不要假状态) */
     readReceiptEnabled?: boolean
+    /** 多选模式(批次 T):顶栏已切到「已选 N 条」,点气泡本体 = 切换勾选 */
+    selecting?: boolean
+    /** 这条能否勾选(已撤回 / 发送中 / 系统灰条不行,见 `select.ts`) */
+    selectable?: boolean
+    /** 当前是否被勾选 */
+    selected?: boolean
   }>(),
   {
     peerName: '',
@@ -27,15 +33,30 @@ const props = withDefaults(
     hit: false,
     isRead: false,
     readReceiptEnabled: false,
+    selecting: false,
+    selectable: false,
+    selected: false,
   },
 )
-defineEmits<{
+const emit = defineEmits<{
   retry: []
   openImage: [ChatMessage]
   menu: [MouseEvent]
   /** 点了气泡上方的引用块:跳到被引用的原消息(批次 L-2) */
   jumpQuote: [number]
+  /** 多选模式下点了气泡本体:切换勾选(批次 T) */
+  select: []
 }>()
+
+/**
+ * 点气泡本体。
+ *
+ * 只有多选模式 + 这条可勾时才吃这一下:平时点气泡没有任何行为(不关菜单、不展开),
+ * 所以不能无条件 `@click` —— 那会把图片点击、引用块点击一起挡掉。
+ */
+function onBodyClick(): void {
+  if (props.selecting && props.selectable) emit('select')
+}
 
 /**
  * 我方消息的已读标记。
@@ -116,11 +137,30 @@ const quoteText = computed(() => {
     class="message-bubble"
     :class="[
       props.message.isSelf ? 'message-bubble--self' : 'message-bubble--peer',
-      { 'message-bubble--hit': props.hit },
+      {
+        'message-bubble--hit': props.hit,
+        'message-bubble--selecting': props.selecting,
+        'message-bubble--selected': props.selecting && props.selected,
+      },
     ]"
     :data-msg-id="props.message.msgId"
+    @click="onBodyClick"
     @contextmenu.prevent="$emit('menu', $event)"
   >
+    <!-- 多选勾选圈(批次 T):只有可勾的消息才出现,不可勾的留等宽空位保持对齐 -->
+    <span
+      v-if="props.selecting"
+      class="message-bubble__check"
+      :class="{
+        'message-bubble__check--on': props.selected,
+        'message-bubble__check--off': !props.selectable,
+      }"
+      :data-testid="props.selectable ? 'select-check' : 'select-check-disabled'"
+      aria-hidden="true"
+    >
+      {{ props.selected ? '✓' : '' }}
+    </span>
+
     <AppAvatar
       v-if="!props.message.isSelf"
       :src="props.peerAvatar"
@@ -130,6 +170,7 @@ const quoteText = computed(() => {
 
     <!-- 悬停出现的 ⋯:与右键菜单是同一组件、同一入口函数(spec §6.4) -->
     <button
+      v-if="!props.selecting"
       type="button"
       class="message-bubble__more"
       aria-label="消息操作"
@@ -211,6 +252,38 @@ const quoteText = computed(() => {
 .message-bubble--self {
   align-self: flex-end;
   flex-direction: row-reverse;
+}
+/* 多选模式:勾选圈放在最外侧(自己的消息在右、对方的在左),气泡整体给出选中反馈 */
+.message-bubble--selecting {
+  cursor: pointer;
+  align-items: center;
+}
+.message-bubble__check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--color-text3);
+  border-radius: var(--radius-full);
+  color: var(--color-bg-card);
+  font-size: var(--text-badge);
+  line-height: 1;
+}
+.message-bubble__check--on {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+}
+/* 不可勾的消息(已撤回 / 系统灰条)留空位,但去掉可点的暗示 */
+.message-bubble__check--off {
+  border-style: dashed;
+  opacity: 0.4;
+}
+/* 选中:用外扩阴影做淡底,不改变布局(与搜索命中的处理一致) */
+.message-bubble--selected {
+  border-radius: var(--radius-bubble);
+  box-shadow: 0 0 0 var(--space-sm) var(--tint-brand);
 }
 /* 引用块 + 气泡:竖排,自己的消息靠右对齐 */
 .message-bubble__stack {

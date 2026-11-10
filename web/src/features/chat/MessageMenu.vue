@@ -4,11 +4,12 @@ import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
 import { canQuote } from './quote'
 import { canRecall } from './recall'
+import { canSelectMessage } from './select'
 
 const props = defineProps<{ message: ChatMessage; x: number; y: number }>()
 const emit = defineEmits<{
   close: []
-  action: ['copy' | 'delete' | 'retry' | 'recall' | 'quote']
+  action: ['copy' | 'delete' | 'multi' | 'retry' | 'recall' | 'quote']
 }>()
 
 const MENU_WIDTH = 160
@@ -22,6 +23,8 @@ const style = computed(() => ({
 const canCopy = computed(
   () => props.message.kind === ChatMessageKind.text && props.message.text.length > 0,
 )
+/** 多选入口(批次 T):发送中 / 已撤回 / 系统灰条不提供(见 `select.ts`) */
+const canSelect = computed(() => canSelectMessage(props.message))
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') emit('close')
@@ -99,6 +102,16 @@ onUnmounted(() => {
       @click.stop="emit('action', 'retry')"
     >
       重发
+    </button>
+    <button
+      v-if="canSelect"
+      type="button"
+      class="message-menu__multi"
+      role="menuitem"
+      data-testid="menu-multi"
+      @click.stop="emit('action', 'multi')"
+    >
+      多选
     </button>
     <button
       v-if="props.message.isSelf && !props.message.isPending"

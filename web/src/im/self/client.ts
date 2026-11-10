@@ -477,8 +477,31 @@ export class SelfImClient implements ImClient {
     throw new Error('发送失败,请重试')
   }
 
+  /**
+   * 批量删除聊天记录(批次 T):`POST /im/api/messages/delete`,单方删除。
+   *
+   * 空列表直接返回 0 不发请求:服务端把空数组判 `42201`,而「什么都没选」不是错误。
+   * 这里**不拆批** —— 50 条上限由 UI 侧的选择上限兜住,拆批会让「部分成功」
+   * 与「失败保留选中」两个口径打架(见 `chat.ts::deleteMessages`)。
+   *
+   * Args:
+   *   ids: 消息 id 列表(≤ 50 条)。
+   *
+   * Returns:
+   *   本次新隐藏的条数。
+   *
+   * Raises:
+   *   ApiError: 鉴权失败 `40101` / 参数不合法 `42201` / 限流 `42901`。
+   */
+  async deleteMessages(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0
+    const data = await this.post('/messages/delete', { ids })
+    return Number(data.deleted ?? 0)
+  }
+
+  /** 删一条:走同一个批量接口,避免两条路径的服务端口径日后走样。 */
   async deleteMessage(msgId: string): Promise<void> {
-    void msgId
+    await this.deleteMessages([msgId])
   }
 
   async revokeMessage(msgId: string): Promise<void> {

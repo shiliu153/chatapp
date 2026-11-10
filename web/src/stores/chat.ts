@@ -728,14 +728,67 @@ export const useChatStore = defineStore('chat', () => {
     await sendText(message.peerId, message.text)
   }
 
-  async function deleteMessage(message: ChatMessage): Promise<void> {
+  /**
+   * 服务端确认过的消息 id 长这样(`local-…` 是本地乐观占位,服务端根本没有这一行)。
+   *
+   * 判据必须是「形状」而不是 `seq > 0`:失败/重发的消息也可能拿到过 seq,
+   * 而占位 id 是本地生成的,上行只会有害(服务端 `42201`)。
+   */
+  function isServerMessageId(msgId: string): boolean {
+    return /^\d+$/.test(msgId)
+  }
+
+  /** 从本地缓存摘掉若干条,并清掉它们的待发内容(图片文件 / 语音 blob)。 */
+  function forgetMessages(peerId: string, msgIds: string[]): void {
+    const drop = new Set(msgIds)
     messages.value = {
       ...messages.value,
-      [message.peerId]: messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId),
+      [peerId]: messagesOf(peerId).filter((item) => !drop.has(item.msgId)),
     }
-    takePendingFile(message.msgId)
-    await ensureConnected()
-    await client.deleteMessage(message.msgId)
+    for (const msgId of msgIds) {
+      takePendingFile(msgId)
+      pendingVoices.delete(msgId)
+    }
+  }
+
+  /**
+   * 批量删除聊天记录(批次 T):**单方删除**,只删我这一侧(对方仍可见,也不会收到任何帧)。
+   *
+   * 顺序是硬约束:**先服务端、后本地**。反过来的话接口一失败就会留下「界面上没了、
+   * 刷新又回来」的错觉,而调用方拿到的却是异常 —— 用户只会觉得删不掉还丢消息。
+   * 失败时原样上抛且**不动本地列表**,由调用方保留选中并提示。
+   *
+   * 本地乐观消息(还没拿到服务端 id 的占位)不上行,只在本地摘掉:它们本来就没落库。
+   *
+   * Args:
+   *   peerId: 会话对端的 IM id,如 `u9`。
+   *   msgIds: 要删的消息 id 列表(UI 侧限制 ≤ 50 条,与服务端上限一致)。
+   *
+   * Returns:
+   *   服务端本次新隐藏的条数(可能小于 `msgIds.length`:其中包含本地占位,
+   *   或其中有早就删过的)。
+   */
+  async function deleteMessages(peerId: string, msgIds: string[]): Promise<number> {
+    if (msgIds.length === 0) return 0
+    const remote = msgIds.filter(isServerMessageId)
+    let deleted = 0
+    if (remote.length > 0) {
+      await ensureConnected()
+      deleted = await client.deleteMessages(remote)
+    }
+    forgetMessages(peerId, msgIds)
+    if (remote.length > 0) {
+      // 服务端同时把未读计数器减了,`last_message` 也可能换成「上一条可见」:
+      // 不重拉的话,会话列表会挂着一条已经删掉的摘要与虚高的未读数。
+      // 失败只吞掉 —— 消息已经删了,不能因为列表没刷新就把它变成失败。
+      await loadConversations().catch(() => {})
+    }
+    return deleted
+  }
+
+  /** 删一条(菜单里的「删除」):复用批量路径,别让两条口径日后走样。 */
+  async function deleteMessage(message: ChatMessage): Promise<void> {
+    await deleteMessages(message.peerId, [message.msgId])
   }
 
   /** 撤回成功/收到撤回事件:把对应消息标成已撤回(气泡变居中灰字)。 */
@@ -859,6 +912,8 @@ export const useChatStore = defineStore('chat', () => {
     sendSticker,
     resend,
     deleteMessage,
+    /** 批量删除(批次 T):先服务端后本地,失败原样上抛、不动本地列表 */
+    deleteMessages,
     revokeMessage,
     deleteConversation,
     /** 置顶 / 免打扰(批次 N):写入后按服务端真值更新本地并重拉列表 */

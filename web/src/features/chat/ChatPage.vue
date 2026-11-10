@@ -6,13 +6,17 @@ import AppButton from '@/components/AppButton.vue'
 import AppInput from '@/components/AppInput.vue'
 import { useChatStore } from '@/stores/chat'
 import { useDiscoveryStore } from '@/stores/discovery'
+import { parseApiError } from '@/api/error'
 import ChatMoreMenu from './ChatMoreMenu.vue'
+import DeleteMessagesDialog from './DeleteMessagesDialog.vue'
 import EmojiPanel from './EmojiPanel.vue'
 import ImageViewer from './ImageViewer.vue'
 import MessageBubble from './MessageBubble.vue'
 import MessageMenu from './MessageMenu.vue'
 import UnmatchDialog from './UnmatchDialog.vue'
+import { clearDraft, readDraft, saveDraft } from './draft'
 import { canQuote, quoteSummaryOf } from './quote'
+import { canSelectMessage } from './select'
 import { formatTime, shouldShowTime } from './time'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
@@ -48,7 +52,7 @@ const readReceiptEnabled = computed(() => store.capabilities.readReceipt)
 function isReadByPeer(message: ChatMessage): boolean {
   return message.seq > 0 && message.seq <= (store.peerReadSeq[props.peerId] ?? 0)
 }
-const draft = ref('')
+const draft = ref(readDraft(props.peerId))
 const sending = ref(false)
 const scroller = ref<HTMLElement | null>(null)
 const picker = ref<HTMLInputElement | null>(null)
@@ -59,6 +63,19 @@ const moreOpen = ref(false)
 const unmatchOpen = ref(false)
 const unmatching = ref(false)
 const unmatchError = ref('')
+
+// --- 多选删除(批次 T) ---
+/** 多选模式开关:顶栏换成「已选 N 条」+「取消」,点气泡本体 = 切换勾选 */
+const selecting = ref(false)
+/** 已勾选的消息 id;每次替换成**新 Set**,让模板与 computed 的依赖稳定触发 */
+const selected = ref<Set<string>>(new Set())
+/** 删除确认框与进行中标志(失败时不关框里的选中,只关框 + toast) */
+const bulkDeleteOpen = ref(false)
+const bulkDeleting = ref(false)
+/** 一次最多删 50 条:服务端上限就是这个数(`docs/ops/imserver.md` §21.6),超了直接 42201 */
+const BULK_DELETE_LIMIT = 50
+/** 草稿防抖窗口(批次 T):边打字边写 localStorage 没必要,停顿 300ms 落一次 */
+const DRAFT_SAVE_DELAY_MS = 300
 
 // --- 录音(状态机见 useVoiceRecorder;手势按 PC 适配为点击式) ---
 const toast = useToast()
@@ -78,21 +95,32 @@ function onMicClick(): void {
   void voice.start()
 }
 
-/** 录音中按 Esc 取消(PC 上的肌肉记忆)。 */
+/** 录音中按 Esc 取消(PC 上的肌肉记忆);多选模式下按 Esc 退出多选。 */
 function onEscape(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && voice.phase.value === 'recording') void voice.cancel()
+  if (event.key !== 'Escape') return
+  if (voice.phase.value === 'recording') {
+    void voice.cancel()
+    return
+  }
+  if (selecting.value) exitMulti()
 }
 
 function openMenu(message: ChatMessage, event: MouseEvent) {
+  // 多选模式下长按/右键菜单一律失效:点消息只切换勾选(与 App 同口径)
+  if (selecting.value) return
   menu.value = { message, x: event.clientX, y: event.clientY }
 }
 
 async function onMenuAction(
-  action: 'copy' | 'delete' | 'retry' | 'recall' | 'quote',
+  action: 'copy' | 'delete' | 'multi' | 'retry' | 'recall' | 'quote',
 ) {
   const target = menu.value?.message
   menu.value = null
   if (!target) return
+  if (action === 'multi') {
+    enterMulti(target)
+    return
+  }
   if (action === 'quote') {
     if (canQuote(target)) startQuote(target)
     return
@@ -125,6 +153,124 @@ const peerName = computed(() => conversation.value?.showName ?? '')
 const peerAvatar = computed(() => conversation.value?.faceUrl ?? null)
 const title = computed(() => peerName.value || (props.peerId === 'system_notice' ? '系统通知' : props.peerId))
 
+// --- 多选删除(批次 T)---
+
+/**
+ * 进多选模式。
+ *
+ * 从「多选」菜单进,顺手把**触发它的那条**勾上 —— 否则用户点了菜单里那一项之后
+ * 还要再点一次同一条,是多余的一步。
+ */
+function enterMulti(message: ChatMessage): void {
+  selecting.value = true
+  selected.value = canSelectMessage(message) ? new Set([message.msgId]) : new Set()
+  showEmoji.value = false
+}
+
+function exitMulti(): void {
+  selecting.value = false
+  selected.value = new Set()
+  bulkDeleteOpen.value = false
+}
+
+function isSelected(message: ChatMessage): boolean {
+  return selected.value.has(message.msgId)
+}
+
+/** 点气泡本体:切换勾选。不可勾的消息(发送中/已撤回/灰条)点了没有任何反应。 */
+function toggleSelect(message: ChatMessage): void {
+  if (!canSelectMessage(message)) return
+  const next = new Set(selected.value)
+  if (next.has(message.msgId)) {
+    next.delete(message.msgId)
+  } else {
+    if (next.size >= BULK_DELETE_LIMIT) {
+      toast.show(`一次最多删除 ${BULK_DELETE_LIMIT} 条`)
+      return
+    }
+    next.add(message.msgId)
+  }
+  selected.value = next
+}
+
+/**
+ * 已选的消息(按会话顺序,只算还在列表里的)。
+ *
+ * 用「按 id 过滤 messages」而不是直接看 `selected` 集合:消息被删掉/被服务端撤回后
+ * 集合里会留下已不存在的 id,直接数 `size` 会让「已选 3 条」与眼前的气泡对不上。
+ */
+const selectedMessages = computed(() =>
+  messages.value.filter((item) => selected.value.has(item.msgId)),
+)
+
+/** 复制文本:选中里至少有一条非空文本消息才有内容可复制 */
+const copyableText = computed(() =>
+  selectedMessages.value
+    .filter((item) => item.kind === ChatMessageKind.text && item.text.length > 0)
+    .map((item) => item.text)
+    .join('\n'),
+)
+
+async function onBulkCopy(): Promise<void> {
+  if (!copyableText.value) return
+  await navigator.clipboard?.writeText(copyableText.value).catch(() => {})
+  toast.show('已复制')
+}
+
+function openBulkDelete(): void {
+  if (!selectedMessages.value.length) return
+  bulkDeleteOpen.value = true
+}
+
+/**
+ * 确认删除:成功 → 退出多选;失败 → **保留选中**并提示。
+ *
+ * 顺序在 store 里是「先服务端、后本地」,所以失败时列表与选中都还完整,
+ * 用户可以原地重试(而不是先看见消息消失、再看见它回来)。
+ */
+async function confirmBulkDelete(): Promise<void> {
+  if (bulkDeleting.value) return
+  const ids = selectedMessages.value.map((item) => item.msgId)
+  if (!ids.length) {
+    bulkDeleteOpen.value = false
+    return
+  }
+  bulkDeleting.value = true
+  try {
+    await store.deleteMessages(props.peerId, ids)
+    bulkDeleteOpen.value = false
+    exitMulti()
+  } catch (error) {
+    bulkDeleteOpen.value = false
+    toast.show(parseApiError(error).message || '删除失败,请稍后再试')
+  } finally {
+    bulkDeleting.value = false
+  }
+}
+
+// --- 草稿(批次 T)---
+
+let draftTimer: ReturnType<typeof setTimeout> | undefined
+
+function cancelDraftTimer(): void {
+  if (draftTimer) clearTimeout(draftTimer)
+  draftTimer = undefined
+}
+
+/**
+ * 防抖落草稿:停顿 300ms 才写一次 `localStorage`。
+ *
+ * 键绑定的是**排期那一刻**的 peerId(而不是定时器触发时的 `props.peerId`):
+ * 否则在 300ms 内切走会话,最后敲的几个字会写到下一个人的草稿里。
+ */
+function scheduleDraftSave(peerId: string, text: string): void {
+  cancelDraftTimer()
+  draftTimer = setTimeout(() => {
+    draftTimer = undefined
+    saveDraft(peerId, text)
+  }, DRAFT_SAVE_DELAY_MS)
+}
+
 /**
  * 对端是否正在输入(批次 L-1)。
  *
@@ -133,9 +279,11 @@ const title = computed(() => peerName.value || (props.peerId === 'system_notice'
  */
 const peerTyping = computed(() => store.peerTyping[props.peerId] === true)
 
-// 输入框有变化就按 3 秒节流发一次 typing;清空输入框不发(那意味着「不打了」)
+// 输入框有变化就按 3 秒节流发一次 typing;清空输入框不发(那意味着「不打了」)。
+// 同一处顺手落草稿(防抖 300ms):typing 与草稿都只关心「用户刚敲了什么」。
 watch(draft, (value) => {
   if (value) store.notifyTyping(props.peerId)
+  scheduleDraftSave(props.peerId, value)
 })
 
 /**
@@ -165,6 +313,8 @@ function startQuote(message: ChatMessage): void {
  * 原消息不在当前已加载的记录里(翻页翻出去了 / 被删除)时只提示,不假装跳过去。
  */
 function jumpToQuote(msgId: number): void {
+  // 多选模式下引用块不响应:此时点气泡的任何部位都只切换勾选
+  if (selecting.value) return
   const id = String(msgId)
   if (!messages.value.some((item) => item.msgId === id)) {
     toast.show('原消息不在当前记录中')
@@ -268,13 +418,22 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onEscape)
   // 离开聊天页立即清掉「正在输入…」(批次 L-1):不能把上一个人的提示留到下次进来
   store.clearPeerTyping(props.peerId)
+  // 草稿:把没落盘的那 300ms 立刻补上,否则「打完最后一个字就走」会丢字
+  cancelDraftTimer()
+  saveDraft(props.peerId, draft.value)
   // 离开页面一律取消:绝不把没录完的话发出去
   voice.dispose()
 })
 
 watch(
   () => props.peerId,
-  async () => {
+  async (_next, previous) => {
+    // 切会话:先把上一个会话的草稿落盘,再把新会话的草稿回填进输入框(批次 T)
+    cancelDraftTimer()
+    if (previous) saveDraft(previous, draft.value)
+    draft.value = readDraft(props.peerId)
+    // 多选是当前会话的临时状态:换人必须退出,否则会拿着 A 的勾选去删 B 的消息
+    exitMulti()
     if (!conversation.value) await store.loadConversations().catch(() => {})
     await store.openConversation(props.peerId).catch(() => {})
     await scrollToBottom()
@@ -313,6 +472,9 @@ async function onSend() {
   try {
     await store.sendText(props.peerId, text)
     draft.value = ''
+    // 发出去了就不该再有草稿(批次 T):先撤掉排期中的落盘,再清键
+    cancelDraftTimer()
+    clearDraft(props.peerId)
   } finally {
     sending.value = false
   }
@@ -328,6 +490,8 @@ async function onSendSticker(stickerId: string) {
 }
 
 function onOpenImage(message: ChatMessage) {
+  // 多选模式下点图片 = 勾选,不打开大图
+  if (selecting.value) return
   const urls = messages.value
     .filter((item) => item.kind === ChatMessageKind.image)
     .map((item) => item.imageLargeUrl ?? item.imageUrl ?? '')
@@ -349,20 +513,34 @@ async function onPickImage(event: Event) {
 <template>
   <section class="chat">
     <header class="chat__head">
-      <RouterLink class="chat__back" :to="{ name: 'chats' }">←</RouterLink>
-      <AppAvatar :src="peerAvatar" :name="peerName || title" :size="32" />
-      <div class="chat__head-text">
-        <h1 class="chat__title">{{ title }}</h1>
-        <p v-if="peerTyping" class="chat__typing" data-test="chat-typing">对方正在输入…</p>
-      </div>
-      <button
-        type="button"
-        class="chat__more"
-        aria-label="更多"
-        @click="moreOpen = !moreOpen"
-      >
-        ⋯
-      </button>
+      <!-- 多选模式(批次 T):顶栏只剩「取消」与已选条数,其它入口一律让位 -->
+      <template v-if="selecting">
+        <button
+          type="button"
+          class="chat__cancel"
+          data-test="chat-multi-cancel"
+          @click="exitMulti"
+        >
+          取消
+        </button>
+        <h1 class="chat__title" data-test="chat-multi-count">已选 {{ selectedMessages.length }} 条</h1>
+      </template>
+      <template v-else>
+        <RouterLink class="chat__back" :to="{ name: 'chats' }">←</RouterLink>
+        <AppAvatar :src="peerAvatar" :name="peerName || title" :size="32" />
+        <div class="chat__head-text">
+          <h1 class="chat__title">{{ title }}</h1>
+          <p v-if="peerTyping" class="chat__typing" data-test="chat-typing">对方正在输入…</p>
+        </div>
+        <button
+          type="button"
+          class="chat__more"
+          aria-label="更多"
+          @click="moreOpen = !moreOpen"
+        >
+          ⋯
+        </button>
+      </template>
     </header>
 
     <p v-if="unmatched" class="chat__unmatched">你们已解除配对</p>
@@ -378,16 +556,20 @@ async function onPickImage(event: Event) {
           :hit="row.message.msgId === hitId"
           :read-receipt-enabled="readReceiptEnabled"
           :is-read="isReadByPeer(row.message)"
+          :selecting="selecting"
+          :selectable="canSelectMessage(row.message)"
+          :selected="isSelected(row.message)"
           @retry="onRetry(row.message)"
           @open-image="onOpenImage"
           @menu="openMenu(row.message, $event)"
           @jump-quote="jumpToQuote"
+          @select="toggleSelect(row.message)"
         />
       </template>
     </div>
 
     <!-- 引用条(批次 L-2):长按/右键「引用」后出现在输入栏**上方**,可点 × 取消 -->
-    <div v-if="quoteTarget" class="chat__quote-bar" data-test="chat-quote-bar">
+    <div v-if="quoteTarget && !selecting" class="chat__quote-bar" data-test="chat-quote-bar">
       <div class="chat__quote-main">
         <span class="chat__quote-name">引用 {{ quoteSender }}</span>
         <span class="chat__quote-text">{{ quoteTarget.text }}</span>
@@ -403,7 +585,30 @@ async function onPickImage(event: Event) {
       </button>
     </div>
 
-    <footer class="chat__composer">
+    <!-- 多选底部操作条(批次 T):删除是单方删除,复制只在有文本消息时可用 -->
+    <footer v-if="selecting" class="chat__bulk" data-test="chat-bulk-bar">
+      <span class="chat__bulk-hint">点消息选中,再选择要做的操作</span>
+      <AppButton
+        class="chat__bulk-copy"
+        variant="ghost"
+        data-test="chat-multi-copy"
+        :disabled="!copyableText"
+        @click="onBulkCopy"
+      >
+        复制文本
+      </AppButton>
+      <AppButton
+        class="chat__bulk-delete"
+        variant="danger"
+        data-test="chat-multi-delete"
+        :disabled="selectedMessages.length === 0"
+        @click="openBulkDelete"
+      >
+        删除
+      </AppButton>
+    </footer>
+
+    <footer v-else class="chat__composer">
       <VoiceRecordBar
         v-if="voice.phase.value !== 'idle'"
         :phase="voice.phase.value"
@@ -496,6 +701,14 @@ async function onPickImage(event: Event) {
 
     <ChatMoreMenu v-if="moreOpen" @close="moreOpen = false" @unmatch="openUnmatch" />
 
+    <DeleteMessagesDialog
+      :open="bulkDeleteOpen"
+      :count="selectedMessages.length"
+      :busy="bulkDeleting"
+      @close="bulkDeleteOpen = false"
+      @confirm="confirmBulkDelete"
+    />
+
     <UnmatchDialog
       :open="unmatchOpen"
       :busy="unmatching"
@@ -525,6 +738,34 @@ async function onPickImage(event: Event) {
 .chat__back {
   font-size: var(--text-title);
   color: var(--color-text2);
+}
+/* 多选模式顶栏的「取消」:文字按钮,与返回箭头同一视觉重量 */
+.chat__cancel {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--color-brand);
+  font: inherit;
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+.chat__cancel:hover {
+  opacity: 0.8;
+}
+/* 多选底部操作条:左侧提示、右侧两个动作(删除是危险色) */
+.chat__bulk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-section-gap);
+  border-top: 1px solid var(--color-divider);
+  background: var(--color-bg-card);
+}
+.chat__bulk-hint {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text3);
+  font-size: var(--text-badge);
 }
 .chat__title {
   margin: 0;

@@ -6,11 +6,20 @@ import UserProfilePage from '@/features/profile/UserProfilePage.vue'
 import { server } from '../support/server'
 
 /** 播放走全局单例,这里只验「点了会把 voice.url 送进播放器」 */
-const playVoice = vi.fn((_url: string, onEnd: () => void) => onEnd())
+const playVoice = vi.fn(
+  (_url: string, onEnd: () => void, _onError?: () => void, _onProgress?: () => void) => onEnd(),
+)
 
 vi.mock('@/im/voicePlayer', () => ({
-  playVoice: (url: string, onEnd: () => void) => playVoice(url, onEnd),
+  playVoice: (
+    url: string,
+    onEnd: () => void,
+    onError?: () => void,
+    onProgress?: () => void,
+  ) => playVoice(url, onEnd, onError, onProgress),
   stopVoice: () => {},
+  seekVoice: () => {},
+  setVoiceRate: () => {},
 }))
 
 const profile = {
@@ -76,6 +85,8 @@ describe('UserProfilePage', () => {
     await w.find('.user-profile__voice button').trigger('click')
     expect(playVoice).toHaveBeenCalledWith(
       'https://cdn.example.com/media/voices/abc.m4a',
+      expect.any(Function),
+      expect.any(Function),
       expect.any(Function),
     )
   })
