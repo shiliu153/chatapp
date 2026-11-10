@@ -394,3 +394,82 @@ ls -lh /www/wwwlogs/chatapp/             # 期望看到 app.log-YYYYMMDD(.gz)+ �
 2. **根因**(引用代码/配置行号,不写「疑似」);
 3. **影响面**(多少用户、多少分钟、有无数据丢失);
 4. **改进项**(每条带负责人与验收方式,进下一轮计划)。
+
+## 9. 每日运营指标快照(2026-11-10,V-1)
+
+每天 04:30 由计划任务算一份**昨天的运营数字**写进 `stats_dailymetric`,一天一行;
+`/ops/metrics/`(V-2 看板)只读这张表。实时指标仍归 Prometheus,这张表解决的是
+**历史趋势**(「上周 DAU 多少」这种问题 Prometheus 答不了)。
+
+### 9.1 口径(写死,别各算一套)
+
+「一天」= **Asia/Shanghai 自然日** `[00:00, 次日 00:00)`,查询时换算成左闭右开的
+UTC 时刻区间(`stats/metrics.py::day_range`)。
+
+| 字段 | 口径 | 采不到时 |
+|---|---|---|
+| `dau` | 当日活跃去重人数(Redis `activity:dau:{YYYYMMDD}` 集合基数) | `—` |
+| `new_users` | `User.date_joined` 落在当日的账号数 | — |
+| `profiles_completed` | 当日新注册的人里**当前** `Profile.status=complete` 的人数 | — |
+| `swipes_like` / `swipes_pass` | `discovery.Swipe` 当日条数(按 `action` 分) | — |
+| `matches` | `discovery.Match` 当日新增(含事后被解除的,按事件口径) | — |
+| `messages` | IM 库 `im_message` 当日条数(`created_at` 是 epoch 秒) | `—` |
+| `active_hours` | 24 个小时桶各自的人数(看板画横条) | `—` |
+| `retention_d1` / `retention_d7` | **当日注册 cohort** ∩ 次日 / 第 7 日的活跃人数 | `—` |
+| 配对率 | **不落库**,看板现算 `matches / swipes_like`(分母 0 显示 `—`) | `—` |
+
+两条必须知道的限制:
+
+1. **`profiles_completed` 是近似值** —— `Profile` 没有 `completed_at`,回填历史日期时算的是
+   「这批人**现在**完善没完善」;
+2. **DAU / 活跃时段 / 留存只有上线后 45 天内可回看** —— 日活集合(`users/activity.py`)带
+   45 天 TTL,`presence` 只有 7 天的时间戳,事后补不出来。所以**首次上线那天起**才有数据,
+   回填更早的日期这几个字段是空的,这是预期的。
+
+另外:`dau` / `messages` / `active_hours` / 留存四个字段**允许为空**,空 ≠ 0 ——
+「当天没采到」和「采到了 0 人」是两件事,看板渲染 `—`。
+
+### 9.2 首次上线
+
+```bash
+cd /www/wwwroot/chatapp/chatapp
+<解释器> manage.py migrate                       # 建 stats_dailymetric 表
+<解释器> manage.py metrics_daily --backfill 30 --dry-run   # 先看数字对不对
+<解释器> manage.py metrics_daily --backfill 30             # 再写库(回填日 dau/留存为空)
+```
+
+生产 `.env` 新增一行 `IM_MYSQL_DSN=mysql://user:pass@127.0.0.1:3306/chatapp_im`(取自
+imserver 的同名变量,**不入库**)。该账号只需要 `chatapp_im` 的 **SELECT** 权限,别复用写账号;
+留空也能跑 —— 只是消息量一列显示「无数据」。
+
+### 9.3 cron(04:30,宝塔计划任务)
+
+排在 03:20 备份 / 03:30 宝塔原生备份 / 03:40 `refresh_shuffle_keys` / 04:00–04:20 媒体维护之后:
+
+```
+30 4 * * * cd /www/wwwroot/chatapp/chatapp && <解释器> manage.py metrics_daily >> /www/wwwlogs/chatapp-metrics.log 2>&1
+```
+
+`<解释器>` 与本机其他 `manage.py` 维护任务用的那个保持一致(见 `crontab -l`)。
+
+命令正常输出每天一行,末尾一行窗口汇总:
+
+```
+2026-11-09 dau=12 new=3 done=1 like=40 pass=25 match=8 msg=137 d1=- d7=-
+窗口 1 天(2026-11-09 ~ 2026-11-09),有活跃数据 1 天
+```
+
+退出码:`0` 成功(**包括** IM 库读不到、消息量留空的情况);`1` 参数非法或写库异常。
+
+**幂等**:同一天跑几次都只有一行(`update_or_create`),数据变了重跑会覆盖。
+**留存靠「往后补」**:`--date D` 除算 D 之外,还会给 `D-1` 补 `retention_d1`、给 `D-7` 补
+`retention_d7`(只 update 已有的行)—— 所以「每天只跑昨天」时,昨天的次日留存会在**后天**
+那次运行时补上,这是正常的,不是漏算。
+
+### 9.4 排障三行
+
+| 现象 | 先查 |
+|---|---|
+| 命令输出里 `msg=-` | `.env` 的 `IM_MYSQL_DSN` 是否配了、该账号能不能连 `chatapp_im`(日志里有 `IM 库读取失败`) |
+| 命令输出里 `dau=-` | Redis 里有没有 `activity:dau:*`(用 `redis-cli --scan --pattern 'activity:dau:*'`);注意 45 天 TTL 与「上线后才开始记」 |
+| 看板整页空 / 全是 `—` | 表里有没有行:`metrics_daily` 是否在跑;先手动跑一次 `metrics_daily --backfill 30` 看输出 |

@@ -19,6 +19,8 @@
       查询条数不随关注数增长;
     - 抓取监控:同目标一小时只计一次、跨目标累加、超阈值告警、Redis 故障不影响响应;
     - 在线状态服务:写入后在线、窗口边界、未知用户、本地时区 ISO、Redis 故障降级;
+    - 日活集合:按天与按小时去重、空日返回 None、45 天 TTL、按 Asia/Shanghai 切日、
+      Redis 故障降级,以及「presence.touch 顺手记日活」的接线;
     - 在线状态接口:鉴权、返回在线与最后活跃、剔除拉黑/自己/未知/重封禁、去重保序、
       参数校验、限流、Redis 故障返回 null 而非 500;
     - 账号注销:鉴权、手机号不一致或缺失拒绝、重封禁禁止注销、删除全部关联数据与磁盘文件、
@@ -31,7 +33,7 @@ import os
 import shutil
 import tempfile
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -60,7 +62,7 @@ from im import tasks as im_tasks
 from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import BanLog, Block, Report
 
-from . import presence, services
+from . import activity, presence, services
 from .models import (Photo, PhotoStatus, Profile, ProfileStatus, ProfileVisit, ProfileVoice,
                      Tag, birthday_bounds, calculate_age)
 
@@ -1054,6 +1056,115 @@ class PresenceServiceTests(TestCase):
     @patch("users.presence.cache.set", side_effect=Exception("boom"))
     def test_redis_down_touch_is_silent(self, _):
         presence.touch(9)   # 不抛异常
+
+
+class ActivityTests(TestCase):
+    """日活集合:按天与按小时去重、空日返回 None、TTL、时区归属与 Redis 故障降级。"""
+
+    DAY = date(2026, 11, 2)
+
+    def setUp(self):
+        self._drop_keys(self.DAY, self.DAY + timedelta(days=1))
+        self.addCleanup(self._drop_keys, self.DAY, self.DAY + timedelta(days=1))
+
+    def _drop_keys(self, *days):
+        """删掉这些日子的活跃集合,避免用例之间互相污染。
+
+        Args:
+            *days: 本地自然日。
+
+        Returns:
+            None。
+        """
+        keys = []
+        for day in days:
+            keys.append(activity.day_key(day))
+            keys.extend(activity.hour_key(day, hour) for hour in range(24))
+        activity._client().delete(*keys)
+
+    def _at(self, hour, minute=0, second=0, day=None):
+        """造一个本地时区的时刻。
+
+        Args:
+            hour: 小时。
+            minute: 分钟。
+            second: 秒。
+            day: 日期;``None`` 取 ``DAY``。
+
+        Returns:
+            带时区的时刻。
+        """
+        target = day or self.DAY
+        return datetime(target.year, target.month, target.day, hour, minute, second,
+                        tzinfo=timezone.get_current_timezone())
+
+    def test_touch_records_day_and_hour(self):
+        """一次 touch 同时进日集合与小时集合,且值是整数 id。"""
+        activity.touch(9, at=self._at(10, 30))
+        self.assertEqual(activity.daily_count(self.DAY), 1)
+        self.assertEqual(activity.daily_users(self.DAY), {9})
+        hours = activity.hourly_counts(self.DAY)
+        self.assertEqual(len(hours), 24)
+        self.assertEqual(hours[10], 1)
+        self.assertEqual(sum(hours), 1)
+
+    def test_same_user_same_day_counts_once(self):
+        """同一人同一天 touch 两次仍算 1 人,小时桶也去重。"""
+        activity.touch(9, at=self._at(10, 0))
+        activity.touch(9, at=self._at(10, 45))
+        self.assertEqual(activity.daily_count(self.DAY), 1)
+        self.assertEqual(activity.hourly_counts(self.DAY)[10], 1)
+
+    def test_different_hours_are_separate_buckets(self):
+        """同一人换个小时又来,日集合仍是 1 人,小时桶各记 1。"""
+        activity.touch(9, at=self._at(9, 5))
+        activity.touch(9, at=self._at(21, 5))
+        hours = activity.hourly_counts(self.DAY)
+        self.assertEqual(activity.daily_count(self.DAY), 1)
+        self.assertEqual((hours[9], hours[21]), (1, 1))
+
+    def test_missing_day_is_none_not_zero(self):
+        """没采到的日子返回 None(看板要显示「无数据」而不是 0)。"""
+        self.assertIsNone(activity.daily_count(self.DAY))
+        self.assertIsNone(activity.hourly_counts(self.DAY))
+        self.assertEqual(activity.daily_users(self.DAY), set())
+
+    def test_ttl_covers_45_days(self):
+        """日集合与小时集合都带 45 天 TTL,不会无限涨。"""
+        activity.touch(9, at=self._at(10, 0))
+        client = activity._client()
+        for key in (activity.day_key(self.DAY), activity.hour_key(self.DAY, 10)):
+            ttl = client.ttl(key)
+            self.assertGreater(ttl, 0)
+            self.assertLessEqual(ttl, activity.ACTIVITY_TTL_SECONDS)
+
+    def test_one_day_is_local_calendar_day(self):
+        """日切按 Asia/Shanghai:本地 00:00:01 归次日,UTC 16:00 已是本地次日。"""
+        activity.touch(9, at=self._at(23, 59, 59))
+        activity.touch(10, at=self._at(0, 0, 1, day=self.DAY + timedelta(days=1)))
+        # 2026-11-02 16:00 UTC == 2026-11-03 00:00 Asia/Shanghai
+        activity.touch(11, at=datetime(2026, 11, 2, 16, 0, tzinfo=dt_timezone.utc))
+        self.assertEqual(activity.daily_users(self.DAY), {9})
+        self.assertEqual(activity.daily_users(self.DAY + timedelta(days=1)), {10, 11})
+
+    @patch("users.activity.get_redis_connection", side_effect=RuntimeError("redis down"))
+    def test_write_failure_is_silent(self, _):
+        """Redis 挂了 touch 不抛异常 —— 它挂在认证热路径上,绝不能拖垮业务请求。"""
+        activity.touch(9)
+
+    @patch("users.activity.get_redis_connection", side_effect=RuntimeError("redis down"))
+    def test_read_failure_degrades(self, _):
+        """Redis 挂了读接口降级:计数 None、集合空,都不抛异常。"""
+        self.assertIsNone(activity.daily_count(self.DAY))
+        self.assertIsNone(activity.hourly_counts(self.DAY))
+        self.assertEqual(activity.daily_users(self.DAY), set())
+
+    def test_presence_touch_feeds_activity(self):
+        """接线在 presence.touch 末尾:认证请求刷在线态时顺手记日活。"""
+        today = timezone.localdate()
+        self.addCleanup(self._drop_keys, today)
+        presence.touch(9)
+        self.assertIn(9, activity.daily_users(today))
 
 
 class PresenceApiTests(AuthMixin, APITestCase):

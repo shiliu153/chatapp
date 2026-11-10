@@ -16,6 +16,8 @@ from datetime import datetime, timezone as dt_timezone
 from django.core.cache import cache
 from django.utils import timezone as dj_timezone
 
+from . import activity
+
 logger = logging.getLogger(__name__)
 
 PRESENCE_TTL_SECONDS = 7 * 24 * 3600   # 最后活跃最多记 7 天,更久视为未知
@@ -38,6 +40,10 @@ def _key(user_id: int) -> str:
 def touch(user_id: int) -> None:
     """记一次活跃;失败只记日志 —— presence 是点缀,绝不拖累业务请求。
 
+    这是全项目**唯一**「有认证请求」的证据点(``accounts.authentication`` 认证通过即
+    调它),因此日活 / 活跃时段的记录也接在这里(见 ``users.activity``):口径天然一致,
+    不必再改 ``authentication.py``。
+
     Args:
         user_id: 账号 id。
     """
@@ -45,6 +51,8 @@ def touch(user_id: int) -> None:
         cache.set(_key(user_id), int(time.time()), timeout=PRESENCE_TTL_SECONDS)
     except Exception:
         logger.warning("presence 写入失败 user_id=%s", user_id, exc_info=True)
+    # activity.touch 内部自己吞异常,这里不需要再包一层
+    activity.touch(user_id)
 
 
 def clear(user_id: int) -> None:
