@@ -17,7 +17,9 @@
     - 私聊媒体审计:每次浏览落一条 ``MediaAccessLog``(含「仅被举报」筛选),审计失败不影响页面;
     - 准入名单(B-1c):列表带注册状态、加号/停用立刻生效、格式错误不落库、停用后可重新启用;
     - 准入名单操作流水(R4-B2):加号写 ``add``、停用/启用写 ``disable``/``enable``、
-      只改备注不写,页面底部「最近操作」表号码脱敏。
+      只改备注不写,页面底部「最近操作」表号码脱敏;
+    - 运营看板(V-2):鉴权、四个数字卡与近 30 天趋势表、可空字段渲染 ``—`` 而不是 ``0``
+      (采到了 0 还是要显示 0)、只统计近 7 日窗口、「30 行一条 SQL」与「页面只读」两条门禁。
 """
 
 import json
@@ -30,7 +32,9 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.files.base import ContentFile
+from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts import services
@@ -45,6 +49,7 @@ from moderation.models import (BanAction, BanLog, Report, ReportStatus,
                                ReportType)
 from ops.models import MediaAccessLog
 from ops.otp import _safe_redirect
+from stats.models import DailyMetric
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
@@ -62,6 +67,200 @@ def make_staff(phone="13700137000", password="ops-pass-123"):
     user.set_password(password)
     user.save(update_fields=["password"])
     return user
+
+
+def make_metric(day, **fields):
+    """造一行每日指标快照(未显式给的字段用一组非零默认值)。
+
+    Args:
+        day: 快照日期(``Asia/Shanghai`` 自然日)。
+        **fields: 要覆盖的字段;显式传 ``None`` 表示「当天没采到」。
+
+    Returns:
+        建好的 ``DailyMetric`` 行。
+    """
+    defaults = {
+        "dau": 10, "new_users": 3, "profiles_completed": 1,
+        "swipes_like": 4, "swipes_pass": 5, "matches": 2,
+        "messages": 100, "active_hours": [0] * 24,
+        "retention_d1": 1, "retention_d7": 1,
+    }
+    defaults.update(fields)
+    return DailyMetric.objects.create(date=day, **defaults)
+
+
+class OpsMetricsTests(TestCase):
+    """运营看板:鉴权、数字卡与趋势表、空值渲染 ``—``、空表提示、只读与查询门禁。"""
+
+    def setUp(self):
+        self.client.force_login(make_staff())
+        self.today = timezone.localdate()
+        self.yesterday = self.today - timedelta(days=1)
+
+    def _body(self):
+        """取一次看板页的响应正文(多数断言只需要正文里有什么)。
+
+        Returns:
+            ``str``:解码后的 HTML。
+        """
+        resp = self.client.get("/ops/metrics/")
+        self.assertEqual(resp.status_code, 200)
+        return resp.content.decode()
+
+    def test_anonymous_redirected_to_login(self):
+        self.client.logout()
+        resp = self.client.get("/ops/metrics/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(resp.url.startswith("/ops/login/"))
+
+    def test_non_staff_forbidden(self):
+        plain = User.objects.create_user(phone="13800138007")
+        self.client.force_login(plain)
+        self.assertEqual(self.client.get("/ops/metrics/").status_code, 403)
+
+    def test_staff_sees_cards_and_trend_row(self):
+        make_metric(self.yesterday, dau=12, new_users=4, messages=137,
+                    swipes_like=10, matches=4)
+        resp = self.client.get("/ops/metrics/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '<div class="ops-stat-value" id="stat-dau">12</div>')
+        self.assertContains(resp, '<div class="ops-stat-value" id="stat-new-users">4</div>')
+        self.assertContains(resp, '<div class="ops-stat-value" id="stat-match-rate">40.0%</div>')
+        self.assertContains(resp, '<div class="ops-stat-value" id="stat-messages">137</div>')
+        self.assertContains(resp, f"<td>{self.yesterday}</td>")
+        self.assertContains(resp, "<td>137</td>")
+
+    def test_nav_has_board_entry_before_logs(self):
+        body = self._body()
+        self.assertIn('href="/ops/metrics/"', body)
+        self.assertLess(body.index("运营看板"), body.index("日志"))
+
+    def test_empty_table_shows_hint_without_error(self):
+        body = self._body()
+        self.assertIn("还没有数据", body)
+        self.assertIn("metrics_daily --backfill 30", body)
+        # 一行都没有时,数字卡也不能凭空变出 0
+        self.assertIn('<div class="ops-stat-value" id="stat-dau">—</div>', body)
+        self.assertIn('<div class="ops-stat-value" id="stat-match-rate">—</div>', body)
+        self.assertIn("暂无活跃时段数据", body)
+
+    def test_null_values_render_as_dash_not_zero(self):
+        make_metric(self.yesterday, dau=None, messages=None, active_hours=None,
+                    retention_d1=None, retention_d7=None)
+        body = self._body()
+        # 五个可空字段全部是「—」:DAU 卡片一个 + 趋势表里 DAU / 消息 / 两类留存四个
+        self.assertNotIn(">0<", body)
+        self.assertGreaterEqual(body.count(">—<"), 5)
+        self.assertIn("当日未采集到", body)
+
+    def test_collected_zero_still_renders_zero(self):
+        make_metric(self.yesterday, dau=0, messages=0, swipes_like=0, matches=0,
+                    retention_d1=0, retention_d7=0, active_hours=None)
+        body = self._body()
+        # 采到了 0 就是 0:只有「没采到」才渲染「—」
+        self.assertIn('<div class="ops-stat-value" id="stat-dau">0</div>', body)
+        self.assertIn('<div class="ops-stat-value" id="stat-messages">0</div>', body)
+        self.assertGreaterEqual(body.count("<td>0</td>"), 4)
+
+    def test_yesterday_cards_are_dash_when_yesterday_row_is_missing(self):
+        # 04:30 那次没跑成:表里只有前天的行 —— 卡片不能拿前天的数字冒充「昨日」
+        make_metric(self.today - timedelta(days=2), dau=77, new_users=9)
+        body = self._body()
+        self.assertIn('<div class="ops-stat-value" id="stat-dau">—</div>', body)
+        self.assertIn('<div class="ops-stat-value" id="stat-new-users">—</div>', body)
+        self.assertIn("<td>77</td>", body)
+
+    def test_summary_covers_last_seven_days_only(self):
+        for offset in range(1, 8):
+            make_metric(self.today - timedelta(days=offset),
+                        dau=10, swipes_like=2, matches=1, new_users=1, messages=10)
+        # 窗口外(第 8 天前)的行不能进「近 7 日」汇总
+        make_metric(self.today - timedelta(days=8),
+                    dau=999, swipes_like=1000, matches=1000, new_users=1000, messages=999)
+        body = self._body()
+        self.assertIn('<div class="ops-stat-value" id="stat-match-rate">50.0%</div>', body)
+        self.assertIn('<div class="ops-stat-value" id="stat-messages">70</div>', body)
+        self.assertIn("近 7 日汇总(7 天)", body)
+
+    def test_average_dau_skips_days_without_collection(self):
+        make_metric(self.yesterday, dau=20)
+        make_metric(self.today - timedelta(days=2), dau=None)
+        self.assertIn("日均 DAU 20.0", self._body())
+
+    def test_average_dau_is_dash_when_never_collected(self):
+        make_metric(self.yesterday, dau=None)
+        self.assertIn("日均 DAU —", self._body())
+
+    def test_trend_shows_at_most_thirty_rows(self):
+        for offset in range(1, 36):
+            make_metric(self.today - timedelta(days=offset))
+        body = self._body()
+        self.assertIn(f"<td>{self.today - timedelta(days=30)}</td>", body)
+        self.assertNotIn(f"<td>{self.today - timedelta(days=31)}</td>", body)
+
+    def test_activity_bars_are_relative_to_daily_peak(self):
+        hours = [0] * 24
+        hours[10] = 5
+        hours[11] = 10
+        make_metric(self.yesterday, active_hours=hours)
+        body = self._body()
+        self.assertIn('style="width: 100.0%"', body)
+        self.assertIn('style="width: 50.0%"', body)
+        self.assertIn("10:00", body)
+        self.assertIn('class="ops-hour-count">10<', body)
+
+    def test_activity_falls_back_to_latest_row_with_hours(self):
+        make_metric(self.yesterday, dau=None, active_hours=None)
+        older = self.today - timedelta(days=2)
+        hours = [0] * 24
+        hours[3] = 7
+        make_metric(older, active_hours=hours)
+        body = self._body()
+        self.assertIn(f"活跃时段 <small>{older}</small>", body)
+        self.assertIn('class="ops-hour-count">7<', body)
+
+    def test_malformed_active_hours_does_not_break_page(self):
+        make_metric(self.yesterday, active_hours={"00": 1})
+        body = self._body()
+        self.assertIn("暂无活跃时段数据", body)
+
+    def test_thirty_rows_come_from_a_single_query(self):
+        for offset in range(1, 31):
+            make_metric(self.today - timedelta(days=offset))
+        with CaptureQueriesContext(connection) as captured:
+            resp = self.client.get("/ops/metrics/")
+        self.assertEqual(resp.status_code, 200)
+        snapshot_sql = [q["sql"] for q in captured.captured_queries
+                        if "stats_dailymetric" in q["sql"]]
+        self.assertEqual(len(snapshot_sql), 1)
+
+    def test_query_budget_is_fixed(self):
+        for offset in range(1, 31):
+            make_metric(self.today - timedelta(days=offset))
+        # 固定预算:会话 1 + 当前用户 1 + 导航角标 4 + 快照行 1 = 7 条,与行数无关。
+        # 30 行要是一条 SQL,不是循环里一条条查 —— 这条门禁红了就是退化成 N+1 了。
+        with self.assertNumQueries(7):
+            resp = self.client.get("/ops/metrics/")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_query_count_does_not_grow_with_rows(self):
+        make_metric(self.today - timedelta(days=1))
+        with CaptureQueriesContext(connection) as one_row:
+            self.client.get("/ops/metrics/")
+        for offset in range(2, 31):
+            make_metric(self.today - timedelta(days=offset))
+        with CaptureQueriesContext(connection) as many_rows:
+            self.client.get("/ops/metrics/")
+        self.assertEqual(len(one_row.captured_queries), len(many_rows.captured_queries))
+
+    def test_page_is_read_only(self):
+        for offset in range(1, 31):
+            make_metric(self.today - timedelta(days=offset))
+        with CaptureQueriesContext(connection) as captured:
+            self.client.get("/ops/metrics/")
+        non_select = [q["sql"] for q in captured.captured_queries
+                      if not q["sql"].lstrip().upper().startswith("SELECT")]
+        self.assertEqual(non_select, [])
 
 
 class OpsAuthTests(TestCase):
