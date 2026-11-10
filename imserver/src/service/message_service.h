@@ -94,6 +94,26 @@ class MessageService {
                                                           std::optional<bool> pinned,
                                                           std::optional<bool> muted);
   std::variant<RevokeResult, int> revoke(uint64_t uid, uint64_t msg_id);
+  /// 多选删除(批次 T):把一批消息从我这边隐藏掉。
+  ///
+  /// **单方**语义(与微信一致):只往 `im_message_hidden` 写「我不想再看到」,
+  /// 不碰消息本体、不动 `im_conversation.last_seq`、不给对端发任何帧、不可恢复。
+  ///
+  /// 一个事务里做三件事:
+  ///   1. 取「这批 id 里真实存在且我参与」的消息行 —— 别人的 id **静默忽略**
+  ///      (回 403/404 会变成「探测别人消息是否存在」的信道);
+  ///   2. 逐条 `INSERT IGNORE`,用 `affected_rows` 判断是不是**本次新隐藏**
+  ///      (返回值与幂等都建立在这个数上);
+  ///   3. 对「新隐藏 + 对端发的 + 尚未读(`seq > 我的 read_seq`)」的条数**按会话减未读**
+  ///      —— 未读是计数器,不加这一步就会「删了还占未读」。
+  ///
+  /// Args:
+  ///   uid: 请求者账号。
+  ///   ids: 消息 id 列表(调用方已校验:非空、≤ 50、每个都是正整数)。
+  ///
+  /// Returns:
+  ///   本次**新**隐藏的条数;重复删同一批返回 0。
+  uint64_t hide_messages(uint64_t uid, const std::vector<uint64_t>& ids);
   bool delete_conversation(uint64_t uid, uint64_t peer);
   bool delete_account(uint64_t uid);
   bool update_profile(uint64_t uid, const std::optional<std::string>& nickname,

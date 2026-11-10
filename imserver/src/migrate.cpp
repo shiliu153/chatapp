@@ -73,6 +73,7 @@ constexpr Migration kMigrations[] = {
     {5, "005_device_session.sql"},
     {6, "006_quote.sql"},
     {7, "007_conversation_flags.sql"},
+    {8, "008_message_hidden.sql"},
 };
 
 }  // namespace

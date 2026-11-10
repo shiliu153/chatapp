@@ -1246,3 +1246,222 @@ scripts/verify.sh imserver
 | 改了词表没变化 | 没重启容器(词表只在启动时构建) |
 | 启动日志刷 `sensitive_words_disabled` | 看 `reason`:`missing` = 路径不对/没挂载;`unreadable` = 权限(文件要 `a+r`,镜像里已 `chmod a+rX`);`empty` = 只有注释。三种都属于「功能关闭」的正常提示,不是错误 |
 | 贴纸被拦? | 不会:过滤只走 `kind=text`;贴纸被拒是另外的 `42201`(id 形状 / `type` 不是 `sticker`),见 §17 |
+
+## 21. 多选删除 `POST /im/api/messages/delete`(2026-11-10,批次 T-1)
+
+聊天里的**单方删除**:选中若干条消息删掉,**只影响我这边** —— 消息本体不动、
+不通知对端、对端历史里还在、不可恢复。产品口径与微信一致(「删除」不是「撤回」:
+撤回是 2 分钟内对双方生效,删除只删自己这一侧的副本)。
+
+> 为什么写在这里:`/im/api/*` 是 imserver 的内部契约,不归 `docs/api/` 的 `/api/v1` 门禁管
+> (同 §15 / §16 / §19 的说明)。`docs/api/im.md` 只有指路一行。
+
+### 21.1 为什么又是 HTTP + 一条迁移,而不是 WS 帧
+
+同 §19.1:加一个 WS 帧要**三端 fixture 同改**(`imserver/tests/fixtures/ws/*.json` +
+imserver + App + Web,三条 CI 各红一次),而多选删除是**低频写操作**(一天删不了几次)。
+本单**零帧改动**,`imserver/tests/fixtures/ws/` 一个字节都没动。
+
+代价同 §19.1:多端不同步 —— App 上删了,网页端要重拉会话/历史才看不到。
+
+### 21.2 存储与迁移
+
+迁移 `008_message_hidden.sql`(版本号 **8**):
+
+```sql
+CREATE TABLE IF NOT EXISTS im_message_hidden (
+  user_id BIGINT UNSIGNED NOT NULL,
+  msg_id BIGINT UNSIGNED NOT NULL,
+  created_at BIGINT NOT NULL,
+  PRIMARY KEY (user_id, msg_id),
+  KEY idx_hidden_msg (msg_id, user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+- 主键 `(user_id, msg_id)` 正好是「我的历史里排除我隐藏的」这一个读法的索引,
+  同时天然是**幂等键**(同一条删两次只会有 1 行);
+- 反向索引 `(msg_id, user_id)` 给「注销账号时按 msg_id 清理」用;
+- **不加外键**(与既有表一致,靠应用层清理);
+- 迁移 SQL 的**注释里不能出现分号** —— `migrate.cpp` 的 `apply_sql` 按 `;` 切语句,
+  注释里一个分号就会把后面整段 SQL 切坏。
+
+### 21.3 三处读口径(漏一处就露馅)
+
+未读是**计数器**不是聚合,所以这件事不是「加个 `NOT EXISTS` 就完事」:
+
+| 读路径 | 改法 |
+|---|---|
+| 历史 `GET /im/api/messages` | `LEFT JOIN im_message_hidden h ON h.msg_id=m.msg_id AND h.user_id=<我>` + `WHERE h.msg_id IS NULL` |
+| 搜索 `GET /im/api/search` | 同上(否则「删了还能被搜到」) |
+| 会话列表 `GET /im/api/conversations` 的 `last_message` | 先照旧 join `c.last_msg_id`;只有「这条摘要确实被我隐藏了」的会话才回查**上一条可见**(见 §21.4) |
+| 未读数 `im_conversation_state.unread` | 删除时**显式减**:`UPDATE ... SET unread=GREATEST(CAST(unread AS SIGNED)-?,0)` |
+
+为什么未读要显式减:`unread` 由 `upsert_state` **累加**、`mark_read` 清零,是计数器,
+不是每次现算的聚合 —— 在读路径上排除隐藏行根本不会让这个数字变小。
+
+减多少:只对「**本次新隐藏** + **对端发的**(`to_id=我`)+ **还没读**(`seq >` 我这条会话的
+`read_seq`)」的条数减。删**已读**消息**不减**(它本来就没算进未读里)。
+
+`CAST(unread AS SIGNED)` 不能省:列是 `INT UNSIGNED`,无符号相减越过 0 会报
+`BIGINT UNSIGNED value is out of range`(1690),而不是变成负数。
+
+### 21.4 为什么 `last_message` 不走相关子查询
+
+计划里首选的写法是把 `LEFT JOIN im_message m ON m.msg_id=c.last_msg_id` 换成
+「我最后一条可见」的相关子查询。实测(MySQL 8.0,50 个会话、每个 2000 条、20 条被隐藏):
+
+```
+-> Select #2 (subquery in condition; dependent)
+    -> Limit: 1 row(s)  ... (actual time=0.396..0.396 rows=1 loops=150)
+        -> Sort: m2.seq DESC  ...
+            -> Index lookup on m2 using uk_conv_seq (conv_id=c.id) (actual time=0.00452..0.259 rows=2000 loops=150)
+```
+
+即:**每个会话都把整段历史读出来再排序**(2000 行 × 50 会话 ≈ 60ms),因为
+`NOT EXISTS` 反连接被优化成半连接物化之后,`ORDER BY ... LIMIT 1` 不再走反向索引扫。
+
+所以采用计划里写明的退路(两条 SQL):
+
+1. 列表照旧 join `c.last_msg_id`;
+2. 一次小查询问「这些摘要里哪几条被我隐藏了」(`SELECT msg_id FROM im_message_hidden
+   WHERE user_id=? AND msg_id IN (...)`,走主键),命中为空就结束 —— **绝大多数会话零额外成本**;
+3. 只有命中的那些会话才回查上一条可见:
+
+```sql
+SELECT <列> FROM im_message m
+LEFT JOIN im_message_hidden h ON h.msg_id=m.msg_id AND h.user_id=?
+WHERE m.conv_id=? AND h.msg_id IS NULL
+ORDER BY m.seq DESC LIMIT 1
+```
+
+```sql
+-- EXPLAIN ANALYZE(同 50 会话数据集)
+-> Limit: 1 row(s)  (actual time=0.0331..0.0332 rows=1 loops=1)
+    -> Filter: (h.msg_id is null)
+        -> Nested loop antijoin
+            -> Covering index lookup on m using uk_conv_seq (conv_id=...) (reverse)  (actual rows=1)
+            -> Single-row covering index lookup on h using PRIMARY (user_id=..., msg_id=...)
+```
+
+反向扫 + `LIMIT 1`,实际只读「被隐藏条数 + 1」行。
+
+**语义不变**:`last_seq` / `has_last` / `updated_at` 仍是会话全局(删自己的副本不动它们)。
+整段会话都被我隐藏时,该项不下发 `last_message` 且 `has_last=false`,会话本身仍在列表里。
+
+### 21.5 历史分页的 EXPLAIN(必须仍走 `uk_conv_seq`)
+
+```sql
+EXPLAIN SELECT ... FROM im_message m
+LEFT JOIN im_message_hidden h ON h.msg_id=m.msg_id AND h.user_id=<我>
+WHERE m.conv_id=? AND m.seq<? AND h.msg_id IS NULL
+ORDER BY m.seq DESC LIMIT 50;
+```
+
+```
+id: 1  select_type: SIMPLE  table: m  type: range
+        possible_keys: uk_conv_seq,idx_conv_msg  key: uk_conv_seq  key_len: 16
+        Extra: Using index condition; Backward index scan
+id: 1  select_type: SIMPLE  table: h  type: eq_ref
+        key: PRIMARY  ref: const,<db>.m.msg_id
+        Extra: Using where; Not exists; Using index
+```
+
+主查询仍是 `range` + `uk_conv_seq` 反向扫(`type=range`),隐藏表是主键点查(`eq_ref`)——
+所以**不能**把它改写成 `NOT IN (子查询)` 或「先聚合再过滤」,那会把分页退化成全表扫。
+
+### 21.6 鉴权、地址、请求、响应
+
+与 `/im/api/conversations|messages|search|conversations/flags` **完全同口径**:
+
+- 基址 = `POST /api/v1/im/user_sig` 返回的 `http_url`,路径 `/messages/delete`,**只接受 POST**(否则 `405` + `40501`);
+- `Authorization: Bearer <IM token>`(不是 Django 的 access token);被同类端顶下线 / 被 IM 拉黑 → `401` + `40101`;
+- **路由是硬白名单**:`http_api.cpp` 里那句 `if (target.path != ... ) return 40401` 必须带上新路径,
+  否则接口直接 404(curl 看起来像「路由没生效」)。
+
+| 参数名称 | 必填 | 类型 | 描述 |
+|---|---|---|---|
+| ids | 是 | Array | 消息 id 列表;元素接受字符串或整数,统一解析成 `uint64`。**非空、≤ 50 条** |
+
+```bash
+curl -X POST 'https://<域名>/im/api/messages/delete' \
+  -H 'Authorization: Bearer <user_sig 里的 token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"ids":["123","124"]}'
+```
+
+响应 `200` + **本次新隐藏**的条数:
+
+```json
+{"deleted": 2}
+```
+
+语义:
+
+- **幂等**:同一批删第二次回 `{"deleted": 0}`(靠 `INSERT IGNORE` + `affected_rows` 判定「是不是新的」);
+- **不属于我的 id 静默忽略**:不报错、不计入 `deleted`(回 403/404 会变成「探测别人消息是否存在」的信道);
+- **不改消息本体、不动 `im_conversation.last_seq`、不给对端发任何帧**;
+- 同一个 id 在数组里重复出现只算一次(否则 `deleted` 会被同一行放大)。
+
+### 21.7 错误码
+
+| 错误码 | HTTP | 描述 |
+|---|---|---|
+| 40101 | 401 | 未登录 / 令牌过期 / 被同类端顶下线 / 被 IM 拉黑 |
+| 42201 | 400 | body 不是合法 JSON 对象 / `ids` 不是数组 / 空数组 / 超过 50 条 / 元素不是正整数 |
+| 40501 | 405 | 用了 GET 等非 POST 方法 |
+| 42901 | 429 | 操作过于频繁(每账号 1 次/秒、突发 10) |
+| 40401 | 404 | 路径拼错(硬白名单之外的路径) |
+| 50001 | 500 | 内部错误 |
+
+> 与 §19 一致:`42201` 在这里配 **HTTP 400**(不是 422)。imserver 的错误体是
+> `{"code","message"}`,**没有** `request_id`。
+
+### 21.8 注销清理(顺序是硬约束)
+
+`MessageService::delete_account(uid)` 里**先清隐藏表、再删消息**:
+
+1. `DELETE FROM im_message_hidden WHERE user_id=uid`(我隐藏别人的);
+2. `DELETE FROM im_message_hidden WHERE msg_id IN (SELECT msg_id FROM im_message WHERE from_id=uid OR to_id=uid)`
+   (别人隐藏了我的);
+3. 然后才 `DELETE FROM im_message ...`。
+
+第 2 步靠 `im_message` 反查 `msg_id`:**消息删掉之后就再也查不到**,隐藏行会变成永久垃圾
+(`msg_id` 是自增的,还会被复用,于是「新消息继承旧隐藏」)。
+
+### 21.9 部署顺序(硬约束)
+
+**迁移 `008` 必须先于新镜像生效**:
+
+```bash
+cd /www/server/imserver
+docker compose run --rm imserver --migrate   # 1–7 skipped,8 applied
+docker compose up -d                          # 再换新镜像
+```
+
+新代码的三处读路径都会 `LEFT JOIN im_message_hidden`,**表不存在会直接报错**
+(历史 / 搜索 / 会话列表整页 500)。反过来(先换镜像)不是降级而是故障。
+回滚镜像时迁移**不回滚**(多出来的表旧代码不读,向前兼容)。
+
+### 21.10 验证
+
+```bash
+# unit + DB:MessageHiddenTest.*(单方隐藏 / 未读增减 / GREATEST 夹取 / last_message 回退 / 搜索 / 注销清理)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_integration.sh
+
+# HTTP 集成:tests/integration/test_delete.py(单方 / 未读 / last_message / 搜索 / 42201 / 幂等 / 忽略他人 id / 401 / 405)
+docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
+```
+
+> 新测试文件**必须**追加进 `imserver/scripts/test_http.sh` 的清单 —— 那个脚本逐个列文件,
+> 漏了就是「CI 根本没跑它」。
+
+### 21.11 排查
+
+| 现象 | 先查 |
+|---|---|
+| `deleted` 一直是 0,但界面确实少了 | 客户端重复提交了同一批(幂等);或 id 传成了别人的 —— 服务端静默忽略 |
+| 删了之后未读没减少 | 删的是**已读**消息(设计如此);或对端发的消息 `seq <= 我的 read_seq` |
+| 删了之后列表顶部还是那条 | 客户端本地缓存没刷新;服务端重拉 `GET /im/api/conversations` 确认 `last_message` 已回退 |
+| 整个接口 404 + 40401 | 新路径没加进 `http_api.cpp` 的硬白名单;或 `http_url` 拼错(少了 `im/api`) |
+| 整页 500 且日志有 `Table 'chatapp_im.im_message_hidden' doesn't exist` | 部署顺序反了:先 `--migrate`(见 §21.9) |
+| 搜到了已删除的消息 | 该消息只在**对端**隐藏了(单方删除);确认请求用的 token 是你自己的 |

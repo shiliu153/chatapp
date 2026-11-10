@@ -184,6 +184,47 @@ uint64_t ConversationRepo::read_seq_for(MysqlPool::Lease& lease, uint64_t owner,
   return read_seq;
 }
 
+std::map<uint64_t, uint64_t> ConversationRepo::read_seqs(MysqlPool::Lease& lease, uint64_t owner,
+                                                        const std::vector<uint64_t>& conv_ids) {
+  std::map<uint64_t, uint64_t> result_map;
+  if (conv_ids.empty()) {
+    return result_map;
+  }
+  std::string in_list;
+  in_list.reserve(conv_ids.size() * 8);
+  for (std::size_t i = 0; i < conv_ids.size(); ++i) {
+    if (i > 0) {
+      in_list += ",";
+    }
+    in_list += std::to_string(conv_ids[i]);
+  }
+  auto* result = lease.query("SELECT conv_id,read_seq FROM im_conversation_state WHERE owner_id=" +
+                             std::to_string(owner) + " AND conv_id IN (" + in_list + ")");
+  if (result != nullptr) {
+    while (MYSQL_ROW values = mysql_fetch_row(result)) {
+      result_map[std::stoull(values[0])] = std::stoull(values[1]);
+    }
+    mysql_free_result(result);
+  }
+  return result_map;
+}
+
+void ConversationRepo::decrement_unread(MysqlPool::Lease& lease, uint64_t owner, uint64_t conv_id,
+                                        int delta, int64_t now_ms) {
+  if (delta <= 0) {
+    return;
+  }
+  Stmt stmt(lease.get(),
+            "UPDATE im_conversation_state "
+            "SET unread=GREATEST(CAST(unread AS SIGNED)-?,0),updated_at=? "
+            "WHERE owner_id=? AND conv_id=?");
+  stmt.bind_int(0, delta);
+  stmt.bind_uint(1, static_cast<uint64_t>(now_ms));
+  stmt.bind_uint(2, owner);
+  stmt.bind_uint(3, conv_id);
+  stmt.execute();
+}
+
 void ConversationRepo::mark_read(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer,
                                  uint64_t seq, int64_t now_ms) {
   const auto [user_a, user_b] = ordered(owner, peer);
@@ -310,6 +351,12 @@ std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, ui
   // 已读回执靠它把「对端读到哪」带给客户端(`peer_read_seq`),客户端再据此把
   // `seq <= peer_read_seq` 的我方消息标已读。`ps` 走 (owner_id,conv_id) 唯一键,
   // 是等值查找,不会因为多这个 JOIN 而扫全表。
+  // `m` 是会话的**全局**最后一条消息(批次 T 之后仍按 `c.last_msg_id` join):
+  // 「我的最后一条可见」不做成相关子查询 —— 那在 MySQL 8 上会把整段会话历史读出来
+  // 再排序(实测见 `docs/ops/imserver.md` §21)。改由
+  // `MessageRepo::apply_visible_last` 事后修补:只有「这条摘要确实被我隐藏了」的会话
+  // 才多查一次,其余会话零额外成本。
+  // `last_seq` / `has_last` / `updated_at` 的语义不变(仍是会话全局)。
   const std::string sql =
       "SELECT u.user_id,u.nickname,u.avatar_url,"
       "IFNULL(m.msg_id,0),IFNULL(m.conv_id,0),IFNULL(m.seq,0),IFNULL(m.from_id,0),"

@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <functional>
+#include <map>
 #include <random>
 #include <stdexcept>
 #include <thread>
@@ -174,7 +175,11 @@ MessageService::MessageService(MysqlPool& pool, UserRepo& users,
 
 std::vector<ConversationView> MessageService::list_conversations(uint64_t uid, int limit) {
   auto lease = pool_.acquire();
-  return conversations_.list(lease, uid, limit);
+  auto views = conversations_.list(lease, uid, limit);
+  // 摘要要显示「**我**最后一条可见消息」(批次 T 的多选删除):只有摘要本身被我隐藏的
+  // 会话才回查上一条,绝大多数会话零额外查询。
+  messages_.apply_visible_last(lease, uid, views);
+  return views;
 }
 
 std::vector<MessageRow> MessageService::list_messages(uint64_t uid, uint64_t peer,
@@ -184,7 +189,7 @@ std::vector<MessageRow> MessageService::list_messages(uint64_t uid, uint64_t pee
   if (!conversation.has_value()) {
     return {};
   }
-  return messages_.list(lease, conversation->id, before_seq, limit);
+  return messages_.list(lease, uid, conversation->id, before_seq, limit);
 }
 
 std::vector<MessageRow> MessageService::search(uint64_t uid, const std::string& keyword,
@@ -234,6 +239,66 @@ std::variant<RevokeResult, int> MessageService::revoke(uint64_t uid, uint64_t ms
   return result;
 }
 
+uint64_t MessageService::hide_messages(uint64_t uid, const std::vector<uint64_t>& ids) {
+  if (uid == 0 || ids.empty()) {
+    return 0;
+  }
+  auto lease = pool_.acquire();
+  lease.begin();
+  try {
+    const auto rows = messages_.find_mine(lease, uid, ids);
+    const int64_t now = now_ms();
+    // 只记「本次新隐藏」的行:减未读必须按新隐藏的算,否则重复删同一批会把
+    // 未读越减越少(幂等只体现在返回值上,副作用不能重放)。
+    std::vector<MessageRow> newly_hidden;
+    newly_hidden.reserve(rows.size());
+    for (const auto& row : rows) {
+      if (messages_.hide(lease, uid, row.msg_id, now)) {
+        newly_hidden.push_back(row);
+      }
+    }
+    if (!newly_hidden.empty()) {
+      // 未读减多少:只算「对端发的 + 我还没读过的(seq > 我这条会话的 read_seq)」。
+      // 删掉**已读**的消息不动未读 —— 它本来就没算进未读里。
+      std::vector<uint64_t> conv_ids;
+      for (const auto& row : newly_hidden) {
+        if (row.to_id != uid) {
+          continue;
+        }
+        if (std::find(conv_ids.begin(), conv_ids.end(), row.conv_id) == conv_ids.end()) {
+          conv_ids.push_back(row.conv_id);
+        }
+      }
+      if (!conv_ids.empty()) {
+        const auto read_seqs = conversations_.read_seqs(lease, uid, conv_ids);
+        std::map<uint64_t, int> deltas;
+        for (const auto& row : newly_hidden) {
+          if (row.to_id != uid) {
+            continue;
+          }
+          const auto it = read_seqs.find(row.conv_id);
+          const uint64_t read_seq = it == read_seqs.end() ? 0 : it->second;
+          if (row.seq > read_seq) {
+            deltas[row.conv_id] += 1;
+          }
+        }
+        for (const auto& [conv_id, delta] : deltas) {
+          conversations_.decrement_unread(lease, uid, conv_id, delta, now);
+        }
+      }
+    }
+    lease.commit();
+    return static_cast<uint64_t>(newly_hidden.size());
+  } catch (const std::exception& error) {
+    try {
+      lease.rollback();
+    } catch (const std::exception&) {
+    }
+    log_error("hide_messages_failed", {{"uid", std::to_string(uid)}, {"error", error.what()}});
+    throw;
+  }
+}
+
 bool MessageService::delete_conversation(uint64_t uid, uint64_t peer) {
   auto lease = pool_.acquire();
   const auto conversation = conversations_.find_pair(lease, uid, peer);
@@ -248,6 +313,10 @@ bool MessageService::delete_account(uint64_t uid) {
   auto lease = pool_.acquire();
   try {
     lease.begin();
+    // 多选删除(批次 T)的隐藏行要**先**清:第二条靠 im_message 里的行反查 msg_id,
+    // 消息删掉之后就再也查不到,隐藏行会变成永久垃圾(msg_id 还可能被自增复用)。
+    messages_.delete_hidden_by_user(lease, uid);
+    messages_.delete_hidden_by_messages(lease, uid);
     messages_.delete_for_user(lease, uid);
     conversations_.delete_for_user(lease, uid);
     blacklist_.delete_for_user(lease, uid);
