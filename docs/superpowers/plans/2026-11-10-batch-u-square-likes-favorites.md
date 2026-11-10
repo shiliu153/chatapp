@@ -274,4 +274,47 @@ class PostFavorite(models.Model):
 
 ## 执行记录
 
-(实施后补:每单的 PR / 合并 SHA / 关键交付 / 与计划的偏差 / 踩到的坑 / 模拟器验收表)
+**交付于 2026-11-10,三单全部合并**(`master` = `70e855d`)。
+
+| 单 | PR | 合并 SHA | 关键交付 |
+|---|---|---|---|
+| U-1 后端 | #221 | `2fc4a86` | `PostFavorite`(`uniq_post_favorite` + `fav_user_time_idx`)+ 四个接口(点赞列表 / 收藏 / 取消收藏 / 我的收藏)+ `is_favorited` **用 `Exists` 注解**(`posts` / `following` 预算仍是 15,一条没涨);31 个新用例 + 4 条查询预算用例 |
+| U-2 App | #226(#225 重开) | `70e855d` | 点赞数**拆成独立命中区**(`_PulseIcon` 只包图标、新增 `_LikeTail` 包数字)+ ··· 菜单收藏项提到 `isMine` 三元之外 + 点赞列表页 / 我的收藏页 + 「我的」页入口;`integration_test/post_card_actions_test.dart` 用**矩形级断言**钉住两区不重叠;`MyPostsController` 并进 `PostFeedController` |
+| U-3 Web | #224 | `cd82350` | `PostLikesPage.vue` / `FavoritesPage.vue` + `useFavoritesStore` / `usePostLikesStore`(`createFeedState` 泛型化复用)+ `PostLikerUnknown` 契约断言 + 设置页「我的收藏」入口 |
+
+### 与计划的偏差
+
+1. **`createFeedState` 泛型化,并把 store 的 `posts` 改名 `items`**(U-3)。计划只写「用工厂,不复制分页逻辑」,实现把工厂泛型化以容纳 `PostLiker`,顺手统一了命名。改动干净(`vue-tsc` 会抓漏改的消费方,四个消费方与测试都跟着改了),但**超出最小改动**:以后按旧名找 `store.posts` 会找不到。
+2. **取消收藏后是否留在「我的收藏」列表里,两端不一致**:App 立刻把卡片移出(U-2),Web 保留卡片(U-3,理由是「手滑取消 → 再点回来」,重进页面后端自然不再返回)。各自自洽,未统一 —— 见「遗留」。
+3. **`MyPostsController` 并进 `PostFeedController`**(U-2)。原先是复制出来的第二份分页实现,顺手归一;计划没写,但符合「不复制逻辑」的意图。
+4. **`post_likes` / `post_favorite` 用 `visible_base` 而不是 `visible_posts` 判可见**(U-1)。计划只写「不可见 → 404」;拿带 `COUNT … GROUP BY` 与图片预取的查询集去 `get()` 会白跑三条 SQL,用 `visible_base` 才守得住 12 条预算。
+
+### 踩到的坑
+
+1. **目测坐标这次量化了**:模拟器截图预览的缩放比约 **1.28**。「登录」按钮目测落在 y≈1218,真实中心 **y=1487** —— 差 **269px**,点下去落在键盘上、看起来像「按钮没反应」。全程用 Pillow 量色块 / 深色文字 bbox 再点(§4.1),一次没误判。
+2. **旧 `runserver` 占端口 → 新进程静默起不来**(§4.6 的另一种形态)。Windows 上 11:41 启动的旧进程一直占着 8000,我新起的进程绑定失败但**没有明显报错**(后台 job 只显示退出码),于是 `/posts/{id}/likes`、`/feed/favorites` 全 404 而 `/posts` 正常 —— 极容易被误判成「新接口没注册」。手测前先 `Get-NetTCPConnection -LocalPort 8000` 看监听进程的启动时间。
+3. **限流用例的计数会在 Redis 里跨进程残留**。`test_likes_list_is_throttled_per_user` 把 `post_likes_read` 临时改成 `2/hour` 并烧掉计数,key 里只有 scope + user id、TTL 一小时;紧接其后的另一次运行里 `test_heavy_banned_liker_is_filtered` 报过一次 `KeyError: 'count'`(响应不是分页信封)。随后同子集连跑 3 次、`feed` + `config.test_query_budget` 144 条连跑 2 次、以及 CI 全量都**没再复现**,按环境残留处理。若 CI 上偶发这条红,先查这里。
+4. **worker 把 PR 关掉重开了一次**(#225 → #226)。原因写在它自己的评论里:分支名与 `DSH_SUPERAGENT_NAME` 不一致,它「改用正确分支重开」,提交是同一个 `ef96a09`。两个 PR 的 CI 都跑了、都绿;我把验收评论与「标记 ready」的请求补发到 #226 后才合并。**下次派单时可以在正文里直接把期望的分支名写死**,省掉这一跳。
+
+### 验收结论(`emulator-5554`,Pixel_7 / Android 17,debug 包连本地 Django)
+
+| 项 | 结果 |
+|---|---|
+| 广场点**点赞数字** → 点赞列表 | ✅ 小C / 小B,按点赞时间倒序,带相对时间与进资料页箭头 |
+| 点赞列表点行 → 对方资料页 | ✅ |
+| ··· 菜单(他人的动态)含「收藏」 | ✅ |
+| 点「收藏」→ 落库 | ✅ `PostFavorite` 查到 `('13800138000', 2)` |
+| 「我的」页「我的收藏」入口(与「我的动态」并列) | ✅ |
+| 我的收藏里看到那条 → ··· → 取消收藏 → 卡片移出 + 空态 | ✅ 库里 `favorites: []` |
+| 点**点赞图标**仍是点赞(心变红、数字 2→3) | ✅ 图标语义没被改掉 |
+| 点 **0 赞**那条的数字 | ✅ 无反应(仍停在广场,不弹空页) |
+
+截图 22 张(协议弹窗 → 登录 → 广场 → 点赞列表 → 资料页 → 收藏 → 我的收藏 → 取消收藏 → 零赞不响应)留在本机 `_u2_handtest_shots/`,未入库。
+
+### 遗留(不在本期)
+
+1. **取消收藏后的列表行为两端不一致**(见偏差 2)。要统一时改一边即可,建议以 App 的「立刻移出」为准。
+2. **限流用例的计数隔离**(见坑 3):可给这几个用例在 `setUp` 里 `cache.clear()` 或换独立 ident。
+3. **点赞列表多两跳拉黑查询**:`visible_base` 与 `visible_likers` 各查一次「我拉黑谁 / 谁拉黑我」。要再压 2 条需给 `blocked_user_ids` 做请求级缓存 —— 会影响既有接口,单开一单。
+4. **`profile_voice_card_test.dart` 在本机全量跑时偶发红**(worker 报告:4 次全量跑红 2 次,单跑 4/4 绿;只在 20 核并行起 8 个 suite 时出现)。与本批无关,未动。
+5. **详情页里收藏/取消收藏不 `invalidate` 广场列表**:返回后卡片菜单文案可能还是旧的,直到下拉刷新(收藏页自己会在「从详情返回」时重拉)。与点赞同口径。

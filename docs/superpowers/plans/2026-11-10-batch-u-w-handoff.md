@@ -170,6 +170,19 @@ S 批因此补了 `app/integration_test/discovery_filter_test.dart`(走真实指
 改了后端之后**必须重启 `runserver`**(`--noreload` 下不会自动加载),
 否则会出现「新接口 404」这种假故障(本次 `/discovery/daily` 一开始 404 就是这个原因)。
 
+**它的另一种形态(2026-11-10 U 批踩到):旧进程占着 8000,新进程静默起不来。**
+机器上残留着一个几小时前启动的 `runserver`,端口被它占着;我新起的进程绑定失败、
+后台 job 只显示一个退出码,**看起来像「服务起来了」**。于是 `/posts/{id}/likes`
+与 `/feed/favorites` 全 404、而 `/posts` 正常 —— 极容易被误判成「新接口没注册」。
+手测前先确认监听 8000 的是**哪个进程、什么时候启动的**:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen | ForEach-Object { $_.OwningProcess }
+Get-Process python | Select-Object Id, StartTime
+```
+
+`StartTime` 早于本次改动 = 旧进程,先 `Stop-Process` 再起。
+
 本地起后端的完整环境变量(Windows + conda `Django` + CI 容器):
 
 ```powershell
