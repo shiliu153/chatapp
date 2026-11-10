@@ -1,8 +1,8 @@
 # 交接:批次 U / V / T / W-L3(给新对话)
 
-- **状态**:待接手
+- **状态**:进行中 —— **U、V 两批已交付**(2026-11-10);剩 **T 批**与 **W-L3**
 - **交接日期**:2026-11-10
-- **交接时的 `master`**:`bb2065d`(**接手前先 `git pull --ff-only` 确认已前进**)
+- **交接时的 `master`**:`89ab7ef`(**接手前先 `git pull --ff-only` 确认已前进**)
 - **上位文档**:[批次 R–W 设计](../specs/2026-11-09-batch-r-w-design.md)(总纲)、
   [AGENTS.md](../../../AGENTS.md)(执行约束)、[CLAUDE.md](../../../CLAUDE.md)(契约)、
   [心跳 UI 规则](../specs/2026-09-15-ui-design-language-design.md)(App UI 强制)
@@ -16,6 +16,8 @@
 | **W-L1** 发版自动化 | #200 | `scripts/release_prep.py`(前置闸门 + 版本号三处 + 门禁 + notes 草稿 + 待执行命令),23 条自测进 `contract` 轨 |
 | **R** 资料语音自我介绍 | #203 #207 #208 | `ProfileVoice` + `POST/DELETE /users/me/voice` + `voice` 字段;App 录音卡(30 秒)+ 播放条;Web 同构 |
 | **S** 发现页筛选 + 每日精选 | #212 #214 #216 | `CandidateFilters`(不落库)+ 缓存指纹分桶 + `GET /discovery/daily`;双端筛选面板 + 精选区块 |
+| **U** 广场点赞列表 + 收藏 | #221 #224 #226 | `feed.PostFavorite` + 四个接口(点赞列表 / 收藏 / 取消收藏 / 我的收藏)+ `is_favorited` 用 `Exists` 注解;双端点赞列表页与「我的收藏」 |
+| **V** 运营数据看板 | #231 #232 | `users/activity.py` 日活集合(**新增基建**,presence 回填不出 DAU)+ `stats.DailyMetric` + `manage.py metrics_daily` + `/ops/metrics/` |
 
 各批的执行记录(含踩坑)在:
 [R 批](2026-11-09-batch-r-voice-intro.md) §执行记录 · [S 批](2026-11-09-batch-s-filter-daily.md) §执行记录。
@@ -31,9 +33,13 @@
 
 ---
 
-## 2. 剩余四批的范围
+## 2. 剩余批次的范围(T / W-L3;U、V 已于 2026-11-10 交付)
 
-### U 批:广场点赞列表 + 收藏(3 单:backend → app → web)
+> U 与 V 的原始范围保留在下面并标了 ✅ —— 留着是为了让后续批次知道「这两批做了什么、踩了什么」,
+> 执行记录分别在 [U 批](2026-11-10-batch-u-square-likes-favorites.md) 与
+> [V 批](2026-11-10-batch-v-ops-metrics-dashboard.md) 的末尾。
+
+### U 批:广场点赞列表 + 收藏(3 单:backend → app → web)—— ✅ 已交付(#221 #224 #226)
 
 **要做什么**
 
@@ -50,20 +56,23 @@
 **验收要点**:后端绿 + `docs/api/feed.md` 与 openapi 同步;点赞列表对拉黑用户不可见;重复收藏幂等;
 删帖后收藏列表不再出现;查询预算不超标。
 
-### V 批:运营数据看板(backend 单栈,1–2 单)
+### V 批:运营数据看板(backend 单栈,1–2 单)—— ✅ 已交付(#231 #232)
 
 **要做什么**
 
 1. `manage.py metrics_daily`(默认算昨天,`--date` 指定,`--backfill N` 回填):
    写 `stats.DailyMetric` 快照 —— DAU(120 秒内有认证请求)、新注册、完善资料数、滑卡数、
    配对率、消息量(读 `chatapp_im`)、活跃时段分布。
-2. **cron 每日 03:40**(在备份之后),日志进 `/www/wwwlogs/`。**不引入 Celery beat** ——
-   项目惯例是 cron + `manage.py` 命令(见 `deploy/ops/chatapp-backup.sh`)。
+2. **cron 每日 04:30**(~~03:40~~ —— 03:40 已被 `refresh_shuffle_keys` 占用,见
+   `docs/ops/imserver.md` §12.5;03:20 备份、04:00–04:20 媒体维护),日志进 `/www/wwwlogs/`。
+   **不引入 Celery beat** —— 项目惯例是 cron + `manage.py` 命令(见 `deploy/ops/chatapp-backup.sh`)。
 3. `/ops/metrics/` 看板页:近 30 天趋势表 + 7 日留存。沿用 `/ops/` 模板与 `StaffSecurityMiddleware`。
 4. 只读、服务端渲染,**不进 `/api/v1`**(不受 `ApiDocsCoverageTests` 约束)。
 
 **坑**:① 跨库读 `chatapp_im` 要走 IM 库凭据(`IM_MYSQL_DSN`),不能用应用账号;
-② 留存要按「首日注册 cohort」算,别用活跃日反推。
+② 留存要按「首日注册 cohort」算,别用活跃日反推;
+③ **DAU 不能从 `presence` 反推**:presence 只有 7 天 TTL 的「最后活跃时间戳」,没有按天去重的历史,
+   所以 V 批必须先加 `users/activity.py` 的日活集合(见 §4.8)。这条**已在 V 批做完**,后续批次直接复用。
 
 ### T 批:聊天体验打磨(3 单:imserver → app → web)
 
@@ -108,8 +117,14 @@
 ```
 
 **派单后必须核入队**(`docs/ops/superagent.md` §4.1):等约 2.5 分钟,查 `thread` / `trigger_thread`
-两张表;3 分钟仍为 0 就**补发一条新评论**(不要改 issue 正文)。本次实测漏单率不低,
-U/V/T 每单都要核。
+两张表;3 分钟仍为 0 就**补发一条新评论**(不要改 issue 正文)。每单都要核。
+
+**但「三张表全空」有两种含义,别混**:
+① 真丢单 → 补发;
+② **上一轮轮询还在飞**(一轮要串行读完所有订阅 Thread,几分钟很正常)。
+区分办法:看 `kv` 里的 `github-since` —— **停在几分钟前的旧时间戳 = 轮在跑;它跟着推进而 230 号这类
+新 issue 始终没有 `github-cursor:<n>` = 真丢单**。V 批派 #230 时就是前者:3 分钟全空、第 10 分钟三样
+齐全。补发一条是无害的(trigger 幂等),但别因为「空」就去重启 worker。
 
 ```bash
 wsl -e bash -c 'python3 - <<PY
@@ -199,19 +214,41 @@ $env:DEBUG="1"; $env:SMS_DEV_MODE="1"; $env:SMS_PHONE_WHITELIST="13800138000,139
 用 curl 以 `app` 身份登录会踢掉模拟器上的 App 会话(批次 M 单端互顶)。
 需要在后台验接口时,加 `X-Client: web` 头走另一端,别把正在手测的 App 顶掉。
 
+### 4.8 `verify.sh` 不带 `--keep-deps` 会**清空 dev 库**
+
+`scripts/verify.sh` 收尾时 `docker compose down -v` 删卷;MySQL 下次启动重新 initdb,
+`chatapp_dev` 里你手测造的数据**全没**。表现很像「口径变了」:V 批实测 `--dry-run` 昨天还
+`new=3`,隔一次 `verify` 再跑变 `0` —— 其实是库被重置。
+
+**手测期间一律 `scripts/verify.sh backend --keep-deps`**,要造数据就再造一遍。
+
+### 4.9 想在 `shell` 里看真页面,`ALLOWED_HOSTS` 要含 `127.0.0.1`
+
+不开浏览器也能验服务端渲染的运营页:`manage.py shell` 里用 Django test client 渲染,再正则去标签看正文。
+但 dev 的 `ALLOWED_HOSTS` 不含 `testserver`,直接 `client.get(...)` 会 **400 DisallowedHost**。
+写法:`client.get("/ops/metrics/", HTTP_HOST="127.0.0.1")` + `export ALLOWED_HOSTS=127.0.0.1,localhost`。
+V-2 就是这么验的(staff 200 / 非 staff 403 / 匿名 302 + 逐格核对数字)。
+
 ---
 
 ## 5. 开新对话提示词(直接复制)
 
 ```
-读 docs/superpowers/plans/2026-11-10-batch-u-w-handoff.md,按里面的「剩余四批」继续做 U 批。
-先 git pull --ff-only 确认 master 已前进,再按文档 §3 的工作流:写 U 批 plan → 开三张工单
-(backend / app / web)→ 派给 worker → 逐行验收 → verify 全绿 → CI 全绿 → 合并 → closeout。
-文档 §4 的七个坑必须遵守,尤其 §4.1(模拟器手测用 Pillow 量坐标,不要目测)。
+读 docs/superpowers/plans/2026-11-10-batch-u-w-handoff.md,按里面的「剩余批次」继续做 T 批。
+先 git pull --ff-only 确认 master 已前进(U、V 两批已于 2026-11-10 合并,当前应在 89ab7ef 之后),
+再按文档 §3 的工作流:写 T 批 plan → 开三张工单(imserver / app / web)→ 派给 worker →
+逐行验收 → verify 全绿 → CI 全绿 → 合并 → closeout。
+文档 §4 的九个坑必须遵守,尤其 §4.1(模拟器手测用 Pillow 量坐标,不要目测)与 §4.8(手测期间加 --keep-deps)。
 主人已授权「每批自行验收后直接合并」;发版(版本号 / tag / Release / 部署)六批做完后由主人统一执行。
 ```
 
-V / T / W-L3 各自开工时,把提示词里的「U 批」换成对应批次即可。
+W-L3 开工时把「T 批」换成「W-L3」即可(那一单是内联做的,不开工单)。
+
+**T 批开工前多看一眼**:T 是唯一要动 imserver 表结构的一批(迁移 `008` 建 `im_message_hidden`),
+且「零 WS 帧改动」是靠走 HTTP 接口换来的 —— 动手前先照
+[设计 §4.3](../specs/2026-11-09-batch-r-w-design.md) 核实一遍既有查询(`GET /im/api/messages`、
+`conversations` 的未读数与 `last_message`),三处口径必须同改。
+
 
 ---
 
