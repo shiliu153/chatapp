@@ -184,4 +184,46 @@ void main() {
 
     expect(container.read(chatProvider('u9')).value!.single.isRevoked, isTrue);
   });
+
+  test('多选删除:一次请求带上全部远端 id,本地一起移除', () async {
+    fake.history = {
+      'u9': [
+        msg('101', isSelf: false, text: 'a'),
+        msg('local-1', isSelf: true, text: '还没发出去'),
+        msg('102', isSelf: false, text: 'b'),
+        msg('103', isSelf: false, text: '留着'),
+      ],
+    };
+    final container = makeContainer();
+    openChat(container);
+    await container.read(imStatusProvider.notifier).login();
+    await container.read(chatProvider('u9').future);
+
+    await container
+        .read(chatProvider('u9').notifier)
+        .deleteMessages(['101', 'local-1', '102']);
+
+    // 只上行服务端认得的 id:local- 开头的混进去会让 imserver 整批 42201
+    expect(fake.log, contains('delete:101,102'));
+    expect(fake.log.where((l) => l.startsWith('delete:')).length, 1);
+    final left = container.read(chatProvider('u9')).value!.map((m) => m.msgId).toList();
+    expect(left, ['103']);
+  });
+
+  test('多选删除失败:异常冒出来,本地一条都不动', () async {
+    fake.history = {
+      'u9': [msg('101', isSelf: false, text: 'a'), msg('102', isSelf: false, text: 'b')],
+    };
+    final container = makeContainer();
+    openChat(container);
+    await container.read(imStatusProvider.notifier).login();
+    await container.read(chatProvider('u9').future);
+    fake.deleteError = const ImException(42901, '操作过于频繁,请稍后再试');
+
+    await expectLater(
+      container.read(chatProvider('u9').notifier).deleteMessages(['101']),
+      throwsA(isA<ImException>()),
+    );
+    expect(container.read(chatProvider('u9')).value!.length, 2);
+  });
 }

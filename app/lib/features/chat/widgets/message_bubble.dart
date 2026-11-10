@@ -25,6 +25,10 @@ class MessageBubble extends StatelessWidget {
     this.onRetry,
     this.onTapImage,
     this.onTapQuote,
+    this.onToggleSelect,
+    this.selectable = false,
+    this.selected = false,
+    this.selectionMode = false,
     this.highlight = false,
     this.isRead = false,
     this.readReceiptEnabled = false,
@@ -40,6 +44,20 @@ class MessageBubble extends StatelessWidget {
 
   /// 点了气泡上方的引用块:跳到被引用的原消息(批次 L-2)。
   final VoidCallback? onTapQuote;
+
+  /// 多选模式下点气泡本体:切换这条的选中状态(批次 T-2)。
+  final VoidCallback? onToggleSelect;
+
+  /// 这条消息**能不能**被多选。已撤回 / 发送中 / 居中灰条都不给勾 ——
+  /// 前两者删了没有意义(已撤回本来就不显示内容),灰条没有气泡本体可点。
+  final bool selectable;
+
+  /// 多选模式下这条是否已选中。
+  final bool selected;
+
+  /// 是否处于多选模式:为真时点本体=切换选中、长按菜单/点图/点引用**全部失效**,
+  /// 语音气泡也不播(整块内容 IgnorePointer),免得「想勾选却点开了播放器」。
+  final bool selectionMode;
 
   /// 搜索定位命中的气泡:主色淡底高亮 1.5s 后由外层取消。
   final bool highlight;
@@ -99,22 +117,37 @@ class MessageBubble extends StatelessWidget {
       size: 40,
       fallbackText: isSelf ? '我' : (peerName ?? ''),
     );
+    final tappable = selectionMode && selectable;
     final bubble = GestureDetector(
-      onLongPress: onLongPress,
-      child: Opacity(
-        opacity: message.isPending ? 0.6 : 1,
-        child: ConstrainedBox(
-          constraints:
-              BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
-          // 引用块在气泡**上方**(批次 L-2):它是「我在回应什么」,不该抢正文的视线。
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment:
-                isSelf ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              if (message.ref != null) _quoteBlock(context, message.ref!),
-              _bubbleContent(context),
-            ],
+      // 气泡本体的稳定 key:测试与 integration_test 用它点「这一条」,
+      // 而不是点里面的文字 —— 多选模式下文字在被 IgnorePointer 挡住的子树里。
+      key: Key('chat.bubble:${message.msgId}'),
+      // 多选模式下长按菜单一律失效:此刻唯一动作是「勾选/取消勾选」,
+      // 再弹菜单会让手指一抖就变成引用或撤回。
+      onLongPress: selectionMode ? null : onLongPress,
+      onTap: tappable ? onToggleSelect : null,
+      // 只有「可勾」的气泡才整块吃事件;其它情况保持原样(deferToChild),
+      // 免得把气泡外的空白也变成点击区。
+      behavior: tappable ? HitTestBehavior.opaque : HitTestBehavior.deferToChild,
+      // 多选模式下内容整块不吃指针:语音气泡、图片、引用块自己的 onTap 全部让位给
+      // 外层的「切换选中」,否则「想勾选却点开了播放器 / 全屏大图」。
+      child: IgnorePointer(
+        ignoring: selectionMode,
+        child: Opacity(
+          opacity: message.isPending ? 0.6 : 1,
+          child: ConstrainedBox(
+            constraints:
+                BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
+            // 引用块在气泡**上方**(批次 L-2):它是「我在回应什么」,不该抢正文的视线。
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment:
+                  isSelf ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                if (message.ref != null) _quoteBlock(context, message.ref!),
+                _bubbleContent(context),
+              ],
+            ),
           ),
         ),
       ),
@@ -135,6 +168,12 @@ class MessageBubble extends StatelessWidget {
           mainAxisAlignment: isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // 勾选圈与左右无关,一律在最左边(微信口径):多选时视线从左边扫下来
+            // 对齐的是勾,不是头像。
+            if (selectionMode && selectable) ...[
+              _selectMark(colors),
+              const SizedBox(width: AppSpacing.sm),
+            ],
             if (!isSelf) ...[avatar, const SizedBox(width: AppSpacing.sm)],
             if (isSelf && message.isFailed) ...[
               IconButton(
@@ -160,6 +199,20 @@ class MessageBubble extends StatelessWidget {
       ),
     );
   }
+
+  /// 多选态的勾选圈(批次 T-2)。
+  ///
+  /// 选中 = 主色实心圆:这正是主色该出现的「视线锚点」(spec §2.1),未选 = `text3`
+  /// 空心。key 挂在圈上,测试按 `chat.select:<msgId>` 断言某一行的勾选态。
+  ///
+  /// Args:
+  ///   colors: 「心跳」色板(浅 / 深两套)。
+  Widget _selectMark(HeartColors colors) => Icon(
+        selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+        key: Key('chat.select:${message.msgId}'),
+        size: 22,
+        color: selected ? colors.brand : colors.text3,
+      );
 
   /// 我方气泡左侧的状态词(只会是「发送中」或「已读」,其它情况返回 null)。
   ///
