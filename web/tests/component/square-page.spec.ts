@@ -14,6 +14,7 @@ const post = (id: number): Post => ({
   like_count: 0,
   comment_count: 0,
   liked_by_me: false,
+  is_favorited: false,
   created_at: '2026-10-01T10:00:00Z',
 })
 
@@ -106,6 +107,43 @@ describe('SquarePage', () => {
     await w.findAll('.square__tab')[0].trigger('click')
     await flushPromises()
     expect(w.text()).toContain('第 1 条')
+  })
+
+  it('点赞数为 0 时点数字不发请求(数字不是入口)', async () => {
+    const paths: string[] = []
+    server.use(
+      mswHttp.get('/api/v1/posts', ({ request }) => {
+        paths.push(new URL(request.url).pathname)
+        return HttpResponse.json(page([post(1)]))
+      }),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    await w.find('.post-card__like-count').trigger('click')
+    await flushPromises()
+
+    // 只有进页面那一次 /posts;点数字不该再打 /posts/1/likes
+    expect(paths).toEqual(['/api/v1/posts'])
+  })
+
+  it('点收藏按钮打 /posts/{id}/favorite,并把书签点亮', async () => {
+    let favorites = 0
+    server.use(
+      mswHttp.get('/api/v1/posts', () => HttpResponse.json(page([post(1)]))),
+      mswHttp.post('/api/v1/posts/1/favorite', () => {
+        favorites += 1
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const w = mountPage()
+    await flushPromises()
+
+    await w.find('.post-card__favorite').trigger('click')
+    await flushPromises()
+
+    expect(favorites).toBe(1)
+    expect(w.find('.post-card__favorite').classes()).toContain('post-card__favorite--active')
   })
 
   it('关注 tab 空态:提示去推荐看看', async () => {

@@ -26,8 +26,10 @@ const REQUIRED_ROUTES = [
   'chat',
   'user-profile',
   'post-detail',
+  'post-likes',
   'post-compose',
   'my-posts',
+  'favorites',
   'settings',
   'settings-blocks',
   'settings-devices',
@@ -96,7 +98,9 @@ describe('路由表', () => {
       'notifications',
       'post-compose',
       'post-detail',
+      'post-likes',
       'my-posts',
+      'favorites',
       'user-profile',
       'onboarding',
       'banned',
@@ -108,6 +112,7 @@ describe('路由表', () => {
       chat: { peerId: 'u1' },
       'user-profile': { id: '1' },
       'post-detail': { id: '1' },
+      'post-likes': { id: '1' },
     }
     for (const name of usedNames) {
       const params = paramsByName[name] ?? {}

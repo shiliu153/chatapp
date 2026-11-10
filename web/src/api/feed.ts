@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { Comment, CursorPage, Page, Post, ReportType } from './types'
+import type { Comment, CursorPage, Page, Post, PostLiker, ReportType } from './types'
 
 /** 动态流:游标分页(首页 cursor 传 null,之后传上一页的 next_cursor)。 */
 export async function fetchPosts(limit = 20, cursor: string | null = null): Promise<CursorPage<Post>> {
@@ -53,6 +53,52 @@ export async function likePost(id: number): Promise<void> {
 
 export async function unlikePost(id: number): Promise<void> {
   await http.delete(`/posts/${id}/like`)
+}
+
+/**
+ * 点赞列表(feed.md §5.16):谁点了这条动态,按点赞时间倒序。
+ *
+ * 与动态上显示的 `like_count` **不是同一个口径** —— 这里的 `count` 是过滤掉
+ * 「双向拉黑 / 作者被重封禁」之后的可见人数,所以可能比 `like_count` 小。
+ */
+export async function fetchPostLikes(
+  postId: number,
+  limit = 20,
+  cursor: string | null = null,
+): Promise<CursorPage<PostLiker>> {
+  const { data } = await http.get(`/posts/${postId}/likes`, {
+    params: { limit, before: cursor ?? undefined },
+  })
+  return data as CursorPage<PostLiker>
+}
+
+/**
+ * 收藏 / 取消收藏(feed.md §5.17、§5.18):两个都是**恒 204 的幂等写**。
+ *
+ * 因为不返回「是不是第一次」,客户端只做乐观翻转;返回 204 就当作成功,
+ * 不要靠响应体判断状态。
+ */
+export async function favoritePost(id: number): Promise<void> {
+  await http.post(`/posts/${id}/favorite`)
+}
+
+export async function unfavoritePost(id: number): Promise<void> {
+  await http.delete(`/posts/${id}/favorite`)
+}
+
+/**
+ * 我的收藏(feed.md §5.19):**按收藏时间倒序**,不是发帖时间。
+ *
+ * 响应与广场动态流逐字段一致(含 `is_favorited`),所以能直接复用 `PostCard`。
+ */
+export async function fetchFavorites(
+  limit = 20,
+  cursor: string | null = null,
+): Promise<CursorPage<Post>> {
+  const { data } = await http.get('/feed/favorites', {
+    params: { limit, before: cursor ?? undefined },
+  })
+  return data as CursorPage<Post>
 }
 
 export async function fetchComments(postId: number, limit = 20, offset = 0): Promise<Page<Comment>> {

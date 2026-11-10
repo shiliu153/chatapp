@@ -4,7 +4,7 @@ import AppAvatar from '@/components/AppAvatar.vue'
 import type { Post } from '@/api/types'
 
 const props = withDefaults(defineProps<{ post: Post; mine?: boolean }>(), { mine: false })
-const emit = defineEmits<{ like: []; delete: []; report: [] }>()
+const emit = defineEmits<{ like: []; favorite: []; delete: []; report: [] }>()
 
 const imagesClass = computed(() => {
   const n = props.post.images.length
@@ -62,20 +62,43 @@ const createdAtText = computed(() => {
     </RouterLink>
 
     <footer class="post-card__foot">
-      <button
-        type="button"
-        class="post-card__like"
-        :class="{ 'post-card__like--active': props.post.liked_by_me }"
-        @click="emit('like')"
-      >
-        ♥ {{ props.post.like_count }}
-      </button>
+      <!-- 图标管「点赞」,数字管「看谁点了赞」:两个命中区,0 赞时数字不可点 -->
+      <span class="post-card__likes">
+        <button
+          type="button"
+          class="post-card__like"
+          :class="{ 'post-card__like--active': props.post.liked_by_me }"
+          :aria-pressed="props.post.liked_by_me"
+          aria-label="点赞"
+          @click="emit('like')"
+        >
+          ♥
+        </button>
+        <RouterLink
+          v-if="props.post.like_count > 0"
+          class="post-card__like-count"
+          :to="{ name: 'post-likes', params: { id: props.post.id } }"
+        >
+          {{ props.post.like_count }}
+        </RouterLink>
+        <span v-else class="post-card__like-count post-card__like-count--zero">0</span>
+      </span>
       <RouterLink
         class="post-card__comment"
         :to="{ name: 'post-detail', params: { id: props.post.id } }"
       >
         💬 {{ props.post.comment_count }}
       </RouterLink>
+      <button
+        type="button"
+        class="post-card__favorite"
+        :class="{ 'post-card__favorite--active': props.post.is_favorited }"
+        :aria-pressed="props.post.is_favorited"
+        :aria-label="props.post.is_favorited ? '取消收藏' : '收藏'"
+        @click="emit('favorite')"
+      >
+        🔖
+      </button>
       <span class="post-card__time">{{ createdAtText }}</span>
       <button type="button" class="post-card__report" @click="emit('report')">举报</button>
     </footer>
@@ -158,16 +181,35 @@ const createdAtText = computed(() => {
   gap: var(--space-lg);
   font-size: var(--text-caption);
 }
+.post-card__likes {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
 .post-card__like,
-.post-card__comment {
+.post-card__comment,
+.post-card__favorite {
   border: none;
   background: none;
   color: var(--color-text2);
   cursor: pointer;
   transition: color var(--motion-fast) var(--ease-out);
 }
-.post-card__like--active {
+.post-card__like--active,
+.post-card__favorite--active {
   color: var(--color-brand);
+}
+/* 点赞数 = 去「谁点了赞」的入口;0 赞时退化成纯文本,不给指针也不可聚焦 */
+.post-card__like-count {
+  color: var(--color-text2);
+  transition: color var(--motion-fast) var(--ease-out);
+}
+a.post-card__like-count:hover {
+  color: var(--color-brand);
+}
+.post-card__like-count--zero {
+  color: var(--color-text3);
+  cursor: default;
 }
 .post-card__time {
   margin-left: auto;

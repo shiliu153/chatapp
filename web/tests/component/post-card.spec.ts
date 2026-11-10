@@ -11,13 +11,20 @@ const base: Post = {
   like_count: 2,
   comment_count: 1,
   liked_by_me: false,
+  is_favorited: false,
   created_at: '2026-10-01T10:00:00Z',
+}
+
+/** RouterLink 桩:保留 `to`,好断言「数字指向哪条路由」。 */
+const RouterLinkStub = {
+  props: ['to'],
+  template: '<a :data-to="JSON.stringify(to)"><slot /></a>',
 }
 
 function mountCard(overrides: Partial<Post> = {}, mine = false) {
   return mount(PostCard, {
     props: { post: { ...base, ...overrides }, mine },
-    global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    global: { stubs: { RouterLink: RouterLinkStub } },
   })
 }
 
@@ -26,7 +33,8 @@ describe('PostCard', () => {
     const w = mountCard()
     expect(w.text()).toContain('小雨')
     expect(w.text()).toContain('今天天气不错')
-    expect(w.find('.post-card__like').text()).toContain('2')
+    expect(w.find('.post-card__like').text()).toBe('♥')
+    expect(w.find('.post-card__like-count').text()).toBe('2')
     expect(w.find('.post-card__comment').text()).toContain('1')
   })
 
@@ -40,6 +48,45 @@ describe('PostCard', () => {
     const w = mountCard()
     await w.find('.post-card__like').trigger('click')
     expect(w.emitted('like')).toHaveLength(1)
+  })
+
+  it('点赞数是独立入口:指向 /posts/{id}/likes,点它不触发 like', async () => {
+    const w = mountCard()
+    const count = w.find('a.post-card__like-count')
+
+    expect(count.exists()).toBe(true)
+    expect(count.attributes('data-to')).toContain('"name":"post-likes"')
+    expect(count.attributes('data-to')).toContain('"id":1')
+
+    await count.trigger('click')
+    expect(w.emitted('like')).toBeUndefined()
+  })
+
+  it('0 赞时数字退化成纯文本,不可点', () => {
+    const w = mountCard({ like_count: 0 })
+    const count = w.find('.post-card__like-count')
+
+    expect(count.text()).toBe('0')
+    expect(count.element.tagName).toBe('SPAN')
+    expect(count.classes()).toContain('post-card__like-count--zero')
+    expect(w.find('a.post-card__like-count').exists()).toBe(false)
+  })
+
+  it('收藏按钮默认为未收藏,点击派发 favorite', async () => {
+    const w = mountCard()
+    expect(w.find('.post-card__favorite').classes()).not.toContain(
+      'post-card__favorite--active',
+    )
+    expect(w.find('.post-card__favorite').attributes('aria-pressed')).toBe('false')
+
+    await w.find('.post-card__favorite').trigger('click')
+    expect(w.emitted('favorite')).toHaveLength(1)
+  })
+
+  it('已收藏时书签为高亮态', () => {
+    const w = mountCard({ is_favorited: true })
+    expect(w.find('.post-card__favorite').classes()).toContain('post-card__favorite--active')
+    expect(w.find('.post-card__favorite').attributes('aria-pressed')).toBe('true')
   })
 
   it('图片数量决定网格类名', () => {

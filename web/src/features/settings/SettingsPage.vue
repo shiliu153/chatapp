@@ -55,6 +55,7 @@ const groups = [
       { name: 'profile-edit', label: '编辑资料' },
       { name: 'preference', label: '想找的人' },
       { name: 'my-posts', label: '我的动态' },
+      { name: 'favorites', label: '我的收藏' },
       { name: 'settings-blocks', label: '黑名单' },
       { name: 'settings-devices', label: '登录设备' },
       { name: 'stats', label: '我的数据' },

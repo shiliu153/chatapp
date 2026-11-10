@@ -57,12 +57,31 @@ function onCommentDeleted(comment: Comment) {
     post.value.comment_count = Math.max(0, post.value.comment_count - removed)
   }
 }
+
+/**
+ * 详情页只有一个 Post 对象(没有列表 store),收藏在这里就地乐观翻转。
+ *
+ * 收藏接口恒 204(feed.md §5.17/§5.18),失败时把 `is_favorited` 翻回去,
+ * 与列表页 `toggleFavoriteIn` 的语义保持一致。
+ */
+async function onFavorite() {
+  const target = post.value
+  if (!target) return
+  const before = target.is_favorited
+  target.is_favorited = !before
+  try {
+    if (before) await feedApi.unfavoritePost(target.id)
+    else await feedApi.favoritePost(target.id)
+  } catch {
+    target.is_favorited = before
+  }
+}
 </script>
 
 <template>
   <section class="post-detail">
     <AppCard v-if="post" padding="lg">
-      <PostCard :post="post" @like="feedApi.likePost(post.id)" />
+      <PostCard :post="post" @like="feedApi.likePost(post.id)" @favorite="onFavorite" />
     </AppCard>
 
     <p v-if="error && fatal" class="post-detail__fatal">{{ error }}</p>

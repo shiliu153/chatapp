@@ -20,14 +20,14 @@ const tab = ref<Tab>('recommend')
 const current = computed(() => (tab.value === 'recommend' ? feed : following))
 
 const showEmpty = computed(
-  () => !current.value.loading && !current.value.error && current.value.posts.length === 0,
+  () => !current.value.loading && !current.value.error && current.value.items.length === 0,
 )
 
 function switchTab(next: Tab): void {
   if (tab.value === next) return
   tab.value = next
   // 关注流首次进入才拉;之后切回来复用已加载的列表(下拉/加载更多仍可刷新)
-  if (next === 'following' && following.posts.length === 0 && !following.loading) {
+  if (next === 'following' && following.items.length === 0 && !following.loading) {
     following.load().catch(() => {})
   }
 }
@@ -79,7 +79,7 @@ onMounted(() => {
     </div>
 
     <AppErrorView
-      v-else-if="current.error && current.posts.length === 0"
+      v-else-if="current.error && current.items.length === 0"
       :message="current.error"
       @retry="current.load(true)"
     />
@@ -95,11 +95,12 @@ onMounted(() => {
 
     <div v-else class="square__grid">
       <PostCard
-        v-for="item in current.posts"
+        v-for="item in current.items"
         :key="item.id"
         :post="item"
         :mine="item.author.user_id === session.userId"
         @like="current.toggleLike(item)"
+        @favorite="current.toggleFavorite(item)"
         @delete="current.removePost(item.id)"
       />
     </div>

@@ -18,6 +18,8 @@ async function mountSidebar(width = 240, current: RouteLocationRaw = { name: 'di
       { path: '/home/square', name: 'square', component: blank },
       { path: '/home/mine', name: 'mine', component: blank },
       { path: '/chat/:peerId', name: 'chat', component: blank },
+      { path: '/posts/:id/likes', name: 'post-likes', component: blank },
+      { path: '/favorites', name: 'favorites', component: blank },
       { path: '/settings', name: 'settings', component: blank },
     ],
   })
@@ -50,6 +52,14 @@ describe('AppSidebar', () => {
     const active = w.findAll('.app-sidebar__item--active')
     expect(active).toHaveLength(1)
     expect(active[0].text()).toContain('广场')
+  })
+
+  it('点赞列表与收藏页高亮「广场」(二级页归一级页)', async () => {
+    const likes = await mountSidebar(240, { name: 'post-likes', params: { id: '1' } })
+    expect(likes.w.find('.app-sidebar__item--active').text()).toContain('广场')
+
+    const favorites = await mountSidebar(240, { name: 'favorites' })
+    expect(favorites.w.find('.app-sidebar__item--active').text()).toContain('广场')
   })
 
   it('聊天详情页时高亮「消息」', async () => {

@@ -32,6 +32,7 @@ import type {
   Photo,
   Post,
   PostAuthor,
+  PostLiker,
   Preference,
   Profile,
   ProfileVisit,
@@ -65,6 +66,8 @@ export type SwipeUndoResultUnknown = MustBeNever<
 >
 export type PostAuthorUnknown = MustBeNever<UnknownFields<PostAuthor, Schema<'AuthorBrief'>>>
 export type PostUnknown = MustBeNever<UnknownFields<Post, Schema<'Post'>>>
+/** 点赞列表元素(feed.md §5.16)。少了这条,`PostLiker` 等于没被契约检查。 */
+export type PostLikerUnknown = MustBeNever<UnknownFields<PostLiker, Schema<'PostLiker'>>>
 export type ReplyToUnknown = MustBeNever<UnknownFields<ReplyTo, Schema<'ReplyTo'>>>
 export type CommentUnknown = MustBeNever<UnknownFields<Comment, Schema<'PostComment'>>>
 export type NotificationActorUnknown = MustBeNever<

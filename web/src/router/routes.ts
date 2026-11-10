@@ -101,6 +101,19 @@ export const routes: RouteRecordRaw[] = [
     props: true,
   },
   {
+    // 点赞列表(批次 U,feed.md §5.16):卡片上「♥ 的数字」点进来
+    path: '/posts/:id/likes',
+    name: 'post-likes',
+    component: () => import('@/features/square/PostLikesPage.vue'),
+    props: true,
+  },
+  {
+    // 我的收藏(批次 U,feed.md §5.19):设置页「我的动态」旁边的入口
+    path: '/favorites',
+    name: 'favorites',
+    component: () => import('@/features/square/FavoritesPage.vue'),
+  },
+  {
     path: '/stats',
     name: 'stats',
     component: () => import('@/features/stats/StatsPage.vue'),
