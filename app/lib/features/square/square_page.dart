@@ -96,6 +96,18 @@ class _SquarePageState extends ConsumerState<SquarePage> {
     }
   }
 
+  /// 收藏 / 取消收藏:乐观翻转在控制器里,失败回滚后由这里提示。
+  Future<void> _toggleFavorite(Post post) async {
+    final wasFavorited = post.isFavorited;
+    try {
+      await _feed.toggleFavorite(post);
+      if (!mounted) return;
+      AppToast.show(context, wasFavorited ? '已取消收藏' : '已收藏');
+    } on ApiException catch (error) {
+      if (mounted) AppToast.show(context, error.message);
+    }
+  }
+
   Future<void> _deletePost(Post post) async {
     final confirmed = await confirmDeletePost(context);
     if (!confirmed || !mounted) return;
@@ -224,15 +236,21 @@ class _SquarePageState extends ConsumerState<SquarePage> {
                                     : () => context.push('/users/${post.author.userId}',
                                         extra: 'avatar-post-${post.id}'),
                                 onToggleLike: () => _toggleLike(post),
+                                // 数字区才是点赞列表入口(图标区仍是点赞/取消)
+                                onTapLikes: () =>
+                                    context.push('/posts/${post.id}/likes'),
                                 onTap: () => _openDetail(post),
                                 cardHeroTag: inCardFlight
                                     ? 'card-post-${post.id}'
                                     : null,
                                 onOpenImage: (i) => openPhotoViewer(context,
                                     urls: post.images, initialIndex: i),
-                                menuAction: (action) => action == 'delete'
-                                    ? _deletePost(post)
-                                    : reportPostFromSheet(context, ref, post.id),
+                                menuAction: (action) => switch (action) {
+                                  'favorite' || 'unfavorite' =>
+                                    _toggleFavorite(post),
+                                  'delete' => _deletePost(post),
+                                  _ => reportPostFromSheet(context, ref, post.id),
+                                },
                               );
                             },
                           ),

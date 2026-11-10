@@ -22,8 +22,10 @@ import 'features/settings/feedback_page.dart';
 import 'features/settings/notification_settings_page.dart';
 import 'features/settings/settings_page.dart';
 import 'features/shell/home_shell.dart';
+import 'features/square/favorites_page.dart';
 import 'features/square/my_posts_page.dart';
 import 'features/square/post_compose_page.dart';
+import 'features/square/post_likes_page.dart';
 import 'features/square/post_detail_args.dart';
 import 'features/square/post_detail_page.dart';
 import 'features/stats/stats_page.dart';
@@ -75,6 +77,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/posts/compose', builder: (context, state) => const PostComposePage()),
       GoRoute(path: '/my-posts', builder: (context, state) => const MyPostsPage()),
+      GoRoute(path: '/favorites', builder: (context, state) => const FavoritesPage()),
+      // 点赞列表必须比 /posts/:id 更具体:它多一段,go_router 按整条路径匹配不会串
+      GoRoute(
+        path: '/posts/:id/likes',
+        builder: (context, state) => PostLikesPage(
+          postId: int.parse(state.pathParameters['id']!),
+        ),
+      ),
       GoRoute(
         path: '/posts/:id',
         builder: (context, state) {

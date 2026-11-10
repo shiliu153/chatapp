@@ -105,6 +105,35 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
     }
   }
 
+  /// 收藏 / 取消收藏:乐观翻转在控制器里,失败回滚后由这里提示。
+  ///
+  /// 这里**故意不 invalidate 列表 provider**(与点赞同口径):广场/我的动态的
+  /// provider 还活着,失效会把它打回 loading,返回时列表被重置到顶部、整卡 Hero
+  /// 也没了目标。列表页自己在「从详情返回」时刷新(见 `favorites_page.dart`)。
+  Future<void> _toggleFavorite() async {
+    final wasFavorited =
+        ref.read(postDetailProvider(widget.postId)).value?.isFavorited ?? false;
+    try {
+      await ref.read(postDetailProvider(widget.postId).notifier).toggleFavorite();
+      if (!mounted) return;
+      AppToast.show(context, wasFavorited ? '已取消收藏' : '已收藏');
+    } on ApiException catch (error) {
+      if (mounted) AppToast.show(context, error.message);
+    }
+  }
+
+  /// 卡片右上 ··· 的动作分发(收藏对谁都给;删除/举报按动态归属二选一)。
+  Future<void> _onMenu(Post post, String action) async {
+    switch (action) {
+      case 'favorite' || 'unfavorite':
+        await _toggleFavorite();
+      case 'delete':
+        await _deletePost();
+      default:
+        await reportPostFromSheet(context, ref, post.id);
+    }
+  }
+
   Future<void> _deletePost() async {
     final confirmed = await confirmDeletePost(context);
     if (!confirmed || !mounted) return;
@@ -154,9 +183,7 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                       onToggleLike: _toggleLike,
                       onOpenImage: (post, i) => openPhotoViewer(context,
                           urls: post.images, initialIndex: i),
-                      onMenu: (post, action) => action == 'delete'
-                          ? _deletePost()
-                          : reportPostFromSheet(context, ref, post.id),
+                      onMenu: _onMenu,
                       onRetryComments: () =>
                           ref.invalidate(commentsProvider(widget.postId)),
                       onReply: _startReply,
@@ -185,9 +212,7 @@ class _PostDetailPageState extends ConsumerState<PostDetailPage> {
                     onToggleLike: _toggleLike,
                     onOpenImage: (post, i) => openPhotoViewer(context,
                         urls: post.images, initialIndex: i),
-                    onMenu: (post, action) => action == 'delete'
-                        ? _deletePost()
-                        : reportPostFromSheet(context, ref, post.id),
+                    onMenu: _onMenu,
                     onRetryComments: () =>
                         ref.invalidate(commentsProvider(widget.postId)),
                     onReply: _startReply,
@@ -260,6 +285,8 @@ class _Body extends StatelessWidget {
                 : () => context.push('/users/${post.author.userId}',
                     extra: 'avatar-post-${post.id}'),
             onToggleLike: onToggleLike,
+            // 点赞数字区 → 点赞列表(图标区仍是点赞/取消,语义不变)
+            onTapLikes: () => context.push('/posts/${post.id}/likes'),
             onOpenImage: (i) => onOpenImage(post, i),
             menuAction: (action) => onMenu(post, action),
             // 详情页里点卡不该再进详情

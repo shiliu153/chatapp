@@ -22,6 +22,7 @@ class Post {
     required this.commentCount,
     required this.likedByMe,
     required this.createdAt,
+    this.isFavorited = false,
   });
 
   final int id;
@@ -33,6 +34,9 @@ class Post {
   final bool likedByMe;
   final DateTime createdAt;
 
+  /// 我是否收藏了这条动态(`is_favorited`)。**只读服务端**,不在本地持久化。
+  final bool isFavorited;
+
   factory Post.fromJson(Map<String, dynamic> json) => Post(
         id: json['id'] as int,
         author: FeedAuthor.fromJson(json['author'] as Map<String, dynamic>),
@@ -41,10 +45,11 @@ class Post {
         likeCount: json['like_count'] as int? ?? 0,
         commentCount: json['comment_count'] as int? ?? 0,
         likedByMe: json['liked_by_me'] as bool? ?? false,
+        isFavorited: json['is_favorited'] as bool? ?? false,
         createdAt: DateTime.parse(json['created_at'] as String),
       );
 
-  Post copyWith({int? likeCount, bool? likedByMe}) => Post(
+  Post copyWith({int? likeCount, bool? likedByMe, bool? isFavorited}) => Post(
         id: id,
         author: author,
         text: text,
@@ -52,7 +57,34 @@ class Post {
         likeCount: likeCount ?? this.likeCount,
         commentCount: commentCount,
         likedByMe: likedByMe ?? this.likedByMe,
+        isFavorited: isFavorited ?? this.isFavorited,
         createdAt: createdAt,
+      );
+}
+
+/// 「谁点了赞」里的一行(`GET /posts/{id}/likes` 的 `PostLiker` 契约组件)。
+///
+/// 字段名跟契约走,别改名:`user_id` / `nickname` / `avatar_url` / `liked_at`。
+class PostLikeUser {
+  const PostLikeUser({
+    required this.userId,
+    required this.nickname,
+    required this.likedAt,
+    this.avatarUrl,
+  });
+
+  final int userId;
+  final String nickname;
+
+  /// 无已过审照片时为 null(契约里 `avatar_url` 可空)。
+  final String? avatarUrl;
+  final DateTime likedAt;
+
+  factory PostLikeUser.fromJson(Map<String, dynamic> json) => PostLikeUser(
+        userId: json['user_id'] as int,
+        nickname: json['nickname'] as String? ?? '',
+        avatarUrl: json['avatar_url'] as String?,
+        likedAt: DateTime.parse(json['liked_at'] as String),
       );
 }
 
