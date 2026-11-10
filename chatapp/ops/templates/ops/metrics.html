@@ -1,0 +1,87 @@
+{% extends "ops/base.html" %}
+{% block page_title %}运营看板{% endblock %}
+{% block content %}
+<article>
+<h3>昨日概览</h3>
+<div class="ops-stats">
+  <div class="ops-stat">
+    <div class="ops-stat-label">昨日 DAU{% if yesterday %} <small>{{ yesterday|date:"Y-m-d" }}</small>{% endif %}</div>
+    <div class="ops-stat-value" id="stat-dau">{{ yesterday_dau|default_if_none:"—" }}</div>
+  </div>
+  <div class="ops-stat">
+    <div class="ops-stat-label">昨日新注册{% if yesterday %} <small>{{ yesterday|date:"Y-m-d" }}</small>{% endif %}</div>
+    <div class="ops-stat-value" id="stat-new-users">{{ yesterday_new_users|default_if_none:"—" }}</div>
+  </div>
+  <div class="ops-stat">
+    <div class="ops-stat-label">近 7 日配对率
+      {% if summary.days %}<small>{{ summary.start|date:"Y-m-d" }} ~ {{ summary.end|date:"Y-m-d" }}</small>{% endif %}</div>
+    <div class="ops-stat-value" id="stat-match-rate">{{ summary.match_rate|default_if_none:"—" }}</div>
+  </div>
+  <div class="ops-stat">
+    <div class="ops-stat-label">近 7 日消息量
+      {% if summary.days %}<small>{{ summary.start|date:"Y-m-d" }} ~ {{ summary.end|date:"Y-m-d" }}</small>{% endif %}</div>
+    <div class="ops-stat-value" id="stat-messages">{{ summary.messages|default_if_none:"—" }}</div>
+  </div>
+</div>
+<p class="ops-hint">
+  近 7 日汇总({{ summary.days }} 天):新注册 {{ summary.new_users }} 人,
+  日均 DAU {{ summary.avg_dau|default_if_none:"—" }}(只在采到 DAU 的天上平均)。
+</p>
+<p class="ops-hint">
+  本页只读历史快照(<code>stats_dailymetric</code>),实时指标看 Prometheus。
+  快照由计划任务每天 04:30 算昨天然,今天 {{ today|date:"Y-m-d" }};{% if latest %}表里最新一行是 {{ latest.date|date:"Y-m-d" }},{% endif %}今天与昨天的数字要等那次任务跑完才有。
+</p>
+</article>
+
+<article>
+<h3>近 30 天趋势</h3>
+<table>
+  <thead><tr>
+    <th>日期</th><th>DAU</th><th>新注册</th><th>完善</th><th>喜欢</th><th>跳过</th>
+    <th>配对</th><th>配对率</th><th>消息</th><th>次日留存</th><th>7 日留存</th>
+  </tr></thead>
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td>{{ row.date|date:"Y-m-d" }}</td>
+      <td>{{ row.dau|default_if_none:"—" }}</td>
+      <td>{{ row.new_users }}</td>
+      <td>{{ row.profiles_completed }}</td>
+      <td>{{ row.swipes_like }}</td>
+      <td>{{ row.swipes_pass }}</td>
+      <td>{{ row.matches }}</td>
+      <td>{{ row.match_rate|default_if_none:"—" }}</td>
+      <td>{{ row.messages|default_if_none:"—" }}</td>
+      <td>{{ row.retention_d1|default_if_none:"—" }}</td>
+      <td>{{ row.retention_d7|default_if_none:"—" }}</td>
+    </tr>
+  {% empty %}
+    <tr><td colspan="11">还没有数据:先在服务器上跑
+      <code>python manage.py metrics_daily --backfill 30</code></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="ops-hint">
+  「—」= 当日未采集到(空 ≠ 0):DAU / 消息量 / 两类留存当天没采到就是空,不是 0。
+  配对率 = 当日配对 ÷ 当日喜欢,分母为 0 也显示「—」。最多展示最近 30 行。
+</p>
+</article>
+
+<article>
+<h3>活跃时段{% if activity_date %} <small>{{ activity_date|date:"Y-m-d" }}</small>{% endif %}</h3>
+{% if hour_bars %}
+  <div class="ops-hours">
+  {% for bar in hour_bars %}
+    <div class="ops-hour">
+      <span class="ops-hour-label">{{ bar.hour }}:00</span>
+      <span class="ops-hour-track"><span class="ops-hour-fill" style="width: {{ bar.pct }}%"></span></span>
+      <span class="ops-hour-count">{{ bar.count }}</span>
+    </div>
+  {% endfor %}
+  </div>
+  <p class="ops-hint">横条长度 = 该小时活跃人数相对当日最高峰的比例;数字是该小时活跃去重人数。</p>
+{% else %}
+  <p class="ops-hint">暂无活跃时段数据:它依赖当天的日活集合(上线后才开始采集,且只留 45 天)。</p>
+{% endif %}
+</article>
+{% endblock %}

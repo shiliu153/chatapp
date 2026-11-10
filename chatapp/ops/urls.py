@@ -43,6 +43,7 @@ urlpatterns = [
     path("users/", views.users_search, name="users"),
     path("users/<int:user_id>/", views.user_detail, name="user_detail"),
     path("users/<int:user_id>/ban", views.user_ban, name="user_ban"),
+    path("metrics/", views.metrics, name="metrics"),
     path("logs/", views.logs, name="logs"),
     path("feedback/", views.feedback_list, name="feedback"),
     path("feedback/<int:feedback_id>/handle", views.feedback_handle,

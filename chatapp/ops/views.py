@@ -1,4 +1,4 @@
-"""运营审核台:举报处理、照片审核、用户管理、封禁日志、广场治理与准入名单。
+"""运营审核台:举报处理、照片审核、用户管理、封禁日志、广场治理、运营看板与准入名单。
 
 设计要点:
     1. **用 Django 模板 + HTMX 局部刷新,不用 DRF**:审核台是内部工具,追求开发速度。
@@ -11,6 +11,9 @@
        因此加号/停用都要留操作人;写路径必须调 ``accounts.allowlist.invalidate()``,
        否则 App/Web 侧还要等快照 TTL 才生效。每次加号/启停还要在同一个事务里写一条
        ``PhoneAllowlistEvent``(R4-B2):``is_active`` 只存当前状态,历史只能靠流水;
+    5. **运营看板是只读页**:数据全部来自 ``stats.DailyMetric`` 快照表(``metrics_daily``
+       每天写一行),页面不写任何表、不查 IM 库、不算实时指标 —— 实时归 Prometheus。
+       配对率与近 7 日汇总在视图里算好再进上下文,模板里不做除法。
 
 注意事项:
     解封时必须先把状态改回 ``INCOMPLETE`` 再调 ``refresh_status()`` ——
@@ -43,6 +46,7 @@ from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
 from moderation.services import log_ban_change, notify_report_handled
+from stats import metrics as stats_metrics
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import review_photos
 
@@ -60,6 +64,11 @@ ALLOWLIST_PAGE_SIZE = 200
 
 # 「最近操作」表最多展示多少条流水;审计才是全量查询,页面只要扫一眼最近发生过什么。
 ALLOWLIST_EVENT_LIMIT = 20
+
+# 运营看板趋势表取多少行、顶部数字卡的「近 N 日」窗口。两个数字写死在这里 ——
+# 「近 30 天」「近 7 日」是口径不是可调参数,别让视图与模板各说一套。
+METRICS_TREND_DAYS = 30
+METRICS_SUMMARY_DAYS = 7
 
 
 def _reported_user_ids(days: int = MEDIA_REPORT_WINDOW_DAYS) -> set[int]:
@@ -414,6 +423,153 @@ def user_ban(request, user_id):
     ctx = _user_context(user)
     ctx["error"] = error
     return render(request, "ops/partials/user_ban_panel.html", ctx)
+
+
+def _rate(numerator: int, denominator: int) -> float | None:
+    """算一个比值,分母为 0 时返回 ``None``。
+
+    Args:
+        numerator: 分子(如当日新增配对数)。
+        denominator: 分母(如当日「喜欢」次数)。
+
+    Returns:
+        比值 ``numerator / denominator``;分母为 0 返回 ``None``(看板渲染 ``—``)。
+    """
+    if not denominator:
+        return None
+    return numerator / denominator
+
+
+def _format_rate(rate: float | None) -> str | None:
+    """把配对率格式化成百分比文本。
+
+    格式化放在这里而不是模板:模板只做展示,不做除法,也不做数字格式化。
+
+    Args:
+        rate: 比值(``0.4`` 表示 40%);``None`` 表示分母为 0。
+
+    Returns:
+        ``"40.0%"`` 这样的文本;``None`` 原样返回,由模板渲染 ``—``。
+    """
+    if rate is None:
+        return None
+    return f"{rate * 100:.1f}%"
+
+
+def _metrics_summary(window: list) -> dict:
+    """把「近 7 日」窗口内的快照汇总成顶部数字卡要的数字。
+
+    口径(与 ``docs/ops/runbook.md`` §9 一致):
+        1. 配对率 = ``Σmatches / Σswipes_like``,分母为 0 时留空;
+        2. 日均 DAU 只在**采到 DAU 的天**上平均 —— 当天没采到不参与平均,
+           否则会把「没采到」当成「0 人」拉低均值;
+        3. 消息量按天求和,一天都没采到则留空(采到了 0 条算 0,不算空)。
+
+    Args:
+        window: 窗口内的快照行(可以只有几天,也可以为空)。
+
+    Returns:
+        含 ``days`` / ``start`` / ``end`` / ``new_users`` / ``avg_dau`` /
+        ``match_rate`` / ``messages`` 的字典;采不到的聚合值一律 ``None``。
+    """
+    daus = [row.dau for row in window if row.dau is not None]
+    messages = [row.messages for row in window if row.messages is not None]
+    return {
+        "days": len(window),
+        "start": window[-1].date if window else None,
+        "end": window[0].date if window else None,
+        "new_users": sum(row.new_users for row in window),
+        "avg_dau": f"{sum(daus) / len(daus):.1f}" if daus else None,
+        "match_rate": _format_rate(_rate(
+            sum(row.matches for row in window),
+            sum(row.swipes_like for row in window),
+        )),
+        "messages": sum(messages) if messages else None,
+    }
+
+
+def _metrics_trend(rows: list) -> list:
+    """把快照行整理成模板可以直接渲染的行(配对率在这里算好)。
+
+    Args:
+        rows: ``stats.metrics.recent_rows`` 返回的 ``DailyMetric`` 列表。
+
+    Returns:
+        每行一个字典,缺失值保持 ``None``,由模板用 ``default_if_none`` 渲染 ``—``。
+    """
+    return [{
+        "date": row.date,
+        "dau": row.dau,
+        "new_users": row.new_users,
+        "profiles_completed": row.profiles_completed,
+        "swipes_like": row.swipes_like,
+        "swipes_pass": row.swipes_pass,
+        "matches": row.matches,
+        "match_rate": _format_rate(stats_metrics.match_rate(row)),
+        "messages": row.messages,
+        "retention_d1": row.retention_d1,
+        "retention_d7": row.retention_d7,
+    } for row in rows]
+
+
+def _hour_bars(row) -> list:
+    """把一行的 24 个小时桶算成横条(宽度百分比在这里算好,模板只贴 ``width``)。
+
+    Args:
+        row: 带 ``active_hours`` 的快照行;``None`` 或没有时段分布时返回空列表。
+
+    Returns:
+        24 条 ``{"hour": "09", "count": 3, "pct": 60.0}``;``pct`` 是相对当日最高峰
+        的百分比(CSS 横条宽度),当日无人活跃时全是 ``0``。列不是列表(脏数据)时返回
+        空列表 —— 看板不能因为一行的时段分布不对就整页 500。
+    """
+    if row is None or not isinstance(row.active_hours, list) or not row.active_hours:
+        return []
+    counts = row.active_hours[:24]
+    peak = max(counts) if counts else 0
+    return [{
+        "hour": f"{hour:02d}",
+        "count": count,
+        "pct": round(count / peak * 100, 1) if peak else 0,
+    } for hour, count in enumerate(counts)]
+
+
+@staff_required
+def metrics(request):
+    """运营看板:昨日数字卡、近 30 天趋势表与活跃时段。
+
+    数据全部来自 V-1 写好并由 ``manage.py metrics_daily`` 每天写入的
+    ``stats.DailyMetric`` 快照表 —— 本页**只读**:一条 SQL 取 30 行
+    (``stats.metrics.recent_rows``),汇总、配对率、时段横条宽度全在这份内存列表上算,
+    模板里不做除法。缺失值(``None``)由模板渲染成 ``—``,与「采到了 0」严格区分。
+
+    Args:
+        request: Django 请求对象。
+
+    Returns:
+        渲染后的看板页;快照表为空时同样返回 200(页面给「还没有数据」提示,不抛异常)。
+    """
+    today = timezone.localdate()
+    yesterday = today - timedelta(days=1)
+    # 一条 SQL 取完趋势表要用的行,后面所有计算都在这份内存列表上做(不在循环里查库)。
+    rows = stats_metrics.recent_rows(METRICS_TREND_DAYS)
+    yesterday_row = next((row for row in rows if row.date == yesterday), None)
+    window_start = yesterday - timedelta(days=METRICS_SUMMARY_DAYS - 1)
+    window = [row for row in rows if window_start <= row.date <= yesterday]
+    # 活跃时段用「最近一行**真的采到**小时分布的快照」:最新那行的 active_hours 可能是
+    # 空的(当天 Redis 没记录),退到前一天比显示「暂无数据」更有用。
+    activity_row = next((row for row in rows if row.active_hours), None)
+    return render(request, "ops/metrics.html", {
+        "rows": _metrics_trend(rows),
+        "summary": _metrics_summary(window),
+        "latest": rows[0] if rows else None,
+        "hour_bars": _hour_bars(activity_row),
+        "activity_date": activity_row.date if activity_row else None,
+        "today": today,
+        "yesterday": yesterday,
+        "yesterday_dau": yesterday_row.dau if yesterday_row else None,
+        "yesterday_new_users": yesterday_row.new_users if yesterday_row else None,
+    })
 
 
 @staff_required

@@ -106,3 +106,16 @@ tbody tr:last-child td { border-bottom: none; }
   border-radius: 8px; box-shadow: 0 4px 16px rgba(16, 24, 40, .06); }
 .login-card h1 { margin: 0 0 24px; font-size: 18px; text-align: center; }
 .login-card button { width: 100%; height: 36px; margin-top: 6px; }
+
+/* ===== 运营看板(只读快照,V-2) ===== */
+.ops-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.ops-stat { padding: 12px 14px; border: 1px solid #e8eaed; border-radius: 6px; background: #fafbfc; }
+.ops-stat-label { color: #6b7280; font-size: 13px; }
+.ops-stat-label small { display: block; margin-top: 2px; font-size: 12px; }
+.ops-stat-value { margin-top: 6px; font-size: 22px; font-weight: 700; line-height: 1.2; }
+.ops-hours { display: flex; flex-direction: column; gap: 4px; }
+.ops-hour { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.ops-hour-label { flex: 0 0 46px; color: #6b7280; }
+.ops-hour-track { flex: 1 1 auto; height: 12px; background: #f0f2f5; border-radius: 3px; overflow: hidden; }
+.ops-hour-fill { display: block; height: 100%; background: #2c7be5; border-radius: 3px; }
+.ops-hour-count { flex: 0 0 28px; text-align: right; color: #2b2f36; }
