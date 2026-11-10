@@ -215,8 +215,25 @@ export interface Post {
   like_count: number
   comment_count: number
   liked_by_me: boolean
+  /** 当前用户是否已收藏(feed.md §5.1;收藏是私密书签,不通知作者) */
+  is_favorited: boolean
   /** ISO 8601 */
   created_at: string
+}
+
+/**
+ * 点赞列表的一行(feed.md §5.16)。
+ *
+ * 只是「谁点了赞」的摘要,不是完整资料 —— 点行去资料页仍按 `user_id` 拉一次。
+ * `avatar_url` 为 null 表示点赞者没有已过审照片。
+ */
+export interface PostLiker {
+  /** 点赞者的账号 ID */
+  user_id: number
+  nickname: string
+  avatar_url: string | null
+  /** ISO 8601 */
+  liked_at: string
 }
 
 export interface ReplyTo {

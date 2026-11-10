@@ -32,7 +32,15 @@ const navItems: { name: NavName; label: string; icon: string; badge?: boolean }[
 const currentSection = computed(() => {
   const name = String(route.name ?? '')
   if (name === 'chat') return 'chats'
-  if (name === 'post-detail' || name === 'post-compose' || name === 'my-posts') return 'square'
+  if (
+    name === 'post-detail' ||
+    name === 'post-compose' ||
+    name === 'post-likes' ||
+    name === 'my-posts' ||
+    name === 'favorites'
+  ) {
+    return 'square'
+  }
   if (name === 'user-profile' || name === 'profile-edit' || name === 'preference') return 'mine'
   if (name === 'settings' || name === 'settings-blocks') return 'settings'
   return name

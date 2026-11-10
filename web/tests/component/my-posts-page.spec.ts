@@ -14,6 +14,7 @@ const post = (id: number): Post => ({
   like_count: 0,
   comment_count: 0,
   liked_by_me: false,
+  is_favorited: false,
   created_at: '2026-10-01T10:00:00Z',
 })
 

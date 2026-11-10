@@ -13,7 +13,7 @@ const store = useFeedStore()
 const notice = ref('')
 const reportTarget = ref<Post | null>(null)
 
-const showEmpty = computed(() => !store.loading && !store.error && store.posts.length === 0)
+const showEmpty = computed(() => !store.loading && !store.error && store.items.length === 0)
 
 onMounted(() => {
   store.loadMine(true).catch(() => {})
@@ -58,11 +58,12 @@ async function onReport(type: ReportType, detail: string) {
 
     <div v-else class="my-posts__grid">
       <PostCard
-        v-for="item in store.posts"
+        v-for="item in store.items"
         :key="item.id"
         :post="item"
         mine
         @like="store.toggleLike(item)"
+        @favorite="store.toggleFavorite(item)"
         @delete="onDelete(item)"
         @report="reportTarget = item"
       />
