@@ -304,6 +304,9 @@ def post_likes(request, post_id):
     Raises:
         Http404: 动态不存在或对当前用户不可见。
     """
+    # 可见性用 ``visible_base``(与 ``visible_posts`` 同一口径,但不再注解/预取):
+    # 这里只需要判断「这条动态能不能看」;拿带 COUNT … GROUP BY 与图片预取的查询集去
+    # get() 会白跑三条 SQL,把点赞列表的查询预算抬高。
     post = get_object_or_404(visible_base(request.user), pk=post_id)
     likers = visible_likers(post, request.user)
     total = likers.count()
@@ -339,6 +342,7 @@ def post_favorite(request, post_id):
     Raises:
         Http404: 动态不存在或对当前用户不可见。
     """
+    # 与点赞列表同款:只为判可见,不注解、不预取。
     post = get_object_or_404(visible_base(request.user), pk=post_id)
     if request.method == "POST":
         PostFavorite.objects.get_or_create(post=post, user=request.user)
