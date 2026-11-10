@@ -105,6 +105,13 @@ class _ProfileBody extends StatelessWidget {
               icon: Icons.grid_view_rounded,
               onTap: () => context.push('/my-posts'),
             ),
+            // 收藏与动态并列:都是「我的内容」,只是收藏是私密书签
+            _InfoRow(
+              rowKey: 'my.row.favorites',
+              label: '我的收藏',
+              icon: Icons.bookmark_rounded,
+              onTap: () => context.push('/favorites'),
+            ),
             _InfoRow(
               rowKey: 'my.row.preference',
               label: '想找的人',

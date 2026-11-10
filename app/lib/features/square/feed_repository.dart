@@ -36,6 +36,37 @@ class FeedRepository {
     }
   }
 
+  /// 「谁点了赞」(游标分页,按点赞时间倒序)。
+  ///
+  /// `count` 是**过滤后**的可见人数,不是动态上的 `like_count`;因此这里不读它,
+  /// 列表就是唯一口径(没人点赞时 `items` 为空,不是错误)。
+  Future<({List<PostLikeUser> items, String? nextCursor})> fetchLikes(int postId,
+      {int limit = 30, String? cursor}) async {
+    final page = await _api.get('/posts/$postId/likes', query: {
+      'limit': limit,
+      'before': ?cursor,
+    }) as Map<String, dynamic>;
+    final items = (page['results'] as List<dynamic>)
+        .map((item) => PostLikeUser.fromJson(item as Map<String, dynamic>))
+        .toList();
+    return (items: items, nextCursor: page['next_cursor'] as String?);
+  }
+
+  /// 收藏 / 取消收藏:两个方法都**恒 204**(幂等),所以调用方只做乐观翻转。
+  Future<void> setFavorite(int postId, {required bool favorite}) async {
+    if (favorite) {
+      await _api.post('/posts/$postId/favorite');
+    } else {
+      await _api.delete('/posts/$postId/favorite');
+    }
+  }
+
+  /// 我的收藏:响应形状与广场动态流逐字段一致,只是排序按**收藏时间**倒序
+  /// (游标落在收藏行上,由后端保证),所以直接复用 [fetchPosts] 的解析。
+  Future<({List<Post> items, String? nextCursor})> fetchFavorites(
+          {int limit = 20, String? cursor}) =>
+      fetchPosts(path: '/feed/favorites', limit: limit, cursor: cursor);
+
   /// 关注某人(幂等 204;重复关注不会报错)。
   Future<void> follow(int userId) async => _api.post('/users/$userId/follow');
 

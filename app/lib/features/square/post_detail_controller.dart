@@ -25,6 +25,21 @@ class PostDetailController extends AsyncNotifier<Post> {
       rethrow;
     }
   }
+
+  /// 详情页收藏乐观更新:先翻本地标记再发请求,失败回滚并抛出;
+  /// 收藏态只认服务端(`is_favorited`),本地不持久化。
+  Future<void> toggleFavorite() async {
+    final post = state.value;
+    if (post == null) return;
+    final target = !post.isFavorited;
+    state = AsyncValue.data(post.copyWith(isFavorited: target));
+    try {
+      await ref.read(feedRepositoryProvider).setFavorite(post.id, favorite: target);
+    } catch (_) {
+      state = AsyncValue.data(post);
+      rethrow;
+    }
+  }
 }
 
 final postDetailProvider = AsyncNotifierProvider.autoDispose

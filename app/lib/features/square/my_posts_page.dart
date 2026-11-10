@@ -56,6 +56,19 @@ class _MyPostsPageState extends ConsumerState<MyPostsPage> {
     }
   }
 
+  /// 自己的动态也能收藏(书签语义,后端允许);乐观翻转在控制器里。
+  Future<void> _toggleFavorite(Post post) async {
+    final wasFavorited = post.isFavorited;
+    try {
+      await ref.read(myPostsProvider.notifier).toggleFavorite(post);
+      ref.invalidate(favoritesProvider);
+      if (!mounted) return;
+      AppToast.show(context, wasFavorited ? '已取消收藏' : '已收藏');
+    } on ApiException catch (error) {
+      if (mounted) AppToast.show(context, error.message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.heart;
@@ -110,11 +123,15 @@ class _MyPostsPageState extends ConsumerState<MyPostsPage> {
                             isMine: true,
                             // 从我的页进入无飞行源:不参与任何 Hero(附录 C.7)
                             onTap: () => context.push('/posts/${post.id}'),
+                            onTapLikes: () =>
+                                context.push('/posts/${post.id}/likes'),
                             onOpenImage: (i) => openPhotoViewer(context,
                                 urls: post.images, initialIndex: i),
-                            menuAction: (action) => action == 'delete'
-                                ? _deletePost(post)
-                                : reportPostFromSheet(context, ref, post.id),
+                            menuAction: (action) => switch (action) {
+                              'favorite' || 'unfavorite' => _toggleFavorite(post),
+                              'delete' => _deletePost(post),
+                              _ => reportPostFromSheet(context, ref, post.id),
+                            },
                           );
                         },
                       ),

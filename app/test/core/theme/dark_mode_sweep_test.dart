@@ -23,7 +23,9 @@ import 'package:chatapp_app/features/settings/feedback_page.dart';
 import 'package:chatapp_app/features/settings/notification_settings_page.dart';
 import 'package:chatapp_app/features/settings/settings_page.dart';
 import 'package:chatapp_app/features/shell/home_shell.dart';
+import 'package:chatapp_app/features/square/favorites_page.dart';
 import 'package:chatapp_app/features/square/my_posts_page.dart';
+import 'package:chatapp_app/features/square/post_likes_page.dart';
 import 'package:chatapp_app/features/square/post_compose_page.dart';
 import 'package:chatapp_app/features/square/post_detail_page.dart';
 import 'package:chatapp_app/features/square/square_page.dart';
@@ -105,6 +107,9 @@ ScriptedAdapter _adapter() => ScriptedAdapter({
       'GET /posts/mine': (options) => ok(pageJson([postJson(id: 1, nickname: '小明')])),
       'GET /posts/1': (options) => ok(postJson(id: 1, nickname: 'Alice')),
       'GET /posts/1/comments': (options) => ok(pageJson([])),
+      'GET /posts/1/likes': (options) => ok(cursorPageJson([postLikerJson()])),
+      'GET /feed/favorites':
+          (options) => ok(cursorPageJson([postJson(id: 1, isFavorited: true)])),
       'GET /matches': (options) => ok(pageJson([])),
       'GET /discovery/candidates': (options) => ok(pageJson([candidateJson()])),
       'GET /discovery/daily': (options) => ok(dailyJson(candidates: [candidateJson()])),
@@ -159,6 +164,8 @@ void main() {
     'SearchPage': () => const SearchPage(),
     'PostComposePage': () => const PostComposePage(),
     'MyPostsPage': () => const MyPostsPage(),
+    'FavoritesPage': () => const FavoritesPage(),
+    'PostLikesPage': () => const PostLikesPage(postId: 1),
     'PostDetailPage': () => const PostDetailPage(postId: 1),
     'SettingsPage': () => const SettingsPage(),
     'BlockedUsersPage': () => const BlockedUsersPage(),

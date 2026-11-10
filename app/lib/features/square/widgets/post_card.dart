@@ -15,6 +15,11 @@ import 'post_images.dart';
 /// 动态卡(附录 D):AppCard 白卡 R20;圆形头像(在线呼吸点)+ 昵称/时间/正文
 /// + 九宫格 + 操作行(点赞带心跳脉冲);右上 ··· 菜单。
 ///
+/// 操作行的三个手势互相独立、命中区不重叠:
+/// 头像/昵称 → [onTapAuthor];点赞**图标** → [onToggleLike];点赞**数字** →
+/// [onTapLikes](0 赞时不响应);··· 菜单 → [menuAction](`favorite` / `unfavorite`
+/// 对「自己」和「他人」的动态都给,`delete` / `report` 才是二选一)。
+///
 /// Hero 互斥(spec §5):[heroTag](头像)与 [cardHeroTag](整卡)至多传一个,
 /// 同传在 debug 下触发 SDK 嵌套断言崩溃。
 class PostCard extends StatelessWidget {
@@ -26,6 +31,7 @@ class PostCard extends StatelessWidget {
     this.onTapAuthor,
     this.onTap,
     this.onToggleLike,
+    this.onTapLikes,
     this.onOpenImage,
     this.menuAction,
     this.heroTag,
@@ -37,7 +43,12 @@ class PostCard extends StatelessWidget {
   final bool online;
   final VoidCallback? onTapAuthor;
   final VoidCallback? onTap;
+
+  /// 点赞**图标区**:点赞 / 取消点赞(语义不变,别改成「打开列表」)。
   final VoidCallback? onToggleLike;
+
+  /// 点赞**数字区**:打开点赞列表。两区命中范围互不重叠(见 [_LikeTail])。
+  final VoidCallback? onTapLikes;
   final void Function(int index)? onOpenImage;
   final void Function(String action)? menuAction;
 
@@ -104,6 +115,28 @@ class PostCard extends StatelessWidget {
                               size: 20, color: colors.text3),
                           onSelected: (value) => menuAction!(value),
                           itemBuilder: (context) => [
+                            // 收藏对「自己」和「他人」的动态都给:它是私密书签,
+                            // 所以不能塞进下面那个 isMine 二选一里。
+                            PopupMenuItem(
+                              key: const Key('post.menu.favorite'),
+                              value:
+                                  post.isFavorited ? 'unfavorite' : 'favorite',
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    post.isFavorited
+                                        ? Icons.bookmark_rounded
+                                        : Icons.bookmark_border_rounded,
+                                    size: 20,
+                                    color: post.isFavorited
+                                        ? colors.brand
+                                        : colors.text3,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(post.isFavorited ? '取消收藏' : '收藏'),
+                                ],
+                              ),
+                            ),
                             if (isMine)
                               const PopupMenuItem(
                                   key: Key('post.menu.delete'),
@@ -134,15 +167,24 @@ class PostCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Row(
                   children: [
+                    // 点赞位拆成两个**互不重叠**的命中区(见 [_LikeTail]):
+                    // 图标 = 点赞/取消(行为不变),数字 = 打开点赞列表。
                     _PulseIcon(
                       iconKey: Key('post.like.${post.id}'),
                       icon: post.likedByMe
                           ? Icons.favorite_rounded
                           : Icons.favorite_border_rounded,
                       color: post.likedByMe ? colors.brand : colors.text3,
-                      count: post.likeCount,
                       pulse: post.likedByMe, // didUpdateWidget 里只在「未赞→已赞」触发
                       onTap: onToggleLike,
+                    ),
+                    _LikeTail(
+                      countKey: Key('post.likeCount.${post.id}'),
+                      count: post.likeCount,
+                      color: post.likedByMe ? colors.brand : colors.text3,
+                      // 0 赞时**不响应**:不弹空列表。空回调是为了吞掉这次点击,
+                      // 否则它会冒到卡片的 onTap 变成「进详情」(与头像同一个套路)。
+                      onTap: post.likeCount > 0 ? onTapLikes : () {},
                     ),
                     const SizedBox(width: 16),
                     _ActionIcon(
@@ -194,12 +236,15 @@ class _ActionIcon extends StatelessWidget {
 }
 
 /// 点赞心跳脉冲(§6.2 微交互):状态从未赞翻到已赞时 1→1.25→1(base)。
+///
+/// **只包图标**,不包数字:数字是另一个命中区([_LikeTail]),两个 `InkWell`
+/// 是 Row 里的兄弟节点,矩形天然不重叠;若像改造前那样把「图标 + 数字」包成
+/// 一个 `InkWell`,再叠一个数字手势就会变成「点哪都点赞」或「点哪都开列表」。
 class _PulseIcon extends StatefulWidget {
   const _PulseIcon({
     this.iconKey,
     required this.icon,
     required this.color,
-    required this.count,
     required this.pulse,
     this.onTap,
   });
@@ -207,7 +252,6 @@ class _PulseIcon extends StatefulWidget {
   final Key? iconKey;
   final IconData icon;
   final Color color;
-  final int count;
 
   /// 当前是否已赞;didUpdateWidget 检测 false→true 翻转触发脉冲。
   final bool pulse;
@@ -248,17 +292,40 @@ class _PulseIconState extends State<_PulseIcon>
         onTap: widget.onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-          child: Row(
-            children: [
-              ScaleTransition(
-                scale: _scale,
-                child: Icon(widget.icon, size: 20, color: widget.color),
-              ),
-              const SizedBox(width: 4),
-              Text('${widget.count}',
-                  style: AppText.caption.copyWith(color: widget.color)),
-            ],
+          child: ScaleTransition(
+            scale: _scale,
+            child: Icon(widget.icon, size: 20, color: widget.color),
           ),
+        ),
+      );
+}
+
+/// 点赞计数(点赞列表入口):与图标区**并列**,不套在同一个手势里。
+///
+/// 两个区是 Row 里的兄弟节点,矩形天然不重叠;`opaque` 让整块(含内边距)
+/// 都能接到指针。`onTap` 传空回调 = 吞掉点击(不响应),但不冒到卡片上。
+class _LikeTail extends StatelessWidget {
+  const _LikeTail({
+    this.countKey,
+    required this.count,
+    required this.color,
+    this.onTap,
+  });
+
+  final Key? countKey;
+  final int count;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        key: countKey,
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Padding(
+          // 左侧留 4px 与图标区分开:两块命中矩形相邻但不重叠
+          padding: const EdgeInsets.fromLTRB(4, 6, 2, 6),
+          child: Text('$count', style: AppText.caption.copyWith(color: color)),
         ),
       );
 }

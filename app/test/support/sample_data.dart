@@ -195,6 +195,7 @@ Map<String, dynamic> postJson({
   int likeCount = 0,
   int commentCount = 0,
   bool likedByMe = false,
+  bool isFavorited = false,
   String createdAt = '2026-09-12T20:00:00+08:00',
 }) =>
     {
@@ -205,7 +206,22 @@ Map<String, dynamic> postJson({
       'like_count': likeCount,
       'comment_count': commentCount,
       'liked_by_me': likedByMe,
+      'is_favorited': isFavorited,
       'created_at': createdAt,
+    };
+
+/// 造一条「谁点了赞」(`PostLiker` 契约组件);字段可覆盖。
+Map<String, dynamic> postLikerJson({
+  int userId = 9,
+  String nickname = 'Alice',
+  String? avatarUrl,
+  String likedAt = '2026-11-10T14:02:11+08:00',
+}) =>
+    {
+      'user_id': userId,
+      'nickname': nickname,
+      'avatar_url': avatarUrl,
+      'liked_at': likedAt,
     };
 
 /// 造一条评论/回复;字段可覆盖。

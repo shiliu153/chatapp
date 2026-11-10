@@ -135,4 +135,4 @@ jobs:
           working-directory: app
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: flutter test integration_test/smoke_test.dart integration_test/discovery_filter_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
+          script: flutter test integration_test/smoke_test.dart integration_test/discovery_filter_test.dart integration_test/post_card_actions_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
