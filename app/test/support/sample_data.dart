@@ -263,6 +263,14 @@ Map<String, dynamic> visitJson({
       'visited_at': visitedAt,
     };
 
+/// 造一份 `GET /discovery/daily` 的响应 —— 注意它是**包装对象**(`{date, candidates}`),
+/// 不是 `GET /discovery/candidates` 那种裸数组。
+Map<String, dynamic> dailyJson({
+  String date = '2026-11-10',
+  List<Map<String, dynamic>> candidates = const [],
+}) =>
+    {'date': date, 'candidates': candidates};
+
 /// 造一份 GET /devices 的 `results[]` 项(一类端一行)。
 /// `lastActiveAt` 传 null = 只登录过、还没刷新过令牌(批次 M 之前的会话行)。
 Map<String, dynamic> deviceJson({

@@ -26,7 +26,9 @@ import 'likes_received_controller.dart';
 import 'models.dart';
 import 'swipe_undo_controller.dart';
 import 'visits_controller.dart';
+import 'widgets/daily_strip.dart';
 import 'widgets/deck_skeleton.dart';
+import 'widgets/discovery_filter_sheet.dart';
 import 'widgets/match_overlay.dart';
 import 'widgets/swipe_deck.dart';
 import 'widgets/undo_button.dart';
@@ -87,17 +89,26 @@ class DiscoveryPage extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  if (remaining != null) ...[
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      '今日还可喜欢 $remaining 次',
-                      key: const Key('discovery.quota'),
-                      style: AppText.caption.copyWith(color: colors.text2),
-                    ),
-                  ],
+                  const SizedBox(height: AppSpacing.sm),
+                  // 筛选入口单独占一行:三个入口 + 计数角标挤在标题行里,
+                  // 360dp 窄屏会溢出(标题行保持原样不动)。
+                  Row(
+                    children: [
+                      const _FilterEntry(),
+                      const Spacer(),
+                      if (remaining != null)
+                        Text(
+                          '今日还可喜欢 $remaining 次',
+                          key: const Key('discovery.quota'),
+                          style: AppText.caption.copyWith(color: colors.text2),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
+            // 今日精选(批次 S):空/失败/加载中都整块不渲染,不抢滑卡的注意力
+            if (profile.value?.isComplete == true) const DailyStrip(),
             Expanded(
               child: profile.when(
                 loading: () => const DeckSkeleton(),
@@ -270,26 +281,36 @@ class _EmptyView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final undo = undoAction;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xxl),
-        child: AppEmptyState(
-          mark: const HeartRipple(),
-          title: '附近暂时没有新的人了',
-          description: '过会儿再来看看吧',
-          action: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AppButton(
-                key: const Key('discovery.refresh'),
-                label: '刷新',
-                onPressed: onRefresh,
+    // 顶部多了「今日精选」区块之后,卡组区在矮屏(600dp 上下)会变窄,
+    // 空态 + 撤销按钮的自然高度可能超出可用高度 —— 所以这里可滚可居中:
+    // 放得下时照旧居中,放不下时能滚,不会抛 RenderFlex overflow。
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xxl),
+              child: AppEmptyState(
+                mark: const HeartRipple(),
+                title: '附近暂时没有新的人了',
+                description: '过会儿再来看看吧',
+                action: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AppButton(
+                      key: const Key('discovery.refresh'),
+                      label: '刷新',
+                      onPressed: onRefresh,
+                    ),
+                    if (undo != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      undo,
+                    ],
+                  ],
+                ),
               ),
-              if (undo != null) ...[
-                const SizedBox(height: AppSpacing.lg),
-                undo,
-              ],
-            ],
+            ),
           ),
         ),
       ),
@@ -297,6 +318,61 @@ class _EmptyView extends StatelessWidget {
   }
 }
 
+/// 「筛选」入口(批次 S):胶囊按钮,已生效时高亮成品牌色,提示「现在不是默认池子」。
+///
+/// 点开面板 → 拿到用户选好的筛选(或重置)→ 写进 [discoveryFilterProvider];
+/// 筛选态一变,候选池 provider 会自己重拉,这里不用手动 reload。
+class _FilterEntry extends ConsumerWidget {
+  const _FilterEntry();
+
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    // 面板默认值来自偏好;偏好随 `GET /users/me` 一起来,不必再单独拉一次
+    final preference = ref.read(profileProvider).value?.preference ?? const Preference();
+    final picked = await showDiscoveryFilterSheet(
+      context,
+      preference: preference,
+      initial: ref.read(discoveryFilterProvider),
+    );
+    if (picked == null) return; // 用户直接关掉面板:筛选态不变
+    ref.read(discoveryFilterProvider.notifier).apply(picked);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.heart;
+    final active = !ref.watch(discoveryFilterProvider).isEmpty;
+    final tone = active ? colors.brand : colors.text2;
+    return Semantics(
+      button: true,
+      label: active ? '筛选,已生效' : '筛选',
+      child: InkWell(
+        key: const Key('discovery.filter'),
+        borderRadius: BorderRadius.circular(AppRadius.full),
+        onTap: () => _open(context, ref),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+          decoration: BoxDecoration(
+            color: active ? colors.brand.withValues(alpha: .12) : colors.bgCard,
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            border: Border.all(color: active ? colors.brand : colors.divider),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.tune_rounded, size: 16, color: tone),
+              const SizedBox(width: AppSpacing.xs),
+              Text('筛选',
+                  style: AppText.caption.copyWith(
+                      color: tone,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w500)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// 发现页右上角入口:图标 + 文案 + 角标;窄屏(<360dp)只留图标,靠 Semantics 读屏。
 class _TopEntry extends StatelessWidget {

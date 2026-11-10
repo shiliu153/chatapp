@@ -36,6 +36,80 @@ class Candidate {
   final List<Photo> photos;
 }
 
+/// 「今日精选」的响应(`GET /discovery/daily`,discovery.md §3.11,批次 S)。
+///
+/// **它是包装对象、不是裸数组** —— 别按 `GET /discovery/candidates` 的形状解析:
+/// `{"date": "2026-11-10", "candidates": [候选卡...]}`。[date] 是服务端算种子用的
+/// 日期,留给「今天已看过」这类判断用(本期只展示、不持久化)。
+class DailyCandidates {
+  const DailyCandidates({required this.date, required this.candidates});
+
+  factory DailyCandidates.fromJson(Map<String, dynamic> json) => DailyCandidates(
+        date: (json['date'] ?? '') as String,
+        candidates: ((json['candidates'] ?? const []) as List<dynamic>)
+            .map((item) => Candidate.fromJson(item as Map<String, dynamic>))
+            .toList(),
+      );
+
+  /// 服务端时区下的日期(`YYYY-MM-DD`)。
+  final String date;
+
+  /// 精选卡片,字段与 `GET /discovery/candidates` 的候选卡完全一致。
+  final List<Candidate> candidates;
+}
+
+/// 发现页的**临时筛选**(批次 S,discovery.md §3.1「请求参数」)。
+///
+/// 语义是**覆盖**而不是替换:只保存用户**真正改过**的字段,`null` / 空集合 = 该字段
+/// 没动过、继续沿用「想找的人」偏好(设置页仍是偏好的唯一持久化入口)。
+/// 所以「只填城市」的筛选对象里 `ageMin` / `ageMax` 必须是 `null`,请求里也就不会
+/// 出现这两个参数(后端把空串当「没传」,但少发更清楚)。
+class DiscoveryFilter {
+  const DiscoveryFilter({this.ageMin, this.ageMax, this.city, this.tagIds = const []});
+
+  /// 什么都没筛(默认态):请求与加筛选之前完全一致。
+  static const none = DiscoveryFilter();
+
+  /// 年龄下限(含);`null` = 沿用偏好。
+  final int? ageMin;
+
+  /// 年龄上限(含);`null` = 沿用偏好。
+  final int? ageMax;
+
+  /// 城市;`null` / 空串 = 沿用偏好。
+  final String? city;
+
+  /// 标签 ID,**命中其一即可**;空 = 不筛标签。
+  final List<int> tagIds;
+
+  /// 一个筛选参数都不用发。
+  bool get isEmpty =>
+      ageMin == null &&
+      ageMax == null &&
+      (city == null || city!.isEmpty) &&
+      tagIds.isEmpty;
+
+  /// 拼成查询参数;**空字段一个都不出现**(不是发空串)。
+  Map<String, dynamic> toQuery() => {
+        if (ageMin != null) 'age_min': ageMin,
+        if (ageMax != null) 'age_max': ageMax,
+        if (city != null && city!.isNotEmpty) 'city': city,
+        if (tagIds.isNotEmpty) 'tag_ids': tagIds.join(','),
+      };
+
+  @override
+  bool operator ==(Object other) =>
+      other is DiscoveryFilter &&
+      other.ageMin == ageMin &&
+      other.ageMax == ageMax &&
+      other.city == city &&
+      other.tagIds.length == tagIds.length &&
+      other.tagIds.every(tagIds.contains);
+
+  @override
+  int get hashCode => Object.hash(ageMin, ageMax, city, Object.hashAll(tagIds));
+}
+
 /// 每日喜欢额度快照;字段与 `GET /discovery/quota` 一一对应(discovery.md §3.10)。
 ///
 /// `likeLimit == 0` 表示后端没开额度(`likesRemaining` 为 `null`),此时界面
