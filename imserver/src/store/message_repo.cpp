@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <unordered_set>
 
 #include "store/stmt.h"
 #include "util/like.h"
@@ -41,6 +42,12 @@ constexpr const char* kSelect =
     "SELECT msg_id,conv_id,seq,from_id,to_id,kind,body,client_msg_id,created_at,revoked_at,"
     "ref_msg_id,ref_snapshot "
     "FROM im_message ";
+
+/// 带别名 `m.` 的同一组列:凡是 join 了 `im_message_hidden` 的读路径都必须用这一份,
+/// 否则 `msg_id` 两张表都有,直接报 `Column 'msg_id' in field list is ambiguous`。
+constexpr const char* kColumnsM =
+    "m.msg_id,m.conv_id,m.seq,m.from_id,m.to_id,m.kind,m.body,m.client_msg_id,m.created_at,"
+    "m.revoked_at,m.ref_msg_id,m.ref_snapshot";
 
 }  // namespace
 
@@ -114,14 +121,19 @@ std::optional<MessageRow> MessageRepo::get(MysqlPool::Lease& lease, uint64_t msg
   return row;
 }
 
-std::vector<MessageRow> MessageRepo::list(MysqlPool::Lease& lease, uint64_t conv_id,
-                                          uint64_t before_seq, int limit) {
+std::vector<MessageRow> MessageRepo::list(MysqlPool::Lease& lease, uint64_t owner,
+                                          uint64_t conv_id, uint64_t before_seq, int limit) {
   limit = std::clamp(limit, 1, 100);
-  std::string sql = std::string(kSelect) + "WHERE conv_id=" + std::to_string(conv_id);
+  // `LEFT JOIN + h.msg_id IS NULL` = 「排除我隐藏的」(批次 T 的多选删除)。
+  // 主查询仍按 `uk_conv_seq(conv_id,seq)` 走 range/反向扫,隐藏表是主键点查 ——
+  // 不能改写成 `NOT IN (子查询)` 或先聚合再过滤,那会把分页退化成全表扫。
+  std::string sql = std::string("SELECT ") + kColumnsM + " FROM im_message m " +
+                    "LEFT JOIN im_message_hidden h ON h.msg_id=m.msg_id AND h.user_id=" +
+                    std::to_string(owner) + " WHERE m.conv_id=" + std::to_string(conv_id);
   if (before_seq > 0) {
-    sql += " AND seq<" + std::to_string(before_seq);
+    sql += " AND m.seq<" + std::to_string(before_seq);
   }
-  sql += " ORDER BY seq DESC LIMIT " + std::to_string(limit);
+  sql += " AND h.msg_id IS NULL ORDER BY m.seq DESC LIMIT " + std::to_string(limit);
 
   std::vector<MessageRow> rows;
   auto* result = lease.query(sql);
@@ -133,6 +145,129 @@ std::vector<MessageRow> MessageRepo::list(MysqlPool::Lease& lease, uint64_t conv
   }
   std::reverse(rows.begin(), rows.end());
   return rows;
+}
+
+std::optional<MessageRow> MessageRepo::last_visible(MysqlPool::Lease& lease, uint64_t owner,
+                                                   uint64_t conv_id) {
+  // 反向扫 `uk_conv_seq` + `LEFT JOIN` 反连接 + `LIMIT 1`:读到第一条没被隐藏的就停,
+  // 不碰整段历史。
+  const std::string sql = std::string("SELECT ") + kColumnsM + " FROM im_message m " +
+                          "LEFT JOIN im_message_hidden h ON h.msg_id=m.msg_id AND h.user_id=" +
+                          std::to_string(owner) + " WHERE m.conv_id=" + std::to_string(conv_id) +
+                          " AND h.msg_id IS NULL ORDER BY m.seq DESC LIMIT 1";
+  std::optional<MessageRow> row;
+  auto* result = lease.query(sql);
+  if (result != nullptr) {
+    if (MYSQL_ROW values = mysql_fetch_row(result)) {
+      row = parse_row(values);
+    }
+    mysql_free_result(result);
+  }
+  return row;
+}
+
+void MessageRepo::apply_visible_last(MysqlPool::Lease& lease, uint64_t owner,
+                                     std::vector<ConversationView>& views) {
+  std::string last_ids;
+  for (const auto& view : views) {
+    if (!view.has_last) {
+      continue;
+    }
+    if (!last_ids.empty()) {
+      last_ids += ",";
+    }
+    last_ids += std::to_string(view.last.msg_id);
+  }
+  if (last_ids.empty()) {
+    return;
+  }
+  // 一次问清「这些摘要里有哪几条被我隐藏了」;没有命中就直接返回,一条回查都不做。
+  std::unordered_set<uint64_t> hidden;
+  {
+    auto* result = lease.query("SELECT msg_id FROM im_message_hidden WHERE user_id=" +
+                               std::to_string(owner) + " AND msg_id IN (" + last_ids + ")");
+    if (result != nullptr) {
+      while (MYSQL_ROW values = mysql_fetch_row(result)) {
+        hidden.insert(std::stoull(values[0]));
+      }
+      mysql_free_result(result);
+    }
+  }
+  if (hidden.empty()) {
+    return;
+  }
+  for (auto& view : views) {
+    if (!view.has_last || hidden.count(view.last.msg_id) == 0) {
+      continue;
+    }
+    const uint64_t conv_id = view.last.conv_id;
+    if (auto visible = last_visible(lease, owner, conv_id)) {
+      view.last = *visible;
+    } else {
+      // 整段会话都被我隐藏了:没有可显示的摘要,但会话本身还在(unread / last_seq 不变)。
+      view.has_last = false;
+    }
+  }
+}
+
+std::vector<MessageRow> MessageRepo::find_mine(MysqlPool::Lease& lease, uint64_t owner,
+                                              const std::vector<uint64_t>& ids) {
+  std::vector<MessageRow> rows;
+  if (ids.empty()) {
+    return rows;
+  }
+  // id 已经解析成 uint64(见 http_api.cpp),这里拼进 SQL 不存在注入面;
+  // 用 prepared statement 反而要给「最多 50 个占位符」准备 50 份变体,
+  // 既撞 Stmt 的按 SQL 文本缓存,也读不出结果集(Stmt 只支持无结果集的 execute)。
+  std::string in_list;
+  in_list.reserve(ids.size() * 8);
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    if (i > 0) {
+      in_list += ",";
+    }
+    in_list += std::to_string(ids[i]);
+  }
+  const std::string owner_text = std::to_string(owner);
+  const std::string sql = std::string(kSelect) + "WHERE msg_id IN (" + in_list +
+                          ") AND (from_id=" + owner_text + " OR to_id=" + owner_text + ")";
+  auto* result = lease.query(sql);
+  if (result != nullptr) {
+    while (MYSQL_ROW values = mysql_fetch_row(result)) {
+      rows.push_back(parse_row(values));
+    }
+    mysql_free_result(result);
+  }
+  return rows;
+}
+
+bool MessageRepo::hide(MysqlPool::Lease& lease, uint64_t owner, uint64_t msg_id, int64_t now_ms) {
+  // INSERT IGNORE 而不是先 SELECT 再 INSERT:主键 (user_id,msg_id) 就是幂等键,
+  // affected_rows=1 表示「本次新隐藏」,0 表示这一对早就存在(重复删同一批)。
+  Stmt stmt(lease.get(),
+            "INSERT IGNORE INTO im_message_hidden (user_id,msg_id,created_at) VALUES (?,?,?)");
+  stmt.bind_uint(0, owner);
+  stmt.bind_uint(1, msg_id);
+  stmt.bind_uint(2, static_cast<uint64_t>(now_ms));
+  stmt.execute();
+  return stmt.affected_rows() == 1;
+}
+
+void MessageRepo::delete_hidden_by_user(MysqlPool::Lease& lease, uint64_t uid) {
+  Stmt stmt(lease.get(), "DELETE FROM im_message_hidden WHERE user_id=?");
+  stmt.bind_uint(0, uid);
+  stmt.execute();
+}
+
+void MessageRepo::delete_hidden_by_messages(MysqlPool::Lease& lease, uint64_t uid) {
+  // 子查询按 `im_message` 的 msg_id 反查:**必须在删 im_message 之前**跑,消息行没了
+  // 就再也找不回这些 msg_id,隐藏行会变成永久垃圾(而且 msg_id 会被自增复用)。
+  // 目标表是 im_message_hidden、来源表是 im_message,MySQL 允许(不是同表自更新)。
+  Stmt stmt(lease.get(),
+            "DELETE FROM im_message_hidden WHERE msg_id IN "
+            "(SELECT msg_id FROM im_message WHERE from_id=? OR to_id=?)");
+  stmt.bind_uint(0, uid);
+  stmt.bind_uint(1, uid);
+  stmt.execute();
 }
 
 void MessageRepo::revoke(MysqlPool::Lease& lease, uint64_t msg_id, int64_t now_ms) {
@@ -177,13 +312,15 @@ std::vector<MessageRow> MessageRepo::search(MysqlPool::Lease& lease, uint64_t ui
   // like_pattern 先转义 %/_/!,再由 escape() 处理引号与反斜杠,两处各管一层。
   const std::string pattern = lease.escape(like_pattern(keyword));
   std::string sql =
-      "SELECT m.msg_id,m.conv_id,m.seq,m.from_id,m.to_id,m.kind,m.body,"
-      "m.client_msg_id,m.created_at,m.revoked_at,m.ref_msg_id,m.ref_snapshot "
-      "FROM im_conversation c JOIN im_message m ON m.conv_id=c.id "
+      "SELECT " + std::string(kColumnsM) +
+      " FROM im_conversation c JOIN im_message m ON m.conv_id=c.id "
       "LEFT JOIN im_conversation_state s ON s.conv_id=c.id AND s.owner_id=" + owner + " "
+      // 多选删除(批次 T):删掉的消息也不能再被我搜到,否则「删了还能搜到」与历史口径冲突。
+      "LEFT JOIN im_message_hidden h ON h.msg_id=m.msg_id AND h.user_id=" + owner + " "
       "WHERE (c.user_a=" + owner + " OR c.user_b=" + owner + ") "
       "AND m.kind=1 AND m.revoked_at IS NULL "
       "AND (s.deleted IS NULL OR s.deleted=0) "
+      "AND h.msg_id IS NULL "
       "AND IF(c.user_a=" + owner + ",c.user_b,c.user_a)<>0 "
       "AND NOT EXISTS (SELECT 1 FROM im_blacklist b WHERE b.owner_id=" + owner +
       " AND b.peer_id=IF(c.user_a=" + owner + ",c.user_b,c.user_a)) ";

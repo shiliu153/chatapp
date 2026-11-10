@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -25,6 +26,34 @@ class ConversationRepo {
   /// 已读回执广播要的是**写完之后**的准确值(`mark_read` 里是 `GREATEST`,乱序到达的
   /// 旧 `read` 帧不会让值回退),所以必须回读,而不是拿请求里带的 seq 直接广播出去。
   uint64_t read_seq_for(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer);
+  /// 批量读「我在这些会话里的 read_seq」(多选删除时判断哪些条还没读)。
+  ///
+  /// Args:
+  ///   lease: 借出的数据库连接。
+  ///   owner: 会话主人。
+  ///   conv_ids: 会话 id 列表(调用方已去重)。
+  ///
+  /// Returns:
+  ///   `conv_id → read_seq`;没有状态行的会话不出现在结果里(等价于「从没读过」)。
+  std::map<uint64_t, uint64_t> read_seqs(MysqlPool::Lease& lease, uint64_t owner,
+                                         const std::vector<uint64_t>& conv_ids);
+  /// 删除未读消息后**按条数减**未读(批次 T 的多选删除)。
+  ///
+  /// 为什么必须显式减:`im_conversation_state.unread` 是**计数器**(`upsert_state` 累加、
+  /// `mark_read` 清零),不是每次现算的聚合,所以「排除隐藏行」在这条链路上加个
+  /// `NOT EXISTS` 不会让数字变小,只会让数字永远对不上。
+  ///
+  /// `CAST(unread AS SIGNED)` 不能省:`unread` 是 `INT UNSIGNED`,无符号相减一旦越过 0
+  /// 就报 `BIGINT UNSIGNED value is out of range`(1690),而不是变成负数。
+  ///
+  /// Args:
+  ///   lease: 借出的数据库连接(调用方已开事务)。
+  ///   owner: 会话主人。
+  ///   conv_id: 会话 id。
+  ///   delta: 要减掉的未读条数(必须 > 0)。
+  ///   now_ms: 当前毫秒时间戳(写 `updated_at`)。
+  void decrement_unread(MysqlPool::Lease& lease, uint64_t owner, uint64_t conv_id, int delta,
+                        int64_t now_ms);
   void mark_read(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer, uint64_t seq,
                  int64_t now_ms);
   void set_deleted(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer, int64_t now_ms);

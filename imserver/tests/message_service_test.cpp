@@ -45,6 +45,7 @@ MessageService& make_service() { return fixture().svc(); }
 void reset() {
   auto lease = fixture().pool().acquire();
   lease.query("DELETE FROM im_message");
+  lease.query("DELETE FROM im_message_hidden");
   lease.query("DELETE FROM im_conversation_state");
   lease.query("DELETE FROM im_conversation");
   lease.query("DELETE FROM im_blacklist");
@@ -458,4 +459,189 @@ TEST(ConversationFlagsTest, PinnedGroupComesFirstOrderedByPinTime) {
   // 取消 3 的置顶:置顶的 2 仍在最前,3 回落到「最近消息优先」组
   ASSERT_TRUE(svc.set_conversation_flags(1, 3, false, std::nullopt).has_value());
   EXPECT_EQ(peers(), (std::vector<uint64_t>{2, 3}));
+}
+
+// ---- 多选删除(批次 T):单方隐藏 + 未读计数器显式相减 ----
+//
+// 这一节的断言都建立在两件「改回错误实现就会红」的事上:
+//   1. 未读是**计数器**(upsert_state 累加、mark_read 清零),所以删除时必须显式减;
+//      不减小红的是 `DecrementsUnreadOnlyForUnreadPeerMessages`;
+//   2. 相减必须 `GREATEST(CAST(unread AS SIGNED)-?,0)`,计数器偏大时不许报
+//      `BIGINT UNSIGNED value is out of range`(1690)、不许减成负数,
+//      不夹取小红的是 `ClampsUnreadAtZeroWhenCounterIsStale`。
+
+namespace {
+
+/// 直接数隐藏表里有多少行(隐藏关系本身不对客户端可见,只能这样断言)。
+uint64_t count_hidden(MysqlPool& pool, uint64_t owner) {
+  auto lease = pool.acquire();
+  auto* result = lease.query("SELECT COUNT(*) FROM im_message_hidden WHERE user_id=" +
+                             std::to_string(owner));
+  EXPECT_NE(result, nullptr);
+  uint64_t count = 0;
+  if (MYSQL_ROW values = mysql_fetch_row(result)) {
+    count = std::stoull(values[0]);
+  }
+  mysql_free_result(result);
+  return count;
+}
+
+}  // namespace
+
+TEST(MessageHiddenTest, HidesForOneSideOnlyAndIsIdempotent) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+  const auto first = send_text(svc, 1, 2, "h-1", "一");
+  const auto second = send_text(svc, 1, 2, "h-2", "二");
+  send_text(svc, 1, 2, "h-3", "三");
+
+  // 2 删中间那条:第一次 = 1(新隐藏),第二次 = 0(幂等)
+  EXPECT_EQ(svc.hide_messages(2, {second.msg_id}), 1u);
+  EXPECT_EQ(svc.hide_messages(2, {second.msg_id}), 0u);
+
+  // 我的历史不含 → 2 条;对端历史一字不少 → 3 条
+  const auto mine = svc.list_messages(2, 1, 0, 50);
+  ASSERT_EQ(mine.size(), 2u);
+  EXPECT_EQ(mine[0].msg_id, first.msg_id);
+  EXPECT_EQ(svc.list_messages(1, 2, 0, 50).size(), 3u);
+  EXPECT_EQ(count_hidden(fixture().pool(), 2), 1u);
+  // 对端不产生任何隐藏行
+  EXPECT_EQ(count_hidden(fixture().pool(), 1), 0u);
+}
+
+TEST(MessageHiddenTest, DecrementsUnreadOnlyForUnreadPeerMessages) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+  const auto first = send_text(svc, 1, 2, "u-1", "一");
+  const auto second = send_text(svc, 1, 2, "u-2", "二");
+  const auto third = send_text(svc, 1, 2, "u-3", "三");
+  ASSERT_EQ(svc.conversations().unread_for_peer(2, 1), 3u);
+
+  // 删一条未读 → 未读 3 → 2
+  EXPECT_EQ(svc.hide_messages(2, {second.msg_id}), 1u);
+  EXPECT_EQ(svc.conversations().unread_for_peer(2, 1), 2u);
+
+  // 标到最新(未读清零)后再删一条**已读**的 → 未读**不变**
+  ASSERT_TRUE(svc.mark_read(2, 1, 0).has_value());
+  ASSERT_EQ(svc.conversations().unread_for_peer(2, 1), 0u);
+  EXPECT_EQ(svc.hide_messages(2, {first.msg_id}), 1u);
+  EXPECT_EQ(svc.conversations().unread_for_peer(2, 1), 0u);
+
+  // 我自己发的消息被我自己删掉,不减对端给我的未读(方向搞反就会多减)
+  const auto mine = send_text(svc, 2, 1, "u-4", "我发的");
+  EXPECT_EQ(svc.hide_messages(2, {mine.msg_id}), 1u);
+  EXPECT_EQ(svc.conversations().unread_for_peer(2, 1), 0u);
+
+  // 三条都进了隐藏表,历史只剩「三」那条(自己发的那条也被自己删掉了)
+  EXPECT_EQ(count_hidden(fixture().pool(), 2), 3u);
+  const auto history = svc.list_messages(2, 1, 0, 50);
+  ASSERT_EQ(history.size(), 1u);
+  EXPECT_EQ(history[0].msg_id, third.msg_id);
+  EXPECT_EQ(svc.list_messages(1, 2, 0, 50).size(), 4u);
+}
+
+TEST(MessageHiddenTest, ClampsUnreadAtZeroWhenCounterIsStale) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+  const auto first = send_text(svc, 1, 2, "c-1", "一");
+  const auto second = send_text(svc, 1, 2, "c-2", "二");
+  ASSERT_EQ(svc.conversations().unread_for_peer(2, 1), 2u);
+
+  // 人为把计数器调小(线上真会出现:漏减过、或者 mark_read 与删除交错)。
+  // 这里隐藏 2 条未读、计数器只有 1 —— 没有 GREATEST 就会把 unread 减成
+  // 「BIGINT UNSIGNED out of range」或者一个巨大的数。
+  {
+    auto lease = fixture().pool().acquire();
+    lease.query("UPDATE im_conversation_state SET unread=1 WHERE owner_id=2");
+  }
+  EXPECT_EQ(svc.hide_messages(2, {first.msg_id, second.msg_id}), 2u);
+  EXPECT_EQ(svc.conversations().unread_for_peer(2, 1), 0u);
+}
+
+TEST(MessageHiddenTest, LastMessageFallsBackToPreviousVisible) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+  send_text(svc, 1, 2, "l-1", "一");
+  send_text(svc, 1, 2, "l-2", "二");
+  const auto third = send_text(svc, 1, 2, "l-3", "三");
+
+  const auto before = svc.list_conversations(2, 10);
+  ASSERT_EQ(before.size(), 1u);
+  ASSERT_TRUE(before[0].has_last);
+  EXPECT_EQ(before[0].last.msg_id, third.msg_id);
+
+  EXPECT_EQ(svc.hide_messages(2, {third.msg_id}), 1u);
+
+  const auto mine = svc.list_conversations(2, 10);
+  ASSERT_EQ(mine.size(), 1u);
+  ASSERT_TRUE(mine[0].has_last);
+  EXPECT_NE(mine[0].last.msg_id, third.msg_id);
+  EXPECT_NE(mine[0].last.body.find("二"), std::string::npos);
+  // `last_seq` 仍是会话全局:删自己的副本不动它
+  EXPECT_EQ(mine[0].last_seq, 3u);
+
+  // 对端看到的摘要不变
+  const auto peer = svc.list_conversations(1, 10);
+  ASSERT_EQ(peer.size(), 1u);
+  EXPECT_EQ(peer[0].last.msg_id, third.msg_id);
+}
+
+TEST(MessageHiddenTest, SearchExcludesHiddenForOwnerOnly) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+  const auto hit = send_text(svc, 1, 2, "s-1", "火锅走起");
+  send_text(svc, 1, 2, "s-2", "火锅店见");
+
+  ASSERT_EQ(svc.search(2, "火锅", 0, 50).size(), 2u);
+  EXPECT_EQ(svc.hide_messages(2, {hit.msg_id}), 1u);
+
+  const auto mine = svc.search(2, "火锅", 0, 50);
+  ASSERT_EQ(mine.size(), 1u);
+  EXPECT_NE(mine[0].body.find("火锅店见"), std::string::npos);
+  // 对端仍能搜到被隐藏的那条
+  EXPECT_EQ(svc.search(1, "火锅", 0, 50).size(), 2u);
+}
+
+TEST(MessageHiddenTest, IgnoresMessagesImNotPartOf) {
+  reset();
+  auto& svc = make_service();
+  for (uint64_t uid : {1, 2, 3}) {
+    svc.users().ensure(uid, "U");
+  }
+  // 2 ↔ 3 之间的消息,1 既不是发送方也不是接收方
+  const auto foreign = send_text(svc, 2, 3, "f-1", "跟我无关");
+
+  EXPECT_EQ(svc.hide_messages(1, {foreign.msg_id}), 0u);
+  EXPECT_EQ(count_hidden(fixture().pool(), 1), 0u);
+  // 静默忽略,不动任何一方
+  EXPECT_EQ(svc.list_messages(2, 3, 0, 50).size(), 1u);
+  EXPECT_EQ(svc.list_messages(3, 2, 0, 50).size(), 1u);
+}
+
+TEST(MessageHiddenTest, DeleteAccountCleansHiddenRows) {
+  reset();
+  auto& svc = make_service();
+  svc.users().ensure(1, "A");
+  svc.users().ensure(2, "B");
+  const auto from_peer = send_text(svc, 1, 2, "d-1", "一");
+  const auto from_me = send_text(svc, 2, 1, "d-2", "二");
+
+  EXPECT_EQ(svc.hide_messages(2, {from_peer.msg_id}), 1u);
+  // 对端也隐藏我发的那条 → 2 注销时两边都要清掉(第二条靠 im_message 反查,
+  // 所以顺序必须是「先清隐藏表再删消息」)
+  EXPECT_EQ(svc.hide_messages(1, {from_me.msg_id}), 1u);
+
+  ASSERT_TRUE(svc.delete_account(2));
+  EXPECT_EQ(count_hidden(fixture().pool(), 2), 0u);
+  EXPECT_EQ(count_hidden(fixture().pool(), 1), 0u);
 }

@@ -9,6 +9,7 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include <openssl/crypto.h>
 #include <nlohmann/json.hpp>
@@ -163,6 +164,59 @@ bool read_flag(const nlohmann::json& body, const char* key, std::optional<bool>&
   value = it->get<bool>();
   return true;
 }
+
+/// 解析一个 msg_id(批次 T 的多选删除)。
+///
+/// 契约允许字符串或整数两种写法(App 的 `msg_id` 一直是字符串,Web 侧可能直接传数字),
+/// 但**不接受** 0、负数、非数字、超过 20 位的串 —— 这些都是「客户端写错了」,
+/// 统一回 42201 而不是静默忽略(静默忽略只留给「不属于我」的合法 id)。
+///
+/// Args:
+///   element: `ids` 数组里的一项。
+///   value: 出参,解析成功时写入。
+///
+/// Returns:
+///   解析成功返回 true。
+bool parse_msg_id(const nlohmann::json& element, uint64_t& value) {
+  if (element.is_number_unsigned()) {
+    const auto parsed = element.get<uint64_t>();
+    if (parsed == 0) {
+      return false;
+    }
+    value = parsed;
+    return true;
+  }
+  if (element.is_number_integer()) {
+    const auto parsed = element.get<int64_t>();
+    if (parsed <= 0) {
+      return false;
+    }
+    value = static_cast<uint64_t>(parsed);
+    return true;
+  }
+  if (!element.is_string()) {
+    return false;
+  }
+  const auto text = element.get<std::string>();
+  // uint64 最长 20 位;前缀 0 也拒(那不是 id 的正常写法,只可能是拼错了)。
+  if (text.empty() || text.size() > 20 || text[0] == '0') {
+    return false;
+  }
+  for (const char ch : text) {
+    if (ch < '0' || ch > '9') {
+      return false;
+    }
+  }
+  try {
+    value = std::stoull(text);
+  } catch (const std::exception&) {
+    return false;
+  }
+  return value != 0;
+}
+
+/// 多选删除单次最多处理的条数:再长客户端就该拆批,服务端也不为一次点击锁太多行。
+constexpr std::size_t kDeleteMaxIds = 50;
 
 }  // namespace
 
@@ -499,7 +553,8 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     return internal_route(req, target);
   }
   if (target.path != "/im/api/conversations" && target.path != "/im/api/conversations/flags" &&
-      target.path != "/im/api/messages" && target.path != "/im/api/search") {
+      target.path != "/im/api/messages" && target.path != "/im/api/messages/delete" &&
+      target.path != "/im/api/search") {
     return error_response(req, http::status::not_found, 40401, "not found");
   }
 
@@ -588,6 +643,52 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     // 回的是**回读实库**后的真实值,不是回显请求参数:客户端据此刷新本地状态即可。
     return json_response(req, http::status::ok,
                          {{"pinned", flags->pinned}, {"muted", flags->muted}});
+  }
+
+  // 多选删除(批次 T):同样**低频写操作走 HTTP,不加 WS 帧**。单方语义 ——
+  // 只写 im_message_hidden,不给对端发任何帧、不改消息本体、不动 last_seq。
+  if (target.path == "/im/api/messages/delete") {
+    if (req.method() != http::verb::post) {
+      return error_response(req, http::status::method_not_allowed, 40501, "只支持 POST");
+    }
+    if (!delete_table_.allow(*uid, now_ms)) {
+      return error_response(req, http::status::too_many_requests, 42901,
+                            "操作过于频繁,请稍后再试");
+    }
+    nlohmann::json body;
+    try {
+      body = req.body().empty() ? nlohmann::json::object() : nlohmann::json::parse(req.body());
+    } catch (const std::exception&) {
+      return error_response(req, http::status::bad_request, 42201, "body 不合法");
+    }
+    if (!body.is_object()) {
+      return error_response(req, http::status::bad_request, 42201, "body 不合法");
+    }
+    const auto ids_it = body.find("ids");
+    if (ids_it == body.end() || !ids_it->is_array()) {
+      return error_response(req, http::status::bad_request, 42201, "ids 必须是数组");
+    }
+    if (ids_it->empty() || ids_it->size() > kDeleteMaxIds) {
+      return error_response(req, http::status::bad_request, 42201,
+                            "ids 不能为空,且一次最多 50 条");
+    }
+    std::vector<uint64_t> ids;
+    ids.reserve(ids_it->size());
+    for (const auto& element : *ids_it) {
+      uint64_t id = 0;
+      if (!parse_msg_id(element, id)) {
+        return error_response(req, http::status::bad_request, 42201, "ids 里有不合法的消息 id");
+      }
+      // 同一个 id 出现两次只算一次:否则「新隐藏」计数会被同一行放大,
+      // 幂等断言(deleted=N 后第二次 0)就失去意义。
+      if (std::find(ids.begin(), ids.end(), id) == ids.end()) {
+        ids.push_back(id);
+      }
+    }
+    // 别人的 id 在服务层**静默忽略**(不计入 deleted、不报错):报 403/404 会变成
+    // 「探测别人消息是否存在」的信道。
+    const auto deleted = messages_.hide_messages(*uid, ids);
+    return json_response(req, http::status::ok, {{"deleted", deleted}});
   }
 
   if (target.path == "/im/api/search") {
