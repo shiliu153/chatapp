@@ -11,14 +11,50 @@ const _batchSize = 10;
 /// 卡组剩这么少就开始悄悄续拉。
 const _preloadThreshold = 3;
 
+/// 发现页的临时筛选态(批次 S)。
+///
+/// **纯内存**:不写 shared_preferences、不调 `PATCH /users/me/preference` ——
+/// 筛选是「这一次想换个范围看看」,偏好仍只在设置页改。`Notifier` 挂在
+/// ProviderScope 上,所以首页 Tab 来回切(同一次 App 生命周期)筛选态不丢。
+class DiscoveryFilterController extends Notifier<DiscoveryFilter> {
+  @override
+  DiscoveryFilter build() => DiscoveryFilter.none;
+
+  /// 应用面板里选好的筛选;`DiscoveryFilter.none` 等价于「重置」。
+  ///
+  /// 值没变也照常写:候选池视图希望「应用」一定重新拉一次,所以由调用方决定
+  /// 要不要额外 [DiscoveryController.reload];这里只负责存。
+  void apply(DiscoveryFilter filter) => state = filter;
+
+  /// 清空筛选,回到「沿用偏好」。
+  void reset() => state = DiscoveryFilter.none;
+}
+
+final discoveryFilterProvider =
+    NotifierProvider<DiscoveryFilterController, DiscoveryFilter>(
+        DiscoveryFilterController.new);
+
+/// 今日精选(批次 S,discovery.md §3.11);首页每天只拉一次,空数组 = 整块不渲染。
+final dailyProvider = FutureProvider<DailyCandidates>(
+  (ref) => ref.watch(discoveryRepositoryProvider).fetchDaily(),
+  // 与 discoveryProvider 同口径:失败不自动重试,区块自己隐藏,不打扰滑卡
+  retry: (retryCount, error) => null,
+);
+
 class DiscoveryController extends AsyncNotifier<List<Candidate>> {
   bool _loadingMore = false;
 
+  /// 候选取数跟着筛选态走:筛选一变,build 重跑 → 自动重新拉候选池。
   @override
-  Future<List<Candidate>> build() => _fetch();
+  Future<List<Candidate>> build() {
+    final filter = ref.watch(discoveryFilterProvider);
+    return _fetch(filter);
+  }
 
-  Future<List<Candidate>> _fetch() =>
-      ref.read(discoveryRepositoryProvider).fetchCandidates(limit: _batchSize);
+  Future<List<Candidate>> _fetch([DiscoveryFilter? filter]) =>
+      ref.read(discoveryRepositoryProvider).fetchCandidates(
+          limit: _batchSize,
+          filter: filter ?? ref.read(discoveryFilterProvider));
 
   Future<void> reload() async {
     state = const AsyncValue.loading();

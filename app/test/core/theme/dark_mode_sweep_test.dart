@@ -8,8 +8,10 @@ import 'package:chatapp_app/features/chat/search_page.dart';
 import 'package:chatapp_app/features/discovery/discovery_page.dart';
 import 'package:chatapp_app/features/discovery/likes_received_page.dart';
 import 'package:chatapp_app/features/discovery/visits_page.dart';
+import 'package:chatapp_app/features/discovery/widgets/discovery_filter_sheet.dart';
 import 'package:chatapp_app/features/legal/legal_page.dart';
 import 'package:chatapp_app/features/onboarding/onboarding_page.dart';
+import 'package:chatapp_app/features/profile/models.dart';
 import 'package:chatapp_app/features/profile/my_profile_page.dart';
 import 'package:chatapp_app/features/profile/preference_page.dart';
 import 'package:chatapp_app/features/profile/profile_edit_page.dart';
@@ -105,6 +107,7 @@ ScriptedAdapter _adapter() => ScriptedAdapter({
       'GET /posts/1/comments': (options) => ok(pageJson([])),
       'GET /matches': (options) => ok(pageJson([])),
       'GET /discovery/candidates': (options) => ok(pageJson([candidateJson()])),
+      'GET /discovery/daily': (options) => ok(dailyJson(candidates: [candidateJson()])),
       'GET /discovery/quota': (options) =>
           ok({'like_limit': 10, 'likes_used': 3, 'likes_remaining': 7}),
       'GET /discovery/likes': (options) => ok(pageJson([candidateJson()])),
@@ -146,6 +149,12 @@ void main() {
     'UserProfilePage': () => UserProfilePage(userId: 9),
     'LikesReceivedPage': () => const LikesReceivedPage(),
     'VisitsPage': () => const VisitsPage(),
+    // 发现页的筛选面板:条目自己挂 Material 底色,单独给它一页才能巡检到
+    'DiscoveryFilterSheet': () => Scaffold(
+          body: DiscoveryFilterSheet(
+            preference: const Preference(ageMin: 22, ageMax: 30, city: '北京'),
+          ),
+        ),
     'ChatPage': () => const ChatPage(peerId: '9'),
     'SearchPage': () => const SearchPage(),
     'PostComposePage': () => const PostComposePage(),

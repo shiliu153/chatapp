@@ -10,10 +10,22 @@ class DiscoveryRepository {
 
   final ApiClient _api;
 
-  Future<List<Candidate>> fetchCandidates({int limit = 10}) async {
-    final data =
-        await _api.get('/discovery/candidates', query: {'limit': limit}) as List<dynamic>;
+  /// 候选卡(discovery.md §3.1);响应是**裸数组**。
+  ///
+  /// [filter] 里只出现用户改过的字段,没改的一个参数都不发 —— 后端对缺省字段沿用
+  /// 「想找的人」偏好,所以「只筛城市」不会顺带把年龄区间钉死成面板里的默认值。
+  Future<List<Candidate>> fetchCandidates(
+      {int limit = 10, DiscoveryFilter filter = DiscoveryFilter.none}) async {
+    final data = await _api.get('/discovery/candidates',
+        query: {'limit': limit, ...filter.toQuery()}) as List<dynamic>;
     return data.map((item) => Candidate.fromJson(item as Map<String, dynamic>)).toList();
+  }
+
+  /// 今日精选(discovery.md §3.11);响应是**包装对象** `{date, candidates}`。
+  Future<DailyCandidates> fetchDaily({int limit = 6}) async {
+    final data =
+        await _api.get('/discovery/daily', query: {'limit': limit}) as Map<String, dynamic>;
+    return DailyCandidates.fromJson(data);
   }
 
   /// 滑一张卡;返回是否配对成功,以及配对成功时后端直接给出的共同标签。
