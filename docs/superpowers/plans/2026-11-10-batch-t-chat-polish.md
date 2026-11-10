@@ -255,4 +255,58 @@ CREATE TABLE IF NOT EXISTS im_message_hidden (
 
 ## 执行记录
 
-(合并后补:每单 PR / 合并 SHA / 关键交付 / 与计划的偏差 / 踩到的坑 / 模拟器验收结论 / 遗留)
+**交付于 2026-11-10,三单全部合并**(`master` = `50ebeac`)。
+
+| 单 | PR | 合并 SHA | 关键交付 |
+|---|---|---|---|
+| T-1 imserver | #238 | `a5a671c` | 迁移 `008` 建 `im_message_hidden`(`PRIMARY KEY (user_id,msg_id)` + 反向索引)+ `POST /im/api/messages/delete`(上限 50、幂等、别人的 id 静默忽略、`{"deleted": n}`)+ **三处读口径**(历史 / 搜索 / 会话列表 `last_message`)+ 未读计数器显式 `GREATEST(CAST(unread AS SIGNED)-?,0)` + 注销清理;新增 7 个单测 + `tests/integration/test_delete.py`(8 个场景);`docs/ops/imserver.md` §21 |
+| T-3 Web | #239 | `9be34f9` | `store.deleteMessages`(本地占位 id 不上行)+ 多选模式 + `DeleteMessagesDialog` + 草稿模块(`draft.ts`)+ `ImageViewer` 缩放/左右切/页码 + `voicePlayer` 进度/seek/倍速;新增 5 个测试文件 |
+| T-2 App | #240 | `50ebeac` | `ChatController.deleteMessages` + 多选模式(`chat.select.*` 一整套 key)+ `DraftStore`(防抖 300ms、dispose 补存、发送即清)+ 图片全屏传**全部**图 + `VoicePlayer.seek/setRate/onSource` 与 `VoiceBubble` 进度条与倍速;`integration_test/chat_multi_select_test.dart`(真实指针事件,已进 `app-ui.yml`);新增 9 个多选用例 + 3 个语音用例 |
+
+### 与计划的偏差
+
+1. **`last_message` 没按计划的首选写法(相关子查询)**,改用计划里写明的**退路**(两条 SQL)。T-1 实测:相关子查询在 MySQL 8 上把 `NOT EXISTS` 反连接物化成半连接后,`ORDER BY seq DESC LIMIT 1` **不再走反向索引**——50 会话 × 2000 条 ≈ 60ms。改成「先问这批摘要里哪几条被我隐藏(主键点查,绝大多数会话零成本),只有命中的会话才回查上一条可见」。`EXPLAIN ANALYZE` 两份都贴进了 PR 与 §21.4。
+2. **`unread` 相减必须 `CAST(unread AS SIGNED)`**(T-1 自己发现的):列是 `INT UNSIGNED`,无符号相减越过 0 会报 `BIGINT UNSIGNED value is out of range`(1690),不是变成负数。计划只写了 `GREATEST(...,0)`,没提类型;这条已写进 §21.3。
+3. **App 的会话摘要用草稿「替换」最后一条消息,Web 是「前缀 + 摘要并列」**(T-2 / T-3 各自实现)。计划只写「摘要前加 `[草稿] `」,App 选了微信口径(只显示草稿)。两端各自自洽,未统一 —— 见「遗留」1。
+4. **`VoicePlayer` 多了一个 `onSource` 流**(T-2 计划没写):气泡要知道「现在在播的是不是我」,否则换条播放时上一条的图标与倍速复位不掉。
+
+### 踩到的坑
+
+1. **本地手测要一整套 IM 栈,而它不在仓库里**:`/internal/send` 只支持 `kind=text|custom`,**图片/语音消息只能由客户端真实上传后发出**,所以「发一条图/语音来验播放器」这条路在本地是断的(见「模拟器验收结论」)。
+2. **imserver 容器的 `/internal/*` 默认只认 `127.0.0.1`**:Django 跑在宿主机、经 Docker 发布端口进来时源 IP 是网桥网关,`/internal/send` 一律 403。本地起容器要 `IM_INTERNAL_ALLOW=0.0.0.0/0`(仅限一次性手测容器)。
+3. **模拟器截图预览与原始像素不是 1:1**:本轮实测缩放比 ≈ **1.125**。按预览坐标点「多选」落在菜单项之间的空隙上,表现为「菜单关了但没进多选」——**差 30px 就点空**。判据是「点完顶栏有没有变」,不是「菜单有没有关」。
+4. **`flutter build apk` 在 WSL 里跑不了**(`No Android SDK found`):APK 必须在 Windows 侧构建(`..\flutter\bin\flutter.bat build apk --debug --dart-define=API_BASE=http://10.0.2.2:8000/api/v1`),WSL 只负责 `verify.sh app`。
+5. **`uiautomator dump` 对 Flutter 只给一个空壳节点**:拿不到控件 bounds,坐标只能靠 Pillow 量。`adb shell input swipe x y x y 900` 是长按的正确写法。
+
+### 验收结论
+
+| 项 | 结果 |
+|---|---|
+| 本地 `scripts/verify.sh imserver` | ✅ 全绿(unit + db + HTTP 集成,`test_delete ok`) |
+| 本地 `scripts/verify.sh web` | ✅ 全绿(vue-tsc + eslint 零告警 + vitest + build) |
+| 本地 `scripts/verify.sh app` | ✅ 全绿(659 例) |
+| CI(三单) | ✅ T-1 五轨;T-3 `check` + `smoke`;T-2 `contract` + `analyze-and-test` + **`app-ui`(模拟器 integration_test,含新加的多选用例)** |
+| 模拟器手测(`emulator-5554` / Pixel_7 / Android 17,debug 包连本地 Django + 本地 imserver) | **多选删除 ✅ / 草稿 ✅ / 图片全屏 ⚠️ / 语音进度倍速 ⚠️** |
+
+**模拟器逐项**:
+
+| 项 | 结果 |
+|---|---|
+| 长按 → 菜单含「多选」 | ✅ |
+| 多选态:顶栏「已选 0 条」、左侧勾选圈、底部「复制文本/删除」置灰 | ✅ |
+| 勾两条 → 「已选 2 条」+ 对勾变红 + 按钮可用 | ✅ |
+| 确认框「删除这 2 条?只在你这边删除,对方仍可见。」 | ✅ |
+| 确认后两条消失 + 自动退出多选 + 输入栏回来 | ✅ |
+| **服务端单方语义**(库直查) | ✅ `im_message_hidden` 只有 user 6 的两行(seq 1 / 3),消息本体仍在,user 7 零隐藏行 |
+| 草稿:返回列表显示「[草稿] draft-hello」、重进会话回填 | ✅ |
+| 图片全屏 / 语音进度与倍速 | ⚠️ **未在模拟器上完成**:图片消息发出去了(`ChatImage` 有行、文件落盘),但本地签名 URL 在模拟器里不出图,点不进全屏;语音消息本地造不出来(见坑 1)。两项由组件测试覆盖(「全屏收到会话内全部图片 + initialIndex 正确」「松手才 seek / 倍速循环 / 换条复位」) |
+
+截图 22 张留在本机 `_t2_shots/`,未入库。
+
+### 遗留(不在本期)
+
+1. **草稿在会话列表上的表现两端不一致**:App 用草稿**替换**摘要,Web 是「`[草稿] ` + 摘要**并列**」。要统一时建议以 App 的微信口径为准(改 `ConversationRow.vue` 一处)。
+2. **图片全屏与语音进度/倍速缺一次真机确认**(见上)。下次有真实图片/语音消息时补;不阻塞合并 —— 它们只改「传给已有 viewer 的 URL 集合」与「播放器的 seek/rate 接线」,不碰消息链路。
+3. **`im_message_hidden` 没有定时清理**:注销会清(§21.8),但普通用户的历史隐藏行永久保留。单条只有 16 字节,量级可忽略;要清就得按 `created_at` 定期删,收益不抵成本。
+4. **`/internal/send` 仍只支持 text/custom**:想在服务端造图片/语音消息(压测、手测、造数)都做不到,得走客户端上传。要补得给 `SendRequest` 加 image/voice 分支,单开一单。
+5. **T-1 的隐藏行不随「撤回」联动**:撤回后消息本来就在历史里显示「消息已撤回」,再删它是两件独立的事,没做联动。
