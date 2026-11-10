@@ -1,13 +1,15 @@
-"""广场动态接口:发布/列表、我的动态、详情与删除、点赞、评论、举报、关注流。
+"""广场动态接口:发布/列表、我的动态、详情与删除、点赞、收藏、评论、举报、关注流。
 
 设计要点:
-    1. **可见性一律走 ``services.visible_posts``**,它同时排除双向拉黑与重封禁作者;
-       评论列表另需单独过滤(评论作者可能是被拉黑或被重封禁的人);
+    1. **可见性一律走 ``services.visible_posts`` / ``visible_base``**,它同时排除双向拉黑
+       与重封禁作者;评论列表、点赞列表另需单独过滤(点赞者/评论者可能是被拉黑或被重封禁的人);
     2. **删除动态与举报联动**:删除前先关闭该动态的全部待处理举报,否则举报会在
        审核台里悬空(作者自删与运营删除共用同一条路径);
     3. 点赞与举报都幂等:重复点赞返回 200(首次为 201),重复举报返回已有记录;
+       收藏恒 204(与关注同口径,接口不区分「是不是第一次」);
     4. **关注接口挂在 ``/users/{user_id}/follow``**(路由写在 ``users/urls.py``,视图在本文件):
-       它操作的是「用户关系」而不是「广场动态」,但关系语义归 feed,所以视图放这里。
+       它操作的是「用户关系」而不是「广场动态」,但关系语义归 feed,所以视图放这里;
+    5. 收藏**不发通知、不产生 IM 灰条**:它是私密书签,只动 ``PostFavorite`` 一张表。
 
 关联文档:
     - 接口契约:docs/api/feed.md
@@ -27,7 +29,8 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
 from config import images, storage
-from config.cursor import cursor_body, paginated_response, read_before, wants_legacy_offset
+from config.cursor import (cursor_body, paginated_response, read_before, slice_page,
+                           wants_legacy_offset)
 from config.pagination import DefaultLimitOffsetPagination
 from config.params import int_param
 from config.schema_helpers import cursor_page, cursor_params, offset_page, offset_params
@@ -37,15 +40,17 @@ from notifications.models import NotificationKind, NotificationTarget
 from notifications.services import display_name, notify_on_commit
 from users.models import ProfileStatus
 
-from .models import Post, PostComment, PostImage, PostLike, PostReport
-from .serializers import (PostCommentCreateSerializer, PostCommentSerializer,
-                          PostCreateSerializer, PostReportCreateSerializer,
-                          PostSerializer)
+from .models import (Post, PostComment, PostFavorite, PostImage, PostLike, PostReport)
+from .serializers import (POST_LIKER_SCHEMA, PostCommentCreateSerializer,
+                          PostCommentSerializer, PostCreateSerializer,
+                          PostReportCreateSerializer, PostSerializer, author_brief)
 from .services import (create_comment, delete_comment, delete_post, follow,
-                       following_base, notify_comment_created, page_visible_posts,
-                       unfollow, visible_comments, visible_posts)
-from .throttles import (CommentRepliesThrottle, FollowThrottle, FollowingReadThrottle,
-                        PostCommentThrottle, PostCreateThrottle, PostLikeThrottle,
+                       following_base, notify_comment_created, page_favorite_posts,
+                       page_visible_posts, unfollow, visible_base, visible_comments,
+                       visible_likers, visible_posts)
+from .throttles import (CommentRepliesThrottle, FavoritesReadThrottle, FollowThrottle,
+                        FollowingReadThrottle, PostCommentThrottle, PostCreateThrottle,
+                        PostFavoriteThrottle, PostLikeThrottle, PostLikesReadThrottle,
                         PostReportThrottle)
 
 User = get_user_model()
@@ -207,7 +212,11 @@ def my_posts(request):
                 .annotate(like_count=Count("likes", distinct=True),
                           comment_count=Count("comments", distinct=True),
                           liked_by_me=Exists(
-                              PostLike.objects.filter(post=OuterRef("pk"), user=request.user)))
+                              PostLike.objects.filter(post=OuterRef("pk"), user=request.user)),
+                          # 与 ``visible_posts`` 同款注解:自己的动态也要能显示「已收藏」
+                          is_favorited=Exists(
+                              PostFavorite.objects.filter(post=OuterRef("pk"),
+                                                          user=request.user)))
                 .order_by("-created_at", "-id"))
     return paginated_response(
         request, queryset,
@@ -269,6 +278,72 @@ def post_like(request, post_id):
                 dedupe_key=f"like:{post.id}:{request.user.id}")
         return Response({"liked": True}, status=201 if created else 200)
     PostLike.objects.filter(post=post, user=request.user).delete()
+    return Response(status=204)
+
+
+@extend_schema(parameters=cursor_params(),
+               responses={200: cursor_page("PostLikerPage", POST_LIKER_SCHEMA)})
+@api_view(["GET"])
+@throttle_classes([PostLikesReadThrottle])
+def post_likes(request, post_id):
+    """点赞列表(GET /api/v1/posts/{post_id}/likes)。
+
+    按**点赞时间倒序**返回「谁点了赞」,游标建在 ``PostLike`` 行上。
+    动态本身走广场可见性口径,不可见(不存在 / 双向拉黑 / 作者被重封禁)一律 404;
+    点赞者同样过滤双向拉黑与重封禁账号,``count`` 是**过滤后**的可见人数。
+    没人点赞返回 200 + 空列表(不 404)。新接口没有老客户端,不提供 ``offset`` 兼容分支。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` / ``before``。
+        post_id: 动态主键。
+
+    Returns:
+        ``{count, next_cursor, has_more, results}``,``results[]`` 元素为
+        ``{user_id, nickname, avatar_url, liked_at}``。
+
+    Raises:
+        Http404: 动态不存在或对当前用户不可见。
+    """
+    post = get_object_or_404(visible_base(request.user), pk=post_id)
+    likers = visible_likers(post, request.user)
+    total = likers.count()
+    page = slice_page(request, likers, field="created_at")
+    results = []
+    for like in page.rows:
+        brief = author_brief(like.user, request)
+        results.append({"user_id": brief["user_id"], "nickname": brief["nickname"],
+                        "avatar_url": brief["avatar_url"], "liked_at": like.created_at})
+    return Response(cursor_body(results, count=total, next_cursor=page.next_cursor,
+                                has_more=page.has_more))
+
+
+@extend_schema(methods=["POST"], request=None, responses={204: None})
+@extend_schema(methods=["DELETE"], responses={204: None})
+@api_view(["POST", "DELETE"])
+@throttle_classes([PostFavoriteThrottle])
+def post_favorite(request, post_id):
+    """收藏与取消收藏(POST/DELETE /api/v1/posts/{post_id}/favorite)。
+
+    **两个方法都恒 204**(首次收藏、重复收藏、没收藏过就取消,全都 204):
+    与关注接口同口径,客户端只做乐观翻转,不需要知道「是不是第一次」。
+    收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
+    只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
+
+    Args:
+        request: DRF 请求对象。
+        post_id: 动态主键。
+
+    Returns:
+        204 空响应。
+
+    Raises:
+        Http404: 动态不存在或对当前用户不可见。
+    """
+    post = get_object_or_404(visible_base(request.user), pk=post_id)
+    if request.method == "POST":
+        PostFavorite.objects.get_or_create(post=post, user=request.user)
+    else:
+        PostFavorite.objects.filter(post=post, user=request.user).delete()
     return Response(status=204)
 
 
@@ -419,6 +494,32 @@ def following_posts(request):
                       minimum=1, maximum=DefaultLimitOffsetPagination.max_limit)
     page = page_visible_posts(request.user, limit, before=read_before(request),
                               base=following_base(request.user))
+    return Response(cursor_body(
+        PostSerializer(page.rows, many=True, context={"request": request}).data,
+        count=page.total, next_cursor=page.next_cursor, has_more=page.has_more))
+
+
+@extend_schema(parameters=cursor_params(),
+               responses={200: cursor_page("FavoritesPage", PostSerializer)})
+@api_view(["GET"])
+@throttle_classes([FavoritesReadThrottle])
+def favorite_posts(request):
+    """我的收藏(GET /api/v1/feed/favorites)。
+
+    按**收藏时间倒序**(不是发帖时间),响应形状与广场列表逐字段一致。
+    游标建在 ``PostFavorite`` 行上(见 ``services.page_favorite_posts``):
+    收藏了但已不可见的动态(被双向拉黑 / 作者被重封禁 / 已被删)**既不出现在列表,
+    也不计入 ``count``**。新接口没有老客户端,不提供 ``offset`` 兼容分支。
+
+    Args:
+        request: DRF 请求对象,支持 ``limit`` / ``before``。
+
+    Returns:
+        ``{count, next_cursor, has_more, results}``,``results[]`` 为动态对象。
+    """
+    limit = int_param(request, "limit", default=DefaultLimitOffsetPagination.default_limit,
+                      minimum=1, maximum=DefaultLimitOffsetPagination.max_limit)
+    page = page_favorite_posts(request.user, limit, before=read_before(request))
     return Response(cursor_body(
         PostSerializer(page.rows, many=True, context={"request": request}).data,
         count=page.total, next_cursor=page.next_cursor, has_more=page.has_more))

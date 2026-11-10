@@ -1,14 +1,17 @@
-"""广场动态的领域服务:可见性查询、删除、评论通知与关注关系。
+"""广场动态的领域服务:可见性查询、删除、评论通知、收藏分页与关注关系。
 
 设计要点:
     1. ``visible_posts`` 是广场**唯一的可见性口径**:排除双向拉黑与重封禁作者,
-       并统一注解赞数/评数与「我是否已赞」,避免各处各写一份查询;
+       并统一注解赞数/评数、「我是否已赞」与「我是否已收藏」,避免各处各写一份查询;
     2. ``delete_post`` 同时服务作者自删与运营删除,因此必须先关闭待处理举报,
        否则作者自删后举报会在审核台里悬空;
     3. 关注是**有向**关系且不产生聊天权限:``follow`` / ``unfollow`` 只动 ``Follow`` 表,
        不发通知、不碰 IM(新粉丝不通知,见计划 §2.3);
     4. ``follow_state_for_profiles`` 是「资料卡关注态」的唯一取数口径:单条走一条
-       聚合 SQL,批量走三条分组 SQL,**不随资料条数增长**。
+       聚合 SQL,批量走三条分组 SQL,**不随资料条数增长**;
+    5. 「我是否已收藏」和「我是否已赞」一样是 ``Exists`` 子查询注解,嵌在同一条 SQL 里
+       —— 在序列化器里逐条 ``.exists()`` 会让广场一页 20 条变成 20 次往返
+       (``config/test_query_budget.py`` 会红)。
 """
 
 from typing import NamedTuple
@@ -25,7 +28,7 @@ from notifications.models import NotificationKind, NotificationTarget
 from notifications.services import display_name, notify_on_commit
 from users.models import Profile, ProfileStatus
 
-from .models import Follow, Post, PostComment, PostLike, PostReport
+from .models import Follow, Post, PostComment, PostFavorite, PostLike, PostReport
 
 
 class FeedPage(NamedTuple):
@@ -66,7 +69,7 @@ def visible_base(viewer):
 
 
 def visible_posts(viewer, base=None):
-    """广场可见动态:排除双向拉黑与重封禁作者;命中注解赞/评数与「我是否已赞」。
+    """广场可见动态:排除双向拉黑与重封禁作者;注解赞/评数与「我是否已赞/已收藏」。
 
     Args:
         viewer: 当前浏览者。
@@ -74,7 +77,8 @@ def visible_posts(viewer, base=None):
             避免 ``blocked_user_ids`` 被重复执行两次。
 
     Returns:
-        已注解 ``like_count`` / ``comment_count`` / ``liked_by_me`` 的查询集。
+        已注解 ``like_count`` / ``comment_count`` / ``liked_by_me`` /
+        ``is_favorited`` 的查询集。
     """
     return ((base if base is not None else visible_base(viewer))
             .select_related("author__profile")
@@ -82,7 +86,11 @@ def visible_posts(viewer, base=None):
             .annotate(like_count=Count("likes", distinct=True),
                       comment_count=Count("comments", distinct=True),
                       liked_by_me=Exists(
-                          PostLike.objects.filter(post=OuterRef("pk"), user=viewer)))
+                          PostLike.objects.filter(post=OuterRef("pk"), user=viewer)),
+                      # 收藏态与点赞态同款:一条 EXISTS 子查询嵌进同一条 SQL,
+                      # 不新增任何往返(禁止改成序列化器里的逐条 .exists())。批次 U。
+                      is_favorited=Exists(
+                          PostFavorite.objects.filter(post=OuterRef("pk"), user=viewer)))
             # annotate 触发 GROUP BY 时 Meta.ordering 会被丢弃,必须显式排序
             .order_by("-created_at", "-id"))
 
@@ -149,6 +157,79 @@ def page_visible_posts(viewer, limit: int, before: tuple | None = None,
         last_id, last_at = pairs[-1]
         next_cursor = encode_cursor(last_at, last_id)
     return FeedPage(rows=[rows[post_id] for post_id in ids if post_id in rows],
+                    total=total, has_more=has_more, next_cursor=next_cursor)
+
+
+def visible_likers(post, viewer):
+    """某条动态下对 ``viewer`` 可见的点赞者,按点赞时间倒序。
+
+    可见性沿用评论那套「双向拉黑 + 重封禁作者」口径(不另立一份):
+    我拉黑的 / 拉黑我的人、以及被重封禁的账号,不出现点赞列表里,
+    因此接口回执的 ``count`` 是**过滤后**的人数,而不是原始点赞行数。
+
+    ``select_related("user__profile")`` + ``prefetch_related("user__photos")`` 是
+    ``author_brief`` 的取数前提:两条 SQL 固定,与页大小无关(禁止循环里查库)。
+
+    Args:
+        post: 目标动态(调用方已确认它对 ``viewer`` 可见)。
+        viewer: 当前浏览者。
+
+    Returns:
+        已按 ``-created_at, -id`` 排序、带作者信息预取的 ``PostLike`` 查询集。
+    """
+    banned_user_ids = Profile.objects.filter(
+        status=ProfileStatus.BANNED_HEAVY).values("user_id")
+    return (PostLike.objects.filter(post=post)
+            .exclude(user_id__in=blocked_user_ids(viewer))
+            .exclude(user_id__in=banned_user_ids)
+            .select_related("user__profile")
+            .prefetch_related("user__photos")
+            .order_by("-created_at", "-id"))
+
+
+def page_favorite_posts(viewer, limit: int, before: tuple | None = None) -> "FeedPage":
+    """「我的收藏」一页:排序与游标都建在**收藏行**上,不是发帖时间。
+
+    实现是两段式(与 :func:`page_visible_posts` 同构,但游标换了一行):
+        1. 先算可见帖子集 ``base``,只在其中取我的收藏行(收藏了但已被拉黑/封禁的
+           动态连 ``count`` 都不算);
+        2. 按 ``PostFavorite.created_at`` 倒序取 ``limit + 1`` 个 ``(post_id,
+           created_at, id)`` 判断 ``has_more`` 并记录游标 —— 游标指向收藏行,
+           所以「先收藏新帖、后收藏老帖」时顺序按收藏时间走,不会退化成发帖时间;
+        3. 再用 :func:`visible_posts` 取当页带注解的对象,并按第 2 步的顺序还原
+           (``pk__in`` 不保序,Django 不会替我们排)。
+
+    动态被删时 ``PostFavorite`` 随 ``CASCADE`` 一起消失,列表自动少一条,
+    不需要额外的清理逻辑。
+
+    Args:
+        viewer: 当前浏览者(收藏的归属人)。
+        limit: 每页条数。
+        before: 游标 ``(收藏行 created_at, 收藏行 id)``;``None`` 表示第一页。
+
+    Returns:
+        当页的 :class:`FeedPage`(``rows`` 为 ``Post``,``total`` 为可见收藏总数)。
+    """
+    base = visible_base(viewer)
+    favorites = PostFavorite.objects.filter(user=viewer,
+                                            post_id__in=base.values("id"))
+    total = favorites.count()
+    ordered = favorites.order_by("-created_at", "-id")
+    if before is not None:
+        ordered = apply_before(ordered, "created_at", before)
+    rows = list(ordered.values_list("post_id", "created_at", "id")[:limit + 1])
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    if not rows:
+        return FeedPage(rows=[], total=total, has_more=False, next_cursor=None)
+    post_ids = [post_id for post_id, _, _ in rows]
+    posts = {post.pk: post for post in visible_posts(viewer, base=base)
+             .filter(pk__in=post_ids)}
+    next_cursor = None
+    if has_more:
+        _, last_at, last_id = rows[-1]
+        next_cursor = encode_cursor(last_at, last_id)
+    return FeedPage(rows=[posts[post_id] for post_id in post_ids if post_id in posts],
                     total=total, has_more=has_more, next_cursor=next_cursor)
 
 

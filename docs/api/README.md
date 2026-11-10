@@ -84,6 +84,9 @@
 | DELETE | `/api/v1/posts/{post_id}` | 删除我的动态 | [feed](feed.md) |
 | POST | `/api/v1/posts/{post_id}/like` | 点赞 | [feed](feed.md) |
 | DELETE | `/api/v1/posts/{post_id}/like` | 取消点赞 | [feed](feed.md) |
+| GET | `/api/v1/posts/{post_id}/likes` | 点赞列表(谁点了赞,游标分页) | [feed](feed.md) |
+| POST | `/api/v1/posts/{post_id}/favorite` | 收藏动态(幂等 204) | [feed](feed.md) |
+| DELETE | `/api/v1/posts/{post_id}/favorite` | 取消收藏(幂等 204) | [feed](feed.md) |
 | GET | `/api/v1/posts/{post_id}/comments` | 评论列表(分页) | [feed](feed.md) |
 | POST | `/api/v1/posts/{post_id}/comments` | 发表评论 | [feed](feed.md) |
 | GET | `/api/v1/posts/{post_id}/comments/{comment_id}/replies` | 回复列表(分页) | [feed](feed.md) |
@@ -92,6 +95,7 @@
 | POST | `/api/v1/users/{user_id}/follow` | 关注用户(幂等 204) | [feed](feed.md) |
 | DELETE | `/api/v1/users/{user_id}/follow` | 取消关注(幂等 204) | [feed](feed.md) |
 | GET | `/api/v1/feed/following` | 关注流(我关注的人的动态) | [feed](feed.md) |
+| GET | `/api/v1/feed/favorites` | 我的收藏(按收藏时间倒序,游标分页) | [feed](feed.md) |
 | GET | `/api/v1/stats/me` | 个人使用报告(周/月/年七项数字) | [stats](stats.md) |
 | GET | `/api/v1/health` | 存活探针 | [health](health.md) |
 | GET | `/api/v1/readyz` | 就绪探针(DB/Redis) | [health](health.md) |

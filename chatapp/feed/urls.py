@@ -13,6 +13,10 @@ urlpatterns = [
     path("posts/mine", views.my_posts),
     path("posts/<int:post_id>", views.post_detail),
     path("posts/<int:post_id>/like", views.post_like),
+    # 点赞列表(批次 U):`/likes` 与 `/like` 分属两个接口 —— 前者读列表,后者写点赞
+    path("posts/<int:post_id>/likes", views.post_likes),
+    # 收藏 / 取消收藏(批次 U):POST 与 DELETE 同路径,恒 204 幂等
+    path("posts/<int:post_id>/favorite", views.post_favorite),
     path("posts/<int:post_id>/comments", views.post_comments),
     path("posts/<int:post_id>/comments/<int:comment_id>/replies",
          views.post_comment_replies),
@@ -20,4 +24,6 @@ urlpatterns = [
     path("posts/<int:post_id>/report", views.post_report),
     # 关注流:路径带 ``feed/`` 前缀(计划 §4 I-2 定死的契约,App/Web 都按它接)
     path("feed/following", views.following_posts),
+    # 我的收藏(批次 U):与关注流并列在 ``feed/`` 前缀下
+    path("feed/favorites", views.favorite_posts),
 ]
