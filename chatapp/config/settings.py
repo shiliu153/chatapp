@@ -606,6 +606,12 @@ if not DEBUG and not IM_MEDIA_SIGN_SECRET:
 # 聊天图片保留期(天);0 表示只清孤儿文件与删除残留
 CHAT_IMAGE_RETENTION_DAYS = int(os.getenv("CHAT_IMAGE_RETENTION_DAYS", "30"))
 
+# --- 运营指标的 IM 库只读连接(批次 V-1)---
+# 形如 ``mysql://user:pass@host:port/chatapp_im``,与 imserver 的 IM_MYSQL_DSN 同值;
+# 该账号**只需要** chatapp_im 的 SELECT 权限。留空 = 每日快照里的消息量显示「无数据」
+# (命令仍退出 0),不会挡住 DAU 等其余指标。
+IM_MYSQL_DSN = os.getenv("IM_MYSQL_DSN", "")
+
 # --- 聊天语音(ffmpeg 统一转 m4a/AAC)---
 CHAT_VOICE_MAX_BYTES = 5 * 1024 * 1024
 CHAT_VOICE_MAX_OUT_BYTES = 2 * 1024 * 1024
