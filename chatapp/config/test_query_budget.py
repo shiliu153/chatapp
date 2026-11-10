@@ -43,6 +43,13 @@ BUDGET = {
     # (用户 / 端会话 / 资料 / 偏好)之外只多 1 条;七次独立 count() 实测到 11 条,
     # 超出工单给的 8 条口径。
     "stats": 8,
+    # 带筛选的候选池(批次 S):筛选只是 SQL 里多一个条件子查询 / 一次 EXISTS,
+    # 分桶只换缓存键,实测与默认路径同档,因此预算与 candidates_cold 对齐。
+    "candidates_filtered": 13,
+    # 今日精选(批次 S):池子(缓存未命中时 1 条)+ 同城 1 条 + 共同标签聚合 1 条
+    # + 卡片批量取 3 条,整条链路不随池子大小(≤200)增长。冷请求实测 15 条
+    # (含首次取「想找的人」偏好的 3 条一次性 SQL,与 candidates_cold 同源)。
+    "daily": 16,
 }
 
 
@@ -119,6 +126,31 @@ class QueryBudgetTests(APITestCase):
         small = self._count("/api/v1/discovery/candidates?limit=5")
         cache.clear()
         large = self._count("/api/v1/discovery/candidates?limit=10")
+        self.assertEqual(small, large)
+
+    def test_candidates_with_filters_budget(self):
+        """带筛选的候选池(批次 S):分桶只换缓存键,SQL 与默认路径同档。"""
+        cache.clear()
+        self.assertLessEqual(
+            self._count("/api/v1/discovery/candidates?city=上海&age_min=18&age_max=99&tag_ids=1"),
+            BUDGET["candidates_filtered"])
+
+    def test_daily_budget(self):
+        """今日精选(批次 S):冷请求(候选池未缓存)也不超标。"""
+        cache.clear()
+        self.assertLessEqual(self._count("/api/v1/discovery/daily"), BUDGET["daily"])
+
+    def test_daily_page_size_does_not_change_query_count(self):
+        """N+1 守卫:今日精选 limit 3 → 12,SQL 条数必须不变。
+
+        共同标签数必须走一条聚合查询;若退化成「每人一次 M2M 查询」,
+        条数会跟着 ``limit`` 一起涨,这条会立刻红。
+        """
+        self._count("/api/v1/discovery/daily?limit=3")   # 预热:触发 Preference 懒创建
+        cache.clear()
+        small = self._count("/api/v1/discovery/daily?limit=3")
+        cache.clear()
+        large = self._count("/api/v1/discovery/daily?limit=12")
         self.assertEqual(small, large)
 
     def test_posts_page_size_does_not_change_query_count(self):

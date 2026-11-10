@@ -384,15 +384,47 @@ export interface paths {
         /**
          * @description 候选卡片列表(GET /api/v1/discovery/candidates)。
          *
-         *     按「想找的人」偏好过滤(性别、城市、年龄区间),再套用候选池的排除规则。
+         *     按「想找的人」偏好过滤(性别、城市、年龄区间),再套用候选池的排除规则;
+         *     可选的 ``age_min`` / ``age_max`` / ``city`` / ``tag_ids`` 在**本次请求内**覆盖
+         *     对应的偏好字段(不写回偏好),缺省时行为与加筛选前完全一致。
          *
          *     Args:
-         *         request: DRF 请求对象,支持 ``limit`` 查询参数(默认 10,上限 20)。
+         *         request: DRF 请求对象,支持 ``limit``(默认 10,上限 20)与四个筛选参数。
          *
          *     Returns:
          *         候选卡片数组,字段见 ``CandidateSerializer``。
          */
         get: operations["discovery_candidates_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/discovery/daily": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 今日精选(GET /api/v1/discovery/daily)。
+         *
+         *     从同一套候选池里取 N 张(排除规则与 ``candidates`` 完全一致),按
+         *     「共同标签数 desc → 同城优先 → 种子随机」排序;种子 = ``(日期, 用户 id)``,
+         *     因此**同一天反复刷新结果与顺序都不变**,第二天自动换一批。
+         *
+         *     Args:
+         *         request: DRF 请求对象,支持 ``limit``(默认 6,上限 12)。
+         *
+         *     Returns:
+         *         ``{"date": <日期>, "candidates": [候选卡...]}``,卡片字段与
+         *         ``GET /discovery/candidates`` 一致。
+         */
+        get: operations["discovery_daily_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1898,6 +1930,21 @@ export interface components {
             previous: string | null;
             results: components["schemas"]["PostComment"][];
         };
+        /**
+         * @description 「今日精选」的响应:当天日期 + 与候选卡同构的卡片数组(批次 S)。
+         *
+         *     ``date`` 是服务端算种子用的日期,客户端据此判断「今天已看过」;
+         *     只用于 ``@extend_schema`` 声明响应形状,视图直接拼字典返回。
+         */
+        DailyCandidates: {
+            /**
+             * Format: date
+             * @description 本次精选对应的日期(服务端时区)
+             */
+            date: string;
+            /** @description 精选卡片,字段与候选卡一致 */
+            candidates: components["schemas"]["Candidate"][];
+        };
         DeviceItem: {
             client_type: string;
             client_label: string;
@@ -2784,8 +2831,16 @@ export interface operations {
     discovery_candidates_list: {
         parameters: {
             query?: {
+                /** @description 年龄上限(含),18–99;缺省沿用「想找的人」偏好 */
+                age_max?: number;
+                /** @description 年龄下限(含),18–99;缺省沿用「想找的人」偏好 */
+                age_min?: number;
+                /** @description 只看这个城市;缺省沿用偏好 */
+                city?: string;
                 /** @description 拉取条数,默认 10,上限 20 */
                 limit?: number;
+                /** @description 标签 id,逗号分隔(命中其一即可);缺省不筛标签 */
+                tag_ids?: string;
             };
             header?: never;
             path?: never;
@@ -2799,6 +2854,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Candidate"][];
+                };
+            };
+        };
+    };
+    discovery_daily_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 精选张数,默认 6,上限 12 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyCandidates"];
                 };
             };
         };

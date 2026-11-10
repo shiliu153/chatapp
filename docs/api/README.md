@@ -48,7 +48,8 @@
 | PATCH | `/api/v1/users/me/preference` | 修改择偶偏好 | [users](users.md) |
 | GET | `/api/v1/users/{user_id}` | 获取他人公开资料 | [users](users.md) |
 | GET | `/api/v1/presence` | 批量查询在线状态 | [users](users.md) |
-| GET | `/api/v1/discovery/candidates` | 拉取候选卡 | [discovery](discovery.md) |
+| GET | `/api/v1/discovery/candidates` | 拉取候选卡(可带临时筛选参数) | [discovery](discovery.md) |
+| GET | `/api/v1/discovery/daily` | 今日精选(当天稳定、跨天变化) | [discovery](discovery.md) |
 | POST | `/api/v1/discovery/swipe` | 提交滑卡动作 | [discovery](discovery.md) |
 | POST | `/api/v1/discovery/swipe/undo` | 撤销上一次滑卡(30 秒内、未配对) | [discovery](discovery.md) |
 | GET | `/api/v1/discovery/quota` | 查询每日喜欢额度 | [discovery](discovery.md) |
