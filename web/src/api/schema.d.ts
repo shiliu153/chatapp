@@ -635,6 +635,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/feed/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 我的收藏(GET /api/v1/feed/favorites)。
+         *
+         *     按**收藏时间倒序**(不是发帖时间),响应形状与广场列表逐字段一致。
+         *     游标建在 ``PostFavorite`` 行上(见 ``services.page_favorite_posts``):
+         *     收藏了但已不可见的动态(被双向拉黑 / 作者被重封禁 / 已被删)**既不出现在列表,
+         *     也不计入 ``count``**。新接口没有老客户端,不提供 ``offset`` 兼容分支。
+         *
+         *     Args:
+         *         request: DRF 请求对象,支持 ``limit`` / ``before``。
+         *
+         *     Returns:
+         *         ``{count, next_cursor, has_more, results}``,``results[]`` 为动态对象。
+         */
+        get: operations["feed_favorites_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/feed/following": {
         parameters: {
             query?: never;
@@ -1165,6 +1195,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/posts/{post_id}/favorite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description 收藏与取消收藏(POST/DELETE /api/v1/posts/{post_id}/favorite)。
+         *
+         *     **两个方法都恒 204**(首次收藏、重复收藏、没收藏过就取消,全都 204):
+         *     与关注接口同口径,客户端只做乐观翻转,不需要知道「是不是第一次」。
+         *     收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
+         *     只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
+         *
+         *     Args:
+         *         request: DRF 请求对象。
+         *         post_id: 动态主键。
+         *
+         *     Returns:
+         *         204 空响应。
+         *
+         *     Raises:
+         *         Http404: 动态不存在或对当前用户不可见。
+         */
+        post: operations["posts_favorite_create"];
+        /**
+         * @description 收藏与取消收藏(POST/DELETE /api/v1/posts/{post_id}/favorite)。
+         *
+         *     **两个方法都恒 204**(首次收藏、重复收藏、没收藏过就取消,全都 204):
+         *     与关注接口同口径,客户端只做乐观翻转,不需要知道「是不是第一次」。
+         *     收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
+         *     只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
+         *
+         *     Args:
+         *         request: DRF 请求对象。
+         *         post_id: 动态主键。
+         *
+         *     Returns:
+         *         204 空响应。
+         *
+         *     Raises:
+         *         Http404: 动态不存在或对当前用户不可见。
+         */
+        delete: operations["posts_favorite_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/posts/{post_id}/like": {
         parameters: {
             query?: never;
@@ -1202,6 +1284,41 @@ export interface paths {
          *         POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
          */
         delete: operations["posts_like_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/posts/{post_id}/likes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description 点赞列表(GET /api/v1/posts/{post_id}/likes)。
+         *
+         *     按**点赞时间倒序**返回「谁点了赞」,游标建在 ``PostLike`` 行上。
+         *     动态本身走广场可见性口径,不可见(不存在 / 双向拉黑 / 作者被重封禁)一律 404;
+         *     点赞者同样过滤双向拉黑与重封禁账号,``count`` 是**过滤后**的可见人数。
+         *     没人点赞返回 200 + 空列表(不 404)。新接口没有老客户端,不提供 ``offset`` 兼容分支。
+         *
+         *     Args:
+         *         request: DRF 请求对象,支持 ``limit`` / ``before``。
+         *         post_id: 动态主键。
+         *
+         *     Returns:
+         *         ``{count, next_cursor, has_more, results}``,``results[]`` 元素为
+         *         ``{user_id, nickname, avatar_url, liked_at}``。
+         *
+         *     Raises:
+         *         Http404: 动态不存在或对当前用户不可见。
+         */
+        get: operations["posts_likes_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1975,6 +2092,12 @@ export interface components {
             registration_id: string;
             platform: string;
         };
+        FavoritesPage: {
+            count: number;
+            next_cursor: string | null;
+            has_more: boolean;
+            results: components["schemas"]["Post"][];
+        };
         /** @description 反馈的对外回执(不回显处理状态与处理人)。 */
         Feedback: {
             readonly id: number;
@@ -2215,6 +2338,8 @@ export interface components {
             readonly comment_count: number;
             /** @default false */
             readonly liked_by_me: boolean;
+            /** @default false */
+            readonly is_favorited: boolean;
             /** Format: date-time */
             readonly created_at: string;
         };
@@ -2258,6 +2383,19 @@ export interface components {
         };
         PostLikeResult: {
             liked: boolean;
+        };
+        PostLiker: {
+            user_id: number;
+            nickname: string;
+            avatar_url: string | null;
+            /** Format: date-time */
+            liked_at: string;
+        };
+        PostLikerPage: {
+            count: number;
+            next_cursor: string | null;
+            has_more: boolean;
+            results: components["schemas"]["PostLiker"][];
         };
         PostPage: {
             count: number;
@@ -3029,6 +3167,30 @@ export interface operations {
             };
         };
     };
+    feed_favorites_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 游标,首页不传;之后原样回传上一页的 next_cursor */
+                before?: string;
+                /** @description 每页条数,默认 20,上限 100 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FavoritesPage"];
+                };
+            };
+        };
+    };
     feed_following_retrieve: {
         parameters: {
             query?: {
@@ -3496,6 +3658,46 @@ export interface operations {
             };
         };
     };
+    posts_favorite_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    posts_favorite_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     posts_like_create: {
         parameters: {
             query?: never;
@@ -3542,6 +3744,32 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    posts_likes_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 游标,首页不传;之后原样回传上一页的 next_cursor */
+                before?: string;
+                /** @description 每页条数,默认 20,上限 100 */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                post_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostLikerPage"];
+                };
             };
         };
     };
