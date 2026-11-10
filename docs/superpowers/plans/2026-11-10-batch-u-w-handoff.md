@@ -1,8 +1,8 @@
 # 交接:批次 U / V / T / W-L3(给新对话)
 
-- **状态**:进行中 —— **U、V 两批已交付**(2026-11-10);剩 **T 批**与 **W-L3**
+- **状态**:进行中 —— **U、V、T 三批已交付**(2026-11-10);只剩 **W-L3**(golden 截图,内联做)
 - **交接日期**:2026-11-10
-- **交接时的 `master`**:`89ab7ef`(**接手前先 `git pull --ff-only` 确认已前进**)
+- **交接时的 `master`**:`50ebeac`(**接手前先 `git pull --ff-only` 确认已前进**)
 - **上位文档**:[批次 R–W 设计](../specs/2026-11-09-batch-r-w-design.md)(总纲)、
   [AGENTS.md](../../../AGENTS.md)(执行约束)、[CLAUDE.md](../../../CLAUDE.md)(契约)、
   [心跳 UI 规则](../specs/2026-09-15-ui-design-language-design.md)(App UI 强制)
@@ -18,6 +18,7 @@
 | **S** 发现页筛选 + 每日精选 | #212 #214 #216 | `CandidateFilters`(不落库)+ 缓存指纹分桶 + `GET /discovery/daily`;双端筛选面板 + 精选区块 |
 | **U** 广场点赞列表 + 收藏 | #221 #224 #226 | `feed.PostFavorite` + 四个接口(点赞列表 / 收藏 / 取消收藏 / 我的收藏)+ `is_favorited` 用 `Exists` 注解;双端点赞列表页与「我的收藏」 |
 | **V** 运营数据看板 | #231 #232 | `users/activity.py` 日活集合(**新增基建**,presence 回填不出 DAU)+ `stats.DailyMetric` + `manage.py metrics_daily` + `/ops/metrics/` |
+| **T** 聊天体验打磨 | #238 #239 #240 | `im_message_hidden` + `POST /im/api/messages/delete`(**单方删除、零帧改动**)+ 三处读口径;双端多选删除 / 草稿 / 图片全屏 / 语音进度与倍速 |
 
 各批的执行记录(含踩坑)在:
 [R 批](2026-11-09-batch-r-voice-intro.md) §执行记录 · [S 批](2026-11-09-batch-s-filter-daily.md) §执行记录。
@@ -33,11 +34,12 @@
 
 ---
 
-## 2. 剩余批次的范围(T / W-L3;U、V 已于 2026-11-10 交付)
+## 2. 剩余批次的范围(W-L3;U、V、T 已于 2026-11-10 交付)
 
-> U 与 V 的原始范围保留在下面并标了 ✅ —— 留着是为了让后续批次知道「这两批做了什么、踩了什么」,
-> 执行记录分别在 [U 批](2026-11-10-batch-u-square-likes-favorites.md) 与
-> [V 批](2026-11-10-batch-v-ops-metrics-dashboard.md) 的末尾。
+> U / V / T 的原始范围保留在下面并标了 ✅ —— 留着是为了让后续工作知道「这三批做了什么、踩了什么」,
+> 执行记录分别在 [U 批](2026-11-10-batch-u-square-likes-favorites.md)、
+> [V 批](2026-11-10-batch-v-ops-metrics-dashboard.md)、
+> [T 批](2026-11-10-batch-t-chat-polish.md) 的末尾。
 
 ### U 批:广场点赞列表 + 收藏(3 单:backend → app → web)—— ✅ 已交付(#221 #224 #226)
 
@@ -74,7 +76,7 @@
 ③ **DAU 不能从 `presence` 反推**:presence 只有 7 天 TTL 的「最后活跃时间戳」,没有按天去重的历史,
    所以 V 批必须先加 `users/activity.py` 的日活集合(见 §4.8)。这条**已在 V 批做完**,后续批次直接复用。
 
-### T 批:聊天体验打磨(3 单:imserver → app → web)
+### T 批:聊天体验打磨(3 单:imserver → app → web)—— ✅ 已交付(#238 #239 #240)
 
 **要做什么**
 
@@ -156,6 +158,13 @@ for y in range(1600, 2100):
 # 相邻行聚类 → 得到每行控件的 y 范围,取中心点
 ```
 
+**T 批实测(2026-11-10)**:截图预览与原始像素的缩放比 ≈ **1.125**。按预览坐标点长按菜单的「多选」
+落在两个菜单项之间的空隙上,现象是「菜单关了但没进多选」——**差 30px 就点空**。
+判据要看「点完之后界面状态有没有变」(顶栏有没有变成「已选 N 条」),不能看「菜单有没有关」。
+
+另外 `adb shell uiautomator dump` 对 Flutter **只给一个空壳节点**(拿不到控件 bounds),
+所以坐标只能靠 Pillow 量;长按用 `adb shell input swipe x y x y 900`。
+
 ### 4.2 multipart 的 part MIME 必须显式声明
 
 App `MultipartFile.fromBytes` 不传 `contentType` → 退化成 `application/octet-stream` →
@@ -229,25 +238,60 @@ $env:DEBUG="1"; $env:SMS_DEV_MODE="1"; $env:SMS_PHONE_WHITELIST="13800138000,139
 写法:`client.get("/ops/metrics/", HTTP_HOST="127.0.0.1")` + `export ALLOWED_HOSTS=127.0.0.1,localhost`。
 V-2 就是这么验的(staff 200 / 非 staff 403 / 匿名 302 + 逐格核对数字)。
 
+### 4.10 手测「聊天」要一整套 IM 栈,而它不在仓库里
+
+后端手测只要 Django;但**聊天类改动**还要一个能收发的 imserver。仓库里只有 `imserver/docker-compose.test.yml`
+(一次性的测试栈),没有 dev compose。T 批这套是这么拼出来的(可复用):
+
+```bash
+# 1) 起 imserver 的 MySQL/Redis(带网络 imserver_default)
+cd imserver && docker compose -f docker-compose.test.yml up -d mysql redis
+# 2) 用 PR 分支的源码构建镜像(含最新迁移),先跑 --migrate 再起常驻容器
+docker build -t imserver:handtest -f Dockerfile .
+docker run --rm --network imserver_default -e IM_MYSQL_DSN=... imserver:handtest --migrate
+docker run -d --name im-handtest --network imserver_default -p 9100:9100 -p 9101:9101 \
+  -e IM_LISTEN_WS=0.0.0.0:9100 -e IM_LISTEN_HTTP=0.0.0.0:9101 -e IM_ALLOW_PUBLIC_BIND=1 \
+  -e IM_INTERNAL_ALLOW=0.0.0.0/0 ...  imserver:handtest
+```
+
+三个坑:
+
+1. **`/internal/*` 默认只认 `127.0.0.1`**:Django 在宿主机、经 Docker 发布端口进来时源 IP 是网桥网关,
+   `/internal/send` 一律 **403**。本地一次性手测容器要 `IM_INTERNAL_ALLOW=0.0.0.0/0`。
+2. **`IM_JWT_SECRET` 必须等于 Django 的 `IM_SELF_SECRET`**,`IM_INTERNAL_SECRET` 等于 `IM_SELF_INTERNAL_SECRET`
+   (`im/token.py::mint_im_token` 用前者签、imserver 用同名密钥验)。
+3. **Django 要给模拟器的地址,不是给自己的地址**:`IM_SELF_URL` 用 `http://127.0.0.1:9101`(Django→imserver),
+   而 `IM_SELF_WS_URL`/`IM_SELF_HTTP_URL`/`MEDIA_BASE_URL` 必须写 `10.0.2.2`(`/im/user_sig` 会把它们原样发给客户端)。
+
+**还有一个断点**:`/internal/send` 只支持 `kind=text|custom`,**造不出图片/语音消息** ——
+想在本地验「图片全屏 / 语音播放」,只能从 App 真实上传(见 T 批遗留 4)。
+
+### 4.11 `flutter build apk` 只能在 Windows 侧跑
+
+WSL 里没有 Android SDK(`No Android SDK found`),`verify.sh app` 跑得动只是因为它是 `analyze` + `test`。
+出 APK 装模拟器要在 Windows 仓库里:
+
+```powershell
+git fetch origin <agent 分支>; git checkout -B handtest FETCH_HEAD
+cd app; ..\flutter\bin\flutter.bat build apk --debug --dart-define=API_BASE=http://10.0.2.2:8000/api/v1
+```
+
+debug 包才放开明文 HTTP(§4.3);测完记得 `git checkout master` 并把临时分支删掉。
+
 ---
 
 ## 5. 开新对话提示词(直接复制)
 
 ```
-读 docs/superpowers/plans/2026-11-10-batch-u-w-handoff.md,按里面的「剩余批次」继续做 T 批。
-先 git pull --ff-only 确认 master 已前进(U、V 两批已于 2026-11-10 合并,当前应在 89ab7ef 之后),
-再按文档 §3 的工作流:写 T 批 plan → 开三张工单(imserver / app / web)→ 派给 worker →
-逐行验收 → verify 全绿 → CI 全绿 → 合并 → closeout。
-文档 §4 的九个坑必须遵守,尤其 §4.1(模拟器手测用 Pillow 量坐标,不要目测)与 §4.8(手测期间加 --keep-deps)。
-主人已授权「每批自行验收后直接合并」;发版(版本号 / tag / Release / 部署)六批做完后由主人统一执行。
+读 docs/superpowers/plans/2026-11-10-batch-u-w-handoff.md,按里面的「剩余批次」做 W-L3(golden 截图)。
+先 git pull --ff-only 确认 master 已前进(U、V、T 三批已于 2026-11-10 合并,当前应在 50ebeac 之后)。
+W-L3 是**内联做的**(流程自身,不开工单):把 app/integration_test/smoke_test.dart 从「冷启动到登录页」
+扩到「登录页 + 一个主页面」的 golden 比对,并进 app-ui.yml。
+**已知陷阱**:像素比对在 Windows 模拟器与 GitHub Ubuntu runner 之间会不一致 ——
+基准图只能在 CI 里生成、在 CI 里比对;本地 --update-goldens 产出的基准图不能直接当 CI 基准。
+文档 §4 的坑都要遵守(尤其 §4.11:APK 只能在 Windows 侧构建)。
+做完这一批,六批就齐了:按 spec §6 汇总一份**发版清单**交主人(版本号 / notes / tag / Release / 部署)。
 ```
-
-W-L3 开工时把「T 批」换成「W-L3」即可(那一单是内联做的,不开工单)。
-
-**T 批开工前多看一眼**:T 是唯一要动 imserver 表结构的一批(迁移 `008` 建 `im_message_hidden`),
-且「零 WS 帧改动」是靠走 HTTP 接口换来的 —— 动手前先照
-[设计 §4.3](../specs/2026-11-09-batch-r-w-design.md) 核实一遍既有查询(`GET /im/api/messages`、
-`conversations` 的未读数与 `last_message`),三处口径必须同改。
 
 
 ---
