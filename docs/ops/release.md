@@ -105,7 +105,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.10 | 2026-11-07 | `v1.0.10` | [v1.0.10 — 聊天贴纸](https://github.com/shiliu153/chatapp/releases/tag/v1.0.10)(附件 `chatapp-1.0.10.apk`,60,603,778 字节,SHA-1 `4b27def409caf26e7ea6ce69bd8bfbc926f2a8ba`) | `892b2b2` | `chatapp-1.0.10.apk` |
 | 1.0.11 | 2026-11-09 | `v1.0.11` | [v1.0.11 — 多端在线 + 输入中状态/引用回复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.11)(附件 `chatapp-1.0.11.apk`,60,767,474 字节,SHA-1 `c8790b2c93a22287c63b26ef4a825596243cc136`) | `919a63a` | `chatapp-1.0.11.apk` |
 | 1.0.12 | 2026-11-09 | `v1.0.12` | [v1.0.12 — 设备管理 / 会话管理 / 滑卡增强 / 使用报告 / 聊天敏感词](https://github.com/shiliu153/chatapp/releases/tag/v1.0.12)(附件 `chatapp-1.0.12.apk`,60,899,154 字节,SHA-1 `e389eaf80f117c1810de95cba226ae38d4460bee`) | `abc6889` | `chatapp-1.0.12.apk` |
-| 1.0.13 | 2026-11-11 | `v1.0.13` | 待建:随本次部署创建(材料见 §6.8) | 待合并 | `chatapp-1.0.13.apk` |
+| 1.0.13 | 2026-11-11 | `v1.0.13` | [v1.0.13 — R–W 六批（语音介绍 / 筛选精选 / 广场收藏 / 运营看板 / 聊天打磨）](https://github.com/shiliu153/chatapp/releases/tag/v1.0.13)(附件 `chatapp-1.0.13.apk`,61,505,970 字节,SHA-1 `94f80d55f0d7f7ceb58cbcc2816c9760ae0b7691`) | `e7456f6` | `chatapp-1.0.13.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
@@ -759,6 +759,63 @@ App 端 UI 验收待模拟器恢复后补做。**App 端协议能力已被上面
   不管测试)。已补一个提交(同一 PR 内),后续升版本记得一起改这两处。
 - `scripts/create_release.py` 第一次报 `[SSL: UNEXPECTED_EOF_WHILE_READING]`(本机到 `api.github.com` 的 TLS 抖动),
   重试一次即成功 —— 建 Release 失败先重试,不要立刻改用别的通道。
+
+## 6.8 v1.0.13 上线实况(2026-11-11 16:01–16:35,批次 R–W)
+
+**四栈全动 + 三条后端迁移 + 一条 imserver 迁移,顺序是硬要求:先 imserver,再后端,最后客户端。**
+
+- **回滚点(先记录后动手)**:
+  - 代码 `abc6889333`(1.0.12);本版上线 SHA = **`e7456f6`**
+  - imserver 镜像 `imserver:abc6889`(仍留在服务器上)
+  - Django `.env` `/www/backup/chatapp-env-1.0.12-20261111-1615.bak`
+  - imserver compose `.env` `/www/backup/imserver-env-1.0.12-20261111-1615.bak`
+  - 旧 Web 前端 `/www/backup/chatapp-web-dist-1.0.12-20261111-1615.tar.gz`(137 KB,`index.html` + `assets`)
+  - 双库全量:`deploy/ops/chatapp-backup.sh` 现场跑一次 →
+    `backups/db/chatapp-db-20261111-160713.sql.gz`(192K / 39 表)、
+    `chatapp-im-db-20261111-160713.sql.gz`(24K / 8 表),另含 media(1.6M)与配置快照
+- **版本号 PR**:#244(`app/pubspec.yaml` 1.0.13+14 + `app_info.dart` + `web/package.json` +
+  关于页测试期望 + 重生成 openapi + §5 加行),六轨全绿后 squash 合并 → `7657894`。
+- **imserver(先上)**:本地 `docker build -t imserver:1.0.13 imserver` → `docker save | gzip -1`(94 MB)→
+  `scp` → 服务器 `docker load` → `sed` 改 `.env` 的 `IMSERVER_IMAGE=imserver:1.0.13` →
+  `docker compose run --rm imserver --migrate`(**迁移 8 `008_message_hidden.sql` 实际应用**,1–7 `skipped`)→
+  `docker compose up -d` → `internal/healthz` / `internal/readyz` 均 200。
+- **后端**:`git fetch && git reset --hard 7657894` → `migrate --noinput`
+  (**`feed.0007_postfavorite` / `stats.0001_initial` / `users.0008_profilevoice` 三条应用**)→
+  `migrate --check` 干净 → `collectstatic`(1 复制 / 155 未变)→ supervisor 重启 `chatapp-web` / `chatapp-celery`。
+- **Web**:`npm run build` → `dist` 打包(479 KB / 113 个 assets + 12 贴纸 + 4 字体)→ 旧 `assets` 改名
+  `assets.old.20261111-1625` → 解包覆盖站点根,`index.html` 引用 `assets/index-DbOSdKtw.js`。
+- **APK**:`chatapp-1.0.13.apk`(61,505,970 字节,SHA-1 `94f80d55f0d7f7ceb58cbcc2816c9760ae0b7691`)。
+- **`.env` 三处改动**:`LATEST_APP_VERSION=1.0.13`、`APP_DOWNLOAD_URL=.../chatapp-1.0.13.apk`
+  (**`MIN_APP_VERSION` 保持 1.0.1**)、**新增 `IM_MYSQL_DSN`**(运营看板读消息量用)。
+
+**运营看板首次上线(V 批的三件套)**:
+
+1. 新建**只读** MySQL 账号 `chatapp_metrics`(仅 `SELECT ON chatapp_im.*`;
+   写权限实测被拒 `ERROR 1142`),DSN 写进 Django `.env` 的 `IM_MYSQL_DSN`;
+2. `manage.py metrics_daily --backfill 30` 写库 30 行(回填日 `dau` / 留存为空是预期 ——
+   日活集合本次上线才开始记,45 天 TTL);
+3. cron 加 `30 4 * * * ... manage.py metrics_daily >> /www/wwwlogs/chatapp-metrics.log 2>&1`
+   (原 crontab 备份 `/tmp/cron.bak.20261111`)。
+
+**上线当次补的缺陷(#245,已随本版上线 SHA 一起部署)**:
+
+- 看板「消息量」恒为 0。根因:`im_message.created_at` 是 imserver 用 `now_ms()` 写的 **epoch 毫秒**,
+  而 `stats/im_source.py` 按 **秒** 传边界,区间恒为空。生产实测同一天(2026-11-05)按秒 0 条 / 按毫秒 3 条。
+- 修复后 `--backfill 30` 重跑,`stats_dailymetric.messages` 与 IM 库逐日核对一致
+  (10-22=5、10-26=7、10-27=42、10-28=1、11-01=1、11-03=1、11-05=3)。
+- **教训**:这类「单位错」不会被「边界是 int」的弱断言抓住,用例必须钉住具体数值。
+
+**冒烟(全绿)**:`/api/v1/app/config` → `{"min_app_version":"1.0.1","latest_version":"1.0.13",...}`;
+`/health` `/readyz` `/` 200;APK `Range: bytes=0-99` → `206`;`/assets/index-DbOSdKtw.js`、
+`/assets/index-DMJDpefF.css`、`/stickers/sticker_01.png` 均 200;imserver `healthz` / `readyz` 200。
+用白名单号 `13900000001`(user 12)登录:`GET /users/me` 200 且带 `voice` 字段(当前 `null`)、
+`discovery/daily` / `feed/favorites` / `stats/me` / `discovery/quota` 均 200;
+`POST /im/api/messages/delete` 未鉴权 401;认证请求后 Redis 出现 `activity:dau:20261111` 与小时键(DAU 采集开始工作)。
+
+**踩到的坑(记进 pitfalls 备查)**:
+- **WSL 里没有 ssh 密钥**:`wsl scp` 会静默卡在密码提示(看起来像「传得很慢」)。传大文件走 Windows 的
+  `scp`(C:\Windows\System32\OpenSSH),不要用 WSL 里的 scp —— 除非先给 WSL 配好密钥。
+- `docker save` 的镜像 tar 必须校验 sha256 再 `docker load`,本次 94 MB 传输两侧一致。
 
 ## 7. 为什么这条约束值得存在
 
