@@ -105,6 +105,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.10 | 2026-11-07 | `v1.0.10` | [v1.0.10 — 聊天贴纸](https://github.com/shiliu153/chatapp/releases/tag/v1.0.10)(附件 `chatapp-1.0.10.apk`,60,603,778 字节,SHA-1 `4b27def409caf26e7ea6ce69bd8bfbc926f2a8ba`) | `892b2b2` | `chatapp-1.0.10.apk` |
 | 1.0.11 | 2026-11-09 | `v1.0.11` | [v1.0.11 — 多端在线 + 输入中状态/引用回复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.11)(附件 `chatapp-1.0.11.apk`,60,767,474 字节,SHA-1 `c8790b2c93a22287c63b26ef4a825596243cc136`) | `919a63a` | `chatapp-1.0.11.apk` |
 | 1.0.12 | 2026-11-09 | `v1.0.12` | [v1.0.12 — 设备管理 / 会话管理 / 滑卡增强 / 使用报告 / 聊天敏感词](https://github.com/shiliu153/chatapp/releases/tag/v1.0.12)(附件 `chatapp-1.0.12.apk`,60,899,154 字节,SHA-1 `e389eaf80f117c1810de95cba226ae38d4460bee`) | `abc6889` | `chatapp-1.0.12.apk` |
+| 1.0.13 | 2026-11-11 | `v1.0.13` | 待建:随本次部署创建(材料见 §6.8) | 待合并 | `chatapp-1.0.13.apk` |
 
 ## 6. 补建 v1.0.4 的现成材料
 
