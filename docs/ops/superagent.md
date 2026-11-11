@@ -2,7 +2,7 @@
 
 > 面板:`http://127.0.0.1:3082`(Windows 浏览器直接开)。Overview 只列「需要人」的项;健康时是空的。
 > 设计见 [docs/superpowers/specs/2026-11-07-superagent-dev-workflow-design.md](../superpowers/specs/2026-11-07-superagent-dev-workflow-design.md),
-> 实施计划见 [docs/superpowers/plans/2026-11-07-superagent-dev-workflow.md](../superpowers/plans/2026-11-07-superagent-dev-workflow.md)。
+> 实施计划见 [docs/superpowers/archive/plans/2026-11-07-superagent-dev-workflow.md](../superpowers/archive/plans/2026-11-07-superagent-dev-workflow.md)(已交付、已归档)。
 
 ## 1. 启停与身份
 
@@ -59,12 +59,12 @@ WSL 没起来时那条评论**不会有人读** —— 单子看起来派了、�
 记的「静默丢单」长得一模一样。所以每次派单前先跑:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running.ps1
+pwsh -File scripts\superagent-start\ensure-running.ps1
 ```
 
 退出码 `0` = 可以派单;`1` = 拉不起来,别派。它会自动拉起 WSL(冷启动实测 ~20s)、
 清掉 WSL 被强杀留下的 stale 锁、等到 superagent 能接单,并顺带报告出口代理 /
-模型兜底 / docker 是否就绪。细节与实测见 §13。
+模型兜底 / docker 是否就绪。细节与实测见 §13(含**为什么必须是 `pwsh` 而不是 `powershell`**)。
 
 然后才是:
 
@@ -505,9 +505,13 @@ systemctl disable --now superagent-proxy superagent-proxy-refresh.timer
 所以规矩是:**派单前先确认这一环**,一条命令:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running.ps1
+pwsh -File scripts\superagent-start\ensure-running.ps1
 # 退出码 0 = 可以派单;1 = 别派
 ```
+
+**必须用 `pwsh`(PowerShell 7),不要用 `powershell`(Windows PowerShell 5.1)**:该脚本是
+**UTF-8 无 BOM** 且正文含中文,5.1 会按 ANSI 解码,于是整片 `ParserError`(2026-11-11 实测;
+同一文件 `pwsh -File` 正常,退出 0)。给脚本本体加 BOM 属 `scripts/` 栈的另一单。
 
 它做三件事:探测 WSL(短超时)→ 冷状态就显式拉起 → 调 WSL 里的
 `/root/ensure-superagent.sh`(没跑就 `start`,并等到能接单),最后报告出口代理 /
