@@ -54,3 +54,16 @@
 - ⚠️ **等真实 dio 往返别用固定 `Future.delayed`**:高负载(双套件并行)下必 flake;改条件轮询(见 `presence_controller_test.dart::waitFor`,10ms 步进、上限 1s,超时断言给出原因)。
 - 有心跳/轮询定时器的页面:`heartbeatIntervalProvider` / `presenceRefreshIntervalProvider` 在 pumpApp 里默认 override 成 null(关掉定时器)。
 - 断言请求顺序别用 `adapter.log.last`(自动续拉 GET 可能排在 POST 后),用 `lastWhere((r) => r.method == 'POST')`。
+
+## 集成测试 / golden(`.github/workflows/app-ui.yml`,模拟器轨)
+
+2026-11-11(W-L3)落地,踩到的坑都在下面。机制说明见 `app/integration_test/golden_test.dart` 文件头。
+
+- ⚠️ **golden 基准图只能在 CI 生成**。本机模拟器是 API 37 / `sdk_gphone16k_x86_64`(1080×2400 / 420dpi),CI 是 API 34 / AOSP default 镜像 —— 系统字体与渲染不同,本机 `--update-goldens` 的产物**不能**提交。正确做法:分支推上去后 `gh workflow run app-ui.yml --ref <branch> -f update_goldens=true`,下载 artifact `goldens`,把两张 PNG 提交进分支;日常推送只做比对。
+- 设备侧 golden **不需要 `flutter drive`**:`flutter test -d emulator-5554` 本身就会注入 `VmServiceProxyGoldenFileComparator`,截帧经 VM service 事件发回宿主,由宿主侧 `flutter_tester` 的 `LocalFileComparator` 落盘/比对。`--update-goldens` 同样走这条路。
+- ⚠️ **别在设备侧替换 comparator**。`app/integration_test/flutter_test_config.dart` 里装了容差 comparator,但必须 `Platform.isAndroid/isIOS` 时直接 `return testMain()` —— 设备侧一旦换掉代理 comparator,截帧事件发不出去,表现是「测试卡住 / 基准永远不更新」。
+- ⚠️ **捕获尺寸 = 逻辑像素**(`layer.toImage(bounds)` 默认 `pixelRatio: 1.0`),与设备 DPR 无关;但**逻辑屏幕尺寸**随 AVD 变。所以 golden 必须自己钉住视口:`Align(topLeft) → RepaintBoundary → SizedBox(390×844) → MediaQuery(固定 size/padding/textScaler)`。`Align` 不能省 —— `Overlay` 给 `home` 的是紧约束,裸 `SizedBox` 会被撑满整屏,`RepaintBoundary` 就跟着变成整屏大小。
+- ⚠️ **golden 用例不能 `pumpAndSettle`**:首页 `IndexedStack` 里未选中的 Tab 也一直跑动画(广场空态 `HeartRipple`),永不收敛。用固定帧数 `pump`(见 `golden_test.dart::_pumpFrames`),并在截帧前断言「数据已到」,否则截到的是骨架屏。
+- ⚠️ **golden 里不要有网络图**:`Image.network` 的加载时机不确定,「截帧时图下没下来」会让结果随机。`golden_test.dart` 的候选卡故意传 `photos: []`(走纯色占位)。
+- 容差 = 差异像素 ≤ 0.1%(`kGoldenMaxDiffRatio`)。真外观改动远不止这个量级;基准缺失时仍然报错(「还没生成基准」与「像素变了」必须能区分)。
+
