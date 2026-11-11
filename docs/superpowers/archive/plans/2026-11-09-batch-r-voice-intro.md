@@ -1,7 +1,7 @@
 # 批次 R 实施计划:资料语音自我介绍
 
 - **状态**:已交付(2026-11-09)
-- **Spec 链接**:[批次 R–W 设计](../../specs/2026-11-09-batch-r-w-design.md) §4.1
+- **Spec 链接**:[批次 R–W 设计](../specs/2026-11-09-batch-r-w-design.md) §4.1
 - **Goal**:用户能给自己的资料录一段 **≤30 秒**语音自我介绍;任何能看他资料的人都能播放。
 - **Architecture**:复用聊天语音的整条链路 —— `im/voice.py::normalize`(ffprobe 校验 → ffmpeg 转 m4a/AAC)、
   存储配额(`bytes` 求和,超限 413+`41301`)、`media_sign.sign_url` 限时签名。新增一张 `ProfileVoice`

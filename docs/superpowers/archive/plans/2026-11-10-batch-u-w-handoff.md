@@ -1,11 +1,11 @@
 # 交接:批次 U / V / T / W-L3(给新对话)
 
-- **状态**:进行中 —— **U、V、T 三批已交付**(2026-11-10);只剩 **W-L3**(golden 截图,内联做)
+- **状态**:**已闭环**(2026-11-11)—— U / V / T 三批于 2026-11-10 交付,W-L3(golden 截图)于 2026-11-11 交付(PR #242,`74c1cef`);六批全部合并进 `master`,发版留给主人
 - **交接日期**:2026-11-10
 - **交接时的 `master`**:`50ebeac`(**接手前先 `git pull --ff-only` 确认已前进**)
 - **上位文档**:[批次 R–W 设计](../specs/2026-11-09-batch-r-w-design.md)(总纲)、
-  [AGENTS.md](../../../AGENTS.md)(执行约束)、[CLAUDE.md](../../../CLAUDE.md)(契约)、
-  [心跳 UI 规则](../specs/2026-09-15-ui-design-language-design.md)(App UI 强制)
+  [AGENTS.md](../../../../AGENTS.md)(执行约束)、[CLAUDE.md](../../../../CLAUDE.md)(契约)、
+  [心跳 UI 规则](../../specs/2026-09-15-ui-design-language-design.md)(App UI 强制)
 
 ---
 
