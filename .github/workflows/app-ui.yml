@@ -69,26 +69,11 @@ jobs:
         working-directory: app
         run: flutter pub get
 
-      # 第 2 轮 CI 暴露的坑(与本 workflow 的写法无关):`app/android/app/build.gradle.kts`
-      # 在**配置阶段**就无条件读 `app/android/key.properties`(gitignored,CI 里不存在),
-      # 缺了直接报 `null cannot be cast to non-null type kotlin.String`,连 assembleDebug
-      # 都过不去。debug 包用不到发布签名,给一组非空的一次性值即可;keystore 现造在
-      # $RUNNER_TEMP,不进仓库(`key.properties` / `*.jks` 都在 `app/android/.gitignore` 里)。
-      - name: 造 CI 一次性签名配置(Gradle 配置期要求 key.properties 存在)
-        working-directory: app/android
-        run: |
-          keytool -genkeypair \
-            -keystore "$RUNNER_TEMP/ci-debug.jks" \
-            -storetype JKS -alias ci -keyalg RSA -keysize 2048 -validity 1 \
-            -storepass cipass -keypass cipass \
-            -dname "CN=CI, OU=CI, O=CI, L=CI, ST=CI, C=CN"
-          {
-            echo "storeFile=$RUNNER_TEMP/ci-debug.jks"
-            echo "storePassword=cipass"
-            echo "keyAlias=ci"
-            echo "keyPassword=cipass"
-          } > key.properties
-          echo "已生成 app/android/key.properties(指向一次性 keystore)"
+      # 这里**故意不造 key.properties / keystore**(#249 之前靠 keytool 现造一次性签名配置兜底)。
+      # 本轨就是「没有 key.properties 的 checkout」:runner 上没有这个 gitignored 文件,
+      # 下面的 `flutter build apk --debug` 能跑通就说明 `app/android/app/build.gradle.kts`
+      # 已经不再硬依赖它(release 签名配置只在文件存在时创建,缺失时回落到 debug 签名)。
+      # 别把 keytool 那一步加回来 —— 那样这条轨就再也证明不了回落生效。
 
       # ── 抗上游抖动(2026-11-08 加固)────────────────────────────────────────────
       # 背景:2026-11-08 这条轨连着红了三次,根因**不是代码也不是配置**,而是

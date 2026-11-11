@@ -39,17 +39,26 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
-            storeFile = file(keystoreProperties["storeFile"] as String)
-            storePassword = keystoreProperties["storePassword"] as String
+        // `key.properties` 是 gitignored 的本机发布口令文件:新机器、CI runner、
+        // `git worktree` 出来的目录里都没有它。**只在文件存在时**才创建 release 签名配置;
+        // 无条件创建会在 Gradle **配置阶段**把 null 强转成 String 而直接崩掉(连
+        // `assembleDebug` 都过不去),于是任何没有这个文件的 checkout 都构建不出安卓包。
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // 文件在 → 发布签名(行为与以前完全一致);文件不在 → 回落 debug 签名:
+            // 能构建、能跑 `flutter build apk --release`,但产物**不是发布包**,
+            // 不可用于分发/上架。真要出发布包,把 key.properties 放回 app/android/。
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 }
