@@ -1,7 +1,7 @@
 # 批次 T 实施计划:聊天体验打磨
 
 - **状态**:待实施
-- **Spec 链接**:[批次 R–W 设计](../../specs/2026-11-09-batch-r-w-design.md) §4.3
+- **Spec 链接**:[批次 R–W 设计](../specs/2026-11-09-batch-r-w-design.md) §4.3
 - **交接来源**:[批次 U/W 交接](2026-11-10-batch-u-w-handoff.md) §2「T 批」
 - **Goal**:多选删除(仅删我这一侧)/ 草稿 / 图片全屏 / 语音进度与倍速 —— 四件事让聊天「像微信」。
 - **Architecture**:imserver 新增 `im_message_hidden`(迁移 `008`)+ 一个 **HTTP** 写接口

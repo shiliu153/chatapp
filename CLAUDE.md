@@ -19,7 +19,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | **现在该做什么** | [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)(待办总表,按批次排好;A–E 已全部闭环,剩余未闭环项见 §7) |
 | 已交付了什么、哪天、哪个 PR | [docs/milestones.md](docs/milestones.md)(完整时间线) |
-| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(当前工作面 4 份 + 归档 93 份的索引) |
+| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(当前工作面 3 组 + 归档 103 份的索引) |
 | 写代码 / 排障前 | [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选:IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包 → android-emulator.md;测试 → testing.md;网页端 → web.md |
 | 接口(对外交付级) | [docs/api/README.md](docs/api/README.md) |
 | 部署与运维 | [README.md](README.md)「部署」;服务器细节 → [docs/ops/imserver.md](docs/ops/imserver.md)、[docs/ops/runbook.md](docs/ops/runbook.md) |
@@ -47,6 +47,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。
 | 2026-10-28~11-03 | 三轮安全审计整改 + 令牌硬化 + HTTPS 上线 + 可观测性与容量工程 + 压测基线 |
 | 2026-11-08~09 | 第四轮安全审计整改上线(纯服务端)+ 第六轮功能开发 **K** 多端在线(1 App + 1 Web)/ **L** 输入中状态 + 引用回复(均已于 2026-11-09 随 **1.0.11** 上线) |
 | 2026-11-09 | 第六轮功能开发 **M–Q** 五批全部合并进 `master`(未发版):**M** 登录设备(列表 + 单端下线)/ **N** 会话管理三件套(置顶·免打扰·删除)/ **O** 滑卡增强(30 秒撤销 + 每日喜欢额度)/ **P** 使用报告(`GET /stats/me`)/ **Q** 聊天文字敏感词(本地词库 + AC)。15 个 PR,末次合并 `72589f9`;设计与取舍见 [批次 M–Q spec](docs/superpowers/archive/specs/2026-11-09-batch-m-q-design.md) |
+| 2026-11-10~11 | 第七轮功能开发 **R–W** 六批全部合并进 `master`(未发版):**W** 发版自动化(`scripts/release_prep.py` 一条命令 + golden 截图进 CI)/ **R** 资料语音自我介绍 / **S** 发现页筛选 + 每日精选 / **U** 广场点赞列表 + 收藏 / **V** 运营数据看板 / **T** 聊天体验打磨(多选删除·草稿·图片全屏·语音进度倍速)。14 个 PR,末次合并 `74c1cef`;设计与取舍见 [批次 R–W spec](docs/superpowers/archive/specs/2026-11-09-batch-r-w-design.md) |
 
 **当前风险最高的两项**(与代码质量无关,优先于任何性能项):① **固定验证码 `123456` + 手机号白名单** —— 2026-11-03 已确定**本项目不接入短信商**,白名单(`SMS_PHONE_WHITELIST`)是**长期准入机制**而非过渡方案:名单外一律 `403 + 40301`,名单内仍是固定码,因此「名单里有哪些号」本身就是安全边界(一个号泄露 = 该账号被接管)。名单存在数据库 `accounts.PhoneAllowlist`,运营在 **`/ops/allowlist/`** 加号/停用(**立刻生效,不用重启**);`.env` 的 `SMS_PHONE_WHITELIST` 降级为兜底种子(库里没这条记录时按它放行,库里显式停用的优先被拒),库与种子都空 = 不限制。日常运维见 `docs/ops/runbook.md` §6;② **备份** —— 每天 03:20 自建双库全量(应用库 + IM 库 + 媒体 + 配置,保留 14 天,`deploy/ops/chatapp-backup.sh`),另有宝塔 03:30 的原生备份作为独立第二份,树莓派每天 04:10 主动拉走(`deploy/ops/pull-backup-pi.sh`),三项都进 22:00 服务器日报;**恢复演练已真跑通过**。剩余风险:防得住「服务器磁盘/整机没了」,防不住「服务器和树莓派同时没了」(无对象存储预算)。详见 backlog 的 B-1/B-1c 与 A-3、`docs/ops/runbook.md` §5。
 

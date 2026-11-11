@@ -14,13 +14,12 @@
 |---|---|
 | `specs/` | 进行中 / 未启动 / 常驻的设计文档 |
 | `plans/` | 进行中 / 未启动的实施计划 |
-| `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(95 份 = 38 份 spec + 57 份 plan,清单见 §4) |
+| `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(103 份 = 39 份 spec + 64 份 plan,清单见 §4) |
 
-## 2. 当前工作面(5 份)
+## 2. 当前工作面(3 组)
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
-| [specs/2026-11-09-batch-r-w-design.md](specs/2026-11-09-batch-r-w-design.md) + [plans/2026-11-09-batch-r-voice-intro.md](plans/2026-11-09-batch-r-voice-intro.md) + [plans/2026-11-09-batch-s-filter-daily.md](plans/2026-11-09-batch-s-filter-daily.md) + [plans/2026-11-10-batch-u-square-likes-favorites.md](plans/2026-11-10-batch-u-square-likes-favorites.md) + [plans/2026-11-10-batch-v-ops-metrics-dashboard.md](plans/2026-11-10-batch-v-ops-metrics-dashboard.md) + [plans/2026-11-10-batch-t-chat-polish.md](plans/2026-11-10-batch-t-chat-polish.md) + [plans/2026-11-10-batch-u-w-handoff.md](plans/2026-11-10-batch-u-w-handoff.md) | **进行中(已定稿)** | 第七轮功能开发 R–W 六批:语音自我介绍 / 发现筛选+精选 / 聊天打磨 / 广场点赞列表+收藏 / 运营看板 / 发版自动化。顺序 W→R→S→U→V→T,主人已授权「每批自行验收后直接合并」,发版留给主人。**W-L1 已交付(PR #200);R 批已交付(#203/#207/#208);S 批已交付(#212/#214/#216);U 批已交付(#221/#224/#226);V 批已交付(#231/#232);T 批已交付(#238/#239/#240);只剩 W-L3(golden 截图,内联做)** |
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
 | [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) + [plans/2026-11-07-superagent-dev-workflow.md](plans/2026-11-07-superagent-dev-workflow.md) | 待实施(P0–P4) | 引入 WSL `dsh-superagent` 后的新开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判。plan 是 P0–P3 的实施计划(流程自身的引导,按约定必须内联做,不派工单) |
 | [specs/2026-11-08-superagent-automation-ladder-design.md](specs/2026-11-08-superagent-automation-ladder-design.md) | 进行中(仅 L2 已实现) | 自动化阶梯 L0–L4:把「人出现在流程里的那几处」逐个换成确定性机制。**L2 白名单自动合已上线;L1(closeout 一条命令)/ L3(模拟器进 CI)/ L4(需求自动入队)未做**,各自单独成单 |
@@ -47,7 +46,7 @@
 - 交付后在文件末尾写「执行记录 / 与计划的偏差 / 踩到的坑」,**不要**回头补勾旧 checkbox(见 §4 注)
 - 交付即归档:同一提交内 `git mv` 到 `archive/` + 更新本文 §4 + 更新 `CLAUDE.md` 里程碑摘要
 
-## 4. 归档清单(已交付,共 95 份 = 38 份 spec + 57 份 plan)
+## 4. 归档清单(已交付,共 103 份 = 39 份 spec + 64 份 plan)
 
 > **注**:2026-10 之前的计划普遍存在「已交付但 checkbox 未回填」的情况(M0–M2、UI 批次②③、广场楼中楼、自建 IM、账号注销、访客等)。
 > 判断是否交付**以本表结论与 git log 为准**,不要以文件内 checkbox 为准。
@@ -125,6 +124,7 @@
 | 11-08 | [multi-device-session](archive/plans/2026-11-08-multi-device-session.md) | [✓](archive/specs/2026-11-08-multi-device-session-design.md) | 批次 K 多端在线(1 App + 1 Web):端会话版本下沉 `accounts.DeviceSession` / `im_device_session`、imserver 按端注册·扇出·踢人、跨端已读 `self_read`、统一上报 `X-Client`;K-1~K-4 = PR #150/#151/#154/#155。已随 1.0.11 上线 |
 | 11-09 | [typing-and-quote](archive/plans/2026-11-08-typing-and-quote.md) | [✓](archive/specs/2026-11-08-typing-and-quote-design.md) | 批次 L 输入中状态 + 引用回复:`typing` 帧(只发对端、未配对与限流超限一律静默)+ 服务端生成引用快照(`ref_msg_id` / `ref_snapshot`,不信客户端);L-1/L-2 = PR #158/#159。已随 1.0.11 上线(验收结果见 release.md §6.6) |
 | 11-09 | [batch-m-q](archive/plans/2026-11-09-batch-m-q.md) | [✓](archive/specs/2026-11-09-batch-m-q-design.md) | 第六轮功能开发五批全交付:**M** 登录设备(列表 + 单端下线,`DeviceSession.last_active_at` / `logged_out_at`)/ **N** 会话管理三件套(置顶·免打扰·删除,imserver `007` + `/im/api/conversations/flags`)/ **O** 滑卡增强(30 秒撤销 + 每日喜欢额度)/ **P** 使用报告(`GET /stats/me` 七项数字)/ **Q** 聊天文字敏感词(本地词库 + AC 自动机)。15 个 PR:立项 #164、M #168/#189/#180/#174、N #175/#187/#188、O #170/#190/#191、P #169/#181/#186、Q #192;`master` 末次合并 `72589f9`。**未发版**(不升版本号、不打 tag、不部署) |
+| 11-11 | [batch-r-w](archive/specs/2026-11-09-batch-r-w-design.md) | — | 第七轮功能开发 R–W 六批全交付(7 份文档一并归档):**W** 发版自动化 `scripts/release_prep.py`(前置闸门 / 版本号三处 / 门禁 / notes 草稿 + 23 条自测进 contract 轨,PR #200)+ **W-L3** golden 截图进 CI(登录页 / 首页两张,基准只由 CI 生成、只由 CI 比对;`app-ui` 轨,PR #242)/ **R** 资料语音自我介绍(#203 #207 #208)/ **S** 发现页筛选 + 每日精选(#212 #214 #216)/ **U** 广场点赞列表 + 收藏(#221 #224 #226)/ **V** 运营数据看板(#231 #232)/ **T** 聊天体验打磨(#238 #239 #240)。**未发版** —— 发版清单(版本号 / notes / tag / Release / 部署)已交主人统一执行 |
 
 > 文件名用**立项日期**,与「日期」列的交付日期可能不同(如 `2026-11-04-tencent-im-removal.md` 于 11-08 交付)。
 

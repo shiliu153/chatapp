@@ -1,7 +1,7 @@
 # 批次 W-L3 实施计划:golden 截图进 CI
 
-- **状态**:待实施(内联做,**不开工单**)
-- **Spec 链接**:[批次 R–W 设计](../../specs/2026-11-09-batch-r-w-design.md) §4.6 第 2 条
+- **状态**:已交付(PR [#242](https://github.com/shiliu153/chatapp/pull/242),squash 合并 `74c1cef`)
+- **Spec 链接**:[批次 R–W 设计](../specs/2026-11-09-batch-r-w-design.md) §4.6 第 2 条
 - **交接来源**:[批次 U/W 交接](2026-11-10-batch-u-w-handoff.md) §2「W-L3」
 - **Goal**:把「App 长什么样」也变成 CI 的判据 —— 登录页与首页(发现)各一张 golden,
   像素变了就红;基准图**只在 CI 里生成、只在 CI 里比对**。
@@ -109,14 +109,60 @@
 
 ## 验收
 
-- [ ] `scripts/verify.sh app` 绿(analyze 零告警 + 单测;golden **不在**这一轨,本机没有 CI 那套镜像)
-- [ ] 本机模拟器跑一次 `--update-goldens`,**肉眼**确认两张图是登录页 / 发现页而不是骨架屏或豆腐块
-- [ ] CI `update_goldens=true` 产出两张 PNG,提交后 PR 的 app-ui 轨**绿**
-- [ ] 故意改一处像素(本地临时改 `AppSpacing`)→ CI 红,且失败信息里能看到差异比例(证明容差没把闸门关掉)
-- [ ] 本机基准图**没有**进提交(`git status` 干净)
+- [x] `scripts/verify.sh app` 绿(analyze 零告警 + 单测;golden **不在**这一轨,本机没有 CI 那套镜像)
+- [x] 本机模拟器跑一次 `--update-goldens`,**肉眼**确认两张图是登录页 / 发现页而不是骨架屏或豆腐块
+- [x] CI `update_goldens=true` 产出两张 PNG,提交后 PR 的 app-ui 轨**绿**
+- [x] 故意改像素 → 红,且失败信息里能看到差异比例(本机扰动 4000 px 验的,见执行记录)
+- [x] 本机基准图**没有**进提交(`git status` 干净)
 
 ## 不做
 
 - 不做 `flutter drive` + `takeScreenshot` 的另一套:那是给「要图给产品看」用的,不是回归闸门。
 - 不做深色模式 / 逐页 golden:两张图先立住「这套机制能跑」,再谈覆盖面。
 - 不动版本号、不发版。
+
+---
+
+## 执行记录(2026-11-11)
+
+**结论**:已交付,PR [#242](https://github.com/shiliu153/chatapp/pull/242),squash 合并 `74c1cef`。
+`app-ui` 轨(模拟器)绿,`analyze-and-test` 绿;本机 659 例单测绿、analyze 零告警。
+
+### 实际落地
+
+| 计划里的 | 实际 | 说明 |
+|---|---|---|
+| 独立 `golden_test.dart` | ✅ 同计划 | 两张 golden:登录页 / 首页(发现) |
+| 容差 comparator | ✅ 同计划,但**没用** `getTestUri` 解析路径 | 见坑 2 |
+| 固定视口 390×844 | ✅ 但外层用 `OverflowBox` 而不是 `Align` | 见坑 1 |
+| `app-ui.yml` 加 `update_goldens` 输入 | ✅ 同计划 | 产物走 artifact,不自动提交 |
+| 基准图由 CI 生成 | ✅ 跑了两轮 | 第一轮 320×640(坑 1),修完 390×844 |
+
+### 踩到的坑(都已写进 `docs/pitfalls/testing.md`)
+
+1. **CI 的 AVD 逻辑屏幕只有 320×640**。用 `Align` 时子级拿到的是「0..屏幕宽」的松约束,
+   `SizedBox(390×844)` 被压成 320×640 —— 第一轮 CI 生成出来的基准图就是 320×640。
+   改 `OverflowBox`(给子级无界约束)后才稳定 390×844。**教训**:「固定视口」必须固定到
+   子级拿到的**约束**,不是固定 SizedBox 的字面值。
+2. **`GoldenFileComparator.getTestUri` 在 `version == null` 时原样返回 key**,不拼 basedir。
+   拿它去 `File.fromUri` 会去 flutter_tools 的 cwd(`app/`)下找,永远「基准图不存在」。
+   要按 `LocalFileComparator.basedir.resolveUri(key)` 解析。
+3. `FutureOr` 不在 `flutter_test` 的导出面里(`只 export dart:async show Future`),
+   `flutter_test_config.dart` 要自己 `import 'dart:async'`。
+4. 设备侧**不能**替换 comparator:换了 `VmServiceProxyGoldenFileComparator` 就收不到截帧事件。
+   所以配置文件里 `Platform.isAndroid/isIOS` 必须直接放行。
+
+### 验证证据
+
+- 本机三条路径:`--update-goldens` 出图(390×844,肉眼确认是登录页/发现页)→ 拿基准比对绿 →
+  扰动 100 px(0.030%)绿、扰动 4000 px(1.215%)红,失败信息
+  `Pixel test failed, 1.22%, 4000px diff detected. / 差异 1.215% 超过容差 0.10%`。
+- CI:`workflow_dispatch(update_goldens=true)` 两次(run 42965263500 出 320×640 的图 → 修 → run
+  42966342004 出 390×844 的图);PR 的 `app-ui` 轨用这两张基准比对绿。
+- `flutter analyze`:No issues found;`flutter test`:659 例全绿。
+
+### 遗留(交接)
+
+1. golden 只覆盖两张图;深色模式与其他页面另开单。
+2. golden **不进** `scripts/verify.sh app`(本机镜像与 CI 不同,本机比对必假红),判据只有 CI。
+3. 换系统镜像(字体变了)必须重生成基准;换 AVD 尺寸**不用**。
