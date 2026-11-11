@@ -11,12 +11,29 @@ on:
       - 'app/**'
       - '.github/workflows/app-ui.yml'
   workflow_dispatch:
+    inputs:
+      # W-L3:golden 基准图**只能在 CI 生成**。
+      # 本机模拟器是 API 37 / sdk_gphone16k_x86_64,这条轨是 API 34 / AOSP default,
+      # 系统字体与渲染都不同 —— 本机 --update-goldens 的产物不能当基准。
+      # 用法:`gh workflow run app-ui.yml --ref <branch> -f update_goldens=true`,
+      # 跑完下载 artifact `goldens`,把 app/integration_test/goldens/*.png 提交进分支。
+      update_goldens:
+        description: '只跑 golden 用例并重写基准图(产物作为 artifact 上传,不会自动提交)'
+        type: boolean
+        default: false
 
-# L3 第一半:把「App 跑得起来」搬进 CI。
+# L3:把「App 跑得起来」与「App 长什么样」都搬进 CI。
 #
-# 真安卓模拟器(api-level 34)+ integration_test/smoke_test.dart。后端**故意不可达**
-# (API_BASE 指到 127.0.0.1:1),所以这一轨只验「冷启动 → 登录页」这一条底线,
-# 不需要真 MySQL / Redis / Django;人工验收因此从「跑得起来」降级为「好不好看」。
+# 真安卓模拟器(api-level 34)+ integration_test/*.dart。后端**故意不可达**
+# (API_BASE 指到 127.0.0.1:1),所以这一轨不需要真 MySQL / Redis / Django:
+# 它验的是「后端连不上时 App 仍落到登录页」(smoke)以及若干**真实指针事件**的手势用例,
+# 外加两张 golden(登录页 / 首页)。
+#
+# golden(W-L3)的机制:`integration_test` 在设备上装 `VmServiceProxyGoldenFileComparator`,
+# 截到的字节经 VM service 事件发回宿主,由宿主侧的 `flutter_tester` 比对/落盘
+# (`flutter_platform.dart` 的 `_listenToVmServiceForGoldens`)。所以**不需要 flutter drive**,
+# `flutter test -d emulator-5554` 本身就能比对,`--update-goldens` 也在宿主侧写文件。
+# 容差在 `app/integration_test/flutter_test_config.dart`(差异像素 ≤ 0.1%)。
 #
 # 与 app.yml 分工:app.yml 管静态检查 + 单元/组件测试(假网络),不需要模拟器;
 # 本轨只在模拟器上跑 integration_test(真 App、真插件)。
@@ -129,7 +146,10 @@ jobs:
       # `post_card_actions_test` / `chat_multi_select_test` 同理:假 IM + 假网络,
       # 只验手势(动态卡三块热区互不串 / 多选模式下点气泡是切换勾选)。
       # **新增 integration 文件必须加进下面这一行的路径列表**,否则 CI 根本不会跑它。
-      - name: 在模拟器上跑 integration_test(冒烟 + 筛选面板 + 动态卡 + 聊天多选)
+      # `golden_test` 只做像素比对(基准图已提交在 app/integration_test/goldens/),
+      # 它的失败原因通常是「外观变了」,与上面四条行为用例分开看。
+      - name: 在模拟器上跑 integration_test(冒烟 + 筛选面板 + 动态卡 + 聊天多选 + golden)
+        if: ${{ !inputs.update_goldens }}
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -138,4 +158,31 @@ jobs:
           working-directory: app
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: flutter test integration_test/smoke_test.dart integration_test/discovery_filter_test.dart integration_test/post_card_actions_test.dart integration_test/chat_multi_select_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
+          script: flutter test integration_test/smoke_test.dart integration_test/discovery_filter_test.dart integration_test/post_card_actions_test.dart integration_test/chat_multi_select_test.dart integration_test/golden_test.dart -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
+
+      # ── golden 基准图重生成(W-L3)────────────────────────────────────────────
+      # 只在 workflow_dispatch 且 update_goldens=true 时跑:用 `--update-goldens` 让宿主侧
+      # 把两张 PNG 写进 `app/integration_test/goldens/`,再由下面一步当 artifact 上传。
+      # **不自动提交** —— 基准图进仓库必须经过一次人工确认(看两张图确实是登录页/首页,
+      # 而不是骨架屏或豆腐块),所以留成「下载 → 提交」两步。
+      # 只跑 golden_test 一个文件:这一遍的目的是重写基准,不是回归。
+      - name: 重写 golden 基准图(仅 workflow_dispatch + update_goldens)
+        if: ${{ inputs.update_goldens }}
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          working-directory: app
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: flutter test integration_test/golden_test.dart --update-goldens -d emulator-5554 --dart-define=API_BASE=http://127.0.0.1:1/api/v1 --reporter expanded
+
+      - name: 上传 golden 基准图 artifact
+        if: ${{ inputs.update_goldens }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldens
+          path: app/integration_test/goldens/
+          if-no-files-found: error
+
