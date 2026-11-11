@@ -17,8 +17,10 @@
 // 2. **固定视口**:捕获的是 390×844 逻辑像素 + 零 padding + textScaler=1 的那一块。
 //    `captureImage` 走 `layer.toImage(bounds)`(pixelRatio=1.0),所以 PNG 尺寸 = **逻辑**
 //    尺寸,与设备 DPR / 分辨率无关;但**逻辑屏幕尺寸**会随 AVD 变,所以必须自己钉住,
-//    否则换个 AVD 就整张图对不上。`Align(topLeft)` 不能省:`Overlay` 给 `home` 的是紧约束,
-//    直接放 SizedBox 会被撑满整屏,RepaintBoundary 就跟着变成整屏大小了。
+//    否则换个 AVD 就整张图对不上。用 `OverflowBox` 而不是 `Align`:`home` 拿到的是紧约束
+//    (整屏),`Align` 只把「0..屏幕宽」的松约束传下去 —— 屏幕比 390 窄时(CI 的 AVD 就是
+//    320x640 逻辑像素)`SizedBox` 会被压小,基准图尺寸跟着设备变;`OverflowBox` 给子级
+//    无界约束,390x844 才是真的 390x844。
 //
 // 3. **不碰网络**:假网络(ScriptedAdapter)只喂 JSON;候选照片一律不铺(`photos: []`),
 //    卡片走 `profile_card.dart` 的纯色占位。真图是 `Image.network`,截帧时「图下没下来」
@@ -155,8 +157,16 @@ Future<void> _pumpGolden(
       presenceRefreshIntervalProvider.overrideWithValue(null),
       notificationsBadgeRefreshIntervalProvider.overrideWithValue(null),
     ],
-    child: Align(
+    child: OverflowBox(
+      // 不能只用 Align:`home` 拿到的是**紧**约束(整屏),Align 传给子级的是
+      // 「0..屏幕宽」的松约束 —— 屏幕比 390 窄时(CI 的 AVD 就是 320x640 逻辑像素)
+      // SizedBox 会被压到屏幕尺寸,基准图尺寸就跟着设备变。OverflowBox 让子级拿到
+      // 无界约束,SizedBox 才能稳定是 390x844。
       alignment: Alignment.topLeft,
+      minWidth: 0,
+      maxWidth: double.infinity,
+      minHeight: 0,
+      maxHeight: double.infinity,
       child: RepaintBoundary(
         key: boundary,
         child: SizedBox(
