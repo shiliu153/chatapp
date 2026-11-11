@@ -817,6 +817,30 @@ App 端 UI 验收待模拟器恢复后补做。**App 端协议能力已被上面
   `scp`(C:\Windows\System32\OpenSSH),不要用 WSL 里的 scp —— 除非先给 WSL 配好密钥。
 - `docker save` 的镜像 tar 必须校验 sha256 再 `docker load`,本次 94 MB 传输两侧一致。
 
+### 1.0.13 生产验收
+
+**Web(Chrome,生产站点,白名单号 `13900000001`)**:
+
+- 登录 → `/home/discovery`:顶部「筛选」按钮 → 面板含「年龄区间 18–99 / 城市 / 12 个标签多选 / 重置 / 应用」,
+  文案写明「只影响这一次的候选池,不会改掉『想找的人』设置」(S 批);
+- `/home/square`:每条动态出现 🔖「收藏」按钮,点赞数可点进 `/posts/{id}/likes`(U 批);
+- 点收藏 → `/favorites`「我的收藏」出现该条(带「取消收藏」选中态),取消后回滚(验证完已复原,库内无残留);
+- `/users/8` 正常渲染;因对方没有语音介绍,播放条按设计不渲染(有才显示)。
+
+**语音自我介绍(R 批)端到端(生产 API)**:服务器上 `ffmpeg` 造 2 秒 m4a →
+`POST /api/v1/users/me/voice` → **201** `{"url":"…/media/voices/2026/11/12-84b9….m4a","duration_ms":2000}` →
+`GET /users/me` 读回同一 URL → `DELETE /users/me/voice` → **204** → 再读为 `null`(验证后已删除)。
+
+**App(`emulator-5554` / Android 17,release 包)**:装包成功、冷启动到「用户协议与隐私政策」弹窗、
+心跳渐变与字体渲染正常;但**点击事件不生效**(`input tap` / `input touchscreen tap` / 零位移 `swipe`
+三种方式点「同意并继续」均无响应,时钟在走、画面正常)——与 1.0.11 记录的**同一环境问题**
+(见 `docs/pitfalls/android-emulator.md`「动模拟器前先和用户确认」),按约定本轮**没有**重启模拟器。
+因此 **App 端逐页手测待补**,App 侧能力由 659 条自动化测试 + CI `app-ui`(含 golden 截图与模拟器
+integration_test)覆盖。
+
+**日志**:`app.log` 最近 500 行 **0 个 5xx、0 条 ERROR**;`celery.log` 无 error;
+imserver 容器 `imserver:1.0.13` Up、`internal/healthz` / `internal/readyz` 200。
+
 ## 7. 为什么这条约束值得存在
 
 版本号、tag、Release 是**同一件事的三个面**:版本号给客户端判升级,tag 给 git 定位「这个包是哪份代码」,
