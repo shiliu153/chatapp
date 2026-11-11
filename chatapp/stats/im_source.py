@@ -4,8 +4,9 @@
 这一个数字,所以本模块只做一件事:按 DSN 连一次、跑一条 ``SELECT COUNT(*)``、断开。
 
 设计要点:
-    1. ``im_message.created_at`` 是 **epoch 秒**(BIGINT),不是 datetime,因此查询参数
-       是 ``int(start.timestamp())`` / ``int(end.timestamp())``;
+    1. ``im_message.created_at`` 是 **epoch 毫秒**(BIGINT),不是 datetime,因此查询参数
+       是 ``int(start.timestamp() * 1000)`` / ``int(end.timestamp() * 1000)`` ——
+       imserver 写库用的是 ``now_ms()``(毫秒),按秒传边界会让区间恒为空、消息量永远是 0;
     2. DSN 形如 ``mysql://user:pass@host:port/db``,**按最后一个 ``@`` 切分** ——
        密码里可能有 ``@``(与 ``deploy/ops/chatapp-backup.sh`` 同一处理);
     3. 该账号**只需要** ``chatapp_im`` 的 SELECT 权限;本模块不写、不改 IM 库任何东西。
@@ -104,7 +105,10 @@ def count_messages(day: date) -> int | None:
         )
         try:
             with conn.cursor() as cursor:
-                cursor.execute(_COUNT_SQL, (int(start.timestamp()), int(end.timestamp())))
+                cursor.execute(
+                    _COUNT_SQL,
+                    (int(start.timestamp() * 1000), int(end.timestamp() * 1000)),
+                )
                 row = cursor.fetchone()
         finally:
             conn.close()

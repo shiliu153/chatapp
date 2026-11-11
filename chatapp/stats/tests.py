@@ -555,8 +555,12 @@ class ImSourceTests(TestCase):
                 patch("pymysql.connect", side_effect=RuntimeError("boom")):
             self.assertIsNone(im_source.count_messages(SNAPSHOT_DAY))
 
-    def test_count_messages_returns_count_and_uses_epoch_seconds(self):
-        """读到条数就返回;查询参数是 epoch 秒(``created_at`` 是 BIGINT),用完关连接。"""
+    def test_count_messages_returns_count_and_uses_epoch_milliseconds(self):
+        """读到条数就返回;查询参数是 epoch **毫秒**(``created_at`` 是 imserver 写的 BIGINT 毫秒),用完关连接。
+
+        imserver 用 ``now_ms()`` 写 ``created_at``(13 位毫秒),按秒传边界会让区间恒为空、
+        消息量永远是 0 —— 这条用例把单位钉死在毫秒上(2026-11-11 上线后发现并修复)。
+        """
         cursor = MagicMock()
         cursor.fetchone.return_value = (7,)
         conn = MagicMock()
@@ -565,5 +569,6 @@ class ImSourceTests(TestCase):
                 patch("pymysql.connect", return_value=conn):
             self.assertEqual(im_source.count_messages(SNAPSHOT_DAY), 7)
         bounds = cursor.execute.call_args.args[1]
+        self.assertEqual(bounds, (1793548800000, 1793635200000))  # 2026-11-02 / 03 的 Asia/Shanghai 零点
         self.assertTrue(all(isinstance(bound, int) for bound in bounds))
         conn.close.assert_called_once()
