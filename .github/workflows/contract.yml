@@ -68,3 +68,8 @@ jobs:
       # 部署闸门:纯标准库 + 临时 git 仓库自测,不联网、不碰生产。
       - name: 部署闸门自测
         run: python -m unittest scripts.test_deploy_gate -v
+
+      # 改动面判定器:backend / web 两条重活轨靠它决定「无关时跳过」。
+      # 它坏掉的两种后果都不能静默发生:把重活全跳过(门禁漏),或把每个 PR 拖成 10 分钟。
+      - name: 改动面判定器自测
+        run: bash scripts/test_ci_scope.sh

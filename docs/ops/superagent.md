@@ -285,7 +285,14 @@ wsl -e bash /root/start-superagent.sh status
   `contract` / `backend` / `web` —— 用默认的 `test` / `check` 会与 imserver 等同名 job 产生歧义;
 - 对应三条 workflow **去掉 `paths` 过滤**。required check 必须「每次 PR 都出现」:
   按 paths 跳过会让 PR 永久 pending,或者(更糟)让「没有 check」被当成绿;
-- 代价:每个 PR 都会跑 backend(5–10 分钟)与 web(3–5 分钟)。个人项目提交频率低,可接受。
+- **重活按改动面跑**(2026-11-12 二次修正,开发频率高的项目必须这样):三条轨的 job
+  总是出现(required check 必须如此),但 backend / web 先跑一个秒级的 `scope` job
+  判本次改动是否触及该栈([scripts/ci-scope.sh](../../scripts/ci-scope.sh));
+  无关时 `test` / `check` job 被跳过 —— check 结论是 `skipped`,required 语义里视为满足。
+  只有真碰 `chatapp/**`、`perf/**`、`docs/api/**`、`app/pubspec.yaml` 才跑后端全量;
+  真碰 `web/**`、`imserver/tests/fixtures/**` 才跑网页端。**判定失败一律按「要跑」处理**
+  (fail-closed):宁可多跑一次,也不能让判定器坏了把门禁静默跳过。
+  `scope` 自己坏掉也有兜底:`test` 的 `if` 是 `always() && (run==true || scope!=success)`。
 
 设置脚本(幂等,默认 dry-run):
 

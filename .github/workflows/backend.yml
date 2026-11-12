@@ -1,8 +1,15 @@
 name: Backend (Django)
 
-# 2026-11-12(P0 审计):**去掉 paths 过滤**。本轨与 contract / web 一起是默认分支的
-# required status check;required check 必须「每次 PR 都出现」,按 paths 跳过会让 PR
-# 永久 pending,或让「没有 check」被误当成绿。代价是每次 PR 多跑 5–10 分钟。
+# 2026-11-12(P0 审计):workflow 级**不再按 paths 过滤**,改成「job 总是出现、重活按改动面跑」。
+#
+# 为什么:required status check 必须每次 PR 都出现 —— 按 paths 跳过会让 PR 永久 pending,
+# 或者让「没有 check」被误当成绿。但后端全量(装依赖 + MySQL + 852 用例)不该在每个 PR
+# 都跑:这个项目开发频率很高。所以:
+#   - `scope` job 总是跑,秒级判定本次改动是否触及后端(scripts/ci-scope.sh);
+#   - `test` job(required check "backend")无关时被跳过 —— check 结论是 skipped,
+#     GitHub 的 required check 语义里 skipped 视为满足;
+#   - 判定失败(API 报错 / 解析不出)一律按「要跑」处理(fail-closed),绝不让判定器
+#     坏了把门禁静默跳过。
 
 on:
   push:
@@ -11,14 +18,44 @@ on:
   workflow_dispatch:
 
 jobs:
+  scope:
+    name: backend-scope
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.detect.outputs.run }}
+    steps:
+      # 只拉判定脚本,不拉全仓库:scope job 的目标是秒级
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/
+          sparse-checkout-cone-mode: false
+
+      - name: 判断本次改动是否触及后端
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          set -uo pipefail
+          run=$(bash scripts/ci-scope.sh backend) || run="run=true"
+          echo "判定结果:$run"
+          echo "$run" >> "$GITHUB_OUTPUT"
+
   test:
     # 显式 job name:它同时是 check run 的 name,也是 ruleset required_status_checks
-    # 的 context。用 "backend" 而不是默认的 "test",避免与 imserver 的 test job 重名
-    # (同名 context 在 required checks 里会产生歧义)。
+    # 的 context。用 "backend" 而不是默认的 "test",避免与 imserver 的 test job 重名。
     name: backend
+    needs: scope
+    # scope 失败时也要跑(fail-closed):否则 test 被 needs 跳过、check=skipped,门禁就漏了。
+    if: always() && (needs.scope.outputs.run == 'true' || needs.scope.result != 'success')
     runs-on: ubuntu-latest
 
-    # 测试前置:MySQL 业务库 + Redis(验证码/限流/缓存都依赖它)
+    # 测试前置:MySQL 业务库 + Redis(验证码/限流/缓存都依赖它)。
+    # 这两个容器只在 test job 真的执行时才启动(无关改动时 test 被跳过)。
     services:
       mysql:
         image: mysql:8.0
