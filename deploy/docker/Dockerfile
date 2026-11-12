@@ -3,7 +3,7 @@
 # 构建上下文是仓库根目录(见 deploy/docker-compose.yml.tmpl),因此只能 COPY
 # 仓库内路径。依赖装 requirements.lock(精确版本),不装 requirements.txt 的区间。
 # 钉 Debian 12(bookworm):比 floating slim(trixie)更稳,镜像站也一定有
-FROM python:3.11-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 # 国内服务器默认走阿里云 PyPI / Debian 镜像;可用 --build-arg 覆盖
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
