@@ -156,17 +156,21 @@ git revert --no-edit <merge-sha> && git push origin master   # 需人做
 | 信号 | 事实来源 | 是(= 开单)的机器判据 | 否(= 不开单,为什么) |
 |---|---|---|---|
 | `ci-red` | 默认分支每条 workflow **最新一次 push run** | ① 该 run 是它所属 workflow 的最新一次;② `conclusion == "failure"`;③ workflow 名 ∈ `CI_RED_STACKS`(`Backend (Django)`→`chatapp/`、`Web (Vue)`→`web/`、`imserver`→`imserver/`、`App (Flutter)`→`app/`)—— 也就是 `verify.sh` 有子命令的那四条栈 | `跨栈契约`(失败横跨四栈,且最常见原因是版本号不一致 —— 升版本号按 `AGENTS.md` 属「绝对不要做」);`App UI (emulator smoke)`、`Web E2E (smoke)`(worker 在工单目录里**无法自证**,不满足 B);三条流程轨自身(含本 workflow,防自环);未登记的 workflow(判不出栈 ⇒ 按判不出来处理) |
-| `dep-advisory` | Dependabot 告警 + **仓库锁文件** | ① `state == "open"` 且未 dismiss;② severity ≥ `high`;③ `first_patched_version` **存在**;④ 生态 ∈ {`npm`, `pip`} 且 manifest 落在 `web/` 或 `chatapp/`;⑤ **锁文件里实际装的版本落在 `vulnerable_version_range` 内** | 低/中危(「值不值得修」是判断);**没有修复版本**(绕开 / 接受风险 / 换库 —— 三个方向都是判断);`docker` / `github-actions` 生态(修的是 `deploy/`、`.github/`,worker 不可写或必须人审);⑤不成立 = 告警滞后,漏洞已修好 |
+| `dep-advisory` | **`npm audit --json`** + 仓库锁文件 | ① 公告命中且 severity ≥ `high`;② `fixAvailable.version` **存在**;③ manifest 落在 `web/`;④ **锁文件里实际装的版本落在 `vulnerable_version_range` 内**(`npm audit` 本身就按锁文件算,这一条是双保险 + 让「已修好」有明确判据) | 低/中危(「值不值得修」是判断);**没有修复版本**(绕开 / 接受风险 / 换库 —— 三个方向都是判断);pip / docker / github-actions 生态(见下);④不成立 = 已修好 |
 | `mech-docs-links` | `scripts/check_docs_links.py` | `docs/` 下存在相对链接,解析后的路径不存在 | 版本号三处不一致、`openapi.yml` / `schema.d.ts` 与源码不一致 —— **这些已被默认分支 push 轨覆盖**(`contract` / `backend` / `web`),由 `ci-red` 负责;再单列会为同一件事开两张单 |
 
 三处对直觉的修正(都有实测或结构理由):
 
-1. **依赖信号不能信告警的 `state`。** 2026-11-13 实测本仓库:`npm audit` 已经是 0,
-   `vite 8.3.8` / `undici 7.30.2` / `follow-redirects 1.16.3` / `minimatch 11.0.8` 全部早已修好,
-   而 Dependabot **仍开着 13 条 `open` 告警**(扫描滞后于锁文件)。只看 `state` 会在上线第一天
-   为**已经修好的漏洞**开 6 张单 —— 正是「污染待办」那类误判,而且人还得逐条去证伪。
-   所以判定改成「读锁文件里实际装的版本,再比对受影响区间」;告警退化为**选题提示**,
-   不是事实。
+1. **依赖信号不能信告警的 `state`,最后干脆不用告警接口。** 两件事连着发生:
+   ① 2026-11-13 实测本仓库 `npm audit` 已经是 0(`vite 8.3.8` / `undici 7.30.2` /
+   `follow-redirects 1.16.3` / `minimatch 11.0.8` 全部早已修好),而 Dependabot **仍开着 13 条
+   `open` 告警**(扫描滞后于锁文件)—— 只看 `state` 会在上线第一天为**已经修好的漏洞**开 6 张单;
+   ② 首轮真跑又发现**私有仓库上 `GITHUB_TOKEN` 读 `/dependabot/alerts` 返回
+   403 `Resource not accessible by integration`**(`security-events: read` 已授到也一样)。
+   于是事实源换成 **`npm audit --json`**:同一套公告库、直接按锁文件算、任何 token 都能跑。
+   代价是**只覆盖 npm(web 栈)**:pip / docker / actions 侧没有等价的本地扫描器,
+   那些**明确留给人**(不假装覆盖 —— 假覆盖比不覆盖更危险,它会让人以为有人看着)。
+   恢复条件:Dependabot 告警接口对 `GITHUB_TOKEN` 可用,或引入 `pip-audit` 之类的本地扫描器。
 2. **「机械一致性」不是一个独立信号源。** version 三处不一致、生成物与源码不一致,合并后都会让
    默认分支的 `contract` / `backend` / `web` 变红 —— 那已经由 `ci-red` 覆盖。真正**没有 owner**
    的只剩 push 轨根本不读的东西:Markdown 的相对链接。所以这一类只保留断链一项;
@@ -361,7 +365,7 @@ opening body 当作派工触发源,正文里 @ 了 worker 等于**自动派单**
 | **L2** | ✅ 2026-11-08 已 armed 并实测 | `AUTOMERGE=on`;首个真实样本 PR #113 由 `github-actions[bot]` 自动合并为 `5cd0c7a`,PR 上留有审计评论与回滚命令,分支自动删除;同内容但由人开的 PR #112 被正确拦下(作者条件) |
 | **L1** | ✅ 2026-11-08 | `scripts/superagent-closeout.sh`(fetch→母体 ff→prune→报 Windows 状态,脏/非快进拒绝)+ `scripts/test_superagent_closeout.sh` 11 条自测全通过;实测输出 `CLOSEOUT ok mother=5cd0c7a windows=5cd0c7a same=yes pulled=0 prune=ok(0)`;代理不可用时退回本地 ref 判定并警告,不误报失败 |
 | **L3** | ✅ 2026-11-08 | `app/integration_test/smoke_test.dart` + `.github/workflows/app-ui.yml`(android-emulator-runner api 34),PR #117 合并为 `cb85145`;`app-ui` 轨绿 8m38,日志含 `Boot completed in 24731 ms` / `All tests passed!`;主人在 Windows `Pixel_7` 手测通过后才合并(draft → 人验 → squash)。CI 迭代 3 轮全是环境坑(见 plans §9) |
-| **L4** | ✅ 2026-11-13 实现并实测判定器 | `scripts/l4_intake.py`(三条机器判据 + 指纹去重 + 5 张/日 + fail-closed)+ `scripts/check_docs_links.py` + `.github/workflows/l4-intake.yml`;自测 **53 + 15 条全离线**,进 `contract` 轨;`main-health.yml` 改为复用同一解析器(不再各写一份 jq)。实测证据:① 依赖判据在真实告警快照上把 13 条 `open` 全部判为「已修好」→ **0 张单**(只信 `state` 会开 6 张);② 断链检测在真实仓库上抓出 **6 处**(5 处给出唯一候选改法);③ 总闸默认 `off`,首次启用须人执行 `gh variable set L4_INTAKE --body on` |
+| **L4** | ✅ 2026-11-13 实现并实测 | `scripts/l4_intake.py`(三条机器判据 + 指纹去重 + 5 张/日 + fail-closed)+ `scripts/check_docs_links.py` + `.github/workflows/l4-intake.yml`;自测 **78 + 15 条全离线**,进 `contract` 轨;`main-health.yml` 改为复用同一解析器(不再各写一份 jq)。实测(PR #276 → `6aa7e6d`,收尾 #277 → `a41d1a5`):① 首轮真跑暴露 dependabot 告警接口对 `GITHUB_TOKEN` **403**,机制按设计 fail-closed(一张单没开 + run 标红),随后把事实源换成 `npm audit --json`;② 锁文件比对把 13 条 `open` 告警全部判为「已修好」→ **0 张依赖单**(只信 `state` 会开 6 张);③ 断链检测在真实仓库抓出 **6 处 / 2 个文件**;④ 总闸 `L4_INTAKE` 默认 `off`,2026-11-12 由人显式置 `on` |
 
 
 ### 补充落地(2026-11-08,未单列成级)

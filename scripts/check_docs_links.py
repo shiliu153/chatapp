@@ -182,6 +182,26 @@ def _suggestion(index: dict, target: str) -> str:
     return hits[0] if len(hits) == 1 else ""
 
 
+def count_markdown_files(repo_root: Path, docs_subdir: str = "docs") -> int:
+    """数一数「到底扫了多少个文件」。
+
+    存在的意义是让判定器能区分**两种看起来一样的结论**:「扫了 128 个文件、没有断链」
+    与「一个文件都没扫到」。后者是真故障(检出目录不对 / 路径变了),不该被当成
+    「没有断链」悄悄通过 —— 2026-11-12 首次真跑就是被这种歧义困住过。
+
+    Args:
+        repo_root: 仓库根目录。
+        docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
+
+    Returns:
+        `docs/` 下 `.md` 文件的个数;目录不存在时返回 0。
+    """
+    docs_dir = repo_root.resolve() / docs_subdir
+    if not docs_dir.is_dir():
+        return 0
+    return sum(1 for _ in _iter_markdown_files(docs_dir))
+
+
 def find_broken_links(repo_root: Path, docs_subdir: str = "docs") -> List[dict]:
     """扫描文档目录,返回全部断链。
 
