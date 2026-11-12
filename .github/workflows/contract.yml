@@ -22,9 +22,9 @@ jobs:
     name: contract
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
 
@@ -84,6 +84,24 @@ jobs:
           while IFS= read -r f; do
             if ! bash -n "$f"; then
               echo "::error file=$f::bash -n 失败"
+              rc=1
+            fi
+          done < <(git ls-files '*.sh')
+          exit "$rc"
+
+      # shellcheck 抓 bash -n 抓不到的**逻辑类** error(未定义命令、错误的 test 用法等)。
+      # 只跑 error 级:warning/info 在现有脚本里有大量风格项,全开会变成噪音。
+      # 2026-11-12 在 LF 版本的 HEAD 上实测 error 级为零。
+      - name: 安装 shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+
+      - name: shell 脚本静态检查(shellcheck,error 级)
+        run: |
+          set -uo pipefail
+          rc=0
+          while IFS= read -r f; do
+            if ! shellcheck -S error "$f"; then
+              echo "::error file=$f::shellcheck 报 error"
               rc=1
             fi
           done < <(git ls-files '*.sh')

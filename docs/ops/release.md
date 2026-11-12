@@ -107,7 +107,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.1 | 2026-10-28 | — | 无(规则生效前发版) | — | `chatapp-1.0.1.apk` |
 | 1.0.2 | 2026-11-01 | — | 无(规则生效前发版) | — | `chatapp-1.0.2.apk` |
 | 1.0.3 | 2026-11-04 | — | 无(规则生效前发版) | `56f3f5b` | `chatapp-1.0.3.apk` |
-| 1.0.4 | 2026-11-04 | `v1.0.4` | 待建:tag 已推送,Release 对象待建(现成材料见 §6) | `ae7099f` | `chatapp-1.0.4.apk` |
+| 1.0.4 | 2026-11-04 | `v1.0.4` | 历史遗留:APK 构建产物已不可得,不补建(发版规则从 1.0.5 起真正执行) | `ae7099f` | `chatapp-1.0.4.apk` |
 | 1.0.5 | 2026-11-05 | `v1.0.5` | [v1.0.5 — 暗黑模式](https://github.com/shiliu153/chatapp/releases/tag/v1.0.5)(附件 `chatapp-1.0.5.apk`) | `3390ab5` | `chatapp-1.0.5.apk` |
 | 1.0.6 | 2026-11-06 | `v1.0.6` | [v1.0.6 — 共同点破冰](https://github.com/shiliu153/chatapp/releases/tag/v1.0.6)(附件 `chatapp-1.0.6.apk`) | `605ad81` | `chatapp-1.0.6.apk` |
 | 1.0.7 | 2026-11-06 | `v1.0.7` | [v1.0.7 — 站内通知中心](https://github.com/shiliu153/chatapp/releases/tag/v1.0.7)(附件 `chatapp-1.0.7.apk`,60,295,070 字节) | `2bf9d1a` | `chatapp-1.0.7.apk` |
@@ -118,11 +118,17 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.12 | 2026-11-09 | `v1.0.12` | [v1.0.12 — 设备管理 / 会话管理 / 滑卡增强 / 使用报告 / 聊天敏感词](https://github.com/shiliu153/chatapp/releases/tag/v1.0.12)(附件 `chatapp-1.0.12.apk`,60,899,154 字节,SHA-1 `e389eaf80f117c1810de95cba226ae38d4460bee`) | `abc6889` | `chatapp-1.0.12.apk` |
 | 1.0.13 | 2026-11-11 | `v1.0.13` | [v1.0.13 — R–W 六批（语音介绍 / 筛选精选 / 广场收藏 / 运营看板 / 聊天打磨）](https://github.com/shiliu153/chatapp/releases/tag/v1.0.13)(附件 `chatapp-1.0.13.apk`,61,505,970 字节,SHA-1 `94f80d55f0d7f7ceb58cbcc2816c9760ae0b7691`) | `e7456f6` | `chatapp-1.0.13.apk` |
 
-## 6. 补建 v1.0.4 的现成材料
+## 6. v1.0.4 的历史说明(不补建)
 
-约束从 1.0.4 起生效,该版本的 tag 已推送(`v1.0.4` → `ae7099f`,即 D-1 上线所用提交),
-但 **Release 对象尚未创建** —— 当前环境无 `gh` CLI 与 GitHub token,Release 属于 API 侧对象,
-只能在有凭据的环境或网页上创建。以下内容可直接粘贴。
+2026-11-12 决定:**1.0.4 的 Release 不补建**。理由:该版本的 APK 构建产物已不可得
+(本机现在只有 1.0.13 的 `app-release.apk`),而发版规范要求附件必须是**该版本**的签名
+APK;建一个没有附件的 Release,反而会让「版本号 / tag / Release / APK 四者对齐」这条
+纪律在历史上留下一个例外。
+
+1.0.4 的 tag(`v1.0.4` → `ae7099f`,即 D-1 上线所用提交)保留,§5 记录表标注
+「历史遗留」。发版规则从 **1.0.5** 起真正执行(1.0.5 起的每一行都有 Release 链接与附件)。
+
+以下材料保留作为历史记录,**不再执行**。
 
 **tag / 目标提交**
 

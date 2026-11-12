@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # GitHub 的 Linux runner 上 /dev/kvm 默认只有 root 可读写,不放开的话模拟器
       # 只能退回软件渲染,启动慢到会撞 30 分钟超时(报错看着像测试红,其实是环境)。
@@ -59,7 +59,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       # 与 app.yml 钉同一个 Flutter 版本:两条轨若不一致,会出现「本轨红/本轨绿」的假象
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: '3.47.2'
           channel: stable
@@ -91,7 +91,7 @@ jobs:
       # key 只跟「会改变依赖图」的文件走;restore-keys 保证换 key 时仍能吃到旧缓存
       # (缓存条目本身不可变,命中旧 key 时 Gradle 只会补下缺的那几个 artifact)。
       - name: 缓存 Gradle 依赖与 wrapper 发行包
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.gradle/caches/modules-2
@@ -135,7 +135,7 @@ jobs:
       # 它的失败原因通常是「外观变了」,与上面四条行为用例分开看。
       - name: 在模拟器上跑 integration_test(冒烟 + 筛选面板 + 动态卡 + 聊天多选 + golden)
         if: ${{ !inputs.update_goldens }}
-        uses: ReactiveCircus/android-emulator-runner@v2
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           arch: x86_64
@@ -153,7 +153,7 @@ jobs:
       # 只跑 golden_test 一个文件:这一遍的目的是重写基准,不是回归。
       - name: 重写 golden 基准图(仅 workflow_dispatch + update_goldens)
         if: ${{ inputs.update_goldens }}
-        uses: ReactiveCircus/android-emulator-runner@v2
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           arch: x86_64
@@ -165,7 +165,7 @@ jobs:
 
       - name: 上传 golden 基准图 artifact
         if: ${{ inputs.update_goldens }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: goldens
           path: app/integration_test/goldens/
