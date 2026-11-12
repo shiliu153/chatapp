@@ -230,12 +230,15 @@ wsl -e bash /root/start-superagent.sh status
 ## 8. 自动合并(L2,2026-11-08 起)
 
 > 设计见 [自动化阶梯 spec](../superpowers/specs/2026-11-08-superagent-automation-ladder-design.md) §4。
-> 一句话:**worker 依然没有合并能力**;合并由 GitHub Actions 里的**确定性脚本**按白名单执行。
+> 一句话:**worker 没有「被授予」合并能力**;合并由 GitHub Actions 里的**确定性脚本**按白名单执行。
+> 注意口径(2026-11-12 P0 审计后修正):worker 的 PAT 有 `repo` 权限,`gh-guard` 只是
+> 按命令名拦的 shim —— 技术上它仍能绕过(见 §9)。真正的边界是 **ruleset(禁直推 + 必须走 PR)
+> + required status checks + 每天的对账/告警**,不是「worker 不会」。
 
 | 事 | 命令 / 位置 |
 |---|---|
 | 开关(唯一总闸) | `gh variable set AUTOMERGE --body on\|off --repo shiliu153/chatapp` |
-| 白名单(唯一事实来源) | `.github/workflows/auto-merge.yml` 里的 `WHITELIST_PREFIXES`,当前只有 `docs/` |
+| 白名单(唯一事实来源) | `.github/workflows/auto-merge.yml` 里的 `WHITELIST_PREFIXES`,当前是 `docs/api/`、`docs/security/`、`docs/reviews/`、`docs/milestones.md`(2026-11-08 M-4 收窄后;`docs/superpowers/`、`docs/pitfalls/`、`docs/ops/` 在 `DENY_PREFIXES` 里) |
 | 手动跑一轮(不合并) | `gh workflow run auto-merge.yml -f dry_run=true --repo shiliu153/chatapp` |
 | 看日报 | Actions → `自动合并（白名单）` → 每次运行的 **Summary**(合并了谁 / 跳过了谁 / 为什么) |
 | 看审计痕迹 | 被合并的 PR 上有一条评论(命中白名单、checks 结论、revert 命令) |
@@ -247,24 +250,53 @@ wsl -e bash /root/start-superagent.sh status
 「自动合并(L2)」审计评论与合并 SHA。此后 `docs/**` 的 PR 不需要人点合并。
 
 **合并条件**(全部满足才合):开关开 · base=<默认分支,当前 `main`> · 非 draft · 作者是 `shiliu655` · 1–20 个文件**全部**命中白名单 ·
-无 `no-auto-merge`/`blocked`/`needs-human` 标签 · checks 无未完成且无失败(**0 个 check 视为通过**,纯文档 PR 的正常形态)·
+无 `no-auto-merge`/`blocked`/`needs-human` 标签 · checks 无未完成且无失败 · **至少有 1 个 check 结论是 SUCCESS**(2026-11-12 起:
+旧版把「0 个 check」当成通过,于是 workflow 没触发 / paths 不匹配 / GitHub 抖动时,PR 会在零验证下被合进默认分支)·
 `mergeable=MERGEABLE` · 近 24h 的 `[auto]` 合并数 < 8。
+
+> **为什么现在纯文档 PR 也有 check**:contract / backend / web 三条轨已在 2026-11-12 去掉
+> `paths` 过滤并被设为默认分支的 required status checks(见 §8.1),所以任何 PR 都会产生它们。
 
 **人的否决票**:给 PR 打 `no-auto-merge` 标签即可永久拦住它(比关总闸精确)。
 
 **已知偏差(出现异常先看这里)**:
-- 用 `GITHUB_TOKEN` 合并**不会**触发默认分支上的 `push` 轨。要保留那道二次确认,加 secret
-  `AUTOMERGE_TOKEN`(fine-grained PAT),workflow 会自动优先用它。
-- 纯文档 PR 有 **0 个 check run**:「没有红」不等于「跑绿了」,门仍是本地 `scripts/verify.sh contract`。
-- `gh` 在 worker 的 PATH 里,shim 只按命令名拦 ⇒ **技术上**它能 `gh pr merge`。现在靠 `AGENTS.md` 自律;
-  要变成硬拦,加一个拒 `merge`/`release` 子命令的 `gh` 包装器(见 spec §7 未决问题 4)。
-  **2026-11-08 已落地**:见 §9。
+- 用 `GITHUB_TOKEN` 合并**不会**触发默认分支上的 `push` 轨。仓库里**没有** `AUTOMERGE_TOKEN`
+  secret(2026-11-12 核对),所以这条偏差现在**一直成立**。补偿是 PR 轨本身已经全量跑过
+  (contract/backend/web 不再按 paths 跳过),且 `main-health.yml` 每天兜底检查默认分支。
+- 纯文档 PR 现在**也有 check**(三条必跑轨),「没有 check」不再是正常形态。
+- `gh` 在 worker 的 PATH 里,shim 只按命令名拦 ⇒ **技术上**它能绕过。2026-11-08 起有
+  `scripts/gh-guard`(见 §9),2026-11-12 补上了 `gh api` 的 REST 合并 / Release 端点;
+  但它**不是安全边界**,真正的边界见 §8.1。
 - ~~默认分支目前没有任何分支保护~~ → **2026-11-08 已开 ruleset**(`默认分支(main): 必须走 PR + 禁强推`):禁删除、禁强推、
   必须走 PR(0 个 approval 即可合,以兼容自动合并);`shiliu153` 在 bypass 名单里,worker 账号不在。
   实测:worker 账号直推默认分支被拒(`push declined due to repository rule violations`),推特性分支照常。
   **2026-11-11 默认分支由 `master` 改名成 `main`,而 ruleset 的 include 仍写着 `refs/heads/master`**
   —— 规则对 `main` 不生效,等于裸奔了约 20 小时。2026-11-12 已把 include 改成
   `refs/heads/main` + `refs/heads/master`(过渡期两个都保)。**改名后必须同步检查 ruleset 的 ref_name。**
+
+### 8.1 默认分支的 required status checks(2026-11-12,P0 审计)
+
+审计发现 ruleset 里**没有任何 required status check** —— GitHub 层面允许合并红 CI 的 PR,
+「CI 全绿才合并」纯靠人;`required_approving_review_count` 也是 0,作者可自审自合。
+2026-11-12 起:
+
+- `跨栈契约 / contract`、`Backend (Django) / test`、`Web (Vue) / check` 三条设为必需检查;
+- 对应三条 workflow **去掉 `paths` 过滤**。required check 必须「每次 PR 都出现」:
+  按 paths 跳过会让 PR 永久 pending,或者(更糟)让「没有 check」被当成绿;
+- 代价:每个 PR 都会跑 backend(5–10 分钟)与 web(3–5 分钟)。个人项目提交频率低,可接受。
+
+设置脚本(幂等,默认 dry-run):
+
+```bash
+python scripts/apply_ruleset.py --dry-run
+python scripts/apply_ruleset.py --apply
+```
+
+> **顺序要求**:先去 paths(随 PR 合并),再 `--apply`。反过来会让所有在飞 PR 卡在 pending。
+
+另外新增 `.github/workflows/main-health.yml`(每天 09:00 北京时间):默认分支上任何
+workflow 的**最新一次 push run** 是红的,就建/更新一条 issue;全绿自动关掉。
+2026-11-11 的 web 轨红了 20 小时、期间还完成了一次发版,缺的就是这一段。
 
 ## 9. worker 侧硬拦:gh 包装器(gh-guard,2026-11-08 起)
 

@@ -1,20 +1,13 @@
 name: Web (Vue)
 
+# 2026-11-12(P0 审计):**去掉 paths 过滤**。本轨与 contract / backend 一起是默认分支的
+# required status check;required check 必须「每次 PR 都出现」,按 paths 跳过会让 PR
+# 永久 pending,或让「没有 check」被误当成绿。
+
 on:
   push:
     branches: [master, main]
-    paths:
-      - 'web/**'
-      - 'docs/api/**'
-      # 跨栈协议 fixture(E-2):只改 fixture 也要跑 Web 的契约测试
-      - 'imserver/tests/fixtures/**'
-      - '.github/workflows/web.yml'
   pull_request:
-    paths:
-      - 'web/**'
-      - 'docs/api/**'
-      - 'imserver/tests/fixtures/**'
-      - '.github/workflows/web.yml'
   workflow_dispatch:
 
 jobs:
@@ -49,8 +42,11 @@ jobs:
       - name: 代码规范(必须零告警)
         run: npm run lint
 
-      - name: 单元/组件测试
-        run: npm run test:run
+      # 覆盖率门槛(`vitest.config.ts` 的 thresholds)只在 `--coverage` 时生效。
+      # 2026-11-12 之前这里跑的是 `test:run`(不带 --coverage),于是文档声称的
+      # 70/60/70/70 门槛在 CI 里从未执行过 —— 门禁是纸面的。见 P0 审计。
+      - name: 单元/组件测试(含覆盖率门槛 70/60/70/70)
+        run: npm run test:coverage
 
       - name: 构建
         run: npm run build

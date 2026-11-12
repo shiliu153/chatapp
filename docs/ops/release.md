@@ -44,6 +44,17 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 | 8 | 生产冒烟:`/api/v1/app/config` 版本正确、APK 下载 206、`/health` 与 `/readyz` 200 | 无 5xx |
 
 > 步骤 5 的 tag **必须指向步骤 1 的合并 SHA**,不要指向本地未合并提交 —— 与「部署只认 `origin/main` 的 SHA」同一条纪律。
+> **注意版本号本身也是一次改动**:`sync_version.py --write` 只改工作区、不提交;所以正确顺序是
+> 「改版本号 → 提交 → 开 PR → 合并 → tag 指向**这次**合并后的 SHA」。`release_prep.py` 打印的
+> tag 命令里用的是占位符,不是准备时的 HEAD(它还不含本次版本号)。
+>
+> **步骤 4 部署之前先跑部署闸门**(2026-11-12 起):
+>
+> ```bash
+> python scripts/deploy_gate.py            # 校验目标 SHA ∈ origin/main 且该 SHA 的 check 全绿
+> ```
+>
+> 2026-11-11 的 1.0.13 就是在默认分支 web 轨已经红着的情况下完成上线的 —— 纪律没有机械执行 = 没有纪律。
 
 ### 3.1 步骤 2 之前先跑一条命令(2026-11-09 起)
 

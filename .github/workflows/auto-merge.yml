@@ -133,6 +133,15 @@ jobs:
                | (.name // .context // "?")] | join(", ")')
             [ -n "$blocked_checks" ] && add "checks 未全绿: $blocked_checks"
 
+            # 2026-11-12(P0 审计):旧版把「0 个 check run」当成通过 —— 于是 workflow 没触发、
+            # paths 不匹配、GitHub 抖动时,PR 会在**没有任何验证**的情况下被合进默认分支。
+            # 现在要求至少一个 check 真的跑绿;contract/backend/web 三条已去掉 paths 过滤,
+            # 任何 PR 都会产生它们,纯文档 PR 也不例外。
+            ok_checks=$(echo "$json" | jq -r '
+              [.statusCheckRollup[]?
+               | select(.__typename == "CheckRun" and .conclusion == "SUCCESS")] | length')
+            [ "$ok_checks" -eq 0 ] && add "没有任何成功的 check(拒绝 0-check 放行)"
+
             if [ -n "$reason" ]; then
               row "$pr" "跳过" "$reason"
               continue

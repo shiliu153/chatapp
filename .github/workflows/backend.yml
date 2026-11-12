@@ -1,21 +1,13 @@
 name: Backend (Django)
 
+# 2026-11-12(P0 审计):**去掉 paths 过滤**。本轨与 contract / web 一起是默认分支的
+# required status check;required check 必须「每次 PR 都出现」,按 paths 跳过会让 PR
+# 永久 pending,或让「没有 check」被误当成绿。代价是每次 PR 多跑 5–10 分钟。
+
 on:
   push:
     branches: [master, main]
-    paths:
-      - 'chatapp/**'
-      - 'perf/**'
-      - 'docs/api/**'
-      - 'app/pubspec.yaml'
-      - '.github/workflows/backend.yml'
   pull_request:
-    paths:
-      - 'chatapp/**'
-      - 'perf/**'
-      - 'docs/api/**'
-      - 'app/pubspec.yaml'
-      - '.github/workflows/backend.yml'
   workflow_dispatch:
 
 jobs:
@@ -87,12 +79,15 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: chatapp/requirements.txt
+          cache-dependency-path: chatapp/requirements.lock
 
-      - name: 安装依赖
+      # 装**锁定文件**而不是 requirements.txt 的区间:生产镜像(deploy/docker/Dockerfile)
+      # 装的就是 requirements.lock,CI 若装 txt 就是在验证一组生产不会用的版本组合,
+      # 「CI 绿」推不出「生产可用」。见 P0 审计(依赖锁形同虚设)。
+      - name: 安装依赖(锁定文件,与生产镜像一致)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.lock
 
       # mysqladmin ping 是「未认证探测」:容器刚起来时会先应答,但此时带认证的
       # 连接仍可能被服务器关闭(表现为 PyMySQL 的 'NoneType' has no attribute
@@ -178,6 +173,35 @@ jobs:
 
       - name: 跑测试
         run: python manage.py test --noinput --verbosity=2
+
+      # accounts.E001 是「生产开了固定验证码、但准入名单种子为空」的部署期门禁。
+      # 它此前**从未在任何流水线里被执行过**:CI 全程 DEBUG=1(检查直接返回)、
+      # migrate 不跑 system checks、一键部署脚本里也没有 manage.py check。
+      # 这里用生产口径反向验证「门禁真的会响」——预期 check 非零退出且报出 E001。
+      - name: 部署配置门禁自检(DEBUG=0 时 accounts.E001 必须生效)
+        env:
+          DEBUG: '0'
+          SMS_DEV_MODE: '1'
+          SMS_PHONE_WHITELIST: ''
+          # DEBUG=0 会走 settings 的生产分支,而 CI 没有 .env 文件:把生产必填项补齐,
+          # 否则会在更早的 ImproperlyConfigured 上失败(看起来像 E001 但其实是配置缺失)。
+          IM_MEDIA_SIGN_SECRET: ci-fake-media-secret-32-bytes
+          IM_MEDIA_PREFIX: http://127.0.0.1:8000/media/chat/
+          MEDIA_BASE_URL: http://127.0.0.1:8000
+        run: |
+          set +e
+          out=$(python manage.py check 2>&1)
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" = 0 ]; then
+            echo "::error::DEBUG=0 + SMS_DEV_MODE=1 + 空白名单 时 check 竟然通过 —— accounts.E001 门禁失效"
+            exit 1
+          fi
+          case "$out" in
+            *accounts.E001*) echo "accounts.E001 已生效(门禁可达)" ;;
+            *) echo "::error::check 失败了,但输出里没有 accounts.E001(可能是别的错误)"; exit 1 ;;
+          esac
 
       # D-5:``docs/api/openapi.yml`` 是「机器可读契约」的生成物。这里重新生成一次再
       # 用 git diff 比对:任何人改了视图/序列化器却没同步生成物,CI 立刻红。
