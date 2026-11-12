@@ -227,6 +227,7 @@ wsl -e bash /root/start-superagent.sh status
 ## 7. 授权与边界(改之前想清楚)
 
 - 允许清单只有 `shiliu153`;bots 仅 `dependabot[bot]`;eval 模式 `observe`(proactive 只记录不执行)。
+  **L4 不依赖 `eval.mode`**:需求自动入队是确定性 workflow,不是 LLM proactive —— 见 §14。
 - `blockedCommands` 只是按命令名拦的 shim,**不是安全边界**;真正的边界是
   `/root/.ssh` 保持为空 + 人合 PR + 面板不配 merge CLI。
 - agent 以自己的账号(`shiliu655`)提交与评论,所有动作都在仓库可见。
@@ -327,6 +328,8 @@ python scripts/apply_ruleset.py --apply
 另外新增 `.github/workflows/main-health.yml`(每天 09:00 北京时间):默认分支上任何
 workflow 的**最新一次 push run** 是红的,就建/更新一条 issue;全绿自动关掉。
 2026-11-11 的 web 轨红了 20 小时、期间还完成了一次发版,缺的就是这一段。
+2026-11-13 起,它不再自己写 jq —— 红轨列表由 `scripts/l4_intake.py ci-red-summary` 解析,
+与 L4(§14)共用**同一个**解析器;改口径不会只改一边。
 
 ## 9. worker 侧硬拦:gh 包装器(gh-guard,2026-11-08 起)
 
@@ -655,3 +658,72 @@ cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait
 | 脚本报「等了 150s 仍不能接单」 | `bash /root/start-superagent.sh status`;`journalctl -u superagent-proxy`;面板 Overview |
 | 反复出现 `Lock file is already being held` | 确认 `pgrep -f 'node /usr/local/bin/dsh'` 为空后 `rm -rf /root/.dsh/state/superagent.lock`,再 start |
 | 守门通过但派单后 `work/` 一直空 | 那是 §4.1 的丢单问题(游标前移 ≠ 入队),按那里的「3 分钟仍为空再补发」处理 |
+
+## 14. L4 需求自动入队:怎么开、怎么停、怎么回退、误开单怎么撤(2026-11-13 起)
+
+> 设计见 [自动化阶梯 spec](../superpowers/specs/2026-11-08-superagent-automation-ladder-design.md) §6。
+> 一句话:**把「人写 issue」换成确定性判定** —— 但只开「口径天然机器可判」的单,而且**派单仍是人**。
+
+**它是整条阶梯里唯一会替人决定「做什么」的一级**,所以读这一节时记住三条边界:
+① 只开机器判据成立的单(判不出来就不开);② 正文不含任何需求设想;③ 自动开单**不会**自动派工。
+
+| 事 | 命令 / 位置 |
+|---|---|
+| **开关(唯一总闸)** | `gh variable set L4_INTAKE --body on\|off --repo shiliu153/chatapp` —— **默认 `off`**,首次启用要人显式打开 |
+| 判定器(可离线单跑) | `python scripts/l4_intake.py plan --runs runs.json --alerts alerts.json --existing issues.json --root .` |
+| 手动跑一轮(只看不做) | `gh workflow run l4-intake.yml -f dry_run=true --repo shiliu153/chatapp` |
+| 手动跑一轮(真的落单) | `gh workflow run l4-intake.yml -f dry_run=false --repo shiliu153/chatapp` |
+| 看日报 | Actions → `L4 需求自动入队` → 每次运行的 **Summary**(判了哪些信号 / 开了谁 / 跳过谁 / 哪项判不出来) |
+| 看这一轮凭什么开单 | 同一次运行的 artifact **`l4-plan`**(事实快照 + 计划 JSON,留 14 天) |
+| 看自动开的单 | `gh issue list --label l4-auto --repo shiliu153/chatapp`(正文第一行是指纹) |
+| 改每日上限 / 严重度阈值 | `gh variable set L4_MAX_PER_DAY --body 5` · `gh variable set L4_MIN_SEVERITY --body high` |
+| 跑的时间 | `.github/workflows/l4-intake.yml` 的 `cron`(默认 09:20 北京,排在默认分支健康之后) |
+
+### 14.1 它到底判什么(三条,封闭枚举)
+
+| 信号 | 开单条件 | 明确不开单 |
+|---|---|---|
+| `ci-red` | 默认分支上某条 workflow 的**最新一次 push run** 是红的,且该栈在 `scripts/verify.sh` 里有子命令(`Backend (Django)` / `Web (Vue)` / `imserver` / `App (Flutter)`) | `跨栈契约`(横跨四栈 + 多为升版本号,属人)、`App UI` / `Web E2E`(worker 无法自证)、三条流程轨自身 |
+| `dep-advisory` | Dependabot 告警 open 且 severity ≥ `high` 且**有修复版本**且**锁文件里实际装的版本仍落在受影响区间内** | 低/中危、无修复版本、`docker`/`actions` 生态、**已经修好的**(告警滞后) |
+| `mech-docs-links` | `docs/` 里有相对链接指向不存在的路径 | 版本号/生成物不一致 —— 已被默认分支 push 轨覆盖,由 `ci-red` 负责 |
+
+三条都过了还有第四道:一天最多 **5 张**(`L4_MAX_PER_DAY`)。
+
+### 14.2 怎么停 / 怎么回退
+
+| 想要 | 命令 | 结果 |
+|---|---|---|
+| **回退到「人写 issue」** | `gh variable set L4_INTAKE --body off --repo shiliu153/chatapp` | 下一轮直接退出 0:不开单、不评论、不重开。**已开的单原样留着**(它们是事实,不是脏数据) |
+| 今天一张都不许新建 | `gh variable set L4_MAX_PER_DAY --body 0` | 去重类动作(评论 / 重开)仍发生,不增加待办条目 |
+| 连判定都不想让它跑 | 把 `.github/workflows/l4-intake.yml` 的 `schedule` 注释掉(走 PR) | 只能手动 `workflow_dispatch` |
+| 判定器坏了(整轮 run 红) | 按 `::error::` 提示修 `scripts/l4_intake.py`;它的自测在 `contract` 轨 | 修好前**不会开任何单**(fail-closed),run 会一直红 |
+
+> 为什么不是 `eval.mode=observe`:那是 worker 的 **LLM proactive** 设置,打开 `active` 等于让模型
+> 自己决定开什么单 —— 恰好是 L4 唯一要防的事。L4 的总闸是仓库 variable `L4_INTAKE`,
+> 与 L2 的 `AUTOMERGE` 同构。详见 spec §6.2。
+
+### 14.3 误开单怎么撤
+
+1. 先看它凭什么开的:artifact `l4-plan` 里的 `decisions[].reason` + issue 正文的「事实」表。
+2. 关掉它(别删 —— 指纹要留着,否则同一失败下次会新开一条):
+   ```bash
+   gh issue close <n> --reason not_planned \
+     --comment "L4 误开单:<原因>;机制已收紧(#<PR>)" --repo shiliu153/chatapp
+   ```
+3. 收紧判据(改哪个文件见 spec §6.7 的表),PR 里同时补一条自测用例 —— **先红再修**。
+4. 如果误开的是「同一件事开了多张」,说明指纹口径坏了(混进了时间/SHA):按 spec §6.4 改指纹,
+   并注意**改口径后旧单的指纹会对不上**,那些旧单要人手关。
+
+### 14.4 已知偏差
+
+- **告警会滞后于锁文件。** 2026-11-13 实测:本仓库 `npm audit` 已是 0,而 Dependabot 仍开着 13 条
+  `open` 告警。判定器读的是**锁文件里实际装的版本**,不是告警 `state` —— 所以这类会判成
+  「已是 X,不在受影响区间内(告警滞后,可顺手 dismiss)」。看到这条不要以为判定器坏了。
+- **`dependabot/alerts` 读不到时整轮会红。** 这不是 bug 而是 fail-closed:读不到就无法判断
+  有没有漏洞,静默当成「没有」会变成假绿。一次性处置:仓库 **Settings → Code security** 打开
+  Dependabot alerts(本项目 security updates 已在用,通常本来就开着)。
+- **`ci-red` 只认「最新一次 push run」。** 一条 workflow 红了、随后又被人手动重跑成绿,就不算红
+  —— 与 `main-health.yml` 同口径(它的红轨列表也由 `scripts/l4_intake.py` 解析)。
+- **自动单不会自己进队列。** 正文里刻意不含任何 `@`,派工仍要人在评论里做(§4.1)。
+- **首次启用是人的动作。** `L4_INTAKE` 默认 `off`:机制上线不等于开始开单,开不开由人决定。
+

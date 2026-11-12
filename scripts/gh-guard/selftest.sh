@@ -68,6 +68,12 @@ check_out "放行 api 只读" "REALGH api user" -- api user
 check_out "放行 api 只读 PR" "REALGH api repos/o/r/pulls/113" -- api repos/o/r/pulls/113
 check_out "放行 api 只读 Release" "REALGH api repos/o/r/releases/tags/v1" -- api repos/o/r/releases/tags/v1
 check_out "放行 api 评论 issue" "REALGH api -X POST repos/o/r/issues/1/comments" -- api -X POST repos/o/r/issues/1/comments
+# 2026-11-13(L4):开单/评论/重开走的是 issue 写入,不是 PR —— 必须放行,否则
+# worker 连「按 L4 工单回报进度」都做不到;L4 的开单本身由 Actions 里的
+# l4-intake.yml 用 GITHUB_TOKEN 执行,不经这里的 shim。
+check_out "放行 issue create" "REALGH issue create" -- issue create --title t --body b
+check_out "放行 issue comment" "REALGH issue comment 1" -- issue comment 1 --body b
+check_out "放行 issue reopen" "REALGH issue reopen 1" -- issue reopen 1
 check_out "放行 --version" "REALGH --version" -- --version
 
 # 记账:被拒的动作要落一行日志

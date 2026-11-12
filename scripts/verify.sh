@@ -176,6 +176,11 @@ stack_contract() {
   # 写进 config.yaml 会让 mihomo 起不来 → worker 全断网,而现场看起来像「代理没开」。
   # 纯离线、秒级,和上面几条同性质。
   run "出口代理渲染自测" bash "$ROOT/scripts/superagent-proxy/selftest.sh"
+  # L4 需求自动入队:整条阶梯里唯一「替人决定做什么」的一级。判多了会污染待办,
+  # 判少了真失败没人管,判不出来还必须不开单 —— 三种都由这条自测钉住(纯离线)。
+  run "L4 入队判定器自测" "$PY" -m unittest scripts.test_l4_intake
+  # 文档断链检测:L4「机械一致性」信号唯一的实现,坏了没人当场知道。
+  run "文档断链检测自测" "$PY" -m unittest scripts.test_check_docs_links
 }
 stack_imserver() {
   # 三段与 .github/workflows/imserver.yml 的三个 step 逐项对齐:
