@@ -32,12 +32,13 @@ DEFAULT_TOKEN_FILE = Path.home() / ".dsh" / "github-mcp-token.txt"
 DEFAULT_REPO = "shiliu153/chatapp"
 DEFAULT_RULESET_NAME = "默认分支(main): 必须走 PR + 禁强推"
 API = "https://api.github.com"
-#: required check 的 context 名 = ``<workflow name> / <job name>``。
-#: 三个 workflow 的 job 分别是 contract / test / check(见各自 yml)。
+#: required check 的 context = **check run 的 name**(GitHub Actions 里就是 job 的
+#: ``name:`` 字段),不是 ``workflow / job`` 拼接。三个 job 已显式命名为
+#: contract / backend / web(见各自 yml),避免 ``test`` 这种通用名与其它轨重名。
 REQUIRED_CONTEXTS = [
-    "跨栈契约 / contract",
-    "Backend (Django) / test",
-    "Web (Vue) / check",
+    "contract",
+    "backend",
+    "web",
 ]
 
 
@@ -170,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name")
     parser.add_argument("--name", default=DEFAULT_RULESET_NAME, help="ruleset 名称")
     parser.add_argument("--apply", action="store_true", help="真写;默认只 dry-run")
+    parser.add_argument("--dry-run", action="store_true", help="显式 dry-run(与默认行为相同)")
     parser.add_argument("--context", action="append", help="覆盖必需 check(可重复)")
     args = parser.parse_args(argv)
 

@@ -12,7 +12,9 @@ on:
 
 jobs:
   # 本轨只守类型/规范/单测/构建;端到端冒烟见 web-e2e.yml(E-3:真 MySQL+Redis+Django)
+  # 显式 job name:它同时是 check run 的 name,也是 ruleset required_status_checks 的 context。
   check:
+    name: web
     runs-on: ubuntu-latest
     defaults:
       run:

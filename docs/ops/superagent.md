@@ -280,7 +280,9 @@ wsl -e bash /root/start-superagent.sh status
 「CI 全绿才合并」纯靠人;`required_approving_review_count` 也是 0,作者可自审自合。
 2026-11-12 起:
 
-- `跨栈契约 / contract`、`Backend (Django) / test`、`Web (Vue) / check` 三条设为必需检查;
+- `contract`、`backend`、`web` 三条设为必需检查。**context 名 = check run 的 name =
+  job 的 `name:` 字段**(不是 `workflow / job` 拼接),所以三个 job 已显式命名为
+  `contract` / `backend` / `web` —— 用默认的 `test` / `check` 会与 imserver 等同名 job 产生歧义;
 - 对应三条 workflow **去掉 `paths` 过滤**。required check 必须「每次 PR 都出现」:
   按 paths 跳过会让 PR 永久 pending,或者(更糟)让「没有 check」被当成绿;
 - 代价:每个 PR 都会跑 backend(5–10 分钟)与 web(3–5 分钟)。个人项目提交频率低,可接受。

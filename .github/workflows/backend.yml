@@ -12,6 +12,10 @@ on:
 
 jobs:
   test:
+    # 显式 job name:它同时是 check run 的 name,也是 ruleset required_status_checks
+    # 的 context。用 "backend" 而不是默认的 "test",避免与 imserver 的 test job 重名
+    # (同名 context 在 required checks 里会产生歧义)。
+    name: backend
     runs-on: ubuntu-latest
 
     # 测试前置:MySQL 业务库 + Redis(验证码/限流/缓存都依赖它)
