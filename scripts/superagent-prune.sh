@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 列出 / 清理 dsh-superagent 的工单 worktree。默认只列,`--apply` 才动手。
 #
-# 只清「干净(无未提交改动)且分支已合并进 origin/master」的 worktree;
+# 只清「干净(无未提交改动)且分支已合并进 origin/<默认分支>」的 worktree;
 # 其余只报告不动。refs/dsh-superagent/* 这些抓取用的临时引用**只在「本轮一个
 # worktree 都没保留」时才清**(有在飞工单时一律不碰,见下面 clean_refs 的调用点)。
 #
@@ -11,7 +11,7 @@
 #      不带 https_proxy,而 worker 进程一直有代理;所以「本来就没东西可清」时去 fetch,
 #      只会白卡约 130s 再抛 fatal(实测见 docs/ops/superagent.md §4 第 4 步)。
 #   2. 再看网络:有活时 fetch 失败 → 退出码非 0 + 人话错误,且**一个 worktree 都不删**。
-#      不能「fetch 失败就拿现有的 origin/master 继续判」:判「已合并」的基线必须是本次
+#      不能「fetch 失败就拿现有的 origin/<默认分支> 继续判」:判「已合并」的基线必须是本次
 #      fetch 到的,拿过期基线判出 yes 再去删目录是危险动作。
 #
 # 两条 2026-11-08 补的护栏(第四轮审计当日实测踩到):
@@ -80,16 +80,29 @@ if [ -z "$WORKTREES" ]; then
   exit 0
 fi
 
-# 到这里才碰网络。fetch 失败就停(退出码 2 = 环境不可用):没有本次的 origin/master,
+# 到这里才碰网络。fetch 失败就停(退出码 2 = 环境不可用):没有本次的默认分支基线,
 # 就不能判「已合并」,而判不出来时唯一安全的动作是「一个都不删」。
-if ! git -C "$CLONE" fetch --no-tags origin master; then
+#
+# 不写死 ref 名:默认分支 2026-11-11 由 master 改名成 main,写死 `fetch origin master`
+# 会变成「couldn't find remote ref master」—— 本脚本会一直 exit 2,一个目录都清不掉。
+# 所以拉默认 refspec(全部 head),再从更新后的 remote-tracking ref 里认默认分支。
+if ! git -C "$CLONE" fetch --no-tags origin; then
   {
-    printf '%s\n' '无法 fetch,无法判定是否已合并:git fetch --no-tags origin master 失败(原因见上面的 git 报错)'
+    printf '%s\n' '无法 fetch,无法判定是否已合并:git fetch --no-tags origin 失败(原因见上面的 git 报错)'
     printf '%s\n' '本次不清理任何 worktree(拿过期基线判「已合并」去删目录是危险动作);请先修好网络或代理再重跑。'
   } >&2
   exit 2
 fi
-BASE=$(git -C "$CLONE" rev-parse origin/master)
+# 默认分支:main 优先,回退 master(改名前后都能跑)。
+BASE_REF=''
+for _cand in main master; do
+  if git -C "$CLONE" rev-parse --verify --quiet "refs/remotes/origin/$_cand" >/dev/null 2>&1; then
+    BASE_REF=$_cand
+    break
+  fi
+done
+[ -n "$BASE_REF" ] || BASE_REF=main
+BASE=$(git -C "$CLONE" rev-parse "origin/$BASE_REF")
 
 KEPT=0
 # 用 herestring 而不是 `| while`:管道会让循环跑在子 shell 里,KEPT 传不出来。
@@ -97,13 +110,13 @@ while IFS= read -r wt; do
   [ -n "$wt" ] || continue
   br=$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
   dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l)
-  # 分支相对本次 origin/master 有几个「还没合并」的提交;取不到一律按 0 处理(= 保留)。
+  # 分支相对本次 origin/<默认分支> 有几个「还没合并」的提交;取不到一律按 0 处理(= 保留)。
   ahead=$(git -C "$CLONE" rev-list --count "$BASE..$br" 2>/dev/null || echo 0)
-  # 判断「已并入 master」不能用 `merge-base --is-ancestor`:本仓库一律 squash 合并,
-  # 分支 tip 永远不是 master 的祖先,那样判会恒为「未合并」。
-  # 用 `git cherry`(按 patch-id)只能认**单提交**分支:squash 出来的那条 master 提交
+  # 判断「已并入默认分支」不能用 `merge-base --is-ancestor`:本仓库一律 squash 合并,
+  # 分支 tip 永远不是默认分支的祖先,那样判会恒为「未合并」。
+  # 用 `git cherry`(按 patch-id)只能认**单提交**分支:squash 出来的那条默认分支提交
   # 与「分支唯一提交」patch 相同,能判 yes;但一个工单若有 N 个提交(改完一轮 CI 再修),
-  # squash 后 master 上是一条合并 patch,cherry 会把 N 个提交全报成 `+` → 误判 merged=no。
+  # squash 后默认分支上是一条合并 patch,cherry 会把 N 个提交全报成 `+` → 误判 merged=no。
   # 所以 patch-id 判不出来时,再问一次 GitHub(PR 是否已合并),两者任一成立即视为已合并。
   merged=no
   if [ "$ahead" = 0 ]; then

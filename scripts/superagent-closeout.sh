@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 合并后收尾:把本机同步到 origin/master,再清工单 worktree。
+# 合并后收尾:把本机同步到 origin/<默认分支>(main),再清工单 worktree。
 #
 # 解决两个已实测的坑(见 docs/superpowers/plans/2026-11-07-superagent-dev-workflow.md §6/§8):
-#   1. WSL 母体 /root/src/chatapp **不会**自动跟随 origin/master,而 superagent-prune.sh 就住在母体里
+#   1. WSL 母体 /root/src/chatapp **不会**自动跟随 origin/<默认分支>,而 superagent-prune.sh 就住在母体里
 #      —— 不同步就用旧脚本,把 squash 合并判成 merged=no,worktree 清不掉。
 #   2. 人跑 `wsl -e bash -c` 的 shell **不继承** worker 的代理,直连 github:443 会卡约 130 秒后失败。
 #
@@ -23,7 +23,7 @@ usage() {
   cat <<'EOF'
 用法: scripts/superagent-closeout.sh [选项]
 
-把 WSL 母体同步到 origin/master,再清工单 worktree,并报告 Windows 仓库是否跟上。
+把 WSL 母体同步到 origin/<默认分支>,再清工单 worktree,并报告 Windows 仓库是否跟上。
 
 选项:
   --apply       真的同步 + 清 worktree(默认就是这个;写出来和 superagent-prune.sh 的习惯对齐)
@@ -94,36 +94,53 @@ main() {
 
   ensure_proxy
 
+  resolve_base_ref() {
+    local cand
+    for cand in main master; do
+      if git -C "$CLONE" rev-parse --verify --quiet "refs/remotes/origin/$cand" >/dev/null 2>&1; then
+        printf '%s\n' "$cand"
+        return 0
+      fi
+    done
+    printf '%s\n' main
+  }
+
   FETCH_ERR=''
-  if ! FETCH_ERR=$(timeout "$FETCH_TIMEOUT" git -C "$CLONE" fetch --no-tags origin master 2>&1); then
+  # 拉默认 refspec(全部 head),不写死 ref 名:默认分支 2026-11-11 由 master 改名成 main,
+  # 写死 `fetch origin master` 会变成 couldn't find remote ref,收尾从此再也同步不了母体。
+  if ! FETCH_ERR=$(timeout "$FETCH_TIMEOUT" git -C "$CLONE" fetch --no-tags origin 2>&1); then
     # fetch 失败不等于失败:**已是最新**也是合法结果。只有当「没得比对」或「落后又拉不动」才算异常。
-    REMOTE_SHA=$(git -C "$CLONE" rev-parse --short origin/master 2>/dev/null || echo '')
-    [ -n "$REMOTE_SHA" ] || die "fetch 失败,且本地没有 origin/master 可比对:${FETCH_ERR}"
-    warn "fetch 失败,退回本地记录的 origin/master(${REMOTE_SHA})判定 —— 它可能不是最新:${FETCH_ERR}"
+    BASE_REF=$(resolve_base_ref)
+    REMOTE_SHA=$(git -C "$CLONE" rev-parse --short "origin/$BASE_REF" 2>/dev/null || echo '')
+    [ -n "$REMOTE_SHA" ] || die "fetch 失败,且本地没有 origin/$BASE_REF 可比对:${FETCH_ERR}"
+    warn "fetch 失败,退回本地记录的 origin/$BASE_REF(${REMOTE_SHA})判定 —— 它可能不是最新:${FETCH_ERR}"
+  else
+    # fetch 成功之后再判,才能看到本次刚拉下来的 ref(改名后的第一次运行靠这一步认出新名字)。
+    BASE_REF=$(resolve_base_ref)
   fi
 
   MOTHER_SHA=$(git -C "$CLONE" rev-parse --short HEAD)
-  REMOTE_SHA=$(git -C "$CLONE" rev-parse --short origin/master)
+  REMOTE_SHA=$(git -C "$CLONE" rev-parse --short "origin/$BASE_REF")
   win_state
 
   PULLED=0
   if [ "$MOTHER_SHA" = "$REMOTE_SHA" ]; then
     note "母体已最新:$MOTHER_SHA"
   elif [ "$MODE" = check ]; then
-    note "母体落后 origin/master:$MOTHER_SHA → $REMOTE_SHA(--check,不动)"
+    note "母体落后 origin/$BASE_REF:$MOTHER_SHA → $REMOTE_SHA(--check,不动)"
   else
     [ -z "$(git -C "$CLONE" status --porcelain)" ] || die "母体有未提交改动,先人工处理:$CLONE"
-    git -C "$CLONE" merge-base --is-ancestor HEAD origin/master \
-      || die "母体有本地提交,不是快进(HEAD=$MOTHER_SHA,origin/master=$REMOTE_SHA);不自动处理"
+    git -C "$CLONE" merge-base --is-ancestor HEAD "origin/$BASE_REF" \
+      || die "母体有本地提交,不是快进(HEAD=$MOTHER_SHA,origin/$BASE_REF=$REMOTE_SHA);不自动处理"
     # 这里**不用 `git pull`**:它内部会再 fetch 一次,于是刚被上面容错掉的网络抖动会在这一步变成
     # die —— 收尾就停在进行到一半(决定要同步之后、prune 之前)。上面已经 fetch 过,
     # 这里只做纯本地快进,不发任何网络请求:网络问题只影响 fetch 那一步,而它有容错。
-    git -C "$CLONE" merge --ff-only --quiet origin/master \
-      || die "快进到 origin/master 失败(HEAD=$MOTHER_SHA,origin/master=$REMOTE_SHA);不自动处理"
+    git -C "$CLONE" merge --ff-only --quiet "origin/$BASE_REF" \
+      || die "快进到 origin/$BASE_REF 失败(HEAD=$MOTHER_SHA,origin/$BASE_REF=$REMOTE_SHA);不自动处理"
     MOTHER_SHA=$(git -C "$CLONE" rev-parse --short HEAD)
     PULLED=1
     if [ -n "$FETCH_ERR" ]; then
-      note "母体已同步:$MOTHER_SHA(依据本地记录的 origin/master;本次 fetch 失败,可能不是 GitHub 最新)"
+      note "母体已同步:$MOTHER_SHA(依据本地记录的 origin/$BASE_REF;本次 fetch 失败,可能不是 GitHub 最新)"
     else
       note "母体已同步:$MOTHER_SHA"
     fi

@@ -75,7 +75,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。
 | `docs/pitfalls/` | 踩坑手册(按主题分册) | 写代码/排障前按需读取 |
 | `.remember/` | Claude 会话记忆日志(内部机制) | 勿改动、勿提交 |
 
-根目录是 git 仓库;`master` 为主线,功能开发走短生命周期分支后合回。**部署只认 `origin/master` 的 SHA**(见下「发布流程」)。
+根目录是 git 仓库;`main` 为主线(2026-11-11 由 `master` 改名),功能开发走短生命周期分支后合回。**部署只认 `origin/main` 的 SHA**(见下「发布流程」)。
 
 ## 常用命令
 
@@ -149,7 +149,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 - **「心跳」token 双份维护**:改任何视觉 token 或字体,**必须在同一次改动内同时改** `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css`(`web/public/fonts/*` 与 `app/assets/fonts/*` 保持一致);`web/tests/unit/tokens.spec.ts` 与 `fonts.spec.ts` 会双向比对,漏改即红
 - **跨栈 IM 协议帧(2026-11-05 起,E-2)**:`imserver/tests/fixtures/ws/*.json` 是三端(App / Web / imserver)唯一的线上帧契约源。改任何 WS 帧格式必须**同一次改动内**同时改:fixture + imserver(`src/net/frames.h` 的构造 / `ws_server.cpp`)+ App(`self_im_client.dart` 与 `app/test/im/protocol_fixture_test.dart`)+ Web(`web/src/im/self/*` 与 `web/tests/unit/im-protocol-fixture.spec.ts`);三条 CI 轨(`imserver.yml`/`app.yml`/`web.yml`)各自会红。契约与改法见 `imserver/tests/fixtures/ws/README.md`
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步
-- **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/master` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。CI 跑在 Ubuntu + MySQL 8 + Redis 上,与本地 Windows 不同;顺序错了会变成「CI 红时生产已在跑未验证代码」
+- **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/main` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。CI 跑在 Ubuntu + MySQL 8 + Redis 上,与本地 Windows 不同;顺序错了会变成「CI 红时生产已在跑未验证代码」
 - **网页端测试纪律**:`vue-tsc` 零错误 + `eslint --max-warnings 0` 零告警 + vitest 全绿(覆盖率门槛 70/60/70/70);**端到端冒烟进 CI**(`web-e2e.yml`:真 MySQL + Redis + Django + preview,跑 `npm run e2e:smoke`);全量 8 条仍需后端 + Redis + Celery + imserver,本地 `npm run e2e`(E-3)
 - **发版版本号必须双端同改**:`app/pubspec.yaml` + `app/lib/core/app_info.dart` + `web/package.json`(连带 App 关于页与 Web 关于页测试的期望)。**事实来源只有 `app/pubspec.yaml`**:改完跑 `python scripts/sync_version.py --check`(CI 的 `contract.yml` 会拦),`--write` 自动写回另外两处。`MIN_APP_VERSION` 同时卡网页端——只升 App 会让整站被「需要更新后才能继续使用」挡住(2026-10-28 实测,见 `docs/pitfalls/web.md` #23);改完 Web 必须 `npm run build` 并部署 `dist`
 - **版本更新必须同步更新远端 Release(2026-11-05 起,强制)**:升版本号 = 三件事同时做 —— ① 三处版本号一致;② 打附注 tag `v<版本>` 并推送,指向**部署用的那个合并 SHA**;③ 建/更新远端 GitHub Release(title `v<版本> — <主题>`、notes 写新增/变更/修复/运维注意、附件挂 `chatapp-<版本>.apk`)。**不是「下次补」**。发版后必须在 [`docs/ops/release.md`](docs/ops/release.md) §5 记录表加一行(版本 / 日期 / tag / Release / 上线 SHA / APK),`python scripts/sync_version.py --check` 会校验这一行缺失即红(`contract.yml` 拦截)。清单、命令与 notes 规范见该文档 §3–§4
