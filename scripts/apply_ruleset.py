@@ -132,20 +132,21 @@ def merge_required_checks(detail: dict, contexts: list[str]) -> dict:
 
     Args:
         detail: GET ruleset 的返回体。
-        contexts: 必需的 check context 列表。
+        contexts: 必需的 check context 列表;空列表表示**移除**这条规则。
 
     Returns:
         可直接 PUT 的 body。
     """
     rules = [rule for rule in detail.get("rules", []) if rule.get("type") != "required_status_checks"]
-    rules.append({
-        "type": "required_status_checks",
-        "parameters": {
-            # strict=false:不要求 PR 分支必须基于最新 main,否则每个 PR 都要 rebase。
-            "strict_required_status_checks_policy": False,
-            "required_status_checks": [{"context": context} for context in contexts],
-        },
-    })
+    if contexts:
+        rules.append({
+            "type": "required_status_checks",
+            "parameters": {
+                # strict=false:不要求 PR 分支必须基于最新 main,否则每个 PR 都要 rebase。
+                "strict_required_status_checks_policy": False,
+                "required_status_checks": [{"context": context} for context in contexts],
+            },
+        })
     body = {
         "name": detail["name"],
         "target": detail.get("target", "branch"),
@@ -172,10 +173,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--name", default=DEFAULT_RULESET_NAME, help="ruleset 名称")
     parser.add_argument("--apply", action="store_true", help="真写;默认只 dry-run")
     parser.add_argument("--dry-run", action="store_true", help="显式 dry-run(与默认行为相同)")
+    parser.add_argument("--remove", action="store_true",
+                        help="移除 required_status_checks(回滚用;其余规则原样保留)")
     parser.add_argument("--context", action="append", help="覆盖必需 check(可重复)")
     args = parser.parse_args(argv)
 
-    contexts = args.context or REQUIRED_CONTEXTS
+    contexts = [] if args.remove else (args.context or REQUIRED_CONTEXTS)
     try:
         token = read_token()
         detail = find_ruleset(args.repo, args.name, token)
