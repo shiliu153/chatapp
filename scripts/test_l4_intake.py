@@ -745,6 +745,8 @@ class CommandLineTests(unittest.TestCase):
         plan = json.loads(self.plan.read_text(encoding="utf-8"))
         self.assertEqual([d for d in plan["decisions"] if d["action"] == "create"], [])
         self.assertTrue(plan["undecidable"])
+        # 日报(唯一的人工复核入口)不能报「开了 N 张」而实际一张没开
+        self.assertNotIn("create", plan["summary"])
 
     def test_apply_dry_run_does_not_create(self):
         """`apply --dry-run` 只打印,退出码 0。"""

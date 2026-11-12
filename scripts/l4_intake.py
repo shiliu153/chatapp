@@ -1190,10 +1190,19 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         today=args.today,
     )
     # 输入坏掉 = 判不出来 → fail-closed:一条都不开,并把整轮标红。
+    bad_input = False
     for label, payload in (("runs", runs), ("alerts", alerts), ("existing", issues)):
         if isinstance(payload, dict) and "__error__" in payload:
             plan["undecidable"].append(f"{label}: 输入读不出来({payload['__error__']})")
-            plan["decisions"] = [d for d in plan["decisions"] if d["action"] != "create"]
+            bad_input = True
+    if bad_input:
+        plan["decisions"] = [d for d in plan["decisions"] if d["action"] != "create"]
+        # 计划里「开了几张」必须与最终 decisions 一致:日报是唯一的复核入口,
+        # 报 3 张实际开 0 张会让人以为机制正常。
+        plan["summary"] = {}
+        for decision in plan["decisions"]:
+            key = decision["action"]
+            plan["summary"][key] = plan["summary"].get(key, 0) + 1
 
     payload = json.dumps(plan, ensure_ascii=False, indent=2)
     if args.json_out:
