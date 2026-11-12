@@ -91,7 +91,7 @@ jobs:
       # key 只跟「会改变依赖图」的文件走;restore-keys 保证换 key 时仍能吃到旧缓存
       # (缓存条目本身不可变,命中旧 key 时 Gradle 只会补下缺的那几个 artifact)。
       - name: 缓存 Gradle 依赖与 wrapper 发行包
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.gradle/caches/modules-2
