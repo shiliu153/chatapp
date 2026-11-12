@@ -302,6 +302,12 @@ python scripts/apply_ruleset.py --apply
 ```
 
 > **顺序要求**:先去 paths(随 PR 合并),再 `--apply`。反过来会让所有在飞 PR 卡在 pending。
+>
+> **合并后的第一个纯文档 PR 是这套机制的验证点**:它的 `backend` / `web` 应该是
+> `skipped`(秒级,不装依赖、不起 MySQL),而 PR 仍可合并。如果它被 blocked,
+> 说明 skipped 没被 required 接受 —— 立刻
+> `python scripts/apply_ruleset.py --remove --apply` 回滚,再改方案
+> (退回「job 内 step 级 if」而不是 job 级 skip)。
 
 另外新增 `.github/workflows/main-health.yml`(每天 09:00 北京时间):默认分支上任何
 workflow 的**最新一次 push run** 是红的,就建/更新一条 issue;全绿自动关掉。
