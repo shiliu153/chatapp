@@ -9,7 +9,7 @@
 
 **Tech Stack:** Docker Compose(mysql:8.0 / redis:7-alpine)、POSIX bash、Django 5.2 + DRF、Flutter 3.47.2(Linux SDK)、C++20 imserver(docker test)、Vue 3 + vitest。
 
-**Spec:** [docs/superpowers/specs/2026-11-07-superagent-dev-workflow-design.md](../specs/2026-11-07-superagent-dev-workflow-design.md)
+**Spec:** [docs/superpowers/specs/2026-11-07-superagent-dev-workflow-design.md](../../specs/2026-11-07-superagent-dev-workflow-design.md)
 
 ## Global Constraints
 
