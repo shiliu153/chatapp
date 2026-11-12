@@ -14,7 +14,7 @@
 |---|---|
 | `specs/` | 进行中 / 未启动 / 常驻的设计文档 |
 | `plans/` | 进行中 / 未启动的实施计划 |
-| `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(104 份 = 39 份 spec + 65 份 plan,清单见 §4) |
+| `archive/specs/`、`archive/plans/` | 已交付并归档的历史文档(105 份 = 40 份 spec + 65 份 plan,清单见 §4) |
 
 ## 2. 当前工作面(3 组)
 
@@ -34,6 +34,11 @@
 > 当年没有落进 backlog。2026-11-09 已按**主人在 6 个候选中选定 5 项**重新立项为
 > [批次 M–Q](archive/specs/2026-11-09-batch-m-q-design.md)(M 登录设备 / N 会话管理 / O 滑卡增强 / P 使用报告 / Q 敏感词),
 > 与旧引用的字母编号不冲突,旧引用按本条作废。**该批已于同日全部交付并归档**,见 §4。
+>
+> **2026-11-12 的 CI 流程门禁整改(P0/P1/P2)已完成并归档**,见
+> [archive/specs/2026-11-12-ci-flow-gates-design.md](archive/specs/2026-11-12-ci-flow-gates-design.md)。
+> 它**不计入工作面**:立项与交付同日完成,所以没有在 `specs/` 停留过;该文 §6 是这批的未收尾台账
+> (已同步到 [backlog §7](../backlog/2026-11-03-todo.md))。
 
 **当前全部待办**(跨文档汇总、按批次排好序、每条可直接开新对话执行)见
 [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md)。
@@ -46,7 +51,7 @@
 - 交付后在文件末尾写「执行记录 / 与计划的偏差 / 踩到的坑」,**不要**回头补勾旧 checkbox(见 §4 注)
 - 交付即归档:同一提交内 `git mv` 到 `archive/` + 更新本文 §4 + 更新 `CLAUDE.md` 里程碑摘要
 
-## 4. 归档清单(已交付,共 104 份 = 39 份 spec + 65 份 plan)
+## 4. 归档清单(已交付,共 105 份 = 40 份 spec + 65 份 plan)
 
 > **注**:2026-10 之前的计划普遍存在「已交付但 checkbox 未回填」的情况(M0–M2、UI 批次②③、广场楼中楼、自建 IM、账号注销、访客等)。
 > 判断是否交付**以本表结论与 git log 为准**,不要以文件内 checkbox 为准。
@@ -126,6 +131,7 @@
 | 11-09 | [batch-m-q](archive/plans/2026-11-09-batch-m-q.md) | [✓](archive/specs/2026-11-09-batch-m-q-design.md) | 第六轮功能开发五批全交付:**M** 登录设备(列表 + 单端下线,`DeviceSession.last_active_at` / `logged_out_at`)/ **N** 会话管理三件套(置顶·免打扰·删除,imserver `007` + `/im/api/conversations/flags`)/ **O** 滑卡增强(30 秒撤销 + 每日喜欢额度)/ **P** 使用报告(`GET /stats/me` 七项数字)/ **Q** 聊天文字敏感词(本地词库 + AC 自动机)。15 个 PR:立项 #164、M #168/#189/#180/#174、N #175/#187/#188、O #170/#190/#191、P #169/#181/#186、Q #192;`master` 末次合并 `72589f9`。**未发版**(不升版本号、不打 tag、不部署) |
 | 11-11 | [batch-r-w](archive/specs/2026-11-09-batch-r-w-design.md) | — | 第七轮功能开发 R–W 六批全交付(7 份文档一并归档):**W** 发版自动化 `scripts/release_prep.py`(前置闸门 / 版本号三处 / 门禁 / notes 草稿 + 23 条自测进 contract 轨,PR #200)+ **W-L3** golden 截图进 CI(登录页 / 首页两张,基准只由 CI 生成、只由 CI 比对;`app-ui` 轨,PR #242)/ **R** 资料语音自我介绍(#203 #207 #208)/ **S** 发现页筛选 + 每日精选(#212 #214 #216)/ **U** 广场点赞列表 + 收藏(#221 #224 #226)/ **V** 运营数据看板(#231 #232)/ **T** 聊天体验打磨(#238 #239 #240)。**未发版** —— 发版清单(版本号 / notes / tag / Release / 部署)已交主人统一执行 |
 | 11-11 | [superagent-dev-workflow](archive/plans/2026-11-07-superagent-dev-workflow.md) | [✓](specs/2026-11-07-superagent-dev-workflow-design.md) | WSL `dsh-superagent` 开发流程 **P0–P3 已交付、plan 归档**(P0–P3 全部落地 + Task 12 端到端验收完成,验证与偏差见归档文末「执行记录」);**spec 仍在 `specs/` 作常驻流程参考**,日常运维见 [docs/ops/superagent.md](../ops/superagent.md);自动化阶梯 **L1–L3 见 [阶梯 spec §8 实施记录](specs/2026-11-08-superagent-automation-ladder-design.md)**,L4 未做 |
+| 11-12 | [ci-flow-gates](archive/specs/2026-11-12-ci-flow-gates-design.md)(仅 spec) | — | **CI 流程门禁整改 P0/P1/P2**(同日 8 个 PR + 1 个探针):0-check 放行改判 / 覆盖率门槛真跑 / 装锁定依赖 / required checks + 重活按改动面跑 / 部署闸门 `deploy_gate.py` / 发版三处收紧 / `accounts.E001` 可达 / gh-guard 补 REST 绕过口 / `deploy/**` 进 CI / dependabot / Actions pin 21 处 / 1.0.4 Release 归档口径。**未收尾台账见该文 §6**(`AUTOMERGE_TOKEN`、npm security update、dependabot 12 个 PR 待裁决、L4 等) |
 
 > 文件名用**立项日期**,与「日期」列的交付日期可能不同(如 `2026-11-04-tencent-im-removal.md` 于 11-08 交付)。
 

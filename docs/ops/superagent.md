@@ -81,7 +81,8 @@ pwsh -File scripts\superagent-start\ensure-running.ps1
 
 1. 面板 / issue 收到「PR #N 就绪」→ 评审 diff(它只是「就绪」,不等于可合)。
 2. 碰 `app/` 的:PR 应为 draft → 拉分支到 Windows → 装模拟器 → 逐页手测截图 → 贴进 PR → 勾模板第 4 项。
-3. CI 六轨绿 → **squash 合并** → 删分支。
+3. 门禁轨全绿 → **squash 合并** → 删分支。
+   必需检查只有 `contract` / `backend` / `web` 三条(2026-11-12 起);其余轨按改动面触发,`app/` 相关要等 `app` / `app-ui` 绿。
    **别在母体里 `git push origin --delete`**:母体没有 credential helper,https remote 会**静默挂住**
    等输入(不是报错)。删已合并分支用页面,或 REST
    `DELETE /repos/shiliu153/chatapp/git/refs/heads/<branch>`(token 用 `~/.dsh/github-mcp-token.txt`)。
@@ -135,9 +136,12 @@ pwsh -File scripts\superagent-start\ensure-running.ps1
    (或判定 / 清理出错),**一个 worktree 都没删**,修好网络或代理再跑。
 
    网络兜底用的是 `/root/.local/bin/gh-agent`(可用 `GH_CLI=...` 覆盖,置空即关掉)。
-5. 纯文档 PR(只动 `docs/**`):六轨都不触发、**没有 check runs 是正常的**,本地
-   `scripts/verify.sh contract` 绿即可直接 squash 合并,不必再单独占一轮确认。
-   2026-11-08 起这一步已由 `.github/workflows/auto-merge.yml` 自动完成(见 §8)。
+5. 纯文档 PR(只动 `docs/**`):**2026-11-12 起也有 check** —— `contract` 必跑,`backend` / `web` 通常被
+   `scope` 判定为 `skipped`(required 语义里视为满足)。本地 `scripts/verify.sh contract` 绿 + `contract` 轨绿
+   即可 squash 合并,不必再单独占一轮确认。
+   2026-11-08 起这一步在**白名单内**(`docs/api/`、`docs/milestones.md`)已由
+   `.github/workflows/auto-merge.yml` 自动完成(见 §8);`docs/superpowers/`、`docs/ops/`、`docs/pitfalls/`
+   等仍在 `DENY_PREFIXES`,必须人合。
 
 **派工与关单的两条硬规矩(2026-11-07 补,两条都是「不报错、只沉默」的坑)**:
 

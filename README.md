@@ -184,9 +184,12 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
 
 ### 2.8 交付与恢复纪律
 
-- **六条 CI 轨**:backend(MySQL 8 + Redis,含测试与注释/文档门禁)、app(`flutter analyze` 零告警 + 测试)、
-  web(`vue-tsc` + `eslint --max-warnings 0` + vitest 覆盖率门槛)、imserver(unit / WS / HTTP 三套)、
-  contract(schema 与版本号生成物比对)、web-e2e(真后端 + Playwright 冒烟)。
+- **CI 七条门禁轨 + 两条自动化轨**:backend(MySQL 8 + Redis,含测试与注释/文档门禁)、app(`flutter analyze` 零告警 + 测试)、
+  app-ui(模拟器 integration_test + golden 截图)、web(`vue-tsc` + `eslint --max-warnings 0` + vitest 覆盖率门槛)、
+  imserver(unit / WS / HTTP 三套)、contract(schema / 版本号 / 脚本自测)、web-e2e(真后端 + Playwright 冒烟);
+  另有 auto-merge(白名单自动合并)与 main-health(每天检查默认分支每条 workflow 的最新 push run)。
+  **`contract` / `backend` / `web` 是默认分支的必需检查**(2026-11-12 起),backend / web 的重活按改动面跑
+  (`scripts/ci-scope.sh`,无关时 `skipped`)。
 - **发布只认 `origin/main` 的 SHA**:分支 → PR → CI 全绿 → squash 合并 → 部署合并后的 commit;
   部署前先记回滚点(旧 SHA / 旧镜像 tag / `.env` 备份),禁止把未合并的本地提交直接上线。
 - **备份三层**:03:20 自建双库全量(应用库 + IM 库 + 媒体 + 配置,每份带 `.sha256`,并断言 dump 末行
@@ -270,7 +273,7 @@ chat_app/
 ├── deploy/                     # 部署模板、可观测栈、运维脚本(备份 / 看门狗 / 演练)
 ├── scripts/                    # 契约与版本号检查(check_app_models / sync_version)
 ├── docs/                       # 见「文档索引」
-├── .github/workflows/          # 六条 CI 轨
+├── .github/workflows/          # CI:七条门禁轨 + auto-merge / main-health 两条自动化
 └── CLAUDE.md                   # 工程约束与契约的单一事实来源
 ```
 
