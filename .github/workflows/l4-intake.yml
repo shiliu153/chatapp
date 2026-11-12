@@ -69,6 +69,11 @@ jobs:
           fi
 
       # 事实采集:只取快照,**不做任何判断**。判断全在 scripts/l4_intake.py 里(可离线自测)。
+      #
+      # 读不出来的原因**必须进日志**:fail-closed 的意义是「坏了有人知道」,而不是
+      # 「坏了只看到一句 red」。2026-11-12 首次真跑就踩了这条:旧版把 gh 的 stderr
+      # 丢进 /dev/null,于是 run 红了、Summary 里只有「告警响应不是列表」,
+      # 分不出是「没开 Dependabot」还是「GITHUB_TOKEN 没这个权限」。
       - name: 采集事实(红轨 / 依赖告警 / 已有 L4 工单)
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -80,23 +85,36 @@ jobs:
           set -uo pipefail
           mkdir -p .l4
 
+          # 把「读不到」的原因原样写进判定器的输入,顺带打到日志上。
+          fail_json() { # fail_json <stderr 文件> <输出文件>
+            jq -cn --arg r "$(cat "$1" 2>/dev/null)" '{__error__: $r}' > "$2" 2>/dev/null \
+              || echo '{"__error__":"连错误原因都写不出来"}' > "$2"
+          }
+
           # 与 main-health.yml 同一条 API、同一个解析器(l4_intake.py ci-red-summary),
           # 不复制扫描逻辑。
-          gh api "repos/$REPO/actions/runs?branch=$BASE&event=push&per_page=100" \
-            > .l4/runs.json \
-            || echo '{"__error__":"读不到 runs"}' > .l4/runs.json
+          if ! gh api "repos/$REPO/actions/runs?branch=$BASE&event=push&per_page=100" \
+                > .l4/runs.json 2> .l4/runs.err; then
+            echo "::warning::读不到 runs:$(cat .l4/runs.err 2>/dev/null)"
+            fail_json .l4/runs.err .l4/runs.json
+          fi
 
           # 告警读不到(未开启 Dependabot alerts / 权限不足)时写一个错误标记:
           # 判定器据此按「判不出来」处理 → 不开单 + 整轮标红,而不是静默当成「没有漏洞」。
-          if ! gh api --paginate --slurp "repos/$REPO/dependabot/alerts?state=open&per_page=100" \
-                2>/dev/null | jq -c 'add // []' > .l4/alerts.json; then
-            echo '{"__error__":"dependabot alerts 读不到(未开启或权限不足)"}' > .l4/alerts.json
+          if out=$(gh api --paginate --slurp \
+                "repos/$REPO/dependabot/alerts?state=open&per_page=100" 2> .l4/alerts.err); then
+            printf '%s' "$out" | jq -c 'add // []' > .l4/alerts.json
+          else
+            echo "::warning::读不到 dependabot 告警:$(cat .l4/alerts.err 2>/dev/null)"
+            fail_json .l4/alerts.err .l4/alerts.json
           fi
 
           # 去重靠 body 里的指纹;每天新建数靠 createdAt(UTC 日)。
-          gh issue list --repo "$REPO" --label l4-auto --state all --limit 100 \
-            --json number,title,state,body,createdAt > .l4/issues.json \
-            || echo '{"__error__":"读不到已有 l4-auto issue"}' > .l4/issues.json
+          if ! gh issue list --repo "$REPO" --label l4-auto --state all --limit 100 \
+                --json number,title,state,body,createdAt > .l4/issues.json 2> .l4/issues.err; then
+            echo "::warning::读不到已有 l4-auto issue:$(cat .l4/issues.err 2>/dev/null)"
+            fail_json .l4/issues.err .l4/issues.json
+          fi
 
           echo "已采集: runs=$(jq '.workflow_runs | length' .l4/runs.json 2>/dev/null || echo '?')" \
                "alerts=$(jq 'length' .l4/alerts.json 2>/dev/null || echo '?')" \

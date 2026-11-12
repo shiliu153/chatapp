@@ -720,8 +720,9 @@ cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait
   `open` 告警。判定器读的是**锁文件里实际装的版本**,不是告警 `state` —— 所以这类会判成
   「已是 X,不在受影响区间内(告警滞后,可顺手 dismiss)」。看到这条不要以为判定器坏了。
 - **`dependabot/alerts` 读不到时整轮会红。** 这不是 bug 而是 fail-closed:读不到就无法判断
-  有没有漏洞,静默当成「没有」会变成假绿。一次性处置:仓库 **Settings → Code security** 打开
-  Dependabot alerts(本项目 security updates 已在用,通常本来就开着)。
+  有没有漏洞,静默当成「没有」会变成假绿。gh 的原始报错会进 step 日志(`::warning::` 那行)
+  和 `.l4/*.err`(artifact 里),照着它改:多半是仓库 **Settings → Code security** 的
+  Dependabot alerts 未开,或 `GITHUB_TOKEN` 的 `security-events: read` 没给到。
 - **`ci-red` 只认「最新一次 push run」。** 一条 workflow 红了、随后又被人手动重跑成绿,就不算红
   —— 与 `main-health.yml` 同口径(它的红轨列表也由 `scripts/l4_intake.py` 解析)。
 - **自动单不会自己进队列。** 正文里刻意不含任何 `@`,派工仍要人在评论里做(§4.1)。
