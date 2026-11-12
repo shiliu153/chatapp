@@ -7,7 +7,7 @@
 | 信号 | 事实来源 | 是(开单)的判据 |
 |---|---|---|
 | `ci-red` | 默认分支上每条 workflow 的最新 push run | 结论是 `failure`,且该 workflow 映射到**单一条栈**、该栈在 `scripts/verify.sh` 里有子命令 |
-| `dep-advisory` | Dependabot 告警 + 仓库里的锁文件 | 告警 still open、severity ≥ 阈值、**有** first_patched_version、**锁文件里实际装的版本仍落在受影响区间内** |
+| `dep-advisory` | `npm audit --json` + 仓库锁文件 | 公告命中、severity ≥ 阈值、**有** first_patched_version、**锁文件里实际装的版本仍落在受影响区间内** |
 | `mech-docs-links` | `scripts/check_docs_links.py` | `docs/` 里存在指向不存在路径的相对链接 |
 
 设计文档:`docs/superpowers/specs/2026-11-08-superagent-automation-ladder-design.md` §6。
@@ -25,6 +25,11 @@
 
 用法
 ----
+    # 依赖信号的事实源是 `npm audit --json`(私有仓库上 GITHUB_TOKEN 读 dependabot
+    # 告警接口是 403,实测),先规整成与告警同形状的记录:
+    (cd web && npm audit --json > ../.l4/npm-audit.json)    # 退出码非 0 是正常的
+    python scripts/l4_intake.py from-npm-audit --input .l4/npm-audit.json --out .l4/alerts.json
+
     # 判定(纯函数,离线;输入是 gh api 的 JSON 快照)
     python scripts/l4_intake.py plan --runs runs.json --alerts alerts.json \
         --existing issues.json --root . --json-out plan.json --summary-out summary.md
@@ -92,7 +97,12 @@ CI_RED_HUMAN_ONLY: Dict[str, str] = {
 
 # Dependabot 告警:生态 → 能不能开单。docker / github-actions 的修复动的是 deploy/ 与
 # .github/(worker 不可写或必须人审),所以只记录不开单。
-DEP_ECOSYSTEMS = {"npm": "web", "pip": "backend"}
+#
+# 2026-11-12 收窄到只认 npm:私有仓库上 `GITHUB_TOKEN` 读 `/dependabot/alerts` 是
+# **403 Resource not accessible by integration**(实测,见 ops §14.4),而 `npm audit`
+# 同一套公告库、直接读锁文件,任何 token 都能跑。pip 侧没有等价的本地扫描器,
+# 所以 pip 明确留给人(不再假装覆盖)。
+DEP_ECOSYSTEMS = {"npm": "web"}
 
 # 锁文件位置(相对仓库根)。生态 → 锁文件 + 解析方式。
 NPM_LOCK = "web/package-lock.json"
@@ -252,14 +262,30 @@ def _match_comparator(version: Tuple[int, int, int], comparator: str) -> Optiona
     return None
 
 
+def _normalize_spec(spec: str) -> str:
+    """把两种常见的区间写法归一化,再交给比较器。
+
+    GitHub 公告用逗号分隔(`>= 7.0.0, < 7.30.1`),**npm 用空格分隔**
+    (`>=8.3.0 <=8.3.2`)。旧版只按逗号切,于是 npm 的写法会整串被当成一个比较式而
+    判不出来 —— 换成 npm audit 之后这是**主路径**,必须归一化。
+
+    Args:
+        spec: 原始区间表达式。
+
+    Returns:
+        去掉了「操作符与版本号之间空格」的表达式;分组仍保留逗号与空格作为分隔符。
+    """
+    return re.sub(r"([<>=^~]+)\s+", r"\1", spec.strip())
+
+
 def version_in_range(version: str, spec: str) -> Optional[bool]:
     """判定某个版本是否落在 npm / pip 风格的受影响区间里。
 
-    支持 `||`、逗号表示「且」、以及 `>= <= > < = ^ ~` 与裸版本(等价于 `=`)。
+    支持 `||`、逗号**或空格**表示「且」、以及 `>= <= > < = ^ ~` 与裸版本(等价于 `=`)。
 
     Args:
         version: 待判定的版本号(锁文件里实际装的那个)。
-        spec: 区间表达式,如 `>= 7.0.0, < 7.30.1`。
+        spec: 区间表达式,如 `>= 7.0.0, < 7.30.1` 或 `>=8.3.0 <=8.3.2`。
 
     Returns:
         `True`(在区间内)/ `False`(不在)/ `None`(判不出来 —— 调用方必须按不开单处理)。
@@ -268,8 +294,11 @@ def version_in_range(version: str, spec: str) -> Optional[bool]:
     if parsed is None or not spec or not spec.strip():
         return None
     unknown = False
-    for group in spec.split("||"):
-        results = [_match_comparator(parsed, part) for part in group.split(",")]
+    for group in _normalize_spec(spec).split("||"):
+        parts = [part for part in re.split(r"[,\s]+", group.strip()) if part]
+        if not parts:
+            continue
+        results = [_match_comparator(parsed, part) for part in parts]
         if any(result is False for result in results):
             continue
         if any(result is None for result in results):
@@ -446,6 +475,75 @@ def _alert_stack(alert: dict) -> Optional[Tuple[str, str, str]]:
     if manifest.startswith("chatapp/"):
         return ("chatapp/", "backend", "backend")
     return None
+
+
+GHSA_RE = re.compile(r"(GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})", re.IGNORECASE)
+
+
+def normalize_npm_audit(report: Any, manifest: str = "web/package.json") -> List[dict]:
+    """把 `npm audit --json` 的输出规整成判定器认识的「告警记录」。
+
+    为什么要转换而不是直接判:`npm audit` 是**在任何 token 下都能跑**的事实源
+    (Dependabot 告警接口在私有仓库上对 `GITHUB_TOKEN` 返回 403,实测),
+    而它的输出形状与 GitHub 告警 API 不同。转换之后,严重度阈值、锁文件比对、
+    指纹去重这些口径与「告警」那条路径完全共用,不必各写一份。
+
+    一个包可能命中多条公告(`via` 里每个对象一条),**按公告拆开**——指纹
+    `dep|npm|<包>|<GHSA>` 因此天然区分得开。
+
+    Args:
+        report: `npm audit --json` 解析后的字典。
+        manifest: 写进记录的清单路径,用于映射到栈。
+
+    Returns:
+        告警记录列表。`via` 里的字符串项(传递依赖、没有公告号)被跳过:
+        没有公告号就做不出稳定指纹,也就无法去重 ⇒ 不开单。
+    """
+    vulnerabilities = (report or {}).get("vulnerabilities") or {}
+    if not isinstance(vulnerabilities, dict):
+        return []
+
+    records: List[dict] = []
+    for name in sorted(vulnerabilities):
+        entry = vulnerabilities[name]
+        if not isinstance(entry, dict):
+            continue
+        fix = entry.get("fixAvailable")
+        patched = str(fix.get("version") or "") if isinstance(fix, dict) else ""
+        for via in entry.get("via") or []:
+            if not isinstance(via, dict):
+                continue
+            url = str(via.get("url") or "")
+            match = GHSA_RE.search(url)
+            if not match:
+                continue
+            records.append(
+                {
+                    "state": "open",
+                    "dismissed_at": None,
+                    "html_url": url,
+                    "dependency": {
+                        "package": {"name": name, "ecosystem": "npm"},
+                        "manifest_path": manifest,
+                    },
+                    "security_advisory": {
+                        "ghsa_id": match.group(1).upper(),
+                        "severity": str(
+                            via.get("severity") or entry.get("severity") or ""
+                        ).lower(),
+                        "summary": str(via.get("title") or ""),
+                    },
+                    "security_vulnerability": {
+                        "vulnerable_version_range": str(
+                            via.get("range") or entry.get("range") or ""
+                        ),
+                        "first_patched_version": (
+                            {"identifier": patched} if patched else None
+                        ),
+                    },
+                }
+            )
+    return records
 
 
 # ── 工单正文渲染
@@ -857,6 +955,58 @@ def decide_docs_links(repo_root: Path, judged_at: str) -> Tuple[List[Decision], 
     return [_docs_ticket(file, items, judged_at) for file, items in sorted(grouped.items())], []
 
 
+def scan_info(repo_root: Path, runs: Any, alerts: Any) -> dict:
+    """统计这一轮「到底扫到了多少」,写进计划与日报。
+
+    没有它,「扫了 128 个文件、没有断链」与「一个文件都没扫到」在日报里长得一模一样
+    —— 2026-11-12 首次真跑就卡在这个歧义上(见 `docs/ops/superagent.md` §14.4)。
+    这里任何一项取不到都只是 `None`,绝不影响判定。
+
+    Args:
+        repo_root: 仓库根目录。
+        runs: 默认分支 push runs 快照。
+        alerts: 告警快照。
+
+    Returns:
+        含各信号「扫到了多少」的字典。
+    """
+    info: Dict[str, Any] = {
+        "workflows_seen": None,
+        "red_workflows": None,
+        "alerts_seen": None,
+        "docs_root": str((repo_root / "docs").resolve()),
+        "docs_markdown_files": None,
+        "broken_links": None,
+        "broken_files": None,
+    }
+    try:
+        latest = latest_runs_by_workflow(runs)
+        info["workflows_seen"] = len(latest)
+        info["red_workflows"] = sum(1 for run in latest if run.get("conclusion") == "failure")
+    except (ValueError, TypeError):
+        pass
+
+    items = alerts.get("alerts") if isinstance(alerts, dict) else alerts
+    if isinstance(items, list):
+        info["alerts_seen"] = len(items)
+
+    try:
+        info["docs_markdown_files"] = check_docs_links.count_markdown_files(repo_root)
+        broken = check_docs_links.find_broken_links(repo_root)
+        info["broken_links"] = len(broken)
+        info["broken_files"] = len({str(item["file"]) for item in broken})
+        # 采样几个被扫到的文件:用来证明「扫的到底是哪棵树」。
+        docs_dir = (repo_root / "docs")
+        if docs_dir.is_dir():
+            info["docs_sample"] = [
+                path.relative_to(repo_root.resolve()).as_posix()
+                for path in sorted(docs_dir.rglob("*.md"))[:3]
+            ]
+    except (OSError, FileNotFoundError):
+        pass
+    return info
+
+
 # ── 去重 + 限额
 
 
@@ -1025,6 +1175,7 @@ def build_plan(
         "today": day,
         "max_per_day": max_per_day,
         "candidates": before,
+        "scan": scan_info(repo_root, runs, alerts),
         "decisions": [asdict(decision) for decision in decisions],
         "undecidable": undecidable,
         "summary": summary,
@@ -1055,6 +1206,15 @@ def render_plan_markdown(plan: dict) -> str:
         if summary
         else "- 结论:本轮没有命中任何白名单信号(没有断链、没有红轨、没有仍受影响的漏洞)"
     )
+    scan = plan.get("scan") or {}
+    if scan:
+        lines.append(
+            "- 扫描面(区分「没命中」与「根本没扫」):"
+            f"workflow {scan.get('workflows_seen')} 条(红 {scan.get('red_workflows')}) · "
+            f"告警 {scan.get('alerts_seen')} 条 · "
+            f"`{scan.get('docs_root')}` 下 {scan.get('docs_markdown_files')} 个 .md"
+            f"(断链 {scan.get('broken_links')} 处 / {scan.get('broken_files')} 个文件)"
+        )
     lines.append("")
     lines.append("| 信号 | 动作 | 对象 | 说明 |")
     lines.append("|---|---|---|---|")
@@ -1257,6 +1417,37 @@ def _cmd_ci_red_summary(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_from_npm_audit(args: argparse.Namespace) -> int:
+    """`from-npm-audit` 子命令:把 `npm audit --json` 规整成告警记录。
+
+    Args:
+        args: 命令行参数。
+
+    Returns:
+        进程退出码(0 = 正常;2 = 输入读不出来 —— 与判定器 `plan` 的 0 不同,
+        因为这一步的输入坏掉意味着「判不出来」)。
+    """
+    try:
+        report = _load_json(args.input)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"l4_intake: 读不了 npm audit 报告 —— {exc}", file=sys.stderr)
+        return 2
+    if isinstance(report, dict) and "vulnerabilities" not in report:
+        print(
+            f"l4_intake: npm audit 报告里没有 vulnerabilities 字段(键:{sorted(report)[:6]})",
+            file=sys.stderr,
+        )
+        return 2
+    records = normalize_npm_audit(report, manifest=args.manifest)
+    payload = json.dumps(records, ensure_ascii=False)
+    if args.out:
+        Path(args.out).write_text(payload + "\n", encoding="utf-8")
+    else:
+        print(payload)
+    print(f"l4_intake: 从 npm audit 规整出 {len(records)} 条公告记录", file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """构造命令行解析器。
 
@@ -1302,6 +1493,14 @@ def build_parser() -> argparse.ArgumentParser:
     summary = sub.add_parser("ci-red-summary", help="输出默认分支红轨的 Markdown 列表")
     summary.add_argument("--runs", required=True, help="runs 快照(- = stdin)")
     summary.set_defaults(func=_cmd_ci_red_summary)
+
+    npm = sub.add_parser(
+        "from-npm-audit", help="把 `npm audit --json` 规整成判定器认识的告警记录"
+    )
+    npm.add_argument("--input", required=True, help="npm audit --json 的输出(- = stdin)")
+    npm.add_argument("--manifest", default="web/package.json", help="清单路径(映射到栈)")
+    npm.add_argument("--out", default="", help="写这里(默认 stdout)")
+    npm.set_defaults(func=_cmd_from_npm_audit)
     return parser
 
 

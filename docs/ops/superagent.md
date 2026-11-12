@@ -684,7 +684,7 @@ cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait
 | 信号 | 开单条件 | 明确不开单 |
 |---|---|---|
 | `ci-red` | 默认分支上某条 workflow 的**最新一次 push run** 是红的,且该栈在 `scripts/verify.sh` 里有子命令(`Backend (Django)` / `Web (Vue)` / `imserver` / `App (Flutter)`) | `跨栈契约`(横跨四栈 + 多为升版本号,属人)、`App UI` / `Web E2E`(worker 无法自证)、三条流程轨自身 |
-| `dep-advisory` | Dependabot 告警 open 且 severity ≥ `high` 且**有修复版本**且**锁文件里实际装的版本仍落在受影响区间内** | 低/中危、无修复版本、`docker`/`actions` 生态、**已经修好的**(告警滞后) |
+| `dep-advisory` | `npm audit`（读 `web/package-lock.json`）命中且 severity ≥ `high` 且**有修复版本**且**锁文件里实际装的版本仍落在受影响区间内** | 低/中危、无修复版本、**pip / docker / actions 生态**(没有等价的本地扫描器,见 §14.4)、已经修好的 |
 | `mech-docs-links` | `docs/` 里有相对链接指向不存在的路径 | 版本号/生成物不一致 —— 已被默认分支 push 轨覆盖,由 `ci-red` 负责 |
 
 三条都过了还有第四道:一天最多 **5 张**(`L4_MAX_PER_DAY`)。
@@ -716,13 +716,21 @@ cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait
 
 ### 14.4 已知偏差
 
-- **告警会滞后于锁文件。** 2026-11-13 实测:本仓库 `npm audit` 已是 0,而 Dependabot 仍开着 13 条
-  `open` 告警。判定器读的是**锁文件里实际装的版本**,不是告警 `state` —— 所以这类会判成
-  「已是 X,不在受影响区间内(告警滞后,可顺手 dismiss)」。看到这条不要以为判定器坏了。
-- **`dependabot/alerts` 读不到时整轮会红。** 这不是 bug 而是 fail-closed:读不到就无法判断
-  有没有漏洞,静默当成「没有」会变成假绿。gh 的原始报错会进 step 日志(`::warning::` 那行)
-  和 `.l4/*.err`(artifact 里),照着它改:多半是仓库 **Settings → Code security** 的
-  Dependabot alerts 未开,或 `GITHUB_TOKEN` 的 `security-events: read` 没给到。
+- **依赖侧只覆盖 npm(web 栈)。** 事实源是 `npm audit --json` —— 同一套公告库、直接读
+  `web/package-lock.json`、任何 token 都能跑。**pip / docker / github-actions 明确留给人**:
+  私有仓库上 `GITHUB_TOKEN` 读 `/repos/{o}/{r}/dependabot/alerts` 返回
+  **403 `Resource not accessible by integration`**(2026-11-12 首轮真跑实测,`security-events: read`
+  授到也一样),而这三类没有等价的本地扫描器。**假覆盖比不覆盖更糟** —— 宁可让人知道
+  「这一段没人看着」,也不要让人以为有人看着。恢复条件:接口对 `GITHUB_TOKEN` 可用,
+  或引入 `pip-audit` 之类的本地扫描。
+- **`npm audit` 失败时整轮会红。** 这不是 bug 而是 fail-closed:读不到就无法判断有没有漏洞,
+  静默当成「没有」会变成假绿。`npm audit` 的原始报错会进 `::warning::` 那行与 `.l4/npm-audit.err`
+  (artifact 里)。注意:**有漏洞时 `npm audit` 的退出码本来就是非 0**,不算失败 ——
+  判定只看产出是不是合法 JSON。
+- **日报里的「扫描面」那一行不要忽略。** 它写的是「扫了多少」:`workflow N 条(红 M)` /
+  `公告 N 条` / `docs/ 下 N 个 .md(断链 N 处)`. 判定器「没命中」与判定器「根本没扫到」
+  在结论行里长得一样(都是「没有命中任何白名单信号」),区别只在这一行。
+  2026-11-12 首轮真跑就出过这个歧义,所以它现在是必看的。
 - **`ci-red` 只认「最新一次 push run」。** 一条 workflow 红了、随后又被人手动重跑成绿,就不算红
   —— 与 `main-health.yml` 同口径(它的红轨列表也由 `scripts/l4_intake.py` 解析)。
 - **自动单不会自己进队列。** 正文里刻意不含任何 `@`,派工仍要人在评论里做(§4.1)。

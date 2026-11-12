@@ -7,8 +7,9 @@ name: L4 需求自动入队
 #
 #   1. ci-red        默认分支上某条 workflow 的最新 push run 是红的,且该栈能在
 #                    scripts/verify.sh 里自证(backend / web / imserver / app 四条)。
-#   2. dep-advisory  Dependabot 告警 still open + 有修复版本 + **锁文件里实际装的版本
-#                    仍落在受影响区间内**(只信 state 会为 2026-11-12 已修好的漏洞开单)。
+#   2. dep-advisory  `npm audit --json` 命中 + 有修复版本 + **锁文件里实际装的版本
+#                    仍落在受影响区间内**(npm audit 本身就读锁文件,这一条是双保险)。
+#                    pip / docker / actions 侧**不在白名单**(见 spec §6.1 的「否」列)。
 #   3. mech-docs-links  docs/ 里的相对链接指向不存在的路径。
 #
 # 三条硬规矩:
@@ -37,7 +38,6 @@ permissions:
   contents: read
   issues: write          # 开单 / 评论 / 重开 + 建标签
   actions: read          # 读 workflow 的 run 结论
-  security-events: read  # 读 Dependabot 告警
 
 concurrency:
   group: l4-intake
@@ -53,6 +53,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.11'
+
+      # 依赖信号靠 `npm audit`,所以要 node。版本跟随仓库约定(Node 22)。
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
 
       # 判定器全是标准库,不装任何依赖(连 PyYAML 都不需要)。
       - name: 总闸
@@ -99,14 +104,26 @@ jobs:
             fail_json .l4/runs.err .l4/runs.json
           fi
 
-          # 告警读不到(未开启 Dependabot alerts / 权限不足)时写一个错误标记:
-          # 判定器据此按「判不出来」处理 → 不开单 + 整轮标红,而不是静默当成「没有漏洞」。
-          if out=$(gh api --paginate --slurp \
-                "repos/$REPO/dependabot/alerts?state=open&per_page=100" 2> .l4/alerts.err); then
-            printf '%s' "$out" | jq -c 'add // []' > .l4/alerts.json
+          # 依赖信号的事实源:`npm audit --json`。
+          #
+          # 为什么**不是** dependabot 告警接口:私有仓库上 GITHUB_TOKEN 读
+          # `/repos/{o}/{r}/dependabot/alerts` 返回 **403 Resource not accessible by
+          # integration**(2026-11-12 首轮真跑实测,`security-events: read` 已授到也照样 403)。
+          # `npm audit` 用同一套公告库、直接读 `web/package-lock.json`,任何 token 都能跑,
+          # 而且「锁文件里到底装的什么」本来就是我们要的口径。
+          # 有漏洞时 npm audit 的退出码非 0 —— 那是正常输出,只看产出是不是合法 JSON。
+          if [ -f web/package-lock.json ]; then
+            ( cd web && npm audit --json ) > .l4/npm-audit.json 2> .l4/npm-audit.err
+            if jq -e '.vulnerabilities' .l4/npm-audit.json >/dev/null 2>&1; then
+              python scripts/l4_intake.py from-npm-audit \
+                --input .l4/npm-audit.json --out .l4/alerts.json
+            else
+              echo "::warning::npm audit 没产出可用报告:$(head -c 400 .l4/npm-audit.err 2>/dev/null | tr '\n' ' ')"
+              fail_json .l4/npm-audit.err .l4/alerts.json
+            fi
           else
-            echo "::warning::读不到 dependabot 告警:$(cat .l4/alerts.err 2>/dev/null)"
-            fail_json .l4/alerts.err .l4/alerts.json
+            echo "::warning::没有 web/package-lock.json,依赖判据无从判定"
+            echo '{"__error__":"web/package-lock.json 不存在"}' > .l4/alerts.json
           fi
 
           # 去重靠 body 里的指纹;每天新建数靠 createdAt(UTC 日)。
@@ -116,9 +133,9 @@ jobs:
             fail_json .l4/issues.err .l4/issues.json
           fi
 
-          echo "已采集: runs=$(jq '.workflow_runs | length' .l4/runs.json 2>/dev/null || echo '?')" \
-               "alerts=$(jq 'length' .l4/alerts.json 2>/dev/null || echo '?')" \
-               "issues=$(jq 'length' .l4/issues.json 2>/dev/null || echo '?')"
+          echo "已采集: workflows=$(jq '.workflow_runs | length' .l4/runs.json 2>/dev/null || echo '?')" \
+               "公告记录=$(jq 'length' .l4/alerts.json 2>/dev/null || echo '?')" \
+               "已有单=$(jq 'length' .l4/issues.json 2>/dev/null || echo '?')"
 
       - name: 判定(纯离线,产出计划 + 日报)
         if: steps.gate.outputs.enabled == 'true'

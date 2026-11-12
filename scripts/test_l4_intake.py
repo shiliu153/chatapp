@@ -121,6 +121,17 @@ class VersionRangeTests(unittest.TestCase):
         self.assertTrue(l4_intake.version_in_range("1.2.9", "~1.2.3"))
         self.assertFalse(l4_intake.version_in_range("1.3.0", "~1.2.3"))
 
+    def test_npm_space_separated_range(self):
+        """**npm 的区间是空格分隔**(`>=8.3.0 <=8.3.2`),GitHub 公告是逗号分隔。
+
+        换成 `npm audit` 做事实源后这是主路径:旧版只按逗号切,会把整串当一个比较式,
+        于是判不出来(None)→ 全部不开单,机制静默失效。
+        """
+        self.assertTrue(l4_intake.version_in_range("8.3.2", ">=8.3.0 <=8.3.2"))
+        self.assertFalse(l4_intake.version_in_range("8.3.8", ">=8.3.0 <=8.3.2"))
+        self.assertTrue(l4_intake.version_in_range("7.30.0", ">=7.0.0 <7.30.1"))
+        self.assertFalse(l4_intake.version_in_range("7.30.2", ">=7.0.0 <7.30.1"))
+
     def test_or_groups(self):
         """`||` 表示「或」。"""
         self.assertTrue(l4_intake.version_in_range("3.0.0", "< 2.0.0 || >= 3.0.0"))
@@ -378,23 +389,216 @@ class DepAdvisoryTests(unittest.TestCase):
         self.assertEqual(len(undecidable), 1)
         self.assertIn("锁文件里找不到", undecidable[0])
 
-    def test_pip_alert_opens_backend_ticket(self):
-        """pip 告警 → backend 栈工单,验收用 requirements.lock。"""
-        (self.root / "chatapp/requirements.lock").write_text("Django==5.2.1\n", encoding="utf-8")
+    def test_pip_alert_is_out_of_whitelist(self):
+        """pip 侧没有等价的本地扫描器(私有仓库上告警接口 403)→ 明确留给人,不假装覆盖。"""
         alert = alert_fixture(
             package="Django", ecosystem="pip", manifest="chatapp/requirements.txt",
             vulnerable=">= 5.0.0, < 5.2.2", patched="5.2.2",
         )
-        decisions, _ = l4_intake.decide_dep([alert], self.root, NOW)
-        self.assertEqual([d.action for d in decisions], ["create"])
-        self.assertIn("scripts/verify.sh backend", decisions[0].body)
-        self.assertRegex(decisions[0].title, r"^fix\(backend\): ")
+        decisions, undecidable = l4_intake.decide_dep([alert], self.root, NOW)
+        self.assertEqual(undecidable, [])
+        self.assertEqual([d.action for d in decisions], ["skip"])
+        self.assertIn("不在白名单", decisions[0].reason)
 
     def test_malformed_alerts_is_undecidable(self):
         """告警响应形状不对 → 判不出来,不开单。"""
         decisions, undecidable = l4_intake.decide_dep({"oops": 1}, self.root, NOW)
         self.assertEqual(decisions, [])
         self.assertTrue(undecidable)
+
+
+class NpmAuditSourceTests(unittest.TestCase):
+    """`npm audit --json` → 告警记录(依赖信号的事实源)。
+
+    换源的原因:私有仓库上 `GITHUB_TOKEN` 读 `/dependabot/alerts` 是
+    **403 Resource not accessible by integration**(2026-11-12 实测),
+    而 `npm audit` 用同一套公告库、直接读锁文件,任何 token 都能跑。
+    """
+
+    def _report(self, fix_version: str = "8.3.3") -> dict:
+        """造一份 npm audit v2 报告(形状按真实输出,含一条字符串 via)。
+
+        Args:
+            fix_version: `fixAvailable.version`;空串表示「没有可用修复」(`false`)。
+
+        Returns:
+            `npm audit --json` 形状的字典。
+        """
+        return {
+            "auditReportVersion": 2,
+            "vulnerabilities": {
+                "vite": {
+                    "name": "vite",
+                    "severity": "high",
+                    "isDirect": True,
+                    "via": [
+                        {
+                            "source": 1,
+                            "name": "vite",
+                            "dependency": "vite",
+                            "title": "vite 允许任意命令执行",
+                            "url": "https://github.com/advisories/GHSA-587h-7wmj-h5pm",
+                            "severity": "high",
+                            "range": ">=8.3.0 <=8.3.2",
+                        },
+                        {
+                            "source": 2,
+                            "name": "vite",
+                            "dependency": "vite",
+                            "title": "vite 的 fs.deny 可被绕过",
+                            "url": "https://github.com/advisories/GHSA-698v-4r3x-3vcv",
+                            "severity": "medium",
+                            "range": ">=8.3.0 <=8.3.2",
+                        },
+                        "some-transitive-pkg",
+                    ],
+                    "effects": [],
+                    "range": ">=8.3.0 <=8.3.2",
+                    "nodes": ["node_modules/vite"],
+                    "fixAvailable": (
+                        {"name": "vite", "version": fix_version, "isSemVerMajor": False}
+                        if fix_version
+                        else False
+                    ),
+                }
+            },
+            "metadata": {"vulnerabilities": {"high": 1, "medium": 1}},
+        }
+
+    def test_one_record_per_advisory(self):
+        """一个包命中两条公告 → 两条记录(指纹按公告区分);字符串 via 被跳过。"""
+        records = l4_intake.normalize_npm_audit(self._report())
+        self.assertEqual(len(records), 2)
+        self.assertEqual(
+            sorted(r["security_advisory"]["ghsa_id"] for r in records),
+            ["GHSA-587H-7WMJ-H5PM", "GHSA-698V-4R3X-3VCV"],
+        )
+        self.assertEqual(records[0]["dependency"]["package"]["ecosystem"], "npm")
+        self.assertEqual(records[0]["dependency"]["manifest_path"], "web/package.json")
+        self.assertEqual(
+            records[0]["security_vulnerability"]["first_patched_version"]["identifier"],
+            "8.3.3",
+        )
+
+    def test_no_fix_available_means_human(self):
+        """`fixAvailable: false` → 没有修复版本 → 判定器不开单(要判断绕开还是接受风险)。"""
+        records = l4_intake.normalize_npm_audit(self._report(fix_version=""))
+        self.assertTrue(records)
+        self.assertIsNone(records[0]["security_vulnerability"]["first_patched_version"])
+
+    def test_empty_or_odd_report(self):
+        """没有 vulnerabilities 字段时返回空列表,不炸。"""
+        self.assertEqual(l4_intake.normalize_npm_audit({}), [])
+        self.assertEqual(l4_intake.normalize_npm_audit({"vulnerabilities": []}), [])
+
+    def test_end_to_end_still_affected_opens_ticket(self):
+        """规整 → 判定 → 开单:锁文件里 8.3.2 仍在区间内。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "web").mkdir()
+            (root / "chatapp").mkdir()
+            (root / "web/package-lock.json").write_text(
+                json.dumps({"packages": {"node_modules/vite": {"version": "8.3.2"}}}),
+                encoding="utf-8",
+            )
+            (root / "chatapp/requirements.lock").write_text("", encoding="utf-8")
+            records = l4_intake.normalize_npm_audit(self._report())
+            decisions, undecidable = l4_intake.decide_dep(records, root, NOW)
+            self.assertEqual(undecidable, [])
+            creates = [d for d in decisions if d.action == "create"]
+            skips = [d for d in decisions if d.action == "skip"]
+            # 两条公告里只有 high 那条开单;medium 那条按阈值只记录(值不值得修是判断)
+            self.assertEqual(len(creates), 1)
+            self.assertEqual(len(skips), 1)
+            self.assertIn("GHSA-587H-7WMJ-H5PM", creates[0].title)
+            self.assertRegex(creates[0].title, r"^fix\(web\): ")
+            self.assertIn("npm audit --audit-level=high", creates[0].body)
+            self.assertIn("低于阈值", skips[0].reason)
+
+    def test_end_to_end_already_fixed_opens_nothing(self):
+        """锁文件里升到 8.3.8 → 不在区间 → 一张都不开(与「告警滞后」同一个道理)。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "web").mkdir()
+            (root / "chatapp").mkdir()
+            (root / "web/package-lock.json").write_text(
+                json.dumps({"packages": {"node_modules/vite": {"version": "8.3.8"}}}),
+                encoding="utf-8",
+            )
+            (root / "chatapp/requirements.lock").write_text("", encoding="utf-8")
+            records = l4_intake.normalize_npm_audit(self._report())
+            decisions, undecidable = l4_intake.decide_dep(records, root, NOW)
+            self.assertEqual(undecidable, [])
+            self.assertNotIn("create", [d.action for d in decisions])
+
+    def test_cli_rejects_bad_input(self):
+        """输入不是 audit 报告 → 退出码 2(判不出来,不是「没有漏洞」)。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.json"
+            bad.write_text("{}", encoding="utf-8")
+            self.assertEqual(l4_intake.main(["from-npm-audit", "--input", str(bad)]), 2)
+            missing = Path(tmp) / "nope.json"
+            self.assertEqual(l4_intake.main(["from-npm-audit", "--input", str(missing)]), 2)
+
+    def test_cli_writes_records(self):
+        """正常输入 → 退出码 0 并写出记录。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "audit.json"
+            src.write_text(json.dumps(self._report()), encoding="utf-8")
+            out = Path(tmp) / "alerts.json"
+            code = l4_intake.main(
+                ["from-npm-audit", "--input", str(src), "--out", str(out)]
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(len(json.loads(out.read_text(encoding="utf-8"))), 2)
+
+
+class ScanInfoTests(unittest.TestCase):
+    """扫描面统计:日报必须能区分「没命中」与「根本没扫」。"""
+
+    def test_counts_are_reported(self):
+        """扫了多少 workflow / 告警 / .md 都要出现在计划里。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "web").mkdir()
+            (root / "chatapp").mkdir()
+            (root / "docs").mkdir()
+            (root / "web/package-lock.json").write_text('{"packages": {}}', encoding="utf-8")
+            (root / "chatapp/requirements.lock").write_text("", encoding="utf-8")
+            (root / "docs/a.md").write_text("[坏](missing.md)\n", encoding="utf-8")
+            (root / "docs/b.md").write_text("# 好的\n", encoding="utf-8")
+            plan = l4_intake.build_plan(
+                runs={"workflow_runs": [run_fixture("Backend (Django)", conclusion="success")]},
+                alerts=[],
+                issues=[],
+                repo_root=root,
+                judged_at=NOW,
+                today="2026-11-13",
+            )
+            scan = plan["scan"]
+            self.assertEqual(scan["workflows_seen"], 1)
+            self.assertEqual(scan["red_workflows"], 0)
+            self.assertEqual(scan["alerts_seen"], 0)
+            self.assertEqual(scan["docs_markdown_files"], 2)
+            self.assertEqual(scan["broken_links"], 1)
+            self.assertEqual(scan["broken_files"], 1)
+            self.assertIn("扫描面", l4_intake.render_plan_markdown(plan))
+
+    def test_empty_docs_dir_is_visible(self):
+        """一个 .md 都没扫到 → 数字是 0(而不是与「没有断链」混为一谈)。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "web").mkdir()
+            (root / "chatapp").mkdir()
+            (root / "web/package-lock.json").write_text('{"packages": {}}', encoding="utf-8")
+            (root / "chatapp/requirements.lock").write_text("", encoding="utf-8")
+            plan = l4_intake.build_plan(
+                runs={"workflow_runs": []}, alerts=[], issues=[],
+                repo_root=root, judged_at=NOW, today="2026-11-13",
+            )
+            self.assertEqual(plan["scan"]["docs_markdown_files"], 0)
+            self.assertEqual(plan["scan"]["broken_links"], 0)
 
 
 class DocsLinksTests(unittest.TestCase):
