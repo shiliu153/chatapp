@@ -2,6 +2,11 @@
 **/Flutter/ephemeral/
 **/Pods/
 
+# `flutter pub get` 每次都会重新生成的插件注册文件(生成物,永不入库)。
+# 根 .gitignore 已整体忽略 app/macos/Flutter/(#199);这里在平台目录内再收口一份,
+# 使 app/ 单独取出使用、或根规则调整时,macos/ 下仍不会留下未跟踪文件。
+Flutter/GeneratedPluginRegistrant.swift
+
 # Xcode-related
 **/dgph
 **/xcuserdata/
