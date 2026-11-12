@@ -2,7 +2,7 @@
 #
 # 前端与接口同源(浏览器访问 /api/v1),因此不需要 VITE_API_BASE,
 # 用 web/src/api/http.ts 的默认值 /api/v1 即可。
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 
 # 国内服务器默认走 npmmirror;可用 --build-arg NPM_REGISTRY=... 覆盖
 ARG NPM_REGISTRY=https://registry.npmmirror.com
