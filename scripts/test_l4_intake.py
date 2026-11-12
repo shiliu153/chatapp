@@ -600,6 +600,37 @@ class ScanInfoTests(unittest.TestCase):
             self.assertEqual(plan["scan"]["docs_markdown_files"], 0)
             self.assertEqual(plan["scan"]["broken_links"], 0)
 
+    def test_relative_root_is_supported(self):
+        """`--root .`(相对路径)必须能跑。
+
+        2026-11-12 真跑就崩在这里:`rglob` 给出相对路径,而 `relative_to(resolve())` 要绝对
+        —— ValueError 直接把整轮判定打成 Traceback。本地自测全用绝对临时目录,所以漏了。
+        """
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "web").mkdir()
+            (root / "chatapp").mkdir()
+            (root / "web/package-lock.json").write_text('{"packages": {}}', encoding="utf-8")
+            (root / "chatapp/requirements.lock").write_text("", encoding="utf-8")
+            (root / "docs/a.md").write_text("[坏](missing.md)\n", encoding="utf-8")
+            original = os.getcwd()
+            try:
+                os.chdir(tmp)
+                plan = l4_intake.build_plan(
+                    runs={"workflow_runs": []}, alerts=[], issues=[],
+                    repo_root=Path("."), judged_at=NOW, today="2026-11-13",
+                )
+            finally:
+                os.chdir(original)
+            scan = plan["scan"]
+            self.assertEqual(scan["docs_markdown_files"], 1)
+            self.assertEqual(scan["broken_links"], 1)
+            self.assertEqual(scan["docs_sample"], ["docs/a.md"])
+            self.assertTrue(scan["docs_root"].endswith("docs"))
+
 
 class DocsLinksTests(unittest.TestCase):
     """机械一致性信号:文档断链,按文件聚合成一张单。"""

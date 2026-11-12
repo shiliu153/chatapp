@@ -974,11 +974,16 @@ def scan_info(repo_root: Path, runs: Any, alerts: Any) -> dict:
         "workflows_seen": None,
         "red_workflows": None,
         "alerts_seen": None,
-        "docs_root": str((repo_root / "docs").resolve()),
+        "docs_root": None,
         "docs_markdown_files": None,
         "broken_links": None,
         "broken_files": None,
     }
+    # 必须先 resolve:`plan --root .` 时 repo_root 是相对路径,而 rglob 出来的也是相对路径,
+    # 直接 `relative_to(resolve())` 会抛 ValueError —— 2026-11-12 真跑就是这么崩的
+    # (本地自测全用绝对临时目录,所以漏了)。这里统一在绝对路径上算。
+    root = repo_root.resolve()
+    info["docs_root"] = str(root / "docs")
     try:
         latest = latest_runs_by_workflow(runs)
         info["workflows_seen"] = len(latest)
@@ -991,18 +996,17 @@ def scan_info(repo_root: Path, runs: Any, alerts: Any) -> dict:
         info["alerts_seen"] = len(items)
 
     try:
-        info["docs_markdown_files"] = check_docs_links.count_markdown_files(repo_root)
-        broken = check_docs_links.find_broken_links(repo_root)
+        info["docs_markdown_files"] = check_docs_links.count_markdown_files(root)
+        broken = check_docs_links.find_broken_links(root)
         info["broken_links"] = len(broken)
         info["broken_files"] = len({str(item["file"]) for item in broken})
         # 采样几个被扫到的文件:用来证明「扫的到底是哪棵树」。
-        docs_dir = (repo_root / "docs")
+        docs_dir = root / "docs"
         if docs_dir.is_dir():
             info["docs_sample"] = [
-                path.relative_to(repo_root.resolve()).as_posix()
-                for path in sorted(docs_dir.rglob("*.md"))[:3]
+                path.relative_to(root).as_posix() for path in sorted(docs_dir.rglob("*.md"))[:3]
             ]
-    except (OSError, FileNotFoundError):
+    except (OSError, ValueError, FileNotFoundError):
         pass
     return info
 
