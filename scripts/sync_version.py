@@ -219,10 +219,19 @@ def check_release_record(version: str, path: Path = RELEASE_DOC) -> list[str]:
     tag = record.get("tag", "")
     if f"v{version}" not in tag:
         problems.append(f"发版记录 {version} 行的 tag 是 {tag or '(空)'},应写成 `v{version}`")
-    if not record.get("Release", ""):
+    release = record.get("Release", "")
+    if not release:
         problems.append(
             f"发版记录 {version} 行的 Release 为空 —— 建好后填链接;"
             "暂时建不了写「待建」并注明原因(例:本机无 gh/token)"
+        )
+    elif "待建" in release:
+        # 2026-11-12 起「待建」不再算留痕:1.0.4 就是这么挂了整整一周还没建 Release。
+        # 先加行、再发版是允许的(那时写「待建」),但**合并进默认分支之前**必须补成链接,
+        # 否则门禁等于只校验了一句中文。
+        problems.append(
+            f"发版记录 {version} 行的 Release 仍是「待建」—— 发版未完成;"
+            "用 python scripts/create_release.py 建好 Release 后把链接填回来"
         )
     if problems:
         problems.append(f"修复:编辑 {_display(path)} §5 后再跑 python scripts/sync_version.py --check")

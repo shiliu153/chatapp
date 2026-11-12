@@ -41,6 +41,8 @@
 - **`web` / `app` 必须在 Linux 文件系统上跑**(工单目录本来就在 `/root` 下)。脚本会拒绝 `/mnt/*` 路径:9p 太慢,vitest/flutter 会超时,那是环境不是代码。
 - `web` 需要 **Node 22**(与 CI 一致);Node 24 会让 `profile-store` 的上传照片用例报 `webidl.is.File` 断言失败。
 - 跑 `backend` 会起容器;`--keep-deps` 保留它们便于连续调试。
+- **部署前跑 `python scripts/deploy_gate.py`**(2026-11-12 起):校验目标 SHA 属于 `origin/main`
+  且该 SHA 的 check 全绿。这是「部署只认合并后 SHA」唯一的机械判定入口;闸门不过不许上线。
 
 ## 四、门禁:这些不做必红
 

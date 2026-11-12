@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import ChatPage from '@/features/chat/ChatPage.vue'
 import { useChatStore } from '@/stores/chat'
@@ -99,6 +99,16 @@ describe('ChatPage', () => {
     // 草稿是模块级镜像 + localStorage:不逐用例清会互相污染
     localStorage.clear()
     resetDrafts()
+  })
+
+  // 2026-11-11 默认分支的 web 轨红过一次(PR 轨绿、合并后红),失败用例正是草稿防抖:
+  // 它在 299ms 时断言「旧草稿还在」,而旧草稿是**上一个用例的残留状态**。CI 上环境创建
+  // 慢(每个 jsdom ~1s),跨用例的 fake timer 若没被清掉,会在下个用例里触发
+  // `saveDraft('', ...)` → `clearDraft`,把预置值删掉。这里统一兜底清 timer,
+  // 并让防抖用例不依赖任何预置草稿(见下)。
+  afterEach(() => {
+    vi.clearAllTimers()
+    vi.useRealTimers()
   })
 
   it('渲染气泡与文本', async () => {
@@ -454,19 +464,27 @@ describe('ChatPage', () => {
 
   // --- 草稿(批次 T)---
 
-  it('草稿:进会话回填,输入防抖 300ms 落盘', async () => {
+  it('草稿:进会话回填(预置草稿出现在输入框)', async () => {
     saveDraft('u8', '上次没说完')
     const { w } = await mountPage()
     await flushPromises()
 
     expect((w.find('input[type="text"]').element as HTMLInputElement).value).toBe('上次没说完')
+  })
+
+  it('草稿:输入防抖 300ms 落盘', async () => {
+    // **不预置草稿**:这个用例只验证「输入 → 300ms 后落盘」的时序。
+    // 旧版在这里预置 '上次没说完' 再断言「299ms 时它还在」,那等于把
+    // 「上一个用例有没有留下 timer」也变成了断言条件 —— CI 上就是这么红的。
+    const { w } = await mountPage()
+    await flushPromises()
 
     vi.useFakeTimers()
     try {
       await w.find('input[type="text"]').setValue('这次接着说')
       // 300ms 内不落盘(边打字边写 localStorage 没必要)
       vi.advanceTimersByTime(299)
-      expect(localStorage.getItem('chat_draft:u8')).toBe('上次没说完')
+      expect(localStorage.getItem('chat_draft:u8')).toBeNull()
 
       vi.advanceTimersByTime(1)
       expect(localStorage.getItem('chat_draft:u8')).toBe('这次接着说')

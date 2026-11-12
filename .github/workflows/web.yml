@@ -1,25 +1,50 @@
 name: Web (Vue)
 
+# 2026-11-12(P0 审计):workflow 级**不再按 paths 过滤**,改成「job 总是出现、重活按改动面跑」。
+#
+# required status check 必须每次 PR 都出现,但 npm ci + 覆盖率 + 构建(3–5 分钟)不该在
+# 每个 PR 都跑。`scope` job 秒级判定本次改动是否触及网页端;无关时 `check` job 被跳过,
+# check 结论是 skipped(required check 语义里视为满足)。判定失败一律按「要跑」处理。
+
 on:
   push:
     branches: [master, main]
-    paths:
-      - 'web/**'
-      - 'docs/api/**'
-      # 跨栈协议 fixture(E-2):只改 fixture 也要跑 Web 的契约测试
-      - 'imserver/tests/fixtures/**'
-      - '.github/workflows/web.yml'
   pull_request:
-    paths:
-      - 'web/**'
-      - 'docs/api/**'
-      - 'imserver/tests/fixtures/**'
-      - '.github/workflows/web.yml'
   workflow_dispatch:
 
 jobs:
+  scope:
+    name: web-scope
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.detect.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/
+          sparse-checkout-cone-mode: false
+
+      - name: 判断本次改动是否触及网页端
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          set -uo pipefail
+          run=$(bash scripts/ci-scope.sh web) || run="run=true"
+          echo "判定结果:$run"
+          echo "$run" >> "$GITHUB_OUTPUT"
+
   # 本轨只守类型/规范/单测/构建;端到端冒烟见 web-e2e.yml(E-3:真 MySQL+Redis+Django)
+  # 显式 job name:它同时是 check run 的 name,也是 ruleset required_status_checks 的 context。
   check:
+    name: web
+    needs: scope
+    if: always() && (needs.scope.outputs.run == 'true' || needs.scope.result != 'success')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -49,8 +74,11 @@ jobs:
       - name: 代码规范(必须零告警)
         run: npm run lint
 
-      - name: 单元/组件测试
-        run: npm run test:run
+      # 覆盖率门槛(`vitest.config.ts` 的 thresholds)只在 `--coverage` 时生效。
+      # 2026-11-12 之前这里跑的是 `test:run`(不带 --coverage),于是文档声称的
+      # 70/60/70/70 门槛在 CI 里从未执行过 —— 门禁是纸面的。见 P0 审计。
+      - name: 单元/组件测试(含覆盖率门槛 70/60/70/70)
+        run: npm run test:coverage
 
       - name: 构建
         run: npm run build

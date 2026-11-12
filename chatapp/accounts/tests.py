@@ -39,6 +39,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts import allowlist, services, sms_codes
 from accounts import totp
+from accounts.checks import DEV_SMS_WITHOUT_ALLOWLIST_ID, check_dev_sms_requires_allowlist
 from accounts.exceptions import PhoneNotAllowed
 from accounts.management.commands.seed_fake_users import Command
 from accounts.models import PhoneAllowlist, PhoneAllowlistAction, PhoneAllowlistEvent
@@ -1145,3 +1146,48 @@ class LoginThrottleTests(TestCase):
             authenticate(username="13700137000", password="wrong")
         self.assertIsNotNone(authenticate(username="13700137000", password="ops-pass-123"))
         self.assertIsNone(cache.get("ops:login:fail:account:13700137000"))
+
+
+class DevSmsDeployCheckTests(SimpleTestCase):
+    """``accounts.E001``:固定验证码 + 空白名单必须在 ``manage.py check`` 里报错。
+
+    为什么补这个测试:这个门禁此前**没有任何用例**,也没有任何流水线执行它
+    (CI 全程 ``DEBUG=1``,检查直接返回;``migrate`` 不跑 system checks;
+    一键部署脚本里也没有 ``manage.py check``)。门禁不可达 = 等于不存在。
+    """
+
+    def _check(self):
+        """跑一次 E001 检查(不依赖数据库)。"""
+        return check_dev_sms_requires_allowlist(None)
+
+    @override_settings(TESTING=False, DEBUG=False, SMS_DEV_MODE=True,
+                       SMS_PHONE_WHITELIST=[])
+    def test_error_when_dev_sms_without_allowlist(self):
+        """生产口径(DEBUG=0 + 固定码 + 空白名单)必须报一条 E001。"""
+        errors = self._check()
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, DEV_SMS_WITHOUT_ALLOWLIST_ID)
+
+    @override_settings(TESTING=False, DEBUG=False, SMS_DEV_MODE=True,
+                       SMS_PHONE_WHITELIST=["13700137000"])
+    def test_ok_when_seed_present(self):
+        """有兜底种子时不报错。"""
+        self.assertEqual(self._check(), [])
+
+    @override_settings(TESTING=False, DEBUG=False, SMS_DEV_MODE=False,
+                       SMS_PHONE_WHITELIST=[])
+    def test_ok_when_dev_sms_disabled(self):
+        """固定码关掉后不报错。"""
+        self.assertEqual(self._check(), [])
+
+    @override_settings(TESTING=False, DEBUG=True, SMS_DEV_MODE=True,
+                       SMS_PHONE_WHITELIST=[])
+    def test_skipped_in_debug(self):
+        """开发环境(DEBUG=1)不报错 —— 这正是 CI 里永远看不到它的原因。"""
+        self.assertEqual(self._check(), [])
+
+    @override_settings(TESTING=True, DEBUG=False, SMS_DEV_MODE=True,
+                       SMS_PHONE_WHITELIST=[])
+    def test_skipped_in_tests(self):
+        """测试运行中不报错(用例会临时改设置)。"""
+        self.assertEqual(self._check(), [])

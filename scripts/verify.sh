@@ -168,6 +168,10 @@ stack_contract() {
   # 那会让「本地绿 ≈ CI 绿」在这两个门禁自己坏掉时不成立。
   run "版本号同步脚本自测" "$PY" -m unittest scripts.test_sync_version
   run "发版准备脚本自测" "$PY" -m unittest scripts.test_release_prep
+  # 部署闸门:与 CI 的 contract 轨同一条(它防的是「main 红了还上线」)
+  run "部署闸门自测" "$PY" -m unittest scripts.test_deploy_gate
+  # gh-guard:worker 唯一的机械拦截,坏了必须有人知道(2026-11-12 起进 CI)
+  run "gh-guard 拦截自测" sh "$ROOT/scripts/gh-guard/selftest.sh"
   # 出口代理的渲染脚本是「坏订阅」的唯一防线:机场偶尔返回 HTML 错误页或残配置,
   # 写进 config.yaml 会让 mihomo 起不来 → worker 全断网,而现场看起来像「代理没开」。
   # 纯离线、秒级,和上面几条同性质。
@@ -200,7 +204,9 @@ stack_app() {
 stack_bootstrap() {
   run "创建 venv($VENV)" python3 -m venv "$VENV"
   run "升级 pip" "$VENV/bin/pip" install --upgrade pip
-  run "安装后端依赖" "$VENV/bin/pip" install -r "$ROOT/chatapp/requirements.txt"
+  # 装锁定文件(与 CI 的 backend.yml、生产镜像的 Dockerfile 三处一致):
+  # 装 requirements.txt 的区间会让本地依赖组合与 CI/生产不同。
+  run "安装后端依赖(锁定文件)" "$VENV/bin/pip" install -r "$ROOT/chatapp/requirements.lock"
   run "自检" "$PY" -c "import django, pymysql; print('django', django.get_version())"
 }
 

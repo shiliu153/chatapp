@@ -1,28 +1,61 @@
 name: Backend (Django)
 
+# 2026-11-12(P0 审计):workflow 级**不再按 paths 过滤**,改成「job 总是出现、重活按改动面跑」。
+#
+# 为什么:required status check 必须每次 PR 都出现 —— 按 paths 跳过会让 PR 永久 pending,
+# 或者让「没有 check」被误当成绿。但后端全量(装依赖 + MySQL + 852 用例)不该在每个 PR
+# 都跑:这个项目开发频率很高。所以:
+#   - `scope` job 总是跑,秒级判定本次改动是否触及后端(scripts/ci-scope.sh);
+#   - `test` job(required check "backend")无关时被跳过 —— check 结论是 skipped,
+#     GitHub 的 required check 语义里 skipped 视为满足;
+#   - 判定失败(API 报错 / 解析不出)一律按「要跑」处理(fail-closed),绝不让判定器
+#     坏了把门禁静默跳过。
+
 on:
   push:
     branches: [master, main]
-    paths:
-      - 'chatapp/**'
-      - 'perf/**'
-      - 'docs/api/**'
-      - 'app/pubspec.yaml'
-      - '.github/workflows/backend.yml'
   pull_request:
-    paths:
-      - 'chatapp/**'
-      - 'perf/**'
-      - 'docs/api/**'
-      - 'app/pubspec.yaml'
-      - '.github/workflows/backend.yml'
   workflow_dispatch:
 
 jobs:
+  scope:
+    name: backend-scope
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.detect.outputs.run }}
+    steps:
+      # 只拉判定脚本,不拉全仓库:scope job 的目标是秒级
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/
+          sparse-checkout-cone-mode: false
+
+      - name: 判断本次改动是否触及后端
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          set -uo pipefail
+          run=$(bash scripts/ci-scope.sh backend) || run="run=true"
+          echo "判定结果:$run"
+          echo "$run" >> "$GITHUB_OUTPUT"
+
   test:
+    # 显式 job name:它同时是 check run 的 name,也是 ruleset required_status_checks
+    # 的 context。用 "backend" 而不是默认的 "test",避免与 imserver 的 test job 重名。
+    name: backend
+    needs: scope
+    # scope 失败时也要跑(fail-closed):否则 test 被 needs 跳过、check=skipped,门禁就漏了。
+    if: always() && (needs.scope.outputs.run == 'true' || needs.scope.result != 'success')
     runs-on: ubuntu-latest
 
-    # 测试前置:MySQL 业务库 + Redis(验证码/限流/缓存都依赖它)
+    # 测试前置:MySQL 业务库 + Redis(验证码/限流/缓存都依赖它)。
+    # 这两个容器只在 test job 真的执行时才启动(无关改动时 test 被跳过)。
     services:
       mysql:
         image: mysql:8.0
@@ -87,12 +120,15 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: chatapp/requirements.txt
+          cache-dependency-path: chatapp/requirements.lock
 
-      - name: 安装依赖
+      # 装**锁定文件**而不是 requirements.txt 的区间:生产镜像(deploy/docker/Dockerfile)
+      # 装的就是 requirements.lock,CI 若装 txt 就是在验证一组生产不会用的版本组合,
+      # 「CI 绿」推不出「生产可用」。见 P0 审计(依赖锁形同虚设)。
+      - name: 安装依赖(锁定文件,与生产镜像一致)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.lock
 
       # mysqladmin ping 是「未认证探测」:容器刚起来时会先应答,但此时带认证的
       # 连接仍可能被服务器关闭(表现为 PyMySQL 的 'NoneType' has no attribute
@@ -178,6 +214,35 @@ jobs:
 
       - name: 跑测试
         run: python manage.py test --noinput --verbosity=2
+
+      # accounts.E001 是「生产开了固定验证码、但准入名单种子为空」的部署期门禁。
+      # 它此前**从未在任何流水线里被执行过**:CI 全程 DEBUG=1(检查直接返回)、
+      # migrate 不跑 system checks、一键部署脚本里也没有 manage.py check。
+      # 这里用生产口径反向验证「门禁真的会响」——预期 check 非零退出且报出 E001。
+      - name: 部署配置门禁自检(DEBUG=0 时 accounts.E001 必须生效)
+        env:
+          DEBUG: '0'
+          SMS_DEV_MODE: '1'
+          SMS_PHONE_WHITELIST: ''
+          # DEBUG=0 会走 settings 的生产分支,而 CI 没有 .env 文件:把生产必填项补齐,
+          # 否则会在更早的 ImproperlyConfigured 上失败(看起来像 E001 但其实是配置缺失)。
+          IM_MEDIA_SIGN_SECRET: ci-fake-media-secret-32-bytes
+          IM_MEDIA_PREFIX: http://127.0.0.1:8000/media/chat/
+          MEDIA_BASE_URL: http://127.0.0.1:8000
+        run: |
+          set +e
+          out=$(python manage.py check 2>&1)
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$rc" = 0 ]; then
+            echo "::error::DEBUG=0 + SMS_DEV_MODE=1 + 空白名单 时 check 竟然通过 —— accounts.E001 门禁失效"
+            exit 1
+          fi
+          case "$out" in
+            *accounts.E001*) echo "accounts.E001 已生效(门禁可达)" ;;
+            *) echo "::error::check 失败了,但输出里没有 accounts.E001(可能是别的错误)"; exit 1 ;;
+          esac
 
       # D-5:``docs/api/openapi.yml`` 是「机器可读契约」的生成物。这里重新生成一次再
       # 用 git diff 比对:任何人改了视图/序列化器却没同步生成物,CI 立刻红。

@@ -50,6 +50,12 @@ check "拒 release create" 2 -- release create v1.0.0 --title x
 check "拒 release upload" 2 -- release upload v1.0.0 app.apk
 check "拒 api 改 master 引用" 2 -- api -X DELETE repos/o/r/git/refs/heads/master
 check "拒 graphql mergePullRequest" 2 -- api graphql -f 'query=mutation{mergePullRequest(input:{})}'
+# 2026-11-12 补:这两条是旧版的真实绕过口(路径不含 refs/heads,旧版放行)
+check "拒 api REST 合并 PR" 2 -- api -X PUT repos/o/r/pulls/113/merge -f merge_method=squash
+check "拒 api REST 合并 PR(--method 写法)" 2 -- api --method PUT repos/o/r/pulls/113/merge
+check "拒 api 建 Release" 2 -- api -X POST repos/o/r/releases -f tag_name=v1
+check "拒 api 改 Release" 2 -- api -X PATCH repos/o/r/releases/1 -f name=x
+check "拒 api 删 Release" 2 -- api -X DELETE repos/o/r/releases/1
 
 # ── 必须放行(否则 worker 干不了活)
 check_out "放行 pr create" "REALGH pr create" -- pr create --title t --body b
@@ -58,6 +64,10 @@ check_out "放行 pr checks" "REALGH pr checks 113" -- pr checks 113
 check_out "放行 auth git-credential" "REALGH auth git-credential" -- auth git-credential get
 check_out "放行 release list(只读)" "REALGH release list" -- release list
 check_out "放行 api 只读" "REALGH api user" -- api user
+# 只读端点不能被误拦:worker 要能看 PR 与 Release
+check_out "放行 api 只读 PR" "REALGH api repos/o/r/pulls/113" -- api repos/o/r/pulls/113
+check_out "放行 api 只读 Release" "REALGH api repos/o/r/releases/tags/v1" -- api repos/o/r/releases/tags/v1
+check_out "放行 api 评论 issue" "REALGH api -X POST repos/o/r/issues/1/comments" -- api -X POST repos/o/r/issues/1/comments
 check_out "放行 --version" "REALGH --version" -- --version
 
 # 记账:被拒的动作要落一行日志

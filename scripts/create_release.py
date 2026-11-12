@@ -153,6 +153,39 @@ def find_release(repo: str, tag: str, token: str) -> dict | None:
     return data
 
 
+def ensure_tag_exists(repo: str, tag: str, token: str) -> str:
+    """确认 tag 已经在远端存在,并返回它的对象类型。
+
+    为什么必须先查:GitHub 的 ``POST /releases`` 在 ``tag_name`` 不存在时会**自动用
+    默认分支 HEAD 建一个轻量 tag** —— 于是「附注 tag + 指向合并 SHA」这条纪律被静默绕过,
+    而且事后很难看出 tag 是自动建的还是人打的。
+
+    Args:
+        repo: ``owner/name``。
+        tag: tag 名,如 ``v1.0.13``。
+        token: GitHub PAT。
+
+    Returns:
+        ``tag``(附注 tag)或 ``commit``(轻量 tag)。
+
+    Raises:
+        SystemExit: tag 不存在,或查询失败。
+    """
+    status, data = _request(
+        "GET", f"{API}/repos/{repo}/git/ref/tags/{urllib.parse.quote(tag)}", token)
+    if status == 404:
+        _fail(
+            f"远端没有 tag {tag} —— 先打附注 tag 并推送(见 docs/ops/release.md §3 步骤 5),"
+            "否则 GitHub 会自动拿默认分支 HEAD 建一个轻量 tag"
+        )
+    if status != 200:
+        _fail(f"查询 tag 失败:{status} {data.get('message', '')}")
+    object_type = (data.get("object") or {}).get("type", "")
+    if object_type != "tag":
+        print(f"[release] 警告:{tag} 是轻量 tag(指向 commit),发版规范要求附注 tag(-a)")
+    return object_type
+
+
 def create_or_update_release(repo: str, tag: str, title: str, notes: str, token: str,
                              *, dry_run: bool = False) -> dict:
     """创建或更新 Release(标题与正文)。
@@ -268,6 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         _fail("请用 --notes-file 或 --notes 给出 Release 正文(与 docs/ops/release.md §6 的草稿一致)")
 
     token = read_token()
+    # 先确认 tag 已在远端:GitHub 在 tag 不存在时会自动建轻量 tag,绕过附注 tag 纪律。
+    ensure_tag_exists(args.repo, tag, token)
     release = create_or_update_release(args.repo, tag, title, notes, token, dry_run=args.dry_run)
     if args.apk and args.apk.exists():
         upload_asset(args.repo, release, args.apk, token, dry_run=args.dry_run,

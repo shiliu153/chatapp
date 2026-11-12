@@ -1,0 +1,90 @@
+name: 默认分支健康
+
+# 2026-11-11 的真实事故:1.0.13 的版本号 PR 在 PR 轨上是绿的,合并后默认分支的 web 轨红了;
+# 因为后续提交都不碰 web/,这条红**挂了 20 小时没人发现**,而当天下午照常完成了发版。
+#
+# 根因不是「有人写错代码」,而是**默认分支的红色没有 owner**:CI 只被当作 PR 门禁,
+# 合并后没有任何告警、没有阻断、没有 issue。这个 workflow 补的就是那一段。
+#
+# 它每天检查默认分支上每条 workflow **最新一次 push run**:
+#   - 有失败 → 建/更新一条 issue(带失败轨与链接);
+#   - 全绿   → 自动关闭那条 issue。
+# 用 issue 而不是外部告警,是为了不依赖额外的 webhook/凭据;issue 本身就是待办。
+
+on:
+  schedule:
+    # GitHub 的 cron 是 UTC;01:00 UTC = 09:00 北京时间
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+concurrency:
+  group: main-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 找出默认分支上仍为红色的轨
+        id: scan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          set -uo pipefail
+          failed=$(gh api "repos/$REPO/actions/runs?branch=$BASE&event=push&per_page=100" \
+            --jq '[.workflow_runs[]] | sort_by(.created_at) | reverse | unique_by(.name) | map(select(.conclusion == "failure")) | map("- `\(.name)` @ \(.head_sha[0:7]) — \(.html_url)") | join("\n")')
+          {
+            echo "failed<<HEALTH_EOF"
+            printf '%s\n' "$failed"
+            echo "HEALTH_EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -z "$failed" ]; then
+            echo "默认分支上每条 workflow 的最新一次 push run 都是绿的"
+          else
+            printf '发现红色轨:\n%s\n' "$failed"
+          fi
+
+      - name: 有红轨就建/更新 issue
+        if: steps.scan.outputs.failed != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          FAILED: ${{ steps.scan.outputs.failed }}
+        run: |
+          set -uo pipefail
+          title="[CI] 默认分支有红色轨(需处理)"
+          body=$(printf '## 默认分支红轨\n\n检测时间:%s\n\n%s\n\n### 为什么这条 issue 存在\n\nCI 只被当成 PR 门禁时,合并后的红没有 owner:2026-11-11 的 web 轨红了 20 小时,期间还完成了一次发版。修好之后本 issue 会在下一次检查时自动关闭。\n\n处理建议:先看失败轨的日志,修好再合;如果是 flaky,按「测试隔离」修,不要重跑掩盖。\n' \
+            "$(date -u +%FT%TZ)" "$FAILED")
+          existing=$(gh issue list --repo "$REPO" --state open --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n1)
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$REPO" --body "$body" >/dev/null
+            echo "已更新 issue #$existing"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          fi
+
+      - name: 全绿就关掉告警 issue
+        if: steps.scan.outputs.failed == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          title="[CI] 默认分支有红色轨(需处理)"
+          existing=$(gh issue list --repo "$REPO" --state open --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n1)
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --repo "$REPO" --comment "默认分支已全绿,自动关闭。" >/dev/null
+            echo "已关闭 issue #$existing"
+          else
+            echo "没有待关闭的告警 issue"
+          fi
