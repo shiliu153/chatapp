@@ -10,6 +10,11 @@ name: 默认分支健康
 #   - 有失败 → 建/更新一条 issue(带失败轨与链接);
 #   - 全绿   → 自动关闭那条 issue。
 # 用 issue 而不是外部告警,是为了不依赖额外的 webhook/凭据;issue 本身就是待办。
+#
+# 2026-11-13(随 L4):红轨的**解析**改成调 `scripts/l4_intake.py ci-red-summary`,
+# 与 `.github/workflows/l4-intake.yml` 用同一个函数。此前两边各写一份 jq —— 改了口径
+# 必然只改一边,然后两边永远看不出对方漏了什么。本 workflow 只管「汇总一条告警 issue」,
+# L4 只管「按栈开可接的单」;两者读同一份事实。
 
 on:
   schedule:
@@ -31,6 +36,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # 2026-11-13 起需要检出仓库:红轨列表由 scripts/l4_intake.py 解析,不再用内联 jq。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+
       - name: 找出默认分支上仍为红色的轨
         id: scan
         env:
@@ -39,16 +51,23 @@ jobs:
           BASE: ${{ github.event.repository.default_branch }}
         run: |
           set -uo pipefail
-          failed=$(gh api "repos/$REPO/actions/runs?branch=$BASE&event=push&per_page=100" \
-            --jq '[.workflow_runs[]] | sort_by(.created_at) | reverse | unique_by(.name) | map(select(.conclusion == "failure")) | map("- `\(.name)` @ \(.head_sha[0:7]) — \(.html_url)") | join("\n")')
-          {
-            echo "failed<<HEALTH_EOF"
-            printf '%s\n' "$failed"
-            echo "HEALTH_EOF"
-          } >> "$GITHUB_OUTPUT"
+          gh api "repos/$REPO/actions/runs?branch=$BASE&event=push&per_page=100" > /tmp/runs.json
+          # 同一个解析器:L4 也调它(见 l4_intake.py 的 ci-red-summary 子命令)。
+          # 读不出来时退出 2,这里当作「判不出来」→ 打警告,不误报「全绿」。
+          if ! failed=$(python3 scripts/l4_intake.py ci-red-summary --runs /tmp/runs.json); then
+            echo "::error::红轨判定失败(runs 快照读不出来或形状不对),本轮不更新 issue"
+            exit 1
+          fi
+          # 空列表时只写一个空 output:heredoc 里塞一个空行会让 `!= ''` 判定为「有红轨」。
           if [ -z "$failed" ]; then
+            echo "failed=" >> "$GITHUB_OUTPUT"
             echo "默认分支上每条 workflow 的最新一次 push run 都是绿的"
           else
+            {
+              echo "failed<<HEALTH_EOF"
+              printf '%s\n' "$failed"
+              echo "HEALTH_EOF"
+            } >> "$GITHUB_OUTPUT"
             printf '发现红色轨:\n%s\n' "$failed"
           fi
 

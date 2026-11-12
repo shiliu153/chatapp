@@ -74,6 +74,18 @@ jobs:
       - name: 改动面判定器自测
         run: bash scripts/test_ci_scope.sh
 
+      # L4「需求自动入队」是整条阶梯里唯一会**替人决定做什么**的一级,也是唯一每天
+      # 主动往待办里写东西的机制。判定器坏掉的三种后果都由这两条钉住:多判(把假需求
+      # 塞进待办)、少判(真失败没人管)、判不出来却开了单(该 fail-closed 却放行)。
+      # 纯离线:输入是 JSON 快照与临时目录,不联网、不碰 issue。
+      - name: L4 入队判定器自测
+        run: python -m unittest scripts.test_l4_intake -v
+
+      # 文档断链检测是 L4「机械一致性」信号唯一的实现;它自己坏了没人会当场发现
+      # (六轨都不读 Markdown 链接),所以同一条轨里钉住。
+      - name: 文档断链检测自测
+        run: python -m unittest scripts.test_check_docs_links -v
+
       # deploy/ 下的脚本(一键部署、备份、看门狗、恢复演练)此前**不在任何 CI 轨里**:
       # 备份是 CLAUDE.md 列的两大风险之一,脚本语法坏掉却没人知道。这里做最低限度的
       # 语法检查(bash -n):不装依赖、不联网、不改脚本。逻辑类问题(shellcheck)留待后续。
