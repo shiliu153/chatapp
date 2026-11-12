@@ -18,6 +18,17 @@
 | 代理 | WSL 内自建 **mihomo**(`127.0.0.1:7890`,systemd `superagent-proxy`),宿主 `:7897` 兜底 —— 见 §12 |
 | 启动脚本源码 | `scripts/superagent-start/start-superagent.sh`(部署到 `/root/start-superagent.sh`,2026-11-09 前是无版本控制的孤儿文件) |
 
+> **提交身份(2026-11-12 补,有实测事故)**:worker 的 `user.name` / `user.email` 必须是
+> `shiliu655` / **`341319034+shiliu655@users.noreply.github.com`**(即 `<账号ID>+<login>`,ID 前缀不能省)。
+> 旧格式 `shiliu655@users.noreply.github.com` 目前也能解析对,但**用显示名拼就一定会错**:
+> 2026-11-10 的 `ef96a09`(U-2,21 文件 +1087 −65)被写成 `chenfu@users.noreply.github.com`,
+> GitHub 按用户名解析到了**另一个同名的 2010 年老账号**(Fu Chen / London UK),
+> 于是仓库侧栏 Contributors 凭空多出一个陌生人、记着「1 个 commit」——排查了整整一轮才定位。
+> 该 commit 现在只挂在 `refs/pull/226/head` 上(分支已删、内容已随 PR #226 squash 进默认分支),
+> 所以**不影响代码**,但这条归因撤不掉(GitHub 永久保留已合并 PR 的 head ref)。
+> 母体 `/root/src/chatapp` 的 `.git/config` 已按 ID 前缀设好;worker 若显式传
+> `-c user.email=…` 或 `GIT_AUTHOR_EMAIL`,也必须照这条写。
+
 **面板当前设置**(2026-11-07):`maxWorkers=2`、`blockedCommands=[ssh, scp, rsync]`、
 `prepare` 只做 `git fetch` + `git worktree add`(代理不写在这里)、
 prompt `scope`/`delivery` 追加了本项目条款(一单一条栈、verify 唯一入口、app UI 必须 draft)、
