@@ -34,7 +34,7 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 
 | # | 动作 | 完成标志 |
 |---|---|---|
-| 1 | 走完发布流程:分支 → PR → CI 全绿 → squash 合并 | 记下**合并后**的 `origin/master` SHA |
+| 1 | 走完发布流程:分支 → PR → CI 全绿 → squash 合并 | 记下**合并后**的 `origin/main` SHA |
 | 2 | `python scripts/sync_version.py --write` | `--check` 退出码 0 |
 | 3 | 构建 APK(`--dart-define=ERROR_REPORTING=true`)与 Web(`npm run build`) | 产物存在,版本号与关于页一致 |
 | 4 | 部署:APK 上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk`,更新 `.env` 三个变量,重启 web;`dist` 覆盖 | 重启后 `/app/config` 返回新 `latest_version` |
@@ -43,7 +43,7 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 | 7 | 在 §5 记录表加一行(版本 / 日期 / tag / Release / SHA / APK) | `sync_version.py --check` 退出码 0 |
 | 8 | 生产冒烟:`/api/v1/app/config` 版本正确、APK 下载 206、`/health` 与 `/readyz` 200 | 无 5xx |
 
-> 步骤 5 的 tag **必须指向步骤 1 的合并 SHA**,不要指向本地未合并提交 —— 与「部署只认 `origin/master` 的 SHA」同一条纪律。
+> 步骤 5 的 tag **必须指向步骤 1 的合并 SHA**,不要指向本地未合并提交 —— 与「部署只认 `origin/main` 的 SHA」同一条纪律。
 
 ### 3.1 步骤 2 之前先跑一条命令(2026-11-09 起)
 
@@ -52,7 +52,7 @@ python scripts/release_prep.py --version <版本> --topic "<一句话主题>" --
 python scripts/release_prep.py --version <版本> --topic "<一句话主题>"            # 真改
 ```
 
-它把**上表步骤 2 / 5 / 6 / 7 的机械部分**收进一条命令:前置闸门(干净工作区 + `master` + `HEAD == origin/master`)
+它把**上表步骤 2 / 5 / 6 / 7 的机械部分**收进一条命令:前置闸门(干净工作区 + 默认分支 `main` + `HEAD == origin/main`)
 → 写三处版本号(构建号自增)→ 跑 `sync_version` 门禁 → 按 `feat` / `fix` / 运维把上个 tag 以来的提交
 分类成 `notes` 草稿(`.release-notes/v<版本>.md`,已 gitignore)→ **打印**打 tag / `create_release.py` /
 §5 表格行的命令。

@@ -78,7 +78,7 @@ powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running
    ```bash
    wsl -e bash -c 'bash /root/src/chatapp/scripts/superagent-closeout.sh --apply'
    ```
-   它依次做:探测并导出代理 → `fetch origin master` → 母体 `pull --ff-only`
+   它依次做:探测并导出代理 → `fetch origin`(默认 refspec,拉全部 head;不写死 ref 名) → 母体 `pull --ff-only`
    (**脏工作区 / 有本地提交时拒绝并退出 2**,绝不猜测)→ `superagent-prune.sh --apply` →
    报告 Windows 仓库是否跟上。末尾给一行机器可读状态:
 
@@ -88,17 +88,17 @@ powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running
 
    - **Windows 仓库不由它改动**:WSL 的 git 在 `/mnt/*` 上会把 CRLF 工作区搞乱。`same=no` 时自己在 Windows 侧跑
      `git -C D:\pycharmproject\chat_app pull --ff-only`(或交给每小时定时任务)。
-   - **fetch 失败不算失败**(issue #108 那一类):退回本地记录的 `origin/master` 判定 + 打警告;
+   - **fetch 失败不算失败**(issue #108 那一类):退回本地记录的 `origin/<默认分支>` 判定 + 打警告;
      只有「落后又拉不动」才退出 2。
    - `--check` 只报告不动手;`--quiet` 只在有动作/异常时说话(定时任务用)。
-   - **快进不发第二次网络请求**:fetch 成功后只用 `git merge --ff-only origin/master` 做纯本地快进。
+   - **快进不发第二次网络请求**:fetch 成功后只用 `git merge --ff-only origin/<默认分支>` 做纯本地快进。
      旧版这一步是 `git pull`,而 `pull` 内部会**再 fetch 一次** —— 于是刚被上面容错掉的抖动会在这里变成
      `die`,收尾停在进行到一半(决定同步之后、prune 之前)。2026-11-07 实测踩到过一次
      「fetch 成功了、紧接着 pull 报 gnutls 握手失败、收尾退出 1」。
    - 自测:`bash scripts/test_superagent_closeout.sh`(11 条,纯本地 git 仓库,不联网)。
    - ⚠️ **鸡生蛋**:脚本自己也在母体里,所以「脚本刚上线 / 刚更新」时要先手动引导一次
      `git -C /root/src/chatapp pull --ff-only`(带代理),之后才能用它。
-   - 母体不自动跟随 `origin/master`,而 prune 脚本就住在母体里 —— **先 pull 再 prune** 的顺序不能反。
+   - 母体不自动跟随 `origin/<默认分支>`,而 prune 脚本就住在母体里 —— **先 pull 再 prune** 的顺序不能反。
 
    **`prune` 的判定值(看 closeout 输出或单独跑时)**:
 
@@ -229,28 +229,31 @@ wsl -e bash /root/start-superagent.sh status
 | 看日报 | Actions → `自动合并（白名单）` → 每次运行的 **Summary**(合并了谁 / 跳过了谁 / 为什么) |
 | 看审计痕迹 | 被合并的 PR 上有一条评论(命中白名单、checks 结论、revert 命令) |
 | 紧急停 | 把 `AUTOMERGE` 设为 `off`;下一轮扫描直接退出 0,不合并任何东西 |
-| 回滚一次自动合并 | `git revert --no-edit <sha> && git push origin master`(人做) |
+| 回滚一次自动合并 | `git revert --no-edit <sha> && git push origin main`(人做) |
 
 **启用记录**:2026-11-08 `AUTOMERGE=on` 并当场验证两件事 —— ①`workflow_dispatch` 干跑一轮(exit 0,无 PR 时只写「没有开着的 PR」);
 ②首个真实样本就是本文这次改动所在的 PR:它只动 `docs/`,在 checks 通过后被 workflow 自己合并,PR 上留下了
 「自动合并(L2)」审计评论与合并 SHA。此后 `docs/**` 的 PR 不需要人点合并。
 
-**合并条件**(全部满足才合):开关开 · base=master · 非 draft · 作者是 `shiliu655` · 1–20 个文件**全部**命中白名单 ·
+**合并条件**(全部满足才合):开关开 · base=<默认分支,当前 `main`> · 非 draft · 作者是 `shiliu655` · 1–20 个文件**全部**命中白名单 ·
 无 `no-auto-merge`/`blocked`/`needs-human` 标签 · checks 无未完成且无失败(**0 个 check 视为通过**,纯文档 PR 的正常形态)·
 `mergeable=MERGEABLE` · 近 24h 的 `[auto]` 合并数 < 8。
 
 **人的否决票**:给 PR 打 `no-auto-merge` 标签即可永久拦住它(比关总闸精确)。
 
 **已知偏差(出现异常先看这里)**:
-- 用 `GITHUB_TOKEN` 合并**不会**触发 master 上的 `push` 轨。要保留那道二次确认,加 secret
+- 用 `GITHUB_TOKEN` 合并**不会**触发默认分支上的 `push` 轨。要保留那道二次确认,加 secret
   `AUTOMERGE_TOKEN`(fine-grained PAT),workflow 会自动优先用它。
 - 纯文档 PR 有 **0 个 check run**:「没有红」不等于「跑绿了」,门仍是本地 `scripts/verify.sh contract`。
 - `gh` 在 worker 的 PATH 里,shim 只按命令名拦 ⇒ **技术上**它能 `gh pr merge`。现在靠 `AGENTS.md` 自律;
   要变成硬拦,加一个拒 `merge`/`release` 子命令的 `gh` 包装器(见 spec §7 未决问题 4)。
   **2026-11-08 已落地**:见 §9。
-- ~~master 目前没有任何分支保护~~ → **2026-11-08 已开 ruleset**(`master: 必须走 PR + 禁强推`):禁删除、禁强推、
+- ~~默认分支目前没有任何分支保护~~ → **2026-11-08 已开 ruleset**(`默认分支(main): 必须走 PR + 禁强推`):禁删除、禁强推、
   必须走 PR(0 个 approval 即可合,以兼容自动合并);`shiliu153` 在 bypass 名单里,worker 账号不在。
-  实测:worker 账号直推 master 被拒(`push declined due to repository rule violations`),推特性分支照常。
+  实测:worker 账号直推默认分支被拒(`push declined due to repository rule violations`),推特性分支照常。
+  **2026-11-11 默认分支由 `master` 改名成 `main`,而 ruleset 的 include 仍写着 `refs/heads/master`**
+  —— 规则对 `main` 不生效,等于裸奔了约 20 小时。2026-11-12 已把 include 改成
+  `refs/heads/main` + `refs/heads/master`(过渡期两个都保)。**改名后必须同步检查 ruleset 的 ref_name。**
 
 ## 9. worker 侧硬拦:gh 包装器(gh-guard,2026-11-08 起)
 

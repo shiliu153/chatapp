@@ -7,12 +7,12 @@
 
 **在线实例**:<https://chat.shiliu153.cn> —— PC 浏览器进网页端,移动端浏览器进引导页。
 
-[![Backend CI](https://github.com/shiliu153/chatapp/actions/workflows/backend.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/backend.yml)
-[![App CI](https://github.com/shiliu153/chatapp/actions/workflows/app.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/app.yml)
-[![Web CI](https://github.com/shiliu153/chatapp/actions/workflows/web.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/web.yml)
-[![IM Server CI](https://github.com/shiliu153/chatapp/actions/workflows/imserver.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/imserver.yml)
-[![Contract CI](https://github.com/shiliu153/chatapp/actions/workflows/contract.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/contract.yml)
-[![Web E2E](https://github.com/shiliu153/chatapp/actions/workflows/web-e2e.yml/badge.svg?branch=master)](https://github.com/shiliu153/chatapp/actions/workflows/web-e2e.yml)
+[![Backend CI](https://github.com/shiliu153/chatapp/actions/workflows/backend.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/backend.yml)
+[![App CI](https://github.com/shiliu153/chatapp/actions/workflows/app.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/app.yml)
+[![Web CI](https://github.com/shiliu153/chatapp/actions/workflows/web.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/web.yml)
+[![IM Server CI](https://github.com/shiliu153/chatapp/actions/workflows/imserver.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/imserver.yml)
+[![Contract CI](https://github.com/shiliu153/chatapp/actions/workflows/contract.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/contract.yml)
+[![Web E2E](https://github.com/shiliu153/chatapp/actions/workflows/web-e2e.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/web-e2e.yml)
 [![API Docs](https://img.shields.io/badge/API%20docs-51%20operations-blue)](docs/api/README.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -187,7 +187,7 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
 - **六条 CI 轨**:backend(MySQL 8 + Redis,含测试与注释/文档门禁)、app(`flutter analyze` 零告警 + 测试)、
   web(`vue-tsc` + `eslint --max-warnings 0` + vitest 覆盖率门槛)、imserver(unit / WS / HTTP 三套)、
   contract(schema 与版本号生成物比对)、web-e2e(真后端 + Playwright 冒烟)。
-- **发布只认 `origin/master` 的 SHA**:分支 → PR → CI 全绿 → squash 合并 → 部署合并后的 commit;
+- **发布只认 `origin/main` 的 SHA**:分支 → PR → CI 全绿 → squash 合并 → 部署合并后的 commit;
   部署前先记回滚点(旧 SHA / 旧镜像 tag / `.env` 备份),禁止把未合并的本地提交直接上线。
 - **备份三层**:03:20 自建双库全量(应用库 + IM 库 + 媒体 + 配置,每份带 `.sha256`,并断言 dump 末行
   `-- Dump completed` 以防截断包)、03:30 面板原生备份、04:10 树莓派以只读账号主动拉取;
@@ -482,7 +482,7 @@ The engineering focus is on **architecture boundaries and enforceable contracts*
 - **Observability and capacity as measured artifacts** — Prometheus with multi-process aggregation, 17 alert rules
   routed to email, reproducible load scenarios in `perf/`, and capacity reports that state their measurement
   caveats (a 476 rps figure applies only to a DB-free endpoint; authenticated endpoints measure 28–52 rps on 2C2G).
-- **Delivery and recovery discipline** — six CI tracks, release only from the merged `origin/master` SHA with a
+- **Delivery and recovery discipline** — six CI tracks, release only from the merged `origin/main` SHA with a
   recorded rollback point, three independent backup layers, and a restore drill that was actually executed.
 
 Testing follows the same principle: UI tests run the **real provider tree and real router** against scripted

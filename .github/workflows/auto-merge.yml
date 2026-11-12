@@ -35,11 +35,14 @@ jobs:
     steps:
       - name: 扫描并合并
         env:
-          # 优先用 PAT(fine-grained):GITHUB_TOKEN 发起的合并**不会**触发 master 上的 push 轨。
+          # 优先用 PAT(fine-grained):GITHUB_TOKEN 发起的合并**不会**触发默认分支上的 push 轨。
           GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
           AUTOMERGE: ${{ vars.AUTOMERGE }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
           REPO: ${{ github.repository }}
+          # 默认分支名从事件里取(2026-11-11 由 master 改名成 main)。写死 ref 名会让改名后的
+          # 自动合并**静默失效**:扫不到任何 PR,日志全绿,看起来像"没有待合并的"。
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -uo pipefail
 
@@ -85,7 +88,9 @@ jobs:
 
           row() { printf '| #%s | %s | %s |\n' "$1" "$2" "$3" >> "$GITHUB_STEP_SUMMARY"; }
 
-          prs=$(gh pr list --repo "$REPO" --base master --state open --limit 50 --json number --jq '.[].number')
+          BASE="${DEFAULT_BRANCH:-main}"
+          echo "- 目标分支:\`${BASE}\`" >> "$GITHUB_STEP_SUMMARY"
+          prs=$(gh pr list --repo "$REPO" --base "$BASE" --state open --limit 50 --json number --jq '.[].number')
           if [ -z "$prs" ]; then
             echo "（没有开着的 PR）" >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -146,7 +151,7 @@ jobs:
               continue
             fi
 
-            gh pr comment "$pr" --repo "$REPO" --body "$(printf '**自动合并(L2)**\n\n- 命中白名单:`%s`\n- checks:全绿(或无 check run)\n- 无否决标签\n\n回滚:`git revert --no-edit <此合并的 SHA> && git push origin master`' "$WL_REGEX")" >/dev/null
+            gh pr comment "$pr" --repo "$REPO" --body "$(printf '**自动合并(L2)**\n\n- 命中白名单:`%s`\n- checks:全绿(或无 check run)\n- 无否决标签\n\n回滚:`git revert --no-edit <此合并的 SHA> && git push origin %s`' "$WL_REGEX" "$BASE")" >/dev/null
 
             if sha=$(gh api -X PUT "repos/$REPO/pulls/$pr/merge" \
                 -f merge_method=squash \

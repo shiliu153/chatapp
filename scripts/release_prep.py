@@ -9,9 +9,9 @@
 
     它做四件事,全部**可逆、可重复**:
 
-    1. **前置闸门** —— 工作区必须干净、当前分支必须是 ``master``、``HEAD`` 必须等于
-       ``origin/master``。这三条挡的是「拿未合并提交发版」,即 release.md §3 那条
-       「部署只认 ``origin/master`` 的 SHA」的同一条纪律。
+    1. **前置闸门** —— 工作区必须干净、当前分支必须是远端默认分支(``main``)、``HEAD`` 必须等于
+       ``origin/main``。这三条挡的是「拿未合并提交发版」,即 release.md §3 那条
+       「部署只认 ``origin/<默认分支>`` 的 SHA」的同一条纪律。
     2. **版本号三处** —— 写 ``app/pubspec.yaml`` 的 ``version: X.Y.Z+N``(构建号默认自增),
        再调 :mod:`scripts.sync_version` 写回 ``app_info.dart`` 与 ``web/package.json``。
     3. **门禁** —— 跑 :func:`scripts.sync_version.collect_mismatches`(必须为空);
@@ -172,13 +172,33 @@ def version_tuple(version: str) -> tuple[int, ...]:
 # --------------------------------------------------------------------------- #
 # 1. 前置闸门
 # --------------------------------------------------------------------------- #
+def remote_default_branch(repo: Path) -> str:
+    """返回远端默认分支名(``main`` 优先,回退 ``master``)。
+
+    默认分支 2026-11-11 由 ``master`` 改名成 ``main``。把分支名写死会让发版闸门在改名后
+    永远报「拿不到 origin/master」—— 而闸门挂掉的表现是「发不了版」,人只会以为网络坏了。
+    所以这里按本地 remote-tracking ref 判一次(纯本地,不发网络请求)。
+
+    Args:
+        repo: 仓库根目录。
+
+    Returns:
+        分支名,例如 ``"main"``;两个 ref 都不存在时返回 ``"main"``。
+    """
+    for candidate in ("main", "master"):
+        if git(repo, "rev-parse", "--verify", "--quiet",
+               f"refs/remotes/origin/{candidate}", check=False):
+            return candidate
+    return "main"
+
+
 def check_preconditions(repo: Path, allow_branch: str | None, fetch: bool,
                         warnings: list[str]) -> str:
     """校验「现在能不能发版」,并返回将要被打 tag 的 ``HEAD``。
 
     Args:
         repo: 仓库根目录。
-        allow_branch: 允许的分支名;``None`` 表示必须是 ``master``。
+        allow_branch: 允许的分支名;``None`` 表示必须是远端默认分支(当前是 ``main``)。
         fetch: 是否先 ``git fetch origin``(失败只记 warning,不阻断)。
         warnings: 收集不阻塞提示的列表(原地追加)。
 
@@ -186,7 +206,7 @@ def check_preconditions(repo: Path, allow_branch: str | None, fetch: bool,
         当前 ``HEAD`` 的完整 SHA。
 
     Raises:
-        ReleasePrepError: 脏工作区 / 分支不对 / ``HEAD`` 与 ``origin/master`` 不一致。
+        ReleasePrepError: 脏工作区 / 分支不对 / ``HEAD`` 与 ``origin/<默认分支>`` 不一致。
     """
     dirty = git(repo, "status", "--porcelain")
     if dirty:
@@ -195,25 +215,27 @@ def check_preconditions(repo: Path, allow_branch: str | None, fetch: bool,
             + "\n".join(f"  {line}" for line in dirty.splitlines()[:10])
         )
 
-    branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
-    expected_branch = allow_branch or "master"
-    if branch != expected_branch:
-        raise ReleasePrepError(f"当前分支是 {branch},发版必须在 {expected_branch} 上进行")
-
     if fetch:
         try:
             git(repo, "fetch", "--quiet", "origin")
         except ReleasePrepError as error:
-            warnings.append(f"git fetch 失败,改用本地 origin/master 判定:{error}")
+            warnings.append(f"git fetch 失败,改用本地 origin/<默认分支> 判定:{error}")
+
+    # fetch 之后再认分支名:改名后的第一次运行要靠本次拉下来的 ref 才认得 ``main``。
+    base = remote_default_branch(repo)
+    branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    expected_branch = allow_branch or base
+    if branch != expected_branch:
+        raise ReleasePrepError(f"当前分支是 {branch},发版必须在 {expected_branch} 上进行")
 
     sha = git(repo, "rev-parse", "HEAD")
-    remote = git(repo, "rev-parse", "origin/master", check=False)
+    remote = git(repo, "rev-parse", f"origin/{base}", check=False)
     if not remote:
-        raise ReleasePrepError("拿不到 origin/master —— 至少先 git fetch origin 一次")
+        raise ReleasePrepError(f"拿不到 origin/{base} —— 至少先 git fetch origin 一次")
     if sha != remote:
         raise ReleasePrepError(
-            f"HEAD {sha[:7]} 与 origin/master {remote[:7]} 不一致;"
-            "发版只认 origin/master 的 SHA,先 pull --ff-only 或等 CI 合并"
+            f"HEAD {sha[:7]} 与 origin/{base} {remote[:7]} 不一致;"
+            f"发版只认 origin/{base} 的 SHA,先 pull --ff-only 或等 CI 合并"
         )
     return sha
 
@@ -489,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--build", type=int, help="构建号(+N);默认在当前值上自增")
     parser.add_argument("--from", dest="from_ref", help="notes 起点 ref;默认上一个 tag")
     parser.add_argument("--repo", type=Path, default=REPO_ROOT, help="仓库根;默认本仓库")
-    parser.add_argument("--allow-branch", help="允许的分支名;默认只允许 master")
+    parser.add_argument("--allow-branch", help="允许的分支名;默认只允许远端默认分支(main)")
     parser.add_argument("--no-fetch", action="store_true", help="不先 git fetch origin")
     parser.add_argument("--dry-run", action="store_true", help="只打印计划,不写任何文件")
     args = parser.parse_args(argv)
