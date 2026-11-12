@@ -27,7 +27,7 @@
 | 3 | `web.yml` 跑 `test:run` 而不是 `test:coverage` | 文档宣称的覆盖率门槛 70/60/70/70 **在 CI 里从未执行过** |
 | 4 | `backend.yml` / `web-e2e.yml` / `verify.sh bootstrap` 装 `requirements.txt` 区间 | 生产镜像装的是 `requirements.lock`;「CI 绿」推不出「生产可用」 |
 | 5 | 部署没有机械闸门 | 「只部署合并后 SHA」无法判定,1.0.13 在红着的情况下上线 |
-| 6 | 发版三处松口:tag 指向准备时 HEAD、`sync_version.py` 接受「待建」、`create_release.py` 允许 tag 不存在(GitHub 自动建轻量 tag) | 1.0.4 的 Release 挂了整整一周;附注 tag 纪律可被绕过 |
+| 6 | 发版三处松口:tag 指向准备时 HEAD、`sync_version.py` 接受「待建」、`create_release.py` 允许 tag 不存在(GitHub 自动建轻量 tag) | 1.0.4 的 Release 挂了 8 天(11-04 发版 → 11-12 才定口径);附注 tag 纪律可被绕过 |
 | 7 | `accounts.E001`(固定验证码 + 空白名单)**从未被任何流水线执行** | CI 全程 `DEBUG=1`(检查直接返回)、`migrate` 不跑 system checks、部署脚本没有 `manage.py check` —— 门禁不可达 = 等于不存在 |
 | 8 | `gh-guard` 只按命令名拦,`gh api -X PUT .../pulls/N/merge`、`gh api -X POST .../releases` 直接放行 | worker 唯一机械拦截有绕过口 |
 | 9 | `deploy/**`(备份 / 一键部署 / 看门狗 / 恢复演练)不在任何 CI 轨 | 34 个 `.sh` 里最危险的一批没有任何语法/逻辑检查 |
