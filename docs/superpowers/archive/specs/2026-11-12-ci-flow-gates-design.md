@@ -78,6 +78,12 @@
 | 7 | **#258** | **P2 供应链与运维覆盖** | dependabot / `bash -n` / 白名单收窄 / set_automerge_token / CONTRIBUTING |
 | 8 | **#271** | **P2 收尾** | Actions pin 21 处 / `shellcheck -S error` / `pip check` / 1.0.4 Release 归档口径 |
 | — | #257 | 探针 PR(关闭不合并) | 验证纯文档 PR 的 `backend` / `web` 被 skipped 后仍可合并 |
+| — | 12 个 dependabot PR | 收尾(同日晚上) | **7 合**(Actions 5 + npm patch 2)、**3 关**(python 3.15 / node 25 / ubuntu 25.10)、**2 留**(#261 vite / #265 nginx),见下 |
+
+同日晚间收尾时把 12 个 dependabot PR 逐条裁决了:合并 **7 个**(`checkout@7` / `setup-node@7` / `setup-python@7` /
+`upload-artifact@7` / `cache@6` / `follow-redirects 1.16.3` / `undici 7.30.2`;主分支合并后 `contract` / `backend` / `web` / `web-e2e` 全绿),
+关闭 **3 个**(`python:3.15` / `node:25` / `ubuntu:25.10` —— 与 Node 22 / Python 3.11 锁 / Ubuntu LTS 约束冲突,关闭理由写在各自 PR 上),
+留 **2 个**(#261 vite patch 与已合 npm patch 锁文件冲突、已请求 `@dependabot rebase` 未响应;#265 nginx 可合但要重跑部署冒烟)。
 
 ## 5. 验证(实测,不是断言)
 
@@ -96,7 +102,7 @@
 |---|---|---|
 | `AUTOMERGE_TOKEN` | 需人在 GitHub 网页建 fine-grained PAT 并跑 `set_automerge_token.py`;现在自动合并仍用 `GITHUB_TOKEN`,**不触发默认分支 push 轨** | 人(网页建 token) |
 | npm security updates 持续失败 | `minimatch` 的修复路径会**降级** `@eslint/js`(10.0.1 → 9.39.5),dependabot 判 `downgrades_dependencies` 后报错 → 默认分支上常驻一条红色 `Dependabot` check(不阻塞合并,规则只要求 contract/backend/web) | worker(`web/` 栈:加 `overrides` 或升 `@eslint/js`) |
-| 12 个 dependabot PR 待裁决 | 4 个 docker 大版本与项目约束冲突(python 3.15 / node 25 / ubuntu 25.10 / nginx 1.31);5 个 Actions 大版本 + 3 个 npm patch 需人点合并 | 人(合并动作) |
+| dependabot PR 已裁决(2026-11-12) | 12 个里 **7 合 / 3 关 / 2 留**:合的是 5 个 Actions + 2 个 npm patch(主分支 CI 全绿);关的是 python 3.15 / node 25 / ubuntu 25.10(与 Node 22 / Python 3.11 / Ubuntu LTS 约束冲突);留 #261 vite(锁文件冲突待 rebase)与 #265 nginx(待部署冒烟) | 人:合 #265、决定 #261 |
 | L4「需求自动入队」 | 阶梯 spec 的 L4 未做,且**还没有对应 issue** | 人先立项 |
 | `requirements.lock` 无 `--hash` | 供应链完整性缺口(跨平台精确生成较麻烦) | worker(单开一单) |
 | `deploy/**` shellcheck 只到 error 级 | warning / info 未开(现有脚本风格项太多) | worker(逐步开) |
