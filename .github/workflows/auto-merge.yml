@@ -53,10 +53,15 @@ jobs:
           # worker 账号能写这些文件,而「写文档的 worker」与「读文档的下一次 agent」不是
           # 同一信任级:worker 账号一旦被拿下,一个「纯文档」PR 就能无人工审查地把指令注入
           # master。所以白名单只留**没有指令语义**的目录。
-          WHITELIST_PREFIXES=("docs/api/" "docs/security/" "docs/reviews/" "docs/milestones.md")
+          WHITELIST_PREFIXES=("docs/api/" "docs/milestones.md")
           # 显式黑名单(双保险):即使将来有人往白名单加前缀,这几处也不会被自动合并。
           # 它们要么被 agent 当指令读,要么是仓库级约定文件(改它们必须人看 diff)。
+          #
+          # 2026-11-12(P2 再收窄):`docs/security/` 与 `docs/reviews/` 移出白名单。
+          # M-4 当初保留它们的理由是「没有指令语义」,但审计报告里全是「验收:…」
+          # 「建议修复批次 A→B→C→D」—— 这对下一个 agent 是**强指令**。
           DENY_PREFIXES=("docs/superpowers/" "docs/pitfalls/" "docs/ops/" "docs/learning/"
+                         "docs/security/" "docs/reviews/"
                          "CLAUDE.md" "AGENTS.md" "CONTRIBUTING.md" "README.md")
           VETO_LABELS=("no-auto-merge" "blocked" "needs-human")
           MAX_FILES=20

@@ -238,7 +238,7 @@ wsl -e bash /root/start-superagent.sh status
 | 事 | 命令 / 位置 |
 |---|---|
 | 开关(唯一总闸) | `gh variable set AUTOMERGE --body on\|off --repo shiliu153/chatapp` |
-| 白名单(唯一事实来源) | `.github/workflows/auto-merge.yml` 里的 `WHITELIST_PREFIXES`,当前是 `docs/api/`、`docs/security/`、`docs/reviews/`、`docs/milestones.md`(2026-11-08 M-4 收窄后;`docs/superpowers/`、`docs/pitfalls/`、`docs/ops/` 在 `DENY_PREFIXES` 里) |
+| 白名单(唯一事实来源) | `.github/workflows/auto-merge.yml` 里的 `WHITELIST_PREFIXES`,当前是 `docs/api/`、`docs/milestones.md`(2026-11-12 再收窄:移除了 `docs/security/` 与 `docs/reviews/`,它们的审计报告里有「验收/建议批次」这类强指令语义);`docs/superpowers/`、`docs/pitfalls/`、`docs/ops/`、`docs/security/`、`docs/reviews/` 都在 `DENY_PREFIXES` 里 |
 | 手动跑一轮(不合并) | `gh workflow run auto-merge.yml -f dry_run=true --repo shiliu153/chatapp` |
 | 看日报 | Actions → `自动合并（白名单）` → 每次运行的 **Summary**(合并了谁 / 跳过了谁 / 为什么) |
 | 看审计痕迹 | 被合并的 PR 上有一条评论(命中白名单、checks 结论、revert 命令) |
@@ -263,6 +263,17 @@ wsl -e bash /root/start-superagent.sh status
 - 用 `GITHUB_TOKEN` 合并**不会**触发默认分支上的 `push` 轨。仓库里**没有** `AUTOMERGE_TOKEN`
   secret(2026-11-12 核对),所以这条偏差现在**一直成立**。补偿是 PR 轨本身已经全量跑过
   (contract/backend/web 不再按 paths 跳过),且 `main-health.yml` 每天兜底检查默认分支。
+  **补法**(2026-11-12):建 fine-grained PAT(只对 `shiliu153/chatapp`,Contents 读写 +
+  Pull requests 读写,90 天过期),然后:
+
+  ```powershell
+  $env:AUTOMERGE_TOKEN = "github_pat_..."
+  python scripts/set_automerge_token.py --dry-run   # 只验证 admin 权限
+  python scripts/set_automerge_token.py             # 真写(sealed box 加密)
+  ```
+
+  不要复用 `~/.dsh/github-mcp-token.txt` 那个 classic PAT(`repo` 全权限):把它放进
+  Actions secret 等于给每条 workflow 发「能改 workflow / 能发 Release」的凭据。
 - 纯文档 PR 现在**也有 check**(三条必跑轨),「没有 check」不再是正常形态。
 - `gh` 在 worker 的 PATH 里,shim 只按命令名拦 ⇒ **技术上**它能绕过。2026-11-08 起有
   `scripts/gh-guard`(见 §9),2026-11-12 补上了 `gh api` 的 REST 合并 / Release 端点;

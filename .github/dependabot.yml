@@ -1,0 +1,58 @@
+version: 2
+
+# 2026-11-12(P2):依赖更新只开「低噪音」的两个生态。
+#
+# - github-actions:更新 `uses: xxx@vN` 的版本。它几乎不会碰业务代码,而且能顺带
+#   缓解审计 L-4「Actions 全是可变大版本 tag」的问题。
+# - docker:更新镜像 tag(mysql:8.0 / redis:7-alpine / python:3.11-slim-bookworm)。
+#   升级后仍需人跑一次 verify 再合。
+#
+# pip / npm / pub 三类**不在这里开版本升级**:它们的升级要重新生成 requirements.lock
+# / package-lock.json 并跑全量测试,自动 PR 噪音大、误合代价高。这三类交给
+# **Dependabot security updates**(仓库 Settings → Code security 里已开启):
+# 只在出现已知漏洞时开 PR,日常不打扰。
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "ci(deps)"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - deploy
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: docker
+    directory: /deploy/docker
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - deploy
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: docker
+    directory: /imserver
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - imserver
+    commit-message:
+      prefix: "chore(deps)"

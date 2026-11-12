@@ -73,3 +73,18 @@ jobs:
       # 它坏掉的两种后果都不能静默发生:把重活全跳过(门禁漏),或把每个 PR 拖成 10 分钟。
       - name: 改动面判定器自测
         run: bash scripts/test_ci_scope.sh
+
+      # deploy/ 下的脚本(一键部署、备份、看门狗、恢复演练)此前**不在任何 CI 轨里**:
+      # 备份是 CLAUDE.md 列的两大风险之一,脚本语法坏掉却没人知道。这里做最低限度的
+      # 语法检查(bash -n):不装依赖、不联网、不改脚本。逻辑类问题(shellcheck)留待后续。
+      - name: shell 脚本语法检查(bash -n)
+        run: |
+          set -uo pipefail
+          rc=0
+          while IFS= read -r f; do
+            if ! bash -n "$f"; then
+              echo "::error file=$f::bash -n 失败"
+              rc=1
+            fi
+          done < <(git ls-files '*.sh')
+          exit "$rc"
