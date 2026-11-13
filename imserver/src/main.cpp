@@ -14,6 +14,7 @@
 #include "net/http_api.h"
 #include "net/ws_server.h"
 #include "service/message_service.h"
+#include "service/delivery_bus.h"
 #include "service/push_notifier.h"
 #include "service/session_registry.h"
 #include "store/blacklist_repo.h"
@@ -70,19 +71,29 @@ int main(int argc, char** argv) {
                                    cfg.media_sign_secret, cfg.media_sign_ttl);
 
     RedisClient redis(cfg.redis_url);
-    SessionRegistry registry(redis);
+    // #288:instance_id 非空 = 多实例模式(写 owner 键 + 订阅跨节点频道);
+    // 为空 = 单实例,行为与改造前完全一致。
+    SessionRegistry registry(redis, cfg.instance_id);
     boost::asio::io_context io;
     boost::asio::thread_pool db_pool(static_cast<std::size_t>(cfg.db_threads));
     // C-1:离线新消息推送的转发器。IM_PUSH_URL 为空 = 关闭(空壳,不建线程)。
     PushNotifier push_notifier(cfg);
+    DeliveryBus delivery_bus(registry, redis, cfg.instance_id, cfg.redis_url);
+    if (!cfg.instance_id.empty()) {
+      delivery_bus.start(io);
+      log_info("delivery_bus_started", {{"instance_id", cfg.instance_id}});
+    }
     WsServer server(io, cfg, registry, redis, message_service, push_notifier, db_pool);
     server.start();
     HttpApi http(io, cfg, message_service, registry, redis, push_notifier);
     http.start();
 
     boost::asio::signal_set signals(io, SIGINT, SIGTERM);
-    signals.async_wait([&server, &http, &io](const boost::system::error_code& ec, int) {
+    signals.async_wait([&server, &http, &io, &delivery_bus](const boost::system::error_code& ec,
+                                                           int) {
       if (!ec) {
+        // 先摘跨节点钩子并停订阅线程,再停网络 —— 避免退出途中被投递到正在析构的会话表。
+        delivery_bus.stop();
         server.stop();
         http.stop();
         io.stop();

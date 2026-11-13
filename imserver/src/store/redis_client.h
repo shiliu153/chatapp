@@ -40,6 +40,15 @@ class RedisClient {
   std::optional<std::string> get(const std::string& key);
   bool del(const std::string& key);
   long long incr(const std::string& key);
+  /// 往频道发布一条消息(跨节点投递用)。Redis 故障时返回 false,不抛异常。
+  ///
+  /// Args:
+  ///   channel: 频道名,如 ``im:deliver:edge``。
+  ///   payload: 消息体(这里统一是 JSON)。
+  ///
+  /// Returns:
+  ///   发布成功(至少有订阅者或已入队)返回 true。
+  bool publish(const std::string& channel, const std::string& payload);
   bool ping();
 
  private:

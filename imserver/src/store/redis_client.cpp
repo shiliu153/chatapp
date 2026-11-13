@@ -199,6 +199,18 @@ long long RedisClient::incr(const std::string& key) {
   return value;
 }
 
+bool RedisClient::publish(const std::string& channel, const std::string& payload) {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  auto* reply = static_cast<redisReply*>(
+      redisCommand(ctx_, "PUBLISH %s %s", channel.c_str(), payload.c_str()));
+  // PUBLISH 返回收到消息的订阅者数;0 也是「发成功了、只是没人听」。
+  const bool ok = reply != nullptr && reply->type == REDIS_REPLY_INTEGER;
+  if (reply != nullptr) {
+    freeReplyObject(reply);
+  }
+  return ok;
+}
+
 bool RedisClient::ping() {
   const std::lock_guard<std::mutex> lock(mutex_);
   auto* reply = static_cast<redisReply*>(redisCommand(ctx_, "PING"));

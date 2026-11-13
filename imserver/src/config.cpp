@@ -1,5 +1,7 @@
 #include "config.h"
 
+#include <unistd.h>
+
 #include <cstdlib>
 #include <stdexcept>
 
@@ -137,6 +139,17 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   cfg.listen_http = get_or(env, "IM_LISTEN_HTTP", cfg.listen_http);
   cfg.mysql_dsn = get_or(env, "IM_MYSQL_DSN");
   cfg.redis_url = get_or(env, "IM_REDIS_URL", cfg.redis_url);
+  // 多实例(#288):不配就取 hostname —— 容器里通常就是容器 id,天然唯一。
+  // 显式配成空串 = 单实例(不写 owner 键、不订阅跨节点频道)。
+  {
+    const auto it = env.find("IM_INSTANCE_ID");
+    if (it != env.end()) {
+      cfg.instance_id = it->second;
+    } else {
+      char host[256] = {0};
+      cfg.instance_id = gethostname(host, sizeof(host) - 1) == 0 ? std::string(host) : std::string();
+    }
+  }
   cfg.jwt_secret = get_or(env, "IM_JWT_SECRET");
   cfg.internal_secret = get_or(env, "IM_INTERNAL_SECRET");
   cfg.migrations_dir = get_or(env, "IM_MIGRATIONS_DIR", cfg.migrations_dir);

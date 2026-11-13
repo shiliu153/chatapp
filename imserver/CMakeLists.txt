@@ -21,6 +21,7 @@ add_library(imcore STATIC
   src/net/http_api.cpp
   src/net/ws_server.cpp
   src/service/message_service.cpp
+  src/service/delivery_bus.cpp
   src/service/push_notifier.cpp
   src/service/session_registry.cpp
   src/store/blacklist_repo.cpp
@@ -28,6 +29,7 @@ add_library(imcore STATIC
   src/store/message_repo.cpp
   src/store/mysql_pool.cpp
   src/store/redis_client.cpp
+  src/store/redis_subscriber.cpp
   src/store/stmt.cpp
   src/store/user_repo.cpp
   src/util/hmac.cpp
