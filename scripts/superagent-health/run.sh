@@ -4,6 +4,11 @@
 # 为什么要有去重:定时器 15 分钟一轮,一个卡死的 assignment 会连续命中几十轮 ——
 # 不去重就是每 15 分钟一封邮件,人会直接把告警规则关掉,那比没有告警更糟。
 # 指纹变了(换了异常种类)或距上次发送超过 6 小时,才再发一次。
+#
+# 退出码语义(给 systemd 看,和 healthcheck.py 的 0/1/2 不同):
+#   0 = 本轮没事,或者异常已经成功报出去了 —— 告警通道是我们选的通道,报出去就算完成。
+#   1 = **巡检自己没完成**(判不出来,或者告警发不出去)。只有这一种才该让 systemd 标红:
+#       否则「worker 有异常」会让 unit 每 15 分钟 failed 一次,真正的故障被自己的噪音埋掉。
 set -uo pipefail
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -35,10 +40,10 @@ OUT=$(mktemp); trap 'rm -f "$OUT"' EXIT
 python3 "$CHECKER" ${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"} >"$OUT" 2>"$STATE_DIR/last-stderr.log"
 RC=$?
 
-# 契约:0 正常 / 1 有异常 / 2 判不出来
+cat "$OUT"
+
 if [ "$RC" -eq 0 ]; then
   rm -f "$STATE_DIR/last-fingerprint" "$STATE_DIR/last-sent"
-  cat "$OUT"
   exit 0
 fi
 
@@ -47,10 +52,9 @@ LAST_FP=$(cat "$STATE_DIR/last-fingerprint" 2>/dev/null || true)
 LAST_TS=$(cat "$STATE_DIR/last-sent" 2>/dev/null || echo 0)
 NOW=$(date +%s)
 
-cat "$OUT"
 if [ "$FP" = "$LAST_FP" ] && [ $((NOW - LAST_TS)) -lt "$RESEND_AFTER" ]; then
   echo "run: 同一异常 $FP 已于 $(( (NOW - LAST_TS) / 60 )) 分钟前告警过,本轮不重复发(每 $((RESEND_AFTER / 3600))h 提醒一次)"
-  exit "$RC"
+  exit 0
 fi
 
 SUBJECT="[superagent] worker 健康检查异常(rc=$RC)"
@@ -61,7 +65,7 @@ SUBJECT="[superagent] worker 健康检查异常(rc=$RC)"
   cat "$OUT"
   echo
   echo "下一步:"
-  echo "  1) bash /root/start-superagent.sh status      # 健康位"
+  echo "  1) bash /root/start-superagent.sh status                      # 健康位"
   echo "  2) bash /root/src/chatapp/scripts/superagent-proxy/probe.sh   # 三路出网对比"
   echo "  3) 卡死的 assignment 需要新单或重启:见 docs/ops/superagent.md §3"
   echo
@@ -71,8 +75,10 @@ SUBJECT="[superagent] worker 健康检查异常(rc=$RC)"
 if bash "$HERE/notify.sh" "$SUBJECT" "$STATE_DIR/pending-alert.md"; then
   printf '%s' "$FP" >"$STATE_DIR/last-fingerprint"
   printf '%s' "$NOW" >"$STATE_DIR/last-sent"
-else
-  # 发送失败**不能**记指纹:记了就等于这条异常在 6 小时内不会再报(静默丢告警)。
-  echo "run: 告警没发出去,不记指纹(下一轮会重试);内容见 $STATE_DIR/last-alert.md" >&2
+  exit 0
 fi
-exit "$RC"
+
+# 发送失败**不能**记指纹:记了就等于这条异常在 6 小时内不会再报(静默丢告警);
+# 而且这里必须让 systemd 看见失败 —— 那是唯一一个「巡检自身失灵」的信号。
+echo "run: 告警没发出去,不记指纹(下一轮会重试);内容见 $STATE_DIR/last-alert.md" >&2
+exit 1

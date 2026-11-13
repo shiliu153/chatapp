@@ -68,9 +68,21 @@ send_github() {
 $BODY"
 }
 
-if send_cmd; then echo "notify: 已通过 SUPERAGENT_NOTIFY_CMD 发出"; exit 0; fi
-if send_smtp; then echo "notify: 已通过 SMTP 发出"; exit 0; fi
-if send_github; then echo "notify: 已通过 GitHub issue 评论发出"; exit 0; fi
+# 每个通道试两次:经宿主兜底代理时偶发 `Post ...: EOF`(2026-11-13 实测),
+# 单次失败就换下一个通道等于白白丢掉一条告警。
+attempt() { # attempt <函数名>
+  local n=1
+  while [ "$n" -le 2 ]; do
+    if "$1"; then return 0; fi
+    n=$((n + 1))
+    [ "$n" -le 2 ] && sleep 5
+  done
+  return 1
+}
+
+if attempt send_cmd; then echo "notify: 已通过 SUPERAGENT_NOTIFY_CMD 发出"; exit 0; fi
+if attempt send_smtp; then echo "notify: 已通过 SMTP 发出"; exit 0; fi
+if attempt send_github; then echo "notify: 已通过 GitHub issue 评论发出"; exit 0; fi
 
 echo "notify: 没有任何可用通道 —— 只落盘到 $STATE_DIR/last-alert.md" >&2
 logger -t superagent-health "告警通道未配置,内容已落盘:$SUBJECT"
