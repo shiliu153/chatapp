@@ -176,6 +176,10 @@ stack_contract() {
   # 写进 config.yaml 会让 mihomo 起不来 → worker 全断网,而现场看起来像「代理没开」。
   # 纯离线、秒级,和上面几条同性质。
   run "出口代理渲染自测" bash "$ROOT/scripts/superagent-proxy/selftest.sh"
+  # 启动脚本的选路判据(端口活 **且** 出网真通)是「端口活但出网 0%」唯一的机械防线。
+  # 启动脚本只在 WSL 里跑,坏在本地也没人当场知道。纯离线(端口与探测都打桩)、毫秒级。
+  # CI 侧由上面那条 selftest.sh 带跑,这里补一行让本地 `verify.sh contract` 与 CI 同口径。
+  run "启动脚本选路自测" bash "$ROOT/scripts/test_start_superagent.sh"
   # L4 需求自动入队:整条阶梯里唯一「替人决定做什么」的一级。判多了会污染待办,
   # 判少了真失败没人管,判不出来还必须不开单 —— 三种都由这条自测钉住(纯离线)。
   run "L4 入队判定器自测" "$PY" -m unittest scripts.test_l4_intake

@@ -599,7 +599,7 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 - **WSL 必须是 `networkingMode=mirrored`**(2026-11-13)。不是的话,装了企业 VPN(aTrust)之后
   WSL 的直连 TCP 会被拦,而 UDP DNS 仍然通 —— 表现是「代理端口在听、节点全 timeout、模型网关
   ETIMEDOUT」,极其难查。判据与改法见 §12.0。切了 mirrored 之后:
-  `start-superagent.sh` 里「探测不到 7890 就回退宿主 `${HOSTIP}:7897`」那一跳基本用不上了
+  `start-superagent.sh` 里「mihomo 不可用就回退宿主 `${HOSTIP}:7897`」那一跳基本用不上了
   (宿主网关变成真实路由器),别把它当成主路径依赖。
 
 - **重启后首轮轮询要 ~20 分钟**。`pollRound` 每轮要串行读完 67 个订阅 Thread(每个还要读评论/PR/CI),
@@ -610,12 +610,24 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
   多端口并存、旧端口短期内仍可用。所以刷新定在每 6 小时:万一某天旧端口被回收,
   最长 6 小时能自愈。`refresh.sh` 的差异报告会把「端口/地址变化」单独归一类,不混进节点增减。
 - **代理是单点**:mihomo 挂了 → worker 外网全断。缓解:`Restart=always` + `StartLimitBurst=5`
-  (配置坏了会停下来而不是刷爆 journal)+ `start-superagent.sh` 探测不到 7890 时自动回退宿主 7897,
+  (配置坏了会停下来而不是刷爆 journal)+ `start-superagent.sh` 判 mihomo 不可用(端口没在听,
+  或**端口在听但出网不通**)时自动回退宿主 7897,
   两条都不通时**大声警告但仍启动**(不因为网络暂时不通就把整个 superagent 拦下)。
-- **选路看「端口活没活」,不看「出网成功与否」**。拿会抖的探针去选路,只会在抖动时把 worker
-  切到更差的那条(宿主那 8% 就是这么来的)。出网质量交给 `probe.sh` 去量。
-- `start-superagent.sh` 的探测会给启动加约 1~3s;`status` 也会探一次,输出里会多两行 stderr
-  (`出口代理:…` / `出网探针:…`),不影响 JSON 与退出码。
+- **选路判据 = 端口活「且」出网真通**(2026-11-13 起)。此前只看「端口在听」,
+  理由是宿主那条路有 ~8% 抖动,怕探针把 worker 切到更差的一条;但 2026-11-13 的事故证明这个
+  盲区代价更大:**7890 在听、出网 0%** → 永不回退 → worker 全断而所有健康位都是 ready。
+  现在补一次真实探测(`EGRESS_PROBE_URL`,默认 `https://api.github.com/`,非 2xx 算不通),
+  且**连续失败 `EGRESS_FAIL_THRESHOLD`(默认 3)次才切**,单次抖动不会切路。
+  探测可关(`EGRESS_PROBE=off`)、可替换(`EGRESS_PROBE_CMD`,拿到代理 URL 作 `$1`),
+  离线自测见 `scripts/test_start_superagent.sh`(由 `superagent-proxy/selftest.sh` 带进 contract 轨)。
+  兜底那一跳仍只看端口 —— 它已经是最差的一条路,再否掉就没有路可走了。
+- **出网失败在 stderr 上一定有一行**:选路每条分支都打 `[select] …`,出网不通时是
+  `[select] egress-bad → fallback host` / `[select] egress-bad → no fallback`,
+  排障时直接 `bash /root/start-superagent.sh status 2>&1 | grep '\[select\]'`。
+- `start-superagent.sh` 的探测给启动加的时间:一切正常约 1~3s;mihomo 端口在听但出网不通时
+  最坏约 `EGRESS_FAIL_THRESHOLD × (EGRESS_PROBE_TIMEOUT + EGRESS_PROBE_BACKOFF)` ≈ 18s
+  (3 × (5s + 1s)),这是「真的断了要先确认三次」的代价。`status` 也会探一次,输出里会多两行
+  stderr(`出口代理:…` / `出网探针:…`),不影响 JSON 与退出码。
 
 ### 12.7 排障
 
@@ -626,6 +638,7 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 | `probe.sh` 判 mihomo 比直连差 | 换线路:`/root/.dsh/proxy/bin/override.yaml` 的 `include_pattern`(默认只收 IEPL);改完跑 `refresh.sh` |
 | 某天突然全部超时 | 端口可能被回收:先 `refresh.sh`,再看 `journalctl` |
 | 想确认到底走没走代理 | `curl -x http://127.0.0.1:7890 https://api.ipify.org` 看出口 IP |
+| 启动/`status` 输出里有 `[select] egress-bad` | 7890 在听但经它出网不通(2026-11-13 的形态):看 `journalctl -u superagent-proxy -n 50 --no-pager`;若宿主也连不通,WSL 的 `networkingMode` 是不是不是 mirrored(§12.0) |
 
 ### 12.8 回退
 
@@ -633,7 +646,7 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 systemctl disable --now superagent-proxy superagent-proxy-refresh.timer
 ```
 
-`start-superagent.sh` 探测不到 7890 会自动回退宿主 7897,等于回到改造前,**不用改脚本、不用重启**。
+`start-superagent.sh` 判 mihomo 不可用(端口没在听,或端口在听但出网不通)会自动回退宿主 7897,等于回到改造前,**不用改脚本、不用重启**。
 要连启动脚本一起回退:`ls -1 /root/start-superagent.sh.bak-*` 找最近那份 `cp -a` 回去。
 
 ## 13. 派单前守门:WSL 没起来先拉起(2026-11-09 起)
