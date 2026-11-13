@@ -197,6 +197,52 @@ docker save chatapp-imserver:local | ssh ubuntu@172.31.35.181 'sudo docker load'
 > 附件说明：EDGE 侧那轮第一次跑出现 20 个 `40302`（无法发送），是**造数漏洞**
 > ——压测账号的环形对端没建配对，不是容量问题；补齐配对后重跑为 0 错误，上表是重跑数据。
 
+## 6.4 Redis 客户端自愈（本轮挖出的真 bug）
+
+隧道重建之后集群**静默失效**：`split_a_b delivered=False`，但所有端口探测都是通的、
+`verify` 全绿。根因是 `store/redis_client.cpp` 的 `RedisClient` 只有一条 hiredis 连接、
+**从不重连**：
+
+- 订阅端（`RedisSubscriber`，本单新写的）自带重连，**恢复了**；
+- 发布端（`RedisClient`）**没有** —— 隧道一断，这条连接永久死亡，
+  之后 owner 键写不进、`PUBLISH` 全失败，而**报错被静默吞掉**（各方法本来就设计成
+  「Redis 故障不阻断聊天」），于是表现为「一切正常、就是消息不跨节点」。
+
+**修法**：`RedisClient` 记住 URL，新增 `revive_locked()` —— 每次操作前检查 `ctx_->err`，
+发现已死就重连，并把**本次命令重试一次**（`run_locked` 模板）。顺带修好了
+在线键 / 发送配额 / owner 键的同类静默失效。
+
+**韧性验证**（2026-11-13 18:47）：
+
+| 步骤 | 结果 |
+|---|---|
+| ① 重启后基线 | `split_a_b delivered=True`，`verdict=FIXED` |
+| ② 用 `bin/topology.sh apply` **重建全部隧道**（正是上次把集群弄坏的操作） | 完成 |
+| ③ **不重启任何进程**直接复测 | `split_a_b delivered=True`，`verdict=FIXED` |
+
+## 6.5 一键重建：`bin/topology.sh`
+
+隧道原先靠手敲，断了要重新推理。现在固化成三个子命令（在 EDGE 上跑）：
+
+```bash
+bash deploy/aws-distributed/bin/topology.sh verify     # 只检查,失败退出码 1
+bash deploy/aws-distributed/bin/topology.sh apply      # 幂等重建隧道 + ufw + 重载 nginx,末尾自检
+bash deploy/aws-distributed/bin/topology.sh teardown   # 摘隧道,不动容器
+```
+
+脚本把我踩过的坑写进了代码：
+
+| 坑 | 脚本怎么处理 |
+|---|---|
+| `pkill -f "<端口>"` 会杀掉自己这条 ssh 会话 | 一律用 `fuser -k <port>/tcp` |
+| 容器 IP 在 `--force-recreate` 后会变 | 每次 apply 都 `docker inspect` 重新发现 |
+| APP 上 `chaoxing-web` 占着 127.0.0.1:8000 | Django 副本固定用 18080 |
+| 两台 ufw 都是 INPUT DROP,表现为「超时」不是「拒绝」 | 按 compose 网段（EDGE `172.28.0.0/16`、APP `172.19.0.0/16`）放行 |
+| 两个实例 `instance_id` 相同时跨节点路由会静默失效 | `verify` 显式比对两者不同 |
+
+> `verify` 只证明「端口/容器/链路在」；**功能是否真的跨节点送达，必须跑
+> `lab_cross_node.py`** —— 6.4 就是「verify 全绿但集群已坏」的实例。
+
 ## 7. 仍然没做的
 
 | 项 | 原因 |
