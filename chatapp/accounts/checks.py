@@ -1,14 +1,19 @@
 """准入机制的部署期安全检查:把「固定码 + 名单空」从静默 fail-open 变成 check 红。
 
-命中条件的四项同时成立才报错:
+命中条件的五项同时成立才报错:
     1. 不是 ``DEBUG``(开发环境本来就该放行);
     2. 不是测试运行(``TESTING``,用例会临时改设置,不能因此变红);
     3. ``SMS_DEV_MODE`` 为真 —— 验证码固定 ``123456``,「知道号码 = 能接管账号」;
-    4. ``SMS_PHONE_WHITELIST`` 为空 —— 连兜底种子都没有。
+    4. ``SMS_PHONE_WHITELIST`` 为空 —— 连兜底种子都没有;
+    5. ``SMS_ALLOWLIST_STRICT`` 不是显式 ``"0"`` —— 那代表运营已确认这是封闭测试。
 
 此时如果库内 ``accounts.PhoneAllowlist`` 也是空的,准入名单就形同虚设(库与种子都空,
 严格模式下谁都进不来、非严格模式下谁都能进)。前一种情况是部署事故,后一种是安全缺口,
 两者都不该静默通过 —— 所以宁可 ``manage.py check`` 变红,也不要在生产上悄悄全开。
+
+例外是「运营已经把风险显式认下来」:``SMS_ALLOWLIST_STRICT=0`` 表示这个实例是封闭测试、
+名单为空也放行,运行时本来就谁都能用固定码登录;此时报错不增加任何安全性,只会让照 hint
+操作的人卡在 ``migrate`` 上(issue #290),所以本检查也认这个开关(显式 ``"0"`` 才放行)。
 
 为什么放在 check 而不是启动即崩(``raise ImproperlyConfigured``):``migrate`` /
 ``allowlist_seed_import`` 等运维命令本身要在「名单还没配好」的机器上跑,硬崩会把
@@ -30,6 +35,21 @@ DEV_SMS_WITHOUT_ALLOWLIST_ID = "accounts.E001"
 def check_dev_sms_requires_allowlist(app_configs, **kwargs):
     """固定验证码已开、而准入名单种子为空时报警。
 
+    两个开关的语义**不同,别混**:
+
+    - ``SMS_ALLOWLIST_STRICT``(判定口唯一实现见 ``accounts/services.py::_strict``)
+      回答的是「**运行时名单为空**时,放行还是拒绝」,即「注册面到底关没关死」。
+      显式写 ``"0"`` = 运营确认这是封闭测试实例,名单为空也放行任意号码;
+      留空按 ``DEBUG`` 自动、其它非空值一律严格。
+    - 本检查(``accounts.E001``)回答的是更窄的一件事:「**连兜底种子都没有**」——
+      名单主数据源是数据库 ``accounts.PhoneAllowlist``,``SMS_PHONE_WHITELIST``
+      只是首批种子;两条都空多半是漏配,而不是「有意不限制」。
+
+    两者的关系:``SMS_ALLOWLIST_STRICT`` 决定「空名单在运行时怎么处理」,本检查决定
+    「空名单要不要在部署期喊出来」。所以显式 ``"0"`` 时本检查直接放行 —— 那时运行时
+    的既定行为就是「谁都能进」,继续报错既不更安全,又会让照 hint 操作的人卡住
+    (issue #290:设了 ``SMS_ALLOWLIST_STRICT=0`` 却仍然红)。
+
     Args:
         app_configs: Django 传入的待检查 app 列表;本检查看全局设置,不按 app 过滤。
         **kwargs: 检查框架的其它关键字参数(``databases`` 等),本检查不使用。
@@ -41,6 +61,8 @@ def check_dev_sms_requires_allowlist(app_configs, **kwargs):
         return []
     if not getattr(settings, "SMS_DEV_MODE", False):
         return []
+    if str(getattr(settings, "SMS_ALLOWLIST_STRICT", "") or "").strip() == "0":
+        return []
     if settings.SMS_PHONE_WHITELIST:
         return []
     return [
@@ -51,8 +73,9 @@ def check_dev_sms_requires_allowlist(app_configs, **kwargs):
                 "① 在 .env 设 SMS_PHONE_WHITELIST=13x...,13y... 当兜底种子;"
                 "② 跑 python manage.py allowlist_seed_import 把种子导入数据库"
                 "(名单仍为空时本检查会拦住所有管理命令,先加 --skip-checks);"
-                "③ 确认这是封闭测试实例,显式设 SMS_ALLOWLIST_STRICT=0 并接受"
-                "「任意手机号都能用固定码登录」的风险。"
+                "③ 确认这是封闭测试实例,显式设 SMS_ALLOWLIST_STRICT=0 ——"
+                "本检查随之放行,同时意味着运行时「名单为空也放行任意号码」,"
+                "请确认你真的接受「任意手机号都能用固定码登录」的风险。"
             ),
             obj=None,
             id=DEV_SMS_WITHOUT_ALLOWLIST_ID,

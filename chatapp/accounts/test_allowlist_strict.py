@@ -4,7 +4,8 @@
     1. ``services.ensure_phone_allowed`` 在「库与种子都空」时按
        ``SMS_ALLOWLIST_STRICT`` 决定放行/拒绝 —— 生产留空即严格,开发与测试放行;
     2. ``accounts/checks.py`` 的 ``accounts.E001``:固定码开着、名单种子又为空时,
-       ``manage.py check`` 必须变红(种子配好则安静)。
+       ``manage.py check`` 必须变红(种子配好则安静;显式 ``SMS_ALLOWLIST_STRICT=0``
+       也安静,因为那时运行时本来就把名单外号码放进来)。
 
 严格模式只该改「名单空」这一条分支:名单内的种子号码、库内显式停用的号码,
 行为都与非严格模式一致 —— 用例把这两点也钉住,避免以后改出「严格 = 全拒」。
@@ -123,9 +124,10 @@ class AllowlistSecurityCheckTests(TestCase):
         TESTING=False,
         SMS_DEV_MODE=True,
         SMS_PHONE_WHITELIST=frozenset(),
+        SMS_ALLOWLIST_STRICT="",
     )
     def test_security_check_flags_dev_sms_without_allowlist(self):
-        """非 DEBUG + 固定码 + 种子空:结果里必须有 accounts.E001,且 ID 是公布的常量。"""
+        """非 DEBUG + 固定码 + 种子空 + 严格留空:结果里必须有 accounts.E001,且 ID 是公布的常量。"""
         self.assertIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
         self.assertEqual(DEV_SMS_WITHOUT_ALLOWLIST_ID, "accounts.E001")
 
@@ -138,6 +140,32 @@ class AllowlistSecurityCheckTests(TestCase):
     def test_security_check_silent_when_seed_present(self):
         """配了种子就不报:检查只管「连种子都没有」这种必然漏配。"""
         self.assertNotIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
+
+    @override_settings(
+        DEBUG=False,
+        TESTING=False,
+        SMS_DEV_MODE=True,
+        SMS_PHONE_WHITELIST=frozenset(),
+        SMS_ALLOWLIST_STRICT="0",
+    )
+    def test_security_check_silent_when_strict_explicitly_off(self):
+        """显式 ``SMS_ALLOWLIST_STRICT=0`` = 运营确认了封闭测试,本检查不再报 E001。
+
+        issue #290:此前 hint 把这条列为出路,检查却不认,照着做 ``migrate`` 仍然红。
+        这里钉住「hint 说的第三条路真的走得通」,同时与 ``services._strict()`` 同口径。
+        """
+        self.assertNotIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
+
+    @override_settings(
+        DEBUG=False,
+        TESTING=False,
+        SMS_DEV_MODE=True,
+        SMS_PHONE_WHITELIST=frozenset(),
+        SMS_ALLOWLIST_STRICT="1",
+    )
+    def test_security_check_flags_when_strict_explicitly_on(self):
+        """显式 ``"1"`` 仍报错:逃生口只认 ``"0"``,别把「非空」当成「已确认」。"""
+        self.assertIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
 
     @override_settings(
         DEBUG=False,
