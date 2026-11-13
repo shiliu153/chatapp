@@ -29,6 +29,10 @@ services:
     mem_limit: 224m
     # 模板 healthcheck 用 curl，但 imserver 运行镜像是 ubuntu:24.04，没有 curl/wget，
     # 导致容器永远被判 unhealthy（进而卡住 nginx 的 depends_on）。改用 bash 的 /dev/tcp 探端口。
+    #
+    # 这是**临时绕过**：issue #289 / PR #302 给运行镜像补了 curl（已实测：
+    # 旧镜像 `curl: not found`，新镜像返回 `{"ok":true}`）。等 #302 合并 + 重新构建镜像后，
+    # 这一段可以整块删掉、回到模板的 `curl -fsS .../internal/healthz`。
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9101' || exit 1"]
       interval: 15s
