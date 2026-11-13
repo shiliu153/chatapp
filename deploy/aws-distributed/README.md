@@ -94,3 +94,41 @@ imserver 12MB/224m、nginx 10MB/48m、redis 5MB/160m；整机 used ≈1185MB / 1
 
 `ALLOWED_HOSTS` 里加了 `nginx` / `imserver` 两个容器名：容器间互调时 `Host` 就是服务名，
 不加会被 Django 判 `DisallowedHost` 返回 400。生产由真实域名访问，不受影响。
+
+## IM 多实例的基线实验（2026-11-13 实测）
+
+`lab_cross_node.py` 是「imserver 多实例」这张工单的 **before/after 判据**。
+它在同一台机器上起两个 imserver 容器（共享同一 MySQL / Redis），因此**不需要跨机网络**，
+任何一台有 docker 的机器都能复现。
+
+```bash
+# 起两个实例（共享正式栈的 mysql / redis）
+sudo docker run -d --name imlab-a --network chatapp_backend \
+    --env-file /opt/chatapp-edge/secrets/imserver.env chatapp-imserver:local
+sudo docker run -d --name imlab-b --network chatapp_backend \
+    --env-file /opt/chatapp-edge/secrets/imserver.env chatapp-imserver:local
+
+# 客户端要同时能解析 nginx(default 网) 与 imlab-*(backend 网)
+sudo docker run -d --name imlab-client --network chatapp_default \
+    -v /tmp/lab_cross_node.py:/lab.py:ro python:3.11-slim-bookworm sleep 900
+sudo docker network connect chatapp_backend imlab-client
+sudo docker exec imlab-client sh -c "pip install -q websockets && python /lab.py"
+```
+
+前置条件：`chatapp_im.im_pair` 里要有 `(1,2)` 这一对，否则发送会被 `40302` 拒绝。
+
+### 实测结果（改造前）
+
+| 场景 | ack | 对端是否收到 |
+|---|---|---|
+| 对照组 `both_on_a`（两个客户端连同一节点） | `ack` | ✅ 收到 |
+| 实验组 `split_a_b`（分别连 A / B） | `ack` | ❌ **收不到** |
+
+`verdict=BASELINE_EXPECTED`。
+
+**读法**：消息**成功落库并 ack**，只是没被投到另一个节点上的连接。
+根因就是 `imserver/src/service/session_registry.h:26` 的 `sessions_` 是进程内
+`unordered_map`，Redis 里只有在线键与限流，没有跨节点投递通道。
+
+改造完成后，上表两行都应为 ✅，脚本的 `verdict` 应改为 `FIXED`（届时把断言反过来）。
+
