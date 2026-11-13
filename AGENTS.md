@@ -77,3 +77,20 @@
 
 提**一个**具体问题,带上已排除的选项与证据;能用默认值就先按默认值干完,并在 PR 正文标注「假定 X」。
 不确定方向时宁可标记 `blocked`,不要猜着改一大片。
+
+## 八、superagent 工单闭环(派单侧)
+
+> **本节只约束派单侧(主人 + 本机会话),不授予 worker 任何权限。** 与本文件 §五、§六 冲突时
+> 以 §五/§六 为准:worker 永不合并 PR、永不开 auto-merge。2026-11-12 从全局
+> `~/.dsh/AGENTS.md` 迁到这里——那三条只对本仓库成立,不该对所有项目生效。
+
+- **先分析,后开单**:需求分析在本机会话做完再提 issue——改什么、属哪条栈、验收口径能否被
+  worker 在**不违反本文件**的前提下自证。凡是「合并后才发生」的事(例如「某条 CI 轨被触发」)
+  一律写进「留给人验」,不要写成 worker 的验收项。
+- **合并后立刻同步本机**:WSL 母体(`/root/src/chatapp`)与 Windows 仓库都要 `pull --ff-only`
+  到合并后的默认分支(`main`),**先 pull 再 prune**。母体不会自动跟随 `origin/main`,而
+  `scripts/superagent-prune.sh` 就住在母体里,不同步就会用旧脚本、清不掉 worktree。
+- **纯文档 PR 直接合并**:只动 `docs/**` 的 PR 六轨都不触发,没有 check runs 是正常的;
+  本地 `scripts/verify.sh contract` 绿 + 看完 diff 即可直接 squash 合并,不再单独占一轮确认。
+
+派单、升级、排障的操作细节见 [docs/ops/superagent.md](docs/ops/superagent.md)。
