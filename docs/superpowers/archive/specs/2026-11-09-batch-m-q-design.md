@@ -2,8 +2,8 @@
 
 - 状态:**待实施**(设计已定稿,2026-11-09 主人拍板选型)
 - 立项日期:2026-11-09
-- 相关:[AGENTS.md](../../../AGENTS.md)(执行约束)、[CLAUDE.md](../../../CLAUDE.md)(契约)、
-  [心跳 UI 规则](2026-09-15-ui-design-language-design.md)(App UI 强制)、[docs/api/](../../api/README.md)(接口文档门禁)、
+- 相关:[AGENTS.md](../../../../AGENTS.md)(执行约束)、[CLAUDE.md](../../../../CLAUDE.md)(契约)、
+  [心跳 UI 规则](../../specs/2026-09-15-ui-design-language-design.md)(App UI 强制)、[docs/api/](../../../api/README.md)(接口文档门禁)、
   [实施计划](../plans/2026-11-09-batch-m-q.md)
 
 ---
