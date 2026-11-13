@@ -127,6 +127,50 @@ sudo docker exec chatapp-nginx-1 nginx -s reload
 | 两条 SSH 隧道 | 需要 | **删掉** |
 | ufw 里那 4 条隧道端口规则 | 需要 | 可删（改用内网直连） |
 
+## 6.1 跨机 IM 两节点簇（2026-11-13 18:20 实测通过）
+
+在 APP 节点上又跑了一份 **imserver**（`IM_INSTANCE_ID=app`），与 EDGE 的 `edge` 组成两节点簇。
+数据层经隧道回源（IM 的 MySQL/Redis 都在 EDGE）。
+
+| 验证 | 做法 | 结果 |
+|---|---|---|
+| 两节点都在跑 | `delivery_bus_started` 日志 | `instance_id=edge` + `instance_id=app`，各自 `redis_sub_subscribed` |
+| EDGE 能到 APP 的 imserver | 从 EDGE 探 `172.28.0.1:19101/internal/healthz` | `{"ok":true}` |
+| **真跨机投递** | 客户端 A 连 `imserver:9100`(EDGE)、客户端 B 连 `172.28.0.1:19100`(APP) | **`split_a_b delivered=True`，`verdict=FIXED`** |
+
+这是**两台不同 EC2、不同可用区**之间的真跨机投递（不是同机两容器）。
+
+nginx 侧不需要 sticky（会话归属在 Redis 的 owner 键里）：
+
+```nginx
+upstream chatapp_im_ws   { least_conn; server imserver:9100; server 172.28.0.1:19100; }
+upstream chatapp_im_http { least_conn; server imserver:9101; server 172.28.0.1:19101; }
+```
+
+新增隧道（EDGE → APP）：`172.28.0.1:19100 → APP 127.0.0.1:9100`、`19101 → 9101`；
+EDGE 的 ufw 要放行 `172.28.0.0/16 → 19100`。
+
+## 6.2 ⚠️ 血的教训：绝不要在 APP 节点上编译 imserver
+
+2026-11-13 尝试在 APP 上 `docker build imserver`，结果：
+
+- 2 vCPU / 2G 上编译 boost + MySQL 客户端头文件，**内存打满 → 3G swap 全部用上**；
+- **load average 冲到 36**，sshd 连 banner 都发不出来，机器失联约 30 分钟；
+- 该节点还跑着 `chaoxing-web`（另一个项目）—— 差点把别人的服务一起拖垮；
+- 期间宝塔 `bt.service` 也掉了（事后已 `systemctl start bt` 恢复）。
+
+**正确做法（已验证，10 秒）**：在 EDGE 构建好，走内网传镜像：
+
+```bash
+# EDGE 上构建（2G 但已装好依赖层，实测 ~4 分钟）
+docker build -t chatapp-imserver:local imserver
+# 内网传输 + 载入，533MB 实测 10 秒
+docker save chatapp-imserver:local | ssh ubuntu@172.31.35.181 'sudo docker load'
+```
+
+同理：t3.small 的 CPU 积分在长时间高负载后会耗尽、被限速到 0.4 vCPU，
+这时编译不是「慢」而是**近乎卡死**。这条与设计稿 §7.1 是同一件事的两个侧面。
+
 ## 7. 仍然没做的
 
 | 项 | 原因 |
