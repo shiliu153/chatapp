@@ -3,8 +3,8 @@
 - 状态:**已定稿**(2026-11-09 主人在 6 个候选中**全选**,并授权「每批自行验收后直接合并」)
 - 立项日期:2026-11-09
 - 相关:[AGENTS.md](../../../../AGENTS.md)(执行约束)、[CLAUDE.md](../../../../CLAUDE.md)(契约)、
-  [心跳 UI 规则](2026-09-15-ui-design-language-design.md)(App UI 强制)、[docs/api/](../../../api/README.md)(接口文档门禁)、
-  [自动化阶梯](2026-11-08-superagent-automation-ladder-design.md)(W 批的依据)
+  [心跳 UI 规则](../../specs/2026-09-15-ui-design-language-design.md)(App UI 强制)、[docs/api/](../../../api/README.md)(接口文档门禁)、
+  [自动化阶梯](../../specs/2026-11-08-superagent-automation-ladder-design.md)(W 批的依据)
 
 ---
 
