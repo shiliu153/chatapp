@@ -180,7 +180,17 @@ def=$(bash -c 'unset EGRESS_FAIL_THRESHOLD; SUPERAGENT_ENV_FILE=/dev/null; . "$1
 forged=$(bash -c 'EGRESS_FAIL_THRESHOLD=abc; SUPERAGENT_ENV_FILE=/dev/null; . "$1"; echo "$EGRESS_FAIL_THRESHOLD"' _ "$S" 2>/dev/null)
 [ "$forged" = 3 ] && ok "阈值写成非数字时回落到 3" || bad "非数字阈值被当成「$forged」"
 
-# ---------- 10. 探测命令只吃 $1 = 代理 URL ----------
+# ---------- 10. 默认探测 URL 必须是 /rate_limit(issue #303) ----------
+# 为什么钉住:根路径 `https://api.github.com/` 在本机机场出口上恒 403(直连才 200),
+# 用它当默认值会让选路把**可用的 mihomo** 判成不通 —— 每次启动白等 18s、打假警报,
+# 而且宿主那条路一旦起来就会把 worker 反向切到更差的路。这条用例就是防那次回归。
+def_url=$(bash -c 'unset EGRESS_PROBE_URL; SUPERAGENT_ENV_FILE=/dev/null; . "$1"; echo "$EGRESS_PROBE_URL"' _ "$S" 2>/dev/null)
+case "$def_url" in
+  */rate_limit) ok "默认探测 URL 是 /rate_limit($def_url)" ;;
+  *) bad "默认探测 URL 是「$def_url」,期望以 /rate_limit 结尾(根路径在机场出口上恒 403,见 issue #303)" ;;
+esac
+
+# ---------- 11. 探测命令只吃 $1 = 代理 URL ----------
 # 契约:EGRESS_PROBE_CMD 里可以用 $1 取代理 URL(所以替换命令不能只写「跑个脚本」,
 # 得把 $1 传进去;这里直接用内联写法验证 $1 真的是被选中的那条路)。
 export PROBE_ARGS="$T/probe.args"

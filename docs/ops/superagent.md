@@ -616,7 +616,7 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 - **选路判据 = 端口活「且」出网真通**(2026-11-13 起)。此前只看「端口在听」,
   理由是宿主那条路有 ~8% 抖动,怕探针把 worker 切到更差的一条;但 2026-11-13 的事故证明这个
   盲区代价更大:**7890 在听、出网 0%** → 永不回退 → worker 全断而所有健康位都是 ready。
-  现在补一次真实探测(`EGRESS_PROBE_URL`,默认 `https://api.github.com/`,非 2xx 算不通),
+  现在补一次真实探测(`EGRESS_PROBE_URL`,默认 `https://api.github.com/rate_limit`,非 2xx 算不通),
   且**连续失败 `EGRESS_FAIL_THRESHOLD`(默认 3)次才切**,单次抖动不会切路。
   探测可关(`EGRESS_PROBE=off`)、可替换(`EGRESS_PROBE_CMD`,拿到代理 URL 作 `$1`),
   离线自测见 `scripts/test_start_superagent.sh`(由 `superagent-proxy/selftest.sh` 带进 contract 轨)。

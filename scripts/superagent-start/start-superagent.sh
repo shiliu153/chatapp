@@ -42,7 +42,13 @@ MIHOMO_PROXY="http://127.0.0.1:${PROXY_PORT}"
 HOST_PROXY="http://${HOSTIP}:${FALLBACK_PORT}"
 
 EGRESS_PROBE=${EGRESS_PROBE:-on}            # off = 不做真实出网探测,只看端口
-EGRESS_PROBE_URL=${EGRESS_PROBE_URL:-https://api.github.com/}
+# 探测目标用 `/rate_limit`,不用根路径 `https://api.github.com/`(issue #303):
+# 这台机器的机场出口 IP 对 GitHub API 的**根路径**恒返回 403(实测:根路径 403、
+# `/zen` 403、`/rate_limit` 200;直连时根路径才是 200)。用根路径会让每次启动都
+# 白等 18s 并打出「worker 外网全断」的假警报,更糟的是宿主那条路一旦起来,选路
+# 就会从**可用的 mihomo** 切到已知更差的宿主 —— 正是本判据要避免的反向切换。
+# `/rate_limit` 与 `scripts/superagent-health` 同口径,长期实测 200,且不计入 API 配额。
+EGRESS_PROBE_URL=${EGRESS_PROBE_URL:-https://api.github.com/rate_limit}
 EGRESS_PROBE_TIMEOUT=${EGRESS_PROBE_TIMEOUT:-5}
 EGRESS_PROBE_BACKOFF=${EGRESS_PROBE_BACKOFF:-1}
 EGRESS_PROBE_CMD=${EGRESS_PROBE_CMD:-}      # 空 = 用内置 curl
