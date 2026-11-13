@@ -12,9 +12,13 @@ RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DIM_BUILD_TESTS=OFF
 
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
+# curl 是运行镜像的必需依赖,不是顺手装的工具:compose 里 imserver 的 healthcheck 就是
+# `curl -fsS http://127.0.0.1:9101/internal/healthz`(见 deploy/docker-compose.yml.tmpl),
+# 缺了它容器永远被判 unhealthy → nginx 的 depends_on: service_healthy 不满足 → nginx 起不来。
+# 所以别把 curl 当成「没人用」删掉(2026-11-13 实测事故,issue #289)。
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libboost-system-dev libssl3 libmysqlclient-dev libhiredis-dev \
-    ca-certificates \
+    ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/build/imserver /usr/local/bin/imserver
 COPY --from=build /src/migrations /usr/local/share/imserver/migrations
