@@ -416,3 +416,54 @@ A 记录：  aws.shiliu153.cn  →  13.211.212.232
 拍板后我拆工单：**T1** imserver 多实例（imserver 栈）、**T2** 双机编排（deploy 栈新目录）、
 **T3** 压测脚本扩展（perf）、**T4** 运维文档（docs）。
 其中 T2 的**实际部署执行必须由本会话做** —— worker 没有 SSH 权限，也没被授权碰云主机。
+
+---
+
+## 12. P1 实测记录（2026-11-13，已完成）
+
+### 12.1 结论
+
+入口机 `13.211.212.232` 上的单机全栈**已跑通并验证**，全程未开公网端口（安全组仍只开 22，
+访问走 SSH 隧道）。因此 §9 里「P0 安全组」这一阻塞**不阻塞 P1**，只阻塞 P2/P4。
+
+实测通过项：nginx `/healthz`、`/api/v1/app/config`、前端首页、`/auth/sms/send`（名单内 200 /
+名单外 `403 40301`）、`/auth/sms/verify` 换 JWT、`/users/me`、`/im/user_sig`、
+以及 **WebSocket `/im/ws` 收到 `auth_ok`**。
+
+细节与可复现命令见 [`deploy/aws-distributed/README.md`](../../../deploy/aws-distributed/README.md)。
+
+### 12.2 P1 暴露的 4 个模板缺陷（都要在 T2 正式修）
+
+| # | 缺陷 | 为何生产没暴露 | 影响 |
+|---|---|---|---|
+| 1 | `backend`(internal) 网络没有 ipam，被 Docker 分到 `172.18.0.0/16`；`MYSQL_ROOT_HOST` 由 `DOCKER_SUBNET` 推导成 `172.28.0.%` | 生产若 backend 也落在 172.18 会同样失败，属**未触发**而非不存在 | 首次部署 `db-init` 必失败 |
+| 2 | `cap_drop:[ALL]` 让容器内 root 失去 `CAP_DAC_OVERRIDE`，部署目录若在 750 的 home 下则无法遍历 | 生产部署目录是 `/opt`（755） | 换部署目录即炸，坑很隐蔽 |
+| 3 | redis 官方镜像用 `setpriv` 降权，`cap_drop:[ALL]` 抹掉 `CAP_SETUID` | 与镜像 tag `redis:7-alpine` 浮动有关（7.4.12 行为） | redis 无限重启 |
+| 4 | imserver 运行镜像基于 `ubuntu:24.04`，无 `curl`，但 healthcheck 用 `curl` | 生产 `oneclick.sh` 的启动时序没暴露 | 容器永远 unhealthy，`depends_on` 卡死 nginx |
+
+**建议单开一单**修第 4 条（RUN apt-get install curl，或镜像内建 `--healthz`），
+不要在部署侧长期用 override 绕过；第 1、3 条也建议进 `deploy/` 模板修正（需你授权改 `deploy/`）。
+
+### 12.3 另一处文档与实现不一致
+
+`chatapp/accounts/checks.py:40-45`：`accounts.E001` 只读 `SMS_PHONE_WHITELIST`，
+**不读 `SMS_ALLOWLIST_STRICT`**，但它的 hint 把「设 `SMS_ALLOWLIST_STRICT=0`」当作第三条出路。
+照 hint 做**仍然红**。建议一并修 hint（或让 check 真的认这个开关）。
+
+### 12.4 环境妥协（已记录，不长期保留）
+
+- `ALLOWED_HOSTS` 追加了 `nginx` / `imserver`：容器间互调时 `Host` 是服务名，否则 Django 400。
+- `SMS_PHONE_WHITELIST` 配了 5 个测试号码作为准入种子（`accounts.E001` 的有效解）。
+- 手工补跑了 `imserver --migrate`（`oneclick.sh:744` 有这步，render-only + 手工 up 会漏）。
+- 入口机额外加了 2G swap（`/swapfile2`），否则 imserver 编译会 OOM。
+
+### 12.5 仍未解决
+
+| 项 | 状态 |
+|---|---|
+| AWS 凭证（`aws login` 会话过期） | **仍过期** —— 安全组改不了，P2 的跨机内网放行被卡 |
+| 入口机公网 80/443 | 未放行（P1 绕开，P2/域名必须要） |
+| 两台内网 8000/9100/9101/3306/6379 | 未放行（P2 必须要） |
+| t3.small CPU 积分 | 未处理，P4 压测前必须升 `t3.medium` 或开 unlimited |
+| §11 的三个待拍板 | 未答复（P1 用「新增 `deploy/aws-distributed/`」这个推荐默认值推进，已在 README 标注） |
+

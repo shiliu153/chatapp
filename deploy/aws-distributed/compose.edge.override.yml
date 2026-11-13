@@ -1,0 +1,39 @@
+# P1 单机在 t3.small(1905MB) 上的内存预算覆盖。
+# 模板默认 limits 加总 ≈2076m > 物理内存，必须压缩。
+# 数值依据：docs/superpowers/specs/2026-11-13-aws-distributed-deployment-design.md §6.3
+services:
+  mysql:
+    mem_limit: 512m
+    environment:
+      # 模板缺陷：只有 default 网络配了 ipam(172.28.0.0/16)，backend(internal) 被 Docker
+      # 自动分配到 172.18.0.0/16，而 MYSQL_ROOT_HOST 从 DOCKER_SUBNET 推导成 172.28.0.%，
+      # 导致 db-init 从 backend 网连接时 Access denied。这里放宽到 RFC1918 docker 网段；
+      # MySQL 只挂在 internal 网络且不发布宿主机端口，不对外暴露。P2 再正式修模板。
+      MYSQL_ROOT_HOST: "172.%"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=150
+  redis:
+    mem_limit: 160m
+    # cap_drop:[ALL] 下 root 失去 CAP_SETUID，redis 官方镜像的 setpriv 降权会失败
+    # (setresuid: Operation not permitted)。直接以镜像内的 redis 用户启动，跳过降权。
+    user: "999:1000"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
+  web:
+    mem_limit: 256m
+  worker:
+    mem_limit: 160m
+  imserver:
+    mem_limit: 224m
+    # 模板 healthcheck 用 curl，但 imserver 运行镜像是 ubuntu:24.04，没有 curl/wget，
+    # 导致容器永远被判 unhealthy（进而卡住 nginx 的 depends_on）。改用 bash 的 /dev/tcp 探端口。
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9101' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+  nginx:
+    mem_limit: 48m
