@@ -9,10 +9,12 @@
     docs/ops/superagent.md §4.1「入队三连」里记的「静默丢单」长得一模一样。
     所以派单前先跑这个。
 
-    做三件事:
+    做四件事:
       1. 探测 WSL(短超时)。冷状态就显式拉起并等它起来。
       2. 调 WSL 里的 /root/ensure-superagent.sh:没跑就 start,并等到十个健康位 ready。
-      3. 报告周边依赖(出口代理 / 模型兜底 / docker),缺了只警告不拦。
+      3. **探测 WSL 直连出网**(2026-11-13 加):宿主连得通、WSL 连不通时 worker 会全断,
+         但所有健康位都显示 ready —— 不查这一项就会「派了单、永远不动」。
+      4. 报告周边依赖(出口代理 / 模型兜底 / docker),缺了只警告不拦。
 
 .PARAMETER TimeoutSeconds
     拉起 WSL + 等 superagent 可接单的总上限,默认 360 秒。
@@ -24,10 +26,14 @@
     WSL 发行版名,默认 Ubuntu-24.04。
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File scripts\superagent-start\ensure-running.ps1
+    pwsh -File scripts\superagent-start\ensure-running.ps1
+
+    **必须用 `pwsh`(PowerShell 7),不要用 `powershell`(Windows PowerShell 5.1)**:
+    本文件是 UTF-8 **无 BOM**,正文含中文,5.1 会按 ANSI 解码 → 整片 ParserError
+    (2026-11-11 实测;同文件 `pwsh -File` 正常)。
 
 .NOTES
-    退出码:0 = 可以派单;1 = 拉不起来,别派。
+    退出码:0 = 可以派单;1 = 拉不起来或出网不通,别派。
 #>
 [CmdletBinding()]
 param(
@@ -133,4 +139,49 @@ if (-not $run.Ok) {
 }
 
 Write-Host "[gate] 可以派单" -ForegroundColor Green
+
+# ---------- 3. WSL 出网:2026-11-13 的血案 ----------
+# 宿主机装了 Sangfor aTrust 之后,WSL 的**直连 TCP 被整体拦掉**(UDP DNS 仍通),于是
+# mihomo 连不上任何机场节点、模型网关 443 也不可达;worker 的 git / 轮询 / 模型调用全断,
+# 而面板上每个健康位都是 ready。判据就在这一层:宿主通、WSL 不通。
+# 这里直接调 curl(不经过 shell),避免 wsl.exe 参数拼接时的引号问题。
+Write-Host "[gate] 检查 WSL 出网…" -ForegroundColor Cyan
+$probeArgs = @('-o', '/dev/null', '-w', '%{http_code}', '-m', '8', 'https://api.github.com/')
+$direct = Invoke-Wsl -WslArgs (@('-d', $Distro, '-e', 'curl', '-sS') + $probeArgs) -TimeoutMs 20000
+$proxy = Invoke-Wsl -WslArgs (@('-d', $Distro, '-e', 'curl', '-sS', '-x', 'http://127.0.0.1:7890') + $probeArgs) -TimeoutMs 20000
+
+function Test-HttpOk {
+    <#
+    .SYNOPSIS
+        从 curl -w '%{http_code}' 的输出里判断是否 2xx。
+    .DESCRIPTION
+        失败时 curl 会把 000 打出来或什么都不打,两种都当失败。
+    #>
+    param([hashtable]$Result)
+    $code = ($Result.Out -replace '\s', '')
+    if ($code -match '^\d{3}$') {
+        $value = [int]$code
+        return ($value -ge 200 -and $value -lt 300)
+    }
+    return $false
+}
+
+$directOk = Test-HttpOk -Result $direct
+$proxyOk = Test-HttpOk -Result $proxy
+
+if ($proxyOk -and $directOk) {
+    Write-Host "[gate] 出网正常(直连 + 代理 127.0.0.1:7890 都通)" -ForegroundColor Green
+} elseif ($proxyOk) {
+    Write-Host "[gate] 警告:WSL 直连不通,但代理通(worker 走代理,可以先干活)" -ForegroundColor Yellow
+    Write-Host "       若是 VPN 引起的,按 docs/ops/superagent.md §12.0 把 WSL 切到 networkingMode=mirrored" -ForegroundColor Yellow
+} else {
+    Write-Host "[gate] 不能派单:WSL 出网不通(直连 $($direct.Out -replace '\s',''),代理 $($proxy.Out -replace '\s',''))" -ForegroundColor Red
+    Write-Host "       这会让 worker 收不到单、模型调用全超时,而面板上所有健康位仍是 ready。" -ForegroundColor Red
+    Write-Host "       最常见原因:Sangfor aTrust 等企业 VPN 拦掉 WSL 的直连 TCP(UDP DNS 仍通)。" -ForegroundColor Red
+    Write-Host "       修法:C:\Users\<你>\.wslconfig 加 [wsl2] networkingMode=mirrored + dnsTunneling=true," -ForegroundColor Red
+    Write-Host "             然后 wsl --shutdown;详见 docs/ops/superagent.md §12.0。" -ForegroundColor Red
+    Write-Host "       另一个常见原因:mihomo 端口在听但出网 0%(机场节点全挂,见 #284)。" -ForegroundColor Red
+    exit 1
+}
+
 exit 0
