@@ -301,6 +301,140 @@ class CiRedTests(unittest.TestCase):
         )
 
 
+class CiRedConclusionTests(unittest.TestCase):
+    """判红口径 = 结论**红集合**,不是「等于 `failure`」(#285,重开 #283)。
+
+    旧口径只认 `failure`,于是 `cancelled` / `timed_out` / `startup_failure` /
+    `action_required` / `stale` 都被静默当绿 —— 默认分支红着,却没人为它开单。
+    这里每个结论都同时钉住两个入口:`red_runs()`(事实提取)与 `decide_ci_red()`(开单)。
+    """
+
+    #: 六个红结论。
+    RED = ("failure", "cancelled", "timed_out", "startup_failure", "action_required", "stale")
+    #: 三个不判红的结论(`skipped` 在「按改动面跑」里是正常结果)。
+    GREEN = ("success", "skipped", "neutral")
+
+    def _runs(self, conclusion, name="Backend (Django)"):
+        """把一条 run 包成 API 响应。
+
+        Args:
+            conclusion: run 结论(可为 `None`,表示仍在跑)。
+            name: workflow 显示名。
+
+        Returns:
+            `{"workflow_runs": [...]}`。
+        """
+        return {"workflow_runs": [run_fixture(name, conclusion=conclusion)]}
+
+    def _assert_red(self, conclusion):
+        """断言该结论在 `red_runs` 与 `decide_ci_red` 两处都判红。
+
+        Args:
+            conclusion: run 结论。
+        """
+        runs = self._runs(conclusion)
+        self.assertEqual(
+            [run.get("conclusion") for run in l4_intake.red_runs(runs)],
+            [conclusion],
+            f"red_runs 应把 {conclusion} 判红",
+        )
+        decisions, undecidable = l4_intake.decide_ci_red(runs, NOW)
+        self.assertEqual(undecidable, [])
+        self.assertEqual([d.action for d in decisions], ["create"], f"{conclusion} 应开单")
+        self.assertIn(f"`{conclusion}`", decisions[0].body)
+
+    def _assert_not_red(self, conclusion):
+        """断言该结论在 `red_runs` 与 `decide_ci_red` 两处都不判红。
+
+        Args:
+            conclusion: run 结论(`None` 表示仍在跑)。
+        """
+        runs = self._runs(conclusion)
+        self.assertEqual(l4_intake.red_runs(runs), [], f"red_runs 不该把 {conclusion} 判红")
+        decisions, undecidable = l4_intake.decide_ci_red(runs, NOW)
+        self.assertEqual((decisions, undecidable), ([], []), f"{conclusion} 不该开单")
+
+    def test_failure_is_red(self):
+        """`failure` 一直是红(旧口径就在这一种上)。"""
+        self._assert_red("failure")
+
+    def test_cancelled_is_red(self):
+        """`cancelled`:并发组被顶 / 手动取消 → 没跑绿,判红。"""
+        self._assert_red("cancelled")
+
+    def test_timed_out_is_red(self):
+        """`timed_out`:整轮超时 → 判红。"""
+        self._assert_red("timed_out")
+
+    def test_startup_failure_is_red(self):
+        """`startup_failure`:workflow 文件解析失败、run 没起来 → 判红。"""
+        self._assert_red("startup_failure")
+
+    def test_action_required_is_red(self):
+        """`action_required`:要人工批准才跑 → 没跑绿,判红。"""
+        self._assert_red("action_required")
+
+    def test_stale_is_red(self):
+        """`stale`:排队太久被 GitHub 判废 → 判红。"""
+        self._assert_red("stale")
+
+    def test_success_is_not_red(self):
+        """`success`:绿。"""
+        self._assert_not_red("success")
+
+    def test_skipped_is_not_red(self):
+        """`skipped`:`ci-scope.sh` 按改动面跳过是正常结果,与 required check 语义一致。"""
+        self._assert_not_red("skipped")
+
+    def test_neutral_is_not_red(self):
+        """`neutral`:不算红。"""
+        self._assert_not_red("neutral")
+
+    def test_running_conclusion_is_not_red(self):
+        """`conclusion is None`(还在跑)→ 不判红,也不开单,等下一轮快照。"""
+        self._assert_not_red(None)
+
+    def test_red_set_matches_deploy_gate_complement(self):
+        """红集合与 `deploy_gate.py::OK_CONCLUSIONS` 互补(同一字段两个方向,不能有缝)。"""
+        from scripts import deploy_gate
+
+        self.assertIsInstance(l4_intake.RED_CONCLUSIONS, frozenset)
+        self.assertEqual(l4_intake.RED_CONCLUSIONS & deploy_gate.OK_CONCLUSIONS, set())
+
+    def test_scan_info_counts_red_collectively(self):
+        """`scan_info` 的 `red_workflows` 同口径:`cancelled` + `success` → 红 1 条。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            runs = {
+                "workflow_runs": [
+                    run_fixture("Web (Vue)", conclusion="cancelled"),
+                    run_fixture("Backend (Django)", conclusion="success", run_id=2),
+                    run_fixture("App (Flutter)", conclusion=None, run_id=3),
+                ]
+            }
+            info = l4_intake.scan_info(root, runs, [])
+        self.assertEqual(info["workflows_seen"], 3)
+        self.assertEqual(info["red_workflows"], 1)
+
+    def test_summary_line_carries_conclusion(self):
+        """summary 每行带结论:非 `failure` 的红要看得出红在哪。"""
+        summary = l4_intake.render_ci_red_summary(
+            {
+                "workflow_runs": [
+                    run_fixture("Backend (Django)", conclusion="cancelled", sha="0123456789ab"),
+                    run_fixture("Web (Vue)", conclusion="startup_failure", run_id=2),
+                    run_fixture("App (Flutter)", conclusion="success", run_id=3),
+                ]
+            }
+        )
+        lines = summary.splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("结论 `cancelled`", lines[0])
+        self.assertIn("结论 `startup_failure`", lines[1])
+        self.assertNotIn("App (Flutter)", summary)
+
+
 class DepAdvisoryTests(unittest.TestCase):
     """依赖信号:still-affected 才开单;已经修好的、判不出来的都不开。"""
 
