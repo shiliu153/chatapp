@@ -62,6 +62,7 @@ wsl -e bash -c 'cd /root/src/chatapp && node --test scripts/superagent-failover/
 |---|---|---|
 | `FAILOVER_LISTEN` | `127.0.0.1:8788` | 监听地址;写 `:0` 用随机端口,启动日志会打印实际端口 |
 | `FAILOVER_UPSTREAM` | `https://wb.shiliu153.me` | 上游根地址 |
+| `FAILOVER_HTTP_PROXY` | 空(直连) | 经这个 HTTP 代理 CONNECT 到上游,形如 `http://127.0.0.1:7890`。**WSL 里直连上游 443 会被拦**(host 能连、WSL TCP 直接超时),表现为每次模型调用都卡到 header timeout —— 工单派了不开、跑到一半 assignment 变僵尸,而所有健康位都是 `ready`。2026-11-13 加 |
 | `FAILOVER_MODELS` | cn → global → global-sg | 回退链,逗号分隔,顺序即优先级 |
 | `FAILOVER_COOLDOWN_MS` | `30000` | 线路失败后多久内不再尝试 |
 | `FAILOVER_HEADER_TIMEOUT_MS` | `600000` | 等上游响应头的最长时间(长上下文首字节可能很慢) |

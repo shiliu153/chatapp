@@ -33,10 +33,17 @@
 
 import http from 'node:http';
 import https from 'node:https';
+import net from 'node:net';
+import tls from 'node:tls';
 import { once } from 'node:events';
 
 const LISTEN = process.env.FAILOVER_LISTEN || '127.0.0.1:8788';
 const UPSTREAM = (process.env.FAILOVER_UPSTREAM || 'https://wb.shiliu153.me').replace(/\/+$/, '');
+// 2026-11-13:WSL 里**直连**上游 443 会被拦(host 上能连、WSL 上 TCP 直接超时),
+// 于是每一次模型调用都卡到 header timeout —— 表现是工单派了不开、跑到一半 assignment 变僵尸,
+// 而所有健康位都是 ready。给一条「经 HTTP 代理(worker 用的同一个出口)」的路可以解掉。
+// 留空 = 直连(保持旧行为)。
+const HTTP_PROXY = (process.env.FAILOVER_HTTP_PROXY || '').trim();
 const CHAIN = (process.env.FAILOVER_MODELS
   || 'cn:deepseek-v4.1-flash,global:deepseek-v4.1-flash,global:deepseek-v4.1-flash-sg')
   .split(',')
@@ -264,6 +271,64 @@ function responseHeaders(raw) {
 }
 
 /**
+ * 造一个「经 HTTP 代理 CONNECT 隧道」的 https.Agent。`FAILOVER_HTTP_PROXY` 为空时返回
+ * undefined(调用方直接直连,行为与改造前一致)。
+ *
+ * 为什么要自己实现:Node 的 https 不认 `HTTPS_PROXY` 环境变量(那是 curl 的约定),
+ * 而这里只需要「连上代理 → CONNECT 目标 → 在隧道上做 TLS」这一条最小路径,
+ * 不值得为它引入 undici/ProxyAgent 依赖。
+ *
+ * @param {string} proxyUrl 形如 `http://127.0.0.1:7890`(不支持 https 代理,够用即可)
+ * @returns {https.Agent|undefined} 供 https.request 的 agent
+ */
+function buildProxyAgent(proxyUrl) {
+  if (!proxyUrl) return undefined;
+  const proxy = new URL(proxyUrl);
+  const authHeader = proxy.username
+    ? `Proxy-Authorization: Basic ${Buffer.from(
+      `${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`,
+    ).toString('base64')}\r\n`
+    : '';
+  const agent = new https.Agent({ keepAlive: false });
+  agent.createConnection = (options, callback) => {
+    const targetHost = options.hostname || options.host;
+    const targetPort = options.port || 443;
+    const socket = net.connect({ host: proxy.hostname, port: Number(proxy.port || 80) });
+    let buffered = '';
+    const onData = (chunk) => {
+      buffered += chunk.toString('latin1');
+      const end = buffered.indexOf('\r\n\r\n');
+      if (end === -1) return;
+      socket.removeListener('data', onData);
+      const statusLine = buffered.split('\r\n')[0] || '';
+      const match = /^HTTP\/1\.[01] (\d{3})/.exec(statusLine);
+      if (!match || match[1] !== '200') {
+        socket.destroy();
+        callback(new Error(`proxy_connect_failed: ${statusLine || '空响应'}`));
+        return;
+      }
+      const secured = tls.connect({ socket, servername: targetHost }, () => callback(null, secured));
+      secured.on('error', callback);
+    };
+    socket.on('connect', () => {
+      socket.write(
+        `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\n`
+        + `Host: ${targetHost}:${targetPort}\r\n${authHeader}\r\n`,
+      );
+    });
+    socket.on('data', onData);
+    socket.on('error', callback);
+    // 回调式 createConnection:**不要**返回 socket —— 返回了 Node 会拿裸 socket 当已建好的
+    // 连接直接写 TLS 字节,隧道里立刻 ECONNRESET(2026-11-13 实测)。
+    return undefined;
+  };
+  return agent;
+}
+
+/** 上游请求统一走这个 agent(空 = 直连)。 */
+const UPSTREAM_AGENT = buildProxyAgent(HTTP_PROXY);
+
+/**
  * 向上游发一次请求,拿到响应头就返回(不读 body)。
  * @param {{method: string, path: string, headers: Record<string, string|string[]>, body: Buffer}} attempt 请求要素
  * @returns {Promise<http.IncomingMessage>} 上游响应流
@@ -280,6 +345,7 @@ function sendUpstream(attempt) {
       method: attempt.method,
       headers: attempt.headers,
       timeout: HEADER_TIMEOUT_MS,
+      agent: url.protocol === 'https:' ? UPSTREAM_AGENT : undefined,
     }, resolve);
     req.on('timeout', () => req.destroy(new Error('upstream_timeout')));
     req.on('error', reject);
