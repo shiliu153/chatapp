@@ -286,6 +286,21 @@ bash deploy/aws-distributed/bin/topology.sh teardown   # 摘隧道,不动容器
 | 对照组：连发 10 次 `GET /api/v1/app/config` | EDGE **10**、APP **10** ✅ 分流未受影响 |
 | `POST /api/v1/posts` 返回 | `201`，动态创建成功 |
 
+## 6.8 IM 单节点故障摘除（2026-11-13 19:05）
+
+HTTP 副本那条早验过（§3），IM 这条本轮补上。
+
+| 步骤 | 结果 |
+|---|---|
+| 停掉 APP 的 `chatapp-app-imserver-1` | 停成功 |
+| 经 nginx 连 3 次 `/im/ws`（不同账号） | **3/3 `auth_ok`** —— nginx 把死掉的上游摘掉，全部落到 EDGE 节点 |
+| 重启 APP imserver 后复测跨节点投递 | `split_a_b delivered=True`，`verdict=FIXED` |
+
+**注意语义**：IM 的「摘除」只保证**新连接**能建上。故障瞬间**已经连在被停节点上的客户端**
+会掉线并重连（客户端本来就有重连逻辑），而**发给「会话在被停节点上」的消息会丢** ——
+因为 owner 键指向一个没人订阅的频道，且当前实现没有「投递失败转离线推送」的兜底。
+这是已知取舍，写在这里避免被误读成「IM 也做到了无感故障转移」。
+
 ## 7. 仍然没做的
 
 | 项 | 状态 |
