@@ -204,6 +204,35 @@ trigger 都会前移**;真正的判据是 `thread` / `trigger_thread` / `ticket`
 正常轮询约 2.5 分钟 → 核验窗口定在「3 分钟仍为空再补发」)—— 判据只能看 `thread` /
 `trigger_thread` / `ticket` / `work/` 四样,不能看游标。
 
+### 4.2 三张表都有、就是不开单:去读 `decision`
+
+2026-11-13 补。`thread` 有、`trigger_thread` 有、`ticket` **没有** 时,说明「读到了,但没判成工单」。
+这时 `thread` / `trigger` 两张表已经帮不上忙,要看判定表:
+
+```bash
+wsl -e bash -c 'python3 - <<PY
+import json, sqlite3
+db = sqlite3.connect("file:/root/.dsh/state/superagent/orchestrator.sqlite?mode=ro", uri=True)
+n = "285"   # ← 你的 issue 号
+for tid, val in db.execute("select id, value from decision where thread=?", ("github:" + n,)):
+    d = json.loads(val)
+    print(tid[:8], d.get("kind"), d.get("reason"))
+PY'
+```
+
+`reason[].code` 是最有用的那一格,已知三种(2026-11-13 实测):
+
+| `kind` / `code` | 含义 | 去查什么 |
+|---|---|---|
+| `ignore` / `no_mention` | 评论里的 `@<agent>` 没被认成「在叫我」 | 评论是否在**开头**、有没有被 Markdown 包裹;补发一条新评论(§4.1) |
+| `unavailable` / `timeout` | **模型调用超时**(判定那一步没跑完) | `journalctl -u superagent-failover -n 30`:有没有 `ETIMEDOUT` / `network:…`;WSL 出网是否被 VPN 拦(§12.0) |
+| `unavailable` / 其它 | 判定器自身报错 | 面板 `errors` 与 `/root/dsh-superagent/.artifacts/*.log` |
+
+**这一层原来完全不可观测**:`unavailable` 只在库里留一行,issue 里没有任何痕迹,面板上也只是
+「评论发出去了、没动静」。`scripts/superagent-health`(§15)能事后发现「thread 有、ticket 没有」,
+但**为什么**只能按上面这张表查。
+
+
 ## 5. 升级与回滚
 
 ```bash
