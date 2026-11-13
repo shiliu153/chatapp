@@ -154,11 +154,9 @@ void SessionRegistry::send_to_other_clients(uint64_t uid, const WsSession* excep
     }
     return;
   }
-  // 本地一条都没有:`except` 必然也是本地连接,远端不可能持有它,
-  // 因此远端这一份等同于「发给该 uid 的所有端」。
-  if (except != nullptr && remote_.send_to != nullptr) {
-    remote_.send_to(uid, frame);
-  } else if (except == nullptr && remote_.send_to != nullptr) {
+  // 本地一条都没有 → 交给远端。`except` 只可能是本地连接(远端不可能持有本进程的指针),
+  // 所以发给远端「该 uid 的所有端」正是期望语义。
+  if (remote_.send_to != nullptr) {
     remote_.send_to(uid, frame);
   }
 }
