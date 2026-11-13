@@ -1,0 +1,53 @@
+# APP 节点（32.236.245.150）的 Django 副本。
+#
+# P2 阶段只跑 HTTP 层副本：imserver 仍只有 EDGE 上那一个（跨节点投递要等 #288 合并）。
+# 与 EDGE 的差别全在 secrets/chatapp.app.env 里（数据层与 IM 走 SSH 隧道，
+# 因为安全组还没放行内网业务端口；隧道打通后这套配置无需改动，只换地址）。
+name: chatapp-app
+
+services:
+  web:
+    image: chatapp-web:local
+    env_file:
+      - "./secrets/chatapp.app.env"
+    command: ["gunicorn", "config.wsgi:application", "-b", "0.0.0.0:8000",
+              "-w", "2", "--timeout", "120", "--access-logfile", "-"]
+    # 只绑回环：EDGE 的 nginx 经 SSH 隧道（EDGE:18000 -> APP:18080）过来，
+    # 不对任何外部接口暴露。
+    # 用 18080 而不是 8000：APP 节点上 `chaoxing-web` 已占着 127.0.0.1:8000
+    # （2026-11-13 实测撞车，见 p2-dual-node.md §7）。
+    ports:
+      - "127.0.0.1:18080:8000"
+    restart: unless-stopped
+    # 隧道终点：SSH 端口转发绑在宿主全接口上，容器经 Docker 的 host-gateway 访问。
+    # 不用写死 172.17.0.1 —— 新建的 compose 网络会被分到别的网段（实测是 172.19.0.0/16，
+    # 此时 172.17.0.1 不可达，表现是 Redis/MySQL 连接「超时」而不是「拒绝」）。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    # APP 节点上已有 chaoxing-web 占用 ~760MB，本副本不能超过 400m
+    mem_limit: 400m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    volumes:
+      - chatapp_app_static:/app/staticfiles
+      - chatapp_app_media:/app/media
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  # 这两个卷在 APP 上只是「占位」：媒体真正的落盘处只在 EDGE（见设计稿 §5），
+  # APP 侧写进来的东西不会有副本读到 —— 这也是为什么上传类接口在 nginx 里被钉死到 EDGE。
+  chatapp_app_static:
+    name: chatapp_app_static
+  chatapp_app_media:
+    name: chatapp_app_media
