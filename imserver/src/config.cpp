@@ -201,7 +201,7 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
 Config Config::from_env() {
   std::map<std::string, std::string> env;
   for (const char* key : {"IM_LISTEN_WS", "IM_LISTEN_HTTP", "IM_MYSQL_DSN",
-                          "IM_REDIS_URL", "IM_JWT_SECRET", "IM_INTERNAL_SECRET",
+                          "IM_REDIS_URL", "IM_INSTANCE_ID", "IM_JWT_SECRET", "IM_INTERNAL_SECRET",
                           "IM_MIGRATIONS_DIR", "IM_ALLOWED_ORIGINS", "IM_TRUSTED_PROXIES",
                           "IM_INTERNAL_ALLOW",
                           "IM_ALLOW_PUBLIC_BIND", "IM_IO_THREADS",

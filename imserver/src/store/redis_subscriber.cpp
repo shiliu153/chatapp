@@ -132,6 +132,14 @@ bool RedisSubscriber::connect_and_subscribe(redisContext** ctx_out) {
   }
   freeReplyObject(reply);
 
+  // 订阅成功后必须**清掉 socket 超时**:收包是阻塞读,如果沿用建连时的 3s 超时,
+  // 空闲 3 秒就会以 `EAGAIN`(Resource temporarily unavailable)返回 REDIS_ERR,
+  // 被误判成「断线」而反复重连。hiredis 用 {0,0} 表示不限时。
+  struct timeval no_timeout {};
+  no_timeout.tv_sec = 0;
+  no_timeout.tv_usec = 0;
+  redisSetTimeout(ctx, no_timeout);
+
   *ctx_out = ctx;
   return true;
 }

@@ -112,8 +112,15 @@ async def main():
     print("---")
     print("control_same_node_delivered=%s" % same)
     print("cross_node_delivered=%s" % split)
-    final = "BASELINE_EXPECTED" if (same and not split) else "UNEXPECTED"
-    print("verdict=%s" % final)
+    # 改造前(#288 之前):同节点送达、跨节点丢 -> BASELINE_EXPECTED
+    # 改造后:两组都送达 -> FIXED
+    if same and split:
+        verdict = "FIXED"
+    elif same and not split:
+        verdict = "BASELINE_EXPECTED"
+    else:
+        verdict = "UNEXPECTED"
+    print("verdict=%s" % verdict)
 
 
 if __name__ == "__main__":

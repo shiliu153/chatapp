@@ -130,5 +130,36 @@ sudo docker exec imlab-client sh -c "pip install -q websockets && python /lab.py
 根因就是 `imserver/src/service/session_registry.h:26` 的 `sessions_` 是进程内
 `unordered_map`，Redis 里只有在线键与限流，没有跨节点投递通道。
 
-改造完成后，上表两行都应为 ✅，脚本的 `verdict` 应改为 `FIXED`（届时把断言反过来）。
+### 实测结果（#288 实施后，2026-11-13 17:39）
+
+| 场景 | ack | 对端是否收到 |
+|---|---|---|
+| 对照组 `both_on_a` | `ack` | ✅ 收到 |
+| 实验组 `split_a_b` | `ack` | ✅ **收到** |
+
+`verdict=FIXED`。
+
+改造要点（`imserver` 内，**未改动任何 WS 帧**）：
+
+- `SessionRegistry` 增加 `RemoteHooks`（本地未命中才回调）+ `local_*` 系列（远端帧回灌专用，
+  不会再次跨节点转发）；钩子为空时行为与改造前**完全一致**。
+- `DeliveryBus`：owner 键 `im:owner:{uid}:{ct}`（TTL 90s，挂在既有的 30s 节流里续期，
+  **不做每帧 SETEX**）、定向频道 `im:deliver:{instance_id}`、广播频道 `im:broadcast`。
+- `RedisSubscriber`：独立 hiredis 连接 + 专用线程；**阻塞读 + `shutdown(fd)` 唤醒退出**
+  （不用超时轮询，否则空闲期会每秒重连一次）；断线指数退避重连，期间降级为纯本地投递。
+- `IM_INSTANCE_ID` 缺省取 hostname；显式置空 = 单实例。
+
+### 部署这套时必须同步改的两个白名单
+
+双副本之后，APP 副本回源 IM 的请求来源是 **backend 网段**（172.18.0.0/16），
+不是 compose 的 default 网段。不改就会表现为 `/api/v1/im/user_sig` **时好时坏**（一半 503）：
+
+```
+IM_INTERNAL_ALLOW=127.0.0.1,::1,172.28.0.0/16,172.18.0.0/16
+IM_TRUSTED_PROXIES=127.0.0.1,::1,172.28.0.10,172.18.0.1
+```
+
+> 这个坑 2026-11-13 实测踩到：nginx 双上游后 user_sig 一半 200 一半 503，
+> 因为请求落到 APP 副本时它的 IM 调用被 imserver 403 掉了。
+
 
