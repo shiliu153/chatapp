@@ -466,6 +466,39 @@ bash /root/start-superagent.sh restart
 
 ## 12. 出口代理:WSL 内自建 mihomo(2026-11-09 起)
 
+### 12.0 前提:WSL 必须是 mirrored 网络模式(2026-11-13 血案)
+
+**装 Sangfor aTrust 之类会装 WFP 过滤器的企业 VPN 之后,WSL 的直连 TCP 会被整体拦掉**
+(2026-11-13 实测:UDP DNS 照常通 —— `dig @223.5.5.5` 有应答、`getent hosts` 也正常 —— 所以
+「网是好的」的错觉特别强)。后果不是「慢」,而是**全断**:
+
+| 现象 | 实测 |
+|---|---|
+| WSL 直连任意公网 443 | `Connection timed out`(api.github.com / github.com / wb.shiliu153.me 全超时) |
+| 同一地址从 Windows 宿主 | `Test-NetConnection -Port 443` = **True**,`curl` 正常 |
+| mihomo 机场节点 | 全部 `dial … dns resolve failed` / timeout(mihomo 连节点也要直连 TCP) |
+| 模型网关 `superagent-failover` | 每次调用 `connect ETIMEDOUT 47.116.114.110:443` |
+
+连带后果最隐蔽:模型调用卡到 header timeout → 派工评论被读到但评估判 `unavailable/timeout`
+→ **工单不生成**;跑到一半断流 → assignment 卡在 `running` 几个小时,而所有健康位都是 `ready`。
+`scripts/superagent-health`(§15)能事后发现,但根因要在这一层修。
+
+**修法(一次性):**
+
+```ini
+# C:\Users\<你>\.wslconfig
+[wsl2]
+networkingMode=mirrored
+dnsTunneling=true
+```
+
+然后 `wsl --shutdown`。切完的特征:`ip -4 addr` 里 eth0 变成 `2.0.0.1/24`(mirrored 的合成网段),
+宿主的 `127.0.0.1:7897` 在 WSL 里直接可达(不再需要「宿主网关 IP」那一跳)。
+实测切换后:WSL 直连 `api.github.com` 200/0.3s、机场节点 9/9 活着(~740ms)、failover 401/0.2s。
+
+> **判据先收敛到一句话**:宿主连得通、WSL 连不通 + UDP 正常 = 先去查 `.wslconfig` 的
+> `networkingMode`,别在 mihomo 的规则和节点上耗时间。
+
 ### 12.1 为什么要换掉宿主代理
 
 改造前 worker 的出口是 `WSL → 宿主 NAT → 宿主 Clash(:7897) → 境外`。§11 排查时就已经发现
@@ -533,6 +566,12 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 `scripts/superagent-start/`,`install.sh` 会先备份旧的再原子替换,`bash -n` 检查语法。
 
 ### 12.6 已知偏差
+
+- **WSL 必须是 `networkingMode=mirrored`**(2026-11-13)。不是的话,装了企业 VPN(aTrust)之后
+  WSL 的直连 TCP 会被拦,而 UDP DNS 仍然通 —— 表现是「代理端口在听、节点全 timeout、模型网关
+  ETIMEDOUT」,极其难查。判据与改法见 §12.0。切了 mirrored 之后:
+  `start-superagent.sh` 里「探测不到 7890 就回退宿主 `${HOSTIP}:7897`」那一跳基本用不上了
+  (宿主网关变成真实路由器),别把它当成主路径依赖。
 
 - **重启后首轮轮询要 ~20 分钟**。`pollRound` 每轮要串行读完 67 个订阅 Thread(每个还要读评论/PR/CI),
   首轮没有任何增量可省。这与代理无关:改造前后都是这个量级。**重启后不要以为「派单丢了」** ——
