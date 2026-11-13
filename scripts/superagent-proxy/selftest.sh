@@ -118,6 +118,16 @@ fi
 stray=$(find "$T" -maxdepth 1 -name '.config-*' | wc -l)
 [ "$stray" -eq 0 ] && ok "没有残留临时文件" || bad "残留了 $stray 个临时文件"
 
+# ---------- 6. 启动脚本的选路判定(2026-11-13:端口活 **且** 出网真通) ----------
+# 为什么挂在这里:这是「7890 在听、出网 0%」唯一的机械防线 —— 旧判据只看端口,
+# 于是永不回退、worker 全断而面板全绿。用例本身在 scripts/test_start_superagent.sh
+# (纯离线:端口与探测都打桩),这里只负责让它进 contract 轨(不新增 workflow step)。
+if bash "$HERE/../test_start_superagent.sh"; then
+  ok "启动脚本选路判定自测(scripts/test_start_superagent.sh 全绿)"
+else
+  bad "启动脚本选路判定自测(scripts/test_start_superagent.sh 有失败)"
+fi
+
 echo "------------------------------------------------------------"
 echo "通过 $pass,失败 $fail"
 [ "$fail" -eq 0 ] || exit 1
