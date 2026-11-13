@@ -50,8 +50,8 @@ services:
       - "172.31.35.181:9101:9101"
     mem_limit: 256m
     healthcheck:
-      # 镜像里没有 curl，用容器内的 bash 探端口（与 EDGE 侧同一套绕法）。
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9101' || exit 1"]
+      # 与入口机同一套：运行镜像已带 curl（PR #302），直接用原版 healthcheck。
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9101/internal/healthz || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 20
