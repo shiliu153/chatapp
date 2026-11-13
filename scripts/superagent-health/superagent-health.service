@@ -1,0 +1,11 @@
+[Unit]
+Description=superagent worker 健康检查(出网 / 入队三连 / 僵尸 assignment)
+Documentation=https://github.com/shiliu153/chatapp/blob/main/scripts/superagent-health/README.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /root/.dsh/healthcheck/run.sh
+Nice=10
+# 单轮最多跑 5 分钟:超时说明探测本身卡住了,按失败处理。
+TimeoutStartSec=300

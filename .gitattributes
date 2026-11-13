@@ -26,6 +26,13 @@ scripts/superagent-failover/* text eol=lf
 scripts/superagent-proxy/* text eol=lf
 scripts/superagent-start/* text eol=lf
 
+# worker 健康巡检:install.sh 把 run.sh / notify.sh / superagent_health.py 拷到
+# /root/.dsh/healthcheck 由 systemd 直接执行 —— 带 CRLF 的 `#!/bin/bash` 会变成
+# bad interpreter,.py 则会让 WSL 侧 diff 全脏(2026-11-13 加)。
+scripts/superagent-health/* text eol=lf
+scripts/superagent_health.py text eol=lf
+scripts/test_superagent_health.py text eol=lf
+
 # 运维补丁固定 LF:docs/ops/patches/*.patch 是给 WSL 里 `git apply` 用的,
 # Windows 检出若带 CRLF,补丁会一个 hunk 都应用不上(2026-11-09 加)。
 *.patch text eol=lf
