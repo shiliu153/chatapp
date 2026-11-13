@@ -1161,9 +1161,13 @@ class DevSmsDeployCheckTests(SimpleTestCase):
         return check_dev_sms_requires_allowlist(None)
 
     @override_settings(TESTING=False, DEBUG=False, SMS_DEV_MODE=True,
-                       SMS_PHONE_WHITELIST=[])
+                       SMS_PHONE_WHITELIST=[], SMS_ALLOWLIST_STRICT="")
     def test_error_when_dev_sms_without_allowlist(self):
-        """生产口径(DEBUG=0 + 固定码 + 空白名单)必须报一条 E001。"""
+        """生产口径(DEBUG=0 + 固定码 + 空白名单 + 严格留空)必须报一条 E001。
+
+        ``SMS_ALLOWLIST_STRICT`` 显式钉成空串:检查认这个开关(issue #290)之后,
+        不钉的话结果会跟着本机 ``.env`` 走 —— 照 hint 设过 ``=0`` 的机器上会静默变绿。
+        """
         errors = self._check()
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0].id, DEV_SMS_WITHOUT_ALLOWLIST_ID)
