@@ -21,11 +21,10 @@ services:
       - "./secrets/chatapp.app.env"
     command: ["gunicorn", "config.wsgi:application", "-b", "0.0.0.0:8000",
               "-w", "2", "--timeout", "120", "--access-logfile", "-"]
-    # 只绑回环：EDGE 的 nginx 经 SSH 隧道（EDGE:18000 -> APP:18080）过来。
-    # 用 18080 而不是 8000：APP 上 `chaoxing-web` 已占着 127.0.0.1:8000
-    # （2026-11-13 实测撞车，见 p2-dual-node.md §7）。
+    # 绑内网网卡：入口机的 nginx 直连过来（安全组只放行入口机那一个 IP）。
+    # 用 8000 不会和 `chaoxing-web` 冲突 —— 那个只占 127.0.0.1:8000，这里是 172.31.35.181:8000。
     ports:
-      - "127.0.0.1:18080:8000"
+      - "172.31.35.181:8000:8000"
     # APP 节点上已有 chaoxing-web 占用 ~760MB，本副本不能超过 400m
     mem_limit: 400m
     healthcheck:
@@ -45,10 +44,10 @@ services:
     image: chatapp-imserver:local
     env_file:
       - "./secrets/imserver.app.env"
-    # 只绑回环：EDGE 的 nginx 经 SSH 隧道过来；数据层经隧道回源 EDGE 的 MySQL/Redis。
+    # 绑内网网卡：入口机的 nginx 直连过来（安全组只放行入口机那一个 IP）。
     ports:
-      - "127.0.0.1:9100:9100"
-      - "127.0.0.1:9101:9101"
+      - "172.31.35.181:9100:9100"
+      - "172.31.35.181:9101:9101"
     mem_limit: 256m
     healthcheck:
       # 镜像里没有 curl，用容器内的 bash 探端口（与 EDGE 侧同一套绕法）。
