@@ -181,6 +181,9 @@ stack_contract() {
   run "L4 入队判定器自测" "$PY" -m unittest scripts.test_l4_intake
   # 文档断链检测:L4「机械一致性」信号唯一的实现,坏了没人当场知道。
   run "文档断链检测自测" "$PY" -m unittest scripts.test_check_docs_links
+  # worker 巡检器:它判错的两个方向都不能静默 —— 把正常报成异常(告警被当噪音关掉)、
+  # 把异常报成正常(给人虚假的安全感)。纯离线,构造快照跑。
+  run "worker 巡检器自测" "$PY" -m unittest scripts.test_superagent_health
 }
 stack_imserver() {
   # 三段与 .github/workflows/imserver.yml 的三个 step 逐项对齐:

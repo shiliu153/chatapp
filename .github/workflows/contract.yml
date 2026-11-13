@@ -86,6 +86,12 @@ jobs:
       - name: 文档断链检测自测
         run: python -m unittest scripts.test_check_docs_links -v
 
+      # worker 巡检器(superagent-health)判错的两个方向都不能静默:把正常报成异常
+      # (告警被当噪音关掉)、把异常报成正常(虚假的安全感)。它自己也在用 systemd timer
+      # 盯着 worker,所以它坏了必须有回归挡住。
+      - name: worker 巡检器自测
+        run: python -m unittest scripts.test_superagent_health -v
+
       # deploy/ 下的脚本(一键部署、备份、看门狗、恢复演练)此前**不在任何 CI 轨里**:
       # 备份是 CLAUDE.md 列的两大风险之一,脚本语法坏掉却没人知道。这里做最低限度的
       # 语法检查(bash -n):不装依赖、不联网、不改脚本。逻辑类问题(shellcheck)留待后续。

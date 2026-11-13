@@ -1,0 +1,13 @@
+[Unit]
+Description=每 15 分钟巡检一次 superagent worker
+
+[Timer]
+# 开机 3 分钟后先补跑一轮:关机期间没人巡检,恢复后要立刻知道「现在能不能干活」。
+OnBootSec=3min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Persistent=true
+Unit=superagent-health.service
+
+[Install]
+WantedBy=timers.target

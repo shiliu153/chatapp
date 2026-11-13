@@ -736,3 +736,38 @@ cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait
 - **自动单不会自己进队列。** 正文里刻意不含任何 `@`,派工仍要人在评论里做(§4.1)。
 - **首次启用是人的动作。** `L4_INTAKE` 默认 `off`:机制上线不等于开始开单,开不开由人决定。
 
+## 15. worker 健康巡检(superagent-health,2026-11-13 起)
+
+**它补的是「绿着但不动」这一类故障** —— 不是红轨告警(`main-health` 已经管那个),而是
+「面板每个健康位都 `ready`、其实早就不干活」。两次实测:
+
+| 故障 | 表现 | 面板/文档 |
+|---|---|---|
+| mihomo 解析不到机场节点域名 | 106 个节点全 timeout、出网 0%,worker 的 git 与轮询全断 | 7890 端口在听 ⇒ §12.6 的选路不回退宿主,`status` 全绿 |
+| 模型流 `stream idle timeout` | assignment 卡在 `running` **6 小时**,worktree 0 提交 | `errors: {}`,没有任何一层会报错 |
+
+它由 **systemd timer 每 15 分钟**跑一轮(开机 3 分钟后先补一轮),**不依赖任何交互式会话**:
+这台机器会关机,关机期间没有 worker 也就没有可巡检的对象,恢复开机后第一轮立刻告诉你
+「现在能不能干活」。
+
+查三类:
+
+| 检查 | 判据 |
+|---|---|
+| 出网 | 经代理 `GET https://api.github.com/rate_limit` 必须 2xx |
+| 入队三连 | `thread` / `trigger_thread` / `ticket` 三张表都要有该 issue(`@SUPERAGENT_HEALTH_ISSUES`) |
+| 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束(**自动扫全表**,不用配置) |
+
+异常走 `/root/.dsh/superagent-health.env` 里配的通道(优先级:`NOTIFY_CMD` → SMTP →
+GitHub issue 评论 → 仅落盘),**同一种异常 6 小时只发一次**;发送失败不记指纹(记了就等于
+静默丢 6 小时)。
+
+```bash
+sudo bash scripts/superagent-health/install.sh          # 装 + 立刻跑一轮
+bash /root/.dsh/healthcheck/run.sh                      # 手动跑一轮(带去重)
+systemctl list-timers superagent-health.timer
+journalctl -u superagent-health -n 50 --no-pager
+```
+
+细节、通道配法与自测见 [`scripts/superagent-health/README.md`](../../scripts/superagent-health/README.md)。
+
