@@ -180,6 +180,54 @@ class EgressTests(unittest.TestCase):
         self.assertEqual(check.state, healthcheck.OK)
 
 
+class AcknowledgeTests(unittest.TestCase):
+    """人工确认作废的僵尸 assignment:降级成 ok,但信息保留。"""
+
+    def test_ignored_zombie_becomes_ok(self) -> None:
+        check = healthcheck.Check("僵尸 assignment ce1d46c9", healthcheck.BAD, "state=running 已 8.4h")
+        acknowledged = healthcheck._acknowledge(check, ["ce1d46c9"])
+        self.assertEqual(acknowledged.state, healthcheck.OK)
+        self.assertIn("已人工确认作废", acknowledged.detail)
+        self.assertIn("8.4h", acknowledged.detail)
+
+    def test_unlisted_zombie_stays_bad(self) -> None:
+        check = healthcheck.Check("僵尸 assignment ce1d46c9", healthcheck.BAD, "state=running")
+        for ignore in ([], ["aaaaaaaa"], [""]):
+            self.assertEqual(healthcheck._acknowledge(check, ignore).state, healthcheck.BAD)
+
+    def test_report_with_ignore_is_green(self) -> None:
+        tmp = tempfile.mkdtemp()
+        conn = make_db(tmp)
+        started = datetime(2026, 11, 13, 0, 0, tzinfo=timezone.utc)
+        conn.execute(
+            "insert into ticket values ('x', ?)",
+            (
+                ticket_row(
+                    283,
+                    [
+                        {
+                            "id": "ce1d46c9ffff",
+                            "state": "running",
+                            "createdAt": started.isoformat().replace("+00:00", "Z"),
+                            "startedAt": started.isoformat().replace("+00:00", "Z"),
+                        }
+                    ],
+                ),
+            ),
+        )
+        conn.commit()
+        conn.close()
+        args = healthcheck.build_parser().parse_args(
+            [
+                "--db", os.path.join(tmp, "orchestrator.sqlite"),
+                "--skip-egress", "--skip-enqueue",
+                "--ignore", "ce1d46c9",
+            ]
+        )
+        report = healthcheck.build_report(args)
+        self.assertEqual(report.exit_code(), 0, report.anomalies)
+
+
 class BuildReportTests(unittest.TestCase):
     """整体带参数跑一遍(跳过联网),确认 CLI 拼装出来的东西是自洽的。"""
 

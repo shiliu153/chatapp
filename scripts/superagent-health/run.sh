@@ -25,6 +25,13 @@ if [ -n "${SUPERAGENT_HEALTH_ISSUES:-}" ]; then
   for n in $SUPERAGENT_HEALTH_ISSUES; do ISSUE_ARGS+=(--issue "$n"); done
 fi
 
+# 人工作废的僵尸 assignment 前缀:走命令行而不是 env —— source 进来的变量不会自动 export 给
+# 子进程(python),2026-11-13 踩过:配了 ignore 却照样告警。
+IGNORE_ARGS=()
+if [ -n "${SUPERAGENT_HEALTH_IGNORE_ZOMBIES:-}" ]; then
+  for id in $SUPERAGENT_HEALTH_IGNORE_ZOMBIES; do IGNORE_ARGS+=(--ignore "$id"); done
+fi
+
 # 仓库里跑时检查器在 scripts/ 下;装到 /root/.dsh/healthcheck/ 后与 run.sh 同级。
 if [ -z "${SUPERAGENT_HEALTH_CHECKER:-}" ]; then
   if [ -f "$HERE/superagent_health.py" ]; then
@@ -37,7 +44,8 @@ else
 fi
 
 OUT=$(mktemp); trap 'rm -f "$OUT"' EXIT
-python3 "$CHECKER" ${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"} >"$OUT" 2>"$STATE_DIR/last-stderr.log"
+python3 "$CHECKER" ${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"} ${IGNORE_ARGS[@]+"${IGNORE_ARGS[@]}"} \
+  >"$OUT" 2>"$STATE_DIR/last-stderr.log"
 RC=$?
 
 cat "$OUT"

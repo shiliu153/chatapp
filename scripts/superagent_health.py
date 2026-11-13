@@ -345,10 +345,32 @@ def build_report(args: argparse.Namespace, now: Optional[datetime] = None) -> Re
             for issue in args.issue:
                 report.add(check_enqueue(conn, int(issue)))
         for check in zombie_assignments(conn, now, args.zombie_minutes):
-            report.add(check)
+            report.add(_acknowledge(check, args.ignore))
         for check in check_worktrees(conn, args.workdir):
             report.add(check)
     return report
+
+
+def _acknowledge(check: Check, ignore: List[str]) -> Check:
+    """把人工确认作废的僵尸 assignment 从「异常」降级成「已确认」。
+
+    Args:
+        check: 一条检查结果(名字形如 `僵尸 assignment ce1d46c9`)。
+        ignore: 已人工确认作废的 assignment id 前缀列表。
+
+    Returns:
+        命中则返回 `ok` 版本(说明里保留原始信息),否则原样返回。
+
+    为什么需要它:DSH 没有「取消 assignment」的 CLI/API,一个被模型流打断的 assignment 会
+    永远停在 `running`。留着不管就是每 6 小时一条告警,而删库改状态风险更大 ——
+    所以给运营一个显式的确认口,而不是让告警被噪音化(那比没有告警更糟)。
+    """
+    if not ignore:
+        return check
+    for prefix in ignore:
+        if prefix and prefix in check.name:
+            return Check(check.name, OK, f"已人工确认作废({prefix}) · 原始:{check.detail}")
+    return check
 
 
 def render_text(report: Report) -> str:
@@ -393,6 +415,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="要核对入队三连的 issue 编号(可重复)",
     )
     parser.add_argument("--zombie-minutes", type=int, default=45, help="assignment 卡住阈值(分钟)")
+    parser.add_argument(
+        "--ignore",
+        action="append",
+        default=(os.environ.get("SUPERAGENT_HEALTH_IGNORE_ZOMBIES") or "").split(),
+        help="已人工确认作废的 assignment id 前缀(可重复;也读 env)。DSH 没有取消 assignment 的口子,"
+        "被模型流打断的那些会永远停在 running,留在这里而不是让告警变成噪音",
+    )
     parser.add_argument("--skip-egress", action="store_true", help="跳过联网检查(离线自测)")
     parser.add_argument("--skip-enqueue", action="store_true", help="跳过入队三连")
     parser.add_argument("--json", action="store_true", help="输出 JSON")

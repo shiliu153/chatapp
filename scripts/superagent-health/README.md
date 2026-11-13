@@ -29,6 +29,11 @@ systemd timer,**每 15 分钟一轮**,开机 3 分钟后先补一轮(`OnBootSec`
 | 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束 | 工单跑死了(模型流超时那类) |
 | worktrees | `work/` 下的目录清单 | 仅供核对,不告警 |
 
+**僵尸 assignment 可以「人工作废」**:DSH 没有取消 assignment 的 CLI/API,被模型流打断的那些会
+永远停在 `running`。确认「这张单已经由别的单/PR 完成」之后,把 id 前缀填进
+`SUPERAGENT_HEALTH_IGNORE_ZOMBIES`,巡检不再为它告警(信息仍打印,标注「已人工确认作废」)。
+**不要拿它掩盖新故障** —— 那是把告警噪音化,比没有告警更糟。
+
 `入队三连` 只能核对**已知**要查的 issue(`SUPERAGENT_HEALTH_ISSUES`),因为「哪条评论该进队列」
 判不出来;**僵尸 assignment 是自动扫全表的**,不需要配置。
 
