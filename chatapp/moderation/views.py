@@ -27,7 +27,7 @@ from .models import Block, Report, ReportStatus
 from .serializers import (BlockCreateSerializer, BlockSerializer, ReportCreateSerializer,
                           ReportSerializer)
 from .services import sync_im_blacklist, sync_im_pair
-from .throttles import BlockThrottle, ReportThrottle
+from .throttles import BlockThrottle, ReportThrottle, UnblockThrottle
 
 User = get_user_model()
 
@@ -115,6 +115,7 @@ def blocks(request):
 
 @extend_schema(responses={204: None})
 @api_view(["DELETE"])
+@throttle_classes([UnblockThrottle])
 def unblock(request, user_id):
     """解除拉黑(DELETE /api/v1/blocks/{user_id})。
 
