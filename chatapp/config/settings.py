@@ -10,6 +10,17 @@
 
 注意事项:
     ``SMS_DEV_MODE=1`` 时验证码固定为 ``123456`` 且只打日志,上线前必须置 0。
+
+文件信息:
+    文件名称          config/settings.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from datetime import timedelta
@@ -31,13 +42,20 @@ load_dotenv(BASE_DIR / ".env")
 def _read_app_version() -> str:
     """读取 App 版本号,作为 OpenAPI 文档的版本(D-5)。
 
-    设计要点:
+    参数说明:
+        无。
+
+    返回参数:
+        形如 ``1.0.4`` 的版本号;文件缺失或解析失败时返回 ``0.0.0``(宁可有值,不让生成失败)。
+
+    使用示例:
+        ``_read_app_version()``
+
+    备注信息:
         ``app/pubspec.yaml`` 是发版版本号的唯一来源(见 CLAUDE.md「发版版本号必须双端同改」)。
         直接读它,OpenAPI 文档就不会再手写一份版本号而漂移;真正的三端一致性校验由
-        ``scripts/sync_version.py`` 负责。
-
-    Returns:
-        形如 ``1.0.4`` 的版本号;文件缺失或解析失败时返回 ``0.0.0``(宁可有值,不让生成失败)。
+        ``scripts/sync_version.py`` 负责。读文件失败按 ``OSError`` 兜底,正则只取 ``version:``
+        行里不带 ``+`` 构建号的部分,整个过程不抛异常。
     """
     pubspec = BASE_DIR.parent / "app" / "pubspec.yaml"
     try:
@@ -65,12 +83,20 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 def assert_production_secret_key(secret: str, debug: bool) -> None:
     """生产环境拒绝使用开发默认密钥。
 
-    Args:
+    参数说明:
         secret: 当前生效的 ``SECRET_KEY``。
         debug: 当前 ``DEBUG`` 开关。
 
-    Raises:
-        ImproperlyConfigured: ``DEBUG`` 关闭且仍在使用开发默认密钥。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``assert_production_secret_key(SECRET_KEY, DEBUG)``
+
+    备注信息:
+        ``DEBUG`` 关闭且仍在使用开发默认密钥时抛 ``ImproperlyConfigured``,让生产漏配
+        ``SECRET_KEY`` 直接起不来(H-2)—— 该密钥同时是 JWT(HS256)、验证码 HMAC 与
+        session 签名的密钥,生产沿用默认值等于全站可伪造。模块导入时立即调用一次。
     """
     if not debug and secret == _DEV_SECRET_KEY:
         raise ImproperlyConfigured(

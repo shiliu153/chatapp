@@ -990,15 +990,25 @@ paths:
         同步落盘 + 生成缩略图,不进 Celery:这条路径没有第三方调用,
         符合「响应路径禁止外部调用」纪律。文件名带随机 uuid,不可枚举。
 
-        Args:
+        参数说明:
             request: DRF 请求对象,multipart 字段为 ``file``。
 
-        Returns:
+        返回参数:
             201 + ``{id, url, thumb_url, width, height, size}``;URL 用
-            ``settings.MEDIA_BASE_URL`` 拼绝对地址(与 IM 头像同步同一套)。
+            ``settings.MEDIA_BASE_URL`` 拼绝对地址后过 ``media_sign.sign_url`` 签名
+            (与 IM 头像同步同一套)。参数或尺寸不合法返 400。
 
-        Raises:
-            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+        使用示例:
+            ``client.post("/api/v1/im/images", {"file": f})``
+
+        备注信息:
+            缩略图长边取 ``CHAT_IMAGE_THUMB_SIDE``,转 RGB 后按 JPEG 质量 80 存盘。
+            ``images.open_checked`` 判定格式不合法、或原图长边超过
+            ``CHAT_IMAGE_MAX_SIDE`` 时返 400,此时不落盘。
+            存储配额超限时 ``storage.ensure_quota`` 抛 ``StorageQuotaExceeded``(413/``41301``);
+            配额检查必须落在任何一次落盘之前,否则超限会留下没有数据库行的孤儿文件。
+            ``upload_to`` 已含 ``chat/%Y/%m/``,这里只给文件名,重复拼接会落成嵌套目录
+            (2026-10-26 部署时实测踩到)。
       tags:
       - im
       requestBody:
@@ -1031,12 +1041,24 @@ paths:
         这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而图片本身
         已经是「谁拿到链接谁能看」的语义,靠签名与有效期兜底。
 
-        Args:
+        参数说明:
             request: DRF 请求对象,nginx 通过 ``X-Original-URI`` 传入原始 URI
                 (含 ``?e=&s=``)。
 
-        Returns:
-            通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403。
+        返回参数:
+            通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403 +
+            ``{"code": 403, "message": "图片链接已失效"}``。
+
+        使用示例:
+            ``client.get("/api/v1/im/images/auth", HTTP_X_ORIGINAL_URI=url)``
+
+        备注信息:
+            这条路径不校验登录态:nginx 的内部子请求不会带 Authorization,图片本身已经是
+            「谁拿到链接谁能看」的语义,靠签名与有效期兜底,因此
+            ``authentication_classes([])`` + ``AllowAny``。
+            路径前缀先显式挡一次(L-6):``media_sign.verify`` 内部也查路径,但那只是签名
+            覆盖路径的兜底;这里先挡住非聊天媒体的请求,以后改签名逻辑也不会把资料图、
+            广场图放进来。
       parameters:
       - in: header
         name: X-Original-URI
@@ -1064,12 +1086,25 @@ paths:
         端类型取请求头 ``X-Client``(缺省 ``app``):只踢**本端**旧会话、按**本端**版本
         签发 token(``sv`` 是该端版本,``ct`` 是端类型),另一端的在线会话不受影响。
 
-        Args:
-            request: DRF 请求对象。
+        参数说明:
+            request: DRF 请求对象,读取 ``X-Client`` 头与已认证的账号。
 
-        Returns:
-            ``{backend, token, im_user_id, ws_url, http_url, expire}``;
-            ``backend`` 恒为 ``self``(腾讯分支已于 2026-11-08 删除)。
+        返回参数:
+            ``{backend, token, im_user_id, ws_url, http_url, expire}``;``backend`` 恒为
+            ``self``(腾讯分支已于 2026-11-08 删除)。``set_session_version`` 失败时改返
+            503 + ``{"code": 503, "message": "IM 暂不可用,请稍后重试"}``。
+
+        使用示例:
+            ``client.post("/api/v1/im/user_sig")``
+
+        备注信息:
+            踢旧会话必须发生在签发新 token 之前:``kick_pending_key`` 标记存在时先踢
+            本端旧 IM 会话,再同步版本、最后签发;顺序反了会连本机刚建立的会话一起
+            踢掉,客户端收到 KickOffline 会误报「账号已在其他设备登录」(2026-09-12 手测回归)。
+            建号成功后在 Redis 置 30 天标记(``IMPORTED_FLAG_TTL``),失败不置标记,
+            下次调用自动重试;昵称同步失败不阻断签发。
+            版本必须先落 imserver 再签 token,同步失败即 fail-closed 返 503,避免签出
+            imserver 没见过的版本;取不到端会话行时按历史列补建一行且不递增。
       tags:
       - im
       security:
@@ -1090,15 +1125,21 @@ paths:
         同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
         没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
 
-        Args:
+        参数说明:
             request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
 
-        Returns:
+        返回参数:
             201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
             400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
 
-        Raises:
-            config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+        使用示例:
+            ``client.post("/api/v1/im/voices", {"file": f, "duration_ms": 3200})``
+
+        备注信息:
+            转码全在本地进程内完成:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘,
+            没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
+            存储配额超限时 ``storage.ensure_quota`` 抛 ``StorageQuotaExceeded``(413/``41301``),
+            配额检查在落盘前执行(M7)。限流由 ``ChatVoiceThrottle`` 负责。
       tags:
       - im
       requestBody:
@@ -2780,7 +2821,21 @@ components:
       - user_id
     ChatImageUploadRequest:
       type: object
-      description: 聊天图片上传入参(multipart 字段 ``file``)。
+      description: |-
+        聊天图片上传入参(multipart 字段 ``file``)。
+
+        参数说明:
+            file: 图片文件,由 DRF ``ImageField`` 接管(Pillow 已验过是真实图片)。
+
+        返回参数:
+            校验后的 ``validated_data`` 字典。
+
+        使用示例:
+            ``ChatImageUploadSerializer(data=request.data)``
+
+        备注信息:
+            只做入参形状与格式/大小校验;落盘、EXIF 清洗与配额检查在 ``im/views.py`` 与
+            ``config/images.py`` 里做。
       properties:
         file:
           type: string
@@ -2811,7 +2866,22 @@ components:
       - width
     ChatVoiceUploadRequest:
       type: object
-      description: 聊天语音上传入参(multipart 字段 ``file`` + ``duration_ms``)。
+      description: |-
+        聊天语音上传入参(multipart 字段 ``file`` + ``duration_ms``)。
+
+        参数说明:
+            file: 语音文件,DRF ``FileField``(不校验真实音频格式,靠 ffprobe 兜底)。
+            duration_ms: 客户端声明的时长,限 1000–60000 毫秒。
+
+        返回参数:
+            校验后的 ``validated_data`` 字典。
+
+        使用示例:
+            ``ChatVoiceUploadSerializer(data=request.data)``
+
+        备注信息:
+            ``duration_ms`` 只是声明值,落库用的是 ffprobe 读出的真实时长;两者超出
+            ``CHAT_VOICE_DURATION_TOLERANCE_MS`` 时由 ``im/voice.normalize`` 拒绝。
       properties:
         file:
           type: string

@@ -10,6 +10,17 @@
 
 另有一个 ``IndexAndExistsTests``:把「三处排除列表必须是 ``NOT EXISTS``」与「三条索引
 必须存在」钉死,防止有人把 ``~Exists`` 改回「先拉 id 再 ``__in``」(审查 N-2~N-4)。
+
+文件信息:
+    文件名称          config/test_query_budget.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.contrib.auth import get_user_model
@@ -65,12 +76,19 @@ BUDGET = {
 def _make_user(phone: str, gender: str = "female") -> User:
     """造一个资料完善、带一张已过审照片的用户。
 
-    Args:
+    参数说明:
         phone: 手机号(兼昵称)。
         gender: 性别。
 
-    Returns:
+    返回参数:
         新建用户。
+
+    使用示例:
+        ``_make_user("13800138000", gender="male")``
+
+    备注信息:
+        资料状态直接置 ``COMPLETE``、照片直接置 ``APPROVED``,跳过审核流程;
+        列表接口的前置校验依赖这两项,否则请求到不了被测的查询链路。
     """
     user = User.objects.create_user(phone=phone)
     Profile.objects.create(user=user, nickname=phone, gender=gender,
@@ -84,6 +102,21 @@ class QueryBudgetTests(APITestCase):
     """列表接口的 SQL 条数上限(含页大小不变性守卫)。"""
 
     def setUp(self):
+        """清缓存,造 12 个用户(前 3 个配对)与 12 条动态,并注入访问令牌。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
+
+        备注信息:
+        数据量对应 ``BUDGET`` 注释里的实测口径(10 张候选 / 3 个配对 / 12 条动态);
+        缓存必须先清,否则上一个用例留下的候选池会让「冷请求」预算失真。
+        """
         cache.clear()
         self.me = _make_user("13800138000", gender="male")
         for index in range(12):
@@ -97,11 +130,18 @@ class QueryBudgetTests(APITestCase):
     def _count(self, url: str) -> int:
         """请求一个接口并返回执行的 SQL 条数。
 
-        Args:
+        参数说明:
             url: 接口路径。
 
-        Returns:
+        返回参数:
             本次请求的 SQL 条数。
+
+        使用示例:
+            ``count = self._count("/api/v1/posts?limit=10")``
+
+        备注信息:
+            顺带断言 200:预算再低,接口报错也不算「省了查询」;
+            ``CaptureQueriesContext`` 只统计当次请求,不含 setUp 阶段的建数 SQL。
         """
         with CaptureQueriesContext(connection) as context:
             response = self.client.get(url)
@@ -245,7 +285,20 @@ class IndexAndExistsTests(APITestCase):
     """把 A-2 的两件事钉死:三条索引必须在,三处排除列表必须走 NOT EXISTS。"""
 
     def setUp(self):
-        """造一个当前用户与一个有照片的对方。"""
+        """造一个当前用户与一个有照片的对方。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
+
+        备注信息:
+        ``self.other`` 是排除列表里的目标账号;缓存必须先清,否则排除列表可能命中旧缓存。
+        """
         cache.clear()
         self.me = _make_user("13700137000", gender="male")
         self.other = _make_user("13700137001")
@@ -255,11 +308,18 @@ class IndexAndExistsTests(APITestCase):
     def _sql_of(self, queryset) -> str:
         """取查询集的 SQL 文本(参数已内联)。
 
-        Args:
+        参数说明:
             queryset: 要检查的查询集。
 
-        Returns:
+        返回参数:
             完整 SQL 字符串。
+
+        使用示例:
+            ``sql = self._sql_of(likes_received_queryset(self.me))``
+
+        备注信息:
+            取的是 ``str(queryset.query)`` 而非 ``captured_queries``,不执行数据库,
+            因此断言只反映 SQL 结构(EXISTS / NOT IN),与库内数据无关。
         """
         return str(queryset.query)
 

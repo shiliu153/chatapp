@@ -6,6 +6,17 @@
     - 文档解析规则:``tags[]`` / ``photos[]`` 这类子结构表不算顶层字段,
       ``同 [X.Y ...]`` 引用能继承另一小节的字段表;
     - 豁免表只允许 DELETE 请求体(OpenAPI 3.0 表达不了),防止它变成万能白名单。
+
+文件信息:
+    文件名称          config/test_schema_contract.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import copy
@@ -23,11 +34,30 @@ class SchemaContractTests(SimpleTestCase):
 
     @classmethod
     def setUpClass(cls):
-        """生成一次 schema,供本类各用例复用(生成有固定开销)。"""
+        """生成一次 schema,供本类各用例复用(生成有固定开销)。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``SchemaContractTests.setUpClass()``(由 ``unittest`` 在类内用例执行前自动调用)
+
+        备注信息:
+            结果挂在类属性 ``cls.schema`` 上;自测用例都先 ``deepcopy`` 再改字段,
+            因此共用同一份 schema 不会互相污染。
+        """
         super().setUpClass()
         cls.schema = generate_schema()
 
     def test_docs_and_schema_agree(self):
+        """真实文档字段表与 schema 字段双向一致(漏写/多写即红)。
+
+        参数说明:
+            无。
+        """
         problems = find_problems(schema=self.schema)
         self.assertEqual(problems, [], "字段级契约不一致:\n" + "\n".join(problems))
 
