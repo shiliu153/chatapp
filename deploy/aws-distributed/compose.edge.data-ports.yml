@@ -1,0 +1,30 @@
+# 把数据层发布到内网网卡，供应用机直连（安全组只放行应用机那一个 IP）。
+#
+# 为什么要单独一个文件：`compose.edge.override.yml` 管的是「t3.small 撑不住默认内存限额」
+# 这类通用覆盖；本文件管的是「跨机直连」这一件事，隧道方案下不需要它。
+#
+# 为什么还要多加一张网络（2026-11-13 实测）：Docker **不允许**给「只挂在 internal 网络上的
+# 容器」发布端口 —— 实测 `--network internal网 -p 1.2.3.4:18099:80` 只得到 `80/tcp`，
+# 没有映射。所以 mysql/redis 必须额外接入一张**非 internal** 的网络才能 publish。
+# 这张网络是专用的（只有 mysql/redis 接入），nginx 依然没有到 3306/6379 的路由，
+# 保住了 M-6 的隔离意图。
+#
+# 注意：只绑内网地址 172.31.14.4，**不要**写 0.0.0.0 —— 那会把 MySQL/Redis 暴露到公网。
+services:
+  mysql:
+    networks:
+      backend: null
+      dataedge: null
+    ports:
+      - "172.31.14.4:3306:3306"
+  redis:
+    networks:
+      backend: null
+      dataedge: null
+    ports:
+      - "172.31.14.4:6379:6379"
+
+networks:
+  dataedge:
+    name: chatapp_dataedge
+    driver: bridge

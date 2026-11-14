@@ -19,6 +19,9 @@ struct Config {
   std::string listen_http = "127.0.0.1:9101";
   std::string mysql_dsn;
   std::string redis_url = "redis://127.0.0.1:6379/2";
+  /// 本节点标识(#288 多实例)。空 = 单实例,不写 owner 键、不订阅跨节点频道。
+  /// 由 `IM_INSTANCE_ID` 提供;缺省取 hostname(容器里就是容器 id)。
+  std::string instance_id;
   std::string jwt_secret;
   std::string internal_secret;
   std::string migrations_dir = "/usr/local/share/imserver/migrations";

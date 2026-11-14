@@ -1,0 +1,66 @@
+# APP 节点（32.236.245.150）的副本：Django + imserver 各一份。
+#
+# 数据层与 IM 内部接口暂经 SSH 隧道回源 EDGE（安全组未放行内网业务端口）；
+# 隧道换成内网直连后这套配置不用改结构，只改 secrets 里的地址。
+name: chatapp-app
+
+x-guard: &guard
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  logging:
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+
+services:
+  web:
+    <<: *guard
+    image: chatapp-web:local
+    env_file:
+      - "./secrets/chatapp.app.env"
+    command: ["gunicorn", "config.wsgi:application", "-b", "0.0.0.0:8000",
+              "-w", "2", "--timeout", "120", "--access-logfile", "-"]
+    # 绑内网网卡：入口机的 nginx 直连过来（安全组只放行入口机那一个 IP）。
+    # 用 8000 不会和 `chaoxing-web` 冲突 —— 那个只占 127.0.0.1:8000，这里是 172.31.35.181:8000。
+    ports:
+      - "172.31.35.181:8000:8000"
+    # APP 节点上已有 chaoxing-web 占用 ~760MB，本副本不能超过 400m
+    mem_limit: 400m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    volumes:
+      - chatapp_app_static:/app/staticfiles
+      - chatapp_app_media:/app/media
+
+  # 本机的 imserver 实例（#288）：与 EDGE 的 imserver 组成两节点集群，
+  # 会话归属由 Redis owner 键决定，消息跨节点经 pub/sub 投递。
+  imserver:
+    <<: *guard
+    image: chatapp-imserver:local
+    env_file:
+      - "./secrets/imserver.app.env"
+    # 绑内网网卡：入口机的 nginx 直连过来（安全组只放行入口机那一个 IP）。
+    ports:
+      - "172.31.35.181:9100:9100"
+      - "172.31.35.181:9101:9101"
+    mem_limit: 256m
+    healthcheck:
+      # 与入口机同一套：运行镜像已带 curl（PR #302），直接用原版 healthcheck。
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9101/internal/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  # 这两个卷在 APP 上只是「占位」：媒体真正的落盘处只在 EDGE（见设计稿 §5），
+  # APP 侧写进来的东西不会有副本读到 —— 这也是为什么上传类接口在 nginx 里被钉死到 EDGE。
+  chatapp_app_static:
+    name: chatapp_app_static
+  chatapp_app_media:
+    name: chatapp_app_media

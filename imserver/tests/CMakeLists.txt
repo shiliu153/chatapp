@@ -13,6 +13,6 @@ target_compile_definitions(im_unit_tests PRIVATE
                            IM_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data")
 gtest_discover_tests(im_unit_tests PROPERTIES LABELS unit)
 
-add_executable(im_db_tests store_test.cpp message_service_test.cpp)
+add_executable(im_db_tests store_test.cpp message_service_test.cpp session_registry_test.cpp)
 target_link_libraries(im_db_tests PRIVATE imcore GTest::gtest_main)
 gtest_discover_tests(im_db_tests PROPERTIES LABELS db)

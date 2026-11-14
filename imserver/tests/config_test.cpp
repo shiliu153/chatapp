@@ -117,3 +117,24 @@ TEST(ConfigTest, ReadsSensitiveWordsFile) {
       {"IM_SENSITIVE_WORDS_FILE", "/etc/imserver/words.txt"}};
   EXPECT_EQ(Config::from_map(env).sensitive_words_file, "/etc/imserver/words.txt");
 }
+
+TEST(ConfigTest, ReadsInstanceIdForMultiNode) {
+  std::map<std::string, std::string> env{
+      {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
+      {"IM_JWT_SECRET", "jwt"},
+      {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MEDIA_PREFIX", "http://cdn/media/chat/"},
+      {"IM_INSTANCE_ID", "edge"}};
+  EXPECT_EQ(Config::from_map(env).instance_id, "edge");
+}
+
+TEST(ConfigTest, EmptyInstanceIdMeansSingleNode) {
+  // 显式给空串 = 单实例:不写 owner 键、不订阅跨节点频道(行为与 #288 之前一致)。
+  std::map<std::string, std::string> env{
+      {"IM_MYSQL_DSN", "mysql://u:p@127.0.0.1:3306/db"},
+      {"IM_JWT_SECRET", "jwt"},
+      {"IM_INTERNAL_SECRET", "internal"},
+      {"IM_MEDIA_PREFIX", "http://cdn/media/chat/"},
+      {"IM_INSTANCE_ID", ""}};
+  EXPECT_TRUE(Config::from_map(env).instance_id.empty());
+}

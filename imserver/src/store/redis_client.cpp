@@ -30,6 +30,9 @@ std::string percent_decode(const std::string& text) {
   return out;
 }
 
+/// 单条命令的 socket 超时。Redis 抖动时不能让 WS 线程无限等。
+constexpr int kCommandTimeoutSec = 2;
+
 }  // namespace
 
 RedisUrlParts parse_redis_url(const std::string& url) {
@@ -88,25 +91,51 @@ RedisUrlParts parse_redis_url(const std::string& url) {
   return parts;
 }
 
-RedisClient::RedisClient(const std::string& url) {
-  const auto parts = parse_redis_url(url);
+RedisClient::RedisClient(const std::string& url) : url_(url) {
+  if (!connect_locked()) {
+    throw std::runtime_error("redis connect failed: " + last_error_);
+  }
+}
+
+RedisClient::~RedisClient() {
+  if (ctx_ != nullptr) {
+    redisFree(ctx_);
+    ctx_ = nullptr;
+  }
+}
+
+bool RedisClient::connect_locked() {
+  last_error_.clear();
+  if (ctx_ != nullptr) {
+    redisFree(ctx_);
+    ctx_ = nullptr;
+  }
+
+  RedisUrlParts parts;
+  try {
+    parts = parse_redis_url(url_);
+  } catch (const std::exception& error) {
+    last_error_ = error.what();
+    return false;
+  }
+
   ctx_ = redisConnect(parts.host.c_str(), parts.port);
   if (ctx_ == nullptr || ctx_->err) {
-    const std::string error = ctx_ == nullptr ? "redisConnect returned null" : ctx_->errstr;
+    last_error_ = ctx_ == nullptr ? "redisConnect returned null" : ctx_->errstr;
     if (ctx_ != nullptr) {
       redisFree(ctx_);
       ctx_ = nullptr;
     }
-    throw std::runtime_error("redis connect failed: " + error);
+    return false;
   }
-  timeval timeout{2, 0};
+  timeval timeout{kCommandTimeoutSec, 0};
   redisSetTimeout(ctx_, timeout);
 
   // E-6②:配了口令就先 AUTH(Redis 6 起支持 `AUTH user pass`,老版本只认 `AUTH pass`)。
   if (!parts.password.empty()) {
     auto* reply = parts.user.empty()
-                      ? static_cast<redisReply*>(redisCommand(
-                            ctx_, "AUTH %s", parts.password.c_str()))
+                      ? static_cast<redisReply*>(
+                            redisCommand(ctx_, "AUTH %s", parts.password.c_str()))
                       : static_cast<redisReply*>(redisCommand(
                             ctx_, "AUTH %s %s", parts.user.c_str(), parts.password.c_str()));
     const bool ok = reply != nullptr && reply->type != REDIS_REPLY_ERROR;
@@ -120,7 +149,8 @@ RedisClient::RedisClient(const std::string& url) {
     if (!ok) {
       redisFree(ctx_);
       ctx_ = nullptr;
-      throw std::runtime_error("redis AUTH failed" + (message.empty() ? "" : ": " + message));
+      last_error_ = "redis AUTH failed" + (message.empty() ? "" : ": " + message);
+      return false;
     }
   }
 
@@ -133,21 +163,27 @@ RedisClient::RedisClient(const std::string& url) {
     if (!ok) {
       redisFree(ctx_);
       ctx_ = nullptr;
-      throw std::runtime_error("redis SELECT failed");
+      last_error_ = "redis SELECT failed";
+      return false;
     }
   }
+  return true;
 }
 
-RedisClient::~RedisClient() {
-  if (ctx_ != nullptr) {
-    redisFree(ctx_);
+bool RedisClient::revive_locked() {
+  // 连接还活着就是空操作(只读 ctx_->err,不发网络命令)。
+  if (ctx_ != nullptr && ctx_->err == 0) {
+    return true;
   }
+  return connect_locked();
 }
 
 bool RedisClient::setex(const std::string& key, int ttl_seconds, const std::string& value) {
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto* reply = static_cast<redisReply*>(
-      redisCommand(ctx_, "SETEX %s %d %s", key.c_str(), ttl_seconds, value.c_str()));
+  auto* reply = run_locked([&] {
+    return static_cast<redisReply*>(
+        redisCommand(ctx_, "SETEX %s %d %s", key.c_str(), ttl_seconds, value.c_str()));
+  });
   const bool ok = reply != nullptr && reply->type != REDIS_REPLY_ERROR;
   if (reply != nullptr) {
     freeReplyObject(reply);
@@ -157,7 +193,8 @@ bool RedisClient::setex(const std::string& key, int ttl_seconds, const std::stri
 
 std::optional<std::string> RedisClient::get(const std::string& key) {
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto* reply = static_cast<redisReply*>(redisCommand(ctx_, "GET %s", key.c_str()));
+  auto* reply = run_locked(
+      [&] { return static_cast<redisReply*>(redisCommand(ctx_, "GET %s", key.c_str())); });
   if (reply == nullptr || reply->type == REDIS_REPLY_ERROR) {
     if (reply != nullptr) {
       freeReplyObject(reply);
@@ -178,7 +215,8 @@ std::optional<std::string> RedisClient::get(const std::string& key) {
 
 bool RedisClient::del(const std::string& key) {
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto* reply = static_cast<redisReply*>(redisCommand(ctx_, "DEL %s", key.c_str()));
+  auto* reply = run_locked(
+      [&] { return static_cast<redisReply*>(redisCommand(ctx_, "DEL %s", key.c_str())); });
   const bool ok = reply != nullptr && reply->type == REDIS_REPLY_INTEGER;
   if (reply != nullptr) {
     freeReplyObject(reply);
@@ -188,7 +226,8 @@ bool RedisClient::del(const std::string& key) {
 
 long long RedisClient::incr(const std::string& key) {
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto* reply = static_cast<redisReply*>(redisCommand(ctx_, "INCR %s", key.c_str()));
+  auto* reply = run_locked(
+      [&] { return static_cast<redisReply*>(redisCommand(ctx_, "INCR %s", key.c_str())); });
   long long value = 0;
   if (reply != nullptr && reply->type == REDIS_REPLY_INTEGER) {
     value = reply->integer;
@@ -199,9 +238,24 @@ long long RedisClient::incr(const std::string& key) {
   return value;
 }
 
+bool RedisClient::publish(const std::string& channel, const std::string& payload) {
+  const std::lock_guard<std::mutex> lock(mutex_);
+  auto* reply = run_locked([&] {
+    return static_cast<redisReply*>(
+        redisCommand(ctx_, "PUBLISH %s %s", channel.c_str(), payload.c_str()));
+  });
+  // PUBLISH 返回收到消息的订阅者数;0 也是「发成功了、只是没人听」。
+  const bool ok = reply != nullptr && reply->type == REDIS_REPLY_INTEGER;
+  if (reply != nullptr) {
+    freeReplyObject(reply);
+  }
+  return ok;
+}
+
 bool RedisClient::ping() {
   const std::lock_guard<std::mutex> lock(mutex_);
-  auto* reply = static_cast<redisReply*>(redisCommand(ctx_, "PING"));
+  auto* reply =
+      run_locked([&] { return static_cast<redisReply*>(redisCommand(ctx_, "PING")); });
   const bool ok = reply != nullptr && reply->type == REDIS_REPLY_STATUS;
   if (reply != nullptr) {
     freeReplyObject(reply);

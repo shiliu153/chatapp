@@ -416,3 +416,92 @@ A 记录：  aws.shiliu153.cn  →  13.211.212.232
 拍板后我拆工单：**T1** imserver 多实例（imserver 栈）、**T2** 双机编排（deploy 栈新目录）、
 **T3** 压测脚本扩展（perf）、**T4** 运维文档（docs）。
 其中 T2 的**实际部署执行必须由本会话做** —— worker 没有 SSH 权限，也没被授权碰云主机。
+
+---
+
+## 12. P1 实测记录（2026-11-13，已完成）
+
+### 12.1 结论
+
+入口机 `13.211.212.232` 上的单机全栈**已跑通并验证**，全程未开公网端口（安全组仍只开 22，
+访问走 SSH 隧道）。因此 §9 里「P0 安全组」这一阻塞**不阻塞 P1**，只阻塞 P2/P4。
+
+实测通过项：nginx `/healthz`、`/api/v1/app/config`、前端首页、`/auth/sms/send`（名单内 200 /
+名单外 `403 40301`）、`/auth/sms/verify` 换 JWT、`/users/me`、`/im/user_sig`、
+以及 **WebSocket `/im/ws` 收到 `auth_ok`**。
+
+细节与可复现命令见 [`deploy/aws-distributed/README.md`](../../../deploy/aws-distributed/README.md)。
+
+### 12.2 P1 暴露的 4 个模板缺陷（都要在 T2 正式修）
+
+| # | 缺陷 | 为何生产没暴露 | 影响 |
+|---|---|---|---|
+| 1 | `backend`(internal) 网络没有 ipam，被 Docker 分到 `172.18.0.0/16`；`MYSQL_ROOT_HOST` 由 `DOCKER_SUBNET` 推导成 `172.28.0.%` | 生产若 backend 也落在 172.18 会同样失败，属**未触发**而非不存在 | 首次部署 `db-init` 必失败 |
+| 2 | `cap_drop:[ALL]` 让容器内 root 失去 `CAP_DAC_OVERRIDE`，部署目录若在 750 的 home 下则无法遍历 | 生产部署目录是 `/opt`（755） | 换部署目录即炸，坑很隐蔽 |
+| 3 | redis 官方镜像用 `setpriv` 降权，`cap_drop:[ALL]` 抹掉 `CAP_SETUID` | 与镜像 tag `redis:7-alpine` 浮动有关（7.4.12 行为） | redis 无限重启 |
+| 4 | imserver 运行镜像基于 `ubuntu:24.04`，无 `curl`，但 healthcheck 用 `curl` | 生产 `oneclick.sh` 的启动时序没暴露 | 容器永远 unhealthy，`depends_on` 卡死 nginx |
+
+**建议单开一单**修第 4 条（RUN apt-get install curl，或镜像内建 `--healthz`），
+不要在部署侧长期用 override 绕过；第 1、3 条也建议进 `deploy/` 模板修正（需你授权改 `deploy/`）。
+
+### 12.3 另一处文档与实现不一致
+
+`chatapp/accounts/checks.py:40-45`：`accounts.E001` 只读 `SMS_PHONE_WHITELIST`，
+**不读 `SMS_ALLOWLIST_STRICT`**，但它的 hint 把「设 `SMS_ALLOWLIST_STRICT=0`」当作第三条出路。
+照 hint 做**仍然红**。建议一并修 hint（或让 check 真的认这个开关）。
+
+### 12.4 环境妥协（已记录，不长期保留）
+
+- `ALLOWED_HOSTS` 追加了 `nginx` / `imserver`：容器间互调时 `Host` 是服务名，否则 Django 400。
+- `SMS_PHONE_WHITELIST` 配了 5 个测试号码作为准入种子（`accounts.E001` 的有效解）。
+- 手工补跑了 `imserver --migrate`（`oneclick.sh:744` 有这步，render-only + 手工 up 会漏）。
+- 入口机额外加了 2G swap（`/swapfile2`），否则 imserver 编译会 OOM。
+
+## 13. 实施现状（2026-11-13 收尾）
+
+> 本文 §1–§12 是**设计与决策记录**，写于动手之前。实际落地与本文有几处偏差，
+> 以本节和 [`deploy/aws-distributed/p2-verification.md`](../../../deploy/aws-distributed/p2-verification.md) 为准。
+
+| 设计稿说 | 实际做的 | 原因 |
+|---|---|---|
+| 安全组放行内网 8000/9100/9101/3306/6379 | **已放行并切成 VPC 内网直连**（2026-11-13 晚） | 先靠隧道验证，凭证恢复后切直连；详见 [`direct-network-migration.md`](../../../deploy/aws-distributed/direct-network-migration.md) |
+| 入口机跑 nginx + MySQL + Redis + Django + Celery + imserver | 一致 | — |
+| 应用机跑 Django + imserver | 一致（web 绑 `127.0.0.1:18080`） | 该机 `chaoxing-web` 占着 8000 |
+| 媒体写路径钉入口机 | 一致（nginx 三个上传接口钉死 `web:8000`） | 媒体卷只在入口机 |
+| t3.medium 升配 | **未做** | 需付费决策；因此所有容量数字是 t3.small 口径，且是**保守下界** |
+
+### 已交付
+
+- **imserver 多实例**（#288）：`RedisSubscriber` + `DeliveryBus` + `SessionRegistry::RemoteHooks`，
+  **未改任何 WS 帧**（App/Web 零改动）。跨节点投递 `verdict=FIXED`，同机双容器与**两台真机**都验过。
+- **双机编排**：`compose.app.yml` / `nginx/edge.conf` / `bin/topology.sh`（verify/apply/teardown）。
+- **容量数字**（同口径，均为 30 秒；**直连后重测**）：
+
+  | 指标 | 单机 | 双机（直连） | 结论 |
+  |---|---|---|---|
+  | HTTP 读 @100 并发 | 801 rps / p50 122ms | **1 456 rps / p50 52.4ms** | **+82%** |
+  | HTTP 读 @400 并发 | 768 rps / p50 511ms | **1 434 rps / p50 208ms** | **+87%** |
+  | HTTP 写 @50 并发 | 74.9 rps / p99 796ms | **111.9 rps / p99 624.5ms** | **+49%** |
+  | IM 4000 条突发 p99 | 1 872 ms | 1 816–1 920 ms | 持平，**被数据层单点卡住** |
+
+  > 隧道时代（直连之前）的数字分别是 1 215 / 1 229 / 96.2 rps，且写路径 p99 曾退化到 1 060ms。
+  > 直连把这三项都改善了 —— 也证实了「p99 变差是隧道代价」的判断。
+
+### 关键结论（与 §0 的预期一致，但更精确）
+
+**HTTP 层加机器有效（读 +82~87%、写 +49%），IM 层加机器几乎无效（持平）** —— 因为 IM 的消息落库与
+Redis 都集中在入口机，加 imserver 节点只是多了两个消费者去抢同一个 2 核数据库。
+真要提 IM 吞吐，顺序是「数据层先从入口机拆出去 → 内网直连（已完成）→ 再谈加 imserver 节点」。
+
+### 仍未闭环
+
+| 项 | 卡在 |
+|---|---|
+| t3.medium 升配 | 需付费决策（§7.1）。不升则容量数字受 CPU 积分限制，是保守下界 |
+| 公网域名 / 证书 | §8 已给方案，需加 A 记录 + 把入口机渲染成 `--http-port 80`（**安全组 80/443 本来就是开的**，见 direct-network-migration.md §1） |
+| `bin/topology.sh` 改写 | 它是隧道时代的工具，现在只有 `verify` 有意义；`apply`/`teardown` 已不适用 |
+| IM 数据层拆分 | 要让 IM 也横向扩展，得先把 MySQL/Redis 从入口机拆出去（本轮已证明换直连不解决问题） |
+
+> 本节之前还有一张「P1 当时仍未解决」的表，内容已被上面 §13 的下两行完全覆盖
+> （安全组 / 内网端口 → 同一件事；t3 积分 → t3.medium 升配决策），故删除避免两处口径打架。
+
