@@ -27,7 +27,7 @@ owner: scripts/docs_index.py
 
 ## 1. 非归档文档
 
-共 **79** 份 / **13** 个目录(不含本文件)。
+共 **80** 份 / **13** 个目录(不含本文件)。
 
 ### `docs/` 根(2 份)
 
@@ -148,11 +148,12 @@ owner: scripts/docs_index.py
 | [2026-11-08-api-security-audit-round4.md](security/2026-11-08-api-security-audit-round4.md) | chat_app 第四轮安全审计（2026-11-08） |
 | [README.md](security/README.md) | docs/security/ — 安全审计报告(只增不改) |
 
-### `docs/standards/`(5 份)
+### `docs/standards/`(6 份)
 
 | 文档 | 标题 |
 |---|---|
 | [README.md](standards/README.md) | 编码规范与开发手册 |
+| [cpp.md](standards/cpp.md) | C++ 注释规范 |
 | [dev-commands.md](standards/dev-commands.md) | 开发命令手册 |
 | [python.md](standards/python.md) | Python 注释规范 |
 | [sources-of-truth.md](standards/sources-of-truth.md) | 唯一事实来源(口径地图) |

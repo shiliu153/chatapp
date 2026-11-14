@@ -91,6 +91,7 @@
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
 | Python 注释规范 | [`docs/standards/python.md`](python.md) | 机械:`cd chatapp && python config/comment_coverage.py` + `CommentCoverageTests` | 已落地 |
+| C++ 注释规范(`imserver/` 文件头 + 函数注释块) | [`docs/standards/cpp.md`](cpp.md) | 人工:**每次改 `imserver/` 任一 `.cpp` / `.h` 前**对照边界表;机械门禁未立项,复算基线用该分册开头的三条 `git grep` 命令 | **已落地**(2026-11-14 按 SeekFree 风格补齐 67 个文件 / 637 个函数块) |
 | 写作规范(命名 / 元信息 / 状态 / 归档 / 口径页写法 / 数字与术语) | [`docs/standards/writing.md`](writing.md) | 机械:`python scripts/docs_lint.py` 的 `metadata`(元信息)/ `term`(术语)/ `number`(分册计数)三条规则 | **已落地**(2026-11-14 第 6 节,D4-A) |
 | UI 设计规则(「心跳」) | [2026-09-15-ui-design-language-design.md](../superpowers/specs/2026-09-15-ui-design-language-design.md)(常驻,**永不归档**) | 人工:**每次 App UI 改动前**必读 | 已落地 |
 | UI 视觉 token 取值 | 同上(规则)+ 两端实现成对:`app/lib/core/theme/*.dart` ↔ `web/src/styles/tokens.css` | 机械:`web/tests/unit/tokens.spec.ts` 双向比对(漏改即红) | 已落地 |
