@@ -27,7 +27,11 @@
 
 ## 接口一览
 
-共 **70** 个接口(按「方法 + 路径」计)。
+<!-- BEGIN generated:api-summary -->
+本目录共 **15** 份人读分册 + 本页;`openapi.yml` 共 **58** paths / **70** operations。
+
+下表 **70** 行与 `openapi.yml` 的操作集合**逐一相等**(缺一行 / 多一行 / 重复一行,`python scripts/docs_index.py --check` 即红)。
+<!-- END generated:api-summary -->
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -129,7 +133,7 @@ Base URL、鉴权细节、统一错误结构、分页约定、限流额度见 [c
 
 | 项 | 说明 |
 |---|---|
-| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,58 paths / 70 operations) |
+| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3;路径数与操作数见「接口一览」上方的生成区间,不在此手写) |
 | 生成命令 | `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` |
 | 谁在读它 | Web 端类型生成(`web/src/api/schema.d.ts`)、CI 门禁、后续客户端工具链 |
 | 能否手改 | **不能**。它是生成物,手改会在下一次生成时被覆盖,且 CI 会红 |

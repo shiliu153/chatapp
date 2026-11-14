@@ -218,6 +218,38 @@ scripts/
   `check_artifact` 的「忽略行尾」语义);`docs/superpowers/README.md` §4 的 105 行归档表也改为生成。
 - **验收**:`docs_index.py --check` 绿;三份根文档行数达标(§3.3);索引数字 0 处手写。
 
+> **执行记录(2026-11-14)**
+>
+> - **拍板(5 项)**:① **行数责任** —— 本节只做「索引生成 + 指针化」,`README.md` ≤250 /
+>   `CLAUDE.md` ≤120 留给**第 6 节**(真正的瘦身是把快速开始/部署段收成指针、把规则搬进
+>   `docs/standards/`,提前砍只能删规则,与 §6「瘦身只搬位置不删规则」冲突);② **归档表** ——
+>   拆生成物 `docs/superpowers/archive/INDEX.md`,README §4 只留「交付脉络」散文;
+>   ③ **接口一览表** —— **不整表生成**(`openapi.yml` 没有 `summary` 字段,「说明」列是人写的要点,
+>   整表生成只能取分册小节标题,实测 70 行里 43 行会丢括号补充说明),改为「计数生成 +
+>   表 ≡ 契约操作集合」的**集合相等门禁**;④ **比对语义** —— `--check` 只比磁盘字节,
+>   新生成物在 `.gitattributes` 固定 `eol=lf`,不把 shell 的 `tr -d '\r'` 抄进 Python
+>   (抽 `scripts/lib/artifacts.py` 仍归第 5 节);⑤ **子 README** —— 保留「什么时候读 /
+>   结论一句话 / 状态注记」的精选表,但声明完整清单在生成物里(删掉会让这几份索引失去唯一价值)。
+> - **生成器**:新增 `scripts/docs_index.py`(纯标准库)+ `scripts/test_docs_index.py`(33 条用例)。
+>   三个产物:`docs/README.md`(唯一入口:非归档逐份 + 每目录份数 + 归档只报数)、
+>   `docs/superpowers/archive/INDEX.md`(105 份逐份登记)、`docs/api/README.md` 的
+>   `generated:api-summary` 标记区间(只覆盖区间,区间外手写内容一字不动、换行风格跟随原文件)。
+> - **机械规则**:归档里每份 `.md` 在 INDEX.md **出现且仅出现一次**;每份非归档文档在
+>   `docs/README.md` 出现;接口一览表 ≡ `openapi.yml` 的操作集合。三条都在 `--check` 里,坏即红。
+> - **净减少的重复(§8 记账)**:归档表 62 行手写 → **0 行**(生成物替代);`README.md` §9 的
+>   11 行表 → **1 行指针**;`CLAUDE.md` 导航表的 3 处手写计数 → **0**;
+>   `docs/api/README.md` 的 2 处手写计数 → 生成。手写计数在 `README.md` / `CLAUDE.md` /
+>   `docs/**/README.md` 里清零。
+> - **顺手修掉的漂移**:① 归档表自称 105 份、实际只链接 98 份 —— **7 份 R–W 批次 plan 从未单独
+>   登记**(被压成一句「7 份文档一并归档」的叙述),生成物自动补齐;② `CLAUDE.md` 导航表
+>   「当前工作面 4 组」实际已是 5 组(第 2 节登记 aws spec 后这一行没跟着改);
+>   ③ `README.md` 第 150 行「13 份分册,51 个操作」是**第 1 节漏修的第 6 处**手写计数(实际 15 / 70)。
+> - **接轨**:`contract.yml` 与 `verify.sh::stack_contract()` 各加 2 条(自测 + `--check`);
+>   `verify.sh` 另加 2 条 `check_artifact`(生成物必须已提交到 HEAD —— 只在本地改了没提交,CI 不会红)。
+> - **范围外(遗留)**:三份根文档行数未达标(第 6 节);`docs/learning/README.md` 的
+>   「P00–P14 十五册」仍是手写计数(不在本节验收口径内,属第 6 节的数字 lint);`archive/` 105 份的
+>   「交付结论」不再逐条维护,owner 是 `docs/milestones.md`。
+
 ### 第 4 节|门禁注册表:一份清单驱动本地与 CI
 
 - **动作**:`scripts/gates.toml` 描述每道门禁(id / scope / kind / 命令 / 一句话理由);
