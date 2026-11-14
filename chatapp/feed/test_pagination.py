@@ -6,6 +6,17 @@
     2. **接口层**:游标协议(``before`` / ``next_cursor`` / ``has_more``)翻页不重不漏,
        且翻页期间有人发新动态也不会重复或漏读(审查 N-5);``offset`` 老路径保持原样,
        因为线上还有没升级的客户端。
+
+文件信息:
+    文件名称          feed/test_pagination.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.contrib.auth import get_user_model
@@ -24,12 +35,18 @@ User = get_user_model()
 def _make_author(phone: str, status: str = ProfileStatus.COMPLETE):
     """造一个带资料的作者。
 
-    Args:
+    参数说明:
         phone: 手机号。
         status: 资料状态(用于验证重封禁作者被排除)。
 
-    Returns:
+    返回参数:
         新建用户。
+
+    使用示例:
+        ``_make_author("13800138000", status=ProfileStatus.BANNED_HEAVY)``
+
+    备注信息:
+        只建 ``User`` 与对应的 ``Profile``;动态由用例自己发。
     """
     user = User.objects.create_user(phone=phone)
     Profile.objects.create(user=user, nickname=phone, status=status)
@@ -40,13 +57,31 @@ class PageVisiblePostsTests(TestCase):
     """服务层:顺序、总数、可见性、游标连续性。"""
 
     def setUp(self):
+        """造两个带资料的账号,并让作者发 25 条动态。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
+
+        备注信息:
+            25 条是能切成两页半的规模;``self.posts`` 按创建顺序存,倒过来就是可见顺序。
+        """
         self.viewer = _make_author("13800138000")
         self.author = _make_author("13900139000")
         self.posts = [Post.objects.create(author=self.author, text=f"动态{i}")
                       for i in range(25)]
 
     def test_order_matches_full_queryset(self):
-        """分页结果的顺序必须与「全量注解查询」一致。"""
+        """分页结果的顺序必须与「全量注解查询」一致。
+
+        参数说明:
+            无。
+        """
         expected = [post.id for post in visible_posts(self.viewer)]
         page = page_visible_posts(self.viewer, 25)
         self.assertEqual([post.id for post in page.rows], expected)
@@ -55,7 +90,11 @@ class PageVisiblePostsTests(TestCase):
         self.assertIsNone(page.next_cursor)
 
     def test_second_page_continues_without_overlap(self):
-        """第二页接着游标走,与第一页无重叠。"""
+        """第二页接着游标走,与第一页无重叠。
+
+        参数说明:
+            无。
+        """
         first = page_visible_posts(self.viewer, 10)
         self.assertTrue(first.has_more)
         self.assertIsNotNone(first.next_cursor)
@@ -67,7 +106,11 @@ class PageVisiblePostsTests(TestCase):
         self.assertFalse({post.id for post in first.rows} & {post.id for post in second.rows})
 
     def test_cursor_survives_new_post_between_pages(self):
-        """翻页期间有人发了新动态:第二页不重复第 1 页的行,也不漏掉第 11 条。"""
+        """翻页期间有人发了新动态:第二页不重复第 1 页的行,也不漏掉第 11 条。
+
+        参数说明:
+            无。
+        """
         first = page_visible_posts(self.viewer, 10)
         Post.objects.create(author=self.author, text="翻页之间插入的新动态")
         second = page_visible_posts(self.viewer, 10,
@@ -79,7 +122,11 @@ class PageVisiblePostsTests(TestCase):
                          {post.id for post in self.posts[::-1][10:20]})   # 不漏读
 
     def test_legacy_offset_slice_still_works(self):
-        """老客户端仍按 offset 切片:第 11 条开始、与第一页不重叠。"""
+        """老客户端仍按 offset 切片:第 11 条开始、与第一页不重叠。
+
+        参数说明:
+            无。
+        """
         first = page_visible_posts(self.viewer, 10)
         second = page_visible_posts(self.viewer, 10, offset=10)
         self.assertFalse({post.id for post in first.rows} & {post.id for post in second.rows})
@@ -87,7 +134,11 @@ class PageVisiblePostsTests(TestCase):
                          [post.id for post in self.posts[::-1][10:20]])
 
     def test_banned_author_is_excluded_from_count_and_rows(self):
-        """重封禁作者既不出现在列表里,也不计入总数。"""
+        """重封禁作者既不出现在列表里,也不计入总数。
+
+        参数说明:
+            无。
+        """
         banned = _make_author("13700137000", status=ProfileStatus.BANNED_HEAVY)
         Post.objects.create(author=banned, text="应被过滤")
         page = page_visible_posts(self.viewer, 50)
@@ -95,7 +146,11 @@ class PageVisiblePostsTests(TestCase):
         self.assertNotIn(banned.id, [post.author_id for post in page.rows])
 
     def test_empty_page_returns_empty_list(self):
-        """越界页返回空列表,总数仍然正确。"""
+        """越界页返回空列表,总数仍然正确。
+
+        参数说明:
+            无。
+        """
         page = page_visible_posts(self.viewer, 10, offset=100)
         self.assertEqual(page.rows, [])
         self.assertEqual(page.total, 25)
@@ -106,6 +161,20 @@ class PostsApiShapeTests(APITestCase):
     """接口层:游标协议 + offset 兼容路径的响应形状。"""
 
     def setUp(self):
+        """造两个账号与 15 条动态,并以查看者身份带上令牌。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
+
+        备注信息:
+            15 条刚好切成 10 + 5 两页,游标与 offset 两条路径都用这个规模断言。
+        """
         self.viewer = _make_author("13800138000")
         self.author = _make_author("13900139000")
         for index in range(15):
@@ -114,7 +183,11 @@ class PostsApiShapeTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.viewer).access_token}")
 
     def test_cursor_contract(self):
-        """首屏给 next_cursor + has_more,末页把两者都收掉。"""
+        """首屏给 next_cursor + has_more,末页把两者都收掉。
+
+        参数说明:
+            无。
+        """
         first = self.client.get("/api/v1/posts?limit=10").json()
         self.assertEqual(first["count"], 15)
         self.assertTrue(first["has_more"])
@@ -130,14 +203,22 @@ class PostsApiShapeTests(APITestCase):
         self.assertFalse(set(first_ids) & set(second_ids))
 
     def test_invalid_cursor_is_400(self):
-        """游标坏了给 400 + 统一错误信封,不能漏成 500。"""
+        """游标坏了给 400 + 统一错误信封,不能漏成 500。
+
+        参数说明:
+            无。
+        """
         response = self.client.get("/api/v1/posts?limit=10&before=not-a-cursor")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], 400)
         self.assertIn("游标", response.json()["message"])
 
     def test_offset_request_keeps_limit_offset_contract(self):
-        """带 offset 的老客户端:仍是 count/next/previous/results。"""
+        """带 offset 的老客户端:仍是 count/next/previous/results。
+
+        参数说明:
+            无。
+        """
         first = self.client.get("/api/v1/posts?limit=10&offset=0").json()
         self.assertEqual(first["count"], 15)
         self.assertIsNotNone(first["next"])

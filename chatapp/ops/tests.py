@@ -20,6 +20,17 @@
       只改备注不写,页面底部「最近操作」表号码脱敏;
     - 运营看板(V-2):鉴权、四个数字卡与近 30 天趋势表、可空字段渲染 ``—`` 而不是 ``0``
       (采到了 0 还是要显示 0)、只统计近 7 日窗口、「30 行一条 SQL」与「页面只读」两条门禁。
+
+文件信息:
+    文件名称          ops/tests.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import json
@@ -56,12 +67,20 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 def make_staff(phone="13700137000", password="ops-pass-123"):
     """运营账号 = is_staff 用户(create_user 默认不设密码,必须显式 set_password)。
 
-    Args:
-        phone: 运营账号手机号。
-        password: 登录密码。
+    参数说明:
+        phone: 运营账号手机号,默认 ``13700137000``。
+        password: 登录密码,默认 ``ops-pass-123``。
 
-    Returns:
-        建好的运营账号。
+    返回参数:
+        建好的运营账号,已落库且 ``is_staff=True``。
+
+    使用示例:
+        ``staff = make_staff("13700137000")``
+
+    备注信息:
+        分两次写库:``create_user`` 建行,``set_password`` 之后再
+        ``save(update_fields=["password"])`` 只更新密码列;
+        不设密码的话该账号过不了 ``/ops/login/`` 的密码校验。
     """
     user = User.objects.create_user(phone=phone, is_staff=True)
     user.set_password(password)
@@ -72,12 +91,19 @@ def make_staff(phone="13700137000", password="ops-pass-123"):
 def make_metric(day, **fields):
     """造一行每日指标快照(未显式给的字段用一组非零默认值)。
 
-    Args:
+    参数说明:
         day: 快照日期(``Asia/Shanghai`` 自然日)。
         **fields: 要覆盖的字段;显式传 ``None`` 表示「当天没采到」。
 
-    Returns:
+    返回参数:
         建好的 ``DailyMetric`` 行。
+
+    使用示例:
+        ``make_metric(timezone.localdate() - timedelta(days=1), dau=12)``
+
+    备注信息:
+        默认值全为非零,断言卡片与趋势行的具体数字时不必逐个字段补参数;
+        ``active_hours`` 默认给满 24 个全 0 元素,显式传 ``None`` 表示当天没有时段数据。
     """
     defaults = {
         "dau": 10, "new_users": 3, "profiles_completed": 1,
@@ -93,6 +119,11 @@ class OpsMetricsTests(TestCase):
     """运营看板:鉴权、数字卡与趋势表、空值渲染 ``—``、空表提示、只读与查询门禁。"""
 
     def setUp(self):
+        """登录运营账号并准备「今天 / 昨天」两个日期。
+
+        备注信息:
+            日期取 ``timezone.localdate()``,「昨日」始终相对运行时计算,用例不写死具体日期。
+        """
         self.client.force_login(make_staff())
         self.today = timezone.localdate()
         self.yesterday = self.today - timedelta(days=1)
@@ -100,25 +131,49 @@ class OpsMetricsTests(TestCase):
     def _body(self):
         """取一次看板页的响应正文(多数断言只需要正文里有什么)。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``str``:解码后的 HTML。
+
+        使用示例:
+            ``body = self._body()``
+
+        备注信息:
+            顺带断言 200:正文取得到就说明鉴权与查询都没出错,用例不必重复断言状态码。
         """
         resp = self.client.get("/ops/metrics/")
         self.assertEqual(resp.status_code, 200)
         return resp.content.decode()
 
     def test_anonymous_redirected_to_login(self):
+        """匿名访问运营看板被重定向到登录页。
+
+        参数说明:
+            无。
+        """
         self.client.logout()
         resp = self.client.get("/ops/metrics/")
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(resp.url.startswith("/ops/login/"))
 
     def test_non_staff_forbidden(self):
+        """普通账号访问运营看板返回 403。
+
+        参数说明:
+            无。
+        """
         plain = User.objects.create_user(phone="13800138007")
         self.client.force_login(plain)
         self.assertEqual(self.client.get("/ops/metrics/").status_code, 403)
 
     def test_staff_sees_cards_and_trend_row(self):
+        """四张数字卡与趋势行按库里的指标值渲染。
+
+        参数说明:
+            无。
+        """
         make_metric(self.yesterday, dau=12, new_users=4, messages=137,
                     swipes_like=10, matches=4)
         resp = self.client.get("/ops/metrics/")
@@ -131,11 +186,21 @@ class OpsMetricsTests(TestCase):
         self.assertContains(resp, "<td>137</td>")
 
     def test_nav_has_board_entry_before_logs(self):
+        """导航栏「运营看板」入口排在「日志」之前。
+
+        参数说明:
+            无。
+        """
         body = self._body()
         self.assertIn('href="/ops/metrics/"', body)
         self.assertLess(body.index("运营看板"), body.index("日志"))
 
     def test_empty_table_shows_hint_without_error(self):
+        """一行指标都没有时给出补水提示,数字卡渲染「—」而不是 0。
+
+        参数说明:
+            无。
+        """
         body = self._body()
         self.assertIn("还没有数据", body)
         self.assertIn("metrics_daily --backfill 30", body)
@@ -145,6 +210,11 @@ class OpsMetricsTests(TestCase):
         self.assertIn("暂无活跃时段数据", body)
 
     def test_null_values_render_as_dash_not_zero(self):
+        """未采到的可空字段渲染「—」,页面上不出现凭空的 0。
+
+        参数说明:
+            无。
+        """
         make_metric(self.yesterday, dau=None, messages=None, active_hours=None,
                     retention_d1=None, retention_d7=None)
         body = self._body()
@@ -154,6 +224,11 @@ class OpsMetricsTests(TestCase):
         self.assertIn("当日未采集到", body)
 
     def test_collected_zero_still_renders_zero(self):
+        """采到的 0 仍显示 0,只有「没采到」才显示「—」。
+
+        参数说明:
+            无。
+        """
         make_metric(self.yesterday, dau=0, messages=0, swipes_like=0, matches=0,
                     retention_d1=0, retention_d7=0, active_hours=None)
         body = self._body()
@@ -164,6 +239,11 @@ class OpsMetricsTests(TestCase):
 
     def test_yesterday_cards_are_dash_when_yesterday_row_is_missing(self):
         # 04:30 那次没跑成:表里只有前天的行 —— 卡片不能拿前天的数字冒充「昨日」
+        """昨日那行缺失时卡片显示「—」,不拿前天的数字冒充昨日。
+
+        参数说明:
+            无。
+        """
         make_metric(self.today - timedelta(days=2), dau=77, new_users=9)
         body = self._body()
         self.assertIn('<div class="ops-stat-value" id="stat-dau">—</div>', body)
@@ -171,6 +251,11 @@ class OpsMetricsTests(TestCase):
         self.assertIn("<td>77</td>", body)
 
     def test_summary_covers_last_seven_days_only(self):
+        """近 7 日汇总只统计窗口内的行,窗口外的数据不进汇总。
+
+        参数说明:
+            无。
+        """
         for offset in range(1, 8):
             make_metric(self.today - timedelta(days=offset),
                         dau=10, swipes_like=2, matches=1, new_users=1, messages=10)
@@ -183,15 +268,30 @@ class OpsMetricsTests(TestCase):
         self.assertIn("近 7 日汇总(7 天)", body)
 
     def test_average_dau_skips_days_without_collection(self):
+        """日均 DAU 只按采到数据的天数求平均。
+
+        参数说明:
+            无。
+        """
         make_metric(self.yesterday, dau=20)
         make_metric(self.today - timedelta(days=2), dau=None)
         self.assertIn("日均 DAU 20.0", self._body())
 
     def test_average_dau_is_dash_when_never_collected(self):
+        """从未采到 DAU 时日均显示「—」。
+
+        参数说明:
+            无。
+        """
         make_metric(self.yesterday, dau=None)
         self.assertIn("日均 DAU —", self._body())
 
     def test_trend_shows_at_most_thirty_rows(self):
+        """趋势表最多渲染 30 行,更早的行不出现在页面上。
+
+        参数说明:
+            无。
+        """
         for offset in range(1, 36):
             make_metric(self.today - timedelta(days=offset))
         body = self._body()
@@ -199,6 +299,11 @@ class OpsMetricsTests(TestCase):
         self.assertNotIn(f"<td>{self.today - timedelta(days=31)}</td>", body)
 
     def test_activity_bars_are_relative_to_daily_peak(self):
+        """活跃时段柱宽按当日峰值等比缩放。
+
+        参数说明:
+            无。
+        """
         hours = [0] * 24
         hours[10] = 5
         hours[11] = 10
@@ -210,6 +315,11 @@ class OpsMetricsTests(TestCase):
         self.assertIn('class="ops-hour-count">10<', body)
 
     def test_activity_falls_back_to_latest_row_with_hours(self):
+        """昨日没有时段数据时回退到最近一条有时段数据的行。
+
+        参数说明:
+            无。
+        """
         make_metric(self.yesterday, dau=None, active_hours=None)
         older = self.today - timedelta(days=2)
         hours = [0] * 24
@@ -220,11 +330,21 @@ class OpsMetricsTests(TestCase):
         self.assertIn('class="ops-hour-count">7<', body)
 
     def test_malformed_active_hours_does_not_break_page(self):
+        """``active_hours`` 结构异常时页面不报错,退化为「暂无活跃时段数据」。
+
+        参数说明:
+            无。
+        """
         make_metric(self.yesterday, active_hours={"00": 1})
         body = self._body()
         self.assertIn("暂无活跃时段数据", body)
 
     def test_thirty_rows_come_from_a_single_query(self):
+        """30 行快照由一条 SQL 取出,不退化成 N+1。
+
+        参数说明:
+            无。
+        """
         for offset in range(1, 31):
             make_metric(self.today - timedelta(days=offset))
         with CaptureQueriesContext(connection) as captured:
@@ -235,6 +355,11 @@ class OpsMetricsTests(TestCase):
         self.assertEqual(len(snapshot_sql), 1)
 
     def test_query_budget_is_fixed(self):
+        """看板页的查询条数固定为 7 条,与趋势行数无关。
+
+        参数说明:
+            无。
+        """
         for offset in range(1, 31):
             make_metric(self.today - timedelta(days=offset))
         # 固定预算:会话 1 + 当前用户 1 + 导航角标 4 + 快照行 1 = 7 条,与行数无关。
@@ -244,6 +369,11 @@ class OpsMetricsTests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_query_count_does_not_grow_with_rows(self):
+        """行数从 1 涨到 30,查询条数保持不变。
+
+        参数说明:
+            无。
+        """
         make_metric(self.today - timedelta(days=1))
         with CaptureQueriesContext(connection) as one_row:
             self.client.get("/ops/metrics/")
@@ -254,6 +384,11 @@ class OpsMetricsTests(TestCase):
         self.assertEqual(len(one_row.captured_queries), len(many_rows.captured_queries))
 
     def test_page_is_read_only(self):
+        """看板页只发 SELECT,不产生任何写查询。
+
+        参数说明:
+            无。
+        """
         for offset in range(1, 31):
             make_metric(self.today - timedelta(days=offset))
         with CaptureQueriesContext(connection) as captured:
@@ -267,34 +402,64 @@ class OpsAuthTests(TestCase):
     """审核台鉴权:匿名跳登录、非运营 403、运营可进,登录表单拒绝非运营。"""
 
     def setUp(self):
+        """建一个运营账号与一个普通账号,密码都显式设置。
+
+        备注信息:
+            ``create_user`` 默认不设密码,不 ``set_password`` 的话登录用例一定失败。
+        """
         self.staff = make_staff()
         self.plain = User.objects.create_user(phone="13800138001")
         self.plain.set_password("pw-123456")
         self.plain.save(update_fields=["password"])
 
     def test_anonymous_redirected_to_login(self):
+        """匿名访问举报队列被重定向到登录页。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/reports/")
         self.assertEqual(resp.status_code, 302)
         self.assertTrue(resp.url.startswith("/ops/login/"))
 
     def test_non_staff_forbidden(self):
+        """普通账号访问举报队列返回 403。
+
+        参数说明:
+            无。
+        """
         self.client.force_login(self.plain)
         resp = self.client.get("/ops/reports/")
         self.assertEqual(resp.status_code, 403)
 
     def test_staff_can_open_reports(self):
+        """运营账号能打开举报队列并看到页面标题。
+
+        参数说明:
+            无。
+        """
         self.client.force_login(self.staff)
         resp = self.client.get("/ops/reports/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "举报队列")
 
     def test_login_rejects_non_staff(self):
+        """密码正确的普通账号也登不进审核台,回显无权限提示。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/ops/login/",
                                 {"username": "13800138001", "password": "pw-123456"})
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "该账号无运营权限")
 
     def test_login_accepts_staff(self):
+        """运营账号登录成功后跳到举报队列。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/ops/login/",
                                 {"username": "13700137000", "password": "ops-pass-123"})
         self.assertEqual(resp.status_code, 302)
@@ -305,6 +470,11 @@ class ReportListTests(TestCase):
     """举报列表页:默认只看待处理,支持按状态过滤。"""
 
     def setUp(self):
+        """造两条互相举报的举报单,一条待处理、一条已处理。
+
+        备注信息:
+            两行靠 ``Profile.nickname`` 区分:类型标签在筛选 tab 里也会出现,不能拿来断言行内容。
+        """
         self.client.force_login(make_staff())
         self.a = User.objects.create_user(phone="13800138000")
         self.b = User.objects.create_user(phone="13900139000")
@@ -317,11 +487,21 @@ class ReportListTests(TestCase):
                               type=ReportType.OTHER, status=ReportStatus.HANDLED)  # → 甲
 
     def test_default_shows_pending_only(self):
+        """默认只看待处理,已处理的举报不出现。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/reports/")
         self.assertContains(resp, "被举报乙")
         self.assertNotContains(resp, "被举报甲")
 
     def test_handled_filter(self):
+        """按 ``status=handled`` 过滤后只显示已处理的举报。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/reports/", {"status": "handled"})
         self.assertContains(resp, "被举报甲")
         self.assertNotContains(resp, "被举报乙")
@@ -331,6 +511,11 @@ class ReportDetailTests(TestCase):
     """举报详情页:同时展示举报人与被举报人的信息。"""
 
     def setUp(self):
+        """造一条举报单,举报人与被举报人是两个不同账号。
+
+        备注信息:
+            两个账号都没有 ``Profile`` 行:详情页展示的是账号手机号,不依赖资料是否建好。
+        """
         self.client.force_login(make_staff())
         self.a = User.objects.create_user(phone="13800138000")
         self.b = User.objects.create_user(phone="13900139000")
@@ -338,6 +523,11 @@ class ReportDetailTests(TestCase):
                                             type=ReportType.HARASSMENT, detail="骚扰我")
 
     def test_detail_shows_both_parties(self):
+        """详情页同时展示举报人与被举报人的手机号,以及举报内容。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get(f"/ops/reports/{self.report.id}/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "13800138000")   # 举报人
@@ -349,6 +539,11 @@ class ReportActionTests(TestCase):
     """举报处理动作:标记已处理、重复处理保留首次、快捷封禁与通知次数。"""
 
     def setUp(self):
+        """造一条色情类举报单,被举报人的资料已完善。
+
+        备注信息:
+            被举报人资料置为 ``COMPLETE``,封禁后的状态变化才看得出来。
+        """
         self.staff = make_staff()
         self.client.force_login(self.staff)
         self.reporter = User.objects.create_user(phone="13800138000")
@@ -358,6 +553,11 @@ class ReportActionTests(TestCase):
                                             type=ReportType.PORN, detail="色情")
 
     def test_handle_marks_report(self):
+        """标记已处理后落库状态、备注、操作人与处理时间。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "已警告"})
         self.assertEqual(resp.status_code, 200)
         self.report.refresh_from_db()
@@ -368,12 +568,22 @@ class ReportActionTests(TestCase):
         self.assertContains(resp, "已处理")
 
     def test_handle_twice_keeps_first(self):
+        """重复处理保留第一次的备注。
+
+        参数说明:
+            无。
+        """
         self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "第一次"})
         self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "第二次"})
         self.report.refresh_from_db()
         self.assertEqual(self.report.handled_note, "第一次")
 
     def test_quick_ban_heavy_bans_and_handles(self):
+        """快捷重封禁:改资料状态、记原因、写封禁日志,举报同时转已处理。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.ban_notice.delay") as delay, \
                 patch("im.tasks.report_handled.delay"):
             with self.captureOnCommitCallbacks(execute=True):
@@ -391,6 +601,11 @@ class ReportActionTests(TestCase):
         delay.assert_called_once_with(self.target.id, "heavy", "色情图片")
 
     def test_quick_ban_requires_reason(self):
+        """快捷封禁没填原因时只回显提示,不封禁也不通知。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.ban_notice.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(f"/ops/reports/{self.report.id}/ban",
@@ -403,12 +618,22 @@ class ReportActionTests(TestCase):
         delay.assert_not_called()
 
     def test_handle_notifies_reporter(self):
+        """处理完通知举报者一次。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.report_handled.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "已警告"})
         delay.assert_called_once_with(self.reporter.id)
 
     def test_handle_twice_notifies_once(self):
+        """重复处理同一份举报只通知一次。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.report_handled.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 self.client.post(f"/ops/reports/{self.report.id}/handle", {"note": "一"})
@@ -416,6 +641,11 @@ class ReportActionTests(TestCase):
         self.assertEqual(delay.call_count, 1)
 
     def test_quick_ban_notifies_reporter(self):
+        """快捷封禁同时发封禁通知与举报处理通知,各一次。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.ban_notice.delay") as ban_delay, \
                 patch("im.tasks.report_handled.delay") as report_delay:
             with self.captureOnCommitCallbacks(execute=True):
@@ -429,6 +659,11 @@ class OpsPhotoReviewTests(TestCase):
     """照片审核:默认只看待审核、通过记录审核人、驳回会掉回未完善、陈旧 id 计跳过。"""
 
     def setUp(self):
+        """造一个资料完善的用户,一张已过审照片与一张待审照片。
+
+        备注信息:
+            两张照片同属一个用户:驳回那张已过审的会让资料掉回未完善,便于断言状态重算。
+        """
         self.staff = make_staff()
         self.client.force_login(self.staff)
         self.user = User.objects.create_user(phone="13900139000")
@@ -440,12 +675,22 @@ class OpsPhotoReviewTests(TestCase):
         self.pending = Photo.objects.create(user=self.user, file="photos/b.png")
 
     def test_grid_shows_pending_by_default(self):
+        """照片墙默认只列待审核的照片。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/photos/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, f'value="{self.pending.id}"')
         self.assertNotContains(resp, f'value="{self.approved.id}"')
 
     def test_single_approve_records_reviewer(self):
+        """单张通过后状态转已过审,并记录审核人与审核时间。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/ops/photos/review",
                                 {"ids": str(self.pending.id), "action": "approve",
                                  "status": "pending"})
@@ -456,6 +701,11 @@ class OpsPhotoReviewTests(TestCase):
         self.assertIsNotNone(self.pending.reviewed_at)
 
     def test_reject_only_approved_photo_makes_profile_incomplete(self):
+        """驳回唯一一张已过审照片后,资料掉回未完善。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/ops/photos/review",
                                 {"ids": str(self.approved.id), "action": "reject",
                                  "status": "approved"})
@@ -467,6 +717,11 @@ class OpsPhotoReviewTests(TestCase):
 
     def test_missing_photo_id_is_skipped_with_notice(self):
         # 页面陈旧(照片已被用户删除)时,不存在的 id 只提示跳过,不报错
+        """页面陈旧导致照片 id 已不存在时只提示跳过,不报错。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/ops/photos/review",
                                 {"ids": "99999999", "action": "approve",
                                  "status": "pending"})
@@ -477,19 +732,39 @@ class OpsUserSearchTests(TestCase):
     """用户搜索:手机号精确匹配、昵称模糊匹配,部分手机号不匹配。"""
 
     def setUp(self):
+        """造一个带昵称的用户,供三个搜索用例共用。
+
+        备注信息:
+            ``q`` 的两种匹配口径都落在这一个用户上,断言只看命中与否,不看行数。
+        """
         self.client.force_login(make_staff())
         self.alice = User.objects.create_user(phone="13800138000")
         Profile.objects.create(user=self.alice, nickname="小红")
 
     def test_search_by_phone_exact(self):
+        """按完整手机号精确搜到该用户。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/users/", {"q": "13800138000"})
         self.assertContains(resp, "小红")
 
     def test_search_by_nickname_substring(self):
+        """按昵称子串搜到该用户。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/users/", {"q": "小"})
         self.assertContains(resp, "13800138000")
 
     def test_partial_phone_does_not_match(self):
+        """手机号片段不参与匹配,搜不到该用户。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/users/", {"q": "13800138"})
         self.assertNotContains(resp, "小红")
 
@@ -498,6 +773,11 @@ class OpsUserDetailTests(TestCase):
     """用户详情页:展示资料、举报与拉黑关系。"""
 
     def setUp(self):
+        """造两个用户,其中一个被另一个举报过。
+
+        备注信息:
+            举报单挂在被举报人身上,详情页要能同时给出举报原因与举报人手机号。
+        """
         self.client.force_login(make_staff())
         self.alice = User.objects.create_user(phone="13800138000")
         self.bob = User.objects.create_user(phone="13900139000")
@@ -506,6 +786,11 @@ class OpsUserDetailTests(TestCase):
                               type=ReportType.FRAUD, detail="骗钱")
 
     def test_detail_shows_profile_reports_and_links(self):
+        """详情页展示昵称、举报原因,以及举报人的手机号。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get(f"/ops/users/{self.alice.id}/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "小红")
@@ -517,6 +802,11 @@ class OpsUserBanTests(TestCase):
     """用户封禁动作:轻封禁只发通知、重封禁发通知并踢 IM、必填原因、解封重算状态。"""
 
     def setUp(self):
+        """造一个资料完善、有一张已过审照片的用户。
+
+        备注信息:
+            解封用例要断言「重算回已完善」,所以初始资料必须齐全且有照片。
+        """
         self.staff = make_staff()
         self.client.force_login(self.staff)
         self.user = User.objects.create_user(phone="13900139000")
@@ -526,6 +816,11 @@ class OpsUserBanTests(TestCase):
         Photo.objects.create(user=self.user, file="photos/a.png", status=PhotoStatus.APPROVED)
 
     def test_ban_light_dispatches_notice_no_kick(self):
+        """轻封禁:改状态、记原因、写日志、发通知,不踢 IM。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.ban_notice.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(f"/ops/users/{self.user.id}/ban",
@@ -539,6 +834,11 @@ class OpsUserBanTests(TestCase):
         delay.assert_called_once_with(self.user.id, "light", "骚扰他人")
 
     def test_ban_heavy_kicks_im(self):
+        """重封禁:资料置为重封禁,并发出重封禁通知。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.ban_notice.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 self.client.post(f"/ops/users/{self.user.id}/ban",
@@ -548,6 +848,11 @@ class OpsUserBanTests(TestCase):
         delay.assert_called_once_with(self.user.id, "heavy", "严重违规")
 
     def test_ban_requires_reason(self):
+        """封禁原因全是空白时只回显提示,不改状态也不通知。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.ban_notice.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(f"/ops/users/{self.user.id}/ban",
@@ -558,6 +863,11 @@ class OpsUserBanTests(TestCase):
         delay.assert_not_called()
 
     def test_unban_recomputes_status_and_clears_reason(self):
+        """解封后重算资料状态、清空封禁原因,并写一条解封日志。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.ban_notice.delay"), patch("im.tasks.ban_lifted.delay"):
             with self.captureOnCommitCallbacks(execute=True):
                 self.client.post(f"/ops/users/{self.user.id}/ban",
@@ -576,18 +886,33 @@ class OpsLogsTests(TestCase):
     """封禁日志页:展示历史记录,支持按动作过滤。"""
 
     def setUp(self):
+        """造一条轻封禁日志与一条解封日志。
+
+        备注信息:
+            两条日志的原因文案不同,过滤用例才能靠文案断言某一条被过滤掉。
+        """
         self.client.force_login(make_staff())
         self.user = User.objects.create_user(phone="13900139000")
         BanLog.objects.create(user=self.user, action=BanAction.BAN_LIGHT, reason="骚扰")
         BanLog.objects.create(user=self.user, action=BanAction.UNBAN, reason="申诉通过")
 
     def test_logs_list_shows_history(self):
+        """封禁日志页展示全部历史记录。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/logs/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "骚扰")
         self.assertContains(resp, "申诉通过")
 
     def test_filter_by_action(self):
+        """按动作过滤后只留解封记录。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/logs/", {"action": "unban"})
         self.assertContains(resp, "申诉通过")
         self.assertNotContains(resp, "骚扰")   # 轻度封禁行的原因文本被过滤掉(动作名在筛选下拉里恒有,不能拿来断言)
@@ -597,6 +922,11 @@ class OpsPostsTests(TestCase):
     """广场治理:动态列表展示与删除,非运营账号 403。"""
 
     def setUp(self):
+        """造一条广场动态,并让运营账号点赞一次。
+
+        备注信息:
+            动态上挂一条点赞,删除时连带清理关联行,用例只断言动态本体不存在。
+        """
         self.staff = make_staff()
         self.client.force_login(self.staff)
         self.user = User.objects.create_user(phone="13900139000")
@@ -605,17 +935,32 @@ class OpsPostsTests(TestCase):
         PostLike.objects.create(post=self.post, user=self.staff)
 
     def test_posts_list_shows_post(self):
+        """动态列表展示正文与作者昵称。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/posts/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "违规动态")
         self.assertContains(resp, "小红")
 
     def test_delete_removes_post(self):
+        """删除动态后库里不再有这一行。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post(f"/ops/posts/{self.post.id}/delete")
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(Post.objects.filter(pk=self.post.id).exists())
 
     def test_non_staff_forbidden(self):
+        """普通账号访问广场治理返回 403。
+
+        参数说明:
+            无。
+        """
         plain = User.objects.create_user(phone="13800138001")
         self.client.force_login(plain)
         self.assertEqual(self.client.get("/ops/posts/").status_code, 403)
@@ -625,6 +970,11 @@ class OpsPostReportsTests(TestCase):
     """动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知。"""
 
     def setUp(self):
+        """造一条被举报的动态与对应的动态举报单。
+
+        备注信息:
+            动态举报走 ``feed.PostReport`` 自己的队列,不挂在 ``moderation.Report`` 上。
+        """
         self.staff = make_staff()
         self.client.force_login(self.staff)
         self.reporter = User.objects.create_user(phone="13800138000")
@@ -635,12 +985,22 @@ class OpsPostReportsTests(TestCase):
                                                 type="porn", detail="色情")
 
     def test_queue_shows_pending(self):
+        """队列页展示待处理的动态举报与举报原因。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/post-reports/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "被举报的动态")
         self.assertContains(resp, "色情")
 
     def test_ignore_marks_handled_and_notifies(self):
+        """忽略举报:转已处理、记备注与操作人、通知举报者,动态保留。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.report_handled.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(f"/ops/post-reports/{self.report.id}/handle",
@@ -654,6 +1014,11 @@ class OpsPostReportsTests(TestCase):
         self.assertTrue(PostReport.objects.filter(pk=self.report.pk).exists())
 
     def test_delete_post_removes_and_closes_all_pending(self):
+        """删动态时把该动态下所有待处理举报一并关闭,并逐个通知举报者。
+
+        参数说明:
+            无。
+        """
         second = PostReport.objects.create(reporter=self.staff, post=self.post, type="other")
         with patch("im.tasks.report_handled.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
@@ -668,6 +1033,11 @@ class OpsPostReportsTests(TestCase):
         self.assertEqual(delay.call_count, 2)   # 两个举报者各一次
 
     def test_repeat_handle_does_not_notify_again(self):
+        """重复处理同一份举报不再重复通知。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.report_handled.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 self.client.post(f"/ops/post-reports/{self.report.id}/handle", {"note": "一"})
@@ -675,6 +1045,11 @@ class OpsPostReportsTests(TestCase):
         self.assertEqual(delay.call_count, 1)
 
     def test_non_staff_forbidden(self):
+        """普通账号访问动态举报队列返回 403。
+
+        参数说明:
+            无。
+        """
         plain = User.objects.create_user(phone="13800138001")
         self.client.force_login(plain)
         self.assertEqual(self.client.get("/ops/post-reports/").status_code, 403)
@@ -684,6 +1059,11 @@ class FeedbackOpsTests(TestCase):
     """意见反馈队列:默认待处理、筛选、标记已处理与权限。"""
 
     def setUp(self):
+        """造一条待处理的反馈与一条已处理的反馈。
+
+        备注信息:
+            两条反馈分属不同类型(功能建议 / 缺陷),用来断言状态与类型的组合筛选。
+        """
         self.staff = make_staff("13700137001")
         self.client.force_login(self.staff)
         self.user = User.objects.create_user(phone="13800138000")
@@ -696,12 +1076,22 @@ class FeedbackOpsTests(TestCase):
             status=FeedbackStatus.HANDLED)
 
     def test_lists_pending_by_default(self):
+        """反馈队列默认只列待处理。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/feedback/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "希望增加夜间模式开关")
         self.assertNotContains(resp, "消息偶尔重复")
 
     def test_filters_by_status_and_type(self):
+        """状态与类型可以组合筛选。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/ops/feedback/?status=handled")
         self.assertContains(resp, "消息偶尔重复")
         resp = self.client.get("/ops/feedback/?status=all&type=feature")
@@ -709,6 +1099,11 @@ class FeedbackOpsTests(TestCase):
         self.assertNotContains(resp, "消息偶尔重复")
 
     def test_handle_marks_handled(self):
+        """标记已处理后落库状态、备注、操作人与处理时间。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post(f"/ops/feedback/{self.pending.id}/handle",
                                 {"note": "已记录"})
         self.assertEqual(resp.status_code, 200)
@@ -719,12 +1114,22 @@ class FeedbackOpsTests(TestCase):
         self.assertIsNotNone(self.pending.handled_at)
 
     def test_handle_is_idempotent(self):
+        """重复标记保留第一次的备注。
+
+        参数说明:
+            无。
+        """
         self.client.post(f"/ops/feedback/{self.pending.id}/handle", {"note": "第一次"})
         self.client.post(f"/ops/feedback/{self.pending.id}/handle", {"note": "第二次"})
         self.pending.refresh_from_db()
         self.assertEqual(self.pending.handled_note, "第一次")
 
     def test_non_staff_forbidden(self):
+        """普通账号访问反馈队列返回 403。
+
+        参数说明:
+            无。
+        """
         self.client.force_login(User.objects.create_user(phone="13900139000"))
         self.assertEqual(self.client.get("/ops/feedback/").status_code, 403)
 
@@ -736,6 +1141,12 @@ class ChatImageOpsTests(TestCase):
                b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
 
     def setUp(self):
+        """切到临时媒体目录,造一个运营账号与一张聊天图片。
+
+        备注信息:
+            ``MEDIA_ROOT`` 用 ``tempfile.mkdtemp()`` 覆盖,并在 ``addCleanup`` 里删目录;
+            删除用例会真的删磁盘文件,必须落在临时目录里才不会污染仓库。
+        """
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
         override = self.settings(MEDIA_ROOT=self.media_dir)
@@ -750,12 +1161,22 @@ class ChatImageOpsTests(TestCase):
         self.image.save()
 
     def test_lists_chat_images(self):
+        """聊天图片列表展示类型标题与缩略图地址。
+
+        参数说明:
+            无。
+        """
         response = self.client.get("/ops/chat-images/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "聊天图片")
         self.assertContains(response, self.image.thumb.url)
 
     def test_delete_marks_status_and_removes_files(self):
+        """删除后状态置 ``deleted``、记操作人与时间,原图与缩略图文件都被删。
+
+        参数说明:
+            无。
+        """
         paths = [self.image.file.path, self.image.thumb.path]
         response = self.client.post(f"/ops/chat-images/{self.image.id}/delete")
         self.assertEqual(response.status_code, 200)
@@ -768,6 +1189,11 @@ class ChatImageOpsTests(TestCase):
         self.assertNotContains(self.client.get("/ops/chat-images/"), self.image.thumb.url)
 
     def test_report_detail_shows_recent_chat_images(self):
+        """举报详情页带出被举报人的最近聊天图片。
+
+        参数说明:
+            无。
+        """
         report = Report.objects.create(reporter=self.staff, target=self.user,
                                        type=ReportType.PORN)
         response = self.client.get(f"/ops/reports/{report.id}/")
@@ -776,10 +1202,20 @@ class ChatImageOpsTests(TestCase):
         self.assertContains(response, self.image.thumb.url)
 
     def test_non_staff_forbidden(self):
+        """非运营账号访问聊天图片抽审返回 403。
+
+        参数说明:
+            无。
+        """
         self.client.force_login(self.user)
         self.assertEqual(self.client.get("/ops/chat-images/").status_code, 403)
 
     def test_reported_filter_only_keeps_recently_reported_owners(self):
+        """「仅被举报」筛选只留 7 天内有举报的账号的图片。
+
+        参数说明:
+            无。
+        """
         other = User.objects.create_user(phone="13900139004")
         other_image = ChatImage(owner=other, width=1, height=1, bytes=len(self.PNG_1PX))
         other_image.file.save("chat/o.png", ContentFile(self.PNG_1PX), save=False)
@@ -799,6 +1235,11 @@ class ChatImageOpsTests(TestCase):
         self.assertNotContains(response, self.image.thumb.url)
 
     def test_list_writes_media_access_audit(self):
+        """打开抽审列表写一条浏览审计:操作人、媒体类型、筛选、条数、来源 IP。
+
+        参数说明:
+            无。
+        """
         self.client.get("/ops/chat-images/")
         log = MediaAccessLog.objects.get()
         self.assertEqual(log.staff_id, self.staff.id)
@@ -808,11 +1249,21 @@ class ChatImageOpsTests(TestCase):
         self.assertEqual(log.ip, "127.0.0.1")
 
     def test_reported_filter_is_recorded_in_audit(self):
+        """「仅被举报」筛选会写进审计的 ``filter`` 字段。
+
+        参数说明:
+            无。
+        """
         self.client.get("/ops/chat-images/?reported=1")
         self.assertEqual(MediaAccessLog.objects.get().filter, "reported")
 
     @patch("ops.views.MediaAccessLog.objects.create", side_effect=RuntimeError("db down"))
     def test_audit_failure_does_not_break_page(self, _create):
+        """审计落库失败不影响抽审列表返回 200。
+
+        参数说明:
+            _create: ``patch`` 注入的 mock,用例内不使用。
+        """
         self.assertEqual(self.client.get("/ops/chat-images/").status_code, 200)
 
 
@@ -820,6 +1271,11 @@ class ChatVoiceOpsTests(TestCase):
     """聊天语音抽审:列表可试听、删除置 deleted 并删文件、举报详情带最近语音。"""
 
     def setUp(self):
+        """切到临时媒体目录,造一个运营账号与一条聊天语音。
+
+        备注信息:
+            ``MEDIA_BASE_URL`` 一并覆盖,列表里的试听地址才有稳定前缀可断言。
+        """
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
         override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test")
@@ -833,6 +1289,11 @@ class ChatVoiceOpsTests(TestCase):
         self.voice.save()
 
     def test_lists_chat_voices_with_audio(self):
+        """语音列表展示类型、时长与可试听地址。
+
+        参数说明:
+            无。
+        """
         response = self.client.get("/ops/chat-voices/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "聊天语音")
@@ -840,6 +1301,11 @@ class ChatVoiceOpsTests(TestCase):
         self.assertContains(response, "/media/chat/voices/")
 
     def test_delete_marks_status_and_removes_file(self):
+        """删除后状态置 ``deleted``、记操作人与时间,并删掉语音文件。
+
+        参数说明:
+            无。
+        """
         path = self.voice.file.path
         response = self.client.post(f"/ops/chat-voices/{self.voice.pk}/delete")
         self.assertEqual(response.status_code, 200)
@@ -850,6 +1316,11 @@ class ChatVoiceOpsTests(TestCase):
         self.assertFalse(os.path.exists(path))
 
     def test_report_detail_shows_recent_chat_voices(self):
+        """举报详情页带出被举报人的最近聊天语音。
+
+        参数说明:
+            无。
+        """
         report = Report.objects.create(reporter=self.staff, target=self.user,
                                        type=ReportType.PORN)
         response = self.client.get(f"/ops/reports/{report.id}/")
@@ -857,12 +1328,22 @@ class ChatVoiceOpsTests(TestCase):
         self.assertContains(response, "最近聊天语音")
 
     def test_list_writes_voice_access_audit(self):
+        """打开语音抽审写一条 ``voice`` 类型的浏览审计。
+
+        参数说明:
+            无。
+        """
         self.client.get("/ops/chat-voices/")
         log = MediaAccessLog.objects.get()
         self.assertEqual(log.kind, MediaAccessLog.Kind.VOICE)
         self.assertEqual(log.count, 1)
 
     def test_non_staff_forbidden(self):
+        """非运营账号访问聊天语音抽审返回 403。
+
+        参数说明:
+            无。
+        """
         self.client.force_login(self.user)
         self.assertEqual(self.client.get("/ops/chat-voices/").status_code, 403)
 
@@ -871,22 +1352,38 @@ class OpsInvalidParamTests(TestCase):
     """审核台非法参数不能 500:非数字 ``user`` 被忽略,非数字 ``ids`` 被丢弃(M10)。"""
 
     def setUp(self):
-        """登录一个运营账号。"""
+        """登录一个运营账号。
+
+        备注信息:
+            非法参数用例只关心「不 500」,所以不造任何业务数据。
+        """
         self.staff = make_staff()
         self.client.force_login(self.staff)
 
     def test_non_numeric_user_filter_is_ignored(self):
-        """``?user=abc`` 返回 200,而不是 ValueError 500。"""
+        """``?user=abc`` 返回 200,而不是 ValueError 500。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(self.client.get("/ops/chat-images/?user=abc").status_code, 200)
         self.assertEqual(self.client.get("/ops/chat-voices/?user=abc").status_code, 200)
 
     def test_non_numeric_ids_are_dropped(self):
-        """``ids=abc`` 不会进入 ``pk__in``,页面仍正常返回。"""
+        """``ids=abc`` 不会进入 ``pk__in``,页面仍正常返回。
+
+        参数说明:
+            无。
+        """
         response = self.client.post("/ops/photos/review", {"ids": "abc", "action": "approve"})
         self.assertEqual(response.status_code, 200)
 
     def test_unicode_digit_ids_are_dropped(self):
-        """``ids=²`` 这类「isdigit 为真但 int() 会抛」的值不能 500(M-7)。"""
+        """``ids=²`` 这类「isdigit 为真但 int() 会抛」的值不能 500(M-7)。
+
+        参数说明:
+            无。
+        """
         response = self.client.post("/ops/photos/review", {"ids": "²", "action": "approve"})
         self.assertEqual(response.status_code, 200)
 
@@ -896,14 +1393,22 @@ class OpsSafeRedirectTests(SimpleTestCase):
 
     @override_settings(ALLOWED_HOSTS=[])
     def test_absolute_url_rejected_when_allowlist_empty(self):
-        """``ALLOWED_HOSTS`` 为空时不能跳到任意外部主机。"""
+        """``ALLOWED_HOSTS`` 为空时不能跳到任意外部主机。
+
+        参数说明:
+            无。
+        """
         response = _safe_redirect("https://evil.example.com/steal")
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, "/ops/reports/")
 
     @override_settings(ALLOWED_HOSTS=[])
     def test_relative_path_allowed_when_allowlist_empty(self):
-        """站内相对路径仍然可以跳。"""
+        """站内相对路径仍然可以跳。
+
+        参数说明:
+            无。
+        """
         response = _safe_redirect("/ops/users/")
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, "/ops/users/")
@@ -914,18 +1419,30 @@ class StaffOtpTests(TestCase):
     """运营后台强制第二因子:未验证跳转、绑定、验证后放行(H6)。"""
 
     def setUp(self):
-        """登录一个未绑定 TOTP 的运营账号。"""
+        """登录一个未绑定 TOTP 的运营账号。
+
+        备注信息:
+            整个类挂着 ``override_settings(OPS_OTP_REQUIRED=True)``,所有用例都在强制第二因子下跑。
+        """
         self.staff = make_staff()
         self.client.force_login(self.staff)
 
     def test_staff_without_otp_is_redirected(self):
-        """已登录但未过第二因子时,后台页面 302 到 /ops/otp/。"""
+        """已登录但未过第二因子时,后台页面 302 到 /ops/otp/。
+
+        参数说明:
+            无。
+        """
         response = self.client.get("/ops/reports/")
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.url.startswith("/ops/otp/"))
 
     def test_verified_staff_passes(self):
-        """session 在有效期内标记为已验证时正常放行。"""
+        """session 在有效期内标记为已验证时正常放行。
+
+        参数说明:
+            无。
+        """
         session = self.client.session
         session["otp_verified_at"] = int(time.time())
         session.save()
@@ -933,7 +1450,11 @@ class StaffOtpTests(TestCase):
 
     @override_settings(OPS_OTP_TTL=60)
     def test_expired_verification_is_rejected(self):
-        """超过有效期后重新要求第二因子(M-6)。"""
+        """超过有效期后重新要求第二因子(M-6)。
+
+        参数说明:
+            无。
+        """
         session = self.client.session
         session["otp_verified_at"] = int(time.time()) - 120
         session.save()
@@ -942,7 +1463,11 @@ class StaffOtpTests(TestCase):
         self.assertTrue(response.url.startswith("/ops/otp/"))
 
     def test_setup_binds_secret_and_marks_verified(self):
-        """首次绑定:提交 App 上的验证码后写入密钥并放行。"""
+        """首次绑定:提交 App 上的验证码后写入密钥并放行。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(self.client.get("/ops/otp/").status_code, 200)
         secret = self.client.session["otp_pending_secret"]
         response = self.client.post("/ops/otp/", {"code": totp.code_at(secret)})
@@ -952,7 +1477,11 @@ class StaffOtpTests(TestCase):
         self.assertIn("otp_verified_at", self.client.session)
 
     def test_wrong_code_does_not_bind(self):
-        """错误验证码不写入密钥、不置已验证。"""
+        """错误验证码不写入密钥、不置已验证。
+
+        参数说明:
+            无。
+        """
         self.client.get("/ops/otp/")
         response = self.client.post("/ops/otp/", {"code": "000000"})
         self.assertEqual(response.status_code, 200)
@@ -965,18 +1494,30 @@ class StaffIpAllowlistTests(TestCase):
     """后台 IP 白名单:非白名单 403,白名单放行(H6)。"""
 
     def setUp(self):
-        """登录运营账号。"""
+        """登录运营账号。
+
+        备注信息:
+            测试客户端的来源固定是 ``127.0.0.1``,用例只能靠覆盖 ``OPS_ALLOWED_IPS`` 制造命中与不命中。
+        """
         self.staff = make_staff()
         self.client.force_login(self.staff)
 
     @override_settings(OPS_ALLOWED_IPS="10.0.0.9")
     def test_blocked_ip_is_forbidden(self):
-        """测试客户端来源 127.0.0.1 不在白名单内。"""
+        """测试客户端来源 127.0.0.1 不在白名单内。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(self.client.get("/ops/reports/").status_code, 403)
 
     @override_settings(OPS_ALLOWED_IPS="127.0.0.1")
     def test_allowed_ip_passes(self):
-        """白名单命中时正常进入后台(测试环境默认不强制 OTP)。"""
+        """白名单命中时正常进入后台(测试环境默认不强制 OTP)。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(self.client.get("/ops/reports/").status_code, 200)
 
 
@@ -987,14 +1528,22 @@ class OpsAllowlistTests(TestCase):
     NEWCOMER = "13800138000"
 
     def setUp(self):
-        """登录运营账号,并清掉名单快照缓存(否则上一个用例的名单会漏进来)。"""
+        """登录运营账号,并清掉名单快照缓存(否则上一个用例的名单会漏进来)。
+
+        备注信息:
+            ``cache.clear()`` 在 ``setUp`` 与 ``addCleanup`` 里各跑一次:开跑前清场、用后复位,否则上一个用例写热的名单快照会漏进下一个用例。
+        """
         cache.clear()
         self.addCleanup(cache.clear)
         self.staff = make_staff()
         self.client.force_login(self.staff)
 
     def test_anonymous_redirected_and_non_staff_forbidden(self):
-        """未登录跳登录页;非运营账号 403。"""
+        """未登录跳登录页;非运营账号 403。
+
+        参数说明:
+            无。
+        """
         self.client.logout()
         self.assertEqual(self.client.get("/ops/allowlist/").status_code, 302)
         plain = User.objects.create_user(phone="13700137001")
@@ -1002,7 +1551,11 @@ class OpsAllowlistTests(TestCase):
         self.assertEqual(self.client.get("/ops/allowlist/").status_code, 403)
 
     def test_lists_entries_with_note_and_registration_state(self):
-        """列表展示号码、备注,并区分「已有账号」与「待首次登录」。"""
+        """列表展示号码、备注,并区分「已有账号」与「待首次登录」。
+
+        参数说明:
+            无。
+        """
         PhoneAllowlist.objects.create(phone=self.ALLOWED, note="产品同事")
         User.objects.create_user(phone="13700137002")
         PhoneAllowlist.objects.create(phone="13700137002")
@@ -1013,7 +1566,11 @@ class OpsAllowlistTests(TestCase):
         self.assertContains(resp, "已有账号")
 
     def test_add_creates_entry_with_operator(self):
-        """加号:落库、记操作人,并在片段里回显提示。"""
+        """加号:落库、记操作人,并在片段里回显提示。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/ops/allowlist/add",
                                 {"phone": self.NEWCOMER, "note": "测试同事"})
         self.assertEqual(resp.status_code, 200)
@@ -1024,7 +1581,11 @@ class OpsAllowlistTests(TestCase):
         self.assertTrue(record.is_active)
 
     def test_add_takes_effect_without_restart(self):
-        """加号后该号码**下一次请求**就能发码(写路径清快照,不用重启 web)。"""
+        """加号后该号码**下一次请求**就能发码(写路径清快照,不用重启 web)。
+
+        参数说明:
+            无。
+        """
         PhoneAllowlist.objects.create(phone=self.ALLOWED)
         # 先把快照写热:此时新号还不存在,应被拦
         with self.assertRaises(PhoneNotAllowed):
@@ -1038,14 +1599,22 @@ class OpsAllowlistTests(TestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_add_invalid_phone_shows_error_and_writes_nothing(self):
-        """格式不对的号码只回显错误,不落库(避免「加进去却永远登不上」)。"""
+        """格式不对的号码只回显错误,不落库(避免「加进去却永远登不上」)。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/ops/allowlist/add", {"phone": "12345"})
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "手机号格式不正确")
         self.assertFalse(PhoneAllowlist.objects.exists())
 
     def test_add_existing_disabled_reactivates_it(self):
-        """重复提交一个已停用的号码 = 重新启用(运营手上只有这一个入口)。"""
+        """重复提交一个已停用的号码 = 重新启用(运营手上只有这一个入口)。
+
+        参数说明:
+            无。
+        """
         record = PhoneAllowlist.objects.create(phone=self.ALLOWED, is_active=False)
         resp = self.client.post("/ops/allowlist/add", {"phone": self.ALLOWED, "note": "回来了"})
         self.assertEqual(resp.status_code, 200)
@@ -1055,7 +1624,11 @@ class OpsAllowlistTests(TestCase):
         self.assertEqual(record.note, "回来了")
 
     def test_toggle_disables_and_blocks_immediately(self):
-        """停用:立刻 403,不重启、不等缓存过期(写路径清快照)。"""
+        """停用:立刻 403,不重启、不等缓存过期(写路径清快照)。
+
+        参数说明:
+            无。
+        """
         record = PhoneAllowlist.objects.create(phone=self.ALLOWED)
         services.ensure_phone_allowed(self.ALLOWED)       # 快照写热(此时启用)
         resp = self.client.post(f"/ops/allowlist/{record.id}/toggle")
@@ -1074,14 +1647,22 @@ class OpsAllowlistTests(TestCase):
         delay.assert_not_called()
 
     def test_toggle_reenables(self):
-        """再次点击变成启用,该号码重新放行。"""
+        """再次点击变成启用,该号码重新放行。
+
+        参数说明:
+            无。
+        """
         record = PhoneAllowlist.objects.create(phone=self.ALLOWED, is_active=False)
         resp = self.client.post(f"/ops/allowlist/{record.id}/toggle")
         self.assertContains(resp, "已启用")
         services.ensure_phone_allowed(self.ALLOWED)
 
     def test_filters_by_status_and_keyword(self):
-        """按状态与关键字筛选:启用/停用分栏,号码与备注都能搜。"""
+        """按状态与关键字筛选:启用/停用分栏,号码与备注都能搜。
+
+        参数说明:
+            无。
+        """
         PhoneAllowlist.objects.create(phone=self.ALLOWED, note="设计")
         PhoneAllowlist.objects.create(phone=self.NEWCOMER, note="运营", is_active=False)
         active_page = self.client.get("/ops/allowlist/?status=active")
@@ -1094,7 +1675,11 @@ class OpsAllowlistTests(TestCase):
     # ---- 操作流水(R4-B2):名单是安全边界,加号/启停都要能事后追到人 ----
 
     def test_add_records_add_event_with_operator(self):
-        """新增号码写一条 ``add`` 流水,操作人是当前运营账号。"""
+        """新增号码写一条 ``add`` 流水,操作人是当前运营账号。
+
+        参数说明:
+            无。
+        """
         self.client.post("/ops/allowlist/add",
                          {"phone": self.NEWCOMER, "note": "测试同事"})
         event = PhoneAllowlistEvent.objects.get(phone=self.NEWCOMER)
@@ -1103,7 +1688,11 @@ class OpsAllowlistTests(TestCase):
         self.assertEqual(event.note, "测试同事")
 
     def test_toggle_records_disable_then_enable(self):
-        """停用再启用:依次留下 ``disable``、``enable`` 两条流水,操作人都是当前运营。"""
+        """停用再启用:依次留下 ``disable``、``enable`` 两条流水,操作人都是当前运营。
+
+        参数说明:
+            无。
+        """
         record = PhoneAllowlist.objects.create(phone=self.ALLOWED)
         self.client.post(f"/ops/allowlist/{record.id}/toggle")
         self.client.post(f"/ops/allowlist/{record.id}/toggle")
@@ -1113,7 +1702,11 @@ class OpsAllowlistTests(TestCase):
         self.assertTrue(all(e.operator == self.staff for e in events))
 
     def test_add_existing_active_only_updates_note_without_event(self):
-        """本来就在启用的号码重复提交(只改备注)**不写**流水,免得噪声埋掉真改动。"""
+        """本来就在启用的号码重复提交(只改备注)**不写**流水,免得噪声埋掉真改动。
+
+        参数说明:
+            无。
+        """
         record = PhoneAllowlist.objects.create(phone=self.ALLOWED, note="旧备注")
         resp = self.client.post("/ops/allowlist/add",
                                 {"phone": self.ALLOWED, "note": "新备注"})
@@ -1123,14 +1716,22 @@ class OpsAllowlistTests(TestCase):
         self.assertFalse(PhoneAllowlistEvent.objects.filter(phone=self.ALLOWED).exists())
 
     def test_add_existing_disabled_records_enable_not_add(self):
-        """重复提交已停用的号码 = 重新启用,流水记 ``enable`` 而不是 ``add``。"""
+        """重复提交已停用的号码 = 重新启用,流水记 ``enable`` 而不是 ``add``。
+
+        参数说明:
+            无。
+        """
         PhoneAllowlist.objects.create(phone=self.ALLOWED, is_active=False)
         self.client.post("/ops/allowlist/add", {"phone": self.ALLOWED})
         event = PhoneAllowlistEvent.objects.get(phone=self.ALLOWED)
         self.assertEqual(event.action, PhoneAllowlistAction.ENABLE)
 
     def test_page_shows_recent_events_with_masked_phone(self):
-        """页面底部渲染「最近操作」表:出现动作名,号码脱敏(不打全号)。"""
+        """页面底部渲染「最近操作」表:出现动作名,号码脱敏(不打全号)。
+
+        参数说明:
+            无。
+        """
         PhoneAllowlistEvent.objects.create(
             phone=self.ALLOWED, action=PhoneAllowlistAction.ADD, operator=self.staff)
         resp = self.client.get("/ops/allowlist/")

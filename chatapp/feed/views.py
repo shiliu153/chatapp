@@ -13,6 +13,17 @@
 
 关联文档:
     - 接口契约:docs/api/feed.md
+
+文件信息:
+    文件名称          feed/views.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import uuid
@@ -71,13 +82,10 @@ POST_CREATE_SCHEMA = inline_serializer("PostCreateBody", fields={
 def _page_response(request, queryset, serializer_class=PostSerializer):
     """把查询集按统一分页约定包成响应。
 
-    Args:
-        request: DRF 请求对象,提供 ``limit`` / ``offset``。
-        queryset: 已排序并注解好的查询集。
-        serializer_class: 用于序列化的类,默认 ``PostSerializer``。
-
-    Returns:
-        带 ``count`` / ``next`` / ``previous`` / ``results`` 的分页响应。
+    备注信息:
+        走 ``DefaultLimitOffsetPagination``(``limit`` / ``offset`` 风格),响应形状
+        ``{count, next, previous, results}``;只用于评论与回复列表 —— 广场、关注流、
+        我的收藏已改成游标分页,不经过本函数。
     """
     paginator = DefaultLimitOffsetPagination()
     page = paginator.paginate_queryset(queryset, request)
@@ -97,11 +105,19 @@ def posts(request):
     GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
     限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
 
-    Returns:
+    返回参数:
         GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+
+    使用示例:
+        ``GET /api/v1/posts?limit=20&before=<游标>``
+
+    备注信息:
+        GET 默认走复合游标(响应 ``{count, next_cursor, has_more, results}``),
+        带 ``offset`` 的老客户端走兼容分支(响应 ``{count, next, previous, results}``);
+        POST 的正文与图片由 ``PostCreateSerializer`` 校验,配额超限是 413 + ``41301``。
     """
     if request.method == "POST":
         return _create_post(request)
@@ -111,15 +127,11 @@ def posts(request):
 def _page_visible_posts(request):
     """两段式分页:先取当页 id,再只对这几条做赞/评聚合(见 ``page_visible_posts``)。
 
-    默认走**复合游标**(``?before=``),响应 ``{count, next_cursor, has_more, results}``;
-    请求里带 ``offset`` 的老客户端仍走旧的 ``LimitOffsetPagination`` 路径,
-    响应形状保持 ``{count, next, previous, results}``(审查 N-5 / backlog D-1)。
-
-    Args:
-        request: DRF 请求对象,提供 ``limit`` 与 ``before``(或兼容的 ``offset``)。
-
-    Returns:
-        分页后的动态列表响应。
+    备注信息:
+        默认走**复合游标**(``?before=``),响应 ``{count, next_cursor, has_more, results}``;
+        请求里带 ``offset`` 的老客户端仍走旧的 ``LimitOffsetPagination`` 路径,
+        响应形状保持 ``{count, next, previous, results}``(审查 N-5 / backlog D-1)。
+        ``limit`` 由 ``int_param`` 夹在 ``[1, max_limit]`` 之间,越界不报错而是截断。
     """
     if wants_legacy_offset(request):
         return _legacy_page_visible_posts(request)
@@ -134,11 +146,10 @@ def _page_visible_posts(request):
 def _legacy_page_visible_posts(request):
     """offset 分页(老客户端兼容路径):响应形状与改造前逐字段一致。
 
-    Args:
-        request: DRF 请求对象,提供 ``limit`` / ``offset``。
-
-    Returns:
-        带 ``count`` / ``next`` / ``previous`` / ``results`` 的分页响应。
+    备注信息:
+        手工把 ``count`` / ``limit`` / ``offset`` / ``request`` 填回 paginator,
+        是因为数据和总数来自 ``page_visible_posts`` 而非 paginator 自己切的查询集;
+        这条分支只服务还在用 ``offset`` 的旧客户端,新代码不要再接它。
     """
     paginator = DefaultLimitOffsetPagination()
     limit = paginator.get_limit(request)
@@ -155,15 +166,12 @@ def _legacy_page_visible_posts(request):
 def _create_post(request):
     """在事务内建动态与配图,再回读一次带注解的对象返回。
 
-    Args:
-        request: DRF 请求对象,正文与图片已由序列化器校验。
-
-    Returns:
-        201 + 新建动态(已带赞/评数与作者信息)。
-
-    Raises:
-        ValidationError: 配图不是 jpg/png/webp 或超过尺寸上限。
-        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+    备注信息:
+        顺序是刻意的:先把图片全部校验并重编码(``images.open_checked`` +
+        ``images.normalize``),再统一查一次配额(``storage.ensure_quota``),
+        最后才进事务建动态与配图。配额超限抛 ``StorageQuotaExceeded``(413 + ``41301``,
+        不是 ``ValidationError``);若边建动态边写图,超限时文件已落盘、事务回滚删不掉,
+        会留下孤儿文件。返回前用 ``visible_posts`` 回读,响应里才带赞/评数与作者信息。
     """
     serializer = PostCreateSerializer(data=request.data, context={"request": request})
     serializer.is_valid(raise_exception=True)
@@ -201,11 +209,19 @@ def my_posts(request):
     与广场列表不同:这里只按作者过滤,不套用 ``visible_posts`` 的可见性规则 ——
     自己发过的动态自己始终能看到。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
 
-    Returns:
+    返回参数:
         分页后的动态列表,按发布时间倒序。
+
+    使用示例:
+        ``GET /api/v1/posts/mine?limit=20``
+
+    备注信息:
+        注解与 ``visible_posts`` 同款(``like_count`` / ``comment_count`` /
+        ``liked_by_me`` / ``is_favorited``),只是作者范围换成了自己;
+        这里走 ``paginated_response``,因此同时支持游标与旧 ``offset`` 两种翻页。
     """
     queryset = (Post.objects.filter(author=request.user)
                 .select_related("author__profile").prefetch_related("author__photos", "images")
@@ -232,12 +248,19 @@ def post_detail(request, post_id):
     DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
     删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         post_id: 动态主键。
 
-    Returns:
+    返回参数:
         GET 返回动态详情;DELETE 返回 204 空响应。
+
+    使用示例:
+        ``DELETE /api/v1/posts/12``
+
+    备注信息:
+        GET 用 ``visible_posts`` 取对象,不可见(不存在 / 双向拉黑 / 作者被重封禁)
+        同样是 404;DELETE 走作者条件查询,因此拿别人的动态删除也是 404 而不是 403。
     """
     if request.method == "DELETE":
         post = get_object_or_404(Post, pk=post_id, author=request.user)   # 非作者 404
@@ -258,12 +281,20 @@ def post_like(request, post_id):
     点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
     首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         post_id: 动态主键。
 
-    Returns:
+    返回参数:
         POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+
+    使用示例:
+        ``POST /api/v1/posts/12/like``
+
+    备注信息:
+        动态先过 ``visible_posts``,不可见即 404;``like_count`` 不在表里存计数列,
+        由查询时注解 ``Count("likes")`` 得出,因此这里不需要维护计数。
+        POST 与 DELETE 共用一个限流额度(``post_like``,默认 120/hour)。
     """
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     if request.method == "POST":
@@ -293,16 +324,21 @@ def post_likes(request, post_id):
     点赞者同样过滤双向拉黑与重封禁账号,``count`` 是**过滤后**的可见人数。
     没人点赞返回 200 + 空列表(不 404)。新接口没有老客户端,不提供 ``offset`` 兼容分支。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit`` / ``before``。
         post_id: 动态主键。
 
-    Returns:
+    返回参数:
         ``{count, next_cursor, has_more, results}``,``results[]`` 元素为
         ``{user_id, nickname, avatar_url, liked_at}``。
 
-    Raises:
-        Http404: 动态不存在或对当前用户不可见。
+    使用示例:
+        ``GET /api/v1/posts/12/likes?limit=20``
+
+    备注信息:
+        动态可见性只做判断、不注解:``get_object_or_404(visible_base(...))``
+        比用 ``visible_posts`` 少跑三条 SQL;``liked_at`` 是点赞行的时间,
+        不是用户资料或动态的时间。限流见 ``PostLikesReadThrottle``(默认 120/hour)。
     """
     # 可见性用 ``visible_base``(与 ``visible_posts`` 同一口径,但不再注解/预取):
     # 这里只需要判断「这条动态能不能看」;拿带 COUNT … GROUP BY 与图片预取的查询集去
@@ -332,15 +368,20 @@ def post_favorite(request, post_id):
     收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
     只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         post_id: 动态主键。
 
-    Returns:
+    返回参数:
         204 空响应。
 
-    Raises:
-        Http404: 动态不存在或对当前用户不可见。
+    使用示例:
+        ``POST /api/v1/posts/12/favorite``
+
+    备注信息:
+        动态不可见(不存在 / 双向拉黑 / 作者被重封禁)统一 404,与点赞列表同款;
+        POST 与 DELETE 共用 ``post_favorite`` 一个额度(默认 300/hour),
+        额度比点赞宽松,因为收藏是私密书签、正常使用会成串点。
     """
     # 与点赞列表同款:只为判可见,不注解、不预取。
     post = get_object_or_404(visible_base(request.user), pk=post_id)
@@ -363,12 +404,21 @@ def post_comments(request, post_id):
     GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
     层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
 
-    Args:
+    参数说明:
         request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
         post_id: 动态主键。
 
-    Returns:
+    返回参数:
         GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+
+    使用示例:
+        ``POST /api/v1/posts/12/comments {"text": "好看", "parent_id": 3}``
+
+    备注信息:
+        评论列表与回复列表都是 ``limit`` / ``offset`` 分页(不走游标);
+        GET 用 ``Prefetch(..., to_attr="visible_replies")`` 一次取回全部可见回复,
+        序列化器只截前两条内嵌,``reply_count`` 仍按全量算;
+        ``parent_id`` 不在该动态或不可见时 404;限流只作用于 POST(默认 60/day)。
     """
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     if request.method == "POST":
@@ -398,16 +448,21 @@ def post_comments(request, post_id):
 def post_comment_replies(request, post_id, comment_id):
     """某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit`` / ``offset``。
         post_id: 动态主键。
         comment_id: 顶级评论主键。
 
-    Returns:
+    返回参数:
         分页后的回复列表,按时间正序。
 
-    Raises:
-        Http404: 动态不可见、评论不存在/不属于该动态/本身是回复。
+    使用示例:
+        ``GET /api/v1/posts/12/comments/3/replies?limit=20``
+
+    备注信息:
+        ``comment_id`` 必须是**顶级评论**:用 ``parent__isnull=True`` 过滤后再取对象,
+        传回复的 id 会 404。返回的每条回复自身 ``replies`` 恒空、``reply_count`` 恒 0,
+        不再往下递归;限流见 ``CommentRepliesThrottle``(默认 360/hour,比关注流略宽)。
     """
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     root = get_object_or_404(
@@ -423,16 +478,21 @@ def post_comment_detail(request, post_id, comment_id):
 
     删顶级评论会连带删除该楼全部回复;非作者一律 404(不暴露存在性)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         post_id: 动态主键。
         comment_id: 评论主键。
 
-    Returns:
+    返回参数:
         204 空响应。
 
-    Raises:
-        Http404: 动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的。
+    使用示例:
+        ``DELETE /api/v1/posts/12/comments/3``
+
+    备注信息:
+        查询条件是 ``pk`` + ``post`` + ``author`` 三者同时命中,因此别人的评论、
+        别的动态下的评论、不可见动态下的评论都是 404;回复随
+        ``PostComment.parent`` 上的 ``CASCADE`` 一并删除。
     """
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     comment = get_object_or_404(PostComment, pk=comment_id, post=post,
@@ -450,15 +510,21 @@ def post_report(request, post_id):
 
     幂等:同一动态已有待处理举报时返回已有记录(200),本次新建返回 201。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,body 需带 ``type`` 与可选 ``detail``。
         post_id: 动态主键。
 
-    Returns:
+    返回参数:
         ``{id, status}``。
 
-    Raises:
-        ValidationError: 举报自己的动态。
+    使用示例:
+        ``POST /api/v1/posts/12/report {"type": "spam", "detail": "广告"}``
+
+    备注信息:
+        举报自己的动态抛 ``ValidationError``(400);幂等靠 ``dedupe_key``
+        (``举报人:动态:pending``)的唯一约束,并发提交时 ``get_or_create``
+        会回查已有记录,不产生重复行;同一动态被处理完可以再次举报,此时键已置空、
+        走新建分支返回 201。限流 ``post_report`` 默认 20/day。
     """
     post = get_object_or_404(visible_posts(request.user), pk=post_id)
     if post.author_id == request.user.id:
@@ -488,11 +554,18 @@ def following_posts(request):
     (排除双向拉黑与重封禁作者);游标分页,响应形状与广场列表完全一致。
     新接口没有老客户端,因此不提供 ``offset`` 兼容分支。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit`` / ``before``。
 
-    Returns:
+    返回参数:
         ``{count, next_cursor, has_more, results}``。
+
+    使用示例:
+        ``GET /api/v1/feed/following?limit=20``
+
+    备注信息:
+        ``base`` 传 ``following_base``,可见性规则与广场完全同源,只是作者范围收窄;
+        关注为空时返回 200 + 空列表 + ``count=0``;限流 ``following_read`` 默认 240/hour。
     """
     limit = int_param(request, "limit", default=DefaultLimitOffsetPagination.default_limit,
                       minimum=1, maximum=DefaultLimitOffsetPagination.max_limit)
@@ -515,11 +588,19 @@ def favorite_posts(request):
     收藏了但已不可见的动态(被双向拉黑 / 作者被重封禁 / 已被删)**既不出现在列表,
     也不计入 ``count``**。新接口没有老客户端,不提供 ``offset`` 兼容分支。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit`` / ``before``。
 
-    Returns:
+    返回参数:
         ``{count, next_cursor, has_more, results}``,``results[]`` 为动态对象。
+
+    使用示例:
+        ``GET /api/v1/feed/favorites?limit=20``
+
+    备注信息:
+        收藏了别人的动态后被对方拉黑,该条会从列表与 ``count`` 里一起消失;
+        动态被删时收藏行随 ``CASCADE`` 消失,不需要额外清理;
+        限流 ``favorites_read`` 默认 120/hour。
     """
     limit = int_param(request, "limit", default=DefaultLimitOffsetPagination.default_limit,
                       minimum=1, maximum=DefaultLimitOffsetPagination.max_limit)
@@ -541,16 +622,22 @@ def follow_user(request, user_id):
     (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
     关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         user_id: 被关注/被取消关注的账号 id。
 
-    Returns:
+    返回参数:
         204 空响应。
 
-    Raises:
-        ValidationError: 关注自己(400)。
-        NotFound: 对方不存在、与我互相拉黑,或处于重封禁状态。
+    使用示例:
+        ``POST /api/v1/users/34/follow``
+
+    备注信息:
+        判定顺序是刻意的:先判「关注自己」(400),再判是否在双向拉黑集合里
+        (命中即 404),最后查账号与资料并判重封禁(404)—— 三种「不可见」情形
+        统一返回「用户不存在」,避免通过状态码泄漏账号是否存在。
+        路由写在 ``users/urls.py``,视图留在本文件(关系语义归 feed)。
+        幂等与限额:POST/DELETE 共用 ``follow`` 一个额度(默认 120/hour)。
     """
     if user_id == request.user.id:
         raise ValidationError("不能关注自己")

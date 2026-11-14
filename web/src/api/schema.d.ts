@@ -746,11 +746,19 @@ export interface paths {
          *     收藏了但已不可见的动态(被双向拉黑 / 作者被重封禁 / 已被删)**既不出现在列表,
          *     也不计入 ``count``**。新接口没有老客户端,不提供 ``offset`` 兼容分支。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{count, next_cursor, has_more, results}``,``results[]`` 为动态对象。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/feed/favorites?limit=20``
+         *
+         *     备注信息:
+         *         收藏了别人的动态后被对方拉黑,该条会从列表与 ``count`` 里一起消失;
+         *         动态被删时收藏行随 ``CASCADE`` 消失,不需要额外清理;
+         *         限流 ``favorites_read`` 默认 120/hour。
          */
         get: operations["feed_favorites_retrieve"];
         put?: never;
@@ -775,11 +783,18 @@ export interface paths {
          *     (排除双向拉黑与重封禁作者);游标分页,响应形状与广场列表完全一致。
          *     新接口没有老客户端,因此不提供 ``offset`` 兼容分支。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{count, next_cursor, has_more, results}``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/feed/following?limit=20``
+         *
+         *     备注信息:
+         *         ``base`` 传 ``following_base``,可见性规则与广场完全同源,只是作者范围收窄;
+         *         关注为空时返回 200 + 空列表 + ``count=0``;限流 ``following_read`` 默认 240/hour。
          */
         get: operations["feed_following_retrieve"];
         put?: never;
@@ -1099,11 +1114,19 @@ export interface paths {
          *     (``{count, next_cursor, has_more, results}``),带 ``offset`` 的老客户端
          *     仍走 offset 兼容路径。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,提供 ``limit`` / ``before``(或兼容的 ``offset``)。
          *
-         *     Returns:
+         *     返回参数:
          *         分页后的通知列表;``results[]`` 每项含触发者摘要与跳转目标。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/notifications?limit=20``
+         *
+         *     备注信息:
+         *         按用户限流(``NotificationsThrottle``,超限 429 + ``Retry-After``);
+         *         分页统一交给 ``config.cursor.paginated_response``,游标键是 ``created_at``,
+         *         次级键靠模型 ``Meta.ordering`` 的 ``-id`` 保证稳定。
          */
         get: operations["notifications_retrieve"];
         put?: never;
@@ -1129,11 +1152,19 @@ export interface paths {
          *     两种用法:``{"ids": [...]}`` 只标指定几条,``{"all": true}`` 标全部未读。
          *     只影响自己的通知,幂等 204;别人的 id 混进来会被静默过滤。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;body 需带 ``ids`` 或 ``all=true``。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
+         *
+         *     使用示例:
+         *         ``POST /api/v1/notifications/read {"ids": [12, 13]}``
+         *
+         *     备注信息:
+         *         ``ids`` 与 ``all`` 都不给时由 ``NotificationReadSerializer.validate`` 拦成 400;
+         *         查询集先经 ``_visible_notifications`` 再 ``filter(is_read=False)``,所以重复标记
+         *         与越权 id 都不会报错,也不泄漏「这条通知是否存在」;写接口不挂限流。
          */
         post: operations["notifications_read_create"];
         delete?: never;
@@ -1154,11 +1185,18 @@ export interface paths {
          *
          *     口径与列表完全一致(自己的、90 天内),供消息页铃铛角标使用。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"unread": n}``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/notifications/unread_count``
+         *
+         *     备注信息:
+         *         只做一次 ``COUNT`` 聚合,不返回任何通知内容;限流额度比列表宽松一档
+         *         (``NotificationsUnreadThrottle``),因为角标接口调用频率天然更高。
          */
         get: operations["notifications_unread_count_retrieve"];
         put?: never;
@@ -1182,11 +1220,19 @@ export interface paths {
          *     GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
          *     限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/posts?limit=20&before=<游标>``
+         *
+         *     备注信息:
+         *         GET 默认走复合游标(响应 ``{count, next_cursor, has_more, results}``),
+         *         带 ``offset`` 的老客户端走兼容分支(响应 ``{count, next, previous, results}``);
+         *         POST 的正文与图片由 ``PostCreateSerializer`` 校验,配额超限是 413 + ``41301``。
          */
         get: operations["posts_list"];
         put?: never;
@@ -1196,11 +1242,19 @@ export interface paths {
          *     GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
          *     限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/posts?limit=20&before=<游标>``
+         *
+         *     备注信息:
+         *         GET 默认走复合游标(响应 ``{count, next_cursor, has_more, results}``),
+         *         带 ``offset`` 的老客户端走兼容分支(响应 ``{count, next, previous, results}``);
+         *         POST 的正文与图片由 ``PostCreateSerializer`` 校验,配额超限是 413 + ``41301``。
          */
         post: operations["posts_create"];
         delete?: never;
@@ -1222,12 +1276,19 @@ export interface paths {
          *     DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
          *     删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回动态详情;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``DELETE /api/v1/posts/12``
+         *
+         *     备注信息:
+         *         GET 用 ``visible_posts`` 取对象,不可见(不存在 / 双向拉黑 / 作者被重封禁)
+         *         同样是 404;DELETE 走作者条件查询,因此拿别人的动态删除也是 404 而不是 403。
          */
         get: operations["posts_retrieve"];
         put?: never;
@@ -1238,12 +1299,19 @@ export interface paths {
          *     DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
          *     删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回动态详情;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``DELETE /api/v1/posts/12``
+         *
+         *     备注信息:
+         *         GET 用 ``visible_posts`` 取对象,不可见(不存在 / 双向拉黑 / 作者被重封禁)
+         *         同样是 404;DELETE 走作者条件查询,因此拿别人的动态删除也是 404 而不是 403。
          */
         delete: operations["posts_destroy"];
         options?: never;
@@ -1264,12 +1332,21 @@ export interface paths {
          *     GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
          *     层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+         *
+         *     使用示例:
+         *         ``POST /api/v1/posts/12/comments {"text": "好看", "parent_id": 3}``
+         *
+         *     备注信息:
+         *         评论列表与回复列表都是 ``limit`` / ``offset`` 分页(不走游标);
+         *         GET 用 ``Prefetch(..., to_attr="visible_replies")`` 一次取回全部可见回复,
+         *         序列化器只截前两条内嵌,``reply_count`` 仍按全量算;
+         *         ``parent_id`` 不在该动态或不可见时 404;限流只作用于 POST(默认 60/day)。
          */
         get: operations["posts_comments_retrieve"];
         put?: never;
@@ -1279,12 +1356,21 @@ export interface paths {
          *     GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
          *     层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+         *
+         *     使用示例:
+         *         ``POST /api/v1/posts/12/comments {"text": "好看", "parent_id": 3}``
+         *
+         *     备注信息:
+         *         评论列表与回复列表都是 ``limit`` / ``offset`` 分页(不走游标);
+         *         GET 用 ``Prefetch(..., to_attr="visible_replies")`` 一次取回全部可见回复,
+         *         序列化器只截前两条内嵌,``reply_count`` 仍按全量算;
+         *         ``parent_id`` 不在该动态或不可见时 404;限流只作用于 POST(默认 60/day)。
          */
         post: operations["posts_comments_create"];
         delete?: never;
@@ -1308,16 +1394,21 @@ export interface paths {
          *
          *     删顶级评论会连带删除该楼全部回复;非作者一律 404(不暴露存在性)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *         comment_id: 评论主键。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         Http404: 动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的。
+         *     使用示例:
+         *         ``DELETE /api/v1/posts/12/comments/3``
+         *
+         *     备注信息:
+         *         查询条件是 ``pk`` + ``post`` + ``author`` 三者同时命中,因此别人的评论、
+         *         别的动态下的评论、不可见动态下的评论都是 404;回复随
+         *         ``PostComment.parent`` 上的 ``CASCADE`` 一并删除。
          */
         delete: operations["posts_comments_destroy"];
         options?: never;
@@ -1335,16 +1426,21 @@ export interface paths {
         /**
          * @description 某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``offset``。
          *         post_id: 动态主键。
          *         comment_id: 顶级评论主键。
          *
-         *     Returns:
+         *     返回参数:
          *         分页后的回复列表,按时间正序。
          *
-         *     Raises:
-         *         Http404: 动态不可见、评论不存在/不属于该动态/本身是回复。
+         *     使用示例:
+         *         ``GET /api/v1/posts/12/comments/3/replies?limit=20``
+         *
+         *     备注信息:
+         *         ``comment_id`` 必须是**顶级评论**:用 ``parent__isnull=True`` 过滤后再取对象,
+         *         传回复的 id 会 404。返回的每条回复自身 ``replies`` 恒空、``reply_count`` 恒 0,
+         *         不再往下递归;限流见 ``CommentRepliesThrottle``(默认 360/hour,比关注流略宽)。
          */
         get: operations["posts_comments_replies_retrieve"];
         put?: never;
@@ -1372,15 +1468,20 @@ export interface paths {
          *     收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
          *     只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         Http404: 动态不存在或对当前用户不可见。
+         *     使用示例:
+         *         ``POST /api/v1/posts/12/favorite``
+         *
+         *     备注信息:
+         *         动态不可见(不存在 / 双向拉黑 / 作者被重封禁)统一 404,与点赞列表同款;
+         *         POST 与 DELETE 共用 ``post_favorite`` 一个额度(默认 300/hour),
+         *         额度比点赞宽松,因为收藏是私密书签、正常使用会成串点。
          */
         post: operations["posts_favorite_create"];
         /**
@@ -1391,15 +1492,20 @@ export interface paths {
          *     收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
          *     只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         Http404: 动态不存在或对当前用户不可见。
+         *     使用示例:
+         *         ``POST /api/v1/posts/12/favorite``
+         *
+         *     备注信息:
+         *         动态不可见(不存在 / 双向拉黑 / 作者被重封禁)统一 404,与点赞列表同款;
+         *         POST 与 DELETE 共用 ``post_favorite`` 一个额度(默认 300/hour),
+         *         额度比点赞宽松,因为收藏是私密书签、正常使用会成串点。
          */
         delete: operations["posts_favorite_destroy"];
         options?: never;
@@ -1422,12 +1528,20 @@ export interface paths {
          *     点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
          *     首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``POST /api/v1/posts/12/like``
+         *
+         *     备注信息:
+         *         动态先过 ``visible_posts``,不可见即 404;``like_count`` 不在表里存计数列,
+         *         由查询时注解 ``Count("likes")`` 得出,因此这里不需要维护计数。
+         *         POST 与 DELETE 共用一个限流额度(``post_like``,默认 120/hour)。
          */
         post: operations["posts_like_create"];
         /**
@@ -1436,12 +1550,20 @@ export interface paths {
          *     点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
          *     首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``POST /api/v1/posts/12/like``
+         *
+         *     备注信息:
+         *         动态先过 ``visible_posts``,不可见即 404;``like_count`` 不在表里存计数列,
+         *         由查询时注解 ``Count("likes")`` 得出,因此这里不需要维护计数。
+         *         POST 与 DELETE 共用一个限流额度(``post_like``,默认 120/hour)。
          */
         delete: operations["posts_like_destroy"];
         options?: never;
@@ -1464,16 +1586,21 @@ export interface paths {
          *     点赞者同样过滤双向拉黑与重封禁账号,``count`` 是**过滤后**的可见人数。
          *     没人点赞返回 200 + 空列表(不 404)。新接口没有老客户端,不提供 ``offset`` 兼容分支。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{count, next_cursor, has_more, results}``,``results[]`` 元素为
          *         ``{user_id, nickname, avatar_url, liked_at}``。
          *
-         *     Raises:
-         *         Http404: 动态不存在或对当前用户不可见。
+         *     使用示例:
+         *         ``GET /api/v1/posts/12/likes?limit=20``
+         *
+         *     备注信息:
+         *         动态可见性只做判断、不注解:``get_object_or_404(visible_base(...))``
+         *         比用 ``visible_posts`` 少跑三条 SQL;``liked_at`` 是点赞行的时间,
+         *         不是用户资料或动态的时间。限流见 ``PostLikesReadThrottle``(默认 120/hour)。
          */
         get: operations["posts_likes_retrieve"];
         put?: never;
@@ -1498,15 +1625,21 @@ export interface paths {
          *
          *     幂等:同一动态已有待处理举报时返回已有记录(200),本次新建返回 201。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,body 需带 ``type`` 与可选 ``detail``。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{id, status}``。
          *
-         *     Raises:
-         *         ValidationError: 举报自己的动态。
+         *     使用示例:
+         *         ``POST /api/v1/posts/12/report {"type": "spam", "detail": "广告"}``
+         *
+         *     备注信息:
+         *         举报自己的动态抛 ``ValidationError``(400);幂等靠 ``dedupe_key``
+         *         (``举报人:动态:pending``)的唯一约束,并发提交时 ``get_or_create``
+         *         会回查已有记录,不产生重复行;同一动态被处理完可以再次举报,此时键已置空、
+         *         走新建分支返回 201。限流 ``post_report`` 默认 20/day。
          */
         post: operations["posts_report_create"];
         delete?: never;
@@ -1528,11 +1661,19 @@ export interface paths {
          *     与广场列表不同:这里只按作者过滤,不套用 ``visible_posts`` 的可见性规则 ——
          *     自己发过的动态自己始终能看到。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
          *
-         *     Returns:
+         *     返回参数:
          *         分页后的动态列表,按发布时间倒序。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/posts/mine?limit=20``
+         *
+         *     备注信息:
+         *         注解与 ``visible_posts`` 同款(``like_count`` / ``comment_count`` /
+         *         ``liked_by_me`` / ``is_favorited``),只是作者范围换成了自己;
+         *         这里走 ``paginated_response``,因此同时支持游标与旧 ``offset`` 两种翻页。
          */
         get: operations["posts_mine_retrieve"];
         put?: never;
@@ -1592,11 +1733,20 @@ export interface paths {
          *     ``push_device_transfer`` warning 日志,并在事务提交后给原账号写一条系统站内通知
          *     ——知道别人 registration_id 的人仍然能把设备抢走,但原账号至少看得见这件事。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,body 需带 ``registration_id`` 与 ``platform``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"registration_id": str, "platform": str}``。
+         *
+         *     使用示例:
+         *         ``POST /api/v1/push/devices {"registration_id": "reg-id", "platform": "android"}``
+         *
+         *     备注信息:
+         *         整个写入包在 ``transaction.atomic()`` 里:先判易主并挂 ``notify_on_commit``
+         *         (回滚就不该留下脏通知),再 ``update_or_create``,最后删掉同账号的其他设备;
+         *         日志走 ``%s`` 占位而非 ``extra={}``,因为 ``config/logging.py`` 的 JsonFormatter
+         *         只透出白名单字段。
          */
         post: operations["push_devices_create"];
         delete?: never;
@@ -1620,12 +1770,19 @@ export interface paths {
          *
          *     幂等:设备不存在、或属于别人,一律 204(不泄漏他人设备信息)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         registration_id: 极光 registration_id。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
+         *
+         *     使用示例:
+         *         ``DELETE /api/v1/push/devices/reg-id``
+         *
+         *     备注信息:
+         *         过滤条件同时带 ``user=request.user``,所以别人的设备不会被删,也不会回 404 ——
+         *         「不存在」与「不是你的」在响应上完全一致。
          */
         delete: operations["push_devices_destroy"];
         options?: never;
@@ -1645,12 +1802,19 @@ export interface paths {
          *
          *     PATCH 为局部更新:只改传入的字段,未传的保持不变。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;PATCH 时 body 可带
          *             ``likes`` / ``matches`` / ``messages`` / ``system`` / ``social``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool, "social": bool}``。
+         *
+         *     使用示例:
+         *         ``PATCH /api/v1/push/preferences {"social": false}``
+         *
+         *     备注信息:
+         *         偏好是懒创建的:GET 也会经 ``NotificationPreference.for_user`` 写库(默认全开);
+         *         PATCH 走 ``partial=True``,因此只改传入字段,响应统一回显完整五个开关。
          */
         get: operations["push_preferences_retrieve"];
         put?: never;
@@ -1663,12 +1827,19 @@ export interface paths {
          *
          *     PATCH 为局部更新:只改传入的字段,未传的保持不变。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;PATCH 时 body 可带
          *             ``likes`` / ``matches`` / ``messages`` / ``system`` / ``social``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool, "social": bool}``。
+         *
+         *     使用示例:
+         *         ``PATCH /api/v1/push/preferences {"social": false}``
+         *
+         *     备注信息:
+         *         偏好是懒创建的:GET 也会经 ``NotificationPreference.for_user`` 写库(默认全开);
+         *         PATCH 走 ``partial=True``,因此只改传入字段,响应统一回显完整五个开关。
          */
         patch: operations["push_preferences_partial_update"];
         trace?: never;
@@ -1822,16 +1993,22 @@ export interface paths {
          *     (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
          *     关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         user_id: 被关注/被取消关注的账号 id。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         ValidationError: 关注自己(400)。
-         *         NotFound: 对方不存在、与我互相拉黑,或处于重封禁状态。
+         *     使用示例:
+         *         ``POST /api/v1/users/34/follow``
+         *
+         *     备注信息:
+         *         判定顺序是刻意的:先判「关注自己」(400),再判是否在双向拉黑集合里
+         *         (命中即 404),最后查账号与资料并判重封禁(404)—— 三种「不可见」情形
+         *         统一返回「用户不存在」,避免通过状态码泄漏账号是否存在。
+         *         路由写在 ``users/urls.py``,视图留在本文件(关系语义归 feed)。
+         *         幂等与限额:POST/DELETE 共用 ``follow`` 一个额度(默认 120/hour)。
          */
         post: operations["users_follow_create"];
         /**
@@ -1842,16 +2019,22 @@ export interface paths {
          *     (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
          *     关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         user_id: 被关注/被取消关注的账号 id。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         ValidationError: 关注自己(400)。
-         *         NotFound: 对方不存在、与我互相拉黑,或处于重封禁状态。
+         *     使用示例:
+         *         ``POST /api/v1/users/34/follow``
+         *
+         *     备注信息:
+         *         判定顺序是刻意的:先判「关注自己」(400),再判是否在双向拉黑集合里
+         *         (命中即 404),最后查账号与资料并判重封禁(404)—— 三种「不可见」情形
+         *         统一返回「用户不存在」,避免通过状态码泄漏账号是否存在。
+         *         路由写在 ``users/urls.py``,视图留在本文件(关系语义归 feed)。
+         *         幂等与限额:POST/DELETE 共用 ``follow`` 一个额度(默认 120/hour)。
          */
         delete: operations["users_follow_destroy"];
         options?: never;
@@ -2382,14 +2565,47 @@ export interface components {
          * @enum {string}
          */
         DevicePlatformEnum: "android" | "ios";
-        /** @description 设备上报的入参。 */
+        /**
+         * @description 设备上报的入参。
+         *
+         *     参数说明:
+         *         registration_id: 极光 registration_id,最长 128 字符,必填。
+         *         platform: 平台,只接受 ``android`` / ``ios``(取自 ``PushPlatform``)。
+         *         app_version: App 版本,最长 32 字符,可不传,缺省空串。
+         *
+         *     返回参数:
+         *         校验后的 ``validated_data`` 字典。
+         *
+         *     使用示例:
+         *         ``DeviceSerializer(data=request.data)``
+         *
+         *     备注信息:
+         *         只声明客户端有权决定的三个字段;设备归属账号与时间戳由视图按登录态补齐,
+         *         因此本序列化器**不**接收 ``user``。
+         */
         DeviceRequest: {
             registration_id: string;
             platform: components["schemas"]["DevicePlatformEnum"];
             /** @default  */
             app_version: string;
         };
-        /** @description 设备上报的回执。 */
+        /**
+         * @description 设备上报的回执。
+         *
+         *     参数说明:
+         *         registration_id: 原样回显上报的 registration_id。
+         *         platform: 原样回显平台。
+         *
+         *     返回参数:
+         *         序列化后的 ``{"registration_id": str, "platform": str}``。
+         *
+         *     使用示例:
+         *         ``DeviceResponseSerializer({"registration_id": "reg", "platform": "android"}).data``
+         *
+         *     备注信息:
+         *         只用于 ``@extend_schema`` 的响应声明与实际回显;回执不带设备主键,
+         *         客户端不需要(它只用 registration_id 做解绑)。
+         */
         DeviceResponse: {
             registration_id: string;
             platform: string;
@@ -2538,13 +2754,49 @@ export interface components {
          * @description 通知里的触发者摘要。
          *
          *     ``id`` 是**账号 id**(即 IM 的 ``u{id}``),可直接拼成 ``/chat/{id}`` 跳转。
+         *
+         *     参数说明:
+         *         id: 触发者账号 id。
+         *         nickname: 触发者昵称;资料未填时为空串。
+         *         avatar: 触发者头像的绝对 URL;没有已过审照片时为 ``null``。
+         *
+         *     返回参数:
+         *         序列化后的触发者摘要字典。
+         *
+         *     使用示例:
+         *         ``NotificationActorSerializer(actor_dict).data``
+         *
+         *     备注信息:
+         *         形状与 ``notification_payload`` 拼出来的 ``actor`` 一致,两处改字段要同改;
+         *         头像取的是触发者**已过审**照片里的第一张(见 ``PhotoStatus.APPROVED``)。
          */
         NotificationActor: {
             id: number;
             nickname: string;
             avatar: string | null;
         };
-        /** @description 站内通知列表里的一条。 */
+        /**
+         * @description 站内通知列表里的一条。
+         *
+         *     参数说明:
+         *         id: 通知主键。
+         *         kind: 事件类型(``NotificationKind`` 取值)。
+         *         text: 服务端生成的正文。
+         *         is_read: 是否已读。
+         *         created_at: 创建时间,ISO 8601 字符串。
+         *         actor: 触发者摘要;系统消息为 ``null``。
+         *         target: 跳转目标 ``{kind, id}``。
+         *
+         *     返回参数:
+         *         序列化后的一条通知字典。
+         *
+         *     使用示例:
+         *         ``NotificationItemSerializer(payloads, many=True).data``
+         *
+         *     备注信息:
+         *         入参是 ``notification_payload`` 拼好的字典,不是模型实例 —— 头像与昵称要跨表
+         *         取,``ModelSerializer`` 表达不了;本类只负责字段声明与 schema 输出。
+         */
         NotificationItem: {
             id: number;
             kind: string;
@@ -2565,13 +2817,43 @@ export interface components {
          * @description 标记已读的入参:``ids`` 与 ``all`` 二选一。
          *
          *     ``all`` 是 Python 关键字之外的普通字段名,DRF 与 OpenAPI 都按 ``all`` 输出。
+         *
+         *     参数说明:
+         *         ids: 要标记的通知主键列表,每项 ≥ 1;与 ``all`` 二选一。
+         *         all: 是否标记全部未读,默认 ``False``;与 ``ids`` 二选一。
+         *
+         *     返回参数:
+         *         校验后的 ``validated_data`` 字典。
+         *
+         *     使用示例:
+         *         ``NotificationReadSerializer(data=request.data)``
+         *
+         *     备注信息:
+         *         两个字段都可单传,但不能都不传 —— 空 body 会被 ``validate`` 拦成 400,
+         *         否则「什么都没给」会静默成功,客户端以为标完了。
          */
         NotificationReadRequest: {
             ids?: number[];
             /** @default false */
             all: boolean;
         };
-        /** @description 通知点击后要跳向的目标;``kind=none`` 时 ``id`` 为 ``null``。 */
+        /**
+         * @description 通知点击后要跳向的目标;``kind=none`` 时 ``id`` 为 ``null``。
+         *
+         *     参数说明:
+         *         kind: 目标类型,取值 ``post`` / ``user`` / ``none``(取自 ``NotificationTarget``)。
+         *         id: 目标主键;``kind=none`` 时为 ``null``。
+         *
+         *     返回参数:
+         *         序列化后的目标字典。
+         *
+         *     使用示例:
+         *         ``NotificationTargetSerializer({"kind": "post", "id": 12}).data``
+         *
+         *     备注信息:
+         *         ``id`` 不做存在性校验:帖子被删后通知仍要能返回(留痕语义见
+         *         ``notifications/models.py``),点击时目标不存在按「只标已读」处理。
+         */
         NotificationTarget: {
             kind: components["schemas"]["KindEnum"];
             id: number | null;
@@ -2636,6 +2918,23 @@ export interface components {
          * @description 通知偏好的读写形状(五个布尔字段,对应五类通知)。
          *
          *     ``social`` 是站内通知中心(批次 H)新增的开关:动态被赞 / 被评论 / 评论被回复。
+         *
+         *     参数说明:
+         *         likes: 是否接收「新的喜欢」。
+         *         matches: 是否接收「配对成功」。
+         *         messages: 是否接收「新消息」。
+         *         system: 是否接收系统通知。
+         *         social: 是否接收动态互动站内通知。
+         *
+         *     返回参数:
+         *         序列化后的五个布尔字段;PATCH 后回显更新结果。
+         *
+         *     使用示例:
+         *         ``PushPreferenceSerializer(preference, data=request.data, partial=True)``
+         *
+         *     备注信息:
+         *         直接绑 ``NotificationPreference`` 模型,但只暴露这五个开关 —— ``user`` 与
+         *         ``updated_at`` 不进响应;PATCH 走 ``partial=True``,未传字段保持原值。
          */
         PatchedPushPreferenceRequest: {
             /** 新的喜欢 */
@@ -2721,7 +3020,26 @@ export interface components {
             /** Format: binary */
             file: string;
         };
-        /** @description 动态的对外表示,含作者、配图与互动计数。 */
+        /**
+         * @description 动态的对外表示,含作者、配图与互动计数。
+         *
+         *     参数说明:
+         *         instance: 待序列化的 ``Post``(或查询集,配合 ``many=True``)。
+         *         many: 是否批量序列化,默认 ``False``。
+         *         context: 必须带 ``request`` —— 作者头像与配图都要拼绝对 URL。
+         *
+         *     返回参数:
+         *         ``data`` 为 ``{id, author, text, images, like_count, comment_count,
+         *         liked_by_me, is_favorited, created_at}``。
+         *
+         *     使用示例:
+         *         ``PostSerializer(page.rows, many=True, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         四个计数/状态字段都是 ``read_only``,值全部来自查询集注解(``like_count`` /
+         *         ``comment_count`` / ``liked_by_me`` / ``is_favorited``);查询集没注解时
+         *         回落到默认值 0 / ``False``,不会退化成逐条查库。
+         */
         Post: {
             readonly id: number;
             readonly author: components["schemas"]["AuthorBrief"];
@@ -2744,6 +3062,23 @@ export interface components {
          *
          *     回复不再递归:回复对象的 ``replies`` 恒为空、``reply_count`` 恒为 0,
          *     避免响应随层级膨胀。
+         *
+         *     参数说明:
+         *         instance: 待序列化的 ``PostComment``(或查询集,配合 ``many=True``)。
+         *         many: 是否批量序列化,默认 ``False``。
+         *         context: 必须带 ``request``,用于拼作者头像的绝对 URL。
+         *
+         *     返回参数:
+         *         ``data`` 为 ``{id, author, text, parent_id, reply_to, reply_count,
+         *         replies, created_at}``。
+         *
+         *     使用示例:
+         *         ``PostCommentSerializer(comment, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         回复列表要靠调用方 ``prefetch_related(Prefetch("replies", ...,
+         *         to_attr="visible_replies"))`` 预取,``_visible_replies`` 优先读这个属性;
+         *         没有预取时才回落到自行查询。
          */
         PostComment: {
             readonly id: number;
@@ -2755,11 +3090,19 @@ export interface components {
             /**
              * @description 取该楼层可见回复的总数(回复对象恒为 0)。
              *
-             *     Args:
+             *     参数说明:
              *         comment: 评论对象。
              *
-             *     Returns:
-             *         可见回复条数。
+             *     返回参数:
+             *         可见回复条数;评论本身就是回复时恒为 0。
+             *
+             *     使用示例:
+             *         ``serializer.get_reply_count(comment)``
+             *
+             *     备注信息:
+             *         计的是**过滤后**的可见回复数(排除双向拉黑与重封禁作者),
+             *         因此可能小于数据库里的 ``replies`` 行数;计数复用 ``_visible_replies``
+             *         的缓存,不额外查库。
              */
             readonly reply_count: number;
             readonly replies: {
@@ -2768,7 +3111,23 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
-        /** @description 发表评论的入参;``parent_id`` 非空表示这是一条回复。 */
+        /**
+         * @description 发表评论的入参;``parent_id`` 非空表示这是一条回复。
+         *
+         *     参数说明:
+         *         data: 请求 data,需带 ``text``,可选 ``parent_id``。
+         *         context: 本类不读 ``context``,可省略。
+         *
+         *     返回参数:
+         *         ``validated_data`` 为 ``{"text": <去空白后的内容>, "parent_id": <顶级评论 id 或 None>}``。
+         *
+         *     使用示例:
+         *         ``PostCommentCreateSerializer(data=request.data)``
+         *
+         *     备注信息:
+         *         ``parent_id`` 只校验「是正整数」;它是否属于该动态、是否本身是回复,
+         *         由视图用 ``visible_comments`` 取对象时判定(取不到即 404)。
+         */
         PostCommentCreateRequest: {
             text: string;
             parent_id?: number | null;
@@ -2799,7 +3158,23 @@ export interface components {
             has_more: boolean;
             results: components["schemas"]["Post"][];
         };
-        /** @description 举报动态的入参。 */
+        /**
+         * @description 举报动态的入参。
+         *
+         *     参数说明:
+         *         data: 请求 data,需带 ``type``,可选 ``detail``。
+         *         context: 本类不读 ``context``,可省略。
+         *
+         *     返回参数:
+         *         ``validated_data`` 为 ``{"type": <举报类型>, "detail": <补充说明>}``。
+         *
+         *     使用示例:
+         *         ``PostReportCreateSerializer(data=request.data)``
+         *
+         *     备注信息:
+         *         ``type`` 的取值来自 ``moderation.models.ReportType.choices``,与运营审核台同一套;
+         *         「不能举报自己的动态」与重复举报的幂等由 ``views.post_report`` 处理。
+         */
         PostReportCreateRequest: {
             type: components["schemas"]["ReportTypeEnum"];
             /** @default  */
@@ -3001,6 +3376,23 @@ export interface components {
          * @description 通知偏好的读写形状(五个布尔字段,对应五类通知)。
          *
          *     ``social`` 是站内通知中心(批次 H)新增的开关:动态被赞 / 被评论 / 评论被回复。
+         *
+         *     参数说明:
+         *         likes: 是否接收「新的喜欢」。
+         *         matches: 是否接收「配对成功」。
+         *         messages: 是否接收「新消息」。
+         *         system: 是否接收系统通知。
+         *         social: 是否接收动态互动站内通知。
+         *
+         *     返回参数:
+         *         序列化后的五个布尔字段;PATCH 后回显更新结果。
+         *
+         *     使用示例:
+         *         ``PushPreferenceSerializer(preference, data=request.data, partial=True)``
+         *
+         *     备注信息:
+         *         直接绑 ``NotificationPreference`` 模型,但只暴露这五个开关 —— ``user`` 与
+         *         ``updated_at`` 不进响应;PATCH 走 ``partial=True``,未传字段保持原值。
          */
         PushPreference: {
             /** 新的喜欢 */
@@ -3191,7 +3583,22 @@ export interface components {
             access: string;
             refresh?: string;
         };
-        /** @description 未读数回执。 */
+        /**
+         * @description 未读数回执。
+         *
+         *     参数说明:
+         *         unread: 未读通知条数(自己的、90 天内的)。
+         *
+         *     返回参数:
+         *         序列化后的 ``{"unread": int}``。
+         *
+         *     使用示例:
+         *         ``UnreadCountSerializer({"unread": 3}).data``
+         *
+         *     备注信息:
+         *         只用于 ``@extend_schema`` 的响应声明;口径与列表接口共用
+         *         ``notifications.views._visible_notifications``,不能单独改窗口。
+         */
         UnreadCount: {
             unread: number;
         };

@@ -19,6 +19,17 @@
 
 这个路径**不在 /api/v1 下**,所以不进 ``docs/api`` 与 OpenAPI 门禁,
 契约写在这里与 ``docs/ops/push.md``。
+
+文件信息:
+    文件名称          notifications/internal.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import hashlib
@@ -44,12 +55,19 @@ MAX_PREVIEW = 200
 def _error(status: int, message: str) -> JsonResponse:
     """按项目错误契约返回 ``{"code", "message"}``。
 
-    Args:
+    参数说明:
         status: HTTP 状态码(同时作为 ``code``)。
         message: 中文说明。
 
-    Returns:
+    返回参数:
         JSON 响应。
+
+    使用示例:
+        ``_error(401, "内部签名校验失败")``
+
+    备注信息:
+        只在内部路径使用,因此不带 ``request_id``:调用方是 imserver,不产生用户侧
+        请求上下文,排障靠同一条 warning 日志。
     """
     return JsonResponse({"code": status, "message": message}, status=status)
 
@@ -57,14 +75,21 @@ def _error(status: int, message: str) -> JsonResponse:
 def signature_for(timestamp: str, path: str, body: str, secret: str) -> str:
     """计算内部调用签名(与 imserver 的 ``hmac_sha256_hex`` 同口径)。
 
-    Args:
+    参数说明:
         timestamp: 秒级时间戳字符串。
         path: 请求路径(不含域名与查询串)。
         body: 原始请求体字符串。
         secret: 共享密钥。
 
-    Returns:
+    返回参数:
         小写十六进制 HMAC-SHA256。
+
+    使用示例:
+        ``signature_for("1700000000", "/internal/push/new-message", body, secret)``
+
+    备注信息:
+        待签串固定为 ``timestamp\\nPOST\\npath\\nbody``(方法写死 ``POST``),改任何一段
+        都要与 imserver 侧同时改;``path`` 必须与 ``INTERNAL_PATH`` 一致,查询串不参与。
     """
     signing = f"{timestamp}\nPOST\n{path}\n{body}".encode()
     return hmac.new(secret.encode(), signing, hashlib.sha256).hexdigest()
@@ -73,11 +98,19 @@ def signature_for(timestamp: str, path: str, body: str, secret: str) -> str:
 def _verify(request) -> tuple[bool, str]:
     """校验时间戳与签名。
 
-    Args:
+    参数说明:
         request: Django 请求对象。
 
-    Returns:
-        ``(是否通过, 失败原因)``。
+    返回参数:
+        ``(是否通过, 失败原因)``;通过时失败原因为空串。
+
+    使用示例:
+        ``ok, reason = _verify(request)``
+
+    备注信息:
+        判定顺序是「密钥未配 → 缺头 → 时间戳非法 → 时间戳过期 → 签名不符」,
+        失败即短路;比较用 ``hmac.compare_digest`` 做定时安全比较;
+        重放窗口取 ``settings.PUSH_INTERNAL_MAX_SKEW``(默认 300 秒)。
     """
     secret = getattr(settings, "IM_SELF_INTERNAL_SECRET", "")
     if not secret:
@@ -102,11 +135,19 @@ def _verify(request) -> tuple[bool, str]:
 def _parse(body: str) -> tuple[dict | None, str]:
     """解析并校验事件字段。
 
-    Args:
+    参数说明:
         body: 原始 JSON 字符串。
 
-    Returns:
+    返回参数:
         ``(事件字典, 失败原因)``;失败时字典为 ``None``。
+
+    使用示例:
+        ``payload, reason = _parse(request.body.decode())``
+
+    备注信息:
+        必填 ``to_user_id`` / ``from_user_id``(正整数)与 ``msg_id``;收发双方相同、
+        账号 id 非正数(系统消息)一律拒;``from_nickname`` 截到 ``MAX_NICKNAME``、
+        ``preview`` 截到 ``MAX_PREVIEW``、``msg_id`` 截到 64 字符,多余部分丢弃不报错。
     """
     try:
         data = json.loads(body)
@@ -140,11 +181,20 @@ def _parse(body: str) -> tuple[dict | None, str]:
 def new_message(request):
     """接收 imserver 的「离线新消息」事件并入队推送(POST /internal/push/new-message)。
 
-    Args:
+    参数说明:
         request: Django 请求对象(JSON body 见 ``docs/ops/push.md``)。
 
-    Returns:
+    返回参数:
         202 表示已入队;401 验签失败;400 字段不合法;405 方法不对。
+
+    使用示例:
+        ``curl -X POST http://127.0.0.1:8000/internal/push/new-message -H
+        "X-IM-Timestamp: ..." -H "X-IM-Signature: ..." -d '{...}'``
+
+    备注信息:
+        走 ``csrf_exempt``(调用方是服务器,没有 Cookie)与 ``require_POST``(其他方法
+        由 Django 直接 405);本视图**不做任何第三方网络调用**,只验签 + 入队,
+        真正的发送与偏好过滤在 ``notifications.tasks.send_message_push`` 里。
     """
     ok, reason = _verify(request)
     if not ok:
