@@ -433,13 +433,15 @@ nginx 的三条硬要求与两个易错点:
 | 文档 | 内容 |
 |---|---|
 | [`docs/api/`](docs/api/README.md) | 对外交付级接口文档:15 份分册 + `README.md` 索引 / 70 个操作 + `openapi.yml` 机器可读契约 |
-| [`docs/ops/`](docs/ops/) | 运维与容量:发版与 Release 清单、imserver 协议、runbook、容量与可靠性、压测与基线报告、通知与推送通道契约 |
+| [`docs/ops/`](docs/ops/README.md) | 运维手册(常驻):发版与 Release 清单、imserver 协议、runbook、容量与可靠性、可观测性、证书、nginx 基线、superagent |
+| [`docs/reports/`](docs/reports/README.md) | 一次性测量报告:压测、读/写基线、规模、削峰、缓存收益(只增不改,引用必带日期) |
 | [`docs/pitfalls/`](docs/pitfalls/README.md) | 踩坑手册,按 IM / 前端 / 后端 / 测试 / 网页端 / 模拟器分册 |
+| [`docs/learning/`](docs/learning/README.md) | 后端通读教学材料:总纲 + P00–P14 逐批指导书 |
 | [`docs/milestones.md`](docs/milestones.md) | 里程碑时间线(每次交付的改动、PR 号与上线 SHA) |
-| [`docs/superpowers/`](docs/superpowers/README.md) | 设计 spec 与实施计划:`specs/` 5 份(4 组已登记),已交付 105 份归档于 `archive/` |
+| [`docs/superpowers/`](docs/superpowers/README.md) | 设计 spec 与实施计划:`specs/` 5 份(5 组均已登记),已交付 105 份归档于 `archive/` |
 | [`docs/backlog/2026-11-03-todo.md`](docs/backlog/2026-11-03-todo.md) | 待办总表:A–E 五批已闭环,剩余未闭环项见 §7 |
-| [`docs/reviews/`](docs/reviews/2026-11-03-fullstack-review.md) · [`docs/security/`](docs/security/) | 全栈工程审查与四轮安全审计报告 |
-| [`docs/standards/python.md`](docs/standards/python.md) | Python 注释规范(由 `CommentCoverageTests` 强制) |
+| [`docs/reviews/`](docs/reviews/2026-11-03-fullstack-review.md) · [`docs/security/`](docs/security/README.md) | 全栈工程审查与安全审计报告(轮次以目录为准) |
+| [`docs/standards/`](docs/standards/README.md) | 编码规范:Python 注释规范(由 `CommentCoverageTests` 强制)等,每份分册配一个门禁 |
 | [`CLAUDE.md`](CLAUDE.md) | 工程约束、契约与纪律的单一事实来源 |
 
 ---

@@ -188,7 +188,7 @@ Django session 签名同样失效。
 
 **问题**：只要请求头里带 `X-Real-IP`，就无条件采信，不检查直连对端是否为可信代理。
 当前安全性完全依赖 nginx 的 `proxy_set_header X-Real-IP $remote_addr;`
-——而 `docs/ops/nginx-security.conf` 的 `/admin/`、`/ops/` 两个 location 依赖
+——而 `docs/ops/nginx-security.md` 的 `/admin/`、`/ops/` 两个 location 依赖
 `include .../proxy/<DOMAIN>.conf`，**没有显式写这一行**。若该 include 未覆盖此头
 （或未来有人删掉 include），后台 IP 白名单即可用伪造头绕过。
 

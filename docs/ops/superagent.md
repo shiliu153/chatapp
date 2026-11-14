@@ -468,14 +468,14 @@ github:139: Error: Get "https://api.github.com/repos/shiliu153/chatapp/pulls/139
   `TLS handshake timeout` / `proxyconnect` / `no such host` / `GOAWAY` / `stream error` …):
   404 / 410 / 403 / 500 这些 HTTP 应答原样上抛,`failuresBeforeError` 的判定语义不变。
 
-补丁全文(含 2 条新用例):[`docs/ops/patches/2026-11-09-dsh-superagent-github-poll-retry.patch`](patches/2026-11-09-dsh-superagent-github-poll-retry.patch)。
+补丁全文(含 2 条新用例):[`scripts/patches/2026-11-09-dsh-superagent-github-poll-retry.patch`](../../scripts/patches/2026-11-09-dsh-superagent-github-poll-retry.patch)。
 
 **应用 / 升级后重打**(`lib/` 才是运行产物,不重建等于没打)。补丁文件住在仓库里,
 母体要先 `git -C /root/src/chatapp pull --ff-only` 拿到它;临时也放了一份在 `/root/dsh-superagent/.local-patches/`:
 
 ```bash
 cd /root/dsh-superagent
-git apply --3way /root/src/chatapp/docs/ops/patches/2026-11-09-dsh-superagent-github-poll-retry.patch
+git apply --3way /root/src/chatapp/scripts/patches/2026-11-09-dsh-superagent-github-poll-retry.patch
 export PATH=/usr/local/bin:$PATH
 npx vitest run tests/commands.spec.ts   # 21 passed
 npx tsc --noEmit && npx tsdown

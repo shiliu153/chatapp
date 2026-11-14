@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "machine": "阿里云轻量 2 vCPU / 1870MB RAM / 1024MB swap",
-  "source": "读点:docs/ops/read-baseline-2026-11-04.md(2026-11-04 实测);写点:docs/ops/write-baseline-2026-11-03.md(2026-11-03 实测);WS:docs/ops/stress-test-2026-11-01.md + read-baseline-2026-11-04.md",
+  "source": "读点:docs/reports/read-baseline-2026-11-04.md(2026-11-04 实测);写点:docs/reports/write-baseline-2026-11-03.md(2026-11-03 实测);WS:docs/reports/stress-test-2026-11-01.md + read-baseline-2026-11-04.md",
   "note": "判读口径:只用 100 并发档判回归(三次重复 446–496 rps,±5%);20 并发档单次噪声 ±15–30%,拿它比「RPS −20%」会误报。读点已从 11-01 的 608 换成 11-04 的 476 —— 差的 22% 不是容器内存(停掉观测栈只 +3.6%),而是 Django 每请求 CPU(2.7ms)+ 2 核 GIL 天花板(同机裸 WSGI 能跑 2626 rps)。写点仍是 11-03 的,本轮没重测。",
   "points": [
     {"scenario": "api_read", "conns": 20, "rps": 400.0, "p50_ms": 42.4, "p95_ms": 102.9, "p99_ms": 141.1, "error_rate": 0, "measured_at": "2026-11-04", "note": "三次 347/400/414 的中位;该档噪声最大,不建议用于回归判定"},

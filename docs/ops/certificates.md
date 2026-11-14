@@ -86,7 +86,7 @@ echo | openssl s_client -connect 127.0.0.1:443 -servername <域名> 2>/dev/null 
    真正跑的 `acme_v2.py --renew_v2=1` 遍历 `sites` 表，而本机 `sites` 为空（站点全是手写 vhost），
    所以它一张都不续。不要在面板 SSL 页点"续签"，会和 certbot 互相覆盖。
 2. **`--quiet` 让失败静默**：certbot 出错只写 `letsencrypt.log`，没人看就等于没有告警。
-   已补巡检：`/root/check_ssl_expiry.sh`（源码 [check_ssl_expiry.sh](check_ssl_expiry.sh)），
+   已补巡检：`/root/check_ssl_expiry.sh`（源码 [scripts/ops/check_ssl_expiry.sh](../../scripts/ops/check_ssl_expiry.sh)），
    root cron 每天 `0 8 * * *` 跑一次，扫五张磁盘证书 + 线上实际下发证书，剩余 < 20 天写
    `WARN` 到 `/var/log/ssl-expiry.log` 并以非零退出。
 3. **App 证书绑定只信 ISRG Root X1/X2**（Let's Encrypt）：换 CA 前必须先发新版 App，否则全量连不上。

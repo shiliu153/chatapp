@@ -20,27 +20,27 @@
 
 | 维度 | 指标 | 结果 | 环境 | 证据 |
 |---|---|---|---|---|
-| HTTP 容量 | 稳定吞吐(极简读接口) | **476 rps @100 并发**(三次 446–496),0 个 5xx | 2C2G | [read-baseline-2026-11-04](read-baseline-2026-11-04.md) §2 |
+| HTTP 容量 | 稳定吞吐(极简读接口) | **476 rps @100 并发**(三次 446–496),0 个 5xx | 2C2G | [read-baseline-2026-11-04](../reports/read-baseline-2026-11-04.md) §2 |
 | HTTP 天花板归因 | 同机裸 WSGI vs Django | **2626 → 478 rps(5.5×)**;每请求 Django 2.7ms(裸 0.9ms) | 2C2G | 同上 §3.3 |
 | HTTP 延迟 | 20 并发 → 400 并发 | p99 **152ms → 5.5s**(线性排队,不崩) | 2C2G | 同上 §2 |
-| **写容量** | `POST /discovery/swipe` 20→200 并发 | 饱和 **~40 rps**(33.4→39.2),p50 552ms→4922ms,**0 个 5xx/429** | 2C2G | [write-baseline](write-baseline-2026-11-03.md) §2 |
+| **写容量** | `POST /discovery/swipe` 20→200 并发 | 饱和 **~40 rps**(33.4→39.2),p50 552ms→4922ms,**0 个 5xx/429** | 2C2G | [write-baseline](../reports/write-baseline-2026-11-03.md) §2 |
 | **上传容量** | `POST /im/images`(multipart,400×400) | **26 rps**(成功 523/20s),p50 522ms;p99 4.1s 是整机抖动 | 2C2G | read-baseline §5.1 |
 | **鉴权读** | `GET /users/me` / `GET /discovery/candidates` @20 并发 | **52** / **28.5 rps**(后者 p50 624ms、p99 2.35s) | 2C2G | read-baseline §4 |
 | **读基线漂移** | `GET /app/config` @100 并发,11-01 vs 11-04 | **608 → 476 rps(−22%)**;停观测栈只 +3.6%(不是容器) | 2C2G | read-baseline §3 |
 | **候选池冷/热** | 2 万资料完善账号 | 冷 **115ms**(全表扫+4 反连接+排序)/ 热 0.95ms;热视图仍 20.5ms/4 查询 | 2C2G | read-baseline §4 |
-| **候选池缓存收益** | `GET /discovery/candidates`,开/关缓存同负载对比(2 万资料) | 命中率 **97.8%**;吞吐 **14.6 → 5.4 rps(−63%)**、p50 **41.6ms → 1199ms(×29)**;池查询 **171ms** 整段省掉,但**语句数只省 12%** | 2C2G | §3.4 + [cache-win](cache-win-2026-11-05.md) |
+| **候选池缓存收益** | `GET /discovery/candidates`,开/关缓存同负载对比(2 万资料) | 命中率 **97.8%**;吞吐 **14.6 → 5.4 rps(−63%)**、p50 **41.6ms → 1199ms(×29)**;池查询 **171ms** 整段省掉,但**语句数只省 12%** | 2C2G | §3.4 + [cache-win](../reports/cache-win-2026-11-05.md) |
 | **0→1000 突发** | 瞬间 1000 并发 vs 30s 爬坡 | 366 / 377 rps,p99 **6.4s / 4.5s**,丢连接 0.16% / 0.10%,**0 个 5xx** | 2C2G | read-baseline §5.4 |
 | WS 容量 | 1000 连接 / 2000 条消息 | **0 失败**,RSS ~50MB | 2C2G | stress-test §2.2 |
 | **WS 重连风暴** | 重启 imserver,1000 客户端无退避重连 | **1000/1000 恢复**,p50 **1.67s**、max 1.88s | 2C2G | read-baseline §5.3 |
-| IM 吞吐 | 热会话 | **215 msg/s**;单机天花板 200–250 | 2C2G | [imserver-throughput](imserver-throughput.md) |
+| IM 吞吐 | 热会话 | **215 msg/s**;单机天花板 200–250 | 2C2G | [imserver-throughput](../reports/imserver-throughput.md) |
 | IM 延迟 | 稳态 50 msg/s | ack **p99 93ms** | 2C2G | 同上 |
 | 故障恢复 | gunicorn / imserver / MySQL | **<1s / 3.2s / 2.6s** | 2C2G | stress §3 |
 | 全栈崩溃 | 三个一起 `kill -9` | **111s**(其中 MySQL 靠人工) | 2C2G | stress §3.5 |
 | 冷启动死锁 | 500 对全新配对并发首发 | **819/1000 失败 → 0 失败** | 容器 | [bench_cold_start](../../imserver/scripts/bench_cold_start.py) |
-| 广场列表 | 10.5 万条动态,offset 0 | **3354ms → 77ms(43×)** | 开发机 | [scale-report](scale-report.md) §3 |
+| 广场列表 | 10.5 万条动态,offset 0 | **3354ms → 77ms(43×)** | 开发机 | [scale-report](../reports/scale-report.md) §3 |
 | 广场列表 | offset 50000 | 3521ms → **163ms** | 开发机 | 同上 |
 | 候选池 | 2 万资料完善账号 | **12–22ms**(走 shuffle_key 索引) | 开发机 | 同上 §5 |
-| 削峰 | 500 条通知突发 | p50 **227.9ms → 24.1ms**,p99 271→178.6 | 容器 | [peak-shaving](peak-shaving.md) §2 |
+| 削峰 | 500 条通知突发 | p50 **227.9ms → 24.1ms**,p99 271→178.6 | 容器 | [peak-shaving](../reports/peak-shaving.md) §2 |
 | 可观测 | 告警规则 / 看板 | **17 条规则**(E-4 后),12 面板,抓取 15s | — | [observability](observability.md) |
 | 查询质量 | 候选池冷/热请求 SQL 条数 | 16 / 7(有门禁,涨了就红) | 测试 | `config/test_query_budget.py` |
 | 测试规模 | 后端 / imserver | **679** / **61**(42 unit + 19 db) | — | — |
@@ -117,7 +117,7 @@
    同一吞吐下换算:14.6 rps 时缓存开是 105.8 qps,关掉约 120 qps(**+13%**),
    但那 120 qps 里有 14.6×171ms ≈ **2.5 秒/秒** 的 DB 忙等,2 核根本撑不住。
 
-> 细节与环境见 [cache-win-2026-11-05.md](cache-win-2026-11-05.md)(含复现命令、关缓存的开关、
+> 细节与环境见 [cache-win-2026-11-05.md](../reports/cache-win-2026-11-05.md)(含复现命令、关缓存的开关、
 > 以及「同机压测器也要吃 CPU」这条口径提醒)。
 
 ## 4. 简历口径(可直接用)

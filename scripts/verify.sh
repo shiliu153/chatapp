@@ -185,6 +185,10 @@ stack_contract() {
   run "L4 入队判定器自测" "$PY" -m unittest scripts.test_l4_intake
   # 文档断链检测:L4「机械一致性」信号唯一的实现,坏了没人当场知道。
   run "文档断链检测自测" "$PY" -m unittest scripts.test_check_docs_links
+  # docs_lint:docs/ 只放文档 + 断链 + 索引覆盖。自测钉住判定器本身(漏报/误报两个方向),
+  # 真跑钉住当前仓库(在此之前,把脚本塞回 docs/ 或写坏链接都不会让任何门禁红)。
+  run "docs_lint 自测" "$PY" -m unittest scripts.test_docs_lint
+  run "docs/ 结构 + 断链 + 索引覆盖" "$PY" "$ROOT/scripts/docs_lint.py"
   # worker 巡检器:它判错的两个方向都不能静默 —— 把正常报成异常(告警被当噪音关掉)、
   # 把异常报成正常(给人虚假的安全感)。纯离线,构造快照跑。
   run "worker 巡检器自测" "$PY" -m unittest scripts.test_superagent_health
