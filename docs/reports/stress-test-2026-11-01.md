@@ -23,8 +23,8 @@
 
 - 机器:2 vCPU / 1870MB RAM / 1024MB swap（压测前已用 678MB），负载 0。
 - 组件:nginx(80/443) → gunicorn `-w 2 --threads 4`(127.0.0.1:8000)；imserver 容器(host 网络，9100/9101)；mysqld 由 `mysqld_safe` 托管；Redis。
-- 采样:服务器上每 2s 记录 load/内存/swap/TCP 连接/各进程 RSS；混沌期间另起 0.5s 粒度的健康探针（`docs/ops/stress/chaos_watch.sh`）。
-- 压测器（全部放在 `docs/ops/stress/`，可直接复用）:
+- 采样:服务器上每 2s 记录 load/内存/swap/TCP 连接/各进程 RSS；混沌期间另起 0.5s 粒度的健康探针（`scripts/stress/chaos_watch.sh`）。
+- 压测器（全部放在 `scripts/stress/`，可直接复用）:
   - `http_load.py`（公网侧，httpx）——**只用来验证公网表现，不代表服务器容量**：本机出口先饱和，conc=400 时 p50 4.1s、RPS 反降到 72，但服务器 0 个 5xx。
   - `srv_load.py`（服务器内网侧，纯 asyncio）——真实容量。
   - `imserver/scripts/bench_ws.py`（仓库自带，伪造 `X-Real-IP` 模拟多客户端）。
@@ -148,8 +148,8 @@ DB 不可达时 imserver 直接 `fatal: mysql connect failed` 退出，Docker �
 ## 7. 复现方式
 
 ```bash
-# 容量（脚本都在 docs/ops/stress/）
-scp docs/ops/stress/srv_load.py root@<IP>:/root/
+# 容量（脚本都在 scripts/stress/）
+scp scripts/stress/srv_load.py root@<IP>:/root/
 ssh root@<IP> '/www/wwwroot/chatapp-venv/bin/python /root/srv_load.py --port 8000 --conns 200 --dur 20'
 
 # 单点打崩
@@ -159,7 +159,7 @@ ssh root@<IP> 'kill -9 $(pgrep -x mysqld)'                                   # �
 ssh root@<IP> 'kill -9 $(pgrep -x mysqld) $(pgrep -f "^/bin/sh /www/server/mysql/bin/mysqld_safe")'  # 双杀=永久宕机
 
 # 全栈
-scp docs/ops/stress/fullstack.sh root@<IP>:/tmp/ && ssh root@<IP> 'bash /tmp/fullstack.sh'
+scp scripts/stress/fullstack.sh root@<IP>:/tmp/ && ssh root@<IP> 'bash /tmp/fullstack.sh'
 ```
 
 > **踩过的坑**:`pkill -f <pattern>` 会匹配到 ssh 自己的命令行（因为命令串里就含这个 pattern），把会话一起杀掉。要么用 `pgrep -x`，要么用 `^` 锚定完整路径。

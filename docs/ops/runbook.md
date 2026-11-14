@@ -1,6 +1,6 @@
 # 运维手册:告警处置与故障恢复
 
-> 配套:`docs/ops/stress-test-2026-11-01.md`(自愈矩阵实测)、`docs/ops/imserver.md`(部署与探针)。
+> 配套:`docs/reports/stress-test-2026-11-01.md`(自愈矩阵实测)、`docs/ops/imserver.md`(部署与探针)。
 > 目标:任何一条告警都能在 1 分钟内定位到「看哪块板 → 做什么」。
 
 ## 1. 探针与告警通道
@@ -153,7 +153,7 @@ Alertmanager 告警与 `notify` 邮件记录,最后在 `$OUT_DIR/summary.txt` �
 | `ExporterDown` | `docker compose ps` + `systemctl status chatapp-celery-exporter` | 容器挂了 / 端口冲突 | 指标盲区优先修,不然下一次故障没人知道 |
 | API 5xx >1% | gunicorn 日志 + `request_id` | DB 宕机、代码异常 | 用 `request_id` 在日志里定位单条请求;未预期异常现在返回 JSON 500 并带堆栈 |
 | API p99 >500ms | MySQL 慢查询、连接数 | 慢 SQL、连接池打满 | `SHOW FULL PROCESSLIST`;必要时限流 |
-| Celery 积压 / 失败 | `celery_queue_depth` 面板 + worker 日志 | worker 挂了 / 限速过低 / imserver 不可达 | 重启 worker;队列分级与限速见 [peak-shaving.md](peak-shaving.md) |
+| Celery 积压 / 失败 | `celery_queue_depth` 面板 + worker 日志 | worker 挂了 / 限速过低 / imserver 不可达 | 重启 worker;队列分级与限速见 [peak-shaving.md](../reports/peak-shaving.md) |
 | 磁盘 >85% | `du -sh /www/wwwroot/*` | 聊天图片/语音堆积 | `python manage.py media_cleanup --apply`;检查 30 天清理任务 |
 | 内存不足 | `free -m`、`ps aux --sort=-rss` | 压测进程、日志未轮转 | 杀掉压测进程;检查 logrotate |
 

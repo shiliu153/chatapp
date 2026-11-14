@@ -195,7 +195,7 @@ def candidate_pool_ids(me, preference, pool_size: int,
     """候选池(带缓存):同一用户在同一版本内复用同一份 id 列表。
 
     缓存键 ``disc:cand:{uid}:u{ver}:g{ver}:p{size}`` 是候选接口唯一省掉那次重查询的
-    机制(实测命中率 97.8%,见 docs/ops/cache-win-2026-11-05.md)。因此:
+    机制(实测命中率 97.8%,见 docs/reports/cache-win-2026-11-05.md)。因此:
 
     - **筛选全空时键一字不改** —— 默认路径仍命中改动前那份缓存,不因本次改动
       多切一个分桶;

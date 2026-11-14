@@ -1,7 +1,7 @@
 # 双机负载均衡 vs 只升配:决策记录(2026-11-04)
 
 > 对应 backlog **D-3**。输入:[双机负载均衡设计 v2](../superpowers/archive/specs/2026-10-28-dual-server-load-balancing-design.md)
-> (只有设计、无实施计划)+ [D-2 容量归因](read-baseline-2026-11-04.md)(2026-11-04 实测)。
+> (只有设计、无实施计划)+ [D-2 容量归因](../reports/read-baseline-2026-11-04.md)(2026-11-04 实测)。
 > **本文只做决策,不含实施计划;拍板后才写 plan。**
 
 ## 0. 结论(推荐)
@@ -94,7 +94,7 @@ D-2 顺带发现的两条,都在「不花钱」这一侧:
 真要把读吞吐拉上去,只有 §1 的 S1(升配)或砍 Django 每请求开销。
 
 验证方式:`/metrics` 的 `cache_misses_total{name="candidates"}` 差值(比端到端 p50 直接),
-结果见 [read-baseline-2026-11-04.md](read-baseline-2026-11-04.md) §8。
+结果见 [read-baseline-2026-11-04.md](../reports/read-baseline-2026-11-04.md) §8。
 
 ## 7. 待你拍板
 

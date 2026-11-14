@@ -71,9 +71,9 @@
 
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
-| 文档目录结构规则(`docs/` 只放文档) | 第 2 节 `scripts/docs_lint.py` + 第 6 节 `docs/standards/writing.md` | 机械:`python scripts/docs_lint.py`(待建) | 待建(当前违规 10 个:`docs/` 下非 md 共 11 个,只有 `openapi.yml` 合规,见 §4 C10) |
-| 文档索引与**全部计数** | 第 3 节 `docs/README.md`(**生成物**) | 机械:`python scripts/docs_index.py --check`(待建) | 待建(当前 `README.md` §9 手写,见 §4 C1–C3) |
-| 相对链接是否断 | [`scripts/check_docs_links.py`](../../scripts/check_docs_links.py) | 机械:`python scripts/check_docs_links.py`(**当前只在 L4 定时轨与自测里跑,PR 上不跑**) | 已落地,未进 PR 轨(第 2 节) |
+| 文档目录结构规则(`docs/` 只放文档) | [`scripts/docs_lint.py`](../../scripts/docs_lint.py) + 第 6 节 `docs/standards/writing.md` | 机械:`python scripts/docs_lint.py`(`contract` 轨 + `verify.sh contract` 双份登记,第 4 节统一) | **已落地**(2026-11-14 第 2 节):`docs/` 下非 md 只剩 `openapi.yml` 1 个,合规 |
+| 文档索引与**全部计数** | 第 3 节 `docs/README.md`(**生成物**) | 机械:`python scripts/docs_index.py --check`(待建) | 待建(当前 `README.md` §9 手写,见 §4 C1–C3);**索引覆盖**已由 `docs_lint` 机械判定(2026-11-14 第 2 节) |
+| 相对链接是否断 | [`scripts/check_docs_links.py`](../../scripts/check_docs_links.py) | 机械:`python scripts/check_docs_links.py`;PR 上由 `python scripts/docs_lint.py` **真跑**(`contract` 轨) | **已落地**(2026-11-14 第 2 节起进 PR 轨;此前只有 L4 定时轨与自测) |
 | 工作面 / 归档清单 | [`docs/superpowers/README.md` §2/§4](../superpowers/README.md) | 人工:**每次交付归档时**同步;第 3 节改生成 | 已落地(手写,已漂移,见 §4 C2) |
 | 安全审计轮次与结论 | [`docs/security/`](../security)(目录即事实,**只增不改**) | 人工:**每轮审计结束后**核对 `Get-ChildItem docs/security` | 已落地(`CLAUDE.md` 导航表仍写「三轮」,见 §4 C3) |
 | 待办总表 | [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md) | 人工:**每次交付后**勾销 / 追加 | 已落地 |
@@ -105,7 +105,7 @@
 
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
-| 脚本放在哪(唯一家) | 第 2 节:`scripts/`(域内子目录) | 机械:`docs_lint`「`docs/` 下不得有脚本 / 补丁 / 配置」 | 待建(当前 7 处家,见 §4 C7) |
+| 脚本放在哪(唯一家) | `scripts/`(域内子目录) | 机械:`python scripts/docs_lint.py` 的 structure 规则(`docs/` 下不得有脚本 / 补丁 / 配置) | **部分落地**(2026-11-14 第 2 节):`docs/` 侧已清零(7 个压测脚本 → `scripts/stress/`、补丁 → `scripts/patches/`、证书巡检 → `scripts/ops/`);`tools/` `perf/` `imserver/scripts/` 的归属取决于 §7 **D2** 拍板(保守档不搬目录) |
 | 仓库名(`owner/name`) | 第 5 节 `scripts/lib/repo.py` | 机械:`git grep 'DEFAULT_REPO =' -- 'scripts/*.py'` 命中 = 1 | 待建(当前 4 处,见 §4 C7) |
 | 「生成物 == HEAD」的比对语义(忽略行尾) | 第 5 节 `scripts/lib/artifacts.py` | 机械:该 lib 的单测 | 待建(当前仅 `verify.sh::check_artifact` 的 shell 实现) |
 
@@ -174,15 +174,15 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | # | 冲突 | 证据 | 裁决(谁说了算) | 修复归属 |
 |---|---|---|---|---|
 | **C1** | 接口 / 分册数量五处不一致 | README §9「14 分册 / 54 操作」、README 徽章「51 operations」、README 英文摘要「13 volumes, 51 operations」、`docs/api/README.md`「63 个接口」「53 paths / 63 operations」;实际 15 分册 / 58 paths / 70 operations;其「接口一览」表只有 68 行(缺 `users/me/voice` 两个) | **`openapi.yml` 说了算**。所有计数都是它的派生量,**禁止手写** | **本次**修 5 处手写数字(README §9 / 徽章 / 英文摘要 / `docs/api/README.md` 两处)+ 补齐派生表缺失的 2 行;第 3 节把该表改为生成 |
-| **C2** | `docs/superpowers/` 工作面与归档计数过期 | README §9「工作面 1 份 / 归档 85 份」;实际 5 份 spec(README §2 只登记 4 组)+ 105 归档;`2026-11-13-aws-*.md` 不在任何索引 | **目录说了算**(`specs/` 即工作面)。计数由 `docs_index` 生成 | **本次**修 README §9 为「`specs/` 5 份(4 组已登记)/ 105 归档」;第 3 节生成;aws spec 补登记在第 3 节 |
-| **C3** | 安全审计轮次:三 vs 四 | 复核时 README §9 与 `CLAUDE.md` 导航表都写「三轮」;`docs/security/` 实有 4 份 | **`docs/security/` 目录说了算** = 四轮 | **本次**修 README §9;`CLAUDE.md` 导航表留给第 6 节(见 §7) |
-| **C4** | 术语「六轨」与事实脱钩 | 19 次 / 12 个文件(非归档 9 个文件 10 次);workflows 实有 10 个 | **废止该词**。改说「workflow(当前 10 个)」或直接点名轨;由 `docs_lint` 术语规则拦截 | 第 2 节(术语 lint 一并清理 19 处) |
-| **C5** | `verify.sh` 自称「CI 的镜像」但两边门禁集不同 | 本地 11 条 / CI 15 条;CI 独有 5 条,本地独有 1 条 | **迁移期**:CI 为执行事实源,`verify.sh` 为镜像;第 4 节后 `gates.toml` 说了算 | 第 4 节(`gates.toml` + `run_gates.py`) |
+| **C2** | `docs/superpowers/` 工作面与归档计数过期 | README §9「工作面 1 份 / 归档 85 份」;实际 5 份 spec(README §2 只登记 4 组)+ 105 归档;`2026-11-13-aws-*.md` 不在任何索引 | **目录说了算**(`specs/` 即工作面)。计数由 `docs_index` 生成 | **本次**修 README §9 为「`specs/` 5 份(5 组均已登记)/ 105 归档」;aws spec 的登记**提前到第 2 节**(索引覆盖规则一开就必须先登记,否则 `docs_lint` 自己红);第 3 节改生成 |
+| **C3** | 安全审计轮次:三 vs 四 | 复核时 README §9 与 `CLAUDE.md` 导航表都写「三轮」;`docs/security/` 实有 4 份 | **`docs/security/` 目录说了算** = 四轮 | **本次**修 README §9(第 2 节进一步改成「轮次以目录为准」,不再手写数字,并新增 `docs/security/README.md` 索引);`CLAUDE.md` 导航表留给第 6 节(见 §7) |
+| **C4** | 术语「六轨」与事实脱钩 | 19 次 / 12 个文件(非归档 9 个文件 10 次);workflows 实有 10 个 | **废止该词**。改说「workflow(当前 10 个)」或直接点名轨;由 `docs_lint` 术语规则拦截 | **改判到第 6 节**(2026-11-14 第 2 节决定):清理 19 处属**术语 lint 规则**的落地,与 `writing.md` 同批做才有防回归手段;第 2 节只做结构与索引。归档里的 3 处按 §6 红线不改 |
+| **C5** | `verify.sh` 自称「CI 的镜像」但两边门禁集不同 | 复核时本地 **11** 条 / CI **15** 条;CI 独有 5 条,本地独有 1 条。2026-11-14 第 2 节两边各加 2 条(`docs_lint` 自测 + 真跑),现为 **13 / 17**,**差额仍是 4** | **迁移期**:CI 为执行事实源,`verify.sh` 为镜像;第 4 节后 `gates.toml` 说了算 | 第 4 节(`gates.toml` + `run_gates.py`) |
 | **C6** | 「改什么 → 跑什么」表维护两份 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 各一张,内容近乎重复 | **`AGENTS.md` §三 说了算**;`CONTRIBUTING.md` 收成指针 | 第 6 节 |
-| **C7** | 脚本有 7 处家 + 常量重复 | `scripts/`(52 含子目录)/ `tools/` 3 / `perf/` 2 / `deploy/observability/` 2 / `imserver/scripts/` 9 / `docs/ops/stress/` 7 / `docs/ops/check_ssl_expiry.sh`;`DEFAULT_REPO` 4 处 | **`scripts/` 是唯一家**(域内子目录);`DEFAULT_REPO` 等常量收敛到 `scripts/lib/` | 第 2 节(搬迁)+ 第 5 节(常量) |
+| **C7** | 脚本有 7 处家 + 常量重复 | `scripts/`(52 含子目录)/ `tools/` 3 / `perf/` 2 / `deploy/observability/` 2 / `imserver/scripts/` 9 / `docs/ops/stress/` 7 / `docs/ops/check_ssl_expiry.sh`;`DEFAULT_REPO` 4 处 | **`scripts/` 是唯一家**(域内子目录);`DEFAULT_REPO` 等常量收敛到 `scripts/lib/` | **部分落地**(2026-11-14 第 2 节):7 处 → **5 处**,`docs/` 侧清零(压测脚本 → `scripts/stress/`、补丁 → `scripts/patches/`、证书巡检 → `scripts/ops/`)。**剩余**:`tools/` `perf/` `imserver/scripts/` 的归属取决于 §7 **D2**(保守档不搬目录);常量 4 处 → 第 5 节 |
 | **C8** | 发版记录 = 用 Markdown 表格当数据库 | `sync_version.py::read_release_record` 解析 `release.md` §5 表头「版本 / tag」;改一次表格格式就可能误红 | **D1-B 已拍板**:`docs/releases.yml` 说了算,`release.md` §5 改为渲染 | 第 5 节 |
 | **C9** | 生成物比对语义只有 shell 一份 | `check_artifact` 只在 `verify.sh`;Python 脚本无法复用 | 抽成 `scripts/lib/artifacts.py` | 第 5 节 |
-| **C10** | `docs/` 下 10 个非文档文件 | 1 patch + 7 压测脚本 + `check_ssl_expiry.sh` + `nginx-security.conf`(spec §2.4 漏了后两个) | **`docs/` 只放 `.md` / `.yml` / `.json` / 图片**;脚本进 `scripts/` | 第 2 节(`check_ssl_expiry.sh` 的去向在节内定) |
+| **C10** | `docs/` 下 10 个非文档文件 | 1 patch + 7 压测脚本 + `check_ssl_expiry.sh` + `nginx-security.conf`(spec §2.4 漏了后两个) | **`docs/` 只放 `.md` / `.yml` / `.json` / 图片**;脚本进 `scripts/` | **已落地**(2026-11-14 第 2 节):非 md 从 11 个降到 **1 个**(`docs/api/openapi.yml`,合规);`nginx-security.conf` 经核实**本身就是 Markdown**,改名为 `docs/ops/nginx-security.md`。机械判定:`python scripts/docs_lint.py` |
 | **C11** | `errors.md` 自称「业务码总表」但缺 2 个码 | `error_codes.py` 有 13 个码,`errors.md` 总表只列 11;`40301` / `50302` 只在 `auth.md` / `im.md` 的分册表里 | **`error_codes.py` 说了算**;`errors.md` 是渲染物,总表要么补全要么改名 | 第 6 节(评估生成或加门禁) |
 
 ---
@@ -214,16 +214,20 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 
 ## 7. 待修清单(登记,本次不改)
 
-| 项 | 归属节 |
-|---|---|
-| `docs/api/README.md` 的「接口一览」表仍是**手写派生索引**(本次补齐到 70 行,与 `openapi.yml` 逐条对齐) | 第 3 节(改为生成) |
-| `CLAUDE.md` 文档导航表「三轮报告」→ 四轮(C3 的另一处) | 第 6 节 |
-| 19 处「六轨」措辞(12 个文件,含 `verify.sh` / `contract.yml` 注释) | 第 2 节 |
-| `specs/2026-11-13-aws-distributed-deployment-design.md` 未进 `docs/superpowers/README.md` §2 | 第 3 节 |
-| `errors.md` 业务码总表与 `error_codes.py` 不同步(C11) | 第 6 节 |
-| 10 个非文档文件归位(C10) | 第 2 节 |
-| 本地 11 条 vs CI 15 条门禁(C5) | 第 4 节 |
-| `AGENTS.md` §三 与 `CONTRIBUTING.md` 重复的必跑表(C6) | 第 6 节 |
+> **2026-11-14 第 2 节收尾**:已勾掉 2 项(非文档文件归位、aws spec 登记),
+> 并把「六轨」措辞改判到第 6 节(C4 的裁决理由见 §4)。
+
+| 项 | 归属节 | 状态 |
+|---|---|---|
+| `docs/api/README.md` 的「接口一览」表仍是**手写派生索引**(第 1 节已补齐到 70 行,与 `openapi.yml` 逐条对齐) | 第 3 节(改为生成) | 待修 |
+| `CLAUDE.md` 文档导航表「三轮报告」→ 四轮(C3 的另一处) | 第 6 节 | 待修 |
+| 19 处「六轨」措辞(12 个文件,其中 9 个非归档;归档 3 处按 §6 红线不改) | 第 6 节(**原第 2 节,2026-11-14 改判**) | 待修 |
+| `errors.md` 业务码总表与 `error_codes.py` 不同步(C11) | 第 6 节 | 待修 |
+| 本地 13 条 vs CI 17 条门禁(C5;第 2 节两边各加 2 条,差额仍是 4) | 第 4 节 | 待修 |
+| `AGENTS.md` §三 与 `CONTRIBUTING.md` 重复的必跑表(C6) | 第 6 节 | 待修 |
+| `tools/` `perf/` `imserver/scripts/` 三处脚本家的归属(C7 剩余) | 第 5 节(取决于 D2 拍板) | 待修 |
+| ~~10 个非文档文件归位(C10)~~ | 第 2 节 | **已完成**(2026-11-14) |
+| ~~`specs/2026-11-13-aws-distributed-deployment-design.md` 未进 `docs/superpowers/README.md` §2~~ | 第 2 节(原第 3 节) | **已完成**(2026-11-14,索引覆盖规则需要) |
 
 ---
 

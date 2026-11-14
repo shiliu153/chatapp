@@ -1,7 +1,7 @@
 # nginx 安全基线(HTTPS + 安全头 + 后台白名单)
 
 > 用途：交友 App 切到 `https://chat.shiliu153.cn` 时使用。执行步骤、证书签发与回退见
-> [2026-10-28-chat-shiliu153-cn-https.md](../superpowers/plans/2026-10-28-chat-shiliu153-cn-https.md)。
+> [2026-10-28-chat-shiliu153-cn-https.md](../superpowers/archive/plans/2026-10-28-chat-shiliu153-cn-https.md)。
 > 占位符：`<DOMAIN>` 正式域名、`<SERVER_IP>` 服务器公网 IP、`<OPS_ALLOWED_IP>` 你的办公/家庭出口 IP。
 > 改完后：`nginx -t && nginx -s reload`，再按 `docs/security/2026-10-27-api-security-audit.md` 的验收项逐条验证。
 
@@ -162,11 +162,11 @@ cd chatapp && python manage.py check --deploy   # 无 W004/W008/W012/W016
 
 ## 4. 证书到期巡检
 
-`check_ssl_expiry.sh`（本目录）每天 08:00 由 root cron 跑一次，扫宝塔两个证书目录 + 线上实际下发的证书，
+`scripts/ops/check_ssl_expiry.sh` 每天 08:00 由 root cron 跑一次，扫宝塔两个证书目录 + 线上实际下发的证书，
 剩余天数 < 20 时写 `WARN` 到 `/var/log/ssl-expiry.log` 并以非零退出。
 
 ```bash
-scp docs/ops/check_ssl_expiry.sh root@<SERVER_IP>:/root/
+scp scripts/ops/check_ssl_expiry.sh root@<SERVER_IP>:/root/
 ssh root@<SERVER_IP> 'sed -i "s/\r$//" /root/check_ssl_expiry.sh && chmod 755 /root/check_ssl_expiry.sh'
 ssh root@<SERVER_IP> '( crontab -l | grep -v check_ssl_expiry.sh; echo "0 8 * * * /root/check_ssl_expiry.sh" ) | crontab -'
 ```

@@ -8,7 +8,7 @@
     3. 可信名单来自 ``settings.TRUSTED_PROXY_IPS``(默认回环,支持 CIDR)。
 
 关联文档:
-    - 部署:docs/ops/nginx-security.conf(反代必须覆盖 X-Real-IP / X-Forwarded-For)
+    - 部署:docs/ops/nginx-security.md(反代必须覆盖 X-Real-IP / X-Forwarded-For)
     - 安全审计:docs/security/2026-10-28-api-security-audit-round2.md M-3
 """
 

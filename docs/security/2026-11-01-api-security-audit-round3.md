@@ -270,7 +270,7 @@ imserver、db-init、以及未来新增的服务）都能直连 `web:8000` 并�
 `pids_limit` / `cap_drop` / `no-new-privileges`）。
 
 **问题**：Django/gunicorn、celery、imserver 均以 root 运行；所有服务没有内存上限。
-2026-11-01 压测已经实测 2C2G 上 MySQL 会被 OOM 杀掉（`docs/ops/stress-test-2026-11-01.md`），
+2026-11-01 压测已经实测 2C2G 上 MySQL 会被 OOM 杀掉（`docs/reports/stress-test-2026-11-01.md`），
 Compose 路径没有任何 `mem_limit` 来隔离「一个服务吃满内存拖垮整机」。
 
 **影响**：容器 RCE 后的影响面放大（可写挂载卷、可读环境变量）；OOM 时故障扩散。

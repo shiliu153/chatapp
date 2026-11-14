@@ -1,7 +1,7 @@
 # 可观测性:指标、看板与告警
 
 > 目标:回答「系统现在好不好」——不靠登录服务器 `curl readyz`,而是看板 + 推送告警。
-> 配套:[runbook.md](runbook.md)(告警处置)、[stress-test-2026-11-01.md](stress-test-2026-11-01.md)(容量基线)。
+> 配套:[runbook.md](runbook.md)(告警处置)、[stress-test-2026-11-01.md](../reports/stress-test-2026-11-01.md)(容量基线)。
 
 ## 1. 架构
 
@@ -294,7 +294,7 @@ App: FlutterError.onError / PlatformDispatcher.onError
 | IM ack | p99 < 200ms @ 稳态 50 msg/s | 2026-10-22 实测 93ms,有余量 |
 | IM 发送成功率 | >99.9% | `im_sends_total{result="failed"}` 占比 |
 
-> 这些数字来自 `docs/ops/stress-test-2026-11-01.md` 与 `docs/ops/imserver-throughput.md`,
+> 这些数字来自 `docs/reports/stress-test-2026-11-01.md` 与 `docs/reports/imserver-throughput.md`,
 > 改完缓存/削峰后需要重跑基线并回填(见整改方案 B 轨)。
 
 ## 6. 日志(可选 profile: logs)

@@ -71,14 +71,23 @@
 
 ### 2.4 文件放错了地方
 
-| 位置 | 内容 | 问题 |
-|---|---|---|
-| `docs/ops/patches/2026-11-09-dsh-superagent-github-poll-retry.patch` | 1 个 7KB 补丁 | 文档目录里躺着代码补丁 |
-| `docs/ops/stress/*.sh`、`*.py` | **7 个**压测/混沌脚本 | 脚本放在文档目录,而 `scripts/`、`tools/` 才是脚本目录 |
-| `docs/superpowers/archive/` | **空目录**(只有两个子目录) | 结构残骸 |
+> **本节证据的唯一 owner 是
+> [sources-of-truth.md §3](../../standards/sources-of-truth.md) 的第 14 / 15 / 17 / 24 条**
+> (复核命令、逐条结论都在那里,包括 spec 原文漏掉的 `check_ssl_expiry.sh` 与
+> `nginx-security.conf`)。这里**不再抄一份** —— 同一事实两处手写正是本方案要消灭的漂移。
+> 其中「`archive/` 是空目录」一条**复核不成立,已撤回**(递归 105 份 md)。
 
-脚本本身也有**三个家**:`scripts/`(29 个)、`tools/`(3 个)、`deploy/observability/*.py`,
-外加 `imserver/scripts/`。新脚本该放哪,没有规则可依。
+归位已在**第 2 节**完成(2026-11-14),`docs/` 下不再有脚本 / 补丁 / 配置样本:
+
+| 归位前位置 | 内容 | 归位后 | 依据 |
+|---|---|---|---|
+| `patches/` 子目录 | 1 个 7KB 补丁(dsh-superagent 轮询重试) | [`scripts/patches/`](../../../scripts/patches/) | 上游未修,补丁仍在用;`.gitattributes` 的 `*.patch` LF 规则按扩展名,不用改 |
+| `stress/` 子目录 | **7 个**压测/混沌脚本 | [`scripts/stress/`](../../../scripts/stress/) | 作为历史证据保留,新压测一律用 `perf/run.py` |
+| 证书巡检脚本 | `check_ssl_expiry.sh` | [`scripts/ops/`](../../../scripts/ops/) | 运维脚本,与 `docs/ops/certificates.md` 同域 |
+| nginx 基线 | `nginx-security.conf` | [`docs/ops/nginx-security.md`](../../ops/nginx-security.md) | **内容本来就是 Markdown**(标题 / 引用块 / 代码围栏),只是扩展名写错 |
+
+现状由机械判定,不靠人记:`python scripts/docs_lint.py` 的 structure 规则会拦住
+「又有非文档文件放回 `docs/`」。
 
 ### 2.5 同一条事实多处维护,已经分叉
 
@@ -174,11 +183,33 @@ scripts/
 
 ### 第 2 节|文件归位:docs/ 只放文档
 
-- **动作**:`docs/ops/patches/*.patch` 处理掉;7 个压测脚本进 `scripts/stress/`(或 `perf/`);
+- **动作**:`docs/ops/` 下的补丁处理掉;7 个压测脚本进 `scripts/stress/`(或 `perf/`);
   5 份基线 + 2 份报告进 `docs/reports/`;清空目录;`docs/learning` 进索引。
 - **同时落地护栏**:`scripts/docs_lint.py` 的**最小骨架**(结构规则 + 断链 + 索引覆盖),
   并接进 `contract` 轨。**先装护栏再搬家具** —— 搬的过程中每一步都能机械验证。
 - **验收**:`docs_lint` 对当前仓库 0 违例;`check_docs_links.py` 0 断链;全仓 `grep` 无旧路径残留。
+
+> **执行记录(2026-11-14,PR 见 `docs/milestones.md`)**
+>
+> - **护栏**:新增 `scripts/docs_lint.py`(三条规则:structure / broken-link / unindexed,
+>   `--json` 可被 L4 复用;断链**直接复用** `check_docs_links.find_broken_links`,不重写解析)
+>   + `scripts/test_docs_lint.py`(23 条用例,纯离线);**同时**接进 `contract.yml` 与
+>   `verify.sh::stack_contract()` 两处。顺带把「断链检测」从「只跑自测」变成「PR 上真跑」——
+>   此前写坏链接的纯文档 PR 全绿。
+> - **拍板结果**:压测脚本 → `scripts/stress/`;补丁 → `scripts/patches/`(实测上游未修,
+>   母体 `/root/dsh-superagent` 仍是未提交的本地改动,不能删);证书巡检 →
+>   `scripts/ops/check_ssl_expiry.sh`;`nginx-security.conf` **改名为 `.md`**(它本来就是
+>   Markdown,三处引用全是散文提及,没有一处把它当配置文件用)。
+> - **归位**:7 份测量报告 → `docs/reports/`(新建子 README);`docs/` 下非 md 文件从
+>   11 个(违规 10)降到 **1 个**(`docs/api/openapi.yml`,合规)。
+> - **索引覆盖拉满**:新增 `docs/ops/README.md`、`docs/reports/README.md`、
+>   `docs/security/README.md`、`docs/learning/README.md` 四个子索引,`README.md` §9 全部挂上,
+>   并把 `specs/2026-11-13-aws-*.md` 补登记进 `docs/superpowers/README.md` §2 ——
+>   非归档 md 被索引覆盖 **100%**(注:该登记原定第 3 节,但索引覆盖规则一开就必须先做,
+>   否则 lint 自身红)。
+> - **范围外(遗留)**:19 处「六轨」措辞未清(C4)。它属**术语 lint 规则**,与第 6 节的
+>   `writing.md` 一起做才有防回归手段;本节只做结构与索引,故 `sources-of-truth.md` §7
+>   的归属已从「第 2 节」改判到「第 6 节」。
 
 ### 第 3 节|索引与入口:一个入口 + 生成式索引
 

@@ -1,8 +1,8 @@
 # perf:可复现的容量测试
 
 > 目标:换台机器、改个接口,也能在 5 分钟内跑出**可对比**的数字。
-> 历史报告:[docs/ops/stress-test-2026-11-01.md](../docs/ops/stress-test-2026-11-01.md)、
-> [docs/ops/imserver-throughput.md](../docs/ops/imserver-throughput.md)。
+> 历史报告:[docs/reports/stress-test-2026-11-01.md](../docs/reports/stress-test-2026-11-01.md)、
+> [docs/reports/imserver-throughput.md](../docs/reports/imserver-throughput.md)。
 
 ## 1. 铁律:压测器不要和被压服务同机
 
@@ -143,7 +143,7 @@ python3 perf/report.py perf/results/*.json --baseline perf/baseline.json --fail-
 | 规模数据(10 万用户) | 数据量增长后的 p99 | 待补(B.3) |
 
 **2026-11-04 补齐的三个场景**(数字与结论见
-[read-baseline-2026-11-04.md](../docs/ops/read-baseline-2026-11-04.md) §5):
+[read-baseline-2026-11-04.md](../docs/reports/read-baseline-2026-11-04.md) §5):
 
 ```bash
 # ① multipart 上传:20 个账号、20 并发(注意 /im/images 是 30 次/小时/账号)
@@ -173,12 +173,12 @@ chatapp-venv/bin/python perf/run.py --scenario ws_reconnect --conns 1000 --dur 6
 
 **写路径基线已实测(2026-11-03)**:`POST /discovery/swipe` 在 2C2G 上饱和 **~40 rps**
 (20/50/100/200 并发 = 33.4/35.8/38.5/39.2 rps,p50 552ms→4922ms,全程 0 个 5xx,标准 = 「排队不是崩」)。
-完整数字、方法与三个发现见 [write-baseline-2026-11-03.md](../docs/ops/write-baseline-2026-11-03.md)。
+完整数字、方法与三个发现见 [write-baseline-2026-11-03.md](../docs/reports/write-baseline-2026-11-03.md)。
 
 **读基线已重跑(2026-11-04)**:`GET /app/config` @100 并发 = **476 rps**(三次 446–496);
 `perf/baseline.json` 的读点已换成这组。同机「裸 WSGI」能跑 2626 rps,
 所以读的天花板是 Django 每请求 CPU(2.7ms)+ 2 核 GIL,不是内存/容器 ——
-详见 [read-baseline-2026-11-04.md](../docs/ops/read-baseline-2026-11-04.md)。
+详见 [read-baseline-2026-11-04.md](../docs/reports/read-baseline-2026-11-04.md)。
 
 > ⚠️ 判读口径:**只用 100 并发档判回归**(重复性 ±5%)。20 并发档单次噪声 ±15–30%,
 > 拿它比「RPS −20%」会天天误报。
@@ -186,7 +186,7 @@ chatapp-venv/bin/python perf/run.py --scenario ws_reconnect --conns 1000 --dur 6
 
 ## 6. 与旧脚本的关系
 
-`docs/ops/stress/*.py` 是 2026-11-01 的一次性脚本,保留作为历史证据;
+`scripts/stress/*.py` 是 2026-11-01 的一次性脚本,保留作为历史证据;
 新测试一律用 `perf/run.py`(统一 JSON + 机器规格 + 基线对比)。
 
 ## 7. 脚本自身的测试
