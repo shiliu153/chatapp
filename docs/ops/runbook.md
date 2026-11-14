@@ -1,3 +1,8 @@
+---
+状态: 生效中
+复核: 每次运维操作前
+---
+
 # 运维手册:告警处置与故障恢复
 
 > 配套:`docs/reports/stress-test-2026-11-01.md`(自愈矩阵实测)、`docs/ops/imserver.md`(部署与探针)。
@@ -500,3 +505,36 @@ imserver 的同名变量,**不入库**)。该账号只需要 `chatapp_im` 的 **
 
 **空表**(一天都没跑过)页面不会 500,只提示一句「还没有数据」;首次上线按 §9.2 跑一次
 `metrics_daily --backfill 30` 就有 30 行了(回填日的 `dau` / 留存仍是 `—`,预期)。
+
+## 10. 部署形态与更新流程
+
+> 从 `README.md` §8 搬来(2026-11-14 治理第 6 节:README 只留「门面 + 指针」)。
+> 这里是「线上长什么样、怎么更新」的 owner;容量口径见
+> [capacity-and-reliability.md](capacity-and-reliability.md),告警与恢复见本文件 §1–§5。
+
+线上形态为单机多进程(容量实测即在该配置上完成):
+
+```
+用户 → nginx(443/80,TLS 终止 + 静态直出 + 反代)
+        ├→ gunicorn 127.0.0.1:8000 (gthread)
+        │    └→ Django ── MySQL 8(chatapp)/ Redis 7(DB0 缓存、DB1 broker)── Celery
+        └→ imserver 127.0.0.1:9100 WS / 9101 HTTP
+             ├→ MySQL 8(chatapp_im)
+             └→ Redis 7(DB2)
+```
+
+nginx 的三条硬要求与两个易错点:
+
+1. **深链回退**:`try_files $uri $uri/ /index.html;` —— vue-router 使用 history 模式,缺了它刷新与直接访问深链都会 404;
+2. **反代 `/api/v1/`、`/im/ws`、`/media/`**:网页端与接口同源,因此不需要 CORS;
+3. **`index.html` 不缓存**,带内容哈希的 js/css 反而应长缓存。
+
+> 易错点:① `/media/` 直出需逐站点配置,漏配表现为照片 404;
+> ② 面板生成的 `proxy_cache` 键不含 `Authorization` 且忽略 `Vary`,会造成跨用户缓存泄漏 ——
+> 要么关闭页面缓存,要么把 `Authorization` 纳入 `proxy_cache_key`。
+> 安全头、后台 IP 白名单与媒体验签的完整配置见 [nginx-security.md](nginx-security.md)。
+
+**更新流程**:`git fetch` 确认落点 SHA → 记回滚点 → `git reset --hard <sha>` → 装依赖 → `migrate` →
+`collectstatic` → 重启 web 与 worker → 生产冒烟。IM 侧按 [imserver.md](imserver.md) 执行镜像替换与
+`readyz` 校验。**部署前必须跑 `python scripts/deploy_gate.py`**(只认合并后 SHA 且该 SHA 的 check 全绿)。
+

@@ -18,41 +18,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 想知道 | 去哪 |
 |---|---|
 | **全部文档清单(唯一入口)** | [docs/README.md](docs/README.md) —— 由 `scripts/docs_index.py` 扫描生成,**禁止手改**;本表只留「按任务去哪」,不再维护第二份清单 |
-| **现在该做什么** | [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)(待办总表,按批次排好;A–E 已全部闭环,剩余未闭环项见 §7) |
+| **现在该做什么** | [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)(待办总表;A–E 已全部闭环,剩余未闭环项见 §7) |
 | 已交付了什么、哪天、哪个 PR | [docs/milestones.md](docs/milestones.md)(完整时间线) |
-| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(工作面)+ [archive/INDEX.md](docs/superpowers/archive/INDEX.md)(归档清单,生成物;份数以它为准) |
+| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(工作面)+ [archive/INDEX.md](docs/superpowers/archive/INDEX.md)(归档清单,生成物) |
 | 写代码 / 排障前 | [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选:IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包 → android-emulator.md;测试 → testing.md;网页端 → web.md |
+| **规范与命令手册**(怎么写代码 / 怎么写文档 / 怎么跑起来) | [docs/standards/README.md](docs/standards/README.md):[python.md](docs/standards/python.md) 注释规范、[writing.md](docs/standards/writing.md) 写作规范、[dev-commands.md](docs/standards/dev-commands.md) 命令手册 |
+| 某条事实谁说了算 | [docs/standards/sources-of-truth.md](docs/standards/sources-of-truth.md)(口径地图) |
 | 接口(对外交付级) | [docs/api/README.md](docs/api/README.md) |
-| 部署与运维 | [README.md](README.md)「部署」;服务器细节 → [docs/ops/imserver.md](docs/ops/imserver.md)、[docs/ops/runbook.md](docs/ops/runbook.md) |
+| 部署与运维 | [docs/ops/runbook.md](docs/ops/runbook.md)(部署形态与更新流程见 §10;服务器细节 → [imserver.md](docs/ops/imserver.md)) |
 | **发版(版本号 / tag / Release)** | [docs/ops/release.md](docs/ops/release.md)(强制清单 + 职责边界表;发版记录 owner 是 [docs/releases.yml](docs/releases.yml),CI 门禁读它) |
 | 容量 / 观测 / 削峰的数字与口径 | [docs/ops/capacity-and-reliability.md](docs/ops/capacity-and-reliability.md) |
 | 安全审计与整改 | [docs/security/README.md](docs/security/README.md)(轮次以目录为准,本表不写数字) |
-| 工程审查结论 | [docs/reviews/2026-11-03-fullstack-review.md](docs/reviews/2026-11-03-fullstack-review.md) |
-| Python 注释规范 | [docs/standards/python.md](docs/standards/python.md) |
 
 ## 里程碑
 
-M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。
+M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。完整时间线见 [docs/milestones.md](docs/milestones.md),这里只留骨架。
 
 > **项目定位(2026-11-04 用户决定):个人项目,不对外发行。** 不上架应用商店、不开放自助注册(手机号白名单收口)、不做合规轨(备案材料 / 软著 / 安全评估 / PIPIA 已否决);backlog 批次 B「上线阻断」整批关闭,**C/D/E 三批已于 2026-11-05 全部交付**。各类历史文档里的「上线阻断项 / 上线前必须做」口径一律作废,以 [backlog §4.2](docs/backlog/2026-11-03-todo.md) 为准;**安全基线不因此降级**。
 
-**完整时间线见 [docs/milestones.md](docs/milestones.md)**,这里只留骨架:
-
 | 阶段 | 一句话 |
 |---|---|
-| M0–M2 | 地基 / 后端全量 / 前端全量(登录→卡片→配对→IM 聊天) |
-| M3 | 合规:审核台 / 举报拉黑 / 重封禁 403 / 协议弹窗 / 签名 APK |
-| 后 M3 ①–⑦ | ops 审核台 / 封禁消息+消息页 / 微信式聊天+资料页 / 单设备登录+造数 / 举报通知 / 广场 / 在线状态 |
-| M4 第一步 | 服务器跑通(宝塔全托管) |
-| 2026-09~10 | 「心跳」UI 六批整改 / 网页端 Vue 3 / 接口文档体系 / 自建 IM 全量切换 / P1 功能群 / 聊天图片·语音·搜索 |
-| 2026-10-28~11-03 | 三轮安全审计整改 + 令牌硬化 + HTTPS 上线 + 可观测性与容量工程 + 压测基线 |
-| 2026-11-08~09 | 第四轮安全审计整改上线(纯服务端)+ 第六轮功能开发 **K** 多端在线(1 App + 1 Web)/ **L** 输入中状态 + 引用回复(均已于 2026-11-09 随 **1.0.11** 上线) |
-| 2026-11-09 | 第六轮功能开发 **M–Q** 五批全部合并进 `master`(未发版):**M** 登录设备(列表 + 单端下线)/ **N** 会话管理三件套(置顶·免打扰·删除)/ **O** 滑卡增强(30 秒撤销 + 每日喜欢额度)/ **P** 使用报告(`GET /stats/me`)/ **Q** 聊天文字敏感词(本地词库 + AC)。15 个 PR,末次合并 `72589f9`;设计与取舍见 [批次 M–Q spec](docs/superpowers/archive/specs/2026-11-09-batch-m-q-design.md) |
-| 2026-11-10~11 | 第七轮功能开发 **R–W** 六批全部合并进 `master` 并 **2026-11-11 随 1.0.13 上线**:**W** 发版自动化(`scripts/release_prep.py` 一条命令 + golden 截图进 CI)/ **R** 资料语音自我介绍 / **S** 发现页筛选 + 每日精选 / **U** 广场点赞列表 + 收藏 / **V** 运营数据看板 / **T** 聊天体验打磨(多选删除·草稿·图片全屏·语音进度倍速)。14 个 PR,末次合并 `74c1cef`,上线 SHA `e7456f6`;设计与取舍见 [批次 R–W spec](docs/superpowers/archive/specs/2026-11-09-batch-r-w-design.md),上线实况见 [release.md §6.8](docs/ops/release.md) |
-| 2026-11-13 | **worker 全断定位 + 巡检上服务器**(不升版本、不动业务代码):① 根因是宿主 **Sangfor aTrust** 的 WFP 过滤器把 **WSL 的直连 TCP 整体拦掉**(UDP DNS 仍通),连带 mihomo 连不上机场节点、模型网关 443 不可达 → 「派了单永远不动 + assignment 卡 6 小时」而面板全 `ready`;修法 `networkingMode=mirrored`(`docs/ops/superagent.md` §12.0);② 新增 **`scripts/superagent-health`**(systemd timer 每 15 分钟/开机补跑):查出网 / 入队三连 / 僵尸 assignment,异常发告警(同种 6h 一次),僵尸可人工作废;③ 派单守门补「WSL 出网」判据;④ `l4_intake` 判红口径改结论红集合(`cancelled`/`startup_failure` 等不再当绿);⑤ failover 支持经 HTTP 代理 CONNECT;⑥ 修掉 L4 首轮 6 处归档断链。7 个 PR;详见 [milestones](docs/milestones.md) 与 superagent.md §12.0 / §4.2 / §15 |
-| 2026-11-12 | **CI 流程门禁整改 P0/P1/P2**(不升版本、不动业务代码):把「CI 绿才合并、只部署合并后 SHA」从**纪律**换成**机制** —— `contract`/`backend`/`web` 设为默认分支必需检查 + 三条轨去 `paths` 改「重活按改动面跑」(`scripts/ci-scope.sh`,无关时 `skipped`,判定失败 fail-closed)、部署闸门 `scripts/deploy_gate.py`、默认分支健康检查 `main-health.yml`、0-check 不再放行、覆盖率门槛真跑、CI 装 `requirements.lock`、`accounts.E001` 进流水线、gh-guard 补 REST 绕过口、dependabot + Actions pin 21 处。8 个 PR;设计与**未收尾台账**见 [ci-flow-gates spec](docs/superpowers/archive/specs/2026-11-12-ci-flow-gates-design.md),运维口径见 [superagent.md §8.1](docs/ops/superagent.md) |
+| M0–M3 | 地基 / 后端全量 / 前端全量 / 合规(审核台 / 举报拉黑 / 重封禁 / 签名 APK) |
+| 后 M3 ①–⑦ + M4 | ops 审核台 / 微信式聊天 / 单设备登录 / 广场 / 在线状态;M4 服务器跑通(宝塔全托管) |
+| 2026-09~10 | 「心跳」UI 六批整改 / 网页端 Vue 3 / 接口文档体系 / 自建 IM 全量切换 / P1 功能群 |
+| 2026-10-28~11-03 | 安全审计整改 + 令牌硬化 + HTTPS 上线 + 可观测性与容量工程 + 压测基线 |
+| 2026-11-08~11 | 多端在线 / 输入中 / 批次 M–Q / 批次 R–W(随 1.0.13 上线) |
+| 2026-11-12~14 | CI 流程门禁整改 P0/P1/P2 / worker 全断定位 + 巡检上服务器 / 文档与脚本治理 6 节 |
 
-**当前风险最高的两项**(与代码质量无关,优先于任何性能项):① **固定验证码 `123456` + 手机号白名单** —— 2026-11-03 已确定**本项目不接入短信商**,白名单(`SMS_PHONE_WHITELIST`)是**长期准入机制**而非过渡方案:名单外一律 `403 + 40301`,名单内仍是固定码,因此「名单里有哪些号」本身就是安全边界(一个号泄露 = 该账号被接管)。名单存在数据库 `accounts.PhoneAllowlist`,运营在 **`/ops/allowlist/`** 加号/停用(**立刻生效,不用重启**);`.env` 的 `SMS_PHONE_WHITELIST` 降级为兜底种子(库里没这条记录时按它放行,库里显式停用的优先被拒),库与种子都空 = 不限制。日常运维见 `docs/ops/runbook.md` §6;② **备份** —— 每天 03:20 自建双库全量(应用库 + IM 库 + 媒体 + 配置,保留 14 天,`deploy/ops/chatapp-backup.sh`),另有宝塔 03:30 的原生备份作为独立第二份,树莓派每天 04:10 主动拉走(`deploy/ops/pull-backup-pi.sh`),三项都进 22:00 服务器日报;**恢复演练已真跑通过**。剩余风险:防得住「服务器磁盘/整机没了」,防不住「服务器和树莓派同时没了」(无对象存储预算)。详见 backlog 的 B-1/B-1c 与 A-3、`docs/ops/runbook.md` §5。
+**当前风险最高的两项**(与代码质量无关,优先于任何性能项):① **固定验证码 `123456` + 手机号白名单** —— 白名单(`SMS_PHONE_WHITELIST` + 库表 `accounts.PhoneAllowlist`,运营在 `/ops/allowlist/` 维护)是**长期准入机制**,名单本身就是安全边界(一个号泄露 = 该账号被接管);日常运维见 [runbook §6](docs/ops/runbook.md);② **备份** —— 每天三层(03:20 自建双库全量 / 03:30 宝塔原生 / 04:10 树莓派拉走)+ **恢复演练已真跑通过**,剩余风险是「服务器与树莓派同时没了」(无对象存储预算);详见 [runbook §5](docs/ops/runbook.md)。
 
 ## UI 设计规则(2026-09-15 起,常驻,强制)
 
@@ -78,57 +71,11 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。
 | `docs/pitfalls/` | 踩坑手册(按主题分册) | 写代码/排障前按需读取 |
 | `.remember/` | Claude 会话记忆日志(内部机制) | 勿改动、勿提交 |
 
-根目录是 git 仓库;`main` 为主线(2026-11-11 由 `master` 改名),功能开发走短生命周期分支后合回。**部署只认 `origin/main` 的 SHA**(见下「发布流程」)。
+根目录是 git 仓库;`main` 为主线(2026-11-11 由 `master` 改名),功能开发走短生命周期分支后合回。**部署只认 `origin/main` 的 SHA**(见下「核心契约与纪律」的发布流程)。
 
 ## 常用命令
 
-**后端**(cwd = `chatapp/`,Python 用 anaconda 环境 `Django`):
-```bash
-python manage.py test              # 全量(前置:Redis 在跑,见下)
-python manage.py test accounts     # 单 app
-python manage.py runserver         # 开发服务器 :8000
-python manage.py makemigrations && python manage.py migrate
-python manage.py im_send --from u2 --to u3 --text "你好"   # 手测:代发消息(--notice 发灰条;需先有配对)
-python manage.py im_sync_pairs --dry-run                  # 回填现有配对到 imserver(H4 上线必跑)
-python manage.py dev_reset_pair --a u8 --b u9              # 手测:清滑卡/配对重演(不清聊天记录)
-python manage.py seed_fake_users --count 20                # 造数(幂等;直调 IM 同步,不必等 worker)
-python manage.py refresh_shuffle_keys [--dry-run]          # 轮换候选池随机键(建议每天低峰)
-python manage.py media_bytes_backfill [--dry-run]          # 回填照片/动态图字节数(M7 上线必跑)
-python manage.py media_cleanup [--apply]                   # 清资料图/广场图孤儿文件(默认 dry-run)
-python manage.py media_disk_report [--fail-over]           # 媒体磁盘报表;超告警线退出码 1
-python manage.py perf_tokens --count 50 --out ../perf/results/headers.jsonl  # 压测:签多账号令牌(写场景用;文件含活令牌,跑完删)
-python manage.py allowlist_seed_import [--dry-run]         # 把 .env 的准入名单种子导进库(幂等;不重新启用已停用的号)
-```
-
-**Redis / Celery**(cwd = `chatapp/`;验证码、限流、异步 IM 副作用都靠它们):
-```bash
-docker compose -f docker-compose.dev.yml up -d             # Redis 容器(redis:7, 6379);跑测试/接口前必须起
-python -m celery -A config worker -l info --pool=solo      # IM 副作用 worker(Windows 只能 solo);改了任务代码必须重启它
-```
-
-**前端**(cwd = `app/`):
-```bash
-../flutter/bin/flutter.bat analyze   # 必须零告警
-../flutter/bin/flutter.bat test
-../flutter/bin/flutter.bat run -d emulator-5554 --dart-define=API_BASE=http://10.0.2.2:8000/api/v1
-```
-
-**网页端**(cwd = `web/`;端到端需要后端 + Redis + Celery 都在跑):
-```bash
-npm run dev          # 开发(代理到 :8000)
-npm run test:run     # 单元/组件测试(vitest)
-npm run test:coverage # 带覆盖率门槛(70/60/70/70)
-npm run e2e          # 端到端(Playwright;自建 build + preview)
-npm run type-check && npm run lint   # 必须零错误 / 零告警
-```
-
-**出签名包**(keystore `C:\Users\you\chatapp-release.jks`,口令在 `app/android/key.properties`;两个文件都不入库,务必备份):
-```bash
-cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=https://chat.shiliu153.cn/api/v1 --dart-define=ERROR_REPORTING=true
-```
-产物 `app/build/app/outputs/flutter-apk/app-release.apk`。`--dart-define=ERROR_REPORTING=true` **必须带**(否则线上崩溃与白屏不会上报,见 backlog A-4);Web 侧对应 `web/.env.production` 的 `VITE_ERROR_REPORTING=1`。**发版必须同时**:`pubspec.yaml` 的 `version:` + `lib/core/app_info.dart` 的 `appVersion` + 关于页测试期望三处一起改,再上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk` 并更新 `.env` 的 `MIN_APP_VERSION`/`LATEST_APP_VERSION`/`APP_DOWNLOAD_URL`。**完整发版清单(含 tag 与远端 Release)见 [docs/ops/release.md](docs/ops/release.md)。**
-
-**服务器**:`ssh root@<SERVER_IP>`(免密);部署形态与更新流程见 [README.md](README.md)「部署」。服务器私有的运维手册(面板口令/路径/端口)不入库,本地保留。
+**已搬到 [docs/standards/dev-commands.md](docs/standards/dev-commands.md)**:后端(`manage.py` 全量/单 app、造数、手测、回填命令)、Redis + Celery、前端(`flutter analyze` / `test` / `run`)、网页端(`npm run dev` / `test:run` / `e2e`)、出签名包、服务器入口。本节只留两条前置:**跑测试与接口前 Redis 必须起着**(cwd = `chatapp/`,`docker compose -f docker-compose.dev.yml up -d`);**改了 Celery 任务代码必须重启 worker**。
 
 ## 核心契约与纪律
 
@@ -164,39 +111,7 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 
 ## 后端接口
 
-- 鉴权:`Authorization: Bearer <access>`(JWT);开发期验证码固定 `123456`(`SMS_DEV_MODE=1`)
-
-| 接口 | 说明 |
-|---|---|
-| `POST /auth/sms/send` | 发验证码;同号 60 秒重发间隔(42901,带 Retry-After);IP 限流;入队失败回滚并 503(50301);**名单外号码 403(40301),不落码不入队**(名单在 `accounts.PhoneAllowlist`,运营在 `/ops/allowlist/` 维护、改完立刻生效;`.env` 的 `SMS_PHONE_WHITELIST` 是兜底种子;库与种子都空=不限制) |
-| `POST /auth/sms/verify` | 校验并登录(号码没注册过自动建号)→ `{access, refresh, is_new_user, user_id}`;带 `X-Client: web` 时 refresh 改为 HttpOnly Cookie、响应体不含 refresh;连错 5 次锁 15 分钟(42902);60 秒幂等重放窗口;**staff/superuser 一律 403(运营账号走 `/ops/`,封闭测试可用 `SMS_ALLOW_STAFF_LOGIN=1` 放开)** |
-| `POST /auth/token/refresh` | 刷新 access(响应同时给新 refresh);refresh 可放请求体或 Cookie;轮换后 60 秒宽限内允许并发标签页复用 |
-| `POST /auth/logout` | 注销:拉黑 refresh + 清 Cookie;幂等 204;按 IP 60 次/小时;带 `Origin` 时校验同源 |
-| `POST /auth/logout/all` | **退出所有设备**(需鉴权):两端会话版本各 +1 → 两端 access/refresh 全失效,并**经 Celery** 踢掉全部在线 IM 会话;204 + 清 Cookie;按 IP 60 次/小时 |
-| `GET/PATCH/DELETE /users/me` | 我的资料(昵称/性别/生日/城市/简介/`tag_ids`);未满 18 岁 400;`id`=profile 主键。**DELETE = 注销账号**:body 带 `phone` 二次确认,立即硬删除全部数据 + 释放手机号(同号可重注册为全新账号);重封禁 403 |
-| `GET /users/tags` | 标签池(12 个,数据迁移写入) |
-| `POST /users/me/photos`、`DELETE /users/me/photos/{id}` | 照片(multipart 字段 `file`;最多 6 张、≤5MB、jpg/png/webp);生产 `AUTO_APPROVE=0` 时新照片为 `pending`,需 ops 审核 |
-| `GET/PATCH /users/me/preference` | 想找的人:目标性别(可空=不限)/ 年龄区间 / 城市 |
-| `POST /im/user_sig` | 取 IM 登录凭证(自建 `token`,响应含 `ws_url`/`http_url`);`banned_heavy` 403 |
-| `POST /im/images` | 上传聊天图片(自建 IM 发图前置;jpg/png/webp ≤5MB、长边 ≤4096,服务端出 240px 缩略图;30 次/小时);响应里的 `url/thumb_url` 是**限时签名地址** |
-| `POST /im/voices` | 上传聊天语音(自建 IM 发语音前置;m4a/aac/webm/ogg ≤5MB、时长 1–60 秒,ffmpeg 统一转 m4a/AAC;60 次/小时);响应 `url` 为**限时签名地址**;缺 ffmpeg 时 503+`50302` |
-| `GET /im/images/auth` | nginx `auth_request` 子请求验签(读 `X-Original-URI`,204/403);不是给客户端调的 |
-| `GET /app/config` | 公开;最低版本配置(启动时拦截旧版本) |
-| `GET /discovery/candidates` | 候选卡(默认 10、上限 20);排除自己/划过/已配对/资料未完善;**只推有已过审照片的人** |
-| `POST /discovery/swipe` | `{target_user_id, action: like\|pass}`;幂等;互喜 → `{"matched": true}` + 双方灰条;限流 300/小时 |
-| `GET /discovery/likes` | 喜欢我的人(分页);口径与候选池一致,排除我已划过/双向拉黑/资料不全/无过审照片 |
-| `GET /discovery/likes/count` | 喜欢我的人数(入口角标);与列表同口径 |
-| `GET /discovery/visits` | 谁看过我(分页,120/小时);打开他人资料页即记一次,同一人 30 分钟内只刷新时间;**只为「资料完善 + 有过审照片」的访问者落库**;口径同「喜欢我的人」 |
-| `GET /discovery/visits/count` | 访客人数(入口角标,240/小时);与列表同口径 |
-| `GET /matches` | 配对列表(分页);预热 userId→昵称头像缓存 |
-| `DELETE /matches/{user_id}` | 解除配对:幂等 204;软删除 + 双向 IM 拉黑,不可恢复 |
-| `POST /feedback` | 意见反馈(10–500 字 + 可选联系方式;限流 5/小时) |
-| `POST /client-errors` | 前端未捕获异常上报(**匿名可调**,120 次/小时/IP);只写 JSON 日志 `chatapp.client_error` + `client_errors_total{platform}`,不落库 |
-| `POST/DELETE /push/devices`、`GET/PATCH /push/preferences` | 推送设备上报/解绑(registration_id 全局唯一、同账号只留最新一台)与四类通知开关(`likes/matches/messages/system`);通道 `PUSH_PROVIDER=off|log|jpush`。**本项目不做离线推送(2026-11-05 决定,见 backlog §4)**:通道固定 `off`,接口与代码保留但不产生外部调用,App 不集成推送 SDK |
-| `POST /internal/push/new-message` | **不是给客户端调的**:imserver 在「消息落库 + 目标不在线」时回调它(HMAC 共享密钥 + 时间戳窗口 + 按 `msg_id` 幂等),再由 Celery 发推送;不在 `/api/v1` 下,契约见 `docs/ops/push.md`。**推送通道固定 `off`,该回调当前只累加 `push_skipped_total{reason="provider_off"}`** |
-| `/posts` 系列、`POST /reports`、`GET/POST/DELETE /blocks`、`GET /presence` | 广场 / 举报 / 拉黑 / 在线状态,细节见 `docs/api/` 与 pitfalls(评论支持两级楼中楼与回复提醒) |
-
-资料「完善」判定:昵称/性别/生日/城市/简介非空 + ≥1 张过审照片 → `status=complete`(否则 `incomplete`,`missing_fields` 列出缺项);`banned_light` / `banned_heavy` 为封禁状态。
+**接口的 owner 是 [docs/api/](docs/api/README.md)**:分册 + `openapi.yml`(机器可读契约),份数与操作数以生成物为准;新增/改接口必须同一次改动内改对应分册(`ApiDocsCoverageTests` 双向比对),「接口一览」表与契约的操作集合**逐一相等**由 `python scripts/docs_index.py --check` 判定。本文件**不再维护第二份接口清单**(2026-11-14 治理第 6 节删掉原来 36 行的手写表);跨接口的强制约束仍在上面的「核心契约与纪律」,发版 / 部署动作见 [docs/ops/release.md](docs/ops/release.md)。
 
 ## 下一步
 

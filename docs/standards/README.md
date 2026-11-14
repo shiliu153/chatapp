@@ -1,13 +1,20 @@
-# 编码规范
+---
+状态: 生效中
+复核: 每次新增分册时
+---
 
-本目录存放本项目的**代码规范**,是「怎么写代码」的单一事实来源。规范与门禁成对存在:
-每一份分册都对应一个可执行检查,不靠自觉维持。
+# 编码规范与开发手册
+
+本目录存放本项目的**规范与开发手册**,是「怎么写代码、怎么写文档、怎么把项目跑起来」的
+单一事实来源。规范与门禁成对存在:每一份分册都对应一个可执行检查,不靠自觉维持。
 
 ## 分册索引
 
 | 分册 | 适用范围 | 检查入口 |
 |---|---|---|
 | [python.md](python.md) | `chatapp/` 下全部 Python 代码 | `python config/comment_coverage.py`(`--structure` 看 Args 提示)+ `CommentCoverageTests` |
+| [writing.md](writing.md) | `docs/` 下全部文档(命名 / 元信息 / 状态 / 归档 / 口径页写法) | `python scripts/docs_lint.py`(metadata / term / number 三条规则) |
+| [dev-commands.md](dev-commands.md) | 本地开发命令(后端 / 前端 / 网页端 / 出包 / 服务器) | 人工:**每次开工前**按需查阅 |
 | Dart 分册 | `app/lib/` | 待立项 |
 | TypeScript / Vue 分册 | `web/src/` | 待立项 |
 

@@ -1,3 +1,8 @@
+---
+状态: 常驻
+复核: `python config/comment_coverage.py`
+---
+
 # Python 注释规范
 
 适用于 `chatapp/` 下**全部** Python 代码。

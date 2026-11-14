@@ -8,6 +8,8 @@
   (手写归档表当年就漏了 7 份),必须能独立于「生成器恰好写对了」而响;
 - **接口一览表 ≡ openapi.yml**:缺一行 / 多一行 / 重复一行,以及 `openapi.yml` 解析不出来
   (格式变了)必须报错而不是静默通过。
+- **分册计数与业务码覆盖**:一览表的分册列能派生出「每个分册几行」(供 `docs_lint` 的数字规则
+  比对);`error_codes.py` 里每个码至少在 `docs/api/` 的一份分册里出现(总表已删除)。
 
 另外钉住两个**判定器自身故障**的口径:文档目录不存在、生成标记缺失,都必须是退出码 2
 而不是「0 违例」。
@@ -58,6 +60,10 @@ API_README = """# 接口文档
 """
 
 
+#: 业务码目录(错误码的唯一 owner)在测试仓库里的路径。
+ERROR_CODES = "chatapp/config/error_codes.py"
+
+
 def write_file(root: Path, name: str, text: str = "# 标题\n", newline: str = "\n") -> None:
     """在临时仓库里写一个文件(父目录按需创建)。
 
@@ -73,7 +79,7 @@ def write_file(root: Path, name: str, text: str = "# 标题\n", newline: str = "
 
 
 class DocsIndexTestCase(unittest.TestCase):
-    """公共脚手架:一个最小的「仓库」,包含 docs/、归档目录与接口文档入口。"""
+    """公共脚手架:一个最小的「仓库」,包含 docs/、归档目录、接口文档入口与业务码目录。"""
 
     def setUp(self):
         """建临时仓库并写入最小骨架。"""
@@ -83,8 +89,9 @@ class DocsIndexTestCase(unittest.TestCase):
         write_file(self.root, "docs/superpowers/archive/specs/2026-09-09-x-design.md", "# X 设计\n")
         write_file(self.root, "docs/superpowers/archive/plans/2026-09-09-x.md", "# X 计划\n")
         write_file(self.root, "docs/api/README.md", API_README)
-        write_file(self.root, "docs/api/x.md", "# 分册 x\n")
+        write_file(self.root, "docs/api/x.md", "# 分册 x\n\n会出现的业务码:`40001` / `40101`。\n")
         write_file(self.root, "docs/api/openapi.yml", OPENAPI)
+        write_file(self.root, ERROR_CODES, "A = 40001  # 甲\nB = 40101  # 乙\n")
 
     def tearDown(self):
         """清理临时目录。"""
@@ -335,6 +342,57 @@ class ApiBlockSpliceTests(DocsIndexTestCase):
         write_file(self.root, "docs/api/README.md", "# 接口文档\n\n## 接口一览\n\n无标记\n")
         with self.assertRaises(ValueError):
             docs_index.render_api_readme(self.root)
+
+
+class ApiVolumeCountTests(DocsIndexTestCase):
+    """接口一览表的分册列:派生「每个分册几行」,供 `docs_lint` 的数字规则比对。"""
+
+    def test_rows_carry_volume(self):
+        """每行带上它指向的分册文件名(表最后一格的相对链接)。"""
+        rows = docs_index.parse_api_table_rows(self.root)
+        self.assertEqual(rows, [("GET", "/api/v1/a", "x.md"), ("POST", "/api/v1/b", "x.md")])
+
+    def test_volume_counts(self):
+        """按分册汇总行数。"""
+        self.assertEqual(docs_index.api_volume_counts(self.root), {"x.md": 2})
+
+    def test_row_without_volume_ignored(self):
+        """没有分册格的行不计入任何分册(表结构被改坏时不至于张冠李戴)。"""
+        write_file(
+            self.root,
+            "docs/api/README.md",
+            API_README + "| GET | `/api/v1/c` | C 接口 | — |\n",
+        )
+        self.assertEqual(docs_index.api_volume_counts(self.root), {"x.md": 2})
+
+
+class ErrorCodeDocumentationTests(DocsIndexTestCase):
+    """业务码覆盖:`error_codes.py` 的每个码至少在一份分册里出现(总表已删除)。"""
+
+    def test_all_codes_documented(self):
+        """两个码都在 x.md 里出现 → 无问题。"""
+        self.assertEqual(docs_index.check_error_codes_documented(self.root), [])
+
+    def test_undocumented_code_reported(self):
+        """新增一个码却没有任何分册提到它 → 报出来(客户端就查不到含义)。"""
+        write_file(self.root, ERROR_CODES, "A = 40001  # 甲\nB = 40101  # 乙\nC = 40301  # 丙\n")
+        problems = docs_index.check_error_codes_documented(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("40301", problems[0])
+
+    def test_errors_md_does_not_count_as_coverage(self):
+        """`errors.md` 自己不算覆盖 —— 它的手写总表正是第 6 节删掉的东西。"""
+        write_file(self.root, "docs/api/errors.md", "# 错误码\n\n| 40001 | 甲 |\n")
+        write_file(self.root, "docs/api/x.md", "# 分册 x\n")
+        problems = docs_index.check_error_codes_documented(self.root)
+        self.assertEqual(len(problems), 2)
+        self.assertTrue(all("errors.md" not in item for item in problems))
+
+    def test_unparseable_codes_is_error(self):
+        """一个码都读不到 → 抛错(fail-closed),不是「没有码 = 全覆盖」。"""
+        write_file(self.root, ERROR_CODES, "没有码\n")
+        with self.assertRaises(ValueError):
+            docs_index.read_error_codes(self.root)
 
 
 class CommandLineTests(DocsIndexTestCase):

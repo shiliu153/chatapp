@@ -1,3 +1,8 @@
+---
+状态: 一次性
+复核: 无(一次性)
+---
+
 # 双机负载均衡 vs 只升配:决策记录(2026-11-04)
 
 > 对应 backlog **D-3**。输入:[双机负载均衡设计 v2](../superpowers/archive/specs/2026-10-28-dual-server-load-balancing-design.md)

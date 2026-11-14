@@ -1,3 +1,8 @@
+---
+状态: 生效中
+复核: 每次踩到新坑时
+---
+
 # 踩坑手册 · 前端(Flutter / Riverpod)
 
 > 索引见 [README.md](README.md)。UI 视觉规范以「心跳」设计规则(`specs/2026-09-15-ui-design-language-design.md`)为准。

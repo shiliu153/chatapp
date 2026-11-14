@@ -1,3 +1,9 @@
+---
+状态: 生效中
+复核: `python scripts/docs_index.py --check`
+owner: scripts/docs_index.py
+---
+
 # docs/ — 文档总索引
 
 > **本文件由 `scripts/docs_index.py` 生成,勿手改。**
@@ -21,12 +27,13 @@
 
 ## 1. 非归档文档
 
-共 **77** 份 / **13** 个目录(不含本文件)。
+共 **79** 份 / **13** 个目录(不含本文件)。
 
-### `docs/` 根(1 份)
+### `docs/` 根(2 份)
 
 | 文档 | 标题 |
 |---|---|
+| [architecture.md](architecture.md) | 架构与技术要点 |
 | [milestones.md](milestones.md) | 里程碑时间线 |
 
 ### `docs/api/`(16 份)
@@ -141,13 +148,15 @@
 | [2026-11-08-api-security-audit-round4.md](security/2026-11-08-api-security-audit-round4.md) | chat_app 第四轮安全审计（2026-11-08） |
 | [README.md](security/README.md) | docs/security/ — 安全审计报告(只增不改) |
 
-### `docs/standards/`(3 份)
+### `docs/standards/`(5 份)
 
 | 文档 | 标题 |
 |---|---|
-| [README.md](standards/README.md) | 编码规范 |
+| [README.md](standards/README.md) | 编码规范与开发手册 |
+| [dev-commands.md](standards/dev-commands.md) | 开发命令手册 |
 | [python.md](standards/python.md) | Python 注释规范 |
 | [sources-of-truth.md](standards/sources-of-truth.md) | 唯一事实来源(口径地图) |
+| [writing.md](standards/writing.md) | 写作规范(文档怎么写、怎么归档、怎么被机械判定) |
 
 ### `docs/superpowers/`(1 份)
 
@@ -155,7 +164,7 @@
 |---|---|
 | [README.md](superpowers/README.md) | docs/superpowers/ — 设计 spec 与实施计划 |
 
-### `docs/superpowers/specs/`(5 份)
+### `docs/superpowers/specs/`(4 份)
 
 | 文档 | 标题 |
 |---|---|
@@ -163,11 +172,10 @@
 | [2026-11-07-superagent-dev-workflow-design.md](superpowers/specs/2026-11-07-superagent-dev-workflow-design.md) | Superagent 本地开发流程设计(v1) |
 | [2026-11-08-superagent-automation-ladder-design.md](superpowers/specs/2026-11-08-superagent-automation-ladder-design.md) | Superagent 自动化阶梯设计(L0–L4) |
 | [2026-11-13-aws-distributed-deployment-design.md](superpowers/specs/2026-11-13-aws-distributed-deployment-design.md) | AWS 两台悉尼机的分布式部署设计 |
-| [2026-11-14-docs-and-scripts-governance-design.md](superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md) | 文档与脚本治理:从「补丁式维护」到「机械化一致性」 |
 
 ## 2. 归档
 
-`docs/superpowers/archive/` 共 **105** 份 = **40** spec + **65** plan。
+`docs/superpowers/archive/` 共 **106** 份 = **41** spec + **65** plan。
 
 逐份清单(日期 / 主题 / plan ↔ spec 对照)见 **[superpowers/archive/INDEX.md](superpowers/archive/INDEX.md)**。
 

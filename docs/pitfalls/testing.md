@@ -1,3 +1,8 @@
+---
+状态: 生效中
+复核: 每次踩到新坑时
+---
+
 # 踩坑手册 · 测试
 
 > 索引见 [README.md](README.md)。测试纪律是硬要求:后端 `python manage.py test` 全绿、`flutter analyze` 零告警、每步全绿再进下一步。

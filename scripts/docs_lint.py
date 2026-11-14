@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
-"""校验 `docs/` 的三条结构规则:放错了文件、写坏了链接、文档不在索引里。
+"""校验 `docs/` 的六条规则:结构、断链、索引覆盖、元信息、术语、手写计数。
 
 为什么需要它
 ------------
-治理方案(`docs/superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md`)
-§3.3 把「文档结构」变成了三个可机械判定的目标:
+治理方案(`docs/superpowers/archive/specs/2026-11-14-docs-and-scripts-governance-design.md`)
+§3.3 把「文档结构」变成了可机械判定的目标:
 
 1. `docs/` 下的脚本 / 补丁 / 二进制 **0 个**;
 2. 非归档文档被索引覆盖 **100%**;
-3. 相对链接 **0 条断**。
+3. 相对链接 **0 条断**;
+4. 非归档文档的头部元信息(状态 / 复核)齐全;
+5. 作用域内禁用术语 **0 处**;
+6. 分册首句的手写接口数与接口一览表一致。
 
-这三条的共同点是**坏了没人当场知道**:脚本躺在文档目录里不会让任何测试红,一份新文档
-没进索引也照样能提交,而断链只有人在浏览器里点开才看得见。所以它必须是一道门禁,
-不能是「大家记得」的纪律。
+这些规则的共同点是**坏了没人当场知道**:脚本躺在文档目录里不会让任何测试红,一份新文档
+没进索引也照样能提交,断链只有人在浏览器里点开才看得见,而「六轨」这类术语会一直
+写着 —— 直到有人发现它和 10 个 workflow 的事实脱钩。所以它必须是一道门禁,
+不能是「大家记得」的纪律。写作规范的 owner 是 `docs/standards/writing.md`。
 
 判什么、不判什么
 ----------------
-判(**三条规则,各自独立**):
+判(**六条规则,各自独立**):
 
 - **structure**:`docs/` 下只允许 `.md` / `.yml` / `.json` / 图片
   (`.png .jpg .jpeg .webp .svg`)。脚本、补丁、可执行文件一律进 `scripts/`。
@@ -26,12 +30,24 @@
 - **unindexed**:非归档 `.md` 必须被某个索引文件以**相对链接**指向。索引文件 =
   仓库根的 `README.md` / `CLAUDE.md` / `AGENTS.md` + `docs/` 下任意层级的 `README.md`。
   `docs/superpowers/archive/` 不参与(历史文档保持原样,spec §6)。
+- **metadata**:非归档 `.md` 的 front-matter 必须有 `状态` 与 `复核`,且取值合法。
+  `docs/superpowers/` 豁免 —— 它的状态 owner 是该目录 README §2 的工作面表,
+  元信息再写一份就是同一事实两处(规则细节见 `docs/standards/writing.md` §2)。
+- **term**:作用域内禁用术语 0 处。作用域**刻意收窄**到活文档(根三份 +
+  `docs/{ops,standards,api,pitfalls,backlog}/**`):归档与常驻 spec 是历史,不改写;
+  一次性报告与教学材料同理。`docs/standards/sources-of-truth.md` 整文件白名单
+  —— 它本身在**定义**这些禁用词。行内豁免 ``<!-- lint:allow:term -->`` 只豁免它所在的行。
+- **number**:`docs/api/*.md` 首句「本分册含 N 个接口」必须等于「接口一览」表里指向该分册
+  的行数。这是全仓唯一成体系的手写计数;其余 `N 份` / `N 条` 属历史叙事或已由生成器覆盖,
+  机械禁会把门禁变成噪音源。
 
 不判(**刻意**,判不准或会变成噪音):
 
 - 链接锚点是否存在(要解析标题锚点规则,误报率高);
 - 外链是否可达(需要联网,会因对方站点抖动误报);
 - 「索引文件自己是否被索引」—— 根那三份是入口,不要求被指向;子 `README.md` 要。
+- 历史叙事里的数字(`docs/milestones.md`、发版记录、一次性报告)—— 那是「当时的事实」,
+  逼着改等于改写历史。
 
 用法
 ----
@@ -46,6 +62,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Set
@@ -55,7 +72,7 @@ from typing import Dict, List, Set
 # 与 `scripts/l4_intake.py` 用的是同一段处理。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts import check_docs_links  # noqa: E402  (必须在 sys.path 修好之后)
+from scripts import check_docs_links, docs_index  # noqa: E402  (必须在 sys.path 修好之后)
 
 #: `docs/` 下允许出现的文件类型。判定用小写后缀,`.YML` 与 `.yml` 同等对待。
 ALLOWED_SUFFIXES = frozenset({".md", ".yml", ".json", ".png", ".jpg", ".jpeg", ".webp", ".svg"})
@@ -71,6 +88,64 @@ ROOT_INDEX_NAMES = ("README.md", "CLAUDE.md", "AGENTS.md")
 
 #: 索引文件的文件名:根上那三份 + `docs/` 下任意层级的 `README.md`。
 INDEX_BASENAME = "README.md"
+
+#: 元信息规则的必填字段(与 `docs/standards/writing.md` §2 一致)。
+METADATA_REQUIRED_FIELDS = ("状态", "复核")
+
+#: `状态` 的合法取值。
+METADATA_STATES = ("生效中", "常驻", "一次性", "已归档")
+
+#: `复核` 的周期短语:出现任一即算「写了复核节奏」。
+METADATA_REVIEW_CYCLES = (
+    "每次",
+    "每周",
+    "每月",
+    "每季度",
+    "每年",
+    "每轮",
+    "每批",
+    "每节",
+    "发版前",
+    "交付后",
+    "立项时",
+    "归档时",
+    "变更时",
+    "审计后",
+    "巡检时",
+)
+
+#: `复核` 的「不再复核」写法(一次性文档)。
+METADATA_REVIEW_NONE = "无(一次性)"
+
+#: 元信息豁免:相对 `docs/` 的首段目录 —— `superpowers/` 的状态 owner 是该目录 README §2。
+METADATA_EXEMPT_TOP = ("superpowers",)
+
+#: front-matter 块(文件开头的两个 `---` 之间)。
+FRONT_MATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.DOTALL)
+
+#: front-matter 里的 `键: 值` 行。
+FRONT_MATTER_LINE_RE = re.compile(r"^([A-Za-z_\u4e00-\u9fff]+)\s*[:：]\s*(.+?)\s*$")
+
+#: 术语规则的作用域:根入口三份。
+TERM_ROOT_FILES = ("README.md", "CLAUDE.md", "AGENTS.md")
+
+#: 术语规则的作用域:`docs/` 下这些子目录(相对 `docs/`),即「活文档」。
+TERM_DOC_DIRS = ("ops", "standards", "api", "pitfalls", "backlog")
+
+#: 禁用术语(完整表见 `docs/standards/sources-of-truth.md` §5)。
+BANNED_TERMS = ("六轨", "CI 四轨", "三轮安全审计")
+
+#: 术语规则的白名单:整文件豁免(口径页本身在**定义**这些禁用词)。
+TERM_WHITELIST = ("docs/standards/sources-of-truth.md",)
+
+#: 行内豁免标记:只豁免它所在的那一行。
+TERM_ALLOW_MARKER = "<!-- lint:allow:term -->"
+
+#: 分册首句的手写计数形态(`本分册含 3 个接口`)。
+NUMBER_VOLUME_RE = re.compile(r"本分册含\s*(\d+)\s*个接口")
+
+#: 接口文档目录名(相对 `docs/`)。
+API_DOCS_SUBDIR = "api"
 
 
 def _is_archived(path: Path, docs_dir: Path) -> bool:
@@ -195,8 +270,269 @@ def find_unindexed_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List
     return unindexed
 
 
+def parse_front_matter(text: str) -> Dict[str, str] | None:
+    """解析文件开头的 front-matter 块。
+
+    只认**文件第一行**就是 `---` 的块(与写作规范一致);正文里的 `---` 是水平分隔线,
+    不是元信息。键值按 `键: 值` 解析,`#` 开头的行当注释跳过。
+
+    Args:
+        text: 文件全文(换行已被 ``Path.read_text`` 归一化,不影响行号)。
+
+    Returns:
+        键值字典;文件开头没有 front-matter 时返回 ``None``。
+    """
+    match = FRONT_MATTER_RE.match(text)
+    if not match:
+        return None
+    fields: Dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        pair = FRONT_MATTER_LINE_RE.match(stripped)
+        if pair:
+            fields[pair.group(1)] = pair.group(2)
+    return fields
+
+
+def review_value_ok(value: str) -> bool:
+    """判断 `复核` 字段的取值是否合法。
+
+    合法形态只有三种(见 `docs/standards/writing.md` §2):反引号命令、周期短语、
+    ``无(一次性)``。**日期不算** —— 写日期会变成一条没人验证过的假数据。
+
+    Args:
+        value: `复核` 字段的原始值。
+
+    Returns:
+        合法返回 ``True``。
+    """
+    if METADATA_REVIEW_NONE in value:
+        return True
+    if "`" in value:
+        return True
+    return any(cycle in value for cycle in METADATA_REVIEW_CYCLES)
+
+
+def find_metadata_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
+    """检查非归档文档的头部元信息(metadata 规则)。
+
+    作用域是 `docs/` 下全部非归档 `.md`,但 `docs/superpowers/` 豁免 —— 那里的状态 owner
+    是该目录 README §2 的工作面表,元信息再写一份就是同一事实两处。
+
+    Args:
+        repo_root: 仓库根目录。
+        docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
+
+    Returns:
+        违例项列表,每项形如 ``{"file": ..., "line": 1, "message": ...}``,按文件排序。
+
+    Raises:
+        FileNotFoundError: 文档目录不存在。
+    """
+    repo_root = repo_root.resolve()
+    docs_dir = repo_root / docs_subdir
+    if not docs_dir.is_dir():
+        raise FileNotFoundError(f"找不到文档目录:{docs_dir}")
+
+    violations: List[dict] = []
+    for path in sorted(docs_dir.rglob("*.md")):
+        if not path.is_file() or _is_archived(path, docs_dir):
+            continue
+        parts = path.relative_to(docs_dir).parts
+        if parts and parts[0] in METADATA_EXEMPT_TOP:
+            continue
+        rel = path.relative_to(repo_root).as_posix()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+        fields = parse_front_matter(text)
+        if fields is None:
+            violations.append(
+                {
+                    "file": rel,
+                    "line": 1,
+                    "message": "缺少头部元信息(front-matter):应有 状态 / 复核,写法见 docs/standards/writing.md §2",
+                }
+            )
+            continue
+
+        missing = [name for name in METADATA_REQUIRED_FIELDS if not fields.get(name)]
+        if missing:
+            violations.append(
+                {"file": rel, "line": 1, "message": f"头部元信息缺字段:{'、'.join(missing)}"}
+            )
+        state = fields.get("状态", "")
+        if state and state not in METADATA_STATES:
+            violations.append(
+                {
+                    "file": rel,
+                    "line": 1,
+                    "message": f"状态「{state}」不合法,只能是 {' / '.join(METADATA_STATES)}",
+                }
+            )
+        review = fields.get("复核", "")
+        if review and not review_value_ok(review):
+            violations.append(
+                {
+                    "file": rel,
+                    "line": 1,
+                    "message": f"复核「{review}」不是合法形态:写反引号命令、周期短语(每次 / 发版前 …)或 无(一次性),不写日期",
+                }
+            )
+    return violations
+
+
+def term_scope_files(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[Path]:
+    """列出术语规则的作用域文件(活文档)。
+
+    作用域 = 仓库根三份入口 + `docs/{ops,standards,api,pitfalls,backlog}/**`。
+    归档、常驻 spec、一次性报告、教学材料、生成的 `docs/README.md` 都不在其中
+    (理由见 `docs/standards/writing.md` §5.2)。
+
+    Args:
+        repo_root: 仓库根目录。
+        docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
+
+    Returns:
+        作用域文件的绝对路径列表,按路径排序;不存在的目录跳过。
+    """
+    repo_root = repo_root.resolve()
+    files: List[Path] = [repo_root / name for name in TERM_ROOT_FILES if (repo_root / name).is_file()]
+    docs_dir = repo_root / docs_subdir
+    if docs_dir.is_dir():
+        for name in TERM_DOC_DIRS:
+            sub = docs_dir / name
+            if not sub.is_dir():
+                continue
+            files.extend(path for path in sorted(sub.rglob("*.md")) if path.is_file())
+    return files
+
+
+def find_term_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
+    """找出作用域内出现禁用术语的行(term 规则)。
+
+    白名单整文件跳过;行内标记 ``<!-- lint:allow:term -->`` 只豁免它所在的那一行 ——
+    不提供「随手关掉整份文档」的口子。
+
+    Args:
+        repo_root: 仓库根目录。
+        docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
+
+    Returns:
+        违例项列表,每项带 ``file`` / ``line`` / ``term`` / ``message``,按路径与行号排序。
+    """
+    repo_root = repo_root.resolve()
+    workflows = count_workflows(repo_root)
+    replacement = f"workflow(当前 {workflows} 个)" if workflows else "workflow(当前 N 个)"
+
+    violations: List[dict] = []
+    for path in term_scope_files(repo_root, docs_subdir):
+        rel = path.relative_to(repo_root).as_posix()
+        if rel in TERM_WHITELIST:
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for lineno, line in enumerate(lines, 1):
+            if TERM_ALLOW_MARKER in line:
+                continue
+            for term in BANNED_TERMS:
+                if term in line:
+                    violations.append(
+                        {
+                            "file": rel,
+                            "line": lineno,
+                            "term": term,
+                            "message": (
+                                f"禁用术语「{term}」:改说「{replacement}」或点名具体轨;"
+                                f"确需引用该词时在行尾加 {TERM_ALLOW_MARKER}"
+                            ),
+                        }
+                    )
+    return violations
+
+
+def count_workflows(repo_root: Path) -> int:
+    """数一数 `.github/workflows/` 下的 workflow 文件(给术语提示写「当前 N 个」)。
+
+    Args:
+        repo_root: 仓库根目录。
+
+    Returns:
+        `.yml` / `.yaml` 文件个数;目录不存在时返回 0(提示退化成「当前 N 个」)。
+    """
+    wf_dir = repo_root.resolve() / ".github" / "workflows"
+    if not wf_dir.is_dir():
+        return 0
+    return len(
+        [path for path in wf_dir.iterdir() if path.is_file() and path.suffix in (".yml", ".yaml")]
+    )
+
+
+def find_number_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
+    """核对分册首句的手写接口数(number 规则)。
+
+    只判一种形态:`docs/api/*.md` 里的「本分册含 N 个接口」必须等于「接口一览」表里
+    指向该分册的行数。这是全仓唯一成体系的手写计数;其余 `N 份` / `N 条` / `N 个操作`
+    是历史叙事或已由生成器覆盖,机械禁会把门禁变成噪音源。
+
+    没写这句话的分册不判(可选句式:写了就必须对)。
+
+    Args:
+        repo_root: 仓库根目录。
+        docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
+
+    Returns:
+        违例项列表,每项带 ``file`` / ``line`` / ``message``,按路径排序。
+    """
+    repo_root = repo_root.resolve()
+    api_dir = repo_root / docs_subdir / API_DOCS_SUBDIR
+    if not api_dir.is_dir():
+        return []
+    if not (api_dir / INDEX_BASENAME).is_file():
+        # 没有接口一览表就没有可比的派生量 —— 判不出来时**不判**,而不是把每一句都判红。
+        return []
+    try:
+        counts = docs_index.api_volume_counts(repo_root)
+    except (OSError, FileNotFoundError):
+        return []
+
+    violations: List[dict] = []
+    for path in sorted(api_dir.glob("*.md")):
+        if not path.is_file() or path.name == INDEX_BASENAME:
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for lineno, line in enumerate(lines, 1):
+            match = NUMBER_VOLUME_RE.search(line)
+            if not match:
+                continue
+            declared = int(match.group(1))
+            actual = counts.get(path.name, 0)
+            if declared != actual:
+                violations.append(
+                    {
+                        "file": path.relative_to(repo_root).as_posix(),
+                        "line": lineno,
+                        "message": (
+                            f"「本分册含 {declared} 个接口」与接口一览表不一致:"
+                            f"表里指向 {path.name} 的有 {actual} 行"
+                        ),
+                    }
+                )
+            break
+    return violations
+
+
 def lint(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
-    """跑全部三条规则,返回一个扁平的违例列表。
+    """跑全部六条规则,返回一个扁平的违例列表。
 
     Args:
         repo_root: 仓库根目录。
@@ -204,8 +540,8 @@ def lint(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
 
     Returns:
         违例列表,每项形如
-        ``{"rule": "structure", "file": "docs/ops/x.sh", "message": "..."}``。
-        断链项另带 ``line`` / ``target`` / ``resolved`` / ``suggestion``。
+        ``{"rule": "structure", "file": "docs/ops/x.sh", "line": 0, "message": "..."}``。
+        断链项另带 ``target`` / ``resolved`` / ``suggestion``;术语项另带 ``term``。
         按 ``(rule, file, line)`` 排序以保证输出稳定。
 
     Raises:
@@ -247,6 +583,15 @@ def lint(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
             }
         )
 
+    for item in find_metadata_violations(repo_root, docs_subdir):
+        violations.append({"rule": "metadata", **item})
+
+    for item in find_term_violations(repo_root, docs_subdir):
+        violations.append({"rule": "term", **item})
+
+    for item in find_number_violations(repo_root, docs_subdir):
+        violations.append({"rule": "number", **item})
+
     violations.sort(key=lambda item: (item["rule"], item["file"], item["line"]))
     return violations
 
@@ -284,7 +629,7 @@ def _describe(item: dict) -> str:
 
 
 def main(argv: List[str] | None = None) -> int:
-    """命令行入口:跑三条规则并输出结果,返回退出码。
+    """命令行入口:跑六条规则并输出结果,返回退出码。
 
     Args:
         argv: 命令行参数列表;``None`` 表示用 ``sys.argv[1:]``。
@@ -293,7 +638,10 @@ def main(argv: List[str] | None = None) -> int:
         0 = 0 违例;1 = 有违例;2 = 判定器自身出错。
     """
     parser = argparse.ArgumentParser(
-        description="校验 docs/ 的结构规则:放错位置的文件、断链、未被索引的文档"
+        description=(
+            "校验 docs/ 的六条规则:放错位置的文件、断链、未被索引的文档、"
+            "头部元信息、禁用术语、分册手写计数"
+        )
     )
     parser.add_argument("--root", default=".", help="仓库根目录(默认当前目录)")
     parser.add_argument("--json", action="store_true", help="输出 JSON(L4 判定器用)")
@@ -329,7 +677,7 @@ def main(argv: List[str] | None = None) -> int:
             summary = "、".join(f"{rule} {count}" for rule, count in sorted(by_rule.items()))
             print(f"\n共 {len(violations)} 处违例({summary}),扫描 {scanned} 份 Markdown", file=sys.stderr)
         else:
-            print(f"docs/ 结构合规:扫描 {scanned} 份 Markdown,0 违例")
+            print(f"docs/ 合规:扫描 {scanned} 份 Markdown,0 违例")
     return 1 if violations else 0
 
 

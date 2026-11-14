@@ -24,9 +24,7 @@
 | [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
 | [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) | **已交付;spec 常驻** | 引入 WSL `dsh-superagent` 后的开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判。P0–P3 的实施计划(流程自身的引导,按约定必须内联做、不派工单)已于 2026-11-11 执行完毕,plan 已归档到 [archive/plans/](archive/plans/2026-11-07-superagent-dev-workflow.md);**spec 保留在 `specs/` 作常驻流程参考**(运维手册见 [docs/ops/superagent.md](../ops/superagent.md)) |
 | [specs/2026-11-08-superagent-automation-ladder-design.md](specs/2026-11-08-superagent-automation-ladder-design.md) | 进行中(**L1–L4 已实现**,L4 总闸默认未开) | 自动化阶梯 L0–L4:把「人出现在流程里的那几处」逐个换成确定性机制。**L1(closeout 一条命令)/ L2(白名单自动合)/ L3(模拟器进 CI)/ L4(需求自动入队)均已实现**(实施记录见该 spec §9):L4 是唯一「替人决定做什么」的一级,所以只开三类机器可判的信号、判不出来就不开单、派单仍由人;执行者是确定性 workflow,`eval.mode` 保持 `observe`(spec §6.2)。总闸 `L4_INTAKE` **默认 `off`**,启用是人的一次显式动作 |
-
 | [specs/2026-11-13-aws-distributed-deployment-design.md](specs/2026-11-13-aws-distributed-deployment-design.md) | **设计稿,待拍板**(无实施计划) | AWS 两台悉尼机的分布式部署设计:把「单机 + 宝塔」换成「两台机 + 托管数据库」。输入是 [双机 v2 设计](archive/specs/2026-10-28-dual-server-load-balancing-design.md) 与 [双机 vs 升配决策](../ops/dual-server-vs-upgrade-2026-11-04.md)。**未改任何业务代码**,是否实施等主人拍板 |
-| [specs/2026-11-14-docs-and-scripts-governance-design.md](specs/2026-11-14-docs-and-scripts-governance-design.md) | 进行中(**方案待逐节确认**) | 文档与脚本治理:把「口径靠纪律同步」换成「口径靠机制判定」。分 6 节(口径地图 → 文件归位 → 索引生成 → 门禁注册表 → 脚本公共层 → lint 收口),每节单独一个会话与一个 PR。现状证据与验收口径见该文 §2 / §3.3 |
 
 `specs/` 中的 [dual-server-load-balancing](archive/specs/2026-10-28-dual-server-load-balancing-design.md) 已在
 2026-11-04 拍板「不做双机、暂不升配」,转为历史设计。批次 F–J 已于 2026-11-07 全部交付,
@@ -78,7 +76,8 @@
 - **2026-11**:访客、语音录音交互、安全审计整改、已读回执、游标分页、OpenAPI 契约体系、
   可观测性与容量、腾讯云 IM 分支删除、第五轮 F–J 批次、安全审计整改、批次 K(多端在线)/
   L(输入中 + 引用回复)/ M–Q(第六轮五批)/ R–W(第七轮六批)、superagent 开发流程、
-  CI 流程门禁整改。
+  CI 流程门禁整改、**文档与脚本治理 6 节**(口径地图 → 文件归位 → 索引生成 → 门禁注册表 →
+  脚本公共层 → docs-lint 收口与写作规范,2026-11-14 全部落地并归档)。
 
 逐条结论(哪天交付、哪个 PR、上线 SHA)以 [`docs/milestones.md`](../milestones.md) 为唯一 owner ——
 本节不重复,那正是「同一事实两处手写」要消灭的东西。

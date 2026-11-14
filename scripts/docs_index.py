@@ -3,7 +3,7 @@
 
 为什么需要它
 ------------
-治理方案(`docs/superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md`)
+治理方案(`docs/superpowers/archive/specs/2026-11-14-docs-and-scripts-governance-design.md`)
 第 3 节的前提是一句话:**手写计数必然过期**。本仓库已经过期过五次 ——
 `docs/api/` 的接口数在 5 个地方各写一个版本、`docs/superpowers/` 的工作面 4 → 5
 没人跟着改、归档表自称 105 份实际只链接了 98 份(7 份 R–W 批次 plan 被压成一句
@@ -39,6 +39,8 @@
   **出现且仅出现一次**(漏登与重复登记都判红)。
 - **入口完整性**:每一份非归档文档必须在 ``docs/README.md`` 里出现至少一次。
 - **接口一览表 ≡ openapi.yml 的操作集合**。
+- **业务码覆盖**:`chatapp/config/error_codes.py` 里每个码至少在 `docs/api/` 的一份分册里出现
+  (2026-11-14 第 6 节删掉了 `errors.md` 的手写总表,这条守住「码还在文档里查得到」)。
 
 不判(**刻意**):
 
@@ -120,6 +122,15 @@ OPENAPI_OP_RE = re.compile(r"^    (get|post|put|patch|delete):\s*$")
 
 #: 接口一览表的行:`| POST | `/api/v1/...` | 说明 | [分册](x.md) |`。
 API_ROW_RE = re.compile(r"^\|\s*(GET|POST|PATCH|DELETE)\s*\|\s*`([^`]+)`\s*\|")
+
+#: 表行最后一格里的分册链接目标(相对 `docs/api/`,如 `auth.md`)。
+API_VOLUME_RE = re.compile(r"\[[^\]]*\]\(([^)#]+\.md)\)")
+
+#: 业务码目录 —— 错误响应码的唯一 owner。
+ERROR_CODES_REL = "chatapp/config/error_codes.py"
+
+#: `error_codes.py` 里的码定义(`NAME = 12345  # 注释`)。
+ERROR_CODE_RE = re.compile(r"=\s*(\d{5})\b")
 
 
 # ---------------------------------------------------------------- 读 / 写
@@ -410,8 +421,8 @@ def parse_openapi_operations(repo_root: Path) -> List[Tuple[str, str]]:
     return operations
 
 
-def parse_api_table(repo_root: Path) -> List[Tuple[str, str]]:
-    """解析 `docs/api/README.md`「接口一览」表里的 ``(方法, 路径)``。
+def parse_api_table_rows(repo_root: Path) -> List[Tuple[str, str, str]]:
+    """解析 `docs/api/README.md`「接口一览」表的每一行,带上它指向的分册。
 
     只认该章节内的表格行:README 别处的表格(目录、错误码说明)不该被当成接口。
     代码围栏内的示例也不算(与 `config/api_doc_coverage.py` 的口径一致)。
@@ -420,13 +431,14 @@ def parse_api_table(repo_root: Path) -> List[Tuple[str, str]]:
         repo_root: 仓库根目录。
 
     Returns:
-        ``[(方法, 路径)]``,按表中出现顺序;表不存在时返回空列表。
+        ``[(方法, 路径, 分册文件名)]``,按表中出现顺序;分册格缺失时第三项为空串。
+        表不存在时返回空列表。
 
     Raises:
         FileNotFoundError: 接口文档入口不存在。
     """
     lines = _read_text(_root(repo_root) / API_README_REL).splitlines()
-    rows: List[Tuple[str, str]] = []
+    rows: List[Tuple[str, str, str]] = []
     in_section = False
     in_fence = False
     for line in lines:
@@ -441,9 +453,49 @@ def parse_api_table(repo_root: Path) -> List[Tuple[str, str]]:
         if not in_section:
             continue
         match = API_ROW_RE.match(line)
-        if match:
-            rows.append((match.group(1), match.group(2)))
+        if not match:
+            continue
+        volumes = API_VOLUME_RE.findall(line)
+        rows.append((match.group(1), match.group(2), volumes[-1] if volumes else ""))
     return rows
+
+
+def parse_api_table(repo_root: Path) -> List[Tuple[str, str]]:
+    """解析 `docs/api/README.md`「接口一览」表里的 ``(方法, 路径)``。
+
+    Args:
+        repo_root: 仓库根目录。
+
+    Returns:
+        ``[(方法, 路径)]``,按表中出现顺序;表不存在时返回空列表。
+
+    Raises:
+        FileNotFoundError: 接口文档入口不存在。
+    """
+    return [(method, path) for method, path, _volume in parse_api_table_rows(repo_root)]
+
+
+def api_volume_counts(repo_root: Path) -> Dict[str, int]:
+    """数一数接口一览表里每个分册各有多少行。
+
+    分册首句「本分册含 N 个接口」是**手写计数**,它必须等于这里的派生量 ——
+    判定在 ``scripts/docs_lint.py`` 的 number 规则里(`docs_lint` 调本函数,不重写解析)。
+
+    Args:
+        repo_root: 仓库根目录。
+
+    Returns:
+        ``{"auth.md": 7, ...}``;分册格缺失的行不计。
+
+    Raises:
+        FileNotFoundError: 接口文档入口不存在。
+    """
+    counts: Dict[str, int] = {}
+    for _method, _path, volume in parse_api_table_rows(repo_root):
+        if not volume:
+            continue
+        counts[volume] = counts.get(volume, 0) + 1
+    return counts
 
 
 def count_api_volumes(repo_root: Path) -> int:
@@ -509,6 +561,12 @@ def render_docs_index(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> str:
     archive = count_archive(repo_root)
 
     lines: List[str] = [
+        "---",
+        "状态: 生效中",
+        "复核: `python scripts/docs_index.py --check`",
+        "owner: scripts/docs_index.py",
+        "---",
+        "",
         "# docs/ — 文档总索引",
         "",
         GENERATED_NOTICE,
@@ -847,6 +905,65 @@ def check_api_table(repo_root: Path) -> List[str]:
     return problems
 
 
+def read_error_codes(repo_root: Path) -> List[str]:
+    """从 `chatapp/config/error_codes.py` 读出全部业务码。
+
+    Args:
+        repo_root: 仓库根目录。
+
+    Returns:
+        业务码字符串列表(五位,按文件里的出现顺序);重复定义也原样保留。
+
+    Raises:
+        FileNotFoundError: 码目录文件不存在。
+        ValueError: 一个码都没读到 —— 格式变了,那是判定器该响的时候。
+    """
+    codes = ERROR_CODE_RE.findall(_read_text(_root(repo_root) / ERROR_CODES_REL))
+    if not codes:
+        raise ValueError(f"{ERROR_CODES_REL} 里一个业务码都没读到(格式变了?)")
+    return codes
+
+
+def check_error_codes_documented(repo_root: Path) -> List[str]:
+    """校验「每个业务码至少在 `docs/api/` 的一份分册里出现」。
+
+    为什么不是「总表 ≡ `error_codes.py`」:2026-11-14 治理第 6 节把 `errors.md` 的
+    「业务码总表」**删掉**了 —— 它是 `error_codes.py` 的手写副本,已经漂移过
+    (13 个码只列了 11 个,缺 `40301` / `50302`)。码的 owner 只有 `error_codes.py`,
+    人读含义分散在各分册的「错误码」小节。这条规则守的是剩下那半个风险:
+    **新增一个码却没有任何一份分册提到它**,客户端就查不到含义与处理建议。
+
+    Args:
+        repo_root: 仓库根目录。
+
+    Returns:
+        问题描述列表;空列表表示每个业务码都有分册覆盖。
+
+    Raises:
+        FileNotFoundError: 码目录文件或接口文档目录不存在。
+        ValueError: 一个业务码都没读到。
+    """
+    repo_root = _root(repo_root)
+    codes = read_error_codes(repo_root)
+    api_dir = (repo_root / API_README_REL).parent
+    if not api_dir.is_dir():
+        raise FileNotFoundError(f"找不到接口文档目录:{api_dir}")
+
+    texts: List[str] = []
+    for path in _sorted_by_path(api_dir.glob("*.md")):
+        if path.name == "errors.md":
+            continue
+        texts.append(_read_text(path))
+
+    problems: List[str] = []
+    for code in codes:
+        if not any(code in text for text in texts):
+            problems.append(
+                f"业务码 {code} 没有出现在 docs/api/ 的任何分册里(`{ERROR_CODES_REL}` 里有)"
+            )
+    return problems
+
+
 def check_generated_files(repo_root: Path) -> List[str]:
     """校验三个生成物与「重新生成的结果」逐字节一致。
 
@@ -877,7 +994,7 @@ def check(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[str]:
         docs_subdir: 相对 `repo_root` 的文档目录名。
 
     Returns:
-        问题描述列表(先生成物一致性,再完整性,最后接口表);空列表表示全部通过。
+        问题描述列表(先生成物一致性,再完整性,再派生表与业务码);空列表表示全部通过。
 
     Raises:
         FileNotFoundError: 文档目录 / 归档目录 / 契约文件不存在。
@@ -888,6 +1005,7 @@ def check(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[str]:
     problems.extend(check_archive_completeness(repo_root))
     problems.extend(check_entry_completeness(repo_root, docs_subdir))
     problems.extend(check_api_table(repo_root))
+    problems.extend(check_error_codes_documented(repo_root))
     return problems
 
 
