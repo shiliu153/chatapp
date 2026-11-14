@@ -507,24 +507,24 @@ class CommentCoverageLogicTests(SimpleTestCase):
                                     "        model = object\n")
             self.assertEqual(check_file(path), [])
 
-    def test_public_function_with_params_needs_args_section(self):
-        """公开函数带参数却没写 Args 小节时,结构提示必须点名。"""
+    def test_public_function_with_params_needs_param_section(self):
+        """公开函数带参数却没写参数说明小节时,结构提示必须点名。"""
         from config.comment_coverage import find_structure_warnings
 
         with tempfile.TemporaryDirectory() as tmp:
             self._write(tmp, '"""演示模块。"""\n\n\ndef greet(name):\n'
                              '    """向某人问好。"""\n')
             warnings = find_structure_warnings(root=Path(tmp))
-        self.assertTrue(any("greet" in w and "Args" in w for w in warnings))
+        self.assertTrue(any("greet" in w and "参数说明" in w for w in warnings))
 
-    def test_function_with_args_section_passes_structure_check(self):
-        """写了 Args 小节的公开函数不再出现在结构提示里。"""
+    def test_function_with_param_section_passes_structure_check(self):
+        """写了参数说明小节的公开函数不再出现在结构提示里。"""
         from config.comment_coverage import find_structure_warnings
 
         with tempfile.TemporaryDirectory() as tmp:
             self._write(tmp, '"""演示模块。"""\n\n\ndef greet(name):\n'
                              '    """向某人问好。\n\n'
-                             "    Args:\n"
+                             "    参数说明:\n"
                              "        name: 被问候者的名字。\n"
                              '    """\n')
             self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
