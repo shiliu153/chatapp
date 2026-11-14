@@ -463,6 +463,22 @@ class BlockApiTests(APITestCase):
         self.assertEqual(resp.status_code, 204)
         delay.assert_not_called()
 
+    def test_unblock_write_throttled(self):
+        """解除拉黑按用户限流:超额度返回 429,且不再进入视图逻辑。"""
+        from .throttles import UnblockThrottle
+
+        cache.clear()
+        Block.objects.create(blocker=self.me, blocked=self.target)
+        with patch("im.tasks.blacklist_remove.delay") as delay, \
+                patch.object(UnblockThrottle, "rate", "1/hour", create=True):
+            with self.captureOnCommitCallbacks(execute=True):
+                first = self.client.delete(f"{self.URL}/{self.target.id}")
+            second = self.client.delete(f"{self.URL}/{self.target.id}")
+        self.assertEqual(first.status_code, 204)
+        self.assertEqual(second.status_code, 429)
+        # 第二次在限流层就被拒,因此只有第一次真正入队了 IM 同步。
+        delay.assert_called_once_with(self.me.id, self.target.id)
+
     def test_requires_auth(self):
         self.client.credentials()
         self.assertEqual(self.client.get(self.URL).status_code, 401)

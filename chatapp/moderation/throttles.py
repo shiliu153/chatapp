@@ -1,7 +1,8 @@
-"""举报接口的限流。
+"""举报与拉黑接口的限流。
 
-额度见 ``settings.DEFAULT_THROTTLE_RATES["report"]``(20/天)——
-举报是低频且需要人工处理的操作,额度给得比较紧。
+每个类只声明 ``scope``,额度统一在 ``settings.DEFAULT_THROTTLE_RATES`` 里配置:
+举报 20/天(低频且需要人工处理,额度给得比较紧);拉黑与解除拉黑各 60/小时
+(关系变更会连带 IM 黑名单同步与配对查库,单账号无节制调用等于写入放大器)。
 """
 
 from rest_framework.throttling import SimpleRateThrottle
@@ -27,6 +28,15 @@ class BlockThrottle(UserScopedThrottle):
         if request.method != "POST":
             return True
         return super().allow_request(request, view)
+
+
+class UnblockThrottle(UserScopedThrottle):
+    """按用户限流解除拉黑;额度见 ``settings.DEFAULT_THROTTLE_RATES["unblock"]``。
+
+    该视图只有 DELETE 一种方法,因此不需要像 ``BlockThrottle`` 那样按方法分支放行。
+    """
+
+    scope = "unblock"
 
 
 class ReportThrottle(SimpleRateThrottle):
