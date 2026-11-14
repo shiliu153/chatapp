@@ -64,7 +64,20 @@
 ## 五、PR 规矩
 
 - 标题 `<type>(<scope>): <中文摘要>`;正文按 `.github/pull_request_template.md` 写四问:**改了什么 / 怎么验的(贴 verify 输出)/ 留了什么给人验 / 遗留**。
-- **不要自己合并**,不要开 auto-merge,不要运行任何 merge 命令。
+- **低风险合并可以直接合**(2026-11-14 主人修订):满足下面**全部**条件的 PR,本机会话自己 squash
+  合并即可,不必再单独占一轮确认:
+  - diff **只**落在 docstring、`#` 注释、`docs/**`、以及仓库根的说明性文档(`AGENTS.md` /
+    `CLAUDE.md` / `README.md` / `CONTRIBUTING.md`)——没有语句、函数签名、常量、迁移、依赖锁、
+    生成物变化;
+  - 单一栈(§二);
+  - 该栈门禁绿(§三)。纯文档 PR 不触发任何 workflow、没有 check runs 属正常,以
+    `scripts/verify.sh contract` 绿为准;已触发的 check 必须全部 success(按 paths 跳过的
+    `skipped` 不算红)。
+  下面这些**永远不算低风险**,一律人工:**改 `app/` 的 UI 可见行为**、`deploy/**`、`.github/**`、
+  生成物、版本号、依赖锁、任何**安全策略**变更(例如 fail-closed 口径)、数据迁移。
+- **不开 auto-merge**:仓库 `allow_auto_merge=false` 且 `main` 没有 branch protection(2026-11-14
+  实测),arm auto-merge ≈ 立即合并、并不会等 CI 绿。「绿了才合」只能靠合并前自己查 check runs。
+- 不属于上面低风险的 PR:**不要自己合并**,不开 auto-merge,不运行任何 merge 命令。
 - **碰 `app/` 的 UI 可见改动**:你跑不了模拟器(它只在主人的 Windows 上)。PR 开成 **draft**,正文写「等待模拟器验收」,**不得声称 ready**;Before/After 截图由人补。
 - 一个 PR 只解决一个 issue。顺手发现的坑写进 PR 正文的「遗留」段,不要顺手改。
 - 发现主人已经在同一问题上动手(他们的分支/PR 含本单的代码),按提示词要求关掉自己的 PR 并指明对方那条。
@@ -85,8 +98,9 @@
 ## 八、superagent 工单闭环(派单侧)
 
 > **本节只约束派单侧(主人 + 本机会话),不授予 worker 任何权限。** 与本文件 §五、§六 冲突时
-> 以 §五/§六 为准:worker 永不合并 PR、永不开 auto-merge。2026-11-12 从全局
-> `~/.dsh/AGENTS.md` 迁到这里——那三条只对本仓库成立,不该对所有项目生效。
+> 以 §五/§六 为准:worker 永不合并 PR、永不开 auto-merge。**2026-11-14 起 §五 的「低风险合并
+> 可以直接合」只授予主人在场的本机会话,worker 不适用 —— worker 读到的永远是「不合并」。**
+> 2026-11-12 从全局 `~/.dsh/AGENTS.md` 迁到这里——那三条只对本仓库成立,不该对所有项目生效。
 
 - **先分析,后开单**:需求分析在本机会话做完再提 issue——改什么、属哪条栈、验收口径能否被
   worker 在**不违反本文件**的前提下自证。凡是「合并后才发生」的事(例如「某条 CI 轨被触发」)
@@ -96,5 +110,6 @@
   `scripts/superagent-prune.sh` 就住在母体里,不同步就会用旧脚本、清不掉 worktree。
 - **纯文档 PR 直接合并**:只动 `docs/**` 的 PR 不触发任何 workflow,没有 check runs 是正常的;
   本地 `scripts/verify.sh contract` 绿 + 看完 diff 即可直接 squash 合并,不再单独占一轮确认。
+  判定口径与 §五「低风险合并」是**同一份**,不要在这里另立一套。
 
 派单、升级、排障的操作细节见 [docs/ops/superagent.md](docs/ops/superagent.md)。
