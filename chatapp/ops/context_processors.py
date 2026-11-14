@@ -1,8 +1,9 @@
 """审核台的模板上下文处理器:给导航栏提供待办数量角标。
 
 设计要点:
-    只对 ``is_staff`` 账号查库 —— 普通请求(含 App 接口)不会因此多出三条 COUNT,
-    这是把它放在全局 context processor 里的前提。
+    只对 ``is_staff`` 账号查库 —— 普通请求(含 App 接口)不会因此多出四条 COUNT
+    (待处理举报 / 待审照片 / 待处理动态举报 / 待处理反馈),这是把它放在全局
+    context processor 里的前提。
 """
 
 from feed.models import PostReport
@@ -18,7 +19,8 @@ def ops_badges(request):
         request: Django 请求对象。
 
     Returns:
-        含三类待办数量的字典;非运营账号返回空字典(模板里取不到即为空)。
+        四类待办数量的字典(待处理举报 / 待审照片 / 待处理动态举报 / 待处理反馈);
+        非运营账号返回空字典(模板里取不到即为空)。
     """
     if not (request.user.is_authenticated and request.user.is_staff):
         return {}
