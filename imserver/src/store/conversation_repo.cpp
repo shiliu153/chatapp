@@ -1,3 +1,25 @@
+/*********************************************************************************************************************
+* chat_app 自建 IM 服务端（imserver）是本项目唯一的 IM 后端，C++20 实现，对外提供 WebSocket :9100 与 HTTP :9101
+* Copyright (c) 2026 shiliu153
+*
+* 本文件是 chat_app 自建 IM 服务端的一部分
+*
+* 额外注明：
+* 本文件使用 MIT 开源许可证协议 许可申明英文版见仓库根目录 LICENSE 文件
+* 欢迎各位使用并传播本程序 但修改内容时必须保留作者的版权声明（即本声明）
+*
+* 文件名称          src/store/conversation_repo.cpp
+* 项目名称          chat_app / imserver
+* 公司名称          个人项目（shiliu153）
+* 版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+* 开发环境          CMake 3.22 + g++ (C++20) Linux x86_64
+* 适用平台          Linux x86_64 服务端
+* 仓库地址          https://github.com/shiliu153/chatapp
+*
+* 修改记录
+* 日期              作者               备注
+* 2026-11-14        shiliu153          补齐文件头与函数注释
+********************************************************************************************************************/
 #include "store/conversation_repo.h"
 
 #include <algorithm>
@@ -7,14 +29,38 @@
 
 namespace {
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把两个 user_id 规范化成升序对
+// 参数说明     a                任意一方 user_id
+//              b                另一方 user_id
+// 返回参数     std::pair<uint64_t, uint64_t>  first 是较小者 second 是较大者
+// 使用示例     ordered(a, b);
+// 备注信息     im_conversation 的 uk_pair 要求 user_a 小于 user_b 所有按对查会话的 SQL 都先过这一步
+//-------------------------------------------------------------------------------------------------------------------
 std::pair<uint64_t, uint64_t> ordered(uint64_t a, uint64_t b) {
   return a < b ? std::make_pair(a, b) : std::make_pair(b, a);
 }
 
 }  // namespace
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     构造会话仓库 绑定连接池
+// 参数说明     pool             MySQL 连接池 只保存引用 生命周期须长于本对象
+// 返回参数     void             无返回值
+// 使用示例     ConversationRepo repo(pool);
+// 备注信息     构造函数不借连接也不访问数据库
+//-------------------------------------------------------------------------------------------------------------------
 ConversationRepo::ConversationRepo(MysqlPool& pool) : pool_(pool) {}
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按两人查会话行 不存在时返回空
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              a                会话一方 user_id
+//              b                会话另一方 user_id
+// 返回参数     std::optional<ConversationRow>  命中时返回会话行 没有会话行时 nullopt
+// 使用示例     repo.find_pair(lease, uid, peer);
+// 备注信息     规范化成 (小,大) 后按 uk_pair 等值查 不加锁 不建行 没有结果集时返回 nullopt 查询报错抛 MysqlError
+//-------------------------------------------------------------------------------------------------------------------
 std::optional<ConversationRow> ConversationRepo::find_pair(MysqlPool::Lease& lease,
                                                            uint64_t a, uint64_t b) {
   const auto [user_a, user_b] = ordered(a, b);
@@ -40,6 +86,16 @@ std::optional<ConversationRow> ConversationRepo::find_pair(MysqlPool::Lease& lea
   return row;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     建或取会话 id 并对会话行加写锁
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              a                会话一方 user_id
+//              b                会话另一方 user_id
+//              now_ms           当前毫秒时间戳 写入时间列
+// 返回参数     ConversationRow  加锁后读到的会话行 last_seq 可直接用于分配新序号
+// 使用示例     repo.lock_pair(lease, from, to, now);
+// 备注信息     先 INSERT ON DUPLICATE KEY UPDATE 取 id 再按主键 FOR UPDATE 读 避免新配对并发时的间隙锁死锁 取行失败抛 std::runtime_error
+//-------------------------------------------------------------------------------------------------------------------
 ConversationRow ConversationRepo::lock_pair(MysqlPool::Lease& lease, uint64_t a, uint64_t b,
                                             int64_t now_ms) {
   const auto [user_a, user_b] = ordered(a, b);
@@ -91,6 +147,17 @@ ConversationRow ConversationRepo::lock_pair(MysqlPool::Lease& lease, uint64_t a,
   throw std::runtime_error("failed to lock conversation");
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     更新会话的最后一条消息与已分配序号
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              conv_id          会话 id
+//              seq              刚分配的会话内序号
+//              msg_id           刚落库的消息 id
+//              now_ms           当前毫秒时间戳 写入时间列
+// 返回参数     void             无返回值
+// 使用示例     repo.touch(lease, conversation.id, seq, msg_id, now);
+// 备注信息     一条 UPDATE 写 last_seq / last_msg_id / last_msg_at 须与消息插入同事务
+//-------------------------------------------------------------------------------------------------------------------
 void ConversationRepo::touch(MysqlPool::Lease& lease, uint64_t conv_id, uint64_t seq,
                              uint64_t msg_id, int64_t now_ms) {
   Stmt stmt(lease.get(),
@@ -102,6 +169,17 @@ void ConversationRepo::touch(MysqlPool::Lease& lease, uint64_t conv_id, uint64_t
   stmt.execute();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     累加某个人的会话状态 没有状态行时先插入
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            状态所属 user_id
+//              conv_id          会话 id
+//              unread_delta     未读数增量 正数累加
+//              now_ms           当前毫秒时间戳 写入时间列
+// 返回参数     void             无返回值
+// 使用示例     repo.upsert_state(lease, owner, conv_id, 1, now);
+// 备注信息     新行 read_seq 写 0 冲突分支 unread 做加法并把 deleted 复位成 0
+//-------------------------------------------------------------------------------------------------------------------
 void ConversationRepo::upsert_state(MysqlPool::Lease& lease, uint64_t owner,
                                     uint64_t conv_id, int unread_delta, int64_t now_ms) {
   Stmt stmt(lease.get(),
@@ -116,6 +194,19 @@ void ConversationRepo::upsert_state(MysqlPool::Lease& lease, uint64_t owner,
   stmt.execute();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     一条多行 INSERT 同时累加收发双方的状态
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner_a          第一个状态所属 user_id
+//              delta_a          第一个人的未读增量
+//              owner_b          第二个状态所属 user_id
+//              delta_b          第二个人的未读增量
+//              conv_id          会话 id
+//              now_ms           当前毫秒时间戳 写入时间列
+// 返回参数     void             无返回值
+// 使用示例     repo.upsert_states(lease, request.to, 1, request.from, 0, conversation.id, now);
+// 备注信息     owner_b 为 0 时直接转调 upsert_state 否则一条多行 INSERT 写两行 省一次往返
+//-------------------------------------------------------------------------------------------------------------------
 void ConversationRepo::upsert_states(MysqlPool::Lease& lease, uint64_t owner_a, int delta_a,
                                      uint64_t owner_b, int delta_b, uint64_t conv_id,
                                      int64_t now_ms) {
@@ -141,6 +232,15 @@ void ConversationRepo::upsert_states(MysqlPool::Lease& lease, uint64_t owner_a, 
   stmt.execute();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     查某人在某个会话里的未读条数
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            状态所属 user_id
+//              peer             会话对端 user_id
+// 返回参数     uint32_t         未读条数 没有状态行时返回 0
+// 使用示例     repo.unread_for_peer(lease, 2, 1);
+// 备注信息     JOIN im_conversation 用 uk_pair 定位会话 再按 (owner_id,conv_id) 主键取 unread
+//-------------------------------------------------------------------------------------------------------------------
 uint32_t ConversationRepo::unread_for_peer(MysqlPool::Lease& lease, uint64_t owner,
                                            uint64_t peer) {
   const auto [user_a, user_b] = ordered(owner, peer);
@@ -160,11 +260,28 @@ uint32_t ConversationRepo::unread_for_peer(MysqlPool::Lease& lease, uint64_t own
   return unread;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     查某人在某个会话里的未读条数 自行借连接
+// 参数说明     owner            状态所属 user_id
+//              peer             会话对端 user_id
+// 返回参数     uint32_t         未读条数 没有状态行时返回 0
+// 使用示例     repo.unread_for_peer(2, 1);
+// 备注信息     内部 acquire 一条连接 用后归还
+//-------------------------------------------------------------------------------------------------------------------
 uint32_t ConversationRepo::unread_for_peer(uint64_t owner, uint64_t peer) {
   auto lease = pool_.acquire();
   return unread_for_peer(lease, owner, peer);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     回读某人在某个会话里已读到的序号
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            状态所属 user_id
+//              peer             会话对端 user_id
+// 返回参数     uint64_t         已读位置 read_seq 没有状态行时返回 0
+// 使用示例     repo.read_seq_for(lease, uid, peer);
+// 备注信息     mark_read 之后调用 返回的是落库后的真实值 用于已读回执广播
+//-------------------------------------------------------------------------------------------------------------------
 uint64_t ConversationRepo::read_seq_for(MysqlPool::Lease& lease, uint64_t owner,
                                         uint64_t peer) {
   const auto [user_a, user_b] = ordered(owner, peer);
@@ -184,6 +301,15 @@ uint64_t ConversationRepo::read_seq_for(MysqlPool::Lease& lease, uint64_t owner,
   return read_seq;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     批量查某人在多个会话里的已读位置
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            状态所属 user_id
+//              conv_ids         会话 id 列表 调用方已去重且非空
+// 返回参数     std::map<uint64_t, uint64_t>  conv_id 到 read_seq 的映射 没有状态行的会话不出现
+// 使用示例     repo.read_seqs(lease, uid, conv_ids);
+// 备注信息     conv_ids 为空直接返回空表 id 由 uint64 拼成 IN 列表 不存在注入面
+//-------------------------------------------------------------------------------------------------------------------
 std::map<uint64_t, uint64_t> ConversationRepo::read_seqs(MysqlPool::Lease& lease, uint64_t owner,
                                                         const std::vector<uint64_t>& conv_ids) {
   std::map<uint64_t, uint64_t> result_map;
@@ -209,6 +335,17 @@ std::map<uint64_t, uint64_t> ConversationRepo::read_seqs(MysqlPool::Lease& lease
   return result_map;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按条数减未读 减到 0 为止
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            状态所属 user_id
+//              conv_id          会话 id
+//              delta            要减掉的未读条数 小于等于 0 时直接返回
+//              now_ms           当前毫秒时间戳 写入时间列
+// 返回参数     void             无返回值
+// 使用示例     repo.decrement_unread(lease, uid, conv_id, delta, now);
+// 备注信息     unread 是 INT UNSIGNED 必须先 CAST 成有符号再相减 否则越过 0 报 1690 相减结果再由 GREATEST 夹到 0
+//-------------------------------------------------------------------------------------------------------------------
 void ConversationRepo::decrement_unread(MysqlPool::Lease& lease, uint64_t owner, uint64_t conv_id,
                                         int delta, int64_t now_ms) {
   if (delta <= 0) {
@@ -225,6 +362,17 @@ void ConversationRepo::decrement_unread(MysqlPool::Lease& lease, uint64_t owner,
   stmt.execute();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把某人在某个会话的已读位置推进到 seq 并清零未读
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            状态所属 user_id
+//              peer             会话对端 user_id
+//              seq              本次读到的会话内序号
+//              now_ms           当前毫秒时间戳 写入时间列
+// 返回参数     void             无返回值
+// 使用示例     repo.mark_read(lease, uid, peer, target, now_ms());
+// 备注信息     read_seq 取 GREATEST(read_seq,?) 乱序旧帧不会让已读位置回退 unread 一律清零 不改会话行
+//-------------------------------------------------------------------------------------------------------------------
 void ConversationRepo::mark_read(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer,
                                  uint64_t seq, int64_t now_ms) {
   const auto [user_a, user_b] = ordered(owner, peer);
@@ -240,6 +388,16 @@ void ConversationRepo::mark_read(MysqlPool::Lease& lease, uint64_t owner, uint64
   stmt.execute();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     单方隐藏整个会话 只改自己那一行
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            执行删除的 user_id
+//              peer             会话对端 user_id
+//              now_ms           当前毫秒时间戳 写入时间列
+// 返回参数     void             无返回值
+// 使用示例     repo.set_deleted(lease, uid, peer, now_ms());
+// 备注信息     JOIN im_conversation 定位会话后置 deleted=1 不动 unread 与 read_seq 对端不受影响
+//-------------------------------------------------------------------------------------------------------------------
 void ConversationRepo::set_deleted(MysqlPool::Lease& lease, uint64_t owner, uint64_t peer,
                                    int64_t now_ms) {
   const auto [user_a, user_b] = ordered(owner, peer);
@@ -254,6 +412,15 @@ void ConversationRepo::set_deleted(MysqlPool::Lease& lease, uint64_t owner, uint
   stmt.execute();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按 (owner, conv_id) 读置顶与免打扰标志位
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            会话主人 user_id
+//              conv_id          会话 id
+// 返回参数     std::optional<ConversationFlags>  标志位 没有这一行时 nullopt
+// 使用示例     flags_of(lease, owner, conv_id);
+// 备注信息     私有方法 pinned 由 pinned_at>0 推出 muted 由 muted!=0 推出 没有这一行或没有结果集时返回 nullopt
+//-------------------------------------------------------------------------------------------------------------------
 std::optional<ConversationFlags> ConversationRepo::flags_of(MysqlPool::Lease& lease,
                                                             uint64_t owner, uint64_t conv_id) {
   auto* result = lease.query("SELECT pinned_at,muted FROM im_conversation_state WHERE owner_id=" +
@@ -273,6 +440,18 @@ std::optional<ConversationFlags> ConversationRepo::flags_of(MysqlPool::Lease& le
   return flags;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     改会话的置顶与免打扰 返回回读的真实值
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            会话主人 user_id
+//              peer             会话对端 user_id
+//              pinned           置顶开关 nullopt 表示这一项不改
+//              muted            免打扰开关 nullopt 表示这一项不改
+//              now_ms           当前毫秒时间戳 写入时间列
+// 返回参数     std::optional<ConversationFlags>  回读到的真实标志位 会话不存在时 nullopt
+// 使用示例     repo.set_flags(lease, uid, peer, true, std::nullopt, now_ms());
+// 备注信息     先 JOIN 查 conv_id 与现值 会话不存在直接 nullopt 不插新行 只有值真变了才 UPDATE 最后回读 不改 updated_at
+//-------------------------------------------------------------------------------------------------------------------
 std::optional<ConversationFlags> ConversationRepo::set_flags(MysqlPool::Lease& lease,
                                                             uint64_t owner, uint64_t peer,
                                                             std::optional<bool> pinned,
@@ -329,6 +508,14 @@ std::optional<ConversationFlags> ConversationRepo::set_flags(MysqlPool::Lease& l
   return flags_of(lease, owner, conv_id);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     注销时删掉该账号的会话状态行与涉及的会话行
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              uid              要注销的账号 user_id
+// 返回参数     void             无返回值
+// 使用示例     repo.delete_for_user(lease, uid);
+// 备注信息     两条 DELETE 先状态行后会话行 由 MessageService::delete_account 在同一事务内调用
+//-------------------------------------------------------------------------------------------------------------------
 void ConversationRepo::delete_for_user(MysqlPool::Lease& lease, uint64_t uid) {
   {
     Stmt states(lease.get(), "DELETE FROM im_conversation_state WHERE owner_id=?");
@@ -344,6 +531,15 @@ void ConversationRepo::delete_for_user(MysqlPool::Lease& lease, uint64_t uid) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按置顶与活跃时间取会话列表
+// 参数说明     lease            借出的数据库连接 事务边界由调用方决定
+//              owner            列表主人 user_id
+//              limit            最多返回条数 内部夹在 1..200
+// 返回参数     std::vector<ConversationView>  会话列表项 置顶组在前
+// 使用示例     repo.list(lease, uid, 50);
+// 备注信息     一条大 JOIN 拼出对端资料、最后一条消息、对端已读位置与标志位 摘要按会话全局最后一条取 可能已被我隐藏
+//-------------------------------------------------------------------------------------------------------------------
 std::vector<ConversationView> ConversationRepo::list(MysqlPool::Lease& lease, uint64_t owner,
                                                      int limit) {
   limit = std::clamp(limit, 1, 200);

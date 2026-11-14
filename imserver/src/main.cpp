@@ -1,3 +1,26 @@
+/*********************************************************************************************************************
+* chat_app 自建 IM 服务端（imserver）是本项目唯一的 IM 后端，C++20 实现，对外提供 WebSocket :9100 与 HTTP :9101
+* Copyright (c) 2026 shiliu153
+*
+* 本文件是 chat_app 自建 IM 服务端的一部分
+*
+* 额外注明：
+* 本文件使用 MIT 开源许可证协议 许可申明英文版见仓库根目录 LICENSE 文件
+* 欢迎各位使用并传播本程序 但修改内容时必须保留作者的版权声明（即本声明）
+*
+* 文件名称          src/main.cpp
+* 项目名称          chat_app / imserver
+* 公司名称          个人项目（shiliu153）
+* 版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+* 开发环境          CMake 3.22 + g++ (C++20) Linux x86_64
+* 适用平台          Linux x86_64 服务端
+* 仓库地址          https://github.com/shiliu153/chatapp
+*
+* 修改记录
+* 日期              作者               备注
+* 2026-11-14        shiliu153          补齐文件头与函数注释
+********************************************************************************************************************/
+
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/thread_pool.hpp>
@@ -24,6 +47,14 @@
 #include "store/user_repo.h"
 #include "util/log.h"
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     程序入口 启动 WS 与 HTTP 服务
+// 参数说明     argc             命令行参数个数
+//              argv             命令行参数 仅识别 argv[1] 为 --migrate
+// 返回参数     int              0 正常退出 1 启动失败
+// 使用示例     ./imserver --migrate
+// 备注信息     非回环监听必须显式设 IM_ALLOW_PUBLIC_BIND=1 否则启动失败;SIGINT/SIGTERM 触发优雅停服;异常只打 fatal 并返回 1
+//-------------------------------------------------------------------------------------------------------------------
 int main(int argc, char** argv) {
   try {
     const auto cfg = Config::from_env();

@@ -1,3 +1,26 @@
+/*********************************************************************************************************************
+* chat_app 自建 IM 服务端（imserver）是本项目唯一的 IM 后端，C++20 实现，对外提供 WebSocket :9100 与 HTTP :9101
+* Copyright (c) 2026 shiliu153
+*
+* 本文件是 chat_app 自建 IM 服务端的一部分
+*
+* 额外注明：
+* 本文件使用 MIT 开源许可证协议 许可申明英文版见仓库根目录 LICENSE 文件
+* 欢迎各位使用并传播本程序 但修改内容时必须保留作者的版权声明（即本声明）
+*
+* 文件名称          tests/frames_fixture_test.cpp
+* 项目名称          chat_app / imserver
+* 公司名称          个人项目（shiliu153）
+* 版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+* 开发环境          CMake 3.22 + g++ (C++20) Linux x86_64
+* 适用平台          Linux x86_64 服务端
+* 仓库地址          https://github.com/shiliu153/chatapp
+*
+* 修改记录
+* 日期              作者               备注
+* 2026-11-14        shiliu153          补齐文件头与函数注释
+********************************************************************************************************************/
+
 /// 跨栈协议 fixture 契约测试(backlog E-2)。
 ///
 /// 下行帧用 imserver **真实的序列化函数**生成,与
@@ -173,6 +196,15 @@ void expect_client_frame(const std::string& name, const json& frame) {
 
 }  // namespace
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证下行帧的真实序列化结果与 fixture 逐字段一致
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R ProtocolFixture.ServerToClientFramesMatchRealSerialization
+// 备注信息     用真实构造函数生成 17 种下行帧 与 fixtures/ws/server_to_client.json 逐条比对 比对前递归剥掉媒体 URL
+//              的 ?e= 与 s= 签名 query 覆盖 ack message read revoked self_read conversation_deleted
+//              typing 断言 protocol_version 为 1 且 fixture 新增帧必须在服务端生成表里有对应构造
+//-------------------------------------------------------------------------------------------------------------------
 TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
   const auto document = load_fixture("server_to_client.json");
   ASSERT_EQ(document.at("protocol_version"), 1);
@@ -275,6 +307,15 @@ TEST(ProtocolFixture, ServerToClientFramesMatchRealSerialization) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证上行帧 fixture 的结构符合服务端约定
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R ProtocolFixture.ClientToServerFramesAreWellFormed
+// 备注信息     逐类型校验 v 为 1 且 data 是对象 auth ping send read revoke conversation_delete typing
+//              覆盖 send 的 text custom image voice 四种 kind 贴纸 id 必须是 sticker_ 前缀且长度 10 ref_msg_id
+//              只允许正整数并禁止夹带 ref 快照 typing 帧必须没有 id 且 data 只有 to 未知类型直接失败
+//-------------------------------------------------------------------------------------------------------------------
 TEST(ProtocolFixture, ClientToServerFramesAreWellFormed) {
   const auto document = load_fixture("client_to_server.json");
   ASSERT_EQ(document.at("protocol_version"), 1);

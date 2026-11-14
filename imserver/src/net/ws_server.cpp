@@ -1,3 +1,26 @@
+/*********************************************************************************************************************
+* chat_app 自建 IM 服务端（imserver）是本项目唯一的 IM 后端，C++20 实现，对外提供 WebSocket :9100 与 HTTP :9101
+* Copyright (c) 2026 shiliu153
+*
+* 本文件是 chat_app 自建 IM 服务端的一部分
+*
+* 额外注明：
+* 本文件使用 MIT 开源许可证协议 许可申明英文版见仓库根目录 LICENSE 文件
+* 欢迎各位使用并传播本程序 但修改内容时必须保留作者的版权声明（即本声明）
+*
+* 文件名称          src/net/ws_server.cpp
+* 项目名称          chat_app / imserver
+* 公司名称          个人项目（shiliu153）
+* 版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+* 开发环境          CMake 3.22 + g++ (C++20) Linux x86_64
+* 适用平台          Linux x86_64 服务端
+* 仓库地址          https://github.com/shiliu153/chatapp
+*
+* 修改记录
+* 日期              作者               备注
+* 2026-11-14        shiliu153          补齐文件头与函数注释
+********************************************************************************************************************/
+
 #include "net/ws_server.h"
 
 #include <boost/asio/post.hpp>
@@ -26,12 +49,26 @@ using error_code = beast::error_code;
 
 namespace {
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     取当前墙钟时间的毫秒时间戳
+// 参数说明     无
+// 返回参数     int64_t          自 Unix 纪元起的毫秒数
+// 使用示例     const int64_t ts = now_ms();
+// 备注信息     用于 token 过期判定 帧时间戳与发送配额的分钟键 不做单调计时
+//-------------------------------------------------------------------------------------------------------------------
 int64_t now_ms() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把 u 前缀的 uid 文本解析成整数
+// 参数说明     value            形如 u42 的字符串
+// 返回参数     std::optional<uint64_t>     合法返回 uid 否则 nullopt
+// 使用示例     const auto uid = parse_uid(data.value("to", std::string()));
+// 备注信息     要求 u 后面整串都是数字 拒绝 12abc 这类前缀 数字位数上限 20 防溢出
+//-------------------------------------------------------------------------------------------------------------------
 std::optional<uint64_t> parse_uid(const std::string& value) {
   if (value.size() < 2 || value[0] != 'u') {
     return std::nullopt;
@@ -68,6 +105,13 @@ std::optional<uint64_t> parse_uid(const std::string& value) {
 ///
 /// Returns:
 ///   形状合法返回 true。
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     校验贴纸 id 的形状
+// 参数说明     id               客户端带上来的贴纸 id
+// 返回参数     bool             形状合法返回 true
+// 使用示例     is_sticker_id("sticker_01");
+// 备注信息     只接受 sticker_ 加两位数字;贴纸复用 custom 类型 不校验形状就能伪造系统灰条
+//-------------------------------------------------------------------------------------------------------------------
 bool is_sticker_id(const std::string& id) {
   if (id.size() != 10 || id.compare(0, 8, "sticker_") != 0) {
     return false;
@@ -78,6 +122,13 @@ bool is_sticker_id(const std::string& id) {
 
 }  // namespace
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     占用一个单 IP 并发连接名额
+// 参数说明     ip               客户端 IP 文本
+// 返回参数     bool             未达上限并计数成功返回 true
+// 使用示例     if (!counter.acquire(ip)) { reject_http(429, "too many connections"); }
+// 备注信息     加锁后先读计数再自增 返回 false 时不占名额 成功后必须配对 release
+//-------------------------------------------------------------------------------------------------------------------
 bool IpCounter::acquire(const std::string& ip) {
   const std::lock_guard<std::mutex> lock(mutex_);
   int& count = counts_[ip];
@@ -88,6 +139,13 @@ bool IpCounter::acquire(const std::string& ip) {
   return true;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     归还一个单 IP 并发连接名额
+// 参数说明     ip               客户端 IP 文本
+// 返回参数     void             无返回值
+// 使用示例     counter.release(ip);
+// 备注信息     计数归零即删除该 IP 条目 未 acquire 过也安全
+//-------------------------------------------------------------------------------------------------------------------
 void IpCounter::release(const std::string& ip) {
   const std::lock_guard<std::mutex> lock(mutex_);
   const auto it = counts_.find(ip);
@@ -99,6 +157,14 @@ void IpCounter::release(const std::string& ip) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按 IP 消耗一个鉴权令牌
+// 参数说明     ip               客户端 IP 文本
+//              now_ms           当前墙钟毫秒
+// 返回参数     bool             令牌桶放行返回 true
+// 使用示例     if (!counter.allow_auth(ip, now_ms())) { send_raw(error_frame(42901, "认证过于频繁")); }
+// 备注信息     桶数达上限先淘汰 10 分钟未活跃的桶 仍满则整体清空并打 auth_buckets_reset 日志
+//-------------------------------------------------------------------------------------------------------------------
 bool IpCounter::allow_auth(const std::string& ip, int64_t now_ms) {
   const std::lock_guard<std::mutex> lock(mutex_);
   auto it = auth_buckets_.find(ip);
@@ -123,11 +189,34 @@ bool IpCounter::allow_auth(const std::string& ip, int64_t now_ms) {
   return it->second.bucket.allow(now_ms);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     读当前鉴权桶数量
+// 参数说明     无
+// 返回参数     std::size_t      auth_buckets_ 的条数
+// 使用示例     const std::size_t n = counter.auth_bucket_count();
+// 备注信息     加锁读取 供观测与测试 正常应远小于上限
+//-------------------------------------------------------------------------------------------------------------------
 std::size_t IpCounter::auth_bucket_count() const {
   const std::lock_guard<std::mutex> lock(mutex_);
   return auth_buckets_.size();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     构造一条 WS 会话
+// 参数说明     socket           已 accept 的 TCP 连接
+//              cfg              配置副本 会话内不再读环境变量
+//              registry         会话注册表 负责注册与多端扇出
+//              redis            Redis 客户端 用于在线键与发送配额
+//              ip_counter       进程级单 IP 计数器
+//              messages         消息服务 负责落库与鉴权相关查询
+//              push             离线新消息推送器
+//              db_pool          DB 线程池 所有碰库任务丢这里
+//              trust            可信代理表 决定是否采信 X-Real-IP
+//              sensitive        聊天文字敏感词匹配器
+// 返回参数     void             无返回值
+// 使用示例     std::make_shared<WsSession>(std::move(socket), cfg, registry, redis, ip_counter, messages, push, db_pool, trust, sensitive);
+// 备注信息     只初始化成员与两个定时器 不发送任何字节 握手在 run 中发起
+//-------------------------------------------------------------------------------------------------------------------
 WsSession::WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& registry,
                      RedisClient& redis, IpCounter& ip_counter, MessageService& messages,
                      PushNotifier& push, boost::asio::thread_pool& db_pool,
@@ -145,6 +234,13 @@ WsSession::WsSession(tcp::socket socket, const Config& cfg, SessionRegistry& reg
       auth_timer_(ws_.get_executor()),
       idle_timer_(ws_.get_executor()) {}
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     发起 WS 握手请求的异步读
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     session->run();
+// 备注信息     读完 upgrade 请求后回调 on_http_read 校验通过才升级
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::run() {
   auto self = shared_from_this();
   http::async_read(ws_.next_layer(), buffer_, request_,
@@ -153,6 +249,13 @@ void WsSession::run() {
                    });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     取客户端真实 IP
+// 参数说明     无
+// 返回参数     std::string      IP 文本 取不到对端时返回 unknown
+// 使用示例     const std::string ip = remote_ip();
+// 备注信息     对端不在可信代理表内时忽略 X-Real-IP 防止伪造限流 key
+//-------------------------------------------------------------------------------------------------------------------
 std::string WsSession::remote_ip() {
   error_code ec;
   const auto endpoint = ws_.next_layer().socket().remote_endpoint(ec);
@@ -164,6 +267,13 @@ std::string WsSession::remote_ip() {
   return net_guard::client_ip(endpoint.address(), std::string(request_["X-Real-IP"]), trust_);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     校验握手 Origin
+// 参数说明     无
+// 返回参数     bool             允许该来源返回 true
+// 使用示例     if (!origin_allowed()) { reject_http(403, "origin not allowed"); }
+// 备注信息     白名单为空时退化为同源校验 无 Origin 的原生端仍放行
+//-------------------------------------------------------------------------------------------------------------------
 bool WsSession::origin_allowed() const {
   // 配了 IM_ALLOWED_ORIGINS 就按白名单;没配则退化为同源校验(仍放行无 Origin 的原生端)。
   return net_guard::origin_allowed(std::string(request_[http::field::origin]),
@@ -171,6 +281,14 @@ bool WsSession::origin_allowed() const {
                                    cfg_.allowed_origins);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     握手请求读完后的入口校验与升级
+// 参数说明     ec               读错误码
+//              bytes            读到的字节数 未使用
+// 返回参数     void             无返回值
+// 使用示例     self->on_http_read(ec, bytes);
+// 备注信息     读失败只归还 IP 名额;依次校验 Origin 与单 IP 连接数 通过后设帧长上限并 async_accept
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::on_http_read(error_code ec, std::size_t bytes) {
   (void)bytes;
   if (ec) {
@@ -193,6 +311,14 @@ void WsSession::on_http_read(error_code ec, std::size_t bytes) {
   ws_.async_accept(request_, [self](error_code error) { self->on_accept(error); });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用 HTTP 响应拒绝握手
+// 参数说明     status           HTTP 状态码 403 或 429
+//              message          错误文案
+// 返回参数     void             无返回值
+// 使用示例     reject_http(403, "origin not allowed");
+// 备注信息     403 回业务码 40301 其余回 42901;响应写完关 socket 并归还 IP 名额
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::reject_http(int status, const std::string& message) {
   auto self = shared_from_this();
   auto response = std::make_shared<http::response<http::string_body>>(
@@ -214,6 +340,13 @@ void WsSession::reject_http(int status, const std::string& message) {
                     });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     升级完成后的会话初始化
+// 参数说明     ec               升级错误码
+// 返回参数     void             无返回值
+// 使用示例     self->on_accept(error);
+// 备注信息     失败归还 IP 名额;成功记录活跃时间并启动两个定时器与读循环
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::on_accept(error_code ec) {
   if (ec) {
     release_ip();
@@ -225,6 +358,13 @@ void WsSession::on_accept(error_code ec) {
   do_read();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     启动 5 秒鉴权超时定时器
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     arm_auth_timer();
+// 备注信息     5 秒未鉴权回 40001 并以 4002 关闭;已鉴权或已关闭时回调直接返回
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::arm_auth_timer() {
   auth_timer_.expires_after(std::chrono::seconds(5));
   auto self = shared_from_this();
@@ -238,6 +378,13 @@ void WsSession::arm_auth_timer() {
   });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     启动 15 秒空闲检查定时器
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     arm_idle_timer();
+// 备注信息     15 秒检查一次 空闲超 75 秒按 1000 关闭 否则刷新在线键并续期
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::arm_idle_timer() {
   idle_timer_.expires_after(std::chrono::seconds(15));
   auto self = shared_from_this();
@@ -257,6 +404,13 @@ void WsSession::arm_idle_timer() {
   });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     刷新 Redis 在线键
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     refresh_online();
+// 备注信息     30 秒节流 未鉴权或 uid 为 0 时直接返回
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::refresh_online() {
   if (uid_ == 0) {
     return;
@@ -271,6 +425,13 @@ void WsSession::refresh_online() {
   registry_.touch_online(uid_);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     校验单账号每分钟发送配额
+// 参数说明     now_ms           当前墙钟毫秒 用于取分钟键
+// 返回参数     bool             未超配额返回 true
+// 使用示例     if (!allow_send_quota(now_ms())) { send_raw(error_frame(42901, "发送过快")); }
+// 备注信息     键 im:sendq:uid:分钟 首次 INCR 后设 TTL 120 秒;Redis 返回负值视为故障 放行
+//-------------------------------------------------------------------------------------------------------------------
 bool WsSession::allow_send_quota(int64_t now_ms) {
   if (cfg_.send_per_minute <= 0 || uid_ == 0) {
     return true;
@@ -289,6 +450,13 @@ bool WsSession::allow_send_quota(int64_t now_ms) {
   return count <= cfg_.send_per_minute;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     发起下一次 WebSocket 读
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     do_read();
+// 备注信息     closing 状态不再发起 回调转 on_read
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::do_read() {
   if (closing_) {
     return;
@@ -299,6 +467,14 @@ void WsSession::do_read() {
   });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     处理读完的一帧并继续读
+// 参数说明     ec               读错误码
+//              bytes            读到的字节数 未使用
+// 返回参数     void             无返回值
+// 使用示例     self->on_read(ec, bytes);
+// 备注信息     读失败按 1000 关闭;消费缓冲区后分发 异常回 42201 但不中断连接
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::on_read(error_code ec, std::size_t bytes) {
   (void)bytes;
   if (ec) {
@@ -321,6 +497,13 @@ void WsSession::on_read(error_code ec, std::size_t bytes) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按 type 分发单个上行帧
+// 参数说明     payload          帧的原始 JSON 文本
+// 返回参数     void             无返回值
+// 使用示例     on_frame(payload);
+// 备注信息     校验 v 为 1;未鉴权只接受 auth;已鉴权按 type 分发 ping send read typing revoke conversation_delete
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::on_frame(const std::string& payload) {
   const auto frame = nlohmann::json::parse(payload);
   if (!frame.is_object() || frame.value("v", 0) != 1) {
@@ -365,6 +548,13 @@ void WsSession::on_frame(const std::string& payload) {
   send_raw(error_frame(42201, "未知帧类型"));
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     校验 token 并建立已鉴权会话
+// 参数说明     frame            auth 帧
+// 返回参数     void             无返回值
+// 使用示例     handle_auth(frame);
+// 备注信息     依次 IP 鉴权限流 取 token 验签 封禁检查 会话版本比对;sv 为 0 的旧 token 跳过比对 ct 缺省 app
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::handle_auth(const nlohmann::json& frame) {
   if (!ip_counter_.allow_auth(client_ip_, now_ms())) {
     send_raw(error_frame(42901, "认证过于频繁"));
@@ -416,6 +606,13 @@ void WsSession::handle_auth(const nlohmann::json& frame) {
   send_raw(auth_ok_frame(uid_, now_ms()));
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     解析 send 帧并异步提交发送
+// 参数说明     frame            send 帧
+// 返回参数     void             无返回值
+// 使用示例     handle_send(frame);
+// 备注信息     单连接令牌桶 20 每秒突发 40 加跨连接每分钟配额;文本查敏感词 贴纸只放行 sticker_ 加两位数字 引用只认 ref_msg_id
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::handle_send(const nlohmann::json& frame) {
   if (!send_bucket_.allow(now_ms())) {
     send_raw(error_frame(42901, "发送过快"));
@@ -505,6 +702,14 @@ void WsSession::handle_send(const nlohmann::json& frame) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把发送结果写回客户端
+// 参数说明     result           成功结果或业务错误码
+//              request          原始发送请求 用于回 ack 与离线推送
+// 返回参数     void             无返回值
+// 使用示例     self->on_send_result(result, request);
+// 备注信息     成功则扇出下行 message 帧 对端不在线才入队推送 再回 send_ack;失败按业务码映射文案
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::on_send_result(const std::variant<SendResult, int>& result,
                                const SendRequest& request) {
   if (const auto* ok = std::get_if<SendResult>(&result)) {
@@ -536,6 +741,13 @@ void WsSession::on_send_result(const std::variant<SendResult, int>& result,
   send_raw(error_frame(code, message));
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     处理已读回执并广播
+// 参数说明     frame            read 帧
+// 返回参数     void             无返回值
+// 使用示例     handle_read(frame);
+// 备注信息     2 每秒突发 30 限流 超限静默丢弃;mark_read 返回空表示会话不存在 只回 ack 不广播
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::handle_read(const nlohmann::json& frame) {
   // 已读回执是「附带动作」,但它会让服务端给对端推一帧。不设限流的话,
   // 一个坏客户端(或「每滚一屏发一次」的实现)就能把对端的推送打爆。
@@ -579,6 +791,13 @@ void WsSession::handle_read(const nlohmann::json& frame) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     转发输入中状态
+// 参数说明     frame            typing 帧
+// 返回参数     void             无返回值
+// 使用示例     handle_typing(frame);
+// 备注信息     0.5 每秒突发 3;to 非法 发给自己 未配对 DB 异常一律静默 不回错误帧
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::handle_typing(const nlohmann::json& frame) {
   // 输入中状态(批次 L-1)是**可丢信号**:不落库、无 id、不 ack。
   //
@@ -614,6 +833,13 @@ void WsSession::handle_typing(const nlohmann::json& frame) {
   });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     处理消息撤回
+// 参数说明     frame            revoke 帧
+// 返回参数     void             无返回值
+// 使用示例     handle_revoke(frame);
+// 备注信息     revoke 返回 RevokeResult 时向双方扇出 revoked 帧并回 ack;否则回错误帧 参数异常回 41001
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::handle_revoke(const nlohmann::json& frame) {
   try {
     const auto data = frame.at("data");
@@ -645,6 +871,13 @@ void WsSession::handle_revoke(const nlohmann::json& frame) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     处理单方会话删除
+// 参数说明     frame            conversation_delete 帧
+// 返回参数     void             无返回值
+// 使用示例     handle_delete(frame);
+// 备注信息     delete_conversation 按 uid 软删 成功才通知本人其他端 对方那份不受影响
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::handle_delete(const nlohmann::json& frame) {
   try {
     const auto data = frame.at("data");
@@ -675,6 +908,13 @@ void WsSession::handle_delete(const nlohmann::json& frame) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     线程安全地投递一帧到发送队列
+// 参数说明     frame            已序列化的 JSON 帧文本
+// 返回参数     void             无返回值
+// 使用示例     send_raw(error_frame(42201, "帧格式错误"));
+// 备注信息     post 到会话 IO 线程执行;队列超 64 帧或 128KB 置 4004 关闭
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::send_raw(std::string frame) {
   auto self = shared_from_this();
   net::post(ws_.get_executor(), [self, frame = std::move(frame)] {
@@ -692,6 +932,13 @@ void WsSession::send_raw(std::string frame) {
   });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     串行写出发送队列的队首
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     do_write();
+// 备注信息     单写者模型靠 writing_ 去重;队列空且有待关闭码时执行关闭
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::do_write() {
   if (writing_ || closing_) {
     return;
@@ -710,6 +957,14 @@ void WsSession::do_write() {
                   });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     一帧写完后的收尾与续写
+// 参数说明     ec               写错误码
+//              bytes            写出的字节数 未使用
+// 返回参数     void             无返回值
+// 使用示例     self->on_write(ec, bytes);
+// 备注信息     写失败按 1000 关闭;成功扣减字节数弹出队首 再续写
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::on_write(error_code ec, std::size_t bytes) {
   (void)bytes;
   writing_ = false;
@@ -726,6 +981,13 @@ void WsSession::on_write(error_code ec, std::size_t bytes) {
   do_write();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     发起 WebSocket 关闭握手
+// 参数说明     code             关闭码 1000 正常 4001 被踢 4002 鉴权失败 4003 封禁 4004 队列溢出
+// 返回参数     void             无返回值
+// 使用示例     do_close(1000);
+// 备注信息     幂等 先取消两个定时器再 async_close 回调统一走 on_close
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::do_close(int code) {
   if (closing_) {
     return;
@@ -738,6 +1000,13 @@ void WsSession::do_close(int code) {
                   [self](error_code ec) { self->on_close(ec); });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     连接关闭后的资源清理
+// 参数说明     ec               关闭错误码 未使用
+// 返回参数     void             无返回值
+// 使用示例     self->on_close(ec);
+// 备注信息     归还 IP 名额并注销会话;最后一个连接关掉才删在线键
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::on_close(error_code ec) {
   (void)ec;
   release_ip();
@@ -751,6 +1020,13 @@ void WsSession::on_close(error_code ec) {
   ws_.next_layer().socket().close(ignored);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     归还单 IP 连接名额
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     release_ip();
+// 备注信息     幂等 靠 released_ip_ 与 ip_acquired_ 两个标志判断
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::release_ip() {
   if (!released_ip_ && ip_acquired_) {
     ip_counter_.release(client_ip_);
@@ -758,6 +1034,13 @@ void WsSession::release_ip() {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把碰库任务丢进 DB 线程池
+// 参数说明     task             在 DB 线程里执行的任务
+// 返回参数     void             无返回值
+// 使用示例     run_db([self, request] { self->messages_.send(request); });
+// 备注信息     异常只记日志并回 50001 不让异常穿出线程池
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::run_db(std::function<void()> task) {
   auto self = shared_from_this();
   net::post(db_pool_, [self, task = std::move(task)] {
@@ -774,6 +1057,13 @@ void WsSession::run_db(std::function<void()> task) {
   });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     下发 kicked 帧并关闭连接
+// 参数说明     reason           踢下线原因 原样放进 kicked 帧
+// 返回参数     void             无返回值
+// 使用示例     session->kick("账号已在其他设备登录");
+// 备注信息     post 到 IO 线程;已关闭直接返回;帧入队后以 4001 关闭
+//-------------------------------------------------------------------------------------------------------------------
 void WsSession::kick(const std::string& reason) {
   auto self = shared_from_this();
   net::post(ws_.get_executor(), [self, reason] {
@@ -787,6 +1077,19 @@ void WsSession::kick(const std::string& reason) {
   });
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     构造 WS 监听器
+// 参数说明     io               IO 上下文
+//              cfg              配置副本
+//              registry         会话注册表
+//              redis            Redis 客户端
+//              messages         消息服务
+//              push             离线推送器
+//              db_pool          DB 线程池
+// 返回参数     void             无返回值
+// 使用示例     WsServer server(io, cfg, registry, redis, messages, push, db_pool);
+// 备注信息     按配置建单 IP 计数器与可信代理表 并加载敏感词表 读不到词表只是该功能未启用
+//-------------------------------------------------------------------------------------------------------------------
 WsServer::WsServer(net::io_context& io, const Config& cfg, SessionRegistry& registry,
                    RedisClient& redis, MessageService& messages, PushNotifier& push,
                    boost::asio::thread_pool& db_pool)
@@ -805,6 +1108,13 @@ WsServer::WsServer(net::io_context& io, const Config& cfg, SessionRegistry& regi
   sensitive_.load(cfg_.sensitive_words_file);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     绑定并监听 WS 端口
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     server.start();
+// 备注信息     地址取自 IM_LISTEN_WS 开启 reuse_address 后进入 accept 循环
+//-------------------------------------------------------------------------------------------------------------------
 void WsServer::start() {
   const auto listen = net_guard::parse_listen(cfg_.listen_ws);
   const tcp::endpoint endpoint(listen.address, listen.port);
@@ -815,11 +1125,25 @@ void WsServer::start() {
   do_accept();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     关闭 WS 监听端口
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     server.stop();
+// 备注信息     关闭 acceptor 已在跑的会话不在此处回收
+//-------------------------------------------------------------------------------------------------------------------
 void WsServer::stop() {
   error_code ec;
   acceptor_.close(ec);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     异步接受下一个连接
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     do_accept();
+// 备注信息     acceptor 已关即返回;新连接建在独立 strand 上 会话对象交给 run 保活
+//-------------------------------------------------------------------------------------------------------------------
 void WsServer::do_accept() {
   if (!acceptor_.is_open()) {
     return;

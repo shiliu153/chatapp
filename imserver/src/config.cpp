@@ -1,3 +1,26 @@
+/*********************************************************************************************************************
+* chat_app 自建 IM 服务端（imserver）是本项目唯一的 IM 后端，C++20 实现，对外提供 WebSocket :9100 与 HTTP :9101
+* Copyright (c) 2026 shiliu153
+*
+* 本文件是 chat_app 自建 IM 服务端的一部分
+*
+* 额外注明：
+* 本文件使用 MIT 开源许可证协议 许可申明英文版见仓库根目录 LICENSE 文件
+* 欢迎各位使用并传播本程序 但修改内容时必须保留作者的版权声明（即本声明）
+*
+* 文件名称          src/config.cpp
+* 项目名称          chat_app / imserver
+* 公司名称          个人项目（shiliu153）
+* 版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+* 开发环境          CMake 3.22 + g++ (C++20) Linux x86_64
+* 适用平台          Linux x86_64 服务端
+* 仓库地址          https://github.com/shiliu153/chatapp
+*
+* 修改记录
+* 日期              作者               备注
+* 2026-11-14        shiliu153          补齐文件头与函数注释
+********************************************************************************************************************/
+
 #include "config.h"
 
 #include <cstdlib>
@@ -7,12 +30,30 @@
 
 namespace {
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     读取环境变量 缺失时回退默认值
+// 参数说明     env              环境变量映射
+//              key              变量名
+//              fallback         缺失时的默认值 默认空串
+// 返回参数     std::string      变量值或默认值
+// 使用示例     const std::string listen = get_or(env, "IM_LISTEN_WS", "127.0.0.1:9100");
+// 备注信息     空字符串与缺失等价 是否必填由调用方判断
+//-------------------------------------------------------------------------------------------------------------------
 std::string get_or(const std::map<std::string, std::string>& env,
                    const std::string& key, const std::string& fallback = "") {
   const auto it = env.find(key);
   return it == env.end() ? fallback : it->second;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     读取正整数型环境变量
+// 参数说明     env              环境变量映射
+//              key              变量名
+//              fallback         缺失时的默认值
+// 返回参数     int              解析后的正整数
+// 使用示例     cfg.io_threads = get_int(env, "IM_IO_THREADS", 2);
+// 备注信息     空值取默认;非数字或小于等于 0 抛 std::runtime_error 让启动失败而不是静默降级
+//-------------------------------------------------------------------------------------------------------------------
 int get_int(const std::map<std::string, std::string>& env,
             const std::string& key, int fallback) {
   const auto raw = get_or(env, key);
@@ -30,6 +71,15 @@ int get_int(const std::map<std::string, std::string>& env,
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     读取正浮点型环境变量
+// 参数说明     env              环境变量映射
+//              key              变量名
+//              fallback         缺失时的默认值
+// 返回参数     double           解析后的正浮点数
+// 使用示例     cfg.auth_rate_per_sec = get_double(env, "IM_AUTH_RATE", 1.0);
+// 备注信息     空值取默认;非数字或小于等于 0 抛 std::runtime_error 与整数版同口径
+//-------------------------------------------------------------------------------------------------------------------
 double get_double(const std::map<std::string, std::string>& env,
                   const std::string& key, double fallback) {
   const auto raw = get_or(env, key);
@@ -47,6 +97,15 @@ double get_double(const std::map<std::string, std::string>& env,
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     读取正容量型环境变量
+// 参数说明     env              环境变量映射
+//              key              变量名
+//              fallback         缺失时的默认值
+// 返回参数     std::size_t      解析后的正容量值
+// 使用示例     cfg.max_frame = get_size(env, "IM_MAX_FRAME", 8192);
+// 备注信息     0 视为非法 用于帧长 文本长 队列长度这类按字节或条数计的配置
+//-------------------------------------------------------------------------------------------------------------------
 std::size_t get_size(const std::map<std::string, std::string>& env,
                      const std::string& key, std::size_t fallback) {
   const auto raw = get_or(env, key);
@@ -64,6 +123,13 @@ std::size_t get_size(const std::map<std::string, std::string>& env,
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按逗号切分列表并去掉首尾空白
+// 参数说明     raw              逗号分隔的原始字符串
+// 返回参数     std::vector<std::string>     切好的条目 空条目丢弃
+// 使用示例     const auto list = split_origins("127.0.0.1, ::1");
+// 备注信息     Origin 白名单 可信代理 内部接口来源网段三处共用同一份切分逻辑
+//-------------------------------------------------------------------------------------------------------------------
 std::vector<std::string> split_origins(const std::string& raw) {
   std::vector<std::string> out;
   std::size_t start = 0;
@@ -85,6 +151,13 @@ std::vector<std::string> split_origins(const std::string& raw) {
 
 }  // namespace
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     解析 mysql:// 形式的 DSN
+// 参数说明     dsn              形如 mysql://user:pass@host:3306/db 的字符串
+// 返回参数     MysqlDsn         拆好的用户名 密码 主机 端口 库名
+// 使用示例     const MysqlDsn dsn = parse_mysql_dsn(cfg.mysql_dsn);
+// 备注信息     先校验 mysql:// 前缀 再用最后一个 @ 分用户信息与主机段 省略端口时默认 3306 结构不全抛 std::invalid_argument
+//-------------------------------------------------------------------------------------------------------------------
 MysqlDsn parse_mysql_dsn(const std::string& dsn) {
   constexpr const char* kPrefix = "mysql://";
   if (dsn.rfind(kPrefix, 0) != 0) {
@@ -131,6 +204,13 @@ MysqlDsn parse_mysql_dsn(const std::string& dsn) {
   return out;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把环境变量映射转换成配置对象
+// 参数说明     env              变量名到值的映射
+// 返回参数     Config           填好的配置对象
+// 使用示例     Config cfg = Config::from_map(env);
+// 备注信息     集中读取 IM_ 变量并做类型转换 最后校验 IM_MYSQL_DSN IM_JWT_SECRET IM_INTERNAL_SECRET IM_MEDIA_PREFIX 四项必填
+//-------------------------------------------------------------------------------------------------------------------
 Config Config::from_map(const std::map<std::string, std::string>& env) {
   Config cfg;
   cfg.listen_ws = get_or(env, "IM_LISTEN_WS", cfg.listen_ws);
@@ -185,6 +265,13 @@ Config Config::from_map(const std::map<std::string, std::string>& env) {
   return cfg;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     从进程环境变量构建配置
+// 参数说明     无
+// 返回参数     Config           填好的配置对象
+// 使用示例     const Config cfg = Config::from_env();
+// 备注信息     只白名单读取 29 个 IM_ 变量 未列出的变量一律忽略 内部转调 from_map
+//-------------------------------------------------------------------------------------------------------------------
 Config Config::from_env() {
   std::map<std::string, std::string> env;
   for (const char* key : {"IM_LISTEN_WS", "IM_LISTEN_HTTP", "IM_MYSQL_DSN",
