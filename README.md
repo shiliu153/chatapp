@@ -85,7 +85,7 @@
 1. **响应路径零第三方调用** —— 请求处理过程中不发起任何外部网络调用。所有跨系统副作用
    (IM 建号、发消息、刷头像、系统通知)在 `transaction.on_commit(fn, robust=True)` 中投递 Celery 任务。
    接口耗时因此与 IM 通道的抖动解耦,失败可重试且有独立指标。
-2. **IM 副作用唯一出入口 `im/tasks.py`** —— 任务参数只传 `user_id`,任务内部自行查库,任务体内不接触 request 对象;
+2. **IM 副作用唯一出入口 `im/tasks.py`** —— 任务参数是任务相关的 id(多数是账号 id,命名随语义变:`reporter_id` / `owner_id` / `other_id` / `user_a_id` / `user_b_id`;`post_commented` / `post_replied` 传评论主键 `comment_id`;唯一**不查库**的例外是 `delete_account`,参数是 `im_user_id`),任务内部自行查库,任务体内不接触 request 对象;
    `im/client.py`(语义层)与 `im/self_client.py`(传输层)对外永不抛异常,失败以状态位与指标表达。
 3. **错误信封唯一形状** —— 失败一律 `{"code": <HTTP 状态码>, "message": "<中文>", "request_id": "..."}`,
    业务码 = 前 3 位 HTTP 状态 + 2 位序号(`config/error_codes.py`);`request_id` 同时写入结构化日志、指标标签与客户端上报。
