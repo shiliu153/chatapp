@@ -157,7 +157,7 @@
 
 - [ ] **P10 · Celery 异步副作用**（约 309 行）
   - 文件：`im/tasks.py`(160)、`config/celery.py`(44)、`notifications/tasks.py`(8)、`notifications/backends.py`(18)、`im/management/commands/*`(79)
-  - 概念：任务参数一律传 user_id、任务内自己查库、重试策略、Windows 只能 `--pool=solo`、自定义管理命令
+  - 概念：任务参数传任务相关的 id、任务内自己查库、重试策略、Windows 只能 `--pool=solo`、自定义管理命令
   - 导读：`docs/api/im.md`
   - 实验：在任务里加一行日志 → **重启 worker**（改了任务代码必须重启）→ 观察日志。
   - 自查：为什么响应路径里禁止任何第三方网络调用？

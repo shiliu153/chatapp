@@ -13,7 +13,7 @@
 ## §1 本批目标
 
 1. 说出 Celery 的 broker / worker / task 三者关系，以及本项目为什么用 Redis 当 broker；
-2. 解释"任务参数一律传 `user_id`、任务内自己查库"这条纪律的原因；
+2. 解释"任务参数传任务相关的 id、任务内自己查库"这条纪律的原因；
 3. 解释 `client` 返回 False → `tasks` 抛异常 → Celery 重试 这条链；
 4. 说出 `request_id` 是怎么从 HTTP 请求传进 worker 的；
 5. 知道改了任务代码必须**重启 worker**。
@@ -239,9 +239,9 @@ python manage.py test im.tests.ImTaskTests im.tests.ImSideEffectTaskTests --noin
 
 **参考答案**：不会。视图只做"写库 + 入队"，入队成功即返回成功（P04 的短信接口就是这样）。任务会积压在 broker（Redis DB1）里，等 worker 起来后集中消费。代价是**最终一致**：用户看到"发送成功"时短信还没真发出去。唯一的例外是入队本身失败（broker 挂了）——那时 `sms_send` 会回滚并返回 50301（fail-closed，P04）。
 
-**Q2. 为什么任务参数一律传 `user_id`？**
+**Q2. 为什么任务参数传的是 id，而不是对象或 `request`？**
 
-**参考答案**：任务在另一个进程执行，没有 `request`、没有 ORM 对象可传（也不可序列化）。传 id 让任务与"入队时刻"解耦：重试时会重新查最新状态，天然更幂等。
+**参考答案**：任务在另一个进程执行，没有 `request`、没有 ORM 对象可传（也不可序列化）。传 id 让任务与"入队时刻"解耦：重试时会重新查最新状态，天然更幂等。至于「传哪个 id」，口径是**任务相关的 id**：多数任务是账号 id（`user_id`，以及随语义命名的 `reporter_id` / `owner_id` / `other_id` / `user_a_id` / `user_b_id`），`post_commented` / `post_replied` 传的是评论主键 `comment_id`（动态作者与被回复者由任务体查出来）；唯一**不查库**的例外是 `delete_account` —— 它由注销流程在用户行已删除之后入队，参数只能是 `im_user_id` 字符串。
 
 **Q3. `im/client.py` 返回 False，`im/tasks.py` 为什么要把 False 变成异常？**
 
