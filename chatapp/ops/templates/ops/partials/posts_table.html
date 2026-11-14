@@ -1,4 +1,4 @@
-<article>
+<article id="posts-card">
 <table id="posts-table">
   <thead><tr><th>图</th><th>时间</th><th>作者</th><th>内容</th><th>赞</th><th>评</th><th></th></tr></thead>
   <tbody>
@@ -11,7 +11,7 @@
       <td>{{ post.like_count }}</td>
       <td>{{ post.comment_count }}</td>
       <td>
-        <form hx-post="{% url 'ops:post_delete' post.id %}" hx-target="#posts-table" hx-swap="outerHTML">
+        <form hx-post="{% url 'ops:post_delete' post.id %}" hx-target="#posts-card" hx-swap="outerHTML">
           <button type="submit" class="danger" onclick="return confirm('删除这条动态?')">删除</button>
         </form>
       </td>

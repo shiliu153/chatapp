@@ -1,4 +1,4 @@
-<article>
+<article id="feedback-card">
 <table id="feedback-table">
   <thead><tr><th>时间</th><th>用户</th><th>类型</th><th>内容</th><th>联系方式</th><th>状态</th><th></th></tr></thead>
   <tbody>
@@ -20,7 +20,7 @@
       <td>
         {% if f.status == 'pending' %}
         <form hx-post="{% url 'ops:feedback_handle' f.id %}?status={{ status }}{% if ftype %}&type={{ ftype }}{% endif %}"
-              hx-target="#feedback-table" hx-swap="outerHTML" style="display:inline">
+              hx-target="#feedback-card" hx-swap="outerHTML" style="display:inline">
           <input type="text" name="note" maxlength="200" placeholder="备注(可选)">
           <button type="submit" class="secondary">标记已处理</button>
         </form>

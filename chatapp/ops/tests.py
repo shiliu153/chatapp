@@ -13,6 +13,8 @@
     - 封禁日志:展示历史、按动作过滤;
     - 广场治理:动态列表与删除、非运营 403;
     - 动态举报队列:看待处理、忽略并通知、删动态并关闭全部待处理、重复处理不重复通知;
+    - 局部刷新结构:反馈表格、动态举报表格与动态表格三处片段的 ``hx-target``
+      都指向片段根 ``<article id=…>``(不是片段内部的 ``<table>``),替换后不会套娃;
     - 聊天图片抽审:列表可见、删除置 deleted 并删文件、举报详情带最近图片、非运营 403;
     - 私聊媒体审计:每次浏览落一条 ``MediaAccessLog``(含「仅被举报」筛选),审计失败不影响页面;
     - 准入名单(B-1c):列表带注册状态、加号/停用立刻生效、格式错误不落库、停用后可重新启用;
@@ -24,6 +26,7 @@
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -615,6 +618,14 @@ class OpsPostsTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertFalse(Post.objects.filter(pk=self.post.id).exists())
 
+    def test_partial_root_is_hx_target(self):
+        Post.objects.create(author=self.user, text="另一条动态")
+        resp = self.client.post(f"/ops/posts/{self.post.id}/delete")
+        html = resp.content.decode()
+        targets = set(re.findall(r'hx-target="#([\w-]+)"', html))
+        self.assertEqual(targets, {"posts-card"})
+        self.assertTrue(html.strip().startswith('<article id="posts-card">'))
+
     def test_non_staff_forbidden(self):
         plain = User.objects.create_user(phone="13800138001")
         self.client.force_login(plain)
@@ -674,6 +685,18 @@ class OpsPostReportsTests(TestCase):
                 self.client.post(f"/ops/post-reports/{self.report.id}/handle", {"note": "二"})
         self.assertEqual(delay.call_count, 1)
 
+    def test_partial_root_is_hx_target(self):
+        other = Post.objects.create(author=self.author, text="另一条动态")
+        PostReport.objects.create(reporter=self.staff, post=other, type="other")
+        with patch("im.tasks.report_handled.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                resp = self.client.post(f"/ops/post-reports/{self.report.id}/handle",
+                                        {"note": "内容没问题"})
+        html = resp.content.decode()
+        targets = set(re.findall(r'hx-target="#([\w-]+)"', html))
+        self.assertEqual(targets, {"post-reports-card"})
+        self.assertTrue(html.strip().startswith('<article id="post-reports-card">'))
+
     def test_non_staff_forbidden(self):
         plain = User.objects.create_user(phone="13800138001")
         self.client.force_login(plain)
@@ -723,6 +746,14 @@ class FeedbackOpsTests(TestCase):
         self.client.post(f"/ops/feedback/{self.pending.id}/handle", {"note": "第二次"})
         self.pending.refresh_from_db()
         self.assertEqual(self.pending.handled_note, "第一次")
+
+    def test_partial_root_is_hx_target(self):
+        Feedback.objects.create(user=self.user, type=FeedbackType.BUG, content="还有一条待处理")
+        resp = self.client.post(f"/ops/feedback/{self.pending.id}/handle", {"note": "已记录"})
+        html = resp.content.decode()
+        targets = set(re.findall(r'hx-target="#([\w-]+)"', html))
+        self.assertEqual(targets, {"feedback-card"})
+        self.assertTrue(html.strip().startswith('<article id="feedback-card">'))
 
     def test_non_staff_forbidden(self):
         self.client.force_login(User.objects.create_user(phone="13900139000"))
