@@ -347,7 +347,7 @@ def kick_device(user_id: int, client_type: str) -> None:
     另一端的 IM 连接必须留着 —— 用户点掉网页,手机上的 App 不能跟着掉线。
 
     Args:
-        user_id: 账号 id(任务参数一律 user_id,任务内查库)。
+        user_id: 账号 id(任务参数是任务相关的 id,任务内自己查库)。
         client_type: ``app`` / ``web``;只踢这一端。
 
     Raises:
