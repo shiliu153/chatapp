@@ -425,11 +425,19 @@ export interface paths {
          *     可选的 ``age_min`` / ``age_max`` / ``city`` / ``tag_ids`` 在**本次请求内**覆盖
          *     对应的偏好字段(不写回偏好),缺省时行为与加筛选前完全一致。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit``(默认 10,上限 20)与四个筛选参数。
          *
-         *     Returns:
-         *         候选卡片数组,字段见 ``CandidateSerializer``。
+         *     返回参数:
+         *         候选卡片数组,字段见 ``CandidateSerializer``;池子不足时返回的张数少于 ``limit``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/discovery/candidates?limit=10&age_min=25&city=杭州``
+         *
+         *     备注信息:
+         *         候选池走缓存(键带用户版本 + 全局版本),每次只做内存随机抽样;
+         *         只有真的带了筛选才走带指纹的分桶键,默认路径命中原来那份缓存。
+         *         ``limit`` 越界收敛到 ``[1, MAX_LIMIT]``,非法筛选参数 400。
          */
         get: operations["discovery_candidates_list"];
         put?: never;
@@ -454,12 +462,19 @@ export interface paths {
          *     「共同标签数 desc → 同城优先 → 种子随机」排序;种子 = ``(日期, 用户 id)``,
          *     因此**同一天反复刷新结果与顺序都不变**,第二天自动换一批。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit``(默认 6,上限 12)。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"date": <日期>, "candidates": [候选卡...]}``,卡片字段与
          *         ``GET /discovery/candidates`` 一致。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/discovery/daily?limit=6``
+         *
+         *     备注信息:
+         *         与 ``candidates`` 同款限流:精选每刷新一次都要过一遍池子,不能变成免限流的旁路;
+         *         ``date`` 是服务端本地日期,客户端据此判断「今天已看过」。
          */
         get: operations["discovery_daily_retrieve"];
         put?: never;
@@ -480,11 +495,18 @@ export interface paths {
         /**
          * @description 喜欢我的人列表(GET /api/v1/discovery/likes)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
          *
-         *     Returns:
+         *     返回参数:
          *         分页后的「喜欢我的人」列表,字段见 ``LikeReceivedSerializer``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/discovery/likes?limit=20``
+         *
+         *     备注信息:
+         *         口径来自 ``likes_received_queryset``(排除我已划过 / 双向拉黑 / 资料不全),
+         *         按喜欢时间倒序分页;``count`` 接口与它共用同一份查询集。
          */
         get: operations["discovery_likes_retrieve"];
         put?: never;
@@ -505,11 +527,18 @@ export interface paths {
         /**
          * @description 喜欢我的人数(GET /api/v1/discovery/likes/count)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"count": N}``,与列表同口径,供入口角标使用。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/discovery/likes/count``
+         *
+         *     备注信息:
+         *         与 ``GET /discovery/likes`` 共用 ``likes_received_queryset``,不另写一份口径;
+         *         只取计数,不拉行内容。
          */
         get: operations["discovery_likes_count_retrieve"];
         put?: never;
@@ -533,11 +562,18 @@ export interface paths {
          *     只读一个 Redis 计数,不查库;``like_limit = 0``(不限)时 ``likes_used`` 恒为 0、
          *     ``likes_remaining`` 为 ``null``,客户端据此决定要不要显示额度文案。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"like_limit": int, "likes_used": int, "likes_remaining": int|null}``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/discovery/quota``
+         *
+         *     备注信息:
+         *         只读一个 Redis 计数,不查库;``like_limit = 0``(不限)时 ``likes_used`` 恒为 0、
+         *         ``likes_remaining`` 为 ``null``,客户端据此决定要不要显示额度文案。
          */
         get: operations["discovery_quota_retrieve"];
         put?: never;
@@ -565,16 +601,20 @@ export interface paths {
          *     (共同标签),供「配对那一刻」的破冰文案直接使用 —— 客户端不必再拉一次
          *     ``GET /users/{id}``,否则会被记成一次访客访问(语义污染)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,body 需带 ``target_user_id`` 与 ``action``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"matched": bool, "shared_tags": [...]}``;未配对时 ``shared_tags`` 为空数组。
          *
-         *     Raises:
-         *         PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
-         *         ValidationError: 划自己,或对方资料不完整。
-         *         SwipeLikeQuotaExceeded: 当日喜欢额度已用完(``429`` + ``42904``)。
+         *     使用示例:
+         *         ``POST /api/v1/discovery/swipe`` body ``{"target_user_id": 9, "action": "like"}``
+         *
+         *     备注信息:
+         *         当前账号被封禁(轻封禁也禁止滑卡)抛 ``PermissionDenied``;划自己或对方资料
+         *         不完整抛 ``ValidationError``;只有「注定会新写一条 like」的请求才扣当日额度
+         *         (幂等重放与 ``action=pass`` 不扣),超限抛 ``SwipeLikeQuotaExceeded``
+         *         (429 + 42904)。写库后立刻升候选池版本,划过的人随即消失。
          */
         post: operations["discovery_swipe_create"];
         delete?: never;
@@ -605,15 +645,20 @@ export interface paths {
          *       风险远大于「误划」的收益,因此只给 ``400``;
          *     - 额度也跟着退回(``quota.refund_like``):撤销意味着「那次操作没有发生」。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;无请求体。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"undone": true, "target_user_id": <int>}``,被撤销的那次滑卡的目标账号 id。
          *
-         *     Raises:
-         *         PermissionDenied: 当前账号被轻封禁(与 ``POST /discovery/swipe`` 同口径)。
-         *         SwipeUndoUnavailable: 没有可撤销的滑卡(无记录 / 超过 30 秒 / 已配对),``400`` + ``40003``。
+         *     使用示例:
+         *         ``POST /api/v1/discovery/swipe/undo``
+         *
+         *     备注信息:
+         *         当前账号被轻封禁抛 ``PermissionDenied``(与 ``POST /discovery/swipe`` 同口径);
+         *         没有可撤销的滑卡(无记录 / 超过 30 秒 / 已配对)抛 ``SwipeUndoUnavailable``
+         *         (400 + 40003)。删除是条件删除并检查影响行数,并发两次撤销只有一次成功;
+         *         撤销的是 like 时同步退回额度,并升本人的候选池版本让目标重新入池。
          */
         post: operations["discovery_swipe_undo_create"];
         delete?: never;
@@ -632,11 +677,18 @@ export interface paths {
         /**
          * @description 谁看过我(GET /api/v1/discovery/visits)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
          *
-         *     Returns:
+         *     返回参数:
          *         分页后的访客列表,字段见 ``VisitSerializer``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/discovery/visits?limit=20``
+         *
+         *     备注信息:
+         *         口径来自 ``visits_received_queryset``(排除我已划过 / 双向拉黑 / 资料不全);
+         *         游标字段传 ``field="last_at"``,按最近访问时间倒序而不是记录创建时间。
          */
         get: operations["discovery_visits_retrieve"];
         put?: never;
@@ -657,11 +709,18 @@ export interface paths {
         /**
          * @description 访客人数(GET /api/v1/discovery/visits/count)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"count": N}``,与列表同口径,供入口角标使用。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/discovery/visits/count``
+         *
+         *     备注信息:
+         *         与 ``GET /discovery/visits`` 共用 ``visits_received_queryset``;该接口单独挂了
+         *         ``VisitsCountThrottle``,限流口径与列表接口不同。
          */
         get: operations["discovery_visits_count_retrieve"];
         put?: never;
@@ -924,11 +983,19 @@ export interface paths {
          *
          *     与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的)从列表中剔除;按配对时间倒序分页。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
          *
-         *     Returns:
-         *         分页后的配对条目数组。
+         *     返回参数:
+         *         分页后的配对条目数组,条目字段见 ``MATCH_ENTRY_SCHEMA``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/matches?limit=20&before=<游标>``
+         *
+         *     备注信息:
+         *         只取 ``unmatched_at__isnull=True``(未解除)的配对,按 ``-created_at, -id``
+         *         排序;游标分页要求排序完全确定,补 ``-id`` 兜底才不漏行。拉黑用两个
+         *         ``NOT EXISTS`` 各排一次,不把 id 拉进 Python 再 ``__in``。
          */
         get: operations["matches_retrieve"];
         put?: never;
@@ -956,12 +1023,20 @@ export interface paths {
          *     保持一致。解除是软删除(``unmatched_at`` 落时间戳),并双向拉黑 IM,
          *     之后双方既收不到、也发不出消息。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
-         *         user_id: 对方的账号 id。
+         *         user_id: 对方的账号 id(路径参数)。
          *
-         *     Returns:
-         *         204 空响应。
+         *     返回参数:
+         *         204 空响应(没有配对 / 已解除时同样 204)。
+         *
+         *     使用示例:
+         *         ``DELETE /api/v1/matches/9``
+         *
+         *     备注信息:
+         *         软删除只打 ``unmatched_at`` 与 ``unmatched_by`` 时间戳,读侧统一过滤;
+         *         事务提交后异步做 IM 双向拉黑并移除配对关系(``robust=True``),
+         *         已解除的配对不会被再次滑卡复活。
          */
         delete: operations["matches_destroy"];
         options?: never;
@@ -1435,13 +1510,20 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * @description 批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略。
+         * @description 批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略(GET /api/v1/presence)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,``user_ids`` 为逗号分隔的账号 id,单次上限 100。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{"results": [{"user_id", "online", "last_active_at"}]}``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/presence?user_ids=8,21``
+         *
+         *     备注信息:
+         *         结果只包含既存在又可见的人(自己、双向拉黑、重封禁、已删号都不出现);
+         *         ``user_ids`` 为空或非数字时回 400,去重保序后超过 100 个也回 400。
          */
         get: operations["presence_retrieve"];
         put?: never;
@@ -1658,17 +1740,20 @@ export interface paths {
         /**
          * @description 他人资料卡(GET /api/v1/users/{user_id})。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         user_id: 目标账号 id。
          *
-         *     Returns:
+         *     返回参数:
          *         公开资料(不含手机号、生日、偏好与缺失项),含共同标签与关注态
          *         (``is_followed`` / ``follower_count`` / ``following_count``)。
          *
-         *     Raises:
-         *         NotFound: 对方与当前用户互相拉黑、资料不存在,或对方处于重封禁状态 ——
-         *             三种情况统一按「用户不存在」处理,不泄漏账号是否存在。
+         *     使用示例:
+         *         ``GET /api/v1/users/42``
+         *
+         *     备注信息:
+         *         双向拉黑、资料不存在、重封禁三种情况统一抛 ``NotFound``(按「用户不存在」
+         *         处理,不泄漏账号是否存在);访问会被 ``record_profile_view`` 计数,用于抓取广度监控。
          */
         get: operations["users_retrieve"];
         put?: never;
@@ -1746,11 +1831,19 @@ export interface paths {
          *     DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
          *     PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``PATCH /api/v1/users/me {"nickname": "小林"}``
+         *
+         *     备注信息:
+         *         PATCH 只处理提交上来的字段,结束后必然重算完善状态并让候选池缓存失效;
+         *         重封禁用户的 ``DELETE`` 由全局权限类拦成 403(白名单只放行 GET),
+         *         防「注销洗白」。
          */
         get: operations["users_me_retrieve"];
         put?: never;
@@ -1761,11 +1854,19 @@ export interface paths {
          *     DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
          *     PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``PATCH /api/v1/users/me {"nickname": "小林"}``
+         *
+         *     备注信息:
+         *         PATCH 只处理提交上来的字段,结束后必然重算完善状态并让候选池缓存失效;
+         *         重封禁用户的 ``DELETE`` 由全局权限类拦成 403(白名单只放行 GET),
+         *         防「注销洗白」。
          */
         delete: operations["users_me_destroy"];
         options?: never;
@@ -1776,11 +1877,19 @@ export interface paths {
          *     DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
          *     PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``PATCH /api/v1/users/me {"nickname": "小林"}``
+         *
+         *     备注信息:
+         *         PATCH 只处理提交上来的字段,结束后必然重算完善状态并让候选池缓存失效;
+         *         重封禁用户的 ``DELETE`` 由全局权限类拦成 403(白名单只放行 GET),
+         *         防「注销洗白」。
          */
         patch: operations["users_me_partial_update"];
         trace?: never;
@@ -1800,15 +1909,19 @@ export interface paths {
          *     上传后按 ``settings.AUTO_APPROVE`` 决定是否直接过审(开发期上传即过审);
          *     过审时会顺带把头像同步到 IM。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,multipart 字段为 ``file``。
          *
-         *     Returns:
+         *     返回参数:
          *         201 + 照片对象;超出张数上限时返回 400。
          *
-         *     Raises:
-         *         serializers.ValidationError: 图片缺失或超过大小上限。
-         *         config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+         *     使用示例:
+         *         ``POST /api/v1/users/me/photos (multipart: file=@a.jpg)``
+         *
+         *     备注信息:
+         *         图片缺失或超过大小上限抛 ``serializers.ValidationError``;
+         *         账号媒体存储配额已满时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``),
+         *         配额检查在落盘之前;落库后必定让全站候选池失效。
          */
         post: operations["users_me_photos_create"];
         delete?: never;
@@ -1833,12 +1946,19 @@ export interface paths {
          *     只允许删除本人照片(查询集限定在 ``request.user.photos`` 上);
          *     删除后重算资料完善状态,照片不足会掉回「未完善」并失去候选资格。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         photo_id: 照片主键。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
+         *
+         *     使用示例:
+         *         ``DELETE /api/v1/users/me/photos/7``
+         *
+         *     备注信息:
+         *         别人的照片查不到 → 404(查询集已限定在本人名下,不泄漏照片归属);
+         *         磁盘文件与数据库行一起删,删除后全站候选池失效。
          */
         delete: operations["users_me_photos_destroy"];
         options?: never;
@@ -1856,11 +1976,18 @@ export interface paths {
         /**
          * @description 我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;``PATCH`` 支持部分字段。
          *
-         *     Returns:
+         *     返回参数:
          *         更新后的完整偏好对象。
+         *
+         *     使用示例:
+         *         ``PATCH /api/v1/users/me/preference {"age_max": 35}``
+         *
+         *     备注信息:
+         *         偏好只影响自己的候选池,所以 ``PATCH`` 后只失效本人的候选缓存(不动全站池);
+         *         偏好由 ``services.get_profile`` 懒创建,读取时不会 404。
          */
         get: operations["users_me_preference_retrieve"];
         put?: never;
@@ -1871,11 +1998,18 @@ export interface paths {
         /**
          * @description 我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;``PATCH`` 支持部分字段。
          *
-         *     Returns:
+         *     返回参数:
          *         更新后的完整偏好对象。
+         *
+         *     使用示例:
+         *         ``PATCH /api/v1/users/me/preference {"age_max": 35}``
+         *
+         *     备注信息:
+         *         偏好只影响自己的候选池,所以 ``PATCH`` 后只失效本人的候选缓存(不动全站池);
+         *         偏好由 ``services.get_profile`` 懒创建,读取时不会 404。
          */
         patch: operations["users_me_preference_partial_update"];
         trace?: never;
@@ -1900,16 +2034,21 @@ export interface paths {
          *        存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
          *     3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
          *
-         *     Returns:
+         *     返回参数:
          *         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
          *         DELETE 幂等 204(没有语音时也返回 204)。
          *
-         *     Raises:
-         *         serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
-         *         config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+         *     使用示例:
+         *         ``POST /api/v1/users/me/voice (multipart: file=@intro.m4a)``
+         *
+         *     备注信息:
+         *         缺文件、超过 5MB 或格式不在白名单时抛 ``serializers.ValidationError``(400);
+         *         账号媒体存储配额已满时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``);
+         *         服务器缺 ffmpeg/ffprobe 时为 503 + ``error_codes.CHAT_VOICE_UNAVAILABLE``。
+         *         语音不参与「资料完善」判定,所以本接口不调 ``refresh_status()``。
          */
         post: operations["users_me_voice_create"];
         /**
@@ -1923,16 +2062,21 @@ export interface paths {
          *        存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
          *     3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
          *
-         *     Returns:
+         *     返回参数:
          *         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
          *         DELETE 幂等 204(没有语音时也返回 204)。
          *
-         *     Raises:
-         *         serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
-         *         config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+         *     使用示例:
+         *         ``POST /api/v1/users/me/voice (multipart: file=@intro.m4a)``
+         *
+         *     备注信息:
+         *         缺文件、超过 5MB 或格式不在白名单时抛 ``serializers.ValidationError``(400);
+         *         账号媒体存储配额已满时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``);
+         *         服务器缺 ffmpeg/ffprobe 时为 503 + ``error_codes.CHAT_VOICE_UNAVAILABLE``。
+         *         语音不参与「资料完善」判定,所以本接口不调 ``refresh_status()``。
          */
         delete: operations["users_me_voice_destroy"];
         options?: never;
@@ -1950,11 +2094,17 @@ export interface paths {
         /**
          * @description 标签池全量列表(GET /api/v1/users/tags)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *
-         *     Returns:
+         *     返回参数:
          *         全部标签(12 个,由数据迁移写入);重封禁用户由全局权限类放行本接口。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/users/tags``
+         *
+         *     备注信息:
+         *         结果不分页、不缓存:标签池只有 12 行,直接全表取。
          */
         get: operations["users_tags_list"];
         put?: never;
@@ -2023,7 +2173,24 @@ export interface components {
             previous: string | null;
             results: components["schemas"]["Block"][];
         };
-        /** @description 候选卡片的对外表示。 */
+        /**
+         * @description 候选卡片的对外表示。
+         *
+         *     参数说明:
+         *         instance: 待序列化的 ``Profile`` 实例或查询集。
+         *         many: 串行化多条时传 ``True``,默认 ``False``。
+         *         context: 透传给嵌套序列化器的上下文(至少带 ``request``)。
+         *
+         *     返回参数:
+         *         无返回值;实例化后由 ``.data`` 取字典或字典列表。
+         *
+         *     使用示例:
+         *         ``CandidateSerializer(profile, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         只暴露滑卡决策需要的字段;``photos`` 由 :meth:`get_photos` 过滤成已过审照片,
+         *         客户端不能从这个响应里拿到待审或已驳回的图。
+         */
         Candidate: {
             readonly user_id: number;
             /** 昵称 */
@@ -2103,6 +2270,18 @@ export interface components {
          *
          *     ``date`` 是服务端算种子用的日期,客户端据此判断「今天已看过」;
          *     只用于 ``@extend_schema`` 声明响应形状,视图直接拼字典返回。
+         *
+         *     参数说明:
+         *         无;声明用序列化器,运行时不实例化。
+         *
+         *     返回参数:
+         *         无返回值;形状为 ``{"date": date, "candidates": [候选卡]}``。
+         *
+         *     使用示例:
+         *         ``@extend_schema(responses=DailyCandidatesSerializer)``
+         *
+         *     备注信息:
+         *         ``date`` 必须与服务端算种子用的日期同源,客户端自行推算会跨时区错位。
          */
         DailyCandidates: {
             /**
@@ -2212,7 +2391,23 @@ export interface components {
             has_more: boolean;
             results: components["schemas"]["LikeReceived"][];
         };
-        /** @description 「喜欢我的人」列表项:对方公开资料 + 喜欢时间。 */
+        /**
+         * @description 「喜欢我的人」列表项:对方公开资料 + 喜欢时间。
+         *
+         *     参数说明:
+         *         instance: ``Swipe`` 实例或查询集(方向是「喜欢我」)。
+         *         many: 串行化多条时传 ``True``,默认 ``False``。
+         *         context: 透传给嵌套序列化器的上下文。
+         *
+         *     返回参数:
+         *         无返回值;实例化后由 ``.data`` 取字典或字典列表。
+         *
+         *     使用示例:
+         *         ``LikeReceivedSerializer(swipes, many=True, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         所有资料字段都取自 ``swiper`` 一侧,``photos`` 同样只含已过审照片。
+         */
         LikeReceived: {
             readonly user_id: number;
             readonly im_user_id: string;
@@ -2311,7 +2506,22 @@ export interface components {
         };
         /** @enum {unknown} */
         NullEnum: null;
-        /** @description 择偶偏好的读写表示。 */
+        /**
+         * @description 择偶偏好的读写表示。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``instance``(要更新的 ``Preference``)、``data``、
+         *         ``partial``(局部更新)与 ``context``。
+         *
+         *     返回参数:
+         *         构造出的 ``PreferenceSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``PreferenceSerializer(preference, data=request.data, partial=True)``
+         *
+         *     备注信息:
+         *         只含三个偏好字段加城市,不含 ``profile``;年龄区间校验见 ``validate``。
+         */
         PatchedPreferenceRequest: {
             /** 想找的性别 */
             target_gender?: (components["schemas"]["GenderEnum"] | components["schemas"]["BlankEnum"] | components["schemas"]["NullEnum"]) | null;
@@ -2322,7 +2532,24 @@ export interface components {
             /** 城市 */
             city?: string;
         };
-        /** @description 编辑资料的入参;所有字段可选,只校验提交上来的那些。 */
+        /**
+         * @description 编辑资料的入参;所有字段可选,只校验提交上来的那些。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``data``(PATCH 的请求体)、``instance`` 与 ``context``;
+         *         业务字段为 ``nickname`` / ``gender`` / ``birthday`` / ``city`` / ``bio`` /
+         *         ``tag_ids`` / ``visits_hidden``,全部 ``required=False``。
+         *
+         *     返回参数:
+         *         构造出的 ``ProfileUpdateSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``ProfileUpdateSerializer(data=request.data)``
+         *
+         *     备注信息:
+         *         不做落库:视图自己 ``setattr`` + ``save()``,并单独处理 ``tag_ids`` 与
+         *         ``profile.refresh_status()``。
+         */
         PatchedProfileUpdateRequest: {
             nickname?: string;
             gender?: components["schemas"]["GenderEnum"];
@@ -2369,7 +2596,23 @@ export interface components {
         PhoneRequest: {
             phone: string;
         };
-        /** @description 照片的对外表示:只暴露 URL 与审核状态,不暴露存储路径。 */
+        /**
+         * @description 照片的对外表示:只暴露 URL 与审核状态,不暴露存储路径。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``instance``、``data``、``many`` 与 ``context``;
+         *         图片地址要求 ``context`` 里带 ``request``,否则 ``url`` 退化成相对路径。
+         *
+         *     返回参数:
+         *         构造出的 ``PhotoSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``PhotoSerializer(photo, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         ``url`` 由 DRF 的 ``ImageField`` 拼绝对地址,不签名、不过期;
+         *         存储路径与上传时间一律不外露。
+         */
         Photo: {
             readonly id: number;
             /** Format: uri */
@@ -2386,7 +2629,22 @@ export interface components {
          * @enum {string}
          */
         PhotoStatusEnum: "pending" | "approved" | "rejected";
-        /** @description 照片上传入参(multipart 字段 ``file``)。 */
+        /**
+         * @description 照片上传入参(multipart 字段 ``file``)。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``data``(multipart 请求体,含 ``file``)、``instance``
+         *         与 ``context``。
+         *
+         *     返回参数:
+         *         构造出的 ``PhotoUploadSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``PhotoUploadSerializer(data=request.data)``
+         *
+         *     备注信息:
+         *         只管文件大小;图片格式与像素上限由 ``config.images`` 在视图里校验。
+         */
         PhotoUploadRequest: {
             /** Format: binary */
             file: string;
@@ -2479,7 +2737,22 @@ export interface components {
             id: number;
             status: string;
         };
-        /** @description 择偶偏好的读写表示。 */
+        /**
+         * @description 择偶偏好的读写表示。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``instance``(要更新的 ``Preference``)、``data``、
+         *         ``partial``(局部更新)与 ``context``。
+         *
+         *     返回参数:
+         *         构造出的 ``PreferenceSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``PreferenceSerializer(preference, data=request.data, partial=True)``
+         *
+         *     备注信息:
+         *         只含三个偏好字段加城市,不含 ``profile``;年龄区间校验见 ``validate``。
+         */
         Preference: {
             /** 想找的性别 */
             target_gender?: (components["schemas"]["GenderEnum"] | components["schemas"]["BlankEnum"] | components["schemas"]["NullEnum"]) | null;
@@ -2499,7 +2772,23 @@ export interface components {
         PresenceResult: {
             results: components["schemas"]["PresenceItem"][];
         };
-        /** @description 「我的资料」的完整表示,含隐私字段与完善度提示。 */
+        /**
+         * @description 「我的资料」的完整表示,含隐私字段与完善度提示。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``instance``(要序列化的 ``Profile``)、``data``、
+         *         ``many`` 与 ``context``;``context`` 里需带 ``request`` 才能拼出绝对媒体地址。
+         *
+         *     返回参数:
+         *         构造出的 ``ProfileSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``ProfileSerializer(profile, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         ``id`` 是资料表主键,对外标识用户要读 ``user_id``;本序列化器含手机号与生日,
+         *         只能用于「我的资料」,他人资料卡请用 ``PublicProfileSerializer``。
+         */
         Profile: {
             readonly id: number;
             readonly user_id: number;
@@ -2544,6 +2833,20 @@ export interface components {
          *     ``url`` 与 ``PhotoSerializer`` 完全同口径:交给 DRF 的 ``FileField`` 拼绝对地址,
          *     **不签名**。语音是公开媒体(``/media/voices/`` 由 nginx 裸静态直出),签一个没人
          *     校验的 ``e``/``s`` 只会让人误以为「过期即失效」。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``instance``、``data``、``many`` 与 ``context``;
+         *         要拿到绝对地址必须让 ``context`` 里带 ``request``。
+         *
+         *     返回参数:
+         *         构造出的 ``ProfileVoiceSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``ProfileVoiceSerializer(record, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         字段只有 ``url`` 与 ``duration_ms``:时长是服务端 ``ffprobe`` 实测值,
+         *         不接受客户端声明。
          */
         ProfileVoice: {
             /** Format: uri */
@@ -2559,6 +2862,20 @@ export interface components {
          *
          *     时长不靠客户端声明:服务端用 ``ffprobe`` 实测(见 ``users.views.my_voice``),
          *     所以这里只校验大小与容器格式。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``data``(multipart 请求体,含 ``file``)、``instance``
+         *         与 ``context``。
+         *
+         *     返回参数:
+         *         构造出的 ``ProfileVoiceUploadSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``ProfileVoiceUploadSerializer(data=request.data)``
+         *
+         *     备注信息:
+         *         只做格式与大小白名单;时长(≤30 秒)与转码在
+         *         ``users.views.normalize_profile_voice`` 里完成。
          */
         ProfileVoiceUploadRequest: {
             /** Format: binary */
@@ -2573,6 +2890,21 @@ export interface components {
          *     ``is_followed`` / ``follower_count`` / ``following_count`` 是批次 I 的关注态:
          *     同样支持 ``context["follow_state_map"]`` 批量注入(见 ``feed.services.follow_state_for_profiles``),
          *     单条资料卡场景默认只多**一条**聚合 SQL。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``instance``(对方的 ``Profile``)、``data``、``many``
+         *         与 ``context``;``context`` 可带 ``request``、``shared_tags_map``、
+         *         ``follow_state_map`` 三项,前两者决定可见信息与是否走批量注入。
+         *
+         *     返回参数:
+         *         构造出的 ``PublicProfileSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``PublicProfileSerializer(profile, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         列表场景务必注入 ``shared_tags_map`` 与 ``follow_state_map``,否则每个对象
+         *         各多一条查询;``photos`` 只返回已过审的照片。
          */
         PublicProfile: {
             readonly user_id: number;
@@ -2689,6 +3021,18 @@ export interface components {
          * @description 每日喜欢额度的响应(批次 O)。
          *
          *     ``like_limit = 0`` 表示不限,此时 ``likes_used`` 恒为 0、``likes_remaining`` 为 ``null``。
+         *
+         *     参数说明:
+         *         无;声明用序列化器,运行时不实例化。
+         *
+         *     返回参数:
+         *         无返回值;形状与 ``quota.quota_snapshot`` 的字典一致。
+         *
+         *     使用示例:
+         *         ``@extend_schema(responses=SwipeQuotaSerializer)``
+         *
+         *     备注信息:
+         *         字段取值全部来自 ``quota.quota_snapshot``,视图不自行计算剩余次数。
          */
         SwipeQuota: {
             /** @description 每日喜欢上限,0 = 不限 */
@@ -2698,7 +3042,22 @@ export interface components {
             /** @description 今天还剩多少次;不限时为 null */
             likes_remaining: number | null;
         };
-        /** @description 滑卡入参:目标用户与动作。 */
+        /**
+         * @description 滑卡入参:目标用户与动作。
+         *
+         *     参数说明:
+         *         data: 客户端提交的 ``{"target_user_id": int, "action": "like"|"pass"}``。
+         *
+         *     返回参数:
+         *         无返回值;校验通过后 ``.validated_data`` 给出 ``target_user_id`` 与 ``action``。
+         *
+         *     使用示例:
+         *         ``SwipeSerializer(data=request.data)``
+         *
+         *     备注信息:
+         *         ``action`` 只接受 :class:`SwipeAction` 的两个取值,其余取值校验失败返回 ``400``;
+         *         字段本身不做存在性校验,目标账号是否存在由视图判定。
+         */
         SwipeRequest: {
             target_user_id: number;
             action: components["schemas"]["ActionEnum"];
@@ -2711,6 +3070,18 @@ export interface components {
          * @description 撤销滑卡的响应:撤销结果与被撤销的目标(批次 O)。
          *
          *     只用于 ``@extend_schema`` 声明响应形状,视图直接拼字典返回。
+         *
+         *     参数说明:
+         *         无;声明用序列化器,运行时不实例化。
+         *
+         *     返回参数:
+         *         无返回值;形状为 ``{"undone": bool, "target_user_id": int}``。
+         *
+         *     使用示例:
+         *         ``@extend_schema(responses=SwipeUndoSerializer)``
+         *
+         *     备注信息:
+         *         撤销失败不进这个形状,直接由 :class:`SwipeUndoUnavailable` 抛错误信封。
          */
         SwipeUndo: {
             /** @description 是否撤销成功;失败走错误信封 */
@@ -2718,7 +3089,22 @@ export interface components {
             /** @description 被撤销的那次滑卡的目标账号 ID */
             target_user_id: number;
         };
-        /** @description 标签的对外表示。 */
+        /**
+         * @description 标签的对外表示。
+         *
+         *     参数说明:
+         *         按 DRF 序列化器习惯传参:``instance``(待序列化对象)、``data``(待校验入参)、
+         *         ``many``(是否批量)与 ``context``(请求上下文)。
+         *
+         *     返回参数:
+         *         构造出的 ``TagSerializer`` 实例。
+         *
+         *     使用示例:
+         *         ``TagSerializer(Tag.objects.all(), many=True).data``
+         *
+         *     备注信息:
+         *         只读用途;``id`` / ``name`` / ``icon`` 三个字段与 ``docs/api/users.md`` 一致。
+         */
         Tag: {
             readonly id: number;
             /** 名称 */
@@ -2737,7 +3123,24 @@ export interface components {
         UnreadCount: {
             unread: number;
         };
-        /** @description 「谁看过我」列表项:对方公开资料 + 最近访问时间。 */
+        /**
+         * @description 「谁看过我」列表项:对方公开资料 + 最近访问时间。
+         *
+         *     参数说明:
+         *         instance: ``ProfileVisit`` 实例或查询集。
+         *         many: 串行化多条时传 ``True``,默认 ``False``。
+         *         context: 透传给嵌套序列化器的上下文。
+         *
+         *     返回参数:
+         *         无返回值;实例化后由 ``.data`` 取字典或字典列表。
+         *
+         *     使用示例:
+         *         ``VisitSerializer(visits, many=True, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         所有资料字段都取自 ``viewer`` 一侧;``visited_at`` 取 ``last_at``
+         *         —— 同一访客多次访问只保留一行,时间由业务侧持续刷新。
+         */
         Visit: {
             readonly user_id: number;
             readonly im_user_id: string;

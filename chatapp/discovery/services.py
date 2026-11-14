@@ -9,6 +9,17 @@
        按「共同标签数 → 同城 → 种子随机」排序,当天稳定、跨天变化;
     4. 配对成功后给双方发 IM 灰条。之所以独立成模块而不是写在视图里,
        是为了让「配对成功」这件事的副作用只有一个入口,便于后续追加(如推送、埋点)。
+
+文件信息:
+    文件名称          discovery/services.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import hashlib
@@ -44,11 +55,21 @@ class CandidateFilters:
            「临时筛一下」不会悄悄改掉用户的长期偏好;
         3. ``tag_ids`` 是纯增量条件(偏好里没有同名字段),空元组表示不筛标签。
 
-    Attributes:
+    参数说明:
         age_min: 年龄下限(含);``None`` 表示沿用偏好。
         age_max: 年龄上限(含);``None`` 表示沿用偏好。
         city: 城市;``None`` / 空串表示沿用偏好。
         tag_ids: 至少命中一个的标签 id(已去重、升序);空元组表示不筛标签。
+
+    返回参数:
+        ``CandidateFilters`` 实例(``frozen=True``,不可变)。
+
+    使用示例:
+        ``CandidateFilters(age_min=25, age_max=30, city="杭州", tag_ids=(3, 7))``
+
+    备注信息:
+        实例只活在一次请求内,不落库;字段全空等价于「完全沿用偏好」,
+        也是缓存键不追加筛选指纹的唯一判据(见 ``is_empty``)。
     """
 
     age_min: int | None = None
@@ -59,8 +80,18 @@ class CandidateFilters:
     def is_empty(self) -> bool:
         """是否完全没有筛选条件(缓存键要不要追加指纹的唯一判据)。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             四个字段都为空时为 ``True``。
+
+        使用示例:
+            ``filters.is_empty()``
+
+        备注信息:
+            城市按去掉首尾空白后判空,``city=" "`` 视同未填;
+            ``candidate_pool_ids`` 用它决定缓存键尾部要不要追加 ``:f{指纹}``。
         """
         return (self.age_min is None and self.age_max is None
                 and not (self.city or "").strip() and not self.tag_ids)
@@ -72,8 +103,17 @@ class CandidateFilters:
         (``disc:ver:{uid}``),掺进来只会给同一份筛选多切出无意义的分桶,
         让默认路径的命中率继续退化。
 
-        Returns:
-            四个参数按固定顺序拼接后 sha1 的前 8 位十六进制。
+        参数说明:
+            无。
+
+        返回参数:
+            四个参数按固定顺序拼接后 sha1 的前 8 位十六进制字符串。
+
+        使用示例:
+            ``filters.fingerprint()``
+
+        备注信息:
+            ``tag_ids`` 先升序再拼接,同一组标签换个传参顺序得到同一份指纹。
         """
         parts = [
             "" if self.age_min is None else str(self.age_min),
@@ -90,8 +130,17 @@ def today_date() -> date:
     抽成函数是为了让「同一天稳定 / 跨天变化」可测:测试 monkeypatch 它即可,
     不要去 patch ``datetime.date.today`` —— 那会连带影响别处的日期逻辑。
 
-    Returns:
-        本地时区的今天。
+    参数说明:
+        无。
+
+    返回参数:
+        ``datetime.date``,本地时区的今天。
+
+    使用示例:
+        ``day = today_date()``
+
+    备注信息:
+        取 ``timezone.localdate()``,受 ``settings.TIME_ZONE`` 影响,不是 UTC 日期。
     """
     return timezone.localdate()
 
@@ -99,15 +148,19 @@ def today_date() -> date:
 def _resolve_age_bounds(preference, filters: CandidateFilters | None):
     """把「筛选覆盖偏好」之后的年龄区间换算成生日区间。
 
-    Args:
+    参数说明:
         preference: 当前用户的「想找的人」偏好。
         filters: 临时筛选条件;``None`` 表示不筛选。
 
-    Returns:
+    返回参数:
         ``(upper, lower)``,语义见 ``users.models.birthday_bounds``。
 
-    Raises:
-        ValidationError: 合并后的最小年龄大于最大年龄(如 ``age_min=40&age_max=20``)。
+    使用示例:
+        ``upper, lower = _resolve_age_bounds(preference, filters)``
+
+    备注信息:
+        筛选字段非 ``None`` 时覆盖偏好同名字段,否则回落偏好;合并后
+        ``age_min > age_max`` 抛 ``ValidationError``(如 ``age_min=40&age_max=20``)。
     """
     age_min = (filters.age_min if filters is not None and filters.age_min is not None
                else preference.age_min)
@@ -132,17 +185,23 @@ def candidate_pool_queryset(me, preference, pool_size: int,
     而 ``[:pool_size]`` 的截断发生在去重之前,join 出来的行数被放大,
     同一个人的多个命中标签会挤掉别人的名额(重复行也会漏进切片)。
 
-    Args:
+    参数说明:
         me: 当前用户。
         preference: 当前用户的「想找的人」偏好。
         pool_size: 池子大小(取前 N 个)。
         filters: 临时筛选条件;``None`` 或全空表示完全沿用偏好(默认路径)。
 
-    Returns:
+    返回参数:
         按 ``shuffle_key`` 排序的 ``Profile`` 查询集,不含重复行。
 
-    Raises:
-        ValidationError: 合并后的年龄区间上下界倒置。
+    使用示例:
+        ``candidate_pool_queryset(me, preference, 200, filters)``
+
+    备注信息:
+        排除自己、已划过的人、已配对的人、双向拉黑的人,并要求
+        ``status=COMPLETE`` 且至少有一张已过审照片;合并后的年龄区间上下界倒置时
+        抛 ``ValidationError``。标签命中是多选一(命中其一即入池),结果已按
+        ``pool_size`` 截断。
     """
     swiped_exists = Exists(Swipe.objects.filter(swiper=me, target_id=OuterRef("user_id")))
     matched_exists = Exists(Match.objects.filter(
@@ -177,14 +236,21 @@ def _query_pool_ids(me, preference, pool_size: int,
                     filters: CandidateFilters | None = None) -> list[int]:
     """查候选池 id(未命中缓存时的真实查询)。
 
-    Args:
+    参数说明:
         me: 当前用户。
         preference: 「想找的人」偏好。
         pool_size: 池子大小。
         filters: 临时筛选条件;``None`` 表示不筛选。
 
-    Returns:
-        候选用户 id 列表。
+    返回参数:
+        候选用户 id 列表(账号 id,不是资料主键)。
+
+    使用示例:
+        ``ids = _query_pool_ids(me, preference, 200)``
+
+    备注信息:
+        只做一次查询,不再读也不写缓存;``candidate_pool_ids`` 在缓存关闭
+        (``CANDIDATE_CACHE_TTL <= 0``)或回填缓存时调用它。
     """
     return list(candidate_pool_queryset(me, preference, pool_size, filters)
                 .values_list("user_id", flat=True))
@@ -207,17 +273,23 @@ def candidate_pool_ids(me, preference, pool_size: int,
     真正关掉缓存,于是「开/关缓存」的对比实验没法做(E-7);顺带它也是线上可用的
     缓存熔断手段(缓存怀疑有问题时设 0 重启即可退回纯查库)。
 
-    Args:
+    参数说明:
         me: 当前用户。
         preference: 「想找的人」偏好。
-        pool_size: 池子大小。
+        pool_size: 池子大小(进入缓存键的 ``p{size}`` 段)。
         filters: 临时筛选条件;``None`` 或全空走默认键。
 
-    Returns:
-        候选用户 id 列表;缓存关闭或不可用时退化为直接查库。
+    返回参数:
+        候选用户 id 列表;缓存显式关闭(``CANDIDATE_CACHE_TTL <= 0``)或缓存读写异常时
+        退化为直接查库,命中缓存里的空池时返回空列表。
 
-    Raises:
-        ValidationError: 筛选与偏好合并后的年龄区间倒置。
+    使用示例:
+        ``pool_ids = candidate_pool_ids(me, preference, 200, filters)``
+
+    备注信息:
+        键由「账号 id + 用户版本 + 全局版本 + 池子大小」组成,划卡 / 配对 / 解除配对
+        等写路径只需升版本就能让旧缓存不可达;筛选指纹只加在带筛选的键尾。
+        合并后的年龄区间倒置时由下游抛 ``ValidationError``。
     """
     ttl = int(getattr(settings, "CANDIDATE_CACHE_TTL", 30))
     if ttl <= 0:
@@ -246,13 +318,20 @@ def shared_tag_counts(me, user_ids) -> dict[int, int]:
     分组键取 ``profile__user_id`` 而不是 ``profile_id``:中间表存的是**资料主键**,
     而调用方拿的是账号 id,两者是两个序列;混用不会报错,只会静默查出空集合。
 
-    Args:
+    参数说明:
         me: 当前用户。
         user_ids: 候选池的用户 id 序列。
 
-    Returns:
+    返回参数:
         ``{user_id: 共同标签数}``;没有共同标签的人**不出现在字典里**,调用方用
         ``.get(user_id, 0)`` 取;我没有标签或池子为空时返回空字典。
+
+    使用示例:
+        ``shared = shared_tag_counts(me, pool_ids)``
+
+    备注信息:
+        只有一条分组查询,不按人循环;分组键必须取 ``profile__user_id``,
+        用 ``profile_id``(资料主键)会静默查出空集合。
     """
     if not user_ids:
         return {}
@@ -279,14 +358,23 @@ def daily_candidate_ids(me, preference, limit: int, today: date | None = None):
 
     候选来源是 ``candidate_pool_ids``(同一套排除规则),不另写一份。
 
-    Args:
+    参数说明:
         me: 当前用户。
         preference: 「想找的人」偏好(作为候选池的默认过滤条件)。
         limit: 要几张;调用方负责收敛到合法区间。
         today: 参照日期;``None`` 表示取 ``today_date()``(测试可注入)。
 
-    Returns:
-        ``(date, [user_id, ...])``,``date`` 是本次精选对应的日期。
+    返回参数:
+        ``(date, [user_id, ...])``,``date`` 是本次精选对应的日期;池子为空时
+        第二项是空列表。
+
+    使用示例:
+        ``day, user_ids = daily_candidate_ids(me, preference, 6)``
+
+    备注信息:
+        种子 = ``"{日期}:{用户 id}"``,同一天两次调用结果与顺序完全一致,换一天
+        整体换一批;池子大小取 ``max(limit, CANDIDATE_POOL_SIZE)``,同城信息与
+        共同标签数各一条查询,不随池子大小增长。
     """
     day = today or today_date()
     pool_size = max(limit, int(getattr(settings, "CANDIDATE_POOL_SIZE", 200)))
@@ -312,8 +400,19 @@ def notify_match(match):
     站内通知(批次 H)与灰条并存,不互相替代;文案不带昵称 —— 通知项里已经有
     ``actor`` 摘要,再查一次对方昵称只是多打一条 SQL。
 
-    Args:
+    参数说明:
         match: 刚创建的配对记录,双方 id 从它上面取。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``notify_match(match)``
+
+    备注信息:
+        ``transaction.on_commit(..., robust=True)``:配对落库后才入队,broker
+        抖动不影响配对结果;两侧各一条灰条 + 一条站内通知,``dedupe_key`` 按
+        配对主键与接收者区分,重放不会重复生成通知。
     """
     a_id, b_id = match.user_a_id, match.user_b_id
     transaction.on_commit(lambda: im_tasks.pair_add.delay(a_id, b_id), robust=True)
@@ -329,11 +428,19 @@ def notify_match(match):
 def likes_received_queryset(me):
     """收到的喜欢:与候选池同口径,排除我已划过 / 双向拉黑 / 资料不全的人。
 
-    Args:
+    参数说明:
         me: 当前用户。
 
-    Returns:
+    返回参数:
         以 ``Swipe`` 为行的查询集,按喜欢时间倒序;列表与计数必须共用它。
+
+    使用示例:
+        ``qs = likes_received_queryset(request.user)``
+
+    备注信息:
+        排除我已划过的人、双向拉黑的人,以及资料未完善或没有已过审照片的人;
+        已配对的人由「我已划过」天然覆盖。已 ``select_related`` / ``prefetch_related``
+        对方资料、照片与标签,循环里不要再逐条查库。
     """
     with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
     qs = (Swipe.objects
@@ -353,11 +460,18 @@ def visits_received_queryset(me):
 
     已配对的人不需要单独过滤:配对的前提是双方都划过对方,「排除我已划过」已天然覆盖。
 
-    Args:
+    参数说明:
         me: 当前用户。
 
-    Returns:
+    返回参数:
         以 ``ProfileVisit`` 为行的查询集,按最近访问时间倒序;列表与计数必须共用它。
+
+    使用示例:
+        ``qs = visits_received_queryset(request.user)``
+
+    备注信息:
+        排除我已划过的人、双向拉黑的人,以及资料未完善或没有已过审照片的人;
+        已 ``select_related`` / ``prefetch_related`` 访客资料、照片与标签。
     """
     with_photos = Photo.objects.filter(status=PhotoStatus.APPROVED).values("user_id")
     qs = (ProfileVisit.objects

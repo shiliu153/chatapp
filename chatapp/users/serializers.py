@@ -11,6 +11,17 @@
     5. 资料语音(批次 R)在「我的资料」与「他人公开资料」里都是 ``voice: {url,
        duration_ms} | null``;``url`` 是 DRF 拼的**公开绝对地址**(与照片同口径,不签名、
        不过期 —— 语音本来就是「能看我资料的人都能听」)。
+
+文件信息:
+    文件名称          users/serializers.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.conf import settings
@@ -27,7 +38,21 @@ from .models import (Gender, Photo, PhotoStatus, Preference, Profile, ProfileVoi
 
 
 class TagSerializer(serializers.ModelSerializer):
-    """标签的对外表示。"""
+    """标签的对外表示。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``instance``(待序列化对象)、``data``(待校验入参)、
+        ``many``(是否批量)与 ``context``(请求上下文)。
+
+    返回参数:
+        构造出的 ``TagSerializer`` 实例。
+
+    使用示例:
+        ``TagSerializer(Tag.objects.all(), many=True).data``
+
+    备注信息:
+        只读用途;``id`` / ``name`` / ``icon`` 三个字段与 ``docs/api/users.md`` 一致。
+    """
 
     class Meta:
         model = Tag
@@ -41,13 +66,20 @@ def shared_tags_for_profiles(profiles, viewer) -> dict[int, list[dict]]:
     再在内存里求交 —— 比给每个对方单独查一次 M2M 省得多,也避免 N+1
     (``config/test_query_budget.py`` 会拦)。
 
-    Args:
+    参数说明:
         profiles: 资料对象序列;只用到 ``user_id``,``None`` 项自动忽略。
         viewer: 当前登录用户。
 
-    Returns:
+    返回参数:
         ``{user_id: [{"id": .., "name": .., "icon": ..}, ...]}``,标签按 id 升序;
         没有交集的人**不出现在字典里**,调用方用 ``.get(user_id, [])`` 取。
+
+    使用示例:
+        ``shared_tags_for_profiles([profile], request.user)``
+
+    备注信息:
+        ``viewer`` 未登录(没有 ``id``)或没有标签时返回空字典;
+        返回值是内存里的 dict,不要缓存到请求之外。
     """
     viewer_id = getattr(viewer, "id", None)
     peer_ids = [profile.user_id for profile in profiles if profile is not None]
@@ -73,7 +105,22 @@ def shared_tags_for_profiles(profiles, viewer) -> dict[int, list[dict]]:
 
 
 class PhotoSerializer(serializers.ModelSerializer):
-    """照片的对外表示:只暴露 URL 与审核状态,不暴露存储路径。"""
+    """照片的对外表示:只暴露 URL 与审核状态,不暴露存储路径。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``instance``、``data``、``many`` 与 ``context``;
+        图片地址要求 ``context`` 里带 ``request``,否则 ``url`` 退化成相对路径。
+
+    返回参数:
+        构造出的 ``PhotoSerializer`` 实例。
+
+    使用示例:
+        ``PhotoSerializer(photo, context={"request": request}).data``
+
+    备注信息:
+        ``url`` 由 DRF 的 ``ImageField`` 拼绝对地址,不签名、不过期;
+        存储路径与上传时间一律不外露。
+    """
 
     url = serializers.ImageField(source="file", read_only=True)
 
@@ -83,7 +130,21 @@ class PhotoSerializer(serializers.ModelSerializer):
 
 
 class PreferenceSerializer(serializers.ModelSerializer):
-    """择偶偏好的读写表示。"""
+    """择偶偏好的读写表示。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``instance``(要更新的 ``Preference``)、``data``、
+        ``partial``(局部更新)与 ``context``。
+
+    返回参数:
+        构造出的 ``PreferenceSerializer`` 实例。
+
+    使用示例:
+        ``PreferenceSerializer(preference, data=request.data, partial=True)``
+
+    备注信息:
+        只含三个偏好字段加城市,不含 ``profile``;年龄区间校验见 ``validate``。
+    """
 
     class Meta:
         model = Preference
@@ -92,14 +153,17 @@ class PreferenceSerializer(serializers.ModelSerializer):
     def validate_age_min(self, value):
         """校验最小年龄下限。
 
-        Args:
+        参数说明:
             value: 提交的最小年龄。
 
-        Returns:
+        返回参数:
             通过校验的最小年龄。
 
-        Raises:
-            serializers.ValidationError: 小于 18 岁(合规下限)。
+        使用示例:
+            ``serializer.validate_age_min(18)``
+
+        备注信息:
+            小于 18 抛 ``serializers.ValidationError``(合规下限,不是产品偏好)。
         """
         if value < 18:
             raise serializers.ValidationError("最小年龄不能小于 18")
@@ -108,14 +172,18 @@ class PreferenceSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         """校验年龄区间的上下界关系。
 
-        Args:
+        参数说明:
             attrs: 已通过字段级校验的数据。
 
-        Returns:
+        返回参数:
             通过校验的数据。
 
-        Raises:
-            serializers.ValidationError: 最小年龄大于最大年龄。
+        使用示例:
+            ``serializer.is_valid(raise_exception=True)``
+
+        备注信息:
+            局部更新时会用 ``self.instance`` 上的旧值补齐缺失的一端,
+            最小年龄大于最大年龄时抛 ``serializers.ValidationError``。
         """
         age_min = attrs.get("age_min", getattr(self.instance, "age_min", 18))
         age_max = attrs.get("age_max", getattr(self.instance, "age_max", 99))
@@ -129,12 +197,19 @@ def voice_payload(profile, context=None) -> dict | None:
 
     没有语音的人返回 ``None``(API 里是 JSON ``null``),客户端据此隐藏播放器。
 
-    Args:
+    参数说明:
         profile: 资料对象;``voice`` 反向一对一不存在时按「没录过」处理。
         context: 序列化器上下文,必须带 ``request`` —— 缺了它 ``url`` 会退化成相对路径。
 
-    Returns:
+    返回参数:
         ``{"url": 公开绝对地址, "duration_ms": 实测毫秒}``;没有语音时为 ``None``。
+
+    使用示例:
+        ``voice_payload(profile, {"request": request})``
+
+    备注信息:
+        ``context`` 传 ``None`` 时按空字典处理,只影响 ``url`` 是否为绝对地址;
+        不要在这里另加过滤,可见性由视图保证。
     """
     record = getattr(profile, "voice", None)
     if record is None:
@@ -148,6 +223,20 @@ class ProfileVoiceSerializer(serializers.ModelSerializer):
     ``url`` 与 ``PhotoSerializer`` 完全同口径:交给 DRF 的 ``FileField`` 拼绝对地址,
     **不签名**。语音是公开媒体(``/media/voices/`` 由 nginx 裸静态直出),签一个没人
     校验的 ``e``/``s`` 只会让人误以为「过期即失效」。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``instance``、``data``、``many`` 与 ``context``;
+        要拿到绝对地址必须让 ``context`` 里带 ``request``。
+
+    返回参数:
+        构造出的 ``ProfileVoiceSerializer`` 实例。
+
+    使用示例:
+        ``ProfileVoiceSerializer(record, context={"request": request}).data``
+
+    备注信息:
+        字段只有 ``url`` 与 ``duration_ms``:时长是服务端 ``ffprobe`` 实测值,
+        不接受客户端声明。
     """
 
     url = serializers.FileField(source="file", read_only=True)
@@ -158,7 +247,22 @@ class ProfileVoiceSerializer(serializers.ModelSerializer):
 
 
 class ProfileSerializer(serializers.ModelSerializer):
-    """「我的资料」的完整表示,含隐私字段与完善度提示。"""
+    """「我的资料」的完整表示,含隐私字段与完善度提示。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``instance``(要序列化的 ``Profile``)、``data``、
+        ``many`` 与 ``context``;``context`` 里需带 ``request`` 才能拼出绝对媒体地址。
+
+    返回参数:
+        构造出的 ``ProfileSerializer`` 实例。
+
+    使用示例:
+        ``ProfileSerializer(profile, context={"request": request}).data``
+
+    备注信息:
+        ``id`` 是资料表主键,对外标识用户要读 ``user_id``;本序列化器含手机号与生日,
+        只能用于「我的资料」,他人资料卡请用 ``PublicProfileSerializer``。
+    """
 
     # id 是 profile 表主键;对外标识用户一律用 user_id(与公开资料卡的 user_id 同源)
     user_id = serializers.IntegerField(source="user.id", read_only=True)
@@ -180,11 +284,18 @@ class ProfileSerializer(serializers.ModelSerializer):
     def get_voice(self, profile):
         """资料语音自我介绍,没录过为 ``null``。
 
-        Args:
+        参数说明:
             profile: 当前用户的资料。
 
-        Returns:
+        返回参数:
             ``{"url", "duration_ms"}`` 或 ``None``。
+
+        使用示例:
+            ``ProfileSerializer(profile, context={"request": request}).data["voice"]``
+
+        备注信息:
+            实际转换交给 ``voice_payload``;``extend_schema_field`` 只影响 OpenAPI 生成的
+            类型,不改变运行时行为。
         """
         return voice_payload(profile, self.context)
 
@@ -198,6 +309,21 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     ``is_followed`` / ``follower_count`` / ``following_count`` 是批次 I 的关注态:
     同样支持 ``context["follow_state_map"]`` 批量注入(见 ``feed.services.follow_state_for_profiles``),
     单条资料卡场景默认只多**一条**聚合 SQL。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``instance``(对方的 ``Profile``)、``data``、``many``
+        与 ``context``;``context`` 可带 ``request``、``shared_tags_map``、
+        ``follow_state_map`` 三项,前两者决定可见信息与是否走批量注入。
+
+    返回参数:
+        构造出的 ``PublicProfileSerializer`` 实例。
+
+    使用示例:
+        ``PublicProfileSerializer(profile, context={"request": request}).data``
+
+    备注信息:
+        列表场景务必注入 ``shared_tags_map`` 与 ``follow_state_map``,否则每个对象
+        各多一条查询;``photos`` 只返回已过审的照片。
     """
 
     user_id = serializers.IntegerField(source="user.id", read_only=True)
@@ -219,12 +345,19 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     def _follow_state(self, profile) -> dict:
         """取某条资料的关注态(优先用调用方注入的批量结果)。
 
-        Args:
+        参数说明:
             profile: 被查看的资料。
 
-        Returns:
+        返回参数:
             ``{"is_followed": bool, "follower_count": int, "following_count": int}``;
             取不到时返回空字典(三个字段各自兜底成 ``False`` / ``0``)。
+
+        使用示例:
+            ``self._follow_state(profile)``
+
+        备注信息:
+            结果缓存在 ``self._follow_state_memo`` 上(请求内记忆),同一序列化器实例
+            对同一资料只查一次;要跨对象批量算请由调用方注入 ``follow_state_map``。
         """
         state_map = self.context.get("follow_state_map")
         if state_map is not None:
@@ -243,11 +376,17 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     def get_is_followed(self, profile):
         """当前用户是否关注了对方。
 
-        Args:
+        参数说明:
             profile: 被查看的资料。
 
-        Returns:
+        返回参数:
             已关注为 ``True``;未登录或没关注过为 ``False``。
+
+        使用示例:
+            ``PublicProfileSerializer(profile, context={"request": request}).data["is_followed"]``
+
+        备注信息:
+            数据来自 ``_follow_state``,不单独查库。
         """
         return bool(self._follow_state(profile).get("is_followed", False))
 
@@ -255,11 +394,17 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     def get_follower_count(self, profile):
         """对方的粉丝数(多少人关注了对方)。
 
-        Args:
+        参数说明:
             profile: 被查看的资料。
 
-        Returns:
+        返回参数:
             粉丝数;没有记录时为 0。
+
+        使用示例:
+            ``PublicProfileSerializer(profile, context={"request": request}).data["follower_count"]``
+
+        备注信息:
+            数据来自 ``_follow_state``;未登录时按 0 兜底。
         """
         return int(self._follow_state(profile).get("follower_count", 0))
 
@@ -267,11 +412,17 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     def get_following_count(self, profile):
         """对方的关注数(对方关注了多少人)。
 
-        Args:
+        参数说明:
             profile: 被查看的资料。
 
-        Returns:
+        返回参数:
             关注数;没有记录时为 0。
+
+        使用示例:
+            ``PublicProfileSerializer(profile, context={"request": request}).data["following_count"]``
+
+        备注信息:
+            数据来自 ``_follow_state``;未登录时按 0 兜底。
         """
         return int(self._follow_state(profile).get("following_count", 0))
 
@@ -282,11 +433,17 @@ class PublicProfileSerializer(serializers.ModelSerializer):
         单条资料卡场景每次只多一条 M2M 查询;列表场景请由调用方批量算好后从
         ``context["shared_tags_map"]`` 注入(否则每个对象一条查询)。
 
-        Args:
+        参数说明:
             profile: 被查看的资料。
 
-        Returns:
+        返回参数:
             共同标签数组(``{id, name, icon}``);未登录或没有交集时为空数组。
+
+        使用示例:
+            ``PublicProfileSerializer(profile, context={"request": request}).data["shared_tags"]``
+
+        备注信息:
+            结果缓存在 ``self._shared_tags_memo`` 上;未登录时直接返回空数组,不发查询。
         """
         shared_map = self.context.get("shared_tags_map")
         if shared_map is not None:
@@ -310,11 +467,18 @@ class PublicProfileSerializer(serializers.ModelSerializer):
         语音是**公开**的:任何能看这条资料卡的人都能听到(与照片同口径,不做
         「仅配对后可听」)。可见性由 ``public_profile`` 视图保证,这里不再过滤。
 
-        Args:
+        参数说明:
             profile: 被查看的资料。
 
-        Returns:
+        返回参数:
             ``{"url", "duration_ms"}`` 或 ``None``。
+
+        使用示例:
+            ``PublicProfileSerializer(profile, context={"request": request}).data["voice"]``
+
+        备注信息:
+            实际转换交给 ``voice_payload``;这里不做可见性判断,由视图层的拉黑与
+            重封禁过滤保证。
         """
         return voice_payload(profile, self.context)
 
@@ -322,18 +486,41 @@ class PublicProfileSerializer(serializers.ModelSerializer):
     def get_photos(self, profile):
         """只返回已过审的照片。
 
-        Args:
+        参数说明:
             profile: 被查看的资料。
 
-        Returns:
+        返回参数:
             已过审照片的序列化数据;待审核与已驳回的一律不出现。
+
+        使用示例:
+            ``PublicProfileSerializer(profile, context={"request": request}).data["photos"]``
+
+        备注信息:
+            在内存里按 ``status`` 过滤,没有额外查询;``profile.user.photos`` 的排序
+            由 ``Photo.Meta.ordering`` 保证(``order`` 升序)。
         """
         approved = [p for p in profile.user.photos.all() if p.status == PhotoStatus.APPROVED]
         return PhotoSerializer(approved, many=True, context=self.context).data
 
 
 class ProfileUpdateSerializer(serializers.Serializer):
-    """编辑资料的入参;所有字段可选,只校验提交上来的那些。"""
+    """编辑资料的入参;所有字段可选,只校验提交上来的那些。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``data``(PATCH 的请求体)、``instance`` 与 ``context``;
+        业务字段为 ``nickname`` / ``gender`` / ``birthday`` / ``city`` / ``bio`` /
+        ``tag_ids`` / ``visits_hidden``,全部 ``required=False``。
+
+    返回参数:
+        构造出的 ``ProfileUpdateSerializer`` 实例。
+
+    使用示例:
+        ``ProfileUpdateSerializer(data=request.data)``
+
+    备注信息:
+        不做落库:视图自己 ``setattr`` + ``save()``,并单独处理 ``tag_ids`` 与
+        ``profile.refresh_status()``。
+    """
 
     nickname = serializers.CharField(max_length=20, required=False)
     gender = serializers.ChoiceField(choices=Gender.choices, required=False)
@@ -346,14 +533,18 @@ class ProfileUpdateSerializer(serializers.Serializer):
     def validate_nickname(self, value):
         """校验昵称:违禁词检查 + 去首尾空白。
 
-        Args:
+        参数说明:
             value: 提交的昵称。
 
-        Returns:
+        返回参数:
             去空白后的昵称。
 
-        Raises:
-            serializers.ValidationError: 命中违禁词。
+        使用示例:
+            ``serializer.validate_nickname("小林")``
+
+        备注信息:
+            命中违禁词抛 ``serializers.ValidationError``;长度上限由字段的
+            ``max_length=20`` 负责。
         """
         if find_blocked_word(value):
             raise serializers.ValidationError("昵称包含违规内容,请修改")
@@ -362,14 +553,18 @@ class ProfileUpdateSerializer(serializers.Serializer):
     def validate_bio(self, value):
         """校验简介:违禁词检查 + 去首尾空白。
 
-        Args:
+        参数说明:
             value: 提交的简介。
 
-        Returns:
+        返回参数:
             去空白后的简介。
 
-        Raises:
-            serializers.ValidationError: 命中违禁词。
+        使用示例:
+            ``serializer.validate_bio("喜欢露营")``
+
+        备注信息:
+            命中违禁词抛 ``serializers.ValidationError``;长度上限由字段的
+            ``max_length=200`` 负责。
         """
         if find_blocked_word(value):
             raise serializers.ValidationError("简介包含违规内容,请修改")
@@ -378,14 +573,18 @@ class ProfileUpdateSerializer(serializers.Serializer):
     def validate_birthday(self, value):
         """校验生日:未满 18 周岁不允许使用本应用。
 
-        Args:
+        参数说明:
             value: 提交的生日。
 
-        Returns:
+        返回参数:
             通过校验的生日。
 
-        Raises:
-            serializers.ValidationError: 按该生日算出的年龄小于 18。
+        使用示例:
+            ``serializer.validate_birthday(date(2000, 1, 1))``
+
+        备注信息:
+            按该生日算出的周岁小于 18 时抛 ``serializers.ValidationError``;
+            口径走 ``models.calculate_age``,不用天数近似。
         """
         if calculate_age(value) < 18:
             raise serializers.ValidationError("未满 18 周岁,无法使用本应用")
@@ -394,14 +593,18 @@ class ProfileUpdateSerializer(serializers.Serializer):
     def validate_tag_ids(self, value):
         """校验标签主键都真实存在。
 
-        Args:
+        参数说明:
             value: 提交的标签主键列表。
 
-        Returns:
+        返回参数:
             通过校验的标签主键列表。
 
-        Raises:
-            serializers.ValidationError: 存在库里没有的标签主键。
+        使用示例:
+            ``serializer.validate_tag_ids([1, 3, 5])``
+
+        备注信息:
+            存在库里没有的标签主键时抛 ``serializers.ValidationError``;
+            校验用去重后的集合计数,允许提交重复 id。
         """
         unique_ids = set(value)
         if Tag.objects.filter(id__in=unique_ids).count() != len(unique_ids):
@@ -410,21 +613,39 @@ class ProfileUpdateSerializer(serializers.Serializer):
 
 
 class PhotoUploadSerializer(serializers.Serializer):
-    """照片上传入参(multipart 字段 ``file``)。"""
+    """照片上传入参(multipart 字段 ``file``)。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``data``(multipart 请求体,含 ``file``)、``instance``
+        与 ``context``。
+
+    返回参数:
+        构造出的 ``PhotoUploadSerializer`` 实例。
+
+    使用示例:
+        ``PhotoUploadSerializer(data=request.data)``
+
+    备注信息:
+        只管文件大小;图片格式与像素上限由 ``config.images`` 在视图里校验。
+    """
 
     file = serializers.ImageField()
 
     def validate_file(self, value):
         """校验图片大小。
 
-        Args:
+        参数说明:
             value: 上传的图片文件。
 
-        Returns:
+        返回参数:
             通过校验的图片文件。
 
-        Raises:
-            serializers.ValidationError: 超过 ``settings.PHOTO_MAX_BYTES``。
+        使用示例:
+            ``serializer.validate_file(uploaded_file)``
+
+        备注信息:
+            超过 ``settings.PHOTO_MAX_BYTES`` 抛 ``serializers.ValidationError``
+            (报错文案固定写 5MB);真正的重编码与 EXIF 剥离在视图里做。
         """
         if value.size > settings.PHOTO_MAX_BYTES:
             raise serializers.ValidationError("图片不能超过 5MB")
@@ -436,6 +657,20 @@ class ProfileVoiceUploadSerializer(serializers.Serializer):
 
     时长不靠客户端声明:服务端用 ``ffprobe`` 实测(见 ``users.views.my_voice``),
     所以这里只校验大小与容器格式。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``data``(multipart 请求体,含 ``file``)、``instance``
+        与 ``context``。
+
+    返回参数:
+        构造出的 ``ProfileVoiceUploadSerializer`` 实例。
+
+    使用示例:
+        ``ProfileVoiceUploadSerializer(data=request.data)``
+
+    备注信息:
+        只做格式与大小白名单;时长(≤30 秒)与转码在
+        ``users.views.normalize_profile_voice`` 里完成。
     """
 
     file = serializers.FileField()
@@ -443,14 +678,19 @@ class ProfileVoiceUploadSerializer(serializers.Serializer):
     def validate_file(self, value):
         """校验语音大小与 MIME 白名单。
 
-        Args:
+        参数说明:
             value: 上传的文件对象。
 
-        Returns:
+        返回参数:
             通过校验的文件对象。
 
-        Raises:
-            serializers.ValidationError: 超过大小上限,或格式不在音频白名单。
+        使用示例:
+            ``serializer.validate_file(uploaded_file)``
+
+        备注信息:
+            超过 ``settings.PROFILE_VOICE_MAX_BYTES`` 或格式不在音频白名单时抛
+            ``serializers.ValidationError``;判断前先用 ``base_content_type`` 去掉
+            ``;codecs=...`` 参数。
         """
         if value.size > settings.PROFILE_VOICE_MAX_BYTES:
             raise serializers.ValidationError("语音不能超过 5MB")
@@ -460,21 +700,39 @@ class ProfileVoiceUploadSerializer(serializers.Serializer):
 
 
 class DeleteAccountSerializer(serializers.Serializer):
-    """注销账号:要求输入完整手机号做二次确认(不可恢复操作)。"""
+    """注销账号:要求输入完整手机号做二次确认(不可恢复操作)。
+
+    参数说明:
+        按 DRF 序列化器习惯传参:``data``(body 里的 ``phone``)与 ``context``;
+        **必须**带 ``context={"request": request}``,否则无法比对当前账号。
+
+    返回参数:
+        构造出的 ``DeleteAccountSerializer`` 实例。
+
+    使用示例:
+        ``DeleteAccountSerializer(data=request.data, context={"request": request})``
+
+    备注信息:
+        这是不可恢复操作的最后一道确认;缺 ``request`` 时校验必然失败。
+    """
 
     phone = serializers.CharField(max_length=20)
 
     def validate_phone(self, value):
         """校验输入手机号与当前账号一致。
 
-        Args:
+        参数说明:
             value: 用户输入的手机号。
 
-        Returns:
+        返回参数:
             去空白后的手机号。
 
-        Raises:
-            serializers.ValidationError: 与当前账号手机号不一致,或缺少请求上下文。
+        使用示例:
+            ``serializer.validate_phone("13800000000")``
+
+        备注信息:
+            与当前账号手机号不一致、或 ``context`` 里没有 ``request`` 时抛
+            ``serializers.ValidationError``。
         """
         request = self.context.get("request")
         if request is None or value.strip() != request.user.phone:
