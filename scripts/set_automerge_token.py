@@ -30,6 +30,17 @@ Contents(read/write)+ Pull requests(read/write),90 天过期。
    下一次 auto-merge 的日志里 ``GH_TOKEN`` 会走 PAT,合并后 push 轨会被触发。
 
 退出码:0 成功;1 失败;2 用法/环境错误。
+
+文件信息:
+    文件名称          scripts/set_automerge_token.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -55,17 +66,36 @@ SECRET_NAME = "AUTOMERGE_TOKEN"
 
 
 class SecretError(Exception):
-    """无法完成写入;由 main 转成退出码。"""
+    """无法完成写入;由 main 转成退出码。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``raise SecretError(...)``
+
+    备注信息:
+        无特殊约束。
+    """
 
 
 def read_admin_token() -> str:
     """取用于「写 secret」的管理凭据(需要 admin 权限)。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         PAT 字符串。
 
-    Raises:
-        SecretError: 环境变量与 DSH token 文件都没有。
+    使用示例:
+        ``read_admin_token()``
+
+    备注信息:
+        抛 ``SecretError``:环境变量与 DSH token 文件都没有。
     """
     try:
         return lib_repo.resolve_token()
@@ -76,14 +106,20 @@ def read_admin_token() -> str:
 def request(method: str, url: str, token: str, payload: dict | None = None) -> tuple[int, dict]:
     """发一次 GitHub API 请求。
 
-    Args:
+    参数说明:
         method: HTTP 方法。
         url: 完整 URL。
         token: 具有 admin 权限的 PAT。
         payload: JSON body。
 
-    Returns:
+    返回参数:
         ``(状态码, 解析后的 JSON)``;空响应体返回 ``{}``。
+
+    使用示例:
+        ``request(method, url, token, payload)``
+
+    备注信息:
+        失败时抛 ``SecretError``,由调用方处理。
     """
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(url, data=body, method=method)
@@ -110,12 +146,18 @@ def request(method: str, url: str, token: str, payload: dict | None = None) -> t
 def seal(public_key_b64: str, secret_value: str) -> str:
     """用仓库 public key 做 sealed box 加密(GitHub secrets 的要求)。
 
-    Args:
+    参数说明:
         public_key_b64: ``GET /actions/secrets/public-key`` 返回的 ``key``。
         secret_value: 要写入的明文 secret。
 
-    Returns:
+    返回参数:
         base64 编码的密文。
+
+    使用示例:
+        ``seal(public_key_b64, secret_value)``
+
+    备注信息:
+        无特殊约束。
     """
     key = public.PublicKey(public_key_b64.encode("utf-8"), encoding.Base64Encoder())
     sealed_box = public.SealedBox(key)
@@ -125,11 +167,17 @@ def seal(public_key_b64: str, secret_value: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;``None`` 表示取 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         0 成功;1 失败;2 用法/环境错误。
+
+    使用示例:
+        ``python scripts/set_automerge_token.py --dry-run``
+
+    备注信息:
+        失败时抛 ``SecretError``,由调用方处理。
     """
     parser = argparse.ArgumentParser(description="写入 AUTOMERGE_TOKEN secret")
     parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name")

@@ -9,6 +9,17 @@
     - 判定失败 → 不开(fail-closed)+ 整轮标红
     - 重复失败 → 去重不重开(open 追加评论 / closed 重开)
     - 工单格式与安全边界(不 @ 任何人、正文含事实 / 验收 / 栈)
+
+文件信息:
+    文件名称          scripts/test_l4_intake.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -32,15 +43,21 @@ def run_fixture(
 ) -> dict:
     """造一条 GitHub Actions run 记录。
 
-    Args:
+    参数说明:
         name: workflow 显示名。
         conclusion: run 结论。
         sha: 触发提交 SHA。
         created: 创建时间(ISO)。
         run_id: run 编号。
 
-    Returns:
+    返回参数:
         runs API 形状的字典。
+
+    使用示例:
+        ``run_fixture(name, conclusion, sha, created, run_id)``
+
+    备注信息:
+        无特殊约束。
     """
     return {
         "id": run_id,
@@ -65,7 +82,7 @@ def alert_fixture(
 ) -> dict:
     """造一条 Dependabot 告警记录。
 
-    Args:
+    参数说明:
         package: 包名。
         ecosystem: 生态。
         manifest: 清单路径。
@@ -76,8 +93,14 @@ def alert_fixture(
         state: 状态。
         dismissed: 是否已 dismiss。
 
-    Returns:
+    返回参数:
         告警 API 形状的字典。
+
+    使用示例:
+        ``alert_fixture(package, ecosystem, manifest, severity, patched, vulnerable, ghsa, state, dismissed)``
+
+    备注信息:
+        无特殊约束。
     """
     return {
         "state": state,
@@ -103,19 +126,31 @@ class VersionRangeTests(unittest.TestCase):
     """受影响区间判定:依赖信号不信任告警 state,只信「锁文件里的版本落在哪」。"""
 
     def test_affected_range_matches(self):
-        """锁定版本落在区间内 → True。"""
+        """锁定版本落在区间内 → True。
+
+        参数说明:
+            无。
+        """
         self.assertTrue(l4_intake.version_in_range("7.30.0", ">= 7.0.0, < 7.30.1"))
         self.assertTrue(l4_intake.version_in_range("8.3.2", ">= 8.3.0, <= 8.3.2"))
 
     def test_already_fixed_is_outside(self):
-        """2026-11-12 的真实情形:告警还开着,但锁文件里早就修好了。"""
+        """2026-11-12 的真实情形:告警还开着,但锁文件里早就修好了。
+
+        参数说明:
+            无。
+        """
         self.assertFalse(l4_intake.version_in_range("7.30.2", ">= 7.0.0, < 7.30.1"))
         self.assertFalse(l4_intake.version_in_range("8.3.8", ">= 8.3.0, <= 8.3.2"))
         self.assertFalse(l4_intake.version_in_range("1.16.3", ">= 1.16.0, <= 1.16.1"))
         self.assertFalse(l4_intake.version_in_range("11.0.8", ">= 7.0.0, < 11.0.1"))
 
     def test_caret_and_tilde(self):
-        """`^` / `~` 两种常用简写。"""
+        """`^` / `~` 两种常用简写。
+
+        参数说明:
+            无。
+        """
         self.assertTrue(l4_intake.version_in_range("1.5.0", "^1.0.0"))
         self.assertFalse(l4_intake.version_in_range("2.0.0", "^1.0.0"))
         self.assertTrue(l4_intake.version_in_range("1.2.9", "~1.2.3"))
@@ -124,8 +159,12 @@ class VersionRangeTests(unittest.TestCase):
     def test_npm_space_separated_range(self):
         """**npm 的区间是空格分隔**(`>=8.3.0 <=8.3.2`),GitHub 公告是逗号分隔。
 
-        换成 `npm audit` 做事实源后这是主路径:旧版只按逗号切,会把整串当一个比较式,
-        于是判不出来(None)→ 全部不开单,机制静默失效。
+        参数说明:
+            无。
+
+        备注信息:
+            换成 `npm audit` 做事实源后这是主路径:旧版只按逗号切,会把整串当一个比较式,
+            于是判不出来(None)→ 全部不开单,机制静默失效。
         """
         self.assertTrue(l4_intake.version_in_range("8.3.2", ">=8.3.0 <=8.3.2"))
         self.assertFalse(l4_intake.version_in_range("8.3.8", ">=8.3.0 <=8.3.2"))
@@ -133,11 +172,19 @@ class VersionRangeTests(unittest.TestCase):
         self.assertFalse(l4_intake.version_in_range("7.30.2", ">=7.0.0 <7.30.1"))
 
     def test_or_groups(self):
-        """`||` 表示「或」。"""
+        """`||` 表示「或」。
+
+        参数说明:
+            无。
+        """
         self.assertTrue(l4_intake.version_in_range("3.0.0", "< 2.0.0 || >= 3.0.0"))
 
     def test_unparseable_is_none(self):
-        """判不出来必须是 None(调用方据此不开单),不能默认 False。"""
+        """判不出来必须是 None(调用方据此不开单),不能默认 False。
+
+        参数说明:
+            无。
+        """
         self.assertIsNone(l4_intake.version_in_range("1.0.0", "weird"))
         self.assertIsNone(l4_intake.version_in_range("1.0.0", ""))
         self.assertIsNone(l4_intake.version_in_range("not-a-version", ">= 1.0.0"))
@@ -147,38 +194,67 @@ class LockedVersionTests(unittest.TestCase):
     """锁文件解析:这才是「现在还受影响吗」的事实来源。"""
 
     def setUp(self):
-        """建一个只有锁文件的临时仓库。"""
+        """建一个只有锁文件的临时仓库。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "web").mkdir()
         (self.root / "chatapp").mkdir()
 
     def tearDown(self):
-        """清理临时仓库。"""
+        """清理临时仓库。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp.cleanup()
 
     def _write_npm(self, packages: dict) -> None:
         """写一份 npm 锁文件。
 
-        Args:
+        参数说明:
             packages: `packages` 字段的内容。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``obj._write_npm(packages)``
+
+        备注信息:
+            无特殊约束。
         """
         (self.root / "web/package-lock.json").write_text(
             json.dumps({"lockfileVersion": 3, "packages": packages}), encoding="utf-8"
         )
 
     def test_npm_exact(self):
-        """npm:精确键命中。"""
+        """npm:精确键命中。
+
+        参数说明:
+            无。
+        """
         self._write_npm({"node_modules/vite": {"version": "8.3.8"}})
         self.assertEqual(l4_intake.locked_version(self.root, "npm", "vite"), "8.3.8")
 
     def test_npm_nested_single(self):
-        """npm:嵌套安装只有唯一版本时可用。"""
+        """npm:嵌套安装只有唯一版本时可用。
+
+        参数说明:
+            无。
+        """
         self._write_npm({"node_modules/a/node_modules/vite": {"version": "8.3.8"}})
         self.assertEqual(l4_intake.locked_version(self.root, "npm", "vite"), "8.3.8")
 
     def test_npm_nested_ambiguous(self):
-        """npm:同包多个版本 → 判不出来(None),不猜。"""
+        """npm:同包多个版本 → 判不出来(None),不猜。
+
+        参数说明:
+            无。
+        """
         self._write_npm(
             {
                 "node_modules/a/node_modules/vite": {"version": "8.3.8"},
@@ -188,12 +264,20 @@ class LockedVersionTests(unittest.TestCase):
         self.assertIsNone(l4_intake.locked_version(self.root, "npm", "vite"))
 
     def test_npm_missing(self):
-        """npm:锁文件里没有该包 → None。"""
+        """npm:锁文件里没有该包 → None。
+
+        参数说明:
+            无。
+        """
         self._write_npm({"node_modules/vite": {"version": "8.3.8"}})
         self.assertIsNone(l4_intake.locked_version(self.root, "npm", "undici"))
 
     def test_pip_name_normalized(self):
-        """pip:包名按 PEP 503 归一化(`-` / `_` 等价)。"""
+        """pip:包名按 PEP 503 归一化(`-` / `_` 等价)。
+
+        参数说明:
+            无。
+        """
         (self.root / "chatapp/requirements.lock").write_text(
             "Django==5.2.1\ntyping_extensions==4.15.0\n", encoding="utf-8"
         )
@@ -203,7 +287,11 @@ class LockedVersionTests(unittest.TestCase):
         )
 
     def test_pip_missing_file(self):
-        """pip:没有锁文件 → None。"""
+        """pip:没有锁文件 → None。
+
+        参数说明:
+            无。
+        """
         self.assertIsNone(l4_intake.locked_version(self.root, "pip", "django"))
 
 
@@ -213,16 +301,26 @@ class CiRedTests(unittest.TestCase):
     def _runs(self, *runs):
         """把若干 run 包成 API 响应。
 
-        Args:
+        参数说明:
             *runs: run 记录。
 
-        Returns:
+        返回参数:
             `{"workflow_runs": [...]}`。
+
+        使用示例:
+            ``obj._runs(*runs)``
+
+        备注信息:
+            无特殊约束。
         """
         return {"workflow_runs": list(runs)}
 
     def test_whitelisted_red_opens_ticket(self):
-        """白名单栈(backend)红 → 开单,且标题符合 `<type>(<scope>): …`。"""
+        """白名单栈(backend)红 → 开单,且标题符合 `<type>(<scope>): …`。
+
+        参数说明:
+            无。
+        """
         decisions, undecidable = l4_intake.decide_ci_red(
             self._runs(run_fixture("Backend (Django)")), NOW
         )
@@ -233,7 +331,11 @@ class CiRedTests(unittest.TestCase):
         self.assertIn("`chatapp/`", decisions[0].body)
 
     def test_latest_run_wins(self):
-        """同一 workflow 老的红、新的绿 → 不开单(最新的绿了)。"""
+        """同一 workflow 老的红、新的绿 → 不开单(最新的绿了)。
+
+        参数说明:
+            无。
+        """
         runs = self._runs(
             run_fixture("Web (Vue)", conclusion="failure", created="2026-11-12T00:00:00Z"),
             run_fixture("Web (Vue)", conclusion="success", created="2026-11-13T00:00:00Z", run_id=2),
@@ -242,14 +344,22 @@ class CiRedTests(unittest.TestCase):
         self.assertEqual(decisions, [])
 
     def test_green_opens_nothing(self):
-        """全绿 → 什么都不开。"""
+        """全绿 → 什么都不开。
+
+        参数说明:
+            无。
+        """
         decisions, undecidable = l4_intake.decide_ci_red(
             self._runs(run_fixture("Backend (Django)", conclusion="success")), NOW
         )
         self.assertEqual((decisions, undecidable), ([], []))
 
     def test_human_only_workflow_is_skipped(self):
-        """契约轨失败横跨四栈且多属发版动作 → 明确留给人。"""
+        """契约轨失败横跨四栈且多属发版动作 → 明确留给人。
+
+        参数说明:
+            无。
+        """
         decisions, undecidable = l4_intake.decide_ci_red(
             self._runs(run_fixture("跨栈契约")), NOW
         )
@@ -258,14 +368,22 @@ class CiRedTests(unittest.TestCase):
         self.assertIn("留给人", decisions[0].reason)
 
     def test_self_workflow_never_opens_ticket(self):
-        """本 workflow 自己红了不开单(防自环、防「判定器坏了就给自己开单」)。"""
+        """本 workflow 自己红了不开单(防自环、防「判定器坏了就给自己开单」)。
+
+        参数说明:
+            无。
+        """
         decisions, _ = l4_intake.decide_ci_red(
             self._runs(run_fixture("L4 需求自动入队")), NOW
         )
         self.assertNotIn("create", [d.action for d in decisions])
 
     def test_unknown_workflow_is_undecidable(self):
-        """没登记的 workflow 判不出该派给谁 → fail-closed(不开单 + 标红)。"""
+        """没登记的 workflow 判不出该派给谁 → fail-closed(不开单 + 标红)。
+
+        参数说明:
+            无。
+        """
         decisions, undecidable = l4_intake.decide_ci_red(
             self._runs(run_fixture("某个新加的轨")), NOW
         )
@@ -274,13 +392,21 @@ class CiRedTests(unittest.TestCase):
         self.assertIn("没有栈映射", undecidable[0])
 
     def test_malformed_runs_is_undecidable(self):
-        """响应形状不对 → 判不出来,不开单。"""
+        """响应形状不对 → 判不出来,不开单。
+
+        参数说明:
+            无。
+        """
         decisions, undecidable = l4_intake.decide_ci_red({"oops": True}, NOW)
         self.assertEqual(decisions, [])
         self.assertTrue(undecidable)
 
     def test_summary_is_reused_by_main_health(self):
-        """`ci-red-summary` 与 `main-health.yml` 同一个解析器(不复制扫描逻辑)。"""
+        """`ci-red-summary` 与 `main-health.yml` 同一个解析器(不复制扫描逻辑)。
+
+        参数说明:
+            无。
+        """
         summary = l4_intake.render_ci_red_summary(
             self._runs(
                 run_fixture("Backend (Django)", sha="0123456789ab"),
@@ -292,7 +418,11 @@ class CiRedTests(unittest.TestCase):
         self.assertNotIn("Web (Vue)", summary)
 
     def test_summary_empty_when_green(self):
-        """全绿时 summary 是空串(main-health 据此走「关掉告警 issue」分支)。"""
+        """全绿时 summary 是空串(main-health 据此走「关掉告警 issue」分支)。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(
             l4_intake.render_ci_red_summary(
                 self._runs(run_fixture("Backend (Django)", conclusion="success"))
@@ -317,20 +447,35 @@ class CiRedConclusionTests(unittest.TestCase):
     def _runs(self, conclusion, name="Backend (Django)"):
         """把一条 run 包成 API 响应。
 
-        Args:
+        参数说明:
             conclusion: run 结论(可为 `None`,表示仍在跑)。
             name: workflow 显示名。
 
-        Returns:
+        返回参数:
             `{"workflow_runs": [...]}`。
+
+        使用示例:
+            ``obj._runs(conclusion, name)``
+
+        备注信息:
+            无特殊约束。
         """
         return {"workflow_runs": [run_fixture(name, conclusion=conclusion)]}
 
     def _assert_red(self, conclusion):
         """断言该结论在 `red_runs` 与 `decide_ci_red` 两处都判红。
 
-        Args:
+        参数说明:
             conclusion: run 结论。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``obj._assert_red(conclusion)``
+
+        备注信息:
+            无特殊约束。
         """
         runs = self._runs(conclusion)
         self.assertEqual(
@@ -346,8 +491,17 @@ class CiRedConclusionTests(unittest.TestCase):
     def _assert_not_red(self, conclusion):
         """断言该结论在 `red_runs` 与 `decide_ci_red` 两处都不判红。
 
-        Args:
+        参数说明:
             conclusion: run 结论(`None` 表示仍在跑)。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``obj._assert_not_red(conclusion)``
+
+        备注信息:
+            无特殊约束。
         """
         runs = self._runs(conclusion)
         self.assertEqual(l4_intake.red_runs(runs), [], f"red_runs 不该把 {conclusion} 判红")
@@ -355,54 +509,102 @@ class CiRedConclusionTests(unittest.TestCase):
         self.assertEqual((decisions, undecidable), ([], []), f"{conclusion} 不该开单")
 
     def test_failure_is_red(self):
-        """`failure` 一直是红(旧口径就在这一种上)。"""
+        """`failure` 一直是红(旧口径就在这一种上)。
+
+        参数说明:
+            无。
+        """
         self._assert_red("failure")
 
     def test_cancelled_is_red(self):
-        """`cancelled`:并发组被顶 / 手动取消 → 没跑绿,判红。"""
+        """`cancelled`:并发组被顶 / 手动取消 → 没跑绿,判红。
+
+        参数说明:
+            无。
+        """
         self._assert_red("cancelled")
 
     def test_timed_out_is_red(self):
-        """`timed_out`:整轮超时 → 判红。"""
+        """`timed_out`:整轮超时 → 判红。
+
+        参数说明:
+            无。
+        """
         self._assert_red("timed_out")
 
     def test_startup_failure_is_red(self):
-        """`startup_failure`:workflow 文件解析失败、run 没起来 → 判红。"""
+        """`startup_failure`:workflow 文件解析失败、run 没起来 → 判红。
+
+        参数说明:
+            无。
+        """
         self._assert_red("startup_failure")
 
     def test_action_required_is_red(self):
-        """`action_required`:要人工批准才跑 → 没跑绿,判红。"""
+        """`action_required`:要人工批准才跑 → 没跑绿,判红。
+
+        参数说明:
+            无。
+        """
         self._assert_red("action_required")
 
     def test_stale_is_red(self):
-        """`stale`:排队太久被 GitHub 判废 → 判红。"""
+        """`stale`:排队太久被 GitHub 判废 → 判红。
+
+        参数说明:
+            无。
+        """
         self._assert_red("stale")
 
     def test_success_is_not_red(self):
-        """`success`:绿。"""
+        """`success`:绿。
+
+        参数说明:
+            无。
+        """
         self._assert_not_red("success")
 
     def test_skipped_is_not_red(self):
-        """`skipped`:`ci-scope.sh` 按改动面跳过是正常结果,与 required check 语义一致。"""
+        """`skipped`:`ci-scope.sh` 按改动面跳过是正常结果,与 required check 语义一致。
+
+        参数说明:
+            无。
+        """
         self._assert_not_red("skipped")
 
     def test_neutral_is_not_red(self):
-        """`neutral`:不算红。"""
+        """`neutral`:不算红。
+
+        参数说明:
+            无。
+        """
         self._assert_not_red("neutral")
 
     def test_running_conclusion_is_not_red(self):
-        """`conclusion is None`(还在跑)→ 不判红,也不开单,等下一轮快照。"""
+        """`conclusion is None`(还在跑)→ 不判红,也不开单,等下一轮快照。
+
+        参数说明:
+            无。
+        """
         self._assert_not_red(None)
 
     def test_red_set_matches_deploy_gate_complement(self):
-        """红集合与 `deploy_gate.py::OK_CONCLUSIONS` 互补(同一字段两个方向,不能有缝)。"""
+        """红集合与 `deploy_gate.py::OK_CONCLUSIONS` 互补(同一字段两个方向,不能有缝)。
+
+        参数说明:
+            无。
+        """
         from scripts import deploy_gate
 
         self.assertIsInstance(l4_intake.RED_CONCLUSIONS, frozenset)
         self.assertEqual(l4_intake.RED_CONCLUSIONS & deploy_gate.OK_CONCLUSIONS, set())
 
     def test_scan_info_counts_red_collectively(self):
-        """`scan_info` 的 `red_workflows` 同口径:`cancelled` + `success` → 红 1 条。"""
+        """`scan_info` 的 `red_workflows` 同口径:`cancelled` + `success` → 红 1 条。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "docs").mkdir()
@@ -418,7 +620,11 @@ class CiRedConclusionTests(unittest.TestCase):
         self.assertEqual(info["red_workflows"], 1)
 
     def test_summary_line_carries_conclusion(self):
-        """summary 每行带结论:非 `failure` 的红要看得出红在哪。"""
+        """summary 每行带结论:非 `failure` 的红要看得出红在哪。
+
+        参数说明:
+            无。
+        """
         summary = l4_intake.render_ci_red_summary(
             {
                 "workflow_runs": [
@@ -439,7 +645,11 @@ class DepAdvisoryTests(unittest.TestCase):
     """依赖信号:still-affected 才开单;已经修好的、判不出来的都不开。"""
 
     def setUp(self):
-        """建临时仓库并写入 npm 锁文件(vite 已升到 8.3.8 / undici 7.30.2)。"""
+        """建临时仓库并写入 npm 锁文件(vite 已升到 8.3.8 / undici 7.30.2)。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "web").mkdir()
@@ -459,11 +669,19 @@ class DepAdvisoryTests(unittest.TestCase):
         (self.root / "chatapp/requirements.lock").write_text("Django==5.2.1\n", encoding="utf-8")
 
     def tearDown(self):
-        """清理临时仓库。"""
+        """清理临时仓库。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp.cleanup()
 
     def test_still_affected_opens_ticket(self):
-        """锁定版本仍在受影响区间 → 开单。"""
+        """锁定版本仍在受影响区间 → 开单。
+
+        参数说明:
+            无。
+        """
         alert = alert_fixture(package="undici", vulnerable=">= 7.0.0, < 7.31.0", patched="7.31.0")
         decisions, undecidable = l4_intake.decide_dep([alert], self.root, NOW)
         self.assertEqual(undecidable, [])
@@ -475,7 +693,11 @@ class DepAdvisoryTests(unittest.TestCase):
     def test_stale_alert_is_not_a_ticket(self):
         """**关键口径**:告警还 open,但锁文件里早已修好 → 不开单。
 
-        2026-11-12 实测:修复后仍有 13 条 open 告警;只信 state 会为已修好的漏洞开单。
+        参数说明:
+            无。
+
+        备注信息:
+            2026-11-12 实测:修复后仍有 13 条 open 告警;只信 state 会为已修好的漏洞开单。
         """
         alert = alert_fixture(package="vite", vulnerable=">= 8.3.0, <= 8.3.2", patched="8.3.3")
         decisions, undecidable = l4_intake.decide_dep([alert], self.root, NOW)
@@ -484,7 +706,11 @@ class DepAdvisoryTests(unittest.TestCase):
         self.assertIn("告警滞后", decisions[0].reason)
 
     def test_low_severity_is_not_a_ticket(self):
-        """低于阈值(默认 high)只记录不开单 —— 那是「值不值得修」的判断。"""
+        """低于阈值(默认 high)只记录不开单 —— 那是「值不值得修」的判断。
+
+        参数说明:
+            无。
+        """
         alert = alert_fixture(
             package="vite", severity="medium", vulnerable=">= 8.3.0, <= 8.9.0", patched="8.9.1"
         )
@@ -493,14 +719,22 @@ class DepAdvisoryTests(unittest.TestCase):
         self.assertIn("低于阈值", decisions[0].reason)
 
     def test_no_patched_version_is_human(self):
-        """没有修复版本 → 「怎么办」变成判断,留给人。"""
+        """没有修复版本 → 「怎么办」变成判断,留给人。
+
+        参数说明:
+            无。
+        """
         alert = alert_fixture(package="vite", patched="", vulnerable=">= 8.3.0, <= 8.9.0")
         decisions, _ = l4_intake.decide_dep([alert], self.root, NOW)
         self.assertEqual([d.action for d in decisions], ["skip"])
         self.assertIn("没有修复版本", decisions[0].reason)
 
     def test_non_whitelisted_ecosystem_is_skipped(self):
-        """docker / actions 的修复动的是 worker 不可写或必须人审的文件 → 不开单。"""
+        """docker / actions 的修复动的是 worker 不可写或必须人审的文件 → 不开单。
+
+        参数说明:
+            无。
+        """
         alert = alert_fixture(
             package="nginx", ecosystem="docker", manifest="deploy/Dockerfile",
             vulnerable="< 1.31", patched="1.31",
@@ -510,13 +744,21 @@ class DepAdvisoryTests(unittest.TestCase):
         self.assertIn("不在白名单", decisions[0].reason)
 
     def test_dismissed_alert_ignored(self):
-        """已 dismiss → 连 skip 记录都不产生(不是我们的信号)。"""
+        """已 dismiss → 连 skip 记录都不产生(不是我们的信号)。
+
+        参数说明:
+            无。
+        """
         alert = alert_fixture(package="undici", vulnerable=">= 7.0.0, < 7.31.0", dismissed=True)
         decisions, undecidable = l4_intake.decide_dep([alert], self.root, NOW)
         self.assertEqual((decisions, undecidable), ([], []))
 
     def test_missing_lock_entry_is_undecidable(self):
-        """锁文件里找不到该包 → 判不出来,不开单。"""
+        """锁文件里找不到该包 → 判不出来,不开单。
+
+        参数说明:
+            无。
+        """
         alert = alert_fixture(package="left-pad", vulnerable="< 9.9.9", patched="9.9.9")
         decisions, undecidable = l4_intake.decide_dep([alert], self.root, NOW)
         self.assertEqual(decisions, [])
@@ -524,7 +766,11 @@ class DepAdvisoryTests(unittest.TestCase):
         self.assertIn("锁文件里找不到", undecidable[0])
 
     def test_pip_alert_is_out_of_whitelist(self):
-        """pip 侧没有等价的本地扫描器(私有仓库上告警接口 403)→ 明确留给人,不假装覆盖。"""
+        """pip 侧没有等价的本地扫描器(私有仓库上告警接口 403)→ 明确留给人,不假装覆盖。
+
+        参数说明:
+            无。
+        """
         alert = alert_fixture(
             package="Django", ecosystem="pip", manifest="chatapp/requirements.txt",
             vulnerable=">= 5.0.0, < 5.2.2", patched="5.2.2",
@@ -535,7 +781,11 @@ class DepAdvisoryTests(unittest.TestCase):
         self.assertIn("不在白名单", decisions[0].reason)
 
     def test_malformed_alerts_is_undecidable(self):
-        """告警响应形状不对 → 判不出来,不开单。"""
+        """告警响应形状不对 → 判不出来,不开单。
+
+        参数说明:
+            无。
+        """
         decisions, undecidable = l4_intake.decide_dep({"oops": 1}, self.root, NOW)
         self.assertEqual(decisions, [])
         self.assertTrue(undecidable)
@@ -552,11 +802,17 @@ class NpmAuditSourceTests(unittest.TestCase):
     def _report(self, fix_version: str = "8.3.3") -> dict:
         """造一份 npm audit v2 报告(形状按真实输出,含一条字符串 via)。
 
-        Args:
+        参数说明:
             fix_version: `fixAvailable.version`;空串表示「没有可用修复」(`false`)。
 
-        Returns:
+        返回参数:
             `npm audit --json` 形状的字典。
+
+        使用示例:
+            ``obj._report(fix_version)``
+
+        备注信息:
+            无特殊约束。
         """
         return {
             "auditReportVersion": 2,
@@ -600,7 +856,11 @@ class NpmAuditSourceTests(unittest.TestCase):
         }
 
     def test_one_record_per_advisory(self):
-        """一个包命中两条公告 → 两条记录(指纹按公告区分);字符串 via 被跳过。"""
+        """一个包命中两条公告 → 两条记录(指纹按公告区分);字符串 via 被跳过。
+
+        参数说明:
+            无。
+        """
         records = l4_intake.normalize_npm_audit(self._report())
         self.assertEqual(len(records), 2)
         self.assertEqual(
@@ -615,18 +875,30 @@ class NpmAuditSourceTests(unittest.TestCase):
         )
 
     def test_no_fix_available_means_human(self):
-        """`fixAvailable: false` → 没有修复版本 → 判定器不开单(要判断绕开还是接受风险)。"""
+        """`fixAvailable: false` → 没有修复版本 → 判定器不开单(要判断绕开还是接受风险)。
+
+        参数说明:
+            无。
+        """
         records = l4_intake.normalize_npm_audit(self._report(fix_version=""))
         self.assertTrue(records)
         self.assertIsNone(records[0]["security_vulnerability"]["first_patched_version"])
 
     def test_empty_or_odd_report(self):
-        """没有 vulnerabilities 字段时返回空列表,不炸。"""
+        """没有 vulnerabilities 字段时返回空列表,不炸。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(l4_intake.normalize_npm_audit({}), [])
         self.assertEqual(l4_intake.normalize_npm_audit({"vulnerabilities": []}), [])
 
     def test_end_to_end_still_affected_opens_ticket(self):
-        """规整 → 判定 → 开单:锁文件里 8.3.2 仍在区间内。"""
+        """规整 → 判定 → 开单:锁文件里 8.3.2 仍在区间内。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "web").mkdir()
@@ -650,7 +922,11 @@ class NpmAuditSourceTests(unittest.TestCase):
             self.assertIn("低于阈值", skips[0].reason)
 
     def test_end_to_end_already_fixed_opens_nothing(self):
-        """锁文件里升到 8.3.8 → 不在区间 → 一张都不开(与「告警滞后」同一个道理)。"""
+        """锁文件里升到 8.3.8 → 不在区间 → 一张都不开(与「告警滞后」同一个道理)。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "web").mkdir()
@@ -666,7 +942,11 @@ class NpmAuditSourceTests(unittest.TestCase):
             self.assertNotIn("create", [d.action for d in decisions])
 
     def test_cli_rejects_bad_input(self):
-        """输入不是 audit 报告 → 退出码 2(判不出来,不是「没有漏洞」)。"""
+        """输入不是 audit 报告 → 退出码 2(判不出来,不是「没有漏洞」)。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             bad = Path(tmp) / "bad.json"
             bad.write_text("{}", encoding="utf-8")
@@ -675,7 +955,11 @@ class NpmAuditSourceTests(unittest.TestCase):
             self.assertEqual(l4_intake.main(["from-npm-audit", "--input", str(missing)]), 2)
 
     def test_cli_writes_records(self):
-        """正常输入 → 退出码 0 并写出记录。"""
+        """正常输入 → 退出码 0 并写出记录。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "audit.json"
             src.write_text(json.dumps(self._report()), encoding="utf-8")
@@ -691,7 +975,11 @@ class ScanInfoTests(unittest.TestCase):
     """扫描面统计:日报必须能区分「没命中」与「根本没扫」。"""
 
     def test_counts_are_reported(self):
-        """扫了多少 workflow / 告警 / .md 都要出现在计划里。"""
+        """扫了多少 workflow / 告警 / .md 都要出现在计划里。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "web").mkdir()
@@ -719,7 +1007,11 @@ class ScanInfoTests(unittest.TestCase):
             self.assertIn("扫描面", l4_intake.render_plan_markdown(plan))
 
     def test_empty_docs_dir_is_visible(self):
-        """一个 .md 都没扫到 → 数字是 0(而不是与「没有断链」混为一谈)。"""
+        """一个 .md 都没扫到 → 数字是 0(而不是与「没有断链」混为一谈)。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "docs").mkdir()
@@ -737,8 +1029,12 @@ class ScanInfoTests(unittest.TestCase):
     def test_relative_root_is_supported(self):
         """`--root .`(相对路径)必须能跑。
 
-        2026-11-12 真跑就崩在这里:`rglob` 给出相对路径,而 `relative_to(resolve())` 要绝对
-        —— ValueError 直接把整轮判定打成 Traceback。本地自测全用绝对临时目录,所以漏了。
+        参数说明:
+            无。
+
+        备注信息:
+            2026-11-12 真跑就崩在这里:`rglob` 给出相对路径,而 `relative_to(resolve())` 要绝对。
+            —— ValueError 直接把整轮判定打成 Traceback。本地自测全用绝对临时目录,所以漏了。
         """
         import os
 
@@ -770,7 +1066,11 @@ class DocsLinksTests(unittest.TestCase):
     """机械一致性信号:文档断链,按文件聚合成一张单。"""
 
     def setUp(self):
-        """建临时仓库,含一个断链文件。"""
+        """建临时仓库,含一个断链文件。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "docs/specs").mkdir(parents=True)
@@ -781,11 +1081,19 @@ class DocsLinksTests(unittest.TestCase):
         )
 
     def tearDown(self):
-        """清理临时仓库。"""
+        """清理临时仓库。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp.cleanup()
 
     def test_broken_link_opens_one_ticket_per_file(self):
-        """一个文件多处的断链 → 合成一张单(不按链接数开单)。"""
+        """一个文件多处的断链 → 合成一张单(不按链接数开单)。
+
+        参数说明:
+            无。
+        """
         decisions, undecidable = l4_intake.decide_docs_links(self.root, NOW)
         self.assertEqual(undecidable, [])
         self.assertEqual([d.action for d in decisions], ["create"])
@@ -794,13 +1102,21 @@ class DocsLinksTests(unittest.TestCase):
         self.assertIn("python scripts/check_docs_links.py", decisions[0].body)
 
     def test_clean_docs_opens_nothing(self):
-        """没有断链 → 不开单。"""
+        """没有断链 → 不开单。
+
+        参数说明:
+            无。
+        """
         (self.root / "docs/specs/a.md").write_text("# 标题\n\n[好的](../real.md)\n", encoding="utf-8")
         decisions, undecidable = l4_intake.decide_docs_links(self.root, NOW)
         self.assertEqual((decisions, undecidable), ([], []))
 
     def test_missing_docs_dir_is_undecidable(self):
-        """docs/ 不存在 → 判不出来,不开单。"""
+        """docs/ 不存在 → 判不出来,不开单。
+
+        参数说明:
+            无。
+        """
         decisions, undecidable = l4_intake.decide_docs_links(self.root / "nope", NOW)
         self.assertEqual(decisions, [])
         self.assertTrue(undecidable)
@@ -810,7 +1126,11 @@ class TicketSafetyTests(unittest.TestCase):
     """工单格式与安全边界:格式给 worker 接、正文不 @ 人(否则等于绕过人工派单)。"""
 
     def setUp(self):
-        """收集三类信号各一张单。"""
+        """收集三类信号各一张单。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "web").mkdir()
@@ -836,11 +1156,19 @@ class TicketSafetyTests(unittest.TestCase):
         self.tickets = [t for t in tickets if t.action == "create"]
 
     def tearDown(self):
-        """清理临时仓库。"""
+        """清理临时仓库。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp.cleanup()
 
     def test_three_signals_produce_three_tickets(self):
-        """三类信号各开一张,证明自测覆盖了全部检测器。"""
+        """三类信号各开一张,证明自测覆盖了全部检测器。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(len(self.tickets), 3)
         self.assertEqual(
             sorted({t.detector for t in self.tickets}),
@@ -848,17 +1176,29 @@ class TicketSafetyTests(unittest.TestCase):
         )
 
     def test_no_at_mentions_anywhere(self):
-        """**安全红线**:正文/标题不许出现 `@xxx` —— opening body 会被当成派工源。"""
+        """**安全红线**:正文/标题不许出现 `@xxx` —— opening body 会被当成派工源。
+
+        参数说明:
+            无。
+        """
         for ticket in self.tickets:
             self.assertNotIn("@", ticket.title)
             self.assertNotIn("@", ticket.body)
 
     def test_mention_scrubber(self):
-        """即使事实字段里带了 @,也要被抹掉。"""
+        """即使事实字段里带了 @,也要被抹掉。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(l4_intake._scrub_mentions("问 @shiliu655 一下"), "问 shiliu655 一下")
 
     def test_ticket_has_fingerprint_facts_acceptance_and_stack(self):
-        """正文必须自带:指纹行 + 事实表 + 验收命令 + 唯一栈。"""
+        """正文必须自带:指纹行 + 事实表 + 验收命令 + 唯一栈。
+
+        参数说明:
+            无。
+        """
         for ticket in self.tickets:
             self.assertRegex(ticket.body, r"<!-- l4-fingerprint: [0-9a-f]{16} -->")
             self.assertIn("## 事实(机器生成,勿手改)", ticket.body)
@@ -867,12 +1207,20 @@ class TicketSafetyTests(unittest.TestCase):
             self.assertIn(l4_intake.LABEL_AUTO, ticket.labels)
 
     def test_docs_ticket_forbids_creating_new_docs(self):
-        """断链单不许「新建文档凑链接」—— 那等于替人决定写什么。"""
+        """断链单不许「新建文档凑链接」—— 那等于替人决定写什么。
+
+        参数说明:
+            无。
+        """
         docs_ticket = [t for t in self.tickets if t.detector == l4_intake.SIG_DOCS_LINKS][0]
         self.assertIn("新建文档", docs_ticket.body)
 
     def test_fingerprint_is_stable_and_distinct(self):
-        """指纹稳定(同一失败不变)且区分得开(不同对象不同单)。"""
+        """指纹稳定(同一失败不变)且区分得开(不同对象不同单)。
+
+        参数说明:
+            无。
+        """
         first = l4_intake.fingerprint("ci-red|Backend (Django)")
         second = l4_intake.fingerprint("ci-red|Backend (Django)")
         other = l4_intake.fingerprint("ci-red|Web (Vue)")
@@ -887,11 +1235,17 @@ class DedupAndQuotaTests(unittest.TestCase):
     def _decision(self, fp: str = "0123456789abcdef") -> l4_intake.Decision:
         """造一条 create 判定。
 
-        Args:
+        参数说明:
             fp: 指纹。
 
-        Returns:
+        返回参数:
             `create` 判定。
+
+        使用示例:
+            ``obj._decision(fp)``
+
+        备注信息:
+            无特殊约束。
         """
         return l4_intake.Decision(
             action="create",
@@ -903,7 +1257,11 @@ class DedupAndQuotaTests(unittest.TestCase):
         )
 
     def test_open_issue_becomes_comment(self):
-        """已有同名 open issue → 只追加一次命中记录,不新建。"""
+        """已有同名 open issue → 只追加一次命中记录,不新建。
+
+        参数说明:
+            无。
+        """
         existing = {self._decision().fingerprint: {"number": 42, "state": "open", "title": "t"}}
         out = l4_intake.apply_dedup([self._decision()], existing, 0, 5, NOW)
         self.assertEqual(out[0].action, "comment")
@@ -911,25 +1269,41 @@ class DedupAndQuotaTests(unittest.TestCase):
         self.assertIn("再次命中", out[0].body)
 
     def test_closed_issue_is_reopened(self):
-        """停过又复发的同一失败 → 重开原单,而不是新开一条(保历史)。"""
+        """停过又复发的同一失败 → 重开原单,而不是新开一条(保历史)。
+
+        参数说明:
+            无。
+        """
         existing = {self._decision().fingerprint: {"number": 7, "state": "closed", "title": "t"}}
         out = l4_intake.apply_dedup([self._decision()], existing, 0, 5, NOW)
         self.assertEqual(out[0].action, "reopen")
         self.assertEqual(out[0].issue, 7)
 
     def test_quota_defers(self):
-        """当天配额用满 → 不开单(defer),但去重类的动作照做。"""
+        """当天配额用满 → 不开单(defer),但去重类的动作照做。
+
+        参数说明:
+            无。
+        """
         out = l4_intake.apply_dedup([self._decision()], {}, 5, 5, NOW)
         self.assertEqual(out[0].action, "defer")
         self.assertIn("配额已满", out[0].reason)
 
     def test_quota_zero_blocks_everything_new(self):
-        """`L4_MAX_PER_DAY=0` 是第二道刹车:今天一张都不许新建。"""
+        """`L4_MAX_PER_DAY=0` 是第二道刹车:今天一张都不许新建。
+
+        参数说明:
+            无。
+        """
         out = l4_intake.apply_dedup([self._decision()], {}, 0, 0, NOW)
         self.assertEqual(out[0].action, "defer")
 
     def test_existing_fingerprint_extraction(self):
-        """能从 issue 正文里认出指纹;没有指纹的 issue 被忽略。"""
+        """能从 issue 正文里认出指纹;没有指纹的 issue 被忽略。
+
+        参数说明:
+            无。
+        """
         issues = [
             {"number": 1, "state": "open", "body": "<!-- l4-fingerprint: 0123456789abcdef -->"},
             {"number": 2, "state": "open", "body": "人写的单,没有指纹"},
@@ -943,7 +1317,11 @@ class PlanTests(unittest.TestCase):
     """整条 plan 流水线(判定 → 去重 → 限额 → 日报)。"""
 
     def setUp(self):
-        """建临时仓库,造「一条红轨 + 一条断链 + 一个已修好的告警」。"""
+        """建临时仓库,造「一条红轨 + 一条断链 + 一个已修好的告警」。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "web").mkdir()
@@ -957,17 +1335,27 @@ class PlanTests(unittest.TestCase):
         (self.root / "docs/a.md").write_text("[坏的](missing.md)\n", encoding="utf-8")
 
     def tearDown(self):
-        """清理临时仓库。"""
+        """清理临时仓库。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp.cleanup()
 
     def _plan(self, **kwargs) -> dict:
         """跑一次 build_plan,默认输入见 `setUp`。
 
-        Args:
+        参数说明:
             **kwargs: 覆盖默认输入。
 
-        Returns:
+        返回参数:
             plan 字典。
+
+        使用示例:
+            ``obj._plan(**kwargs)``
+
+        备注信息:
+            无特殊约束。
         """
         defaults = dict(
             runs={"workflow_runs": [run_fixture("Web (Vue)")]},
@@ -981,20 +1369,32 @@ class PlanTests(unittest.TestCase):
         return l4_intake.build_plan(**defaults)
 
     def test_plan_counts(self):
-        """2 个真信号开单,已修好的告警被跳过。"""
+        """2 个真信号开单,已修好的告警被跳过。
+
+        参数说明:
+            无。
+        """
         plan = self._plan()
         actions = sorted(d["action"] for d in plan["decisions"])
         self.assertEqual(actions, ["create", "create", "skip"])
         self.assertEqual(plan["summary"]["create"], 2)
 
     def test_disabled_gate_does_nothing(self):
-        """`L4_INTAKE=off` → 空计划(总闸)。"""
+        """`L4_INTAKE=off` → 空计划(总闸)。
+
+        参数说明:
+            无。
+        """
         plan = self._plan(enabled=False)
         self.assertEqual(plan["decisions"], [])
         self.assertFalse(plan["enabled"])
 
     def test_markdown_summary_lists_decisions(self):
-        """日报里能看到「开了谁 / 跳过谁 / 为什么」。"""
+        """日报里能看到「开了谁 / 跳过谁 / 为什么」。
+
+        参数说明:
+            无。
+        """
         markdown = l4_intake.render_plan_markdown(self._plan())
         self.assertIn("| 信号 | 动作 | 对象 | 说明 |", markdown)
         self.assertIn("create", markdown)
@@ -1005,7 +1405,11 @@ class GhCommandsTests(unittest.TestCase):
     """计划 → gh 命令(纯函数,不执行)。"""
 
     def test_create_command(self):
-        """create → `gh issue create` 带标题/正文/两个标签/仓库。"""
+        """create → `gh issue create` 带标题/正文/两个标签/仓库。
+
+        参数说明:
+            无。
+        """
         plan = {
             "decisions": [
                 {
@@ -1030,7 +1434,11 @@ class GhCommandsTests(unittest.TestCase):
         self.assertTrue(all("--force" in c for c in labels))
 
     def test_reopen_command(self):
-        """reopen → 先 reopen 再评论。"""
+        """reopen → 先 reopen 再评论。
+
+        参数说明:
+            无。
+        """
         plan = {
             "decisions": [
                 {
@@ -1049,7 +1457,11 @@ class GhCommandsTests(unittest.TestCase):
         self.assertEqual(commands[1][:3], ["issue", "comment", "9"])
 
     def test_no_commands_when_nothing_to_do(self):
-        """只有 skip / defer 时不产生任何 gh 命令(也不建标签)。"""
+        """只有 skip / defer 时不产生任何 gh 命令(也不建标签)。
+
+        参数说明:
+            无。
+        """
         plan = {"decisions": [{"action": "skip", "detector": l4_intake.SIG_DEP}]}
         self.assertEqual(l4_intake.build_gh_commands(plan, "o/r"), [])
 
@@ -1058,7 +1470,11 @@ class CommandLineTests(unittest.TestCase):
     """CLI 面:开关、退出码、坏输入 fail-closed。"""
 
     def setUp(self):
-        """建临时仓库与 JSON 快照。"""
+        """建临时仓库与 JSON 快照。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / "web").mkdir()
@@ -1075,11 +1491,19 @@ class CommandLineTests(unittest.TestCase):
         self.plan = self.root / "plan.json"
 
     def tearDown(self):
-        """清理临时仓库。"""
+        """清理临时仓库。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp.cleanup()
 
     def test_plan_writes_json_and_summary(self):
-        """`plan` 写出计划与日报,退出码 0(判不出来才有非零)。"""
+        """`plan` 写出计划与日报,退出码 0(判不出来才有非零)。
+
+        参数说明:
+            无。
+        """
         summary = self.root / "summary.md"
         code = l4_intake.main(
             [
@@ -1098,7 +1522,11 @@ class CommandLineTests(unittest.TestCase):
         self.assertIn("L4 需求自动入队", summary.read_text(encoding="utf-8"))
 
     def test_broken_input_is_fail_closed(self):
-        """输入坏掉 → 一条都不开,plan 里记 undecidable(`apply` 据此把 run 标红)。"""
+        """输入坏掉 → 一条都不开,plan 里记 undecidable(`apply` 据此把 run 标红)。
+
+        参数说明:
+            无。
+        """
         bad = self.root / "bad.json"
         bad.write_text("{not json", encoding="utf-8")
         l4_intake.main(
@@ -1118,7 +1546,11 @@ class CommandLineTests(unittest.TestCase):
         self.assertNotIn("create", plan["summary"])
 
     def test_apply_dry_run_does_not_create(self):
-        """`apply --dry-run` 只打印,退出码 0。"""
+        """`apply --dry-run` 只打印,退出码 0。
+
+        参数说明:
+            无。
+        """
         l4_intake.main(
             [
                 "plan",
@@ -1135,7 +1567,11 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
     def test_undecidable_makes_apply_red(self):
-        """plan 里有 undecidable → `apply` 退出码 1(整轮 run 标红,不能静默)。"""
+        """plan 里有 undecidable → `apply` 退出码 1(整轮 run 标红,不能静默)。
+
+        参数说明:
+            无。
+        """
         undecidable_plan = self.root / "undecidable.json"
         undecidable_plan.write_text(
             json.dumps({"decisions": [], "undecidable": ["ci-red: 判不出来"]}), encoding="utf-8"

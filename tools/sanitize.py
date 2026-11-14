@@ -20,6 +20,17 @@
 
 给后来者的用法:如果你 fork 之后要清洗自己的部署信息,把 REPLACEMENTS 换成
 你自己「真实值 -> 占位符」的映射即可(顺序会按长度自动重排)。
+
+文件信息:
+    文件名称          tools/sanitize.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -64,12 +75,38 @@ TEXT_SUFFIXES = {
 
 
 def ordered() -> list[tuple[str, str]]:
-    """长串优先,长度相同时保持声明顺序。"""
+    """按长度倒序返回替换规则。
+
+    参数说明:
+        无。
+
+    返回参数:
+        ``(原文, 占位符)`` 列表,长串在前。
+
+    使用示例:
+        ``ordered()``
+
+    备注信息:
+        长串必须先换,否则短串命中会把长串切碎。
+    """
     return sorted(REPLACEMENTS, key=lambda kv: -len(kv[0]))
 
 
 def tracked_text_files(root: Path) -> Iterable[Path]:
-    """git 已跟踪的文本文件(跳过 flutter SDK / 二进制)。"""
+    """逐个产出 git 已跟踪的文本文件。
+
+    参数说明:
+        root: 仓库根目录,``git ls-files`` 在它下面跑。
+
+    返回参数:
+        绝对路径的可迭代对象。
+
+    使用示例:
+        ``tracked_text_files(root)``
+
+    备注信息:
+        只取 ``TEXT_SUFFIXES`` 里的扩展名,并跳过 ``flutter/``(Flutter SDK 自带独立 git);依赖本机 ``git``。
+    """
     out = subprocess.run(
         ["git", "ls-files", "-z"],
         cwd=root, capture_output=True, check=True,
@@ -86,6 +123,21 @@ def tracked_text_files(root: Path) -> Iterable[Path]:
 
 
 def apply(root: Path, dry_run: bool) -> int:
+    """就地脱敏工作区里的敏感字面量。
+
+    参数说明:
+        root: 仓库根目录。
+        dry_run: 为真时只统计不写盘。
+
+    返回参数:
+        退出码;当前恒为 0。
+
+    使用示例:
+        ``apply(root, dry_run)``
+
+    备注信息:
+        非 UTF-8 文件跳过并在 stderr 提示;写回用 ``write_bytes`` 而非 ``write_text``,避免统一换行符;恒等规则不计入命中报告。
+    """
     mapping = dict(REPLACEMENTS)
     hits: dict[str, list[str]] = {}
     for path in tracked_text_files(root):
@@ -119,7 +171,20 @@ def apply(root: Path, dry_run: bool) -> int:
 
 
 def expressions(out: Path) -> int:
-    """写出 git-filter-repo --replace-text 用的规则: 字面量==>占位符"""
+    """写出 ``git filter-repo --replace-text`` 用的规则文件。
+
+    参数说明:
+        out: 规则文件输出路径。
+
+    返回参数:
+        退出码;恒为 0。
+
+    使用示例:
+        ``expressions(out)``
+
+    备注信息:
+        每行 ``原文==>占位符``,顺序同样是长串优先,换行统一为 ``\n``。
+    """
     lines = [f"{old}==>{new}\n" for old, new in ordered()]
     out.write_text("".join(lines), encoding="utf-8", newline="\n")
     print(f"已写出 {len(lines)} 条规则 -> {out}")
@@ -129,7 +194,20 @@ def expressions(out: Path) -> int:
 
 
 def records() -> int:
-    """打印已完成的脱敏记录(供人工复核)。"""
+    """打印已完成的脱敏记录供人工复核。
+
+    参数说明:
+        无。
+
+    返回参数:
+        退出码;恒为 0。
+
+    使用示例:
+        ``records()``
+
+    备注信息:
+        只打印打码后的值;完整原始值不进仓库。
+    """
     print("已完成的脱敏项(原始值打码):")
     for what, masked, placeholder in SANITIZED_RECORDS:
         print(f"  {what:<18} {masked:<22} -> {placeholder}")
@@ -138,6 +216,20 @@ def records() -> int:
 
 
 def main() -> int:
+    """命令行入口。
+
+    参数说明:
+        无。
+
+    返回参数:
+        退出码;无参数时打印帮助并返回 1。
+
+    使用示例:
+        ``python tools/sanitize.py --dry-run``
+
+    备注信息:
+        ``--records`` / ``--expressions`` / ``--dry-run`` / ``--apply`` 按此优先级判定,``--dry-run`` 先于 ``--apply``。
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="就地脱敏工作区")
     parser.add_argument("--dry-run", action="store_true", help="只报告不修改")

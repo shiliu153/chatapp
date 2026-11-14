@@ -17,6 +17,17 @@
     python scripts/check_stickers.py
 
 退出码 0 = 通过;1 = 有缺口(逐条打印原因)。
+
+文件信息:
+    文件名称          scripts/check_stickers.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -38,14 +49,17 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 def png_size(path: Path) -> tuple[int, int]:
     """读 PNG 的 IHDR 拿宽高。
 
-    Args:
+    参数说明:
         path: PNG 文件路径。
 
-    Returns:
+    返回参数:
         ``(宽, 高)``。
 
-    Raises:
-        ValueError: 不是合法 PNG(魔数或 IHDR 对不上)。
+    使用示例:
+        ``png_size(path)``
+
+    备注信息:
+        抛 ``ValueError``:不是合法 PNG(魔数或 IHDR 对不上)。
     """
     raw = path.read_bytes()
     if len(raw) < 24 or not raw.startswith(PNG_MAGIC):
@@ -59,11 +73,17 @@ def png_size(path: Path) -> tuple[int, int]:
 def names_in(directory: Path) -> set[str]:
     """列出一个贴纸目录里的 PNG 文件名。
 
-    Args:
+    参数说明:
         directory: 贴纸目录。
 
-    Returns:
+    返回参数:
         文件名集合(含扩展名)。
+
+    使用示例:
+        ``names_in(directory)``
+
+    备注信息:
+        无特殊约束。
     """
     if not directory.is_dir():
         return set()
@@ -73,8 +93,17 @@ def names_in(directory: Path) -> set[str]:
 def main() -> int:
     """执行三条断言并打印结论。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         进程退出码:0 通过,1 有缺口。
+
+    使用示例:
+        ``python scripts/check_stickers.py``
+
+    备注信息:
+        无特殊约束。
     """
     problems: list[str] = []
 

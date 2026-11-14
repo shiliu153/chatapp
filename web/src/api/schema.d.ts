@@ -12,13 +12,20 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * @description 返回客户端启动所需的最低版本配置。
+         * @description 返回客户端启动所需的最低版本配置(GET /api/v1/app/config)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{min_app_version, latest_version, download_url}``。
+         *
+         *     使用示例:
+         *         ``GET /api/v1/app/config``
+         *
+         *     备注信息:
+         *         匿名可调(``AllowAny``):App 启动时还没登录就要判断是否强制更新。
+         *         三个值全部读 ``settings``,不查库,因此没有缓存与失效问题。
          */
         get: operations["app_config_retrieve"];
         put?: never;
@@ -233,15 +240,22 @@ export interface paths {
          *
          *     POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时 body 需带 ``target_user_id``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的黑名单条目;POST 返回拉黑对象(新建为 201,已存在为 200)。
          *
-         *     Raises:
-         *         ValidationError: 拉黑自己。
-         *         NotFound: 目标用户不存在。
+         *     使用示例:
+         *         ``GET /api/v1/blocks?limit=20&offset=0`` / ``POST /api/v1/blocks {"target_user_id": 7}``
+         *
+         *     备注信息:
+         *         拉黑自己回 400,目标用户不存在回 404;GET 走 ``DefaultLimitOffsetPagination``,
+         *         响应形状 ``{count, next, previous, results}``。
+         *         POST 首次创建时**两件事同时做**:同步 IM 黑名单(add=True)与撤销聊天权限
+         *         (``sync_im_pair(..., add=False)``)——即便两人之前配对过也不能继续发消息;
+         *         重复拉黑不会再入队。条目里的昵称与头像靠 ``select_related`` +
+         *         ``prefetch_related`` 预取,不会逐条查库。限流 ``BlockThrottle`` 只算 POST。
          */
         get: operations["blocks_retrieve"];
         put?: never;
@@ -250,15 +264,22 @@ export interface paths {
          *
          *     POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时 body 需带 ``target_user_id``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的黑名单条目;POST 返回拉黑对象(新建为 201,已存在为 200)。
          *
-         *     Raises:
-         *         ValidationError: 拉黑自己。
-         *         NotFound: 目标用户不存在。
+         *     使用示例:
+         *         ``GET /api/v1/blocks?limit=20&offset=0`` / ``POST /api/v1/blocks {"target_user_id": 7}``
+         *
+         *     备注信息:
+         *         拉黑自己回 400,目标用户不存在回 404;GET 走 ``DefaultLimitOffsetPagination``,
+         *         响应形状 ``{count, next, previous, results}``。
+         *         POST 首次创建时**两件事同时做**:同步 IM 黑名单(add=True)与撤销聊天权限
+         *         (``sync_im_pair(..., add=False)``)——即便两人之前配对过也不能继续发消息;
+         *         重复拉黑不会再入队。条目里的昵称与头像靠 ``select_related`` +
+         *         ``prefetch_related`` 预取,不会逐条查库。限流 ``BlockThrottle`` 只算 POST。
          */
         post: operations["blocks_create"];
         delete?: never;
@@ -282,12 +303,22 @@ export interface paths {
          *
          *     幂等:没有该条拉黑记录时直接返回 204,不报错。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         user_id: 被解除拉黑的账号 id。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
+         *
+         *     使用示例:
+         *         ``DELETE /api/v1/blocks/7``
+         *
+         *     备注信息:
+         *         只删「我拉黑对方」这一条;记录不存在时什么都不做(不入队、不报错)。
+         *         删除后同步 IM 黑名单(remove),并且**只有两人仍是有效配对**
+         *         (``unmatched_at`` 为空)才恢复聊天权限,否则不恢复 —— 未配对的人不该因为
+         *         「拉黑又解除」凭空获得发消息的资格。本视图没有挂 ``throttle_classes``,
+         *         且项目未配置 ``DEFAULT_THROTTLE_CLASSES``,所以解除拉黑不计限流额度。
          */
         delete: operations["blocks_destroy"];
         options?: never;
@@ -307,13 +338,20 @@ export interface paths {
         /**
          * @description 接收一条前端未捕获异常(POST /api/v1/client-errors)。
          *
-         *     允许匿名:登录页白屏、启动即崩这类最有价值的错误发生时,客户端还没有令牌。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,body 见 ``ClientErrorSerializer``。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应(上报是 fire-and-forget,不回业务数据)。
+         *
+         *     使用示例:
+         *         ``POST /api/v1/client-errors`` body ``{"platform": "web", "message": "TypeError: ..."}``
+         *
+         *     备注信息:
+         *         允许匿名:登录页白屏、启动即崩这类最有价值的错误发生时,客户端还没有令牌。
+         *         日志字段名避开了 ``message`` / ``levelname`` 等 LogRecord 保留字,否则 logging 会抛异常;
+         *         级别用 warning 是因为本 logger 不参与告警(见模块 docstring),仅为在 Loki 里好筛。
+         *         字段非法回 400;日志按 platform + message 采样,指标 ``CLIENT_ERRORS`` 每次照常累加。
          */
         post: operations["client_errors_create"];
         delete?: never;
@@ -817,11 +855,18 @@ export interface paths {
         /**
          * @description 提交意见反馈(POST /api/v1/feedback)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,body 需带 ``type`` / ``content`` / 可选 ``contact``。
          *
-         *     Returns:
+         *     返回参数:
          *         201 + 反馈回执(``id`` / ``type`` / ``content`` / ``contact`` / ``created_at``)。
+         *
+         *     使用示例:
+         *         ``POST /api/v1/feedback`` body ``{"type": "bug", "content": "夜间模式开关无效", "contact": ""}``
+         *
+         *     备注信息:
+         *         必须带登录令牌;``banned_heavy`` 账号由全局权限类挡成 403,``banned_light`` 仍可提交。
+         *         按用户限流(``FeedbackThrottle``),超额 429;字段非法回 400。
          */
         post: operations["feedback_create"];
         delete?: never;
@@ -1892,15 +1937,21 @@ export interface paths {
          *     幂等:同一被举报人若已有待处理举报,返回已有记录且状态码为 200;
          *     本次新建时返回 201。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,body 需带 ``target_user_id`` / ``type`` / 可选 ``detail``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{id, type, status}``。
          *
-         *     Raises:
-         *         ValidationError: 举报自己。
-         *         NotFound: 被举报人不存在。
+         *     使用示例:
+         *         ``POST /api/v1/reports {"target_user_id": 7, "type": "harassment"}``
+         *
+         *     备注信息:
+         *         自己举报自己回 400(``ValidationError``),被举报人不存在回 404(``NotFound``),
+         *         类型不在 ``ReportType`` 里回 400(由入参序列化器拦)。
+         *         幂等靠 ``dedupe_key`` 唯一约束 + ``get_or_create``:并发提交时后到的那条
+         *         撞唯一约束后回查已有记录,不会落重复行,也不会 500。
+         *         限流 ``ReportThrottle``(``20/day``),超限 429;响应路径不写 IM,也没有其他副作用。
          */
         post: operations["reports_create"];
         delete?: never;
@@ -1923,15 +1974,22 @@ export interface paths {
          *     时间(一人一行去重),关注数按关注关系创建时间。**不含消息条数** —— 消息在
          *     imserver 的库里,Django 读不到。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``period`` 查询参数(``week`` / ``month`` / ``year``)。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{period, start, end, matches, likes_given, likes_received, visits, posts,
          *         post_likes, new_followers}``;``start`` / ``end`` 是含首含尾的日期字符串。
          *
-         *     Raises:
-         *         InvalidPeriod: ``period`` 不在 ``week`` / ``month`` / ``year`` 之内。
+         *     使用示例:
+         *         ``GET /api/v1/stats/me?period=month``
+         *
+         *     备注信息:
+         *         接口路径 ``GET /api/v1/stats/me``(路由见 ``stats/urls.py``),只读、无请求体、
+         *         无分页。``period`` 缺省或空串按 ``week``;取值非法抛 ``InvalidPeriod``
+         *         (HTTP 400 + 业务码 ``40005``),未带令牌 401 由鉴权层拦下。七项数字全部来自
+         *         Django 自己的库,计算逻辑在 ``stats.services.collect``;响应里的 ``start`` /
+         *         ``end`` 是含首含尾的**日期**(不是时刻),与 ``period_bounds`` 同口径。
          */
         get: operations["stats_me_retrieve"];
         put?: never;
@@ -2361,33 +2419,85 @@ export interface components {
         };
         /** @enum {unknown} */
         BlankEnum: "";
-        /** @description 黑名单条目的对外表示,已内联对方的昵称与头像。 */
+        /**
+         * @description 黑名单条目的对外表示,已内联对方的昵称与头像。
+         *
+         *     参数说明:
+         *         instance: 待序列化的 ``Block``(或查询集,配合 ``many=True``)。
+         *         many: 是否批量序列化,默认 ``False``。
+         *         context: 必须带 ``request`` —— 头像要拼成绝对 URL。
+         *
+         *     返回参数:
+         *         ``data`` 为 ``{user_id, nickname, avatar_url, blocked_at}``;
+         *         ``user_id`` 是被拉黑方的账号 id,``blocked_at`` 取 ``created_at``。
+         *
+         *     使用示例:
+         *         ``BlockSerializer(block, context={"request": request}).data``
+         *
+         *     备注信息:
+         *         ``user_id`` 用 ``source="blocked.id"`` 映射,``blocked_at`` 用
+         *         ``source="created_at"`` 映射,两者都只读;昵称与头像走 ``SerializerMethodField``,
+         *         逐条读已预取的 ``blocked.profile`` 与 ``blocked.photos``,所以视图侧必须
+         *         ``select_related("blocked__profile")`` + ``prefetch_related("blocked__photos")``。
+         */
         Block: {
             readonly user_id: number;
             /**
              * @description 取被拉黑方的昵称。
              *
-             *     Args:
+             *     参数说明:
              *         block: 拉黑记录。
              *
-             *     Returns:
+             *     返回参数:
              *         昵称;对方没有资料行时返回空串。
+             *
+             *     使用示例:
+             *         ``serializer.get_nickname(block)``
+             *
+             *     备注信息:
+             *         用 ``getattr(block.blocked, "profile", None)`` 取资料,资料不存在的账号
+             *         (资料行还没建)返回空串而不是抛异常;视图侧已 ``select_related`` 过,
+             *         这里不会额外查库。
              */
             readonly nickname: string;
             /**
              * @description 取被拉黑方第一张已过审照片的绝对 URL。
              *
-             *     Args:
+             *     参数说明:
              *         block: 拉黑记录。
              *
-             *     Returns:
+             *     返回参数:
              *         头像绝对 URL;没有已过审照片时返回 ``None``。
+             *
+             *     使用示例:
+             *         ``serializer.get_avatar_url(block)``
+             *
+             *     备注信息:
+             *         只认 ``PhotoStatus.APPROVED``:待审/驳回的照片不展示,扫完整个
+             *         ``blocked.photos`` 都没命中就返回 ``None``(前端按占位图渲染)。
+             *         绝对 URL 依赖 ``context["request"]``,脱离请求上下文调用会 ``KeyError``。
              */
             readonly avatar_url: string | null;
             /** Format: date-time */
             readonly blocked_at: string;
         };
-        /** @description 拉黑入参。 */
+        /**
+         * @description 拉黑入参。
+         *
+         *     参数说明:
+         *         data: 请求体字典,只认 ``target_user_id``。
+         *         context: 本入参序列化器不使用。
+         *
+         *     返回参数:
+         *         ``is_valid()`` 通过后 ``validated_data`` 为 ``{target_user_id}``。
+         *
+         *     使用示例:
+         *         ``BlockCreateSerializer(data=request.data).is_valid(raise_exception=True)``
+         *
+         *     备注信息:
+         *         「不能拉黑自己」与「目标用户必须存在」由 ``views.blocks`` 判断
+         *         (分别回 400 / 404),本序列化器只管字段类型与必填。
+         */
         BlockCreateRequest: {
             target_user_id: number;
         };
@@ -3422,7 +3532,24 @@ export interface components {
             user_id: number;
             nickname: string;
         };
-        /** @description 举报的对外表示(只回执最必要的三项)。 */
+        /**
+         * @description 举报的对外表示(只回执最必要的三项)。
+         *
+         *     参数说明:
+         *         instance: 待序列化的 ``Report``(或查询集,配合 ``many=True``)。
+         *         many: 是否批量序列化,默认 ``False``。
+         *         context: 本序列化器不使用。
+         *
+         *     返回参数:
+         *         ``data`` 为 ``{id, type, status}``;``status`` 是 ``pending`` / ``handled``。
+         *
+         *     使用示例:
+         *         ``ReportSerializer(report).data``
+         *
+         *     备注信息:
+         *         故意只回三项:客户端只需要拿到举报 id 与状态,不暴露处理人、备注与时间;
+         *         处理结果通过通知推送,不在本响应里。
+         */
         Report: {
             readonly id: number;
             /** 类型 */
@@ -3430,7 +3557,25 @@ export interface components {
             /** 状态 */
             status?: components["schemas"]["ReportStatusEnum"];
         };
-        /** @description 举报入参。 */
+        /**
+         * @description 举报入参。
+         *
+         *     参数说明:
+         *         data: 请求体字典;``target_user_id`` 必填,``type`` 必填,``detail`` 可选。
+         *         context: 本入参序列化器不使用。
+         *
+         *     返回参数:
+         *         ``is_valid()`` 通过后 ``validated_data`` 为
+         *         ``{target_user_id, type, detail}``,``detail`` 缺省为空串。
+         *
+         *     使用示例:
+         *         ``ReportCreateSerializer(data=request.data).is_valid(raise_exception=True)``
+         *
+         *     备注信息:
+         *         只校验字段形态,不校验业务规则 —— 「不能举报自己」与「被举报人必须存在」
+         *         由 ``views.create_report`` 判断(分别回 400 / 404)。
+         *         ``type`` 取值来自 ``ReportType``(harassment / porn / fraud / other),非法值 400。
+         */
         ReportCreateRequest: {
             target_user_id: number;
             type: components["schemas"]["ReportTypeEnum"];

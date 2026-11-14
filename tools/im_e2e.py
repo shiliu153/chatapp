@@ -1,4 +1,16 @@
-"""自建 IM 端到端验收:登录、互发、离线未读、幂等、撤回、互踢。"""
+"""自建 IM 端到端验收:登录、互发、离线未读、幂等、撤回、互踢。
+
+文件信息:
+    文件名称          tools/im_e2e.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
+"""
 
 import asyncio
 import hashlib
@@ -23,12 +35,18 @@ MEDIA_PREFIX = os.environ.get("IM_MEDIA_PREFIX", "http://cdn/media/chat/")
 def internal(path: str, payload: dict):
     """调用一次内部 HMAC API(建号 / 配对)。
 
-    Args:
+    参数说明:
         path: 以 ``/internal/`` 开头的路径。
         payload: JSON 请求体。
 
-    Returns:
+    返回参数:
         解析后的 JSON 响应。
+
+    使用示例:
+        ``internal(path, payload)``
+
+    备注信息:
+        签名口径:``HMAC-SHA256(secret, f"{timestamp}\nPOST\n{path}\n{body}")``;内部服务地址取自环境变量 ``IM_INTERNAL_BASE``。
     """
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     timestamp = str(int(time.time()))
@@ -52,6 +70,20 @@ def internal(path: str, payload: dict):
 
 
 def token(uid: int) -> str:
+    """签发一个 HS256 的 IM JWT。
+
+    参数说明:
+        uid: IM 账号 id(整数);写进 ``sub`` 的 ``u{uid}`` 与 ``uid``。
+
+    返回参数:
+        JWT 字符串,有效期 3600 秒。
+
+    使用示例:
+        ``token(uid)``
+
+    备注信息:
+        密钥取环境变量 ``IM_JWT_SECRET``,必须与 imserver 一致。
+    """
     now = int(time.time())
     return jwt.encode(
         {"sub": f"u{uid}", "uid": uid, "iat": now, "exp": now + 3600, "jti": "e2e"},
@@ -61,6 +93,21 @@ def token(uid: int) -> str:
 
 
 def get(path: str, uid: int):
+    """带 JWT 调一次 IM 的 HTTP 接口。
+
+    参数说明:
+        path: ``/im/api`` 之下的相对路径,如 ``/conversations``。
+        uid: 以哪个账号身份调用。
+
+    返回参数:
+        解析后的 JSON 响应。
+
+    使用示例:
+        ``get(path, uid)``
+
+    备注信息:
+        超时 3 秒;非 2xx 直接抛 ``urllib.error.HTTPError``。
+    """
     request = urllib.request.Request(
         HTTP + path, headers={"Authorization": f"Bearer {token(uid)}"}
     )
@@ -69,6 +116,20 @@ def get(path: str, uid: int):
 
 
 async def auth(uid: int):
+    """建立 WS 连接并完成 auth 握手。
+
+    参数说明:
+        uid: 以哪个账号身份登录。
+
+    返回参数:
+        已收到 ``auth_ok`` 的连接对象。
+
+    使用示例:
+        ``auth(uid)``
+
+    备注信息:
+        只认 ``auth_ok``,其余帧丢弃;单帧等待 3 秒超时。
+    """
     ws = await websockets.connect(WS)
     await ws.send(json.dumps({"v": 1, "type": "auth", "data": {"token": token(uid)}}))
     while True:
@@ -78,6 +139,21 @@ async def auth(uid: int):
 
 
 async def recv(ws, type_):
+    """从连接上取第一条指定类型的帧。
+
+    参数说明:
+        ws: 已握手的连接。
+        type_: 要匹配的帧类型,如 ``message``。
+
+    返回参数:
+        匹配到的帧(``dict``)。
+
+    使用示例:
+        ``recv(ws, type_)``
+
+    备注信息:
+        途中收到的其它类型帧直接丢弃;单帧等待 3 秒超时。
+    """
     while True:
         message = json.loads(await asyncio.wait_for(ws.recv(), 3))
         if message["type"] == type_:
@@ -85,6 +161,20 @@ async def recv(ws, type_):
 
 
 async def main():
+    """跑完整条端到端验收链并断言。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值;断言失败抛 ``AssertionError``。
+
+    使用示例:
+        ``python tools/im_e2e.py``
+
+    备注信息:
+        需先起 imserver 并配好 ``IM_JWT_SECRET`` / ``IM_INTERNAL_SECRET`` / ``IM_MEDIA_PREFIX``;账号 id 取时间戳与 PID 拼出的随机段,不污染固定测试数据。
+    """
     base = 500000 + (int(time.time() * 1000) + os.getpid()) % 100000
     a_uid, b_uid = base, base + 1
     # H4:收件人必须真实存在,且双方必须有配对关系

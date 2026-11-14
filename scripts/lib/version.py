@@ -19,6 +19,17 @@
 本模块**不 print、不 exit**,只抛 :class:`VersionError`。``sync_version`` 把它翻成退出码 1,
 ``release_prep`` 把它翻成自己的 :class:`ReleasePrepError` —— 两者的退出码语义不同,
 lib 不该替它们决定。
+
+文件信息:
+    文件名称          scripts/lib/version.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -53,21 +64,34 @@ WEB_VERSION_RE = re.compile(r'^(\s*)"version":\s*"([^"]*)"', re.MULTILINE)
 class VersionError(RuntimeError):
     """读不到版本号(文件缺失 / 找不到版本行),或写回时找不到目标声明。
 
-    调用方负责把它翻成自己的退出码(见模块 docstring)。
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``raise VersionError(...)``
+
+    备注信息:
+        调用方负责把它翻成自己的退出码(见模块 docstring)。
     """
 
 
 def read_pubspec_version(path: Path = PUBSPEC) -> str:
     """读取 ``app/pubspec.yaml`` 的版本名(不含构建号)。
 
-    Args:
+    参数说明:
         path: pubspec 文件路径;默认仓库里的那一份。
 
-    Returns:
+    返回参数:
         版本名,如 ``1.0.4``。
 
-    Raises:
-        VersionError: 文件不存在、读不出来,或找不到 ``version:`` 行(没有可信来源,必须停)。
+    使用示例:
+        ``read_pubspec_version(path)``
+
+    备注信息:
+        抛 ``VersionError``:文件不存在、读不出来,或找不到 ``version:`` 行(没有可信来源,必须停)。
     """
     return _match_pubspec(path).group(1)
 
@@ -75,14 +99,17 @@ def read_pubspec_version(path: Path = PUBSPEC) -> str:
 def read_pubspec_version_and_build(path: Path = PUBSPEC) -> tuple[str, int]:
     """读取版本名与构建号(``+N`` 里的 N)。
 
-    Args:
+    参数说明:
         path: pubspec 文件路径;默认仓库里的那一份。
 
-    Returns:
+    返回参数:
         ``(版本名, 构建号)``;没有 ``+N`` 时构建号为 ``0``。
 
-    Raises:
-        VersionError: 文件不存在、读不出来,或找不到 ``version:`` 行。
+    使用示例:
+        ``read_pubspec_version_and_build(path)``
+
+    备注信息:
+        抛 ``VersionError``:文件不存在、读不出来,或找不到 ``version:`` 行。
     """
     match = _match_pubspec(path)
     return match.group(1), int(match.group(2) or 0)
@@ -91,11 +118,17 @@ def read_pubspec_version_and_build(path: Path = PUBSPEC) -> tuple[str, int]:
 def read_app_info_version(path: Path = APP_INFO) -> str:
     """读取 ``app/lib/core/app_info.dart`` 里的 ``appVersion``。
 
-    Args:
+    参数说明:
         path: app_info.dart 路径;默认仓库里的那一份。
 
-    Returns:
+    返回参数:
         版本名;找不到时返回空串(交给 :func:`collect_mismatches` 报出来,而不是在这里抛)。
+
+    使用示例:
+        ``read_app_info_version(path)``
+
+    备注信息:
+        无特殊约束。
     """
     match = APP_INFO_VERSION_RE.search(_read(path))
     return match.group(1) if match else ""
@@ -104,11 +137,17 @@ def read_app_info_version(path: Path = APP_INFO) -> str:
 def read_web_version(path: Path = WEB_PACKAGE) -> str:
     """读取 ``web/package.json`` 的顶层 ``version``。
 
-    Args:
+    参数说明:
         path: package.json 路径;默认仓库里的那一份。
 
-    Returns:
+    返回参数:
         版本名;找不到时返回空串。
+
+    使用示例:
+        ``read_web_version(path)``
+
+    备注信息:
+        无特殊约束。
     """
     match = WEB_VERSION_RE.search(_read(path))
     return match.group(2) if match else ""
@@ -117,15 +156,18 @@ def read_web_version(path: Path = WEB_PACKAGE) -> str:
 def write_app_info_version(version: str, path: Path = APP_INFO) -> bool:
     """把 ``appVersion`` 写成指定版本(其余内容与换行风格不动)。
 
-    Args:
+    参数说明:
         version: 目标版本名,如 ``1.0.4``。
         path: app_info.dart 路径。
 
-    Returns:
+    返回参数:
         ``True`` 表示文件被改动,``False`` 表示本来就是目标值。
 
-    Raises:
-        VersionError: 文件里找不到 ``const appVersion`` 声明。
+    使用示例:
+        ``write_app_info_version(version, path)``
+
+    备注信息:
+        抛 ``VersionError``:文件里找不到 ``const appVersion`` 声明。
     """
     text = _read(path)
     if not APP_INFO_VERSION_RE.search(text):
@@ -137,15 +179,18 @@ def write_app_info_version(version: str, path: Path = APP_INFO) -> bool:
 def write_web_version(version: str, path: Path = WEB_PACKAGE) -> bool:
     """把 ``web/package.json`` 的 ``version`` 写成指定版本(其余字段不动)。
 
-    Args:
+    参数说明:
         version: 目标版本名,如 ``1.0.4``。
         path: package.json 路径。
 
-    Returns:
+    返回参数:
         ``True`` 表示文件被改动,``False`` 表示本来就是目标值。
 
-    Raises:
-        VersionError: 文件里找不到顶层 ``version`` 字段。
+    使用示例:
+        ``write_web_version(version, path)``
+
+    备注信息:
+        抛 ``VersionError``:文件里找不到顶层 ``version`` 字段。
     """
     text = _read(path)
     if not WEB_VERSION_RE.search(text):
@@ -158,16 +203,19 @@ def collect_mismatches(pubspec: Path = PUBSPEC, app_info: Path = APP_INFO,
                        web_package: Path = WEB_PACKAGE) -> list[str]:
     """对比三处版本号,返回不一致描述(空列表表示完全一致)。
 
-    Args:
+    参数说明:
         pubspec: 事实来源文件。
         app_info: App 侧常量文件。
         web_package: 网页端 package.json。
 
-    Returns:
+    返回参数:
         逐条中文描述;空列表表示三处一致。
 
-    Raises:
-        VersionError: ``pubspec`` 读不到或没有 ``version:`` 行。
+    使用示例:
+        ``collect_mismatches(pubspec, app_info, web_package)``
+
+    备注信息:
+        抛 ``VersionError``:``pubspec`` 读不到或没有 ``version:`` 行。
     """
     expected = read_pubspec_version(pubspec)
     problems = []
@@ -186,14 +234,17 @@ def collect_mismatches(pubspec: Path = PUBSPEC, app_info: Path = APP_INFO,
 def _match_pubspec(path: Path) -> re.Match[str]:
     """在 pubspec 文本里定位 ``version:`` 行。
 
-    Args:
+    参数说明:
         path: pubspec 文件路径。
 
-    Returns:
+    返回参数:
         命中的正则对象(``group(1)`` 是版本名,``group(2)`` 可能为空)。
 
-    Raises:
-        VersionError: 文件读不到或找不到 ``version:`` 行。
+    使用示例:
+        ``_match_pubspec(path)``
+
+    备注信息:
+        抛 ``VersionError``:文件读不到或找不到 ``version:`` 行。
     """
     match = PUBSPEC_VERSION_BUILD_RE.search(_read(path))
     if not match:
@@ -204,14 +255,17 @@ def _match_pubspec(path: Path) -> re.Match[str]:
 def _read(path: Path) -> str:
     """读文本文件(UTF-8)。
 
-    Args:
+    参数说明:
         path: 文件路径。
 
-    Returns:
+    返回参数:
         文件内容。
 
-    Raises:
-        VersionError: 文件不存在或读不出来。
+    使用示例:
+        ``_read(path)``
+
+    备注信息:
+        抛 ``VersionError``:文件不存在或读不出来。
     """
     try:
         return path.read_text(encoding="utf-8")
@@ -222,13 +276,19 @@ def _read(path: Path) -> str:
 def _write_if_changed(path: Path, original: str, updated: str) -> bool:
     """内容不同才落盘(避免无意义的 mtime 变化与 diff 噪音)。
 
-    Args:
+    参数说明:
         path: 目标文件。
         original: 原内容。
         updated: 新内容。
 
-    Returns:
+    返回参数:
         ``True`` 表示写了文件。
+
+    使用示例:
+        ``_write_if_changed(path, original, updated)``
+
+    备注信息:
+        无特殊约束。
     """
     if original == updated:
         return False

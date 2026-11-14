@@ -19,6 +19,17 @@
 
 关联文档:
     - 接口契约:docs/api/stats.md
+
+文件信息:
+    文件名称          stats/services.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import calendar
@@ -46,14 +57,20 @@ METRICS = ("matches", "likes_given", "likes_received", "visits",
 def parse_period(raw) -> str:
     """校验并归一化查询参数 ``period``。
 
-    Args:
+    参数说明:
         raw: 原始参数值,可能是 ``None`` / 空串 / 任意字符串。
 
-    Returns:
+    返回参数:
         ``week`` / ``month`` / ``year``;缺省或空串时返回 ``DEFAULT_PERIOD``。
 
-    Raises:
-        InvalidPeriod: 取值不在三者之内。
+    使用示例:
+        ``parse_period(request.query_params.get("period"))``
+
+    备注信息:
+        先 ``strip().lower()`` 再比对,所以 ``" Week "`` 与 ``"WEEK"`` 都算合法;
+        ``None`` / 空串一律回落 ``DEFAULT_PERIOD``(``week``),不报错。取值不在
+        ``PERIODS`` 之内抛 ``InvalidPeriod``(HTTP 400 + 业务码 ``40005``),由
+        ``config.exceptions`` 统一转成错误信封。
     """
     value = (raw or "").strip().lower()
     if not value:
@@ -66,17 +83,25 @@ def parse_period(raw) -> str:
 def period_bounds(period: str, today: date | None = None) -> tuple[date, date]:
     """算出一个自然周期的起止日期(含首含尾)。
 
-    Args:
+    参数说明:
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示取本地时区的今天(便于测试注入)。
 
-    Returns:
+    返回参数:
         ``(start, end)`` 两个日期。``week`` 从周一算到周日,``month`` 是整月,
         ``year`` 是整年。
 
-    Raises:
-        ValueError: ``period`` 不是三个取值之一(视图层已用 ``parse_period`` 拦过,
-            这里兜底防止内部调用传错)。
+    使用示例:
+        ``period_bounds("week", date(2026, 11, 9))``
+
+    备注信息:
+        返回的是**日期**且含首含尾,换算成查询用的时刻区间由
+        :func:`period_window` 负责。``week`` 用 ``today.weekday()`` 回退到周一
+        (周一为 0,周日为 6);``month`` 用 ``calendar.monthrange`` 取当月天数,
+        闰年 2 月自然得到 29;``year`` 固定 01-01 到 12-31。``today=None`` 时取
+        ``timezone.localdate()``(本地时区的今天),测试注入固定日期即可复现。
+        ``period`` 不是三个取值之一抛 ``ValueError`` —— 视图层已用
+        :func:`parse_period` 拦过,这里兜底内部调用传错。
     """
     today = today or timezone.localdate()
     if period == "week":
@@ -98,12 +123,21 @@ def period_window(period: str, today: date | None = None) -> tuple[datetime, dat
     所以边界必须先在 ``Asia/Shanghai`` 拼好再交给 Django 比较,不能直接拿
     ``date`` 去比对 ``DateTimeField``。
 
-    Args:
+    参数说明:
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示取本地时区的今天。
 
-    Returns:
+    返回参数:
         ``(after, before)``:``after`` 含、``before`` 不含。
+
+    使用示例:
+        ``period_window("month", date(2026, 11, 9))``
+
+    备注信息:
+        右边界是 ``period_bounds`` 给出末日的**次日零点**(``end + 1 天`` 的 ``00:00``),
+        因此整个末日都在区间内;两个边界都用 ``timezone.make_aware`` 挂上当前时区
+        (``Asia/Shanghai``)。查询侧一律写 ``created_at__gte=after, created_at__lt=before``,
+        写成 ``__lte=end`` 会漏掉末日整天。
     """
     start, end = period_bounds(period, today)
     zone = timezone.get_current_timezone()
@@ -119,11 +153,21 @@ def _count_subquery(rows) -> Subquery:
     「每行 1」再被 ``LIMIT 1`` 截成一个恒为 1 的常数。显式按常量分组后才是整段
     ``COUNT(*)``。
 
-    Args:
+    参数说明:
         rows: 已经带好过滤条件的查询集。
 
-    Returns:
+    返回参数:
         返回单个整数的 ``Subquery``;``COUNT(*)`` 恒有结果,不需要 ``Coalesce``。
+
+    使用示例:
+        ``_count_subquery(Swipe.objects.filter(swiper=user))``
+
+    备注信息:
+        必须先 ``order_by()`` 清掉模型的默认排序:``Swipe`` / ``Match`` / ``Post`` /
+        ``ProfileVisit`` 都带 ``Meta.ordering``,不清会把排序字段塞进 ``GROUP BY``,
+        常量分组就退化成「每组一行」,``COUNT(*)`` 又被压成 1。``[:1]`` 让子查询最多返回
+        一行,才能当标量用;``output_field=IntegerField()`` 必填,否则 Django 推断不出
+        子查询类型。
     """
     counted = (rows.order_by()
                .annotate(_bucket=Value(1)).values("_bucket")
@@ -134,13 +178,26 @@ def _count_subquery(rows) -> Subquery:
 def collect(user, period: str, today: date | None = None) -> dict[str, int]:
     """汇总当前用户在某个周期内的七项数字。
 
-    Args:
+    参数说明:
         user: 当前登录用户;所有查询都以它为主体,不会返回他人数据。
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示取本地时区的今天(便于测试注入)。
 
-    Returns:
+    返回参数:
         七个字段的字典,键顺序与 ``METRICS`` 一致。
+
+    使用示例:
+        ``collect(request.user, "week")``
+
+    备注信息:
+        七个计数被压进**同一条 SQL**:外层 ``User.objects.filter(pk=user.pk)`` 加七个
+        标量子查询,只发一次查询 —— 鉴权(会话版本)、资料与偏好已占掉 4 条,七次独立
+        ``count()`` 会顶到 11 条、超出 ``test_query_budget`` 给本接口的 8 条预算。
+        口径是「区间内发生的事件」而非当前存量:``matches`` 两个方向都数(配对行按 id
+        升序存 ``user_a`` / ``user_b``)、含事后被解除的;``visits`` 按 ``last_at`` 落区间,
+        访客表一人一行,数的是「区间内来看过我的人」而不是点击次数;``follows`` 按
+        ``Follow.created_at``。注解别名加 ``stat_`` 前缀,``posts`` / ``post_likes``
+        直接用会撞 ``User`` 上的反向关联名。消息条数**不在其中**:消息在 imserver 的库里。
     """
     after, before = period_window(period, today)
     created = {"created_at__gte": after, "created_at__lt": before}

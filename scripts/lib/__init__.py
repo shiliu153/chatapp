@@ -28,6 +28,17 @@ token 解析逻辑),三个脚本各自抄了一份 ``app/pubspec.yaml`` 的路�
 ``artifacts.py`` 是**例外**:它要能被 ``python scripts/lib/artifacts.py <路径>`` 直接执行
 (门禁注册表的 ``kind = "artifact"`` 就是这么跑它的),所以它不 import 本包里的任何模块,
 仓库根由它自己的 ``__file__`` 推出来。
+
+文件信息:
+    文件名称          scripts/lib/__init__.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations

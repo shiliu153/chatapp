@@ -12,7 +12,7 @@
 -----------------------------------
 本仓库在 Windows 上检出是 CRLF,而 WSL / CI 里的 git 按 LF 理解索引 —— ``git diff`` 会把
 上千个文件都算成改动(实测 1094 个),这条判定在 WSL 里等于永远红。所以比的是**内容**:
-把两边的 ``\\r`` 都去掉再比。语义与原 shell 实现完全一致,区别只有退出码 ——
+把两边的 ``\r`` 都去掉再比。语义与原 shell 实现完全一致,区别只有退出码 ——
 「生成物不在 HEAD / 与代码不一致」是**判定失败**(门禁红,退出码 1),
 不是「执行器故障」;只有 git 本身不可用才是 2。
 
@@ -25,6 +25,17 @@
 
 本文件**不 import** ``scripts.lib`` 里的任何东西:它要能被直接执行(``sys.path[0]`` 是
 ``scripts/lib/``),仓库根由 ``__file__`` 往上三层推出来。
+
+文件信息:
+    文件名称          scripts/lib/artifacts.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -44,14 +55,36 @@ DIFF_LINES = 40
 
 
 class ArtifactError(RuntimeError):
-    """判不出来:git 不可用、路径非法、目标不是仓库内文件。调用方应退出 2。"""
+    """判不出来:git 不可用、路径非法、目标不是仓库内文件。调用方应退出 2。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``raise ArtifactError(...)``
+
+    备注信息:
+        无特殊约束。
+    """
 
 
 @dataclass(frozen=True)
 class Result:
     """一次生成物比对的结果。
 
-    Attributes:
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``obj = Result(...)``
+
+    备注信息:
         ok: 是否一致(既在 HEAD 里、内容也相同)。
         path: 被比对的仓库相对路径。
         problems: 逐条中文问题描述(空表示通过)。
@@ -65,13 +98,19 @@ class Result:
 
 
 def normalize(data: bytes) -> bytes:
-    """把行尾统一成 ``\\n``(只动 ``\\r``,不动其它字节)。
+    """把行尾统一成 ``\n``(只动 ``\r``,不动其它字节)。
 
-    Args:
+    参数说明:
         data: 原始字节。
 
-    Returns:
-        去掉 ``\\r`` 之后的字节。CRLF 与 LF 的同一份内容在这里相等。
+    返回参数:
+        去掉 ``\r`` 之后的字节。CRLF 与 LF 的同一份内容在这里相等。
+
+    使用示例:
+        ``normalize(data)``
+
+    备注信息:
+        无特殊约束。
     """
     return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
 
@@ -79,16 +118,18 @@ def normalize(data: bytes) -> bytes:
 def compare(rel_path: str, root: Path = ROOT) -> Result:
     """比对「工作区的生成物」与「HEAD 里的那一版」。
 
-    Args:
+    参数说明:
         rel_path: 生成物的仓库相对路径,如 ``docs/api/openapi.yml``。
         root: 仓库根目录(自测时可指向临时仓库)。
 
-    Returns:
-        :class:`Result`。三种失败都返回结果而不是抛异常:不在 HEAD 里、文件不存在、
-        内容不一致 —— 它们都是**判定失败**(门禁红),不是执行器故障。
+    返回参数:
+        :class:`Result`。三种失败都返回结果而不是抛异常:不在 HEAD 里、文件不存在、 内容不一致 —— 它们都是**判定失败**(门禁红),不是执行器故障。
 
-    Raises:
-        ArtifactError: 路径是绝对路径或含 ``..``,或 git 不可用 / 目标不在仓库里(判不出来)。
+    使用示例:
+        ``compare(rel_path, root)``
+
+    备注信息:
+        抛 ``ArtifactError``:路径是绝对路径或含 ``..``,或 git 不可用 / 目标不在仓库里(判不出来)。
     """
     rel = Path(rel_path)
     if rel.is_absolute() or ".." in rel.parts:
@@ -139,15 +180,18 @@ def compare(rel_path: str, root: Path = ROOT) -> Result:
 def _head_bytes(root: Path, posix: str) -> bytes | None:
     """取 ``HEAD:<path>`` 的内容。
 
-    Args:
+    参数说明:
         root: 仓库根目录。
         posix: 仓库相对路径(POSIX 分隔符)。
 
-    Returns:
+    返回参数:
         该文件在 HEAD 里的字节;文件不在 HEAD 里时返回 ``None``。
 
-    Raises:
-        ArtifactError: git 不可用,或 ``root`` 不是 git 仓库(判不出来)。
+    使用示例:
+        ``_head_bytes(root, posix)``
+
+    备注信息:
+        抛 ``ArtifactError``:git 不可用,或 ``root`` 不是 git 仓库(判不出来)。
     """
     exists = _git(root, "cat-file", "-e", f"HEAD:{posix}", check=False)
     if exists.returncode != 0:
@@ -163,16 +207,19 @@ def _head_bytes(root: Path, posix: str) -> bytes | None:
 def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     """在指定仓库里跑一条 git 命令。
 
-    Args:
+    参数说明:
         root: 仓库根目录。
         *args: 传给 git 的参数。
         check: 为 ``True`` 时非零退出抛 :class:`ArtifactError`。
 
-    Returns:
+    返回参数:
         完成的进程对象(stdout 是字节)。
 
-    Raises:
-        ArtifactError: git 不存在,或 ``check=True`` 时命令失败。
+    使用示例:
+        ``_git(root, *args, check=check)``
+
+    备注信息:
+        抛 ``ArtifactError``:git 不存在,或 ``check=True`` 时命令失败。
     """
     try:
         completed = subprocess.run(
@@ -189,11 +236,17 @@ def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;``None`` 表示取 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         0 一致;1 不一致(生成物不在 HEAD / 内容不同);2 判不出来。
+
+    使用示例:
+        ``python scripts/lib/artifacts.py docs/api/openapi.yml``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(
         description="校验生成物与 HEAD 里的那一版一致(比内容、忽略行尾)"

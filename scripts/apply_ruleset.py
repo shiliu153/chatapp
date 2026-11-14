@@ -16,6 +16,17 @@ check 不出现,PR 会永久 pending。
     python scripts/apply_ruleset.py --apply      # 真写
 
 退出码:0 成功(或 dry-run);1 失败;2 用法/环境错误。
+
+文件信息:
+    文件名称          scripts/apply_ruleset.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -45,17 +56,36 @@ REQUIRED_CONTEXTS = [
 
 
 class RulesetError(Exception):
-    """无法完成设置;由 main 转成退出码。"""
+    """无法完成设置;由 main 转成退出码。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``raise RulesetError(...)``
+
+    备注信息:
+        无特殊约束。
+    """
 
 
 def read_token() -> str:
     """取 GitHub token(环境变量优先,其次 DSH token 文件)。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         PAT 字符串。
 
-    Raises:
-        RulesetError: 两处都没有。
+    使用示例:
+        ``read_token()``
+
+    备注信息:
+        抛 ``RulesetError``:两处都没有。
     """
     try:
         return lib_repo.resolve_token()
@@ -66,14 +96,20 @@ def read_token() -> str:
 def request(method: str, url: str, token: str, payload: dict | None = None) -> tuple[int, dict]:
     """发一次 GitHub API 请求。
 
-    Args:
+    参数说明:
         method: HTTP 方法。
         url: 完整 URL。
         token: GitHub PAT。
         payload: JSON body。
 
-    Returns:
+    返回参数:
         ``(状态码, 解析后的 JSON)``;空响应体返回 ``{}``。
+
+    使用示例:
+        ``request(method, url, token, payload)``
+
+    备注信息:
+        无特殊约束。
     """
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(url, data=body, method=method)
@@ -98,16 +134,19 @@ def request(method: str, url: str, token: str, payload: dict | None = None) -> t
 def find_ruleset(repo: str, name: str, token: str) -> dict:
     """找到目标 ruleset 的完整定义。
 
-    Args:
+    参数说明:
         repo: ``owner/name``。
         name: ruleset 名称(精确匹配)。
         token: GitHub PAT。
 
-    Returns:
+    返回参数:
         ruleset 详情 JSON。
 
-    Raises:
-        RulesetError: 找不到或查询失败。
+    使用示例:
+        ``find_ruleset(repo, name, token)``
+
+    备注信息:
+        抛 ``RulesetError``:找不到或查询失败。
     """
     status, listing = request("GET", f"{API}/repos/{repo}/rulesets", token)
     if status != 200:
@@ -125,14 +164,18 @@ def find_ruleset(repo: str, name: str, token: str) -> dict:
 def merge_required_checks(detail: dict, contexts: list[str]) -> dict:
     """在 ruleset 详情上追加/替换 required_status_checks 规则。
 
-    只改 ``rules`` 里的这一条,其余(conditions / bypass_actors / enforcement)原样保留。
-
-    Args:
+    参数说明:
         detail: GET ruleset 的返回体。
         contexts: 必需的 check context 列表;空列表表示**移除**这条规则。
 
-    Returns:
+    返回参数:
         可直接 PUT 的 body。
+
+    使用示例:
+        ``merge_required_checks(detail, contexts)``
+
+    备注信息:
+        只改 ``rules`` 里的这一条,其余(conditions / bypass_actors / enforcement)原样保留。
     """
     rules = [rule for rule in detail.get("rules", []) if rule.get("type") != "required_status_checks"]
     if contexts:
@@ -159,11 +202,17 @@ def merge_required_checks(detail: dict, contexts: list[str]) -> dict:
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;``None`` 表示取 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         0 成功;1 失败;2 环境错误。
+
+    使用示例:
+        ``python scripts/apply_ruleset.py --dry-run``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(description="给默认分支 ruleset 加 required status checks")
     parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name")

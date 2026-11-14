@@ -10,10 +10,10 @@
 
 带鉴权的写场景(写接口的限流都按用户计,单账号压不出容量,必须多账号):
     python3 manage.py perf_tokens --count 50 --out perf/results/headers.jsonl   # 源端签令牌
-    python3 perf/run.py --scenario api_write --path /api/v1/discovery/swipe \\
-        --method POST --header 'Content-Type: application/json' \\
-        --body '{"target_user_id": {i}, "action": "like"}' --i-start 20001 \\
-        --headers-file perf/results/headers.jsonl --conns 50 --dur 30 \\
+    python3 perf/run.py --scenario api_write --path /api/v1/discovery/swipe \
+        --method POST --header 'Content-Type: application/json' \
+        --body '{"target_user_id": {i}, "action": "like"}' --i-start 20001 \
+        --headers-file perf/results/headers.jsonl --conns 50 --dur 30 \
         --out perf/results/write_swipe50.json
 
 场景:
@@ -47,6 +47,17 @@ E-7 的开/关缓存对比实验就是靠它把每账号请求数压在额度内
 令牌脱敏:结果 JSON 只记头名与头集套数,头的**值绝不落盘**(结果文件会进 git)。
 
 退出码:0 成功;2 参数错误;3 压测本身失败(连接全挂等)。
+
+文件信息:
+    文件名称          perf/run.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -118,13 +129,16 @@ BENCH_WS_RECONNECT = (Path(__file__).resolve().parent.parent
 def parse_header_arg(text: str) -> tuple[str, str]:
     """把 ``Name: Value`` 解析成二元组(argparse 的 type 回调)。
 
-    Args:
+    参数说明:
         text: 命令行传入的原始头,例如 ``Authorization: Bearer xxx``。
 
-    Returns:
+    返回参数:
         (头名, 头值)。
 
-    Raises:
+    使用示例:
+        ``parse_header_arg(text)``
+
+    备注信息:
         argparse.ArgumentTypeError: 缺少冒号或头名为空,由 argparse 转成退出码 2。
     """
     name, sep, value = text.partition(":")
@@ -136,11 +150,17 @@ def parse_header_arg(text: str) -> tuple[str, str]:
 def merge_headers(*layers: dict[str, str]) -> dict[str, str]:
     """按顺序合并多层请求头,同名(大小写不敏感)时后者覆盖前者。
 
-    Args:
+    参数说明:
         *layers: 若干 ``{名: 值}`` 字典。
 
-    Returns:
+    返回参数:
         合并后的字典(键名用最后一次出现的写法,顺序保持稳定)。
+
+    使用示例:
+        ``merge_headers(*layers)``
+
+    备注信息:
+        无特殊约束。
     """
     merged: dict[str, str] = {}
     spelling: dict[str, str] = {}
@@ -157,12 +177,18 @@ def merge_headers(*layers: dict[str, str]) -> dict[str, str]:
 def has_header(headers: dict[str, str], name: str) -> bool:
     """判断头集合里是否已有某个头(大小写不敏感)。
 
-    Args:
+    参数说明:
         headers: 请求头字典。
         name: 要查的头名。
 
-    Returns:
+    返回参数:
         存在即 True。
+
+    使用示例:
+        ``has_header(headers, name)``
+
+    备注信息:
+        无特殊约束。
     """
     return any(key.lower() == name.lower() for key in headers)
 
@@ -171,16 +197,21 @@ def build_request(method: str, path: str, headers: dict[str, str], body: str,
                   encoding: str = "utf-8") -> bytes:
     """拼一个 HTTP/1.1 请求(带 Content-Length,供 keep-alive 复用)。
 
-    Args:
+    参数说明:
         method: 请求方法。
         path: 请求路径(可带查询串)。
         headers: 已合并的请求头;``Host`` 需由调用方放入。
         body: 请求体文本,空串表示无体。
-        encoding: 请求体编码。上传场景用 ``latin-1`` —— multipart 体里混着图片
-            二进制,``latin-1`` 是唯一能把 bytes 与 str 无损互转的单字节编码。
+        encoding: 请求体编码。上传场景用 ``latin-1`` —— multipart 体里混着图片 二进制,``latin-1`` 是唯一能把 bytes 与 str 无损互转的单字节编码。
 
-    Returns:
+    返回参数:
         可直接写进 socket 的字节串。
+
+    使用示例:
+        ``build_request(method, path, headers, body, encoding)``
+
+    备注信息:
+        无特殊约束。
     """
     final = dict(headers)
     payload = body.encode(encoding)
@@ -195,14 +226,17 @@ def build_request(method: str, path: str, headers: dict[str, str], body: str,
 def load_body(text: str) -> str:
     """解析 ``--body``:``@路径`` 表示读文件,其余当字面量。
 
-    Args:
+    参数说明:
         text: 命令行原值。
 
-    Returns:
+    返回参数:
         请求体文本。
 
-    Raises:
-        ValueError: 指定了 ``@文件`` 但文件不存在或读不出来。
+    使用示例:
+        ``load_body(text)``
+
+    备注信息:
+        抛 ``ValueError``:指定了 ``@文件`` 但文件不存在或读不出来。
     """
     if not text.startswith("@"):
         return text
@@ -217,16 +251,19 @@ def load_upload(path: str, field: str = "file",
                 extra_fields: dict[str, str] | None = None) -> tuple[str, str]:
     """把一张图片包成 multipart/form-data 请求体。
 
-    Args:
+    参数说明:
         path: 图片文件路径(``.jpg`` / ``.png`` / ``.webp``,按扩展名定 Content-Type)。
         field: 文件字段名,服务端 ``request.FILES`` 里用的那个键。
         extra_fields: 附带提交的普通表单字段(如 ``visibility: public``)。
 
-    Returns:
+    返回参数:
         ``(请求体文本, Content-Type 头值)``;请求体用 ``latin-1`` 才能和 bytes 无损互转。
 
-    Raises:
-        ValueError: 文件不存在、读不出来,或扩展名不在支持列表里。
+    使用示例:
+        ``load_upload(path, field, extra_fields)``
+
+    备注信息:
+        抛 ``ValueError``:文件不存在、读不出来,或扩展名不在支持列表里。
     """
     file_path = Path(path)
     try:
@@ -253,17 +290,19 @@ def load_upload(path: str, field: str = "file",
 def load_header_sets(path: str) -> list[dict[str, str]]:
     """读「每连接一套头」的文件:一行一个 JSON 对象,连接按行轮转。
 
-    为什么按连接轮转而不是按请求:一个账号的令牌可以给多条连接共用,但写接口的
-    限流是**按用户**计的,要压出真实容量就得一条连接一个账号。
-
-    Args:
+    参数说明:
         path: 文件路径;空行与 ``#`` 开头的行忽略。
 
-    Returns:
+    返回参数:
         头集合列表(至少一项)。
 
-    Raises:
-        ValueError: 文件不可读、某行不是 JSON 对象,或键值不是字符串。
+    使用示例:
+        ``load_header_sets(path)``
+
+    备注信息:
+        为什么按连接轮转而不是按请求:一个账号的令牌可以给多条连接共用,但写接口的
+        限流是**按用户**计的,要压出真实容量就得一条连接一个账号。
+        抛 ``ValueError``:文件不可读、某行不是 JSON 对象,或键值不是字符串。
     """
     try:
         raw = Path(path).read_text(encoding="utf-8")
@@ -291,11 +330,17 @@ def load_header_sets(path: str) -> list[dict[str, str]]:
 async def read_response(reader: asyncio.StreamReader) -> tuple[int, bytes]:
     """读一个完整的 HTTP/1.1 响应。
 
-    Args:
+    参数说明:
         reader: asyncio 流读取器。
 
-    Returns:
+    返回参数:
         (状态码, body)。
+
+    使用示例:
+        ``read_response(reader)``
+
+    备注信息:
+        无特殊约束。
     """
     head = await reader.readuntil(b"\r\n\r\n")
     lines = head.decode("latin-1").split("\r\n")
@@ -331,16 +376,24 @@ async def one_conn(args, stats: dict, stop: asyncio.Event, index: int,
                    spec: dict, start_delay: float = 0.0) -> None:
     """一条连接上的闭循环(发请求 → 读完 → 再发),等价于 wrk 的 -c。
 
-    Args:
+    参数说明:
         args: 命令行参数。
         stats: 共享统计容器。
         stop: 停止信号。
         index: 连接序号,用来轮转 ``--headers-file`` 里的头集。
         counter: ``{"i": 下一个序号}``,``{i}`` 占位符的取值来源(全局唯一)。
         header_sets: 每连接一套的额外请求头;空列表表示没有。
-        spec: 这条连接要发的请求(``method`` / ``path`` / ``body`` / ``encoding``)。
-            混合场景下由调用方按角色挑好,单场景下所有连接共用同一份。
+        spec: 这条连接要发的请求(``method`` / ``path`` / ``body`` / ``encoding``)。 混合场景下由调用方按角色挑好,单场景下所有连接共用同一份。
         start_delay: 建连前的等待秒数,``--ramp`` 用它把连接摊开。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``one_conn(args, stats, stop, index, counter, header_sets, spec, start_delay)``
+
+    备注信息:
+        无特殊约束。
     """
     ctx = None
     if args.tls:
@@ -399,12 +452,18 @@ async def one_conn(args, stats: dict, stop: asyncio.Event, index: int,
 def pct(values: list[float], p: float) -> float | None:
     """取分位数(毫秒)。
 
-    Args:
+    参数说明:
         values: 秒为单位的样本。
         p: 百分位(0-100)。
 
-    Returns:
+    返回参数:
         毫秒分位数;样本为空时 None。
+
+    使用示例:
+        ``pct(values, p)``
+
+    备注信息:
+        无特殊约束。
     """
     if not values:
         return None
@@ -417,8 +476,17 @@ def pct(values: list[float], p: float) -> float | None:
 def read_load() -> tuple[float | None, float | None]:
     """读一次 1 分钟负载与已用内存(MB);非 Linux 返回 (None, None)。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         (load1, used_mb)。
+
+    使用示例:
+        ``read_load()``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         load1 = float(Path("/proc/loadavg").read_text().split()[0])
@@ -439,8 +507,17 @@ def read_load() -> tuple[float | None, float | None]:
 def read_swap_mb() -> float | None:
     """读一次已用 swap(MB);非 Linux 返回 None。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         已用 swap 的 MB 数。
+
+    使用示例:
+        ``read_swap_mb()``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         meminfo = {}
@@ -456,14 +533,21 @@ async def sample_resources(stats: dict, stop: asyncio.Event, interval: float = 1
                            curve_every: float = 15.0) -> None:
     """每秒采一次负载/内存(记峰值),另外按 ``curve_every`` 记一条内存曲线。
 
-    峰值只回答「最高到多少」;30 分钟的长跑还需要「什么时候开始换页」,
-    所以曲线点带相对时间戳,写进结果 JSON 的 ``resources.mem_curve``。
-
-    Args:
+    参数说明:
         stats: 共享统计容器(写 ``load_peak`` / ``mem_peak`` / ``curve``)。
         stop: 停止信号。
         interval: 采样间隔(秒)。
         curve_every: 曲线点间隔(秒);0 表示不记曲线。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sample_resources(stats, stop, interval, curve_every)``
+
+    备注信息:
+        峰值只回答「最高到多少」;30 分钟的长跑还需要「什么时候开始换页」,
+        所以曲线点带相对时间戳,写进结果 JSON 的 ``resources.mem_curve``。
     """
     started = time.perf_counter()
     next_curve = 0.0
@@ -487,16 +571,20 @@ async def sample_resources(stats: dict, stop: asyncio.Event, interval: float = 1
 def role_is_write(index: int, ratio: float) -> bool:
     """按连接序号决定混合场景里的角色(写/读)。
 
-    用 ``int((index+1)*ratio) > int(index*ratio)`` 而不是 ``index < ratio*n``:
-    前者把写连接**均匀摊开**在全部连接里,后者在连接数少时会把写角色全挤到前几个号,
-    压出来的是「前面几条连接很忙、后面全闲」的假象。
-
-    Args:
+    参数说明:
         index: 连接序号(从 0 开始)。
         ratio: 写连接占比(0~1)。
 
-    Returns:
+    返回参数:
         True 表示这条连接走写路径。
+
+    使用示例:
+        ``role_is_write(index, ratio)``
+
+    备注信息:
+        用 ``int((index+1)*ratio) > int(index*ratio)`` 而不是 ``index < ratio*n``:
+        前者把写连接**均匀摊开**在全部连接里,后者在连接数少时会把写角色全挤到前几个号,
+        压出来的是「前面几条连接很忙、后面全闲」的假象。
     """
     if ratio <= 0:
         return False
@@ -508,12 +596,17 @@ def role_is_write(index: int, ratio: float) -> bool:
 def request_specs(args) -> tuple[list[dict], list[dict]]:
     """按场景给出「读请求」与「写请求」两份 spec。
 
-    Args:
+    参数说明:
         args: 命令行参数(已归一)。
 
-    Returns:
-        ``(read_specs, write_specs)``;单场景下两份里只有一份非空,
-        混合场景两份都有,``pick_spec`` 再按角色挑。
+    返回参数:
+        ``(read_specs, write_specs)``;单场景下两份里只有一份非空, 混合场景两份都有,``pick_spec`` 再按角色挑。
+
+    使用示例:
+        ``request_specs(args)``
+
+    备注信息:
+        无特殊约束。
     """
     encoding = getattr(args, "body_encoding", "utf-8")
     read_spec = {"method": args.method, "path": args.path, "body": args.body,
@@ -530,14 +623,20 @@ def request_specs(args) -> tuple[list[dict], list[dict]]:
 def pick_spec(args, read_specs: list[dict], write_specs: list[dict], index: int) -> dict:
     """给第 ``index`` 条连接挑一份请求 spec。
 
-    Args:
+    参数说明:
         args: 命令行参数。
         read_specs: 读路径 spec 列表。
         write_specs: 写路径 spec 列表。
         index: 连接序号。
 
-    Returns:
+    返回参数:
         该连接固定使用的 spec(整条连接生命周期内不变)。
+
+    使用示例:
+        ``pick_spec(args, read_specs, write_specs, index)``
+
+    备注信息:
+        无特殊约束。
     """
     if write_specs and role_is_write(index, args.write_ratio):
         return write_specs[0]
@@ -547,12 +646,18 @@ def pick_spec(args, read_specs: list[dict], write_specs: list[dict], index: int)
 async def run_http(args, header_sets: list[dict[str, str]]) -> dict:
     """跑 HTTP 场景。
 
-    Args:
+    参数说明:
         args: 命令行参数。
         header_sets: 每连接一套的额外请求头;空列表表示只用 ``--header``。
 
-    Returns:
+    返回参数:
         结果字典(``requests`` / ``rps`` / ``error_rate`` / ``lat_ms`` 等)。
+
+    使用示例:
+        ``run_http(args, header_sets)``
+
+    备注信息:
+        无特殊约束。
     """
     stats = {"n": 0, "lat": [], "codes": Counter()}
     stop = asyncio.Event()
@@ -609,18 +714,20 @@ async def run_http(args, header_sets: list[dict[str, str]]) -> dict:
 def run_ws_reconnect(args) -> dict:
     """跑 WS 重连风暴:先让全部客户端连上,再重启服务端,测「多快全部回来」。
 
-    编排放在这里而不是脚本里:脚本只管连/断/重连,「重启服务端」是环境动作
-    (``docker restart imserver``),用 ``--restart-cmd`` 显式传进来 —— 压测脚本
-    不该自己猜怎么重启别人的服务。
-
-    Args:
+    参数说明:
         args: 命令行参数(需 ``--restart-cmd``)。
 
-    Returns:
+    返回参数:
         bench_ws_reconnect 的结果字典。
 
-    Raises:
-        RuntimeError: 缺少脚本/缺少 ``--restart-cmd``/脚本失败。
+    使用示例:
+        ``run_ws_reconnect(args)``
+
+    备注信息:
+        编排放在这里而不是脚本里:脚本只管连/断/重连,「重启服务端」是环境动作
+        (``docker restart imserver``),用 ``--restart-cmd`` 显式传进来 —— 压测脚本
+        不该自己猜怎么重启别人的服务。
+        抛 ``RuntimeError``:缺少脚本/缺少 ``--restart-cmd``/脚本失败。
     """
     if not BENCH_WS_RECONNECT.exists():
         raise RuntimeError(f"缺少 {BENCH_WS_RECONNECT}")
@@ -679,14 +786,17 @@ def run_ws_reconnect(args) -> dict:
 def run_ws(args) -> dict:
     """委托 imserver 自带的 WS 压测脚本并读取其结果。
 
-    Args:
+    参数说明:
         args: 命令行参数。
 
-    Returns:
+    返回参数:
         bench_ws 的结果字典。
 
-    Raises:
-        RuntimeError: 脚本缺失或退出码非 0。
+    使用示例:
+        ``run_ws(args)``
+
+    备注信息:
+        抛 ``RuntimeError``:脚本缺失或退出码非 0。
     """
     if args.scenario == "ws_reconnect":
         return run_ws_reconnect(args)
@@ -721,8 +831,17 @@ def run_ws(args) -> dict:
 def machine_spec() -> dict:
     """采集机器规格,让结果可比较。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         主机名 / CPU 核数 / 平台 / 内存(MB)。
+
+    使用示例:
+        ``machine_spec()``
+
+    备注信息:
+        无特殊约束。
     """
     total_mb = None
     try:
@@ -743,17 +862,21 @@ def build_payload(args, header_sets: list[dict[str, str]], result: dict,
                   started_at: str) -> dict:
     """组装要落盘的结果 JSON。
 
-    令牌类信息绝不落盘:``--header`` 只记头名,``--headers-file`` 只记套数 ——
-    结果文件会进 git,把 ``Authorization`` 的值写进去等于泄露登录态。
-
-    Args:
+    参数说明:
         args: 命令行参数(已归一:path / method / body 都有值)。
         header_sets: ``--headers-file`` 读到的头集。
         result: 压测结果字典,其中的 ``load_peak`` / ``mem_peak`` 会被移到 resources。
         started_at: 开始时间(ISO 字符串)。
 
-    Returns:
+    返回参数:
         结果 payload。
+
+    使用示例:
+        ``build_payload(args, header_sets, result, started_at)``
+
+    备注信息:
+        令牌类信息绝不落盘:``--header`` 只记头名,``--headers-file`` 只记套数 ——
+        结果文件会进 git,把 ``Authorization`` 的值写进去等于泄露登录态。
     """
     header_names = {name for name, _ in args.header}
     for extra in header_sets:
@@ -805,11 +928,17 @@ def build_payload(args, header_sets: list[dict[str, str]], result: dict,
 def normalize_args(args) -> str:
     """把 ``--path`` / ``--method`` / ``--body`` 归一,并做参数期校验。
 
-    Args:
+    参数说明:
         args: argparse 解析结果(会被就地改写)。
 
-    Returns:
+    返回参数:
         空字符串表示通过;否则是要打印的中文错误说明(不含「参数错误」前缀)。
+
+    使用示例:
+        ``normalize_args(args)``
+
+    备注信息:
+        无特殊约束。
     """
     if args.method:
         method = args.method.upper()
@@ -870,8 +999,17 @@ def normalize_args(args) -> str:
 def main() -> int:
     """解析参数、跑场景、写结果 JSON。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         进程退出码。
+
+    使用示例:
+        ``python3 perf/run.py --scenario api_read --conns 100 --dur 30 --out perf/results/api100.json``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", required=True,

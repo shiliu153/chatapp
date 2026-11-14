@@ -8,6 +8,17 @@
     python3 srvload.py --host 127.0.0.1 --port 443 --tls --sni chat.shiliu153.cn --path /api/v1/app/config --conns 500 --dur 20
 
 每个连接是「发一个请求 → 读完响应 → 再发下一个」的闭循环,等价于 wrk 的 -c。
+
+文件信息:
+    文件名称          scripts/stress/srv_load.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -21,7 +32,20 @@ from collections import Counter
 
 
 async def read_response(reader: asyncio.StreamReader) -> tuple[int, bytes]:
-    """读一个完整的 HTTP/1.1 响应,返回 (状态码, body)。"""
+    """读一个完整的 HTTP/1.1 响应,返回 (状态码, body)。
+
+    参数说明:
+        reader: ``asyncio.StreamReader`` 读端。
+
+    返回参数:
+        ``tuple[int, bytes]``。
+
+    使用示例:
+        ``read_response(reader)``
+
+    备注信息:
+        无特殊约束。
+    """
     head = await reader.readuntil(b"\r\n\r\n")
     lines = head.decode("latin-1").split("\r\n")
     status = int(lines[0].split(" ")[1])
@@ -52,7 +76,22 @@ async def read_response(reader: asyncio.StreamReader) -> tuple[int, bytes]:
 
 
 async def one_conn(args, stats: dict, stop: asyncio.Event) -> None:
-    """一条连接上的闭循环。"""
+    """一条连接上的闭循环。
+
+    参数说明:
+        args: 命令行参数(argparse 命名空间)。
+        stats: 汇总容器(``dict``),含 ``lat`` / ``codes``。
+        stop: ``asyncio.Event``,置位后各协程退出循环。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``one_conn(args, stats, stop)``
+
+    备注信息:
+        无特殊约束。
+    """
     ctx = None
     if args.tls:
         ctx = ssl.create_default_context()
@@ -87,7 +126,21 @@ async def one_conn(args, stats: dict, stop: asyncio.Event) -> None:
 
 
 def pct(values: list[float], p: float) -> float | None:
-    """分位(毫秒)。"""
+    """分位(毫秒)。
+
+    参数说明:
+        values: 延迟样本列表,单位秒。
+        p: 分位点,取值 0–100。
+
+    返回参数:
+        ``float | None``。
+
+    使用示例:
+        ``pct(values, p)``
+
+    备注信息:
+        无特殊约束。
+    """
     if not values:
         return None
     ordered = sorted(values)
@@ -96,7 +149,20 @@ def pct(values: list[float], p: float) -> float | None:
 
 
 async def main() -> None:
-    """入口。"""
+    """入口。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``main()``
+
+    备注信息:
+        无特殊约束。
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)

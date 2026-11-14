@@ -4,6 +4,17 @@
     反馈与举报分开建模:举报有「被举报人」与处理动作,反馈只有内容与处理状态。
     ``user`` 用 ``CASCADE`` —— 注销账号即删除其全部反馈,与「注销 = 删除全部数据」一致;
     ``handled_by`` 用 ``SET_NULL`` —— 运营账号被删不应连带删除用户反馈。
+
+文件信息:
+    文件名称          feedback/models.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.conf import settings
@@ -29,9 +40,18 @@ class FeedbackStatus(models.TextChoices):
 class Feedback(models.Model):
     """一条用户意见反馈。
 
-    Attributes:
-        handled_by: 处理人(运营账号);未处理时为 ``None``。
-        handled_at: 首次标记已处理的时间。
+    参数说明:
+        无。实例由 Django ORM 按字段构造,不接受显式构造参数。
+
+    返回参数:
+        ``Feedback`` 实例。
+
+    使用示例:
+        ``Feedback.objects.create(user=request.user, type="bug", content="夜间模式开关无效")``
+
+    备注信息:
+        ``handled_by`` 是处理人(运营账号),未处理时为 ``None``;``handled_at`` 是首次标记已处理的时间。
+        ``user`` 级联删除、``handled_by`` 置空,取舍见模块 docstring。默认按 ``created_at`` 倒序。
     """
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
@@ -53,7 +73,16 @@ class Feedback(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``feedback#主键(用户:类型)``。
+
+        使用示例:
+            ``str(feedback)``
+
+        备注信息:
+            只用于 Django 后台与日志,不进对外接口响应。
         """
         return f"feedback#{self.pk}({self.user_id}:{self.type})"

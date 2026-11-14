@@ -40,6 +40,17 @@
 - ``1``:有门禁红;
 - ``2``:执行器自己出错(注册表不是合法 TOML / 字段缺失 / 命令为空 / scope 不存在 /
   解释器不可用)。**执行器坏了不能冒充门禁红**,否则人会去修错的东西。
+
+文件信息:
+    文件名称          scripts/run_gates.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -75,14 +86,36 @@ EXIT_USAGE = 2
 
 
 class RegistryError(RuntimeError):
-    """注册表或调用方式有问题 —— 执行器自己出错(退出码 2),不是门禁红。"""
+    """注册表或调用方式有问题 —— 执行器自己出错(退出码 2),不是门禁红。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``raise RegistryError(...)``
+
+    备注信息:
+        无特殊约束。
+    """
 
 
 @dataclass(frozen=True)
 class Gate:
     """一道门禁的不可变描述(每个字段的含义见 ``scripts/gates.toml`` 头部注释)。
 
-    Attributes:
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``obj = Gate(...)``
+
+    备注信息:
         id: 唯一标识,形如 ``<scope>-<slug>``,也是失败时日志里被点名的东西。
         scope: 归属的栈,决定 ``--scope`` 过滤。
         kind: ``python`` 或 ``shell``。
@@ -106,16 +139,19 @@ class Gate:
 def _text(entry: dict, key: str, where: str) -> str:
     """取一个必填的字符串字段。
 
-    Args:
+    参数说明:
         entry: 一个 ``[[gate]]`` 表。
         key: 字段名。
         where: 出错时用来定位的说明(如「第 3 个 [[gate]]」)。
 
-    Returns:
+    返回参数:
         去掉首尾空白的字段值。
 
-    Raises:
-        RegistryError: 字段缺失、不是字符串,或去空白后为空。
+    使用示例:
+        ``_text(entry, key, where)``
+
+    备注信息:
+        抛 ``RegistryError``:字段缺失、不是字符串,或去空白后为空。
     """
     value = entry.get(key)
     if not isinstance(value, str) or not value.strip():
@@ -126,15 +162,18 @@ def _text(entry: dict, key: str, where: str) -> str:
 def _optional_cwd(entry: dict, where: str) -> str:
     """取可选的 ``cwd`` 并校验它指向仓库内一个真实存在的目录。
 
-    Args:
+    参数说明:
         entry: 一个 ``[[gate]]`` 表。
         where: 出错时用来定位的说明。
 
-    Returns:
+    返回参数:
         相对仓库根的目录(缺省 ``.``)。
 
-    Raises:
-        RegistryError: 不是字符串、是绝对路径、含 ``..``,或目录不存在。
+    使用示例:
+        ``_optional_cwd(entry, where)``
+
+    备注信息:
+        抛 ``RegistryError``:不是字符串、是绝对路径、含 ``..``,或目录不存在。
     """
     value = entry.get("cwd", ".")
     if not isinstance(value, str) or not value.strip():
@@ -150,15 +189,18 @@ def _optional_cwd(entry: dict, where: str) -> str:
 def _optional_requires(entry: dict, where: str) -> tuple[str, ...]:
     """取可选的 ``requires``(外部工具名列表)。
 
-    Args:
+    参数说明:
         entry: 一个 ``[[gate]]`` 表。
         where: 出错时用来定位的说明。
 
-    Returns:
+    返回参数:
         工具名元组(保持声明顺序)。
 
-    Raises:
-        RegistryError: 不是字符串列表,或含空项。
+    使用示例:
+        ``_optional_requires(entry, where)``
+
+    备注信息:
+        抛 ``RegistryError``:不是字符串列表,或含空项。
     """
     value = entry.get("requires", [])
     if not isinstance(value, list) or any(
@@ -171,15 +213,18 @@ def _optional_requires(entry: dict, where: str) -> tuple[str, ...]:
 def _optional_env(entry: dict, where: str) -> dict[str, str]:
     """取可选的 ``env``(门禁专用环境变量)。
 
-    Args:
+    参数说明:
         entry: 一个 ``[[gate]]`` 表。
         where: 出错时用来定位的说明。
 
-    Returns:
+    返回参数:
         键值都是字符串的字典(缺省空)。
 
-    Raises:
-        RegistryError: 不是表,或值不是字符串。
+    使用示例:
+        ``_optional_env(entry, where)``
+
+    备注信息:
+        抛 ``RegistryError``:不是表,或值不是字符串。
     """
     value = entry.get("env", {})
     if not isinstance(value, dict) or any(
@@ -192,18 +237,20 @@ def _optional_env(entry: dict, where: str) -> dict[str, str]:
 def load_registry(path: Path) -> list[Gate]:
     """读取并校验注册表,返回**按 id 的 POSIX 字节序**排好序的门禁列表。
 
-    排序不依赖文件系统,也不依赖 locale:Windows 大小写不敏感、Linux 敏感,
-    用 ``str.lower()`` 或 ``sorted(Path)`` 会让两边顺序不同,而 ``--list`` 的输出
-    会被 lint 比对。
-
-    Args:
+    参数说明:
         path: 注册表路径(生产用 ``scripts/gates.toml``,自测用临时文件)。
 
-    Returns:
+    返回参数:
         校验通过的门禁列表。
 
-    Raises:
-        RegistryError: 文件读不到、不是合法 TOML、条目字段不合法、id 重复或命令为空。
+    使用示例:
+        ``load_registry(path)``
+
+    备注信息:
+        排序不依赖文件系统,也不依赖 locale:Windows 大小写不敏感、Linux 敏感,
+        用 ``str.lower()`` 或 ``sorted(Path)`` 会让两边顺序不同,而 ``--list`` 的输出
+        会被 lint 比对。
+        抛 ``RegistryError``:文件读不到、不是合法 TOML、条目字段不合法、id 重复或命令为空。
     """
     try:
         with path.open("rb") as handle:
@@ -274,8 +321,17 @@ def load_registry(path: Path) -> list[Gate]:
 def interpreter() -> str:
     """返回 ``python`` 门禁要用的解释器:``$CHATAPP_PY``,缺省 ``python3``。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         解释器命令(可能是绝对路径,也可能是 PATH 里的名字)。
+
+    使用示例:
+        ``interpreter()``
+
+    备注信息:
+        无特殊约束。
     """
     return os.environ.get("CHATAPP_PY") or "python3"
 
@@ -283,20 +339,22 @@ def interpreter() -> str:
 def build_argv(gate: Gate, python: str) -> list[str]:
     """把门禁命令变成可执行的参数向量。
 
-    ``kind = "python"`` 用 ``shlex`` 切分(保留引号语义,如 ``-p 'test_*.py'``),
-    并把开头的 ``python`` 换成解释器;``kind = "shell"`` 整条交给 ``bash -c``,
-    这样多行脚本与 ``< <(...)`` 之类的 bash 语法都能用;``kind = "artifact"`` 的 command
-    是生成物路径,执行器把它拼成 ``python scripts/lib/artifacts.py <路径>``。
-
-    Args:
+    参数说明:
         gate: 门禁。
         python: 解释器(kind = "python" / "artifact" 时生效)。
 
-    Returns:
+    返回参数:
         传给 ``subprocess.run`` 的参数列表。
 
-    Raises:
-        RegistryError: 命令里的引号不配对(shlex 切不开)。
+    使用示例:
+        ``build_argv(gate, python)``
+
+    备注信息:
+        ``kind = "python"`` 用 ``shlex`` 切分(保留引号语义,如 ``-p 'test_*.py'``),
+        并把开头的 ``python`` 换成解释器;``kind = "shell"`` 整条交给 ``bash -c``,
+        这样多行脚本与 ``< <(...)`` 之类的 bash 语法都能用;``kind = "artifact"`` 的 command
+        是生成物路径,执行器把它拼成 ``python scripts/lib/artifacts.py <路径>``。
+        抛 ``RegistryError``:命令里的引号不配对(shlex 切不开)。
     """
     if gate.kind == "artifact":
         return [python, ARTIFACT_CHECKER, gate.command]
@@ -311,17 +369,29 @@ def build_argv(gate: Gate, python: str) -> list[str]:
 
 
 def _is_ci() -> bool:
-    """当前是否跑在 GitHub Actions 里(决定用注解还是人读的分隔线)。"""
+    """当前是否跑在 GitHub Actions 里(决定用注解还是人读的分隔线)。
+
+    备注信息:
+        无特殊约束。
+    """
     return os.environ.get("GITHUB_ACTIONS") == "true"
 
 
 def _stream(json_mode: bool):
-    """人读输出该走哪一路:``--json`` 时走 stderr,保证 stdout 只有 JSON。"""
+    """人读输出该走哪一路:``--json`` 时走 stderr,保证 stdout 只有 JSON。
+
+    备注信息:
+        无特殊约束。
+    """
     return sys.stderr if json_mode else sys.stdout
 
 
 def _first_line(command: str) -> str:
-    """取命令的第一行,多行时补省略号(日志标题用)。"""
+    """取命令的第一行,多行时补省略号(日志标题用)。
+
+    备注信息:
+        无特殊约束。
+    """
     lines = command.strip().splitlines()
     return lines[0] + ("  …" if len(lines) > 1 else "")
 
@@ -329,9 +399,18 @@ def _first_line(command: str) -> str:
 def render_list(gates: list[Gate], json_mode: bool) -> None:
     """打印清单(``--list``)。
 
-    Args:
+    参数说明:
         gates: 已过滤的门禁。
         json_mode: 为真时向 stdout 打 JSON 数组(供 L4 与 lint 比对),否则打人读的两行式。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``render_list(gates, json_mode)``
+
+    备注信息:
+        无特殊约束。
     """
     if json_mode:
         payload = [
@@ -366,13 +445,20 @@ def render_list(gates: list[Gate], json_mode: bool) -> None:
 def render_dry_run(gates: list[Gate], python: str, stream) -> None:
     """逐条打印将要执行的命令,不执行(``--dry-run``)。
 
-    每道门禁的第一行以 ``+ `` 开头、续行缩进两格 —— ``scripts/test_verify.sh`` 用
-    ``grep -c '^+ '`` 数条数,与 ``--list`` 的条数对齐(第 4 节验收口径)。
-
-    Args:
+    参数说明:
         gates: 已过滤的门禁。
         python: 解释器(``kind = "python"`` 的命令按它渲染)。
         stream: 输出流(``--json`` 时为 stderr)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``render_dry_run(gates, python, stream)``
+
+    备注信息:
+        每道门禁的第一行以 ``+ `` 开头、续行缩进两格 —— ``scripts/test_verify.sh`` 用
+        ``grep -c '^+ '`` 数条数,与 ``--list`` 的条数对齐(第 4 节验收口径)。
     """
     for gate in gates:
         print(f"[{gate.id}] {gate.reason}", file=stream)
@@ -388,10 +474,19 @@ def render_dry_run(gates: list[Gate], python: str, stream) -> None:
 def _announce(stream, gate: Gate, argv: list[str]) -> None:
     """打印一道门禁的开始标记(GitHub Actions 里用 ``::group::``,本地用分隔线)。
 
-    Args:
+    参数说明:
         stream: 输出流。
         gate: 门禁。
         argv: 实际执行的参数向量(仅用于展示)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_announce(stream, gate, argv)``
+
+    备注信息:
+        无特殊约束。
     """
     title = f"[{gate.id}] {gate.reason}"
     if _is_ci():
@@ -405,11 +500,20 @@ def _announce(stream, gate: Gate, argv: list[str]) -> None:
 def _report_failure(stream, gate: Gate, code: int, message: str) -> None:
     """报一道门禁失败:CI 用 ``::error title=<id>::`` 注解,本地打人读的一行。
 
-    Args:
+    参数说明:
         stream: 输出流。
         gate: 门禁。
         code: 退出码。
         message: 失败原因(缺工具时带安装命令)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_report_failure(stream, gate, code, message)``
+
+    备注信息:
+        无特殊约束。
     """
     if _is_ci():
         print(f"::error title={gate.id}::{message}(退出码 {code})", file=stream)
@@ -422,18 +526,21 @@ def run_scope(
 ) -> list[dict]:
     """按顺序执行一组门禁,返回结果汇总。
 
-    门禁输出不捕获(直接继承 stdout/stderr),这样 CI 日志是实时的;只有 ``--json``
-    时才捕获并转写到 stderr,保证 stdout 上只有那一段 JSON。
-
-    Args:
+    参数说明:
         gates: 已过滤的门禁(顺序即执行顺序)。
         python: 解释器。
         skipped: ``--skip`` 指定的 id 集合(本地排障用,CI 不使用)。
         json_mode: 为真时把门禁输出转写到 stderr。
 
-    Returns:
-        每道门禁一条 ``{"id", "scope", "status", "exit_code"}``;status 为
-        ``ok`` / ``failed`` / ``skipped``。**不带耗时与时间戳** —— 输出要可逐字比对。
+    返回参数:
+        每道门禁一条 ``{"id", "scope", "status", "exit_code"}``;status 为 ``ok`` / ``failed`` / ``skipped``。**不带耗时与时间戳** —— 输出要可逐字比对。
+
+    使用示例:
+        ``run_scope(gates, python, skipped, json_mode)``
+
+    备注信息:
+        门禁输出不捕获(直接继承 stdout/stderr),这样 CI 日志是实时的;只有 ``--json``
+        时才捕获并转写到 stderr,保证 stdout 上只有那一段 JSON。
     """
     stream = _stream(json_mode)
     results: list[dict] = []
@@ -493,9 +600,18 @@ def run_scope(
 def _print_summary(results: list[dict], stream) -> None:
     """打印末尾汇总(通过 / 失败 / 跳过),失败时点名到 id。
 
-    Args:
+    参数说明:
         results: ``run_scope`` 的返回值。
         stream: 输出流。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_print_summary(results, stream)``
+
+    备注信息:
+        无特殊约束。
     """
     failed = [item["id"] for item in results if item["status"] == "failed"]
     passed = sum(1 for item in results if item["status"] == "ok")
@@ -511,11 +627,17 @@ def _print_summary(results: list[dict], stream) -> None:
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;``None`` 表示读 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         进程退出码:0 全绿 / 1 有门禁红 / 2 执行器自己出错。
+
+    使用示例:
+        ``python scripts/run_gates.py --scope contract``
+
+    备注信息:
+        失败时抛 ``RegistryError``,由调用方处理。
     """
     parser = argparse.ArgumentParser(
         prog="run_gates.py",

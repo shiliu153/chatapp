@@ -20,10 +20,21 @@
 断网。校验不过就退出非零,由调用方保留旧配置。
 
 用法:
-    python3 render-config.py --url-file <订阅URL文件> --out <输出路径> \\
+    python3 render-config.py --url-file <订阅URL文件> --out <输出路径> \
         [--override override.yaml] [--secret-file <controller密钥文件>]
 
 Args 见各函数 docstring。
+
+文件信息:
+    文件名称          scripts/superagent-proxy/render-config.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -58,8 +69,17 @@ INFO_NODE_PATTERN = re.compile(r"流量|套餐|重置|到期")
 def die(msg: str) -> None:
     """打印错误到 stderr 并以退出码 2 结束。
 
-    Args:
+    参数说明:
         msg: 人类可读的错误原因。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``die(msg)``
+
+    备注信息:
+        失败时抛 ``SystemExit``,由调用方处理。
     """
     print(f"render-config: {msg}", file=sys.stderr)
     raise SystemExit(2)
@@ -68,12 +88,18 @@ def die(msg: str) -> None:
 def read_text(path: str, what: str) -> str:
     """读取一个文本文件并去掉首尾空白。
 
-    Args:
+    参数说明:
         path: 文件路径。
         what: 用于报错信息的人类可读描述(如「订阅 URL 文件」)。
 
-    Returns:
+    返回参数:
         文件内容(已 strip)。
+
+    使用示例:
+        ``read_text(path, what)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         with open(path, encoding="utf-8") as fh:
@@ -85,20 +111,21 @@ def read_text(path: str, what: str) -> str:
 def fetch_subscription(url: str, proxy: str | None) -> str:
     """拉取订阅原文。
 
-    先直连,失败再试宿主代理。顺序不能反:订阅站是国内可达的,
-    走代理反而多一跳;而宿主代理在本机对 GitHub 的失败率高达 50%
-    (实测见 docs/ops/superagent.md §12),不该让它挡在必经路径上。
-
-    Args:
+    参数说明:
         url: 订阅地址(含 token,只在内存里用,不落盘)。
-        proxy: 直连失败时使用的代理地址,如 ``http://172.26.240.1:7897``;
-            为 None 则不重试。
+        proxy: 直连失败时使用的代理地址,如 ``http://172.26.240.1:7897``; 为 None 则不重试。
 
-    Returns:
+    返回参数:
         订阅原文(预期是 Clash YAML)。
 
-    Raises:
-        SystemExit: 两种方式都失败时由 die 结束。
+    使用示例:
+        ``fetch_subscription(url, proxy)``
+
+    备注信息:
+        先直连,失败再试宿主代理。顺序不能反:订阅站是国内可达的,
+        走代理反而多一跳;而宿主代理在本机对 GitHub 的失败率高达 50%
+        (实测见 docs/ops/superagent.md §12),不该让它挡在必经路径上。
+        抛 ``SystemExit``:两种方式都失败时由 die 结束。
     """
     req = urllib.request.Request(url, headers={"User-Agent": CLASH_UA})
     attempts: list[tuple[str, str | None]] = [("直连", None)]
@@ -129,18 +156,20 @@ def fetch_subscription(url: str, proxy: str | None) -> str:
 def validate(cfg: Any) -> dict[str, Any]:
     """校验订阅解析出来的配置够不够用。
 
-    这一步是「坏订阅防线」:机场偶尔返回 HTML 错误页、或者返回一份只有
-    几个节点的残缺配置。写进 config.yaml 后 mihomo 会起不来,worker 直接
-    断网,而且现场看起来像「代理没开」,极难排查。宁可在渲染阶段就拒绝。
-
-    Args:
+    参数说明:
         cfg: ``yaml.safe_load`` 的结果。
 
-    Returns:
+    返回参数:
         通过校验的配置(原对象)。
 
-    Raises:
-        SystemExit: 任一硬性要求不满足时由 die 结束。
+    使用示例:
+        ``validate(cfg)``
+
+    备注信息:
+        这一步是「坏订阅防线」:机场偶尔返回 HTML 错误页、或者返回一份只有
+        几个节点的残缺配置。写进 config.yaml 后 mihomo 会起不来,worker 直接
+        断网,而且现场看起来像「代理没开」,极难排查。宁可在渲染阶段就拒绝。
+        抛 ``SystemExit``:任一硬性要求不满足时由 die 结束。
     """
     if not isinstance(cfg, dict):
         die("订阅不是 YAML 映射(可能是 HTML 错误页)")
@@ -163,17 +192,21 @@ def validate(cfg: Any) -> dict[str, Any]:
 def pick_github_nodes(proxies: list[dict[str, Any]], spec: dict[str, Any]) -> list[str]:
     """挑出放进 GitHub 测速组的节点名。
 
-    只挑专线(IEPL)。理由是实测:同一机场的中转/直连线路在 GitHub 上
-    的失败率明显高于 IEPL,而 worker 每一轮轮询有 60~100 次 GitHub 读,
-    单请求 15% 失败率就足以让整轮踩雷(§11)。节点名是订阅给的,
-    订阅更新后名字会变,所以这里按模式匹配而不是写死。
-
-    Args:
+    参数说明:
         proxies: 订阅里的节点列表。
         spec: ``override.yaml`` 的 ``github_group`` 段。
 
-    Returns:
+    返回参数:
         节点名列表;挑不到时返回空列表(调用方据此决定是否跳过建组)。
+
+    使用示例:
+        ``pick_github_nodes(proxies, spec)``
+
+    备注信息:
+        只挑专线(IEPL)。理由是实测:同一机场的中转/直连线路在 GitHub 上
+        的失败率明显高于 IEPL,而 worker 每一轮轮询有 60~100 次 GitHub 读,
+        单请求 15% 失败率就足以让整轮踩雷(§11)。节点名是订阅给的,
+        订阅更新后名字会变,所以这里按模式匹配而不是写死。
     """
     include = re.compile(spec.get("include_pattern") or "IEPL")
     exclude = re.compile(spec.get("exclude_pattern") or INFO_NODE_PATTERN.pattern)
@@ -193,17 +226,21 @@ def pick_github_nodes(proxies: list[dict[str, Any]], spec: dict[str, Any]) -> li
 def inject_github_group(cfg: dict[str, Any], spec: dict[str, Any]) -> bool:
     """注入 GitHub 专用测速组,并把它设为主组的默认出口。
 
-    mihomo 的规则最后一条是 ``MATCH,节点选择``,而 ``节点选择`` 是 select 组、
-    默认选中它 proxies 列表的第一个。所以只要把新组插到该列表首位,
-    默认出口就换成了按 GitHub 实测选出来的节点 —— 不需要改 rules,
-    也不影响「国际媒体」「电报代理」这些机场自带的分流组。
-
-    Args:
+    参数说明:
         cfg: 已校验的配置(原地修改)。
         spec: ``override.yaml`` 的 ``github_group`` 段。
 
-    Returns:
+    返回参数:
         True 表示建组并接管了默认出口;False 表示节点不够,保持原样。
+
+    使用示例:
+        ``inject_github_group(cfg, spec)``
+
+    备注信息:
+        mihomo 的规则最后一条是 ``MATCH,节点选择``,而 ``节点选择`` 是 select 组、
+        默认选中它 proxies 列表的第一个。所以只要把新组插到该列表首位,
+        默认出口就换成了按 GitHub 实测选出来的节点 —— 不需要改 rules,
+        也不影响「国际媒体」「电报代理」这些机场自带的分流组。
     """
     group_name = spec.get("name") or "github"
     nodes = pick_github_nodes(cfg["proxies"], spec)
@@ -252,12 +289,19 @@ def inject_github_group(cfg: dict[str, Any], spec: dict[str, Any]) -> bool:
 def apply_override(cfg: dict[str, Any], override: dict[str, Any], secret: str | None) -> None:
     """把本地覆写应用到配置上(原地修改)。
 
-    Args:
+    参数说明:
         cfg: 已校验的配置。
-        override: ``override.yaml`` 的内容;其中 ``github_group`` 段是给
-            :func:`inject_github_group` 用的,不作为配置键写出。
-        secret: controller 的 Bearer 密钥;为 None 时不设(仅回环监听,
-            不设也能用,但设了可以挡住本机其他进程误调)。
+        override: ``override.yaml`` 的内容;其中 ``github_group`` 段是给 :func:`inject_github_group` 用的,不作为配置键写出。
+        secret: controller 的 Bearer 密钥;为 None 时不设(仅回环监听, 不设也能用,但设了可以挡住本机其他进程误调)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``apply_override(cfg, override, secret)``
+
+    备注信息:
+        无特殊约束。
     """
     for key, value in override.items():
         if key == "github_group":
@@ -273,7 +317,20 @@ def apply_override(cfg: dict[str, Any], override: dict[str, Any], secret: str | 
 
 
 def main() -> None:
-    """命令行入口:拉订阅 → 校验 → 注入 → 原子落盘。"""
+    """命令行入口:拉订阅 → 校验 → 注入 → 原子落盘。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``python3 scripts/superagent-proxy/render-config.py --url-file urls.txt --out out.json``
+
+    备注信息:
+        无特殊约束。
+    """
     ap = argparse.ArgumentParser(description="把机场订阅渲染成 mihomo config.yaml")
     ap.add_argument("--url-file", help="含订阅 URL 的文件(仓库外,权限 600);--from-file 时可省")
     ap.add_argument("--out", required=True, help="输出 config.yaml 路径")
