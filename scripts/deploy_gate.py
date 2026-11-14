@@ -22,13 +22,15 @@
     python scripts/deploy_gate.py --offline       # 只做 git 侧校验,不查 GitHub
 
 退出码:0 通过;1 不通过(原因逐条打印);2 用法/环境错误。
+
+仓库名 / API 基址 / token 文件与解析逻辑住在 ``scripts/lib/repo.py``(2026-11-14 治理第 5 节:
+这四个 GitHub 常量以前在四个脚本里各抄一份,见 ``sources-of-truth.md`` §4 C7)。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import urllib.error
@@ -36,10 +38,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+# `python scripts/deploy_gate.py` 时 sys.path[0] 是 scripts/,显式把仓库根放进去,
+# 这样 `from scripts.lib import repo` 在直接跑与 unittest 两种方式下都成立(见 lib/__init__.py)。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.lib import repo as lib_repo  # noqa: E402  (必须在 sys.path 修好之后)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_TOKEN_FILE = Path.home() / ".dsh" / "github-mcp-token.txt"
-DEFAULT_REPO = "shiliu153/chatapp"
-API = "https://api.github.com"
 #: 这些结论视为「通过」。``skipped`` 是 GitHub 在 job 级 if 跳过时给的值,
 #: 在「required check」语义里也算通过,这里与 GitHub 保持一致。
 OK_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
@@ -125,18 +130,10 @@ def read_token() -> str:
     Raises:
         GateError: 两处都没有。
     """
-    for name in ("GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    if DEFAULT_TOKEN_FILE.exists():
-        value = DEFAULT_TOKEN_FILE.read_text(encoding="utf-8").strip()
-        if value:
-            return value
-    raise GateError(
-        "找不到 GitHub token:设 GITHUB_TOKEN,或把 PAT 写到 "
-        f"{DEFAULT_TOKEN_FILE};只想做 git 侧校验可加 --offline"
-    )
+    try:
+        return lib_repo.resolve_token()
+    except lib_repo.TokenError as error:
+        raise GateError(f"{error};只想做 git 侧校验可加 --offline") from error
 
 
 def fetch_check_runs(repo_slug: str, sha: str, token: str) -> list[dict]:
@@ -157,7 +154,7 @@ def fetch_check_runs(repo_slug: str, sha: str, token: str) -> list[dict]:
     page = 1
     while True:
         url = (
-            f"{API}/repos/{repo_slug}/commits/{urllib.parse.quote(sha)}/check-runs"
+            f"{lib_repo.API}/repos/{repo_slug}/commits/{urllib.parse.quote(sha)}/check-runs"
             f"?per_page=100&page={page}"
         )
         request = urllib.request.Request(url)
@@ -216,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         0 通过;1 不通过;2 用法/环境错误。
     """
     parser = argparse.ArgumentParser(description="部署闸门:默认分支 + CI 绿")
-    parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name")
+    parser.add_argument("--repo", default=lib_repo.DEFAULT_REPO, help="owner/name")
     parser.add_argument("--branch", default="main", help="默认分支名,默认 main")
     parser.add_argument("--sha", help="要校验的提交;默认 origin/<branch>")
     parser.add_argument("--offline", action="store_true", help="只做 git 侧校验,不查 GitHub")

@@ -81,3 +81,9 @@ scripts/gates.toml text eol=lf
 # 生成器按该文件自身的换行风格只替换标记区间。
 docs/README.md text eol=lf
 docs/superpowers/archive/INDEX.md text eol=lf
+
+# 发版记录固定 LF(2026-11-14 治理第 5 节 / C8):
+# `python scripts/releases.py --check` 比对「渲染物 == docs/releases.yml」,而 release.md §5 是
+# 渲染区间。Windows 检出若带 CRLF,`--check` 会在本地与 WSL/CI 之间来回翻 —— 与 openapi.yml 同模式。
+docs/releases.yml text eol=lf
+docs/ops/release.md text eol=lf

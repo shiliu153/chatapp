@@ -34,7 +34,7 @@
 判(**全部机械,无人工复核**):
 
 - **生成物一致**:``--check`` 比对「内存里重新生成的结果」与磁盘;**只比字节**,
-  不比 git(「已提交」由 ``verify.sh::check_artifact`` 兜,见 ``sources-of-truth.md`` §4 C9)。
+  不比 git(「已提交」由注册表的 ``kind = "artifact"`` 门禁兜,见 ``sources-of-truth.md`` §4 C9)。
 - **归档完整性**:``docs/superpowers/archive/`` 下每一份 ``.md`` 必须在 INDEX.md 里
   **出现且仅出现一次**(漏登与重复登记都判红)。
 - **入口完整性**:每一份非归档文档必须在 ``docs/README.md`` 里出现至少一次。

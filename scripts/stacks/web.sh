@@ -13,8 +13,8 @@ fi
 
 cd "$ROOT/web"
 run "安装依赖" npm ci
-# 生成物同改校验:openapi-typescript 生成的 schema.d.ts 必须与后端契约一致。
+# 生成物同改校验:openapi-typescript 生成的 schema.d.ts 必须与后端契约一致;
+# 「生成物 == HEAD」的比对是注册表里的 `web-schema-artifact` 门禁(scripts/lib/artifacts.py)。
 run "重新生成 API 类型" npm run gen:api
 cd "$ROOT"
-check_artifact web/src/api/schema.d.ts
 run_gates web

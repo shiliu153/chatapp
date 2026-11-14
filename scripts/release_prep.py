@@ -13,13 +13,14 @@
        ``origin/main``。这三条挡的是「拿未合并提交发版」,即 release.md §3 那条
        「部署只认 ``origin/<默认分支>`` 的 SHA」的同一条纪律。
     2. **版本号三处** —— 写 ``app/pubspec.yaml`` 的 ``version: X.Y.Z+N``(构建号默认自增),
-       再调 :mod:`scripts.sync_version` 写回 ``app_info.dart`` 与 ``web/package.json``。
-    3. **门禁** —— 跑 :func:`scripts.sync_version.collect_mismatches`(必须为空);
-       发版记录 ``docs/ops/release.md`` §5 那一行**此时必然还没有**,所以它不算失败,
-       而是把**可以直接粘贴的表格行**打出来,告诉人补在哪。
+       再用 :mod:`scripts.lib.version` 的写原语写回 ``app_info.dart`` 与 ``web/package.json``
+       (与 ``sync_version --write`` 是**同一份实现**,不再互相 import)。
+    3. **门禁** —— 跑 :func:`scripts.lib.version.collect_mismatches`(必须为空);
+       发版记录 ``docs/releases.yml`` 那一条**此时必然还没有**,所以它不算失败,
+       而是把**可以直接粘贴的 YAML 记录**打出来,告诉人补在哪。
     4. **notes 草稿 + 待执行命令** —— 从上一个 tag 到 ``HEAD`` 的提交按
        ``feat`` / ``fix`` / 运维 分类,写成 ``.release-notes/v<版本>.md``;
-       再把 tag、``create_release.py``、§5 行、部署清单**打印出来**。
+        "再把 tag、``create_release.py``、``docs/releases.yml`` 的待填记录、部署清单**打印出来**。
 
 **本脚本绝不执行**打 tag、建 Release、部署、构建 —— AGENTS.md 明令禁止 agent 做这些,
 它们必须由人执行。脚本只负责把「该做什么」变成一串可以直接复制的命令。
@@ -43,19 +44,15 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-try:  # `python -m scripts.release_prep` 与 CI 里的 unittest 走这条
-    from scripts import sync_version
-except ImportError:  # 直接 `python scripts/release_prep.py` 时 sys.path[0] 是 scripts/ 目录
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from scripts import sync_version
+# `python scripts/release_prep.py` 时 sys.path[0] 是 scripts/,显式把仓库根放进去,
+# 这样 `from scripts.lib import version` 在直接跑与 unittest 两种方式下都成立(见 lib/__init__.py)。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.lib import version as version_lib  # noqa: E402  (必须在 sys.path 修好之后)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PUBSPEC = REPO_ROOT / "app" / "pubspec.yaml"
 NOTES_DIR = REPO_ROOT / ".release-notes"
 APK_PATH = "app/build/app/outputs/flutter-apk/app-release.apk"
-
-# ``version: 1.0.12+12`` —— 版本名与可选构建号
-PUBSPEC_VERSION_RE = re.compile(r"^version:\s*([0-9][^\s+]*)(?:\+(\d+))?", re.MULTILINE)
 
 # 提交主题前缀 → notes 小节。未命中的一律进「变更」。
 NOTE_SECTIONS = ("新增", "变更", "修复", "运维注意")
@@ -129,7 +126,7 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     return completed.stdout.strip()
 
 
-def read_pubspec_version(path: Path = PUBSPEC) -> tuple[str, int]:
+def read_pubspec_version(path: Path = version_lib.PUBSPEC) -> tuple[str, int]:
     """读 ``app/pubspec.yaml`` 的版本名与构建号。
 
     Args:
@@ -142,13 +139,9 @@ def read_pubspec_version(path: Path = PUBSPEC) -> tuple[str, int]:
         ReleasePrepError: 文件读不到或找不到 ``version:`` 行。
     """
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as error:
-        raise ReleasePrepError(f"读不到 {path}:{error}") from error
-    match = PUBSPEC_VERSION_RE.search(text)
-    if not match:
-        raise ReleasePrepError(f"{path} 里找不到 version: 行")
-    return match.group(1), int(match.group(2) or 0)
+        return version_lib.read_pubspec_version_and_build(path)
+    except version_lib.VersionError as error:
+        raise ReleasePrepError(str(error)) from error
 
 
 def version_tuple(version: str) -> tuple[int, ...]:
@@ -272,7 +265,8 @@ def bump_version(repo: Path, version: str, build: int | None, dry_run: bool) -> 
     changed: list[str] = []
     pubspec_path = repo / "app" / "pubspec.yaml"
     text = pubspec_path.read_text(encoding="utf-8")
-    updated = PUBSPEC_VERSION_RE.sub(f"version: {version}+{target_build}", text, count=1)
+    updated = version_lib.PUBSPEC_VERSION_BUILD_RE.sub(
+        f"version: {version}+{target_build}", text, count=1)
     if updated != text:
         changed.append("app/pubspec.yaml")
         if not dry_run:
@@ -281,15 +275,15 @@ def bump_version(repo: Path, version: str, build: int | None, dry_run: bool) -> 
     app_info_path = repo / "app" / "lib" / "core" / "app_info.dart"
     web_package_path = repo / "web" / "package.json"
     if dry_run:
-        if sync_version.read_app_info_version(app_info_path) != version:
+        if version_lib.read_app_info_version(app_info_path) != version:
             changed.append("app/lib/core/app_info.dart")
-        if sync_version.read_web_version(web_package_path) != version:
+        if version_lib.read_web_version(web_package_path) != version:
             changed.append("web/package.json")
         return changed
 
-    if sync_version.write_app_info_version(version, app_info_path):
+    if version_lib.write_app_info_version(version, app_info_path):
         changed.append("app/lib/core/app_info.dart")
-    if sync_version.write_web_version(version, web_package_path):
+    if version_lib.write_web_version(version, web_package_path):
         changed.append("web/package.json")
     return changed
 
@@ -304,11 +298,14 @@ def check_gates(repo: Path, version: str) -> list[str]:
     Returns:
         逐条中文问题描述。
     """
-    return sync_version.collect_mismatches(
-        repo / "app" / "pubspec.yaml",
-        repo / "app" / "lib" / "core" / "app_info.dart",
-        repo / "web" / "package.json",
-    )
+    try:
+        return version_lib.collect_mismatches(
+            repo / "app" / "pubspec.yaml",
+            repo / "app" / "lib" / "core" / "app_info.dart",
+            repo / "web" / "package.json",
+        )
+    except version_lib.VersionError as error:
+        return [str(error)]
 
 
 # --------------------------------------------------------------------------- #
@@ -443,8 +440,19 @@ def next_commands(version: str, topic: str, sha: str, notes_path: Path,
         f"     --notes-file {notes_display} --apk {APK_PATH} \\",
         f"     --asset-name chatapp-{version}.apk",
         "",
-        "4) 在 docs/ops/release.md §5 记录表加一行(补完 Release 链接后再跑 --check)",
-        f"   | {version} | {date} | `v{version}` | <Release 链接> | `<合并后的短 SHA>` | `chatapp-{version}.apk` |",
+        "4) 在 docs/releases.yml 加一条记录(发版记录的唯一事实来源),再渲染回 release.md:",
+        "   # 追加到 docs/releases.yml 末尾(字段含义见文件头部注释):",
+        "   - version: \"{version}\"".format(version=version),
+        "     date: \"{date}\"".format(date=date),
+        "     tag: \"v{version}\"".format(version=version),
+        "     title: \"v{version} — {topic}\"".format(version=version, topic=topic),
+        "     release: \"<Release 链接>\"",
+        "     asset: \"chatapp-{version}.apk\"".format(version=version),
+        "     asset_bytes: 0",
+        "     asset_sha1: \"<构建后填>\"",
+        "     deploy_sha: \"<合并后的短 SHA>\"",
+        "     note: \"\"",
+        "   python scripts/releases.py --render",
         "",
         "5) 部署前跑闸门(默认分支 + CI 全绿),再执行 dist 覆盖 / APK 上传 / .env 三个变量 / 重启 web:",
         "   python scripts/deploy_gate.py",
@@ -551,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[发版准备] notes 草稿:{plan.notes_path}"
           f"{'(dry-run 未落盘)' if args.dry_run else ''}")
     print(f"[发版准备] 提交分类:{counts or '(上个 tag 之后没有提交)'}")
-    print("[发版准备] 发版记录 §5 此时必然还没有本版本这一行 —— 补在步骤 4")
+    print("[发版准备] 发版记录 docs/releases.yml 此时必然还没有本版本这一条 —— 补在步骤 4")
     print("")
     print(next_commands(plan.version, args.topic, plan.sha, plan.notes_path,
                         _dt.date.today().isoformat()))

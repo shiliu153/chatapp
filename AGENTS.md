@@ -26,7 +26,7 @@
 - 改视图 / 序列化器 → 重生成 `docs/api/openapi.yml`,并同改 `docs/api/*.md`
 - 改 WS 帧 → `imserver/tests/fixtures/ws/*.json` + imserver + App(`self_im_client.dart`)+ Web(`web/src/im/self/*`)四处同改
 - 改视觉 token / 字体 → `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css` 双份
-- 升版本号 → `app/pubspec.yaml`(唯一事实来源)+ `app/lib/core/app_info.dart` + `web/package.json`,并在 `docs/ops/release.md` §5 记一行
+- 升版本号 → `app/pubspec.yaml`(唯一事实来源)+ `app/lib/core/app_info.dart` + `web/package.json`,并在 `docs/releases.yml` 记一条(再 `python scripts/releases.py --render`)
 - 新增 / 改 `/api/v1` 接口 → `docs/api/` 对应分册
 
 ## 三、验证:唯一入口是 `scripts/verify.sh`

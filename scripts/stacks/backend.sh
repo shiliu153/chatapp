@@ -14,9 +14,9 @@ fi
 
 cd "$ROOT/chatapp"
 run "迁移" "$PY" manage.py migrate --noinput
-# 生成物同改校验(与 web 的 schema.d.ts 同模式):重新生成一次,再比「生成物 == HEAD」。
-# 比对交给 check_artifact(忽略行尾)—— CI 里的 git diff 在 Windows 检出上等于永远红。
+# 生成物同改校验(与 web 的 schema.d.ts 同模式):重新生成一次;
+# 「生成物 == HEAD」的比对是注册表里的 `backend-openapi-artifact` 门禁
+# (scripts/lib/artifacts.py,比内容、忽略行尾 —— CI 里的 git diff 在 Windows 检出上等于永远红)。
 run "重新生成 OpenAPI 契约" "$PY" manage.py spectacular --file ../docs/api/openapi.yml --validate
 cd "$ROOT"
-check_artifact docs/api/openapi.yml
 run_gates backend

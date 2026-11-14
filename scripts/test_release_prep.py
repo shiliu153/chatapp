@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from scripts import release_prep
+from scripts.lib import version as version_lib
 
 PUBSPEC_BODY = """name: chatapp_app
 description: 演示
@@ -158,11 +159,10 @@ class BumpVersionTests(unittest.TestCase):
             self.assertEqual(release_prep.read_pubspec_version(repo / "app" / "pubspec.yaml"),
                              ("1.0.13", 13))
             self.assertEqual(
-                release_prep.sync_version.read_app_info_version(
+                version_lib.read_app_info_version(
                     repo / "app" / "lib" / "core" / "app_info.dart"), "1.0.13")
             self.assertEqual(
-                release_prep.sync_version.read_web_version(repo / "web" / "package.json"),
-                "1.0.13")
+                version_lib.read_web_version(repo / "web" / "package.json"), "1.0.13")
 
     def test_dry_run_touches_nothing(self):
         """dry-run 只报「将改动」,磁盘内容不变。"""
@@ -299,7 +299,7 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(_git(repo, "tag"), "")
 
     def test_next_commands_are_printed_not_executed(self):
-        """待执行命令文本必须含 tag / create_release / §5 行,且明确写「由人执行」。"""
+        """待执行命令文本必须含 tag / create_release / releases.yml 记录,且明确写「由人执行」。"""
         text = release_prep.next_commands(
             "1.0.13", "六批功能", "a" * 40, Path("/repo/.release-notes/v1.0.13.md"),
             "2026-11-09")
@@ -308,7 +308,10 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("git push origin v1.0.13", text)
         self.assertIn("create_release.py", text)
         self.assertIn("chatapp-1.0.13.apk", text)
-        self.assertIn("| 1.0.13 | 2026-11-09 |", text)
+        # 第 5 节(C8)起发版记录是 docs/releases.yml,表格由 releases.py 渲染
+        self.assertIn("docs/releases.yml", text)
+        self.assertIn('version: "1.0.13"', text)
+        self.assertIn("releases.py --render", text)
 
     def test_main_dry_run_exit_zero(self):
         """--dry-run 走完全流程且退出码 0。"""
