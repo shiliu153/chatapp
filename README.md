@@ -13,7 +13,7 @@
 [![IM Server CI](https://github.com/shiliu153/chatapp/actions/workflows/imserver.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/imserver.yml)
 [![Contract CI](https://github.com/shiliu153/chatapp/actions/workflows/contract.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/contract.yml)
 [![Web E2E](https://github.com/shiliu153/chatapp/actions/workflows/web-e2e.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/web-e2e.yml)
-[![API Docs](https://img.shields.io/badge/API%20docs-51%20operations-blue)](docs/api/README.md)
+[![API Docs](https://img.shields.io/badge/API%20docs-70%20operations-blue)](docs/api/README.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **中文** · [English Abstract](#english-abstract)
@@ -432,13 +432,13 @@ nginx 的三条硬要求与两个易错点:
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/api/`](docs/api/README.md) | 对外交付级接口文档:14 份分册 / 54 个操作 + `openapi.yml` 机器可读契约 |
+| [`docs/api/`](docs/api/README.md) | 对外交付级接口文档:15 份分册 + `README.md` 索引 / 70 个操作 + `openapi.yml` 机器可读契约 |
 | [`docs/ops/`](docs/ops/) | 运维与容量:发版与 Release 清单、imserver 协议、runbook、容量与可靠性、压测与基线报告、通知与推送通道契约 |
 | [`docs/pitfalls/`](docs/pitfalls/README.md) | 踩坑手册,按 IM / 前端 / 后端 / 测试 / 网页端 / 模拟器分册 |
 | [`docs/milestones.md`](docs/milestones.md) | 里程碑时间线(每次交付的改动、PR 号与上线 SHA) |
-| [`docs/superpowers/`](docs/superpowers/README.md) | 设计 spec 与实施计划:工作面 1 份,已交付 85 份归档于 `archive/` |
+| [`docs/superpowers/`](docs/superpowers/README.md) | 设计 spec 与实施计划:`specs/` 5 份(4 组已登记),已交付 105 份归档于 `archive/` |
 | [`docs/backlog/2026-11-03-todo.md`](docs/backlog/2026-11-03-todo.md) | 待办总表:A–E 五批已闭环,剩余未闭环项见 §7 |
-| [`docs/reviews/`](docs/reviews/2026-11-03-fullstack-review.md) · [`docs/security/`](docs/security/) | 全栈工程审查与三轮安全审计报告 |
+| [`docs/reviews/`](docs/reviews/2026-11-03-fullstack-review.md) · [`docs/security/`](docs/security/) | 全栈工程审查与四轮安全审计报告 |
 | [`docs/standards/python.md`](docs/standards/python.md) | Python 注释规范(由 `CommentCoverageTests` 强制) |
 | [`CLAUDE.md`](CLAUDE.md) | 工程约束、契约与纪律的单一事实来源 |
 
@@ -473,7 +473,7 @@ The engineering focus is on **architecture boundaries and enforceable contracts*
   derived from HTTP status codes and the request id threaded through logs, metrics and client-side reports.
 - **One gateway for IM side effects** (`im/tasks.py`): tasks receive only `user_id`, look up state themselves,
   and never touch request objects; the IM client layers never raise.
-- **Contracts as build gates** — human-readable API docs (13 volumes, 51 operations) are cross-checked against
+- **Contracts as build gates** — human-readable API docs (15 volumes, 70 operations) are cross-checked against
   the URLconf, the OpenAPI document is generated from `@extend_schema` annotations and diffed in CI, field-level
   consistency is asserted against client types on both Web and App, and WebSocket frame fixtures are shared by
   all three runtimes so a frame change breaks all three CI tracks at once.

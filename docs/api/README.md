@@ -27,7 +27,7 @@
 
 ## 接口一览
 
-共 **63** 个接口(按「方法 + 路径」计)。
+共 **70** 个接口(按「方法 + 路径」计)。
 
 | 方法 | 路径 | 说明 | 分册 |
 |---|---|---|---|
@@ -44,6 +44,8 @@
 | GET | `/api/v1/users/tags` | 获取标签池 | [users](users.md) |
 | POST | `/api/v1/users/me/photos` | 上传照片 | [users](users.md) |
 | DELETE | `/api/v1/users/me/photos/{photo_id}` | 删除照片 | [users](users.md) |
+| POST | `/api/v1/users/me/voice` | 上传 / 覆盖资料语音自我介绍(≤30 秒,覆盖式) | [users](users.md) |
+| DELETE | `/api/v1/users/me/voice` | 删除资料语音(幂等 204) | [users](users.md) |
 | GET | `/api/v1/users/me/preference` | 获取择偶偏好 | [users](users.md) |
 | PATCH | `/api/v1/users/me/preference` | 修改择偶偏好 | [users](users.md) |
 | GET | `/api/v1/users/{user_id}` | 获取他人公开资料 | [users](users.md) |
@@ -127,7 +129,7 @@ Base URL、鉴权细节、统一错误结构、分页约定、限流额度见 [c
 
 | 项 | 说明 |
 |---|---|
-| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,53 paths / 63 operations) |
+| 文件 | [openapi.yml](openapi.yml)(OpenAPI 3.0.3,58 paths / 70 operations) |
 | 生成命令 | `cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` |
 | 谁在读它 | Web 端类型生成(`web/src/api/schema.d.ts`)、CI 门禁、后续客户端工具链 |
 | 能否手改 | **不能**。它是生成物,手改会在下一次生成时被覆盖,且 CI 会红 |

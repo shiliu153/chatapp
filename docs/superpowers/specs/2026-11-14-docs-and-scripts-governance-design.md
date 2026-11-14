@@ -1,0 +1,261 @@
+# 文档与脚本治理:从「补丁式维护」到「机械化一致性」
+
+> **状态**:进行中(方案待逐节确认) · **立项**:2026-11-14 · **工作面**:分 6 节,每节单独一个会话
+>
+> 本文只回答**做什么、为什么、怎么算做完**;每节的实现细节在对应会话里展开。
+> 数字类结论都是 2026-11-14 在本仓库实测的,复核命令写在 §2 每条证据后。
+
+---
+
+## 1. 问题陈述
+
+主人对现状的描述是三句话,分别对应三类可测量的症状:
+
+1. **文件结构混乱** —— 该放脚本的地方放了文档,该归档的东西留在工作面,空目录残留。
+2. **各文档口径不统一** —— 同一条事实在多处维护,已经分叉;索引里的数字是手写的,已经过期。
+3. **补丁越来越多** —— 每加一道门禁要改三处(脚本 + CI + 注释),漏改就产生漂移;漂移靠下一个人肉发现。
+
+这三件事的**共同根因**是同一个:**仓库里没有「唯一事实来源」这个机制,只有「大家记得同步」这个纪律。**
+
+纪律会失效,机制不会。本方案的目标就是把纪律换成机制。
+
+---
+
+## 2. 现状证据(可复核)
+
+> **2026-11-14 复核(落地第 1 节前逐条复跑)**:本节方向**全部成立**,但 **9 条数字 / 口径需要修正**
+> (如 CI 门禁是 15 条不是 16、`六轨` 是 19 次 / 12 个文件、脚本家是 7 处不是 3 处),
+> 且 **§2.4「`docs/superpowers/archive/` 是空目录」一条不成立**(递归 105 份 md,`docs/` 下无空目录)。
+> 修正值、复核命令与逐条结论见
+> [docs/standards/sources-of-truth.md §3](../../standards/sources-of-truth.md)。**本节数字以该复核为准。**
+
+### 2.1 规模与增长
+
+| 指标 | 实测值 | 复核命令 |
+|---|---|---|
+| `docs/` 下 Markdown | **175 份**(105 归档 / 70 非归档) | `Get-ChildItem docs -Recurse -Filter *.md` |
+| 提交总数 | 667 | `git rev-list --count HEAD` |
+| 动过 `docs/` 的提交 | **325(49%)** | `git rev-list --count HEAD -- docs` |
+| 动过 `CLAUDE.md` 的提交 | **108(16%)** | `git rev-list --count HEAD -- CLAUDE.md` |
+| `CLAUDE.md` 行数 | 28 → **202** | `git show <首个提交>:CLAUDE.md` 对比当前 |
+| `docs/ops/release.md` 行数 | 112 → **866** | 同上 |
+| `.github/workflows/contract.yml` 行数 | 40 → **126** | 同上 |
+
+**读法**:每 6 次提交就有 1 次在改 `CLAUDE.md`。这不是「文档写得好」,是**所有新规则都往同一个文件里追加**。
+
+### 2.2 索引数字已经漂移(手写的计数必然会过期)
+
+`README.md` §9「文档索引」与现状逐条对不上:
+
+| README §9 说 | 实际 | 复核 |
+|---|---|---|
+| `docs/api/` **14 份分册 / 54 个操作** | **15 份分册 + README**;`docs/api/README.md` 自述 **63 个接口** | `Get-ChildItem docs/api -Filter *.md` |
+| `docs/superpowers/` 工作面 **1 份**、归档 **85 份** | 工作面 **3 份**(本方案落地后 4 份)、归档 **105 份** | `docs/superpowers/README.md` §4 |
+| `docs/security/` **三轮**审计 | **四轮**(round1–round4) | `Get-ChildItem docs/security` |
+| 全仓「**六轨**」 | **10 个** workflow 文件 | `Get-ChildItem .github/workflows` |
+
+「六轨」这个词在 9 份文档里出现 **19 次**,而 `.github/workflows/` 下有 10 个文件
+(`app-ui` / `app` / `auto-merge` / `backend` / `contract` / `imserver` / `l4-intake` /
+`main-health` / `web-e2e` / `web`)。**术语已经与事实脱钩。**
+
+### 2.3 文档散落在索引之外
+
+用相对链接解析后统计(非归档文档):
+
+- **15 份**不被任何顶级索引(`README.md` / `CLAUDE.md` / `AGENTS.md` / 各子 `README.md`)链接:
+  `docs/ops/` 10 份(含 `certificates.md`、`observability.md`、`push.md`、5 份基线报告)、
+  `docs/security/` 4 份、`docs/superpowers/specs/2026-11-13-aws-*.md`。
+- **`docs/learning/` 16 份**(后端教学)在根导航里**完全没有入口**。
+- `docs/standards/README.md` 与 4 份安全报告**只被 `archive/` 里的历史文档引用** ——
+  事实上已经脱离主线,但仍在「活跃目录」里。
+
+### 2.4 文件放错了地方
+
+| 位置 | 内容 | 问题 |
+|---|---|---|
+| `docs/ops/patches/2026-11-09-dsh-superagent-github-poll-retry.patch` | 1 个 7KB 补丁 | 文档目录里躺着代码补丁 |
+| `docs/ops/stress/*.sh`、`*.py` | **7 个**压测/混沌脚本 | 脚本放在文档目录,而 `scripts/`、`tools/` 才是脚本目录 |
+| `docs/superpowers/archive/` | **空目录**(只有两个子目录) | 结构残骸 |
+
+脚本本身也有**三个家**:`scripts/`(29 个)、`tools/`(3 个)、`deploy/observability/*.py`,
+外加 `imserver/scripts/`。新脚本该放哪,没有规则可依。
+
+### 2.5 同一条事实多处维护,已经分叉
+
+**发版**:版本号在 `app/pubspec.yaml`、`app/lib/core/app_info.dart`、`web/package.json` 三处,
+发版记录又在 `docs/ops/release.md` §5 的 Markdown 表格里 —— `scripts/sync_version.py`
+**直接解析 Markdown 表格当数据库用**(`read_release_record`)。文档格式一改,门禁就坏。
+
+**门禁**:`scripts/verify.sh` 自称「CI 的镜像」,但两边步骤集已经不一致:
+
+| | 本地 `verify.sh contract` | CI `contract.yml` |
+|---|---|---|
+| 门禁条数 | **11** | **16** |
+| CI 独有 | — | 贴纸两端一致、告警脚本自测、`ci-scope` 自测、`bash -n`、`shellcheck` |
+| 本地独有 | 启动脚本选路自测(靠 CI 侧的代理自测间接带跑) | — |
+
+「本地绿 ≈ CI 绿」这句话在当前状态下**不成立**。
+
+**文档门禁不在 PR 上**:`scripts/check_docs_links.py` 只被 L4 定时任务和它自己的单测调用。
+一份只改文档、写坏 10 条链接的 PR,**所有 workflow 都是绿的** —— 而 `AGENTS.md` §三
+恰恰写着「只改文档 → 跑 `scripts/verify.sh contract`」。
+
+### 2.6 脚本「补丁式增长」的三个具体形态
+
+1. **双份登记**:新增一道门禁 = 改 `contract.yml` 一个 step + 改 `verify.sh` 一行 + 各写一段
+   「为什么需要它」的注释。三处手改,漏一处就漂移(§2.5 已发生)。
+2. **硬编码路径清单**:`scripts/ci-scope.sh` 每个栈一条正则;新增栈或新增相关目录要改脚本。
+3. **常量各写一份**:`DEFAULT_REPO = "shiliu153/chatapp"` 在 **4 个**脚本里各定义一次;
+   `app/pubspec.yaml` 路径在 **3 个**脚本里各拼一次;`docs/ops/release.md` 路径在 **2 个**脚本里各写一次。
+   `verify.sh` 的 `check_artifact`(忽略行尾差异比对生成物)只有 shell 实现,Python 侧无法复用。
+
+---
+
+## 3. 目标(全部可机械判定)
+
+### 3.1 文档结构
+
+```
+docs/
+  README.md            ← 唯一目录入口,内容由 scripts/docs_index.py 生成
+  standards/           ← 规范(唯一 owner):python.md / writing.md(新)
+  api/                 ← 对外契约:15 分册 + openapi.yml(不动)
+  ops/                 ← 常驻手册:runbook / imserver / release / superagent / observability / push / certificates
+  reports/             ← 一次性测量报告(新):5 份基线 + stress-test + scale-report
+  security/            ← 审计报告(一次性,只增不改)
+  pitfalls/ learning/ reviews/ backlog/ milestones.md
+  superpowers/{specs,plans,archive}
+```
+
+**规则**:`docs/` 下只允许 `.md` / `.yml` / `.json` / 图片;脚本、补丁、可执行文件一律进 `scripts/`。
+
+### 3.2 脚本结构(分两档,见 §7 待拍板 D2)
+
+**保守档**(只加公共层,不搬目录):
+
+```
+scripts/
+  lib/        ← 公共层:repo / version / docs / artifacts
+  gates.toml  ← 门禁注册表(唯一事实来源)
+  run_gates.py← 执行器(本地与 CI 同一个入口)
+```
+
+**彻底档**(再按域分目录):`scripts/{lib,gates,release,superagent,stress,dev,tests}/`。
+
+### 3.3 判定口径(每节验收都用这些)
+
+| 判定 | 目标值 | 谁来判 |
+|---|---|---|
+| `docs/` 下的脚本/补丁/二进制 | **0 个** | `docs_lint` |
+| 非归档文档被索引覆盖 | **100%** | `docs_lint` |
+| 索引里的计数为手写 | **0 处**(全部生成) | `docs_index --check` |
+| 术语「六轨」 | **0 处** | `docs_lint` 术语表 |
+| 新增一道门禁的改动点 | **1 处**(`gates.toml`) | 人工复核 + `run_gates --list` |
+| 本地与 CI 的门禁条数 | **相等** | `run_gates --list` 对比 CI 日志 |
+| `contract.yml` 行数 | **≤ 50** | 行数 |
+| `verify.sh` 行数 | **≤ 160** | 行数 |
+| `CLAUDE.md` 行数 | **≤ 120** | 行数 |
+| `README.md` 行数 | **≤ 250** | 行数 |
+| `DEFAULT_REPO` 定义处数 | **1** | `grep` |
+
+---
+
+## 4. 分节方案
+
+> 每节 = 一次独立会话 = 一个 PR。顺序有依赖:**第 1 节定的口径是后面所有节的判据。**
+
+### 第 1 节|口径地图:定「谁说了算」
+
+- **产出**:`docs/standards/sources-of-truth.md` —— 一张「事实 → 唯一 owner → 校验手段」表;
+  同时给出**当前冲突清单的裁决**(§2.2 那 4 条 + 术语表)。
+- **为什么先做**:不先定 owner,后面每一节都会退化成「两处都改一遍」。
+- **验收**:表里每条事实只有 1 个 owner;每条都有校验手段(机械 / 定期人工);冲突清单 0 条未裁决。
+- **需拍板**:D1(发版记录是否从 Markdown 表格迁成数据文件)。
+
+### 第 2 节|文件归位:docs/ 只放文档
+
+- **动作**:`docs/ops/patches/*.patch` 处理掉;7 个压测脚本进 `scripts/stress/`(或 `perf/`);
+  5 份基线 + 2 份报告进 `docs/reports/`;清空目录;`docs/learning` 进索引。
+- **同时落地护栏**:`scripts/docs_lint.py` 的**最小骨架**(结构规则 + 断链 + 索引覆盖),
+  并接进 `contract` 轨。**先装护栏再搬家具** —— 搬的过程中每一步都能机械验证。
+- **验收**:`docs_lint` 对当前仓库 0 违例;`check_docs_links.py` 0 断链;全仓 `grep` 无旧路径残留。
+
+### 第 3 节|索引与入口:一个入口 + 生成式索引
+
+- **动作**:新建 `docs/README.md`(生成);`README.md` §9、`CLAUDE.md` 导航表、各子 `README.md`
+  收敛为**指针**;所有计数由 `scripts/docs_index.py` 扫描生成,CI 比对生成物与 HEAD(复用
+  `check_artifact` 的「忽略行尾」语义);`docs/superpowers/README.md` §4 的 105 行归档表也改为生成。
+- **验收**:`docs_index.py --check` 绿;三份根文档行数达标(§3.3);索引数字 0 处手写。
+
+### 第 4 节|门禁注册表:一份清单驱动本地与 CI
+
+- **动作**:`scripts/gates.toml` 描述每道门禁(id / scope / kind / 命令 / 一句话理由);
+  `scripts/run_gates.py` 执行(支持 `--list` / `--scope` / `--dry-run` / `--json`);
+  `contract.yml` 收成一个 step;`verify.sh` 的 contract 分支收成一行。
+  **CI 改为调用同一个执行器** —— 从「手抄镜像」变成「同源」,这一节直接消灭 §2.5 那类漂移。
+- **验收**:`run_gates.py --list` 与 `gates.toml` 一致;`verify.sh` / `contract.yml` 里
+  不再出现门禁命令字面量(由 lint 校验);本地与 CI 条数相等。
+- **需拍板**:D3(backend/web/app 三条重活轨是否也抽成 `scripts/stacks/*.sh` 供两边共用)。
+
+### 第 5 节|脚本公共层与发版域收敛
+
+- **动作**:`scripts/lib/{repo,version,docs,artifacts}.py`;4 份 `DEFAULT_REPO`、3 份 `PUBSPEC`
+  收敛到 lib;发版四个脚本(`sync_version` / `release_prep` / `create_release` / `deploy_gate`)
+  的职责边界写成一张表,共享 lib。
+- **验收**:`grep -c DEFAULT_REPO` = 1;四个脚本全部 import lib;各自单测全绿;`contract` 轨绿。
+- **需拍板**:D4(发版记录迁数据文件后,`sync_version` 是否只保留只读校验)。
+
+### 第 6 节|docs-lint 收口与写作规范
+
+- **动作**:`docs/standards/writing.md`(命名 / 头部元信息 / 状态 / 归档 / 「口径页」写法);
+  补齐 lint 规则(元信息、数字、术语、归档表完整性);`CLAUDE.md` 瘦身到「导航 + 强制规则指针」,
+  细节搬到 `docs/standards/`;`README.md` 的快速开始/部署段收成指针。
+- **验收**:§3.3 全部判定达标;`CLAUDE.md` ≤ 120 行且每条规则都能点到 owner 文档。
+
+---
+
+## 5. 顺序与依赖
+
+```
+第 1 节(定 owner)
+   └─→ 第 2 节(物理归位 + lint 骨架)──→ 第 3 节(索引生成)
+                                          └─→ 第 4 节(门禁同源)──→ 第 5 节(公共层)
+第 6 节(收口)依赖 1–3 的结论
+```
+
+第 4/5 节与 1–3 节**互不阻塞**,可以先做(纯脚本改动,风险低);但第 6 节必须最后做,
+否则规范会写在一个还没定型的结构上。
+
+---
+
+## 6. 明确不做
+
+- **不合并/删除历史文档**。归档只 `git mv`,内容不改写 —— 历史价值与审计价值都在。
+- **不改 `docs/api/` 的分册结构**。它已经有双向门禁(`ApiDocsCoverageTests` + 字段级校验),
+  是全仓最健康的一块,不动。
+- **不为「好看」重排 `CLAUDE.md` 的业务规则**。瘦身只搬位置,不删规则。
+- **不引入新工具链**(静态站点、mkdocs、docsify)。生成物仍是纯 Markdown。
+- **不碰 `flutter/`**、不改 `deploy/` 下任何脚本(见 `AGENTS.md` §六)。
+
+---
+
+## 7. 待拍板选项
+
+| 编号 | 问题 | 选项 |
+|---|---|---|
+| **D1** | 发版记录留在 `release.md` §5 的 Markdown 表格,还是迁成 `docs/releases.yml`(由 `release.md` 引用)? | A. 保持表格(改动小,继续「文档当数据库」) / **B. 迁数据文件**(推荐:门禁只解析结构化数据,文档只渲染) |
+| **D2** | 脚本目录搬不搬? | A. **保守**:只加 `lib/` 与 `gates.toml`(推荐,PR 小、可逆) / B. 彻底:按域分目录(一次大 diff) |
+| **D3** | backend/web/app 三条重活轨是否抽成 `scripts/stacks/*.sh` 供本地与 CI 共用? | A. 只做 contract 轨同源 / **B. 四条轨全部同源**(推荐:这才是「本地绿≈CI 绿」) |
+| **D4** | 文档元信息(front-matter:状态 / owner / 最后复核)强制到哪一档? | A. 全量 / **B. 只强制非归档文档**(推荐) / C. 只对新文档 |
+| **D5** | 「工程脚本 / CI / 部署脚本」的改动算哪条栈?`AGENTS.md` §二「一单一条栈」没有覆盖 `scripts/**`、`.github/**` | A. 新设 `flow` 域(推荐,验证入口 `verify.sh contract`) / B. 归到 `docs` 栈 / C. 维持现状(散落在各栈) |
+
+---
+
+## 8. 风险
+
+| 风险 | 应对 |
+|---|---|
+| 搬文件引发链接风暴(175 份文档) | 第 2 节先落地断链门禁,再搬;每节独立 PR,`check_docs_links` 兜底 |
+| 索引生成物与手写内容冲突 | 生成物入库 + CI 比对(与 `openapi.yml` 同模式),禁止手改 |
+| 门禁注册表本身成为新的单点 | 注册表有自测(`run_gates --selftest`),且 `--list` 与 CI 日志可比对 |
+| 治理动作本身制造「新的补丁」 | 每节必须**净减少**一处重复(登记点 / 常量 / 手写数字),验收里逐节记账 |
