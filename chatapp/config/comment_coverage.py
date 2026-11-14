@@ -241,8 +241,8 @@ def find_structure_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -
             if not params:
                 continue
             doc = ast.get_docstring(node)
-            if doc and "Args:" not in doc:
-                warnings.append(f"{rel}:{node.lineno} {node.name} 缺少 Args 小节")
+            if doc and "参数说明:" not in doc and "Args:" not in doc:
+                warnings.append(f"{rel}:{node.lineno} {node.name} 缺少 参数说明 小节")
     return warnings
 
 
@@ -260,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--warnings", action="store_true",
                         help="附带口语词提示(不拦截)")
     parser.add_argument("--structure", action="store_true",
-                        help="附带公开函数 Args 小节提示(不拦截)")
+                        help="附带公开函数 参数说明 小节提示(不拦截)")
     args = parser.parse_args(argv)
 
     if args.warnings:

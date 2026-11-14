@@ -13,6 +13,17 @@
 
 关联文档:
     - 踩坑记录:docs/pitfalls/backend.md「管理命令(补漏)」
+
+文件信息:
+    文件名称          accounts/management/commands/seed_fake_users.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import random
@@ -59,7 +70,20 @@ AVATAR_URL = "https://randomuser.me/api/portraits/women/{n}.jpg"
 
 
 def _download(url: str) -> bytes:
-    """下载头像图;超过 5MB(接口上限)或拿不到内容直接失败。"""
+    """下载头像图;超过 5MB(接口上限)或拿不到内容直接失败。
+
+    参数说明:
+        url: 头像图片地址。
+
+    返回参数:
+        图片二进制内容。
+
+    使用示例:
+        ``_download("https://randomuser.me/api/portraits/women/1.jpg")``
+
+    备注信息:
+        响应非 2xx 时 ``requests`` 抛 ``HTTPError``;内容为空或超过 5MB 抛 ``CommandError``。
+    """
     resp = requests.get(url, timeout=10)
     resp.raise_for_status()
     if not resp.content or len(resp.content) > 5 * 1024 * 1024:
@@ -68,15 +92,38 @@ def _download(url: str) -> bytes:
 
 
 class Command(BaseCommand):
-    """批量创建手测用女号的 Django 管理命令。"""
+    """批量创建手测用女号的 Django 管理命令。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``python manage.py seed_fake_users --count 8 --skip-im``
+
+    备注信息:
+        ``help`` 的语义是「建一批资料完善的女号(开发手测用),幂等可重复执行」;
+        号码按已分配的最大序号续编,已存在的号码直接跳过。
+    """
 
     help = "建一批资料完善的女号(开发手测用),幂等可重复执行"
 
     def add_arguments(self, parser):
         """声明命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 的参数解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.add_arguments(parser)``
+
+        备注信息:
+            声明 ``--count``(默认 20)与 ``--skip-im`` 两个参数。
         """
         parser.add_argument("--count", type=int, default=20, help="要建的人数(默认 20)")
         parser.add_argument("--skip-im", action="store_true", help="跳过 IM 导入/资料同步")
@@ -84,12 +131,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """执行造数:续编号码、逐个建号并补齐资料与照片。
 
-        Args:
+        参数说明:
             *args: 位置参数,未使用。
             **options: 已解析的命令行参数(``count`` / ``skip_im``)。
 
-        Raises:
-            CommandError: ``--count`` 小于 1,或号码段已用完,或照片下载失败。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py seed_fake_users --count 8 --skip-im``
+
+        备注信息:
+            ``--count`` 小于 1、号码段已用完或照片下载失败时抛 ``CommandError``;
+            单个账号建号失败会先删掉半截账号再抛出,避免留下永远无人能滑的孤儿号。
         """
         count = options["count"]
         if count < 1:
@@ -133,10 +187,20 @@ class Command(BaseCommand):
     def _fill_profile(self, user, index, tag_ids):
         """为新建用户补齐资料、偏好与两张已过审照片。
 
-        Args:
+        参数说明:
             user: 刚创建的用户。
             index: 该用户在本次批次中的序号,用于轮流取用昵称/城市/简介。
             tag_ids: 全量标签主键,从中随机挑 2~4 个挂到资料上。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._fill_profile(user, 0, tag_ids)``
+
+        备注信息:
+            照片经 ``_fetch_photo`` 下载后写入 ``Photo``,状态直接置为已过审;
+            末尾调 ``profile.refresh_status()`` 重算资料完成度。
         """
         birthday = self._random_birthday()
         profile = Profile.objects.create(
@@ -162,11 +226,17 @@ class Command(BaseCommand):
     def _fetch_photo(self):
         """下载一张头像图,失败时换一张重试。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             图片二进制内容。
 
-        Raises:
-            CommandError: 连续三次下载均失败。
+        使用示例:
+            ``self._fetch_photo()``
+
+        备注信息:
+            连续三次下载均失败时抛 ``CommandError``;randomuser 偶发某张图 404,故换一张重试。
         """
         # randomuser 偶发某张图 404,换一张重试
         last_error = None
@@ -180,13 +250,20 @@ class Command(BaseCommand):
     def _random_birthday(self):
         """随机造一个 18~45 岁的生日。
 
-        年龄区间覆盖默认偏好(18~99)与常见自设区间;区间太窄会把号全部过滤掉。
-        月/日必须**不晚于今天** —— 否则「今年的生日还没过」,``calculate_age`` 会算出
-        age-1,抽到 age=18 时就造出 17 岁的账号(平台明令禁止)。2026-10-13 CI 实测红,
-        概率约 2%/轮:1/28 抽到 18 × 71/336 抽到「晚于今天」的月日 × 3 个用户。
+        参数说明:
+            无。
 
-        Returns:
+        返回参数:
             一个能算出目标年龄的 ``date``。
+
+        使用示例:
+            ``self._random_birthday()``
+
+        备注信息:
+            年龄区间覆盖默认偏好(18~99)与常见自设区间;区间太窄会把号全部过滤掉。
+            月/日必须**不晚于今天** —— 否则「今年的生日还没过」,``calculate_age`` 会算出
+            age-1,抽到 age=18 时就造出 17 岁的账号(平台明令禁止)。2026-10-13 CI 实测红,
+            概率约 2%/轮:1/28 抽到 18 × 71/336 抽到「晚于今天」的月日 × 3 个用户。
         """
         # 18–45 覆盖默认偏好(18–99)和常见自设区间;太窄的偏好区间会把号全过滤掉
         age = random.randint(18, 45)

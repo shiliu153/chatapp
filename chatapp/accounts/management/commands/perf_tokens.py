@@ -34,6 +34,17 @@
 
 关联文档:
     - 压测入口与场景矩阵:perf/README.md
+
+文件信息:
+    文件名称          accounts/management/commands/perf_tokens.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import json
@@ -50,15 +61,39 @@ User = get_user_model()
 
 
 class Command(BaseCommand):
-    """给压测发令牌的管理命令。"""
+    """给压测发令牌的管理命令。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``python manage.py perf_tokens --count 50 --out perf/results/headers.jsonl``
+
+    备注信息:
+        ``help`` 的语义是「签发压测用访问令牌(每行一个头集 JSON),供
+        perf/run.py --headers-file」;产出的文件里是活令牌,压测完立刻删除。
+    """
 
     help = "签发压测用访问令牌(每行一个头集 JSON),供 perf/run.py --headers-file"
 
     def add_arguments(self, parser):
         """声明命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 的参数解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.add_arguments(parser)``
+
+        备注信息:
+            声明 ``--count`` / ``--start`` / ``--xff-prefix`` / ``--out`` /
+            ``--allow-production`` 五个参数。
         """
         parser.add_argument("--count", type=int, default=20, help="签发几个账号")
         parser.add_argument("--start", type=int, default=0,
@@ -72,12 +107,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """签发令牌并写出头集文件。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
             **options: 命令行选项。
 
-        Raises:
-            CommandError: 生产环境未显式放行、数量越界,或没有可用测试号。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py perf_tokens --count 50 --out perf/results/headers.jsonl``
+
+        备注信息:
+            生产环境(``DEBUG=0``)未显式加 ``--allow-production``、``--count`` 越界
+            或没有可用测试号时抛 ``CommandError``;写文件后把权限设成 600。
         """
         if not settings.DEBUG and not options["allow_production"]:
             raise CommandError("生产环境默认不签发压测令牌;确需时加 --allow-production")
@@ -113,12 +155,19 @@ class Command(BaseCommand):
     def _pick_users(self, count: int, start: int) -> list:
         """取号段内可用的测试号(排除运营账号与停用账号)。
 
-        Args:
+        参数说明:
             count: 需要几个账号。
             start: 号段内的偏移。
 
-        Returns:
+        返回参数:
             账号列表,按 id 升序;数量可能少于 ``count``。
+
+        使用示例:
+            ``self._pick_users(50, 0)``
+
+        备注信息:
+            号段唯一定义在 ``seed_scale_users`` 里,这里复用它的 ``PHONE_BASE`` /
+            ``PHONE_MAX``,避免两处各写一个魔数。
         """
         # 号段的唯一定义在造数命令里,这里复用它,避免两处各写一个魔数
         from users.management.commands.seed_scale_users import PHONE_BASE, PHONE_MAX
@@ -134,13 +183,20 @@ class Command(BaseCommand):
     def _header_set(self, user, index: int, xff_prefix: str) -> dict[str, str]:
         """给一个账号签令牌,拼出它那一行的头集。
 
-        Args:
+        参数说明:
             user: 账号实例。
             index: 本次输出的序号(用于给每条连接分一个不同的 X-Forwarded-For)。
             xff_prefix: X-Forwarded-For 前缀,例如 ``10.99``。
 
-        Returns:
+        返回参数:
             ``{头名: 头值}``,直接写进 ``--headers-file`` 的一行。
+
+        使用示例:
+            ``self._header_set(user, 0, "10.99")``
+
+        备注信息:
+            令牌用 ``SessionRefreshToken.for_user`` 在库内签发,不碰短信、不动会话版本;
+            ``X-Forwarded-For`` 只在直连 gunicorn 时生效,过 nginx 时 DRF 取最后一跳。
         """
         token = SessionRefreshToken.for_user(user).access_token
         return {

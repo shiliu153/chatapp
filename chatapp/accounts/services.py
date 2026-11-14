@@ -13,6 +13,17 @@ CI 全被拦),生产拒绝(漏配名单不能让闸门静默全开,R4 M-1)。判
 关联文档:
     - 接口契约:docs/api/auth.md
     - 运维入口:docs/ops/runbook.md「准入名单的日常运维」
+
+文件信息:
+    文件名称          accounts/services.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import logging
@@ -35,7 +46,20 @@ logger = logging.getLogger(__name__)
 
 
 def _sent_key(phone):
-    """拼出该手机号最近一次发送的限流键。"""
+    """拼出该手机号最近一次发送的限流键。
+
+    参数说明:
+        phone: 客户端提交的手机号。
+
+    返回参数:
+        形如 ``sms:send:13900009000`` 的缓存键。
+
+    使用示例:
+        ``_sent_key("13900009000")``
+
+    备注信息:
+        键按号码而不是按 IP:同一号码换设备发码也要受重发间隔约束。
+    """
     return f"sms:send:{phone}"
 
 
@@ -46,8 +70,17 @@ def _strict() -> bool:
     且不是测试运行)走严格模式,其余放行。显式写 ``"0"`` 一律放行(封闭测试的逃生口),
     其它非空值(``"1"``、``"true"`` 等)一律严格 —— 判断口留在「显式关闭」这一侧。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         真表示严格模式:名单为空时拒绝所有号码。
+
+    使用示例:
+        ``_strict()``
+
+    备注信息:
+        判定口留在「显式关闭」这一侧:只有显式写 ``"0"`` 才放行,其余非空值一律严格。
     """
     raw = str(getattr(settings, "SMS_ALLOWLIST_STRICT", "") or "").strip()
     if raw == "":
@@ -70,11 +103,18 @@ def ensure_phone_allowed(phone: str) -> None:
     校验放在发码与校验两个入口(而不是只放在校验),好处是:非白名单号码
     既拿不到验证码、也不会在 Redis 里留下限流占位,更不会触发短信任务。
 
-    Args:
+    参数说明:
         phone: 客户端提交的手机号。
 
-    Raises:
-        PhoneNotAllowed: 该号码不在准入名单内(含「库内已停用」与严格模式下的空名单)。
+    返回参数:
+        无返回值;放行时正常返回,拒绝时抛 ``PhoneNotAllowed``。
+
+    使用示例:
+        ``ensure_phone_allowed("13900009000")``
+
+    备注信息:
+        该号码不在准入名单内时抛 ``PhoneNotAllowed``(含「库内已停用」与严格模式下的
+        空名单)。
     """
     active, disabled = allowlist.snapshot()
     if phone in disabled:
@@ -102,14 +142,18 @@ def issue_code(phone: str) -> str:
     生成、落库三步。验证码用 ``secrets`` 生成(CSPRNG);只有开发模式才把
     验证码写进日志 —— 接入真实短信商后日志里不能再出现明文码(H-3)。
 
-    Args:
+    参数说明:
         phone: 手机号,同时作为发送间隔限流的键。
 
-    Returns:
+    返回参数:
         本次生成的 6 位验证码;开发模式下固定为 ``settings.SMS_DEV_CODE``。
 
-    Raises:
-        SmsSendTooFrequent: 距上次发送不足 ``SMS_RESEND_INTERVAL`` 秒。
+    使用示例:
+        ``code = issue_code("13900009000")``
+
+    备注信息:
+        距上次发送不足 ``SMS_RESEND_INTERVAL`` 秒时抛 ``SmsSendTooFrequent``;
+        本函数只负责限流、生成、落库三步,短信入队由调用方负责。
     """
     if not cache.add(_sent_key(phone), 1, settings.SMS_RESEND_INTERVAL):
         raise SmsSendTooFrequent(wait=settings.SMS_RESEND_INTERVAL)
@@ -126,8 +170,18 @@ def rollback_send(phone: str) -> None:
 
     删掉限流占位与验证码,让用户能立刻重试(见 ``views.sms_send`` 的异常分支)。
 
-    Args:
+    参数说明:
         phone: 手机号。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``rollback_send("13900009000")``
+
+    备注信息:
+        删掉限流占位与验证码,让用户能立刻重试(见 ``views.sms_send`` 的异常分支);
+        两项都不存在时也照常返回,幂等。
     """
     cache.delete(_sent_key(phone))
     sms_codes.delete(phone)
@@ -138,14 +192,19 @@ def check_code(phone: str, code: str) -> None:
 
     含 60 秒重放窗口内的重复校验:窗口内重复提交同一个码仍算成功。
 
-    Args:
+    参数说明:
         phone: 手机号。
         code: 用户提交的 6 位验证码。
 
-    Raises:
-        SmsCodeExpired: 验证码已过期或不存在。
-        SmsCodeWrong: 验证码错误。
-        SmsLocked: 连错次数超限,账号被临时锁定。
+    返回参数:
+        无返回值;校验通过即正常返回。
+
+    使用示例:
+        ``check_code("13900009000", "123456")``
+
+    备注信息:
+        验证码已过期或不存在抛 ``SmsCodeExpired``;验证码错误抛 ``SmsCodeWrong``;
+        连错次数超限抛 ``SmsLocked``。
     """
     result = sms_codes.verify(phone, code)
     if result is sms_codes.CodeResult.EXPIRED:

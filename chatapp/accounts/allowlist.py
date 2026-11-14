@@ -21,6 +21,17 @@
 注意事项:
     缓存不可用(Redis 抖动)时**不能**因此放行或拒绝:这里退化为直接查库,
     准入判断永远以数据库为准。宁可慢一次,不可漏一个人。
+
+文件信息:
+    文件名称          accounts/allowlist.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import hashlib
@@ -41,11 +52,19 @@ ALLOWLIST_CACHE_KEY = "sms:allowlist:snapshot"
 def _signing_key() -> bytes:
     """从 ``SECRET_KEY`` 派生出快照专用的 HMAC key。
 
-    不直接把 ``SECRET_KEY`` 当 HMAC key:派生一次让「名单签名」与其它用途的密钥
-    互不牵连,``SECRET_KEY`` 轮换时签名自然跟着变。
+    参数说明:
+        无。
 
-    Returns:
-        32 字节摘要,仅用于本模块的 HMAC-SHA256。
+    返回参数:
+        32 字节摘要，仅用于本模块的 HMAC-SHA256。
+
+    使用示例:
+        ``key = _signing_key()``
+
+    备注信息:
+        不直接把 ``SECRET_KEY`` 当 HMAC key:派生一次让「名单签名」与其它用途的密钥
+        互不牵连,``SECRET_KEY`` 轮换时签名自然跟着变——代价是轮换后旧快照全部验签
+        失败,下一次判定自动查库回填。
     """
     return hashlib.sha256(f"allowlist:{settings.SECRET_KEY}".encode()).digest()
 
@@ -53,18 +72,22 @@ def _signing_key() -> bytes:
 def _payload(active, disabled) -> bytes:
     """把两个集合拼成唯一的签名载荷。
 
-    每条记录前置组别标记(``a:`` / ``d:``),再用 ``\\x00`` 拼接。加标记是为了
-    消除「active 末尾 + disabled 开头」的歧义:只按 ``\\x00`` 拼接时,
-    ``active=["1"], disabled=["23"]`` 与 ``active=["1","23"], disabled=[]``
-    会算出同一个载荷,同一个签名就能同时罩住两种不同的名单。手机号里不含
-    ``\\x00``,所以分隔符本身不会与数据混淆。
-
-    Args:
+    参数说明:
         active: 启用号码的可迭代对象。
         disabled: 停用号码的可迭代对象。
 
-    Returns:
-        待签名的 UTF-8 字节串。
+    返回参数:
+        待签名的 UTF-8 字节串；两组各自先排序再拼接，因此与入参顺序无关。
+
+    使用示例:
+        ``raw = _payload({"13800000000"}, set())``
+
+    备注信息:
+        每条记录前置组别标记(``a:`` / ``d:``),再用 ``\\x00`` 拼接。加标记是为了
+        消除「active 末尾 + disabled 开头」的歧义:只按 ``\\x00`` 拼接时,
+        ``active=["1"], disabled=["23"]`` 与 ``active=["1","23"], disabled=[]``
+        会算出同一个载荷,同一个签名就能同时罩住两种不同的名单。手机号里不含
+        ``\\x00``,所以分隔符本身不会与数据混淆。
     """
     parts = [f"a:{phone}" for phone in sorted(active)]
     parts += [f"d:{phone}" for phone in sorted(disabled)]
@@ -74,12 +97,19 @@ def _payload(active, disabled) -> bytes:
 def _sign(active, disabled) -> str:
     """算出快照签名。
 
-    Args:
+    参数说明:
         active: 启用号码的可迭代对象。
         disabled: 停用号码的可迭代对象。
 
-    Returns:
+    返回参数:
         HMAC-SHA256 的十六进制摘要(小写,64 字符)。
+
+    使用示例:
+        ``sig = _sign({"13800000000"}, set())``
+
+    备注信息:
+        先经 :func:`_payload` 归一化成唯一载荷再签名，因此两组号码的顺序不影响结果。
+        读侧验签与写侧签名必须走同一个函数，否则缓存会永远验签失败、每次请求都查库。
     """
     return hmac.new(_signing_key(), _payload(active, disabled), hashlib.sha256).hexdigest()
 
@@ -87,12 +117,22 @@ def _sign(active, disabled) -> str:
 def _verify_snapshot(cached):
     """校验缓存里读出来的快照,通过才还原成两个 ``frozenset``。
 
-    Args:
+    参数说明:
         cached: ``cache.get`` 的返回值,理想形态是带 ``sig`` 的 dict。
 
-    Returns:
+    返回参数:
         通过校验则返回 ``(active, disabled)`` 两个 ``frozenset``;结构不对、
         类型不对或签名不符一律返回 ``None``(调用方按未命中处理,即查库回填)。
+
+    使用示例:
+        ``restored = _verify_snapshot(cache.get(ALLOWLIST_CACHE_KEY))``
+
+    备注信息:
+        三道校验依次是：非 ``dict``、字段缺失或类型不对、号码不是字符串；任一不过
+        只记 ``logger.warning`` 并返回 ``None``，不抛异常。
+        最后用 ``hmac.compare_digest`` 比对签名（常量时间）；``sig`` 里混进非 ASCII
+        字符时 ``compare_digest`` 会抛 ``TypeError``，同样按未命中处理。
+        返回的是 ``frozenset``，调用方不要原地修改。
     """
     if not isinstance(cached, dict):
         logger.warning("[白名单] 快照结构异常(非 dict),视为未命中 type=%s",
@@ -121,8 +161,19 @@ def _verify_snapshot(cached):
 def _query_snapshot():
     """直接查库,把名单拆成「启用集合」与「停用集合」。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         ``(active, disabled)`` 两个 ``frozenset``;表为空时都是空集。
+
+    使用示例:
+        ``active, disabled = _query_snapshot()``
+
+    备注信息:
+        一次 ``values_list`` 扫全表，只取 ``phone`` 与 ``is_active`` 两列。
+        名单是个人项目的准入机制、规模很小，全表读入内存可接受；表增长到万级
+        时应改为增量或分页加载。
     """
     active = set()
     disabled = set()
@@ -134,12 +185,22 @@ def _query_snapshot():
 def snapshot():
     """取名单快照(优先读缓存,未命中或验签失败则查库并回填)。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         ``(active, disabled)`` 两个 ``frozenset``。
 
-    Raises:
-        django.db.Error: 缓存未命中且数据库不可读时向上抛 —— 发码链路本就依赖
-            Redis 与数据库,这里不做「出错就放行」的兜底。
+    使用示例:
+        ``active, disabled = snapshot()``
+
+    备注信息:
+        读缓存与写缓存都用 ``try`` 兜住：缓存读失败记 warning 后退化为直查数据库，
+        写失败只影响下一次请求的性能，都不影响准入判断的正确性。
+        查库回填时会把快照按 ``settings.SMS_ALLOWLIST_CACHE_TTL`` 写入缓存，
+        TTL 只是兜底，「立刻生效」靠写路径调用 :func:`invalidate`。
+        缓存未命中且数据库不可读时，``django.db.Error`` 向上抛——发码链路本就依赖
+        Redis 与数据库，这里不做「出错就放行」的兜底。
     """
     try:
         cached = cache.get(ALLOWLIST_CACHE_KEY)
@@ -165,7 +226,18 @@ def snapshot():
 def invalidate():
     """清掉名单快照,让下一次判定立刻按最新数据库内容走。
 
-    所有写名单的路径(``/ops/`` 加号、启停、种子导入命令)都必须调用。
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值；缓存清除失败时也只记 warning，不抛异常。
+
+    使用示例:
+        ``invalidate()``
+
+    备注信息:
+        所有写名单的路径(``/ops/`` 加号、启停、种子导入命令)都必须调用。
+        清不掉时只能靠 ``SMS_ALLOWLIST_CACHE_TTL`` 兜底，因此失败时留 warning 痕迹。
     """
     try:
         cache.delete(ALLOWLIST_CACHE_KEY)

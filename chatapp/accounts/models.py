@@ -16,6 +16,17 @@
 注意事项:
     登录一律走短信验证码,普通用户的密码是不可用的(``set_unusable_password``);
     只有 ``create_superuser`` 会设置真实密码,供 Django admin 使用。
+
+文件信息:
+    文件名称          accounts/models.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.conf import settings
@@ -26,23 +37,39 @@ from .validators import mask_phone
 
 
 class UserManager(BaseUserManager):
-    """手机号建号管理器,替代按 username 建号的默认实现。"""
+    """手机号建号管理器,替代按 username 建号的默认实现。
+
+    参数说明:
+        无构造参数;由 ``User.objects`` 直接使用。
+
+    返回参数:
+        管理器实例;``create_user`` / ``create_superuser`` 返回 ``User`` 实例。
+
+    使用示例:
+        ``User.objects.create_user("13900009000")``
+
+    备注信息:
+        默认管理器按 ``username`` 建号,而 ``User`` 已移除该字段,因此必须用本类。
+    """
 
     use_in_migrations = True
 
     def create_user(self, phone, password=None, **extra_fields):
         """创建一个使用不可用密码的普通用户。
 
-        Args:
+        参数说明:
             phone: 手机号,同时作为登录标识。
             password: 忽略;普通用户一律使用不可用密码,登录走短信验证码。
             **extra_fields: 其余用户字段。
 
-        Returns:
+        返回参数:
             新建的用户实例。
 
-        Raises:
-            ValueError: 未提供手机号。
+        使用示例:
+            ``User.objects.create_user("13900009000")``
+
+        备注信息:
+            未提供手机号时抛 ``ValueError``;``is_staff`` / ``is_superuser`` 默认置假。
         """
         if not phone:
             raise ValueError("phone is required")
@@ -56,13 +83,19 @@ class UserManager(BaseUserManager):
     def create_superuser(self, phone, password, **extra_fields):
         """创建一个可登录 Django admin 的超级用户。
 
-        Args:
+        参数说明:
             phone: 手机号。
             password: admin 登录密码,是全项目唯一会设置真实密码的路径。
             **extra_fields: 其余用户字段。
 
-        Returns:
+        返回参数:
             新建的超级用户实例。
+
+        使用示例:
+            ``User.objects.create_superuser("13900009000", "S3cret!")``
+
+        备注信息:
+            ``is_staff`` / ``is_superuser`` 默认置真;``password`` 必填,不能为 ``None``。
         """
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
@@ -84,6 +117,20 @@ class User(AbstractUser):
             ``accounts.DeviceSession.version``(按端各一行);本列只作为迁移桥接的
             历史值保留,新代码不写它。删除是独立清理项。
         totp_secret: 运营账号的 TOTP 密钥(base32);普通用户为空。
+
+    参数说明:
+        **kwargs: 模型字段初始值,按字段名传(``phone``、``totp_secret`` 等);
+            建号请走 ``User.objects.create_user()``。
+
+    返回参数:
+        实例化后得到 ``User`` 实例;``id`` 由数据库在 ``save()`` 后分配。
+
+    使用示例:
+        ``User.objects.create_user("13900009000")``
+
+    备注信息:
+        ``username`` 已置空,``USERNAME_FIELD`` 是 ``phone``;普通用户密码不可用,
+        只有 ``create_superuser`` 会设置真实密码。
     """
 
     username = None
@@ -102,14 +149,36 @@ class User(AbstractUser):
 
     @property
     def im_user_id(self):
-        """IM 账号标识(``u{user_id}``);全项目只在这里拼,别处一律用这个属性。"""
+        """IM 账号标识(``u{user_id}``);全项目只在这里拼,别处一律用这个属性。
+
+        参数说明:
+            无。
+
+        返回参数:
+            形如 ``u42`` 的 IM 账号字符串。
+
+        使用示例:
+            ``user.im_user_id``
+
+        备注信息:
+            依赖 ``self.id``,未落库时拼出来是 ``uNone``,因此只能在 ``save()`` 之后取。
+        """
         return f"u{self.id}"
 
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             用户手机号。
+
+        使用示例:
+            ``str(user)``
+
+        备注信息:
+            返回完整手机号,脱敏只出现在页面与日志输出侧(``accounts.validators``)。
         """
         return self.phone
 
@@ -136,6 +205,20 @@ class DeviceSession(models.Model):
             是打标记,不是删行** —— 行留着版本号才能保持单调递增,旧令牌才不会因为
             「行被删了、版本回到默认值」重新变有效。登录设备列表只列
             ``logged_out_at IS NULL`` 的端(唯一读写入口 ``accounts.device_session``)。
+
+    参数说明:
+        **kwargs: 模型字段初始值,按字段名传(``user``、``client_type`` 等)。
+
+    返回参数:
+        实例化后得到 ``DeviceSession`` 实例;``version`` 默认取
+        ``SESSION_VERSION_DEFAULT``。
+
+    使用示例:
+        ``DeviceSession.objects.filter(user=user, client_type="web").first()``
+
+    备注信息:
+        ``unique(user, client_type)`` 就是「同类互顶」的全部实现,别在
+        ``accounts.device_session`` 之外直接改本表。
     """
 
     user = models.ForeignKey("accounts.User", on_delete=models.CASCADE,
@@ -159,8 +242,17 @@ class DeviceSession(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``<账号 id>:<端类型>@v<版本>``。
+
+        使用示例:
+            ``str(session)``
+
+        备注信息:
+            只用于展示,鉴权判定一律读 ``version`` 字段本身。
         """
         return f"{self.user_id}:{self.client_type}@v{self.version}"
 
@@ -187,6 +279,19 @@ class PhoneAllowlist(models.Model):
         created_by: 加号的操作账号;运营账号被删除时置空,不连带删名单。
         created_at: 加入时间。
         updated_at: 最后一次改动(启停/改备注)时间。
+
+    参数说明:
+        **kwargs: 模型字段初始值,按字段名传(``phone``、``note``、``is_active`` 等)。
+
+    返回参数:
+        实例化后得到 ``PhoneAllowlist`` 实例;``is_active`` 默认 ``True``。
+
+    使用示例:
+        ``PhoneAllowlist.objects.create(phone="13900009000", note="内测")``
+
+    备注信息:
+        判定逻辑唯一入口是 ``accounts.services.ensure_phone_allowed()``,
+        不要在别处另写一份。
     """
 
     phone = models.CharField("手机号", max_length=20, unique=True)
@@ -208,8 +313,17 @@ class PhoneAllowlist(models.Model):
     def __str__(self):
         """后台列表里的可读标识。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             形如 ``139****9000(启用)`` 的脱敏摘要。
+
+        使用示例:
+            ``str(entry)``
+
+        备注信息:
+            号码一律经 ``accounts.validators.mask_phone`` 脱敏,不在这里直接拼原号。
         """
         return f"{mask_phone(self.phone)}({'启用' if self.is_active else '停用'})"
 
@@ -219,6 +333,18 @@ class PhoneAllowlistAction(models.TextChoices):
 
     分四种而不是只有「改」:事后追查时「新放进来一个人」与「把一个人拿掉」的
     严重程度完全不同,不能混成一条流水。
+
+    参数说明:
+        无构造参数;成员以 ``(值, 展示名)`` 二元组声明,由 ``TextChoices`` 展开。
+
+    返回参数:
+        成员即 ``str`` 子类实例,可直接落库;``.label`` 是后台展示名。
+
+    使用示例:
+        ``PhoneAllowlistAction.ADD.value``
+
+    备注信息:
+        取值一旦落库不要改名,历史流水靠它反查动作语义。
     """
 
     ADD = "add", "加入名单"
@@ -245,6 +371,18 @@ class PhoneAllowlistEvent(models.Model):
             种子导入命令没有操作人,落 ``None``。
         note: 操作当时的备注快照,方便回看「加进来时写的是什么」。
         created_at: 发生时间(流水写入时刻)。
+
+    参数说明:
+        **kwargs: 模型字段初始值,按字段名传(``phone``、``action``、``operator`` 等)。
+
+    返回参数:
+        实例化后得到 ``PhoneAllowlistEvent`` 实例。
+
+    使用示例:
+        ``PhoneAllowlistEvent.objects.create(phone="13900009000", action="add")``
+
+    备注信息:
+        append-only:流水只增不改不删,名单的历史靠它回答「谁把谁拿掉、谁又放回来」。
     """
 
     phone = models.CharField("手机号", max_length=20)
@@ -269,7 +407,16 @@ class PhoneAllowlistEvent(models.Model):
     def __str__(self):
         """后台与日志里的可读标识。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             形如 ``139****9000 加入名单`` 的脱敏摘要。
+
+        使用示例:
+            ``str(event)``
+
+        备注信息:
+            动作名取 ``get_action_display()``,与后台展示口径一致。
         """
         return f"{mask_phone(self.phone)} {self.get_action_display()}"

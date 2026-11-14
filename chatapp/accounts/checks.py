@@ -22,6 +22,17 @@
 关联文档:
     - 整改依据:docs/security/2026-11-08-api-security-audit-round4.md §4.2 M-1
     - 运维入口:docs/ops/runbook.md「准入名单的日常运维」
+
+文件信息:
+    文件名称          accounts/checks.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.conf import settings
@@ -50,12 +61,21 @@ def check_dev_sms_requires_allowlist(app_configs, **kwargs):
     的既定行为就是「谁都能进」,继续报错既不更安全,又会让照 hint 操作的人卡住
     (issue #290:设了 ``SMS_ALLOWLIST_STRICT=0`` 却仍然红)。
 
-    Args:
+    参数说明:
         app_configs: Django 传入的待检查 app 列表;本检查看全局设置,不按 app 过滤。
         **kwargs: 检查框架的其它关键字参数(``databases`` 等),本检查不使用。
 
-    Returns:
-        list: 命中时一条 ``checks.Error``(id ``accounts.E001``),否则空列表。
+    返回参数:
+        list:命中时一条 ``checks.Error``(id ``accounts.E001``),否则空列表。
+
+    使用示例:
+        ``check_dev_sms_requires_allowlist(app_configs=None)``
+
+    备注信息:
+        由 ``@register(Tags.security)`` 注册,``manage.py check`` 与
+        ``check --deploy`` 都会跑到;``DEBUG`` / ``TESTING`` 下恒返回空列表。
+        显式 ``SMS_ALLOWLIST_STRICT=0`` 时同样直接放行(issue #290)
+        —— 那是运营已确认「封闭测试、名单为空也放行任意号码」。
     """
     if settings.DEBUG or getattr(settings, "TESTING", False):
         return []

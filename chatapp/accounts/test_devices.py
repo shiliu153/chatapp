@@ -15,6 +15,17 @@
     重新登录后标记清空、重新出现,而**下线前的旧令牌仍然 401**(行没被删、版本没回退)。
 
 测试一律把 ``im.tasks`` 的入队打桩:响应路径不许有外部调用,断言只看「是否入队」。
+
+文件信息:
+    文件名称          accounts/test_devices.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from datetime import timedelta
@@ -35,6 +46,20 @@ class DeviceApiTestCase(APITestCase):
     """公共夹具:一个账号 + 走真实短信登录链路、带端类型取令牌。"""
 
     def setUp(self):
+        """准备干净缓存与一个测试账号,每个用例前重建。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``setUp()``
+
+        备注信息:
+            由 ``TestCase`` 在每个用例前自动调用;``addCleanup`` 保证用例结束后清缓存。
+        """
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800000001"
@@ -43,8 +68,17 @@ class DeviceApiTestCase(APITestCase):
     def issue_code(self):
         """直接落一个验证码,绕开 60 秒重发间隔。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             写入的验证码(开发期固定码)。
+
+        使用示例:
+            ``self.issue_code()``
+
+        备注信息:
+            先删 ``sms:send:{phone}`` 占位键,否则第二次发码会被 60 秒间隔挡下。
         """
         cache.delete(f"sms:send:{self.phone}")
         sms_codes.store(self.phone, settings.SMS_DEV_CODE)
@@ -53,11 +87,17 @@ class DeviceApiTestCase(APITestCase):
     def login(self, client_type=CLIENT_APP):
         """走一次完整的校验登录。
 
-        Args:
+        参数说明:
             client_type: ``app`` / ``web``;``None`` 表示不带 ``X-Client`` 头。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.login(CLIENT_WEB)``
+
+        备注信息:
+            走真实短信登录链路;``client_type`` 只决定请求头,``None`` 时按 app 兜底。
         """
         headers = {"HTTP_X_CLIENT": client_type} if client_type else {}
         return self.client.post(
@@ -67,12 +107,18 @@ class DeviceApiTestCase(APITestCase):
     def get_devices(self, access, client_type=CLIENT_APP):
         """请求登录设备列表。
 
-        Args:
+        参数说明:
             access: access token 原文。
             client_type: 请求头 ``X-Client`` 的取值;``None`` 表示不带该头。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.get_devices(access_web, CLIENT_WEB)``
+
+        备注信息:
+            响应里的 ``current`` 由请求头判定,与令牌里的 ``ct`` 无关,故这里单独传头。
         """
         headers = {"HTTP_X_CLIENT": client_type} if client_type else {}
         return self.client.get("/api/v1/devices",
@@ -81,12 +127,18 @@ class DeviceApiTestCase(APITestCase):
     def delete_device(self, access, client_type):
         """下线指定端。
 
-        Args:
+        参数说明:
             access: access token 原文。
             client_type: 路径里的端类型。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.delete_device(access_app, CLIENT_WEB)``
+
+        备注信息:
+            接口递增该端版本并经 Celery 踢该端 IM,测试里一律把入队打桩。
         """
         return self.client.delete(f"/api/v1/devices/{client_type}",
                                   HTTP_AUTHORIZATION=f"Bearer {access}")
@@ -94,11 +146,17 @@ class DeviceApiTestCase(APITestCase):
     def get_me(self, access):
         """用给定 access 请求 ``GET /users/me``。
 
-        Args:
+        参数说明:
             access: access token 原文。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.get_me(access_web)``
+
+        备注信息:
+            用它验证令牌是否还可用:被踢的端应返回 401 + ``40101``。
         """
         return self.client.get("/api/v1/users/me",
                                HTTP_AUTHORIZATION=f"Bearer {access}")
@@ -108,7 +166,11 @@ class DeviceListTests(DeviceApiTestCase):
     """列表:只列登录过的端,``current`` 由请求头判定。"""
 
     def test_lists_both_clients_with_labels(self):
-        """App + Web 各一行,标签取自模型 choices,``current`` 只有一行是 true。"""
+        """App + Web 各一行,标签取自模型 choices,``current`` 只有一行是 true。
+
+        参数说明:
+            无。
+        """
         self.login(CLIENT_APP)
         access_web = self.login(CLIENT_WEB).data["access"]
 
@@ -123,7 +185,11 @@ class DeviceListTests(DeviceApiTestCase):
             self.assertIsNotNone(row["last_active_at"])
 
     def test_current_follows_request_header(self):
-        """同一个 token 换成 ``X-Client: app`` 时 ``current`` 落在 app 那行。"""
+        """同一个 token 换成 ``X-Client: app`` 时 ``current`` 落在 app 那行。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         self.login(CLIENT_WEB)
 
@@ -132,7 +198,11 @@ class DeviceListTests(DeviceApiTestCase):
         self.assertEqual(currents, {CLIENT_APP: True, CLIENT_WEB: False})
 
     def test_missing_header_counts_as_app(self):
-        """不带 ``X-Client`` 时 ``current`` 按 app 判定(与签发令牌同口径)。"""
+        """不带 ``X-Client`` 时 ``current`` 按 app 判定(与签发令牌同口径)。
+
+        参数说明:
+            无。
+        """
         self.login(CLIENT_APP)
         access_web = self.login(CLIENT_WEB).data["access"]
 
@@ -141,13 +211,21 @@ class DeviceListTests(DeviceApiTestCase):
         self.assertEqual(currents, {CLIENT_APP: True, CLIENT_WEB: False})
 
     def test_unused_client_is_absent(self):
-        """只登录过 App 时,Web 那行不存在(最多两行,且不返回空端)。"""
+        """只登录过 App 时,Web 那行不存在(最多两行,且不返回空端)。
+
+        参数说明:
+            无。
+        """
         access = self.login(CLIENT_APP).data["access"]
         rows = self.get_devices(access).data["results"]
         self.assertEqual([row["client_type"] for row in rows], [CLIENT_APP])
 
     def test_requires_authentication(self):
-        """未带令牌 → 401。"""
+        """未带令牌 → 401。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(self.client.get("/api/v1/devices").status_code, 401)
 
 
@@ -155,7 +233,11 @@ class DeviceLogoutTests(DeviceApiTestCase):
     """单端下线:该端失效、另一端仍可用、幂等、非法端类型。"""
 
     def test_kick_web_keeps_app_alive(self):
-        """踢 web 后 web 的 access 401/40101,app 的 access 仍 200。"""
+        """踢 web 后 web 的 access 401/40101,app 的 access 仍 200。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         access_web = self.login(CLIENT_WEB).data["access"]
 
@@ -170,14 +252,22 @@ class DeviceLogoutTests(DeviceApiTestCase):
         self.assertEqual(self.get_me(access_app).status_code, 200)
 
     def test_kick_current_client_is_allowed(self):
-        """踢当前这一端等同注销本端:自己的 access 随即 401。"""
+        """踢当前这一端等同注销本端:自己的 access 随即 401。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         with patch("im.tasks.kick_device.delay"):
             self.assertEqual(self.delete_device(access_app, CLIENT_APP).status_code, 204)
         self.assertEqual(self.get_me(access_app).status_code, 401)
 
     def test_repeat_kick_is_idempotent(self):
-        """重复踢同一端仍 204(已下线 / 从未登录过都不报错)。"""
+        """重复踢同一端仍 204(已下线 / 从未登录过都不报错)。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         with patch("im.tasks.kick_device.delay") as kick:
             self.assertEqual(self.delete_device(access_app, CLIENT_WEB).status_code, 204)
@@ -185,7 +275,11 @@ class DeviceLogoutTests(DeviceApiTestCase):
         self.assertEqual(kick.call_count, 2)
 
     def test_invalid_client_type_is_rejected(self):
-        """非法端类型 → 400 + 40004,且不入队踢人。"""
+        """非法端类型 → 400 + 40004,且不入队踢人。
+
+        参数说明:
+            无。
+        """
         access = self.login(CLIENT_APP).data["access"]
         with patch("im.tasks.kick_device.delay") as kick:
             response = self.delete_device(access, "pad")
@@ -194,7 +288,11 @@ class DeviceLogoutTests(DeviceApiTestCase):
         kick.assert_not_called()
 
     def test_kick_requires_authentication(self):
-        """未带令牌 → 401,不会改任何版本。"""
+        """未带令牌 → 401,不会改任何版本。
+
+        参数说明:
+            无。
+        """
         with patch("im.tasks.kick_device.delay") as kick:
             response = self.client.delete("/api/v1/devices/web")
         self.assertEqual(response.status_code, 401)
@@ -207,30 +305,46 @@ class DeviceLoggedOutTests(DeviceApiTestCase):
     def row_of(self, client_type):
         """取该端的端会话行。
 
-        Args:
+        参数说明:
             client_type: ``app`` / ``web``。
 
-        Returns:
+        返回参数:
             ``DeviceSession`` 实例。
+
+        使用示例:
+            ``self.row_of(CLIENT_WEB).version``
+
+        备注信息:
+            该端从未登录过时抛 ``DeviceSession.DoesNotExist``,用例里都在登录之后才调用。
         """
         return DeviceSession.objects.get(user=self.user, client_type=client_type)
 
     def listed_clients(self, access, client_type=CLIENT_APP):
         """请求列表并返回其中的端类型序列。
 
-        Args:
+        参数说明:
             access: access token 原文。
             client_type: 请求头 ``X-Client`` 的取值。
 
-        Returns:
+        返回参数:
             ``["app", ...]`` 形式的端类型列表。
+
+        使用示例:
+            ``self.listed_clients(access_app)``
+
+        备注信息:
+            内部先断言响应 200;只比端类型序列,不关心 ``current``。
         """
         response = self.get_devices(access, client_type)
         self.assertEqual(response.status_code, 200)
         return [row["client_type"] for row in response.data["results"]]
 
     def test_kicked_client_disappears_from_list(self):
-        """踢 web 之后列表只剩 app;web 的行还在、版本 +1、只多了下线标记。"""
+        """踢 web 之后列表只剩 app;web 的行还在、版本 +1、只多了下线标记。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         self.login(CLIENT_WEB)
         version_before = self.row_of(CLIENT_WEB).version
@@ -245,7 +359,11 @@ class DeviceLoggedOutTests(DeviceApiTestCase):
         self.assertIsNone(self.row_of(CLIENT_APP).logged_out_at)  # 另一端不受影响
 
     def test_relogin_restores_row_and_old_token_stays_dead(self):
-        """重新登录后该端回到列表;下线前的旧 access 仍 401/40101(行没删、版本没回退)。"""
+        """重新登录后该端回到列表;下线前的旧 access 仍 401/40101(行没删、版本没回退)。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         access_web_old = self.login(CLIENT_WEB).data["access"]
 
@@ -267,7 +385,11 @@ class DeviceLoggedOutTests(DeviceApiTestCase):
         self.assertEqual(stale.data["code"], 40101)
 
     def test_repeat_kick_only_refreshes_logged_out_at(self):
-        """重复踢同一端仍 204,``logged_out_at`` 刷成最新时间,行数与另一端不变。"""
+        """重复踢同一端仍 204,``logged_out_at`` 刷成最新时间,行数与另一端不变。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         self.login(CLIENT_WEB)
         with patch("im.tasks.kick_device.delay"):
@@ -284,14 +406,22 @@ class DeviceLoggedOutTests(DeviceApiTestCase):
         self.assertEqual(self.listed_clients(access_app), [CLIENT_APP])
 
     def test_kick_never_logged_in_client_does_not_add_row(self):
-        """踢一个从没登录过的端:不报错,也不会因此凭空多出一行。"""
+        """踢一个从没登录过的端:不报错,也不会因此凭空多出一行。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         with patch("im.tasks.kick_device.delay"):
             self.assertEqual(self.delete_device(access_app, CLIENT_WEB).status_code, 204)
         self.assertEqual(self.listed_clients(access_app), [CLIENT_APP])
 
     def test_logout_all_marks_both_clients(self):
-        """退出所有设备同样打标记:两端都从列表消失,重新登录的那一端才回来。"""
+        """退出所有设备同样打标记:两端都从列表消失,重新登录的那一端才回来。
+
+        参数说明:
+            无。
+        """
         access_app = self.login(CLIENT_APP).data["access"]
         self.login(CLIENT_WEB)
 
@@ -311,6 +441,20 @@ class LastActiveTests(TestCase):
     """``last_active_at`` 只在登录与刷新成功时更新,且按端各记各的。"""
 
     def setUp(self):
+        """准备干净缓存与一个测试账号,每个用例前重建。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``setUp()``
+
+        备注信息:
+            本类只断言 ``last_active_at``,登录统一走 ``_login`` 直接落码;``addCleanup`` 保证用例后清缓存。
+        """
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800000002"
@@ -319,11 +463,17 @@ class LastActiveTests(TestCase):
     def _login(self, client_type):
         """落码后走一次校验登录。
 
-        Args:
+        参数说明:
             client_type: ``app`` / ``web``。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self._login(CLIENT_APP)``
+
+        备注信息:
+            直接落固定验证码,不复用 ``issue_code``,两个夹具各自独立。
         """
         cache.delete(f"sms:send:{self.phone}")
         sms_codes.store(self.phone, settings.SMS_DEV_CODE)
@@ -335,21 +485,35 @@ class LastActiveTests(TestCase):
     def _row(self, client_type):
         """取该端的端会话行。
 
-        Args:
+        参数说明:
             client_type: ``app`` / ``web``。
 
-        Returns:
+        返回参数:
             ``DeviceSession`` 实例。
+
+        使用示例:
+            ``self._row(CLIENT_APP).last_active_at``
+
+        备注信息:
+            该端从未登录过时抛 ``DeviceSession.DoesNotExist``,用例里都在登录之后才调用。
         """
         return DeviceSession.objects.get(user=self.user, client_type=client_type)
 
     def test_login_stamps_last_active(self):
-        """登录成功后该端有 ``last_active_at``。"""
+        """登录成功后该端有 ``last_active_at``。
+
+        参数说明:
+            无。
+        """
         self._login(CLIENT_APP)
         self.assertIsNotNone(self._row(CLIENT_APP).last_active_at)
 
     def test_refresh_advances_last_active_only_for_own_client(self):
-        """刷新只推进本端时间:web 刷新不动 app 的那一行。"""
+        """刷新只推进本端时间:web 刷新不动 app 的那一行。
+
+        参数说明:
+            无。
+        """
         self._login(CLIENT_APP)
         self._login(CLIENT_WEB)
         stale = timezone.now() - timedelta(days=2)
@@ -364,7 +528,11 @@ class LastActiveTests(TestCase):
         self.assertEqual(app_row.last_active_at, stale)   # 端维度不串
 
     def test_failed_refresh_does_not_touch(self):
-        """没有可用 refresh 时不写库(否则「随便点一下」也算活跃)。"""
+        """没有可用 refresh 时不写库(否则「随便点一下」也算活跃)。
+
+        参数说明:
+            无。
+        """
         self._login(CLIENT_APP)
         stale = timezone.now() - timedelta(days=2)
         DeviceSession.objects.filter(user=self.user).update(last_active_at=stale)

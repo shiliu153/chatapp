@@ -14,7 +14,7 @@ cd chatapp
 python config/comment_coverage.py              # 全量检查,通过时打印「无缺口」
 python config/comment_coverage.py --app im     # 只检查某个 app
 python config/comment_coverage.py --warnings   # 附带口语词提示(不拦截)
-python config/comment_coverage.py --structure  # 附带公开函数 Args 小节提示(不拦截)
+python config/comment_coverage.py --structure  # 附带公开函数 参数说明 小节提示(不拦截)
 python manage.py test config.tests.CommentCoverageTests
 ```
 
@@ -29,7 +29,7 @@ python manage.py test config.tests.CommentCoverageTests
 > 「符号 docstring 缺失」与「装饰符号」互斥:一个函数要么没 docstring,要么有 docstring
 > 但里面带了 emoji,不会同时命中。5 处装饰符号全部位于生产代码的 docstring 内。
 > `--warnings` 另会报出口语词命中项(不拦截)。
-> `--structure` 另会报出「公开函数带参数却没有 `Args:` 小节」的提示(不拦截)。
+> `--structure` 另会报出「公开函数带参数却没有 `参数说明:` 小节」的提示(不拦截)。
 > 规范化前,118 个已有 docstring 中**没有一个**用过 `Args`/`Returns`/`Raises` 结构化小节;
 > 该缺口已按 §3 补齐(当前 229 个 docstring 带 `Args:` 小节),但仍**不进硬门禁**(见 §7),
 > 靠 `--structure` 提示与 review 维持。
@@ -52,7 +52,7 @@ python manage.py test config.tests.CommentCoverageTests
 | 腾讯来源 | 原始形态 | 本项目落地 |
 |---|---|---|
 | 后台 / C++ 规范的文件头块 | `@file` / `@brief` / `@author` / `@date` / `@note` | 换成 Python 的**模块 docstring**:一句话职责 + 按需小节 |
-| 腾讯 Python 规范(以 Google Python Style Guide 为基础) | 模块 / 类 / 函数三级 docstring,函数用 `Args`/`Returns`/`Raises` | **结构化函数 docstring** |
+| 腾讯 Python 规范(以 Google Python Style Guide 为基础) | 模块 / 类 / 函数三级 docstring,函数用 `Args`/`Returns`/`Raises` | **五小节函数 docstring**(`参数说明`/`返回参数`/`使用示例`/`备注信息`,与 C++ 侧字段同口径) |
 | AlloyTeam 前端规范「注释解释为什么,不解释是什么」 | 行内注释只写非显然的决策依据 | 行内注释**去装饰符号、去口语、去内部编号引用** |
 
 **明确不引入的两样东西:**
@@ -83,8 +83,21 @@ Python 没有独立的文件头注释块,模块开头的字符串字面量就是
 关联文档:
     - 接口契约:docs/api/<分册>.md
     - 踩坑记录:docs/pitfalls/<分册>.md
+
+文件信息:
+    文件名称          <相对 chatapp/ 的路径>
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 ```
+
+`文件信息` 是文件头的固定字段块（与 `imserver/` 的 C++ 文件头同口径），**每个非空 `.py` 文件都必须有**。
 
 **取舍规则:**
 
@@ -105,17 +118,18 @@ Python 没有独立的文件头注释块,模块开头的字符串字面量就是
 def issue_code(phone: str) -> str:
     """生成并存储验证码。
 
-    短信入队由调用方负责(见 ``views.sms_send``);本函数只负责限流、
-    生成、落库三步。
+    参数说明:
+        phone: 手机号，同时作为发送间隔限流的键。
 
-    Args:
-        phone: 手机号,同时作为发送间隔限流的键。
+    返回参数:
+        本次生成的 6 位验证码；开发模式下固定为 ``settings.SMS_DEV_CODE``。
 
-    Returns:
-        本次生成的 6 位验证码;开发模式下固定为 ``settings.SMS_DEV_CODE``。
+    使用示例:
+        ``code = issue_code("13800000000")``
 
-    Raises:
-        SmsSendTooFrequent: 距上次发送不足 ``SMS_RESEND_INTERVAL`` 秒。
+    备注信息:
+        短信入队由调用方负责（见 ``views.sms_send``）；本函数只负责限流、生成、落库三步。
+        距上次发送不足 ``SMS_RESEND_INTERVAL`` 秒时抛 ``SmsSendTooFrequent``。
     """
 ```
 
@@ -123,16 +137,19 @@ def issue_code(phone: str) -> str:
 
 - 首行**一句话动宾结构**,句末 `。`,不写「本函数」「该方法」。
 - 首行与后续小节之间**空一行**。
-- `Args:` 每个参数一行,格式 `参数名: 说明。`。类型已在类型注解里,**不重复写类型**。
-  公开函数**只要带参数就必须写** `Args:` 小节(私有函数、`test_*` 用例、无参函数除外);
+- 五小节固定顺序:`参数说明:` → `返回参数:` → `使用示例:` → `备注信息:`,小节标题后紧跟缩进 4 空格的正文。
+- `参数说明:` 每个参数一行,格式 `参数名: 说明。`。类型已在类型注解里,**不重复写类型**;无参数写 `无。`
+  公开函数**只要带参数就必须写** `参数说明:` 小节(私有函数、`test_*` 用例、无参函数除外);
   本地用 `--structure` 自查,命中项不进硬门禁。
-- `Returns:` 仅在返回值语义非显然时写;返回 `None` 时省略整节。
-- `Raises:` 只列**本函数主动抛出**的异常,不含被调用方穿透上来的。
-- **私有函数**(`_` 前缀)、`@property`、`@override` 装饰的方法:**允许只写首行**,
-  不强制 `Args`/`Returns`。
+- `返回参数:` 写返回值语义;返回 `None` 时写 `无返回值。`
+- `使用示例:` 用双反引号包裹**真实调用形式**;方法写 `obj.method(...)`。
+- `备注信息:` **必须存在**,写前置条件、异常、副作用、并发/限流约束;没有内容写 `无特殊约束。`
+  原 `Raises:` 只列**本函数主动抛出**的异常,不含被调用方穿透上来的,内容并入这里。
+- **私有函数**(`_` 前缀)、`@property`、`@override` 装饰的方法:**允许只写首行 + `备注信息:`**,
+  不强制 `参数说明`/`返回参数`/`使用示例`。
 - **Django 视图**:首行末尾注明对应接口,格式 `(GET /api/v1/discovery/candidates)`。
 - **Django Model 的字段**:字段语义不显然时用行内注释,不塞进类 docstring。
-- **`test_*` 用例**:豁免。用例名即文档,见 §6。
+- **`test_*` 用例**:只写首行 + `参数说明: 无。`,其余小节省略(用例名即文档,见 §6)。
 
 ---
 
@@ -172,7 +189,7 @@ def issue_code(phone: str) -> str:
 | 测试类 | **否** | 场景分组,一行说明价值高;且让门禁不必按文件名特判 |
 | `AppConfig` 子类 | **否** | 顶层类,有明确职责(说明该 app 管什么) |
 | 非 `test_*` 的顶层辅助方法(`_make_user`、`login` 等) | 否 | 按正常规则写 |
-| 私有函数 / `@property` | 部分 | 允许只写首行,不强制 `Args`/`Returns` |
+| 私有函数 / `@property` | 部分 | 允许只写首行 + `备注信息:`,不强制 `参数说明`/`返回参数`/`使用示例` |
 
 > 测试类之所以不豁免,还有个工程理由:**基于文件名的特判是门禁脚本最容易出错的地方**
 > (判断 `test*.py` 还是 `*tests.py`、路径分隔符、大小写)。为省 66 行注释引入这种特判不划算。
@@ -192,12 +209,12 @@ def issue_code(phone: str) -> str:
 
 4. 口语词黑名单命中项。该黑名单**必然有误报**——「兜底」在技术语境里是合法用词,
    做成硬门禁会逼后人写 `# noqa`,反而降低规范的权威性。人工在 review 时看。
-5. 公开函数带参数却没有 `Args:` 小节(`--structure`)。AST 只能判断「有没有 `Args:`」,
+5. 公开函数带参数却没有 `参数说明:` 小节(`--structure`)。AST 只能判断「有没有 `参数说明:`」,
    无法判断参数是否显然到可以不写,因此同样不做硬门禁。
 
 **明确不检查:**
 
-6. `Args` 内容是否准确,以及 `Returns`/`Raises` 小节该不该写。AST 无法判断
+6. `参数说明` 内容是否准确,以及 `返回参数`/`使用示例`/`备注信息` 小节写得对不对。AST 无法判断
    「这个返回值是否显然」,强做必然误报。这一条靠 review 与本文档约束。
 
 ---
@@ -239,17 +256,18 @@ def _sent_key(phone):
 def issue_code(phone: str) -> str:
     """生成并存储验证码。
 
-    短信入队由调用方负责(见 ``views.sms_send``);本函数只负责限流、
-    生成、落库三步。
+    参数说明:
+        phone: 手机号，同时作为发送间隔限流的键。
 
-    Args:
-        phone: 手机号,同时作为发送间隔限流的键。
+    返回参数:
+        本次生成的 6 位验证码；开发模式下固定为 ``settings.SMS_DEV_CODE``。
 
-    Returns:
-        本次生成的 6 位验证码;开发模式下固定为 ``settings.SMS_DEV_CODE``。
+    使用示例:
+        ``code = issue_code("13800000000")``
 
-    Raises:
-        SmsSendTooFrequent: 距上次发送不足 ``SMS_RESEND_INTERVAL`` 秒。
+    备注信息:
+        短信入队由调用方负责（见 ``views.sms_send``）；本函数只负责限流、生成、落库三步。
+        距上次发送不足 ``SMS_RESEND_INTERVAL`` 秒时抛 ``SmsSendTooFrequent``。
     """
     if not cache.add(_sent_key(phone), 1, settings.SMS_RESEND_INTERVAL):
         raise SmsSendTooFrequent(wait=settings.SMS_RESEND_INTERVAL)
@@ -262,28 +280,39 @@ def issue_code(phone: str) -> str:
 def rollback_send(phone: str) -> None:
     """短信任务入队失败时回滚。
 
-    删掉限流占位与验证码,让用户能立刻重试(见 ``views.sms_send`` 的异常分支)。
-
-    Args:
+    参数说明:
         phone: 手机号。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``rollback_send("13800000000")``
+
+    备注信息:
+        删掉限流占位与验证码，让用户能立刻重试（见 ``views.sms_send`` 的异常分支）。
     """
     cache.delete(_sent_key(phone))
     sms_codes.delete(phone)
 
 
 def check_code(phone: str, code: str) -> None:
-    """校验验证码,成功即通过。
+    """校验验证码，成功即通过。
 
-    含 60 秒重放窗口内的重复校验:窗口内重复提交同一个码仍算成功。
-
-    Args:
+    参数说明:
         phone: 手机号。
         code: 用户提交的 6 位验证码。
 
-    Raises:
-        SmsCodeExpired: 验证码已过期或不存在。
-        SmsCodeWrong: 验证码错误。
-        SmsLocked: 连错次数超限,账号被临时锁定。
+    返回参数:
+        无返回值；校验失败以异常形式抛出。
+
+    使用示例:
+        ``check_code("13800000000", "123456")``
+
+    备注信息:
+        含 60 秒重放窗口内的重复校验：窗口内重复提交同一个码仍算成功。
+        验证码过期或不存在抛 ``SmsCodeExpired``；错误抛 ``SmsCodeWrong``；
+        连错次数超限抛 ``SmsLocked``。
     """
     result = sms_codes.verify(phone, code)
     if result is sms_codes.CodeResult.EXPIRED:

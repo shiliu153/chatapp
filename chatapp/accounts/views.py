@@ -12,6 +12,17 @@
 
 关联文档:
     - 接口契约:docs/api/auth.md、docs/api/health.md
+
+文件信息:
+    文件名称          accounts/views.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import logging
@@ -58,25 +69,58 @@ logger = logging.getLogger(__name__)
 @permission_classes([AllowAny])
 @throttle_classes([ProbeThrottle])
 def health(request):
-    """存活探针。
+    """存活探针(GET /api/v1/health)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         固定 ``{"status": "ok"}``,不触碰数据库与 Redis。
+
+    使用示例:
+        ``client.get("/api/v1/health")``
+
+    备注信息:
+        不查数据库也不查 Redis,依赖故障时本接口仍可应答;依赖健康度看
+        ``/api/v1/readyz``。
     """
     return Response({"status": "ok"})
 
 
 def _probe_db():
-    """数据库探针:执行一次 ``SELECT 1``,失败时抛异常。"""
+    """数据库探针:执行一次 ``SELECT 1``,失败时抛异常。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值;连接不可用时由数据库驱动抛异常。
+
+    使用示例:
+        ``_probe_db()``
+
+    备注信息:
+        由 ``readyz`` 捕获异常后记成 ``checks["db"] = "error"``,异常不会逃出视图。
+    """
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1")
 
 
 def _probe_redis():
-    """Redis 探针:写入后读回并校验往返一致,失败时抛异常。"""
+    """Redis 探针:写入后读回并校验往返一致,失败时抛异常。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值;读回值与写入值不一致时抛 ``RuntimeError``。
+
+    使用示例:
+        ``_probe_redis()``
+
+    备注信息:
+        探针键 ``readyz:probe`` 带 10 秒过期,不会在 Redis 里留下长期脏数据。
+    """
     conn = get_redis_connection("default")
     conn.set("readyz:probe", "1", ex=10)
     if conn.get("readyz:probe") != b"1":
@@ -91,14 +135,21 @@ def _probe_redis():
 @permission_classes([AllowAny])
 @throttle_classes([ProbeThrottle])
 def readyz(request):
-    """就绪探针:逐项检查数据库与 Redis。
+    """就绪探针:逐项检查数据库与 Redis(GET /api/v1/readyz)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         全部依赖可用时返回 200 + ``{"status": "ok", "checks": {...}}``;
         任一依赖不可用时返回 503 + ``status="unavailable"``,便于负载均衡摘除实例。
+
+    使用示例:
+        ``client.get("/api/v1/readyz")``
+
+    备注信息:
+        单个探针失败只记 ``logger.exception`` 并把该项标成 ``error``,其余项继续检查,
+        因此返回体能同时看出是数据库还是 Redis 不可用。
     """
     checks = {}
     for name, probe in (("db", _probe_db), ("redis", _probe_redis)):
@@ -126,16 +177,20 @@ def sms_send(request):
     先占用限流键并落库验证码,再入队发送任务;入队失败会回滚限流占位与验证码,
     让用户可以立刻重试。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,body 需带 ``phone``。
 
-    Returns:
+    返回参数:
         ``{"status": "ok"}``。
 
-    Raises:
-        PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
-        SmsSendTooFrequent: 距上次发送不足重发间隔。
-        SmsServiceUnavailable: 短信任务入队失败(fail-closed)。
+    使用示例:
+        ``client.post("/api/v1/auth/sms/send", {"phone": "13900009000"})``
+
+    备注信息:
+        白名单闸门放在发码之前:非受邀号码不占限流键、不落码、不入队。
+        ``PhoneNotAllowed``: 号码不在封闭测试白名单内(B-1 / K-1)。
+        ``SmsSendTooFrequent``: 距上次发送不足重发间隔。
+        ``SmsServiceUnavailable``: 短信任务入队失败(fail-closed)。
     """
     serializer = PhoneSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -172,18 +227,24 @@ def sms_verify(request):
     端类型由请求头 ``X-Client`` 决定(``web`` / 其余与缺省一律 ``app``);
     之后一律按令牌里的 ``ct`` 回查,不再看请求头。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,body 需带 ``phone`` 与 ``code``。
 
-    Returns:
+    返回参数:
         ``{access, is_new_user, user_id}``;带 ``X-Client: web`` 的请求不返回
         ``refresh``,改为下发 HttpOnly Cookie(App 分支保持原样)。
 
-    Raises:
-        PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
-        SmsCodeExpired: 验证码已过期或不存在。
-        SmsCodeWrong: 验证码错误。
-        SmsLocked: 连续错误次数超限。
+    使用示例:
+        ``client.post("/api/v1/auth/sms/verify", {"phone": "13900009000", "code": "123456"})``
+
+    备注信息:
+        运营账号(staff/superuser)默认不走短信登录,确需登录须显式设
+        ``SMS_ALLOW_STAFF_LOGIN=1``;并发建号撞 phone 唯一约束时回查一次即返回老账号。
+        ``PhoneNotAllowed``: 号码不在封闭测试白名单内(B-1 / K-1)。
+        ``SmsCodeExpired``: 验证码已过期或不存在。
+        ``SmsCodeWrong``: 验证码错误。
+        ``SmsLocked``: 连续错误次数超限。
+        ``PermissionDenied``: 运营账号未开启短信登录时被拒(403)。
     """
     serializer = SmsVerifySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -219,6 +280,23 @@ def sms_verify(request):
     device_session.login(user, client_type)
 
     def _after_commit():
+        """登录事务提交后触发 IM 建号、待踢旧会话标记与会话版本同步。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值;三个任务只入队,不等待执行结果。
+
+        使用示例:
+            ``transaction.on_commit(_after_commit, robust=True)``
+
+        备注信息:
+            由 ``sms_verify`` 交给 ``transaction.on_commit``,因此必然在事务提交后
+            运行;``robust=True`` 保证 broker 抖动不会把已提交的登录拖成 500。
+            新账号只入队建号,老账号才写「本端待踢旧 IM 会话」标记 —— 标记必须带端
+            维度,否则 Web 登录会把 App 的在线 IM 会话也踢掉。
+        """
         # robust=True:broker 抖动不会把已提交的登录拖成 500
         if created:
             im_tasks.import_account.delay(user.id)
@@ -252,7 +330,20 @@ def sms_verify(request):
 
 
 def _grace_key(jti: str) -> str:
-    """拼出「旧 refresh 的 jti → 轮换后的新 refresh」缓存键。"""
+    """拼出「旧 refresh 的 jti → 轮换后的新 refresh」缓存键。
+
+    参数说明:
+        jti: 旧 refresh token 的唯一标识。
+
+    返回参数:
+        缓存键字符串。
+
+    使用示例:
+        ``_grace_key("3f2a9c...")``
+
+    备注信息:
+        键里必须带 jti:同一账号的多次刷新各占一条,互不覆盖。
+    """
     return f"auth:refresh_grace:{jti}"
 
 
@@ -262,11 +353,18 @@ def _body_refresh(request) -> str:
     Web 走 Cookie 时请求体是空的,而 DRF 解析空 JSON 体会抛 ``ParseError``;
     这里把它当作「没带」处理,交给 Cookie 分支。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         请求体里的 refresh 原文;没有或解析失败时返回空串。
+
+    使用示例:
+        ``_body_refresh(request)``
+
+    备注信息:
+        解析失败按「没带」处理而不是抛 400,否则 Web 端走 Cookie 刷新时会被空请求体
+        打成错误。
     """
     try:
         data = request.data
@@ -281,14 +379,18 @@ def _reuse_within_grace(raw_token: str) -> str | None:
     多标签页同时刷新会先后打到同一个旧 refresh:先到者轮换并把它拉黑,
     后到者落在宽限期内,应当拿到同一对新令牌而不是被判会话失效。
 
-    Args:
+    参数说明:
         raw_token: 客户端提交的旧 refresh token。
 
-    Returns:
+    返回参数:
         缓存的新 refresh 原文;不在宽限期内(或签名/会话已失效)返回 ``None``。
 
-    Raises:
-        SingleDeviceSessionConflict: 令牌本身有效,但账号已被其它设备顶下线。
+    使用示例:
+        ``_reuse_within_grace(raw)``
+
+    备注信息:
+        签名无效时返回 ``None``;令牌本身有效但账号已被其它设备顶下线时抛
+        ``SingleDeviceSessionConflict``。
     """
     try:
         claims = token_backend.decode(raw_token, verify=True)
@@ -311,26 +413,42 @@ def _reuse_within_grace(raw_token: str) -> str | None:
         "access": serializers.CharField(),
         "refresh": serializers.CharField(required=False)})})
 class SessionTokenRefreshView(TokenRefreshView):
-    """刷新 access token:Web 走 Cookie,App 走请求体。
+    """刷新 access token:Web 走 Cookie,App 走请求体(POST /api/v1/auth/token/refresh)。
 
     轮换后的 refresh 会写进 ``REFRESH_REUSE_GRACE`` 秒的宽限缓存,
     让并发刷新的多个标签页都能拿到可用的令牌。
+
+    参数说明:
+        无构造参数;父类 ``as_view()`` 的 ``**initkwargs`` 原样透传。
+
+    返回参数:
+        类本身,由 ``accounts.urls`` 以 ``as_view()`` 挂载;实例由 DRF 按请求创建。
+
+    使用示例:
+        ``SessionTokenRefreshView.as_view()``
+
+    备注信息:
+        请求体与 Cookie 两个来源都要看:App 从请求体读,Web 从 HttpOnly Cookie 读。
     """
 
     def post(self, request, *args, **kwargs):
-        """校验会话版本后换发新令牌。
+        """校验会话版本后换发新令牌(POST /api/v1/auth/token/refresh)。
 
-        Args:
+        参数说明:
             request: DRF 请求对象;``refresh`` 可放在请求体(App)或 Cookie(Web)。
             *args: 透传给父类的位置参数。
             **kwargs: 透传给父类的关键字参数。
 
-        Returns:
+        返回参数:
             Web:``{access}`` + 轮换后的 Cookie;App:``{access, refresh}``。
 
-        Raises:
-            AuthenticationFailed: 没有令牌、令牌无效或超出宽限期的重复使用。
-            SingleDeviceSessionConflict: 该 refresh token 来自已被顶下线的设备。
+        使用示例:
+            ``SessionTokenRefreshView.as_view()(request)``
+
+        备注信息:
+            没有令牌、令牌无效或超出宽限期的重复使用抛 ``AuthenticationFailed``;
+            该 refresh 来自已被顶下线的设备抛 ``SingleDeviceSessionConflict``;
+            跨站请求抛 ``PermissionDenied``。
         """
         cookie_value = request.COOKIES.get(settings.REFRESH_COOKIE_NAME, "")
         raw = _body_refresh(request) or cookie_value
@@ -373,13 +491,19 @@ class SessionTokenRefreshView(TokenRefreshView):
     def _respond(access: str, refresh: str, web: bool) -> Response:
         """按客户端类型拼响应体与 Cookie。
 
-        Args:
+        参数说明:
             access: 新签发的 access token。
             refresh: 当前有效的 refresh token(Web 会写进 Cookie)。
             web: 是否 Web 客户端。
 
-        Returns:
+        返回参数:
             响应对象:Web 只返回 ``access`` 并下发 Cookie;App 返回两者。
+
+        使用示例:
+            ``SessionTokenRefreshView._respond(access, refresh, True)``
+
+        备注信息:
+            ``refresh`` 为空串时既不写 Cookie 也不放进响应体,避免下发空令牌。
         """
         if web:
             response = Response({"access": access})
@@ -404,14 +528,19 @@ def logout(request):
     幂等 —— 令牌缺失、已过期或已拉黑都返回 204,前端只关心「本地会话已结束」。
     按 IP 限流,避免匿名调用把黑名单表刷大(L-5)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象;``refresh`` 可放在请求体或 Cookie。
 
-    Returns:
+    返回参数:
         204 空响应,附带清除 Cookie 的 ``Set-Cookie``。
 
-    Raises:
-        PermissionDenied: ``Origin`` 与本站不同源(仅 Cookie 场景需要,见 ``same_origin``)。
+    使用示例:
+        ``client.post("/api/v1/auth/logout", {"refresh": raw})``
+
+    备注信息:
+        幂等:令牌缺失、已过期或已拉黑都返回 204;按 IP 限流,避免匿名调用把黑名单表
+        刷大(L-5)。``Origin`` 与本站不同源时抛 ``PermissionDenied``(仅 Cookie 场景,
+        见 ``same_origin``)。
     """
     if not same_origin(request):
         raise PermissionDenied("跨站请求被拒绝")
@@ -432,7 +561,7 @@ def logout(request):
 @permission_classes([IsAuthenticated])
 @throttle_classes([LogoutThrottle])
 def logout_all(request):
-    """退出所有设备:两端会话版本各 +1,并踢掉全部在线 IM 会话。
+    """退出所有设备:两端会话版本各 +1,并踢掉全部在线 IM 会话(POST /api/v1/auth/logout/all)。
 
     为什么两个端都 +1:这是「手机丢了,一键全端下线」的语义 —— 只递增本端会让
     另一台设备继续在线。踢 IM 会话必须走 Celery:响应路径禁止外部调用。
@@ -441,12 +570,19 @@ def logout_all(request):
     ``GET /api/v1/devices`` 是空列表 —— 与 1.7 单端下线的可观察语义保持一致;
     哪一端重新登录,哪一端就重新出现,版本号继续单调递增,旧令牌始终无效。
 
-    Args:
+    参数说明:
         request: DRF 请求对象(必须已认证)。
 
-    Returns:
+    返回参数:
         204 空响应,附带清除 Cookie 的 ``Set-Cookie``;之后两端的 access 与
         refresh 全部失效。
+
+    使用示例:
+        ``client.post("/api/v1/auth/logout/all")``
+
+    备注信息:
+        两端都打 ``logged_out_at`` 标记,因此退出之后 ``GET /api/v1/devices`` 是空
+        列表;哪一端重新登录,哪一端就重新出现。
     """
     user = request.user
     for client_type in device_session.CLIENT_TYPES:
@@ -485,13 +621,20 @@ def devices(request):
     为什么不在服务端判「在线」:在线是**账号级**的 ``presence``(120 秒窗口),
     按端拆要动心跳链路;这里只给「最近活跃时间」,让用户自己判断哪台设备还在用。
 
-    Args:
+    参数说明:
         request: DRF 请求对象(必须已认证)。
 
-    Returns:
+    返回参数:
         ``{"results": [{client_type, client_label, current, created_at,
         last_active_at}]}``;``last_active_at`` 为 ``null`` 表示该端只有登录记录、
         还没刷新过令牌(批次 M 上线前建的行)。从没登录过、已下线的端不出现。
+
+    使用示例:
+        ``client.get("/api/v1/devices", HTTP_X_CLIENT="web")``
+
+    备注信息:
+        ``current`` 只看请求头 ``X-Client``(缺省与未知取值一律按 ``app``),
+        与签发令牌时的口径完全一致;服务端不按端判在线。
     """
     current = device_session.client_type_of(request)
     rows = [{
@@ -521,15 +664,19 @@ def device_logout(request, client_type):
     同口径),``logged_out_at`` 只刷新成最新时间。允许踢当前正在用的这一端:语义等同
     「注销本端」,服务端不做特判,客户端收到 204 后自行回登录页。
 
-    Args:
+    参数说明:
         request: DRF 请求对象(必须已认证)。
         client_type: 路径参数,``app`` 或 ``web``。
 
-    Returns:
+    返回参数:
         204 空响应。
 
-    Raises:
-        InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40004)。
+    使用示例:
+        ``client.delete("/api/v1/devices/web")``
+
+    备注信息:
+        ``client_type`` 不是 ``app`` / ``web`` 时抛 ``InvalidClientType``
+        (400 + 40004);允许踢当前正在用的这一端,语义等同「注销本端」。
     """
     if client_type not in device_session.CLIENT_TYPES:
         raise InvalidClientType()
