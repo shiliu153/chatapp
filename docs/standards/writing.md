@@ -125,10 +125,12 @@
 
 ### 5.2 术语
 
-禁用词(完整表见 [`sources-of-truth.md`](sources-of-truth.md) §5):
-**「六轨」「CI 四轨」「三轮安全审计」**。它们与事实脱钩(`.github/workflows/` 现在有 <!-- lint:allow:term -->
-10 个文件),且数字会继续变。改写方式:「workflow(当前 10 个)」或直接点名轨
-(`contract` / `backend` …)。
+禁用词表由 [`sources-of-truth.md`](sources-of-truth.md) §5 **唯一维护**,本文件不抄第二份(同一张表两处手写必然分叉)。
+`term` 规则(`scripts/docs_lint.py` 的 `BANNED_TERMS`)按那张表拦截,当前是两类:
+
+1. **「N 轨」形式的轨数词** —— 与 `.github/workflows/` 现在 10 个文件的事实脱钩,且数字会继续变;
+   改写方式:「workflow(当前 10 个)」或直接点名轨(`contract` / `backend` …);
+2. **「N 轮安全审计」** —— 已有第四轮;改写方式:「`docs/security/` 下 N 份」或「四轮」。
 
 `term` 规则的作用域与豁免(**刻意收窄**,否则第一版就会红一片然后被人关掉):
 
@@ -144,10 +146,11 @@
 **行内豁免**:确实需要引用禁用词(例如说明它为什么被禁)时,在该行加
 
 ```markdown
-这句话引用了「六轨」这个词 <!-- lint:allow:term -->
+这句话引用了一个禁用词以说明它被禁 <!-- lint:allow:term -->
 ```
 
 标记**只豁免它所在的那一行**;整文件豁免只能通过上面的白名单,不提供「随手关掉整份文档」的口子。
+禁用词本身在 `sources-of-truth.md` §5 有完整表,本文件不复述。
 
 ---
 
