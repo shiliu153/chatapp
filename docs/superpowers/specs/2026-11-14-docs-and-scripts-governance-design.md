@@ -294,7 +294,10 @@ scripts/
 >   CI 漏跑启动脚本选路自测 1 条,现在两边一样;③ 本地 web 跑的是 `test:run`(覆盖率门槛
 >   不生效),CI 跑 `test:coverage` —— 同源后本地也真跑 70/60/70/70;④ `gates.toml` 钉成
 >   LF(`.gitattributes`),否则 Windows 检出的 CRLF 会让 `bash -c` 的多行门禁整条报错
->   (执行器另做一层换行归一化兜底)。
+>   (执行器另做一层换行归一化兜底);⑤ **`env.sh` 的 `TEST_REDIS_*` 写死 16379 在 CI 上连错端口** ——
+>   CI 的 workflow 只注入 `REDIS_URL`(Redis 在 6379),从不注入 `TEST_REDIS_*`,而后端测试
+>   在 TESTING 模式下读的是后者;本地 16379 恰好是对的,所以「本地绿」看不出来。
+>   已改成**从 `REDIS_URL` 解析**(这条是 CI 第一次跑同源脚本时抓到的,正好证明同源有用)。
 > - **范围外(遗留)**:① `check_artifact` 的 Python 实现(`scripts/lib/artifacts.py`)仍归
 >   第 5 节(C9),注册表里没有 `kind = "artifact"`;② 三个重活轨的「装配」仍有 CI 专属部分
 >   (services / 装依赖 / MySQL 授权 / Flutter SDK / Node 版本),它们不是判定而是环境,
