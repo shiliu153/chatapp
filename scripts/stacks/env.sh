@@ -94,29 +94,6 @@ run() { # run <说明> <命令...>
   "$@"
 }
 
-# 校验「生成物 == HEAD 里的那一版」。
-#
-# 为什么不用 `git diff --exit-code`:本仓库在 Windows 上检出是 CRLF,而 WSL 里的 git
-# 按 LF 理解索引,`git diff` 会把上千个文件都算成改动(实测 1094 个),这条判定在
-# WSL 里等于永远红。改成「比内容、忽略行尾」:把两边的 \r 都去掉再比。
-# (抽成 scripts/lib/artifacts.py 归治理第 5 节,见 sources-of-truth §4 C9。)
-check_artifact() { # check_artifact <仓库相对路径>
-  local f=$1
-  if [ "$DRY_RUN" = 1 ]; then
-    printf '\n=== 校验生成物与 HEAD 一致 ===\n+ %s\n' "$f"
-    return 0
-  fi
-  if ! git -C "$ROOT" cat-file -e "HEAD:$f" 2>/dev/null; then
-    die "$f 不在 HEAD 里:新增生成物请先提交,否则 CI 会对不上"
-  fi
-  if ! diff -q <(git -C "$ROOT" show "HEAD:$f" | tr -d '\r') <(tr -d '\r' < "$ROOT/$f") >/dev/null; then
-    echo "--- $f 与 HEAD 的差异(前 40 行) ---" >&2
-    diff -u <(git -C "$ROOT" show "HEAD:$f" | tr -d '\r') <(tr -d '\r' < "$ROOT/$f") 2>&1 | head -40 >&2 || true
-    die "$f 与代码不一致:重新生成并提交"
-  fi
-  echo "生成物一致: $f"
-}
-
 # web / app 两条栈拒绝在 /mnt/* 上跑:那是 WSL 的 9p 挂载,读 node_modules 与 flutter
 # 缓存极慢,实测 vitest 起 fork worker 会直接超时(报 "[vitest-pool] Failed to start
 # forks worker … Timeout waiting for worker to respond"),看上去像用例红了其实是环境。

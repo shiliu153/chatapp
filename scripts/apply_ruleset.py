@@ -22,16 +22,18 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-DEFAULT_TOKEN_FILE = Path.home() / ".dsh" / "github-mcp-token.txt"
-DEFAULT_REPO = "shiliu153/chatapp"
+# `python scripts/apply_ruleset.py` 时 sys.path[0] 是 scripts/,显式把仓库根放进去,
+# 这样 `from scripts.lib import repo` 在直接跑与 unittest 两种方式下都成立(见 lib/__init__.py)。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.lib import repo as lib_repo  # noqa: E402  (必须在 sys.path 修好之后)
+
 DEFAULT_RULESET_NAME = "默认分支(main): 必须走 PR + 禁强推"
-API = "https://api.github.com"
 #: required check 的 context = **check run 的 name**(GitHub Actions 里就是 job 的
 #: ``name:`` 字段),不是 ``workflow / job`` 拼接。三个 job 已显式命名为
 #: contract / backend / web(见各自 yml),避免 ``test`` 这种通用名与其它轨重名。
@@ -55,15 +57,10 @@ def read_token() -> str:
     Raises:
         RulesetError: 两处都没有。
     """
-    for name in ("GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    if DEFAULT_TOKEN_FILE.exists():
-        value = DEFAULT_TOKEN_FILE.read_text(encoding="utf-8").strip()
-        if value:
-            return value
-    raise RulesetError("找不到 GitHub token:设 GITHUB_TOKEN 或写 ~/.dsh/github-mcp-token.txt")
+    try:
+        return lib_repo.resolve_token()
+    except lib_repo.TokenError as error:
+        raise RulesetError(str(error)) from error
 
 
 def request(method: str, url: str, token: str, payload: dict | None = None) -> tuple[int, dict]:

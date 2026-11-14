@@ -49,7 +49,8 @@
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
 | 版本号 | [`app/pubspec.yaml`](../../app/pubspec.yaml)(**唯一事实来源**) | 机械:`python scripts/sync_version.py --check`(`contract` 轨) | 已落地 |
-| 发版记录(版本 / tag / Release 链接 / 上线 SHA / APK) | **`docs/releases.yml`**(D1-B 已拍板,第 5 节落地) | 机械:`sync_version.py` 只解析结构化数据 | **迁移中**:当前事实在 [release.md §5](../ops/release.md) 的 Markdown 表格,由 `read_release_record` 解析(见 §4 C8) |
+| 发版记录(版本 / tag / Release 链接 / 上线 SHA / APK) | **`docs/releases.yml`**(D1-B 拍板) | 机械:`python scripts/releases.py --check`(渲染物 == YAML,逐字节)+ `python scripts/sync_version.py --check`(当前版本有记录 / `tag` 含 `v<版本>` / `Release` 非空) | **已落地**(2026-11-14 第 5 节):13 行历史逐字段迁移,`release.md` §5 改为生成区间;4 行散文用 `release: ""` + `note:` **原样还原**(不改写历史) |
+| 四个发版脚本的职责边界(谁写哪些文件 / 联不联网 / 退出码) | [release.md §3.2](../ops/release.md) | 人工:**每次新增或改发版脚本时**对照;机械:`python -m unittest scripts.test_lib`(共享层只有一份实现) | 已落地(2026-11-14 第 5 节) |
 | 发版动作清单(8 步) | [release.md §3](../ops/release.md) | 人工:**每次发版**按清单逐条执行 | 已落地 |
 | Release 正文规范 | [release.md §4](../ops/release.md) | 人工:**每次发版**对照 | 已落地 |
 | 「部署只认合并后的 SHA」 | [`scripts/deploy_gate.py`](../../scripts/deploy_gate.py) | 机械:`python scripts/deploy_gate.py`(部署前必跑) | 已落地 |
@@ -107,9 +108,9 @@
 
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
-| 脚本放在哪(唯一家) | `scripts/`(域内子目录) | 机械:`python scripts/docs_lint.py` 的 structure 规则(`docs/` 下不得有脚本 / 补丁 / 配置) | **部分落地**(2026-11-14 第 2 节):`docs/` 侧已清零(7 个压测脚本 → `scripts/stress/`、补丁 → `scripts/patches/`、证书巡检 → `scripts/ops/`);`tools/` `perf/` `imserver/scripts/` 的归属取决于 §7 **D2** 拍板(保守档不搬目录) |
-| 仓库名(`owner/name`) | 第 5 节 `scripts/lib/repo.py` | 机械:`git grep 'DEFAULT_REPO =' -- 'scripts/*.py'` 命中 = 1 | 待建(当前 4 处,见 §4 C7) |
-| 「生成物 == HEAD」的比对语义(忽略行尾) | 第 5 节 `scripts/lib/artifacts.py` | 机械:该 lib 的单测 | 待建(当前仅 `verify.sh::check_artifact` 的 shell 实现) |
+| 脚本放在哪(唯一家 + 3 处已裁决例外) | `scripts/`(域内子目录);**例外**:`tools/`(容器内 `/repo/tools` 路径被 `imserver/scripts/test_http.sh` 硬编码)、`perf/`(20+ 处历史报告的「当时命令」引用,搬了变死链)、`imserver/scripts/`(C++ 测试入口与镜像同源) | 机械:`python scripts/docs_lint.py` 的 structure 规则(`docs/` 下不得有脚本 / 补丁 / 配置)+ `git grep` 例外清单 | **已裁决**(2026-11-14 第 5 节,D2-A):`docs/` 侧已清零(第 2 节);三处例外的理由写在 [release.md §3.2](../ops/release.md) 与本节,不再悬着 |
+| 仓库名(`owner/name`) | 第 5 节 `scripts/lib/repo.py` | 机械:`git grep -c "DEFAULT_REPO =" -- 'scripts/**/*.py'` 命中 = 1 | **已落地**(2026-11-14 第 5 节):4 → **1**,同性质三处(`DEFAULT_TOKEN_FILE` / `API` / token 解析逻辑)一并收进同一模块 |
+| 「生成物 == HEAD」的比对语义(忽略行尾) | 第 5 节 `scripts/lib/artifacts.py` | 机械:`python -m unittest scripts.test_lib`(正反两面)+ 注册表两道 `kind = "artifact"` 门禁(`backend-openapi-artifact` / `web-schema-artifact`) | **已落地**(2026-11-14 第 5 节):shell 的 `check_artifact` 已删除,语义只有 Python 一份;退出码由 2 改为 **1**(判定失败,不是执行器故障) |
 
 ---
 
@@ -181,9 +182,9 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | **C4** | 术语「六轨」与事实脱钩 | 19 次 / 12 个文件(非归档 9 个文件 10 次);workflows 实有 10 个 | **废止该词**。改说「workflow(当前 10 个)」或直接点名轨;由 `docs_lint` 术语规则拦截 | **改判到第 6 节**(2026-11-14 第 2 节决定):清理 19 处属**术语 lint 规则**的落地,与 `writing.md` 同批做才有防回归手段;第 2 节只做结构与索引。归档里的 3 处按 §6 红线不改 |
 | **C5** | `verify.sh` 自称「CI 的镜像」但两边门禁集不同 | 复核时本地 **11** 条 / CI **15** 条;CI 独有 5 条,本地独有 1 条。第 2 节两边各加 2 条、第 3 节各加 2 条后为 **15 / 19**(差额仍是 4)。第 4 节实测差异账:CI 独有 5、本地独有 1、两边都没跑 1(`test_verify.sh`)、**写法不同 14**(逐字相同的命令 **0** 条) | **`scripts/gates.toml` 说了算**(2026-11-14 第 4 节起);workflow 与 `verify.sh` 只调执行器 | **已落地**(第 4 节):两边跑同一份清单 + 同一个执行器,**21 / 21**,差额 4 → **0**;「命令不再出现在两边接线文件里」由 `scripts/test_gates.py` 机械判定 |
 | **C6** | 「改什么 → 跑什么」表维护两份 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 各一张,内容近乎重复 | **`AGENTS.md` §三 说了算**;`CONTRIBUTING.md` 收成指针 | 第 6 节 |
-| **C7** | 脚本有 7 处家 + 常量重复 | `scripts/`(52 含子目录)/ `tools/` 3 / `perf/` 2 / `deploy/observability/` 2 / `imserver/scripts/` 9 / `docs/ops/stress/` 7 / `docs/ops/check_ssl_expiry.sh`;`DEFAULT_REPO` 4 处 | **`scripts/` 是唯一家**(域内子目录);`DEFAULT_REPO` 等常量收敛到 `scripts/lib/` | **部分落地**(2026-11-14 第 2 节):7 处 → **5 处**,`docs/` 侧清零(压测脚本 → `scripts/stress/`、补丁 → `scripts/patches/`、证书巡检 → `scripts/ops/`)。**剩余**:`tools/` `perf/` `imserver/scripts/` 的归属取决于 §7 **D2**(保守档不搬目录);常量 4 处 → 第 5 节 |
-| **C8** | 发版记录 = 用 Markdown 表格当数据库 | `sync_version.py::read_release_record` 解析 `release.md` §5 表头「版本 / tag」;改一次表格格式就可能误红 | **D1-B 已拍板**:`docs/releases.yml` 说了算,`release.md` §5 改为渲染 | 第 5 节 |
-| **C9** | 生成物比对语义只有 shell 一份 | `check_artifact` 只在 `verify.sh`;Python 脚本无法复用 | 抽成 `scripts/lib/artifacts.py` | 第 5 节 |
+| **C7** | 脚本有 7 处家 + 常量重复 | `scripts/`(52 含子目录)/ `tools/` 3 / `perf/` 2 / `deploy/observability/` 2 / `imserver/scripts/` 9 / `docs/ops/stress/` 7 / `docs/ops/check_ssl_expiry.sh`;`DEFAULT_REPO` 4 处 | **`scripts/` 是唯一家**(域内子目录);`DEFAULT_REPO` 等常量收敛到 `scripts/lib/` | **已收口**(2026-11-14 第 2 + 5 节):7 处 → `docs/` 侧清零(第 2 节)→ 剩余 `tools/` `perf/` `imserver/scripts/` **三处按 D2-A 裁决为例外**(理由见 §2.7,搬了会断容器路径与历史报告的「当时命令」);常量 **4 → 1**(`DEFAULT_REPO` / `DEFAULT_TOKEN_FILE` / `API` / token 解析逻辑一并收进 `scripts/lib/repo.py`) |
+| **C8** | 发版记录 = 用 Markdown 表格当数据库 | `sync_version.py::read_release_record` 解析 `release.md` §5 表头「版本 / tag」;改一次表格格式就可能误红 | **D1-B 拍板**:`docs/releases.yml` 说了算,`release.md` §5 改为渲染 | **已落地**(2026-11-14 第 5 节):13 行历史逐字段迁进 `docs/releases.yml`;`scripts/releases.py --check` 比对渲染区间(逐字节,区间外一字不动);`sync_version --check` 只读结构化数据,不再猜表头 |
+| **C9** | 生成物比对语义只有 shell 一份 | `check_artifact` 只在 `verify.sh`;Python 脚本无法复用 | 抽成 `scripts/lib/artifacts.py` | **已落地**(2026-11-14 第 5 节):语义收进 `scripts/lib/artifacts.py`(可独立执行);注册表加 `kind = "artifact"` 两道;`scripts/stacks/{backend,web}.sh` 的调用与 `env.sh` 的实现**已删除**;退出码 2 → **1**(判定失败) |
 | **C10** | `docs/` 下 10 个非文档文件 | 1 patch + 7 压测脚本 + `check_ssl_expiry.sh` + `nginx-security.conf`(spec §2.4 漏了后两个) | **`docs/` 只放 `.md` / `.yml` / `.json` / 图片**;脚本进 `scripts/` | **已落地**(2026-11-14 第 2 节):非 md 从 11 个降到 **1 个**(`docs/api/openapi.yml`,合规);`nginx-security.conf` 经核实**本身就是 Markdown**,改名为 `docs/ops/nginx-security.md`。机械判定:`python scripts/docs_lint.py` |
 | **C11** | `errors.md` 自称「业务码总表」但缺 2 个码 | `error_codes.py` 有 13 个码,`errors.md` 总表只列 11;`40301` / `50302` 只在 `auth.md` / `im.md` 的分册表里 | **`error_codes.py` 说了算**;`errors.md` 是渲染物,总表要么补全要么改名 | 第 6 节(评估生成或加门禁) |
 
@@ -206,17 +207,22 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 
 | 编号 | 决策 | 拍板日期 | 落地位置 |
 |---|---|---|---|
-| **D1** | 发版记录迁成 `docs/releases.yml`(B 案),`release.md` §5 只渲染 | 2026-11-14 | 第 5 节;`sync_version.py` 届时只做只读校验(见 D4) |
+| **D1** | 发版记录迁成 `docs/releases.yml`(B 案),`release.md` §5 只渲染 | 2026-11-14 | **已落地**(第 5 节):`docs/releases.yml` 为 owner,`scripts/releases.py --check` 守渲染物,`sync_version.py` 只读结构化数据 |
+| **D2** | 脚本目录**不搬**(保守档 A):只新增 `scripts/lib/`;`tools/` `perf/` `imserver/scripts/` 登记为**已裁决例外**(容器内 `/repo` 路径 / 历史报告「当时命令」可复跑 / C++ 测试入口与镜像同源) | 2026-11-14 | 本文 §2.7 + [治理方案第 5 节](../superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md) |
 | **D3** | backend / web / imserver / app 四条重活轨也同源(B 案):各栈的装配抽进 `scripts/stacks/*.sh`,`verify.sh` 与四条 workflow 调同一份;门禁命令一律进 `scripts/gates.toml` | 2026-11-14 | 本文 §2.3 + [治理方案第 4 节](../superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md)(不改 job name,required check 不变) |
+| **D4** | `sync_version` **保留 `--write`**,读 / 写原语都进 `scripts/lib/version.py`(「写」只有一份实现;发版记录改为只读校验)。文档元信息(front-matter)的强制档位是同一编号的另一半,仍待第 6 节 | 2026-11-14 | 本文 §2.2 / §2.7 |
 | **D5** | 新设 `flow` 域:`scripts/**`、`.github/**`、`deploy/**` 的改动自成一条栈,验证入口 `scripts/verify.sh contract`。**栈归属 ≠ 改的权限**:`deploy/**` 仍受 `AGENTS.md` §六 禁止 | 2026-11-14 | 本文 §2.3 + [`AGENTS.md` §二](../../AGENTS.md)(本次已补一行) |
 
-> 未拍板的 **D2**(脚本目录搬不搬)、**D4**(元信息强制档位 / `sync_version` 是否只读)
-> 由治理方案第 5–6 节各自拍板,**不阻塞本表使用**。
+> 第 5 节已拍板 **D2**(不搬目录,三处例外登记在 §2.7)与 **D4**(`sync_version` 保留 `--write`,
+> 读写进 lib);文档元信息强制档位(同编号 D4 的另一半)留给第 6 节,不阻塞本表使用。
 
 ---
 
 ## 7. 待修清单(登记,本次不改)
 
+> **2026-11-14 第 5 节收尾**:勾掉「三处脚本家的归属」一项 —— D2-A 裁决为**例外**
+> (理由在 §2.7),不搬目录;并登记一条新欠账(`create_release` 仍无单测)。
+>
 > **2026-11-14 第 4 节收尾**:勾掉「本地 15 条 vs CI 19 条门禁」一项 —— C5 归零(现 21 / 21),
 > 门禁清单改由 `scripts/gates.toml` 单点维护。
 >
@@ -234,7 +240,8 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | `errors.md` 业务码总表与 `error_codes.py` 不同步(C11) | 第 6 节 | 待修 |
 | ~~本地 15 条 vs CI 19 条门禁(C5)~~ | 第 4 节 | **已完成**(2026-11-14):`scripts/gates.toml` + `scripts/run_gates.py` 单点维护,两边 **21 / 21**,差额 0 |
 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 重复的必跑表(C6) | 第 6 节 | 待修 |
-| `tools/` `perf/` `imserver/scripts/` 三处脚本家的归属(C7 剩余) | 第 5 节(取决于 D2 拍板) | 待修 |
+| ~~`tools/` `perf/` `imserver/scripts/` 三处脚本家的归属(C7 剩余)~~ | 第 5 节 | **已完成**(2026-11-14):D2-A 拍板**不搬目录**,三处登记为已裁决例外(容器内 `/repo` 路径、历史报告「当时命令」可复跑、C++ 测试入口与镜像同源),理由见 §2.7 与 release.md §3.2 |
+| `scripts/create_release.py` **仍无单测**(四个发版脚本里唯一有外部副作用:建 Release / 删附件 / 传 APK) | 未定(第 5 节拍板为「验收里明确排除并写理由」) | 待修(已登记,不阻塞):可测面几乎全是 `urllib` 胶水,真风险在副作用顺序(先查 tag / 先删后传),要 mock 大半个 REST 语义才测得动 |
 | ~~10 个非文档文件归位(C10)~~ | 第 2 节 | **已完成**(2026-11-14) |
 | ~~`specs/2026-11-13-aws-distributed-deployment-design.md` 未进 `docs/superpowers/README.md` §2~~ | 第 2 节(原第 3 节) | **已完成**(2026-11-14,索引覆盖规则需要) |
 

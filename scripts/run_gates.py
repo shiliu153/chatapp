@@ -23,6 +23,10 @@
   只有一处调用本执行器。少了这条,「收成一行」可以靠手抄同义命令骗过验收。
 - **缺工具 fail-closed**:``requires`` 里的外部工具缺失时该门禁判**红**,并给出安装命令。
   跳过 + WARN 会让「本地少跑一条还以为绿」,那正是 C5 的复发形态。
+- **生成物校验是独立 kind**:``kind = "artifact"`` 的 ``command`` 是**生成物的仓库相对路径**
+  (不是命令),执行器按 ``python scripts/lib/artifacts.py <路径>`` 跑它 —— 于是
+  「生成物 == HEAD」的语义只有一份实现(C9),而它照样是注册表里的一道门禁
+  (第 4 节之后「新增一道门禁的改动点 = 1 处」对所有门禁成立)。
 
 解释器
 ------
@@ -57,10 +61,13 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "gates.toml"
 #: 允许的 scope。顺序 = POSIX 字节序(与 id 前缀一致)。
 SCOPES = ("app", "backend", "contract", "imserver", "web")
-#: 允许的 kind。python 走解释器替换,shell 整条交给 ``bash -c``。
-KINDS = ("python", "shell")
+#: 允许的 kind。python 走解释器替换,shell 整条交给 ``bash -c``,
+#: artifact 的 command 是**生成物路径**(由 ``scripts/lib/artifacts.py`` 比对,见 C9)。
+KINDS = ("artifact", "python", "shell")
 #: 命令型门禁允许的解释器前缀(kind = "python" 时会被替换成 ``$CHATAPP_PY``)。
 PYTHON_PREFIXES = ("python", "python3")
+#: 生成物比对器(kind = "artifact" 时执行器的固定入口;语义与原 shell 实现一致,见 C9)。
+ARTIFACT_CHECKER = "scripts/lib/artifacts.py"
 
 EXIT_OK = 0
 EXIT_GATE = 1
@@ -243,6 +250,18 @@ def load_registry(path: Path) -> list[Gate]:
                 raise RegistryError(
                     f"{where} 是 kind = \"python\",命令必须以 python 开头,实际是:{first}"
                 )
+        if gate.kind == "artifact":
+            # command 是生成物的仓库相对路径:绝对路径或 `..` 会让 CI 与本地比到不同文件。
+            # 这里按 **POSIX 形式**判一次(`/etc/x` 在 Windows 上 `Path.is_absolute()` 为假,
+            # 而注册表是跨平台的,不能只信宿主机的语义)。
+            posix = gate.command.replace("\\", "/")
+            if (Path(gate.command).is_absolute() or posix.startswith("/")
+                    or ".." in posix.split("/")
+                    or (len(posix) > 1 and posix[1] == ":")):
+                raise RegistryError(
+                    f"{where} 是 kind = \"artifact\",command 必须是仓库内的生成物相对路径:"
+                    f"{gate.command}"
+                )
         if gate.id in seen:
             raise RegistryError(f"{where} 的 id 重复:{gate.id}")
         seen.add(gate.id)
@@ -265,12 +284,13 @@ def build_argv(gate: Gate, python: str) -> list[str]:
     """把门禁命令变成可执行的参数向量。
 
     ``kind = "python"`` 用 ``shlex`` 切分(保留引号语义,如 ``-p 'test_*.py'``),
-    并把开头的 ``python`` 换成 ``python`` 参数;``kind = "shell"`` 整条交给 ``bash -c``,
-    这样多行脚本与 ``< <(...)`` 之类的 bash 语法都能用。
+    并把开头的 ``python`` 换成解释器;``kind = "shell"`` 整条交给 ``bash -c``,
+    这样多行脚本与 ``< <(...)`` 之类的 bash 语法都能用;``kind = "artifact"`` 的 command
+    是生成物路径,执行器把它拼成 ``python scripts/lib/artifacts.py <路径>``。
 
     Args:
         gate: 门禁。
-        python: 解释器(kind = "python" 时生效)。
+        python: 解释器(kind = "python" / "artifact" 时生效)。
 
     Returns:
         传给 ``subprocess.run`` 的参数列表。
@@ -278,6 +298,8 @@ def build_argv(gate: Gate, python: str) -> list[str]:
     Raises:
         RegistryError: 命令里的引号不配对(shlex 切不开)。
     """
+    if gate.kind == "artifact":
+        return [python, ARTIFACT_CHECKER, gate.command]
     if gate.kind == "python":
         try:
             argv = shlex.split(gate.command)
@@ -354,7 +376,7 @@ def render_dry_run(gates: list[Gate], python: str, stream) -> None:
     """
     for gate in gates:
         print(f"[{gate.id}] {gate.reason}", file=stream)
-        if gate.kind == "python":
+        if gate.kind in ("python", "artifact"):
             print(f"+ {shlex.join(build_argv(gate, python))}", file=stream)
         else:
             for index, line in enumerate(gate.command.strip().splitlines()):

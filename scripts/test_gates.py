@@ -481,8 +481,13 @@ class SameSourceTests(unittest.TestCase):
             gate: 门禁。
 
         Returns:
-            ``kind = python`` 时是去掉解释器后的命令;``kind = shell`` 时是折叠后的整条命令。
+            ``kind = python`` 时是去掉解释器后的命令;``kind = shell`` 时是折叠后的整条命令;
+            ``kind = artifact`` 时返回空串 —— 它的 ``command`` 是**生成物路径**而不是命令,
+            同一个路径出现在 ``stacks/backend.sh`` 的生成命令里
+            (``manage.py spectacular --file ../docs/api/openapi.yml``)是正常的,不算抄门禁。
         """
+        if gate.kind == "artifact":
+            return ""
         if gate.kind == "python":
             return " ".join(run_gates.build_argv(gate, "python")[1:])
         return " ".join(gate.command.split())
@@ -492,9 +497,12 @@ class SameSourceTests(unittest.TestCase):
         for path in self.files:
             content = self._collapsed(path)
             for gate in self.gates:
+                needle = self._needle(gate)
+                if not needle:
+                    continue
                 with self.subTest(file=path.name, gate=gate.id):
                     self.assertNotIn(
-                        self._needle(gate),
+                        needle,
                         content,
                         f"{path.name} 里出现了门禁 {gate.id} 的命令字面量:门禁只能写在 gates.toml",
                     )
@@ -538,6 +546,83 @@ class SameSourceTests(unittest.TestCase):
         verify = run_gates.ROOT / "scripts" / "verify.sh"
         self.assertLessEqual(len(contract.read_text(encoding="utf-8").splitlines()), 50)
         self.assertLessEqual(len(verify.read_text(encoding="utf-8").splitlines()), 160)
+
+
+class ArtifactGateTests(RegistryTestCase):
+    """``kind = "artifact"``:生成物路径 → 共享比对器(C9)。
+
+    这一节新增的 kind 有两条判据:注册表里**确实有**这两道门禁(此前它们是
+    ``stacks/*.sh`` 里的裸调用,不在清单里),以及执行器把它们拼成
+    ``python scripts/lib/artifacts.py <路径>`` —— 比对语义只有那一份实现。
+    """
+
+    def setUp(self):
+        """读真实注册表(artifact 门禁是生产清单的一部分)。"""
+        super().setUp()
+        self.gates = run_gates.load_registry(run_gates.DEFAULT_CONFIG)
+        self.artifacts = {gate.id: gate for gate in self.gates if gate.kind == "artifact"}
+
+    def test_both_generated_artifacts_are_registered(self):
+        """两条生成物校验都在清单里,且路径指向真实文件。"""
+        self.assertEqual(
+            set(self.artifacts), {"backend-openapi-artifact", "web-schema-artifact"})
+        self.assertEqual(self.artifacts["backend-openapi-artifact"].command,
+                         "docs/api/openapi.yml")
+        self.assertEqual(self.artifacts["web-schema-artifact"].command,
+                         "web/src/api/schema.d.ts")
+        for gate in self.artifacts.values():
+            with self.subTest(gate=gate.id):
+                self.assertTrue((run_gates.ROOT / gate.command).is_file(), gate.command)
+
+    def test_argv_goes_through_the_shared_checker(self):
+        """执行器不自己实现比对:拼成 ``python scripts/lib/artifacts.py <路径>``。"""
+        gate = self.artifacts["backend-openapi-artifact"]
+        self.assertEqual(
+            run_gates.build_argv(gate, "/venv/bin/python"),
+            ["/venv/bin/python", "scripts/lib/artifacts.py", "docs/api/openapi.yml"],
+        )
+        self.assertTrue((run_gates.ROOT / run_gates.ARTIFACT_CHECKER).is_file())
+
+    def test_dry_run_prints_the_real_command(self):
+        """``--dry-run`` 打的是真会执行的命令(不是裸路径)。"""
+        _, out, _ = call_main(["--dry-run", "--scope", "backend"])
+        self.assertIn("scripts/lib/artifacts.py docs/api/openapi.yml", " ".join(out.split()))
+
+    def test_artifact_path_must_be_repo_relative(self):
+        """绝对路径 / ``..`` 会让本地与 CI 比到不同文件,加载即报错(退出码 2)。"""
+        for bad in ("/etc/passwd", "../outside.yml"):
+            with self.subTest(command=bad):
+                text = (
+                    "[[gate]]\n"
+                    'id = "demo-artifact"\n'
+                    'scope = "contract"\n'
+                    'kind = "artifact"\n'
+                    f'command = "{bad}"\n'
+                    'reason = "自测"\n'
+                )
+                code, _, err = call_main(["--config", str(self.config(text)), "--list"])
+                self.assertEqual(code, 2)
+                self.assertIn("生成物相对路径", err)
+
+    def test_mismatch_turns_the_gate_red(self):
+        """生成物不在 HEAD / 与 HEAD 不一致 → 该门禁红(退出码 1),不是执行器错误(2)。
+
+        用一条指向**不存在**的生成物的临时门禁来验证接线:比对器会判「不在 HEAD 里」,
+        既不碰真实仓库里的任何文件,又能证明 kind = artifact 真的走了共享实现。
+        """
+        text = (
+            "[[gate]]\n"
+            'id = "demo-artifact-missing"\n'
+            'scope = "contract"\n'
+            'kind = "artifact"\n'
+            'command = "docs/does-not-exist.yml"\n'
+            'reason = "自测:生成物缺失必须判红"\n'
+        )
+        code, out, err = call_main(
+            ["--config", str(self.config(text)), "--scope", "contract", "--json"])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(out)[0]["status"], "failed")
+        self.assertIn("不在 HEAD 里", err)
 
 
 if __name__ == "__main__":

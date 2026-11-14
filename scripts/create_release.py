@@ -17,7 +17,12 @@
 凭据来源(按顺序)
 -----------------
 1. ``GITHUB_TOKEN`` / ``GITHUB_PERSONAL_ACCESS_TOKEN`` 环境变量;
-2. ``~/.dsh/github-mcp-token.txt``(与 ``mcp-github`` 同一个 PAT;文件不存在才回落到环境变量之外)。
+2. ``~/.dsh/github-mcp-token.txt``(与 ``mcp-github`` 同一个 PAT)。
+
+仓库名 / API 基址 / token 文件路径与解析逻辑**不在本文件里**:它们住在
+``scripts/lib/repo.py``(2026-11-14 治理第 5 节,四个 GitHub 脚本共用同一份;
+以前这四个常量各抄了 4 份,见 ``sources-of-truth.md`` §4 C7)。版本号读取同理走
+``scripts/lib/version.py``。
 
 设计取舍
 --------
@@ -25,28 +30,34 @@
 - **附件同名覆盖**:默认先删同名 asset 再上传,避免 ``already_exists`` 报错;
 - **不打印 token**:所有输出只出现仓库、tag、Release URL 与附件大小;
 - **不依赖 ``gh`` / 第三方库**:标准库 ``urllib`` 就够,CI 与任意 Python 3.10+ 都能跑。
+
+单测状态(刻意记录,不装作有)
+-----------------------------
+本脚本是四个发版脚本里**唯一有外部副作用**的(建 Release、删同名附件、传 APK),
+但至今没有单测。第 5 节拍板为「验收里明确排除并写理由」而不是「补最小离线单测」:
+它剩下的可测面(HTTP 载荷构造)几乎全是 ``urllib`` 的胶水,而真正的风险在**副作用顺序**
+(先删后传 / 先查 tag),那需要 mock 掉大半个 REST 语义才能测,收益不抵维护成本。
+现状登记在 ``sources-of-truth.md`` §7,不在这里悄悄消失。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
-import re
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
+# `python scripts/create_release.py` 时 sys.path[0] 是 scripts/,显式把仓库根放进去,
+# 这样 `from scripts.lib import ...` 在直接跑与 unittest 两种方式下都成立(见 lib/__init__.py)。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.lib import repo as lib_repo, version  # noqa: E402  (必须在 sys.path 修好之后)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PUBSPEC = REPO_ROOT / "app" / "pubspec.yaml"
-DEFAULT_TOKEN_FILE = Path.home() / ".dsh" / "github-mcp-token.txt"
-DEFAULT_REPO = "shiliu153/chatapp"
 DEFAULT_APK = REPO_ROOT / "app" / "build" / "app" / "outputs" / "flutter-apk" / "app-release.apk"
-API = "https://api.github.com"
-UPLOAD_API = "https://uploads.github.com"
-PUBSPEC_VERSION_RE = re.compile(r"^version:\s*([0-9][^\s+]*)", re.MULTILINE)
 
 
 def read_version() -> str:
@@ -59,17 +70,13 @@ def read_version() -> str:
         SystemExit: 文件或 ``version:`` 行不存在。
     """
     try:
-        text = PUBSPEC.read_text(encoding="utf-8")
-    except OSError as error:
-        _fail(f"读不到 {PUBSPEC}:{error}")
-    match = PUBSPEC_VERSION_RE.search(text)
-    if not match:
-        _fail(f"{PUBSPEC} 里找不到 version: 行")
-    return match.group(1)
+        return version.read_pubspec_version()
+    except version.VersionError as error:
+        _fail(str(error))
 
 
 def read_token() -> str:
-    """按优先级取 GitHub token。
+    """按优先级取 GitHub token(环境变量 → DSH 的 token 文件)。
 
     Returns:
         PAT 字符串。
@@ -77,18 +84,10 @@ def read_token() -> str:
     Raises:
         SystemExit: 环境变量与 token 文件都没有。
     """
-    for name in ("GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    if DEFAULT_TOKEN_FILE.exists():
-        value = DEFAULT_TOKEN_FILE.read_text(encoding="utf-8").strip()
-        if value:
-            return value
-    _fail(
-        "找不到 GitHub token:请设 GITHUB_TOKEN,或把 PAT 写到 "
-        f"{DEFAULT_TOKEN_FILE}(与 mcp-github 用的是同一个文件)")
-    return ""  # 不可达;让类型检查安心
+    try:
+        return lib_repo.resolve_token()
+    except lib_repo.TokenError as error:
+        _fail(str(error))
 
 
 def _request(method: str, url: str, token: str, *, payload: dict | None = None,
@@ -144,8 +143,8 @@ def find_release(repo: str, tag: str, token: str) -> dict | None:
     Returns:
         Release JSON;不存在时返回 ``None``。
     """
-    status, data = _request("GET", f"{API}/repos/{repo}/releases/tags/{urllib.parse.quote(tag)}",
-                            token)
+    status, data = _request(
+        "GET", f"{lib_repo.API}/repos/{repo}/releases/tags/{urllib.parse.quote(tag)}", token)
     if status == 404:
         return None
     if status != 200:
@@ -172,7 +171,7 @@ def ensure_tag_exists(repo: str, tag: str, token: str) -> str:
         SystemExit: tag 不存在,或查询失败。
     """
     status, data = _request(
-        "GET", f"{API}/repos/{repo}/git/ref/tags/{urllib.parse.quote(tag)}", token)
+        "GET", f"{lib_repo.API}/repos/{repo}/git/ref/tags/{urllib.parse.quote(tag)}", token)
     if status == 404:
         _fail(
             f"远端没有 tag {tag} —— 先打附注 tag 并推送(见 docs/ops/release.md §3 步骤 5),"
@@ -207,13 +206,14 @@ def create_or_update_release(repo: str, tag: str, title: str, notes: str, token:
         print(f"[dry-run] 将{action} Release {tag}({title});notes {len(notes)} 字符")
         return {"html_url": "(dry-run)"}
     if existing:
-        status, data = _request("PATCH", f"{API}/repos/{repo}/releases/{existing['id']}", token,
-                                payload={"name": title, "body": notes})
+        status, data = _request(
+            "PATCH", f"{lib_repo.API}/repos/{repo}/releases/{existing['id']}", token,
+            payload={"name": title, "body": notes})
         if status != 200:
             _fail(f"更新 Release 失败:{status} {data.get('message', '')}")
         print(f"[release] 已更新 {tag}:{data['html_url']}")
         return data
-    status, data = _request("POST", f"{API}/repos/{repo}/releases", token,
+    status, data = _request("POST", f"{lib_repo.API}/repos/{repo}/releases", token,
                             payload={"tag_name": tag, "name": title, "body": notes,
                                      "draft": False, "prerelease": False})
     if status != 201:
@@ -241,14 +241,14 @@ def upload_asset(repo: str, release: dict, apk: Path, token: str, *, dry_run: bo
         return
     for asset in release.get("assets", []):
         if asset.get("name") == name:
-            status, data = _request("DELETE", f"{API}/repos/{repo}/releases/assets/{asset['id']}",
+            status, data = _request("DELETE", f"{lib_repo.API}/repos/{repo}/releases/assets/{asset['id']}",
                                     token)
             if status not in (204, 404):
                 _fail(f"删除旧附件失败:{status} {data.get('message', '')}")
             print(f"[release] 已删除同名旧附件 {name}")
     query = urllib.parse.urlencode({"name": name})
     status, data = _request(
-        "POST", f"{UPLOAD_API}/repos/{repo}/releases/{release['id']}/assets?{query}", token,
+        "POST", f"{lib_repo.UPLOAD_API}/repos/{repo}/releases/{release['id']}/assets?{query}", token,
         raw=apk.read_bytes(), content_type="application/vnd.android.package-archive")
     if status != 201:
         _fail(f"上传附件失败:{status} {data.get('message', '')}")
@@ -286,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--notes", help="notes 正文(与 --notes-file 二选一)")
     parser.add_argument("--apk", type=Path, default=DEFAULT_APK, help="APK 路径;不存在则跳过上传")
     parser.add_argument("--asset-name", help="附件名;默认 <版本>.apk 之外的 APK 文件名,发版请传 chatapp-<版本>.apk")
-    parser.add_argument("--repo", default=DEFAULT_REPO, help="owner/name,默认 shiliu153/chatapp")
+    parser.add_argument("--repo", default=lib_repo.DEFAULT_REPO, help="owner/name,默认 shiliu153/chatapp")
     parser.add_argument("--dry-run", action="store_true", help="只打印将要做什么")
     args = parser.parse_args(argv)
 

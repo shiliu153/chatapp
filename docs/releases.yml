@@ -1,0 +1,177 @@
+# 发版记录 —— **唯一事实来源**(治理方案第 5 节 / C8 / D1-B 拍板)
+#
+# 为什么是 YAML 而不是 release.md §5 的 Markdown 表格
+# ---------------------------------------------------
+# 以前门禁(sync_version.py --check)靠「表头同时含『版本』与『tag』」去猜那张表,
+# 改一次表格格式就可能误红;而历史里还有 4 行是散文(「—」/「无(规则生效前发版)」/
+# 「历史遗留:…」),结构化解析与人的阅读体验被硬绑在一起。现在反过来:
+#   - 本文件 = owner,逐字段、可机械解析(scripts/lib/docs.py);
+#   - docs/ops/release.md §5 的表格 = **渲染物**(`<!-- BEGIN generated:release-records -->`
+#     与 `<!-- END generated:release-records -->` 之间),**禁止手改**;
+#   - 门禁:`python scripts/releases.py --check`(渲染物 == 本文件)+
+#     `python scripts/sync_version.py --check`(当前版本必须有留痕)。
+#
+# 怎么加一条(发版清单步骤 7)
+# ---------------------------
+# 1. 在文件末尾追加一条记录(字段见下);
+# 2. 跑 `python scripts/releases.py --render` 把 §5 的表格重新渲染;
+# 3. 跑 `python scripts/sync_version.py --check` 确认退出码 0。
+#
+# 字段
+# ----
+# version      版本名,如 1.0.13(必需)
+# date         发版日期 YYYY-MM-DD(必需)
+# tag          tag 名,如 v1.0.13;发版规则生效前留空(渲染成「—」)
+# title        Release 标题,如 "v1.0.13 — R–W 六批…"(渲染成链接文字)
+# release      Release 链接;**散文行留空**
+# note         Release 列的散文(历史遗留 / 规则生效前发版);release 非空时不渲染
+# asset        附件名,如 chatapp-1.0.13.apk(渲染成反引号)
+# asset_bytes  附件字节数(整数;未知写 0,渲染成 61,505,970 字节)
+# asset_sha1   附件 SHA-1(未知留空)
+# deploy_sha   上线 SHA(短 SHA 即可;未知留空,渲染成「—」)
+#
+# 只支持这个 YAML 子集:扁平记录列表、双引号字符串 / 整数 / null、整行 # 注释。
+# 字段名拼错会直接报错(不会静默丢一列),见 scripts/lib/docs.py。
+
+- version: "1.0.1"
+  date: "2026-10-28"
+  tag: ""
+  title: ""
+  release: ""
+  note: "无(规则生效前发版)"
+  asset: "chatapp-1.0.1.apk"
+  asset_bytes: 0
+  asset_sha1: ""
+  deploy_sha: ""
+
+- version: "1.0.2"
+  date: "2026-11-01"
+  tag: ""
+  title: ""
+  release: ""
+  note: "无(规则生效前发版)"
+  asset: "chatapp-1.0.2.apk"
+  asset_bytes: 0
+  asset_sha1: ""
+  deploy_sha: ""
+
+- version: "1.0.3"
+  date: "2026-11-04"
+  tag: ""
+  title: ""
+  release: ""
+  note: "无(规则生效前发版)"
+  asset: "chatapp-1.0.3.apk"
+  asset_bytes: 0
+  asset_sha1: ""
+  deploy_sha: "56f3f5b"
+
+- version: "1.0.4"
+  date: "2026-11-04"
+  tag: "v1.0.4"
+  title: ""
+  release: ""
+  note: "历史遗留:APK 构建产物已不可得,不补建(发版规则从 1.0.5 起真正执行)"
+  asset: "chatapp-1.0.4.apk"
+  asset_bytes: 0
+  asset_sha1: ""
+  deploy_sha: "ae7099f"
+
+- version: "1.0.5"
+  date: "2026-11-05"
+  tag: "v1.0.5"
+  title: "v1.0.5 — 暗黑模式"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.5"
+  note: ""
+  asset: "chatapp-1.0.5.apk"
+  asset_bytes: 0
+  asset_sha1: ""
+  deploy_sha: "3390ab5"
+
+- version: "1.0.6"
+  date: "2026-11-06"
+  tag: "v1.0.6"
+  title: "v1.0.6 — 共同点破冰"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.6"
+  note: ""
+  asset: "chatapp-1.0.6.apk"
+  asset_bytes: 0
+  asset_sha1: ""
+  deploy_sha: "605ad81"
+
+- version: "1.0.7"
+  date: "2026-11-06"
+  tag: "v1.0.7"
+  title: "v1.0.7 — 站内通知中心"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.7"
+  note: ""
+  asset: "chatapp-1.0.7.apk"
+  asset_bytes: 60295070
+  asset_sha1: ""
+  deploy_sha: "2bf9d1a"
+
+- version: "1.0.8"
+  date: "2026-11-07"
+  tag: "v1.0.8"
+  title: "v1.0.8 — 二级页顶栏修复"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.8"
+  note: ""
+  asset: "chatapp-1.0.8.apk"
+  asset_bytes: 60295070
+  asset_sha1: ""
+  deploy_sha: "9879d68"
+
+- version: "1.0.9"
+  date: "2026-11-07"
+  tag: "v1.0.9"
+  title: "v1.0.9 — 广场关注 + 关注流"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.9"
+  note: ""
+  asset: "chatapp-1.0.9.apk"
+  asset_bytes: 60295070
+  asset_sha1: ""
+  deploy_sha: "2d32d80"
+
+- version: "1.0.10"
+  date: "2026-11-07"
+  tag: "v1.0.10"
+  title: "v1.0.10 — 聊天贴纸"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.10"
+  note: ""
+  asset: "chatapp-1.0.10.apk"
+  asset_bytes: 60603778
+  asset_sha1: "4b27def409caf26e7ea6ce69bd8bfbc926f2a8ba"
+  deploy_sha: "892b2b2"
+
+- version: "1.0.11"
+  date: "2026-11-09"
+  tag: "v1.0.11"
+  title: "v1.0.11 — 多端在线 + 输入中状态/引用回复"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.11"
+  note: ""
+  asset: "chatapp-1.0.11.apk"
+  asset_bytes: 60767474
+  asset_sha1: "c8790b2c93a22287c63b26ef4a825596243cc136"
+  deploy_sha: "919a63a"
+
+- version: "1.0.12"
+  date: "2026-11-09"
+  tag: "v1.0.12"
+  title: "v1.0.12 — 设备管理 / 会话管理 / 滑卡增强 / 使用报告 / 聊天敏感词"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.12"
+  note: ""
+  asset: "chatapp-1.0.12.apk"
+  asset_bytes: 60899154
+  asset_sha1: "e389eaf80f117c1810de95cba226ae38d4460bee"
+  deploy_sha: "abc6889"
+
+- version: "1.0.13"
+  date: "2026-11-11"
+  tag: "v1.0.13"
+  title: "v1.0.13 — R–W 六批（语音介绍 / 筛选精选 / 广场收藏 / 运营看板 / 聊天打磨）"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.13"
+  note: ""
+  asset: "chatapp-1.0.13.apk"
+  asset_bytes: 61505970
+  asset_sha1: "94f80d55f0d7f7ceb58cbcc2816c9760ae0b7691"
+  deploy_sha: "e7456f6"

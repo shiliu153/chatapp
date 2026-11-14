@@ -366,9 +366,10 @@ flutter build apk --release \
 3. **建 / 更新远端 Release** —— 标题 `v<版本> — <主题>`,notes 写新增 / 变更 / 修复 / 运维注意,
    附件挂签名包 `chatapp-<版本>.apk`。
 
-发版后须在 `docs/ops/release.md` §5 的记录表加一行(版本 / 日期 / tag / Release / 上线 SHA / APK)——
-该行缺失会让 `sync_version.py --check` 失败,即 CI 变红。**版本号、tag、Release 指向同一个提交**,
-半年后回答「线上这个包是哪份代码」才有据可查。
+发版后须在 `docs/releases.yml` 加一条记录(版本 / 日期 / tag / Release / 上线 SHA / APK),再跑
+`python scripts/releases.py --render` 渲染 `release.md` §5 ——
+记录缺失会让 `sync_version.py --check` 失败,渲染物过期会让 `releases.py --check` 失败,两者都让 CI 变红。
+**版本号、tag、Release 指向同一个提交**,半年后回答「线上这个包是哪份代码」才有据可查。
 
 ### 网页端
 

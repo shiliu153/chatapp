@@ -3,8 +3,9 @@
 > **约束(2026-11-05 起,强制)**:**版本号一变,远端 Release 必须在下一次发版内同步更新** —— 不是「下次补」,
 > 也不是「只发 APK 就够」。版本号、tag、Release 三者指向同一个提交,缺一项即视为发版未完成。
 >
-> **门禁**:`python scripts/sync_version.py --check` 会读本文 §5 的记录表 —— 当前 `app/pubspec.yaml` 的版本
-> 在表里没有留痕、或 `tag` / `Release` 两列为空,直接退出码 1(CI 的 `contract.yml` 拦截)。
+> **门禁**:`python scripts/sync_version.py --check` 会读 **`docs/releases.yml`**(发版记录的唯一
+> 事实来源)—— 当前 `app/pubspec.yaml` 的版本在里面没有记录、或 `tag` / `Release` 两列不可用,
+> 直接退出码 1(CI 的 `contract.yml` 拦截)。本文 §5 的表格是它的**渲染物**,禁止手改。
 
 ---
 
@@ -40,7 +41,7 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 | 4 | 部署:APK 上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk`,更新 `.env` 三个变量,重启 web;`dist` 覆盖 | 重启后 `/app/config` 返回新 `latest_version` |
 | 5 | 打 tag 并推送:`git tag -a v<版本> -m "<一句话主题>" <步骤 1 的 SHA>` + `git push origin v<版本>` | `git ls-remote --tags origin` 能看到 |
 | 6 | **建 / 更新 Release**(§4) | Release 页面可见,附件可下载 |
-| 7 | 在 §5 记录表加一行(版本 / 日期 / tag / Release / SHA / APK) | `sync_version.py --check` 退出码 0 |
+| 7 | 在 `docs/releases.yml` 加一条记录(版本 / 日期 / tag / Release / SHA / APK),再 `python scripts/releases.py --render` | `sync_version.py --check` 与 `releases.py --check` 都退出码 0 |
 | 8 | 生产冒烟:`/api/v1/app/config` 版本正确、APK 下载 206、`/health` 与 `/readyz` 200 | 无 5xx |
 
 > 步骤 5 的 tag **必须指向步骤 1 的合并 SHA**,不要指向本地未合并提交 —— 与「部署只认 `origin/main` 的 SHA」同一条纪律。
@@ -66,9 +67,34 @@ python scripts/release_prep.py --version <版本> --topic "<一句话主题>"   
 它把**上表步骤 2 / 5 / 6 / 7 的机械部分**收进一条命令:前置闸门(干净工作区 + 默认分支 `main` + `HEAD == origin/main`)
 → 写三处版本号(构建号自增)→ 跑 `sync_version` 门禁 → 按 `feat` / `fix` / 运维把上个 tag 以来的提交
 分类成 `notes` 草稿(`.release-notes/v<版本>.md`,已 gitignore)→ **打印**打 tag / `create_release.py` /
-§5 表格行的命令。
+`docs/releases.yml` 待填记录的命令。
 
 **它绝不执行**打 tag、建 Release、部署、构建 —— 这四件仍由人做。自测见 `scripts/test_release_prep.py`(进 `contract` 轨)。
+
+### 3.2 四个发版脚本的职责边界(2026-11-14 治理第 5 节)
+
+四个脚本共用 `scripts/lib/{repo,version,docs,artifacts}.py`;这张表是它们**分工的唯一说明**
+(以前是四个孤岛,`release_prep` 还隐式 import `sync_version`,见 `sources-of-truth.md` §4 C7)。
+「对应步骤」指 §3 上表的 8 步。
+
+| 脚本 | 负责哪几步 | 写哪些文件 | 联网 | 退出码语义 |
+|---|---|---|---|---|
+| `scripts/sync_version.py` | 步骤 2 的**校验**;步骤 7 的**校验**(当前版本在 `docs/releases.yml` 里有记录、`tag` 含 `v<版本>`、`Release` 非空) | `--write` 时写 `app/lib/core/app_info.dart`、`web/package.json`(**不写** `pubspec.yaml`) | 否 | 0 一致 / 已写回;1 不一致或发版记录缺失 |
+| `scripts/release_prep.py` | 步骤 2 的**执行**(三处版本号,构建号自增);步骤 5/6/7 的**命令草稿**(打印,不执行);步骤 1 的前置闸门(干净工作区 + 默认分支 + `HEAD == origin/main`) | `app/pubspec.yaml`、`app/lib/core/app_info.dart`、`web/package.json`、`.release-notes/v<版本>.md` | 否(只跑本地 `git`) | 0 准备完成 / 1 前置闸门不过 / 2 写完版本号后门禁仍不过 |
+| `scripts/create_release.py` | 步骤 6(**唯一**建 / 更新 Release 与传附件的入口;先查 tag 存在,再幂等 PATCH / POST,同名附件先删后传) | 远端 Release 与附件(**不改本地文件**) | **是**(GitHub REST) | 0 成功 / 1 失败(含 tag 不存在) |
+| `scripts/deploy_gate.py` | 步骤 4 **之前**的部署闸门:目标 SHA ∈ `origin/<默认分支>` 且该 SHA 的 check 全绿 | 无(只读) | **是**(查 check-runs;`--offline` 只做 git 侧) | 0 通过 / 1 不通过 / 2 用法或环境错误 |
+
+补充三条:
+
+- **`releases.py` 不在「四个发版脚本」里**,但它是 §5 渲染物的唯一写入口:
+  `--check` 退出码 0 一致 / 1 不一致 / 2 判不出来(YAML 语法错、字段拼错、标记缺失)。
+- **共用层**:`lib/repo.py`(仓库名 / token 文件 / API 基址 / token 解析)、`lib/version.py`
+  (三处版本号的读 / 写 / 比对)、`lib/docs.py`(发版记录解析 / 渲染 / 校验)、
+  `lib/artifacts.py`(「生成物 == HEAD」的比对语义)。四个脚本 + `apply_ruleset` /
+  `set_automerge_token` 的 GitHub 常量都从这里来,**不再各抄一份**。
+- **`create_release.py` 没有单测**(第 5 节拍板:验收里明确排除并写理由)—— 它是四个脚本里
+  唯一有外部副作用的,可测面几乎全是 `urllib` 胶水,而真风险在副作用顺序;现状登记在
+  `sources-of-truth.md` §7,不在这里悄悄消失。
 
 ## 4. Release 规范
 
@@ -97,11 +123,16 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 # 纯网页:Releases → Draft a new release → 选择已推送的 tag → 粘贴 notes → 上传 APK
 ```
 
-## 5. 发版记录(门禁读取本节)
+## 5. 发版记录(渲染物;owner = `docs/releases.yml`)
 
-> 新增版本时**先加行,再发版**。`tag` 列必须写成 `` `v<版本>` ``;`Release` 列必须非空 ——
-> 尚未建好时写「待建」并注明原因,建好后改回链接。
+> **本节的表格由 `scripts/releases.py` 渲染,禁止手改** —— 改 `docs/releases.yml` 后跑
+> `python scripts/releases.py --render`;owner 与校验口径见
+> [sources-of-truth §2.2](../standards/sources-of-truth.md)。
+>
+> 新增版本时**先在 `docs/releases.yml` 加一条,再发版**。`tag` 字段必须写成 `v<版本>`;
+> `release` 字段必须非空 —— 尚未建好时写「待建」并注明原因,建好后改成链接。
 
+<!-- BEGIN generated:release-records -->
 | 版本 | 日期 | tag | Release | 上线 SHA | APK |
 |---|---|---|---|---|---|
 | 1.0.1 | 2026-10-28 | — | 无(规则生效前发版) | — | `chatapp-1.0.1.apk` |
@@ -117,6 +148,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.11 | 2026-11-09 | `v1.0.11` | [v1.0.11 — 多端在线 + 输入中状态/引用回复](https://github.com/shiliu153/chatapp/releases/tag/v1.0.11)(附件 `chatapp-1.0.11.apk`,60,767,474 字节,SHA-1 `c8790b2c93a22287c63b26ef4a825596243cc136`) | `919a63a` | `chatapp-1.0.11.apk` |
 | 1.0.12 | 2026-11-09 | `v1.0.12` | [v1.0.12 — 设备管理 / 会话管理 / 滑卡增强 / 使用报告 / 聊天敏感词](https://github.com/shiliu153/chatapp/releases/tag/v1.0.12)(附件 `chatapp-1.0.12.apk`,60,899,154 字节,SHA-1 `e389eaf80f117c1810de95cba226ae38d4460bee`) | `abc6889` | `chatapp-1.0.12.apk` |
 | 1.0.13 | 2026-11-11 | `v1.0.13` | [v1.0.13 — R–W 六批（语音介绍 / 筛选精选 / 广场收藏 / 运营看板 / 聊天打磨）](https://github.com/shiliu153/chatapp/releases/tag/v1.0.13)(附件 `chatapp-1.0.13.apk`,61,505,970 字节,SHA-1 `94f80d55f0d7f7ceb58cbcc2816c9760ae0b7691`) | `e7456f6` | `chatapp-1.0.13.apk` |
+<!-- END generated:release-records -->
 
 ## 6. v1.0.4 的历史说明(不补建)
 

@@ -79,6 +79,13 @@ esac
 reason = "accounts.E001 是「生产开了固定验证码但准入名单种子为空」的部署期门禁,此前从未在任何流水线里被执行过 —— 这里用 DEBUG=0 反向验证它真的会响"
 
 [[gate]]
+id = "backend-openapi-artifact"
+scope = "backend"
+kind = "artifact"
+command = "docs/api/openapi.yml"
+reason = "openapi.yml 是生成物:必须与视图上的 @extend_schema 一致、且已提交到 HEAD(第 5 节 C9:比对语义从 shell 收进 scripts/lib/artifacts.py,这条判定此前不在注册表里)"
+
+[[gate]]
 id = "backend-perf-selftest"
 scope = "backend"
 kind = "python"
@@ -159,6 +166,13 @@ command = "python -m unittest scripts.test_l4_intake -v"
 reason = "L4 是唯一替人决定做什么的一级:多判污染待办、少判真失败没人管、判不出来却开单 —— 三种都由它钉住"
 
 [[gate]]
+id = "contract-lib-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_lib -v"
+reason = "scripts/lib/ 是四个发版脚本与 GitHub 常量的唯一实现(repo / version / docs / artifacts);它坏了四个脚本会一起静默走偏,而且没有第二份实现能对照"
+
+[[gate]]
 id = "contract-observability-selftest"
 scope = "contract"
 kind = "python"
@@ -178,6 +192,13 @@ scope = "contract"
 kind = "python"
 command = "python -m unittest scripts.test_release_prep -v"
 reason = "发版准备脚本的闸门 / 版本号 / notes 生成逻辑必须有回归,发版前才发现就晚了"
+
+[[gate]]
+id = "contract-releases-check"
+scope = "contract"
+kind = "python"
+command = "python scripts/releases.py --check"
+reason = "发版记录 owner 是 docs/releases.yml,release.md §5 是渲染物(C8):手改表格、改了 YAML 忘渲染,两种漂移都判红"
 
 [[gate]]
 id = "contract-scope-selftest"
@@ -312,6 +333,13 @@ cwd = "web"
 requires = ["npm"]
 command = "npm run lint"
 reason = "零告警是硬门槛(eslint --max-warnings 0)"
+
+[[gate]]
+id = "web-schema-artifact"
+scope = "web"
+kind = "artifact"
+command = "web/src/api/schema.d.ts"
+reason = "schema.d.ts 由 openapi-typescript 生成:必须与后端契约一致、且已提交到 HEAD(第 5 节 C9:语义收进 scripts/lib/artifacts.py,与 openapi.yml 同一份实现)"
 
 [[gate]]
 id = "web-test-coverage"

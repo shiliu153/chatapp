@@ -311,6 +311,53 @@ scripts/
 - **验收**:`grep -c DEFAULT_REPO` = 1;四个脚本全部 import lib;各自单测全绿;`contract` 轨绿。
 - **需拍板**:D4(发版记录迁数据文件后,`sync_version` 是否只保留只读校验)。
 
+> **执行记录(2026-11-14)**
+>
+> - **拍板(6 项)**:① **D2-A** —— 不搬目录,只新增 `scripts/lib/`;`tools/` / `perf/` /
+>   `imserver/scripts/` 登记为**已裁决例外**(容器内 `/repo/tools` 路径被 `test_http.sh` 硬编码、
+>   `perf/` 有 20+ 处历史报告的「当时命令」引用、`imserver/scripts/` 与镜像同源);
+>   ② **D4-A** —— `sync_version` 保留 `--write`,读 / 写原语都进 `scripts/lib/version.py`
+>   (「写」只有一份实现,CLI 语义与文档一字不改);③ **C8-A** —— `docs/releases.yml` 为 owner,
+>   `release.md` §5 改为生成区间(复用 `docs_index` 的区间替换模式);④ **C9-A** —— 两条生成物
+>   校验**正式入注册表**(`kind = "artifact"`),删掉 shell 实现;⑤ `create_release` 单测走
+>   **「验收里明确排除并写理由」**并登记遗留;⑥ 常量收敛**不止** spec 点名的 `DEFAULT_REPO` ——
+>   `DEFAULT_TOKEN_FILE` / `API` / token 解析逻辑是同性质的四份重复,一并收进 `lib/repo.py`。
+> - **公共层**:新增 `scripts/lib/{__init__,repo,version,docs,artifacts}.py`(纯标准库)+
+>   `scripts/releases.py`(发版记录渲染 / 校验)+ `scripts/test_lib.py`(**41 条**用例,纯离线:
+>   临时目录造样本、临时 git 仓库验证生成物语义)。导入方式统一成**两行样板**
+>   (`sys.path.insert` + `from scripts.lib import ...`),不再是各脚本一套 `try/except ImportError`;
+>   `artifacts.py` 是例外 —— 它要能被 `python scripts/lib/artifacts.py <路径>` 直接执行,所以不 import 本包。
+> - **C8(发版记录当数据库)**:13 行历史**逐字段**搬进 `docs/releases.yml`(版本 / 日期 / tag /
+>   标题 / Release / 附件名 / 附件字节 / SHA-1 / 上线 SHA / 备注);4 行散文用 `release: ""` +
+>   `note:` 表达,**不改写历史**。迁移对账:渲染回 Markdown 与迁移前旧表 **15 行逐字节一致**
+>   (表头 + 分隔行 + 13 行,零 diff)。`sync_version --check` 改读 YAML,判定语义不变
+>   (当前版本有记录 / `tag` 含 `v<版本>` / `Release` 非空);新增 `releases.py --check` 守渲染物。
+> - **C9(生成物比对语义)**:`scripts/lib/artifacts.py` 与旧 shell 的 `check_artifact` 同语义
+>   (比内容、忽略行尾),但**返回结构化结果而不是直接 exit**;CLI 退出码 0 / 1 / 2。
+>   `gates.toml` 加 `backend-openapi-artifact` 与 `web-schema-artifact` 两道,`run_gates.py`
+>   新增 `kind = "artifact"`;`scripts/stacks/{backend,web}.sh` 的调用与 `env.sh` 的实现**已删除**。
+>   **退出码语义变更**:「生成物不在 HEAD / 与代码不一致」由 `die`(2)改为门禁红(**1**)——
+>   那是判定失败,不是执行器故障;只有 git 不可用才是 2。
+> - **净减少的重复(§8 记账)**:① `DEFAULT_REPO` **4 → 1**;② `DEFAULT_TOKEN_FILE` **4 → 1**;
+>   ③ `API` **4 → 1**;④ token 解析逻辑(env 两个名字 → 文件)**4 → 1**;⑤ `PUBSPEC` **3 → 1**;
+>   ⑥ `PUBSPEC_VERSION_RE`(两种变体)**3 → 1 模块**;⑦ `release_prep` 对 `sync_version` 的
+>   **隐式 import → 显式 lib**;⑧ `release.md` §5 的 13 行手写表 → **0 行**(生成区间);
+>   ⑨ `check_artifact` 的 shell 实现 → **删除**(语义只在 `lib/artifacts.py`);⑩ 门禁 **33 → 37** 道
+>   (新增 2 道 artifact + 2 道自测 / 渲染检查,全部只改 `gates.toml` 一处)。
+> - **顺手修掉的坑**:① 四个 GitHub 脚本的 token 报错文案原本有 4 种说法(其中 3 种只提到环境变量
+>   或只提到文件),现在只有 `lib/repo.py` 一份,`deploy_gate` 自己补 `--offline` 尾巴;
+>   ② `release_prep` 里 `PUBSPEC_VERSION_RE` 与 `sync_version` 的版本正则**两种变体各写一份**,
+>   现在 `version.py` 同时提供「只版本名」与「版本名 + 构建号」两种,调用方各取所需;
+>   ③ `release_prep.next_commands` 第 4 步原本打印「在 §5 加一行」的 Markdown 表格行,
+>   现在打印**可直接粘贴的 YAML 记录** + `releases.py --render`;
+>   ④ 四处「在 `release.md` §5 记一行」的指令副本(`AGENTS.md` §二 / `CLAUDE.md` / `README.md` /
+>   `docs/milestones.md`)同步改为 `docs/releases.yml`,不留「改完还在教人去改生成物」的死指令。
+> - **范围外(遗留)**:① `scripts/create_release.py` 仍无单测(拍板为验收排除,登记在
+>   `sources-of-truth.md` §7);② D2 的三处例外只是**裁决**,没有物理搬迁 —— 若将来真要搬,
+>   成本账在 `sources-of-truth.md` §2.7;③ 文档元信息(front-matter)的强制档位(与 D4 同编号的
+>   另一半)留给第 6 节;④ 本节未动 `docs/` 的任何生成物(`docs/README.md` 等),因为只新增了
+>   `.yml` 与既有 `.md` 的编辑。
+
 ### 第 6 节|docs-lint 收口与写作规范
 
 - **动作**:`docs/standards/writing.md`(命名 / 头部元信息 / 状态 / 归档 / 「口径页」写法);

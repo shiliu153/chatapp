@@ -45,9 +45,12 @@ from pathlib import Path
 
 from nacl import encoding, public
 
-API = "https://api.github.com"
-DEFAULT_REPO = "shiliu153/chatapp"
-DEFAULT_TOKEN_FILE = Path.home() / ".dsh" / "github-mcp-token.txt"
+# `python scripts/set_automerge_token.py` 时 sys.path[0] 是 scripts/,显式把仓库根放进去,
+# 这样 `from scripts.lib import repo` 在直接跑与 unittest 两种方式下都成立(见 lib/__init__.py)。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.lib import repo as lib_repo  # noqa: E402  (必须在 sys.path 修好之后)
+
 SECRET_NAME = "AUTOMERGE_TOKEN"
 
 
@@ -64,18 +67,10 @@ def read_admin_token() -> str:
     Raises:
         SecretError: 环境变量与 DSH token 文件都没有。
     """
-    for name in ("GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"):
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    if DEFAULT_TOKEN_FILE.exists():
-        value = DEFAULT_TOKEN_FILE.read_text(encoding="utf-8").strip()
-        if value:
-            return value
-    raise SecretError(
-        "找不到有 admin 权限的 GitHub token:设 GITHUB_TOKEN,或确认 "
-        f"{DEFAULT_TOKEN_FILE} 存在"
-    )
+    try:
+        return lib_repo.resolve_token()
+    except lib_repo.TokenError as error:
+        raise SecretError(str(error)) from error
 
 
 def request(method: str, url: str, token: str, payload: dict | None = None) -> tuple[int, dict]:
