@@ -13,7 +13,7 @@
 [![IM Server CI](https://github.com/shiliu153/chatapp/actions/workflows/imserver.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/imserver.yml)
 [![Contract CI](https://github.com/shiliu153/chatapp/actions/workflows/contract.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/contract.yml)
 [![Web E2E](https://github.com/shiliu153/chatapp/actions/workflows/web-e2e.yml/badge.svg?branch=main)](https://github.com/shiliu153/chatapp/actions/workflows/web-e2e.yml)
-[![API Docs](https://img.shields.io/badge/API%20docs-70%20operations-blue)](docs/api/README.md)
+[![API Docs](https://img.shields.io/badge/API%20docs-reference-blue)](docs/api/README.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **中文** · [English Abstract](#english-abstract)
@@ -147,7 +147,7 @@ imserver 是消息的唯一写者:客户端发送经 WS 帧或 `POST /internal/s
 
 | 契约 | 事实来源 | 派生 / 校验 |
 |---|---|---|
-| HTTP 接口文档 | 视图与序列化器 | `docs/api/`(13 份分册,51 个操作)+ `ApiDocsCoverageTests` 双向比对路由与文档 |
+| HTTP 接口文档 | 视图与序列化器 | `docs/api/`(份数与操作数以 `openapi.yml` 为准,由 `scripts/docs_index.py` 机械校验)+ `ApiDocsCoverageTests` 双向比对路由与文档 |
 | 机器可读 schema | 视图上的 `@extend_schema` | `docs/api/openapi.yml` 由 `drf-spectacular` 生成(禁止手改),CI 重新生成后 `git diff --exit-code` |
 | 字段级一致性 | 文档参数表 ↔ schema 字段 | `config/api_schema_contract.py` 双向比对;Web 侧 `openapi-typescript` 生成 `schema.d.ts` 并对 13 个手写类型做编译期断言;App 侧 `scripts/check_app_models.py` 扫描 `models.dart` 的 JSON 键 |
 | WS 帧协议 | `imserver/tests/fixtures/ws/*.json`(上行 8 帧 / 下行 12 帧) | imserver(`frames.h` 序列化)、App、Web 三端各自用真实解析路径消费同一份 fixture,任一端改帧格式三轨同时变红 |
@@ -430,19 +430,14 @@ nginx 的三条硬要求与两个易错点:
 
 ## 9. 文档索引
 
-| 文档 | 内容 |
-|---|---|
-| [`docs/api/`](docs/api/README.md) | 对外交付级接口文档:15 份分册 + `README.md` 索引 / 70 个操作 + `openapi.yml` 机器可读契约 |
-| [`docs/ops/`](docs/ops/README.md) | 运维手册(常驻):发版与 Release 清单、imserver 协议、runbook、容量与可靠性、可观测性、证书、nginx 基线、superagent |
-| [`docs/reports/`](docs/reports/README.md) | 一次性测量报告:压测、读/写基线、规模、削峰、缓存收益(只增不改,引用必带日期) |
-| [`docs/pitfalls/`](docs/pitfalls/README.md) | 踩坑手册,按 IM / 前端 / 后端 / 测试 / 网页端 / 模拟器分册 |
-| [`docs/learning/`](docs/learning/README.md) | 后端通读教学材料:总纲 + P00–P14 逐批指导书 |
-| [`docs/milestones.md`](docs/milestones.md) | 里程碑时间线(每次交付的改动、PR 号与上线 SHA) |
-| [`docs/superpowers/`](docs/superpowers/README.md) | 设计 spec 与实施计划:`specs/` 5 份(5 组均已登记),已交付 105 份归档于 `archive/` |
-| [`docs/backlog/2026-11-03-todo.md`](docs/backlog/2026-11-03-todo.md) | 待办总表:A–E 五批已闭环,剩余未闭环项见 §7 |
-| [`docs/reviews/`](docs/reviews/2026-11-03-fullstack-review.md) · [`docs/security/`](docs/security/README.md) | 全栈工程审查与安全审计报告(轮次以目录为准) |
-| [`docs/standards/`](docs/standards/README.md) | 编码规范:Python 注释规范(由 `CommentCoverageTests` 强制)等,每份分册配一个门禁 |
-| [`CLAUDE.md`](CLAUDE.md) | 工程约束、契约与纪律的单一事实来源 |
+**唯一入口是 [`docs/README.md`](docs/README.md)** —— 它由 `scripts/docs_index.py` 扫描 `docs/`
+生成(**禁止手改**;`python scripts/docs_index.py --check` 比对生成物,CI `contract` 轨会拦)。
+按目录分组的文档清单、每目录份数、归档份数与归档清单入口,都在那里;本节不再维护第二份手写列表,
+也不再写任何「N 份 / M 个操作」的手写计数(手写计数必然过期,这是治理方案第 3 节的出发点)。
+
+按任务去哪:待办 → [`docs/backlog/`](docs/backlog/2026-11-03-todo.md);交付时间线 →
+[`docs/milestones.md`](docs/milestones.md);接口 → [`docs/api/README.md`](docs/api/README.md);
+某条事实谁说了算 → [`docs/standards/sources-of-truth.md`](docs/standards/sources-of-truth.md)。
 
 ---
 
@@ -475,7 +470,7 @@ The engineering focus is on **architecture boundaries and enforceable contracts*
   derived from HTTP status codes and the request id threaded through logs, metrics and client-side reports.
 - **One gateway for IM side effects** (`im/tasks.py`): tasks receive only `user_id`, look up state themselves,
   and never touch request objects; the IM client layers never raise.
-- **Contracts as build gates** — human-readable API docs (15 volumes, 70 operations) are cross-checked against
+- **Contracts as build gates** — human-readable API docs are cross-checked against
   the URLconf, the OpenAPI document is generated from `@extend_schema` annotations and diffed in CI, field-level
   consistency is asserted against client types on both Web and App, and WebSocket frame fixtures are shared by
   all three runtimes so a frame change breaks all three CI tracks at once.

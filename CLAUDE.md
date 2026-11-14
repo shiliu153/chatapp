@@ -17,15 +17,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 想知道 | 去哪 |
 |---|---|
+| **全部文档清单(唯一入口)** | [docs/README.md](docs/README.md) —— 由 `scripts/docs_index.py` 扫描生成,**禁止手改**;本表只留「按任务去哪」,不再维护第二份清单 |
 | **现在该做什么** | [docs/backlog/2026-11-03-todo.md](docs/backlog/2026-11-03-todo.md)(待办总表,按批次排好;A–E 已全部闭环,剩余未闭环项见 §7) |
 | 已交付了什么、哪天、哪个 PR | [docs/milestones.md](docs/milestones.md)(完整时间线) |
-| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(当前工作面 4 组 + 归档 105 份的索引) |
+| 进行中 / 未启动的设计与计划 | [docs/superpowers/README.md](docs/superpowers/README.md)(工作面)+ [archive/INDEX.md](docs/superpowers/archive/INDEX.md)(归档清单,生成物;份数以它为准) |
 | 写代码 / 排障前 | [docs/pitfalls/README.md](docs/pitfalls/README.md) 按主题选:IM → im.md;前端 → frontend.md;后端 → backend.md;模拟器/打包 → android-emulator.md;测试 → testing.md;网页端 → web.md |
 | 接口(对外交付级) | [docs/api/README.md](docs/api/README.md) |
 | 部署与运维 | [README.md](README.md)「部署」;服务器细节 → [docs/ops/imserver.md](docs/ops/imserver.md)、[docs/ops/runbook.md](docs/ops/runbook.md) |
 | **发版(版本号 / tag / Release)** | [docs/ops/release.md](docs/ops/release.md)(强制清单 + 发版记录表,CI 门禁读它) |
 | 容量 / 观测 / 削峰的数字与口径 | [docs/ops/capacity-and-reliability.md](docs/ops/capacity-and-reliability.md) |
-| 安全审计与整改 | [docs/security/](docs/security/)(三轮报告) |
+| 安全审计与整改 | [docs/security/README.md](docs/security/README.md)(轮次以目录为准,本表不写数字) |
 | 工程审查结论 | [docs/reviews/2026-11-03-fullstack-review.md](docs/reviews/2026-11-03-fullstack-review.md) |
 | Python 注释规范 | [docs/standards/python.md](docs/standards/python.md) |
 

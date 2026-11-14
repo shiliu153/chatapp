@@ -38,7 +38,7 @@
 |---|---|---|---|
 | 接口集合 / 路径 / 字段(机器可读) | [`docs/api/openapi.yml`](../api/openapi.yml)(**生成物**) | 机械:`cd chatapp && python manage.py spectacular --file ../docs/api/openapi.yml --validate` + CI 比对生成物;`config/tests.py::OpenApiSchemaTests` | 已落地 |
 | 接口的人读文档(参数表 / 示例 / 错误码) | [`docs/api/*.md`](../api/README.md)(15 分册 + README) | 机械:`ApiDocsCoverageTests`(双向覆盖)+ `config/test_schema_contract.py`(字段级双向) | 已落地 |
-| 接口与分册的**数量** | 无独立载体 —— 它是 `openapi.yml` 的**派生量**(禁止手写) | 机械:第 3 节 `scripts/docs_index.py --check`(待建) | **迁移中**(当前手写,已漂移,见 §4 C1) |
+| 接口与分册的**数量** | 无独立载体 —— 它是 `openapi.yml` 的**派生量**(禁止手写) | 机械:`python scripts/docs_index.py --check` —— 计数由契约生成,且 `docs/api/README.md` 的「接口一览」表与契约的操作集合必须**完全相等**(缺一行 / 多一行 / 重复一行即红) | **已落地**(2026-11-14 第 3 节);表的「说明」列仍是人写要点,理由见 §4 C1 |
 | 错误响应信封 `{code, message, request_id}` 与业务码取值 | [`chatapp/config/error_codes.py`](../../chatapp/config/error_codes.py) | 机械:`python manage.py test config`(信封形状 + 业务码 = HTTP 前 3 位 + 2 位序号) | 已落地 |
 | 业务码的人读含义 | [`docs/api/errors.md`](../api/errors.md)(渲染物) | 人工:**发版前**对照 `error_codes.py`(见 [release.md §3](../ops/release.md)) | 已落地(仅人工,见 §4 C11) |
 | WS 帧格式(三端唯一线上契约) | [`imserver/tests/fixtures/ws/*.json`](../../imserver/tests/fixtures/ws/README.md) | 机械:三端各一条 fixture 测试(`imserver` test_ws / App `protocol_fixture_test.dart` / Web `im-protocol-fixture.spec.ts`) | 已落地 |
@@ -72,9 +72,9 @@
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
 | 文档目录结构规则(`docs/` 只放文档) | [`scripts/docs_lint.py`](../../scripts/docs_lint.py) + 第 6 节 `docs/standards/writing.md` | 机械:`python scripts/docs_lint.py`(`contract` 轨 + `verify.sh contract` 双份登记,第 4 节统一) | **已落地**(2026-11-14 第 2 节):`docs/` 下非 md 只剩 `openapi.yml` 1 个,合规 |
-| 文档索引与**全部计数** | 第 3 节 `docs/README.md`(**生成物**) | 机械:`python scripts/docs_index.py --check`(待建) | 待建(当前 `README.md` §9 手写,见 §4 C1–C3);**索引覆盖**已由 `docs_lint` 机械判定(2026-11-14 第 2 节) |
+| 文档索引与**全部计数** | [`docs/README.md`](../README.md)(**生成物**,`scripts/docs_index.py`)+ 归档清单 [`docs/superpowers/archive/INDEX.md`](../superpowers/archive/INDEX.md)(**生成物**) | 机械:`python scripts/docs_index.py --check`(`contract` 轨 + `verify.sh contract` 双份登记):生成物逐字节比对 + 归档完整性 + 入口完整性 + 接口表 ≡ 契约 | **已落地**(2026-11-14 第 3 节):`docs/README.md` 是唯一目录入口,索引数字 0 处手写;**索引覆盖**另由 `docs_lint` 机械判定(第 2 节) |
 | 相对链接是否断 | [`scripts/check_docs_links.py`](../../scripts/check_docs_links.py) | 机械:`python scripts/check_docs_links.py`;PR 上由 `python scripts/docs_lint.py` **真跑**(`contract` 轨) | **已落地**(2026-11-14 第 2 节起进 PR 轨;此前只有 L4 定时轨与自测) |
-| 工作面 / 归档清单 | [`docs/superpowers/README.md` §2/§4](../superpowers/README.md) | 人工:**每次交付归档时**同步;第 3 节改生成 | 已落地(手写,已漂移,见 §4 C2) |
+| 工作面 / 归档清单 | 工作面 = `docs/superpowers/specs/` **目录即事实**(人写摘要见 [该目录 README §2](../superpowers/README.md));归档逐份清单 = [archive/INDEX.md](../superpowers/archive/INDEX.md)(**生成物**) | 机械:`python scripts/docs_index.py --check` —— 归档里每份 `.md` 在清单里**出现且仅出现一次** | **已落地**(2026-11-14 第 3 节):§4 的 105 行手写表已删除(只留交付脉络),当年漏登的 7 份 R–W plan 自动补齐 |
 | 安全审计轮次与结论 | [`docs/security/`](../security)(目录即事实,**只增不改**) | 人工:**每轮审计结束后**核对 `Get-ChildItem docs/security` | 已落地(`CLAUDE.md` 导航表仍写「三轮」,见 §4 C3) |
 | 待办总表 | [`docs/backlog/2026-11-03-todo.md`](../backlog/2026-11-03-todo.md) | 人工:**每次交付后**勾销 / 追加 | 已落地 |
 
@@ -173,11 +173,11 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 
 | # | 冲突 | 证据 | 裁决(谁说了算) | 修复归属 |
 |---|---|---|---|---|
-| **C1** | 接口 / 分册数量五处不一致 | README §9「14 分册 / 54 操作」、README 徽章「51 operations」、README 英文摘要「13 volumes, 51 operations」、`docs/api/README.md`「63 个接口」「53 paths / 63 operations」;实际 15 分册 / 58 paths / 70 operations;其「接口一览」表只有 68 行(缺 `users/me/voice` 两个) | **`openapi.yml` 说了算**。所有计数都是它的派生量,**禁止手写** | **本次**修 5 处手写数字(README §9 / 徽章 / 英文摘要 / `docs/api/README.md` 两处)+ 补齐派生表缺失的 2 行;第 3 节把该表改为生成 |
-| **C2** | `docs/superpowers/` 工作面与归档计数过期 | README §9「工作面 1 份 / 归档 85 份」;实际 5 份 spec(README §2 只登记 4 组)+ 105 归档;`2026-11-13-aws-*.md` 不在任何索引 | **目录说了算**(`specs/` 即工作面)。计数由 `docs_index` 生成 | **本次**修 README §9 为「`specs/` 5 份(5 组均已登记)/ 105 归档」;aws spec 的登记**提前到第 2 节**(索引覆盖规则一开就必须先登记,否则 `docs_lint` 自己红);第 3 节改生成 |
+| **C1** | 接口 / 分册数量五处不一致 | README §9「14 分册 / 54 操作」、README 徽章「51 operations」、README 英文摘要「13 volumes, 51 operations」、`docs/api/README.md`「63 个接口」「53 paths / 63 operations」;实际 15 分册 / 58 paths / 70 operations;其「接口一览」表只有 68 行(缺 `users/me/voice` 两个) | **`openapi.yml` 说了算**。所有计数都是它的派生量,**禁止手写** | **第 1 节**修了 5 处手写数字 + 补齐派生表缺失的 2 行;**第 3 节已落地**:计数改为生成,表的操作集合与 `openapi.yml` **集合相等**由 `docs_index --check` 判定。表本身**仍手写** —— `openapi.yml` 没有 `summary` 字段,「说明」列是人写的要点,整表生成会丢 43 行的括号补充说明(拍板 3a′) |
+| **C2** | `docs/superpowers/` 工作面与归档计数过期 | README §9「工作面 1 份 / 归档 85 份」;实际 5 份 spec(README §2 只登记 4 组)+ 105 归档;`2026-11-13-aws-*.md` 不在任何索引 | **目录说了算**(`specs/` 即工作面)。计数由 `docs_index` 生成 | **第 1 节**修 README §9 手写数字;aws spec 登记**提前到第 2 节**(索引覆盖规则一开就必须先登记,否则 `docs_lint` 自己红);**第 3 节已落地**:§4 的 105 行手写表删除,归档清单改由 `scripts/docs_index.py` 生成 —— 当年漏登的 **7 份** R–W plan 由生成物自动补齐,漏登从此即红 |
 | **C3** | 安全审计轮次:三 vs 四 | 复核时 README §9 与 `CLAUDE.md` 导航表都写「三轮」;`docs/security/` 实有 4 份 | **`docs/security/` 目录说了算** = 四轮 | **本次**修 README §9(第 2 节进一步改成「轮次以目录为准」,不再手写数字,并新增 `docs/security/README.md` 索引);`CLAUDE.md` 导航表留给第 6 节(见 §7) |
 | **C4** | 术语「六轨」与事实脱钩 | 19 次 / 12 个文件(非归档 9 个文件 10 次);workflows 实有 10 个 | **废止该词**。改说「workflow(当前 10 个)」或直接点名轨;由 `docs_lint` 术语规则拦截 | **改判到第 6 节**(2026-11-14 第 2 节决定):清理 19 处属**术语 lint 规则**的落地,与 `writing.md` 同批做才有防回归手段;第 2 节只做结构与索引。归档里的 3 处按 §6 红线不改 |
-| **C5** | `verify.sh` 自称「CI 的镜像」但两边门禁集不同 | 复核时本地 **11** 条 / CI **15** 条;CI 独有 5 条,本地独有 1 条。2026-11-14 第 2 节两边各加 2 条(`docs_lint` 自测 + 真跑),现为 **13 / 17**,**差额仍是 4** | **迁移期**:CI 为执行事实源,`verify.sh` 为镜像;第 4 节后 `gates.toml` 说了算 | 第 4 节(`gates.toml` + `run_gates.py`) |
+| **C5** | `verify.sh` 自称「CI 的镜像」但两边门禁集不同 | 复核时本地 **11** 条 / CI **15** 条;CI 独有 5 条,本地独有 1 条。2026-11-14 第 2 节两边各加 2 条(`docs_lint` 自测 + 真跑)、第 3 节两边各加 2 条(`docs_index` 自测 + `--check`),现为 **15 / 19**,**差额仍是 4** | **迁移期**:CI 为执行事实源,`verify.sh` 为镜像;第 4 节后 `gates.toml` 说了算 | 第 4 节(`gates.toml` + `run_gates.py`) |
 | **C6** | 「改什么 → 跑什么」表维护两份 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 各一张,内容近乎重复 | **`AGENTS.md` §三 说了算**;`CONTRIBUTING.md` 收成指针 | 第 6 节 |
 | **C7** | 脚本有 7 处家 + 常量重复 | `scripts/`(52 含子目录)/ `tools/` 3 / `perf/` 2 / `deploy/observability/` 2 / `imserver/scripts/` 9 / `docs/ops/stress/` 7 / `docs/ops/check_ssl_expiry.sh`;`DEFAULT_REPO` 4 处 | **`scripts/` 是唯一家**(域内子目录);`DEFAULT_REPO` 等常量收敛到 `scripts/lib/` | **部分落地**(2026-11-14 第 2 节):7 处 → **5 处**,`docs/` 侧清零(压测脚本 → `scripts/stress/`、补丁 → `scripts/patches/`、证书巡检 → `scripts/ops/`)。**剩余**:`tools/` `perf/` `imserver/scripts/` 的归属取决于 §7 **D2**(保守档不搬目录);常量 4 处 → 第 5 节 |
 | **C8** | 发版记录 = 用 Markdown 表格当数据库 | `sync_version.py::read_release_record` 解析 `release.md` §5 表头「版本 / tag」;改一次表格格式就可能误红 | **D1-B 已拍板**:`docs/releases.yml` 说了算,`release.md` §5 改为渲染 | 第 5 节 |
@@ -214,16 +214,19 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 
 ## 7. 待修清单(登记,本次不改)
 
+> **2026-11-14 第 3 节收尾**:再勾掉 2 项(接口一览表、`CLAUDE.md` 的「三轮」),
+> 并把「本地 vs CI 门禁条数」更新为 15 / 19(两边各加 `docs_index` 两条,差额仍是 4)。
+>
 > **2026-11-14 第 2 节收尾**:已勾掉 2 项(非文档文件归位、aws spec 登记),
 > 并把「六轨」措辞改判到第 6 节(C4 的裁决理由见 §4)。
 
 | 项 | 归属节 | 状态 |
 |---|---|---|
-| `docs/api/README.md` 的「接口一览」表仍是**手写派生索引**(第 1 节已补齐到 70 行,与 `openapi.yml` 逐条对齐) | 第 3 节(改为生成) | 待修 |
-| `CLAUDE.md` 文档导航表「三轮报告」→ 四轮(C3 的另一处) | 第 6 节 | 待修 |
+| ~~`docs/api/README.md` 的「接口一览」表仍是**手写派生索引**~~ | 第 3 节 | **已完成**(2026-11-14):计数改为生成,表的操作集合与 `openapi.yml` **集合相等**由 `docs_index --check` 判定;「说明」列按 C1 保留人写 |
+| ~~`CLAUDE.md` 文档导航表「三轮报告」→ 四轮(C3 的另一处)~~ | 第 6 节(原) | **已完成**(2026-11-14 第 3 节顺手):该行改为指向 [`docs/security/README.md`](../security/README.md) 并声明「轮次以目录为准」,不再写任何轮次数字 |
 | 19 处「六轨」措辞(12 个文件,其中 9 个非归档;归档 3 处按 §6 红线不改) | 第 6 节(**原第 2 节,2026-11-14 改判**) | 待修 |
 | `errors.md` 业务码总表与 `error_codes.py` 不同步(C11) | 第 6 节 | 待修 |
-| 本地 13 条 vs CI 17 条门禁(C5;第 2 节两边各加 2 条,差额仍是 4) | 第 4 节 | 待修 |
+| 本地 15 条 vs CI 19 条门禁(C5;第 2/3 节两边各加 2 条,差额仍是 4) | 第 4 节 | 待修 |
 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 重复的必跑表(C6) | 第 6 节 | 待修 |
 | `tools/` `perf/` `imserver/scripts/` 三处脚本家的归属(C7 剩余) | 第 5 节(取决于 D2 拍板) | 待修 |
 | ~~10 个非文档文件归位(C10)~~ | 第 2 节 | **已完成**(2026-11-14) |

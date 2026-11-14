@@ -189,6 +189,14 @@ stack_contract() {
   # 真跑钉住当前仓库(在此之前,把脚本塞回 docs/ 或写坏链接都不会让任何门禁红)。
   run "docs_lint 自测" "$PY" -m unittest scripts.test_docs_lint
   run "docs/ 结构 + 断链 + 索引覆盖" "$PY" "$ROOT/scripts/docs_lint.py"
+  # docs_index:索引由扫描生成,手写计数必然过期(治理第 3 节)。三条判定 ——
+  # 生成物与磁盘一致、归档每份恰好登记一次、接口一览表 ≡ openapi.yml 操作集合。
+  # 自测钉住判定器本身;真跑钉住当前仓库;check_artifact 再钉「生成物已提交到 HEAD」
+  # (生成物只在本地改了没提交,CI 不会红 —— 那正是「本地绿 ≈ CI 绿」的漏洞)。
+  run "文档索引生成器自测" "$PY" -m unittest scripts.test_docs_index
+  run "文档索引与磁盘一致" "$PY" "$ROOT/scripts/docs_index.py" --check
+  check_artifact docs/README.md
+  check_artifact docs/superpowers/archive/INDEX.md
   # worker 巡检器:它判错的两个方向都不能静默 —— 把正常报成异常(告警被当噪音关掉)、
   # 把异常报成正常(给人虚假的安全感)。纯离线,构造快照跑。
   run "worker 巡检器自测" "$PY" -m unittest scripts.test_superagent_health

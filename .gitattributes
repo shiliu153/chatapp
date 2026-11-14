@@ -69,3 +69,11 @@ docs/** linguist-documentation
 docs/api/openapi.yml text eol=lf
 # 同理:openapi-typescript 生成的 Web 类型文件
 web/src/api/schema.d.ts text eol=lf
+
+# 文档索引生成物固定 LF(2026-11-14 治理第 3 节):
+# `python scripts/docs_index.py --check` 按**字节**比对「重新生成的结果」与磁盘,
+# 若 Windows 检出成 CRLF,本地每次都会报不一致。与 openapi.yml 同模式。
+# 注意:docs/api/README.md 不在此列 —— 它只有一小段是生成的,其余手写内容要保持原样,
+# 生成器按该文件自身的换行风格只替换标记区间。
+docs/README.md text eol=lf
+docs/superpowers/archive/INDEX.md text eol=lf

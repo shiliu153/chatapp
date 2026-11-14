@@ -97,6 +97,15 @@ jobs:
       - name: docs_lint(docs/ 结构 + 断链 + 索引覆盖)
         run: python scripts/docs_lint.py
 
+      # docs_index(治理第 3 节):索引与计数由扫描生成,手写计数必然过期。
+      # 三条判定 —— 生成物与磁盘一致 / 归档每份恰好登记一次 / 接口一览表 ≡ openapi.yml。
+      # 生成物本身在 PR 里一起提交,所以这里只要 `--check` 绿就等价于「生成物 == HEAD」。
+      - name: 文档索引生成器自测
+        run: python -m unittest scripts.test_docs_index -v
+
+      - name: 文档索引与磁盘一致(生成物比对)
+        run: python scripts/docs_index.py --check
+
       # worker 巡检器(superagent-health)判错的两个方向都不能静默:把正常报成异常
       # (告警被当噪音关掉)、把异常报成正常(虚假的安全感)。它自己也在用 systemd timer
       # 盯着 worker,所以它坏了必须有回归挡住。

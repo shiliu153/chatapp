@@ -4,6 +4,9 @@
 目标是「从零读懂 `chatapp/` 的每一行后端代码」,写法是教学式的(先建概念 → 精确行号清单 →
 可复制实验 → 自查题)。
 
+> **完整清单见 [`docs/README.md`](../README.md)**(由 `scripts/docs_index.py` 扫描生成,
+> 禁止手改)。下面这张表是**精选入口**(怎么用),P00–P14 逐册清单以生成物为准。
+
 > 找「现在该做什么」看 [`docs/backlog/`](../backlog/2026-11-03-todo.md);
 > 找「踩过的坑」看 [`docs/pitfalls/`](../pitfalls/README.md);
 > 找「规范怎么写」看 [`docs/standards/`](../standards/README.md)。三者都不在这里。
