@@ -13,6 +13,7 @@
 | 分册 | 适用范围 | 检查入口 |
 |---|---|---|
 | [python.md](python.md) | `chatapp/` 下全部 Python 代码 | `python config/comment_coverage.py`(`--structure` 看 Args 提示)+ `CommentCoverageTests` |
+| [cpp.md](cpp.md) | `imserver/` 下全部 C++ 代码(`src/` + `tests/` 的 `.h` / `.cpp`) | 人工:**每次改 `imserver/` 前对照**;机械门禁未立项(理由见该分册 §8) |
 | [writing.md](writing.md) | `docs/` 下全部文档(命名 / 元信息 / 状态 / 归档 / 口径页写法) | `python scripts/docs_lint.py`(metadata / term / number 三条规则) |
 | [dev-commands.md](dev-commands.md) | 本地开发命令(后端 / 前端 / 网页端 / 出包 / 服务器) | 人工:**每次开工前**按需查阅 |
 | Dart 分册 | `app/lib/` | 待立项 |
