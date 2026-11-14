@@ -556,6 +556,28 @@ class CommentCoverageLogicTests(SimpleTestCase):
                              '    """返回问候语。"""\n')
             self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
 
+    def test_missing_param_section_fails_the_default_gate(self):
+        """结构缺口已并入默认路径:公开函数带参数却漏写 参数说明 就算缺口。"""
+        from config.comment_coverage import find_problems
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。"""\n\n\ndef greet(name):\n'
+                             '    """向某人问好。"""\n')
+            problems = find_problems(root=Path(tmp))
+        self.assertTrue(any("greet" in p and "参数说明" in p for p in problems))
+
+    def test_legacy_args_section_still_passes_the_default_gate(self):
+        """过渡态:存量用 ``Args:`` 写的符号也算合规,不逼后人做一次性换算。"""
+        from config.comment_coverage import find_problems
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。"""\n\n\ndef greet(name):\n'
+                             '    """向某人问好。\n\n'
+                             "    Args:\n"
+                             "        name: 被问候者的名字。\n"
+                             '    """\n')
+            self.assertEqual(find_problems(root=Path(tmp)), [])
+
 
 class QueryParamTests(SimpleTestCase):
     """查询参数校验:非法整数 400,越界收敛,可选 id 非法返回 None。"""

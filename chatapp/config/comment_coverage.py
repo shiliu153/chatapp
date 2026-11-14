@@ -2,10 +2,10 @@
 
 判定规则见 docs/standards/python.md。本模块只依赖标准库,可直接命令行运行:
 
-    python config/comment_coverage.py              # 全量检查
+    python config/comment_coverage.py              # 全量检查(含 参数说明 小节)
     python config/comment_coverage.py --app im     # 只检查某个 app
     python config/comment_coverage.py --warnings   # 附带口语词提示(不拦截)
-    python config/comment_coverage.py --structure  # 附带 Args 小节提示(不拦截)
+    python config/comment_coverage.py --structure  # 只查 参数说明 小节,不跑其余检查
 """
 
 from __future__ import annotations
@@ -160,7 +160,7 @@ def _iter_comments(path: Path) -> Iterator[tuple[int, str]]:
 
 
 def find_problems(root: Path = BACKEND_ROOT, app: str | None = None) -> list[str]:
-    """汇总全部注释缺口。
+    """汇总全部注释缺口:docstring 覆盖、装饰符号与公开函数的 参数说明 小节。
 
     Args:
         root: 后端根目录,默认 chatapp/。
@@ -172,6 +172,7 @@ def find_problems(root: Path = BACKEND_ROOT, app: str | None = None) -> list[str
     problems: list[str] = []
     for path in iter_target_files(root, app):
         problems.extend(check_file(path))
+    problems.extend(find_structure_warnings(root, app))
     return problems
 
 
@@ -207,18 +208,21 @@ def find_tone_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -> lis
 
 
 def find_structure_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -> list[str]:
-    """汇总公开函数的 Args 小节缺失项(只提示,不参与门禁断言)。
+    """汇总公开函数的 参数说明 小节缺失项。
 
-    AST 无法判断「这个参数是否显然到可以不写」,因此不做硬门禁;命中项供
-    review 与 ``docs/standards/python.md`` 的人工检查使用。私有函数、``test_*``
-    用例、无参函数、``@property`` 与函数内闭包不在检查范围内。
+    判定口径见 ``docs/standards/python.md`` §3 与 §7:公开函数只要带参数就必须写
+    ``参数说明:`` 小节。这里只判「有没有这个小节」,不判内容质量,因此可以进硬门禁;
+    过渡态下 ``Args:`` 与 ``参数说明:`` 二者其一即算合规(全仓存量换算不在本门禁范围)。
+    结果已并入 ``find_problems`` 的默认路径,本函数保留为只查结构的单独入口。
+    私有函数、``test_*`` 用例、生命周期钩子、无参函数、``@property`` 与函数内闭包
+    不在检查范围内。
 
     Args:
         root: 后端根目录,默认 chatapp/。
         app: 只检查该 app 子目录;None 表示全量。
 
     Returns:
-        形如 ``相对路径:行号 函数名 缺少 Args 小节`` 的提示列表。
+        形如 ``相对路径:行号 函数名 缺少 参数说明 小节`` 的列表。
     """
     warnings: list[str] = []
     for path in iter_target_files(root, app):
@@ -260,19 +264,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--warnings", action="store_true",
                         help="附带口语词提示(不拦截)")
     parser.add_argument("--structure", action="store_true",
-                        help="附带公开函数 参数说明 小节提示(不拦截)")
+                        help="只检查公开函数的 参数说明 小节(不跑其余检查)")
     args = parser.parse_args(argv)
 
     if args.warnings:
         for warning in find_tone_warnings(app=args.app):
             print(f"[提示] {warning}")
-    if args.structure:
-        for warning in find_structure_warnings(app=args.app):
-            print(f"[结构] {warning}")
 
-    problems = find_problems(app=args.app)
+    # --structure 是「只查结构」的窄入口:同一份判定,排除 docstring 覆盖与装饰符号
+    check = find_structure_warnings if args.structure else find_problems
+    label = "结构缺口" if args.structure else "注释缺口"
+    problems = check(app=args.app)
     if problems:
-        print(f"发现 {len(problems)} 处注释缺口:")
+        print(f"发现 {len(problems)} 处{label}:")
         for problem in problems:
             print(f"  {problem}")
         return 1

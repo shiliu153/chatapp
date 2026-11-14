@@ -43,20 +43,7 @@ class SmsAllowlistStrictTests(APITestCase):
     """名单为空时的准入判定:严格拒、非严格放行。"""
 
     def setUp(self):
-        """清空缓存,避免上一轮的名单快照与限流键串进用例。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``setUp()``
-
-        备注信息:
-            名单快照与发码限流都落在缓存里;``addCleanup`` 保证用例结束后同样清一次。
-        """
+        """清空缓存,避免上一轮的名单快照与限流键串进用例。"""
         cache.clear()
         self.addCleanup(cache.clear)
 

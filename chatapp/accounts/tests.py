@@ -65,20 +65,7 @@ JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32   # 最小假 JPEG 内容(不校验格
 
 
 class UserManagerTests(TestCase):
-    """建号管理器:普通用户无可用密码,超级用户有真实密码。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.UserManagerTests``
-
-    备注信息:
-        用例只碰数据库,不依赖 Redis;超级用户的密码由 ``create_superuser`` 真实落库。
-    """
+    """建号管理器:普通用户无可用密码,超级用户有真实密码。"""
 
     def test_create_user_requires_phone(self):
         """建普通用户只凭手机号,且没有可用密码。
@@ -102,20 +89,7 @@ class UserManagerTests(TestCase):
 
 
 class HealthTests(APITestCase):
-    """存活探针:不触碰数据库与 Redis,恒定返回 ok。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.HealthTests``
-
-    备注信息:
-        探针不看任何外部依赖,依赖挂掉也应仍返回 ok;限流计数器在缓存里,由用例自行控制。
-    """
+    """存活探针:不触碰数据库与 Redis,恒定返回 ok。"""
 
     def test_health_ok(self):
         """存活探针返回 200 与固定的 JSON 体。
@@ -143,20 +117,7 @@ class HealthTests(APITestCase):
 
 
 class ReadyZTests(APITestCase):
-    """就绪探针:逐项探测数据库与 Redis,任一不可用即 503。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.ReadyZTests``
-
-    备注信息:
-        用例逐个让数据库 / Redis 不可用(打桩),验证就绪探针降级为 503,不需要真停服务。
-    """
+    """就绪探针:逐项探测数据库与 Redis,任一不可用即 503。"""
 
     def test_readyz_ok(self):
         """数据库与 Redis 都正常时就绪探针返回 200。
@@ -192,36 +153,10 @@ class ReadyZTests(APITestCase):
 
 
 class SmsSendTests(APITestCase):
-    """发送验证码:落码、重发间隔、入队失败回滚、格式校验与 IP 限流。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.SmsSendTests``
-
-    备注信息:
-        缓存是进程级共享的,``setUp`` 每个用例前清一次;入队失败分支验证 503 且不落码。
-    """
+    """发送验证码:落码、重发间隔、入队失败回滚、格式校验与 IP 限流。"""
 
     def setUp(self):
-        """清空进程级缓存,并登记用例结束后的再次清理。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            缓存是进程级共享的,用例之间不清会串味;``addCleanup`` 保证用例失败时也会清。
-        """
+        """清空进程级缓存,并登记用例结束后的再次清理。"""
         cache.clear()               # 缓存是进程级的,测试之间必须清
         self.addCleanup(cache.clear)
 
@@ -331,36 +266,10 @@ class SmsSendTests(APITestCase):
 
 
 class SmsVerifyTests(APITestCase):
-    """校验验证码并登录:建号、令牌、错误分支、锁定、重放与限流。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.SmsVerifyTests``
-
-    备注信息:
-        ``self.phone`` 固定为 ``13800138000`` 供各用例复用;缓存进程级共享,不清会串味。
-    """
+    """校验验证码并登录:建号、令牌、错误分支、锁定、重放与限流。"""
 
     def setUp(self):
-        """清空缓存并固定测试手机号。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            ``self.phone`` 供各用例复用;缓存是进程级共享的,不清会串味。
-        """
+        """清空缓存并固定测试手机号。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800138000"
@@ -549,39 +458,13 @@ class SmsVerifyTests(APITestCase):
 
 
 class SmsPhoneWhitelistTests(APITestCase):
-    """封闭测试白名单(B-1 / K-1):非受邀号码拿不到码,也登不上。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.SmsPhoneWhitelistTests``
-
-    备注信息:
-        名单快照走缓存,``setUp`` 每个用例前清一次;名单来源见 ``settings.SMS_PHONE_WHITELIST``。
-    """
+    """封闭测试白名单(B-1 / K-1):非受邀号码拿不到码,也登不上。"""
 
     ALLOWED = "13900139000"
     OUTSIDER = "13800138000"
 
     def setUp(self):
-        """清空进程级缓存,并登记用例结束后的再次清理。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            名单快照走缓存,不清会串味;``addCleanup`` 保证用例失败时也会清。
-        """
+        """清空进程级缓存,并登记用例结束后的再次清理。"""
         cache.clear()
         self.addCleanup(cache.clear)
 
@@ -695,39 +578,13 @@ class SmsPhoneWhitelistTests(APITestCase):
 
 
 class PhoneAllowlistDbTests(APITestCase):
-    """准入名单落库(B-1c):库内命中 / 未命中 / 停用,以及写路径的缓存失效。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.PhoneAllowlistDbTests``
-
-    备注信息:
-        名单快照走缓存,写路径必须让快照失效;库表 ``accounts.PhoneAllowlist`` 的停用项优先于 ``.env`` 种子。
-    """
+    """准入名单落库(B-1c):库内命中 / 未命中 / 停用,以及写路径的缓存失效。"""
 
     ALLOWED = "13900139000"
     OUTSIDER = "13800138000"
 
     def setUp(self):
-        """清空进程级缓存,并登记用例结束后的再次清理。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            名单快照走缓存,不清会串味;``addCleanup`` 保证用例失败时也会清。
-        """
+        """清空进程级缓存,并登记用例结束后的再次清理。"""
         cache.clear()
         self.addCleanup(cache.clear)
 
@@ -876,36 +733,10 @@ class PhoneAllowlistDbTests(APITestCase):
 
 
 class SmsCodeStateTests(TestCase):
-    """验证码状态机:HMAC 存储 + Lua 原子校验 + 重放窗口。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.SmsCodeStateTests``
-
-    备注信息:
-        状态机全在 Redis 里,用例之间必须清缓存,否则串味。
-    """
+    """验证码状态机:HMAC 存储 + Lua 原子校验 + 重放窗口。"""
 
     def setUp(self):
-        """清空缓存并固定测试手机号。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            验证码状态机全在 Redis 里,用例之间必须清缓存。
-        """
+        """清空缓存并固定测试手机号。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800138000"
@@ -972,20 +803,7 @@ class SmsCodeStateTests(TestCase):
 
 
 class ImUserIdTests(TestCase):
-    """IM 账号约定:一律是 ``u{账号 id}``。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.ImUserIdTests``
-
-    备注信息:
-        ``im_user_id`` 是 ``User`` 上的派生属性;用例在库内建号后比对,不依赖 Redis。
-    """
+    """IM 账号约定:一律是 ``u{账号 id}``。"""
 
     def test_im_user_id_is_u_prefixed_id(self):
         """``im_user_id`` 恒为 ``u{账号 id}``。
@@ -998,36 +816,10 @@ class ImUserIdTests(TestCase):
 
 
 class ImImportOnRegisterTests(APITestCase):
-    """登录时的 IM 副作用:新用户导入、老用户标记待踢、入队失败不阻断登录。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.ImImportOnRegisterTests``
-
-    备注信息:
-        IM 副作用一律 mock ``im.tasks`` 的入队方法,不触网;``self.phone`` 固定为 ``13800138000``。
-    """
+    """登录时的 IM 副作用:新用户导入、老用户标记待踢、入队失败不阻断登录。"""
 
     def setUp(self):
-        """清空缓存并固定测试手机号。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            ``self.phone`` 供各用例复用;IM 副作用一律 mock ``im.tasks`` 的入队方法。
-        """
+        """清空缓存并固定测试手机号。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800138000"
@@ -1111,36 +903,10 @@ class ImImportOnRegisterTests(APITestCase):
 
 
 class TokenRefreshTests(APITestCase):
-    """刷新令牌:换发新的 access + refresh,旧 refresh 立即进黑名单。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.TokenRefreshTests``
-
-    备注信息:
-        ``self.user`` 用于直接签 refresh 令牌,不走登录接口;旧 refresh 黑名单在缓存里,必须清。
-    """
+    """刷新令牌:换发新的 access + refresh,旧 refresh 立即进黑名单。"""
 
     def setUp(self):
-        """清空缓存并建一个普通用户。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            ``self.user`` 用于直接签 refresh 令牌,不走登录接口;黑名单走缓存,必须清。
-        """
+        """清空缓存并建一个普通用户。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.user = User.objects.create_user(phone="13800138000")
@@ -1212,36 +978,10 @@ class TokenRefreshTests(APITestCase):
 
 
 class WebCookieAuthTests(APITestCase):
-    """Web 分支:refresh 走 HttpOnly Cookie,响应体不返回 refresh。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.WebCookieAuthTests``
-
-    备注信息:
-        Cookie 分支依赖缓存里的 refresh 黑名单;``self.user`` 与 ``self.phone`` 供各用例复用。
-    """
+    """Web 分支:refresh 走 HttpOnly Cookie,响应体不返回 refresh。"""
 
     def setUp(self):
-        """清空缓存,建号并固定手机号。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            ``self.user`` 与 ``self.phone`` 供各用例复用;Cookie 分支依赖缓存里的黑名单,必须清。
-        """
+        """清空缓存,建号并固定手机号。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800138000"
@@ -1411,36 +1151,10 @@ class WebCookieAuthTests(APITestCase):
 
 
 class SingleDeviceSessionTests(APITestCase):
-    """单设备登录:后登录的设备作废先登录设备的 access/refresh(40101)。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.SingleDeviceSessionTests``
-
-    备注信息:
-        会话版本落库、黑名单在缓存;被顶设备收 401 + ``40101``。
-    """
+    """单设备登录:后登录的设备作废先登录设备的 access/refresh(40101)。"""
 
     def setUp(self):
-        """清空缓存并固定测试手机号。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            会话版本与黑名单都在库/缓存里,``self.phone`` 供各用例复用。
-        """
+        """清空缓存并固定测试手机号。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800138000"
@@ -1495,36 +1209,10 @@ class SingleDeviceSessionTests(APITestCase):
         self.assertEqual(resp.json()["code"], 40101)
 
 class AllowlistSeedImportTests(TestCase):
-    """种子导入命令 allowlist_seed_import:幂等补齐,但不把已停用的号放回来。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.AllowlistSeedImportTests``
-
-    备注信息:
-        名单快照走缓存,``setUp`` 每个用例前清一次;命令幂等,已停用的号不会被种子放回来。
-    """
+    """种子导入命令 allowlist_seed_import:幂等补齐,但不把已停用的号放回来。"""
 
     def setUp(self):
-        """清空进程级缓存,并登记用例结束后的再次清理。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            名单快照走缓存,不清会串味;``addCleanup`` 保证用例失败时也会清。
-        """
+        """清空进程级缓存,并登记用例结束后的再次清理。"""
         cache.clear()
         self.addCleanup(cache.clear)
 
@@ -1637,36 +1325,10 @@ class AllowlistSeedImportTests(TestCase):
 
 
 class SeedFakeUsersTests(TestCase):
-    """造数命令 seed_fake_users:建「资料已完善 + 过审照片」的女号(手测发现页用)。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.SeedFakeUsersTests``
-
-    备注信息:
-        ``setUp`` 先建 ``self.origin`` 作既有账号,用例按 id 过滤新建行;IM 客户端与图片下载都 mock,不触网。
-    """
+    """造数命令 seed_fake_users:建「资料已完善 + 过审照片」的女号(手测发现页用)。"""
 
     def setUp(self):
-        """建一个既有账号,并给 IM 客户端与图片下载打桩。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            ``self.origin`` 是造数前已存在的账号,用例用它按 id 过滤新建行;IM 调用与图片下载都被 mock,不触网。
-        """
+        """建一个既有账号,并给 IM 客户端与图片下载打桩。"""
         self.origin = User.objects.create_user(phone="13800138000")
         self.im = patch("accounts.management.commands.seed_fake_users.im_client")
         self.im_mock = self.im.start()
@@ -1804,36 +1466,10 @@ class SeedFakeUsersTests(TestCase):
 
 @override_settings(DEBUG=True)   # 命令默认只在非生产(DEBUG=1)签发,见下一个用例
 class PerfTokensTests(APITestCase):
-    """压测令牌命令:写场景要多账号,令牌签错就等于压出 401 而自己不知道。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.PerfTokensTests``
-
-    备注信息:
-        类上 ``override_settings(DEBUG=True)``,命令在非 DEBUG 下默认拒绝;只签 ``199`` 号段且跳过运营账号。
-    """
+    """压测令牌命令:写场景要多账号,令牌签错就等于压出 401 而自己不知道。"""
 
     def setUp(self):
-        """建三个 199 号段的测试号(命令只签这个号段)。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            号码由 ``19_900_000_000 + i`` 拼出 1990000000x;命令按号段与运营身份筛选。
-        """
+        """建三个 199 号段的测试号(命令只签这个号段)。"""
         self.users = [User.objects.create_user(phone=str(19_900_000_000 + i))
                       for i in range(1, 4)]
 
@@ -1944,36 +1580,10 @@ class PerfTokensTests(APITestCase):
 
 
 class PresenceHookTests(APITestCase):
-    """在线状态钩子:认证通过即刷新,匿名与被顶号的旧令牌都不算活跃。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.PresenceHookTests``
-
-    备注信息:
-        在线状态写在缓存里,``setUp`` 每个用例前清一次;被顶号的旧令牌不算活跃。
-    """
+    """在线状态钩子:认证通过即刷新,匿名与被顶号的旧令牌都不算活跃。"""
 
     def setUp(self):
-        """清空缓存并建一个普通用户。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            在线状态写在缓存里,不清会串味;``self.user`` 供各用例复用。
-        """
+        """清空缓存并建一个普通用户。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.user = User.objects.create_user(phone="13800138000")
@@ -2032,20 +1642,7 @@ class PresenceHookTests(APITestCase):
 
 
 class TotpTests(SimpleTestCase):
-    """TOTP:标准测试向量、时间窗、密钥与 otpauth 地址(H6)。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.TotpTests``
-
-    备注信息:
-        纯算法级用例,继承 ``SimpleTestCase`` 不碰数据库,可高速跑。
-    """
+    """TOTP:标准测试向量、时间窗、密钥与 otpauth 地址(H6)。"""
 
     def test_matches_rfc6238_sha1_vector(self):
         """RFC 6238 的 SHA1 向量(取 6 位)必须一致。
@@ -2084,36 +1681,10 @@ class TotpTests(SimpleTestCase):
 
 
 class LoginThrottleTests(TestCase):
-    """后台登录失败锁定:账号维度达到上限后,正确密码也拒绝(H6)。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.LoginThrottleTests``
-
-    备注信息:
-        失败计数写在缓存里,``setUp`` 每个用例前清一次;运营账号密码由 ``set_password`` 真实落库,``authenticate`` 才走得通。
-    """
+    """后台登录失败锁定:账号维度达到上限后,正确密码也拒绝(H6)。"""
 
     def setUp(self):
-        """建一个可登录的运营账号,并清空失败计数。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
-
-        备注信息:
-            失败计数写在缓存里,不清会串味;密码用 ``set_password`` 真实落库,``authenticate`` 才走得通。
-        """
+        """建一个可登录的运营账号,并清空失败计数。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.staff = User.objects.create_user(phone="13700137000", is_staff=True)
@@ -2144,24 +1715,7 @@ class LoginThrottleTests(TestCase):
 
 
 class DevSmsDeployCheckTests(SimpleTestCase):
-    """``accounts.E001``:固定验证码 + 空白名单必须在 ``manage.py check`` 里报错。
-
-    为什么补这个测试:这个门禁此前**没有任何用例**,也没有任何流水线执行它
-    (CI 全程 ``DEBUG=1``,检查直接返回;``migrate`` 不跑 system checks;
-    一键部署脚本里也没有 ``manage.py check``)。门禁不可达 = 等于不存在。
-
-    参数说明:
-        无。
-
-    返回参数:
-        无返回值。
-
-    使用示例:
-        ``python manage.py test accounts.tests.DevSmsDeployCheckTests``
-
-    备注信息:
-        继承 ``SimpleTestCase`` 不碰数据库;``_check`` 直接调检查函数,``DEBUG`` 与测试环境下检查本身会短路。
-    """
+    """``accounts.E001``:固定验证码 + 空白名单必须在 ``manage.py check`` 里报错。"""
 
     def _check(self):
         """跑一次 E001 检查(不依赖数据库)。

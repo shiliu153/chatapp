@@ -16,22 +16,7 @@ from django.apps import AppConfig
 
 
 class AccountsConfig(AppConfig):
-    """账号与鉴权应用的配置:手机号登录、短信验证码、JWT 签发。
-
-    参数说明:
-        无构造参数;``name`` 与 ``default_auto_field`` 由本类属性给出,
-        实例化由 Django 装载 ``INSTALLED_APPS`` 时完成。
-
-    返回参数:
-        配置实例;注册进 Django 的 ``apps`` 注册表供运行期查询。
-
-    使用示例:
-        ``AccountsConfig.create("accounts")``
-
-    备注信息:
-        主键类型固定为 ``BigAutoField``;``name`` 必须与包目录名 ``accounts``
-        一致,否则模型与迁移的 ``app_label`` 会对不上。
-    """
+    """账号与鉴权应用的配置:手机号登录、短信验证码、JWT 签发。"""
 
     default_auto_field = "django.db.models.BigAutoField"
     name = "accounts"
