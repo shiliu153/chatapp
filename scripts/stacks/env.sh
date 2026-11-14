@@ -62,10 +62,16 @@ export DB_SSL_DISABLED=${DB_SSL_DISABLED:-0}
 export BROKER_URL=${BROKER_URL:-redis://127.0.0.1:16379/1}
 export REDIS_URL=${REDIS_URL:-redis://127.0.0.1:16379/0}
 # 注意:TESTING 模式下 config/settings.py 不读 REDIS_URL,而是读 TEST_REDIS_HOST/PORT
-# (见 settings.py「测试隔离」一节),用独立 DB 15/14 以免碰开发数据。这里必须一起指过来,
-# 否则测试会去连 127.0.0.1:6379(Windows 上那个开发用 redis),在 WSL 里必然 Connection refused。
-export TEST_REDIS_HOST=${TEST_REDIS_HOST:-127.0.0.1}
-export TEST_REDIS_PORT=${TEST_REDIS_PORT:-16379}
+# (见 settings.py「测试隔离」一节),用独立 DB 15/14 以免碰开发数据。
+#
+# **必须从 REDIS_URL 解析,不能写死 16379**:CI 的 workflow 只注入 REDIS_URL(Redis 在
+# 6379),从没注入 TEST_REDIS_*;写死会让 CI 的测试去连 16379 → Connection refused,
+# 门禁红得莫名其妙(2026-11-14 第 4 节在 CI 上实测踩到,本地 16379 恰好是对的所以看不出来)。
+test_redis=${REDIS_URL#*://}
+test_redis=${test_redis%%/*}
+test_redis=${test_redis##*@}
+export TEST_REDIS_HOST=${TEST_REDIS_HOST:-${test_redis%%:*}}
+export TEST_REDIS_PORT=${TEST_REDIS_PORT:-${test_redis##*:}}
 export IM_SELF_URL=${IM_SELF_URL:-http://127.0.0.1:9101}
 export IM_SELF_WS_URL=${IM_SELF_WS_URL:-ws://127.0.0.1:9100/im/ws}
 export IM_SELF_HTTP_URL=${IM_SELF_HTTP_URL:-http://127.0.0.1:9101/im/api}
