@@ -46,20 +46,7 @@ class DeviceApiTestCase(APITestCase):
     """公共夹具:一个账号 + 走真实短信登录链路、带端类型取令牌。"""
 
     def setUp(self):
-        """准备干净缓存与一个测试账号,每个用例前重建。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``setUp()``
-
-        备注信息:
-            由 ``TestCase`` 在每个用例前自动调用;``addCleanup`` 保证用例结束后清缓存。
-        """
+        """准备干净缓存与一个测试账号,每个用例前重建。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800000001"
@@ -441,20 +428,7 @@ class LastActiveTests(TestCase):
     """``last_active_at`` 只在登录与刷新成功时更新,且按端各记各的。"""
 
     def setUp(self):
-        """准备干净缓存与一个测试账号,每个用例前重建。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``setUp()``
-
-        备注信息:
-            本类只断言 ``last_active_at``,登录统一走 ``_login`` 直接落码;``addCleanup`` 保证用例后清缓存。
-        """
+        """准备干净缓存与一个测试账号,每个用例前重建。"""
         cache.clear()
         self.addCleanup(cache.clear)
         self.phone = "13800000002"

@@ -75,24 +75,58 @@ def _post(path: str, payload: dict) -> bool:
 
 
 def ensure_account(identifier: str, nickname: str = "") -> bool:
-    """幂等建号。"""
+    """幂等建号。
+
+    参数说明:
+        identifier: IM 账号(即 ``u{账号 id}``)。
+        nickname: 仅在需要新建账号时使用的初始昵称,可为空串。
+
+    返回参数:
+        账号已存在或新建成功返回 ``True``;失败返回 ``False``。
+    """
     return _post("/internal/accounts/ensure",
                  {"uid": _uid(identifier), "nickname": nickname})
 
 
 def set_profile_nick(identifier: str, nickname: str) -> bool:
-    """同步昵称。"""
+    """同步昵称。
+
+    参数说明:
+        identifier: IM 账号。
+        nickname: 要写入 IM 资料的昵称。
+
+    返回参数:
+        同步成功返回 ``True``;失败返回 ``False``。
+    """
     return _post("/internal/profile", {"uid": _uid(identifier), "nickname": nickname})
 
 
 def set_profile_avatar(identifier: str, avatar_url: str) -> bool:
-    """同步头像。"""
+    """同步头像。
+
+    参数说明:
+        identifier: IM 账号。
+        avatar_url: 头像的绝对 URL。
+
+    返回参数:
+        同步成功返回 ``True``;失败返回 ``False``。
+    """
     return _post("/internal/profile", {"uid": _uid(identifier), "avatar": avatar_url})
 
 
 def send_custom_elem(from_identifier: str, to_identifier: str, data: dict,
                      desc: str = "") -> bool:
-    """发送自定义消息(灰条/系统通知)。"""
+    """发送自定义消息(灰条/系统通知)。
+
+    参数说明:
+        from_identifier: 发送方 IM 账号。
+        to_identifier: 接收方 IM 账号。
+        data: 自定义消息体,会被序列化成 JSON;``type`` 键缺省为 ``other``。
+        desc: 消息摘要,客户端在会话列表里用它做预览文案。
+
+    返回参数:
+        发送成功返回 ``True``;失败返回 ``False``。
+    """
     return _post(
         "/internal/send",
         {
@@ -105,7 +139,16 @@ def send_custom_elem(from_identifier: str, to_identifier: str, data: dict,
 
 
 def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
-    """发送文本消息(手测/联调用)。"""
+    """发送文本消息(手测/联调用)。
+
+    参数说明:
+        from_identifier: 发送方 IM 账号。
+        to_identifier: 接收方 IM 账号。
+        text: 文本内容。
+
+    返回参数:
+        发送成功返回 ``True``;失败返回 ``False``。
+    """
     return _post(
         "/internal/send",
         {"from": _uid(from_identifier), "to": _uid(to_identifier),
@@ -114,14 +157,30 @@ def send_text(from_identifier: str, to_identifier: str, text: str) -> bool:
 
 
 def black_list_add(owner_identifier: str, other_identifier: str) -> bool:
-    """加入 IM 黑名单。"""
+    """加入 IM 黑名单。
+
+    参数说明:
+        owner_identifier: 发起拉黑的一方 IM 账号。
+        other_identifier: 被拉黑的一方 IM 账号。
+
+    返回参数:
+        加入成功返回 ``True``;失败返回 ``False``。
+    """
     return _post("/internal/blacklist",
                  {"owner": _uid(owner_identifier), "peer": _uid(other_identifier),
                   "action": "add"})
 
 
 def black_list_delete(owner_identifier: str, other_identifier: str) -> bool:
-    """移出 IM 黑名单。"""
+    """移出 IM 黑名单。
+
+    参数说明:
+        owner_identifier: 解除拉黑的一方 IM 账号。
+        other_identifier: 被移出黑名单的一方 IM 账号。
+
+    返回参数:
+        移出成功返回 ``True``;失败返回 ``False``。
+    """
     return _post("/internal/blacklist",
                  {"owner": _uid(owner_identifier), "peer": _uid(other_identifier),
                   "action": "remove"})
@@ -196,17 +255,38 @@ def pair_remove(user_a_identifier: str, user_b_identifier: str) -> bool:
 
 
 def unblock_user(identifier: str) -> bool:
-    """清除封禁键。"""
+    """清除封禁键。
+
+    参数说明:
+        identifier: 被解除封禁的 IM 账号。
+
+    返回参数:
+        清除成功返回 ``True``;失败返回 ``False``。
+    """
     return _post("/internal/unblock", {"uid": _uid(identifier)})
 
 
 def delete_account(identifier: str) -> bool:
-    """删除该账号的全部 IM 数据。"""
+    """删除该账号的全部 IM 数据。
+
+    参数说明:
+        identifier: 待删除的 IM 账号。
+
+    返回参数:
+        删除成功返回 ``True``;失败返回 ``False``。
+    """
     return _post("/internal/delete_account", {"uid": _uid(identifier)})
 
 
 def send_ban_lifted(to_identifier: str) -> bool:
-    """解封通知:先发灰条,再清封禁键。"""
+    """解封通知:先发灰条,再清封禁键。
+
+    参数说明:
+        to_identifier: 被解封用户的 IM 账号。
+
+    返回参数:
+        灰条发送与封禁键清除都成功返回 ``True``;任一失败返回 ``False``。
+    """
     sent = send_custom_elem(SYSTEM_NOTICE_IDENTIFIER, to_identifier,
                             {"type": "ban_lifted"}, BAN_LIFTED_TEXT)
     return unblock_user(to_identifier) and sent

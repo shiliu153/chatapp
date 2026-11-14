@@ -35,20 +35,7 @@ class AllowlistSnapshotCacheTests(TestCase):
     """名单快照的序列化形态与签名校验。"""
 
     def setUp(self):
-        """清空缓存,避免上一轮的名单快照串进用例。
-
-        参数说明:
-            无。
-
-        返回参数:
-            无返回值。
-
-        使用示例:
-            ``setUp()``
-
-        备注信息:
-            快照是缓存里的签名值,不清会把别的用例写的名单带进来;``addCleanup`` 兜底清一次。
-        """
+        """清空缓存,避免上一轮的名单快照串进用例。"""
         cache.clear()
         self.addCleanup(cache.clear)
 
