@@ -599,10 +599,29 @@ CHAT_IMAGE_THUMB_SIDE = 240
 # --- 聊天图片签名 URL(与 imserver 的 IM_MEDIA_SIGN_* 必须一致)---
 IM_MEDIA_SIGN_SECRET = os.getenv("IM_MEDIA_SIGN_SECRET", "")
 IM_MEDIA_SIGN_TTL = int(os.getenv("IM_MEDIA_SIGN_TTL", "3600"))
-if not DEBUG and not IM_MEDIA_SIGN_SECRET:
-    # 漏配密钥时 nginx 的 auth_request 会变成「不签名也放行」,等于私聊媒体公开。
-    # 宁可起不来,也不要静默 fail-open。
-    raise ImproperlyConfigured("生产必须配置 IM_MEDIA_SIGN_SECRET(聊天媒体签名)")
+
+
+def assert_production_media_sign_secret(secret: str, debug: bool) -> None:
+    """生产环境必须配置聊天媒体签名密钥(M6)。
+
+    漏配密钥时 nginx 的 ``auth_request`` 子请求会变成「不签名也放行」,等于私聊媒体公开,
+    所以宁可起不来,也不要静默 fail-open。判据与 ``im/media_sign.py::verify`` 一致 ——
+    验签侧在密钥为空时**只放行 ``DEBUG``**,因此「漏配」与「生产开着 ``DEBUG``」是同一个
+    后果;此处只挡前者,后者由部署核对单的 ``DEBUG=0`` 保证(见 ``docs/ops/runbook.md``)。
+
+    Args:
+        secret: 当前生效的 ``IM_MEDIA_SIGN_SECRET``。
+        debug: 当前 ``DEBUG`` 开关。
+
+    Raises:
+        ImproperlyConfigured: ``DEBUG`` 关闭且密钥为空。
+    """
+    if not debug and not secret:
+        raise ImproperlyConfigured("生产必须配置 IM_MEDIA_SIGN_SECRET(聊天媒体签名)")
+
+
+assert_production_media_sign_secret(IM_MEDIA_SIGN_SECRET, DEBUG)
+
 # 聊天图片保留期(天);0 表示只清孤儿文件与删除残留
 CHAT_IMAGE_RETENTION_DAYS = int(os.getenv("CHAT_IMAGE_RETENTION_DAYS", "30"))
 

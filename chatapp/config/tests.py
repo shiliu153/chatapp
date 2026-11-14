@@ -639,6 +639,23 @@ class SecretKeyGuardTests(SimpleTestCase):
         settings_module.assert_production_secret_key("dev-insecure-change-me", True)
 
 
+class MediaSignSecretGuardTests(SimpleTestCase):
+    """生产拒绝空聊天媒体签名密钥(M6),与 ``media_sign.verify`` 的空密钥口径对齐。"""
+
+    def test_rejects_empty_secret_in_production(self):
+        """``DEBUG=0`` 且密钥为空时必须拒绝启动,不然私聊媒体会公开。"""
+        with self.assertRaises(ImproperlyConfigured):
+            settings_module.assert_production_media_sign_secret("", False)
+
+    def test_allows_secret_in_production(self):
+        """生产配了密钥时正常通过。"""
+        settings_module.assert_production_media_sign_secret("s" * 32, False)
+
+    def test_allows_empty_secret_in_debug(self):
+        """本地 ``DEBUG=1`` 下允许留空 —— 验签侧此时也是放行,两边同口径。"""
+        settings_module.assert_production_media_sign_secret("", True)
+
+
 class ClientIpTests(SimpleTestCase):
     """客户端 IP 解析:只有可信代理转发的头才采信(M-3)。"""
 

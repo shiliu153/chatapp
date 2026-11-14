@@ -450,6 +450,13 @@ ssh root@<SERVER_IP> 'set -a; . /www/server/imserver/imserver.env; set +a; \
 | `IM_MEDIA_SIGN_TTL` | 3600 | 3600 | 签名有效期(秒);按整点对齐,实际至少 1 小时 |
 | `CHAT_IMAGE_RETENTION_DAYS` | 30 | — | 保留期;`0` = 只清孤儿与残留 |
 
+两侧「缺密钥」的表现**不一样**,排查时先分清是哪一侧:
+
+- **imserver 侧缺**:只打启动告警 `media_sign_disabled`、进程照起,发出的 URL 不带签名,经 nginx 验签后**所有聊天图片 403**(其它图片正常);
+- **Django 侧缺**:`DEBUG=0` 时启动期直接失败(`chatapp/config/settings.py::assert_production_media_sign_secret`),`DEBUG=1` 时验签侧对空密钥放行(本地开发要能看自己的图)。
+
+所以「服务起得来、但聊天图片全 403」基本只可能是 imserver 侧漏配,或 Django 侧误开了 `DEBUG=1`。
+
 ### 12.2 nginx
 
 把 `imserver/deploy/nginx-media-sign.conf` 的两段 `location` 粘进站点 `server{}`,
