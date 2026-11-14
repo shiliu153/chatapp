@@ -2,6 +2,17 @@
 
 私聊图片/语音没有机器审核(M5/H5 的遗留),上线靠运营人工抽审。
 抽审必须可追溯:谁、什么时候、按什么筛选、看了多少条。
+
+文件信息:
+    文件名称          ops/models.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.conf import settings
@@ -13,6 +24,20 @@ class MediaAccessLog(models.Model):
 
     每次打开抽审列表写一条;只记「浏览」,删除动作本身已有 ``deleted_by``
     与 ``deleted_at`` 落库,不在这里重复记。
+
+    参数说明:
+        按字段关键字传参:``staff``(操作人,可空)、``kind``(媒体类型,取值见 ``Kind``)、
+        ``filter``(筛选条件,默认 ``all``)、``count``(返回条数,默认 0)、``ip``(来源 IP,可空)。
+
+    返回参数:
+        构造出的 ``MediaAccessLog`` 实例。
+
+    使用示例:
+        ``MediaAccessLog.objects.create(staff=request.user, kind="image", filter="all", count=12)``
+
+    备注信息:
+        记录写完不再更新:``staff`` 用 ``SET_NULL``,账号注销后审计行仍在、操作人置空,
+        审计链不会因删号断裂;``created_at`` 是 ``auto_now_add``,无法补写历史时间。
     """
 
     class Kind(models.TextChoices):
@@ -41,7 +66,16 @@ class MediaAccessLog(models.Model):
     def __str__(self) -> str:
         """后台列表里的可读标识。
 
-        Returns:
-            形如 ``image/all/120`` 的摘要。
+        参数说明:
+            无。
+
+        返回参数:
+            形如 ``image/all/120`` 的摘要,依次是媒体类型、筛选条件、返回条数。
+
+        使用示例:
+            ``str(log)``
+
+        备注信息:
+            不含操作人与时间:后台列表按 ``-created_at`` 排序,时间已在行上展示。
         """
         return f"{self.kind}/{self.filter}/{self.count}"

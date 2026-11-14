@@ -6,6 +6,17 @@
     - 配对成功:双方各一条,``actor`` / ``target`` 都指向对方;
     - 举报处理:一条 ``report_handled``,灰条仍发;
     - 偏好关闭后四类事件都不落库。
+
+文件信息:
+    文件名称          notifications/test_hooks.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from unittest.mock import patch
@@ -30,13 +41,19 @@ User = get_user_model()
 def make_user(phone: str, nickname: str, *, complete: bool = False) -> User:
     """造一个带资料的用户。
 
-    Args:
-        phone: 手机号(唯一)。
+    参数说明:
+        phone: 手机号,唯一。
         nickname: 昵称。
-        complete: 是否把资料标成「完善」(滑卡要求对方资料完善)。
+        complete: 是否把资料标成「完善」,滑卡要求对方资料完善。
 
-    Returns:
-        新建用户。
+    返回参数:
+        新建的用户。
+
+    使用示例:
+        ``make_user("13800138000", "作者", complete=True)``
+
+    备注信息:
+        资料状态按 complete 落 COMPLETE 或 INCOMPLETE。
     """
     user = User.objects.create_user(phone=phone)
     Profile.objects.create(user=user, nickname=nickname,
@@ -49,6 +66,11 @@ class PostLikeNotificationTests(APITestCase):
     """动态被赞。"""
 
     def setUp(self):
+        """每个用例前建好作者、点赞者与一条动态,并以点赞者身份登录。
+
+        备注信息:
+            点赞者昵称是「小明」,断言通知文案与 dedupe_key 时用得上。
+        """
         self.author = make_user("13800138000", "作者")
         self.other = make_user("13900139000", "小明")
         self.post = Post.objects.create(author=self.author, text="今天天气不错")
@@ -56,15 +78,25 @@ class PostLikeNotificationTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.other).access_token}")
 
     def _like(self):
-        """点赞(执行提交回调)。
+        """点赞(并执行提交回调)。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             DRF 响应对象。
+
+        使用示例:
+            ``self._like()``
+
+        备注信息:
+            通知写在 on_commit 回调里,必须 ``execute=True`` 才会落库。
         """
         with self.captureOnCommitCallbacks(execute=True):
             return self.client.post(f"/api/v1/posts/{self.post.id}/like")
 
     def test_first_like_notifies_author(self):
+        """首次点赞给作者写一条通知,actor、target 与幂等键都正确。"""
         self._like()
         notification = InAppNotification.objects.get()
         self.assertEqual(notification.user_id, self.author.id)
@@ -76,24 +108,28 @@ class PostLikeNotificationTests(APITestCase):
         self.assertEqual(notification.dedupe_key, f"like:{self.post.id}:{self.other.id}")
 
     def test_repeat_like_does_not_duplicate(self):
+        """取消赞再点赞回来,通知仍只有一条。"""
         self._like()
         self.client.delete(f"/api/v1/posts/{self.post.id}/like")
         self._like()
         self.assertEqual(InAppNotification.objects.count(), 1)
 
     def test_unlike_creates_no_notification(self):
+        """取消赞本身不产生通知。"""
         self.client.post(f"/api/v1/posts/{self.post.id}/like")
         with self.captureOnCommitCallbacks(execute=True):
             self.client.delete(f"/api/v1/posts/{self.post.id}/like")
         self.assertFalse(InAppNotification.objects.exists())
 
     def test_self_like_is_silent(self):
+        """给自己的动态点赞不写通知。"""
         self.client.credentials(
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.author).access_token}")
         self._like()
         self.assertFalse(InAppNotification.objects.exists())
 
     def test_social_switch_off_blocks_notification(self):
+        """作者关掉 social 开关后,点赞不写通知。"""
         NotificationPreference.objects.create(user=self.author, social=False)
         self._like()
         self.assertFalse(InAppNotification.objects.exists())
@@ -103,6 +139,11 @@ class CommentNotificationTests(APITestCase):
     """顶级评论与回复评论(同时确认 IM 灰条次数不变)。"""
 
     def setUp(self):
+        """每个用例前建好作者、评论者、回复者与一条动态,并以评论者身份登录。
+
+        备注信息:
+            三个账号用来区分通知双方与第三方。
+        """
         self.author = make_user("13800138000", "作者")
         self.commenter = make_user("13900139000", "小明")
         self.replier = make_user("13700137000", "小红")
@@ -111,14 +152,20 @@ class CommentNotificationTests(APITestCase):
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.commenter).access_token}")
 
     def _comment(self, text, parent_id=None):
-        """发表评论或回复(执行提交回调)。
+        """发表评论或回复(并执行提交回调)。
 
-        Args:
+        参数说明:
             text: 正文。
             parent_id: 被回复的评论 id;``None`` 表示顶级评论。
 
-        Returns:
+        返回参数:
             新评论的 id。
+
+        使用示例:
+            ``self._comment("我也觉得", parent_id=top_id)``
+
+        备注信息:
+            期间 patch 掉两条 IM 灰条任务,并把 mock 存到 ``self.commented`` / ``self.replied`` 供断言。
         """
         body = {"text": text}
         if parent_id is not None:
@@ -134,6 +181,7 @@ class CommentNotificationTests(APITestCase):
         return resp.data["id"]
 
     def test_top_comment_notifies_post_author(self):
+        """顶级评论通知动态作者,灰条任务仍只调一次。"""
         comment_id = self._comment("写得好")
         notification = InAppNotification.objects.get()
         self.assertEqual(notification.user_id, self.author.id)
@@ -146,6 +194,7 @@ class CommentNotificationTests(APITestCase):
         self.commented.assert_called_once_with(comment_id)
 
     def test_self_comment_is_silent(self):
+        """给自己的动态评论,既不写通知也不发灰条。"""
         self.client.credentials(
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.author).access_token}")
         self._comment("自己夸自己")
@@ -153,6 +202,7 @@ class CommentNotificationTests(APITestCase):
         self.commented.assert_not_called()
 
     def test_reply_notifies_replied_user(self):
+        """回复评论通知被回复的人,而不是动态作者。"""
         top_id = self._comment("写得好")
         InAppNotification.objects.all().delete()
         self.client.credentials(
@@ -167,6 +217,7 @@ class CommentNotificationTests(APITestCase):
         self.replied.assert_called_once_with(reply_id)
 
     def test_reply_to_self_is_silent(self):
+        """自己回复自己的评论,既不写通知也不发灰条。"""
         top_id = self._comment("写得好")
         InAppNotification.objects.all().delete()
         self._comment("补一句", parent_id=top_id)
@@ -174,6 +225,7 @@ class CommentNotificationTests(APITestCase):
         self.replied.assert_not_called()
 
     def test_social_switch_off_blocks_comment_notification(self):
+        """作者关掉 social 后评论不写通知,灰条照发。"""
         NotificationPreference.objects.create(user=self.author, social=False)
         self._comment("写得好")
         self.assertFalse(InAppNotification.objects.exists())
@@ -184,13 +236,31 @@ class MatchNotificationTests(APITestCase):
     """配对成功:双方各一条,actor / target 都指向对方。"""
 
     def setUp(self):
+        """每个用例前建好两个资料完善的账号,并以其中一个身份登录。
+
+        备注信息:
+            滑卡要求对方资料完善,故两个账号都必须 COMPLETE。
+        """
         self.me = make_user("13800138000", "我", complete=True)
         self.peer = make_user("13900139000", "对方", complete=True)
         self.client.credentials(
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.me).access_token}")
 
     def _mutual_like(self):
-        """造「对方先喜欢我」,再由我点赞形成配对。"""
+        """造「对方先喜欢我」,再由我点赞形成配对。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._mutual_like()``
+
+        备注信息:
+            同时断言接口返回 matched=True,且配对灰条按 (我, 对方) 调用一次。
+        """
         Swipe.objects.create(swiper=self.peer, target=self.me, action=SwipeAction.LIKE)
         with patch("im.tasks.send_match_notice.delay") as notice:
             with self.captureOnCommitCallbacks(execute=True):
@@ -202,6 +272,7 @@ class MatchNotificationTests(APITestCase):
         notice.assert_called_once_with(self.me.id, self.peer.id)
 
     def test_both_sides_get_one_notification(self):
+        """配对成功双方各一条通知,actor 与 target 互相指向对方。"""
         self._mutual_like()
         match = Match.objects.get()
         notifications = {item.user_id: item for item in InAppNotification.objects.all()}
@@ -217,6 +288,7 @@ class MatchNotificationTests(APITestCase):
         self.assertEqual(theirs.target_id, self.me.id)
 
     def test_match_switch_off_blocks_notification(self):
+        """我方关掉 matches 开关后,只有对方收到通知。"""
         NotificationPreference.objects.create(user=self.me, matches=False)
         self._mutual_like()
         self.assertEqual(list(InAppNotification.objects.values_list("user_id", flat=True)),
@@ -227,19 +299,38 @@ class ReportHandledNotificationTests(TestCase):
     """举报处理:站内通知 + 灰条各一条;``system`` 关闭后不落库。"""
 
     def setUp(self):
+        """每个用例前建好举报者、被举报者与一条举报记录。
+
+        备注信息:
+            举报类型固定 OTHER,用例只关心通知与灰条。
+        """
         self.reporter = make_user("13800138000", "举报者")
         self.target = make_user("13900139000", "被举报者")
         self.report = Report.objects.create(reporter=self.reporter, target=self.target,
                                             type=ReportType.OTHER, detail="测试")
 
     def _handle(self):
-        """调用一次「举报已处理」通知。"""
+        """调用一次「举报已处理」通知。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._handle()``
+
+        备注信息:
+            patch 掉 IM 灰条任务并存到 ``self.delay``;通知写在 on_commit 回调里,需 ``execute=True``。
+        """
         with patch("im.tasks.report_handled.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 notify_report_handled(self.report)
         self.delay = delay
 
     def test_creates_notification_and_keeps_grey_bar(self):
+        """举报处理写一条站内通知,同时照常发灰条。"""
         self._handle()
         notification = InAppNotification.objects.get()
         self.assertEqual(notification.user_id, self.reporter.id)
@@ -250,11 +341,13 @@ class ReportHandledNotificationTests(TestCase):
         self.delay.assert_called_once_with(self.reporter.id)
 
     def test_repeated_call_keeps_one_notification(self):
+        """同一条举报重复处理也只留一条通知。"""
         self._handle()
         self._handle()
         self.assertEqual(InAppNotification.objects.count(), 1)
 
     def test_system_switch_off_blocks_notification(self):
+        """举报者关掉 system 开关后不写通知,灰条照发。"""
         NotificationPreference.objects.create(user=self.reporter, system=False)
         self._handle()
         self.assertFalse(InAppNotification.objects.exists())
@@ -265,6 +358,7 @@ class CommentNotificationWithoutProfileTests(TestCase):
     """没有资料的用户评论时,文案回落为 ``u{id}`` 而不是空字符串。"""
 
     def test_nickname_falls_back_to_account_id(self):
+        """没有资料的评论者,文案回落成 u{id} 而不是空字符串。"""
         author = User.objects.create_user(phone="13800138000")
         commenter = User.objects.create_user(phone="13900139000")
         post = Post.objects.create(author=author, text="无资料也能评论")

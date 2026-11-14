@@ -8,6 +8,17 @@
 注意事项:
     ``allowlist/`` 与 ``allowlist/<int:entry_id>/toggle`` 不会互相吞路由:
     前者带斜杠且是字面量,``add`` 也是字面量,``<int:>`` 只吃数字。
+
+文件信息:
+    文件名称          ops/urls.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.contrib.auth import views as auth_views

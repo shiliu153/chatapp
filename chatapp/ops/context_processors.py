@@ -3,6 +3,17 @@
 设计要点:
     只对 ``is_staff`` 账号查库 —— 普通请求(含 App 接口)不会因此多出三条 COUNT,
     这是把它放在全局 context processor 里的前提。
+
+文件信息:
+    文件名称          ops/context_processors.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from feed.models import PostReport
@@ -14,11 +25,19 @@ from users.models import Photo, PhotoStatus
 def ops_badges(request):
     """提供审核台导航栏的待办数量。
 
-    Args:
+    参数说明:
         request: Django 请求对象。
 
-    Returns:
-        含三类待办数量的字典;非运营账号返回空字典(模板里取不到即为空)。
+    返回参数:
+        含四类待办数量的字典(举报、照片、动态举报、意见反馈);非运营账号返回空字典。
+
+    使用示例:
+        ``ops_badges(request)``
+
+    备注信息:
+        只有「已登录且 ``is_staff``」才查库,其余情况直接返回空字典,模板里这些键
+        因此不存在(取到即为空字符串),不会影响非运营页面的渲染;
+        四个计数都是整表 COUNT,没有可复用的已取数据。
     """
     if not (request.user.is_authenticated and request.user.is_staff):
         return {}
