@@ -1,3 +1,25 @@
+/*********************************************************************************************************************
+* chat_app 自建 IM 服务端（imserver）是本项目唯一的 IM 后端，C++20 实现，对外提供 WebSocket :9100 与 HTTP :9101
+* Copyright (c) 2026 shiliu153
+*
+* 本文件是 chat_app 自建 IM 服务端的一部分
+*
+* 额外注明：
+* 本文件使用 MIT 开源许可证协议 许可申明英文版见仓库根目录 LICENSE 文件
+* 欢迎各位使用并传播本程序 但修改内容时必须保留作者的版权声明（即本声明）
+*
+* 文件名称          tests/message_service_test.cpp
+* 项目名称          chat_app / imserver
+* 公司名称          个人项目（shiliu153）
+* 版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+* 开发环境          CMake 3.22 + g++ (C++20) Linux x86_64
+* 适用平台          Linux x86_64 服务端
+* 仓库地址          https://github.com/shiliu153/chatapp
+*
+* 修改记录
+* 日期              作者               备注
+* 2026-11-14        shiliu153          补齐文件头与函数注释
+********************************************************************************************************************/
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -59,6 +81,13 @@ void reset() {
 
 }  // namespace
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证未配对发送被拒
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R RejectsUnpairedSendWithoutCreatingUser
+// 备注信息     预置配对只有 1-2 1-3 2-3 (1,4) 未配对 断言 send 返回业务码 40302 拒发且不落消息行
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, RejectsUnpairedSendWithoutCreatingUser) {
   reset();
   auto& svc = make_service();
@@ -70,6 +99,13 @@ TEST(MessageServiceTest, RejectsUnpairedSendWithoutCreatingUser) {
   EXPECT_EQ(std::get<int>(result), 40302);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证目标不存在时拒绝且不建行
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R RejectsUnknownTargetWithoutCreatingRow
+// 备注信息     先建配对再发 999 断言返回 42201 且 users().get(999) 无值 不给任意 uid 建 im_user 行
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, RejectsUnknownTargetWithoutCreatingRow) {
   reset();
   auto& svc = make_service();
@@ -82,6 +118,13 @@ TEST(MessageServiceTest, RejectsUnknownTargetWithoutCreatingRow) {
   EXPECT_FALSE(svc.users().get(999).has_value());
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证系统通知跳过配对校验
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R SystemNoticeSkipsPairCheck
+// 备注信息     from=0 kind=2 custom type=ban_notice 无配对关系也返回 SendResult 不查 im_pair
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, SystemNoticeSkipsPairCheck) {
   reset();
   auto& svc = make_service();
@@ -95,6 +138,13 @@ TEST(MessageServiceTest, SystemNoticeSkipsPairCheck) {
   ASSERT_TRUE(std::holds_alternative<SendResult>(svc.send(request)));
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证会话序号自增与未读累计
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R AllocatesSeqAndUnread
+// 备注信息     同一会话连发两条 seq 必须为 1 与 2 对端 unread_for_peer 累计到 2
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, AllocatesSeqAndUnread) {
   reset();
   auto& svc = make_service();
@@ -112,6 +162,13 @@ TEST(MessageServiceTest, AllocatesSeqAndUnread) {
   EXPECT_EQ(svc.conversations().unread_for_peer(2, 1), 2u);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证相同 client_msg_id 幂等
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R SameClientMsgIdIsIdempotent
+// 备注信息     同一 client_msg_id 发两次 断言 msg_id 相同且 count_pair 仍为 1 靠唯一键 1062 回查已有行
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, SameClientMsgIdIsIdempotent) {
   reset();
   auto& svc = make_service();
@@ -126,6 +183,13 @@ TEST(MessageServiceTest, SameClientMsgIdIsIdempotent) {
   EXPECT_EQ(svc.messages().count_pair(1, 2), 1u);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证拉黑关系拒绝发送
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R BlacklistRejectsSend
+// 备注信息     2 拉黑 1 后 1 发给 2 断言返回 40302 exists_either 双向都算拦截
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, BlacklistRejectsSend) {
   reset();
   auto& svc = make_service();
@@ -138,6 +202,13 @@ TEST(MessageServiceTest, BlacklistRejectsSend) {
   EXPECT_EQ(std::get<int>(result), 40302);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证图片消息落库与回读
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R SendsImageMessage
+// 备注信息     kind=3 且 URL 在本服务媒体前缀下 断言落库 kind 为 3 body 含 image 键
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, SendsImageMessage) {
   reset();
   auto& svc = make_service();
@@ -161,6 +232,13 @@ TEST(MessageServiceTest, SendsImageMessage) {
   EXPECT_NE(rows[0].body.find("\"image\""), std::string::npos);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证外域图片 URL 被拒
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R RejectsImageWithForeignUrl
+// 备注信息     url 指向 evil.example 不在媒体前缀内 断言返回 42201 且不落库
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, RejectsImageWithForeignUrl) {
   reset();
   auto& svc = make_service();
@@ -180,6 +258,13 @@ TEST(MessageServiceTest, RejectsImageWithForeignUrl) {
   EXPECT_EQ(std::get<int>(result), 42201);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证图片尺寸非法被拒
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R RejectsImageWithBadDimensions
+// 备注信息     width=0 触发尺寸校验 断言返回 42201 宽高必须落在 1 到 4096
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, RejectsImageWithBadDimensions) {
   reset();
   auto& svc = make_service();
@@ -199,6 +284,13 @@ TEST(MessageServiceTest, RejectsImageWithBadDimensions) {
   EXPECT_EQ(std::get<int>(result), 42201);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证语音消息落库与回读
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R SendsVoiceMessage
+// 备注信息     kind=4 duration_ms=12500 size=48000 断言 kind 为 4 body 含 voice 与 duration_ms
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, SendsVoiceMessage) {
   reset();
   auto& svc = make_service();
@@ -223,6 +315,13 @@ TEST(MessageServiceTest, SendsVoiceMessage) {
   EXPECT_NE(rows[0].body.find("\"duration_ms\":12500"), std::string::npos);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证外域语音 URL 被拒
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R RejectsVoiceWithForeignUrl
+// 备注信息     url 为 https 且指向 evil.example 断言返回 42201 只认本服务媒体前缀
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, RejectsVoiceWithForeignUrl) {
   reset();
   auto& svc = make_service();
@@ -242,6 +341,13 @@ TEST(MessageServiceTest, RejectsVoiceWithForeignUrl) {
   EXPECT_EQ(std::get<int>(result), 42201);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证语音时长与体积越界被拒
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R RejectsVoiceOutOfBounds
+// 备注信息     四组边界 duration 999 与 60001 size 0 与 2MB 加 1 逐条断言 42201 合法区间 1000 到 60000 毫秒且不超过 2MB
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, RejectsVoiceOutOfBounds) {
   reset();
   auto& svc = make_service();
@@ -264,6 +370,13 @@ TEST(MessageServiceTest, RejectsVoiceOutOfBounds) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证自定义消息按 kind 2 落库
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R StoresCustomAsKindTwo
+// 备注信息     kind=2 custom type=match_notice 断言落库 kind 仍为 2 且 body 含 match_notice
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceTest, StoresCustomAsKindTwo) {
   reset();
   auto& svc = make_service();
@@ -300,6 +413,13 @@ SendResult send_text(MessageService& svc, uint64_t from, uint64_t to,
 
 }  // namespace
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证搜索过滤撤回拉黑与删除
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R FiltersOwnerRevokedBlacklistAndDeleted
+// 备注信息     发 5 条其中 4 条含关键词 断言新到旧排序 分页游标严格早于上页末条 撤回后 3 条 拉黑对端 2 后只剩与 3 的 删除会话后 0 条
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceSearchTest, FiltersOwnerRevokedBlacklistAndDeleted) {
   reset();
   auto& svc = make_service();
@@ -343,6 +463,13 @@ TEST(MessageServiceSearchTest, FiltersOwnerRevokedBlacklistAndDeleted) {
   EXPECT_EQ(svc.search(1, "火锅", 0, 50).size(), 0u);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证通配符转义与系统通知排除
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R ExcludesSystemNoticeAndEscapesWildcards
+// 备注信息     关键词 100% 必须按字面匹配 只命中含 100% 的那条 系统通知 uid=0 不参与检索
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageServiceSearchTest, ExcludesSystemNoticeAndEscapesWildcards) {
   reset();
   auto& svc = make_service();
@@ -362,6 +489,13 @@ TEST(MessageServiceSearchTest, ExcludesSystemNoticeAndEscapesWildcards) {
   EXPECT_TRUE(svc.search(1, "系统通知", 0, 50).empty());
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证会话标志写入后回读真实值
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R WritesAndReadsBackRealValues
+// 备注信息     置顶加免打扰一次写完 断言返回值与 list_conversations 一致 只传一个字段时另一字段保持不变 缺省语义是不改而非置 false
+//-------------------------------------------------------------------------------------------------------------------
 TEST(ConversationFlagsTest, WritesAndReadsBackRealValues) {
   reset();
   auto& svc = make_service();
@@ -389,6 +523,13 @@ TEST(ConversationFlagsTest, WritesAndReadsBackRealValues) {
   EXPECT_GT(svc.list_conversations(2, 100)[0].pinned_at, 0);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证重复置顶不改置顶时间
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R RepeatedPinKeepsOriginalTimestamp
+// 备注信息     二次置顶断言 pinned_at 不变 取消置顶写 0 再次置顶得到新时间且大于首次
+//-------------------------------------------------------------------------------------------------------------------
 TEST(ConversationFlagsTest, RepeatedPinKeepsOriginalTimestamp) {
   reset();
   auto& svc = make_service();
@@ -413,6 +554,13 @@ TEST(ConversationFlagsTest, RepeatedPinKeepsOriginalTimestamp) {
   EXPECT_GT(svc.list_conversations(2, 100)[0].pinned_at, first);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证无会话时设置标志失败
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R UnknownConversationFails
+// 备注信息     有配对但从未聊过 断言返回 nullopt 且不凭空写出 im_conversation_state 行 会话列表仍为空
+//-------------------------------------------------------------------------------------------------------------------
 TEST(ConversationFlagsTest, UnknownConversationFails) {
   reset();
   auto& svc = make_service();
@@ -423,6 +571,13 @@ TEST(ConversationFlagsTest, UnknownConversationFails) {
   EXPECT_TRUE(svc.list_conversations(1, 100).empty());
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证置顶组优先且按置顶时间排序
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R PinnedGroupComesFirstOrderedByPinTime
+// 备注信息     默认按最近消息排 3 2 置顶 2 后排 2 3 再置顶 3 后排 3 2 免打扰不改排序 取消置顶回落
+//-------------------------------------------------------------------------------------------------------------------
 TEST(ConversationFlagsTest, PinnedGroupComesFirstOrderedByPinTime) {
   reset();
   auto& svc = make_service();
@@ -488,6 +643,13 @@ uint64_t count_hidden(MysqlPool& pool, uint64_t owner) {
 
 }  // namespace
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证多选删除单方隐藏且幂等
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R HidesForOneSideOnlyAndIsIdempotent
+// 备注信息     首次隐藏返回 1 重复返回 0 我方历史少一条而对端三条不变 隐藏表只写自己那一侧
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageHiddenTest, HidesForOneSideOnlyAndIsIdempotent) {
   reset();
   auto& svc = make_service();
@@ -511,6 +673,13 @@ TEST(MessageHiddenTest, HidesForOneSideOnlyAndIsIdempotent) {
   EXPECT_EQ(count_hidden(fixture().pool(), 1), 0u);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证删未读消息时显式减未读
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R DecrementsUnreadOnlyForUnreadPeerMessages
+// 备注信息     删一条未读 3 减到 2 标已读后再删已读条未读不变 删自己发的消息不减对端未读
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageHiddenTest, DecrementsUnreadOnlyForUnreadPeerMessages) {
   reset();
   auto& svc = make_service();
@@ -544,6 +713,13 @@ TEST(MessageHiddenTest, DecrementsUnreadOnlyForUnreadPeerMessages) {
   EXPECT_EQ(svc.list_messages(1, 2, 0, 50).size(), 4u);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证未读计数器偏大时夹取到 0
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R ClampsUnreadAtZeroWhenCounterIsStale
+// 备注信息     手工把 unread 改成 1 再隐藏 2 条未读 断言结果为 0 减未读必须用 GREATEST 否则报 1690 或减成负数
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageHiddenTest, ClampsUnreadAtZeroWhenCounterIsStale) {
   reset();
   auto& svc = make_service();
@@ -564,6 +740,13 @@ TEST(MessageHiddenTest, ClampsUnreadAtZeroWhenCounterIsStale) {
   EXPECT_EQ(svc.conversations().unread_for_peer(2, 1), 0u);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证删除末条后摘要回退
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R LastMessageFallsBackToPreviousVisible
+// 备注信息     隐藏最新一条 断言 last 回退到含二的那条 last_seq 仍为 3 对端摘要不变
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageHiddenTest, LastMessageFallsBackToPreviousVisible) {
   reset();
   auto& svc = make_service();
@@ -594,6 +777,13 @@ TEST(MessageHiddenTest, LastMessageFallsBackToPreviousVisible) {
   EXPECT_EQ(peer[0].last.msg_id, third.msg_id);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证搜索只排除自己隐藏的消息
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R SearchExcludesHiddenForOwnerOnly
+// 备注信息     隐藏命中一条后我方只剩 1 条 对端仍能搜到 2 条
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageHiddenTest, SearchExcludesHiddenForOwnerOnly) {
   reset();
   auto& svc = make_service();
@@ -612,6 +802,13 @@ TEST(MessageHiddenTest, SearchExcludesHiddenForOwnerOnly) {
   EXPECT_EQ(svc.search(1, "火锅", 0, 50).size(), 2u);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证静默忽略与自己无关的消息 id
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R IgnoresMessagesImNotPartOf
+// 备注信息     2 与 3 之间的消息 1 去删返回 0 且不写隐藏行 双方历史各 1 条不变 不暴露别人消息是否存在
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageHiddenTest, IgnoresMessagesImNotPartOf) {
   reset();
   auto& svc = make_service();
@@ -628,6 +825,13 @@ TEST(MessageHiddenTest, IgnoresMessagesImNotPartOf) {
   EXPECT_EQ(svc.list_messages(3, 2, 0, 50).size(), 1u);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证注销账号清理两侧隐藏行
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R DeleteAccountCleansHiddenRows
+// 备注信息     双方各自隐藏对方一条 注销 2 后断言两侧隐藏行都归 0 实现必须先清隐藏表再删消息
+//-------------------------------------------------------------------------------------------------------------------
 TEST(MessageHiddenTest, DeleteAccountCleansHiddenRows) {
   reset();
   auto& svc = make_service();

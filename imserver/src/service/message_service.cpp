@@ -1,3 +1,26 @@
+/*********************************************************************************************************************
+* chat_app 自建 IM 服务端（imserver）是本项目唯一的 IM 后端，C++20 实现，对外提供 WebSocket :9100 与 HTTP :9101
+* Copyright (c) 2026 shiliu153
+*
+* 本文件是 chat_app 自建 IM 服务端的一部分
+*
+* 额外注明：
+* 本文件使用 MIT 开源许可证协议 许可申明英文版见仓库根目录 LICENSE 文件
+* 欢迎各位使用并传播本程序 但修改内容时必须保留作者的版权声明（即本声明）
+*
+* 文件名称          src/service/message_service.cpp
+* 项目名称          chat_app / imserver
+* 公司名称          个人项目（shiliu153）
+* 版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+* 开发环境          CMake 3.22 + g++ (C++20) Linux x86_64
+* 适用平台          Linux x86_64 服务端
+* 仓库地址          https://github.com/shiliu153/chatapp
+*
+* 修改记录
+* 日期              作者               备注
+* 2026-11-14        shiliu153          补齐文件头与函数注释
+********************************************************************************************************************/
+
 #include "service/message_service.h"
 
 #include <algorithm>
@@ -23,6 +46,13 @@ namespace {
 /// 引用摘要最多保留多少个字符(与设计文档 §4.2 一致)。
 constexpr std::size_t kRefTextMax = 120;
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     取当前系统时间毫秒数
+// 参数说明     无
+// 返回参数     int64_t         Unix 毫秒时间戳
+// 使用示例     const int64_t ts = now_ms();
+// 备注信息     用 system_clock 受系统时间跳变影响 只用于落库与展示时间 不用于测量耗时
+//-------------------------------------------------------------------------------------------------------------------
 int64_t now_ms() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
              std::chrono::system_clock::now().time_since_epoch())
@@ -32,6 +62,14 @@ int64_t now_ms() {
 /// 死锁重试的退避毫秒数:指数式增长 + 线程本地随机抖动。
 ///
 /// 固定退避会让同一批撞在一起的线程「同时醒来再撞一次」,抖动把重试错开。
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     计算死锁重试的退避毫秒数
+// 参数说明     attempt         第几次重试 从 0 开始
+// 返回参数     int             本次退避的毫秒数 线性增长加随机抖动
+// 使用示例     std::this_thread::sleep_for(std::chrono::milliseconds(retry_backoff_ms(attempt)));
+// 备注信息     抖动源是 thread_local std::mt19937 每线程独立种子 固定退避会让同批线程同时醒来再撞一次
+//              只用于 MySQL 1213 死锁与 1205 锁等待超时后的重试
+//-------------------------------------------------------------------------------------------------------------------
 int retry_backoff_ms(int attempt) {
   thread_local std::mt19937 rng([] {
     std::random_device seed;
@@ -42,6 +80,13 @@ int retry_backoff_ms(int attempt) {
   return 2 * (attempt + 1) + jitter(rng);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     统计 UTF-8 文本的字符数
+// 参数说明     text            待统计的 UTF-8 文本
+// 返回参数     std::size_t     字符数 不是字节数
+// 使用示例     const std::size_t chars = utf8_length(text);
+// 备注信息     只数首字节 续字节 0x80~0xBF 不计 不做编码合法性校验
+//-------------------------------------------------------------------------------------------------------------------
 std::size_t utf8_length(const std::string& text) {
   std::size_t count = 0;
   for (unsigned char ch : text) {
@@ -52,6 +97,13 @@ std::size_t utf8_length(const std::string& text) {
   return count;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     去掉文本首尾的 ASCII 空白
+// 参数说明     text            原文本
+// 返回参数     std::string     去掉首尾空格 制表符 回车 换行后的文本 全空白时返回空串
+// 使用示例     const std::string text = trim(request.text);
+// 备注信息     只裁首尾 不动内部空白 也不处理非 ASCII 空白
+//-------------------------------------------------------------------------------------------------------------------
 std::string trim(const std::string& text) {
   const auto first = text.find_first_not_of(" \t\r\n");
   if (first == std::string::npos) {
@@ -61,6 +113,13 @@ std::string trim(const std::string& text) {
   return text.substr(first, last - first + 1);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     校验客户端消息 id 是否合法
+// 参数说明     value           待校验的 client_msg_id
+// 返回参数     bool            长度 1~64 且只含字母 数字 下划线 连字符时返回 true
+// 使用示例     if (!valid_client_id(request.client_msg_id)) { return 42201; }
+// 备注信息     合法的 client_msg_id 是幂等重放的唯一键 不合法在落库前就回 42201
+//-------------------------------------------------------------------------------------------------------------------
 bool valid_client_id(const std::string& value) {
   if (value.empty() || value.size() > 64) {
     return false;
@@ -73,6 +132,14 @@ bool valid_client_id(const std::string& value) {
   return true;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     由消息行组装下行结果并补发送者资料
+// 参数说明     row             已落库的消息行
+//              users           用户仓库 用来补昵称与头像
+// 返回参数     SendResult      含 msg_id seq ts 昵称头像与整行
+// 使用示例     return result_for(*existing, users_);
+// 备注信息     1062 幂等重放也走这里 整行必须带出 下行帧才能与 /im/api/messages 共用同一序列化
+//-------------------------------------------------------------------------------------------------------------------
 SendResult result_for(const MessageRow& row, UserRepo& users) {
   SendResult result;
   result.msg_id = row.msg_id;
@@ -98,6 +165,14 @@ SendResult result_for(const MessageRow& row, UserRepo& users) {
 ///
 /// Returns:
 ///   可引用返回 true。
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     判断一条消息能否作为引用对象
+// 参数说明     row             被引用的消息行
+// 返回参数     bool            可引用返回 true
+// 使用示例     if (!quotable(*referenced)) { return 42201; }
+// 备注信息     kind 不等于 2 一律可引用 kind 等于 2 时看载荷 type 是否为 sticker
+//              系统灰条不是人说的话 载荷解析失败按不可引用处理
+//-------------------------------------------------------------------------------------------------------------------
 bool quotable(const MessageRow& row) {
   if (row.kind != 2) {
     return true;
@@ -119,6 +194,14 @@ bool quotable(const MessageRow& row) {
 ///
 /// Returns:
 ///   下行 `ref` 对象:`{msg_id, from, kind, text, revoked}`。
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     由消息行生成引用快照
+// 参数说明     row             被引用的消息行 已确认在同一会话内
+// 返回参数     nlohmann::json  下行 ref 对象 含 msg_id from kind text revoked
+// 使用示例     ref_snapshot = build_ref_snapshot(*referenced).dump();
+// 备注信息     只能由服务端生成 客户端夹带的快照一律不采信
+//              文本摘要截断到 120 字符 已撤回的消息只留 revoked 不泄漏原文 图片语音贴纸写占位文案
+//-------------------------------------------------------------------------------------------------------------------
 nlohmann::json build_ref_snapshot(const MessageRow& row) {
   nlohmann::json snapshot = {{"msg_id", row.msg_id},
                              {"from", peer_id(row.from_id)},
@@ -155,6 +238,22 @@ nlohmann::json build_ref_snapshot(const MessageRow& row) {
 
 }  // namespace
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     构造消息服务 绑定各仓库并读慢日志阈值
+// 参数说明     pool                  MySQL 连接池
+//              users                 用户仓库
+//              conversations         会话仓库
+//              messages              消息仓库
+//              blacklist             黑名单仓库
+//              text_max              文本消息最大字符数 默认 2000
+//              media_prefix          媒体 URL 前缀 用于规范化图片与语音地址
+//              media_sign_secret     媒体签名密钥 交给 MediaSigner
+//              media_sign_ttl        媒体签名有效期秒 默认 86400
+// 返回参数     void                  无返回值
+// 使用示例     MessageService service(pool, users, conversations, messages, blacklist);
+// 备注信息     构造只保存引用与配置 不查库 各仓库的生命周期必须长于本对象
+//              环境变量 IM_SLOW_SEND_MS 非零时 单条发送超过该毫秒数打一条慢发送日志
+//-------------------------------------------------------------------------------------------------------------------
 MessageService::MessageService(MysqlPool& pool, UserRepo& users,
                                ConversationRepo& conversations, MessageRepo& messages,
                                BlacklistRepo& blacklist, std::size_t text_max,
@@ -173,6 +272,14 @@ MessageService::MessageService(MysqlPool& pool, UserRepo& users,
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     列出我的会话列表并修正被隐藏的摘要
+// 参数说明     uid                            请求者账号
+//              limit                          最多返回条数
+// 返回参数     std::vector<ConversationView>  会话视图 新到旧
+// 使用示例     auto views = service.list_conversations(uid, 50);
+// 备注信息     只有最后一条可见消息被我隐藏的会话才回查上一条 其余会话零额外查询
+//-------------------------------------------------------------------------------------------------------------------
 std::vector<ConversationView> MessageService::list_conversations(uint64_t uid, int limit) {
   auto lease = pool_.acquire();
   auto views = conversations_.list(lease, uid, limit);
@@ -182,6 +289,16 @@ std::vector<ConversationView> MessageService::list_conversations(uint64_t uid, i
   return views;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按会话分页拉取历史消息
+// 参数说明     uid                      请求者账号
+//              peer                     会话对端
+//              before_seq               游标 只取 seq 更小的 0 表示从最新开始
+//              limit                    最多返回条数
+// 返回参数     std::vector<MessageRow>  消息行 新到旧 会话不存在时返回空
+// 使用示例     auto rows = service.list_messages(uid, peer, 0, 30);
+// 备注信息     先按 (uid, peer) 查会话 查不到直接返回空 未配对与会话已删都不区分
+//-------------------------------------------------------------------------------------------------------------------
 std::vector<MessageRow> MessageService::list_messages(uint64_t uid, uint64_t peer,
                                                       uint64_t before_seq, int limit) {
   auto lease = pool_.acquire();
@@ -192,12 +309,32 @@ std::vector<MessageRow> MessageService::list_messages(uint64_t uid, uint64_t pee
   return messages_.list(lease, uid, conversation->id, before_seq, limit);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按关键词搜索我的历史消息
+// 参数说明     uid                      请求者账号
+//              keyword                  用户关键词
+//              before_id                游标消息 id 0 表示第一页
+//              limit                    最多返回条数
+// 返回参数     std::vector<MessageRow>  命中的消息行 新到旧
+// 使用示例     auto rows = service.search(uid, "晚饭", 0, 20);
+// 备注信息     只搜我参与的会话 匹配口径与游标规则见 MessageRepo::search
+//-------------------------------------------------------------------------------------------------------------------
 std::vector<MessageRow> MessageService::search(uint64_t uid, const std::string& keyword,
                                                uint64_t before_id, int limit) {
   auto lease = pool_.acquire();
   return messages_.search(lease, uid, keyword, before_id, limit);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把会话标到已读并回读真实已读位置
+// 参数说明     uid                      读消息的人
+//              peer                     会话对端
+//              seq                      读到哪 0 表示读到该会话最新
+// 返回参数     std::optional<uint64_t>  实库里的 read_seq 会话不存在时 nullopt
+// 使用示例     auto read_seq = service.mark_read(uid, peer, seq);
+// 备注信息     落库用 GREATEST 乱序到达的旧 read 帧不会让已读回退
+//              必须回读实库再广播 直接回传入参会把客户端推回未读
+//-------------------------------------------------------------------------------------------------------------------
 std::optional<uint64_t> MessageService::mark_read(uint64_t uid, uint64_t peer, uint64_t seq) {
   auto lease = pool_.acquire();
   const auto conversation = conversations_.find_pair(lease, uid, peer);
@@ -211,6 +348,17 @@ std::optional<uint64_t> MessageService::mark_read(uint64_t uid, uint64_t peer, u
   return conversations_.read_seq_for(lease, uid, peer);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     设置会话置顶与免打扰并回读真实标志
+// 参数说明     uid                               会话主人
+//              peer                              会话对端
+//              pinned                            置顶开关 nullopt 表示不改
+//              muted                             免打扰开关 nullopt 表示不改
+// 返回参数     std::optional<ConversationFlags>  回读实库后的标志位 会话不存在时 nullopt
+// 使用示例     auto flags = service.set_conversation_flags(uid, peer, true, std::nullopt);
+// 备注信息     单方操作 只写 uid 自己那一行 不给对端发任何帧
+//              置顶写当前毫秒 取消写 0 重复置顶不改时间
+//-------------------------------------------------------------------------------------------------------------------
 std::optional<ConversationFlags> MessageService::set_conversation_flags(
     uint64_t uid, uint64_t peer, std::optional<bool> pinned, std::optional<bool> muted) {
   auto lease = pool_.acquire();
@@ -219,6 +367,15 @@ std::optional<ConversationFlags> MessageService::set_conversation_flags(
   return conversations_.set_flags(lease, uid, peer, pinned, muted, now_ms());
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     撤回自己发出的消息 限 120 秒内
+// 参数说明     uid                              请求者账号
+//              msg_id                           要撤回的消息 id
+// 返回参数     std::variant<RevokeResult, int>  成功给撤回结果 失败给业务码 41001
+// 使用示例     auto result = service.revoke(uid, msg_id);
+// 备注信息     非本人 已撤回 距发送超过 120000 毫秒三种情形统一回 41001 调用方无法据此判断消息归属
+//              撤回只写 revoked_at 不删消息行
+//-------------------------------------------------------------------------------------------------------------------
 std::variant<RevokeResult, int> MessageService::revoke(uint64_t uid, uint64_t msg_id) {
   auto lease = pool_.acquire();
   const auto message = messages_.get(lease, msg_id);
@@ -239,6 +396,16 @@ std::variant<RevokeResult, int> MessageService::revoke(uint64_t uid, uint64_t ms
   return result;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     多选删除 把一批消息从我这边隐藏
+// 参数说明     uid             请求者账号
+//              ids             消息 id 列表 调用方已校验非空 不超过 50 且都是正整数
+// 返回参数     uint64_t        本次新隐藏的条数 重复删同一批返回 0
+// 使用示例     const uint64_t hidden = service.hide_messages(uid, ids);
+// 备注信息     单方语义 只写 im_message_hidden 不碰消息本体与 last_seq 不给对端发帧 不可恢复
+//              别人的 id 静默忽略 不区分不存在与无权
+//              减未读只算本次新隐藏 对端发来的 且尚未读的条数 事务异常回滚后重抛
+//-------------------------------------------------------------------------------------------------------------------
 uint64_t MessageService::hide_messages(uint64_t uid, const std::vector<uint64_t>& ids) {
   if (uid == 0 || ids.empty()) {
     return 0;
@@ -299,6 +466,14 @@ uint64_t MessageService::hide_messages(uint64_t uid, const std::vector<uint64_t>
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     删除我这一侧的会话
+// 参数说明     uid             请求者账号
+//              peer            会话对端
+// 返回参数     bool            会话存在并标记成功返回 true
+// 使用示例     if (!service.delete_conversation(uid, peer)) { return 404; }
+// 备注信息     只置 deleted 标记 不删消息行 会话不存在返回 false 由上层回 404
+//-------------------------------------------------------------------------------------------------------------------
 bool MessageService::delete_conversation(uint64_t uid, uint64_t peer) {
   auto lease = pool_.acquire();
   const auto conversation = conversations_.find_pair(lease, uid, peer);
@@ -309,6 +484,14 @@ bool MessageService::delete_conversation(uint64_t uid, uint64_t peer) {
   return true;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     注销账号并清空该用户的全部 IM 数据
+// 参数说明     uid             账号
+// 返回参数     bool            全部删除并提交成功返回 true 异常回滚后返回 false
+// 使用示例     const bool ok = service.delete_account(uid);
+// 备注信息     隐藏行必须先清 消息删掉之后就反查不到 msg_id 隐藏行会变成永久垃圾
+//              单事务依次清 隐藏行 消息 会话 黑名单 配对 用户 失败只记日志不抛
+//-------------------------------------------------------------------------------------------------------------------
 bool MessageService::delete_account(uint64_t uid) {
   auto lease = pool_.acquire();
   try {
@@ -335,6 +518,15 @@ bool MessageService::delete_account(uint64_t uid) {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     更新用户昵称与头像
+// 参数说明     uid             账号
+//              nickname        新昵称 nullopt 表示不改
+//              avatar          新头像 nullopt 表示不改
+// 返回参数     bool            固定返回 true 失败以异常形式抛出
+// 使用示例     service.update_profile(uid, std::string("小明"), std::nullopt);
+// 备注信息     只写非 nullopt 的字段 内容合法性由调用方校验
+//-------------------------------------------------------------------------------------------------------------------
 bool MessageService::update_profile(uint64_t uid,
                                     const std::optional<std::string>& nickname,
                                     const std::optional<std::string>& avatar) {
@@ -343,15 +535,41 @@ bool MessageService::update_profile(uint64_t uid,
   return true;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把对端加入我的黑名单
+// 参数说明     owner           拉黑发起方
+//              peer            被拉黑方
+// 返回参数     void            无返回值
+// 使用示例     service.blacklist_add(owner, peer);
+// 备注信息     仓库层自己取连接 数据库异常会向上抛
+//-------------------------------------------------------------------------------------------------------------------
 void MessageService::blacklist_add(uint64_t owner, uint64_t peer) {
   blacklist_.add(owner, peer);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     把对端从我的黑名单移除
+// 参数说明     owner           拉黑发起方
+//              peer            被拉黑方
+// 返回参数     void            无返回值
+// 使用示例     service.blacklist_remove(owner, peer);
+// 备注信息     只删 owner 到 peer 这一条 不影响对端对我的拉黑
+//-------------------------------------------------------------------------------------------------------------------
 void MessageService::blacklist_remove(uint64_t owner, uint64_t peer) {
   auto lease = pool_.acquire();
   blacklist_.remove(lease, owner, peer);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     判断两个账号是否已配对 复用调用方事务
+// 参数说明     lease           调用方已持有的连接租约
+//              a               账号 A
+//              b               账号 B
+// 返回参数     bool            im_pair 里存在这一对时返回 true
+// 使用示例     if (!pair_exists(lease, from, to)) { return 40302; }
+// 备注信息     im_pair 只存 (小, 大) 有序对 这里先取 min/max 再查
+//              复用租约保证与发消息在同一事务内 不会读到并发删除的中间态
+//-------------------------------------------------------------------------------------------------------------------
 bool MessageService::pair_exists(MysqlPool::Lease& lease, uint64_t a, uint64_t b) {
   const uint64_t lo = std::min(a, b);
   const uint64_t hi = std::max(a, b);
@@ -365,11 +583,27 @@ bool MessageService::pair_exists(MysqlPool::Lease& lease, uint64_t a, uint64_t b
   return exists;
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     判断两个账号是否已配对 自取连接
+// 参数说明     a               账号 A
+//              b               账号 B
+// 返回参数     bool            im_pair 里存在这一对时返回 true
+// 使用示例     const bool paired = service.pair_exists(a, b);
+// 备注信息     内部从连接池取一条租约再转调三参版本 口径完全一致
+//-------------------------------------------------------------------------------------------------------------------
 bool MessageService::pair_exists(uint64_t a, uint64_t b) {
   auto lease = pool_.acquire();
   return pair_exists(lease, a, b);
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     建立两个账号的配对关系
+// 参数说明     a               账号 A
+//              b               账号 B
+// 返回参数     void            无返回值
+// 使用示例     service.pair_add(a, b);
+// 备注信息     落库前按 min/max 排序 重复配对靠 ON DUPLICATE KEY 幂等 不改 created_at
+//-------------------------------------------------------------------------------------------------------------------
 void MessageService::pair_add(uint64_t a, uint64_t b) {
   const uint64_t lo = std::min(a, b);
   const uint64_t hi = std::max(a, b);
@@ -383,6 +617,14 @@ void MessageService::pair_add(uint64_t a, uint64_t b) {
   stmt.execute();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     解除两个账号的配对关系
+// 参数说明     a               账号 A
+//              b               账号 B
+// 返回参数     void            无返回值
+// 使用示例     service.pair_remove(a, b);
+// 备注信息     同样按 min/max 排序 关系本来不存在时静默成功
+//-------------------------------------------------------------------------------------------------------------------
 void MessageService::pair_remove(uint64_t a, uint64_t b) {
   const uint64_t lo = std::min(a, b);
   const uint64_t hi = std::max(a, b);
@@ -393,6 +635,13 @@ void MessageService::pair_remove(uint64_t a, uint64_t b) {
   stmt.execute();
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     探测数据库当前是否可用
+// 参数说明     无
+// 返回参数     bool            取到连接并执行 SELECT 1 成功返回 true
+// 使用示例     if (!service.ready()) { return 503; }
+// 备注信息     内部吞掉全部异常只回 bool 供健康检查与启动自检使用
+//-------------------------------------------------------------------------------------------------------------------
 bool MessageService::ready() {
   try {
     auto lease = pool_.acquire();
@@ -406,6 +655,17 @@ bool MessageService::ready() {
   }
 }
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     发送一条消息 校验后落库并组装下行数据
+// 参数说明     request                        发送请求 含收发双方 client_msg_id 类型与载荷
+// 返回参数     std::variant<SendResult, int>  成功给刚落库的消息行 失败给业务码 42201 40302 50001
+// 使用示例     auto result = service.send(request);
+// 备注信息     链路 参数与载荷校验 配对检查 黑名单检查 锁会话取 seq 生成引用快照 落库 更新会话与对端状态 提交后组装下行数据
+//              鉴权与发送配额在入口层完成 配额目前只在 WS 发送路径上做 下行帧由入口层按返回值推送
+//              1213 死锁与 1205 锁等待超时最多重试 8 次 退避带抖动 用尽回 50001
+//              1062 唯一键冲突按幂等重放处理 回已有消息行 已有行的 to 与本次不同则回 42201
+//              系统通知 from 为 0 时跳过配对与黑名单检查 也不建发送者用户行
+//-------------------------------------------------------------------------------------------------------------------
 std::variant<SendResult, int> MessageService::send(const SendRequest& request) {
   if (request.to == 0 || request.from == request.to ||
       !valid_client_id(request.client_msg_id)) {
