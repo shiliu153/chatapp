@@ -17,13 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Unit tests
-        run: |
-          docker build -f imserver/Dockerfile.dev -t imserver-dev imserver
-          docker run --rm -v "$PWD/imserver:/src" imserver-dev bash /src/scripts/test.sh
-      - name: Integration tests
-        run: |
-          docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_integration.sh
-      - name: HTTP + e2e
-        run: |
-          docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
+      # 门禁与本地同源:`scripts/gates.toml` 的 imserver 组(单元 / 集成 / HTTP e2e),
+      # 本地 `scripts/verify.sh imserver` 调的就是同一份脚本、同一组命令。
+      - name: imserver 门禁(与本地 verify.sh imserver 同一份脚本)
+        run: bash scripts/stacks/imserver.sh

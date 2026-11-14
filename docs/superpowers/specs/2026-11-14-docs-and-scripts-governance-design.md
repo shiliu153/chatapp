@@ -260,6 +260,49 @@ scripts/
   不再出现门禁命令字面量(由 lint 校验);本地与 CI 条数相等。
 - **需拍板**:D3(backend/web/app 三条重活轨是否也抽成 `scripts/stacks/*.sh` 供两边共用)。
 
+> **执行记录(2026-11-14)**
+>
+> - **拍板(6 项)**:① **D3-B** —— 四条重活轨全部同源:新增 `scripts/stacks/{env,deps,bootstrap,backend,web,imserver,app}.sh`,
+>   `verify.sh` 与 `backend.yml` / `web.yml` / `imserver.yml` / `app.yml` 调同一份(**不改 job name**,
+>   required check 不变);② **行数** —— 本节同时负责 `contract.yml ≤50` 与 `verify.sh ≤160`,
+>   前提是 D3-B + env 块外移;③ **`check_artifact` 不进注册表** —— 它不是命令型门禁而是
+>   「生成物语义」,抽 `scripts/lib/artifacts.py` 仍归第 5 节(C9);本节把它留在
+>   `scripts/stacks/*.sh`,注册表暂无 `kind = "artifact"`;④ **CI 一个 step** —— 执行器逐条
+>   `::group::` 打印、失败打 `::error title=<id>::`,「哪道门禁红了」看 id 即可;
+>   ⑤ **外部工具 fail-closed** —— `requires` 缺工具即判红并给安装命令,不 skip(跳过会让 C5
+>   以新形态复发);⑥ **字面量 lint** 放新增的 `scripts/test_gates.py`(与既有 `scripts/test_*.py` 同风格)。
+> - **注册表与执行器**:`scripts/gates.toml` = 33 道门禁(contract 21 / backend 3 / web 4 /
+>   imserver 3 / app 2),字段 `id / scope / kind / command / reason / cwd / requires / env`;
+>   `scripts/run_gates.py` 纯标准库(`tomllib`,3.11+ 自带),支持
+>   `--list` / `--list --json` / `--dry-run` / `--scope` / `--skip` / `--json`,
+>   退出码 **0 全绿 / 1 有门禁红 / 2 执行器自己出错**(执行器坏了不许冒充门禁红)。
+>   `python` 前缀按 `$CHATAPP_PY` 替换(本地 venv / CI 的 python),**不写两套表**。
+> - **差额归零(C5)**:本地 15 / CI 19 → 两边 **21 / 21**。差异账(注册表第一次跑出来的账):
+>   **CI 独有 5**(贴纸 / 告警转发自测 / `ci-scope` 自测 / `bash -n` / shellcheck)、
+>   **本地独有 1**(启动脚本选路自测)、**两边都没跑 1**(`test_verify.sh`)、
+>   **写法不同 14**(解释器 / 绝对路径 / `-v` 与 `--verbose` 的差异)——
+>   21 道门禁里**逐字相同的命令是 0 条**,所谓「镜像」其实是手抄的同义改写。
+> - **净减少的重复(§8 记账)**:① 门禁命令从 2 份(CI 19 个 step + 本地 15 条 `run`)收敛到
+>   1 份(33 道注册表);② env 块(23 行)与 `deps_up`/`deps_down` 从 `verify.sh` 移进
+>   `scripts/stacks/`,本地与 CI 共用;③ 四条重活轨的 step 内容从 workflow 收进
+>   `scripts/stacks/*.sh`。行数:**`contract.yml` 146 → 40**(≤50)、
+>   **`verify.sh` 274 → 85**(≤160)。
+> - **顺手修的坑**:① `scripts/test_verify.sh` 是「有 owner 没校验」的空头 owner ——
+>   §2.3 把它写成机械校验,但 CI 19 个 step 里没有它、`verify.sh contract` 也不调它;
+>   现在是注册表里的 `contract-verify-selftest`;② 本地 `verify.sh contract` 漏跑
+>   `check_stickers` / 告警转发自测 / `ci-scope` 自测 / `bash -n` / shellcheck 5 条,
+>   CI 漏跑启动脚本选路自测 1 条,现在两边一样;③ 本地 web 跑的是 `test:run`(覆盖率门槛
+>   不生效),CI 跑 `test:coverage` —— 同源后本地也真跑 70/60/70/70;④ `gates.toml` 钉成
+>   LF(`.gitattributes`),否则 Windows 检出的 CRLF 会让 `bash -c` 的多行门禁整条报错
+>   (执行器另做一层换行归一化兜底);⑤ **`env.sh` 的 `TEST_REDIS_*` 写死 16379 在 CI 上连错端口** ——
+>   CI 的 workflow 只注入 `REDIS_URL`(Redis 在 6379),从不注入 `TEST_REDIS_*`,而后端测试
+>   在 TESTING 模式下读的是后者;本地 16379 恰好是对的,所以「本地绿」看不出来。
+>   已改成**从 `REDIS_URL` 解析**(这条是 CI 第一次跑同源脚本时抓到的,正好证明同源有用)。
+> - **范围外(遗留)**:① `check_artifact` 的 Python 实现(`scripts/lib/artifacts.py`)仍归
+>   第 5 节(C9),注册表里没有 `kind = "artifact"`;② 三个重活轨的「装配」仍有 CI 专属部分
+>   (services / 装依赖 / MySQL 授权 / Flutter SDK / Node 版本),它们不是判定而是环境,
+>   留在 workflow 里;③ 本节不增删文档,`docs/README.md` 等生成物无需重生成。
+
 ### 第 5 节|脚本公共层与发版域收敛
 
 - **动作**:`scripts/lib/{repo,version,docs,artifacts}.py`;4 份 `DEFAULT_REPO`、3 份 `PUBSPEC`

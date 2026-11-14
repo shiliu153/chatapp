@@ -1,0 +1,332 @@
+# 门禁注册表 —— **门禁清单的唯一事实来源**(治理方案第 4 节)。
+#
+# 为什么需要它
+# ------------
+# 2026-11-14 之前,「门禁清单」这件事有两个 owner:`contract.yml` 的 19 个 step 与
+# `verify.sh::stack_contract()` 的 15 条 `run`。两边靠手抄维持,于是慢慢分叉 ——
+# CI 独有 5 条、本地独有 1 条、另有 1 条两边都没跑,且**没有任何一条命令是逐字相同的**
+# (`sources-of-truth.md` §4 C5)。手抄的镜像不是镜像。
+#
+# 现在:命令只写在这一个文件里,本地(`scripts/verify.sh contract`)与 CI
+# (`.github/workflows/contract.yml`)调**同一个执行器** `scripts/run_gates.py`,
+# 于是「本地绿 ≈ CI 绿」是机械成立的,不是纪律。
+#
+# 怎么加一道门禁(改动点 = 1 处)
+# ------------------------------
+# 在本文件加一个 `[[gate]]`,别的都不用动。两条轨会自动同时拥有它;
+# `scripts/test_gates.py` 会拦住「两边又出现命令字面量」「--list 与注册表不一致」。
+#
+# 字段
+# ----
+# id       唯一标识,形如 `<scope>-<slug>`。**必须按 POSIX 字节序升序排列**
+#          (执行器按 id 排序输出,`--list` 的输出会被 lint 比对,顺序必须跨平台稳定;
+#          第 3 节踩过 `sorted(Path)` 在 Windows 大小写不敏感、在 Linux 敏感的坑)。
+# scope    contract / backend / web / imserver / app —— 对应 `run_gates.py --scope`。
+# kind     python:命令以 `python` 开头,执行器把它换成 `$CHATAPP_PY`(本地 venv / CI 的 python);
+#          shell:整条命令交给 `bash -c`(可写多行脚本)。
+# command  真正执行的命令。**这里之外不许出现门禁命令字面量**(由 test_gates.py 判)。
+# reason   一句话「为什么需要它」,从原来 workflow 的注释里搬过来 —— 门禁的意义不能只活在
+#          已删除的注释里。
+# cwd      可选,相对仓库根的执行目录(默认 `.`)。backend / web / app 的门禁各自在自己目录跑。
+# requires 可选,外部工具名列表。**缺工具 = 该门禁红(fail-closed)**,错误信息给安装命令 ——
+#          宁可本地红一次,也不要「本地少跑一条还以为绿」(那正是 C5 的复发形态)。
+# env      可选,该门禁专用的环境变量(内联表)。只在子进程里生效,不污染别的门禁。
+#
+# 约定
+# ----
+# - 命令里不写绝对路径、不写时间戳:同一份清单在 Windows / WSL / CI 上必须行为一致。
+# - 顺序即 id 升序;`scripts/test_gates.py` 会断言这一点,插错位置即红。
+
+# --- App ------------------------------------------------------------------
+
+[[gate]]
+id = "app-analyze"
+scope = "app"
+kind = "shell"
+cwd = "app"
+command = "flutter analyze"
+reason = "静态检查零告警是 App 的硬门槛(analyze 有告警等于没写测试)"
+
+[[gate]]
+id = "app-test"
+scope = "app"
+kind = "shell"
+cwd = "app"
+command = "flutter test --reporter expanded"
+reason = "App 测试用假网络 + 假 IM 适配器,不需要真后端;reporter expanded 让 CI 日志能定位到用例"
+
+# --- backend --------------------------------------------------------------
+
+[[gate]]
+id = "backend-e001-gate"
+scope = "backend"
+kind = "shell"
+cwd = "chatapp"
+env = { DEBUG = "0", SMS_DEV_MODE = "1", SMS_PHONE_WHITELIST = "", IM_MEDIA_SIGN_SECRET = "ci-fake-media-secret-32-bytes", IM_MEDIA_PREFIX = "http://127.0.0.1:8000/media/chat/", MEDIA_BASE_URL = "http://127.0.0.1:8000" }
+command = '''
+out=$("$CHATAPP_PY" manage.py check 2>&1)
+rc=$?
+printf '%s\n' "$out"
+if [ "$rc" = 0 ]; then
+  echo "::error::DEBUG=0 + SMS_DEV_MODE=1 + 空白名单 时 check 竟然通过 —— accounts.E001 门禁失效"
+  exit 1
+fi
+case "$out" in
+  *accounts.E001*) echo "accounts.E001 已生效(门禁可达)" ;;
+  *) echo "::error::check 失败了,但输出里没有 accounts.E001(可能是别的错误)"; exit 1 ;;
+esac
+'''
+reason = "accounts.E001 是「生产开了固定验证码但准入名单种子为空」的部署期门禁,此前从未在任何流水线里被执行过 —— 这里用 DEBUG=0 反向验证它真的会响"
+
+[[gate]]
+id = "backend-perf-selftest"
+scope = "backend"
+kind = "python"
+command = "python -m unittest perf.test_run -v"
+reason = "压测脚本自测防「脚本自己错了却给出好看的数字」(头没发出去、{i} 没替换、令牌落盘);perf/ 在仓库根,manage.py test 抓不到"
+
+[[gate]]
+id = "backend-tests"
+scope = "backend"
+kind = "python"
+cwd = "chatapp"
+command = "python manage.py test --noinput"
+reason = "后端全量测试(前置 MySQL + Redis);这是 backend 轨唯一的重活"
+
+# --- contract(本地与 CI 完全同源的 21 道) -------------------------------
+
+[[gate]]
+id = "contract-app-models"
+scope = "contract"
+kind = "python"
+command = "python scripts/check_app_models.py --verbose"
+reason = "App 手写模型读取的字段必须存在于 OpenAPI 契约,否则运行时才炸"
+
+[[gate]]
+id = "contract-check-docs-links-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_check_docs_links -v"
+reason = "文档断链检测是 L4「机械一致性」信号唯一的实现,它自己坏了没人会当场发现"
+
+[[gate]]
+id = "contract-deploy-gate-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_deploy_gate -v"
+reason = "部署闸门防的是「main 红了还上线」,纯标准库 + 临时 git 仓库自测,不碰生产"
+
+[[gate]]
+id = "contract-docs-index-check"
+scope = "contract"
+kind = "python"
+command = "python scripts/docs_index.py --check"
+reason = "索引与全部计数由扫描生成,生成物必须与磁盘一致(手写计数必然过期,已过期过五次)"
+
+[[gate]]
+id = "contract-docs-index-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_docs_index -v"
+reason = "索引生成器判错的两个方向都不能静默:漏登(新文档进不了索引)与多登(把生成物自己列进去)"
+
+[[gate]]
+id = "contract-docs-lint-run"
+scope = "contract"
+kind = "python"
+command = "python scripts/docs_lint.py"
+reason = "上面那条只证明判定器判得对,这条才证明**当前仓库**合规(docs/ 只放文档 + 断链 + 索引覆盖)"
+
+[[gate]]
+id = "contract-docs-lint-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_docs_lint -v"
+reason = "docs_lint 漏报 = 治理成果回流(脚本又躺回 docs/),误报 = 人被逼着把它关掉"
+
+[[gate]]
+id = "contract-gh-guard-selftest"
+scope = "contract"
+kind = "shell"
+command = "sh scripts/gh-guard/selftest.sh"
+reason = "gh-guard 是 worker 唯一的机械拦截(不自合 / 不发版),此前没有任何回归,绕过口直到 P0 审计才发现"
+
+[[gate]]
+id = "contract-l4-intake-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_l4_intake -v"
+reason = "L4 是唯一替人决定做什么的一级:多判污染待办、少判真失败没人管、判不出来却开单 —— 三种都由它钉住"
+
+[[gate]]
+id = "contract-observability-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest discover -s deploy/observability -p 'test_*.py' -v"
+reason = "告警中转链路哑了没人会发现(告警本来就不常发),载荷渲染 / 去重键 / HTTP 入口都要有回归"
+
+[[gate]]
+id = "contract-proxy-selftest"
+scope = "contract"
+kind = "shell"
+command = "bash scripts/superagent-proxy/selftest.sh"
+reason = "出口代理渲染是「坏订阅」唯一防线:残配置写进 config.yaml 会让 mihomo 起不来 → worker 全断网"
+
+[[gate]]
+id = "contract-release-prep-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_release_prep -v"
+reason = "发版准备脚本的闸门 / 版本号 / notes 生成逻辑必须有回归,发版前才发现就晚了"
+
+[[gate]]
+id = "contract-scope-selftest"
+scope = "contract"
+kind = "shell"
+command = "bash scripts/test_ci_scope.sh"
+reason = "改动面判定器坏掉的两种后果都不能静默:把重活全跳过(门禁漏)或把每个 PR 拖成 10 分钟"
+
+[[gate]]
+id = "contract-shell-syntax"
+scope = "contract"
+kind = "shell"
+command = '''
+set -uo pipefail
+rc=0
+while IFS= read -r f; do
+  if ! bash -n "$f"; then
+    echo "::error file=$f::bash -n 失败"
+    rc=1
+  fi
+done < <(git ls-files '*.sh')
+exit "$rc"
+'''
+reason = "deploy/ 下的脚本(一键部署 / 备份 / 看门狗 / 恢复演练)此前不在任何 CI 轨里:备份是两大风险之一,脚本语法坏掉却没人知道"
+
+[[gate]]
+id = "contract-shellcheck"
+scope = "contract"
+kind = "shell"
+requires = ["shellcheck"]
+command = '''
+set -uo pipefail
+rc=0
+while IFS= read -r f; do
+  if ! shellcheck -S error "$f"; then
+    echo "::error file=$f::shellcheck 报 error"
+    rc=1
+  fi
+done < <(git ls-files '*.sh')
+exit "$rc"
+'''
+reason = "shellcheck 抓 bash -n 抓不到的逻辑类 error(未定义命令、错误的 test 用法);只跑 error 级,避免风格项变噪音"
+
+[[gate]]
+id = "contract-start-superagent-selftest"
+scope = "contract"
+kind = "shell"
+command = "bash scripts/test_start_superagent.sh"
+reason = "启动脚本的选路判据(端口活 **且** 出网真通)是「端口活但出网 0%」唯一的机械防线;此前只有本地跑,CI 侧靠代理自测顺带"
+
+[[gate]]
+id = "contract-stickers"
+scope = "contract"
+kind = "python"
+command = "python scripts/check_stickers.py"
+reason = "贴纸是打包进两端的静态资源:文件名 / 字节 / 尺寸不一致时同一条消息在 App 与 Web 会渲染出不同的图(单测看不出来)"
+
+[[gate]]
+id = "contract-superagent-health-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_superagent_health -v"
+reason = "worker 巡检器判错的两个方向都不能静默:把正常报成异常(告警被当噪音关掉)、把异常报成正常(虚假的安全感)"
+
+[[gate]]
+id = "contract-sync-version-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_sync_version -v"
+reason = "版本号三处一致的判定器自己坏了,「三处一致」就没人守了"
+
+[[gate]]
+id = "contract-verify-selftest"
+scope = "contract"
+kind = "shell"
+command = "bash scripts/test_verify.sh"
+reason = "本地验证入口的用法 / 退出码 / 子命令清单 / dry-run 契约(sources-of-truth §2.3 写的就是它);它此前两边都没跑 —— 空头 owner"
+
+[[gate]]
+id = "contract-version-check"
+scope = "contract"
+kind = "python"
+command = "python scripts/sync_version.py --check"
+reason = "版本号唯一事实来源是 app/pubspec.yaml,三处必须一致(CI 会拦)"
+
+# --- imserver -------------------------------------------------------------
+
+[[gate]]
+id = "imserver-http-e2e"
+scope = "imserver"
+kind = "shell"
+requires = ["docker"]
+command = "docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh"
+reason = "HTTP 入口 + 端到端(真 MySQL / Redis 容器);只在 docker 里跑,本地与 CI 同一条命令"
+
+[[gate]]
+id = "imserver-integration"
+scope = "imserver"
+kind = "shell"
+requires = ["docker"]
+command = "docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_integration.sh"
+reason = "store / message_service 的集成测试要真库,单测覆盖不到"
+
+[[gate]]
+id = "imserver-unit"
+scope = "imserver"
+kind = "shell"
+requires = ["docker"]
+command = '''
+set -euo pipefail
+docker build -f imserver/Dockerfile.dev -t imserver-dev imserver
+docker run --rm -v "$PWD/imserver:/src" imserver-dev bash /src/scripts/test.sh
+'''
+reason = "imserver 单元测试(AC 匹配 / config / metrics …);用 Dockerfile.dev 现建镜像,不依赖本机工具链"
+
+# --- web ------------------------------------------------------------------
+
+[[gate]]
+id = "web-build"
+scope = "web"
+kind = "shell"
+cwd = "web"
+requires = ["npm"]
+command = "npm run build"
+reason = "构建失败等于线上白屏;`npm run test:run` 不会编译生产包"
+
+[[gate]]
+id = "web-lint"
+scope = "web"
+kind = "shell"
+cwd = "web"
+requires = ["npm"]
+command = "npm run lint"
+reason = "零告警是硬门槛(eslint --max-warnings 0)"
+
+[[gate]]
+id = "web-test-coverage"
+scope = "web"
+kind = "shell"
+cwd = "web"
+requires = ["npm"]
+command = "npm run test:coverage"
+reason = "覆盖率门槛(70/60/70/70)只在 --coverage 时生效;2026-11-12 之前 CI 跑的是 test:run,门槛从未执行过"
+
+[[gate]]
+id = "web-type-check"
+scope = "web"
+kind = "shell"
+cwd = "web"
+requires = ["npm"]
+command = "npm run type-check"
+reason = "vue-tsc 零错误是网页端的硬门槛(类型错误不会让 vitest 红)"

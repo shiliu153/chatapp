@@ -59,8 +59,10 @@
 
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
-| 门禁清单(有哪些、跑什么) | [`.github/workflows/*.yml`](../../.github/workflows)(当前 **10 个**) | 机械:CI 本身;第 4 节改 `scripts/gates.toml` 后由 `run_gates.py --list` 判定 | **迁移中**(本地镜像 `verify.sh` 已漂移,见 §4 C5) |
-| 本地验证入口(子命令与退出码) | [`scripts/verify.sh`](../../scripts/verify.sh) | 机械:`bash scripts/test_verify.sh` | 已落地 |
+| 门禁清单(有哪些、跑什么) | [`scripts/gates.toml`](../../scripts/gates.toml)(**唯一事实来源**);workflow 只留 job 名与装配 | 机械:`python scripts/run_gates.py --list`(与注册表逐条一致)+ `python -m unittest scripts.test_gates`(两边无命令字面量、条数相等) | **已落地**(2026-11-14 第 4 节):本地与 CI 调**同一份清单、同一个执行器**,19 / 15 的差额归零(现 21 / 21) |
+| 新增一道门禁的改动点 | 同上 —— `gates.toml` 加一个 `[[gate]]` | 机械:`scripts/test_gates.py::SameSourceTests::test_no_gate_command_literal_in_wiring`(命令出现在 `contract.yml` / `verify.sh` / `stacks/*.sh` 里即红) | **已落地**(2026-11-14 第 4 节):**1 处** |
+| 各栈装配(起容器 / 装依赖 / 迁移 / 生成物校验) | [`scripts/stacks/*.sh`](../../scripts/stacks) | 机械:`scripts/test_gates.py::SameSourceTests::test_heavy_workflows_call_shared_stack_scripts`(四条 workflow 与 `verify.sh` 调同一份) | **已落地**(2026-11-14 第 4 节,D3-B) |
+| 本地验证入口(子命令与退出码) | [`scripts/verify.sh`](../../scripts/verify.sh) | 机械:`bash scripts/test_verify.sh` + `python scripts/run_gates.py --scope contract` | 已落地(第 4 节:contract 分支收成一行调用执行器,并把 `test_verify.sh` 自己也收进注册表) |
 | 改动面判定(哪些栈要跑重活) | [`scripts/ci-scope.sh`](../../scripts/ci-scope.sh) | 机械:`bash scripts/test_ci_scope.sh` | 已落地 |
 | worker 禁自合 / 禁发版 | [`scripts/gh-guard/`](../../scripts/gh-guard) | 机械:`sh scripts/gh-guard/selftest.sh` | 已落地 |
 | L4 自动入队判据 | [`scripts/l4_intake.py`](../../scripts/l4_intake.py) | 机械:`python -m unittest scripts.test_l4_intake` | 已落地 |
@@ -71,8 +73,8 @@
 
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
-| 文档目录结构规则(`docs/` 只放文档) | [`scripts/docs_lint.py`](../../scripts/docs_lint.py) + 第 6 节 `docs/standards/writing.md` | 机械:`python scripts/docs_lint.py`(`contract` 轨 + `verify.sh contract` 双份登记,第 4 节统一) | **已落地**(2026-11-14 第 2 节):`docs/` 下非 md 只剩 `openapi.yml` 1 个,合规 |
-| 文档索引与**全部计数** | [`docs/README.md`](../README.md)(**生成物**,`scripts/docs_index.py`)+ 归档清单 [`docs/superpowers/archive/INDEX.md`](../superpowers/archive/INDEX.md)(**生成物**) | 机械:`python scripts/docs_index.py --check`(`contract` 轨 + `verify.sh contract` 双份登记):生成物逐字节比对 + 归档完整性 + 入口完整性 + 接口表 ≡ 契约 | **已落地**(2026-11-14 第 3 节):`docs/README.md` 是唯一目录入口,索引数字 0 处手写;**索引覆盖**另由 `docs_lint` 机械判定(第 2 节) |
+| 文档目录结构规则(`docs/` 只放文档) | [`scripts/docs_lint.py`](../../scripts/docs_lint.py) + 第 6 节 `docs/standards/writing.md` | 机械:`python scripts/docs_lint.py`(注册表 `contract-docs-lint-run`,本地与 CI 同一份) | **已落地**(2026-11-14 第 2 节):`docs/` 下非 md 只剩 `openapi.yml` 1 个,合规 |
+| 文档索引与**全部计数** | [`docs/README.md`](../README.md)(**生成物**,`scripts/docs_index.py`)+ 归档清单 [`docs/superpowers/archive/INDEX.md`](../superpowers/archive/INDEX.md)(**生成物**) | 机械:`python scripts/docs_index.py --check`(注册表 `contract-docs-index-check`,本地与 CI 同一份):生成物逐字节比对 + 归档完整性 + 入口完整性 + 接口表 ≡ 契约 | **已落地**(2026-11-14 第 3 节):`docs/README.md` 是唯一目录入口,索引数字 0 处手写;**索引覆盖**另由 `docs_lint` 机械判定(第 2 节) |
 | 相对链接是否断 | [`scripts/check_docs_links.py`](../../scripts/check_docs_links.py) | 机械:`python scripts/check_docs_links.py`;PR 上由 `python scripts/docs_lint.py` **真跑**(`contract` 轨) | **已落地**(2026-11-14 第 2 节起进 PR 轨;此前只有 L4 定时轨与自测) |
 | 工作面 / 归档清单 | 工作面 = `docs/superpowers/specs/` **目录即事实**(人写摘要见 [该目录 README §2](../superpowers/README.md));归档逐份清单 = [archive/INDEX.md](../superpowers/archive/INDEX.md)(**生成物**) | 机械:`python scripts/docs_index.py --check` —— 归档里每份 `.md` 在清单里**出现且仅出现一次** | **已落地**(2026-11-14 第 3 节):§4 的 105 行手写表已删除(只留交付脉络),当年漏登的 7 份 R–W plan 自动补齐 |
 | 安全审计轮次与结论 | [`docs/security/`](../security)(目录即事实,**只增不改**) | 人工:**每轮审计结束后**核对 `Get-ChildItem docs/security` | 已落地(`CLAUDE.md` 导航表仍写「三轮」,见 §4 C3) |
@@ -177,7 +179,7 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | **C2** | `docs/superpowers/` 工作面与归档计数过期 | README §9「工作面 1 份 / 归档 85 份」;实际 5 份 spec(README §2 只登记 4 组)+ 105 归档;`2026-11-13-aws-*.md` 不在任何索引 | **目录说了算**(`specs/` 即工作面)。计数由 `docs_index` 生成 | **第 1 节**修 README §9 手写数字;aws spec 登记**提前到第 2 节**(索引覆盖规则一开就必须先登记,否则 `docs_lint` 自己红);**第 3 节已落地**:§4 的 105 行手写表删除,归档清单改由 `scripts/docs_index.py` 生成 —— 当年漏登的 **7 份** R–W plan 由生成物自动补齐,漏登从此即红 |
 | **C3** | 安全审计轮次:三 vs 四 | 复核时 README §9 与 `CLAUDE.md` 导航表都写「三轮」;`docs/security/` 实有 4 份 | **`docs/security/` 目录说了算** = 四轮 | **本次**修 README §9(第 2 节进一步改成「轮次以目录为准」,不再手写数字,并新增 `docs/security/README.md` 索引);`CLAUDE.md` 导航表留给第 6 节(见 §7) |
 | **C4** | 术语「六轨」与事实脱钩 | 19 次 / 12 个文件(非归档 9 个文件 10 次);workflows 实有 10 个 | **废止该词**。改说「workflow(当前 10 个)」或直接点名轨;由 `docs_lint` 术语规则拦截 | **改判到第 6 节**(2026-11-14 第 2 节决定):清理 19 处属**术语 lint 规则**的落地,与 `writing.md` 同批做才有防回归手段;第 2 节只做结构与索引。归档里的 3 处按 §6 红线不改 |
-| **C5** | `verify.sh` 自称「CI 的镜像」但两边门禁集不同 | 复核时本地 **11** 条 / CI **15** 条;CI 独有 5 条,本地独有 1 条。2026-11-14 第 2 节两边各加 2 条(`docs_lint` 自测 + 真跑)、第 3 节两边各加 2 条(`docs_index` 自测 + `--check`),现为 **15 / 19**,**差额仍是 4** | **迁移期**:CI 为执行事实源,`verify.sh` 为镜像;第 4 节后 `gates.toml` 说了算 | 第 4 节(`gates.toml` + `run_gates.py`) |
+| **C5** | `verify.sh` 自称「CI 的镜像」但两边门禁集不同 | 复核时本地 **11** 条 / CI **15** 条;CI 独有 5 条,本地独有 1 条。第 2 节两边各加 2 条、第 3 节各加 2 条后为 **15 / 19**(差额仍是 4)。第 4 节实测差异账:CI 独有 5、本地独有 1、两边都没跑 1(`test_verify.sh`)、**写法不同 14**(逐字相同的命令 **0** 条) | **`scripts/gates.toml` 说了算**(2026-11-14 第 4 节起);workflow 与 `verify.sh` 只调执行器 | **已落地**(第 4 节):两边跑同一份清单 + 同一个执行器,**21 / 21**,差额 4 → **0**;「命令不再出现在两边接线文件里」由 `scripts/test_gates.py` 机械判定 |
 | **C6** | 「改什么 → 跑什么」表维护两份 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 各一张,内容近乎重复 | **`AGENTS.md` §三 说了算**;`CONTRIBUTING.md` 收成指针 | 第 6 节 |
 | **C7** | 脚本有 7 处家 + 常量重复 | `scripts/`(52 含子目录)/ `tools/` 3 / `perf/` 2 / `deploy/observability/` 2 / `imserver/scripts/` 9 / `docs/ops/stress/` 7 / `docs/ops/check_ssl_expiry.sh`;`DEFAULT_REPO` 4 处 | **`scripts/` 是唯一家**(域内子目录);`DEFAULT_REPO` 等常量收敛到 `scripts/lib/` | **部分落地**(2026-11-14 第 2 节):7 处 → **5 处**,`docs/` 侧清零(压测脚本 → `scripts/stress/`、补丁 → `scripts/patches/`、证书巡检 → `scripts/ops/`)。**剩余**:`tools/` `perf/` `imserver/scripts/` 的归属取决于 §7 **D2**(保守档不搬目录);常量 4 处 → 第 5 节 |
 | **C8** | 发版记录 = 用 Markdown 表格当数据库 | `sync_version.py::read_release_record` 解析 `release.md` §5 表头「版本 / tag」;改一次表格格式就可能误红 | **D1-B 已拍板**:`docs/releases.yml` 说了算,`release.md` §5 改为渲染 | 第 5 节 |
@@ -195,7 +197,7 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | 「N 份分册 / M 个操作」手写 | 手写计数必然过期(C1 已有 5 个版本) | 引用 `openapi.yml`,或等第 3 节生成的索引 |
 | 「工作面 N 份 / 归档 M 份」手写 | 目录本身即事实(C2) | 由 `docs_index` 生成后引用 |
 | 「三轮安全审计」 | 已有第四轮(C3) | 「`docs/security/` 下 N 份」或「四轮」 |
-| 无条件断言「本地绿 ≈ CI 绿」 | 当前两边门禁集不同(C5) | 第 4 节同源之后才可这样写 |
+| 无条件断言「本地绿 ≈ CI 绿」 | 第 4 节之前两边门禁集不同(C5) | 现在可写:两边调**同一份** `scripts/gates.toml` 与**同一个**执行器(本地 `verify.sh contract` / CI `run_gates.py --scope contract`),由 `scripts/test_gates.py` 判 |
 | 「两处都要改」 | 唯一事实来源原则的反面 | 一处 owner + 一处生成物(或指针) |
 
 ---
@@ -205,15 +207,19 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | 编号 | 决策 | 拍板日期 | 落地位置 |
 |---|---|---|---|
 | **D1** | 发版记录迁成 `docs/releases.yml`(B 案),`release.md` §5 只渲染 | 2026-11-14 | 第 5 节;`sync_version.py` 届时只做只读校验(见 D4) |
+| **D3** | backend / web / imserver / app 四条重活轨也同源(B 案):各栈的装配抽进 `scripts/stacks/*.sh`,`verify.sh` 与四条 workflow 调同一份;门禁命令一律进 `scripts/gates.toml` | 2026-11-14 | 本文 §2.3 + [治理方案第 4 节](../superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md)(不改 job name,required check 不变) |
 | **D5** | 新设 `flow` 域:`scripts/**`、`.github/**`、`deploy/**` 的改动自成一条栈,验证入口 `scripts/verify.sh contract`。**栈归属 ≠ 改的权限**:`deploy/**` 仍受 `AGENTS.md` §六 禁止 | 2026-11-14 | 本文 §2.3 + [`AGENTS.md` §二](../../AGENTS.md)(本次已补一行) |
 
-> 未拍板的 **D2**(脚本目录搬不搬)、**D3**(重活轨是否同源)、**D4**(元信息强制档位 / `sync_version` 是否只读)
-> 由治理方案第 4–6 节各自拍板,**不阻塞本表使用**。
+> 未拍板的 **D2**(脚本目录搬不搬)、**D4**(元信息强制档位 / `sync_version` 是否只读)
+> 由治理方案第 5–6 节各自拍板,**不阻塞本表使用**。
 
 ---
 
 ## 7. 待修清单(登记,本次不改)
 
+> **2026-11-14 第 4 节收尾**:勾掉「本地 15 条 vs CI 19 条门禁」一项 —— C5 归零(现 21 / 21),
+> 门禁清单改由 `scripts/gates.toml` 单点维护。
+>
 > **2026-11-14 第 3 节收尾**:再勾掉 2 项(接口一览表、`CLAUDE.md` 的「三轮」),
 > 并把「本地 vs CI 门禁条数」更新为 15 / 19(两边各加 `docs_index` 两条,差额仍是 4)。
 >
@@ -226,7 +232,7 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | ~~`CLAUDE.md` 文档导航表「三轮报告」→ 四轮(C3 的另一处)~~ | 第 6 节(原) | **已完成**(2026-11-14 第 3 节顺手):该行改为指向 [`docs/security/README.md`](../security/README.md) 并声明「轮次以目录为准」,不再写任何轮次数字 |
 | 19 处「六轨」措辞(12 个文件,其中 9 个非归档;归档 3 处按 §6 红线不改) | 第 6 节(**原第 2 节,2026-11-14 改判**) | 待修 |
 | `errors.md` 业务码总表与 `error_codes.py` 不同步(C11) | 第 6 节 | 待修 |
-| 本地 15 条 vs CI 19 条门禁(C5;第 2/3 节两边各加 2 条,差额仍是 4) | 第 4 节 | 待修 |
+| ~~本地 15 条 vs CI 19 条门禁(C5)~~ | 第 4 节 | **已完成**(2026-11-14):`scripts/gates.toml` + `scripts/run_gates.py` 单点维护,两边 **21 / 21**,差额 0 |
 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 重复的必跑表(C6) | 第 6 节 | 待修 |
 | `tools/` `perf/` `imserver/scripts/` 三处脚本家的归属(C7 剩余) | 第 5 节(取决于 D2 拍板) | 待修 |
 | ~~10 个非文档文件归位(C10)~~ | 第 2 节 | **已完成**(2026-11-14) |

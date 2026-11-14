@@ -33,11 +33,8 @@ jobs:
           channel: stable
           cache: true
 
-      - name: 拉依赖
-        run: flutter pub get
-
-      - name: 静态检查(必须零告警)
-        run: flutter analyze
-
-      - name: 跑测试
-        run: flutter test --reporter expanded
+      # 门禁与本地同源:pub get + `scripts/gates.toml` 的 app 组(analyze / test),
+      # 都在 `scripts/stacks/app.sh` 里;本地 `scripts/verify.sh app` 调的就是它。
+      - name: App 门禁(与本地 verify.sh app 同一份脚本)
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/stacks/app.sh

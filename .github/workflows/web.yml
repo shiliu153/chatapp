@@ -58,27 +58,9 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: 拉依赖
-        run: npm ci
-
-      # D-5:``src/api/schema.d.ts`` 是 openapi-typescript 从后端 schema 生成的纯类型文件。
-      # 这里重新生成一次再比对:后端改了字段却没同步生成物,CI 立刻红。
-      - name: 校验 API 类型生成物与后端 schema 一致
-        run: |
-          npm run gen:api
-          git -C .. diff --exit-code -- web/src/api/schema.d.ts
-
-      - name: 类型检查(必须零错误)
-        run: npm run type-check
-
-      - name: 代码规范(必须零告警)
-        run: npm run lint
-
-      # 覆盖率门槛(`vitest.config.ts` 的 thresholds)只在 `--coverage` 时生效。
-      # 2026-11-12 之前这里跑的是 `test:run`(不带 --coverage),于是文档声称的
-      # 70/60/70/70 门槛在 CI 里从未执行过 —— 门禁是纸面的。见 P0 审计。
-      - name: 单元/组件测试(含覆盖率门槛 70/60/70/70)
-        run: npm run test:coverage
-
-      - name: 构建
-        run: npm run build
+      # 门禁与本地同源:npm ci + 生成物校验(schema.d.ts)+ `scripts/gates.toml` 的 web 组
+      # (type-check / lint / test:coverage / build),都在 `scripts/stacks/web.sh` 里。
+      # 本地 `scripts/verify.sh web` 调的就是这份脚本。
+      - name: 网页端门禁(与本地 verify.sh web 同一份脚本)
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/stacks/web.sh

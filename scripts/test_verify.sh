@@ -34,5 +34,18 @@ case $wdry in *"npm run type-check"*) printf 'ok   web dry-run 含 type-check\n'
 cdry=$(bash "$V" contract --dry-run 2>/dev/null)
 case $cdry in *"sync_version.py --check"*) printf 'ok   contract dry-run 含 sync_version\n';;
   *) printf 'FAIL contract dry-run 缺 sync_version\n'; fail=1;; esac
+# 第 4 节(门禁注册表):contract 分支已收成一行调用执行器,所以 --dry-run 必须由执行器
+# **逐条打印**;再钉一条「打出的条数 == 注册表里 contract 的条数」—— 少了这条,
+# 执行器悄悄漏跑一道门禁也能绿(那正是 C5 的复发形态)。
+. "$ROOT/scripts/stacks/env.sh"
+dry_n=$(bash "$V" contract --dry-run 2>/dev/null | grep -c '^+ ')
+list_n=$("$PY" "$ROOT/scripts/run_gates.py" --list --json |
+  "$PY" -c 'import json, sys; print(sum(1 for gate in json.load(sys.stdin) if gate["scope"] == "contract"))')
+if [ "$dry_n" = "$list_n" ]; then
+  printf 'ok   contract dry-run 条数 == 注册表 contract 条数(%s)\n' "$dry_n"
+else
+  printf 'FAIL contract dry-run 条数 %s != 注册表 %s\n' "$dry_n" "$list_n"
+  fail=1
+fi
 [ "$fail" = 0 ] && echo "全部通过" || echo "有失败"
 exit "$fail"
