@@ -9,6 +9,17 @@
 
 严格模式只该改「名单空」这一条分支:名单内的种子号码、库内显式停用的号码,
 行为都与非严格模式一致 —— 用例把这两点也钉住,避免以后改出「严格 = 全拒」。
+
+文件信息:
+    文件名称          accounts/test_allowlist_strict.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from unittest.mock import patch
@@ -32,23 +43,47 @@ class SmsAllowlistStrictTests(APITestCase):
     """名单为空时的准入判定:严格拒、非严格放行。"""
 
     def setUp(self):
+        """清空缓存,避免上一轮的名单快照与限流键串进用例。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``setUp()``
+
+        备注信息:
+            名单快照与发码限流都落在缓存里;``addCleanup`` 保证用例结束后同样清一次。
+        """
         cache.clear()
         self.addCleanup(cache.clear)
 
     def send(self, phone):
         """调用发码接口。
 
-        Args:
+        参数说明:
             phone: 目标手机号。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.send(OUTSIDER_PHONE)``
+
+        备注信息:
+            请求 ``POST /api/v1/auth/sms/send``;短信入队一律打桩,只断言状态码与错误码。
         """
         return self.client.post("/api/v1/auth/sms/send", {"phone": phone}, format="json")
 
     @override_settings(SMS_ALLOWLIST_STRICT="1", SMS_PHONE_WHITELIST=frozenset())
     def test_strict_rejects_when_allowlist_empty(self):
-        """库空 + 种子空 + 严格:任何号码都拿不到码,403 + 40301,且不入队不发短信。"""
+        """库空 + 种子空 + 严格:任何号码都拿不到码,403 + 40301,且不入队不发短信。
+
+        参数说明:
+            无。
+        """
         with patch("notifications.tasks.send_sms_code.delay") as delay:
             resp = self.send(OUTSIDER_PHONE)
         self.assertEqual(resp.status_code, 403)
@@ -57,7 +92,11 @@ class SmsAllowlistStrictTests(APITestCase):
 
     @override_settings(SMS_ALLOWLIST_STRICT="0", SMS_PHONE_WHITELIST=frozenset())
     def test_non_strict_allows_when_allowlist_empty(self):
-        """显式关掉严格:名单为空照旧放行 —— 开发/CI 的默认行为不能被改坏。"""
+        """显式关掉严格:名单为空照旧放行 —— 开发/CI 的默认行为不能被改坏。
+
+        参数说明:
+            无。
+        """
         with patch("notifications.tasks.send_sms_code.delay"):
             resp = self.send(OUTSIDER_PHONE)
         self.assertEqual(resp.status_code, 200)
@@ -66,7 +105,11 @@ class SmsAllowlistStrictTests(APITestCase):
         SMS_ALLOWLIST_STRICT="1", SMS_PHONE_WHITELIST=frozenset({ALLOWED_PHONE})
     )
     def test_strict_still_allows_seed_phone(self):
-        """严格只作用于「名单空」:种子里的号码照常发码。"""
+        """严格只作用于「名单空」:种子里的号码照常发码。
+
+        参数说明:
+            无。
+        """
         with patch("notifications.tasks.send_sms_code.delay"):
             resp = self.send(ALLOWED_PHONE)
         self.assertEqual(resp.status_code, 200)
@@ -75,7 +118,11 @@ class SmsAllowlistStrictTests(APITestCase):
         SMS_ALLOWLIST_STRICT="1", SMS_PHONE_WHITELIST=frozenset({ALLOWED_PHONE})
     )
     def test_strict_still_rejects_disabled_phone(self):
-        """库内显式停用优先于种子,严格模式不改变这条优先级。"""
+        """库内显式停用优先于种子,严格模式不改变这条优先级。
+
+        参数说明:
+            无。
+        """
         PhoneAllowlist.objects.create(phone=ALLOWED_PHONE, is_active=False)
         allowlist.invalidate()
         with patch("notifications.tasks.send_sms_code.delay") as delay:
@@ -86,7 +133,11 @@ class SmsAllowlistStrictTests(APITestCase):
 
     @override_settings(SMS_ALLOWLIST_STRICT="1", SMS_PHONE_WHITELIST=frozenset())
     def test_strict_rejects_at_service_layer(self):
-        """服务层同样拒绝:校验入口(不只是发码入口)也要挡住。"""
+        """服务层同样拒绝:校验入口(不只是发码入口)也要挡住。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(PhoneNotAllowed):
             from accounts import services
 
@@ -97,7 +148,11 @@ class SmsAllowlistStrictDefaultTests(TestCase):
     """``SMS_ALLOWLIST_STRICT`` 留空时按环境自动:非 DEBUG 且非测试才严格。"""
 
     def test_empty_setting_is_not_strict_in_tests(self):
-        """测试运行下留空 = 非严格,否则全仓库的既有用例会集体 403。"""
+        """测试运行下留空 = 非严格,否则全仓库的既有用例会集体 403。
+
+        参数说明:
+            无。
+        """
         from accounts import services
 
         with override_settings(SMS_ALLOWLIST_STRICT="", TESTING=True):
@@ -111,11 +166,17 @@ class AllowlistSecurityCheckTests(TestCase):
     def _ids(errors):
         """把检查结果压成 id 列表,方便断言。
 
-        Args:
+        参数说明:
             errors: ``checks.run_checks()`` 返回的 ``CheckMessage`` 列表。
 
-        Returns:
+        返回参数:
             list: 每条结果的 ``id``;没有 id 的项记为 ``""``。
+
+        使用示例:
+            ``self._ids(checks.run_checks())``
+
+        备注信息:
+            静态方法,各用例经 ``self._ids(...)`` 调用,不依赖实例状态。
         """
         return [getattr(error, "id", "") for error in errors]
 
@@ -127,7 +188,11 @@ class AllowlistSecurityCheckTests(TestCase):
         SMS_ALLOWLIST_STRICT="",
     )
     def test_security_check_flags_dev_sms_without_allowlist(self):
-        """非 DEBUG + 固定码 + 种子空 + 严格留空:结果里必须有 accounts.E001,且 ID 是公布的常量。"""
+        """非 DEBUG + 固定码 + 种子空 + 严格留空:结果里必须有 accounts.E001,且 ID 是公布的常量。
+
+        参数说明:
+            无。
+        """
         self.assertIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
         self.assertEqual(DEV_SMS_WITHOUT_ALLOWLIST_ID, "accounts.E001")
 
@@ -138,7 +203,11 @@ class AllowlistSecurityCheckTests(TestCase):
         SMS_PHONE_WHITELIST=frozenset({ALLOWED_PHONE}),
     )
     def test_security_check_silent_when_seed_present(self):
-        """配了种子就不报:检查只管「连种子都没有」这种必然漏配。"""
+        """配了种子就不报:检查只管「连种子都没有」这种必然漏配。
+
+        参数说明:
+            无。
+        """
         self.assertNotIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
 
     @override_settings(
@@ -153,6 +222,9 @@ class AllowlistSecurityCheckTests(TestCase):
 
         issue #290:此前 hint 把这条列为出路,检查却不认,照着做 ``migrate`` 仍然红。
         这里钉住「hint 说的第三条路真的走得通」,同时与 ``services._strict()`` 同口径。
+
+        参数说明:
+            无。
         """
         self.assertNotIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
 
@@ -164,7 +236,11 @@ class AllowlistSecurityCheckTests(TestCase):
         SMS_ALLOWLIST_STRICT="1",
     )
     def test_security_check_flags_when_strict_explicitly_on(self):
-        """显式 ``"1"`` 仍报错:逃生口只认 ``"0"``,别把「非空」当成「已确认」。"""
+        """显式 ``"1"`` 仍报错:逃生口只认 ``"0"``,别把「非空」当成「已确认」。
+
+        参数说明:
+            无。
+        """
         self.assertIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
 
     @override_settings(
@@ -174,6 +250,10 @@ class AllowlistSecurityCheckTests(TestCase):
         SMS_PHONE_WHITELIST=frozenset(),
     )
     def test_security_check_silent_when_dev_mode_off(self):
-        """关掉固定码后名单为空不算事故:真实短信商才是要配的东西。"""
+        """关掉固定码后名单为空不算事故:真实短信商才是要配的东西。
+
+        参数说明:
+            无。
+        """
         self.assertNotIn(DEV_SMS_WITHOUT_ALLOWLIST_ID, self._ids(checks.run_checks()))
         self.assertTrue(settings.SMS_DEV_CODE)      # 固定码常量本身不动,只按开关生效

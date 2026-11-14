@@ -39,14 +39,19 @@ paths:
         幂等 —— 令牌缺失、已过期或已拉黑都返回 204,前端只关心「本地会话已结束」。
         按 IP 限流,避免匿名调用把黑名单表刷大(L-5)。
 
-        Args:
+        参数说明:
             request: DRF 请求对象;``refresh`` 可放在请求体或 Cookie。
 
-        Returns:
+        返回参数:
             204 空响应,附带清除 Cookie 的 ``Set-Cookie``。
 
-        Raises:
-            PermissionDenied: ``Origin`` 与本站不同源(仅 Cookie 场景需要,见 ``same_origin``)。
+        使用示例:
+            ``client.post("/api/v1/auth/logout", {"refresh": raw})``
+
+        备注信息:
+            幂等:令牌缺失、已过期或已拉黑都返回 204;按 IP 限流,避免匿名调用把黑名单表
+            刷大(L-5)。``Origin`` 与本站不同源时抛 ``PermissionDenied``(仅 Cookie 场景,
+            见 ``same_origin``)。
       tags:
       - auth
       requestBody:
@@ -70,7 +75,7 @@ paths:
     post:
       operationId: auth_logout_all_create
       description: |-
-        退出所有设备:两端会话版本各 +1,并踢掉全部在线 IM 会话。
+        退出所有设备:两端会话版本各 +1,并踢掉全部在线 IM 会话(POST /api/v1/auth/logout/all)。
 
         为什么两个端都 +1:这是「手机丢了,一键全端下线」的语义 —— 只递增本端会让
         另一台设备继续在线。踢 IM 会话必须走 Celery:响应路径禁止外部调用。
@@ -79,12 +84,19 @@ paths:
         ``GET /api/v1/devices`` 是空列表 —— 与 1.7 单端下线的可观察语义保持一致;
         哪一端重新登录,哪一端就重新出现,版本号继续单调递增,旧令牌始终无效。
 
-        Args:
+        参数说明:
             request: DRF 请求对象(必须已认证)。
 
-        Returns:
+        返回参数:
             204 空响应,附带清除 Cookie 的 ``Set-Cookie``;之后两端的 access 与
             refresh 全部失效。
+
+        使用示例:
+            ``client.post("/api/v1/auth/logout/all")``
+
+        备注信息:
+            两端都打 ``logged_out_at`` 标记,因此退出之后 ``GET /api/v1/devices`` 是空
+            列表;哪一端重新登录,哪一端就重新出现。
       tags:
       - auth
       security:
@@ -101,16 +113,20 @@ paths:
         先占用限流键并落库验证码,再入队发送任务;入队失败会回滚限流占位与验证码,
         让用户可以立刻重试。
 
-        Args:
+        参数说明:
             request: DRF 请求对象,body 需带 ``phone``。
 
-        Returns:
+        返回参数:
             ``{"status": "ok"}``。
 
-        Raises:
-            PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
-            SmsSendTooFrequent: 距上次发送不足重发间隔。
-            SmsServiceUnavailable: 短信任务入队失败(fail-closed)。
+        使用示例:
+            ``client.post("/api/v1/auth/sms/send", {"phone": "13900009000"})``
+
+        备注信息:
+            白名单闸门放在发码之前:非受邀号码不占限流键、不落码、不入队。
+            ``PhoneNotAllowed``: 号码不在封闭测试白名单内(B-1 / K-1)。
+            ``SmsSendTooFrequent``: 距上次发送不足重发间隔。
+            ``SmsServiceUnavailable``: 短信任务入队失败(fail-closed)。
       tags:
       - auth
       requestBody:
@@ -147,18 +163,24 @@ paths:
         端类型由请求头 ``X-Client`` 决定(``web`` / 其余与缺省一律 ``app``);
         之后一律按令牌里的 ``ct`` 回查,不再看请求头。
 
-        Args:
+        参数说明:
             request: DRF 请求对象,body 需带 ``phone`` 与 ``code``。
 
-        Returns:
+        返回参数:
             ``{access, is_new_user, user_id}``;带 ``X-Client: web`` 的请求不返回
             ``refresh``,改为下发 HttpOnly Cookie(App 分支保持原样)。
 
-        Raises:
-            PhoneNotAllowed: 号码不在封闭测试白名单内(B-1 / K-1)。
-            SmsCodeExpired: 验证码已过期或不存在。
-            SmsCodeWrong: 验证码错误。
-            SmsLocked: 连续错误次数超限。
+        使用示例:
+            ``client.post("/api/v1/auth/sms/verify", {"phone": "13900009000", "code": "123456"})``
+
+        备注信息:
+            运营账号(staff/superuser)默认不走短信登录,确需登录须显式设
+            ``SMS_ALLOW_STAFF_LOGIN=1``;并发建号撞 phone 唯一约束时回查一次即返回老账号。
+            ``PhoneNotAllowed``: 号码不在封闭测试白名单内(B-1 / K-1)。
+            ``SmsCodeExpired``: 验证码已过期或不存在。
+            ``SmsCodeWrong``: 验证码错误。
+            ``SmsLocked``: 连续错误次数超限。
+            ``PermissionDenied``: 运营账号未开启短信登录时被拒(403)。
       tags:
       - auth
       requestBody:
@@ -187,19 +209,23 @@ paths:
     post:
       operationId: auth_token_refresh_create
       description: |-
-        校验会话版本后换发新令牌。
+        校验会话版本后换发新令牌(POST /api/v1/auth/token/refresh)。
 
-        Args:
+        参数说明:
             request: DRF 请求对象;``refresh`` 可放在请求体(App)或 Cookie(Web)。
             *args: 透传给父类的位置参数。
             **kwargs: 透传给父类的关键字参数。
 
-        Returns:
+        返回参数:
             Web:``{access}`` + 轮换后的 Cookie;App:``{access, refresh}``。
 
-        Raises:
-            AuthenticationFailed: 没有令牌、令牌无效或超出宽限期的重复使用。
-            SingleDeviceSessionConflict: 该 refresh token 来自已被顶下线的设备。
+        使用示例:
+            ``SessionTokenRefreshView.as_view()(request)``
+
+        备注信息:
+            没有令牌、令牌无效或超出宽限期的重复使用抛 ``AuthenticationFailed``;
+            该 refresh 来自已被顶下线的设备抛 ``SingleDeviceSessionConflict``;
+            跨站请求抛 ``PermissionDenied``。
       tags:
       - auth
       requestBody:
@@ -381,13 +407,20 @@ paths:
         为什么不在服务端判「在线」:在线是**账号级**的 ``presence``(120 秒窗口),
         按端拆要动心跳链路;这里只给「最近活跃时间」,让用户自己判断哪台设备还在用。
 
-        Args:
+        参数说明:
             request: DRF 请求对象(必须已认证)。
 
-        Returns:
+        返回参数:
             ``{"results": [{client_type, client_label, current, created_at,
             last_active_at}]}``;``last_active_at`` 为 ``null`` 表示该端只有登录记录、
             还没刷新过令牌(批次 M 上线前建的行)。从没登录过、已下线的端不出现。
+
+        使用示例:
+            ``client.get("/api/v1/devices", HTTP_X_CLIENT="web")``
+
+        备注信息:
+            ``current`` 只看请求头 ``X-Client``(缺省与未知取值一律按 ``app``),
+            与签发令牌时的口径完全一致;服务端不按端判在线。
       parameters:
       - in: header
         name: X-Client
@@ -422,15 +455,19 @@ paths:
         同口径),``logged_out_at`` 只刷新成最新时间。允许踢当前正在用的这一端:语义等同
         「注销本端」,服务端不做特判,客户端收到 204 后自行回登录页。
 
-        Args:
+        参数说明:
             request: DRF 请求对象(必须已认证)。
             client_type: 路径参数,``app`` 或 ``web``。
 
-        Returns:
+        返回参数:
             204 空响应。
 
-        Raises:
-            InvalidClientType: ``client_type`` 不是 ``app`` / ``web``(400 + 40004)。
+        使用示例:
+            ``client.delete("/api/v1/devices/web")``
+
+        备注信息:
+            ``client_type`` 不是 ``app`` / ``web`` 时抛 ``InvalidClientType``
+            (400 + 40004);允许踢当前正在用的这一端,语义等同「注销本端」。
       parameters:
       - in: path
         name: client_type
@@ -859,13 +896,20 @@ paths:
     get:
       operationId: health_retrieve
       description: |-
-        存活探针。
+        存活探针(GET /api/v1/health)。
 
-        Args:
+        参数说明:
             request: DRF 请求对象。
 
-        Returns:
+        返回参数:
             固定 ``{"status": "ok"}``,不触碰数据库与 Redis。
+
+        使用示例:
+            ``client.get("/api/v1/health")``
+
+        备注信息:
+            不查数据库也不查 Redis,依赖故障时本接口仍可应答;依赖健康度看
+            ``/api/v1/readyz``。
       tags:
       - health
       security:
@@ -1900,14 +1944,21 @@ paths:
     get:
       operationId: readyz_retrieve
       description: |-
-        就绪探针:逐项检查数据库与 Redis。
+        就绪探针:逐项检查数据库与 Redis(GET /api/v1/readyz)。
 
-        Args:
+        参数说明:
             request: DRF 请求对象。
 
-        Returns:
+        返回参数:
             全部依赖可用时返回 200 + ``{"status": "ok", "checks": {...}}``;
             任一依赖不可用时返回 503 + ``status="unavailable"``,便于负载均衡摘除实例。
+
+        使用示例:
+            ``client.get("/api/v1/readyz")``
+
+        备注信息:
+            单个探针失败只记 ``logger.exception`` 并把该项标成 ``error``,其余项继续检查,
+            因此返回体能同时看出是数据库还是 Redis 不可用。
       tags:
       - readyz
       security:
@@ -3272,7 +3323,21 @@ components:
           title: 动态互动
     PhoneRequest:
       type: object
-      description: 只接收一个手机号的入参。
+      description: |-
+        只接收一个手机号的入参。
+
+        参数说明:
+            **kwargs: 透传给 ``serializers.Serializer`` 的初始化参数
+                (``data``、``context`` 等)。
+
+        返回参数:
+            序列化器实例;校验通过后 ``validated_data`` 里是去空白后的手机号。
+
+        使用示例:
+            ``PhoneSerializer(data={"phone": " 13900009000 "}).is_valid(raise_exception=True)``
+
+        备注信息:
+            只做入参校验,不落库;号码格式规则见 ``accounts.validators.PHONE_RE``。
       properties:
         phone:
           type: string
@@ -3918,7 +3983,22 @@ components:
       - status
     SmsVerifyRequest:
       type: object
-      description: 手机号 + 6 位验证码的入参。
+      description: |-
+        手机号 + 6 位验证码的入参。
+
+        参数说明:
+            **kwargs: 透传给 ``serializers.Serializer`` 的初始化参数
+                (``data``、``context`` 等)。
+
+        返回参数:
+            序列化器实例;``validated_data`` 里是 ``phone``(已规范化)与 ``code``。
+
+        使用示例:
+            ``SmsVerifySerializer(data={"phone": "13900009000", "code": "123456"})``
+
+        备注信息:
+            ``phone`` 的规范化与格式校验继承自 ``PhoneSerializer``,两个接口口径一致;
+            ``code`` 只校验长度 6 位,内容正确性由 ``accounts.services.check_code`` 判定。
       properties:
         phone:
           type: string

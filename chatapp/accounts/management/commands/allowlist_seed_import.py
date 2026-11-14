@@ -23,6 +23,17 @@
 
 关联文档:
     - 运维手册:docs/ops/runbook.md「准入名单的日常运维」
+
+文件信息:
+    文件名称          accounts/management/commands/allowlist_seed_import.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.conf import settings
@@ -35,15 +46,38 @@ from accounts.validators import mask_phone
 
 
 class Command(BaseCommand):
-    """把 ``settings.SMS_PHONE_WHITELIST`` 里的号码补进准入名单表。"""
+    """把 ``settings.SMS_PHONE_WHITELIST`` 里的号码补进准入名单表。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``python manage.py allowlist_seed_import --dry-run``
+
+    备注信息:
+        ``help`` 的语义是「把 .env 的 SMS_PHONE_WHITELIST 种子号码幂等导入
+        accounts.PhoneAllowlist」;已存在的号码一律跳过,不重新启用、不改备注。
+    """
 
     help = "把 .env 的 SMS_PHONE_WHITELIST 种子号码幂等导入 accounts.PhoneAllowlist"
 
     def add_arguments(self, parser):
         """声明命令行参数。
 
-        Args:
+        参数说明:
             parser: Django 的参数解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.add_arguments(parser)``
+
+        备注信息:
+            声明 ``--dry-run`` 与 ``--note``(默认「从 .env 种子导入」)两个参数。
         """
         parser.add_argument(
             "--dry-run", action="store_true",
@@ -56,9 +90,21 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """执行导入。
 
-        Args:
+        参数说明:
             *args: 位置参数(管理命令框架会传,这里不用)。
             **options: 已解析的命令行选项(``dry_run`` / ``note``)。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py allowlist_seed_import --dry-run``
+
+        备注信息:
+            幂等:已存在的号码跳过,库里已停用的保持停用;每条真正插入的号码写一条
+            ``PhoneAllowlistEvent``(``action=seed_import``,``operator`` 为空);
+            插入与流水同在一个事务里,提交前调 ``invalidate()`` 立刻生效;
+            输出只打脱敏号码。
         """
         seed = sorted(settings.SMS_PHONE_WHITELIST)
         if not seed:

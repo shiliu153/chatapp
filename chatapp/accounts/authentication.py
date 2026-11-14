@@ -11,6 +11,17 @@
 注意事项:
     本类是全项目 DRF 侧唯一的认证入口(见 ``settings.REST_FRAMEWORK``)。认证通过时
     顺带刷新在线状态,因此「在线」由认证请求驱动,不需要独立的在线心跳接口。
+
+文件信息:
+    文件名称          accounts/authentication.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -22,20 +33,39 @@ from .exceptions import SingleDeviceSessionConflict
 
 
 class SessionJwtAuthentication(JWTAuthentication):
-    """带会话版本校验的 JWT 认证(按端)。"""
+    """带会话版本校验的 JWT 认证(按端)。
+
+    参数说明:
+        无(未自定义 ``__init__``,沿用 DRF ``JWTAuthentication`` 的构造)。
+
+    返回参数:
+        认证器实例本身;DRF 通过 ``authenticate()`` 调用它并取回 ``(user, token)``。
+
+    使用示例:
+        ``"DEFAULT_AUTHENTICATION_CLASSES": ["accounts.authentication.SessionJwtAuthentication"]``
+
+    备注信息:
+        只重写 ``get_user``:签名与有效期校验仍走 DRF 原实现,额外比对令牌里的 ``ct``
+        claim 所指那一端的 ``DeviceSession.version``;不一致返回 401 + code=40101。
+    """
 
     def get_user(self, validated_token):
         """校验令牌在**本端**的会话版本并取出用户。
 
-        Args:
+        参数说明:
             validated_token: 已通过签名与有效期校验的 JWT。
 
-        Returns:
+        返回参数:
             令牌对应的用户实例。
 
-        Raises:
-            SingleDeviceSessionConflict: 令牌版本与该端的当前版本不一致,
-                即账号已在同类端的其他设备登录。
+        使用示例:
+            ``SessionJwtAuthentication().get_user(validated_token)``
+
+        备注信息:
+            令牌版本与该端的当前版本不一致时抛 ``SingleDeviceSessionConflict``
+            (401 + code=40101),即账号已在同类端的其他设备登录。老令牌没有 ``ct``
+            claim 时按 ``app`` 兜底(等价于升级前的行为,见 ``client_type_of_token``)。
+            认证通过即调用 ``users.presence.touch`` 刷新「最后活跃」,失败静默。
         """
         user = super().get_user(validated_token)
         # 老令牌没有 ct claim → 按 app 兜底(等价于升级前的行为)
