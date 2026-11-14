@@ -18,6 +18,17 @@
 ``docs/ops/release.md`` §3.2 的职责边界表。
 
 退出码:0 一致(或已写回);1 不一致;2 判不出来(YAML 语法错 / 字段拼错 / 标记缺失)。
+
+文件信息:
+    文件名称          scripts/releases.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -36,11 +47,17 @@ from scripts.lib import docs  # noqa: E402  (必须在 sys.path 修好之后)
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;``None`` 表示取 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         0 一致 / 已写回;1 不一致;2 判不出来。
+
+    使用示例:
+        ``python scripts/releases.py --check``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(
         description="渲染或校验发版记录(docs/releases.yml 是 owner,release.md §5 是渲染物)"

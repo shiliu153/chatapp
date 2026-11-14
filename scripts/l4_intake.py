@@ -31,14 +31,24 @@
     python scripts/l4_intake.py from-npm-audit --input .l4/npm-audit.json --out .l4/alerts.json
 
     # 判定(纯函数,离线;输入是 gh api 的 JSON 快照)
-    python scripts/l4_intake.py plan --runs runs.json --alerts alerts.json \
-        --existing issues.json --root . --json-out plan.json --summary-out summary.md
+    python scripts/l4_intake.py plan --runs runs.json --alerts alerts.json         --existing issues.json --root . --json-out plan.json --summary-out summary.md
 
     # 执行(plan → gh 命令);--dry-run 只打印
     python scripts/l4_intake.py apply --plan plan.json --repo shiliu153/chatapp --dry-run
 
     # 复用:main-health.yml 的红轨列表由同一个解析器产出(不复制扫描逻辑)
     python scripts/l4_intake.py ci-red-summary --runs runs.json
+
+文件信息:
+    文件名称          scripts/l4_intake.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -123,7 +133,16 @@ _COMPARATOR_RE = re.compile(r"^(>=|<=|>|<|=|\^|~)?\s*v?(\d+(?:\.\d+){0,2})$")
 class Decision:
     """一条判定结果:要么开单 / 评论 / 重开,要么跳过并写明原因。
 
-    Attributes:
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``obj = Decision(...)``
+
+    备注信息:
         action: `create` / `comment` / `reopen` / `skip` / `defer`。
         detector: 触发的信号名(见 `DETECTORS`)。
         fingerprint: 稳定指纹(16 位十六进制),去重就靠它。
@@ -150,8 +169,8 @@ class Decision:
 def _now_iso() -> str:
     """返回当前 UTC 时间的 ISO 8601 字符串(秒级,带 Z)。
 
-    Returns:
-        形如 `2026-11-13T01:20:00Z` 的字符串。
+    备注信息:
+        无特殊约束。
     """
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -159,13 +178,17 @@ def _now_iso() -> str:
 def fingerprint(identity: str) -> str:
     """把「同一失败的身份串」压成稳定指纹。
 
-    身份串里**不许**出现时间戳或 SHA —— 否则同一失败每天都会算出新指纹,去重就失效了。
-
-    Args:
+    参数说明:
         identity: 身份串,如 `ci-red|Backend (Django)`。
 
-    Returns:
+    返回参数:
         16 位十六进制指纹(sha256 前 16 位)。
+
+    使用示例:
+        ``fingerprint(identity)``
+
+    备注信息:
+        身份串里**不许**出现时间戳或 SHA —— 否则同一失败每天都会算出新指纹,去重就失效了。
     """
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
 
@@ -173,11 +196,17 @@ def fingerprint(identity: str) -> str:
 def _scrub_mentions(text: str) -> str:
     """去掉正文里的 `@提及`,防止开单被 superagent 当成派工。
 
-    Args:
+    参数说明:
         text: 任意文本(通常是要写进 issue 的标题或正文)。
 
-    Returns:
+    返回参数:
         所有 `@handle` 里的 `@` 已被去掉的文本。
+
+    使用示例:
+        ``_scrub_mentions(text)``
+
+    备注信息:
+        无特殊约束。
     """
     return re.sub(r"@([A-Za-z0-9][A-Za-z0-9\-]*)", r"\1", text)
 
@@ -185,14 +214,17 @@ def _scrub_mentions(text: str) -> str:
 def _load_json(path: str) -> Any:
     """读一个 JSON 文件;`-` 表示从 stdin 读。
 
-    Args:
+    参数说明:
         path: 文件路径或 `-`。
 
-    Returns:
+    返回参数:
         解析后的 JSON 值。
 
-    Raises:
-        OSError: 文件读不了。
+    使用示例:
+        ``_load_json(path)``
+
+    备注信息:
+        抛 ``OSError``:文件读不了。
         json.JSONDecodeError: 内容不是合法 JSON(调用方负责 fail-closed)。
     """
     if path == "-":
@@ -206,11 +238,17 @@ def _load_json(path: str) -> Any:
 def parse_version(text: str) -> Optional[Tuple[int, int, int]]:
     """把版本号解析成三元组,忽略预发布 / 构建元数据。
 
-    Args:
+    参数说明:
         text: 版本号,如 `11.0.8` / `v1.16.3` / `8.3.8-beta.1`。
 
-    Returns:
+    返回参数:
         `(major, minor, patch)`;解析不了返回 `None`(调用方按 fail-closed 处理)。
+
+    使用示例:
+        ``parse_version(text)``
+
+    备注信息:
+        无特殊约束。
     """
     match = _VERSION_RE.match(text.strip())
     if not match:
@@ -221,12 +259,18 @@ def parse_version(text: str) -> Optional[Tuple[int, int, int]]:
 def _match_comparator(version: Tuple[int, int, int], comparator: str) -> Optional[bool]:
     """判定单个比较式(如 `>= 7.0.0` / `^8.3.0`)是否成立。
 
-    Args:
+    参数说明:
         version: 已解析的版本三元组。
         comparator: 单个比较式(不含逗号)。
 
-    Returns:
+    返回参数:
         `True` / `False`;无法解析时返回 `None`。
+
+    使用示例:
+        ``_match_comparator(version, comparator)``
+
+    备注信息:
+        无特殊约束。
     """
     text = comparator.strip()
     if not text or text == "*":
@@ -265,15 +309,19 @@ def _match_comparator(version: Tuple[int, int, int], comparator: str) -> Optiona
 def _normalize_spec(spec: str) -> str:
     """把两种常见的区间写法归一化,再交给比较器。
 
-    GitHub 公告用逗号分隔(`>= 7.0.0, < 7.30.1`),**npm 用空格分隔**
-    (`>=8.3.0 <=8.3.2`)。旧版只按逗号切,于是 npm 的写法会整串被当成一个比较式而
-    判不出来 —— 换成 npm audit 之后这是**主路径**,必须归一化。
-
-    Args:
+    参数说明:
         spec: 原始区间表达式。
 
-    Returns:
+    返回参数:
         去掉了「操作符与版本号之间空格」的表达式;分组仍保留逗号与空格作为分隔符。
+
+    使用示例:
+        ``_normalize_spec(spec)``
+
+    备注信息:
+        GitHub 公告用逗号分隔(`>= 7.0.0, < 7.30.1`),**npm 用空格分隔**
+        (`>=8.3.0 <=8.3.2`)。旧版只按逗号切,于是 npm 的写法会整串被当成一个比较式而
+        判不出来 —— 换成 npm audit 之后这是**主路径**,必须归一化。
     """
     return re.sub(r"([<>=^~]+)\s+", r"\1", spec.strip())
 
@@ -281,14 +329,18 @@ def _normalize_spec(spec: str) -> str:
 def version_in_range(version: str, spec: str) -> Optional[bool]:
     """判定某个版本是否落在 npm / pip 风格的受影响区间里。
 
-    支持 `||`、逗号**或空格**表示「且」、以及 `>= <= > < = ^ ~` 与裸版本(等价于 `=`)。
-
-    Args:
+    参数说明:
         version: 待判定的版本号(锁文件里实际装的那个)。
         spec: 区间表达式,如 `>= 7.0.0, < 7.30.1` 或 `>=8.3.0 <=8.3.2`。
 
-    Returns:
+    返回参数:
         `True`(在区间内)/ `False`(不在)/ `None`(判不出来 —— 调用方必须按不开单处理)。
+
+    使用示例:
+        ``version_in_range(version, spec)``
+
+    备注信息:
+        支持 `||`、逗号**或空格**表示「且」、以及 `>= <= > < = ^ ~` 与裸版本(等价于 `=`)。
     """
     parsed = parse_version(version)
     if parsed is None or not spec or not spec.strip():
@@ -311,11 +363,17 @@ def version_in_range(version: str, spec: str) -> Optional[bool]:
 def _normalize_pip_name(name: str) -> str:
     """按 PEP 503 归一化 Python 包名(`-` / `_` / `.` 等价,大小写不敏感)。
 
-    Args:
+    参数说明:
         name: 原始包名。
 
-    Returns:
+    返回参数:
         归一化后的包名。
+
+    使用示例:
+        ``_normalize_pip_name(name)``
+
+    备注信息:
+        无特殊约束。
     """
     return re.sub(r"[-_.]+", "-", name.strip().lower())
 
@@ -323,16 +381,20 @@ def _normalize_pip_name(name: str) -> str:
 def locked_version(repo_root: Path, ecosystem: str, package: str) -> Optional[str]:
     """从仓库的锁文件里读出该包**实际会被装上**的版本。
 
-    这是依赖信号的关键:GitHub 的告警 state 会滞后于仓库(实测:2026-11-12 修复后仍有
-    13 条 `open` 告警),只信 state 会为**已经修好的漏洞**开单。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         ecosystem: `npm` 或 `pip`。
         package: 包名。
 
-    Returns:
+    返回参数:
         锁文件里的版本号;找不到 / 锁文件缺失 / 同包多版本判不了时返回 `None`。
+
+    使用示例:
+        ``locked_version(repo_root, ecosystem, package)``
+
+    备注信息:
+        这是依赖信号的关键:GitHub 的告警 state 会滞后于仓库(实测:2026-11-12 修复后仍有
+        13 条 `open` 告警),只信 state 会为**已经修好的漏洞**开单。
     """
     if ecosystem == "npm":
         lock = repo_root / NPM_LOCK
@@ -389,12 +451,17 @@ RED_CONCLUSIONS = frozenset(
 def is_red_run(run: dict) -> bool:
     """判断一条 run 是不是「红」——口径唯一入口,`red_runs` 与 `scan_info` 共用。
 
-    Args:
+    参数说明:
         run: 一条 Actions run 记录。
 
-    Returns:
-        结论落在 :data:`RED_CONCLUSIONS` 里为 `True`;`success` / `skipped` /
-        `neutral` 与 `conclusion is None`(仍在跑)一律 `False`。
+    返回参数:
+        结论落在 :data:`RED_CONCLUSIONS` 里为 `True`;`success` / `skipped` / `neutral` 与 `conclusion is None`(仍在跑)一律 `False`。
+
+    使用示例:
+        ``is_red_run(run)``
+
+    备注信息:
+        无特殊约束。
     """
     return run.get("conclusion") in RED_CONCLUSIONS
 
@@ -402,14 +469,17 @@ def is_red_run(run: dict) -> bool:
 def latest_runs_by_workflow(runs: Any) -> List[dict]:
     """取出「每条 workflow 的最新一次 run」(与 `main-health.yml` 同口径)。
 
-    Args:
+    参数说明:
         runs: `gh api .../actions/runs` 的响应(需含 `workflow_runs`),或直接是列表。
 
-    Returns:
+    返回参数:
         每项是一个 run 字典,按创建时间倒序。空列表表示没有任何 run。
 
-    Raises:
-        ValueError: 形状不对(调用方 fail-closed)。
+    使用示例:
+        ``latest_runs_by_workflow(runs)``
+
+    备注信息:
+        抛 ``ValueError``:形状不对(调用方 fail-closed)。
     """
     if isinstance(runs, dict):
         items = runs.get("workflow_runs")
@@ -437,16 +507,18 @@ def latest_runs_by_workflow(runs: Any) -> List[dict]:
 def red_runs(runs: Any) -> List[dict]:
     """从 runs 快照里挑出「最新一次 push run 是红的」那些 workflow。
 
-    判据是 :data:`RED_CONCLUSIONS`(红集合),不是「等于 `failure`」。
-
-    Args:
+    参数说明:
         runs: `gh api .../actions/runs` 的响应。
 
-    Returns:
+    返回参数:
         红 run 的字典列表,按 workflow 名字典序。
 
-    Raises:
-        ValueError: 形状不对。
+    使用示例:
+        ``red_runs(runs)``
+
+    备注信息:
+        判据是 :data:`RED_CONCLUSIONS`(红集合),不是「等于 `failure`」。
+        抛 ``ValueError``:形状不对。
     """
     red = [run for run in latest_runs_by_workflow(runs) if is_red_run(run)]
     return sorted(red, key=lambda run: str(run.get("name")))
@@ -455,14 +527,18 @@ def red_runs(runs: Any) -> List[dict]:
 def render_ci_red_summary(runs: Any) -> str:
     """把红轨渲染成 Markdown 列表(`main-health.yml` 的 issue 正文原样用这一份)。
 
-    每行都带结论:`cancelled` / `timed_out` / `startup_failure` 这类红要看得出**红在哪**,
-    否则正文里十条红轨长得一模一样,排查还得逐条点开 run。
-
-    Args:
+    参数说明:
         runs: `gh api .../actions/runs` 的响应。
 
-    Returns:
+    返回参数:
         Markdown 文本;没有红轨时返回空串。
+
+    使用示例:
+        ``render_ci_red_summary(runs)``
+
+    备注信息:
+        每行都带结论:`cancelled` / `timed_out` / `startup_failure` 这类红要看得出**红在哪**,
+        否则正文里十条红轨长得一模一样,排查还得逐条点开 run。
     """
     items = [
         f"- `{run.get('name')}` @ {str(run.get('head_sha') or '')[:7]}"
@@ -478,11 +554,17 @@ def render_ci_red_summary(runs: Any) -> str:
 def _alert_severity(alert: dict) -> str:
     """取告警的严重度(小写)。
 
-    Args:
+    参数说明:
         alert: Dependabot 告警字典。
 
-    Returns:
+    返回参数:
         严重度字符串;缺失时返回空串。
+
+    使用示例:
+        ``_alert_severity(alert)``
+
+    备注信息:
+        无特殊约束。
     """
     advisory = alert.get("security_advisory") or {}
     return str(advisory.get("severity") or "").lower()
@@ -491,11 +573,17 @@ def _alert_severity(alert: dict) -> str:
 def _alert_stack(alert: dict) -> Optional[Tuple[str, str, str]]:
     """把一条告警映射到「单一条栈」,映射不了返回 `None`。
 
-    Args:
+    参数说明:
         alert: Dependabot 告警字典。
 
-    Returns:
+    返回参数:
         `(栈路径, verify.sh 子命令, scope 词)`;生态或 manifest 不在白名单时返回 `None`。
+
+    使用示例:
+        ``_alert_stack(alert)``
+
+    备注信息:
+        无特殊约束。
     """
     dependency = alert.get("dependency") or {}
     package = dependency.get("package") or {}
@@ -516,21 +604,23 @@ GHSA_RE = re.compile(r"(GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})", re.IGNORECAS
 def normalize_npm_audit(report: Any, manifest: str = "web/package.json") -> List[dict]:
     """把 `npm audit --json` 的输出规整成判定器认识的「告警记录」。
 
-    为什么要转换而不是直接判:`npm audit` 是**在任何 token 下都能跑**的事实源
-    (Dependabot 告警接口在私有仓库上对 `GITHUB_TOKEN` 返回 403,实测),
-    而它的输出形状与 GitHub 告警 API 不同。转换之后,严重度阈值、锁文件比对、
-    指纹去重这些口径与「告警」那条路径完全共用,不必各写一份。
-
-    一个包可能命中多条公告(`via` 里每个对象一条),**按公告拆开**——指纹
-    `dep|npm|<包>|<GHSA>` 因此天然区分得开。
-
-    Args:
+    参数说明:
         report: `npm audit --json` 解析后的字典。
         manifest: 写进记录的清单路径,用于映射到栈。
 
-    Returns:
-        告警记录列表。`via` 里的字符串项(传递依赖、没有公告号)被跳过:
-        没有公告号就做不出稳定指纹,也就无法去重 ⇒ 不开单。
+    返回参数:
+        告警记录列表。`via` 里的字符串项(传递依赖、没有公告号)被跳过: 没有公告号就做不出稳定指纹,也就无法去重 ⇒ 不开单。
+
+    使用示例:
+        ``normalize_npm_audit(report, manifest)``
+
+    备注信息:
+        为什么要转换而不是直接判:`npm audit` 是**在任何 token 下都能跑**的事实源
+        (Dependabot 告警接口在私有仓库上对 `GITHUB_TOKEN` 返回 403,实测),
+        而它的输出形状与 GitHub 告警 API 不同。转换之后,严重度阈值、锁文件比对、
+        指纹去重这些口径与「告警」那条路径完全共用,不必各写一份。
+        一个包可能命中多条公告(`via` 里每个对象一条),**按公告拆开**——指纹
+        `dep|npm|<包>|<GHSA>` 因此天然区分得开。
     """
     vulnerabilities = (report or {}).get("vulnerabilities") or {}
     if not isinstance(vulnerabilities, dict):
@@ -596,7 +686,7 @@ def _envelope(
 ) -> str:
     """渲染工单正文的统一骨架:指纹 / 事实 / 改什么 / 验收 / 栈 / 边界。
 
-    Args:
+    参数说明:
         detector: 信号名。
         identity: 人的可读身份串(如 workflow 名)。
         fp: 稳定指纹。
@@ -608,8 +698,14 @@ def _envelope(
         allowed: 允许的动作(一句话)。
         forbidden: 禁止的动作(一句话)。
 
-    Returns:
+    返回参数:
         完整的 Markdown 正文(已过 `_scrub_mentions`)。
+
+    使用示例:
+        ``_envelope(detector, identity, fp, judged_at, facts, what, acceptance, stack, allowed, forbidden)``
+
+    备注信息:
+        无特殊约束。
     """
     table = "\n".join(f"| {key} | {value} |" for key, value in facts)
     commands = "\n".join(acceptance)
@@ -651,13 +747,19 @@ def _envelope(
 def _ci_red_ticket(run: dict, stack: Tuple[str, str, str], judged_at: str) -> Decision:
     """把一条红轨事实转成开单判定。
 
-    Args:
+    参数说明:
         run: 失败 run 的字典。
         stack: `(栈路径, verify.sh 子命令, scope 词)`。
         judged_at: 判定时间(UTC ISO)。
 
-    Returns:
+    返回参数:
         `create` 判定。
+
+    使用示例:
+        ``_ci_red_ticket(run, stack, judged_at)``
+
+    备注信息:
+        无特殊约束。
     """
     path, command, scope = stack
     name = str(run.get("name"))
@@ -705,14 +807,20 @@ def _dep_ticket(
 ) -> Decision:
     """把一条仍成立的依赖告警转成开单判定。
 
-    Args:
+    参数说明:
         alert: Dependabot 告警字典。
         stack: `(栈路径, verify.sh 子命令, scope 词)`。
         current: 锁文件里实际装的版本。
         judged_at: 判定时间(UTC ISO)。
 
-    Returns:
+    返回参数:
         `create` 判定。
+
+    使用示例:
+        ``_dep_ticket(alert, stack, current, judged_at)``
+
+    备注信息:
+        无特殊约束。
     """
     path, command, scope = stack
     dependency = alert.get("dependency") or {}
@@ -782,13 +890,19 @@ def _dep_ticket(
 def _docs_ticket(file: str, items: List[dict], judged_at: str) -> Decision:
     """把一个文件的全部断链聚合成一张单。
 
-    Args:
+    参数说明:
         file: 出现断链的 Markdown 文件(仓库相对路径)。
         items: 该文件的断链条目(每项含 line / target / resolved / suggestion)。
         judged_at: 判定时间(UTC ISO)。
 
-    Returns:
+    返回参数:
         `create` 判定。
+
+    使用示例:
+        ``_docs_ticket(file, items, judged_at)``
+
+    备注信息:
+        无特殊约束。
     """
     fp = fingerprint(f"mech|docs-links|{file}")
     rows = []
@@ -830,12 +944,18 @@ def _docs_ticket(file: str, items: List[dict], judged_at: str) -> Decision:
 def decide_ci_red(runs: Any, judged_at: str) -> Tuple[List[Decision], List[str]]:
     """ci-red 信号:白名单内的红轨 → 开单;其余 → 记原因跳过。
 
-    Args:
+    参数说明:
         runs: `gh api .../actions/runs` 的响应。
         judged_at: 判定时间(UTC ISO)。
 
-    Returns:
+    返回参数:
         `(判定列表, 判不出来的原因列表)`。原因列表非空表示这轮**不可信**。
+
+    使用示例:
+        ``decide_ci_red(runs, judged_at)``
+
+    备注信息:
+        无特殊约束。
     """
     decisions: List[Decision] = []
     undecidable: List[str] = []
@@ -870,14 +990,20 @@ def decide_dep(
 ) -> Tuple[List[Decision], List[str]]:
     """依赖信号:只有「锁文件里仍受影响」的告警才开单。
 
-    Args:
+    参数说明:
         alerts: `gh api .../dependabot/alerts` 的响应(列表,或 `{"alerts": [...]}`)。
         repo_root: 仓库根目录(用于读锁文件)。
         judged_at: 判定时间(UTC ISO)。
         min_severity: 严重度阈值,低于它只记录不开单。
 
-    Returns:
+    返回参数:
         `(判定列表, 判不出来的原因列表)`。
+
+    使用示例:
+        ``decide_dep(alerts, repo_root, judged_at, min_severity)``
+
+    备注信息:
+        无特殊约束。
     """
     decisions: List[Decision] = []
     undecidable: List[str] = []
@@ -970,12 +1096,18 @@ def decide_dep(
 def decide_docs_links(repo_root: Path, judged_at: str) -> Tuple[List[Decision], List[str]]:
     """机械一致性信号:文档断链,按文件聚合,一个文件一张单。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         judged_at: 判定时间(UTC ISO)。
 
-    Returns:
+    返回参数:
         `(判定列表, 判不出来的原因列表)`。
+
+    使用示例:
+        ``decide_docs_links(repo_root, judged_at)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         broken = check_docs_links.find_broken_links(repo_root)
@@ -991,17 +1123,21 @@ def decide_docs_links(repo_root: Path, judged_at: str) -> Tuple[List[Decision], 
 def scan_info(repo_root: Path, runs: Any, alerts: Any) -> dict:
     """统计这一轮「到底扫到了多少」,写进计划与日报。
 
-    没有它,「扫了 128 个文件、没有断链」与「一个文件都没扫到」在日报里长得一模一样
-    —— 2026-11-12 首次真跑就卡在这个歧义上(见 `docs/ops/superagent.md` §14.4)。
-    这里任何一项取不到都只是 `None`,绝不影响判定。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         runs: 默认分支 push runs 快照。
         alerts: 告警快照。
 
-    Returns:
+    返回参数:
         含各信号「扫到了多少」的字典。
+
+    使用示例:
+        ``scan_info(repo_root, runs, alerts)``
+
+    备注信息:
+        没有它,「扫了 128 个文件、没有断链」与「一个文件都没扫到」在日报里长得一模一样
+        —— 2026-11-12 首次真跑就卡在这个歧义上(见 `docs/ops/superagent.md` §14.4)。
+        这里任何一项取不到都只是 `None`,绝不影响判定。
     """
     info: Dict[str, Any] = {
         "workflows_seen": None,
@@ -1050,11 +1186,17 @@ def scan_info(repo_root: Path, runs: Any, alerts: Any) -> dict:
 def existing_fingerprints(issues: Any) -> Dict[str, dict]:
     """从已有 issue 快照里抽出「指纹 → issue」映射。
 
-    Args:
+    参数说明:
         issues: `gh issue list --json number,title,state,body,createdAt` 的结果(列表)。
 
-    Returns:
+    返回参数:
         字典:指纹 → `{"number":…, "state":…, "title":…}`。没有指纹的 issue 被忽略。
+
+    使用示例:
+        ``existing_fingerprints(issues)``
+
+    备注信息:
+        无特殊约束。
     """
     index: Dict[str, dict] = {}
     items = issues if isinstance(issues, list) else []
@@ -1075,12 +1217,18 @@ def existing_fingerprints(issues: Any) -> Dict[str, dict]:
 def created_today(issues: Any, today: str) -> int:
     """统计今天(UTC 日)已经由 L4 开出的 issue 数,用于每日限额。
 
-    Args:
+    参数说明:
         issues: `gh issue list --json number,createdAt` 的结果(列表)。
         today: `YYYY-MM-DD`(UTC)。
 
-    Returns:
+    返回参数:
         当天创建的 issue 数。
+
+    使用示例:
+        ``created_today(issues, today)``
+
+    备注信息:
+        无特殊约束。
     """
     if not isinstance(issues, list):
         return 0
@@ -1100,15 +1248,21 @@ def apply_dedup(
 ) -> List[Decision]:
     """把「开单」判定按去重与限额改写为 comment / reopen / defer。
 
-    Args:
+    参数说明:
         decisions: 三个判定器给出的原始判定。
         existing: `existing_fingerprints` 的结果。
         already_today: 今天已开的单数。
         max_per_day: 每日新建上限(0 表示今天一张都不许新建)。
         judged_at: 判定时间(UTC ISO)。
 
-    Returns:
+    返回参数:
         改写后的判定列表(顺序不变)。
+
+    使用示例:
+        ``apply_dedup(decisions, existing, already_today, max_per_day, judged_at)``
+
+    备注信息:
+        无特殊约束。
     """
     out: List[Decision] = []
     created = already_today
@@ -1159,7 +1313,7 @@ def build_plan(
 ) -> dict:
     """把三份事实快照跑成一份可审阅的计划(纯函数,不碰网络、不碰 issue)。
 
-    Args:
+    参数说明:
         runs: 默认分支 push runs 快照。
         alerts: Dependabot 告警快照。
         issues: 已有 `l4-auto` issue 快照。
@@ -1170,8 +1324,14 @@ def build_plan(
         enabled: 总闸;`False` 时返回空计划(但仍报告判不出来的项)。
         today: 覆盖「今天」的 UTC 日期(自测用)。
 
-    Returns:
+    返回参数:
         plan 字典,含 `decisions` / `undecidable` / `summary`。
+
+    使用示例:
+        ``build_plan(runs, alerts, issues, repo_root, judged_at, max_per_day, min_severity, enabled, today)``
+
+    备注信息:
+        无特殊约束。
     """
     day = today or judged_at[:10]
     if not enabled:
@@ -1222,11 +1382,17 @@ def build_plan(
 def render_plan_markdown(plan: dict) -> str:
     """把计划渲染成 job summary(人每天扫一眼的日报)。
 
-    Args:
+    参数说明:
         plan: `build_plan` 的返回值。
 
-    Returns:
+    返回参数:
         Markdown 文本。
+
+    使用示例:
+        ``render_plan_markdown(plan)``
+
+    备注信息:
+        无特殊约束。
     """
     lines = ["## L4 需求自动入队", ""]
     if not plan.get("enabled", True):
@@ -1272,12 +1438,18 @@ def render_plan_markdown(plan: dict) -> str:
 def build_gh_commands(plan: dict, repo: str) -> List[List[str]]:
     """把计划翻译成 `gh` 命令序列(纯函数,自测直接断言 argv)。
 
-    Args:
+    参数说明:
         plan: `build_plan` 的返回值。
         repo: `owner/name`。
 
-    Returns:
+    返回参数:
         命令列表,每项是 `gh` 的 argv(不含 `gh` 本身)。
+
+    使用示例:
+        ``build_gh_commands(plan, repo)``
+
+    备注信息:
+        无特殊约束。
     """
     commands: List[List[str]] = []
     actions = {decision["action"] for decision in plan.get("decisions") or []}
@@ -1327,12 +1499,18 @@ def build_gh_commands(plan: dict, repo: str) -> List[List[str]]:
 def run_gh_commands(commands: List[List[str]], dry_run: bool = False) -> List[str]:
     """执行 gh 命令,收集失败说明。
 
-    Args:
+    参数说明:
         commands: `build_gh_commands` 的输出。
         dry_run: `True` 时只打印,不执行。
 
-    Returns:
+    返回参数:
         失败说明列表(空列表表示全部成功)。
+
+    使用示例:
+        ``run_gh_commands(commands, dry_run)``
+
+    备注信息:
+        无特殊约束。
     """
     failures: List[str] = []
     for argv in commands:
@@ -1356,11 +1534,17 @@ def run_gh_commands(commands: List[List[str]], dry_run: bool = False) -> List[st
 def _cmd_plan(args: argparse.Namespace) -> int:
     """`plan` 子命令的实现。
 
-    Args:
+    参数说明:
         args: 命令行参数。
 
-    Returns:
+    返回参数:
         进程退出码。
+
+    使用示例:
+        ``_cmd_plan(args)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         runs = _load_json(args.runs)
@@ -1416,11 +1600,17 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 def _cmd_apply(args: argparse.Namespace) -> int:
     """`apply` 子命令的实现。
 
-    Args:
+    参数说明:
         args: 命令行参数。
 
-    Returns:
+    返回参数:
         进程退出码(判不出来或有命令失败 → 1;否则 0)。
+
+    使用示例:
+        ``_cmd_apply(args)``
+
+    备注信息:
+        无特殊约束。
     """
     plan = _load_json(args.plan)
     commands = build_gh_commands(plan, args.repo)
@@ -1435,11 +1625,17 @@ def _cmd_apply(args: argparse.Namespace) -> int:
 def _cmd_ci_red_summary(args: argparse.Namespace) -> int:
     """`ci-red-summary` 子命令的实现:给 `main-health.yml` 复用同一解析器。
 
-    Args:
+    参数说明:
         args: 命令行参数。
 
-    Returns:
+    返回参数:
         进程退出码(0 = 正常;2 = 输入读不出来)。
+
+    使用示例:
+        ``_cmd_ci_red_summary(args)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         runs = _load_json(args.runs)
@@ -1457,12 +1653,17 @@ def _cmd_ci_red_summary(args: argparse.Namespace) -> int:
 def _cmd_from_npm_audit(args: argparse.Namespace) -> int:
     """`from-npm-audit` 子命令:把 `npm audit --json` 规整成告警记录。
 
-    Args:
+    参数说明:
         args: 命令行参数。
 
-    Returns:
-        进程退出码(0 = 正常;2 = 输入读不出来 —— 与判定器 `plan` 的 0 不同,
-        因为这一步的输入坏掉意味着「判不出来」)。
+    返回参数:
+        进程退出码(0 = 正常;2 = 输入读不出来 —— 与判定器 `plan` 的 0 不同, 因为这一步的输入坏掉意味着「判不出来」)。
+
+    使用示例:
+        ``_cmd_from_npm_audit(args)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         report = _load_json(args.input)
@@ -1488,8 +1689,17 @@ def _cmd_from_npm_audit(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     """构造命令行解析器。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         配好三个子命令的 `ArgumentParser`。
+
+    使用示例:
+        ``build_parser()``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(description="L4 需求自动入队判定器")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1544,11 +1754,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;`None` 表示用 `sys.argv[1:]`。
 
-    Returns:
+    返回参数:
         进程退出码。
+
+    使用示例:
+        ``python scripts/l4_intake.py from-npm-audit --input .l4/npm-audit.json --out .l4/alerts.json``
+
+    备注信息:
+        无特殊约束。
     """
     args = build_parser().parse_args(argv)
     return int(args.func(args))

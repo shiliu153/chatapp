@@ -8,6 +8,17 @@
 - 复用 keep-alive 连接,避免把 TLS 握手算进延迟;
 - 任何异常都计数不抛出,压测器本身不能先崩;
 - 结束时输出 JSON,便于和服务器端采样对齐。
+
+文件信息:
+    文件名称          scripts/stress/http_load.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -22,7 +33,21 @@ import httpx
 
 
 def pct(values: list[float], p: float) -> float | None:
-    """返回列表的 p 分位(毫秒)。"""
+    """返回列表的 p 分位(毫秒)。
+
+    参数说明:
+        values: 延迟样本列表,单位秒。
+        p: 分位点,取值 0–100。
+
+    返回参数:
+        ``float | None``。
+
+    使用示例:
+        ``pct(values, p)``
+
+    备注信息:
+        无特殊约束。
+    """
     if not values:
         return None
     ordered = sorted(values)
@@ -31,7 +56,23 @@ def pct(values: list[float], p: float) -> float | None:
 
 
 async def worker(client: httpx.AsyncClient, args, stop: asyncio.Event, stats: dict) -> None:
-    """一个并发循环:请求直到 stop 被置位。"""
+    """一个并发循环:请求直到 stop 被置位。
+
+    参数说明:
+        client: ``httpx.AsyncClient`` 实例。
+        args: 命令行参数(argparse 命名空间,已归一)。
+        stop: ``asyncio.Event``,置位后各协程退出循环。
+        stats: 汇总容器(``dict``),含 ``lat`` / ``codes`` / ``server_err``。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``worker(client, args, stop, stats)``
+
+    备注信息:
+        无特殊约束。
+    """
     while not stop.is_set():
         t0 = time.perf_counter()
         try:
@@ -48,7 +89,20 @@ async def worker(client: httpx.AsyncClient, args, stop: asyncio.Event, stats: di
 
 
 async def main() -> None:
-    """入口:跑 dur 秒,打印汇总。"""
+    """入口:跑 dur 秒,打印汇总。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``main()``
+
+    备注信息:
+        无特殊约束。
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", required=True)
     ap.add_argument("--method", default="GET")

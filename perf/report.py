@@ -9,6 +9,17 @@
     - RPS 比基线低 20% 以上;
     - p99 比基线高 20% 以上;
     - 错误率 > 基线 + 1 个百分点。
+
+文件信息:
+    文件名称          perf/report.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -22,11 +33,17 @@ from pathlib import Path
 def load_points(paths: list[str]) -> list[dict]:
     """读取结果文件,展开成「一个文件一行」的点。
 
-    Args:
+    参数说明:
         paths: 结果 JSON 路径列表。
 
-    Returns:
+    返回参数:
         结果点列表(保留原始结构,附带来源文件名)。
+
+    使用示例:
+        ``load_points(paths)``
+
+    备注信息:
+        无特殊约束。
     """
     points = []
     for raw in paths:
@@ -42,11 +59,17 @@ def load_points(paths: list[str]) -> list[dict]:
 def baseline_key(point: dict) -> tuple:
     """基线匹配键:场景 + 并发(+ 每连接条数)。
 
-    Args:
+    参数说明:
         point: 结果点。
 
-    Returns:
+    返回参数:
         可哈希的匹配键。
+
+    使用示例:
+        ``baseline_key(point)``
+
+    备注信息:
+        无特殊约束。
     """
     params = point.get("params", {})
     return (point.get("scenario"), params.get("conns"), params.get("count"))
@@ -55,13 +78,19 @@ def baseline_key(point: dict) -> tuple:
 def fmt(value, digits: int = 1, suffix: str = "") -> str:
     """格式化数字,空值显示 ``-``。
 
-    Args:
+    参数说明:
         value: 原始值。
         digits: 小数位。
         suffix: 后缀(如 ``ms``)。
 
-    Returns:
+    返回参数:
         展示用字符串。
+
+    使用示例:
+        ``fmt(value, digits, suffix)``
+
+    备注信息:
+        无特殊约束。
     """
     if value is None:
         return "-"
@@ -73,11 +102,17 @@ def fmt(value, digits: int = 1, suffix: str = "") -> str:
 def markdown_table(points: list[dict]) -> str:
     """生成结果表。
 
-    Args:
+    参数说明:
         points: 结果点列表。
 
-    Returns:
+    返回参数:
         Markdown 表格文本。
+
+    使用示例:
+        ``markdown_table(points)``
+
+    备注信息:
+        无特殊约束。
     """
     lines = [
         "| 场景 | 并发 | RPS | p50 | p95 | p99 | 错误率 | load 峰值 | 文件 |",
@@ -106,12 +141,18 @@ def markdown_table(points: list[dict]) -> str:
 def compare(points: list[dict], baseline: dict) -> tuple[str, list[str]]:
     """与基线逐点对比。
 
-    Args:
+    参数说明:
         points: 实测结果点。
         baseline: ``baseline.json`` 的内容。
 
-    Returns:
+    返回参数:
         (Markdown 对比表, 回归说明列表)。
+
+    使用示例:
+        ``compare(points, baseline)``
+
+    备注信息:
+        无特殊约束。
     """
     index = {}
     for entry in baseline.get("points", []):
@@ -161,8 +202,17 @@ def compare(points: list[dict], baseline: dict) -> tuple[str, list[str]]:
 def main() -> int:
     """解析参数并输出报告。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         0 正常;1 有回归(且传了 ``--fail-on-regression``);2 没有可读结果。
+
+    使用示例:
+        ``python3 perf/report.py perf/results/*.json --baseline perf/baseline.json --fail-on-regression``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("results", nargs="+", help="结果 JSON 文件(支持通配)")

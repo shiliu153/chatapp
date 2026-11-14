@@ -14,6 +14,17 @@
 - ``artifacts``:与 HEAD 一致 / 不一致 / 不在 HEAD 里 / CRLF 与 LF 视为同一内容。
 
 进 CI 的 ``contract`` 轨(``contract-lib-selftest``)。
+
+文件信息:
+    文件名称          scripts/test_lib.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -100,15 +111,18 @@ RELEASE_DOC_BODY = """# 发版与远端 Release
 def _git(repo_path: Path, *args: str) -> str:
     """在临时仓库里跑一条 git 命令。
 
-    Args:
+    参数说明:
         repo_path: 仓库目录。
         *args: git 参数。
 
-    Returns:
+    返回参数:
         去空白的标准输出。
 
-    Raises:
-        AssertionError: 命令非零退出(自测环境坏了要立刻看出来)。
+    使用示例:
+        ``_git(repo_path, *args)``
+
+    备注信息:
+        抛 ``AssertionError``:命令非零退出(自测环境坏了要立刻看出来)。
     """
     completed = subprocess.run(
         ["git", "-C", str(repo_path), *args],
@@ -122,11 +136,17 @@ def _git(repo_path: Path, *args: str) -> str:
 def make_git_repo(root: Path) -> Path:
     """造一个只含一个提交的最小 git 仓库。
 
-    Args:
+    参数说明:
         root: 临时目录(作为仓库根)。
 
-    Returns:
+    返回参数:
         仓库根路径。
+
+    使用示例:
+        ``make_git_repo(root)``
+
+    备注信息:
+        无特殊约束。
     """
     root.mkdir(parents=True, exist_ok=True)
     _git(root, "init", "-q", "-b", "main")
@@ -139,11 +159,17 @@ def make_git_repo(root: Path) -> Path:
 def make_release_root(root: Path) -> Path:
     """造一个「有 releases.yml + release.md」的最小仓库根。
 
-    Args:
+    参数说明:
         root: 临时目录。
 
-    Returns:
+    返回参数:
         仓库根路径(``docs/`` 与 ``docs/ops/`` 已建好,记录与手册已写入)。
+
+    使用示例:
+        ``make_release_root(root)``
+
+    备注信息:
+        无特殊约束。
     """
     (root / "docs" / "ops").mkdir(parents=True)
     (root / "docs" / "releases.yml").write_text(RECORDS_BODY, encoding="utf-8")
@@ -154,12 +180,18 @@ def make_release_root(root: Path) -> Path:
 def call_cli(main, argv: list[str]) -> tuple[int, str, str]:
     """调一个 CLI 的 ``main`` 并收集退出码与两路输出。
 
-    Args:
+    参数说明:
         main: 入口函数(如 ``releases.main``)。
         argv: 命令行参数。
 
-    Returns:
+    返回参数:
         ``(退出码, stdout, stderr)``。
+
+    使用示例:
+        ``call_cli(main, argv)``
+
+    备注信息:
+        无特殊约束。
     """
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -171,13 +203,21 @@ class RepoLibTests(unittest.TestCase):
     """``scripts/lib/repo.py``:常量与 token 解析。"""
 
     def setUp(self):
-        """清空两个 token 环境变量,保存原值以便还原。"""
+        """清空两个 token 环境变量,保存原值以便还原。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self._saved = {name: os.environ.get(name) for name in repo.TOKEN_ENV_VARS}
         for name in repo.TOKEN_ENV_VARS:
             os.environ.pop(name, None)
 
     def tearDown(self):
-        """还原环境变量。"""
+        """还原环境变量。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         for name, value in self._saved.items():
             if value is None:
                 os.environ.pop(name, None)
@@ -185,7 +225,11 @@ class RepoLibTests(unittest.TestCase):
                 os.environ[name] = value
 
     def test_constants_are_single_sourced(self):
-        """仓库名 / API 基址 / token 文件路径只有一个定义处(本模块)。"""
+        """仓库名 / API 基址 / token 文件路径只有一个定义处(本模块)。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(repo.DEFAULT_REPO, "shiliu153/chatapp")
         self.assertEqual(repo.API, "https://api.github.com")
         self.assertEqual(repo.UPLOAD_API, "https://uploads.github.com")
@@ -193,7 +237,11 @@ class RepoLibTests(unittest.TestCase):
         self.assertEqual(repo.DEFAULT_TOKEN_FILE.parent.name, ".dsh")
 
     def test_env_var_wins_over_file(self):
-        """环境变量优先:文件里的值不该被读到。"""
+        """环境变量优先:文件里的值不该被读到。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             token_file = Path(tmp) / "token.txt"
             token_file.write_text("from-file", encoding="utf-8")
@@ -201,19 +249,31 @@ class RepoLibTests(unittest.TestCase):
             self.assertEqual(repo.resolve_token(token_file), "from-env")
 
     def test_personal_access_token_env_is_the_fallback_name(self):
-        """``GITHUB_PERSONAL_ACCESS_TOKEN`` 也能用(与旧实现一致)。"""
+        """``GITHUB_PERSONAL_ACCESS_TOKEN`` 也能用(与旧实现一致)。
+
+        参数说明:
+            无。
+        """
         os.environ["GITHUB_PERSONAL_ACCESS_TOKEN"] = "pat-env"
         self.assertEqual(repo.resolve_token(Path("unused")), "pat-env")
 
     def test_file_is_used_when_env_is_empty(self):
-        """环境变量为空时回落到 token 文件(并去掉首尾空白)。"""
+        """环境变量为空时回落到 token 文件(并去掉首尾空白)。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             token_file = Path(tmp) / "token.txt"
             token_file.write_text("  from-file\n", encoding="utf-8")
             self.assertEqual(repo.resolve_token(token_file), "from-file")
 
     def test_missing_token_reports_path_and_provenance(self):
-        """两处都没有时必须报错,且文案里带路径与「与 mcp-github 同一个」的出处。"""
+        """两处都没有时必须报错,且文案里带路径与「与 mcp-github 同一个」的出处。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             token_file = Path(tmp) / "token.txt"
             with self.assertRaises(repo.TokenError) as caught:
@@ -228,7 +288,11 @@ class VersionLibTests(unittest.TestCase):
     """``scripts/lib/version.py``:三处版本号的读 / 写 / 比对。"""
 
     def setUp(self):
-        """造三份最小文件。"""
+        """造三份最小文件。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self._tmp = tempfile.TemporaryDirectory()
         root = Path(self._tmp.name)
         self.pubspec = root / "pubspec.yaml"
@@ -239,40 +303,68 @@ class VersionLibTests(unittest.TestCase):
         self.web_package.write_text(WEB_PACKAGE_BODY, encoding="utf-8")
 
     def tearDown(self):
-        """删临时目录。"""
+        """删临时目录。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self._tmp.cleanup()
 
     def test_reads_version_name_and_build(self):
-        """版本名与构建号分开读,两种正则变体都在本模块。"""
+        """版本名与构建号分开读,两种正则变体都在本模块。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(version.read_pubspec_version(self.pubspec), "1.0.13")
         self.assertEqual(
             version.read_pubspec_version_and_build(self.pubspec), ("1.0.13", 13))
 
     def test_missing_build_number_is_zero(self):
-        """没有 ``+N`` 时构建号为 0。"""
+        """没有 ``+N`` 时构建号为 0。
+
+        参数说明:
+            无。
+        """
         self.pubspec.write_text("name: x\nversion: 1.0.13\n", encoding="utf-8")
         self.assertEqual(
             version.read_pubspec_version_and_build(self.pubspec), ("1.0.13", 0))
 
     def test_missing_pubspec_raises_version_error(self):
-        """读不到 pubspec 时抛 ``VersionError``(不是 SystemExit —— lib 不决定退出码)。"""
+        """读不到 pubspec 时抛 ``VersionError``(不是 SystemExit —— lib 不决定退出码)。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(version.VersionError):
             version.read_pubspec_version(Path(self._tmp.name) / "nope.yaml")
 
     def test_consistent_files_have_no_mismatch(self):
-        """三处一致时没有 mismatch。"""
+        """三处一致时没有 mismatch。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(
             version.collect_mismatches(self.pubspec, self.app_info, self.web_package), [])
 
     def test_mismatch_names_file_and_fix(self):
-        """不一致时点名文件,并给出修复命令。"""
+        """不一致时点名文件,并给出修复命令。
+
+        参数说明:
+            无。
+        """
         self.app_info.write_text(APP_INFO_BODY.replace("1.0.13", "1.0.12"), encoding="utf-8")
         problems = version.collect_mismatches(self.pubspec, self.app_info, self.web_package)
         self.assertTrue(any("app_info.dart" in problem for problem in problems), problems)
         self.assertTrue(any("sync_version.py --write" in problem for problem in problems))
 
     def test_write_updates_only_the_version_line(self):
-        """写回只改目标行,其余内容原样保留。"""
+        """写回只改目标行,其余内容原样保留。
+
+        参数说明:
+            无。
+        """
         self.pubspec.write_text(PUBSPEC_BODY.replace("1.0.13", "1.1.0"), encoding="utf-8")
         self.assertTrue(version.write_app_info_version("1.1.0", self.app_info))
         self.assertTrue(version.write_web_version("1.1.0", self.web_package))
@@ -284,12 +376,20 @@ class VersionLibTests(unittest.TestCase):
         self.assertIn("version: 1.1.0+13", self.pubspec.read_text(encoding="utf-8"))
 
     def test_write_is_noop_when_already_matching(self):
-        """本来就是目标值时返回 False(不制造无意义的 diff)。"""
+        """本来就是目标值时返回 False(不制造无意义的 diff)。
+
+        参数说明:
+            无。
+        """
         self.assertFalse(version.write_app_info_version("1.0.13", self.app_info))
         self.assertFalse(version.write_web_version("1.0.13", self.web_package))
 
     def test_write_without_target_declaration_raises(self):
-        """找不到 ``const appVersion`` 时抛错,而不是静默写坏文件。"""
+        """找不到 ``const appVersion`` 时抛错,而不是静默写坏文件。
+
+        参数说明:
+            无。
+        """
         self.app_info.write_text("// 没有版本常量\n", encoding="utf-8")
         with self.assertRaises(version.VersionError):
             version.write_app_info_version("1.0.13", self.app_info)
@@ -299,11 +399,19 @@ class DocsLibTests(unittest.TestCase):
     """``scripts/lib/docs.py``:发版记录的解析 / 渲染 / 校验。"""
 
     def setUp(self):
-        """解析一份含链接行与两种散文行的样本。"""
+        """解析一份含链接行与两种散文行的样本。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.records = docs.parse_records(RECORDS_BODY)
 
     def test_parses_all_fields(self):
-        """字段逐个读出来(数字保持整数,便于渲染千分位)。"""
+        """字段逐个读出来(数字保持整数,便于渲染千分位)。
+
+        参数说明:
+            无。
+        """
         latest = self.records[0]
         self.assertEqual(latest["version"], "1.0.13")
         self.assertEqual(latest["asset_bytes"], 61505970)
@@ -311,7 +419,11 @@ class DocsLibTests(unittest.TestCase):
         self.assertEqual(latest["deploy_sha"], "e7456f6")
 
     def test_prose_rows_are_preserved(self):
-        """散文行(历史遗留 / 规则生效前发版)能原样还原,不被改写。"""
+        """散文行(历史遗留 / 规则生效前发版)能原样还原,不被改写。
+
+        参数说明:
+            无。
+        """
         cells = [docs.release_cell(record) for record in self.records]
         self.assertEqual(cells[0],
                          "[v1.0.13 — R–W 六批](https://example.com/r/1.0.13)"
@@ -321,7 +433,11 @@ class DocsLibTests(unittest.TestCase):
         self.assertEqual(cells[2], "无(规则生效前发版)")
 
     def test_render_table_uses_old_columns(self):
-        """表头与列序必须与迁移前的旧表逐字一致(迁移对账靠它)。"""
+        """表头与列序必须与迁移前的旧表逐字一致(迁移对账靠它)。
+
+        参数说明:
+            无。
+        """
         table = docs.render_table(self.records).splitlines()
         self.assertEqual(table[0], "| 版本 | 日期 | tag | Release | 上线 SHA | APK |")
         self.assertEqual(table[1], "|---|---|---|---|---|---|")
@@ -331,30 +447,50 @@ class DocsLibTests(unittest.TestCase):
             "| 1.0.1 | 2026-10-28 | — | 无(规则生效前发版) | — | `chatapp-1.0.1.apk` |")
 
     def test_unknown_field_is_an_error(self):
-        """字段拼错必须报错 —— 静默忽略等于「填了但没渲染」。"""
+        """字段拼错必须报错 —— 静默忽略等于「填了但没渲染」。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(docs.DocsError):
             docs.parse_records('- version: "1.0.0"\n  date: "2026-01-01"\n  asset_byte: 1\n')
 
     def test_duplicate_version_is_an_error(self):
-        """同一版本出现两次会让「当前版本有没有留痕」变得不可信。"""
+        """同一版本出现两次会让「当前版本有没有留痕」变得不可信。
+
+        参数说明:
+            无。
+        """
         body = RECORDS_BODY + '\n- version: "1.0.13"\n  date: "2026-11-12"\n'
         with self.assertRaises(docs.DocsError):
             docs.parse_records(body)
 
     def test_missing_required_field_is_an_error(self):
-        """缺 version / date 直接判不出来。"""
+        """缺 version / date 直接判不出来。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(docs.DocsError):
             docs.parse_records('- version: "1.0.0"\n')
 
     def test_check_current_passes(self):
-        """当前版本有行、tag 正确、Release 非空 → 通过。"""
+        """当前版本有行、tag 正确、Release 非空 → 通过。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "releases.yml"
             path.write_text(RECORDS_BODY, encoding="utf-8")
             self.assertEqual(docs.check_current("1.0.13", path), [])
 
     def test_check_current_reports_missing_version(self):
-        """没有该版本时给出两条(现象 + 修复动作)。"""
+        """没有该版本时给出两条(现象 + 修复动作)。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "releases.yml"
             path.write_text(RECORDS_BODY, encoding="utf-8")
@@ -363,7 +499,11 @@ class DocsLibTests(unittest.TestCase):
             self.assertTrue(any("releases.py --render" in problem for problem in problems))
 
     def test_check_current_reports_bad_tag(self):
-        """tag 不含 ``v<版本>`` 时判红。"""
+        """tag 不含 ``v<版本>`` 时判红。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "releases.yml"
             path.write_text(RECORDS_BODY.replace('tag: "v1.0.13"', 'tag: "v1.0.12"'),
@@ -372,7 +512,11 @@ class DocsLibTests(unittest.TestCase):
             self.assertTrue(any("应写成 `v1.0.13`" in problem for problem in problems), problems)
 
     def test_check_current_reports_empty_release(self):
-        """Release 列为空时判红。"""
+        """Release 列为空时判红。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "releases.yml"
             body = RECORDS_BODY.replace(
@@ -383,7 +527,11 @@ class DocsLibTests(unittest.TestCase):
             self.assertTrue(any("Release 为空" in problem for problem in problems), problems)
 
     def test_check_current_reports_pending_release(self):
-        """「待建」不算留痕(1.0.4 的教训)。"""
+        """「待建」不算留痕(1.0.4 的教训)。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "releases.yml"
             body = RECORDS_BODY.replace(
@@ -394,25 +542,41 @@ class DocsLibTests(unittest.TestCase):
             self.assertTrue(any("仍是「待建」" in problem for problem in problems), problems)
 
     def test_check_current_reports_missing_file(self):
-        """记录文件不存在时给出「不存在」而不是抛栈。"""
+        """记录文件不存在时给出「不存在」而不是抛栈。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             problems = docs.check_current("1.0.13", Path(tmp) / "nope.yml")
             self.assertTrue(any("不存在" in problem for problem in problems), problems)
 
     def test_splice_requires_markers(self):
-        """缺生成标记时判不出来(不能整文件乱写)。"""
+        """缺生成标记时判不出来(不能整文件乱写)。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(docs.DocsError):
             docs.splice_block("# 没有标记\n", "body")
 
     def test_splice_follows_file_newline(self):
-        """换行风格跟随原文件:CRLF 文件不能被写成整文件 LF(Windows 检出)。"""
+        """换行风格跟随原文件:CRLF 文件不能被写成整文件 LF(Windows 检出)。
+
+        参数说明:
+            无。
+        """
         text = RELEASE_DOC_BODY.replace("\n", "\r\n")
         rendered = docs.splice_block(text, "| a | b |")
         self.assertIn("\r\n| a | b |\r\n", rendered)
         self.assertNotIn("\n| a | b |\n", rendered.replace("\r\n", ""))
 
     def test_write_then_check_roundtrip(self):
-        """``write`` 之后 ``check`` 必须通过,且区间外的手写内容一字不动。"""
+        """``write`` 之后 ``check`` 必须通过,且区间外的手写内容一字不动。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = make_release_root(Path(tmp))
             self.assertTrue(docs.write(root))
@@ -423,7 +587,11 @@ class DocsLibTests(unittest.TestCase):
             self.assertFalse(docs.write(root))  # 再写一次不该有变化
 
     def test_check_reports_tampered_table(self):
-        """手改渲染区间 → 判红,并指向 releases.yml。"""
+        """手改渲染区间 → 判红,并指向 releases.yml。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = make_release_root(Path(tmp))
             docs.write(root)
@@ -439,7 +607,11 @@ class ArtifactsLibTests(unittest.TestCase):
     """``scripts/lib/artifacts.py``:与 HEAD 的比对语义(忽略行尾)。"""
 
     def setUp(self):
-        """造一个提交了 ``gen.txt`` 的临时仓库。"""
+        """造一个提交了 ``gen.txt`` 的临时仓库。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self._tmp = tempfile.TemporaryDirectory()
         self.root = make_git_repo(Path(self._tmp.name))
         (self.root / "gen.txt").write_text("a\nb\n", encoding="utf-8")
@@ -447,22 +619,38 @@ class ArtifactsLibTests(unittest.TestCase):
         _git(self.root, "commit", "-q", "-m", "gen")
 
     def tearDown(self):
-        """删临时目录。"""
+        """删临时目录。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self._tmp.cleanup()
 
     def test_identical_content_passes(self):
-        """内容相同 → ok。"""
+        """内容相同 → ok。
+
+        参数说明:
+            无。
+        """
         result = artifacts.compare("gen.txt", self.root)
         self.assertTrue(result.ok)
         self.assertEqual(result.problems, ())
 
     def test_crlf_and_lf_are_the_same_content(self):
-        """Windows 检出(CRLF)与 HEAD(LF)必须视为一致 —— 这条判定以前在 WSL 里永远红。"""
+        """Windows 检出(CRLF)与 HEAD(LF)必须视为一致 —— 这条判定以前在 WSL 里永远红。
+
+        参数说明:
+            无。
+        """
         (self.root / "gen.txt").write_bytes(b"a\r\nb\r\n")
         self.assertTrue(artifacts.compare("gen.txt", self.root).ok)
 
     def test_different_content_fails_with_diff(self):
-        """内容不同 → 判红,并给出前几十行 diff。"""
+        """内容不同 → 判红,并给出前几十行 diff。
+
+        参数说明:
+            无。
+        """
         (self.root / "gen.txt").write_text("a\nc\n", encoding="utf-8")
         result = artifacts.compare("gen.txt", self.root)
         self.assertFalse(result.ok)
@@ -471,32 +659,52 @@ class ArtifactsLibTests(unittest.TestCase):
         self.assertIn("+c", result.diff)
 
     def test_file_missing_from_head_is_reported(self):
-        """新增但没提交的生成物 → 「不在 HEAD 里」(CI 会对不上)。"""
+        """新增但没提交的生成物 → 「不在 HEAD 里」(CI 会对不上)。
+
+        参数说明:
+            无。
+        """
         (self.root / "new.txt").write_text("x\n", encoding="utf-8")
         result = artifacts.compare("new.txt", self.root)
         self.assertFalse(result.ok)
         self.assertIn("不在 HEAD 里", result.problems[0])
 
     def test_missing_working_file_is_reported(self):
-        """HEAD 里有但工作区删了 → 判红,而不是抛栈。"""
+        """HEAD 里有但工作区删了 → 判红,而不是抛栈。
+
+        参数说明:
+            无。
+        """
         (self.root / "gen.txt").unlink()
         result = artifacts.compare("gen.txt", self.root)
         self.assertFalse(result.ok)
         self.assertIn("读不到", result.problems[0])
 
     def test_absolute_path_is_rejected(self):
-        """绝对路径会让本地与 CI 比到不同文件,直接判不出来。"""
+        """绝对路径会让本地与 CI 比到不同文件,直接判不出来。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(artifacts.ArtifactError):
             artifacts.compare(str(self.root / "gen.txt"), self.root)
 
     def test_not_a_repository_is_an_error(self):
-        """不是 git 仓库 → 判不出来(2),不能冒充「生成物没提交」(1)。"""
+        """不是 git 仓库 → 判不出来(2),不能冒充「生成物没提交」(1)。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(artifacts.ArtifactError):
                 artifacts.compare("x.txt", Path(tmp))
 
     def test_cli_exit_codes(self):
-        """CLI:0 一致 / 1 不一致 / 2 判不出来。"""
+        """CLI:0 一致 / 1 不一致 / 2 判不出来。
+
+        参数说明:
+            无。
+        """
         code, out, _ = call_cli(artifacts.main, ["gen.txt", "--root", str(self.root)])
         self.assertEqual(code, 0)
         self.assertIn("生成物一致", out)
@@ -516,7 +724,11 @@ class ReleasesCliTests(unittest.TestCase):
     """``scripts/releases.py``:渲染 / 校验的退出码语义。"""
 
     def test_check_passes_after_render(self):
-        """渲染后 ``--check`` 退出码 0。"""
+        """渲染后 ``--check`` 退出码 0。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = make_release_root(Path(tmp))
             code, _, _ = call_cli(releases.main, ["--root", str(root), "--render"])
@@ -526,7 +738,11 @@ class ReleasesCliTests(unittest.TestCase):
             self.assertIn("一致", out)
 
     def test_check_fails_before_render(self):
-        """没渲染时 ``--check`` 退出码 1(生成物过期),并指向渲染命令。"""
+        """没渲染时 ``--check`` 退出码 1(生成物过期),并指向渲染命令。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = make_release_root(Path(tmp))
             code, out, _ = call_cli(releases.main, ["--root", str(root), "--check"])
@@ -534,7 +750,11 @@ class ReleasesCliTests(unittest.TestCase):
             self.assertIn("releases.py --render", out)
 
     def test_bad_yaml_exits_two(self):
-        """YAML 判不出来 → 退出码 2(不是 0 也不是 1)。"""
+        """YAML 判不出来 → 退出码 2(不是 0 也不是 1)。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = make_release_root(Path(tmp))
             (root / "docs" / "releases.yml").write_text("- version: [\n", encoding="utf-8")
@@ -543,7 +763,11 @@ class ReleasesCliTests(unittest.TestCase):
             self.assertIn("判不出来", err)
 
     def test_missing_markers_exits_two(self):
-        """release.md 缺生成标记 → 判不出来。"""
+        """release.md 缺生成标记 → 判不出来。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = make_release_root(Path(tmp))
             (root / "docs" / "ops" / "release.md").write_text("# 无标记\n", encoding="utf-8")

@@ -10,8 +10,7 @@
 
 用法
 ----
-    python scripts/create_release.py --notes-file /tmp/notes-1.0.7.md \
-        --apk app/build/app/outputs/flutter-apk/app-release.apk
+    python scripts/create_release.py --notes-file /tmp/notes-1.0.7.md         --apk app/build/app/outputs/flutter-apk/app-release.apk
     python scripts/create_release.py --dry-run          # 只打印将要做什么
 
 凭据来源(按顺序)
@@ -38,6 +37,17 @@
 它剩下的可测面(HTTP 载荷构造)几乎全是 ``urllib`` 的胶水,而真正的风险在**副作用顺序**
 (先删后传 / 先查 tag),那需要 mock 掉大半个 REST 语义才能测,收益不抵维护成本。
 现状登记在 ``sources-of-truth.md`` §7,不在这里悄悄消失。
+
+文件信息:
+    文件名称          scripts/create_release.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -63,11 +73,17 @@ DEFAULT_APK = REPO_ROOT / "app" / "build" / "app" / "outputs" / "flutter-apk" / 
 def read_version() -> str:
     """读取 ``app/pubspec.yaml`` 的版本名(不含构建号)。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         版本名,如 ``1.0.7``。
 
-    Raises:
-        SystemExit: 文件或 ``version:`` 行不存在。
+    使用示例:
+        ``read_version()``
+
+    备注信息:
+        抛 ``SystemExit``:文件或 ``version:`` 行不存在。
     """
     try:
         return version.read_pubspec_version()
@@ -78,11 +94,17 @@ def read_version() -> str:
 def read_token() -> str:
     """按优先级取 GitHub token(环境变量 → DSH 的 token 文件)。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         PAT 字符串。
 
-    Raises:
-        SystemExit: 环境变量与 token 文件都没有。
+    使用示例:
+        ``read_token()``
+
+    备注信息:
+        抛 ``SystemExit``:环境变量与 token 文件都没有。
     """
     try:
         return lib_repo.resolve_token()
@@ -94,7 +116,7 @@ def _request(method: str, url: str, token: str, *, payload: dict | None = None,
              raw: bytes | None = None, content_type: str = "application/json") -> tuple[int, dict]:
     """发一次 GitHub API 请求。
 
-    Args:
+    参数说明:
         method: HTTP 方法。
         url: 完整 URL。
         token: GitHub PAT。
@@ -102,11 +124,14 @@ def _request(method: str, url: str, token: str, *, payload: dict | None = None,
         raw: 二进制 body(上传附件用)。
         content_type: ``Content-Type``。
 
-    Returns:
+    返回参数:
         ``(HTTP 状态码, 解析后的 JSON)``;空响应体返回 ``{}``。
 
-    Raises:
-        SystemExit: 网络错误或非 2xx/404 之外的不可恢复错误。
+    使用示例:
+        ``_request(method, url, token, payload=payload, raw=raw, content_type=content_type)``
+
+    备注信息:
+        抛 ``SystemExit``:网络错误或非 2xx/404 之外的不可恢复错误。
     """
     body = raw if raw is not None else (
         json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None)
@@ -135,13 +160,19 @@ def _request(method: str, url: str, token: str, *, payload: dict | None = None,
 def find_release(repo: str, tag: str, token: str) -> dict | None:
     """查同 tag 的 Release。
 
-    Args:
+    参数说明:
         repo: ``owner/name``。
         tag: tag 名,如 ``v1.0.7``。
         token: GitHub PAT。
 
-    Returns:
+    返回参数:
         Release JSON;不存在时返回 ``None``。
+
+    使用示例:
+        ``find_release(repo, tag, token)``
+
+    备注信息:
+        无特殊约束。
     """
     status, data = _request(
         "GET", f"{lib_repo.API}/repos/{repo}/releases/tags/{urllib.parse.quote(tag)}", token)
@@ -155,20 +186,22 @@ def find_release(repo: str, tag: str, token: str) -> dict | None:
 def ensure_tag_exists(repo: str, tag: str, token: str) -> str:
     """确认 tag 已经在远端存在,并返回它的对象类型。
 
-    为什么必须先查:GitHub 的 ``POST /releases`` 在 ``tag_name`` 不存在时会**自动用
-    默认分支 HEAD 建一个轻量 tag** —— 于是「附注 tag + 指向合并 SHA」这条纪律被静默绕过,
-    而且事后很难看出 tag 是自动建的还是人打的。
-
-    Args:
+    参数说明:
         repo: ``owner/name``。
         tag: tag 名,如 ``v1.0.13``。
         token: GitHub PAT。
 
-    Returns:
+    返回参数:
         ``tag``(附注 tag)或 ``commit``(轻量 tag)。
 
-    Raises:
-        SystemExit: tag 不存在,或查询失败。
+    使用示例:
+        ``ensure_tag_exists(repo, tag, token)``
+
+    备注信息:
+        为什么必须先查:GitHub 的 ``POST /releases`` 在 ``tag_name`` 不存在时会**自动用
+        默认分支 HEAD 建一个轻量 tag** —— 于是「附注 tag + 指向合并 SHA」这条纪律被静默绕过,
+        而且事后很难看出 tag 是自动建的还是人打的。
+        抛 ``SystemExit``:tag 不存在,或查询失败。
     """
     status, data = _request(
         "GET", f"{lib_repo.API}/repos/{repo}/git/ref/tags/{urllib.parse.quote(tag)}", token)
@@ -189,7 +222,7 @@ def create_or_update_release(repo: str, tag: str, title: str, notes: str, token:
                              *, dry_run: bool = False) -> dict:
     """创建或更新 Release(标题与正文)。
 
-    Args:
+    参数说明:
         repo: ``owner/name``。
         tag: tag 名。
         title: Release 标题。
@@ -197,8 +230,14 @@ def create_or_update_release(repo: str, tag: str, title: str, notes: str, token:
         token: GitHub PAT。
         dry_run: 只打印,不写。
 
-    Returns:
+    返回参数:
         Release JSON(``dry_run`` 时为 ``{"html_url": "(dry-run)"}``)。
+
+    使用示例:
+        ``create_or_update_release(repo, tag, title, notes, token, dry_run=dry_run)``
+
+    备注信息:
+        无特殊约束。
     """
     existing = find_release(repo, tag, token)
     if dry_run:
@@ -226,13 +265,22 @@ def upload_asset(repo: str, release: dict, apk: Path, token: str, *, dry_run: bo
                  asset_name: str | None = None) -> None:
     """上传 APK 附件(同名先删后传,保证幂等)。
 
-    Args:
+    参数说明:
         repo: ``owner/name``。
         release: Release JSON(需要 ``id`` 与 ``assets``)。
         apk: 本地 APK 路径。
         token: GitHub PAT。
         dry_run: 只打印,不写。
         asset_name: 附件名;默认用文件名(发版规范要求 ``chatapp-<版本>.apk``)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``upload_asset(repo, release, apk, token, dry_run=dry_run, asset_name=asset_name)``
+
+    备注信息:
+        无特殊约束。
     """
     name = asset_name or apk.name
     size = apk.stat().st_size
@@ -259,11 +307,17 @@ def upload_asset(repo: str, release: dict, apk: Path, token: str, *, dry_run: bo
 def _fail(message: str) -> None:
     """打印错误并以退出码 1 结束。
 
-    Args:
+    参数说明:
         message: 错误描述。
 
-    Raises:
-        SystemExit: 总是抛出,退出码 1。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_fail(message)``
+
+    备注信息:
+        抛 ``SystemExit``:总是抛出,退出码 1。
     """
     print(f"[release] {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -272,11 +326,17 @@ def _fail(message: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;``None`` 表示取 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         退出码:0 成功,1 失败。
+
+    使用示例:
+        ``python scripts/create_release.py --notes-file /tmp/notes-1.0.7.md --apk app/build/app/outputs/flutter-apk/app-release.apk``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(description="创建/更新 GitHub Release 并上传 APK")
     parser.add_argument("--version", help="版本名;默认读 app/pubspec.yaml")

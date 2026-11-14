@@ -7,6 +7,17 @@
        重复保存同一个状态不会产生重复通知;
     3. 所有 IM 副作用统一经 ``_enqueue`` 走 ``transaction.on_commit`` ——
        响应路径不等 IM,且入队必须晚于事务提交。
+
+文件信息:
+    文件名称          moderation/services.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import logging
@@ -41,14 +52,22 @@ def exclude_blocked(queryset, user, outer_field: str):
        半连接,会退化成「把外层行全部物化进临时表」——2026-11-03 在 2 万访客上实测
        565ms,拆成两条只要 103ms(与完全不加拉黑过滤同价)。
 
-    Args:
+    参数说明:
         queryset: 外层查询集(``Profile`` / ``Swipe`` / ``ProfileVisit`` / ``Match``)。
         user: 当前用户。
         outer_field: 外层查询集里指向「对方用户 id」的字段名
             (``user_id`` / ``swiper_id`` / ``viewer_id`` / ``user_a_id`` / ``user_b_id``)。
 
-    Returns:
+    返回参数:
         追加了两次 ``NOT EXISTS`` 的查询集。
+
+    使用示例:
+        ``exclude_blocked(Profile.objects.all(), request.user, "user_id")``
+
+    备注信息:
+        返回的是**新的**查询集,原查询集不受影响;必须在 SQL 层排掉(不要取回 Python 再过滤),
+        否则分页的 ``count`` 会与 ``results`` 条数不一致。
+        只过滤拉黑关系,不管封禁 —— 封禁由 ``Profile.status`` 在各自的查询里筛。
     """
     for condition in (
             Exists(Block.objects.filter(blocker=user, blocked_id=OuterRef(outer_field))),
@@ -61,11 +80,18 @@ def exclude_blocked(queryset, user, outer_field: str):
 def blocked_user_ids(user) -> set[int]:
     """与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的);候选/配对/资料卡统一用它。
 
-    Args:
+    参数说明:
         user: 当前用户。
 
-    Returns:
+    返回参数:
         对方用户 id 的集合(双向并集)。
+
+    使用示例:
+        ``blocked_user_ids(request.user)``
+
+    备注信息:
+        两次查询(我拉黑的 + 拉黑我的)后在 Python 里取并集。只适合小规模或无分页的场景;
+        列表类查询请改用 ``exclude_blocked``,让数据库做反连接(口径相同)。
     """
     made = Block.objects.filter(blocker=user).values_list("blocked_id", flat=True)
     received = Block.objects.filter(blocked=user).values_list("blocker_id", flat=True)
@@ -77,12 +103,25 @@ def log_ban_change(user, old_status, new_status, reason, operator) -> None:
 
     通知与踢下线经任务队列(ban_notice 任务内保证 heavy 先发后踢);响应路径不等 IM。
 
-    Args:
+    参数说明:
         user: 状态被修改的用户。
         old_status: 修改前的资料状态。
         new_status: 修改后的资料状态。
         reason: 封禁/解封原因,可为空。
         operator: 执行操作的运营账号,可为 ``None``。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``log_ban_change(user, old_status, ProfileStatus.BANNED_HEAVY, "骚扰他人", request.user)``
+
+    备注信息:
+        新旧状态相同直接返回(重复保存不重复通知),也不失效候选缓存;
+        只有三种跨边界会写审计并触发副作用:进 ``banned_light``、进 ``banned_heavy``、
+        以及从任一封禁态回到正常(写 ``unban`` + ``ban_lifted`` 通知)。
+        每次真跨边界都会 ``invalidate_pool_globally()`` 让全站候选缓存失效。
+        ``reason`` 为 ``None`` 时入队参数退化成空串。
     """
     if new_status == old_status:
         return
@@ -102,10 +141,21 @@ def log_ban_change(user, old_status, new_status, reason, operator) -> None:
 def sync_im_blacklist(blocker, blocked, *, add: bool) -> None:
     """拉黑/解除后同步 IM 黑名单(经任务队列;UI 侧还有双向不可见兜底)。
 
-    Args:
+    参数说明:
         blocker: 拉黑发起方。
         blocked: 被拉黑方。
         add: ``True`` 表示加入黑名单,``False`` 表示移除。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sync_im_blacklist(request.user, target, add=True)``
+
+    备注信息:
+        ``add`` 是关键字参数;只入队不同步执行,调用方不阻塞在 IM 上。
+        IM 黑名单是**尽力而为**的一层:即使同步失败,候选与消息列表仍按
+        ``exclude_blocked`` 双向过滤,不会出现「拉黑了还看得见」。
     """
     task = im_tasks.blacklist_add if add else im_tasks.blacklist_remove
     _enqueue(task, blocker.id, blocked.id)
@@ -114,10 +164,21 @@ def sync_im_blacklist(blocker, blocked, *, add: bool) -> None:
 def sync_im_pair(user_a_id: int, user_b_id: int, *, add: bool) -> None:
     """同步聊天权限:配对创建时 add,解除配对/拉黑时 remove(H4)。
 
-    Args:
+    参数说明:
         user_a_id: 一方账号 id。
         user_b_id: 另一方账号 id。
         add: ``True`` 建立权限,``False`` 移除权限。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sync_im_pair(request.user.id, target.id, add=False)``
+
+    备注信息:
+        参数一律用 ``user_id``,任务内自己查库(IM 副作用唯一入口是 ``im/tasks.py``);
+        拉黑时即使两人已配对也要 remove —— 否则拉黑后仍能继续发消息。
+        解除拉黑只在「两人仍是有效配对」时才 add 回来,由调用方判定。
     """
     task = im_tasks.pair_add if add else im_tasks.pair_remove
     _enqueue(task, user_a_id, user_b_id)
@@ -130,8 +191,19 @@ def notify_report_handled(report) -> None:
     否则举报者会收到多条同样的通知。站内通知(批次 H)与灰条并存,用
     ``dedupe_key`` 兜住「重复处理」这类误调。
 
-    Args:
+    参数说明:
         report: 刚被标记为已处理的举报记录。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``notify_report_handled(report)``
+
+    备注信息:
+        灰条经 ``im_tasks.report_handled`` 入队,站内通知经 ``notify_on_commit`` 写库
+        (两者都等事务提交后生效);站内通知的 ``dedupe_key`` 是 ``report:<主键>``,
+        同一条举报重复送达也只落一条。是否「首次处理」由调用方判定,本函数不检查状态。
     """
     _enqueue(im_tasks.report_handled, report.reporter_id)
     notify_on_commit(
@@ -144,13 +216,10 @@ def notify_report_handled(report) -> None:
 def _write_log(user, action, reason, operator) -> None:
     """写一条封禁审计;失败只记日志,不向上抛。
 
-    审计写失败不该炸掉运营的保存动作 —— 此时 ``Profile`` 已经保存成功了。
-
-    Args:
-        user: 被封禁/解封的用户。
-        action: ``BanAction`` 取值。
-        reason: 原因文本,可为空。
-        operator: 执行操作的运营账号,可为 ``None``。
+    备注信息:
+        审计写失败不该炸掉运营的保存动作 —— 此时 ``Profile`` 已经保存成功了,
+        异常吞掉后打 ``logger.exception``(带 user 主键与动作);
+        ``reason`` 为 ``None`` 时落空串,避免库里出现 NULL 与空串两种「无原因」。
     """
     try:
         BanLog.objects.create(user=user, action=action, reason=reason or "", operator=operator)
@@ -160,5 +229,11 @@ def _write_log(user, action, reason, operator) -> None:
 
 
 def _enqueue(task, *args) -> None:
-    """入队统一走 on_commit(robust=True):在事务里等提交,不在事务里立即入队(很快)。"""
+    """入队统一走 on_commit(robust=True):在事务里等提交,不在事务里立即入队(很快)。
+
+    备注信息:
+        ``robust=True`` 让入队失败只记日志、不回滚事务;调用方传的是任务对象本身
+        (如 ``im_tasks.ban_notice``),这里才 ``.delay(*args)``,因此 args 必须
+        是任务签名要求的原始类型(账号 id、字符串标志),不能传模型实例。
+    """
     transaction.on_commit(lambda: task.delay(*args), robust=True)

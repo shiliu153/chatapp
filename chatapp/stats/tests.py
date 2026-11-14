@@ -13,6 +13,17 @@
        参数非法退出码 1;
     7. IM 库只读客户端:DSN 密码含 ``@`` 的切分、缺省端口、DSN 为空 / 连不上时降级为
        ``None``、查询参数是 epoch 秒。
+
+文件信息:
+    文件名称          stats/tests.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from datetime import date, datetime, time, timedelta
@@ -46,11 +57,18 @@ URL = "/api/v1/stats/me"
 def _make_user(phone: str) -> User:
     """造一个只带账号行的用户(报告接口不需要资料与照片)。
 
-    Args:
+    参数说明:
         phone: 手机号(兼昵称)。
 
-    Returns:
+    返回参数:
         新建用户。
+
+    使用示例:
+        ``_make_user("13400134000")``
+
+    备注信息:
+        只建账号行、不建 ``Profile``:报告接口的七项数字都不读资料表,少建行能省用例时间;
+        手机号唯一,同一用例内不能重号。
     """
     return User.objects.create_user(phone=phone)
 
@@ -58,13 +76,22 @@ def _make_user(phone: str) -> User:
 def _at(model, when: datetime, **fields):
     """按指定时刻创建一行(``created_at`` 是 ``auto_now_add``,只能建完再改)。
 
-    Args:
+    参数说明:
         model: 模型类。
         when: ``created_at`` 要落到的时刻。
         **fields: 其余建行字段。
 
-    Returns:
+    返回参数:
         创建好的行;``created_at`` 已改成 ``when``。
+
+    使用示例:
+        ``_at(Swipe, moment, swiper=me, target=peer, action=SwipeAction.LIKE)``
+
+    备注信息:
+        ``created_at`` 是 ``auto_now_add``,构造时传值会被忽略,只能建完再用 ``update()``
+        改库;同时把本地对象的 ``created_at`` 也赋一遍,免得调用方拿到内存里的旧值。
+        报告与快照的口径都按 ``created_at`` 切区间,所以「区间内 / 区间外」的数据都靠
+        本函数构造。
     """
     row = model.objects.create(**fields)
     model.objects.filter(pk=row.pk).update(created_at=when)
@@ -75,12 +102,19 @@ def _at(model, when: datetime, **fields):
 def _inside(period: str, today: date | None = None) -> datetime:
     """取周期内一个安全的时刻(区间起点后 12 小时)。
 
-    Args:
+    参数说明:
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示今天。
 
-    Returns:
+    返回参数:
         带时区的时刻。
+
+    使用示例:
+        ``_inside("week")``
+
+    备注信息:
+        「起点后 12 小时」离左右边界都远,不会因为时区换算落到区间外;用它构造的数据
+        必须被计入,用 ``_just_before`` 构造的数据必须不计入,两者成对使用。
     """
     after, _ = period_window(period, today)
     return after + timedelta(hours=12)
@@ -89,12 +123,19 @@ def _inside(period: str, today: date | None = None) -> datetime:
 def _just_before(period: str, today: date | None = None) -> datetime:
     """取周期起点前一秒(必定落在区间外)。
 
-    Args:
+    参数说明:
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示今天。
 
-    Returns:
+    返回参数:
         带时区的时刻。
+
+    使用示例:
+        ``_just_before("week")``
+
+    备注信息:
+        区间是左闭右开(``__gte`` / ``__lt``),所以「起点减一秒」必定落在区间外,用来钉住
+        左边界是闭的 —— 若实现误写成 ``__gt``,这条数据就会漏算。
     """
     after, _ = period_window(period, today)
     return after - timedelta(seconds=1)
@@ -104,7 +145,11 @@ class PeriodBoundsTests(APITestCase):
     """周期边界的纯函数口径(不查库)。"""
 
     def test_week_starts_on_monday(self):
-        """自然周从周一起、到周日止:周一当天是周一,周中落在同一周。"""
+        """自然周从周一起、到周日止:周一当天是周一,周中落在同一周。
+
+        参数说明:
+            无。
+        """
         monday = date(2026, 11, 9)
         self.assertEqual(period_bounds("week", monday), (date(2026, 11, 9), date(2026, 11, 15)))
         # 周日(11-15)仍属于这一周
@@ -115,7 +160,11 @@ class PeriodBoundsTests(APITestCase):
                          (date(2026, 11, 30), date(2026, 12, 6)))
 
     def test_month_is_calendar_month(self):
-        """自然月从 1 号到月末,2 月按当年天数(闰年 29 天)。"""
+        """自然月从 1 号到月末,2 月按当年天数(闰年 29 天)。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(period_bounds("month", date(2026, 11, 9)),
                          (date(2026, 11, 1), date(2026, 11, 30)))
         self.assertEqual(period_bounds("month", date(2028, 2, 10)),
@@ -124,13 +173,21 @@ class PeriodBoundsTests(APITestCase):
                          (date(2027, 2, 1), date(2027, 2, 28)))
 
     def test_year_is_calendar_year(self):
-        """自然年是整年,与参照日在年内哪个位置无关。"""
+        """自然年是整年,与参照日在年内哪个位置无关。
+
+        参数说明:
+            无。
+        """
         expected = (date(2026, 1, 1), date(2026, 12, 31))
         self.assertEqual(period_bounds("year", date(2026, 1, 1)), expected)
         self.assertEqual(period_bounds("year", date(2026, 12, 31)), expected)
 
     def test_window_is_half_open_in_local_time(self):
-        """时刻区间左闭右开,且按本地时区(Asia/Shanghai)拼边界。"""
+        """时刻区间左闭右开,且按本地时区(Asia/Shanghai)拼边界。
+
+        参数说明:
+            无。
+        """
         after, before = period_window("month", date(2026, 11, 9))
         zone = timezone.get_current_timezone()
         self.assertEqual(after, timezone.make_aware(datetime.combine(date(2026, 11, 1), time.min), zone))
@@ -142,7 +199,13 @@ class StatsApiTests(APITestCase):
     """``GET /api/v1/stats/me`` 的数字口径与错误分支。"""
 
     def setUp(self):
-        """准备当前用户、四个对方与登录态。"""
+        """准备当前用户、四个对方与登录态。
+
+        备注信息:
+            由 ``TestCase`` 在每个用例前自动调用;先 ``cache.clear()`` 清掉限流等缓存,
+            ``self.client`` 带真实签发的 Bearer 令牌(走鉴权链路,不 mock);四个 ``peers`` 供
+            :meth:`_seed` 分配到两套时刻上。
+        """
         cache.clear()
         self.me = _make_user("13400134000")
         self.peers = [_make_user(f"1340013400{index}") for index in range(1, 5)]
@@ -152,9 +215,21 @@ class StatsApiTests(APITestCase):
     def _seed(self, inside: datetime, outside: datetime) -> None:
         """在两个时刻各造一套「七项指标各 1」的数据,并混入不该计入的干扰行。
 
-        Args:
+        参数说明:
             inside: 落在统计区间内的时刻。
             outside: 落在统计区间外的时刻(区间起点前一秒)。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._seed(_inside("week"), _just_before("week"))``
+
+        备注信息:
+            两次循环各用一对 ``peers``:``inside`` 那套该被计入,``outside`` 那套与「别人的
+            活动」干扰行都不该计入。干扰行覆盖别人之间的配对 / 滑卡 / 动态 / 点赞、我看别人、
+            我关注别人,以及我自己划过但没喜欢。``ProfileVisit`` 建行后还要把 ``first_at``
+            改成同一时刻,否则默认是建行当下,和区间口径打架。
         """
         inner_a, inner_b, outer_a, outer_b = self.peers
         for moment, actor, other in ((inside, inner_a, inner_b), (outside, outer_a, outer_b)):
@@ -181,11 +256,18 @@ class StatsApiTests(APITestCase):
     def _get(self, period: str | None = None) -> dict:
         """请求报告接口并返回 JSON。
 
-        Args:
+        参数说明:
             period: 传给 ``period`` 查询参数的周期;``None`` 表示不传。
 
-        Returns:
+        返回参数:
             响应 JSON。
+
+        使用示例:
+            ``self._get("month")``
+
+        备注信息:
+            断言 200 时把响应前 300 字节写进断言消息,失败能直接看到错误信封;``period`` 为
+            ``None`` 时不传该参数(而不是传空串),专门覆盖「缺省取 week」这条分支。
         """
         params = {"period": period} if period else {}
         response = self.client.get(URL, params)
@@ -193,7 +275,11 @@ class StatsApiTests(APITestCase):
         return response.json()
 
     def test_each_period_counts_only_rows_inside_it(self):
-        """三种周期下七项数字都是 1:区间内的计入、区间外的与别人的都不计。"""
+        """三种周期下七项数字都是 1:区间内的计入、区间外的与别人的都不计。
+
+        参数说明:
+            无。
+        """
         for period in ("week", "month", "year"):
             with self.subTest(period=period):
                 Match.objects.all().delete()
@@ -213,7 +299,11 @@ class StatsApiTests(APITestCase):
                                  {name: 1 for name in METRICS})
 
     def test_default_period_is_week(self):
-        """不传 ``period`` 时按自然周统计。"""
+        """不传 ``period`` 时按自然周统计。
+
+        参数说明:
+            无。
+        """
         data = self._get()
         start, end = period_bounds("week")
         self.assertEqual(data["period"], "week")
@@ -221,7 +311,11 @@ class StatsApiTests(APITestCase):
         self.assertEqual(data["end"], end.isoformat())
 
     def test_invalid_period_returns_40005(self):
-        """非法周期 400 + 业务码 40005。"""
+        """非法周期 400 + 业务码 40005。
+
+        参数说明:
+            无。
+        """
         response = self.client.get(URL, {"period": "day"})
         self.assertEqual(response.status_code, 400)
         body = response.json()
@@ -230,12 +324,20 @@ class StatsApiTests(APITestCase):
         self.assertIn("request_id", body)
 
     def test_requires_auth(self):
-        """未带令牌 401。"""
+        """未带令牌 401。
+
+        参数说明:
+            无。
+        """
         response = APIClient().get(URL)
         self.assertEqual(response.status_code, 401)
 
     def test_unmatched_matches_still_counted(self):
-        """解除过的配对仍按创建时间计入(口径是「区间内新产生的配对」)。"""
+        """解除过的配对仍按创建时间计入(口径是「区间内新产生的配对」)。
+
+        参数说明:
+            无。
+        """
         peer = self.peers[0]
         match = Match.objects.create(**Match.pair_kwargs(self.me, peer))
         Match.objects.filter(pk=match.pk).update(
@@ -243,7 +345,11 @@ class StatsApiTests(APITestCase):
         self.assertEqual(self._get("week")["matches"], 1)
 
     def test_visits_follow_last_visit_time(self):
-        """访客按 ``last_at`` 落区间:很久以前首次看过、本周期又来的算本周期。"""
+        """访客按 ``last_at`` 落区间:很久以前首次看过、本周期又来的算本周期。
+
+        参数说明:
+            无。
+        """
         long_ago = _inside("week") - timedelta(days=60)
         # 首次访问在两个月前,最近一次在本周期内 → 计入
         revisit = ProfileVisit.objects.create(viewer=self.peers[0], owner=self.me,
@@ -256,7 +362,11 @@ class StatsApiTests(APITestCase):
         self.assertEqual(self._get("week")["visits"], 1)
 
     def test_counts_are_integers_even_when_empty(self):
-        """没有任何数据时七项都是 0(标量子查询要拿到 0 而不是 null)。"""
+        """没有任何数据时七项都是 0(标量子查询要拿到 0 而不是 null)。
+
+        参数说明:
+            无。
+        """
         data = self._get("week")
         for name in METRICS:
             self.assertEqual(data[name], 0)
@@ -272,14 +382,21 @@ ACTIVITY_DAYS = [SNAPSHOT_DAY + timedelta(days=offset) for offset in range(-10, 
 def _local(day: date, hour: int = 10, minute: int = 0, second: int = 0) -> datetime:
     """造一个 ``Asia/Shanghai`` 本地时刻。
 
-    Args:
+    参数说明:
         day: 本地自然日。
         hour: 小时。
         minute: 分钟。
         second: 秒。
 
-    Returns:
+    返回参数:
         带时区的时刻。
+
+    使用示例:
+        ``_local(date(2026, 11, 2), 23, 59, 59)``
+
+    备注信息:
+        时区取 ``timezone.get_current_timezone()``,与 ``stats.metrics.day_range`` 同一口径;
+        主要用来造日切边界附近的时刻(``23:59:59`` / 次日 ``00:00:01``)。
     """
     return datetime.combine(day, time(hour, minute, second),
                             tzinfo=timezone.get_current_timezone())
@@ -290,14 +407,30 @@ class MetricsDailyCommandTests(TestCase):
     """``metrics_daily``:口径、幂等、回填窗口、留存补算、时区边界与降级。"""
 
     def setUp(self):
+        """准备干净的活跃集合,每个用例前后各清一次。
+
+        备注信息:
+            活跃数据在 Redis,``TestCase`` 只回滚数据库事务、不会清理它,所以进用例先清一次,
+            再用 ``addCleanup`` 在用例结束后再清一次,不把数据留给后面的测试类。
+        """
         self._drop_activity()
         self.addCleanup(self._drop_activity)
 
     def _drop_activity(self):
         """清掉本类用到的活跃集合(Redis DB 跨用例共享,必须自己打扫)。
 
-        Returns:
-            None。
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._drop_activity()``
+
+        备注信息:
+            删 ``ACTIVITY_DAYS`` 里每一天的日活集合与 24 个小时桶;``TestCase`` 只回滚数据库
+            事务、不动 Redis,不自己打扫会让上一个用例的活跃数据串到下一个用例。
         """
         keys = []
         for day in ACTIVITY_DAYS:
@@ -308,13 +441,21 @@ class MetricsDailyCommandTests(TestCase):
     def _user(self, phone, joined=None, complete=False):
         """造一个账号,可指定注册时刻并可置为「资料已完善」。
 
-        Args:
+        参数说明:
             phone: 手机号(唯一)。
             joined: ``date_joined`` 要落到的时刻;``None`` 表示就用当前时间。
             complete: 是否把资料状态置为 ``complete``。
 
-        Returns:
+        返回参数:
             新建的账号。
+
+        使用示例:
+            ``self._user("13900000001", joined=_local(day, 8), complete=True)``
+
+        备注信息:
+            顺带 ``get_or_create`` 一行 ``Profile``(``profiles_completed`` 读的是它);
+            ``date_joined`` 与 ``status`` 都等建完再用 ``update()`` 改 —— 前者由 ``create_user``
+            写入、后者有默认值,构造参数给不了想要的值。
         """
         user = User.objects.create_user(phone=phone)
         if joined is not None:
@@ -327,18 +468,29 @@ class MetricsDailyCommandTests(TestCase):
     def _run(self, *args):
         """跑一次命令并返回标准输出。
 
-        Args:
+        参数说明:
             *args: 命令行参数。
 
-        Returns:
+        返回参数:
             命令的完整 stdout。
+
+        使用示例:
+            ``self._run("--date", "2026-11-02", "--dry-run")``
+
+        备注信息:
+            用 ``StringIO`` 接住 ``stdout`` 后返回文本,便于逐行断言输出格式;命令抛的
+            ``CommandError`` 在这里不吞,照常抛给用例。
         """
         out = StringIO()
         call_command("metrics_daily", *args, stdout=out)
         return out.getvalue()
 
     def test_snapshot_numbers(self):
-        """各字段按口径落库:日活 / 新注册 / 完善 / 滑卡 / 配对 / 活跃时段。"""
+        """各字段按口径落库:日活 / 新注册 / 完善 / 滑卡 / 配对 / 活跃时段。
+
+        参数说明:
+            无。
+        """
         day = SNAPSHOT_DAY
         long_ago = _local(day - timedelta(days=30))
         a = self._user("13900000001", joined=long_ago)
@@ -374,7 +526,11 @@ class MetricsDailyCommandTests(TestCase):
         self.assertIsNone(row.retention_d7)
 
     def test_dau_is_none_when_no_activity_records(self):
-        """没有活跃集合的那天:``dau`` / ``active_hours`` 为 None(看板显示 ``—``)。"""
+        """没有活跃集合的那天:``dau`` / ``active_hours`` 为 None(看板显示 ``—``)。
+
+        参数说明:
+            无。
+        """
         day = SNAPSHOT_DAY
         self._run("--date", day.isoformat())
         row = DailyMetric.objects.get(date=day)
@@ -383,7 +539,11 @@ class MetricsDailyCommandTests(TestCase):
         self.assertEqual(row.new_users, 0)
 
     def test_dry_run_prints_without_writing(self):
-        """``--dry-run`` 打印窗口内每天一行且不写库,缺失值打印 ``-``。"""
+        """``--dry-run`` 打印窗口内每天一行且不写库,缺失值打印 ``-``。
+
+        参数说明:
+            无。
+        """
         out = self._run("--date", SNAPSHOT_DAY.isoformat(), "--backfill", "3", "--dry-run")
         self.assertEqual(DailyMetric.objects.count(), 0)
         self.assertIn("dry-run", out)
@@ -395,7 +555,11 @@ class MetricsDailyCommandTests(TestCase):
         )
 
     def test_backfill_window_includes_endpoint(self):
-        """``--backfill 3`` 写 3 行,日期连续且终点是昨天(缺省 --date)。"""
+        """``--backfill 3`` 写 3 行,日期连续且终点是昨天(缺省 --date)。
+
+        参数说明:
+            无。
+        """
         self._run("--backfill", "3")
         yesterday = timezone.localdate() - timedelta(days=1)
         dates = list(DailyMetric.objects.order_by("date").values_list("date", flat=True))
@@ -404,7 +568,11 @@ class MetricsDailyCommandTests(TestCase):
                                  yesterday])
 
     def test_rerun_is_idempotent_and_overwrites(self):
-        """同一天跑两次表里只有 1 行;数据变了重跑会覆盖旧值。"""
+        """同一天跑两次表里只有 1 行;数据变了重跑会覆盖旧值。
+
+        参数说明:
+            无。
+        """
         day = SNAPSHOT_DAY
         a = self._user("13900000101")
         b = self._user("13900000102")
@@ -422,7 +590,11 @@ class MetricsDailyCommandTests(TestCase):
         self.assertEqual(DailyMetric.objects.get(date=day).swipes_like, 2)
 
     def test_retention_is_cohort_intersection(self):
-        """留存 = 当日注册 cohort ∩ 目标日活跃,不是目标日的活跃人数。"""
+        """留存 = 当日注册 cohort ∩ 目标日活跃,不是目标日的活跃人数。
+
+        参数说明:
+            无。
+        """
         day = SNAPSHOT_DAY
         cohort = [self._user(f"1390000020{index}", joined=_local(day, 8)) for index in range(3)]
         outsiders = [self._user(f"1390000021{index}",
@@ -443,7 +615,11 @@ class MetricsDailyCommandTests(TestCase):
         self.assertEqual(row.retention_d7, 1)   # 目标日活跃 3 人,交集只有 1 人
 
     def test_retention_is_none_when_target_day_has_no_data(self):
-        """目标日没有活跃记录时留空(``None``),不能用 0 冒充。"""
+        """目标日没有活跃记录时留空(``None``),不能用 0 冒充。
+
+        参数说明:
+            无。
+        """
         day = SNAPSHOT_DAY - timedelta(days=1)
         self._user("13900000300", joined=_local(day, 8))
         self._run("--date", day.isoformat())
@@ -452,7 +628,11 @@ class MetricsDailyCommandTests(TestCase):
         self.assertIsNone(row.retention_d7)
 
     def test_next_run_fills_previous_day_retention(self):
-        """「每天只跑昨天」时,前一天的次日留存靠本次运行的端点外补算补上。"""
+        """「每天只跑昨天」时,前一天的次日留存靠本次运行的端点外补算补上。
+
+        参数说明:
+            无。
+        """
         yesterday = SNAPSHOT_DAY - timedelta(days=1)
         cohort = [self._user(f"1390000040{index}", joined=_local(yesterday, 8))
                   for index in range(2)]
@@ -468,13 +648,21 @@ class MetricsDailyCommandTests(TestCase):
         self.assertEqual(DailyMetric.objects.get(date=yesterday).retention_d1, 2)
 
     def test_fill_retention_does_not_create_rows(self):
-        """补留存只 update 已存在的行,不为它凭空造行。"""
+        """补留存只 update 已存在的行,不为它凭空造行。
+
+        参数说明:
+            无。
+        """
         orphan = SNAPSHOT_DAY - timedelta(days=5)
         self.assertFalse(fill_retention(orphan, "retention_d1"))
         self.assertFalse(DailyMetric.objects.filter(date=orphan).exists())
 
     def test_day_cut_is_local_timezone(self):
-        """23:59:59 算前一天、次日 00:00:01 算次日 —— 专抓「按 UTC 切日」的实现。"""
+        """23:59:59 算前一天、次日 00:00:01 算次日 —— 专抓「按 UTC 切日」的实现。
+
+        参数说明:
+            无。
+        """
         day = SNAPSHOT_DAY
         next_day = day + timedelta(days=1)
         long_ago = _local(day - timedelta(days=30))
@@ -493,7 +681,11 @@ class MetricsDailyCommandTests(TestCase):
         self.assertEqual((second.new_users, second.swipes_like), (1, 1))
 
     def test_invalid_arguments_raise_command_error(self):
-        """非法日期与 ``--backfill <= 0`` 抛 ``CommandError``(退出码 1)。"""
+        """非法日期与 ``--backfill <= 0`` 抛 ``CommandError``(退出码 1)。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(CommandError):
             call_command("metrics_daily", "--date", "2026-13-01", stdout=StringIO())
         with self.assertRaises(CommandError):
@@ -501,21 +693,33 @@ class MetricsDailyCommandTests(TestCase):
         self.assertEqual(DailyMetric.objects.count(), 0)
 
     def test_messages_from_im_source(self):
-        """IM 库读得到时消息量照原样落库。"""
+        """IM 库读得到时消息量照原样落库。
+
+        参数说明:
+            无。
+        """
         day = SNAPSHOT_DAY
         with patch("stats.im_source.count_messages", return_value=42):
             self._run("--date", day.isoformat())
         self.assertEqual(DailyMetric.objects.get(date=day).messages, 42)
 
     def test_match_rate(self):
-        """配对率分母为 0 时返回 None,否则返回比值。"""
+        """配对率分母为 0 时返回 None,否则返回比值。
+
+        参数说明:
+            无。
+        """
         row = DailyMetric(date=SNAPSHOT_DAY, swipes_like=0, matches=3)
         self.assertIsNone(match_rate(row))
         row.swipes_like = 4
         self.assertEqual(match_rate(row), 0.75)
 
     def test_recent_rows_is_newest_first(self):
-        """看板用的 ``recent_rows`` 按日期倒序取最近 N 行。"""
+        """看板用的 ``recent_rows`` 按日期倒序取最近 N 行。
+
+        参数说明:
+            无。
+        """
         for offset in range(3):
             DailyMetric.objects.create(date=SNAPSHOT_DAY - timedelta(days=offset))
         dates = [row.date for row in recent_rows(2)]
@@ -526,7 +730,11 @@ class ImSourceTests(TestCase):
     """IM 库只读客户端:DSN 解析(密码含 ``@``)、缺省端口与失败降级。"""
 
     def test_dsn_with_at_sign_in_password(self):
-        """按最后一个 ``@`` 切分,密码里的 ``@`` 不会被当成主机分隔符。"""
+        """按最后一个 ``@`` 切分,密码里的 ``@`` 不会被当成主机分隔符。
+
+        参数说明:
+            无。
+        """
         params = im_source._parse_dsn("mysql://u:p@ss@db.example:3307/chatapp_im")
         self.assertEqual(params, {
             "user": "u", "password": "p@ss", "host": "db.example",
@@ -534,23 +742,39 @@ class ImSourceTests(TestCase):
         })
 
     def test_dsn_defaults_port(self):
-        """没写端口时用 3306。"""
+        """没写端口时用 3306。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(im_source._parse_dsn("mysql://u:p@127.0.0.1/chatapp_im")["port"], 3306)
 
     def test_dsn_without_at_or_database_raises(self):
-        """缺 ``@`` 或库名的 DSN 直接报错(由调用方降级)。"""
+        """缺 ``@`` 或库名的 DSN 直接报错(由调用方降级)。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(ValueError):
             im_source._parse_dsn("chatapp_im")
         with self.assertRaises(ValueError):
             im_source._parse_dsn("mysql://u:p@127.0.0.1")
 
     def test_count_messages_none_when_dsn_empty(self):
-        """DSN 留空 → None 且不抛异常(消息量显示「无数据」)。"""
+        """DSN 留空 → None 且不抛异常(消息量显示「无数据」)。
+
+        参数说明:
+            无。
+        """
         with override_settings(IM_MYSQL_DSN=""):
             self.assertIsNone(im_source.count_messages(SNAPSHOT_DAY))
 
     def test_count_messages_none_when_connect_fails(self):
-        """连不上 → None 且不抛异常(看板不能因为 IM 库挂了整页空白)。"""
+        """连不上 → None 且不抛异常(看板不能因为 IM 库挂了整页空白)。
+
+        参数说明:
+            无。
+        """
         with override_settings(IM_MYSQL_DSN="mysql://u:p@127.0.0.1:3306/chatapp_im"), \
                 patch("pymysql.connect", side_effect=RuntimeError("boom")):
             self.assertIsNone(im_source.count_messages(SNAPSHOT_DAY))
@@ -558,8 +782,9 @@ class ImSourceTests(TestCase):
     def test_count_messages_returns_count_and_uses_epoch_milliseconds(self):
         """读到条数就返回;查询参数是 epoch **毫秒**(``created_at`` 是 imserver 写的 BIGINT 毫秒),用完关连接。
 
-        imserver 用 ``now_ms()`` 写 ``created_at``(13 位毫秒),按秒传边界会让区间恒为空、
-        消息量永远是 0 —— 这条用例把单位钉死在毫秒上(2026-11-11 上线后发现并修复)。
+        备注信息:
+            imserver 用 ``now_ms()`` 写 ``created_at``(13 位毫秒),按秒传边界会让区间恒为空、
+            消息量永远是 0 —— 这条用例把单位钉死在毫秒上(2026-11-11 上线后发现并修复)。
         """
         cursor = MagicMock()
         cursor.fetchone.return_value = (7,)

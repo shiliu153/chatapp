@@ -23,6 +23,17 @@
 
 部署:supervisor 的 gunicorn 命令加 ``-c gunicorn.conf.py``(见 docs/ops/observability.md §2.3)。
 命令行里的 ``-b / -w / --threads`` 优先级高于本文件,不会被覆盖。
+
+文件信息:
+    文件名称          gunicorn.conf.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + gunicorn
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import glob
@@ -32,8 +43,14 @@ import os
 def _multiproc_dir() -> str:
     """读取多进程指标目录。
 
-    Returns:
+    返回参数:
         ``PROMETHEUS_MULTIPROC_DIR`` 的值;未配置时返回空串(此时本配置什么也不做)。
+
+    使用示例:
+        ``path = _multiproc_dir()``
+
+    备注信息:
+        每个钩子都重新读一次环境变量,不缓存 —— 值由 Django 读完 .env 之后才稳定。
     """
     return os.environ.get("PROMETHEUS_MULTIPROC_DIR", "")
 
@@ -41,8 +58,17 @@ def _multiproc_dir() -> str:
 def on_starting(server):
     """master 启动前准备 mmap 目录。
 
-    Args:
+    参数说明:
         server: gunicorn 的 Arbiter 实例(未使用,由 gunicorn 传入)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``on_starting(arbiter)``(由 gunicorn 在 master 启动时调用,不手动执行)
+
+    备注信息:
+        会删除目录下全部 ``*.db`` 残留文件,见下方行内注释的原因。
     """
     path = _multiproc_dir()
     if not path:
@@ -60,9 +86,18 @@ def on_starting(server):
 def child_exit(server, worker):
     """worker 退出时删掉它自己的 mmap 文件。
 
-    Args:
+    参数说明:
         server: gunicorn 的 Arbiter 实例(未使用)。
         worker: 退出的 worker,``worker.pid`` 是该进程号。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``child_exit(arbiter, worker)``(由 gunicorn 在 worker 退出时调用)
+
+    备注信息:
+        ``prometheus_client`` 必须延迟导入(理由见模块头),这里只 import ``multiprocess`` 子模块。
     """
     if not _multiproc_dir():
         return

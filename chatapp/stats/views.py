@@ -2,6 +2,17 @@
 
 关联文档:
     - 接口契约:docs/api/stats.md
+
+文件信息:
+    文件名称          stats/views.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
@@ -37,15 +48,22 @@ def my_stats(request):
     时间(一人一行去重),关注数按关注关系创建时间。**不含消息条数** —— 消息在
     imserver 的库里,Django 读不到。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``period`` 查询参数(``week`` / ``month`` / ``year``)。
 
-    Returns:
+    返回参数:
         ``{period, start, end, matches, likes_given, likes_received, visits, posts,
         post_likes, new_followers}``;``start`` / ``end`` 是含首含尾的日期字符串。
 
-    Raises:
-        InvalidPeriod: ``period`` 不在 ``week`` / ``month`` / ``year`` 之内。
+    使用示例:
+        ``GET /api/v1/stats/me?period=month``
+
+    备注信息:
+        接口路径 ``GET /api/v1/stats/me``(路由见 ``stats/urls.py``),只读、无请求体、
+        无分页。``period`` 缺省或空串按 ``week``;取值非法抛 ``InvalidPeriod``
+        (HTTP 400 + 业务码 ``40005``),未带令牌 401 由鉴权层拦下。七项数字全部来自
+        Django 自己的库,计算逻辑在 ``stats.services.collect``;响应里的 ``start`` /
+        ``end`` 是含首含尾的**日期**(不是时刻),与 ``period_bounds`` 同口径。
     """
     period = parse_period(request.query_params.get("period"))
     start, end = period_bounds(period)

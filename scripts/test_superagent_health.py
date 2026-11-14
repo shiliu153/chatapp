@@ -3,6 +3,17 @@
 巡检器坏掉的后果是**两种静默**:要么把「正常」报成异常(人被噪音训练成不看告警),
 要么把「异常」报成正常(比没有巡检更糟 —— 会给主人一个虚假的安全感)。所以判定逻辑
 全部用构造快照钉住,不联网、不碰真实 orchestrator 状态库。
+
+文件信息:
+    文件名称          scripts/test_superagent_health.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -24,11 +35,17 @@ from scripts import superagent_health as healthcheck  # noqa: E402
 def make_db(tmp: str) -> sqlite3.Connection:
     """建一个只有巡检会用到的四张表的临时状态库。
 
-    Args:
+    参数说明:
         tmp: 临时目录。
 
-    Returns:
+    返回参数:
         可写的 sqlite 连接(路径可再以只读方式打开)。
+
+    使用示例:
+        ``make_db(tmp)``
+
+    备注信息:
+        无特殊约束。
     """
     path = os.path.join(tmp, "orchestrator.sqlite")
     conn = sqlite3.connect(path)
@@ -43,13 +60,19 @@ def make_db(tmp: str) -> sqlite3.Connection:
 def ticket_row(number: int, assignments: list, title: str = "示例工单") -> str:
     """造一行 ticket JSON。
 
-    Args:
+    参数说明:
         number: GitHub issue 编号。
         assignments: assignment 列表(每项至少含 id/state/createdAt)。
         title: 工单标题。
 
-    Returns:
+    返回参数:
         JSON 字符串。
+
+    使用示例:
+        ``ticket_row(number, assignments, title)``
+
+    备注信息:
+        无特殊约束。
     """
     return json.dumps(
         {
@@ -65,10 +88,20 @@ class EnqueueThreeTests(unittest.TestCase):
     """入队三连:三张表缺任何一张都必须报警。"""
 
     def setUp(self) -> None:
+        """用例前置:准备三张表的最小数据。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp = tempfile.mkdtemp()
         self.conn = make_db(self.tmp)
 
     def test_all_three_tables_present_is_ok(self) -> None:
+        """用例:三张表都有行时判定为 ok。
+
+        参数说明:
+            无。
+        """
         self.conn.execute("insert into thread values ('github:285','{}')")
         self.conn.execute("insert into trigger_thread values ('github:285','t1','2026-11-13',1)")
         self.conn.execute("insert into ticket values ('x', ?)", (ticket_row(285, []),))
@@ -77,11 +110,21 @@ class EnqueueThreeTests(unittest.TestCase):
         self.assertEqual(check.state, healthcheck.OK, check.detail)
 
     def test_missing_ticket_rows_is_bad(self) -> None:
+        """用例:缺工单行时判定为异常。
+
+        参数说明:
+            无。
+        """
         check = healthcheck.check_enqueue(self.conn, 285)
         self.assertEqual(check.state, healthcheck.BAD)
         self.assertIn("ticket=0", check.detail)
 
     def test_ticket_but_no_trigger_is_bad(self) -> None:
+        """用例:有工单但没触发器时判定为异常。
+
+        参数说明:
+            无。
+        """
         self.conn.execute("insert into thread values ('github:285','{}')")
         self.conn.execute("insert into ticket values ('x', ?)", (ticket_row(285, []),))
         self.conn.commit()
@@ -96,11 +139,20 @@ class ZombieTests(unittest.TestCase):
     NOW = datetime(2026, 11, 13, 8, 0, tzinfo=timezone.utc)
 
     def setUp(self) -> None:
+        """用例前置:准备僵尸任务判定的最小数据。
+
+        备注信息:
+            由 ``unittest`` 框架调用,不直接调用。
+        """
         self.tmp = tempfile.mkdtemp()
         self.conn = make_db(self.tmp)
 
     def _insert(self, number: int, state: str, started: datetime, report: str = "") -> None:
-        """插一行 ticket,只带一个 assignment。"""
+        """插一行 ticket,只带一个 assignment。
+
+        备注信息:
+            无特殊约束。
+        """
         assignment = {
             "id": "a-%s-%s" % (number, state),
             "state": state,
@@ -114,6 +166,11 @@ class ZombieTests(unittest.TestCase):
         self.conn.commit()
 
     def test_long_running_assignment_is_zombie(self) -> None:
+        """用例:超时未完成的派工判为僵尸。
+
+        参数说明:
+            无。
+        """
         self._insert(285, "running", self.NOW - timedelta(hours=6), "stream idle timeout")
         checks = healthcheck.zombie_assignments(self.conn, self.NOW, 45)
         self.assertEqual(len(checks), 1)
@@ -121,14 +178,29 @@ class ZombieTests(unittest.TestCase):
         self.assertIn("6.0h", checks[0].detail)
 
     def test_short_running_assignment_is_not_reported(self) -> None:
+        """用例:未超时的派工不报僵尸。
+
+        参数说明:
+            无。
+        """
         self._insert(285, "running", self.NOW - timedelta(minutes=10))
         self.assertEqual(healthcheck.zombie_assignments(self.conn, self.NOW, 45), [])
 
     def test_pending_assignment_also_counts(self) -> None:
+        """用例:``pending`` 状态的派工同样计入僵尸。
+
+        参数说明:
+            无。
+        """
         self._insert(285, "pending", self.NOW - timedelta(hours=2))
         self.assertEqual(len(healthcheck.zombie_assignments(self.conn, self.NOW, 45)), 1)
 
     def test_ended_assignment_is_ignored(self) -> None:
+        """用例:已结束的派工不算僵尸。
+
+        参数说明:
+            无。
+        """
         self._insert(285, "ended", self.NOW - timedelta(hours=9))
         self.assertEqual(healthcheck.zombie_assignments(self.conn, self.NOW, 45), [])
 
@@ -137,23 +209,43 @@ class ExitCodeAndRenderTests(unittest.TestCase):
     """退出码契约与摘要渲染:2 必须优先于 1(判不出来不能当成有异常)。"""
 
     def test_clean_report_is_zero(self) -> None:
+        """用例:全部正常时退出码为 0。
+
+        参数说明:
+            无。
+        """
         report = healthcheck.Report()
         report.add(healthcheck.Check("a", healthcheck.OK, "fine"))
         self.assertEqual(report.exit_code(), 0)
 
     def test_anomaly_is_one(self) -> None:
+        """用例:有异常时退出码为 1。
+
+        参数说明:
+            无。
+        """
         report = healthcheck.Report()
         report.add(healthcheck.Check("a", healthcheck.BAD, "boom"))
         self.assertEqual(report.exit_code(), 1)
         self.assertEqual(report.anomalies, ["a"])
 
     def test_unknown_wins_over_anomaly(self) -> None:
+        """用例:``unknown`` 比异常优先级更高。
+
+        参数说明:
+            无。
+        """
         report = healthcheck.Report()
         report.add(healthcheck.Check("a", healthcheck.BAD, "boom"))
         report.unknown.append("库打不开")
         self.assertEqual(report.exit_code(), 2)
 
     def test_render_marks_and_conclusion(self) -> None:
+        """用例:渲染输出里带标记与结论行。
+
+        参数说明:
+            无。
+        """
         report = healthcheck.Report()
         report.add(healthcheck.Check("出网", healthcheck.BAD, "HTTP 000"))
         text = healthcheck.render_text(report)
@@ -161,6 +253,11 @@ class ExitCodeAndRenderTests(unittest.TestCase):
         self.assertIn("结论:异常", text)
 
     def test_json_roundtrip(self) -> None:
+        """用例:``--json`` 输出可原样解析回来。
+
+        参数说明:
+            无。
+        """
         report = healthcheck.Report()
         report.add(healthcheck.Check("出网", healthcheck.OK, "HTTP 200"))
         payload = json.loads(json.dumps(report.to_dict(), ensure_ascii=False))
@@ -172,10 +269,20 @@ class EgressTests(unittest.TestCase):
     """出网探测:代理连不上必须是 `bad`,不能抛异常(否则 timer 直接崩)。"""
 
     def test_dead_proxy_reports_bad_without_raising(self) -> None:
+        """用例:出口代理不通时判坏且不抛异常。
+
+        参数说明:
+            无。
+        """
         check = healthcheck.check_egress("http://127.0.0.1:9", None, timeout=3)
         self.assertEqual(check.state, healthcheck.BAD)
 
     def test_reports_selector_when_config_missing(self) -> None:
+        """用例:缺配置时报告里说明用的是哪种选择器。
+
+        参数说明:
+            无。
+        """
         check = healthcheck.check_proxy_selector("/nonexistent/config.yaml")
         self.assertEqual(check.state, healthcheck.OK)
 
@@ -184,6 +291,11 @@ class AcknowledgeTests(unittest.TestCase):
     """人工确认作废的僵尸 assignment:降级成 ok,但信息保留。"""
 
     def test_ignored_zombie_becomes_ok(self) -> None:
+        """用例:被确认忽略的僵尸转为 ok。
+
+        参数说明:
+            无。
+        """
         check = healthcheck.Check("僵尸 assignment ce1d46c9", healthcheck.BAD, "state=running 已 8.4h")
         acknowledged = healthcheck._acknowledge(check, ["ce1d46c9"])
         self.assertEqual(acknowledged.state, healthcheck.OK)
@@ -191,11 +303,21 @@ class AcknowledgeTests(unittest.TestCase):
         self.assertIn("8.4h", acknowledged.detail)
 
     def test_unlisted_zombie_stays_bad(self) -> None:
+        """用例:未列入忽略清单的僵尸仍报坏。
+
+        参数说明:
+            无。
+        """
         check = healthcheck.Check("僵尸 assignment ce1d46c9", healthcheck.BAD, "state=running")
         for ignore in ([], ["aaaaaaaa"], [""]):
             self.assertEqual(healthcheck._acknowledge(check, ignore).state, healthcheck.BAD)
 
     def test_report_with_ignore_is_green(self) -> None:
+        """用例:带忽略清单的报告整体为绿。
+
+        参数说明:
+            无。
+        """
         tmp = tempfile.mkdtemp()
         conn = make_db(tmp)
         started = datetime(2026, 11, 13, 0, 0, tzinfo=timezone.utc)
@@ -232,6 +354,11 @@ class BuildReportTests(unittest.TestCase):
     """整体带参数跑一遍(跳过联网),确认 CLI 拼装出来的东西是自洽的。"""
 
     def test_skip_egress_still_checks_db(self) -> None:
+        """用例:跳过出口检查时仍查库。
+
+        参数说明:
+            无。
+        """
         tmp = tempfile.mkdtemp()
         conn = make_db(tmp)
         conn.execute("insert into ticket values ('x', ?)", (ticket_row(285, []),))
@@ -245,6 +372,11 @@ class BuildReportTests(unittest.TestCase):
         self.assertEqual(report.exit_code(), 1)
 
     def test_missing_db_is_unknown_not_ok(self) -> None:
+        """用例:连不上库判 ``unknown`` 而不是 ok。
+
+        参数说明:
+            无。
+        """
         args = healthcheck.build_parser().parse_args(
             ["--db", "/nonexistent/orchestrator.sqlite", "--skip-egress"]
         )

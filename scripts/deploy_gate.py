@@ -25,6 +25,17 @@
 
 仓库名 / API 基址 / token 文件与解析逻辑住在 ``scripts/lib/repo.py``(2026-11-14 治理第 5 节:
 这四个 GitHub 常量以前在四个脚本里各抄一份,见 ``sources-of-truth.md`` §4 C7)。
+
+文件信息:
+    文件名称          scripts/deploy_gate.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -51,19 +62,38 @@ OK_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
 
 
 class GateError(Exception):
-    """无法完成校验(用法错 / 网络错 / 拿不到 token);由 main 转成退出码 2。"""
+    """无法完成校验(用法错 / 网络错 / 拿不到 token);由 main 转成退出码 2。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``raise GateError(...)``
+
+    备注信息:
+        无特殊约束。
+    """
 
 
 def git(repo: Path, *args: str, check: bool = True) -> str:
     """在仓库里跑一条 git 命令。
 
-    Args:
+    参数说明:
         repo: 仓库根目录。
         *args: 传给 git 的参数。
         check: 为 True 时非零退出抛 :class:`GateError`。
 
-    Returns:
+    返回参数:
         标准输出(去空白);``check=False`` 且失败时返回空串。
+
+    使用示例:
+        ``git(repo, *args, check=check)``
+
+    备注信息:
+        失败时抛 ``GateError``,由调用方处理。
     """
     completed = subprocess.run(
         ["git", "-C", str(repo), *args],
@@ -81,16 +111,19 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
 def resolve_target_sha(repo: Path, branch: str, sha: str | None) -> str:
     """确定要校验的目标 SHA。
 
-    Args:
+    参数说明:
         repo: 仓库根目录。
         branch: 默认分支名(如 ``main``)。
         sha: 显式指定的提交;``None`` 表示用 ``origin/<branch>``。
 
-    Returns:
+    返回参数:
         完整 SHA。
 
-    Raises:
-        GateError: 拿不到目标 ref。
+    使用示例:
+        ``resolve_target_sha(repo, branch, sha)``
+
+    备注信息:
+        抛 ``GateError``:拿不到目标 ref。
     """
     if sha:
         full = git(repo, "rev-parse", "--verify", f"{sha}^{{commit}}", check=False)
@@ -106,13 +139,19 @@ def resolve_target_sha(repo: Path, branch: str, sha: str | None) -> str:
 def is_ancestor(repo: Path, sha: str, branch: str) -> bool:
     """判断 ``sha`` 是否属于 ``origin/<branch>`` 的历史。
 
-    Args:
+    参数说明:
         repo: 仓库根目录。
         sha: 目标提交。
         branch: 默认分支名。
 
-    Returns:
+    返回参数:
         True 表示是祖先或相等(可以部署)。
+
+    使用示例:
+        ``is_ancestor(repo, sha, branch)``
+
+    备注信息:
+        无特殊约束。
     """
     completed = subprocess.run(
         ["git", "-C", str(repo), "merge-base", "--is-ancestor", sha, f"origin/{branch}"],
@@ -124,11 +163,17 @@ def is_ancestor(repo: Path, sha: str, branch: str) -> bool:
 def read_token() -> str:
     """按优先级取 GitHub token(环境变量优先,其次 DSH 的 token 文件)。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         PAT 字符串。
 
-    Raises:
-        GateError: 两处都没有。
+    使用示例:
+        ``read_token()``
+
+    备注信息:
+        抛 ``GateError``:两处都没有。
     """
     try:
         return lib_repo.resolve_token()
@@ -139,16 +184,19 @@ def read_token() -> str:
 def fetch_check_runs(repo_slug: str, sha: str, token: str) -> list[dict]:
     """拉取某个提交上的全部 check run(自动翻页)。
 
-    Args:
+    参数说明:
         repo_slug: ``owner/name``。
         sha: 提交 SHA。
         token: GitHub PAT。
 
-    Returns:
+    返回参数:
         check run 列表。
 
-    Raises:
-        GateError: 网络错误或非 2xx。
+    使用示例:
+        ``fetch_check_runs(repo_slug, sha, token)``
+
+    备注信息:
+        抛 ``GateError``:网络错误或非 2xx。
     """
     runs: list[dict] = []
     page = 1
@@ -179,11 +227,17 @@ def fetch_check_runs(repo_slug: str, sha: str, token: str) -> list[dict]:
 def evaluate(check_runs: list[dict]) -> list[str]:
     """判定 check run 集合是否允许部署。
 
-    Args:
+    参数说明:
         check_runs: GitHub check-runs API 返回的 ``check_runs`` 列表。
 
-    Returns:
+    返回参数:
         问题描述列表;空列表表示通过。
+
+    使用示例:
+        ``evaluate(check_runs)``
+
+    备注信息:
+        无特殊约束。
     """
     if not check_runs:
         return [
@@ -206,11 +260,17 @@ def evaluate(check_runs: list[dict]) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;``None`` 表示取 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         0 通过;1 不通过;2 用法/环境错误。
+
+    使用示例:
+        ``python scripts/deploy_gate.py``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(description="部署闸门:默认分支 + CI 绿")
     parser.add_argument("--repo", default=lib_repo.DEFAULT_REPO, help="owner/name")

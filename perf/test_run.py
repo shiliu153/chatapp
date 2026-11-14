@@ -12,6 +12,17 @@
     - ``{i}`` 自增替换:在真实 TCP 上跑一遍最小回显服务器,确认真发出去的是
       POST + 每个账号自己的鉴权头 + 递增的请求体;
     - 结果 JSON 脱敏:头名进结果,**头的值绝不进**(结果文件会进 git)。
+
+文件信息:
+    文件名称          perf/test_run.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import argparse
@@ -29,11 +40,17 @@ from perf import run as perf_run
 def make_args(**overrides) -> Namespace:
     """造一份与 argparse 产物同形状的参数对象(只覆盖本文件用到的字段)。
 
-    Args:
+    参数说明:
         **overrides: 要覆盖的字段。
 
-    Returns:
+    返回参数:
         参数命名空间。
+
+    使用示例:
+        ``make_args(**overrides)``
+
+    备注信息:
+        无特殊约束。
     """
     base = dict(
         scenario="api_write",
@@ -73,22 +90,71 @@ def make_args(**overrides) -> Namespace:
 class EchoServer:
     """记录请求的最小 HTTP/1.1 服务器(keep-alive,回 200 空体)。
 
-    只在测试里用:目的不是模拟业务,而是把客户端**真正发出去的字节**抓下来看。
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``obj = EchoServer(...)``
+
+    备注信息:
+        只在测试里用:目的不是模拟业务,而是把客户端**真正发出去的字节**抓下来看。
     """
 
     def __init__(self):
-        """初始化空的请求记录与原位状态。"""
+        """初始化空的请求记录与原位状态。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``EchoServer()``
+
+        备注信息:
+            无特殊约束。
+        """
         self.requests: list[tuple[str, str, dict, bytes]] = []
         self._server = None
         self.port = 0
 
     async def start(self) -> None:
-        """监听 127.0.0.1 的随机端口。"""
+        """监听 127.0.0.1 的随机端口。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``obj.start()``
+
+        备注信息:
+            无特殊约束。
+        """
         self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
         self.port = self._server.sockets[0].getsockname()[1]
 
     async def stop(self) -> None:
-        """停止监听并等待连接关闭。"""
+        """停止监听并等待连接关闭。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``obj.stop()``
+
+        备注信息:
+            无特殊约束。
+        """
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
@@ -96,9 +162,18 @@ class EchoServer:
     async def _handle(self, reader, writer) -> None:
         """读一条连接上的所有请求,逐个记录并回 200。
 
-        Args:
+        参数说明:
             reader: asyncio 流读取器。
             writer: asyncio 流写入器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``obj._handle(reader, writer)``
+
+        备注信息:
+            无特殊约束。
         """
         try:
             while True:
@@ -126,18 +201,38 @@ class HeaderParsingTests(unittest.TestCase):
     """`--header` 解析与多层合并。"""
 
     def test_splits_on_first_colon(self):
+        """用例:请求头行只按第一个冒号切分。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(perf_run.parse_header_arg("Authorization: Bearer a:b"),
                          ("Authorization", "Bearer a:b"))
 
     def test_rejects_missing_colon(self):
+        """用例:请求头行缺冒号时报参数错误。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(argparse.ArgumentTypeError):
             perf_run.parse_header_arg("Authorization Bearer xxx")
 
     def test_rejects_empty_name(self):
+        """用例:请求头名为空时报参数错误。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(argparse.ArgumentTypeError):
             perf_run.parse_header_arg(": nope")
 
     def test_merge_is_case_insensitive_and_last_wins(self):
+        """用例:同名请求头大小写不敏感且后者覆盖前者。
+
+        参数说明:
+            无。
+        """
         merged = perf_run.merge_headers(
             {"Accept": "*/*", "Authorization": "old"},
             {"authorization": "new", "X-Forwarded-For": "10.0.0.9"})
@@ -151,6 +246,11 @@ class RequestBuildingTests(unittest.TestCase):
     """`build_request`:方法行、请求体、长度与缺省内容类型。"""
 
     def test_post_body_sets_length_and_json_default(self):
+        """用例:POST 带 body 时自动补 Content-Length 与 JSON Content-Type。
+
+        参数说明:
+            无。
+        """
         request = perf_run.build_request("POST", "/x", {"Host": "h"}, '{"a": 1}')
         self.assertTrue(request.startswith(b"POST /x HTTP/1.1\r\n"))
         self.assertIn(b"Content-Length: 8", request)
@@ -158,6 +258,11 @@ class RequestBuildingTests(unittest.TestCase):
         self.assertTrue(request.endswith(b'{"a": 1}'))
 
     def test_explicit_content_type_is_not_duplicated(self):
+        """用例:显式给的 Content-Type 不被再补一份。
+
+        参数说明:
+            无。
+        """
         request = perf_run.build_request(
             "POST", "/x",
             {"Host": "h", "content-type": "application/x-www-form-urlencoded"},
@@ -165,12 +270,21 @@ class RequestBuildingTests(unittest.TestCase):
         self.assertEqual(request.lower().count(b"content-type"), 1)
 
     def test_get_without_body_has_no_length(self):
+        """用例:无 body 的 GET 不带 Content-Length。
+
+        参数说明:
+            无。
+        """
         request = perf_run.build_request("GET", "/x", {"Host": "h"}, "")
         self.assertNotIn(b"Content-Length", request)
         self.assertTrue(request.endswith(b"\r\n\r\n"))
 
     def test_counter_token_is_left_untouched_by_builder(self):
-        """占位符替换在连接循环里做(用 str.replace,不能过 str.format)。"""
+        """占位符替换在连接循环里做(用 str.replace,不能过 str.format)。
+
+        参数说明:
+            无。
+        """
         request = perf_run.build_request("POST", "/x", {"Host": "h"}, '{"id": {i}}')
         self.assertIn(b'{"id": {i}}', request)
 
@@ -179,6 +293,11 @@ class HeaderFileTests(unittest.TestCase):
     """`--headers-file`:一行一个头集,注释与空行忽略。"""
 
     def test_reads_json_lines_and_skips_comments(self):
+        """用例:请求头文件按行读 JSON,注释行跳过。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "headers.jsonl"
             path.write_text(
@@ -193,6 +312,11 @@ class HeaderFileTests(unittest.TestCase):
         self.assertEqual(sets[1], {"Authorization": "Bearer b"})
 
     def test_rejects_bad_line(self):
+        """用例:请求头文件里的非法行报参数错误。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "headers.jsonl"
             path.write_text('{"Authorization": "Bearer a"}\nnot-json\n', encoding="utf-8")
@@ -200,6 +324,11 @@ class HeaderFileTests(unittest.TestCase):
                 perf_run.load_header_sets(str(path))
 
     def test_rejects_non_string_values(self):
+        """用例:请求头值不是字符串时报参数错误。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "headers.jsonl"
             path.write_text('{"Authorization": 1}\n', encoding="utf-8")
@@ -207,6 +336,11 @@ class HeaderFileTests(unittest.TestCase):
                 perf_run.load_header_sets(str(path))
 
     def test_rejects_empty_file(self):
+        """用例:空请求头文件报参数错误。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "headers.jsonl"
             path.write_text("# 全是注释\n", encoding="utf-8")
@@ -218,34 +352,69 @@ class BodyAndNormalizeTests(unittest.TestCase):
     """`--body @文件` 与参数归一(默认路径 / 默认方法 / 必填校验)。"""
 
     def test_body_at_file(self):
+        """用例:``@文件`` 形式的 body 从文件读入。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "body.json"
             path.write_text('{"target_user_id": {i}}', encoding="utf-8")
             self.assertEqual(perf_run.load_body(f"@{path}"), '{"target_user_id": {i}}')
 
     def test_body_literal_passes_through(self):
+        """用例:字面量 body 原样透传。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(perf_run.load_body("text=hi"), "text=hi")
 
     def test_missing_body_file_is_parameter_error(self):
+        """用例:body 文件不存在时报参数错误。
+
+        参数说明:
+            无。
+        """
         with self.assertRaises(ValueError):
             perf_run.load_body("@/definitely/not/here.json")
 
     def test_api_read_gets_default_path_and_get(self):
+        """用例:读接口默认路径与 GET 方法。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_read", path="", method="", body="")
         self.assertEqual(perf_run.normalize_args(args), "")
         self.assertEqual(args.path, "/api/v1/app/config")
         self.assertEqual(args.method, "GET")
 
     def test_api_write_requires_explicit_path(self):
+        """用例:写接口必须显式给路径。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_write", path="", method="")
         self.assertIn("--path", perf_run.normalize_args(args))
 
     def test_api_write_defaults_to_post(self):
+        """用例:写接口不给方法时默认 POST。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_write", method="")
         self.assertEqual(perf_run.normalize_args(args), "")
         self.assertEqual(args.method, "POST")
 
     def test_unknown_method_rejected(self):
+        """用例:未知 HTTP 方法被拒。
+
+        参数说明:
+            无。
+        """
         args = make_args(method="FETCH")
         self.assertIn("--method", perf_run.normalize_args(args))
 
@@ -254,6 +423,11 @@ class ReadIntervalTests(unittest.TestCase):
     """读连接限速:`--read-interval` 要真的进到读 spec;负数要报参数错。"""
 
     def test_read_interval_reaches_read_spec(self):
+        """用例:``--read-interval`` 落到读侧规格上。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_read", path="/api/v1/discovery/candidates",
                          method="", read_interval=0.6)
         self.assertEqual(perf_run.normalize_args(args), "")
@@ -261,17 +435,32 @@ class ReadIntervalTests(unittest.TestCase):
         self.assertEqual(read_specs[0]["interval"], 0.6)
 
     def test_default_read_interval_is_closed_loop(self):
+        """用例:读间隔默认是闭环(收到即读)。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_read", path="/api/v1/app/config", method="")
         self.assertEqual(perf_run.normalize_args(args), "")
         read_specs, _write_specs = perf_run.request_specs(args)
         self.assertEqual(read_specs[0]["interval"], 0)
 
     def test_negative_read_interval_rejected(self):
+        """用例:负的读间隔被拒。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_read", path="/api/v1/app/config",
                          method="", read_interval=-1)
         self.assertIn("--read-interval", perf_run.normalize_args(args))
 
     def test_read_interval_recorded_in_payload(self):
+        """用例:读间隔写进上报 payload。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_read", path="/api/v1/app/config",
                          method="", read_interval=0.6)
         self.assertEqual(perf_run.normalize_args(args), "")
@@ -285,6 +474,11 @@ class PayloadRedactionTests(unittest.TestCase):
     """结果 JSON 的脱敏:头名留下,头的值一个都不许留下。"""
 
     def test_header_values_never_reach_payload(self):
+        """用例:请求头值不进上报 payload。
+
+        参数说明:
+            无。
+        """
         args = make_args(header=[("Authorization", "Bearer top-secret")])
         payload = perf_run.build_payload(
             args,
@@ -299,6 +493,11 @@ class PayloadRedactionTests(unittest.TestCase):
         self.assertEqual(payload["params"]["method"], "POST")
 
     def test_static_body_is_not_marked_as_template(self):
+        """用例:静态 body 不标记为模板。
+
+        参数说明:
+            无。
+        """
         args = make_args(body='{"action": "like"}')
         payload = perf_run.build_payload(args, [], {}, "2026-11-03T20:00:00+08:00")
         self.assertFalse(payload["params"]["body_template"])
@@ -311,12 +510,18 @@ class LiveWriteLoopTests(unittest.TestCase):
     def _run(self, args, header_sets):
         """起回显服务器 → 跑 run_http → 收服务器记录。
 
-        Args:
+        参数说明:
             args: 参数命名空间。
             header_sets: 每连接一套的请求头。
 
-        Returns:
+        返回参数:
             (压测结果, 服务器收到的请求列表)。
+
+        使用示例:
+            ``obj._run(args, header_sets)``
+
+        备注信息:
+            无特殊约束。
         """
         async def scenario():
             """搭起服务器并跑一次 HTTP 场景。"""
@@ -332,6 +537,11 @@ class LiveWriteLoopTests(unittest.TestCase):
         return asyncio.run(scenario())
 
     def test_connections_rotate_header_sets_and_bodies_are_unique(self):
+        """用例:实压时连接轮换请求头集,body 各不相同。
+
+        参数说明:
+            无。
+        """
         args = make_args(conns=2, dur=0.3)
         header_sets = [
             {"Authorization": "Bearer token-a", "X-Forwarded-For": "10.0.0.1"},
@@ -359,12 +569,22 @@ class LiveWriteLoopTests(unittest.TestCase):
         self.assertEqual(tokens, {"Bearer token-a", "Bearer token-b"})
 
     def test_base_header_is_overridden_by_per_connection_set(self):
+        """用例:连接级请求头覆盖基础头。
+
+        参数说明:
+            无。
+        """
         args = make_args(conns=1, dur=0.2, header=[("Authorization", "Bearer base")])
         result, requests = self._run(args, [{"authorization": "Bearer per-conn"}])
         self.assertEqual(result["error_rate"], 0.0)
         self.assertEqual(requests[0][2]["authorization"], "Bearer per-conn")
 
     def test_static_body_is_reused_verbatim(self):
+        """用例:静态 body 原样复用。
+
+        参数说明:
+            无。
+        """
         args = make_args(conns=1, dur=0.2, body='{"action": "like"}')
         _result, requests = self._run(args, [{"Authorization": "Bearer t"}])
         self.assertTrue(all(body == b'{"action": "like"}' for *_rest, body in requests))
@@ -374,6 +594,11 @@ class UploadAndMixedTests(unittest.TestCase):
     """`api_upload` 的 multipart 体与 `api_mixed` 的读写角色分配。"""
 
     def test_upload_body_is_binary_safe_multipart(self):
+        """用例:上传体是二进制安全的 multipart。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "tiny.png"
             raw = bytes(range(256)) * 4  # 覆盖 0x00-0xFF,验证 latin-1 往返无损
@@ -389,6 +614,11 @@ class UploadAndMixedTests(unittest.TestCase):
         self.assertTrue(encoded.endswith(b"--\r\n"))
 
     def test_upload_rejects_unknown_extension(self):
+        """用例:上传文件扩展名不认识时被拒。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "notes.txt"
             path.write_text("hi", encoding="utf-8")
@@ -396,10 +626,20 @@ class UploadAndMixedTests(unittest.TestCase):
                 perf_run.load_upload(str(path))
 
     def test_upload_requires_file_and_fills_defaults(self):
+        """用例:上传必须给文件,其余字段取默认值。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_upload", path="", method="", body="", file="")
         self.assertIn("--file", perf_run.normalize_args(args))
 
     def test_upload_normalizes_path_method_and_content_type(self):
+        """用例:上传归一化路径、方法与 Content-Type。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "a.jpg"
             path.write_bytes(b"\xff\xd8\xff" + b"x" * 100)
@@ -413,6 +653,11 @@ class UploadAndMixedTests(unittest.TestCase):
         self.assertIn("content-type", names)
 
     def test_role_split_is_evenly_spread(self):
+        """用例:读写角色按比例均摊到各连接。
+
+        参数说明:
+            无。
+        """
         writes = [i for i in range(10) if perf_run.role_is_write(i, 0.3)]
         self.assertEqual(len(writes), 3)
         self.assertEqual(writes, [3, 6, 9], "写角色必须摊开,不能全挤在开头")
@@ -420,6 +665,11 @@ class UploadAndMixedTests(unittest.TestCase):
         self.assertTrue(perf_run.role_is_write(0, 1))
 
     def test_mixed_requires_write_path_and_valid_ratio(self):
+        """用例:混合模式必须给写路径且比例合法。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_mixed", write_path="", write_ratio=0.3)
         self.assertIn("--write-path", perf_run.normalize_args(args))
         args = make_args(scenario="api_mixed", write_path="/api/v1/discovery/swipe",
@@ -427,6 +677,11 @@ class UploadAndMixedTests(unittest.TestCase):
         self.assertIn("--write-ratio", perf_run.normalize_args(args))
 
     def test_mixed_payload_records_write_side(self):
+        """用例:混合模式的 payload 记录写侧规格。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_mixed", path="/api/v1/app/config", method="GET",
                          write_path="/api/v1/discovery/swipe", write_method="POST",
                          write_body='{"target_user_id": {i}}', write_ratio=0.3)
@@ -442,12 +697,18 @@ class LiveUploadAndMixedLoopTests(unittest.TestCase):
     def _run(self, args, header_sets):
         """起回显服务器 → 跑 run_http → 收服务器记录。
 
-        Args:
+        参数说明:
             args: 参数命名空间。
             header_sets: 每连接一套的请求头。
 
-        Returns:
+        返回参数:
             (压测结果, 服务器收到的请求列表)。
+
+        使用示例:
+            ``obj._run(args, header_sets)``
+
+        备注信息:
+            无特殊约束。
         """
         async def scenario():
             """搭起服务器并跑一次 HTTP 场景。"""
@@ -463,6 +724,11 @@ class LiveUploadAndMixedLoopTests(unittest.TestCase):
         return asyncio.run(scenario())
 
     def test_upload_loop_sends_multipart_bytes(self):
+        """用例:实压上传循环发出 multipart 字节流。
+
+        参数说明:
+            无。
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "tiny.jpg"
             path.write_bytes(b"\xff\xd8\xff\xe0" + b"payload" * 50)
@@ -479,6 +745,11 @@ class LiveUploadAndMixedLoopTests(unittest.TestCase):
         self.assertIn(b"\xff\xd8\xff\xe0", body)
 
     def test_mixed_loop_hits_both_paths(self):
+        """用例:混合循环同时打到读、写两条路径。
+
+        参数说明:
+            无。
+        """
         args = make_args(scenario="api_mixed", path="/api/v1/app/config", method="GET",
                          body="", write_path="/api/v1/discovery/swipe", write_method="POST",
                          write_body='{"target_user_id": {i}, "action": "like"}',
@@ -500,6 +771,11 @@ class ResourceCurveTests(unittest.TestCase):
     """`--sample-interval` 的内存曲线:长跑要能看出「什么时候开始换页」。"""
 
     def test_curve_is_recorded_when_interval_is_small(self):
+        """用例:采样间隔够小时记录资源曲线。
+
+        参数说明:
+            无。
+        """
         async def scenario():
             """跑一个 1.2 秒、每 0.3 秒采一次曲线点的 HTTP 场景。"""
             server = EchoServer()
@@ -518,6 +794,11 @@ class ResourceCurveTests(unittest.TestCase):
         self.assertEqual(len(curve[0]), 4, "每个点是 [秒, 内存MB, swapMB, load1]")
 
     def test_curve_can_be_disabled(self):
+        """用例:资源曲线可以关掉。
+
+        参数说明:
+            无。
+        """
         async def scenario():
             """跑一个 0.3 秒、关闭曲线采样的场景。"""
             server = EchoServer()

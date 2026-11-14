@@ -56,6 +56,17 @@
     python scripts/docs_lint.py --root .     # 自测:换一个仓库根
 
 退出码:0 = 0 违例;1 = 有违例;2 = 判定器自己出错(目录不对 / 一个文件都没扫到)。
+
+文件信息:
+    文件名称          scripts/docs_lint.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -151,12 +162,18 @@ API_DOCS_SUBDIR = "api"
 def _is_archived(path: Path, docs_dir: Path) -> bool:
     """判断一个路径是否落在 `docs/superpowers/archive/` 子树里。
 
-    Args:
+    参数说明:
         path: 待判断的绝对路径(通常是 `docs/` 下的某个文件)。
         docs_dir: `docs/` 目录的绝对路径。
 
-    Returns:
+    返回参数:
         落在归档子树里返回 ``True``;不在 `docs/` 下也返回 ``True``(不在判定范围内)。
+
+    使用示例:
+        ``_is_archived(path, docs_dir)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         parts = path.resolve().relative_to(docs_dir.resolve()).parts
@@ -168,15 +185,18 @@ def _is_archived(path: Path, docs_dir: Path) -> bool:
 def find_misplaced_files(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[str]:
     """找出 `docs/` 下不该出现的文件(结构规则)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         违规文件的仓库相对路径列表,按路径排序。空列表表示结构合规。
 
-    Raises:
-        FileNotFoundError: 文档目录不存在 —— 那是「判不出来」,不是「合规」。
+    使用示例:
+        ``find_misplaced_files(repo_root, docs_subdir)``
+
+    备注信息:
+        抛 ``FileNotFoundError``:文档目录不存在 —— 那是「判不出来」,不是「合规」。
     """
     repo_root = repo_root.resolve()
     docs_dir = repo_root / docs_subdir
@@ -196,15 +216,19 @@ def find_misplaced_files(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> Lis
 def index_files(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[Path]:
     """列出参与「索引覆盖」判定的全部索引文件。
 
-    索引文件 = 仓库根的 `README.md` / `CLAUDE.md` / `AGENTS.md` + `docs/` 下任意层级的
-    `README.md`(归档子树除外)。归档里的 README 不参与:历史文档不改,也不该拿它当入口。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         索引文件的绝对路径列表,按路径排序;不存在的根入口会被跳过。
+
+    使用示例:
+        ``index_files(repo_root, docs_subdir)``
+
+    备注信息:
+        索引文件 = 仓库根的 `README.md` / `CLAUDE.md` / `AGENTS.md` + `docs/` 下任意层级的
+        `README.md`(归档子树除外)。归档里的 README 不参与:历史文档不改,也不该拿它当入口。
     """
     repo_root = repo_root.resolve()
     found: List[Path] = [repo_root / name for name in ROOT_INDEX_NAMES if (repo_root / name).is_file()]
@@ -219,15 +243,19 @@ def index_files(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[Path]:
 def linked_targets(repo_root: Path, index: Path) -> Set[Path]:
     """取出一个索引文件以相对链接指向的全部仓库内路径。
 
-    这里**复用** ``check_docs_links`` 的解析实现(抹代码 → 取目标 → 解析成绝对路径),
-    而不是另写一套正则:链接语义只允许有一个口径,两套实现必然分叉。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         index: 索引文件的绝对路径。
 
-    Returns:
+    返回参数:
         规范化后的绝对路径集合;外链、纯锚点、站点根路径已被上游过滤掉。
+
+    使用示例:
+        ``linked_targets(repo_root, index)``
+
+    备注信息:
+        这里**复用** ``check_docs_links`` 的解析实现(抹代码 → 取目标 → 解析成绝对路径),
+        而不是另写一套正则:链接语义只允许有一个口径,两套实现必然分叉。
     """
     repo_root = repo_root.resolve()
     text = index.read_text(encoding="utf-8")
@@ -241,15 +269,18 @@ def linked_targets(repo_root: Path, index: Path) -> Set[Path]:
 def find_unindexed_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[str]:
     """找出没有被任何索引文件以相对链接覆盖的非归档文档。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         未被覆盖的文档仓库相对路径列表,按路径排序。空列表表示 100% 覆盖。
 
-    Raises:
-        FileNotFoundError: 文档目录不存在。
+    使用示例:
+        ``find_unindexed_docs(repo_root, docs_subdir)``
+
+    备注信息:
+        抛 ``FileNotFoundError``:文档目录不存在。
     """
     repo_root = repo_root.resolve()
     docs_dir = repo_root / docs_subdir
@@ -273,14 +304,18 @@ def find_unindexed_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List
 def parse_front_matter(text: str) -> Dict[str, str] | None:
     """解析文件开头的 front-matter 块。
 
-    只认**文件第一行**就是 `---` 的块(与写作规范一致);正文里的 `---` 是水平分隔线,
-    不是元信息。键值按 `键: 值` 解析,`#` 开头的行当注释跳过。
-
-    Args:
+    参数说明:
         text: 文件全文(换行已被 ``Path.read_text`` 归一化,不影响行号)。
 
-    Returns:
+    返回参数:
         键值字典;文件开头没有 front-matter 时返回 ``None``。
+
+    使用示例:
+        ``parse_front_matter(text)``
+
+    备注信息:
+        只认**文件第一行**就是 `---` 的块(与写作规范一致);正文里的 `---` 是水平分隔线,
+        不是元信息。键值按 `键: 值` 解析,`#` 开头的行当注释跳过。
     """
     match = FRONT_MATTER_RE.match(text)
     if not match:
@@ -299,14 +334,18 @@ def parse_front_matter(text: str) -> Dict[str, str] | None:
 def review_value_ok(value: str) -> bool:
     """判断 `复核` 字段的取值是否合法。
 
-    合法形态只有三种(见 `docs/standards/writing.md` §2):反引号命令、周期短语、
-    ``无(一次性)``。**日期不算** —— 写日期会变成一条没人验证过的假数据。
-
-    Args:
+    参数说明:
         value: `复核` 字段的原始值。
 
-    Returns:
+    返回参数:
         合法返回 ``True``。
+
+    使用示例:
+        ``review_value_ok(value)``
+
+    备注信息:
+        合法形态只有三种(见 `docs/standards/writing.md` §2):反引号命令、周期短语、
+        ``无(一次性)``。**日期不算** —— 写日期会变成一条没人验证过的假数据。
     """
     if METADATA_REVIEW_NONE in value:
         return True
@@ -318,18 +357,20 @@ def review_value_ok(value: str) -> bool:
 def find_metadata_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
     """检查非归档文档的头部元信息(metadata 规则)。
 
-    作用域是 `docs/` 下全部非归档 `.md`,但 `docs/superpowers/` 豁免 —— 那里的状态 owner
-    是该目录 README §2 的工作面表,元信息再写一份就是同一事实两处。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         违例项列表,每项形如 ``{"file": ..., "line": 1, "message": ...}``,按文件排序。
 
-    Raises:
-        FileNotFoundError: 文档目录不存在。
+    使用示例:
+        ``find_metadata_violations(repo_root, docs_subdir)``
+
+    备注信息:
+        作用域是 `docs/` 下全部非归档 `.md`,但 `docs/superpowers/` 豁免 —— 那里的状态 owner
+        是该目录 README §2 的工作面表,元信息再写一份就是同一事实两处。
+        抛 ``FileNotFoundError``:文档目录不存在。
     """
     repo_root = repo_root.resolve()
     docs_dir = repo_root / docs_subdir
@@ -389,16 +430,20 @@ def find_metadata_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) ->
 def term_scope_files(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[Path]:
     """列出术语规则的作用域文件(活文档)。
 
-    作用域 = 仓库根三份入口 + `docs/{ops,standards,api,pitfalls,backlog}/**`。
-    归档、常驻 spec、一次性报告、教学材料、生成的 `docs/README.md` 都不在其中
-    (理由见 `docs/standards/writing.md` §5.2)。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         作用域文件的绝对路径列表,按路径排序;不存在的目录跳过。
+
+    使用示例:
+        ``term_scope_files(repo_root, docs_subdir)``
+
+    备注信息:
+        作用域 = 仓库根三份入口 + `docs/{ops,standards,api,pitfalls,backlog}/**`。
+        归档、常驻 spec、一次性报告、教学材料、生成的 `docs/README.md` 都不在其中
+        (理由见 `docs/standards/writing.md` §5.2)。
     """
     repo_root = repo_root.resolve()
     files: List[Path] = [repo_root / name for name in TERM_ROOT_FILES if (repo_root / name).is_file()]
@@ -415,15 +460,19 @@ def term_scope_files(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[Pa
 def find_term_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
     """找出作用域内出现禁用术语的行(term 规则)。
 
-    白名单整文件跳过;行内标记 ``<!-- lint:allow:term -->`` 只豁免它所在的那一行 ——
-    不提供「随手关掉整份文档」的口子。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         违例项列表,每项带 ``file`` / ``line`` / ``term`` / ``message``,按路径与行号排序。
+
+    使用示例:
+        ``find_term_violations(repo_root, docs_subdir)``
+
+    备注信息:
+        白名单整文件跳过;行内标记 ``<!-- lint:allow:term -->`` 只豁免它所在的那一行 ——
+        不提供「随手关掉整份文档」的口子。
     """
     repo_root = repo_root.resolve()
     workflows = count_workflows(repo_root)
@@ -460,11 +509,17 @@ def find_term_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> Lis
 def count_workflows(repo_root: Path) -> int:
     """数一数 `.github/workflows/` 下的 workflow 文件(给术语提示写「当前 N 个」)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         `.yml` / `.yaml` 文件个数;目录不存在时返回 0(提示退化成「当前 N 个」)。
+
+    使用示例:
+        ``count_workflows(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     wf_dir = repo_root.resolve() / ".github" / "workflows"
     if not wf_dir.is_dir():
@@ -477,18 +532,21 @@ def count_workflows(repo_root: Path) -> int:
 def find_number_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
     """核对分册首句的手写接口数(number 规则)。
 
-    只判一种形态:`docs/api/*.md` 里的「本分册含 N 个接口」必须等于「接口一览」表里
-    指向该分册的行数。这是全仓唯一成体系的手写计数;其余 `N 份` / `N 条` / `N 个操作`
-    是历史叙事或已由生成器覆盖,机械禁会把门禁变成噪音源。
-
-    没写这句话的分册不判(可选句式:写了就必须对)。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         违例项列表,每项带 ``file`` / ``line`` / ``message``,按路径排序。
+
+    使用示例:
+        ``find_number_violations(repo_root, docs_subdir)``
+
+    备注信息:
+        只判一种形态:`docs/api/*.md` 里的「本分册含 N 个接口」必须等于「接口一览」表里
+        指向该分册的行数。这是全仓唯一成体系的手写计数;其余 `N 份` / `N 条` / `N 个操作`
+        是历史叙事或已由生成器覆盖,机械禁会把门禁变成噪音源。
+        没写这句话的分册不判(可选句式:写了就必须对)。
     """
     repo_root = repo_root.resolve()
     api_dir = repo_root / docs_subdir / API_DOCS_SUBDIR
@@ -534,19 +592,19 @@ def find_number_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> L
 def lint(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
     """跑全部六条规则,返回一个扁平的违例列表。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
-        违例列表,每项形如
-        ``{"rule": "structure", "file": "docs/ops/x.sh", "line": 0, "message": "..."}``。
-        断链项另带 ``target`` / ``resolved`` / ``suggestion``;术语项另带 ``term``。
-        按 ``(rule, file, line)`` 排序以保证输出稳定。
+    返回参数:
+        违例列表,每项形如 ``{"rule": "structure", "file": "docs/ops/x.sh", "line": 0, "message": "..."}``。 断链项另带 ``target`` / ``resolved`` / ``suggestion``;术语项另带 ``term``。 按 ``(rule, file, line)`` 排序以保证输出稳定。
 
-    Raises:
-        FileNotFoundError: 文档目录不存在。
-        OSError: 有文档读不了 —— 判不出来,交给上层 fail-closed。
+    使用示例:
+        ``lint(repo_root, docs_subdir)``
+
+    备注信息:
+        抛 ``FileNotFoundError``:文档目录不存在。
+        抛 ``OSError``:有文档读不了 —— 判不出来,交给上层 fail-closed。
     """
     violations: List[dict] = []
 
@@ -599,15 +657,19 @@ def lint(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
 def count_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> int:
     """数一数扫到了多少份 Markdown,用来区分「合规」与「一个都没扫到」。
 
-    后者是真故障(检出目录不对 / 路径变了),不该被当成「0 违例」悄悄通过 ——
-    与 ``check_docs_links.count_markdown_files`` 是同一个理由。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         `docs/` 下 `.md` 文件的个数;目录不存在时返回 0。
+
+    使用示例:
+        ``count_docs(repo_root, docs_subdir)``
+
+    备注信息:
+        后者是真故障(检出目录不对 / 路径变了),不该被当成「0 违例」悄悄通过 ——
+        与 ``check_docs_links.count_markdown_files`` 是同一个理由。
     """
     return check_docs_links.count_markdown_files(Path(repo_root), docs_subdir)
 
@@ -615,11 +677,17 @@ def count_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> int:
 def _describe(item: dict) -> str:
     """把一条违例渲染成人读的一行(含可执行的改法候选)。
 
-    Args:
+    参数说明:
         item: ``lint`` 返回的违例项。
 
-    Returns:
+    返回参数:
         形如 ``[rule] docs/a.md:12 → 目标 (解析为 ...)`` 的字符串,候选行按需追加。
+
+    使用示例:
+        ``_describe(item)``
+
+    备注信息:
+        无特殊约束。
     """
     where = item["file"] if not item.get("line") else f"{item['file']}:{item['line']}"
     line = f"[{item['rule']}] {where}  {item['message']}"
@@ -631,11 +699,17 @@ def _describe(item: dict) -> str:
 def main(argv: List[str] | None = None) -> int:
     """命令行入口:跑六条规则并输出结果,返回退出码。
 
-    Args:
+    参数说明:
         argv: 命令行参数列表;``None`` 表示用 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         0 = 0 违例;1 = 有违例;2 = 判定器自身出错。
+
+    使用示例:
+        ``python scripts/docs_lint.py``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(
         description=(

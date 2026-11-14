@@ -9,6 +9,17 @@
 
 关联文档:
     - 接口契约:docs/api/moderation.md
+
+文件信息:
+    文件名称          moderation/views.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.contrib.auth import get_user_model
@@ -42,15 +53,21 @@ def create_report(request):
     幂等:同一被举报人若已有待处理举报,返回已有记录且状态码为 200;
     本次新建时返回 201。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,body 需带 ``target_user_id`` / ``type`` / 可选 ``detail``。
 
-    Returns:
+    返回参数:
         ``{id, type, status}``。
 
-    Raises:
-        ValidationError: 举报自己。
-        NotFound: 被举报人不存在。
+    使用示例:
+        ``POST /api/v1/reports {"target_user_id": 7, "type": "harassment"}``
+
+    备注信息:
+        自己举报自己回 400(``ValidationError``),被举报人不存在回 404(``NotFound``),
+        类型不在 ``ReportType`` 里回 400(由入参序列化器拦)。
+        幂等靠 ``dedupe_key`` 唯一约束 + ``get_or_create``:并发提交时后到的那条
+        撞唯一约束后回查已有记录,不会落重复行,也不会 500。
+        限流 ``ReportThrottle``(``20/day``),超限 429;响应路径不写 IM,也没有其他副作用。
     """
     serializer = ReportCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -80,15 +97,22 @@ def blocks(request):
 
     POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单。
 
-    Args:
+    参数说明:
         request: DRF 请求对象;POST 时 body 需带 ``target_user_id``。
 
-    Returns:
+    返回参数:
         GET 返回分页后的黑名单条目;POST 返回拉黑对象(新建为 201,已存在为 200)。
 
-    Raises:
-        ValidationError: 拉黑自己。
-        NotFound: 目标用户不存在。
+    使用示例:
+        ``GET /api/v1/blocks?limit=20&offset=0`` / ``POST /api/v1/blocks {"target_user_id": 7}``
+
+    备注信息:
+        拉黑自己回 400,目标用户不存在回 404;GET 走 ``DefaultLimitOffsetPagination``,
+        响应形状 ``{count, next, previous, results}``。
+        POST 首次创建时**两件事同时做**:同步 IM 黑名单(add=True)与撤销聊天权限
+        (``sync_im_pair(..., add=False)``)——即便两人之前配对过也不能继续发消息;
+        重复拉黑不会再入队。条目里的昵称与头像靠 ``select_related`` +
+        ``prefetch_related`` 预取,不会逐条查库。限流 ``BlockThrottle`` 只算 POST。
     """
     if request.method == "POST":
         serializer = BlockCreateSerializer(data=request.data)
@@ -120,12 +144,22 @@ def unblock(request, user_id):
 
     幂等:没有该条拉黑记录时直接返回 204,不报错。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         user_id: 被解除拉黑的账号 id。
 
-    Returns:
+    返回参数:
         204 空响应。
+
+    使用示例:
+        ``DELETE /api/v1/blocks/7``
+
+    备注信息:
+        只删「我拉黑对方」这一条;记录不存在时什么都不做(不入队、不报错)。
+        删除后同步 IM 黑名单(remove),并且**只有两人仍是有效配对**
+        (``unmatched_at`` 为空)才恢复聊天权限,否则不恢复 —— 未配对的人不该因为
+        「拉黑又解除」凭空获得发消息的资格。本视图没有挂 ``throttle_classes``,
+        且项目未配置 ``DEFAULT_THROTTLE_CLASSES``,所以解除拉黑不计限流额度。
     """
     block = Block.objects.filter(blocker=request.user, blocked_id=user_id).first()
     if block is not None:

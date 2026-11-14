@@ -34,6 +34,17 @@ L4「需求自动入队」的机械一致性信号的唯一实现(见
     python scripts/check_docs_links.py --root .   # 自测:换一个仓库根
 
 退出码:0 = 没有断链;1 = 有断链;2 = 判定器自己出错(参数 / 读文件失败)。
+
+文件信息:
+    文件名称          scripts/check_docs_links.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -62,11 +73,17 @@ SKIP_DIRS = {".git", "node_modules", ".dart_tool", "build", "dist", "flutter", "
 def _iter_markdown_files(docs_dir: Path) -> Iterator[Path]:
     """按路径顺序产出 docs 目录下的全部 Markdown 文件。
 
-    Args:
+    参数说明:
         docs_dir: 要遍历的目录(通常是仓库根下的 `docs/`)。
 
-    Yields:
+    返回参数:
         该目录下每个 `.md` 文件的绝对路径,按字符串排序以保证输出稳定。
+
+    使用示例:
+        ``_iter_markdown_files(docs_dir)``
+
+    备注信息:
+        无特殊约束。
     """
     for path in sorted(docs_dir.rglob("*.md")):
         if path.is_file():
@@ -76,13 +93,17 @@ def _iter_markdown_files(docs_dir: Path) -> Iterator[Path]:
 def _strip_code(text: str) -> str:
     """把代码块与行内代码从文本里抹掉,避免把代码里的方括号当成链接。
 
-    抹掉而不是删除,是为了**保留行号**:替换成等长空白,后续报错的行号才对得上。
-
-    Args:
+    参数说明:
         text: 单个 Markdown 文件的全文。
 
-    Returns:
+    返回参数:
         与入参等长、行结构不变的文本,其中代码区域已被空格覆盖。
+
+    使用示例:
+        ``_strip_code(text)``
+
+    备注信息:
+        抹掉而不是删除,是为了**保留行号**:替换成等长空白,后续报错的行号才对得上。
     """
     out_lines: List[str] = []
     in_fence = False
@@ -101,11 +122,17 @@ def _strip_code(text: str) -> str:
 def _candidate_targets(text: str) -> Iterator[Tuple[int, str]]:
     """从已抹掉代码的 Markdown 里取出所有待判定的链接目标。
 
-    Args:
+    参数说明:
         text: 已经过 `_strip_code` 处理的 Markdown 全文。
 
-    Yields:
+    返回参数:
         `(行号, 原始目标)` 二元组;行号从 1 起。外链与纯锚点在此已被过滤掉。
+
+    使用示例:
+        ``_candidate_targets(text)``
+
+    备注信息:
+        无特殊约束。
     """
     for lineno, line in enumerate(text.splitlines(), start=1):
         found: List[str] = []
@@ -126,13 +153,19 @@ def _candidate_targets(text: str) -> Iterator[Tuple[int, str]]:
 def _resolve(repo_root: Path, source: Path, target: str) -> Path:
     """把 Markdown 里的相对目标解析成仓库内路径。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录(用于把 `..` 越界的目标判为不存在)。
         source: 链接所在的 Markdown 文件。
         target: 链接目标原文(可能带 `#anchor` 或 `%20`)。
 
-    Returns:
+    返回参数:
         规范化后的绝对路径;`#anchor` 与 `?query` 已剥离,百分号编码已解码。
+
+    使用示例:
+        ``_resolve(repo_root, source, target)``
+
+    备注信息:
+        无特殊约束。
     """
     clean = target.split("#", 1)[0].split("?", 1)[0]
     clean = clean.replace("%20", " ")
@@ -142,14 +175,18 @@ def _resolve(repo_root: Path, source: Path, target: str) -> Path:
 def _index_basenames(repo_root: Path) -> dict:
     """建立「文件名 → 仓库内路径列表」的索引,给断链提供**机器可得的改法候选**。
 
-    只有「同名文件在全仓唯一」时才算候选:那是「链接写错了相对深度」这一类最常见的断链,
-    改法是确定的(指向那个文件)。同名文件有多个时不给候选 —— 选哪个是人的判断。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         字典,键是文件名(如 `AGENTS.md`),值是该文件名全部出现位置的仓库相对路径列表。
+
+    使用示例:
+        ``_index_basenames(repo_root)``
+
+    备注信息:
+        只有「同名文件在全仓唯一」时才算候选:那是「链接写错了相对深度」这一类最常见的断链,
+        改法是确定的(指向那个文件)。同名文件有多个时不给候选 —— 选哪个是人的判断。
     """
     index: dict = {}
     for dirpath, dirnames, filenames in os.walk(repo_root):
@@ -167,12 +204,18 @@ def _index_basenames(repo_root: Path) -> dict:
 def _suggestion(index: dict, target: str) -> str:
     """从同名索引里给出一条可执行的改法候选,拿不准就返回空串。
 
-    Args:
+    参数说明:
         index: `_index_basenames` 建出的索引。
         target: 断链的目标原文(可能带 `#anchor`)。
 
-    Returns:
+    返回参数:
         唯一同名文件的仓库相对路径;没有或不止一个时返回空串。
+
+    使用示例:
+        ``_suggestion(index, target)``
+
+    备注信息:
+        无特殊约束。
     """
     base = target.split("#", 1)[0].split("?", 1)[0].replace("%20", " ").rstrip("/")
     name = base.rsplit("/", 1)[-1]
@@ -185,16 +228,20 @@ def _suggestion(index: dict, target: str) -> str:
 def count_markdown_files(repo_root: Path, docs_subdir: str = "docs") -> int:
     """数一数「到底扫了多少个文件」。
 
-    存在的意义是让判定器能区分**两种看起来一样的结论**:「扫了 128 个文件、没有断链」
-    与「一个文件都没扫到」。后者是真故障(检出目录不对 / 路径变了),不该被当成
-    「没有断链」悄悄通过 —— 2026-11-12 首次真跑就是被这种歧义困住过。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
+    返回参数:
         `docs/` 下 `.md` 文件的个数;目录不存在时返回 0。
+
+    使用示例:
+        ``count_markdown_files(repo_root, docs_subdir)``
+
+    备注信息:
+        存在的意义是让判定器能区分**两种看起来一样的结论**:「扫了 128 个文件、没有断链」
+        与「一个文件都没扫到」。后者是真故障(检出目录不对 / 路径变了),不该被当成
+        「没有断链」悄悄通过 —— 2026-11-12 首次真跑就是被这种歧义困住过。
     """
     docs_dir = repo_root.resolve() / docs_subdir
     if not docs_dir.is_dir():
@@ -205,15 +252,18 @@ def count_markdown_files(repo_root: Path, docs_subdir: str = "docs") -> int:
 def find_broken_links(repo_root: Path, docs_subdir: str = "docs") -> List[dict]:
     """扫描文档目录,返回全部断链。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
 
-    Returns:
-        断链列表,每项形如
-        `{"file": "docs/ops/x.md", "line": 12, "target": "../y.md",
-          "resolved": "docs/y.md", "suggestion": "docs/superpowers/y.md"}`,
-        按文件与行号排序。`suggestion` 为空串表示没有唯一候选。空列表表示没有断链。
+    返回参数:
+        断链列表,每项形如 `{"file": "docs/ops/x.md", "line": 12, "target": "../y.md", "resolved": "docs/y.md", "suggestion": "docs/superpowers/y.md"}`, 按文件与行号排序。`suggestion` 为空串表示没有唯一候选。空列表表示没有断链。
+
+    使用示例:
+        ``find_broken_links(repo_root, docs_subdir)``
+
+    备注信息:
+        失败时抛 ``FileNotFoundError``,由调用方处理。
     """
     repo_root = repo_root.resolve()
     docs_dir = repo_root / docs_subdir
@@ -255,11 +305,17 @@ def find_broken_links(repo_root: Path, docs_subdir: str = "docs") -> List[dict]:
 def main(argv: List[str] | None = None) -> int:
     """命令行入口:扫描并输出断链,返回退出码。
 
-    Args:
+    参数说明:
         argv: 命令行参数列表;`None` 表示用 `sys.argv[1:]`。
 
-    Returns:
+    返回参数:
         0 = 无断链;1 = 有断链;2 = 判定器自身出错。
+
+    使用示例:
+        ``python scripts/check_docs_links.py``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(
         description="检查 docs/ 下 Markdown 的相对链接是否指向存在的路径"

@@ -29,6 +29,17 @@ YAML 的子集(刻意)
 ``DocsError`` = **判不出来**(YAML 语法错、字段拼错、标记缺失):CLI 映射成退出码 2,
 不是「合规」也不是「不一致」。记录缺失 / tag 不对 / Release 为空属于**判定失败**,由
 :func:`check_current` 返回问题列表,调用方退出码 1。
+
+文件信息:
+    文件名称          scripts/lib/docs.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -72,22 +83,35 @@ REQUIRED_FIELDS = ("version", "date")
 class DocsError(RuntimeError):
     """发版记录判不出来(YAML 语法错 / 字段拼错 / 生成标记缺失)。
 
-    调用方应映射成退出码 2 —— 「判不出来」不等于「合规」。
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``raise DocsError(...)``
+
+    备注信息:
+        调用方应映射成退出码 2 —— 「判不出来」不等于「合规」。
     """
 
 
 def parse_records(text: str, source: str = "docs/releases.yml") -> list[dict]:
     """解析 ``releases.yml`` 的文本(只支持模块 docstring 里写的那个 YAML 子集)。
 
-    Args:
+    参数说明:
         text: 文件全文。
         source: 出错时用来定位的说明(通常是仓库相对路径)。
 
-    Returns:
+    返回参数:
         记录列表,顺序即文件顺序;每条是「字段名 → 值」的字典。
 
-    Raises:
-        DocsError: 缩进不对、字段名不在 ``FIELDS`` 里、必需字段缺失、版本重复或值格式不合法。
+    使用示例:
+        ``parse_records(text, source)``
+
+    备注信息:
+        抛 ``DocsError``:缩进不对、字段名不在 ``FIELDS`` 里、必需字段缺失、版本重复或值格式不合法。
     """
     records: list[dict] = []
     current: dict | None = None
@@ -126,14 +150,17 @@ def parse_records(text: str, source: str = "docs/releases.yml") -> list[dict]:
 def load_records(path: Path = RELEASES_YML) -> list[dict]:
     """读取并解析发版记录文件。
 
-    Args:
+    参数说明:
         path: ``releases.yml`` 路径;默认仓库里的那一份。
 
-    Returns:
+    返回参数:
         记录列表。
 
-    Raises:
-        DocsError: 文件不存在、读不出来或解析失败。
+    使用示例:
+        ``load_records(path)``
+
+    备注信息:
+        抛 ``DocsError``:文件不存在、读不出来或解析失败。
     """
     try:
         text = path.read_text(encoding="utf-8")
@@ -145,12 +172,18 @@ def load_records(path: Path = RELEASES_YML) -> list[dict]:
 def find_record(version: str, records: list[dict]) -> dict | None:
     """在记录列表里找某个版本。
 
-    Args:
+    参数说明:
         version: 版本名,如 ``1.0.13``。
         records: :func:`parse_records` / :func:`load_records` 的结果。
 
-    Returns:
+    返回参数:
         命中的记录;没有该版本时返回 ``None``。
+
+    使用示例:
+        ``find_record(version, records)``
+
+    备注信息:
+        无特殊约束。
     """
     return next((item for item in records if str(item.get("version")) == version), None)
 
@@ -158,13 +191,16 @@ def find_record(version: str, records: list[dict]) -> dict | None:
 def release_cell(record: dict) -> str:
     """渲染「Release」列:链接(+附件细节)或散文备注。
 
-    Args:
+    参数说明:
         record: 一条发版记录。
 
-    Returns:
+    返回参数:
         可直接放进表格单元格的文本;三者都为空时返回 ``—``。
 
-    Notes:
+    使用示例:
+        ``release_cell(record)``
+
+    备注信息:
         历史行用 ``release`` 留空 + ``note`` 写散文(``无(规则生效前发版)`` /
         ``历史遗留:…``),渲染时原样还原 —— 迁移不改写历史(治理方案 §6)。
     """
@@ -190,11 +226,17 @@ def release_cell(record: dict) -> str:
 def render_row(record: dict) -> str:
     """渲染一条记录为 Markdown 表格行。
 
-    Args:
+    参数说明:
         record: 一条发版记录。
 
-    Returns:
+    返回参数:
         形如 ``| 1.0.13 | 2026-11-11 | `v1.0.13` | … | `e7456f6` | `chatapp-1.0.13.apk` |``。
+
+    使用示例:
+        ``render_row(record)``
+
+    备注信息:
+        无特殊约束。
     """
     tag = f"`{record['tag']}`" if record.get("tag") else "—"
     deploy = f"`{record['deploy_sha']}`" if record.get("deploy_sha") else "—"
@@ -208,12 +250,17 @@ def render_row(record: dict) -> str:
 def render_table(records: list[dict]) -> str:
     """渲染整张发版记录表(表头 + 分隔行 + 每条一行)。
 
-    Args:
+    参数说明:
         records: 记录列表(顺序即渲染顺序,即文件顺序)。
 
-    Returns:
-        Markdown 表格全文(以 ``\\n`` 分隔,不含首尾换行)。**不含时间戳** —— 同一份 YAML
-        永远渲染出同一份字节,``--check`` 才有意义。
+    返回参数:
+        Markdown 表格全文(以 ``\n`` 分隔,不含首尾换行)。**不含时间戳** —— 同一份 YAML 永远渲染出同一份字节,``--check`` 才有意义。
+
+    使用示例:
+        ``render_table(records)``
+
+    备注信息:
+        无特殊约束。
     """
     header = "| " + " | ".join(TABLE_HEADER) + " |"
     separator = "|" + "|".join("---" for _ in TABLE_HEADER) + "|"
@@ -223,15 +270,18 @@ def render_table(records: list[dict]) -> str:
 def splice_block(text: str, body: str) -> str:
     """把渲染结果替换进 ``release.md`` 的生成区间,区间外一个字节都不动。
 
-    Args:
+    参数说明:
         text: ``release.md`` 的当前全文。
-        body: :func:`render_table` 的结果(以 ``\\n`` 分隔)。
+        body: :func:`render_table` 的结果(以 ``\n`` 分隔)。
 
-    Returns:
+    返回参数:
         替换后的全文,换行风格跟随原文件(Windows 检出是 CRLF,不能整文件重写)。
 
-    Raises:
-        DocsError: 两个标记缺一个或顺序颠倒。
+    使用示例:
+        ``splice_block(text, body)``
+
+    备注信息:
+        抛 ``DocsError``:两个标记缺一个或顺序颠倒。
     """
     newline = "\r\n" if "\r\n" in text else "\n"
     try:
@@ -247,14 +297,17 @@ def splice_block(text: str, body: str) -> str:
 def render_doc(repo_root: Path = REPO_ROOT) -> str:
     """渲染 ``release.md`` 的「期望全文」(只在当前内容上替换生成区间)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         期望全文;区间外与磁盘当前内容一致。
 
-    Raises:
-        DocsError: 记录文件或发版手册读不到、解析失败,或缺生成标记。
+    使用示例:
+        ``render_doc(repo_root)``
+
+    备注信息:
+        抛 ``DocsError``:记录文件或发版手册读不到、解析失败,或缺生成标记。
     """
     records = load_records(records_path(repo_root))
     doc_path = release_doc_path(repo_root)
@@ -268,19 +321,21 @@ def render_doc(repo_root: Path = REPO_ROOT) -> str:
 def check_current(version: str, path: Path = RELEASES_YML) -> list[str]:
     """校验发版记录已为指定版本留痕,且 tag / Release 两列可用。
 
-    这是 ``sync_version.py --check`` 从第 5 节起读的东西 —— 语义与它读 Markdown 表格时
-    **完全一致**(当前版本必须有行 / ``tag`` 含 ``v<版本>`` / ``Release`` 非空),只是数据
-    来源换成了结构化文件。
-
-    Args:
+    参数说明:
         version: 版本名,如 ``1.0.13``。
         path: ``releases.yml`` 路径;默认仓库里的那一份。
 
-    Returns:
+    返回参数:
         问题描述列表;空列表表示通过。
 
-    Raises:
-        DocsError: 记录文件不存在或解析失败(判不出来,不是「不一致」)。
+    使用示例:
+        ``check_current(version, path)``
+
+    备注信息:
+        这是 ``sync_version.py --check`` 从第 5 节起读的东西 —— 语义与它读 Markdown 表格时
+        **完全一致**(当前版本必须有行 / ``tag`` 含 ``v<版本>`` / ``Release`` 非空),只是数据
+        来源换成了结构化文件。
+        抛 ``DocsError``:记录文件不存在或解析失败(判不出来,不是「不一致」)。
     """
     if not path.exists():
         return [
@@ -322,14 +377,17 @@ def check_current(version: str, path: Path = RELEASES_YML) -> list[str]:
 def check(repo_root: Path = REPO_ROOT) -> list[str]:
     """校验 ``release.md`` 的生成区间与 ``releases.yml`` 渲染结果一致。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         问题描述列表;空列表表示一致。
 
-    Raises:
-        DocsError: 记录文件 / 发版手册读不到、解析失败,或缺生成标记(判不出来)。
+    使用示例:
+        ``check(repo_root)``
+
+    备注信息:
+        抛 ``DocsError``:记录文件 / 发版手册读不到、解析失败,或缺生成标记(判不出来)。
     """
     doc_path = release_doc_path(repo_root)
     if not doc_path.is_file():
@@ -351,14 +409,17 @@ def check(repo_root: Path = REPO_ROOT) -> list[str]:
 def write(repo_root: Path = REPO_ROOT) -> bool:
     """把渲染结果写回 ``release.md``(只在内容确实变化时落盘)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         ``True`` 表示文件被改动。
 
-    Raises:
-        DocsError: 同 :func:`render_doc`。
+    使用示例:
+        ``write(repo_root)``
+
+    备注信息:
+        抛 ``DocsError``:同 :func:`render_doc`。
     """
     doc_path = release_doc_path(repo_root)
     expected = render_doc(repo_root)
@@ -376,11 +437,17 @@ def write(repo_root: Path = REPO_ROOT) -> bool:
 def records_path(repo_root: Path) -> Path:
     """返回某个仓库根下的发版记录文件路径。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         ``<root>/docs/releases.yml``。
+
+    使用示例:
+        ``records_path(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     return Path(repo_root) / "docs" / "releases.yml"
 
@@ -388,11 +455,17 @@ def records_path(repo_root: Path) -> Path:
 def release_doc_path(repo_root: Path) -> Path:
     """返回某个仓库根下的发版手册路径。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         ``<root>/docs/ops/release.md``。
+
+    使用示例:
+        ``release_doc_path(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     return Path(repo_root) / "docs" / "ops" / "release.md"
 
@@ -400,14 +473,20 @@ def release_doc_path(repo_root: Path) -> Path:
 def _assign(record: dict, pair: str, source: str, lineno: int) -> None:
     """解析一行 ``key: value`` 并写进记录。
 
-    Args:
+    参数说明:
         record: 目标记录(原地修改)。
         pair: 冒号之后的原始文本之前的部分,即 ``key: value``。
         source: 出错时的定位说明。
         lineno: 行号。
 
-    Raises:
-        DocsError: 缺冒号、字段名不在 ``FIELDS`` 里、字段重复,或值的格式不合法。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_assign(record, pair, source, lineno)``
+
+    备注信息:
+        抛 ``DocsError``:缺冒号、字段名不在 ``FIELDS`` 里、字段重复,或值的格式不合法。
     """
     key, separator, value = pair.partition(":")
     key = key.strip()
@@ -423,16 +502,19 @@ def _assign(record: dict, pair: str, source: str, lineno: int) -> None:
 def _value(raw: str, source: str, lineno: int) -> str | int | None:
     """把 YAML 子集里的一个值转成 Python 值。
 
-    Args:
+    参数说明:
         raw: 冒号之后、去掉首尾空白的文本。
         source: 出错时的定位说明。
         lineno: 行号。
 
-    Returns:
+    返回参数:
         字符串(双引号按 JSON 转义解析)、整数,或 ``None``(``null`` / ``~``)。
 
-    Raises:
-        DocsError: 双引号不配对 / 转义不合法。
+    使用示例:
+        ``_value(raw, source, lineno)``
+
+    备注信息:
+        抛 ``DocsError``:双引号不配对 / 转义不合法。
     """
     if raw in ("", '""'):
         return ""
@@ -451,11 +533,17 @@ def _value(raw: str, source: str, lineno: int) -> str | int | None:
 def _display(path: Path) -> str:
     """把路径转成相对仓库根的展示形式(不在仓库内时原样返回)。
 
-    Args:
+    参数说明:
         path: 文件路径。
 
-    Returns:
+    返回参数:
         便于阅读的路径字符串。
+
+    使用示例:
+        ``_display(path)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         return str(Path(path).relative_to(REPO_ROOT)).replace("\\", "/")

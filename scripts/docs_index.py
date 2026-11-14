@@ -58,6 +58,17 @@
 
 退出码:0 = 一致;1 = 不一致 / 有违例;2 = 判定器自己出错(目录不对、openapi 解析不出来、
 标记缺失)—— 那是「判不出来」,不是「合规」。
+
+文件信息:
+    文件名称          scripts/docs_index.py
+    项目名称          chat_app / 工程脚本
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11
+    适用平台          Linux x86_64（本地与 CI）
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from __future__ import annotations
@@ -139,14 +150,18 @@ ERROR_CODE_RE = re.compile(r"=\s*(\d{5})\b")
 def _root(repo_root: Path | str) -> Path:
     """把「仓库根」参数统一成绝对路径。
 
-    公开函数既接受 ``Path`` 也接受命令行传进来的字符串(``--root``),
-    统一在这里归一化,避免每个函数各写一遍。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录,``Path`` 或字符串均可。
 
-    Returns:
+    返回参数:
         绝对路径形式的仓库根。
+
+    使用示例:
+        ``_root(repo_root)``
+
+    备注信息:
+        公开函数既接受 ``Path`` 也接受命令行传进来的字符串(``--root``),
+        统一在这里归一化,避免每个函数各写一遍。
     """
     return Path(repo_root).resolve()
 
@@ -154,14 +169,18 @@ def _root(repo_root: Path | str) -> Path:
 def _read_text(path: Path) -> str:
     """按原样读取文件(不做换行归一化)。
 
-    为什么不用 ``Path.read_text``:它在默认参数下会把 CRLF 折成 LF,写回时就会
-    把「只替换生成区间」变成「整文件换行全改」—— 手写内容就不再是「一字不动」。
-
-    Args:
+    参数说明:
         path: 文件路径。
 
-    Returns:
+    返回参数:
         文件内容,换行符与磁盘完全一致。
+
+    使用示例:
+        ``_read_text(path)``
+
+    备注信息:
+        为什么不用 ``Path.read_text``:它在默认参数下会把 CRLF 折成 LF,写回时就会
+        把「只替换生成区间」变成「整文件换行全改」—— 手写内容就不再是「一字不动」。
     """
     return path.read_bytes().decode("utf-8")
 
@@ -169,9 +188,18 @@ def _read_text(path: Path) -> str:
 def _write_text(path: Path, text: str) -> None:
     """按原样写文件(不做换行归一化)。
 
-    Args:
+    参数说明:
         path: 文件路径;父目录按需创建。
         text: 要写入的内容,换行符原样落盘。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_write_text(path, text)``
+
+    备注信息:
+        无特殊约束。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(text.encode("utf-8"))
@@ -180,12 +208,18 @@ def _write_text(path: Path, text: str) -> None:
 def _rel(path: Path, base: Path) -> str:
     """把绝对路径渲染成相对 `base` 的 POSIX 路径(链接与显示都用它)。
 
-    Args:
+    参数说明:
         path: 目标路径。
         base: 基准目录(通常是 `docs/`)。
 
-    Returns:
+    返回参数:
         形如 ``api/auth.md`` 的相对路径。
+
+    使用示例:
+        ``_rel(path, base)``
+
+    备注信息:
+        无特殊约束。
     """
     return path.relative_to(base).as_posix()
 
@@ -193,11 +227,17 @@ def _rel(path: Path, base: Path) -> str:
 def _cell(text: str) -> str:
     """把一段文本放进 Markdown 表格单元格(转义竖线、压掉换行)。
 
-    Args:
+    参数说明:
         text: 原始文本(通常是文档 H1 标题或文件名派生的主题)。
 
-    Returns:
+    返回参数:
         可以直接塞进 ``| ... |`` 的单行字符串。
+
+    使用示例:
+        ``_cell(text)``
+
+    备注信息:
+        无特殊约束。
     """
     return " ".join(text.split()).replace("|", "\\|")
 
@@ -208,15 +248,18 @@ def _cell(text: str) -> str:
 def _docs_dir(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> Path:
     """返回文档目录的绝对路径。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名。
 
-    Returns:
+    返回参数:
         `docs/` 的绝对路径。
 
-    Raises:
-        FileNotFoundError: 目录不存在 —— 那是「判不出来」,不是「合规」。
+    使用示例:
+        ``_docs_dir(repo_root, docs_subdir)``
+
+    备注信息:
+        抛 ``FileNotFoundError``:目录不存在 —— 那是「判不出来」,不是「合规」。
     """
     docs_dir = _root(repo_root) / docs_subdir
     if not docs_dir.is_dir():
@@ -227,12 +270,18 @@ def _docs_dir(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> Path:
 def _in_archive(path: Path, docs_dir: Path) -> bool:
     """判断一个路径是否落在 `docs/superpowers/archive/` 子树里。
 
-    Args:
+    参数说明:
         path: 待判断的路径。
         docs_dir: `docs/` 的绝对路径。
 
-    Returns:
+    返回参数:
         落在归档子树里返回 ``True``;不在 `docs/` 下也返回 ``True``(不在本模块判定范围内)。
+
+    使用示例:
+        ``_in_archive(path, docs_dir)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         parts = path.resolve().relative_to(docs_dir.resolve()).parts
@@ -244,16 +293,20 @@ def _in_archive(path: Path, docs_dir: Path) -> bool:
 def _sorted_by_path(paths: Iterable[Path]) -> List[Path]:
     """按 POSIX 路径字符串排序。
 
-    为什么不用 `sorted(paths)`:``Path`` 的比较在 **Windows 上是大小写不敏感**的
-    (`README.md` 排在 `app.md` 之后),在 **POSIX 上是大小写敏感**的(排在之前)。
-    生成物必须跨平台逐字节一致 —— 否则本地 Windows 生成的索引到 CI(Ubuntu)上
-    `--check` 会红,而那种红最难查(两边的文件完全一样,只是顺序不同)。
-
-    Args:
+    参数说明:
         paths: 待排序的路径序列。
 
-    Returns:
+    返回参数:
         排序后的列表,键是 ``path.as_posix()``(与平台无关)。
+
+    使用示例:
+        ``_sorted_by_path(paths)``
+
+    备注信息:
+        为什么不用 `sorted(paths)`:``Path`` 的比较在 **Windows 上是大小写不敏感**的
+        (`README.md` 排在 `app.md` 之后),在 **POSIX 上是大小写敏感**的(排在之前)。
+        生成物必须跨平台逐字节一致 —— 否则本地 Windows 生成的索引到 CI(Ubuntu)上
+        `--check` 会红,而那种红最难查(两边的文件完全一样,只是顺序不同)。
     """
     return sorted(paths, key=lambda path: path.as_posix())
 
@@ -261,11 +314,17 @@ def _sorted_by_path(paths: Iterable[Path]) -> List[Path]:
 def read_title(path: Path) -> str:
     """取一份文档的 H1 标题,没有标题就退回文件名。
 
-    Args:
+    参数说明:
         path: Markdown 文件路径。
 
-    Returns:
+    返回参数:
         第一行 ``# ...`` 的文本;文件读不了或没有 H1 时返回文件名(不含扩展名)。
+
+    使用示例:
+        ``read_title(path)``
+
+    备注信息:
+        无特殊约束。
     """
     try:
         text = _read_text(path)
@@ -278,18 +337,20 @@ def read_title(path: Path) -> str:
 def iter_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[Path]:
     """列出参与入口清单的**非归档**文档。
 
-    归档子树不逐份列进入口(它有自己的 INDEX.md);生成物 ``docs/README.md`` 自己
-    也不列进自己(否则每次生成都多一行)。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名。
 
-    Returns:
+    返回参数:
         非归档 `.md` 的绝对路径列表,按路径排序。
 
-    Raises:
-        FileNotFoundError: 文档目录不存在。
+    使用示例:
+        ``iter_docs(repo_root, docs_subdir)``
+
+    备注信息:
+        归档子树不逐份列进入口(它有自己的 INDEX.md);生成物 ``docs/README.md`` 自己
+        也不列进自己(否则每次生成都多一行)。
+        抛 ``FileNotFoundError``:文档目录不存在。
     """
     docs_dir = _docs_dir(repo_root, docs_subdir)
     index_path = (_root(repo_root) / INDEX_REL).resolve()
@@ -306,13 +367,18 @@ def iter_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[Path]:
 def group_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> Dict[str, List[Path]]:
     """把非归档文档按所在目录分组(`docs/` 根用 ``.`` 表示)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名。
 
-    Returns:
-        有序字典:键是相对 `docs/` 的目录(根为 ``.``),值是文件列表;
-        根排在最前,其余按路径字典序。
+    返回参数:
+        有序字典:键是相对 `docs/` 的目录(根为 ``.``),值是文件列表; 根排在最前,其余按路径字典序。
+
+    使用示例:
+        ``group_docs(repo_root, docs_subdir)``
+
+    备注信息:
+        无特殊约束。
     """
     docs_dir = _docs_dir(repo_root, docs_subdir)
     groups: Dict[str, List[Path]] = {}
@@ -325,14 +391,17 @@ def group_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> Dict[str, Lis
 def iter_archive(repo_root: Path) -> Dict[str, List[Path]]:
     """列出归档目录下的 spec 与 plan(排除生成物 INDEX.md 自己)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         ``{"specs": [...], "plans": [...]}``,各自按文件名排序(日期前缀天然等于时间序)。
 
-    Raises:
-        FileNotFoundError: 归档目录不存在。
+    使用示例:
+        ``iter_archive(repo_root)``
+
+    备注信息:
+        抛 ``FileNotFoundError``:归档目录不存在。
     """
     archive_dir = (_root(repo_root) / ARCHIVE_INDEX_REL).parent
     if not archive_dir.is_dir():
@@ -352,11 +421,17 @@ def iter_archive(repo_root: Path) -> Dict[str, List[Path]]:
 def count_archive(repo_root: Path) -> Dict[str, int]:
     """数一数归档有多少份(总数 / spec / plan)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         ``{"total": N, "specs": N, "plans": N}``;不含生成物 INDEX.md 自己。
+
+    使用示例:
+        ``count_archive(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     groups = iter_archive(repo_root)
     specs, plans = len(groups["specs"]), len(groups["plans"])
@@ -366,11 +441,17 @@ def count_archive(repo_root: Path) -> Dict[str, int]:
 def split_stem(stem: str) -> Tuple[str, str]:
     """把 ``YYYY-MM-DD-<主题>`` 拆成日期与主题。
 
-    Args:
+    参数说明:
         stem: 不含扩展名的文件名。
 
-    Returns:
+    返回参数:
         ``(日期, 主题)``;没有日期前缀时日期为空串,主题是原文件名。
+
+    使用示例:
+        ``split_stem(stem)``
+
+    备注信息:
+        无特殊约束。
     """
     match = DATE_PREFIX_RE.match(stem)
     if not match:
@@ -381,20 +462,22 @@ def split_stem(stem: str) -> Tuple[str, str]:
 def parse_openapi_operations(repo_root: Path) -> List[Tuple[str, str]]:
     """从 `openapi.yml` 里解析出全部操作(方法 + 路径),按文件顺序。
 
-    为什么手写解析而不是 ``import yaml``:本模块的定位是**纯标准库、秒级、离线**,
-    和 `scripts/` 下其它门禁一致;而 `openapi.yml` 是 `spectacular` 生成的,
-    缩进是稳定的两空格 / 四空格两级,行解析足够且不会因为 PyYAML 版本差异变行为。
-    解析不出任何操作时**报错而不是返回空** —— 那说明格式变了,是判定器该响的时候。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         ``[(方法, 路径)]``,方法与 yml 一致用大写,如 ``("POST", "/api/v1/auth/logout")``。
 
-    Raises:
-        FileNotFoundError: 契约文件不存在。
-        ValueError: 一个操作都没解析出来(格式变了)。
+    使用示例:
+        ``parse_openapi_operations(repo_root)``
+
+    备注信息:
+        为什么手写解析而不是 ``import yaml``:本模块的定位是**纯标准库、秒级、离线**,
+        和 `scripts/` 下其它门禁一致;而 `openapi.yml` 是 `spectacular` 生成的,
+        缩进是稳定的两空格 / 四空格两级,行解析足够且不会因为 PyYAML 版本差异变行为。
+        解析不出任何操作时**报错而不是返回空** —— 那说明格式变了,是判定器该响的时候。
+        抛 ``FileNotFoundError``:契约文件不存在。
+        抛 ``ValueError``:一个操作都没解析出来(格式变了)。
     """
     path = _root(repo_root) / OPENAPI_REL
     lines = _read_text(path).splitlines()
@@ -424,18 +507,19 @@ def parse_openapi_operations(repo_root: Path) -> List[Tuple[str, str]]:
 def parse_api_table_rows(repo_root: Path) -> List[Tuple[str, str, str]]:
     """解析 `docs/api/README.md`「接口一览」表的每一行,带上它指向的分册。
 
-    只认该章节内的表格行:README 别处的表格(目录、错误码说明)不该被当成接口。
-    代码围栏内的示例也不算(与 `config/api_doc_coverage.py` 的口径一致)。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
-        ``[(方法, 路径, 分册文件名)]``,按表中出现顺序;分册格缺失时第三项为空串。
-        表不存在时返回空列表。
+    返回参数:
+        ``[(方法, 路径, 分册文件名)]``,按表中出现顺序;分册格缺失时第三项为空串。 表不存在时返回空列表。
 
-    Raises:
-        FileNotFoundError: 接口文档入口不存在。
+    使用示例:
+        ``parse_api_table_rows(repo_root)``
+
+    备注信息:
+        只认该章节内的表格行:README 别处的表格(目录、错误码说明)不该被当成接口。
+        代码围栏内的示例也不算(与 `config/api_doc_coverage.py` 的口径一致)。
+        抛 ``FileNotFoundError``:接口文档入口不存在。
     """
     lines = _read_text(_root(repo_root) / API_README_REL).splitlines()
     rows: List[Tuple[str, str, str]] = []
@@ -463,14 +547,17 @@ def parse_api_table_rows(repo_root: Path) -> List[Tuple[str, str, str]]:
 def parse_api_table(repo_root: Path) -> List[Tuple[str, str]]:
     """解析 `docs/api/README.md`「接口一览」表里的 ``(方法, 路径)``。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         ``[(方法, 路径)]``,按表中出现顺序;表不存在时返回空列表。
 
-    Raises:
-        FileNotFoundError: 接口文档入口不存在。
+    使用示例:
+        ``parse_api_table(repo_root)``
+
+    备注信息:
+        抛 ``FileNotFoundError``:接口文档入口不存在。
     """
     return [(method, path) for method, path, _volume in parse_api_table_rows(repo_root)]
 
@@ -478,17 +565,19 @@ def parse_api_table(repo_root: Path) -> List[Tuple[str, str]]:
 def api_volume_counts(repo_root: Path) -> Dict[str, int]:
     """数一数接口一览表里每个分册各有多少行。
 
-    分册首句「本分册含 N 个接口」是**手写计数**,它必须等于这里的派生量 ——
-    判定在 ``scripts/docs_lint.py`` 的 number 规则里(`docs_lint` 调本函数,不重写解析)。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         ``{"auth.md": 7, ...}``;分册格缺失的行不计。
 
-    Raises:
-        FileNotFoundError: 接口文档入口不存在。
+    使用示例:
+        ``api_volume_counts(repo_root)``
+
+    备注信息:
+        分册首句「本分册含 N 个接口」是**手写计数**,它必须等于这里的派生量 ——
+        判定在 ``scripts/docs_lint.py`` 的 number 规则里(`docs_lint` 调本函数,不重写解析)。
+        抛 ``FileNotFoundError``:接口文档入口不存在。
     """
     counts: Dict[str, int] = {}
     for _method, _path, volume in parse_api_table_rows(repo_root):
@@ -501,11 +590,17 @@ def api_volume_counts(repo_root: Path) -> Dict[str, int]:
 def count_api_volumes(repo_root: Path) -> int:
     """数一数 `docs/api/` 下有多少份人读分册(不含本页 README)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         分册份数。
+
+    使用示例:
+        ``count_api_volumes(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     api_dir = (_root(repo_root) / API_README_REL).parent
     return len([path for path in _sorted_by_path(api_dir.glob("*.md")) if path.name != "README.md"])
@@ -517,14 +612,18 @@ def count_api_volumes(repo_root: Path) -> int:
 def _usage_rows(docs_dir: Path) -> List[str]:
     """渲染入口页顶部「想知道 → 去哪」的固定表格行。
 
-    链接按**存在性**过滤:目标文档被改名/删掉时这一行自动消失,不会制造断链
-    (``check_docs_links`` 会兜住真正的断链,这里不重复报)。
-
-    Args:
+    参数说明:
         docs_dir: `docs/` 的绝对路径。
 
-    Returns:
+    返回参数:
         Markdown 表格的数据行列表(不含表头与分隔行)。
+
+    使用示例:
+        ``_usage_rows(docs_dir)``
+
+    备注信息:
+        链接按**存在性**过滤:目标文档被改名/删掉时这一行自动消失,不会制造断链
+        (``check_docs_links`` 会兜住真正的断链,这里不重复报)。
     """
     wanted = (
         ("现在该做什么(待办总表)", "backlog/2026-11-03-todo.md"),
@@ -546,13 +645,18 @@ def _usage_rows(docs_dir: Path) -> List[str]:
 def render_docs_index(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> str:
     """渲染 `docs/README.md` 的全文。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名。
 
-    Returns:
-        生成物全文(以 ``\\n`` 结尾)。内容只依赖磁盘上的文件名与 H1,不含时间戳 ——
-        同一份树永远渲染出同一份字节,``--check`` 才有意义。
+    返回参数:
+        生成物全文(以 ``\n`` 结尾)。内容只依赖磁盘上的文件名与 H1,不含时间戳 —— 同一份树永远渲染出同一份字节,``--check`` 才有意义。
+
+    使用示例:
+        ``render_docs_index(repo_root, docs_subdir)``
+
+    备注信息:
+        无特殊约束。
     """
     repo_root = _root(repo_root)
     docs_dir = _docs_dir(repo_root, docs_subdir)
@@ -625,11 +729,17 @@ def render_docs_index(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> str:
 def render_archive_index(repo_root: Path) -> str:
     """渲染 `docs/superpowers/archive/INDEX.md` 的全文。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         生成物全文。日期与主题从文件名派生,``spec`` 列只报「同名 ``-design`` 是否存在」。
+
+    使用示例:
+        ``render_archive_index(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     repo_root = _root(repo_root)
     groups = iter_archive(repo_root)
@@ -686,12 +796,17 @@ def render_archive_index(repo_root: Path) -> str:
 def render_api_summary(repo_root: Path) -> str:
     """渲染 `docs/api/README.md` 生成区间的内容(不含标记行)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
-        区间正文;份数全部来自扫描(分册数 = `docs/api/*.md` 减本页,
-        路径数 / 操作数 = `openapi.yml`,表行数 = 实际表格行数)。
+    返回参数:
+        区间正文;份数全部来自扫描(分册数 = `docs/api/*.md` 减本页, 路径数 / 操作数 = `openapi.yml`,表行数 = 实际表格行数)。
+
+    使用示例:
+        ``render_api_summary(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     operations = parse_openapi_operations(repo_root)
     paths = {path for _method, path in operations}
@@ -711,11 +826,17 @@ def render_api_summary(repo_root: Path) -> str:
 def _newline_of(text: str) -> str:
     """判断文本的主换行风格(用于在生成区间里跟随原文件)。
 
-    Args:
+    参数说明:
         text: 文件全文。
 
-    Returns:
-        ``"\\r\\n"`` 或 ``"\\n"``。
+    返回参数:
+        ``"\r\n"`` 或 ``"\n"``。
+
+    使用示例:
+        ``_newline_of(text)``
+
+    备注信息:
+        无特殊约束。
     """
     return "\r\n" if "\r\n" in text else "\n"
 
@@ -723,15 +844,18 @@ def _newline_of(text: str) -> str:
 def splice_api_block(text: str, body: str) -> str:
     """把生成区间的内容替换进接口文档入口,区间外一个字节都不动。
 
-    Args:
+    参数说明:
         text: `docs/api/README.md` 的当前全文。
-        body: ``render_api_summary`` 的结果(以 ``\\n`` 分隔)。
+        body: ``render_api_summary`` 的结果(以 ``\n`` 分隔)。
 
-    Returns:
+    返回参数:
         替换后的全文,换行风格跟随原文件。
 
-    Raises:
-        ValueError: 两个标记缺一个或顺序颠倒。
+    使用示例:
+        ``splice_api_block(text, body)``
+
+    备注信息:
+        抛 ``ValueError``:两个标记缺一个或顺序颠倒。
     """
     newline = _newline_of(text)
     try:
@@ -747,18 +871,20 @@ def splice_api_block(text: str, body: str) -> str:
 def render_api_readme(repo_root: Path) -> str:
     """渲染 `docs/api/README.md` 的「期望全文」。
 
-    只在磁盘当前内容上替换生成区间 —— 因此 ``--check`` 实际比对的**只有区间**,
-    区间外的手写内容不会被误判成「过期」。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         期望全文(区间外与原文件一致)。
 
-    Raises:
-        FileNotFoundError: 接口文档入口不存在。
-        ValueError: 生成标记缺失。
+    使用示例:
+        ``render_api_readme(repo_root)``
+
+    备注信息:
+        只在磁盘当前内容上替换生成区间 —— 因此 ``--check`` 实际比对的**只有区间**,
+        区间外的手写内容不会被误判成「过期」。
+        抛 ``FileNotFoundError``:接口文档入口不存在。
+        抛 ``ValueError``:生成标记缺失。
     """
     path = _root(repo_root) / API_README_REL
     return splice_api_block(_read_text(path), render_api_summary(repo_root))
@@ -767,11 +893,17 @@ def render_api_readme(repo_root: Path) -> str:
 def render_all(repo_root: Path) -> Dict[str, str]:
     """渲染全部生成物(仓库相对路径 → 期望内容)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         三个产物的期望内容;``docs/api/README.md`` 的值是「替换区间后的全文」。
+
+    使用示例:
+        ``render_all(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     return {
         INDEX_REL: render_docs_index(repo_root),
@@ -786,15 +918,19 @@ def render_all(repo_root: Path) -> Dict[str, str]:
 def _linked_paths(source: Path, repo_root: Path) -> List[Path]:
     """取出一个 Markdown 文件里全部仓库内相对链接(解析成绝对路径,保留重复)。
 
-    复用 ``check_docs_links`` 的解析实现(抹代码 → 取目标 → 解析),不重写正则:
-    链接语义只允许一个口径,两套实现必然分叉 —— 与 ``docs_lint`` 的做法一致。
-
-    Args:
+    参数说明:
         source: 链接所在的 Markdown 文件。
         repo_root: 仓库根目录(用于把 `..` 越界的目标判为不存在)。
 
-    Returns:
+    返回参数:
         解析后的绝对路径列表(按出现顺序,重复项保留,供「出现且仅出现一次」判定用)。
+
+    使用示例:
+        ``_linked_paths(source, repo_root)``
+
+    备注信息:
+        复用 ``check_docs_links`` 的解析实现(抹代码 → 取目标 → 解析),不重写正则:
+        链接语义只允许一个口径,两套实现必然分叉 —— 与 ``docs_lint`` 的做法一致。
     """
     stripped = check_docs_links._strip_code(_read_text(source))  # noqa: SLF001  (同包复用)
     return [
@@ -806,15 +942,19 @@ def _linked_paths(source: Path, repo_root: Path) -> List[Path]:
 def check_archive_completeness(repo_root: Path) -> List[str]:
     """校验「归档里每一份 `.md` 在 INDEX.md 里出现且仅出现一次」。
 
-    这是本节最核心的一条机械规则:它把「手写归档表必然漏登」变成「漏登即红」。
-    当前实现由生成器保证,但规则本身仍要独立可判 —— 手改生成物、生成器回归、
-    或者把 INDEX.md 换成手写版本,都必须在这里响。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         问题描述列表,按路径排序;空列表表示归档清单完整。
+
+    使用示例:
+        ``check_archive_completeness(repo_root)``
+
+    备注信息:
+        这是本节最核心的一条机械规则:它把「手写归档表必然漏登」变成「漏登即红」。
+        当前实现由生成器保证,但规则本身仍要独立可判 —— 手改生成物、生成器回归、
+        或者把 INDEX.md 换成手写版本,都必须在这里响。
     """
     repo_root = _root(repo_root)
     index_path = repo_root / ARCHIVE_INDEX_REL
@@ -850,15 +990,19 @@ def check_archive_completeness(repo_root: Path) -> List[str]:
 def check_entry_completeness(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[str]:
     """校验「每一份非归档文档都在 `docs/README.md` 里出现至少一次」。
 
-    ``docs_lint`` 判的是「被**任意**索引覆盖」,这里判的是「被**唯一入口**覆盖」——
-    两者不重复:前者允许子 README 各自兜一部分,后者保证「一个入口能看到全部」。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名。
 
-    Returns:
+    返回参数:
         问题描述列表,按路径排序;空列表表示入口完整。
+
+    使用示例:
+        ``check_entry_completeness(repo_root, docs_subdir)``
+
+    备注信息:
+        ``docs_lint`` 判的是「被**任意**索引覆盖」,这里判的是「被**唯一入口**覆盖」——
+        两者不重复:前者允许子 README 各自兜一部分,后者保证「一个入口能看到全部」。
     """
     repo_root = _root(repo_root)
     index_path = repo_root / INDEX_REL
@@ -877,15 +1021,19 @@ def check_entry_completeness(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) ->
 def check_api_table(repo_root: Path) -> List[str]:
     """校验「接口一览表 ≡ `openapi.yml` 的操作集合」。
 
-    为什么这条能替代「整表生成」:表里唯一会**静默过期**的东西是「有哪几个接口」。
-    说明列是人写要点,不会因为代码改动而过期;而多一个 / 少一个接口正是漂移的形状
-    (第 1 节修的就是「表里缺 `users/me/voice` 两行」)。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         问题描述列表;空列表表示表的操作集合与契约完全一致。
+
+    使用示例:
+        ``check_api_table(repo_root)``
+
+    备注信息:
+        为什么这条能替代「整表生成」:表里唯一会**静默过期**的东西是「有哪几个接口」。
+        说明列是人写要点,不会因为代码改动而过期;而多一个 / 少一个接口正是漂移的形状
+        (第 1 节修的就是「表里缺 `users/me/voice` 两行」)。
     """
     expected = parse_openapi_operations(repo_root)
     actual = parse_api_table(repo_root)
@@ -908,15 +1056,18 @@ def check_api_table(repo_root: Path) -> List[str]:
 def read_error_codes(repo_root: Path) -> List[str]:
     """从 `chatapp/config/error_codes.py` 读出全部业务码。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         业务码字符串列表(五位,按文件里的出现顺序);重复定义也原样保留。
 
-    Raises:
-        FileNotFoundError: 码目录文件不存在。
-        ValueError: 一个码都没读到 —— 格式变了,那是判定器该响的时候。
+    使用示例:
+        ``read_error_codes(repo_root)``
+
+    备注信息:
+        抛 ``FileNotFoundError``:码目录文件不存在。
+        抛 ``ValueError``:一个码都没读到 —— 格式变了,那是判定器该响的时候。
     """
     codes = ERROR_CODE_RE.findall(_read_text(_root(repo_root) / ERROR_CODES_REL))
     if not codes:
@@ -927,21 +1078,23 @@ def read_error_codes(repo_root: Path) -> List[str]:
 def check_error_codes_documented(repo_root: Path) -> List[str]:
     """校验「每个业务码至少在 `docs/api/` 的一份分册里出现」。
 
-    为什么不是「总表 ≡ `error_codes.py`」:2026-11-14 治理第 6 节把 `errors.md` 的
-    「业务码总表」**删掉**了 —— 它是 `error_codes.py` 的手写副本,已经漂移过
-    (13 个码只列了 11 个,缺 `40301` / `50302`)。码的 owner 只有 `error_codes.py`,
-    人读含义分散在各分册的「错误码」小节。这条规则守的是剩下那半个风险:
-    **新增一个码却没有任何一份分册提到它**,客户端就查不到含义与处理建议。
-
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         问题描述列表;空列表表示每个业务码都有分册覆盖。
 
-    Raises:
-        FileNotFoundError: 码目录文件或接口文档目录不存在。
-        ValueError: 一个业务码都没读到。
+    使用示例:
+        ``check_error_codes_documented(repo_root)``
+
+    备注信息:
+        为什么不是「总表 ≡ `error_codes.py`」:2026-11-14 治理第 6 节把 `errors.md` 的
+        「业务码总表」**删掉**了 —— 它是 `error_codes.py` 的手写副本,已经漂移过
+        (13 个码只列了 11 个,缺 `40301` / `50302`)。码的 owner 只有 `error_codes.py`,
+        人读含义分散在各分册的「错误码」小节。这条规则守的是剩下那半个风险:
+        **新增一个码却没有任何一份分册提到它**,客户端就查不到含义与处理建议。
+        抛 ``FileNotFoundError``:码目录文件或接口文档目录不存在。
+        抛 ``ValueError``:一个业务码都没读到。
     """
     repo_root = _root(repo_root)
     codes = read_error_codes(repo_root)
@@ -967,11 +1120,17 @@ def check_error_codes_documented(repo_root: Path) -> List[str]:
 def check_generated_files(repo_root: Path) -> List[str]:
     """校验三个生成物与「重新生成的结果」逐字节一致。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         问题描述列表;每个不一致的文件一条(缺文件也在这里报)。
+
+    使用示例:
+        ``check_generated_files(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     repo_root = _root(repo_root)
     problems: List[str] = []
@@ -989,16 +1148,19 @@ def check_generated_files(repo_root: Path) -> List[str]:
 def check(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[str]:
     """跑全部判定,返回一个扁平的问题列表。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名。
 
-    Returns:
+    返回参数:
         问题描述列表(先生成物一致性,再完整性,再派生表与业务码);空列表表示全部通过。
 
-    Raises:
-        FileNotFoundError: 文档目录 / 归档目录 / 契约文件不存在。
-        ValueError: `openapi.yml` 解析不出操作,或接口文档入口缺生成标记。
+    使用示例:
+        ``check(repo_root, docs_subdir)``
+
+    备注信息:
+        抛 ``FileNotFoundError``:文档目录 / 归档目录 / 契约文件不存在。
+        抛 ``ValueError``:`openapi.yml` 解析不出操作,或接口文档入口缺生成标记。
     """
     problems: List[str] = []
     problems.extend(check_generated_files(repo_root))
@@ -1012,11 +1174,17 @@ def check(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[str]:
 def write_all(repo_root: Path) -> List[str]:
     """把三个生成物写回磁盘(只在内容确实变化时落盘)。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
 
-    Returns:
+    返回参数:
         实际改动的仓库相对路径列表;已一致的文件不写(避免无意义的 mtime 变化)。
+
+    使用示例:
+        ``write_all(repo_root)``
+
+    备注信息:
+        无特殊约束。
     """
     repo_root = _root(repo_root)
     changed: List[str] = []
@@ -1032,12 +1200,18 @@ def write_all(repo_root: Path) -> List[str]:
 def summarize(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> Dict[str, int]:
     """收集一组计数,供 ``--json`` 与输出尾巴使用。
 
-    Args:
+    参数说明:
         repo_root: 仓库根目录。
         docs_subdir: 相对 `repo_root` 的文档目录名。
 
-    Returns:
+    返回参数:
         计数字典:非归档份数 / 目录数 / 归档总数 / spec / plan / 接口操作数 / 表行数。
+
+    使用示例:
+        ``summarize(repo_root, docs_subdir)``
+
+    备注信息:
+        无特殊约束。
     """
     repo_root = _root(repo_root)
     groups = group_docs(repo_root, docs_subdir)
@@ -1059,11 +1233,17 @@ def summarize(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> Dict[str, int]
 def main(argv: List[str] | None = None) -> int:
     """命令行入口:生成或校验,返回退出码。
 
-    Args:
+    参数说明:
         argv: 命令行参数列表;``None`` 表示用 ``sys.argv[1:]``。
 
-    Returns:
+    返回参数:
         0 = 一致;1 = 不一致 / 有违例;2 = 判定器自身出错。
+
+    使用示例:
+        ``python scripts/docs_index.py``
+
+    备注信息:
+        无特殊约束。
     """
     parser = argparse.ArgumentParser(
         description="生成 docs/ 的索引(docs/README.md + 归档 INDEX.md + 接口计数),并校验索引与事实一致"
@@ -1115,11 +1295,17 @@ def main(argv: List[str] | None = None) -> int:
 def _describe_counts(counts: Dict[str, int]) -> str:
     """把计数字典渲染成一行人读摘要。
 
-    Args:
+    参数说明:
         counts: ``summarize`` 的返回值。
 
-    Returns:
+    返回参数:
         形如「非归档 77 份 / 13 目录;归档 105 = 40 spec + 65 plan;接口 70 个(表 70 行)」的字符串。
+
+    使用示例:
+        ``_describe_counts(counts)``
+
+    备注信息:
+        无特殊约束。
     """
     return (
         f"非归档 {counts['non_archive']} 份 / {counts['directories']} 目录;"
