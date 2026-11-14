@@ -59,7 +59,7 @@
 | 版本号三处一致(`app/pubspec.yaml` 是唯一事实来源) | `sync_version.py --check` 红 |
 | App 模型读取的字段必须存在于 OpenAPI 契约 | `check_app_models.py` 红 |
 | 响应路径禁止任何第三方网络调用;跨系统副作用一律走 Celery 任务 | 代码审查拒 |
-| IM 副作用唯一入口是 `im/tasks.py`,任务参数一律 user_id | 代码审查拒 |
+| IM 副作用唯一入口是 `im/tasks.py`,任务参数是任务相关的 id、任务体内自己查库(不是「一律 user_id」:`post_commented`/`post_replied` 传 `comment_id`;唯一**不查库**的例外 `delete_account` 传 `im_user_id`) | 代码审查拒 |
 
 ## 五、PR 规矩
 
