@@ -15,7 +15,11 @@
 
 ## 二、一单一条栈
 
-`backend` / `web` / `imserver` / `app` / `docs` 只能挑一条来改;跨栈需求回报主人拆单。
+`backend` / `web` / `imserver` / `app` / `docs` / `flow` 只能挑一条来改;跨栈需求回报主人拆单。
+
+`flow`(2026-11-14 拍板)= 工程脚本 / CI / 部署脚本:`scripts/**`、`.github/**`、`deploy/**`,
+验证入口 `scripts/verify.sh contract`。**栈归属 ≠ 改的权限**:`deploy/**` 仍受 §六 禁止,只能由主人改。
+口径地图见 [docs/standards/sources-of-truth.md](docs/standards/sources-of-truth.md)。
 
 契约联动属于**同一条栈的附带改动**,必须同一次做完,不做就是 CI 红:
 
