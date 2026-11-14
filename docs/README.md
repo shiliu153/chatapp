@@ -33,6 +33,7 @@
 
 | 文档 | 标题 |
 |---|---|
+| [README.md](api/README.md) | 接口文档(API Reference) |
 | [app.md](api/app.md) | 应用配置 |
 | [auth.md](api/auth.md) | 账号与鉴权 |
 | [conventions.md](api/conventions.md) | 公共说明 |
@@ -45,7 +46,6 @@
 | [moderation.md](api/moderation.md) | 举报与拉黑 |
 | [notifications.md](api/notifications.md) | 站内通知 |
 | [push.md](api/push.md) | 推送 |
-| [README.md](api/README.md) | 接口文档(API Reference) |
 | [stats.md](api/stats.md) | 个人使用报告 |
 | [telemetry.md](api/telemetry.md) | 客户端错误上报 |
 | [users.md](api/users.md) | 用户资料 |
@@ -60,8 +60,8 @@
 
 | 文档 | 标题 |
 |---|---|
-| [backend-reading-path.md](learning/backend-reading-path.md) | 后端通读学习路线（新手向） |
 | [README.md](learning/README.md) | docs/learning/ — 后端通读教学材料 |
+| [backend-reading-path.md](learning/backend-reading-path.md) | 后端通读学习路线（新手向） |
 
 ### `docs/learning/backend-guide/`(16 份)
 
@@ -88,6 +88,7 @@
 
 | 文档 | 标题 |
 |---|---|
+| [README.md](ops/README.md) | docs/ops/ — 运维手册(常驻) |
 | [capacity-and-reliability.md](ops/capacity-and-reliability.md) | 容量与可靠性:一页讲清楚(2026-11-04) |
 | [certificates.md](ops/certificates.md) | 证书与续期（生产） |
 | [dual-server-vs-upgrade-2026-11-04.md](ops/dual-server-vs-upgrade-2026-11-04.md) | 双机负载均衡 vs 只升配:决策记录(2026-11-04) |
@@ -95,7 +96,6 @@
 | [nginx-security.md](ops/nginx-security.md) | nginx 安全基线(HTTPS + 安全头 + 后台白名单) |
 | [observability.md](ops/observability.md) | 可观测性:指标、看板与告警 |
 | [push.md](ops/push.md) | 推送(C-1):链路、开关与验证 |
-| [README.md](ops/README.md) | docs/ops/ — 运维手册(常驻) |
 | [release.md](ops/release.md) | 发版与远端 Release |
 | [runbook.md](ops/runbook.md) | 运维手册:告警处置与故障恢复 |
 | [superagent.md](ops/superagent.md) | superagent 运维手册(WSL) |
@@ -104,11 +104,11 @@
 
 | 文档 | 标题 |
 |---|---|
+| [README.md](pitfalls/README.md) | 踩坑手册(索引) |
 | [android-emulator.md](pitfalls/android-emulator.md) | 踩坑手册 · 模拟器与 Android 构建 |
 | [backend.md](pitfalls/backend.md) | 踩坑手册 · 后端(Django / 接口 / 数据) |
 | [frontend.md](pitfalls/frontend.md) | 踩坑手册 · 前端(Flutter / Riverpod) |
 | [im.md](pitfalls/im.md) | 踩坑手册 · IM 与聊天 |
-| [README.md](pitfalls/README.md) | 踩坑手册(索引) |
 | [testing.md](pitfalls/testing.md) | 踩坑手册 · 测试 |
 | [web.md](pitfalls/web.md) | 踩坑手册 · Web 端(Vue 网页端、构建与部署) |
 
@@ -116,11 +116,11 @@
 
 | 文档 | 标题 |
 |---|---|
+| [README.md](reports/README.md) | docs/reports/ — 一次性测量报告 |
 | [cache-win-2026-11-05.md](reports/cache-win-2026-11-05.md) | 候选池缓存的真实收益:开/关对比实测(2026-11-05,E-7) |
 | [imserver-throughput.md](reports/imserver-throughput.md) | 自建 IM 吞吐优化记录(2026-10-22) |
 | [peak-shaving.md](reports/peak-shaving.md) | 削峰:配对通知的队列分级与限速(2026-11-03) |
 | [read-baseline-2026-11-04.md](reports/read-baseline-2026-11-04.md) | 读基线重跑 + `candidates` 归因 + 场景矩阵补齐（2026-11-04） |
-| [README.md](reports/README.md) | docs/reports/ — 一次性测量报告 |
 | [scale-report.md](reports/scale-report.md) | 规模数据报告:10 万用户量级下的查询表现(2026-11-03) |
 | [stress-test-2026-11-01.md](reports/stress-test-2026-11-01.md) | 2026-11-01 高并发压测与「打崩自愈」演练 |
 | [write-baseline-2026-11-03.md](reports/write-baseline-2026-11-03.md) | 2026-11-03 写路径容量基线（swipe） |
@@ -145,8 +145,8 @@
 
 | 文档 | 标题 |
 |---|---|
-| [python.md](standards/python.md) | Python 注释规范 |
 | [README.md](standards/README.md) | 编码规范 |
+| [python.md](standards/python.md) | Python 注释规范 |
 | [sources-of-truth.md](standards/sources-of-truth.md) | 唯一事实来源(口径地图) |
 
 ### `docs/superpowers/`(1 份)

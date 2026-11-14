@@ -66,7 +66,7 @@ import re
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 # `python scripts/docs_index.py` 时 sys.path[0] 是 scripts/,显式把仓库根放进去,
 # 这样 `from scripts import check_docs_links` 两种调用方式(直接跑 / unittest)都成立。
@@ -230,6 +230,23 @@ def _in_archive(path: Path, docs_dir: Path) -> bool:
     return parts[: len(ARCHIVE_PARTS)] == ARCHIVE_PARTS
 
 
+def _sorted_by_path(paths: Iterable[Path]) -> List[Path]:
+    """按 POSIX 路径字符串排序。
+
+    为什么不用 `sorted(paths)`:``Path`` 的比较在 **Windows 上是大小写不敏感**的
+    (`README.md` 排在 `app.md` 之后),在 **POSIX 上是大小写敏感**的(排在之前)。
+    生成物必须跨平台逐字节一致 —— 否则本地 Windows 生成的索引到 CI(Ubuntu)上
+    `--check` 会红,而那种红最难查(两边的文件完全一样,只是顺序不同)。
+
+    Args:
+        paths: 待排序的路径序列。
+
+    Returns:
+        排序后的列表,键是 ``path.as_posix()``(与平台无关)。
+    """
+    return sorted(paths, key=lambda path: path.as_posix())
+
+
 def read_title(path: Path) -> str:
     """取一份文档的 H1 标题,没有标题就退回文件名。
 
@@ -266,7 +283,7 @@ def iter_docs(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[Path]:
     docs_dir = _docs_dir(repo_root, docs_subdir)
     index_path = (_root(repo_root) / INDEX_REL).resolve()
     found: List[Path] = []
-    for path in sorted(docs_dir.rglob("*.md")):
+    for path in _sorted_by_path(docs_dir.rglob("*.md")):
         if not path.is_file() or _in_archive(path, docs_dir):
             continue
         if path.resolve() == index_path:
@@ -315,7 +332,7 @@ def iter_archive(repo_root: Path) -> Dict[str, List[Path]]:
         sub = archive_dir / name
         if not sub.is_dir():
             continue
-        for path in sorted(sub.rglob("*.md")):
+        for path in _sorted_by_path(sub.rglob("*.md")):
             if path.is_file() and path.resolve() != index_path:
                 groups[name].append(path)
     return groups
@@ -439,7 +456,7 @@ def count_api_volumes(repo_root: Path) -> int:
         分册份数。
     """
     api_dir = (_root(repo_root) / API_README_REL).parent
-    return len([path for path in sorted(api_dir.glob("*.md")) if path.name != "README.md"])
+    return len([path for path in _sorted_by_path(api_dir.glob("*.md")) if path.name != "README.md"])
 
 
 # ---------------------------------------------------------------- 渲染

@@ -142,6 +142,17 @@ class RenderDocsIndexTests(DocsIndexTestCase):
         text = docs_index.render_docs_index(self.root)
         self.assertIn("### `docs/ops/`(2 份)", text)
 
+    def test_order_is_platform_independent(self):
+        """同目录内按 POSIX 字符串排序:`README.md` 排在 `app.md` 之前。
+
+        这条钉的是**跨平台一致性** —— Windows 的 `Path` 比较大小写不敏感,会把
+        `README.md` 排到 `app.md` 后面;生成物两边不一致,CI 就会红在「本地明明是绿的」上。
+        """
+        write_file(self.root, "docs/ops/app.md", "# App\n")
+        write_file(self.root, "docs/ops/README.md", "# 索引\n")
+        text = docs_index.render_docs_index(self.root)
+        self.assertLess(text.index("(ops/README.md)"), text.index("(ops/app.md)"))
+
 
 class RenderArchiveIndexTests(DocsIndexTestCase):
     """归档清单的渲染:日期/主题派生、spec 按同名配对、不把自己算进去。"""
