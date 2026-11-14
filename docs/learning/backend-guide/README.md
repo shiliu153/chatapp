@@ -1,3 +1,8 @@
+---
+状态: 生效中
+复核: 每批读完一批后
+---
+
 # 后端通读 · 自学指导书（索引）
 
 > 配套总纲：[../backend-reading-path.md](../backend-reading-path.md)（批次总览 + 进度表）

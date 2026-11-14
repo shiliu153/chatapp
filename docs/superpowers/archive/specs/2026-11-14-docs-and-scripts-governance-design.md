@@ -1,6 +1,6 @@
 # 文档与脚本治理:从「补丁式维护」到「机械化一致性」
 
-> **状态**:进行中(方案待逐节确认) · **立项**:2026-11-14 · **工作面**:分 6 节,每节单独一个会话
+> **状态**:已交付(2026-11-14,6 节全部落地并归档) · **立项**:2026-11-14 · **工作面**:分 6 节,每节一个会话
 >
 > 本文只回答**做什么、为什么、怎么算做完**;每节的实现细节在对应会话里展开。
 > 数字类结论都是 2026-11-14 在本仓库实测的,复核命令写在 §2 每条证据后。
@@ -27,7 +27,7 @@
 > (如 CI 门禁是 15 条不是 16、`六轨` 是 19 次 / 12 个文件、脚本家是 7 处不是 3 处),
 > 且 **§2.4「`docs/superpowers/archive/` 是空目录」一条不成立**(递归 105 份 md,`docs/` 下无空目录)。
 > 修正值、复核命令与逐条结论见
-> [docs/standards/sources-of-truth.md §3](../../standards/sources-of-truth.md)。**本节数字以该复核为准。**
+> [docs/standards/sources-of-truth.md §3](../../../standards/sources-of-truth.md)。**本节数字以该复核为准。**
 
 ### 2.1 规模与增长
 
@@ -72,7 +72,7 @@
 ### 2.4 文件放错了地方
 
 > **本节证据的唯一 owner 是
-> [sources-of-truth.md §3](../../standards/sources-of-truth.md) 的第 14 / 15 / 17 / 24 条**
+> [sources-of-truth.md §3](../../../standards/sources-of-truth.md) 的第 14 / 15 / 17 / 24 条**
 > (复核命令、逐条结论都在那里,包括 spec 原文漏掉的 `check_ssl_expiry.sh` 与
 > `nginx-security.conf`)。这里**不再抄一份** —— 同一事实两处手写正是本方案要消灭的漂移。
 > 其中「`archive/` 是空目录」一条**复核不成立,已撤回**(递归 105 份 md)。
@@ -81,10 +81,10 @@
 
 | 归位前位置 | 内容 | 归位后 | 依据 |
 |---|---|---|---|
-| `patches/` 子目录 | 1 个 7KB 补丁(dsh-superagent 轮询重试) | [`scripts/patches/`](../../../scripts/patches/) | 上游未修,补丁仍在用;`.gitattributes` 的 `*.patch` LF 规则按扩展名,不用改 |
-| `stress/` 子目录 | **7 个**压测/混沌脚本 | [`scripts/stress/`](../../../scripts/stress/) | 作为历史证据保留,新压测一律用 `perf/run.py` |
-| 证书巡检脚本 | `check_ssl_expiry.sh` | [`scripts/ops/`](../../../scripts/ops/) | 运维脚本,与 `docs/ops/certificates.md` 同域 |
-| nginx 基线 | `nginx-security.conf` | [`docs/ops/nginx-security.md`](../../ops/nginx-security.md) | **内容本来就是 Markdown**(标题 / 引用块 / 代码围栏),只是扩展名写错 |
+| `patches/` 子目录 | 1 个 7KB 补丁(dsh-superagent 轮询重试) | [`scripts/patches/`](../../../../scripts/patches/) | 上游未修,补丁仍在用;`.gitattributes` 的 `*.patch` LF 规则按扩展名,不用改 |
+| `stress/` 子目录 | **7 个**压测/混沌脚本 | [`scripts/stress/`](../../../../scripts/stress/) | 作为历史证据保留,新压测一律用 `perf/run.py` |
+| 证书巡检脚本 | `check_ssl_expiry.sh` | [`scripts/ops/`](../../../../scripts/ops/) | 运维脚本,与 `docs/ops/certificates.md` 同域 |
+| nginx 基线 | `nginx-security.conf` | [`docs/ops/nginx-security.md`](../../../ops/nginx-security.md) | **内容本来就是 Markdown**(标题 / 引用块 / 代码围栏),只是扩展名写错 |
 
 现状由机械判定,不靠人记:`python scripts/docs_lint.py` 的 structure 规则会拦住
 「又有非文档文件放回 `docs/`」。
@@ -364,6 +364,45 @@ scripts/
   补齐 lint 规则(元信息、数字、术语、归档表完整性);`CLAUDE.md` 瘦身到「导航 + 强制规则指针」,
   细节搬到 `docs/standards/`;`README.md` 的快速开始/部署段收成指针。
 - **验收**:§3.3 全部判定达标;`CLAUDE.md` ≤ 120 行且每条规则都能点到 owner 文档。
+
+> **执行记录(2026-11-14)**
+>
+> - **拍板(6 项)**:① **D4-A 元信息** —— 只强制非归档文档,字段 `状态` + `复核`(`owner` 可选),
+>   `docs/superpowers/` 豁免(它的状态 owner 是该目录 README §2);`复核` 只认三种形态(反引号命令 / 周期短语 /
+>   `无(一次性)`),**禁止写日期**(这些文档里绝大多数没被逐份复核过,写日期就是造数据);
+>   ② **README 硬执行 ≤250** —— §2 → 新建 `docs/architecture.md`;§5 目录树 → `CLAUDE.md` 指针;
+>   §6 快速开始 → `docs/standards/dev-commands.md` + `CONTRIBUTING.md`;§7 的测试形态 → `architecture.md` §9
+>   (验证入口仍归 `AGENTS.md` §三);§8 部署 → `docs/ops/runbook.md` §10;§9 已是指针;
+>   ③ **术语规则只扫活文档**(根三份 + `docs/{ops,standards,api,pitfalls,backlog}/**`),
+>   豁免 `superpowers/{specs,archive}`、`reports`、`security`、`learning`、`reviews`、生成的 `docs/README.md`;
+>   `sources-of-truth.md` 整文件白名单(它在**定义**禁用词),另加行内豁免 `<!-- lint:allow:term -->`;
+>   ④ **数字规则只做可机械核对的一种** —— `docs/api/*.md` 首句「本分册含 N 个接口」必须等于「接口一览」表里
+>   指向该分册的行数;其余 `N 份` / `N 条` 是历史叙事或已由生成器覆盖,**不禁**;
+>   ⑤ **C11 选 C 案** —— 删掉 `errors.md` 的 11 行手写总表(改「专属业务码在哪查」+ 分册指针),
+>   并新增「每个业务码至少在一份分册里出现」的机械判定;⑥ **CLAUDE 瘦身只搬位置** —— 常用命令 → `dev-commands.md`、
+>   后端接口表 → `docs/api/README.md` 指针、里程碑压成骨架,**核心契约与纪律 32 行原样保留**。
+> - **产出**:`docs/standards/writing.md`(命名 / 元信息 / 状态 / 归档 / 口径页写法 / 数字与术语 / 校验入口)、
+>   `docs/architecture.md`、`docs/standards/dev-commands.md`;`docs_lint` 从 **3 条规则扩到 6 条**
+>   (structure / broken-link / unindexed / metadata / term / number),自测 **23 → 41 条**;
+>   `docs_index` 新增「分册计数派生」与「业务码覆盖」两条判定,自测 **33 → 41 条**;
+>   **74 份**非归档文档补齐 front-matter(71 份既有 + 3 份新增;生成物 `docs/README.md` 由生成器输出,
+>   `docs/superpowers/` 的 5 份按 D4-A 豁免)。
+> - **净减少的重复(§8 记账)**:① `README.md` **493 → 246**(5 段变指针,内容搬到 3 个新文档 + 2 处既有 owner);
+>   ② `CLAUDE.md` **203 → 118**(常用命令 50 行 → `dev-commands.md`、接口表 36 行 → `docs/api/README.md`、
+>   里程碑 24 → 13 行);③ `CONTRIBUTING.md` 的必跑表与硬性约束 10 条 → **指针**(C6);
+>   ④ `errors.md` 的业务码总表 **11 行 → 0**(C11);⑤ 活文档禁用术语 **4 处 → 0**(C4);
+>   ⑥ 分册首句的手写计数 8 处 → **受门禁**(写错即红);⑦ 新增的 3 份文档各是一个事实的 owner,不再散在根文档里。
+> - **顺手修掉的坑**:① `docs/api/im.md` 自称「3 个接口」实际 **4 个**(`/im/images/auth` 漏计)——
+>   `number` 规则第一次跑就抓到;② `README.md` §2.8「CI 七条门禁轨」与英文摘要「six CI tracks」都是旧计数
+>   (实际 10 个 workflow),搬进 `architecture.md` 时改成「workflow(当前 10 个)」并指向 `scripts/gates.toml`;
+>   ③ `README.md` §2.7 抄了一份容量基线表(数字 owner 是 `capacity-and-reliability.md`),
+>   搬进 `architecture.md` 时改为指针 —— 这是本节第 6 处「手写副本」;④ `docs/pitfalls/android-emulator.md` 等
+>   3 处「见 `CLAUDE.md` 常用命令 / README 部署」的死指令同步改为新 owner;⑤ 口径地图 §2.5 的写作规范行从
+>   「待建」改为「已落地 + 三条规则名」,D4 补上后半(元信息档位)。
+> - **范围外(遗留)**:① 归档 9 处 / 常驻 spec 3 处 / 一次性审计报告 1 处的「六轨」按 §6 红线**不改写**;
+>   ② `docs/learning/backend-guide/README.md` 的「P00–P14 十五册」仍是手写计数(教学材料不在术语/数字规则作用域内,
+>   要收就先把 `docs/learning/` 纳入作用域);③ `docs/reports/` 与 `docs/security/` 的元信息统一标 `一次性`,
+>   只表达「不再复核」,不代表内容已被逐份复核过;④ `docs/milestones.md` 里的历史数字按「当时的事实」保留。
 
 ---
 

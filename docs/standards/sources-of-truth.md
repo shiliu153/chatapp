@@ -1,7 +1,12 @@
+---
+状态: 常驻
+复核: 每节治理落地后
+---
+
 # 唯一事实来源(口径地图)
 
-> **状态**:生效中 · **立项**:2026-11-14(治理方案第 1 节)· **证据复核**:2026-11-14
-> **依据**:[文档与脚本治理设计 §1](../superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md)
+> **立项**:2026-11-14(治理方案第 1 节)· **证据复核**:2026-11-14
+> **依据**:[文档与脚本治理设计 §1](../superpowers/archive/specs/2026-11-14-docs-and-scripts-governance-design.md)
 >
 > 本文回答**一个问题**:同一条事实,谁说了算?每行只允许一个 owner,每个 owner 必须配一种校验手段。
 > 本文**不改结构、不改脚本** —— 物理归位、索引生成、门禁同源分别在治理方案的第 2–6 节。
@@ -40,7 +45,7 @@
 | 接口的人读文档(参数表 / 示例 / 错误码) | [`docs/api/*.md`](../api/README.md)(15 分册 + README) | 机械:`ApiDocsCoverageTests`(双向覆盖)+ `config/test_schema_contract.py`(字段级双向) | 已落地 |
 | 接口与分册的**数量** | 无独立载体 —— 它是 `openapi.yml` 的**派生量**(禁止手写) | 机械:`python scripts/docs_index.py --check` —— 计数由契约生成,且 `docs/api/README.md` 的「接口一览」表与契约的操作集合必须**完全相等**(缺一行 / 多一行 / 重复一行即红) | **已落地**(2026-11-14 第 3 节);表的「说明」列仍是人写要点,理由见 §4 C1 |
 | 错误响应信封 `{code, message, request_id}` 与业务码取值 | [`chatapp/config/error_codes.py`](../../chatapp/config/error_codes.py) | 机械:`python manage.py test config`(信封形状 + 业务码 = HTTP 前 3 位 + 2 位序号) | 已落地 |
-| 业务码的人读含义 | [`docs/api/errors.md`](../api/errors.md)(渲染物) | 人工:**发版前**对照 `error_codes.py`(见 [release.md §3](../ops/release.md)) | 已落地(仅人工,见 §4 C11) |
+| 业务码的**含义与处理建议** | 各接口分册的「错误码」小节(`docs/api/*.md`);码本身 = [`chatapp/config/error_codes.py`](../../chatapp/config/error_codes.py) | 机械:`python scripts/docs_index.py --check` —— 每个业务码**至少在一份分册里出现**(缺即红) | **已落地**(2026-11-14 第 6 节):`errors.md` 的 11 行手写总表**已删除** —— 它是副本且已漂移(缺 `40301` / `50302`),C11 收口 |
 | WS 帧格式(三端唯一线上契约) | [`imserver/tests/fixtures/ws/*.json`](../../imserver/tests/fixtures/ws/README.md) | 机械:三端各一条 fixture 测试(`imserver` test_ws / App `protocol_fixture_test.dart` / Web `im-protocol-fixture.spec.ts`) | 已落地 |
 | 客户端手写模型读取的字段 ⊆ 契约 | 契约本身(`openapi.yml`) | 机械:`scripts/check_app_models.py`;Web `npm run gen:api` + 生成物比对 | 已落地 |
 
@@ -74,7 +79,7 @@
 
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
-| 文档目录结构规则(`docs/` 只放文档) | [`scripts/docs_lint.py`](../../scripts/docs_lint.py) + 第 6 节 `docs/standards/writing.md` | 机械:`python scripts/docs_lint.py`(注册表 `contract-docs-lint-run`,本地与 CI 同一份) | **已落地**(2026-11-14 第 2 节):`docs/` 下非 md 只剩 `openapi.yml` 1 个,合规 |
+| 文档目录结构规则(`docs/` 只放文档)+ 命名 / 元信息 / 归档口径 | [`scripts/docs_lint.py`](../../scripts/docs_lint.py)(结构判定)+ [`docs/standards/writing.md`](writing.md)(写作规范) | 机械:`python scripts/docs_lint.py`(注册表 `contract-docs-lint-run`,本地与 CI 同一份):六条规则 structure / broken-link / unindexed / metadata / term / number | **已落地**(2026-11-14 第 2 节结构 + 第 6 节写作规范):`docs/` 下非 md 只剩 `openapi.yml` 1 个,合规 |
 | 文档索引与**全部计数** | [`docs/README.md`](../README.md)(**生成物**,`scripts/docs_index.py`)+ 归档清单 [`docs/superpowers/archive/INDEX.md`](../superpowers/archive/INDEX.md)(**生成物**) | 机械:`python scripts/docs_index.py --check`(注册表 `contract-docs-index-check`,本地与 CI 同一份):生成物逐字节比对 + 归档完整性 + 入口完整性 + 接口表 ≡ 契约 | **已落地**(2026-11-14 第 3 节):`docs/README.md` 是唯一目录入口,索引数字 0 处手写;**索引覆盖**另由 `docs_lint` 机械判定(第 2 节) |
 | 相对链接是否断 | [`scripts/check_docs_links.py`](../../scripts/check_docs_links.py) | 机械:`python scripts/check_docs_links.py`;PR 上由 `python scripts/docs_lint.py` **真跑**(`contract` 轨) | **已落地**(2026-11-14 第 2 节起进 PR 轨;此前只有 L4 定时轨与自测) |
 | 工作面 / 归档清单 | 工作面 = `docs/superpowers/specs/` **目录即事实**(人写摘要见 [该目录 README §2](../superpowers/README.md));归档逐份清单 = [archive/INDEX.md](../superpowers/archive/INDEX.md)(**生成物**) | 机械:`python scripts/docs_index.py --check` —— 归档里每份 `.md` 在清单里**出现且仅出现一次** | **已落地**(2026-11-14 第 3 节):§4 的 105 行手写表已删除(只留交付脉络),当年漏登的 7 份 R–W plan 自动补齐 |
@@ -86,7 +91,7 @@
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
 | Python 注释规范 | [`docs/standards/python.md`](python.md) | 机械:`cd chatapp && python config/comment_coverage.py` + `CommentCoverageTests` | 已落地 |
-| 写作规范(命名 / 元信息 / 归档 / 口径页写法) | 第 6 节 `docs/standards/writing.md` | 机械:`docs_lint` 元信息与术语规则(待建) | 待建 |
+| 写作规范(命名 / 元信息 / 状态 / 归档 / 口径页写法 / 数字与术语) | [`docs/standards/writing.md`](writing.md) | 机械:`python scripts/docs_lint.py` 的 `metadata`(元信息)/ `term`(术语)/ `number`(分册计数)三条规则 | **已落地**(2026-11-14 第 6 节,D4-A) |
 | UI 设计规则(「心跳」) | [2026-09-15-ui-design-language-design.md](../superpowers/specs/2026-09-15-ui-design-language-design.md)(常驻,**永不归档**) | 人工:**每次 App UI 改动前**必读 | 已落地 |
 | UI 视觉 token 取值 | 同上(规则)+ 两端实现成对:`app/lib/core/theme/*.dart` ↔ `web/src/styles/tokens.css` | 机械:`web/tests/unit/tokens.spec.ts` 双向比对(漏改即红) | 已落地 |
 | spec / plan 的写作与归档流程 | [docs/superpowers/README.md §3](../superpowers/README.md) | 人工:**每次立项 / 交付归档时**对照 | 已落地 |
@@ -178,15 +183,15 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 |---|---|---|---|---|
 | **C1** | 接口 / 分册数量五处不一致 | README §9「14 分册 / 54 操作」、README 徽章「51 operations」、README 英文摘要「13 volumes, 51 operations」、`docs/api/README.md`「63 个接口」「53 paths / 63 operations」;实际 15 分册 / 58 paths / 70 operations;其「接口一览」表只有 68 行(缺 `users/me/voice` 两个) | **`openapi.yml` 说了算**。所有计数都是它的派生量,**禁止手写** | **第 1 节**修了 5 处手写数字 + 补齐派生表缺失的 2 行;**第 3 节已落地**:计数改为生成,表的操作集合与 `openapi.yml` **集合相等**由 `docs_index --check` 判定。表本身**仍手写** —— `openapi.yml` 没有 `summary` 字段,「说明」列是人写的要点,整表生成会丢 43 行的括号补充说明(拍板 3a′) |
 | **C2** | `docs/superpowers/` 工作面与归档计数过期 | README §9「工作面 1 份 / 归档 85 份」;实际 5 份 spec(README §2 只登记 4 组)+ 105 归档;`2026-11-13-aws-*.md` 不在任何索引 | **目录说了算**(`specs/` 即工作面)。计数由 `docs_index` 生成 | **第 1 节**修 README §9 手写数字;aws spec 登记**提前到第 2 节**(索引覆盖规则一开就必须先登记,否则 `docs_lint` 自己红);**第 3 节已落地**:§4 的 105 行手写表删除,归档清单改由 `scripts/docs_index.py` 生成 —— 当年漏登的 **7 份** R–W plan 由生成物自动补齐,漏登从此即红 |
-| **C3** | 安全审计轮次:三 vs 四 | 复核时 README §9 与 `CLAUDE.md` 导航表都写「三轮」;`docs/security/` 实有 4 份 | **`docs/security/` 目录说了算** = 四轮 | **本次**修 README §9(第 2 节进一步改成「轮次以目录为准」,不再手写数字,并新增 `docs/security/README.md` 索引);`CLAUDE.md` 导航表留给第 6 节(见 §7) |
-| **C4** | 术语「六轨」与事实脱钩 | 19 次 / 12 个文件(非归档 9 个文件 10 次);workflows 实有 10 个 | **废止该词**。改说「workflow(当前 10 个)」或直接点名轨;由 `docs_lint` 术语规则拦截 | **改判到第 6 节**(2026-11-14 第 2 节决定):清理 19 处属**术语 lint 规则**的落地,与 `writing.md` 同批做才有防回归手段;第 2 节只做结构与索引。归档里的 3 处按 §6 红线不改 |
+| **C3** | 安全审计轮次:三 vs 四 | 复核时 README §9 与 `CLAUDE.md` 导航表都写「三轮」;`docs/security/` 实有 4 份 | **`docs/security/` 目录说了算** = 四轮 | **已收口**(2026-11-14):第 1/2 节修 README §9 并新增 `docs/security/README.md` 索引;第 3 节把 `CLAUDE.md` 导航表改成「轮次以目录为准」,不再写数字;第 6 节把「三轮安全审计」列入禁用词(作用域内 0 处;归档与一次性报告按 §6 红线不改) |
+| **C4** | 术语「六轨」与事实脱钩 | 19 次 / 12 个文件(非归档 9 个文件 10 次);workflows 实有 10 个 | **废止该词**。改说「workflow(当前 10 个)」或直接点名轨;由 `docs_lint` 术语规则拦截 | **已收口**(2026-11-14 第 6 节):`term` 规则(作用域 = 活文档,白名单 = 本文件,行内豁免 `<!-- lint:allow:term -->`);活文档 4 处已清(`AGENTS.md` / backlog ×2 / `release.md`);归档 9 处、常驻 spec 3 处、一次性审计报告 1 处按 §6 红线**不改写历史** |
 | **C5** | `verify.sh` 自称「CI 的镜像」但两边门禁集不同 | 复核时本地 **11** 条 / CI **15** 条;CI 独有 5 条,本地独有 1 条。第 2 节两边各加 2 条、第 3 节各加 2 条后为 **15 / 19**(差额仍是 4)。第 4 节实测差异账:CI 独有 5、本地独有 1、两边都没跑 1(`test_verify.sh`)、**写法不同 14**(逐字相同的命令 **0** 条) | **`scripts/gates.toml` 说了算**(2026-11-14 第 4 节起);workflow 与 `verify.sh` 只调执行器 | **已落地**(第 4 节):两边跑同一份清单 + 同一个执行器,**21 / 21**,差额 4 → **0**;「命令不再出现在两边接线文件里」由 `scripts/test_gates.py` 机械判定 |
-| **C6** | 「改什么 → 跑什么」表维护两份 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 各一张,内容近乎重复 | **`AGENTS.md` §三 说了算**;`CONTRIBUTING.md` 收成指针 | 第 6 节 |
+| **C6** | 「改什么 → 跑什么」表维护两份 | `AGENTS.md` §三 与 `CONTRIBUTING.md` 各一张,内容近乎重复 | **`AGENTS.md` §三 说了算**;`CONTRIBUTING.md` 收成指针 | **已收口**(2026-11-14 第 6 节):`CONTRIBUTING.md` 的「提交前必须通过」表与「硬性约束」10 条都收成指针,owner 只有 `AGENTS.md` §三/§四 |
 | **C7** | 脚本有 7 处家 + 常量重复 | `scripts/`(52 含子目录)/ `tools/` 3 / `perf/` 2 / `deploy/observability/` 2 / `imserver/scripts/` 9 / `docs/ops/stress/` 7 / `docs/ops/check_ssl_expiry.sh`;`DEFAULT_REPO` 4 处 | **`scripts/` 是唯一家**(域内子目录);`DEFAULT_REPO` 等常量收敛到 `scripts/lib/` | **已收口**(2026-11-14 第 2 + 5 节):7 处 → `docs/` 侧清零(第 2 节)→ 剩余 `tools/` `perf/` `imserver/scripts/` **三处按 D2-A 裁决为例外**(理由见 §2.7,搬了会断容器路径与历史报告的「当时命令」);常量 **4 → 1**(`DEFAULT_REPO` / `DEFAULT_TOKEN_FILE` / `API` / token 解析逻辑一并收进 `scripts/lib/repo.py`) |
 | **C8** | 发版记录 = 用 Markdown 表格当数据库 | `sync_version.py::read_release_record` 解析 `release.md` §5 表头「版本 / tag」;改一次表格格式就可能误红 | **D1-B 拍板**:`docs/releases.yml` 说了算,`release.md` §5 改为渲染 | **已落地**(2026-11-14 第 5 节):13 行历史逐字段迁进 `docs/releases.yml`;`scripts/releases.py --check` 比对渲染区间(逐字节,区间外一字不动);`sync_version --check` 只读结构化数据,不再猜表头 |
 | **C9** | 生成物比对语义只有 shell 一份 | `check_artifact` 只在 `verify.sh`;Python 脚本无法复用 | 抽成 `scripts/lib/artifacts.py` | **已落地**(2026-11-14 第 5 节):语义收进 `scripts/lib/artifacts.py`(可独立执行);注册表加 `kind = "artifact"` 两道;`scripts/stacks/{backend,web}.sh` 的调用与 `env.sh` 的实现**已删除**;退出码 2 → **1**(判定失败) |
 | **C10** | `docs/` 下 10 个非文档文件 | 1 patch + 7 压测脚本 + `check_ssl_expiry.sh` + `nginx-security.conf`(spec §2.4 漏了后两个) | **`docs/` 只放 `.md` / `.yml` / `.json` / 图片**;脚本进 `scripts/` | **已落地**(2026-11-14 第 2 节):非 md 从 11 个降到 **1 个**(`docs/api/openapi.yml`,合规);`nginx-security.conf` 经核实**本身就是 Markdown**,改名为 `docs/ops/nginx-security.md`。机械判定:`python scripts/docs_lint.py` |
-| **C11** | `errors.md` 自称「业务码总表」但缺 2 个码 | `error_codes.py` 有 13 个码,`errors.md` 总表只列 11;`40301` / `50302` 只在 `auth.md` / `im.md` 的分册表里 | **`error_codes.py` 说了算**;`errors.md` 是渲染物,总表要么补全要么改名 | 第 6 节(评估生成或加门禁) |
+| **C11** | `errors.md` 自称「业务码总表」但缺 2 个码 | `error_codes.py` 有 13 个码,`errors.md` 总表只列 11;`40301` / `50302` 只在 `auth.md` / `im.md` 的分册表里 | **`error_codes.py` 说了算**;`errors.md` 是渲染物 —— 第 6 节拍板 **C 案:删掉总表** | **已收口**(2026-11-14 第 6 节):11 行手写总表**已删除**,改「专属业务码在哪查」+ 分册指针;新增机械判定「每个业务码至少在 `docs/api/` 的一份分册里出现」(`scripts/docs_index.py --check`),反向验证过(删掉一处分册引用即红) |
 
 ---
 
@@ -208,18 +213,21 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | 编号 | 决策 | 拍板日期 | 落地位置 |
 |---|---|---|---|
 | **D1** | 发版记录迁成 `docs/releases.yml`(B 案),`release.md` §5 只渲染 | 2026-11-14 | **已落地**(第 5 节):`docs/releases.yml` 为 owner,`scripts/releases.py --check` 守渲染物,`sync_version.py` 只读结构化数据 |
-| **D2** | 脚本目录**不搬**(保守档 A):只新增 `scripts/lib/`;`tools/` `perf/` `imserver/scripts/` 登记为**已裁决例外**(容器内 `/repo` 路径 / 历史报告「当时命令」可复跑 / C++ 测试入口与镜像同源) | 2026-11-14 | 本文 §2.7 + [治理方案第 5 节](../superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md) |
-| **D3** | backend / web / imserver / app 四条重活轨也同源(B 案):各栈的装配抽进 `scripts/stacks/*.sh`,`verify.sh` 与四条 workflow 调同一份;门禁命令一律进 `scripts/gates.toml` | 2026-11-14 | 本文 §2.3 + [治理方案第 4 节](../superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md)(不改 job name,required check 不变) |
-| **D4** | `sync_version` **保留 `--write`**,读 / 写原语都进 `scripts/lib/version.py`(「写」只有一份实现;发版记录改为只读校验)。文档元信息(front-matter)的强制档位是同一编号的另一半,仍待第 6 节 | 2026-11-14 | 本文 §2.2 / §2.7 |
+| **D2** | 脚本目录**不搬**(保守档 A):只新增 `scripts/lib/`;`tools/` `perf/` `imserver/scripts/` 登记为**已裁决例外**(容器内 `/repo` 路径 / 历史报告「当时命令」可复跑 / C++ 测试入口与镜像同源) | 2026-11-14 | 本文 §2.7 + [治理方案第 5 节](../superpowers/archive/specs/2026-11-14-docs-and-scripts-governance-design.md) |
+| **D3** | backend / web / imserver / app 四条重活轨也同源(B 案):各栈的装配抽进 `scripts/stacks/*.sh`,`verify.sh` 与四条 workflow 调同一份;门禁命令一律进 `scripts/gates.toml` | 2026-11-14 | 本文 §2.3 + [治理方案第 4 节](../superpowers/archive/specs/2026-11-14-docs-and-scripts-governance-design.md)(不改 job name,required check 不变) |
+| **D4** | ① `sync_version` **保留 `--write`**,读 / 写原语都进 `scripts/lib/version.py`(「写」只有一份实现;发版记录改为只读校验)。② **文档元信息 = A 档**:只强制非归档文档,字段 `状态` + `复核`(`owner` 可选,只在本文不是 owner 时写),`docs/superpowers/` 豁免 —— 它的状态 owner 是该目录 README §2 | 2026-11-14 | ① 本文 §2.2 / §2.7;② [`writing.md`](writing.md) §2 + `docs_lint` 的 `metadata` 规则 |
 | **D5** | 新设 `flow` 域:`scripts/**`、`.github/**`、`deploy/**` 的改动自成一条栈,验证入口 `scripts/verify.sh contract`。**栈归属 ≠ 改的权限**:`deploy/**` 仍受 `AGENTS.md` §六 禁止 | 2026-11-14 | 本文 §2.3 + [`AGENTS.md` §二](../../AGENTS.md)(本次已补一行) |
 
-> 第 5 节已拍板 **D2**(不搬目录,三处例外登记在 §2.7)与 **D4**(`sync_version` 保留 `--write`,
-> 读写进 lib);文档元信息强制档位(同编号 D4 的另一半)留给第 6 节,不阻塞本表使用。
+> 第 5 节已拍板 **D2**(不搬目录,三处例外登记在 §2.7)与 **D4 的前半**(`sync_version` 保留 `--write`,
+> 读写进 lib);**D4 的后半(文档元信息档位)已由第 6 节拍板为 A 档**,本表不再有「待第 6 节」的条目。
 
 ---
 
 ## 7. 待修清单(登记,本次不改)
 
+> **2026-11-14 第 6 节收尾**:勾掉 3 项(六轨措辞、`errors.md` 总表、C6 重复必跑表),
+> 并把 §2.5 的写作规范从「待建」改为「已落地 + 三条 lint 规则」。
+>
 > **2026-11-14 第 5 节收尾**:勾掉「三处脚本家的归属」一项 —— D2-A 裁决为**例外**
 > (理由在 §2.7),不搬目录;并登记一条新欠账(`create_release` 仍无单测)。
 >
@@ -236,10 +244,10 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 |---|---|---|
 | ~~`docs/api/README.md` 的「接口一览」表仍是**手写派生索引**~~ | 第 3 节 | **已完成**(2026-11-14):计数改为生成,表的操作集合与 `openapi.yml` **集合相等**由 `docs_index --check` 判定;「说明」列按 C1 保留人写 |
 | ~~`CLAUDE.md` 文档导航表「三轮报告」→ 四轮(C3 的另一处)~~ | 第 6 节(原) | **已完成**(2026-11-14 第 3 节顺手):该行改为指向 [`docs/security/README.md`](../security/README.md) 并声明「轮次以目录为准」,不再写任何轮次数字 |
-| 19 处「六轨」措辞(12 个文件,其中 9 个非归档;归档 3 处按 §6 红线不改) | 第 6 节(**原第 2 节,2026-11-14 改判**) | 待修 |
-| `errors.md` 业务码总表与 `error_codes.py` 不同步(C11) | 第 6 节 | 待修 |
+| ~~19 处「六轨」措辞(12 个文件,其中 9 个非归档;归档 3 处按 §6 红线不改)~~ | 第 6 节(**原第 2 节,2026-11-14 改判**) | **已完成**(2026-11-14):活文档 4 处清零,`docs_lint` 的 `term` 规则防回归(作用域 + 白名单 + 行内豁免) |
+| ~~`errors.md` 业务码总表与 `error_codes.py` 不同步(C11)~~ | 第 6 节 | **已完成**(2026-11-14):总表删除(改分册指针),新增「每个业务码至少在一份分册出现」门禁 |
 | ~~本地 15 条 vs CI 19 条门禁(C5)~~ | 第 4 节 | **已完成**(2026-11-14):`scripts/gates.toml` + `scripts/run_gates.py` 单点维护,两边 **21 / 21**,差额 0 |
-| `AGENTS.md` §三 与 `CONTRIBUTING.md` 重复的必跑表(C6) | 第 6 节 | 待修 |
+| ~~`AGENTS.md` §三 与 `CONTRIBUTING.md` 重复的必跑表(C6)~~ | 第 6 节 | **已完成**(2026-11-14):`CONTRIBUTING.md` 收成指针,owner 只有 `AGENTS.md` §三/§四 |
 | ~~`tools/` `perf/` `imserver/scripts/` 三处脚本家的归属(C7 剩余)~~ | 第 5 节 | **已完成**(2026-11-14):D2-A 拍板**不搬目录**,三处登记为已裁决例外(容器内 `/repo` 路径、历史报告「当时命令」可复跑、C++ 测试入口与镜像同源),理由见 §2.7 与 release.md §3.2 |
 | `scripts/create_release.py` **仍无单测**(四个发版脚本里唯一有外部副作用:建 Release / 删附件 / 传 APK) | 未定(第 5 节拍板为「验收里明确排除并写理由」) | 待修(已登记,不阻塞):可测面几乎全是 `urllib` 胶水,真风险在副作用顺序(先查 tag / 先删后传),要 mock 大半个 REST 语义才测得动 |
 | ~~10 个非文档文件归位(C10)~~ | 第 2 节 | **已完成**(2026-11-14) |
@@ -253,4 +261,5 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 2. **一个事实只能一个 owner**。需要第二处显示时,加生成器(`docs_index` / `openapi.yml` 模式),不加手写。
 3. **冲突先裁决再改**:裁决写进 §4 并注明修复归属节;禁止「两处都改一遍」。
 4. **本表的复核节奏**:每节治理落地后复核一次;数字类结论必须附可复跑的命令(见 §3)。
-5. 第 6 节的 `docs/standards/writing.md` 生效后,本表按该规范改写(元信息 / 状态 / 归档口径)。
+5. 第 6 节的 [`writing.md`](writing.md) 已于 2026-11-14 生效:本表的元信息(`状态` / `复核`)、状态词与归档口径**按该规范维护**;
+   新增文档时先读它的 §2,再动笔。

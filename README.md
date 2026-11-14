@@ -23,8 +23,6 @@
 ## 目录
 
 - [1. 系统架构](#1-系统架构)
-  - [1.1 进程与数据边界](#11-进程与数据边界)
-  - [1.2 三条贯穿全栈的约束](#12-三条贯穿全栈的约束)
 - [2. 关键技术要点](#2-关键技术要点)
 - [3. 功能范围](#3-功能范围)
 - [4. 技术选型与理由](#4-技术选型与理由)
@@ -96,107 +94,12 @@
 
 ## 2. 关键技术要点
 
-### 2.1 长连接侧的会话状态与消息序号
+**已搬到 [`docs/architecture.md`](docs/architecture.md)**:长连接侧的会话状态与消息序号、已读回执的乱序防护、
+双令牌与会话版本、游标分页与反连接、媒体管线、契约工程(四处生成物 + 四处门禁)、可观测性与容量方法学、
+交付与恢复纪律、测试形态。
 
-imserver 是消息的唯一写者:客户端发送经 WS 帧或 `POST /internal/send`,服务端在单个事务内分配会话内自增
-`seq`、写入消息体、更新会话摘要,再向收发双方推送下行帧。客户端只依赖 `seq` 做排序与补拉,
-离线重连时按本地最大 `seq` 请求增量。连接池对 MySQL `wait_timeout` 做存活探测,
-避免空闲连接被服务端回收后 IM 永久失联(`readyz` 探针同源)。
-
-### 2.2 已读回执:单写者语义 + 乱序防护
-
-事实来源是 `im_conversation_state.read_seq`,语义是「**我**读到哪」;对端视角通过会话列表的
-`peer_read_seq` 暴露。判定永远是「我方消息 `seq <= peer_read_seq` = 已读」,与「我没读的条数」是两条独立链路,
-不可互推。服务端在 `read` 帧落库后**回读实库**再向对端广播,落库用 `GREATEST` 语义 —— 乱序到达的旧帧
-不会把已读位点推回去;客户端侧只增不减。`read` 帧单独限流(2/s,突发 30),超限静默丢弃而非报错,
-避免用户快速滚动时产生错误反馈。
-
-### 2.3 鉴权:双令牌轮换 + 会话版本绑定
-
-- **JWT 双令牌**:access 30 分钟 / refresh 30 天,刷新即轮换,旧 refresh 进入黑名单;
-  网页端 refresh 落 HttpOnly Cookie(响应体不含 refresh),App 落系统安全存储;轮换后保留 60 秒宽限以支持并发标签页。
-- **会话版本 `sv`**:IM token 携带 `sv`,imserver 与 `im_user.session_version` 比对,不一致返回 `40101`;
-  **WS 握手与 `/im/api/*` 两个入口同口径**,避免「REST 被踢、长连接仍活」的半失效状态。
-- **单设备登录**:登录时同步 `session_version` 到 imserver,被顶设备的三条退出路径(REST 401、WS 关闭、刷新失败)互为兜底。
-- **两级封禁**:`banned_light` 仅禁滑卡;`banned_heavy` 全域 403。由全局权限类实现,新接口自动继承,
-  白名单只有 `GET /users/me`、`GET /users/tags`。
-
-### 2.4 数据访问:游标分页、反连接与查询预算
-
-- **keyset 游标分页**:`config/cursor.py` 以 base64url 编码 `<排序时间>|<主键>` 生成**不透明**游标
-  (`?before=`),响应返回 `next_cursor` / `has_more`。排序键带主键兜底,翻页期间有新数据插入也不会重复或漏读;
-  深翻页耗时与页深无关。`offset` 参数保留为兼容分支,老版本客户端不因协议升级而卡住。
-- **排除列表用 `NOT EXISTS` 反连接**:候选池需要排除「已划过 / 已配对 / 双向拉黑」三类集合,
-  原先的 `IN (子查询)` 会随活跃度线性膨胀;改为相关子查询后走索引探测。**必须拆成两次 `exclude`** ——
-  `exclude(a, b)` 的语义是 `NOT (a AND b)`,与「不同时满足」并不等价。
-- **索引与门禁**:`Match(user_b)`、`Swipe(target, action, -created_at, -id)`、`Photo(status, user_id)`
-  三条索引支撑列表与角标查询;`config/test_query_budget.py` 以 `assertNumQueries` 锁定查询条数预算,
-  并对「排除必须走 EXISTS」「三条索引必须存在」做断言 —— 查询性能退化会在 CI 阶段暴露,而不是等到线上。
-
-### 2.5 媒体管线:重编码、签名地址与配额
-
-资料图 / 广场图 / 聊天图统一经 `config/images.py`:校验 MIME 与像素上限(≤2000 万像素、长边 4096),
-`exif_transpose` 校正方向后**重新编码以剥离 EXIF/GPS**。聊天媒体不出公开 URL,改为限时签名地址
-(TTL 默认 3600),由 nginx `auth_request` 子请求 `/im/images/auth` 验签后才放行 —— 直链可撤销、不可枚举。
-存储配额按库内 `bytes` 求和(单账号默认 200MB),检查发生在落盘之前,超限返回 `413 + 41301`;
-删除与 30 天过期回收都不依赖计数列,避免并发下的漂移。
-
-### 2.6 契约工程:四处生成物 + 四处门禁
-
-接口与协议的「一致性」不靠自觉,而是四个可执行门禁:
-
-| 契约 | 事实来源 | 派生 / 校验 |
-|---|---|---|
-| HTTP 接口文档 | 视图与序列化器 | `docs/api/`(份数与操作数以 `openapi.yml` 为准,由 `scripts/docs_index.py` 机械校验)+ `ApiDocsCoverageTests` 双向比对路由与文档 |
-| 机器可读 schema | 视图上的 `@extend_schema` | `docs/api/openapi.yml` 由 `drf-spectacular` 生成(禁止手改),CI 重新生成后 `git diff --exit-code` |
-| 字段级一致性 | 文档参数表 ↔ schema 字段 | `config/api_schema_contract.py` 双向比对;Web 侧 `openapi-typescript` 生成 `schema.d.ts` 并对 13 个手写类型做编译期断言;App 侧 `scripts/check_app_models.py` 扫描 `models.dart` 的 JSON 键 |
-| WS 帧协议 | `imserver/tests/fixtures/ws/*.json`(上行 8 帧 / 下行 12 帧) | imserver(`frames.h` 序列化)、App、Web 三端各自用真实解析路径消费同一份 fixture,任一端改帧格式三轨同时变红 |
-
-版本号同样收敛到单一来源:`app/pubspec.yaml` 为事实来源,`scripts/sync_version.py --check` 校验
-App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contract.yml` 拦截)。
-
-### 2.7 可观测性与容量工程
-
-- **指标**:`prometheus_client` 自建 registry;gunicorn `-w 2` 下必须用 `PROMETHEUS_MULTIPROC_DIR` +
-  `MultiProcessCollector`,否则计数器按进程分裂、`rate()` 误判重置。业务指标含
-  `logins_total` / `swipes_total` / `matches_total` / `im_calls_total`。
-- **采集**:Prometheus 6 个 target(api / im / node / celery / mysqld / redis),Grafana 概览看板,
-  Alertmanager 17 条规则经宿主机 relay 转邮件(与 22:00 服务器日报同一条链路,去重键 `groupKey + status`);
-  Loki 作为可选 profile 按需启用。
-- **日志**:单行 JSON,字段含 `route` / `status` / `duration_ms` / `request_id`;前端未捕获异常经
-  `POST /client-errors` 汇总为同一条日志流与 `client_errors_total{platform}` 指标,两侧 `request_id` 对齐。
-- **容量方法学**:`perf/` 是可复现的压测与回归工具(`run.py` + `baseline.json`),覆盖读、写、multipart 上传、
-  70/30 混合、WS 重连风暴、0→1000 突发等场景;报告只记录「合成规模 + 合成请求模型」,并明确标注口径。
-
-在 2C2G 单机(含公网 RTT)上的实测基线:
-
-| 场景 | 结果 |
-|---|---|
-| 极简读接口 `GET /app/config` | 476 rps @100 并发(三次 446–496),0 个 5xx |
-| 天花板归因 | 同机裸 WSGI 2626 rps vs Django 478 rps;每请求 Django 2.7ms ⇒ 瓶颈是 2 核上的单请求开销,不是 worker 数 |
-| 鉴权读 `GET /users/me` / `GET /discovery/candidates` | 52 / 28.5 rps(候选池冷查询为全表扫 + 4 个反连接) |
-| 写 `POST /discovery/swipe` | 饱和约 40 rps,p50 552ms → 4922ms,0 个 5xx / 429 |
-| 混合 70 读 / 30 写,30 分钟 | 165.8 rps,期间 swap 换出 +882MB —— 持续高压下的实际稳定吞吐 |
-| WS 重连风暴 | 1000 客户端全部恢复,p50 1.67s |
-
-> 口径提醒:476 rps 只对不碰 DB 的极简接口成立;要鉴权、要打库的业务接口是 28–52 rps。
-> 两者不可互相推算,这也是「容量报告」里最容易出错的地方。
-
-### 2.8 交付与恢复纪律
-
-- **CI 七条门禁轨 + 两条自动化轨**:backend(MySQL 8 + Redis,含测试与注释/文档门禁)、app(`flutter analyze` 零告警 + 测试)、
-  app-ui(模拟器 integration_test + golden 截图)、web(`vue-tsc` + `eslint --max-warnings 0` + vitest 覆盖率门槛)、
-  imserver(unit / WS / HTTP 三套)、contract(schema / 版本号 / 脚本自测)、web-e2e(真后端 + Playwright 冒烟);
-  另有 auto-merge(白名单自动合并)与 main-health(每天检查默认分支每条 workflow 的最新 push run)。
-  **`contract` / `backend` / `web` 是默认分支的必需检查**(2026-11-12 起),backend / web 的重活按改动面跑
-  (`scripts/ci-scope.sh`,无关时 `skipped`)。
-- **发布只认 `origin/main` 的 SHA**:分支 → PR → CI 全绿 → squash 合并 → 部署合并后的 commit;
-  部署前先记回滚点(旧 SHA / 旧镜像 tag / `.env` 备份),禁止把未合并的本地提交直接上线。
-- **备份三层**:03:20 自建双库全量(应用库 + IM 库 + 媒体 + 配置,每份带 `.sha256`,并断言 dump 末行
-  `-- Dump completed` 以防截断包)、03:30 面板原生备份、04:10 树莓派以只读账号主动拉取;
-  保留 14 天,三项均进日报,**恢复演练已实际执行**(干净 MySQL 实例恢复后走完整登录链路)。
-- **故障演练**:MySQL 双杀演练两轮,检测延迟 20–24s、MTTR 24.2s / 27.2s,演练本身暴露并修复了
-  看门狗锁文件被守护进程继承导致的自我关闭缺陷。
+容量数字的**唯一 owner** 是 [`docs/ops/capacity-and-reliability.md`](docs/ops/capacity-and-reliability.md) ——
+引用容量口径时引用它,本页不再抄第二份(手写副本必然漂移)。
 
 ---
 
@@ -235,197 +138,44 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
 
 ## 5. 目录结构
 
-```
-chat_app/
-├── app/                        # Flutter 客户端
-│   ├── lib/
-│   │   ├── core/               #   网络 / 错误映射 / 凭证存储 / 主题 token
-│   │   ├── im/                 #   IM 抽象层(测试中以替身替换)
-│   │   ├── router.dart         #   go_router 路由表
-│   │   └── features/           #   auth onboarding discovery chat square
-│   │                           #   profile settings shell presence legal
-│   ├── test/                   #   真实 provider + 假网络 + 假 IM(support/)
-│   └── assets/fonts/           #   Space Grotesk + OFL 许可
-│
-├── chatapp/                    # Django 后端
-│   ├── config/                 #   settings / 错误契约 / 业务码 / 游标 / 限流 / 指标
-│   ├── accounts/               #   自定义 User(手机号为账号)+ JWT + 准入名单 + 探针
-│   ├── users/                  #   资料 / 照片 / 标签 / 择偶偏好 / 在线状态
-│   ├── discovery/              #   候选池 / 滑卡 / 配对 / 访客
-│   ├── im/                     #   IM 凭证签发 / 语义层 / 传输层 / 异步任务(唯一出入口)
-│   ├── moderation/             #   举报 / 拉黑 / 封禁
-│   ├── ops/                    #   运营审核台(服务端渲染)+ 安全中间件
-│   ├── feed/                   #   广场动态
-│   ├── notifications/          #   通知偏好 / 推送通道(固定 off)/ 内部回调
-│   ├── feedback/               #   意见反馈
-│   ├── telemetry/              #   客户端错误上报
-│   └── .env.example            #   环境变量模板(.env 不入库)
-│
-├── imserver/                   # 自建 IM(C++20)
-│   ├── src/{net,service,store,auth,util}   # 帧编解码 / 业务 / 存储 / 鉴权 / 工具
-│   └── tests/                  #   unit + DB + WS/HTTP 集成 + fixtures/ws/(跨栈帧契约)
-│
-├── web/                        # 网页端(Vue 3 + TS,PC 浏览器)
-│   ├── src/{api,stores,im,components,layouts,features,styles}
-│   └── tests/                  #   unit / component(vitest + MSW)、e2e(Playwright)
-│
-├── perf/                       # 压测与回归(run.py / baseline.json / report.py)
-├── deploy/                     # 部署模板、可观测栈、运维脚本(备份 / 看门狗 / 演练)
-├── scripts/                    # 契约与版本号检查(check_app_models / sync_version)
-├── docs/                       # 见「文档索引」
-├── .github/workflows/          # CI:七条门禁轨 + auto-merge / main-health 两条自动化
-└── CLAUDE.md                   # 工程约束与契约的单一事实来源
-```
+**owner 是 [`CLAUDE.md`](CLAUDE.md)「目录结构」** —— 那张表按 `app/` / `chatapp/` / `imserver/` / `web/` /
+`docs/` / `flutter/`(SDK,勿改)逐项写清了「里面有什么」;这里不再维护第二份目录树。
+每个子目录「有哪些文档」看 [`docs/README.md`](docs/README.md)(扫描生成,禁止手改)。
 
 ---
 
 ## 6. 快速开始
 
-### 前置要求
+**环境准备、后端/前端/网页端的启动与常用命令、出签名包**:[`docs/standards/dev-commands.md`](docs/standards/dev-commands.md)
+(前置要求表 + 首次 setup 六步 + 日常命令 + 服务器入口)。
+**提交流程、CI 怎么跑、提交信息与 PR 规矩**:[`CONTRIBUTING.md`](CONTRIBUTING.md)。
+**推之前必须跑什么**:[`AGENTS.md`](AGENTS.md) §三(唯一入口 `scripts/verify.sh`)。
+**发版(版本号 / tag / Release 三件事同时做)**:[`docs/ops/release.md`](docs/ops/release.md)。
 
-| 依赖 | 版本 | 说明 |
-|---|---|---|
-| Python | 3.11+ | 后端 |
-| MySQL | 8.0+ | 业务库(聊天需另建 `chatapp_im`) |
-| Redis | 7.x | 验证码 / 限流 / 缓存 / broker,**跑测试与接口前必须先启动** |
-| Flutter | 3.47.x | 客户端 |
-| imserver | 随仓库构建 | 自建 C++ IM(WS :9100 / HTTP :9101),聊天功能依赖它 |
-
-### 后端
-
-```bash
-# 1. 建库与账号(先把脚本里的 <YOUR_DB_PASSWORD> 换成自己的口令)
-mysql -u root -p < chatapp/db_setup.sql
-
-# 2. 环境变量
-cd chatapp
-cp .env.example .env
-#    至少填 SECRET_KEY / DB_PASSWORD / IM_SELF_SECRET / IM_SELF_INTERNAL_SECRET / IM_MEDIA_PREFIX
-#    SECRET_KEY 可用: python -c "import secrets;print(secrets.token_urlsafe(50))"
-
-# 3. 依赖(生产与 CI 一律用锁定文件)
-pip install -r requirements.lock
-
-# 4. Redis
-docker compose -f docker-compose.dev.yml up -d
-
-# 5. 迁移与管理员
-python manage.py migrate
-python manage.py createsuperuser
-
-# 6. 启动
-python manage.py runserver          # http://127.0.0.1:8000
-```
-
-需要真实收发消息时,另起 Celery worker(Windows 仅支持 `solo` 池):
-
-```bash
-python -m celery -A config worker -l info --pool=solo
-```
-
-开发期常用命令:
-
-```bash
-python manage.py test                          # 全量测试(前置:Redis 在跑)
-python manage.py test accounts                 # 单 app
-python manage.py seed_fake_users --count 20    # 造数(幂等)
-python manage.py im_send --from u2 --to u3 --text "你好"   # 代发消息(--notice 发灰条)
-python manage.py dev_reset_pair --a u8 --b u9              # 重演配对(不清聊天记录)
-```
-
-> 开发期 `SMS_DEV_MODE=1`,验证码固定 `123456`,不接短信服务商;`AUTO_APPROVE=1` 时上传照片自动过审。
+> 开发期 `SMS_DEV_MODE=1` 时验证码固定 `123456`,不接短信服务商;`AUTO_APPROVE=1` 时上传照片自动过审。
 > 生产环境二者必须关闭,准入由 `accounts.PhoneAllowlist`(运营入口 `/ops/allowlist/`)收口。
-
-### 客户端
-
-```bash
-cd app
-flutter pub get
-
-flutter run --dart-define=API_BASE=http://127.0.0.1:8000/api/v1          # 桌面 / 浏览器
-flutter run -d emulator-5554 --dart-define=API_BASE=http://10.0.2.2:8000/api/v1   # Android 模拟器
-```
-
-签名包(需自备 keystore,`app/android/key.properties` 不入库):
-
-```bash
-flutter build apk --release \
-  --dart-define=API_BASE=https://your-domain/api/v1 \
-  --dart-define=ERROR_REPORTING=true
-```
-
-`ERROR_REPORTING=true` 必须携带,否则线上崩溃与白屏不会进入上报链路(Web 侧对应 `VITE_ERROR_REPORTING=1`)。
-
-### 发版:版本号、tag 与 Release 三者同步
-
-**升版本号不是改一个数字**,而是三件事同时完成(2026-11-05 起强制,清单见 [`docs/ops/release.md`](docs/ops/release.md)):
-
-1. **三处版本号一致** —— 事实来源 `app/pubspec.yaml`,`python scripts/sync_version.py --write` 写回
-   `app/lib/core/app_info.dart` 与 `web/package.json`;`--check` 由 CI 的 `contract.yml` 执行。
-2. **打 tag 并推送** —— `git tag -a v<版本> -m "<主题>" <部署用的合并 SHA>` + `git push origin v<版本>`。
-3. **建 / 更新远端 Release** —— 标题 `v<版本> — <主题>`,notes 写新增 / 变更 / 修复 / 运维注意,
-   附件挂签名包 `chatapp-<版本>.apk`。
-
-发版后须在 `docs/releases.yml` 加一条记录(版本 / 日期 / tag / Release / 上线 SHA / APK),再跑
-`python scripts/releases.py --render` 渲染 `release.md` §5 ——
-记录缺失会让 `sync_version.py --check` 失败,渲染物过期会让 `releases.py --check` 失败,两者都让 CI 变红。
-**版本号、tag、Release 指向同一个提交**,半年后回答「线上这个包是哪份代码」才有据可查。
-
-### 网页端
-
-```bash
-cd web
-npm ci
-npm run dev        # 代理到 :8000
-npm run build      # 产物 web/dist
-```
 
 ---
 
 ## 7. 测试与门禁
 
-测试形态的取舍是「**真实装配 + 假外部世界**」:UI 测试运行真实的 Riverpod provider 树与真实路由,
-只把网络与 IM 替换为可控替身,因此测到的是生产装配而不是 mock 的装配。
+**验证入口只有 `scripts/verify.sh`**:改后端跑 `scripts/verify.sh backend`,网页端 `web`,imserver `imserver`,
+App `app`,只改文档/脚本 `contract` —— 完整对照表在 [`AGENTS.md`](AGENTS.md) §三,门禁清单在
+[`scripts/gates.toml`](scripts/gates.toml)(本地与 CI 调**同一个执行器**,两边条数相等)。
 
-| 层 | 工具与形态 | 门禁 |
-|---|---|---|
-| 后端 | `manage.py test`,852 个用例;IM 副作用一律 mock(`im.tasks.*.delay`),并发正确性用唯一约束 + `CheckConstraint` 覆盖 | 全量绿 + 查询预算 + 注释覆盖 + 接口文档双向比对 + schema 字段级比对 |
-| 客户端 | `flutter test`;`test/support/` 提供脚本化假网络、假 IM 客户端与 `pumpApp` 组合入口 | `flutter analyze` 零告警 + 全绿 |
-| 网页端 | vitest + MSW(组件与 store 真实);Playwright 端到端跑构建产物 | `vue-tsc` 零错误 + `eslint --max-warnings 0` + 覆盖率门槛 70/60/70/70 |
-| 长连接 | imserver unit / DB / WS / HTTP 四套;跨栈帧 fixture 三端共享 | 三轨 CI 各自校验同一份 fixture |
-| 端到端 | 冒烟场景进 CI(真 MySQL + Redis + Django + preview);全量场景需 imserver + Celery,本地执行 | 失败上传 Playwright 报告 |
-
-关键业务不依赖人工点击:配对并发、限流窗口、验证码锁定、封禁分级、单设备登录的三条退出路径、
-已读回执的乱序防护、游标分页的翻页一致性,都有对应用例。
+**测试形态与各层工具**在 [`docs/architecture.md`](docs/architecture.md) §9「测试形态:真实装配 + 假外部世界」;
+违反就会红的硬性约束在 [`AGENTS.md`](AGENTS.md) §四。
 
 ---
 
 ## 8. 部署、容量与运维
 
-线上形态为单机多进程(容量实测即在该配置上完成):
+线上形态、nginx 三条硬要求与两个易错点、更新流程:**[`docs/ops/runbook.md`](docs/ops/runbook.md) §10**
+(备份与恢复见同文件 §5,准入名单见 §6,告警处置见 §1–§4)。
 
-```
-用户 → nginx(443/80,TLS 终止 + 静态直出 + 反代)
-        ├→ gunicorn 127.0.0.1:8000 (gthread)
-        │    └→ Django ── MySQL 8(chatapp)/ Redis 7(DB0 缓存、DB1 broker)── Celery
-        └→ imserver 127.0.0.1:9100 WS / 9101 HTTP
-             ├→ MySQL 8(chatapp_im)
-             └→ Redis 7(DB2)
-```
-
-nginx 的三条硬要求与两个易错点:
-
-1. **深链回退**:`try_files $uri $uri/ /index.html;` —— vue-router 使用 history 模式,缺了它刷新与直接访问深链都会 404;
-2. **反代 `/api/v1/`、`/im/ws`、`/media/`**:网页端与接口同源,因此不需要 CORS;
-3. **`index.html` 不缓存**,带内容哈希的 js/css 反而应长缓存。
-
-> 易错点:① `/media/` 直出需逐站点配置,漏配表现为照片 404;
-> ② 面板生成的 `proxy_cache` 键不含 `Authorization` 且忽略 `Vary`,会造成跨用户缓存泄漏 ——
-> 要么关闭页面缓存,要么把 `Authorization` 纳入 `proxy_cache_key`。
-
-**更新流程**:`git fetch` 确认落点 SHA → 记回滚点 → `git reset --hard <sha>` → 装依赖 → `migrate` →
-`collectstatic` → 重启 web 与 worker → 生产冒烟。IM 侧按 `docs/ops/imserver.md` 执行镜像替换与 `readyz` 校验。
-容量、告警、故障处置与恢复步骤分别见 `docs/ops/capacity-and-reliability.md` 与 `docs/ops/runbook.md`。
+容量与告警口径的数字只在 [`docs/ops/capacity-and-reliability.md`](docs/ops/capacity-and-reliability.md);
+观测栈配置见 [`docs/ops/observability.md`](docs/ops/observability.md)。**部署前必须跑
+`python scripts/deploy_gate.py`**(只认合并后 SHA 且该 SHA 的 check 全绿)。
 
 ---
 
@@ -433,12 +183,13 @@ nginx 的三条硬要求与两个易错点:
 
 **唯一入口是 [`docs/README.md`](docs/README.md)** —— 它由 `scripts/docs_index.py` 扫描 `docs/`
 生成(**禁止手改**;`python scripts/docs_index.py --check` 比对生成物,CI `contract` 轨会拦)。
-按目录分组的文档清单、每目录份数、归档份数与归档清单入口,都在那里;本节不再维护第二份手写列表,
-也不再写任何「N 份 / M 个操作」的手写计数(手写计数必然过期,这是治理方案第 3 节的出发点)。
+按目录分组的文档清单、每目录份数、归档份数与归档清单入口都在那里;本节不再维护第二份手写列表,
+也不再写任何「N 份 / M 个操作」的手写计数(手写计数必然过期)。
 
 按任务去哪:待办 → [`docs/backlog/`](docs/backlog/2026-11-03-todo.md);交付时间线 →
 [`docs/milestones.md`](docs/milestones.md);接口 → [`docs/api/README.md`](docs/api/README.md);
-某条事实谁说了算 → [`docs/standards/sources-of-truth.md`](docs/standards/sources-of-truth.md)。
+某条事实谁说了算 → [`docs/standards/sources-of-truth.md`](docs/standards/sources-of-truth.md);
+写文档的规范 → [`docs/standards/writing.md`](docs/standards/writing.md)。
 
 ---
 
@@ -480,11 +231,13 @@ The engineering focus is on **architecture boundaries and enforceable contracts*
 - **Cursor pagination and reverse-join exclusions** — opaque keyset cursors keep deep pages independent of depth,
   `NOT EXISTS` replaces growing `IN` lists, and query-count budgets plus index assertions turn regressions into
   CI failures.
-- **Observability and capacity as measured artifacts** — Prometheus with multi-process aggregation, 17 alert rules
+- **Observability and capacity as measured artifacts** — Prometheus with multi-process aggregation, alert rules
   routed to email, reproducible load scenarios in `perf/`, and capacity reports that state their measurement
-  caveats (a 476 rps figure applies only to a DB-free endpoint; authenticated endpoints measure 28–52 rps on 2C2G).
-- **Delivery and recovery discipline** — six CI tracks, release only from the merged `origin/main` SHA with a
-  recorded rollback point, three independent backup layers, and a restore drill that was actually executed.
+  caveats (a figure measured on a DB-free endpoint does not transfer to authenticated endpoints; both are
+  recorded in [`docs/ops/capacity-and-reliability.md`](docs/ops/capacity-and-reliability.md)).
+- **Delivery and recovery discipline** — CI workflows gate every merge, release only from the merged
+  `origin/main` SHA with a recorded rollback point, three independent backup layers, and a restore drill that
+  was actually executed.
 
 Testing follows the same principle: UI tests run the **real provider tree and real router** against scripted
 network and fake IM adapters, so they exercise production wiring rather than mocks of it. The repository was

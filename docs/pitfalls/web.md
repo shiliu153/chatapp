@@ -1,3 +1,8 @@
+---
+状态: 生效中
+复核: 每次踩到新坑时
+---
+
 # 踩坑手册 · Web 端(Vue 网页端、构建与部署)
 
 > 索引见 [README.md](README.md)。网页端与 App **共用同一套 Django 接口**,后端相关坑见 [backend.md](backend.md)、IM 相关见 [im.md](im.md)。

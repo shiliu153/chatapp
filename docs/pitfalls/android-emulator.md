@@ -1,3 +1,8 @@
+---
+状态: 生效中
+复核: 每次踩到新坑时
+---
+
 # 踩坑手册 · 模拟器与 Android 构建
 
 > 索引见 [README.md](README.md)。打服务器包见 `CLAUDE.md`「常用命令」;部署形态见 [项目 README](../../README.md)「部署」。

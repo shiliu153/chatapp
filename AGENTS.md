@@ -94,7 +94,7 @@
 - **合并后立刻同步本机**:WSL 母体(`/root/src/chatapp`)与 Windows 仓库都要 `pull --ff-only`
   到合并后的默认分支(`main`),**先 pull 再 prune**。母体不会自动跟随 `origin/main`,而
   `scripts/superagent-prune.sh` 就住在母体里,不同步就会用旧脚本、清不掉 worktree。
-- **纯文档 PR 直接合并**:只动 `docs/**` 的 PR 六轨都不触发,没有 check runs 是正常的;
+- **纯文档 PR 直接合并**:只动 `docs/**` 的 PR 不触发任何 workflow,没有 check runs 是正常的;
   本地 `scripts/verify.sh contract` 绿 + 看完 diff 即可直接 squash 合并,不再单独占一轮确认。
 
 派单、升级、排障的操作细节见 [docs/ops/superagent.md](docs/ops/superagent.md)。

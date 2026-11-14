@@ -1,3 +1,8 @@
+---
+状态: 生效中
+复核: `python scripts/docs_index.py --check`
+---
+
 # 接口文档(API Reference)
 
 本目录是 chat_app 后端 `/api/v1` 接口的**对外交付文档**:每个接口包含功能说明、请求/响应参数表、请求示例与响应示例(取自真实响应)、该接口会出现的错误码。页面结构与腾讯云 API 文档一致。
@@ -9,7 +14,7 @@
 | 文件 | 内容 |
 |---|---|
 | [conventions.md](conventions.md) | 公共说明:Base URL、请求约定、鉴权、响应结构、分页、时间格式、限流(读接口前先看它) |
-| [errors.md](errors.md) | 错误码总表、HTTP 状态码语义、封禁行为 |
+| [errors.md](errors.md) | HTTP 状态码语义、专属业务码去哪查、封禁行为 |
 | [auth.md](auth.md) | 账号与鉴权 |
 | [users.md](users.md) | 用户资料 / 照片 / 择偶偏好 / 标签 / 他人资料 / 在线状态 |
 | [discovery.md](discovery.md) | 发现与配对 |

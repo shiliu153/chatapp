@@ -1,3 +1,8 @@
+---
+状态: 生效中
+复核: 每次发版前
+---
+
 # 发版与远端 Release
 
 > **约束(2026-11-05 起,强制)**:**版本号一变,远端 Release 必须在下一次发版内同步更新** —— 不是「下次补」,
@@ -823,7 +828,7 @@ App 端 UI 验收待模拟器恢复后补做。**App 端协议能力已被上面
     `backups/db/chatapp-db-20261111-160713.sql.gz`(192K / 39 表)、
     `chatapp-im-db-20261111-160713.sql.gz`(24K / 8 表),另含 media(1.6M)与配置快照
 - **版本号 PR**:#244(`app/pubspec.yaml` 1.0.13+14 + `app_info.dart` + `web/package.json` +
-  关于页测试期望 + 重生成 openapi + §5 加行),六轨全绿后 squash 合并 → `7657894`。
+  关于页测试期望 + 重生成 openapi + §5 加行),workflow 全绿后 squash 合并 → `7657894`。
 - **imserver(先上)**:本地 `docker build -t imserver:1.0.13 imserver` → `docker save | gzip -1`(94 MB)→
   `scp` → 服务器 `docker load` → `sed` 改 `.env` 的 `IMSERVER_IMAGE=imserver:1.0.13` →
   `docker compose run --rm imserver --migrate`(**迁移 8 `008_message_hidden.sql` 实际应用**,1–7 `skipped`)→

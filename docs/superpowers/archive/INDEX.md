@@ -1,11 +1,11 @@
 # docs/superpowers/archive/ — 归档清单
 
 > **本文件由 `scripts/docs_index.py` 生成,勿手改。**
-> 共 **105** 份 = **40** spec + **65** plan(扫描 `specs/` 与 `plans/`)。
+> 共 **106** 份 = **41** spec + **65** plan(扫描 `specs/` 与 `plans/`)。
 > 机器判定:每份归档文件在本表**以链接形式出现且仅出现一次**(`python scripts/docs_index.py --check`)。
 > 「哪天交付了什么、结论是什么」看 [../../milestones.md](../../milestones.md);归档流程见 [../README.md](../README.md)。
 
-## 1. specs(40 份)
+## 1. specs(41 份)
 
 | 日期 | 主题 | 文档 |
 |---|---|---|
@@ -49,6 +49,7 @@
 | 2026-11-09 | batch-m-q-design | [2026-11-09-batch-m-q-design.md](specs/2026-11-09-batch-m-q-design.md) |
 | 2026-11-09 | batch-r-w-design | [2026-11-09-batch-r-w-design.md](specs/2026-11-09-batch-r-w-design.md) |
 | 2026-11-12 | ci-flow-gates-design | [2026-11-12-ci-flow-gates-design.md](specs/2026-11-12-ci-flow-gates-design.md) |
+| 2026-11-14 | docs-and-scripts-governance-design | [2026-11-14-docs-and-scripts-governance-design.md](specs/2026-11-14-docs-and-scripts-governance-design.md) |
 
 ## 2. plans(65 份)
 

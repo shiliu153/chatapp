@@ -3,7 +3,7 @@
 
 为什么需要它
 ------------
-治理方案(``docs/superpowers/specs/2026-11-14-docs-and-scripts-governance-design.md``)
+治理方案(``docs/superpowers/archive/specs/2026-11-14-docs-and-scripts-governance-design.md``)
 第 4 节要解决的是 ``sources-of-truth.md`` §4 **C5**:``verify.sh`` 自称「CI 的镜像」,
 但两边门禁集不同(本地 15 条 / CI 19 条),且**没有一条命令是逐字相同的**。
 手抄的镜像不是镜像 —— 只要有人加一道门禁而忘了另一边,差额就会长回来。
