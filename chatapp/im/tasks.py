@@ -11,6 +11,17 @@
 
 关联文档:
     - 踩坑记录:docs/pitfalls/im.md
+
+文件信息:
+    文件名称          im/tasks.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import logging
@@ -41,13 +52,20 @@ def kick_pending_key(user_id: int, client_type: str = CLIENT_APP) -> str:
     为什么键里必须带端:一个 App + 一个网页同时在线时,Web 登录只能踢 Web 的旧
     IM 会话。键不带端的话,两端共用一个标记,谁先来拉签名谁就把对方的在线会话踢了。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
-        client_type: ``app`` 或 ``web``。
+        client_type: 端类型,取 ``app`` 或 ``web``,默认 ``app``。
 
-    Returns:
+    返回参数:
         Redis 键名 ``im:kick_pending:{user_id}:{client_type}``;登录时置位,
         ``im/views.user_sig`` 踢完本端旧会话后清除。
+
+    使用示例:
+        ``kick_pending_key(42, "app")``
+
+    备注信息:
+        置位方是登录路径(``im/views.py``,TTL 取 ``KICK_PENDING_TTL``),清除方是
+        ``im/views.user_sig`` 与 ``kick_pending`` 自身;两端键互不影响。
     """
     return f"im:kick_pending:{user_id}:{client_type}"
 
@@ -55,12 +73,19 @@ def kick_pending_key(user_id: int, client_type: str = CLIENT_APP) -> str:
 def _require(ok: bool, what: str) -> None:
     """把 ``im/client.py`` 的 ``False`` 返回值转成异常,以触发 Celery 重试。
 
-    Args:
-        ok: 客户端调用结果。
+    参数说明:
+        ok: 客户端调用结果,``True`` 表示成功。
         what: 调用名,用于异常信息。
 
-    Raises:
-        RuntimeError: ``ok`` 为 ``False`` 时。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_require(im_client.black_list_add(a.im_user_id, b.im_user_id), "black_list_add")``
+
+    备注信息:
+        ``ok`` 为 ``False`` 时抛 ``RuntimeError`` —— ``RETRY_POLICY`` 只对异常生效,
+        客户端函数自身对外永不抛异常,这一层转换是重试能否发生的前提。
     """
     if not ok:
         raise RuntimeError(f"IM {what} 失败")
@@ -69,11 +94,18 @@ def _require(ok: bool, what: str) -> None:
 def _user(user_id: int):
     """按主键取用户。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
 
-    Returns:
+    返回参数:
         用户实例;不存在时返回 ``None``(账号可能已被注销,属正常情况)。
+
+    使用示例:
+        ``_user(42)``
+
+    备注信息:
+        每次调用都查一次库,任务体内不缓存;返回 ``None`` 时各任务一律静默返回,
+        不抛异常,因此不会进入重试。
     """
     return get_user_model().objects.filter(id=user_id).first()
 
@@ -84,8 +116,18 @@ def _notice_rate_limit():
     为什么只限 notify:配对/评论/举报通知是突发流量的主要来源,而且可以等;
     ``critical`` 队列(封禁/踢人)不能限速,否则会把紧急操作排到通知后面。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         Celery 的 rate limit 字符串(如 ``50/s``);配置为 0 时返回 ``None``(不限速)。
+
+    使用示例:
+        ``_notice_rate_limit()``
+
+    备注信息:
+        在模块导入时(``@shared_task`` 装饰器求值阶段)调用,额度快照随之固定:
+        改 ``settings.IM_NOTICE_RATE_PER_SEC`` 必须重启 Celery worker 才生效。
     """
     rate = int(getattr(settings, "IM_NOTICE_RATE_PER_SEC", 0) or 0)
     return f"{rate}/s" if rate > 0 else None
@@ -97,9 +139,19 @@ def send_match_notice(user_a_id: int, user_b_id: int) -> None:
 
     任一方账号已不存在则静默跳过(不重试)。
 
-    Args:
+    参数说明:
         user_a_id: 配对中 id 较小的一方。
         user_b_id: 配对中 id 较大的一方。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``send_match_notice.delay(12, 34)``
+
+    备注信息:
+        落 ``notify`` 队列(见 ``CELERY_TASK_ROUTES``),受 ``_notice_rate_limit()``
+        限速;IM 侧失败抛 ``RuntimeError``,由 ``RETRY_POLICY`` 重试。
     """
     a, b = _user(user_a_id), _user(user_b_id)
     if a is None or b is None:
@@ -111,9 +163,19 @@ def send_match_notice(user_a_id: int, user_b_id: int) -> None:
 def blacklist_add(owner_id: int, other_id: int) -> None:
     """拉黑:把对方加进本人的 IM 黑名单。
 
-    Args:
+    参数说明:
         owner_id: 拉黑发起方的账号 id。
         other_id: 被拉黑方的账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``blacklist_add.delay(12, 34)``
+
+    备注信息:
+        单向操作,只写 ``owner`` 侧黑名单;双方都收不到消息要靠 ``unmatch_blacklist``。
+        落 ``critical`` 队列,不限速;任一方账号不存在时静默返回。
     """
     owner, other = _user(owner_id), _user(other_id)
     if owner is None or other is None:
@@ -125,9 +187,19 @@ def blacklist_add(owner_id: int, other_id: int) -> None:
 def blacklist_remove(owner_id: int, other_id: int) -> None:
     """解除拉黑:把对方从本人的 IM 黑名单移除。
 
-    Args:
+    参数说明:
         owner_id: 操作方的账号 id。
         other_id: 被解除拉黑方的账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``blacklist_remove.delay(12, 34)``
+
+    备注信息:
+        与 ``blacklist_add`` 对称,只动 ``owner`` 侧;落 ``critical`` 队列,不限速。
+        任一方账号不存在时静默返回。
     """
     owner, other = _user(owner_id), _user(other_id)
     if owner is None or other is None:
@@ -142,12 +214,20 @@ def unmatch_blacklist(user_a_id: int, user_b_id: int) -> None:
     这是「解除配对 = 彻底断开」的唯一实现点:IM 侧只能由管理员侧
     REST 把对方加进黑名单,客户端只能拉黑自己这侧。
 
-    Args:
+    参数说明:
         user_a_id: 配对一方(通常是发起解除的人)的账号 id。
         user_b_id: 另一方的账号 id。
 
-    Raises:
-        RuntimeError: 任一方向拉黑失败,交给 ``RETRY_POLICY`` 重试。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``unmatch_blacklist.delay(12, 34)``
+
+    备注信息:
+        ``a`` 拉黑 ``b`` 与 ``b`` 拉黑 ``a`` 两次都成功后才算完成,任一方向失败即抛
+        ``RuntimeError`` 交给 ``RETRY_POLICY`` 重试(黑名单写重复是幂等的)。落
+        ``critical`` 队列,任一方账号不存在时静默返回。
     """
     a, b = _user(user_a_id), _user(user_b_id)
     if a is None or b is None:
@@ -161,10 +241,21 @@ def unmatch_blacklist(user_a_id: int, user_b_id: int) -> None:
 def ban_notice(user_id: int, level: str, reason: str = "") -> None:
     """封禁说明;heavy 先发消息再踢下线(同一任务内串行,顺序不被多 worker 打乱)。
 
-    Args:
+    参数说明:
         user_id: 被封禁用户的账号 id。
         level: ``heavy`` 为全域封禁,其余按轻度限制处理。
         reason: 封禁原因,可为空。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``ban_notice.delay(42, "heavy", "发布违规内容")``
+
+    备注信息:
+        只有 ``level == "heavy"`` 才调 ``kick_user(block=True)``(同时写封禁键),轻度
+        封禁只发通知;两步的顺序与串行性靠同一任务保证,拆成两个任务会被多 worker
+        打乱。落 ``critical`` 队列,不限速。
     """
     user = _user(user_id)
     if user is None:
@@ -180,8 +271,17 @@ def ban_notice(user_id: int, level: str, reason: str = "") -> None:
 def ban_lifted(user_id: int) -> None:
     """解封:以系统通知身份告知用户限制已解除。
 
-    Args:
+    参数说明:
         user_id: 被解封用户的账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``ban_lifted.delay(42)``
+
+    备注信息:
+        只发通知、不处理 IM 会话状态;落 ``critical`` 队列,账号不存在时静默返回。
     """
     user = _user(user_id)
     if user is None:
@@ -193,8 +293,18 @@ def ban_lifted(user_id: int) -> None:
 def report_handled(reporter_id: int) -> None:
     """举报处理完成:告知举报者(收件人是举报者,不是被举报人)。
 
-    Args:
+    参数说明:
         reporter_id: 举报者的账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``report_handled.delay(42)``
+
+    备注信息:
+        收件人必须传举报者 id,传被举报者等于把处理结果泄露给对方。落 ``notify``
+        队列,受 ``_notice_rate_limit()`` 限速;账号不存在时静默返回。
     """
     user = _user(reporter_id)
     if user is None:
@@ -206,8 +316,20 @@ def report_handled(reporter_id: int) -> None:
 def post_commented(comment_id: int) -> None:
     """动态被评论:告知动态作者(自己评自己不打扰;内容缺失静默)。
 
-    Args:
+    参数说明:
         comment_id: 新评论的主键;任务内再查库取作者与内容。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``post_commented.delay(1024)``
+
+    备注信息:
+        参数是 ``comment_id`` 而非 ``user_id``(任务体内查库得到用户,仍符合「任务内
+        不查 request」的口径);评论或动态已被删除、以及自己评论自己时直接返回。昵称
+        缺失时降级成 ``u{author_id}``,正文只取前 50 字。落 ``notify`` 队列,受
+        ``_notice_rate_limit()`` 限速。
     """
     from feed.models import PostComment   # 延迟导入,避免 app 加载顺序问题
 
@@ -228,8 +350,19 @@ def post_commented(comment_id: int) -> None:
 def post_replied(comment_id: int) -> None:
     """回复通知:告知被回复者(自己回复自己不发;内容缺失静默)。
 
-    Args:
+    参数说明:
         comment_id: 新回复的主键;任务内再查库取被回复者与作者昵称。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``post_replied.delay(1024)``
+
+    备注信息:
+        参数同样是 ``comment_id``;``reply_to_id`` 为空(一级评论)或自己回复自己时
+        直接返回,被回复的评论行已删除时任务内 ``reply_to`` 取不到也跟着跳过。落
+        ``notify`` 队列,受 ``_notice_rate_limit()`` 限速。
     """
     from feed.models import PostComment   # 延迟导入,避免 app 加载顺序问题
 
@@ -249,12 +382,20 @@ def post_replied(comment_id: int) -> None:
 def sync_profile(user_id: int, kind: str) -> None:
     """把资料同步到 IM(kind: nick|avatar);没有可同步的值时静默跳过。
 
-    Args:
+    参数说明:
         user_id: 目标用户账号 id。
         kind: ``nick`` 同步昵称,``avatar`` 同步第一张已过审照片。
 
-    Raises:
-        ValueError: ``kind`` 不是 ``nick`` / ``avatar``。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sync_profile.delay(42, "avatar")``
+
+    备注信息:
+        昵称为空、没有 ``APPROVED`` 照片、或没有资料行时静默返回(不重试);头像 URL
+        由 ``MEDIA_BASE_URL`` 与 ``photo.file.url`` 拼成。``kind`` 不是 ``nick`` /
+        ``avatar`` 时抛 ``ValueError``,该异常也会进 ``RETRY_POLICY``。落 ``bulk`` 队列。
     """
     user = _user(user_id)
     if user is None:
@@ -283,8 +424,18 @@ def import_account(user_id: int) -> None:
     走 ``im_client.import_account`` 而非 ``ensure_account``:此处场景确定是新建账号,
     不需要先查状态。
 
-    Args:
+    参数说明:
         user_id: 新用户的账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``import_account.delay(42)``
+
+    备注信息:
+        账号行已被删除(注册事务回滚)时静默返回;落 ``bulk`` 队列,导入失败抛
+        ``RuntimeError`` 由 ``RETRY_POLICY`` 重试。
     """
     user = get_user_model().objects.filter(id=user_id).first()
     if user is None:
@@ -299,12 +450,19 @@ def kick_pending(user_id: int, client_type: str = CLIENT_APP) -> None:
     正常路径由 ``im/views.user_sig`` 在签发签名前同步踢掉并清标记(顺序保证
     踢的永远是新会话建立之前的旧会话);本任务只覆盖「App 从未登 IM」的情况。
 
-    Args:
+    参数说明:
         user_id: 刚登录用户的账号 id。
         client_type: 刚登录的端(``app`` / ``web``);只踢这一端。
 
-    Raises:
-        RuntimeError: 踢下线失败,交给 ``RETRY_POLICY`` 重试。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``kick_pending.apply_async(args=[42, "web"], countdown=KICK_BACKSTOP_DELAY)``
+
+    备注信息:
+        标记不存在即返回(正常路径已由 ``user_sig`` 清掉);踢成功才清标记,踢失败保留
+        标记并抛 ``RuntimeError`` 让重试仍能生效。落 ``critical`` 队列。
     """
     key = kick_pending_key(user_id, client_type)
     if not cache.get(key):
@@ -323,11 +481,19 @@ def kick_pending(user_id: int, client_type: str = CLIENT_APP) -> None:
 def kick_all_devices(user_id: int) -> None:
     """把账号**所有端**的在线 IM 会话踢下线(退出所有设备 / 重封禁兜底)。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
 
-    Raises:
-        RuntimeError: 踢下线失败,交给 ``RETRY_POLICY`` 重试。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``kick_all_devices.delay(42)``
+
+    备注信息:
+        不传 ``client_type`` 才是踢全部端的语义,封禁与注销走这一条;按端踢必须改用
+        ``kick_device``。未配置 ``CELERY_TASK_ROUTES``,落 default 队列;账号不存在时
+        静默返回。
     """
     user = _user(user_id)
     if user is None:
@@ -342,12 +508,19 @@ def kick_device(user_id: int, client_type: str) -> None:
     与 ``kick_all_devices`` 的区别只在踢的范围:这里带 ``client_type`` 只踢该端,
     另一端的 IM 连接必须留着 —— 用户点掉网页,手机上的 App 不能跟着掉线。
 
-    Args:
+    参数说明:
         user_id: 账号 id(任务参数一律 user_id,任务内查库)。
         client_type: ``app`` / ``web``;只踢这一端。
 
-    Raises:
-        RuntimeError: 踢下线失败,交给 ``RETRY_POLICY`` 重试。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``kick_device.delay(42, "web")``
+
+    备注信息:
+        ``client_type`` 原样透传给 ``im_client.kick_user``,传 ``None`` 会退化成踢全部端,
+        因此这里不给默认值。落 default 队列;账号不存在时静默返回。
     """
     user = _user(user_id)
     if user is None:
@@ -359,12 +532,19 @@ def kick_device(user_id: int, client_type: str) -> None:
 def pair_add(user_a_id: int, user_b_id: int) -> None:
     """配对成功:建立两人的聊天权限(H4)。
 
-    Args:
+    参数说明:
         user_a_id: 配对一方账号 id。
         user_b_id: 配对另一方账号 id。
 
-    Raises:
-        RuntimeError: 同步失败,交给 ``RETRY_POLICY`` 重试。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``pair_add.delay(12, 34)``
+
+    备注信息:
+        ``im_pair`` 不落库等于两人发消息被 40302 拒绝,所以失败必须重试;落 ``critical``
+        队列,任一方账号不存在时静默返回。
     """
     a, b = _user(user_a_id), _user(user_b_id)
     if a is None or b is None:
@@ -376,12 +556,19 @@ def pair_add(user_a_id: int, user_b_id: int) -> None:
 def pair_remove(user_a_id: int, user_b_id: int) -> None:
     """解除配对/拉黑:移除两人的聊天权限(H4)。
 
-    Args:
+    参数说明:
         user_a_id: 一方账号 id。
         user_b_id: 另一方账号 id。
 
-    Raises:
-        RuntimeError: 同步失败,交给 ``RETRY_POLICY`` 重试。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``pair_remove.delay(12, 34)``
+
+    备注信息:
+        与 ``pair_add`` 对称;未配置 ``CELERY_TASK_ROUTES``,落 default 队列,任一方账号
+        不存在时静默返回。
     """
     a, b = _user(user_a_id), _user(user_b_id)
     if a is None or b is None:
@@ -400,11 +587,18 @@ def sync_session_version(user_id: int) -> None:
     必须继续有效,而它的 imserver 侧版本号也需要在「该端还没登过 IM」时补齐 ——
     否则 imserver 按 ``(uid, ct)`` 查不到行,无法判断新旧。
 
-    Args:
+    参数说明:
         user_id: 刚登录用户的账号 id。
 
-    Raises:
-        RuntimeError: 同步失败,交给 ``RETRY_POLICY`` 重试。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sync_session_version.delay(42)``
+
+    备注信息:
+        逐端取 ``device_session.version_of``,取不到(该端从未登录过)就跳过该端,不算
+        失败;任一端同步失败即抛 ``RuntimeError`` 重试。落 default 队列。
     """
     user = _user(user_id)
     if user is None:
@@ -429,11 +623,19 @@ def delete_account(im_user_id: str) -> None:
 
     踢失败不阻塞删号(删号才是目的);删号失败抛异常交给 ``RETRY_POLICY`` 重试。
 
-    Args:
+    参数说明:
         im_user_id: 注销前取好的 IM 账号字符串,如 ``u12``。
 
-    Raises:
-        RuntimeError: 删号失败,交给 ``RETRY_POLICY`` 重试。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``delete_account.delay(user.im_user_id)``
+
+    备注信息:
+        ``kick_user`` 的返回值被忽略(不带 ``client_type``,即踢全部端);
+        ``im_client.delete_account`` 返回 ``False`` 才抛 ``RuntimeError``。落 ``critical``
+        队列,必须与注销事务的 ``on_commit`` 同批入队。
     """
     im_client.kick_user(im_user_id)
     _require(im_client.delete_account(im_user_id), "delete_account")

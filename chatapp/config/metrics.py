@@ -12,6 +12,17 @@
        把「另一个 worker 的数更小」当成计数器重置。配好该目录后各 worker 写共享 mmap 文件,
        抓取时用 ``MultiProcessCollector`` 合并(见 ``chatapp/gunicorn.conf.py``);
     5. 只做进程内聚合,不落库、不发网络请求(响应路径禁止第三方调用的约定)。
+
+文件信息:
+    文件名称          config/metrics.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import hmac
@@ -36,8 +47,18 @@ MULTIPROC_DIR = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "")
 def multiprocess_enabled() -> bool:
     """是否启用 Prometheus 多进程合并。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         True 表示 ``PROMETHEUS_MULTIPROC_DIR`` 已配置且目录存在;否则 False(单进程语义)。
+
+    使用示例:
+        ``if multiprocess_enabled(): ...``
+
+    备注信息:
+        环境变量配了但目录不存在(如容器重启后 ``/dev/shm`` 被清空)时按单进程处理,
+        避免抓取直接失败。
     """
     return bool(MULTIPROC_DIR) and os.path.isdir(MULTIPROC_DIR)
 
@@ -145,9 +166,19 @@ PUSH_SKIPPED = Counter(
 def push_sent(provider: str, ok: bool) -> None:
     """记录一次推送投递。
 
-    Args:
+    参数说明:
         provider: 通道名(``off`` / ``log`` / ``jpush``);基数固定,可安全当标签。
         ok: 通道是否接受(``off`` 通道也算 ok,它只是不发)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``push_sent("jpush", True)``
+
+    备注信息:
+        只累加 ``push_sent_total``,不判断偏好与封禁;被短路的情况走
+        :func:`push_skipped`,两条读数合起来才能区分「没推送」与「推送失败」。
     """
     PUSH_SENT.labels(provider=provider, result="ok" if ok else "error").inc()
 
@@ -155,8 +186,17 @@ def push_sent(provider: str, ok: bool) -> None:
 def push_skipped(reason: str) -> None:
     """记录一次「没有推送」及其原因。
 
-    Args:
+    参数说明:
         reason: 短路原因,取值见 ``notifications.tasks.PUSH_SKIP_*`` 常量。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``push_skipped("no_device")``
+
+    备注信息:
+        ``reason`` 必须来自固定常量集合,不要拼入用户 id 之类的高基数值。
     """
     PUSH_SKIPPED.labels(reason=reason).inc()
 
@@ -176,9 +216,19 @@ QUEUES = ("critical", "default", "notify", "bulk")
 def im_call(endpoint: str, ok: bool) -> None:
     """记录一次「Django → imserver 内部 API」调用。
 
-    Args:
+    参数说明:
         endpoint: 内部 API 路径(如 ``/internal/messages/send``);基数固定,可以安全当标签。
         ok: 调用是否成功(2xx)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``im_call("/internal/messages/send", True)``
+
+    备注信息:
+        imserver 自己的 ``im_sends_total`` 只看传输层,这个指标补的是
+        「Django 有没有发出请求」以及调用成败。
     """
     IM_CALLS.labels(endpoint=endpoint, result="ok" if ok else "error").inc()
 
@@ -188,6 +238,19 @@ def refresh_queue_depths() -> None:
 
     只在抓取 ``/metrics`` 时调用(15 秒一次),不在请求路径上。
     Redis 不可用时静默跳过,保留上一次的值。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``refresh_queue_depths()``
+
+    备注信息:
+        每次调用都会新建一个 ``socket_timeout=1`` 的 Redis 连接,读完即关闭;
+        broker 抛任何异常都被吞掉,只记一次 ``cache_errors_total{name="queue_depth"}``。
     """
     try:
         import redis
@@ -207,11 +270,18 @@ def refresh_queue_depths() -> None:
 def route_label(request) -> str:
     """取用于打标签的路由模板。
 
-    Args:
+    参数说明:
         request: Django 请求对象。
 
-    Returns:
+    返回参数:
         路由模板(如 ``users/<int:user_id>``);未匹配到路由时为 ``unmatched``。
+
+    使用示例:
+        ``metrics.route_label(request)``
+
+    备注信息:
+        只取 ``resolver_match.route``,不含真实路径参数,这是标签基数可控的前提;
+        404 等未匹配请求统一归到 ``unmatched``。
     """
     match = getattr(request, "resolver_match", None)
     route = getattr(match, "route", "") if match is not None else ""
@@ -221,11 +291,21 @@ def route_label(request) -> str:
 def observe(method: str, route: str, status: int, seconds: float) -> None:
     """记录一次请求的计数与耗时。
 
-    Args:
+    参数说明:
         method: HTTP 方法。
         route: 路由模板(已归一,不含真实 id)。
         status: HTTP 状态码。
         seconds: 耗时(秒)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``metrics.observe("GET", "users/<int:user_id>", 200, 0.031)``
+
+    备注信息:
+        状态码转成字符串再当标签;一次调用同时累加 ``http_requests_total`` 与
+        ``http_request_duration_seconds``,两个指标口径保持一致。
     """
     REQUESTS.labels(method=method, route=route, status=str(status)).inc()
     DURATION.labels(method=method, route=route).observe(seconds)
@@ -238,8 +318,18 @@ def render() -> bytes:
     worker 的 mmap 文件合并成一份;合并失败时退回本进程视图并记一次 ``cache_errors_total``
     —— 抓取宁可少几个数,也不能返回 500 让整条监控链路哑掉。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         exposition 格式的字节串。
+
+    使用示例:
+        ``HttpResponse(render(), content_type=CONTENT_TYPE_LATEST)``
+
+    备注信息:
+        每次多进程渲染都新建临时 ``CollectorRegistry``,不复用模块级 ``REGISTRY``,
+        避免多次注册同一批 collector 抛 ``Duplicated timeseries``。
     """
     if multiprocess_enabled():
         try:
@@ -255,12 +345,18 @@ def render() -> bytes:
 def token_matches(supplied: str, expected: str) -> bool:
     """常量时间比较抓取令牌,避免按字符比较泄漏长度信息。
 
-    Args:
+    参数说明:
         supplied: 请求头里带的令牌。
         expected: 配置的令牌。
 
-    Returns:
+    返回参数:
         是否一致;``expected`` 为空时恒为 False(调用方应先判断是否启用)。
+
+    使用示例:
+        ``token_matches(request.headers.get("X-Metrics-Token", ""), settings.METRICS_TOKEN)``
+
+    备注信息:
+        比较走 ``hmac.compare_digest``;``supplied`` 为 ``None`` 时按空串处理。
     """
     return bool(expected) and hmac.compare_digest(supplied or "", expected)
 
@@ -268,11 +364,8 @@ def token_matches(supplied: str, expected: str) -> bool:
 def _is_loopback(addr: str) -> bool:
     """判断地址是否回环。
 
-    Args:
-        addr: 对端 IP 字符串。
-
-    Returns:
-        True 表示回环地址;非法或空地址一律 False。
+    备注信息:
+        非法或空地址一律 False(``ipaddress`` 解析失败直接吞掉),调用方无需预校验。
     """
     try:
         return ipaddress.ip_address(addr).is_loopback
@@ -288,11 +381,19 @@ def metrics_view(request):
         生产必须配 ``METRICS_TOKEN``(Prometheus 用 ``X-Metrics-Token`` 或
         ``Authorization: Bearer`` 抓取),并在 nginx 上显式拒绝 ``/metrics``。
 
-    Args:
+    参数说明:
         request: Django 请求对象。
 
-    Returns:
+    返回参数:
         Prometheus 文本快照;未授权时 403(配了令牌)或 404(未配令牌且非回环)。
+
+    使用示例:
+        ``path("metrics", metrics.metrics_view)``
+
+    备注信息:
+        配了令牌时先看 ``X-Metrics-Token``,没有再退回 ``Authorization: Bearer``,
+        两者都不匹配即 403;未配令牌且非回环返回 404 而不是 403,不暴露端点存在。
+        校验通过后先刷队列深度再渲染,保证同一次抓取里两类指标口径一致。
     """
     expected = getattr(settings, "METRICS_TOKEN", "")
     if expected:

@@ -8,6 +8,17 @@
 背景:H4 之后 imserver 只允许「有配对关系」的两人互发消息。上线这个校验之前
 已经存在的配对不会被自动补录,必须跑一次本命令,否则老用户会突然发不出消息。
 命令幂等(``im_pair`` 以 ``(user_a,user_b)`` 为主键),失败只记日志。
+
+文件信息:
+    文件名称          im/management/commands/im_sync_pairs.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.core.management.base import BaseCommand
@@ -17,15 +28,39 @@ from im.client import ensure_account, pair_add
 
 
 class Command(BaseCommand):
-    """把全部有效配对写入 imserver 的 ``im_pair``。"""
+    """把全部有效配对写入 imserver 的 ``im_pair``。
+
+    参数说明:
+        无构造参数;由 ``manage.py`` 在调用命令时实例化。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``python manage.py im_sync_pairs --dry-run``
+
+    备注信息:
+        ``help`` 的语义是「把现有配对关系全量回填到自建 IM(幂等)」;幂等来自
+        ``im_pair`` 以 ``(user_a,user_b)`` 为主键,重跑不会写出重复行。
+    """
 
     help = "把现有配对关系全量回填到自建 IM(幂等)"
 
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
-            parser: argparse 解析器。
+        参数说明:
+            parser: argparse 解析器,由 Django 在调用 ``handle()`` 前传入。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py im_sync_pairs --dry-run``
+
+        备注信息:
+            只定义 ``--dry-run`` 一个开关,写入 dest ``dry_run``;为真时只统计条数、
+            不调 imserver 写入。
         """
         parser.add_argument("--dry-run", action="store_true",
                             help="只统计不写入")
@@ -33,9 +68,21 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """逐条同步并汇总成败数量。
 
-        Args:
+        参数说明:
             *args: 位置参数,未使用。
             **options: 已解析的命令行参数;``dry_run`` 为真时只统计。
+
+        返回参数:
+            无返回值;结尾打印「待同步:成功 N,失败 M」或「同步完成:成功 N,失败 M」。
+
+        使用示例:
+            ``python manage.py im_sync_pairs``
+
+        备注信息:
+            只处理 ``unmatched_at`` 为空的 ``Match``,每条先幂等补建双方的 IM 账号
+            (老用户可能没走过 ``user_sig``,缺行会让发送 42201),再调 ``pair_add``;
+            单条失败只累加计数、不中断整体流程。前缀为「待同步」时是 dry-run,
+            此时不写 imserver。有失败用 ``WARNING`` 样式打印,全成功用 ``SUCCESS`` 样式。
         """
         dry_run = options["dry_run"]
         ok = fail = 0

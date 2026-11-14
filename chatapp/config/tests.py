@@ -6,6 +6,17 @@
     - 请求 ID 的生成、透传、写进错误体与日志,以及跨进程随消息 header 传递;
     - 接口文档门禁(``ApiDocsCoverageTests``)与注释规范门禁
       (``CommentCoverageTests``)及其检查模块自身的单元测试。
+
+文件信息:
+    文件名称          config/tests.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import io
@@ -44,6 +55,11 @@ class ErrorEnvelopeTests(APITestCase):
     """错误响应信封:失败一律带 ``code`` / ``message`` / ``request_id``。"""
 
     def test_error_response_uses_code_message_envelope(self):
+        """非法方法触发的 405 仍走统一错误信封。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/api/v1/health")  # health 只允许 GET,触发 405
         self.assertEqual(resp.status_code, 405)
         self.assertEqual(resp.json()["code"], 405)
@@ -54,11 +70,21 @@ class CacheBackendTests(TestCase):
     """默认缓存必须是 Redis,且测试期落在独立 DB。"""
 
     def test_default_cache_is_redis_and_roundtrips(self):
+        """默认缓存后端是 Redis,写入后能原样读回。
+
+        参数说明:
+            无。
+        """
         self.assertIn("django_redis", settings.CACHES["default"]["BACKEND"])
         cache.set("cache:smoke", "ok", 10)
         self.assertEqual(cache.get("cache:smoke"), "ok")
 
     def test_testing_uses_isolated_redis_db(self):
+        """测试期缓存连接落在独立 DB,不碰开发库。
+
+        参数说明:
+            无。
+        """
         db = get_redis_connection("default").connection_pool.connection_kwargs["db"]
         self.assertEqual(db, 15)   # 测试绝不写开发库(DB0)
 
@@ -67,9 +93,19 @@ class CelerySkeletonTests(TestCase):
     """Celery 接线:任务可达,broker 在测试期指向独立 DB。"""
 
     def test_ping_task_returns_pong(self):
+        """ping 任务可在本进程同步执行并返回 pong。
+
+        参数说明:
+            无。
+        """
         self.assertEqual(ping.apply().get(), "pong")
 
     def test_broker_uses_isolated_db_in_tests(self):
+        """测试期 broker 指向独立 DB,验证 ``BROKER_URL`` 键名口径生效。
+
+        参数说明:
+            无。
+        """
         # 注意:Celery 的 broker_url 属性会优先读环境变量 CELERY_BROKER_URL,
         # 所以 .env 里的键必须叫 BROKER_URL,否则测试任务会漏进开发 broker(DB1)
         from config.celery import app
@@ -83,11 +119,18 @@ class JsonLogTests(SimpleTestCase):
     def _record(self, **extra) -> logging.LogRecord:
         """构造一条带指定 extra 的日志记录。
 
-        Args:
+        参数说明:
             **extra: 要附加到记录上的字段。
 
-        Returns:
+        返回参数:
             ``logging.LogRecord`` 实例。
+
+        使用示例:
+            ``self._record(request_id="rid-1", status=200)``
+
+        备注信息:
+            记录名与消息固定,用例只关心 extra 字段是否被 formatter 采纳;
+            不受支持的键仍会被 ``setattr`` 到记录上,由白名单逻辑过滤。
         """
         record = logging.LogRecord("chatapp.request", logging.INFO, __file__, 1,
                                    "GET /x -> 200 12ms", None, None)
@@ -197,20 +240,40 @@ class RequestIdTests(APITestCase):
     """请求 ID:透传或生成,并回写响应头、写进错误体与日志。"""
 
     def test_response_echoes_provided_request_id(self):
+        """请求头带 ID 时原样回写到响应头。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/api/v1/health", HTTP_X_REQUEST_ID="rid-123")
         self.assertEqual(resp["X-Request-Id"], "rid-123")
 
     def test_generates_request_id_when_absent(self):
+        """请求未带 ID 时自动生成并回写响应头。
+
+        参数说明:
+            无。
+        """
         resp = self.client.get("/api/v1/health")
         self.assertTrue(resp["X-Request-Id"])
 
     def test_error_body_carries_request_id(self):
+        """错误体回带请求头里的 request_id。
+
+        参数说明:
+            无。
+        """
         resp = self.client.post("/api/v1/health", HTTP_X_REQUEST_ID="rid-err")   # 405
         self.assertEqual(resp.status_code, 405)
         self.assertEqual(resp.json()["request_id"], "rid-err")
 
     @override_settings(REQUEST_SLOW_MS=0)
     def test_request_log_carries_request_id(self):
+        """访问日志记录上带 request_id,且正文含请求行。
+
+        参数说明:
+            无。
+        """
         with self.assertLogs("chatapp.request", level="WARNING") as captured:
             self.client.get("/api/v1/health", HTTP_X_REQUEST_ID="rid-456")
         # request_id 由 Filter 写进 record(再由 formatter 渲染),assertLogs 里看 record 属性
@@ -222,6 +285,11 @@ class CeleryRequestIdTests(SimpleTestCase):
     """请求 ID 跨进程传递:入队注入 header,worker 侧绑定与清理。"""
 
     def test_inject_request_id_reads_context_var(self):
+        """上下文里有请求 ID 时注入到任务 header。
+
+        参数说明:
+            无。
+        """
         from config.celery import _inject_request_id
         from config.request_id import set_request_id
 
@@ -232,6 +300,11 @@ class CeleryRequestIdTests(SimpleTestCase):
         self.assertEqual(headers["request_id"], "rid-1")
 
     def test_inject_request_id_noop_without_context(self):
+        """上下文没有请求 ID 时不写入 header 键。
+
+        参数说明:
+            无。
+        """
         from config.celery import _inject_request_id
         from config.request_id import set_request_id
 
@@ -241,6 +314,11 @@ class CeleryRequestIdTests(SimpleTestCase):
         self.assertNotIn("request_id", headers)
 
     def test_bind_request_id_from_task_headers(self):
+        """worker 侧按任务 header 绑定请求 ID。
+
+        参数说明:
+            无。
+        """
         from config.celery import _bind_request_id
         from config.request_id import current_request_id, set_request_id
 
@@ -258,6 +336,11 @@ class ApiDocCoverageLogicTests(SimpleTestCase):
     """检查模块自身的单元测试(用临时目录,不依赖真实文档)。"""
 
     def test_normalize_route_params(self):
+        """路由参数占位符统一成 ``{名字}`` 形式。
+
+        参数说明:
+            无。
+        """
         from config.api_doc_coverage import normalize_route
 
         self.assertEqual(normalize_route("me/photos/<int:photo_id>"),
@@ -266,6 +349,11 @@ class ApiDocCoverageLogicTests(SimpleTestCase):
                          "blocks/{user_id}")
 
     def test_endpoints_from_urlconf_covers_api_v1(self):
+        """从 URLconf 枚举出 ``/api/v1`` 的「方法 + 路径」集合。
+
+        参数说明:
+            无。
+        """
         from config.api_doc_coverage import endpoints_from_urlconf
 
         found = endpoints_from_urlconf()
@@ -277,6 +365,11 @@ class ApiDocCoverageLogicTests(SimpleTestCase):
         self.assertFalse(any(p.startswith("/ops") for _, p in found))
 
     def test_endpoints_from_docs_parses_info_line(self):
+        """只把 ``> 方法 路径`` 形式的信息行算作文档标记。
+
+        参数说明:
+            无。
+        """
         from config.api_doc_coverage import endpoints_from_docs
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -305,6 +398,11 @@ class ApiDocCoverageLogicTests(SimpleTestCase):
         self.assertEqual(found, {})
 
     def test_find_problems_reports_both_directions(self):
+        """文档缺接口与文档残留接口两个方向都要报出来。
+
+        参数说明:
+            无。
+        """
         from config.api_doc_coverage import find_problems
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -321,6 +419,11 @@ class ApiDocsCoverageTests(SimpleTestCase):
     """接口文档门禁:URLconf ↔ docs/api 信息行双向比对(漏写/残留即红)。"""
 
     def test_docs_cover_every_endpoint(self):
+        """每个 URLconf 暴露的接口都在 ``docs/api`` 分册里有信息行。
+
+        参数说明:
+            无。
+        """
         from config.api_doc_coverage import endpoints_from_docs, endpoints_from_urlconf
 
         missing = sorted(endpoints_from_urlconf() - set(endpoints_from_docs()))
@@ -330,6 +433,11 @@ class ApiDocsCoverageTests(SimpleTestCase):
             "\n".join(f"  {m} {p}" for m, p in missing))
 
     def test_docs_have_no_stale_endpoints(self):
+        """``docs/api`` 里没有 URLconf 已删除接口的残留信息行。
+
+        参数说明:
+            无。
+        """
         from config.api_doc_coverage import endpoints_from_docs, endpoints_from_urlconf
 
         real = endpoints_from_urlconf()
@@ -354,16 +462,40 @@ class OpenApiSchemaTests(SimpleTestCase):
 
     @classmethod
     def setUpClass(cls):
-        """生成一次 schema 供本类各用例复用(生成有固定开销,不重复跑)。"""
+        """生成一次 schema 供本类各用例复用(生成有固定开销,不重复跑)。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``OpenApiSchemaTests.setUpClass()``(由 ``unittest`` 在类内用例执行前自动调用)
+
+        备注信息:
+            结果挂在类属性 ``cls.schema`` 上,单个用例再生成会明显拖慢门禁;
+            生成走 ``public=True``,不需要真实请求对象。
+        """
         super().setUpClass()
         from drf_spectacular.generators import SchemaGenerator
 
         cls.schema = SchemaGenerator().get_schema(request=None, public=True)
 
     def test_schema_is_openapi_3(self):
+        """生成物版本号是 OpenAPI 3.x。
+
+        参数说明:
+            无。
+        """
         self.assertTrue(self.schema["openapi"].startswith("3."))
 
     def test_schema_operations_match_urlconf(self):
+        """schema 的「方法 + 路径」集合与 URLconf 逐一相等。
+
+        参数说明:
+            无。
+        """
         from config.api_doc_coverage import endpoints_from_urlconf
 
         operations = {
@@ -375,6 +507,11 @@ class OpenApiSchemaTests(SimpleTestCase):
         self.assertEqual(operations, endpoints_from_urlconf())
 
     def test_bearer_auth_scheme_is_registered(self):
+        """Bearer JWT 鉴权方案已注册进 schema。
+
+        参数说明:
+            无。
+        """
         scheme = self.schema["components"]["securitySchemes"]["bearerAuth"]
         self.assertEqual(scheme["scheme"], "bearer")
         self.assertEqual(scheme["bearerFormat"], "JWT")
@@ -386,18 +523,30 @@ class CommentCoverageLogicTests(SimpleTestCase):
     def _write(self, tmp, body):
         """把源码写进临时目录的 demo.py,返回其路径。
 
-        Args:
+        参数说明:
             tmp: 临时目录路径。
             body: 要写入的 Python 源码。
 
-        Returns:
+        返回参数:
             写好的 demo.py 路径。
+
+        使用示例:
+            ``path = self._write(tmp, body)``
+
+        备注信息:
+            固定写 ``demo.py``,``check_file`` 的报错前缀因此恒为 ``demo.py:``;
+            UTF-8 写入,源码里可安全带中文 docstring。
         """
         path = Path(tmp) / "demo.py"
         path.write_text(body, encoding="utf-8")
         return path
 
     def test_clean_file_passes(self):
+        """模块与函数都有 docstring 的文件不产生缺口。
+
+        参数说明:
+            无。
+        """
         from config.comment_coverage import check_file
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -406,6 +555,11 @@ class CommentCoverageLogicTests(SimpleTestCase):
             self.assertEqual(check_file(path), [])
 
     def test_missing_module_docstring_is_reported(self):
+        """缺模块 docstring 会被报出来。
+
+        参数说明:
+            无。
+        """
         from config.comment_coverage import check_file
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -413,6 +567,11 @@ class CommentCoverageLogicTests(SimpleTestCase):
             self.assertTrue(any("缺少模块 docstring" in p for p in check_file(path)))
 
     def test_missing_function_docstring_is_reported(self):
+        """缺函数 docstring 会被报出来。
+
+        参数说明:
+            无。
+        """
         from config.comment_coverage import check_file
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -420,6 +579,11 @@ class CommentCoverageLogicTests(SimpleTestCase):
             self.assertTrue(any("foo 缺少 docstring" in p for p in check_file(path)))
 
     def test_missing_class_docstring_is_reported(self):
+        """缺类 docstring 会被报出来。
+
+        参数说明:
+            无。
+        """
         from config.comment_coverage import check_file
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -427,6 +591,11 @@ class CommentCoverageLogicTests(SimpleTestCase):
             self.assertTrue(any("Foo 缺少 docstring" in p for p in check_file(path)))
 
     def test_test_functions_are_exempt(self):
+        """``test_*`` 用例豁免,没有 docstring 也不报。
+
+        参数说明:
+            无。
+        """
         from config.comment_coverage import check_file
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -465,6 +634,11 @@ class CommentCoverageLogicTests(SimpleTestCase):
             self.assertTrue(any("_make_user 缺少 docstring" in p for p in check_file(path)))
 
     def test_decoration_symbol_is_reported(self):
+        """docstring 里的装饰符号会被报出来。
+
+        参数说明:
+            无。
+        """
         from config.comment_coverage import check_file
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -561,17 +735,37 @@ class QueryParamTests(SimpleTestCase):
     """查询参数校验:非法整数 400,越界收敛,可选 id 非法返回 None。"""
 
     def setUp(self):
-        """准备一个不经过 URL 路由的请求工厂。"""
+        """准备一个不经过 URL 路由的请求工厂。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
+
+        备注信息:
+            直接调 ``int_param`` / ``optional_id``,因此不需要真实路由与鉴权;
+            工厂实例挂在 ``self.factory`` 上供 ``_get`` 复用。
+        """
         self.factory = RequestFactory()
 
     def _get(self, query):
         """构造带查询串的 GET 请求。
 
-        Args:
+        参数说明:
             query: 查询参数字典。
 
-        Returns:
+        返回参数:
             Django ``WSGIRequest``。
+
+        使用示例:
+            ``self._get({"limit": "20"})``
+
+        备注信息:
+            路径固定 ``/x``,用例只关心查询串;字典为空即「没带该参数」的场景。
         """
         return self.factory.get("/x", query)
 
@@ -645,12 +839,19 @@ class ClientIpTests(SimpleTestCase):
     def _request(self, remote="127.0.0.1", **extra):
         """构造一个带指定 REMOTE_ADDR 的请求。
 
-        Args:
+        参数说明:
             remote: 直连对端地址。
             **extra: 额外的 META 项(如 ``HTTP_X_REAL_IP``)。
 
-        Returns:
+        返回参数:
             Django 请求对象。
+
+        使用示例:
+            ``self._request(HTTP_X_REAL_IP="203.0.113.7")``
+
+        备注信息:
+            ``extra`` 按 Django 测试客户端约定写成 ``HTTP_`` 前缀的键;
+            用例可用 ``remote`` 模拟可信代理(回环)与不可信直连两种对端。
         """
         request = RequestFactory().get("/", **extra)
         request.META["REMOTE_ADDR"] = remote
@@ -689,13 +890,20 @@ class ImageGuardTests(SimpleTestCase):
     def _encoded(self, fmt="PNG", size=(1, 1), exif=None):
         """生成一张测试图片的字节。
 
-        Args:
+        参数说明:
             fmt: Pillow 格式名。
             size: 宽高。
             exif: 可选的 EXIF 对象。
 
-        Returns:
+        返回参数:
             编码后的字节。
+
+        使用示例:
+            ``self._encoded("JPEG", size=(10, 20), exif=exif)``
+
+        备注信息:
+            只在 ``exif`` 非空时传 ``exif=`` 参数,避免 Pillow 对不支持 EXIF 的格式报错;
+            颜色固定纯红,断言只看尺寸与元数据。
         """
         buffer = io.BytesIO()
         image = Image.new("RGB", size, "red")
@@ -747,11 +955,18 @@ class DependencyLockTests(SimpleTestCase):
     def _parse(path: Path) -> dict[str, str]:
         """解析 requirements 文件为「规范化包名 → 原始行」。
 
-        Args:
+        参数说明:
             path: requirements 文件路径。
 
-        Returns:
+        返回参数:
             包名统一小写、下划线转连字符后的字典;注释与空行忽略。
+
+        使用示例:
+            ``DependencyLockTests._parse(Path("requirements.lock"))``
+
+        备注信息:
+            规范化只做「小写 + 下划线转连字符」,与 pip 的包名比较口径一致;
+            同一包在文件里写多次时后者覆盖前者。
         """
         entries = {}
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -857,12 +1072,19 @@ class MetricsTests(APITestCase):
 def metric_value(metric_name: str, **labels) -> float:
     """读一个指标的当前值(标签组合还没出现过时按 0 处理)。
 
-    Args:
+    参数说明:
         metric_name: 指标名(如 ``logins_total``)。
         **labels: 标签组合。
 
-    Returns:
+    返回参数:
         当前累计值;不存在时为 0.0(便于直接断言增量)。
+
+    使用示例:
+        ``metric_value("logins_total", result="success")``
+
+    备注信息:
+        进程内累计计数会随测试累加,用例一律断言「动作后的值减动作前的值」;
+        指标尚未被创建时 ``get_sample_value`` 返回 None,这里统一折成 0.0。
     """
     value = metrics.REGISTRY.get_sample_value(metric_name, labels)
     return 0.0 if value is None else value
@@ -876,19 +1098,40 @@ class BusinessMetricTests(APITestCase):
     """
 
     def setUp(self):
-        """清缓存(验证码与限流计数都在 Redis 缓存里)。"""
+        """清缓存(验证码与限流计数都在 Redis 缓存里)。
+
+        参数说明:
+            无。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.setUp()``(由 ``unittest`` 在每个用例前自动调用)
+
+        备注信息:
+            缓存是进程级共享的,用例之间不清会串味(验证码状态会串到下一次登录);
+            ``addCleanup`` 保证用例失败时也会清。
+        """
         cache.clear()
         self.addCleanup(cache.clear)
 
     def _make_user(self, phone, gender="female"):
         """造一个资料完善、带已过审照片的用户。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             gender: 性别。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self._make_user("13800138000", gender="male")``
+
+        备注信息:
+            资料状态直接置 ``COMPLETE``、照片直接置 ``APPROVED``,跳过审核流程;
+            手机号兼作昵称,便于在断言失败时看出是谁。
         """
         from accounts.models import User
         from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -1000,11 +1243,17 @@ class _BoomView(APIView):
     def get(self, request):
         """故意抛 ``RuntimeError``,模拟代码 bug 或 DB 故障。
 
-        Args:
+        参数说明:
             request: 当前请求(未使用)。
 
-        Raises:
-            RuntimeError: 恒抛,供上层异常处理器转成 500。
+        返回参数:
+            无返回值(恒抛异常)。
+
+        使用示例:
+            ``self.client.get("/api/v1/_boom")``
+
+        备注信息:
+            抛出的异常由 DRF 异常处理器与 ``handler500`` 兜底,用于断言 500 也是 JSON 契约。
         """
         raise RuntimeError("boom")
 
