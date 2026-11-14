@@ -3,6 +3,17 @@
 聊天图/语音由 ``im_media_cleanup`` 负责;本命令只扫 ``photos/`` 与 ``posts/``。
 孤儿文件通常来自「上传成功但事务回滚」或「删行时删文件失败」,按 mtime 宽限
 24 小时,避免误删正在上传的文件。默认 dry-run,``--apply`` 才真正删除。
+
+文件信息:
+    文件名称          users/management/commands/media_cleanup.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import time
@@ -18,15 +29,38 @@ MEDIA_DIRS = ("photos", "posts")
 
 
 class Command(BaseCommand):
-    """删除资料图/广场图的孤儿文件(默认 dry-run)。"""
+    """删除资料图/广场图的孤儿文件(默认 dry-run)。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``python manage.py media_cleanup --apply``
+
+    备注信息:
+        ``help`` 的语义是「清理资料图与广场图的孤儿文件,默认只打印,--apply 才真正删除」。
+        「孤儿」的判定是磁盘文件路径不在 ``Photo.file`` 与 ``PostImage.file`` 的并集内。
+    """
 
     help = "清理资料图与广场图的孤儿文件(默认 dry-run,--apply 才删)"
 
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
-            parser: argparse 解析器。
+        参数说明:
+            parser: argparse 解析器,由 Django 在调用 ``handle()`` 前传入。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.add_arguments(parser)``
+
+        备注信息:
+            定义 ``--apply``(默认只打印)与 ``--orphan-hours``(宽限小时数,默认 24,0 表示不扫)。
         """
         parser.add_argument("--apply", action="store_true", help="真正删除;默认只打印")
         parser.add_argument("--orphan-hours", type=int, default=24,
@@ -35,12 +69,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """扫描两个目录并删除(或列出)孤儿文件。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项,含 ``apply`` 与 ``orphan_hours``。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py media_cleanup --orphan-hours 48``
+
+        备注信息:
+            ``--orphan-hours <= 0`` 时直接跳过;mtime 晚于宽限点的文件视为「可能正在上传」不动;
+            删除失败(``OSError``)只往 stderr 记账,不中断整轮扫描。
         """
         apply = bool(options["apply"])
         orphan_hours = int(options["orphan_hours"])

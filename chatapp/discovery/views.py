@@ -21,6 +21,17 @@
 
 关联文档:
     - 接口契约:docs/api/discovery.md
+
+文件信息:
+    文件名称          discovery/views.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import logging
@@ -96,12 +107,19 @@ MATCH_ENTRY_SCHEMA = inline_serializer("MatchEntry", fields={
 def _param_given(request, name: str) -> bool:
     """查询参数是否「给了且非空串」(用于区分「没传」与「传了空值」)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         name: 参数名。
 
-    Returns:
-        参数存在且去掉空白后非空时为 ``True``。
+    返回参数:
+        参数存在且去掉首尾空白后非空时为 ``True``。
+
+    使用示例:
+        ``_param_given(request, "age_min")``
+
+    备注信息:
+        只看 ``query_params``,不看请求体;``age_min=`` 这类空值按「没传」处理,
+        保证筛选项留空时回落偏好。
     """
     value = request.query_params.get(name)
     return value is not None and value.strip() != ""
@@ -110,14 +128,18 @@ def _param_given(request, name: str) -> bool:
 def _parse_tag_ids(request) -> tuple[int, ...]:
     """解析逗号分隔的 ``tag_ids``。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         去重后升序的标签 id 元组;没传或空串返回空元组。
 
-    Raises:
-        ValidationError: 含非整数 / 非正整数,或个数超过 ``FILTER_TAG_IDS_MAX``。
+    使用示例:
+        ``_parse_tag_ids(request)``
+
+    备注信息:
+        含非整数、非正整数,或个数超过 ``FILTER_TAG_IDS_MAX`` 时抛
+        ``ValidationError``(统一 400),不静默丢弃非法项。
     """
     raw = (request.query_params.get("tag_ids") or "").strip()
     if not raw:
@@ -146,14 +168,19 @@ def _parse_filters(request) -> CandidateFilters:
     参数缺省时 ``CandidateFilters`` 的字段留 ``None``,由服务层回落到「想找的人」
     偏好 —— 这也是「不带任何筛选时缓存键一字不改」的前提。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         解析好的筛选条件(可能全空)。
 
-    Raises:
-        ValidationError: 年龄不是整数 / 超出 18–99、城市过长、``tag_ids`` 非法。
+    使用示例:
+        ``filters = _parse_filters(request)``
+
+    备注信息:
+        年龄不是整数或超出 18–99、城市超过 ``FILTER_CITY_MAX_LENGTH`` 个字符、
+        ``tag_ids`` 非法,一律抛 ``ValidationError``(400);参数缺省时不落库也不写回
+        ``Preference``,由服务层回落偏好。
     """
     age_min = age_max = None
     if _param_given(request, "age_min"):
@@ -172,12 +199,19 @@ def _parse_filters(request) -> CandidateFilters:
 def _candidate_cards(user_ids, request) -> list[dict]:
     """按给定顺序取候选卡片(批量取资料 + 预取标签照片,不随张数增长)。
 
-    Args:
+    参数说明:
         user_ids: 候选人账号 id 序列,顺序即响应顺序。
         request: 当前请求,用于构造照片的绝对 URL。
 
-    Returns:
-        序列化后的候选卡片数组。
+    返回参数:
+        序列化后的候选卡片数组,字段见 ``CandidateSerializer``。
+
+    使用示例:
+        ``_candidate_cards(picked, request)``
+
+    备注信息:
+        一条 ``user_id__in`` 查询 + 预取标签与照片;池子里已删号或资料不全的人
+        会被跳过,因此返回张数可能少于入参个数。
     """
     # ``user_id__in`` 查出来的顺序不保证,所以按入参顺序回排
     profiles = {
@@ -210,11 +244,19 @@ def candidates(request):
     可选的 ``age_min`` / ``age_max`` / ``city`` / ``tag_ids`` 在**本次请求内**覆盖
     对应的偏好字段(不写回偏好),缺省时行为与加筛选前完全一致。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit``(默认 10,上限 20)与四个筛选参数。
 
-    Returns:
-        候选卡片数组,字段见 ``CandidateSerializer``。
+    返回参数:
+        候选卡片数组,字段见 ``CandidateSerializer``;池子不足时返回的张数少于 ``limit``。
+
+    使用示例:
+        ``GET /api/v1/discovery/candidates?limit=10&age_min=25&city=杭州``
+
+    备注信息:
+        候选池走缓存(键带用户版本 + 全局版本),每次只做内存随机抽样;
+        只有真的带了筛选才走带指纹的分桶键,默认路径命中原来那份缓存。
+        ``limit`` 越界收敛到 ``[1, MAX_LIMIT]``,非法筛选参数 400。
     """
     me = request.user
     preference = get_profile(me).preference
@@ -246,12 +288,19 @@ def daily(request):
     「共同标签数 desc → 同城优先 → 种子随机」排序;种子 = ``(日期, 用户 id)``,
     因此**同一天反复刷新结果与顺序都不变**,第二天自动换一批。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit``(默认 6,上限 12)。
 
-    Returns:
+    返回参数:
         ``{"date": <日期>, "candidates": [候选卡...]}``,卡片字段与
         ``GET /discovery/candidates`` 一致。
+
+    使用示例:
+        ``GET /api/v1/discovery/daily?limit=6``
+
+    备注信息:
+        与 ``candidates`` 同款限流:精选每刷新一次都要过一遍池子,不能变成免限流的旁路;
+        ``date`` 是服务端本地日期,客户端据此判断「今天已看过」。
     """
     me = request.user
     preference = get_profile(me).preference
@@ -276,16 +325,20 @@ def swipe(request):
     (共同标签),供「配对那一刻」的破冰文案直接使用 —— 客户端不必再拉一次
     ``GET /users/{id}``,否则会被记成一次访客访问(语义污染)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,body 需带 ``target_user_id`` 与 ``action``。
 
-    Returns:
+    返回参数:
         ``{"matched": bool, "shared_tags": [...]}``;未配对时 ``shared_tags`` 为空数组。
 
-    Raises:
-        PermissionDenied: 当前账号被封禁(轻封禁也禁止滑卡)。
-        ValidationError: 划自己,或对方资料不完整。
-        SwipeLikeQuotaExceeded: 当日喜欢额度已用完(``429`` + ``42904``)。
+    使用示例:
+        ``POST /api/v1/discovery/swipe`` body ``{"target_user_id": 9, "action": "like"}``
+
+    备注信息:
+        当前账号被封禁(轻封禁也禁止滑卡)抛 ``PermissionDenied``;划自己或对方资料
+        不完整抛 ``ValidationError``;只有「注定会新写一条 like」的请求才扣当日额度
+        (幂等重放与 ``action=pass`` 不扣),超限抛 ``SwipeLikeQuotaExceeded``
+        (429 + 42904)。写库后立刻升候选池版本,划过的人随即消失。
     """
     me = request.user
     serializer = SwipeSerializer(data=request.data)
@@ -356,15 +409,20 @@ def swipe_undo(request):
       风险远大于「误划」的收益,因此只给 ``400``;
     - 额度也跟着退回(``quota.refund_like``):撤销意味着「那次操作没有发生」。
 
-    Args:
+    参数说明:
         request: DRF 请求对象;无请求体。
 
-    Returns:
+    返回参数:
         ``{"undone": true, "target_user_id": <int>}``,被撤销的那次滑卡的目标账号 id。
 
-    Raises:
-        PermissionDenied: 当前账号被轻封禁(与 ``POST /discovery/swipe`` 同口径)。
-        SwipeUndoUnavailable: 没有可撤销的滑卡(无记录 / 超过 30 秒 / 已配对),``400`` + ``40003``。
+    使用示例:
+        ``POST /api/v1/discovery/swipe/undo``
+
+    备注信息:
+        当前账号被轻封禁抛 ``PermissionDenied``(与 ``POST /discovery/swipe`` 同口径);
+        没有可撤销的滑卡(无记录 / 超过 30 秒 / 已配对)抛 ``SwipeUndoUnavailable``
+        (400 + 40003)。删除是条件删除并检查影响行数,并发两次撤销只有一次成功;
+        撤销的是 like 时同步退回额度,并升本人的候选池版本让目标重新入池。
     """
     me = request.user
     # 与滑卡同口径:轻封禁只禁滑卡,撤销也算滑卡的一部分。
@@ -410,11 +468,18 @@ def quota_view(request):
     只读一个 Redis 计数,不查库;``like_limit = 0``(不限)时 ``likes_used`` 恒为 0、
     ``likes_remaining`` 为 ``null``,客户端据此决定要不要显示额度文案。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         ``{"like_limit": int, "likes_used": int, "likes_remaining": int|null}``。
+
+    使用示例:
+        ``GET /api/v1/discovery/quota``
+
+    备注信息:
+        只读一个 Redis 计数,不查库;``like_limit = 0``(不限)时 ``likes_used`` 恒为 0、
+        ``likes_remaining`` 为 ``null``,客户端据此决定要不要显示额度文案。
     """
     return Response(quota.quota_snapshot(request.user.id))
 
@@ -427,11 +492,19 @@ def match_list(request):
 
     与我有拉黑关系的人(我拉黑的 ∪ 拉黑我的)从列表中剔除;按配对时间倒序分页。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
 
-    Returns:
-        分页后的配对条目数组。
+    返回参数:
+        分页后的配对条目数组,条目字段见 ``MATCH_ENTRY_SCHEMA``。
+
+    使用示例:
+        ``GET /api/v1/matches?limit=20&before=<游标>``
+
+    备注信息:
+        只取 ``unmatched_at__isnull=True``(未解除)的配对,按 ``-created_at, -id``
+        排序;游标分页要求排序完全确定,补 ``-id`` 兜底才不漏行。拉黑用两个
+        ``NOT EXISTS`` 各排一次,不把 id 拉进 Python 再 ``__in``。
     """
     me = request.user
     # 拉黑用 NOT EXISTS 而不是把 id 拉进 Python 再 __in:配对行的数量会随用户成长,
@@ -456,12 +529,20 @@ def unmatch(request, user_id):
     保持一致。解除是软删除(``unmatched_at`` 落时间戳),并双向拉黑 IM,
     之后双方既收不到、也发不出消息。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
-        user_id: 对方的账号 id。
+        user_id: 对方的账号 id(路径参数)。
 
-    Returns:
-        204 空响应。
+    返回参数:
+        204 空响应(没有配对 / 已解除时同样 204)。
+
+    使用示例:
+        ``DELETE /api/v1/matches/9``
+
+    备注信息:
+        软删除只打 ``unmatched_at`` 与 ``unmatched_by`` 时间戳,读侧统一过滤;
+        事务提交后异步做 IM 双向拉黑并移除配对关系(``robust=True``),
+        已解除的配对不会被再次滑卡复活。
     """
     me = request.user
     match = (Match.objects
@@ -487,13 +568,19 @@ def _match_entries(matches, me, request):
     ``shared_tags`` 供配对那一刻的破冰文案使用。整页只多一条 M2M 查询,
     不随配对条数增长(``config/test_query_budget.py`` 会拦 N+1)。
 
-    Args:
+    参数说明:
         matches: 本页配对记录。
         me: 当前用户,用于确定「对方」是谁。
         request: 当前请求,用于构造绝对 URL。
 
-    Returns:
+    返回参数:
         列表项数组,字段见 ``MATCH_ENTRY_SCHEMA``。
+
+    使用示例:
+        ``_match_entries(rows, me, request)``
+
+    备注信息:
+        整页只多一条 M2M 查询算共同标签,不随配对条数增长(``test_query_budget`` 会拦 N+1)。
     """
     profiles = [getattr(match.other_user(me), "profile", None) for match in matches]
     shared_map = shared_tags_for_profiles(profiles, me)
@@ -507,15 +594,22 @@ def _match_entry(match, me, request, shared_tags):
 
     头像取对方第一张已过审照片,并转成绝对 URL(IM 与会话列表需要可直接访问的地址)。
 
-    Args:
+    参数说明:
         match: 配对记录。
         me: 当前用户,用于确定「对方」是谁。
         request: 当前请求,用于构造绝对 URL。
         shared_tags: 已算好的共同标签数组(``{id, name, icon}``),无交集为空数组。
 
-    Returns:
+    返回参数:
         列表项字典(``user_id`` / ``im_user_id`` / ``nickname`` / ``avatar_url`` /
         ``matched_at`` / ``shared_tags``)。
+
+    使用示例:
+        ``_match_entry(match, me, request, shared_tags)``
+
+    备注信息:
+        照片从 ``prefetch_related`` 缓存里挑第一张已过审的,不再单独查库;对方资料缺失
+        时昵称回落空串,无已过审照片时 ``avatar_url`` 为 ``None``。
     """
     other = match.other_user(me)
     profile = getattr(other, "profile", None)
@@ -536,11 +630,18 @@ def _match_entry(match, me, request, shared_tags):
 def likes_received(request):
     """喜欢我的人列表(GET /api/v1/discovery/likes)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
 
-    Returns:
+    返回参数:
         分页后的「喜欢我的人」列表,字段见 ``LikeReceivedSerializer``。
+
+    使用示例:
+        ``GET /api/v1/discovery/likes?limit=20``
+
+    备注信息:
+        口径来自 ``likes_received_queryset``(排除我已划过 / 双向拉黑 / 资料不全),
+        按喜欢时间倒序分页;``count`` 接口与它共用同一份查询集。
     """
     return paginated_response(
         request, likes_received_queryset(request.user),
@@ -554,11 +655,18 @@ def likes_received(request):
 def likes_received_count(request):
     """喜欢我的人数(GET /api/v1/discovery/likes/count)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         ``{"count": N}``,与列表同口径,供入口角标使用。
+
+    使用示例:
+        ``GET /api/v1/discovery/likes/count``
+
+    备注信息:
+        与 ``GET /discovery/likes`` 共用 ``likes_received_queryset``,不另写一份口径;
+        只取计数,不拉行内容。
     """
     return Response({"count": likes_received_queryset(request.user).count()})
 
@@ -569,11 +677,18 @@ def likes_received_count(request):
 def visits(request):
     """谁看过我(GET /api/v1/discovery/visits)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
 
-    Returns:
+    返回参数:
         分页后的访客列表,字段见 ``VisitSerializer``。
+
+    使用示例:
+        ``GET /api/v1/discovery/visits?limit=20``
+
+    备注信息:
+        口径来自 ``visits_received_queryset``(排除我已划过 / 双向拉黑 / 资料不全);
+        游标字段传 ``field="last_at"``,按最近访问时间倒序而不是记录创建时间。
     """
     return paginated_response(
         request, visits_received_queryset(request.user),
@@ -588,10 +703,17 @@ def visits(request):
 def visits_count(request):
     """访客人数(GET /api/v1/discovery/visits/count)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         ``{"count": N}``,与列表同口径,供入口角标使用。
+
+    使用示例:
+        ``GET /api/v1/discovery/visits/count``
+
+    备注信息:
+        与 ``GET /discovery/visits`` 共用 ``visits_received_queryset``;该接口单独挂了
+        ``VisitsCountThrottle``,限流口径与列表接口不同。
     """
     return Response({"count": visits_received_queryset(request.user).count()})

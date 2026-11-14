@@ -5,6 +5,17 @@
 
     python manage.py media_bytes_backfill --dry-run   # 先看要补多少
     python manage.py media_bytes_backfill
+
+文件信息:
+    文件名称          users/management/commands/media_bytes_backfill.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.core.files.storage import default_storage
@@ -15,15 +26,38 @@ from users.models import Photo
 
 
 class Command(BaseCommand):
-    """把存量照片/动态图的文件大小写回 ``bytes``。"""
+    """把存量照片/动态图的文件大小写回 ``bytes``。
+
+    参数说明:
+        无。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``python manage.py media_bytes_backfill --dry-run``
+
+    备注信息:
+        ``help`` 的语义是「回填 Py 侧 ``Photo.bytes`` 与 ``PostImage.bytes`` 的存量行,供存储配额统计」。
+        两模型逐表处理,单个模型出错不影响另一个模型的统计输出。
+    """
 
     help = "回填 Photo.bytes / PostImage.bytes(存量行),供存储配额统计"
 
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
-            parser: argparse 解析器。
+        参数说明:
+            parser: argparse 解析器,由 Django 在调用 ``handle()`` 前传入。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.add_arguments(parser)``
+
+        备注信息:
+            定义 ``--dry-run``(只统计不写库)与 ``--batch-size``(每批处理行数,默认 500)。
         """
         parser.add_argument("--dry-run", action="store_true", help="只统计,不写库")
         parser.add_argument("--batch-size", type=int, default=500, help="每批处理行数")
@@ -31,12 +65,18 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """按模型逐个回填并打印结果。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项,含 ``dry_run`` 与 ``batch_size``。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py media_bytes_backfill --dry-run --batch-size 1000``
+
+        备注信息:
+            ``batch_size`` 至少取 1;``--dry-run`` 时只打印将回填的行数并提示去掉该开关。
         """
         dry_run = bool(options["dry_run"])
         batch_size = max(int(options["batch_size"]), 1)
@@ -49,13 +89,20 @@ class Command(BaseCommand):
     def _backfill(self, model, batch_size, dry_run):
         """给单个模型的 ``bytes=0`` 行补文件大小。
 
-        Args:
-            model: ``Photo`` 或 ``PostImage``。
+        参数说明:
+            model: 带 ``bytes`` 与 ``file`` 字段的模型,``Photo`` 或 ``PostImage``。
             batch_size: 迭代游标的分块大小。
             dry_run: 为 ``True`` 时不写库。
 
-        Returns:
+        返回参数:
             ``(回填行数, 文件缺失行数)`` 二元组。
+
+        使用示例:
+            ``self._backfill(Photo, 500, False)``
+
+        备注信息:
+            ``default_storage.size()`` 抛异常(文件已不在存储上)时计入「文件缺失」并跳过该行;
+            写库走 ``update()``,不触发 ``save()`` 与模型信号。
         """
         filled = 0
         missing = 0

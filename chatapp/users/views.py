@@ -11,6 +11,17 @@
 关联文档:
     - 接口契约:docs/api/users.md
     - 踩坑记录:docs/pitfalls/backend.md「账号注销」
+
+文件信息:
+    文件名称          users/views.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import logging
@@ -60,11 +71,19 @@ def me(request):
     DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
     PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
 
-    Returns:
+    返回参数:
         GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+
+    使用示例:
+        ``PATCH /api/v1/users/me {"nickname": "小林"}``
+
+    备注信息:
+        PATCH 只处理提交上来的字段,结束后必然重算完善状态并让候选池缓存失效;
+        重封禁用户的 ``DELETE`` 由全局权限类拦成 403(白名单只放行 GET),
+        防「注销洗白」。
     """
     if request.method == "DELETE":
         # 手机号二次确认:不可恢复操作,body 必须带上当前账号的手机号。
@@ -99,11 +118,17 @@ def me(request):
 def tag_list(request):
     """标签池全量列表(GET /api/v1/users/tags)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         全部标签(12 个,由数据迁移写入);重封禁用户由全局权限类放行本接口。
+
+    使用示例:
+        ``GET /api/v1/users/tags``
+
+    备注信息:
+        结果不分页、不缓存:标签池只有 12 行,直接全表取。
     """
     return Response(TagSerializer(Tag.objects.all(), many=True).data)
 
@@ -114,17 +139,20 @@ def tag_list(request):
 def public_profile(request, user_id):
     """他人资料卡(GET /api/v1/users/{user_id})。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         user_id: 目标账号 id。
 
-    Returns:
+    返回参数:
         公开资料(不含手机号、生日、偏好与缺失项),含共同标签与关注态
         (``is_followed`` / ``follower_count`` / ``following_count``)。
 
-    Raises:
-        NotFound: 对方与当前用户互相拉黑、资料不存在,或对方处于重封禁状态 ——
-            三种情况统一按「用户不存在」处理,不泄漏账号是否存在。
+    使用示例:
+        ``GET /api/v1/users/42``
+
+    备注信息:
+        双向拉黑、资料不存在、重封禁三种情况统一抛 ``NotFound``(按「用户不存在」
+        处理,不泄漏账号是否存在);访问会被 ``record_profile_view`` 计数,用于抓取广度监控。
     """
     # 双向拉黑 = 互相不存在;heavy 封禁的人对外不可见(轻封禁仍可见,还能聊天)
     if user_id in blocked_user_ids(request.user):
@@ -150,15 +178,19 @@ def upload_photo(request):
     上传后按 ``settings.AUTO_APPROVE`` 决定是否直接过审(开发期上传即过审);
     过审时会顺带把头像同步到 IM。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,multipart 字段为 ``file``。
 
-    Returns:
+    返回参数:
         201 + 照片对象;超出张数上限时返回 400。
 
-    Raises:
-        serializers.ValidationError: 图片缺失或超过大小上限。
-        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+    使用示例:
+        ``POST /api/v1/users/me/photos (multipart: file=@a.jpg)``
+
+    备注信息:
+        图片缺失或超过大小上限抛 ``serializers.ValidationError``;
+        账号媒体存储配额已满时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``),
+        配额检查在落盘之前;落库后必定让全站候选池失效。
     """
     serializer = PhotoUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -194,12 +226,19 @@ def delete_photo(request, photo_id):
     只允许删除本人照片(查询集限定在 ``request.user.photos`` 上);
     删除后重算资料完善状态,照片不足会掉回「未完善」并失去候选资格。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         photo_id: 照片主键。
 
-    Returns:
+    返回参数:
         204 空响应。
+
+    使用示例:
+        ``DELETE /api/v1/users/me/photos/7``
+
+    备注信息:
+        别人的照片查不到 → 404(查询集已限定在本人名下,不泄漏照片归属);
+        磁盘文件与数据库行一起删,删除后全站候选池失效。
     """
     photo = get_object_or_404(request.user.photos, id=photo_id)
     photo.file.delete(save=False)   # 连磁盘文件一起删
@@ -223,16 +262,20 @@ def normalize_profile_voice(raw: bytes, content_type: str) -> tuple[bytes, int]:
     2. 上限是 **30 秒**(聊天语音是 60 秒),超限抛 :class:`im.voice.VoiceError`,
        由视图回 400(不新增业务码)。
 
-    Args:
+    参数说明:
         raw: 上传文件的原始字节。
         content_type: 上传声明的 MIME(可带 ``;codecs=...`` 参数)。
 
-    Returns:
+    返回参数:
         ``(m4a 字节, 实测毫秒)``。
 
-    Raises:
-        voice.VoiceUnavailable: 服务器缺 ffmpeg/ffprobe(视图回 503 + ``50302``)。
-        voice.VoiceError: 格式/大小/解码不合法,或时长超过 30 秒。
+    使用示例:
+        ``data, duration_ms = normalize_profile_voice(upload.read(), upload.content_type)``
+
+    备注信息:
+        服务器缺 ffmpeg/ffprobe 时抛 ``voice.VoiceUnavailable``(视图回 503 + ``50302``);
+        格式/大小/解码不合法或时长超过 30 秒时抛 ``voice.VoiceError``(视图回 400)。
+        探测用的临时目录用完即删,不碰媒体目录。
     """
     suffix = voice.ALLOWED_CONTENT_TYPES.get(voice.base_content_type(content_type))
     if suffix is None:
@@ -266,16 +309,21 @@ def my_voice(request):
        存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
     3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
 
-    Returns:
+    返回参数:
         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
         DELETE 幂等 204(没有语音时也返回 204)。
 
-    Raises:
-        serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
-        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+    使用示例:
+        ``POST /api/v1/users/me/voice (multipart: file=@intro.m4a)``
+
+    备注信息:
+        缺文件、超过 5MB 或格式不在白名单时抛 ``serializers.ValidationError``(400);
+        账号媒体存储配额已满时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``);
+        服务器缺 ffmpeg/ffprobe 时为 503 + ``error_codes.CHAT_VOICE_UNAVAILABLE``。
+        语音不参与「资料完善」判定,所以本接口不调 ``refresh_status()``。
     """
     profile = get_profile(request.user)
     if request.method == "DELETE":
@@ -325,13 +373,20 @@ def my_voice(request):
 @api_view(["GET"])
 @throttle_classes([PresenceThrottle])
 def presence_status(request):
-    """批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略。
+    """批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略(GET /api/v1/presence)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,``user_ids`` 为逗号分隔的账号 id,单次上限 100。
 
-    Returns:
+    返回参数:
         ``{"results": [{"user_id", "online", "last_active_at"}]}``。
+
+    使用示例:
+        ``GET /api/v1/presence?user_ids=8,21``
+
+    备注信息:
+        结果只包含既存在又可见的人(自己、双向拉黑、重封禁、已删号都不出现);
+        ``user_ids`` 为空或非数字时回 400,去重保序后超过 100 个也回 400。
     """
     raw = request.query_params.get("user_ids", "")
     parts = [part.strip() for part in raw.split(",") if part.strip()]
@@ -365,11 +420,18 @@ def presence_status(request):
 def my_preference(request):
     """我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象;``PATCH`` 支持部分字段。
 
-    Returns:
+    返回参数:
         更新后的完整偏好对象。
+
+    使用示例:
+        ``PATCH /api/v1/users/me/preference {"age_max": 35}``
+
+    备注信息:
+        偏好只影响自己的候选池,所以 ``PATCH`` 后只失效本人的候选缓存(不动全站池);
+        偏好由 ``services.get_profile`` 懒创建,读取时不会 404。
     """
     profile = get_profile(request.user)
     preference = profile.preference

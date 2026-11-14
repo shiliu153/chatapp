@@ -8,6 +8,17 @@
     3. 配对不是「谁喜欢了谁」的记录,而是「互喜」的结果,查询时要同时看两个方向;
     4. **解除配对是软删除**:``unmatched_at`` 非空即失效,行保留用于审计与防复活
        (已解除的配对不会被再次滑卡复活)。
+
+文件信息:
+    文件名称          discovery/models.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 from django.conf import settings
@@ -23,10 +34,26 @@ class SwipeAction(models.TextChoices):
 
 
 class Swipe(models.Model):
-    """一次滑卡记录。"""
+    """一次滑卡记录。
+
+    参数说明:
+        按 ORM 习惯传与字段同名的关键字参数:``swiper`` / ``target`` / ``action``;
+        ``created_at`` 由 ``auto_now_add`` 自动写入。
+
+    返回参数:
+        无返回值;查询与写入入口是 ``Swipe.objects``。
+
+    使用示例:
+        ``Swipe.objects.filter(target_id=me, action=SwipeAction.LIKE)``
+
+    备注信息:
+        ``(swiper, target)`` 唯一约束保证同一对「我 → 他」只有一行,重复提交保留第一次的动作;
+        「喜欢我的人」的查询走 ``idx_swipe_target_action``,过滤与排序都在索引里完成。
+    """
 
     swiper = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="swipes_made")
     target = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="swipes_received")
+    # 只有 like 会触发配对判定并占用每日喜欢额度,pass 只留痕。
     action = models.CharField("动作", max_length=10, choices=SwipeAction.choices)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -46,8 +73,17 @@ class Swipe(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``发起者->目标:动作``。
+
+        使用示例:
+            ``str(swipe)``
+
+        备注信息:
+            只用 ``_id`` 取值,不触发外键查询。
         """
         return f"{self.swiper_id}->{self.target_id}:{self.action}"
 
@@ -60,6 +96,20 @@ class Match(models.Model):
         user_b: 恒为 id 较大的一方。
         unmatched_at: 解除配对时间;``None`` 表示配对仍然有效。
         unmatched_by: 发起解除的一方;账号注销后置空。
+
+    参数说明:
+        按 ORM 习惯传与字段同名的关键字参数;``user_a`` 与 ``user_b`` 通常由
+        :meth:`pair_kwargs` 拼出,不手工指定。
+
+    返回参数:
+        无返回值;查询与写入入口是 ``Match.objects``。
+
+    使用示例:
+        ``Match.objects.get_or_create(**Match.pair_kwargs(me, other))``
+
+    备注信息:
+        ``user_a < user_b`` 的检查约束让 (1,2) 与 (2,1) 落到同一行;
+        解除配对是软删除,``unmatched_at`` 非空即失效,行本身保留。
     """
 
     user_a = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="matches_as_a")
@@ -89,12 +139,18 @@ class Match(models.Model):
     def pair_kwargs(cls, user1, user2):
         """配对一律按 id 排序存储,保证 (1,2) 与 (2,1) 是同一行。
 
-        Args:
+        参数说明:
             user1: 配对中的一方。
             user2: 配对中的另一方。
 
-        Returns:
+        返回参数:
             ``get_or_create`` 用的关键字参数,``user_a`` 恒为 id 较小的一方。
+
+        使用示例:
+            ``Match.pair_kwargs(me, other)``
+
+        备注信息:
+            比较的是 ``user.id``,两侧都必须是已落库的实例,未保存的实例没有 id。
         """
         a, b = (user1, user2) if user1.id < user2.id else (user2, user1)
         return {"user_a": a, "user_b": b}
@@ -103,26 +159,50 @@ class Match(models.Model):
     def is_active(self) -> bool:
         """配对是否仍然有效(未解除)。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``True`` 表示正常配对;``False`` 表示已被任一方解除。
+
+        使用示例:
+            ``match.is_active``
+
+        备注信息:
+            只读属性,不查库,``unmatched_at`` 已随行加载。
         """
         return self.unmatched_at is None
 
     def other_user(self, user):
         """取配对中的另一方。
 
-        Args:
+        参数说明:
             user: 配对中的任意一方。
 
-        Returns:
+        返回参数:
             另一方用户实例。
+
+        使用示例:
+            ``match.other_user(request.user)``
+
+        备注信息:
+            以 ``user_a_id == user.id`` 判定方向;传入不属于本配对的用户会返回 ``user_a``。
         """
         return self.user_b if self.user_a_id == user.id else self.user_a
 
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``match(较小 id,较大 id)``。
+
+        使用示例:
+            ``str(match)``
+
+        备注信息:
+            只用 ``_id`` 取值,不触发外键查询。
         """
         return f"match({self.user_a_id},{self.user_b_id})"

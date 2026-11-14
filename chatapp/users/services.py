@@ -9,6 +9,17 @@
 
 关联文档:
     - 踩坑记录:docs/pitfalls/backend.md「账号注销」
+
+文件信息:
+    文件名称          users/services.py
+    项目名称          chat_app / chatapp
+    公司名称          个人项目（shiliu153）
+    版本信息          查看 app/pubspec.yaml 内 version 字段 版本说明
+    开发环境          Python 3.11 + Django 5.2 LTS
+    适用平台          Linux x86_64 服务端
+    仓库地址          https://github.com/shiliu153/chatapp
+    修改记录
+    2026-11-14        shiliu153          补齐文件头与函数注释
 """
 
 import logging
@@ -44,12 +55,19 @@ def record_profile_view(viewer_id: int, target_id: int) -> None:
     同一小时内重复看同一个人只算一次(``cache.add`` 返回 False 即已记过),
     这样阈值衡量的是**抓取广度**而不是刷新次数。
 
-    Args:
+    参数说明:
         viewer_id: 浏览者账号 id。
         target_id: 被浏览者账号 id。
 
-    Returns:
-        None。Redis / 数据库异常时只写 debug 日志,绝不影响资料接口。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``record_profile_view(request.user.id, target.id)``
+
+    备注信息:
+        Redis / 数据库异常时只写 debug 日志,**绝不影响资料接口**;
+        访客记录与抓取监控是两套独立窗口(30 分钟 vs 1 小时),不能共用一次 early return。
     """
     bucket = int(time.time()) // PROFILE_VIEW_TTL_SECONDS
     try:
@@ -85,12 +103,19 @@ def _record_visit(viewer_id: int, target_id: int) -> None:
     人,所以资料未完善的访问者即使落库也不会被看到 —— 批量造号可以拿它把表写爆。
     判断口径与 ``discovery.services.visits_received_queryset`` 保持一致。
 
-    Args:
+    参数说明:
         viewer_id: 浏览者账号 id。
         target_id: 被浏览者账号 id。
 
-    Returns:
-        None。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_record_visit(viewer_id, target_id)``
+
+    备注信息:
+        自己被自己看、开启隐身、资料未完善、没有过审照片、30 分钟内已记过一次,
+        这五种情况都直接返回;并发插入撞唯一约束时退化成一次 ``update(last_at=...)``。
     """
     if viewer_id == target_id:      # 自己看自己不算
         return
@@ -120,11 +145,18 @@ def _trim_owner_visits(owner_id: int) -> None:
     ``N`` 取 ``settings.PROFILE_VISIT_MAX_PER_OWNER``(默认 500);``<=0`` 表示关闭。
     先 ``COUNT`` 再决定是否淘汰:超过上限的账号极少,正常写入只多一条索引计数。
 
-    Args:
+    参数说明:
         owner_id: 被访问者账号 id。
 
-    Returns:
-        None。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_trim_owner_visits(target_id)``
+
+    备注信息:
+        由 ``_record_visit`` 在写入事务内调用;淘汰按 ``last_at`` 倒序保留前 N 条,
+        被删掉的行对应的人下次访问时会重新插入。
     """
     limit = settings.PROFILE_VISIT_MAX_PER_OWNER
     if limit <= 0:
@@ -145,11 +177,18 @@ def get_profile(user):
     会各调一次,不记忆就是每处两次 ``get_or_create``(2026-11-03 实测候选接口
     因此多打 6 条 SQL)。同一请求内 ``profile.save()`` 改的就是这个实例,不会读到旧值。
 
-    Args:
+    参数说明:
         user: 当前用户。
 
-    Returns:
+    返回参数:
         该用户的 ``Profile`` 实例。
+
+    使用示例:
+        ``profile = get_profile(request.user)``
+
+    备注信息:
+        会顺带建空 ``Preference`` 并挂到 ``profile.preference`` 反向缓存上;
+        记忆缓存在 ``user._profile_cache``,跨请求不可复用(请求结束后实例即弃)。
     """
     cached = getattr(user, "_profile_cache", None)
     if cached is not None:
@@ -166,13 +205,20 @@ def get_profile(user):
 def review_photos(queryset, status, operator=None) -> int:
     """通过/驳回照片:落审核审计 + 重算资料完善状态;过审时把头像同步到 IM。admin 与 ops 共用。
 
-    Args:
+    参数说明:
         queryset: 待审核照片的查询集。
         status: 目标审核状态(``PhotoStatus`` 取值)。
         operator: 执行审核的运营账号,可为 ``None``。
 
-    Returns:
+    返回参数:
         实际更新的照片条数。
+
+    使用示例:
+        ``review_photos(Photo.objects.filter(status=PhotoStatus.PENDING), PhotoStatus.APPROVED, request.user)``
+
+    备注信息:
+        照片数量变化会影响「资料完善」判定(掉回未完善 = 失去候选资格),所以每个受影响
+        用户都要 ``refresh_status()``;``status=APPROVED`` 时逐人入队 IM 头像同步。
     """
     user_ids = set(queryset.values_list("user_id", flat=True))
     count = queryset.update(status=status, reviewed_by=operator, reviewed_at=timezone.now())
@@ -188,8 +234,18 @@ def review_photos(queryset, status, operator=None) -> int:
 def sync_im_nickname(user) -> None:
     """昵称变更后同步到 IM 资料(经任务队列;失败可重试,不影响业务)。
 
-    Args:
+    参数说明:
         user: 昵称已变更的用户。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sync_im_nickname(profile.user)``
+
+    备注信息:
+        昵称为空时直接返回(IM 侧没有可同步的内容);入队挂在 ``transaction.on_commit``
+        上并带 ``robust=True``,事务回滚或提交后异常都不会影响主流程。
     """
     nickname = getattr(getattr(user, "profile", None), "nickname", "")
     if not nickname:
@@ -200,8 +256,18 @@ def sync_im_nickname(user) -> None:
 def sync_im_avatar(user_id: int) -> None:
     """照片过审后把头像同步到 IM(任务内部取第一张过审照片的绝对 URL)。
 
-    Args:
+    参数说明:
         user_id: 目标用户账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sync_im_avatar(request.user.id)``
+
+    备注信息:
+        只入队、不查询:任务参数一律 user_id,真正的资料在任务内查库;
+        入队同样挂在 ``transaction.on_commit`` 上。
     """
     transaction.on_commit(lambda: im_tasks.sync_profile.delay(user_id, "avatar"), robust=True)
 
@@ -216,8 +282,18 @@ def delete_account(user) -> None:
       3. 事务提交后(on_commit)删磁盘文件、清 Redis、入队 IM 删号 ——
          响应路径禁止外部调用,且入队必须晚于提交(否则事务回滚了 IM 号却没了)。
 
-    Args:
+    参数说明:
         user: 待注销的用户实例。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``delete_account(request.user)``
+
+    备注信息:
+        不可恢复:硬删除全部数据并释放手机号,同号可重新注册为全新账号;
+        ``feed.models`` / ``im.models`` 延迟导入是为了避开 app 加载顺序问题。
     """
     from feed.models import PostImage   # 延迟导入,避免 app 加载顺序问题(同 im/tasks.py)
     from im.models import ChatImage, ChatVoice
