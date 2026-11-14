@@ -70,6 +70,10 @@ docs/api/openapi.yml text eol=lf
 # 同理:openapi-typescript 生成的 Web 类型文件
 web/src/api/schema.d.ts text eol=lf
 
+# 门禁注册表固定 LF(2026-11-14 治理第 4 节):多行 shell 门禁命令以 TOML 字面量存放,
+# Windows 检出若带 CRLF,``bash -c`` 会把 \r 当成命令的一部分而整条报错。
+scripts/gates.toml text eol=lf
+
 # 文档索引生成物固定 LF(2026-11-14 治理第 3 节):
 # `python scripts/docs_index.py --check` 按**字节**比对「重新生成的结果」与磁盘,
 # 若 Windows 检出成 CRLF,本地每次都会报不一致。与 openapi.yml 同模式。

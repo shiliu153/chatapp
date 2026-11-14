@@ -214,52 +214,9 @@ jobs:
               print("诊断连接失败:", type(exc).__name__, exc)
           '
 
-      - name: 迁移
-        run: python manage.py migrate --noinput --verbosity=2
-
-      - name: 跑测试
-        run: python manage.py test --noinput --verbosity=2
-
-      # accounts.E001 是「生产开了固定验证码、但准入名单种子为空」的部署期门禁。
-      # 它此前**从未在任何流水线里被执行过**:CI 全程 DEBUG=1(检查直接返回)、
-      # migrate 不跑 system checks、一键部署脚本里也没有 manage.py check。
-      # 这里用生产口径反向验证「门禁真的会响」——预期 check 非零退出且报出 E001。
-      - name: 部署配置门禁自检(DEBUG=0 时 accounts.E001 必须生效)
-        env:
-          DEBUG: '0'
-          SMS_DEV_MODE: '1'
-          SMS_PHONE_WHITELIST: ''
-          # DEBUG=0 会走 settings 的生产分支,而 CI 没有 .env 文件:把生产必填项补齐,
-          # 否则会在更早的 ImproperlyConfigured 上失败(看起来像 E001 但其实是配置缺失)。
-          IM_MEDIA_SIGN_SECRET: ci-fake-media-secret-32-bytes
-          IM_MEDIA_PREFIX: http://127.0.0.1:8000/media/chat/
-          MEDIA_BASE_URL: http://127.0.0.1:8000
-        run: |
-          set +e
-          out=$(python manage.py check 2>&1)
-          rc=$?
-          set -e
-          printf '%s\n' "$out"
-          if [ "$rc" = 0 ]; then
-            echo "::error::DEBUG=0 + SMS_DEV_MODE=1 + 空白名单 时 check 竟然通过 —— accounts.E001 门禁失效"
-            exit 1
-          fi
-          case "$out" in
-            *accounts.E001*) echo "accounts.E001 已生效(门禁可达)" ;;
-            *) echo "::error::check 失败了,但输出里没有 accounts.E001(可能是别的错误)"; exit 1 ;;
-          esac
-
-      # D-5:``docs/api/openapi.yml`` 是「机器可读契约」的生成物。这里重新生成一次再
-      # 用 git diff 比对:任何人改了视图/序列化器却没同步生成物,CI 立刻红。
-      # 注意生成物路径在仓库根(docs/),而本 job 的 working-directory 是 chatapp/。
-      - name: 校验 OpenAPI 生成物与代码一致
-        run: |
-          python manage.py spectacular --file ../docs/api/openapi.yml --validate
-          git -C .. diff --exit-code -- docs/api/openapi.yml
-
-      # perf/ 在仓库根(不在 chatapp/ 下),所以 manage.py test 抓不到它的用例。
-      # 这份自测是纯标准库 + 本地回显服务器,不依赖 MySQL/Redis,秒级跑完:
-      # 它防的是「压测脚本自己错了却给出好看的数字」(头没发出去、{i} 没替换、令牌落盘)。
-      - name: 压测脚本自测
+      # 门禁与本地同源:迁移 + 生成物校验(openapi.yml)+ `scripts/gates.toml` 的 backend 组
+      # (全量测试 / accounts.E001 反向自检 / 压测脚本自测),都在 `scripts/stacks/backend.sh` 里。
+      # 本地 `scripts/verify.sh backend` 调的就是这份脚本;env 由本 job 注入,脚本只补缺省值。
+      - name: 后端门禁(与本地 verify.sh backend 同一份脚本)
         working-directory: ${{ github.workspace }}
-        run: python -m unittest perf.test_run -v
+        run: bash scripts/stacks/backend.sh
