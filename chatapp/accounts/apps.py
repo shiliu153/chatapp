@@ -15,6 +15,10 @@
 from django.apps import AppConfig
 
 
+# default_auto_field 固定 BigAutoField:主键类型一旦随 Django 默认值变化,
+# 会让迁移与既有表对不上。
+# name 必须与包目录名 accounts 一致:它是模型与迁移 app_label 的来源,写错会让
+# 迁移记录与模型落在不同 app 名下。
 class AccountsConfig(AppConfig):
     """账号与鉴权应用的配置:手机号登录、短信验证码、JWT 签发。"""
 
