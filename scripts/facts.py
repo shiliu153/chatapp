@@ -97,7 +97,7 @@ from typing import Callable, Dict, Iterable, List, Sequence, Tuple
 # 这样 `from scripts import ...` 两种调用方式(直接跑 / unittest)都成立。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts import docs_index, run_gates  # noqa: E402  (必须在 sys.path 修好之后)
+from scripts import check_cpp_comments, docs_index, run_gates  # noqa: E402  (必须在 sys.path 修好之后)
 
 #: 文档目录名(相对仓库根)。
 DOCS_SUBDIR = "docs"
@@ -352,6 +352,91 @@ def _alert_rules(root: Path) -> str:
     return str(len(re.findall(r"^\s*-\s*alert:\s*\S", text, re.MULTILINE)))
 
 
+def _alert_targets(root: Path) -> str:
+    """数 ``deploy/observability/prometheus.yml`` 里的抓取目标数(``- job_name:`` 条数)。
+
+    Args:
+        root: 仓库根目录。
+
+    Returns:
+        抓取目标个数的字符串。
+
+    Raises:
+        FileNotFoundError: Prometheus 配置不存在(判不出来,不是 0 个)。
+    """
+    path = Path(root) / "deploy" / "observability" / "prometheus.yml"
+    if not path.is_file():
+        raise FileNotFoundError(f"找不到 Prometheus 配置:{path}")
+    text = path.read_bytes().decode("utf-8")
+    return str(len(re.findall(r"^\s*-\s*job_name:\s*\S", text, re.MULTILINE)))
+
+
+def _dashboard_panels(root: Path) -> str:
+    """数 Grafana 看板的 panel 个数(``deploy/observability/grafana/dashboards/`` 下全部看板相加)。
+
+    Args:
+        root: 仓库根目录。
+
+    Returns:
+        panel 总数的字符串。
+
+    Raises:
+        FileNotFoundError: 看板目录不存在。
+        ValueError: 某个看板 JSON 解析不出来或缺 ``panels``(判不出来,不是 0 个)。
+    """
+    dashboards = Path(root) / "deploy" / "observability" / "grafana" / "dashboards"
+    if not dashboards.is_dir():
+        raise FileNotFoundError(f"找不到看板目录:{dashboards}")
+    paths = sorted(dashboards.glob("*.json"), key=lambda path: path.as_posix())
+    if not paths:
+        raise ValueError(f"{dashboards} 里一个看板 JSON 都没有")
+    total = 0
+    for path in paths:
+        try:
+            payload = json.loads(path.read_bytes().decode("utf-8"))
+        except ValueError as exc:
+            raise ValueError(f"看板 JSON 解析失败:{path.name}:{exc}") from exc
+        panels = payload.get("panels")
+        if not isinstance(panels, list):
+            raise ValueError(f"看板 {path.name} 里没有 panels 数组")
+        total += len(panels)
+    return str(total)
+
+
+def _cpp_comment_blocks(root: Path) -> str:
+    """数 C++ 函数注释块个数(``imserver/`` 下 ``src/`` 与 ``tests/`` 的 ``.h`` / ``.cpp``)。
+
+    判据**不用 tree-sitter**:每个块上下各一条分隔线(``//`` + 115 个 ``-``),所以
+    「行内容正好等于 ``SEPARATOR`` 的行数 ÷ 2」就是块数。这样 ``facts.py`` 在任何只装了
+    标准库的机器上都算得出来(``contract`` 轨要秒级,而 tree-sitter 只在 C++ 注释门禁里用)。
+
+    正确性由两处夹住:① 分隔线总数是奇数 → 判不出来直接报错;② ``scripts/test_facts.py``
+    在有 tree-sitter 的环境里把这条计算与 ``check_cpp_comments`` 的 AST 口径**逐数比对**。
+
+    Args:
+        root: 仓库根目录。
+
+    Returns:
+        函数注释块个数的字符串。
+
+    Raises:
+        ValueError: 文件一个都没扫到,或分隔线总数是奇数(结构坏了,数不准)。
+        check_cpp_comments.ToolingError: ``imserver/src`` 与 ``imserver/tests`` 都不存在。
+    """
+    sources = check_cpp_comments.iter_sources(Path(root) / "imserver")
+    total = 0
+    for path in sources:
+        text = path.read_bytes().decode("utf-8")
+        total += sum(
+            1 for line in text.splitlines() if line.strip() == check_cpp_comments.SEPARATOR
+        )
+    if total == 0:
+        raise ValueError("imserver/ 里一条注释块分隔线都没找到(目录或格式变了?)")
+    if total % 2:
+        raise ValueError(f"注释块分隔线总数是奇数({total}),块结构坏了 —— 数不准")
+    return str(total // 2)
+
+
 def _error_codes(root: Path) -> str:
     """数业务码个数(去重)。
 
@@ -387,6 +472,12 @@ FACTS: Tuple[Fact, ...] = (
         ),
     ),
     Fact(
+        id="alert_targets",
+        summary="deploy/observability/prometheus.yml 里的抓取目标数",
+        compute=_alert_targets,
+        patterns=(_pattern(r"(\d+)", r"个", r"target"),),
+    ),
+    Fact(
         id="api_operations",
         summary="openapi.yml 里的操作数(方法 + 路径)",
         compute=_api_operations,
@@ -400,6 +491,33 @@ FACTS: Tuple[Fact, ...] = (
         summary="openapi.yml 里的路径数",
         compute=_api_paths,
         patterns=(_pattern(r"(\d+)", r"paths"),),
+    ),
+    Fact(
+        id="cpp_comment_blocks",
+        summary="imserver 的 C++ 函数注释块个数",
+        compute=_cpp_comment_blocks,
+        # 四个模式都带上下文词,且**都必须与 dashboard_panels 的模式不相交**:
+        # 裸的 ``N 块`` 会命中看板的「12 块」(那属于另一个事实),而 `tests/` 的
+        # 「共 108 个块」是**子集计数**(不是本事实的 637),用 `(?<!共 )` 挡掉 ——
+        # 自测里有两条防撞用例分别钉住这两件事。
+        patterns=(
+            re.compile(r"函数注释块[\s|*]*(\d+)"),
+            re.compile(r"(?<!共 )(?<!共)(?<!\d)(\d+)[\s*]*个块"),
+            _pattern(r"(\d+)", r"块全覆盖"),
+            _pattern(r"共", r"(\d+)", r"×", r"2", r"条"),
+        ),
+    ),
+    Fact(
+        id="dashboard_panels",
+        summary="Grafana 看板的 panel 个数",
+        compute=_dashboard_panels,
+        patterns=(
+            # 看板那一格写作 ``| 看板 | 12 块(...)`` —— 中间隔着单元格分隔符,
+            # 所以不用 :data:`_GAP`(它不含 ``|``),单独写。与 cpp_comment_blocks
+            # 的「N 个块」互不相交:那条要求「个」,这条要求紧邻「看板」。
+            re.compile(r"看板[\s|*]*(\d+)[\s*]*块"),
+            _pattern(r",", r"(\d+)", r"面板", r"[,)]"),
+        ),
     ),
     Fact(
         id="docs_archive",

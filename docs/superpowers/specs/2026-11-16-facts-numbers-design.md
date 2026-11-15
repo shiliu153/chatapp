@@ -1,6 +1,6 @@
 # 文档关键数字的机械化(生成 + 判定)设计
 
-> **立项**:2026-11-16 · **状态**:实现中(`scripts/facts.py` v1 + 第一批 10 个事实)
+> **立项**:2026-11-16 · **状态**:已实现并合并(`scripts/facts.py` + 13 个事实 + 2 道门禁;
 > **上游口径**:[`docs/standards/sources-of-truth.md`](../../standards/sources-of-truth.md)(谁说了算)、
 > [`docs/standards/writing.md`](../../standards/writing.md) §5(数字与术语怎么写)
 
@@ -61,7 +61,29 @@
 | `docs_archive` | 106 | 同上 |
 | `docs_total` | 189 | `docs/` 下全部 `.md`(含两份生成物;80 + 106 + 2 的近似值不要手算,这里就是扫描) |
 | `alert_rules` | 17 | 数 `deploy/observability/alerts.yml` 的 `- alert:` |
+| `cpp_comment_blocks` | 637 | 数 `imserver/{src,tests}/**/*.{h,cpp}` 里内容等于分隔线(`//`+115 个 `-`)的行数 ÷ 2(纯标准库,**不用 tree-sitter**;见 §3.1.1) |
+| `dashboard_panels` | 12 | `deploy/observability/grafana/dashboards/*.json` 的 `panels` 数组长度之和 |
+| `alert_targets` | 6 | 数 `deploy/observability/prometheus.yml` 的 `- job_name:` |
 | `error_codes` | 13 | `docs_index.read_error_codes()` 去重 |
+
+> **第二批(同日)加了三个**:`cpp_comment_blocks` / `dashboard_panels` / `alert_targets` ——
+> 它们的引用都在活文档里出现 2 次以上,且都能从仓库里的配置 / 源码数出来。
+>
+> **第二批刻意没收的两个**:
+> - 「容器 6 个」:`deploy/observability/docker-compose.yml` 有 **8** 个 service(loki / promtail
+>   挂在 `--profile logs` 后面),文档里的 6 不是「配置里的 service 数」而是「默认起几个」——
+>   机器数不出来,硬收只会逼门禁说谎;
+> - 「5 个字段」:它是**规范常量**(每块必须有 5 个字段),属 B 类,归 `cpp.md` 与门禁本身。
+
+### 3.1.1 C++ 注释块为什么不用 tree-sitter 数
+
+块的判据是「上下各一条分隔线」,所以「内容恰好等于分隔线的行数 ÷ 2」就是块数,不需要 AST。
+这样 `facts.py` 在只装标准库的机器上也跑得动(Windows 宿主没有 tree-sitter,而 `--write` 是
+人在本地要跑的动作)。正确性由两处夹住:① 分隔线总数是奇数 → 判不出来,直接报错;
+② `scripts/test_facts.py::CppBlockCrossCheckTests` 在有 tree-sitter 的环境(CI 与 bootstrap 后)
+把这条计算与 `check_cpp_comments` 的 AST 口径**逐数比对** —— 两套算法只准给出同一个答案。
+断言正则也必须与 `dashboard_panels` 不相交(裸的 `N 块` 会命中看板的「12 块」),
+防撞由 `test_facts.py::PatternCollisionTests` 钉住。
 
 > **为什么不写成 `facts.toml`**:计算是代码,断言正则是代码;拆成「数据文件 + 代码」会让
 > 「哪个 id 有实现」变成两处对账(`sources-of-truth.md` §2.7 收 `DEFAULT_REPO` 就是同一个教训)。
@@ -155,12 +177,16 @@ python scripts/facts.py --check     # 确认干净
 
 ## 5. 迁移方案(已执行)
 
-1. **一次性 `--write`**,把 10 个事实的引用全部包上哨兵。**实测只有 7 处 / 4 份文件**
+1. **第一批(10 个事实)一次性 `--write`**,把引用全部包上哨兵。**实测只有 7 处 / 4 份文件**
    (远少于立项时估的 60–80 处:绝大多数「N 份 / N 条」是规格型与叙事型,不进正则);
-2. **逐处复核「这次改动是否暴露了过期数字」** —— 改值的处所就是真 bug。实得 **1 处**:
+2. **逐处复核「这次改动是否暴露了过期数字」** —— 改值的处所就是真 bug。第一批实得 **1 处**:
    `docs/ops/capacity-and-reliability.md:131` 的「10 条告警」→ **17**(同文件第 20 行早就写着 17);
-3. 之后按需扩面。剩余 6 个事实(接口数 / 文档份数 / 业务码 / 门禁条数)目前在作用域内
-   **零引用** —— 它们的价值不是「迁现有的」,而是「谁哪天写下 `41 道门禁` 就当场红」。
+3. **第二批(3 个事实)再迁 12 处 / 3 份文件**:`docs/standards/cpp.md` 8 处、
+   `docs/ops/observability.md` 2 处、`docs/ops/capacity-and-reliability.md` 2 处。
+   这一批没有发现新的过期数字(637 / 12 / 6 当时都是对的),价值在**防回归**:
+   `cpp.md` 那 8 处 637 此前全靠「改 imserver 时记得手改」;
+4. 仍有 6 个事实(接口数 / 文档份数 / 业务码 / 门禁条数)在作用域内**零引用** ——
+   它们的价值不是「迁现有的」,而是「谁哪天写下 `41 道门禁` 就当场红」。
 
 **不做**:把 `docs/api/*.md` 首句的「本分册含 N 个接口」也收进哨兵 —— 那是 15 个不同的值
 (一册一个数),收进哨兵等于造 15 个事实,而现有 `number/A` 规则已经把它判准了(判据是表行数)。
