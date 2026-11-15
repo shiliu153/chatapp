@@ -51,6 +51,7 @@
 - **现象**:`scripts/verify.sh backend` 在起依赖那一步就挂:MySQL 容器退出码 1,容器日志里是 `/docker-entrypoint-initdb.d/10-grant-test-db.sql: Permission denied`;若只看到后续报错,则表现为成批用例 `pymysql … 1044 / 1053`(授权脚本压根没跑,`test` 库与授权都没建),看着像后端代码坏了。实测**偶发**(2026-11-14,只在 worker 的 worktree 上出现过)。
 - **原因**:worker 的 worktree 以 `umask 077` 创建,仓库里记作 100644 的 `chatapp/db_setup_ci.sql` 在 worktree 里落成 **0600**;`docker-compose.ci.yml` 把它以 `:ro` 挂到 `/docker-entrypoint-initdb.d/`,容器内的非 root 用户读不到 → 初始化直接失败。git 只记录 100644 / 100755 两种模式,所以这是**工作区模式**问题,`git status` 看不出来。
 - **处置**:`scripts/stacks/mount-perms.sh` 在起容器前把清单里的文件补回 0644(`scripts/stacks/deps.sh` 的 `up` 分支调用,`chmod` 不产生仓库变更)。**新增任何被 compose 以 `:ro` 挂进容器、且容器内以非 root 用户读取的仓库文件时,把它登记到该文件的 `MOUNT_READ_FILES` 显式列表**(刻意不用 glob:免得将来无意中改掉别的文件的模式);`scripts/test_verify.sh` 里有一条自测钉住「0600 → 0644 生效、清单外文件不动、清单条目在仓库里存在」。
+- **复现与验证**(2026-11-15 实跑,`CHATAPP_CI_SLOT=88`):`chmod 600 chatapp/db_setup_ci.sql` 后**绕过** `deps.sh` 直接 `docker compose -p chatapp-ci-s88 -f docker-compose.ci.yml up -d --wait` → `compose up rc=1`、`mysql state=exited exit=1`(redis 照常在跑),`docker compose logs mysql` 里逐字是 `docker-entrypoint.sh: line 75: /docker-entrypoint-initdb.d/10-grant-test-db.sql: Permission denied`;把同一个 0600 文件交给 `bash scripts/verify.sh deps` → 先补成 644,MySQL / Redis 都 `Healthy`、退出码 0。所以判据是「绕过去必红、走兜底必绿」——两条都跑过,别只跑后者。
 
 ## 前端(Flutter widget 测试)
 
