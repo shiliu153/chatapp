@@ -25,10 +25,17 @@ class Command(BaseCommand):
     help = "给指定用户发测试推送(需先配好极光 key,并在 App 登录过以登记设备)"
 
     def add_arguments(self, parser):
-        """注册命令行参数。
+        """注册命令行参数(``--user`` / ``--kind`` / ``--peer`` / ``--force``)。
 
-        Args:
+        参数说明:
             parser: argparse 的解析器。
+
+        使用示例:
+            ``python manage.py push_test --user 1 --kind all --peer 99 --force``(见 ``notifications/tests.py`` 的 ``PushTestCommandTests``)
+
+        备注信息:
+            只有 ``--user`` 必填;``--kind`` 默认 ``all``(三类各发一条),``--peer`` 只在
+            ``match`` / ``all`` 时需要,``--force`` 用来忽略「新的喜欢」的冷却。
         """
         parser.add_argument("--user", type=int, required=True, help="接收者账号 id")
         parser.add_argument("--kind", choices=KIND_CHOICES, default="all",
@@ -40,12 +47,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """执行命令。
 
-        Args:
+        参数说明:
             *args: 透传的位置参数。
-            **options: 解析后的命令行选项。
+            **options: 解析后的命令行选项(``user`` / ``kind`` / ``peer`` / ``force``)。
 
-        Raises:
-            CommandError: 用户不存在 / 没有设备 / match 缺少 peer。
+        使用示例:
+            ``python manage.py push_test --user 1 --kind all --peer 99 --force``(见 ``notifications/tests.py`` 的 ``PushTestCommandTests.test_sends_all_three_with_peer``)
+
+        备注信息:
+            ``CommandError``: 用户不存在 / 没有设备 / ``match`` 缺少 ``peer``,三种情况都在
+            发送前抛出,不会先发一部分。通道是 ``off`` / ``log`` 时只打提示不拦截;偏好关闭
+            的那一类跳过并打印原因。真实发送走 ``send_push.run(...)``,与线上同一条链路。
         """
         user = get_user_model().objects.filter(id=options["user"]).first()
         if user is None:
@@ -92,12 +104,19 @@ class Command(BaseCommand):
     def _sample(self, kind, peer):
         """按通知类型给一条示例文案与深链。
 
-        Args:
+        参数说明:
             kind: ``like`` / ``match`` / ``system``。
             peer: match 通知的聊天对象账号 id。
 
-        Returns:
+        返回参数:
             ``(title, alert, extras)`` 三元组。
+
+        使用示例:
+            ``title, alert, extras = self._sample(item, peer)``(见本文件 ``handle``)
+
+        备注信息:
+            深链固定为 ``/likes``、``/chat/{peer}``、``/chat/system_notice``,一次验收即可
+            覆盖三类点击跳转;未命中的 ``kind`` 一律按 ``system`` 处理。
         """
         if kind == "like":
             return ("有人喜欢了你", "去看看是谁", {"deeplink": "/likes", "type": "like"})

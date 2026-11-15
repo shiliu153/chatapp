@@ -26,15 +26,23 @@ class IsNotHeavyBanned(BasePermission):
     def has_permission(self, request, view):
         """检查当前用户是否被重封禁。
 
-        Args:
+        参数说明:
             request: DRF 请求对象。
             view: 当前视图;本权限不使用。
 
-        Returns:
+        返回参数:
             未被重封禁(或在白名单内)时返回 ``True``。
 
-        Raises:
-            PermissionDenied: 用户处于重封禁状态且访问的不是白名单接口。
+        使用示例:
+            ``self.client.get("/api/v1/discovery/candidates")`` 在重封禁下返回 403(见
+            ``moderation/tests.py`` 的
+            ``IsNotHeavyBannedTests.test_heavy_banned_blocked_across_business_endpoints``)
+
+        备注信息:
+            主动抛出 ``PermissionDenied``:用户处于重封禁状态且访问的不是白名单接口
+            (``BAN_EXEMPT``,只放行 ``GET /users/me`` 与 ``GET /users/tags``)。未登录请求
+            直接返回 ``True``,AllowAny 接口(登录/验证码/刷新 token)不归这里管;
+            轻封禁不在这里拦,只由 ``discovery.views.swipe`` 自己检查。
         """
         if not request.user.is_authenticated:
             return True   # 登录/验证码/刷新 token 等 AllowAny 接口不归这里管

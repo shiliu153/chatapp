@@ -37,15 +37,20 @@ def my_stats(request):
     时间(一人一行去重),关注数按关注关系创建时间。**不含消息条数** —— 消息在
     imserver 的库里,Django 读不到。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,支持 ``period`` 查询参数(``week`` / ``month`` / ``year``)。
 
-    Returns:
+    返回参数:
         ``{period, start, end, matches, likes_given, likes_received, visits, posts,
         post_likes, new_followers}``;``start`` / ``end`` 是含首含尾的日期字符串。
 
-    Raises:
-        InvalidPeriod: ``period`` 不在 ``week`` / ``month`` / ``year`` 之内。
+    使用示例:
+        ``resp = APIClient().get("/api/v1/stats/me")``(未带令牌 401,见 ``stats/tests.py`` 的 ``StatsApiTests.test_requires_auth``);
+        ``response = self.client.get(URL, {"period": "day"})``(非法周期 400,见同文件 ``test_invalid_period_returns_40005``)
+
+    备注信息:
+        ``period`` 不在 ``week`` / ``month`` / ``year`` 之内时由 ``parse_period`` 主动抛
+        ``InvalidPeriod``,全局异常处理收成 400 + ``40005``。
     """
     period = parse_period(request.query_params.get("period"))
     start, end = period_bounds(period)

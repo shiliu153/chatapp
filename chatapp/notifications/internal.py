@@ -44,12 +44,19 @@ MAX_PREVIEW = 200
 def _error(status: int, message: str) -> JsonResponse:
     """按项目错误契约返回 ``{"code", "message"}``。
 
-    Args:
+    参数说明:
         status: HTTP 状态码(同时作为 ``code``)。
         message: 中文说明。
 
-    Returns:
+    返回参数:
         JSON 响应。
+
+    使用示例:
+        ``return _error(401, f"内部签名校验失败:{reason}")``(见本文件 ``new_message``)
+
+    备注信息:
+        本路径是普通 Django 视图,不经过 DRF 的全局异常处理器,所以只给 ``code`` 与
+        ``message`` 两个字段(不带 ``request_id``);状态码同时充当业务码。
     """
     return JsonResponse({"code": status, "message": message}, status=status)
 
@@ -57,14 +64,21 @@ def _error(status: int, message: str) -> JsonResponse:
 def signature_for(timestamp: str, path: str, body: str, secret: str) -> str:
     """计算内部调用签名(与 imserver 的 ``hmac_sha256_hex`` 同口径)。
 
-    Args:
+    参数说明:
         timestamp: 秒级时间戳字符串。
         path: 请求路径(不含域名与查询串)。
         body: 原始请求体字符串。
         secret: 共享密钥。
 
-    Returns:
+    返回参数:
         小写十六进制 HMAC-SHA256。
+
+    使用示例:
+        ``sig = signature_for(ts, path, body, secret)``(见 ``notifications/tests.py`` 的 ``InternalPushEndpointTests._post``)
+
+    备注信息:
+        签名串固定三段拼接 ``f"{timestamp}\\nPOST\\n{path}\\n{body}"``,顺序与分隔符
+        必须与 imserver 逐字一致,改任意一侧都会 401。
     """
     signing = f"{timestamp}\nPOST\n{path}\n{body}".encode()
     return hmac.new(secret.encode(), signing, hashlib.sha256).hexdigest()
@@ -73,11 +87,18 @@ def signature_for(timestamp: str, path: str, body: str, secret: str) -> str:
 def _verify(request) -> tuple[bool, str]:
     """校验时间戳与签名。
 
-    Args:
+    参数说明:
         request: Django 请求对象。
 
-    Returns:
+    返回参数:
         ``(是否通过, 失败原因)``。
+
+    使用示例:
+        ``ok, reason = _verify(request)``(见本文件 ``new_message``)
+
+    备注信息:
+        失败原因会拼进 401 的 ``message``(密钥未配置 / 缺少签名头 / 时间戳非法 /
+        时间戳过期 / 签名不正确),日志里同一份原因也有一份 warning。
     """
     secret = getattr(settings, "IM_SELF_INTERNAL_SECRET", "")
     if not secret:
@@ -102,11 +123,18 @@ def _verify(request) -> tuple[bool, str]:
 def _parse(body: str) -> tuple[dict | None, str]:
     """解析并校验事件字段。
 
-    Args:
+    参数说明:
         body: 原始 JSON 字符串。
 
-    Returns:
+    返回参数:
         ``(事件字典, 失败原因)``;失败时字典为 ``None``。
+
+    使用示例:
+        ``payload, reason = _parse(request.body.decode("utf-8", errors="replace"))``(见本文件 ``new_message``)
+
+    备注信息:
+        除字段形状外还挡住三类语义错误:账号 id 非正整数(系统消息不推)、收发双方相同、
+        ``msg_id`` 缺失;昵称与预览按 ``MAX_NICKNAME`` / ``MAX_PREVIEW`` 截断。
     """
     try:
         data = json.loads(body)
@@ -140,11 +168,19 @@ def _parse(body: str) -> tuple[dict | None, str]:
 def new_message(request):
     """接收 imserver 的「离线新消息」事件并入队推送(POST /internal/push/new-message)。
 
-    Args:
+    参数说明:
         request: Django 请求对象(JSON body 见 ``docs/ops/push.md``)。
 
-    Returns:
+    返回参数:
         202 表示已入队;401 验签失败;400 字段不合法;405 方法不对。
+
+    使用示例:
+        ``resp = self._post(body)``(见 ``notifications/tests.py`` 的 ``InternalPushEndpointTests._post``)
+
+    备注信息:
+        真实触发方是 imserver 的推送线程(``IM_PUSH_URL`` 指向本路径,空 = 关闭);
+        这里只做验签 → 解析 → 入队三步,不做任何第三方调用,发推送在 Celery 任务
+        ``notifications.tasks.send_message_push`` 里。幂等靠任务内按 ``msg_id`` 去重。
     """
     ok, reason = _verify(request)
     if not ok:

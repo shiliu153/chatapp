@@ -26,12 +26,20 @@ class FeedbackCreateTests(APITestCase):
     def _make_user(self, phone, status=ProfileStatus.COMPLETE):
         """造一个带资料的用户。
 
-        Args:
+        参数说明:
             phone: 手机号。
             status: 资料状态,默认完善。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self.user = self._make_user("13800138000")``(见本文件 ``FeedbackCreateTests.setUp``)
+
+        备注信息:
+            同时落一条 ``Profile`` 行;手机号在库内唯一,同一用例内不能重复使用同一个号码。
+            传 ``ProfileStatus.BANNED_HEAVY`` 即可构造重封禁用例(见本文件
+            ``test_heavy_banned_forbidden``)。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=phone, status=status)
@@ -40,11 +48,19 @@ class FeedbackCreateTests(APITestCase):
     def _post(self, **overrides):
         """提交一条反馈,允许覆盖任意字段。
 
-        Args:
-            **overrides: 要覆盖的请求字段。
+        参数说明:
+            **overrides: 要覆盖的请求字段,键名与 ``/api/v1/feedback`` 的 body 字段一致。
 
-        Returns:
+        返回参数:
             接口响应。
+
+        使用示例:
+            ``resp = self._post(content="  希望增加夜间模式开关  ")``(见本文件 ``test_trims_content``)
+
+        备注信息:
+            默认 payload 是合法的一条(``type=feature`` + 10 字 ``content`` + 空 ``contact``),
+            按 JSON 格式提交;要测非法分支只覆盖对应字段即可(见本文件
+            ``test_rejects_unknown_type`` 等)。
         """
         payload = {"type": "feature", "content": "希望增加夜间模式开关", "contact": ""}
         payload.update(overrides)

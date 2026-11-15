@@ -57,14 +57,20 @@ from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 
 
 def make_staff(phone="13700137000", password="ops-pass-123"):
-    """运营账号 = is_staff 用户(create_user 默认不设密码,必须显式 set_password)。
+    """造一个运营账号:``is_staff`` 用户(``create_user`` 默认不设密码,必须显式 ``set_password``)。
 
-    Args:
+    参数说明:
         phone: 运营账号手机号。
         password: 登录密码。
 
-    Returns:
+    返回参数:
         建好的运营账号。
+
+    使用示例:
+        ``self.staff = make_staff()``(见本文件 ``OpsAuthTests.setUp``)。
+
+    备注信息:
+        无特殊约束。
     """
     user = User.objects.create_user(phone=phone, is_staff=True)
     user.set_password(password)
@@ -75,12 +81,19 @@ def make_staff(phone="13700137000", password="ops-pass-123"):
 def make_metric(day, **fields):
     """造一行每日指标快照(未显式给的字段用一组非零默认值)。
 
-    Args:
+    参数说明:
         day: 快照日期(``Asia/Shanghai`` 自然日)。
         **fields: 要覆盖的字段;显式传 ``None`` 表示「当天没采到」。
 
-    Returns:
+    返回参数:
         建好的 ``DailyMetric`` 行。
+
+    使用示例:
+        ``make_metric(self.yesterday, dau=12, new_users=4, messages=137)``
+        (见本文件 ``OpsMetricsTests.test_staff_sees_cards_and_trend_row``)。
+
+    备注信息:
+        无特殊约束。
     """
     defaults = {
         "dau": 10, "new_users": 3, "profiles_completed": 1,
@@ -103,8 +116,14 @@ class OpsMetricsTests(TestCase):
     def _body(self):
         """取一次看板页的响应正文(多数断言只需要正文里有什么)。
 
-        Returns:
+        返回参数:
             ``str``:解码后的 HTML。
+
+        使用示例:
+            ``body = self._body()``(见本文件 ``OpsMetricsTests.test_nav_has_board_entry_before_logs``)。
+
+        备注信息:
+            顺带断言 ``GET /ops/metrics/`` 是 200。
         """
         resp = self.client.get("/ops/metrics/")
         self.assertEqual(resp.status_code, 200)

@@ -18,12 +18,22 @@ class BlockThrottle(UserScopedThrottle):
     def allow_request(self, request, view):
         """只对 POST 计数,看黑名单列表不限流。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图。
 
-        Returns:
+        返回参数:
             非 POST 时恒为 ``True``,否则走父类的额度判定。
+
+        使用示例:
+            视图上挂 ``@throttle_classes([BlockThrottle])``(见 ``moderation/views.py`` 的 ``blocks``),
+            由 DRF 逐请求调用;超限用例见 ``moderation/tests.py`` 的 ``BlockApiTests.test_block_write_throttled``
+
+        备注信息:
+            额度见 ``settings.DEFAULT_THROTTLE_RATES["blocks"]``(默认 60/小时,``BLOCK_RATE`` 可覆盖);
+            父类返回 ``False`` 时
+            由 DRF 的 ``check_throttles`` 抛 ``Throttled``(429)。GET 列表不计数,否则反复刷黑名单
+            页会把自己的写额度耗尽。
         """
         if request.method != "POST":
             return True
@@ -47,11 +57,19 @@ class ReportThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         """按用户 id 生成限流缓存键。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图;DRF 接口要求,此处未使用。
 
-        Returns:
+        返回参数:
             该用户在 ``report`` 作用域下的缓存键。
+
+        使用示例:
+            ``cache_key = self.get_cache_key(request, view)``(由 ``SimpleRateThrottle.allow_request``
+            内部调用;本类挂在 ``moderation/views.py`` 的 ``create_report`` 上)
+
+        备注信息:
+            不复用父类的 ``get_ident`` 是因为它按 IP 计数,而举报额度要按账号算;
+            ``self.cache_format`` 自带 ``scope`` 前缀,不同作用域互不覆盖。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}

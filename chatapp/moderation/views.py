@@ -39,18 +39,22 @@ User = get_user_model()
 def create_report(request):
     """提交举报(POST /api/v1/reports)。
 
-    幂等:同一被举报人若已有待处理举报,返回已有记录且状态码为 200;
-    本次新建时返回 201。
-
-    Args:
+    参数说明:
         request: DRF 请求对象,body 需带 ``target_user_id`` / ``type`` / 可选 ``detail``。
 
-    Returns:
-        ``{id, type, status}``。
+    返回参数:
+        ``{id, type, status}``;本次新建返回 201,命中已有待处理举报返回 200。
 
-    Raises:
-        ValidationError: 举报自己。
-        NotFound: 被举报人不存在。
+    使用示例:
+        ``resp = self.client.post("/api/v1/reports", {"target_user_id": self.target.id,
+        "type": "harassment", "detail": "一直发骚扰消息"}, format="json")``(见
+        ``moderation/tests.py`` 的 ``ReportApiTests.test_creates_pending_report``)
+
+    备注信息:
+        幂等:同一被举报人若已有待处理举报,返回已有记录且状态码为 200;本次新建时返回 201。
+        主动抛出 ``ValidationError``(举报自己,400)与 ``NotFound``(被举报人不存在,404);
+        请求体非法时 ``ReportCreateSerializer`` 同样抛 ``ValidationError``。计数走
+        ``ReportThrottle``,额度 20/天。
     """
     serializer = ReportCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -78,17 +82,24 @@ def create_report(request):
 def blocks(request):
     """黑名单:读取列表与新增拉黑(GET/POST /api/v1/blocks)。
 
-    POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单。
+    参数说明:
+        request: DRF 请求对象;POST 时 body 需带 ``target_user_id``,GET 支持 ``limit`` /
+            ``offset`` 分页参数。
 
-    Args:
-        request: DRF 请求对象;POST 时 body 需带 ``target_user_id``。
-
-    Returns:
+    返回参数:
         GET 返回分页后的黑名单条目;POST 返回拉黑对象(新建为 201,已存在为 200)。
 
-    Raises:
-        ValidationError: 拉黑自己。
-        NotFound: 目标用户不存在。
+    使用示例:
+        ``data = self.client.get("/api/v1/blocks").json()``(见 ``moderation/tests.py`` 的
+        ``BlockApiTests.test_list_shows_nickname_and_avatar``);
+        ``self.client.post("/api/v1/blocks", {"target_user_id": self.target.id}, format="json")``
+        (见同文件 ``BlockApiTests.test_block_creates_row_and_syncs_im``)
+
+    备注信息:
+        POST 幂等(重复拉黑返回已有记录);仅在真正新建时才入队同步 IM 黑名单,并撤销聊天权限。
+        主动抛出 ``ValidationError``(拉黑自己,400)与 ``NotFound``(目标用户不存在,404)。
+        限流只作用于 POST(见 ``BlockThrottle.allow_request``)。GET 列表带对方的昵称与头像,
+        由 ``BlockSerializer`` 内联,前端不需要再逐条查资料。
     """
     if request.method == "POST":
         serializer = BlockCreateSerializer(data=request.data)
@@ -119,14 +130,21 @@ def blocks(request):
 def unblock(request, user_id):
     """解除拉黑(DELETE /api/v1/blocks/{user_id})。
 
-    幂等:没有该条拉黑记录时直接返回 204,不报错。
-
-    Args:
+    参数说明:
         request: DRF 请求对象。
         user_id: 被解除拉黑的账号 id。
 
-    Returns:
+    返回参数:
         204 空响应。
+
+    使用示例:
+        ``resp = self.client.delete(f"/api/v1/blocks/{self.target.id}")``(见 ``moderation/tests.py``
+        的 ``BlockApiTests.test_unblock_removes_and_syncs_im``)
+
+    备注信息:
+        幂等:没有该条拉黑记录时直接返回 204,不报错。解除后若两人仍是有效配对
+        (``unmatched_at`` 为空)才恢复聊天权限,否则不恢复。限流走 ``UnblockThrottle``,
+        额度默认 60/小时(``UNBLOCK_RATE``)。
     """
     block = Block.objects.filter(blocker=request.user, blocked_id=user_id).first()
     if block is not None:

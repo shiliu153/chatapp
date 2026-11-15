@@ -31,19 +31,34 @@ class StaffSecurityMiddleware:
     def __init__(self, get_response):
         """按 Django 中间件协议保存下游处理链。
 
-        Args:
+        参数说明:
             get_response: Django 传入的下一层处理函数。
+
+        使用示例:
+            ``"ops.middleware.StaffSecurityMiddleware"`` 注册在 ``config/settings.py``
+            的 ``MIDDLEWARE`` 里,由 Django 装配时调用。
+
+        备注信息:
+            无特殊约束。
         """
         self.get_response = get_response
 
     def __call__(self, request):
         """检查白名单与第二因子,必要时短路返回。
 
-        Args:
+        参数说明:
             request: Django 请求对象。
 
-        Returns:
+        返回参数:
             下游响应,或 403 / 跳转到 OTP 页。
+
+        使用示例:
+            ``resp = self.client.get("/ops/reports/")`` 即经过本方法判定
+            (见 ``ops/tests.py`` 的 ``StaffIpAllowlistTests`` 与 ``StaffOtpTests``)。
+
+        备注信息:
+            只处理 ``PROTECTED_PREFIXES``(``/admin/``、``/ops/``);命中
+            ``EXEMPT_PREFIXES``(登录 / 登出 / OTP / 静态路径)时直接放行。
         """
         path = request.path
         if not path.startswith(PROTECTED_PREFIXES):

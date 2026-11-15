@@ -40,13 +40,23 @@ def _should_log(platform: str, message: str) -> bool:
     采样只影响日志:``metrics.CLIENT_ERRORS`` 仍然每次请求都累加 —— 计数器要反映
     真实上报量,否则突增告警会随采样率一起失真。
 
-    Args:
+    参数说明:
         platform: 上报端,``web`` 或 ``app``。
         message: 错误摘要;与 platform 一起构成采样键。
 
-    Returns:
-        True 表示这次该写日志。``cache.add`` 抛异常时**返回 True**(fail-open):
+    返回参数:
+        ``True`` 表示这次该写日志。``cache.add`` 抛异常时**返回 True**(fail-open):
         Redis 挂了不能让错误日志跟着一起消失。
+
+    使用示例:
+        ``if _should_log(data["platform"], data["message"]):``(见本文件 ``report_client_error``)
+
+    备注信息:
+        采样窗口由 ``CLIENT_ERROR_SAMPLE_SECONDS``(60 秒)决定,采样键是 platform 与
+        message 拼上不可打印分隔符后的 SHA-256 摘要 —— 裸拼接会让 ("a b","c") 与
+        ("a","b c") 撞成同一个键。用例见 ``telemetry/tests.py`` 的
+        ``test_same_platform_and_message_is_logged_only_once_per_window`` 与
+        ``test_cache_failure_still_logs``。
     """
     # 用 \x00 分隔:platform 与 message 都可能含空格/换行,裸拼接会让 ("a b","c") 与
     # ("a","b c") 撞成同一个采样键。
@@ -67,11 +77,22 @@ def report_client_error(request):
 
     允许匿名:登录页白屏、启动即崩这类最有价值的错误发生时,客户端还没有令牌。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,body 见 ``ClientErrorSerializer``。
 
-    Returns:
+    返回参数:
         204 空响应(上报是 fire-and-forget,不回业务数据)。
+
+    使用示例:
+        ``self.client.post(URL, {"platform": "web", "message": "boom"}, format="json")``
+        (见 ``telemetry/tests.py`` 的 ``ClientErrorReportTests``,其 ``URL`` 为
+        ``/api/v1/client-errors``)
+
+    备注信息:
+        匿名可上报(``AllowAny``),按 IP 限流(``ClientErrorThrottle``,超限 429);
+        平台取值不在白名单或堆栈超长回 400。日志按 platform + message 采样(见
+        ``_should_log``),``metrics.CLIENT_ERRORS`` 每次上报都累加,级别固定 ``warning``
+        —— 本 logger 不参与告警(见模块 docstring)。
     """
     serializer = ClientErrorSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)

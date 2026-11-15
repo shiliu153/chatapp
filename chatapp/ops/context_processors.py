@@ -15,12 +15,20 @@ from users.models import Photo, PhotoStatus
 def ops_badges(request):
     """提供审核台导航栏的待办数量。
 
-    Args:
+    参数说明:
         request: Django 请求对象。
 
-    Returns:
+    返回参数:
         四类待办数量的字典(待处理举报 / 待审照片 / 待处理动态举报 / 待处理反馈);
         非运营账号返回空字典(模板里取不到即为空)。
+
+    使用示例:
+        挂在 ``config/settings.py`` 的 ``TEMPLATES`` 里
+        (``"ops.context_processors.ops_badges"``),模板中直接取
+        ``pending_report_count`` 等四个键。
+
+    备注信息:
+        无特殊约束。
     """
     if not (request.user.is_authenticated and request.user.is_staff):
         return {}

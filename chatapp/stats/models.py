@@ -45,7 +45,13 @@ class DailyMetric(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        返回参数:
             ``日期 + 日活``。
+
+        使用示例:
+            ``str(row)``(后台列表与日志由 Django 直接调用;构造形态见 ``stats/tests.py`` 的 ``DailyMetric(date=...)``)
+
+        备注信息:
+            日活为 ``None`` 时打印 ``-`` 而不是 ``None``,与看板缺失值口径一致。
         """
         return f"{self.date} dau={self.dau if self.dau is not None else '-'}"

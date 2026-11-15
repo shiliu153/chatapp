@@ -95,8 +95,19 @@ class IsNotHeavyBannedTests(APITestCase):
     def _ban(self, status):
         """把当前用户资料直接改成指定状态,模拟已被封禁。
 
-        Args:
+        参数说明:
             status: 目标 ``ProfileStatus`` 取值。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._ban(ProfileStatus.BANNED_HEAVY)``(见 ``moderation/tests.py`` 的
+            ``IsNotHeavyBannedTests.test_heavy_banned_blocked_across_business_endpoints``)
+
+        备注信息:
+            用 ``queryset.update`` 绕过 ``Profile.save``,因此不会触发 admin 的封禁审计钩子,
+            适合只关心权限判定的用例。
         """
         Profile.objects.filter(user=self.me).update(status=status)
 
@@ -193,9 +204,21 @@ class ProfileAdminHookTests(TestCase):
     def _save(self, status, reason):
         """模拟在 admin 里保存一次资料(封禁状态由参数指定)。
 
-        Args:
+        参数说明:
             status: 目标 ``ProfileStatus`` 取值。
             reason: 封禁原因。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._save(ProfileStatus.BANNED_HEAVY, "骚扰他人")``(见 ``moderation/tests.py`` 的
+            ``ProfileAdminHookTests.test_heavy_ban_via_admin_writes_audit``)
+
+        备注信息:
+            用 ``RequestFactory`` 现造请求并挂上 ``self.operator`` 当操作人,直接调
+            ``users.admin.ProfileAdmin.save_model``;两个 IM 任务(``ban_notice`` / ``ban_lifted``)
+            在方法内被 patch 掉,用例只断言审计行。
         """
         from django.contrib import admin as django_admin
         from django.test import RequestFactory
@@ -304,13 +327,21 @@ class ReportApiTests(APITestCase):
     def report(self, target_id=None, type_="harassment", detail=""):
         """提交一次举报。
 
-        Args:
+        参数说明:
             target_id: 被举报人账号 id;``None`` 表示用 ``self.target``。
             type_: 举报类型。
             detail: 补充说明。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``resp = self.report(detail="一直发骚扰消息")``(见 ``moderation/tests.py`` 的
+            ``ReportApiTests.test_creates_pending_report``)
+
+        备注信息:
+            固定 POST 类属性 ``URL``(``/api/v1/reports``),``format="json"``;
+            需要断言限流时先 ``cache.clear()``,计数存在缓存里。
         """
         return self.client.post(self.URL, {
             "target_user_id": self.target.id if target_id is None else target_id,
@@ -496,11 +527,19 @@ class BlockVisibilityTests(APITestCase):
     def _make_user(self, phone):
         """造一个资料完善、带已过审照片的用户。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self.me = self._make_user("13800138000")``(见 ``moderation/tests.py`` 的
+            ``BlockVisibilityTests.setUp``)
+
+        备注信息:
+            资料置为 ``ProfileStatus.COMPLETE`` 并附一张 ``PhotoStatus.APPROVED`` 照片,
+            这样用户才会出现在候选池里,便于断言拉黑后的可见性。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=phone, gender="female", birthday="2000-01-01",

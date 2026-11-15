@@ -38,14 +38,19 @@ _dsn_missing_logged = False
 def _parse_dsn(dsn: str) -> dict:
     """把 ``mysql://user:pass@host:port/db`` 拆成连接参数。
 
-    Args:
+    参数说明:
         dsn: 数据库连接串;``mysql://`` 前缀可省略。
 
-    Returns:
+    返回参数:
         含 ``user`` / ``password`` / ``host`` / ``port`` / ``database`` 的字典。
 
-    Raises:
-        ValueError: DSN 里缺少 ``@`` 或库名,无法解析。
+    使用示例:
+        ``params = _parse_dsn(dsn)``(见本模块 ``count_messages``);
+        ``im_source._parse_dsn("mysql://u:p@ss@db.example:3307/chatapp_im")``(见 ``stats/tests.py`` 的 ``ImSourceTests``)
+
+    备注信息:
+        按最后一个 ``@`` 切分:密码里可能带 ``@``(与 ``deploy/ops/chatapp-backup.sh`` 同一处理)。
+        DSN 里缺少 ``@`` 段、主机或库名时抛 ``ValueError``,由调用方降级成 ``None``。
     """
     # 去掉 ``mysql://`` 前缀;按最后一个 @ 切分:密码里可能带 @(与备份脚本同一处理)
     rest = dsn.split("://", 1)[-1]
@@ -75,11 +80,20 @@ def count_messages(day: date) -> int | None:
     日期区间取 ``Asia/Shanghai`` 自然日(复用 ``stats.metrics.day_range``,避免两套
     切日口径;函数内导入是因为 ``stats.metrics`` 在顶层导入本模块)。
 
-    Args:
+    参数说明:
         day: ``Asia/Shanghai`` 自然日。
 
-    Returns:
+    返回参数:
         当天的消息条数;DSN 未配 / 连接或查询失败返回 ``None``(调用方据此留空)。
+
+    使用示例:
+        ``"messages": im_source.count_messages(day)``(见 ``stats/metrics.py`` 的 ``build_snapshot``);
+        测试用 ``patch("stats.im_source.count_messages", return_value=42)``(见 ``stats/tests.py`` 的 ``MetricsDailyCommandTests.test_messages_from_im_source``)
+
+    备注信息:
+        DSN 为空、连不上、查询报错一律返回 ``None`` 并记日志,**绝不抛异常** —— 看板不能因为
+        IM 库挂了而整页空白。查询参数是 epoch **毫秒**(``im_message.created_at`` 是 imserver
+        用 ``now_ms()`` 写的 BIGINT),按秒传边界会让区间恒为空、消息量永远是 0。
     """
     from .metrics import day_range   # 局部导入:metrics 顶层导入本模块,避免循环导入
 

@@ -60,13 +60,21 @@ class Report(models.Model):
     def save(self, *args, **kwargs):
         """保存前维护去重键。
 
-        待处理举报写入 ``举报人:被举报人:pending``;一旦离开待处理状态就清空,
-        这样用户处理完可以再次举报同一人,而并发提交仍被唯一约束挡住。
-
-        Args:
+        参数说明:
             *args: 透传给 ``Model.save``。
             **kwargs: 透传给 ``Model.save``;``update_fields`` 会补上 ``dedupe_key``,
                 否则只改 ``status`` 时去重键清不掉。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``report.status = ReportStatus.HANDLED`` 后 ``report.save(update_fields=["status"])``
+            (见 ``moderation/tests.py`` 的 ``ReportApiTests.test_dedupe_key_is_cleared_when_handled``)
+
+        备注信息:
+            待处理举报写入 ``举报人:被举报人:pending``;一旦离开待处理状态就清空,
+            这样用户处理完可以再次举报同一人,而并发提交仍被唯一约束挡住。
         """
         if self.status == ReportStatus.PENDING:
             if not self.dedupe_key:
@@ -81,8 +89,17 @@ class Report(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``report#主键(举报人->被举报人:类型)``。
+
+        使用示例:
+            ``str(report)``(后台 ``ReportAdmin.list_display`` 与日志输出用到)
+
+        备注信息:
+            只用于后台列表与日志输出,不参与任何业务判定。
         """
         return f"report#{self.pk}({self.reporter_id}->{self.target_id}:{self.type})"
 
@@ -106,8 +123,17 @@ class Block(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``block(发起方->被拉黑方)``。
+
+        使用示例:
+            ``str(block)``(后台 ``BlockAdmin.list_display`` 与日志输出用到)
+
+        备注信息:
+            只用于后台列表与日志输出,不参与任何业务判定。
         """
         return f"block({self.blocker_id}->{self.blocked_id})"
 
@@ -137,7 +163,16 @@ class BanLog(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``ban#主键(账号 id:动作)``。
+
+        使用示例:
+            ``str(log)``(后台 ``BanLogAdmin.list_display`` 与日志输出用到)
+
+        备注信息:
+            括号里是账号 id(``user_id``),不是审计行主键;动作取 ``BanAction`` 的存储值。
         """
         return f"ban#{self.pk}({self.user_id}:{self.action})"

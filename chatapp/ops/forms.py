@@ -22,11 +22,15 @@ class OpsLoginForm(AuthenticationForm):
     def confirm_login_allowed(self, user):
         """在父类校验通过后追加 ``is_staff`` 检查。
 
-        Args:
+        参数说明:
             user: 已通过账号密码校验的用户。
 
-        Raises:
-            ValidationError: 该账号没有运营权限。
+        使用示例:
+            ``form.is_valid()`` 时由 Django 的 ``AuthenticationForm`` 调用
+            (登录页 ``/ops/login/``,见 ``ops/urls.py`` 与 ``ops/tests.py`` 的 ``OpsAuthTests``)。
+
+        备注信息:
+            该账号没有运营权限时主动抛出 ``ValidationError``(``code="no_staff"``)。
         """
         super().confirm_login_allowed(user)
         if not user.is_staff:
@@ -52,11 +56,15 @@ class PhoneAllowlistForm(forms.Form):
     def clean_phone(self):
         """去掉首尾空白并校验手机号格式。
 
-        Returns:
+        返回参数:
             规范化后的手机号。
 
-        Raises:
-            ValidationError: 不是中国大陆 11 位手机号。
+        使用示例:
+            ``PhoneAllowlistForm(request.POST).is_valid()`` 时由 ``full_clean`` 调用
+            (见 ``ops/views.py`` 的 ``allowlist_add``)。
+
+        备注信息:
+            不是中国大陆 11 位手机号时主动抛出 ``ValidationError``。
         """
         phone = self.cleaned_data["phone"].strip()
         if not is_valid_phone(phone):
@@ -66,7 +74,13 @@ class PhoneAllowlistForm(forms.Form):
     def clean_note(self):
         """去掉备注首尾空白。
 
-        Returns:
+        返回参数:
             去空白后的备注,可能为空串。
+
+        使用示例:
+            ``note = form.cleaned_data["note"]``(见 ``ops/views.py`` 的 ``allowlist_add``)。
+
+        备注信息:
+            无特殊约束。
         """
         return self.cleaned_data["note"].strip()

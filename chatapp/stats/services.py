@@ -46,14 +46,17 @@ METRICS = ("matches", "likes_given", "likes_received", "visits",
 def parse_period(raw) -> str:
     """校验并归一化查询参数 ``period``。
 
-    Args:
+    参数说明:
         raw: 原始参数值,可能是 ``None`` / 空串 / 任意字符串。
 
-    Returns:
+    返回参数:
         ``week`` / ``month`` / ``year``;缺省或空串时返回 ``DEFAULT_PERIOD``。
 
-    Raises:
-        InvalidPeriod: 取值不在三者之内。
+    使用示例:
+        ``period = parse_period(request.query_params.get("period"))``(见 ``stats/views.py`` 的 ``my_stats``)
+
+    备注信息:
+        取值不在三者之内时抛 ``InvalidPeriod``,视图层据此返回 400 + ``40005``。
     """
     value = (raw or "").strip().lower()
     if not value:
@@ -66,17 +69,21 @@ def parse_period(raw) -> str:
 def period_bounds(period: str, today: date | None = None) -> tuple[date, date]:
     """算出一个自然周期的起止日期(含首含尾)。
 
-    Args:
+    参数说明:
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示取本地时区的今天(便于测试注入)。
 
-    Returns:
+    返回参数:
         ``(start, end)`` 两个日期。``week`` 从周一算到周日,``month`` 是整月,
         ``year`` 是整年。
 
-    Raises:
-        ValueError: ``period`` 不是三个取值之一(视图层已用 ``parse_period`` 拦过,
-            这里兜底防止内部调用传错)。
+    使用示例:
+        ``start, end = period_bounds(period)``(见 ``stats/views.py`` 的 ``my_stats``);测试见
+        ``stats/tests.py`` 的 ``PeriodBoundsTests``
+
+    备注信息:
+        ``period`` 不是三个取值之一时抛 ``ValueError``:视图层已用 ``parse_period`` 拦过,
+        这里兜底防止内部调用传错。返回的是日期,换时刻区间用 ``period_window``。
     """
     today = today or timezone.localdate()
     if period == "week":
@@ -98,12 +105,18 @@ def period_window(period: str, today: date | None = None) -> tuple[datetime, dat
     所以边界必须先在 ``Asia/Shanghai`` 拼好再交给 Django 比较,不能直接拿
     ``date`` 去比对 ``DateTimeField``。
 
-    Args:
+    参数说明:
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示取本地时区的今天。
 
-    Returns:
+    返回参数:
         ``(after, before)``:``after`` 含、``before`` 不含。
+
+    使用示例:
+        ``after, before = period_window(period, today)``(见本模块 ``collect``;测试见 ``stats/tests.py`` 的 ``PeriodBoundsTests``)
+
+    备注信息:
+        周期本身由 ``period_bounds`` 算(含首含尾),本函数只把日期边界换成带时区的时刻。
     """
     start, end = period_bounds(period, today)
     zone = timezone.get_current_timezone()
@@ -119,11 +132,18 @@ def _count_subquery(rows) -> Subquery:
     「每行 1」再被 ``LIMIT 1`` 截成一个恒为 1 的常数。显式按常量分组后才是整段
     ``COUNT(*)``。
 
-    Args:
+    参数说明:
         rows: 已经带好过滤条件的查询集。
 
-    Returns:
+    返回参数:
         返回单个整数的 ``Subquery``;``COUNT(*)`` 恒有结果,不需要 ``Coalesce``。
+
+    使用示例:
+        ``aliases[name]: _count_subquery(rows)``(见本模块 ``collect`` 的 ``annotate`` 字典推导)
+
+    备注信息:
+        七个计数压进同一条 SQL 是接口查询预算的要求(``test_query_budget`` 给本接口 8 条),
+        不要拆回七次独立 ``count()``。
     """
     counted = (rows.order_by()
                .annotate(_bucket=Value(1)).values("_bucket")
@@ -134,13 +154,21 @@ def _count_subquery(rows) -> Subquery:
 def collect(user, period: str, today: date | None = None) -> dict[str, int]:
     """汇总当前用户在某个周期内的七项数字。
 
-    Args:
+    参数说明:
         user: 当前登录用户;所有查询都以它为主体,不会返回他人数据。
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示取本地时区的今天(便于测试注入)。
 
-    Returns:
+    返回参数:
         七个字段的字典,键顺序与 ``METRICS`` 一致。
+
+    使用示例:
+        ``**collect(request.user, period)``(见 ``stats/views.py`` 的 ``my_stats``)
+
+    备注信息:
+        口径是「区间内发生的事件」,不是「当前存量」:配对数按 ``created_at``(含事后被解除的),
+        访客按 ``last_at``(一人一行),关注按 ``Follow.created_at``。注解别名统一加 ``stat_``
+        前缀,因为 ``posts`` / ``post_likes`` 与 ``User`` 的反向关联名冲突。
     """
     after, before = period_window(period, today)
     created = {"created_at__gte": after, "created_at__lt": before}
