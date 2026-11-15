@@ -104,7 +104,7 @@ worker 在自己工单目录里跑 `verify.sh backend` 时自起自拆,与母体
 (此前那句「worker 的验证环境没起」是纯误报)。要手动补缓存(可选):
 
 ```bash
-cd <任一检出目录> && bash scripts/verify.sh deps --keep-deps   # 起来后用 --keep-deps 别在收尾时拆掉
+cd <任一检出目录> && bash scripts/verify.sh deps        # 只起依赖(不跑门禁)
 ```
 
 **撞槽兜底与并发上限**(2026-11-15 补):
@@ -122,7 +122,8 @@ cd <任一检出目录> && bash scripts/verify.sh deps --keep-deps   # 起来后
   (2026-11-15 实测:`chatapp-ci-s9` 明明在跑,WSL 里 13400-13699 的监听列表是空的)。
 
 顺延出来的栈仍是「同一目录 + 同一规则」算出来的,下次跑还是它;但若占用它的项目先消失,下次会算回原槽,
-那一套要用 `CHATAPP_CI_SLOT=<顺延后的槽> bash scripts/verify.sh deps down` 手动收。
+那一套要用 `CHATAPP_CI_SLOT=<顺延后的槽> bash scripts/stacks/deps.sh down` 手动收
+(`verify.sh` 没有 `deps down` 子命令;`deps.sh down` 同样按目录派生,只有显式给槽才能拆到顺延出来的那套)。
 
 **并发上限**(2026-11-15 实测,15.8GiB 的 WSL):一套依赖栈 = MySQL 390-460MiB + Redis 4-5MiB
 (空库 388MiB / 4MiB;跑完一整轮 backend 全量 1119 个用例后 458MiB / 5MiB),即 **≈ 0.45GiB/套**。

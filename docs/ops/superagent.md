@@ -753,7 +753,7 @@ WSL 一重启就全部 `Exited (255)`。**2026-11-15 起这不再影响派单**:
 会把「一切正常」读成「环境坏了」。要手动补缓存(可选):
 
 ```bash
-cd <任一检出目录> && bash scripts/verify.sh deps --keep-deps
+cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆掉用 bash scripts/stacks/deps.sh down
 ```
 
 (其余 `dev374-*` / `im-lead` / `chatapp-iso-*` / `imserver-*` 属于别的活儿,不在此列。)
