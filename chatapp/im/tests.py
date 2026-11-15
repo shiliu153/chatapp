@@ -8,6 +8,8 @@
       ``im_sync_nicknames``(含失败计数)、``im_sync_pairs``(回填配对);
     - IM 凭证接口:签发自建 token、重封禁 403、会话版本同步失败则 fail-closed、
       踢旧会话必须先于签发;
+    - 语音上传:成功返回四元组、时长/格式校验、缺 ffmpeg 与转码槽被占都回 503+50302
+      (后者带 ``Retry-After``)、限流;
     - 副作用任务:``False`` 转异常以触发重试、缺用户时静默、注销删号不查库、
       解除配对时双向拉黑。
 """
@@ -40,6 +42,7 @@ from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from config import transcode_gate
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import get_profile
 
@@ -1118,6 +1121,22 @@ class ChatVoiceUploadTests(APITestCase):
         response = self.upload()
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data["code"], 50302)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=12500)
+    def test_transcode_busy_returns_503_with_retry_after(self, _probe, _transcode, _ffmpeg):
+        """转码槽被占:立刻 503 + ``50302`` + ``Retry-After``,不排队也不落盘(M-3)。"""
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        response = self.upload()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], 50302)
+        self.assertEqual(response.headers["Retry-After"], "5")
+        self.assertEqual(ChatVoice.objects.count(), 0)
+        # 释放后同一个请求能进:证明上面的 503 是槽造成的,不是别的失败路径。
+        transcode_gate.release()
+        self.assertEqual(self.upload().status_code, 201)
 
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))

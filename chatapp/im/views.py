@@ -34,7 +34,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from accounts import device_session
-from config import error_codes, images, storage
+from config import error_codes, images, storage, transcode_gate
 
 from . import media_sign, voice
 from .client import ensure_account, kick_user, set_session_version
@@ -217,7 +217,8 @@ def upload_voice(request):
 
     返回参数:
         201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
-        400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
+        400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)或转码槽被占用
+        (同为 ``50302``,响应头带 ``Retry-After``)。
 
     使用示例:
         ``self.client.post(self.url, {"file": SimpleUploadedFile("a.m4a", content, content_type="audio/mp4"), "duration_ms": duration_ms}, format="multipart")``
@@ -227,19 +228,30 @@ def upload_voice(request):
         配额检查在落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
         缺 ffmpeg/ffprobe 时按 ``voice.VoiceUnavailable`` 回 503,不静默降级;
         时长与格式不合法按 ``voice.VoiceError`` 回 400。
+        转码前先抢 ``config.transcode_gate`` 的全局槽(与资料语音共用一个槽):抢不到立即
+        503 + ``Retry-After``,不排队 —— 生产只有 2 个 worker,同步转码两路就会把登录与
+        健康检查一起拖住(第五轮审计 M-3)。槽在 ``with`` 退出时释放,异常路径同样释放。
     """
     serializer = ChatVoiceUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     upload = serializer.validated_data["file"]
-    try:
-        data, duration_ms = voice.normalize(
-            upload.read(), upload.content_type, serializer.validated_data["duration_ms"])
-    except voice.VoiceUnavailable:
-        logger.error("聊天语音上传失败:服务器缺少 ffmpeg/ffprobe")
-        return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
-                         "message": "语音消息暂不可用"}, status=503)
-    except voice.VoiceError as error:
-        return Response({"code": 400, "message": str(error)}, status=400)
+
+    # 抢槽在真正转码之前:抢不到立刻失败,把请求线程让给别的接口(M-3)。
+    with transcode_gate.slot() as acquired:
+        if not acquired:
+            logger.warning("chat_voice_transcode_busy", extra={"user_id": request.user.id})
+            return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                             "message": "语音消息暂不可用"}, status=503,
+                            headers={"Retry-After": str(transcode_gate.retry_after())})
+        try:
+            data, duration_ms = voice.normalize(
+                upload.read(), upload.content_type, serializer.validated_data["duration_ms"])
+        except voice.VoiceUnavailable:
+            logger.error("聊天语音上传失败:服务器缺少 ffmpeg/ffprobe")
+            return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                             "message": "语音消息暂不可用"}, status=503)
+        except voice.VoiceError as error:
+            return Response({"code": 400, "message": str(error)}, status=400)
 
     stem = f"{request.user.id}-{uuid.uuid4().hex}"
     storage.ensure_quota(request.user, len(data))   # 配额检查在落盘前(M7)
