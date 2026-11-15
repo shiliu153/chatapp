@@ -23,7 +23,7 @@
 | 第二轮 | [2026-10-28-api-security-audit-round2.md](2026-10-28-api-security-audit-round2.md) | 2026-10-28 | 同上 |
 | 第三轮 | [2026-11-01-api-security-audit-round3.md](2026-11-01-api-security-audit-round3.md) | 2026-11-01 | 同上 |
 | 第四轮 | [2026-11-08-api-security-audit-round4.md](2026-11-08-api-security-audit-round4.md) | 2026-11-08 | 纯服务端整改,已随当次上线 |
-| 第五轮 | [2026-11-16-api-security-audit-round5.md](2026-11-16-api-security-audit-round5.md) | 2026-11-16 | 本轮无严重项;Redis `requirepass` 仍未开(承接 H-1),另有三项中危待整改 |
+| 第五轮 | [2026-11-16-api-security-audit-round5.md](2026-11-16-api-security-audit-round5.md) | 2026-11-16 | 本轮无严重项;三项中危当日整改合并(M-1 限流 / M-2 降频 / M-3 转码闸),Redis `requirepass` 仍未开(承接 H-1) |
 
 ## 2. 怎么用这些报告
 
