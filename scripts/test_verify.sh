@@ -56,13 +56,13 @@ probe_env() { # probe_env <目录> [环境赋值...] → 「项目名 MySQL端�
   mkdir -p "$dir/scripts/stacks"
   cp "$ROOT/scripts/stacks/env.sh" "$dir/scripts/stacks/env.sh"
   # shellcheck disable=SC2086  # "$@" 是若干 NAME=VALUE,必须逐词传给 env
-  # 两个 CHATAPP_CI_* 是 env.sh 的**离线探针**(撞槽判定的注入口)。这里默认填空 =
-  # 「假装没有端口被占、没有自己的栈」,于是派生结果只由路径决定 —— 自测不会被宿主上
-  # 真在跑的容器带跑;要造「撞槽」场景再按需覆盖(见下面那组用例)。
+  # 三个 CHATAPP_CI_* 是 env.sh 的**离线探针**(撞槽判定的注入口)。这里默认填空 =
+  # 「假装没有端口被占、没有自己的栈、端口都连不上」,于是派生结果只由路径决定 ——
+  # 自测不会被宿主上真在跑的容器/服务带跑;要造「撞槽」场景再按需覆盖(见下面那组用例)。
   env -u COMPOSE_PROJECT_NAME -u MYSQL_PORT -u REDIS_PORT \
       -u DB_PORT -u BROKER_URL -u REDIS_URL -u TEST_REDIS_HOST -u TEST_REDIS_PORT \
-      -u CHATAPP_CI_LISTENING_PORTS -u CHATAPP_CI_OWNED_SLOTS \
-      CHATAPP_CI_LISTENING_PORTS= CHATAPP_CI_OWNED_SLOTS= \
+      -u CHATAPP_CI_LISTENING_PORTS -u CHATAPP_CI_OWNED_SLOTS -u CHATAPP_CI_PORT_ANSWERS \
+      CHATAPP_CI_LISTENING_PORTS= CHATAPP_CI_OWNED_SLOTS= CHATAPP_CI_PORT_ANSWERS= \
       "$@" bash -c '. "$1/scripts/stacks/env.sh"; printf "%s %s %s %s\n" \
         "$COMPOSE_PROJECT_NAME" "$MYSQL_PORT" "$REDIS_PORT" "$DB_PORT"' _ "$dir"
 }
@@ -133,6 +133,19 @@ else echo "FAIL 槽位顺延在 99 之后没有回到 0"; fail=1; fi
 if choose_slot 0 "$(seq -s ' ' 13400 13499)" "" >/dev/null 2>&1; then
   echo "FAIL 0-99 全被占满时 choose_slot 不该成功"; fail=1
 else echo "ok   0-99 全占满时 choose_slot 返回失败"; fi
+# 野生服务(docker 端口列表与 ss 都看不见,只有真连一下才发现 —— 典型是宿主上直接装的
+# MySQL/Redis):不猜着用、也不静默顺延,直接退出 2 并给出一个肯定空闲的槽位建议。
+wild_err=$(probe_env "$tmp_b" CHATAPP_MAIN_CHECKOUT="$tmp_a" CHATAPP_CI_PORT_ANSWERS="$d_mysql" 2>&1)
+if [ $? = 2 ]; then echo "ok   端口有人应答但无人认领时退出 2"
+else echo "FAIL 端口有人应答但无人认领时应退出 2(不该猜着用)"; fail=1; fi
+case $wild_err in
+  *"CHATAPP_CI_SLOT="*) echo "ok   野生服务场景给出具体槽位建议" ;;
+  *) printf 'FAIL 野生服务场景没有给出具体槽位建议(实际输出:%s)\n' "$wild_err"; fail=1 ;;
+esac
+# 自己的栈在跑 + 端口有应答 = 正常复用,双保险不该把它拦死。
+probe_check "自己的栈 + 端口应答时仍复用" "$derived" \
+  "$(probe_env "$tmp_b" CHATAPP_MAIN_CHECKOUT="$tmp_a" CHATAPP_CI_PORT_ANSWERS="$d_mysql" \
+    CHATAPP_CI_OWNED_SLOTS="${d_proj#chatapp-ci-s}")"
 # 拆容器必须点名本项目,否则「只拆自己」不成立。
 ddry=$(bash "$V" deps --dry-run 2>/dev/null)
 case $ddry in

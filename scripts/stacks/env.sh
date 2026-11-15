@@ -78,6 +78,18 @@ listening_ports() {
   } | tr '\n' ' '
 }
 
+# 端口上有没有人在应答(经 localhost 转发,能打到 **Windows 宿主** 上直接起的服务)。
+# 为什么要它:docker 端口列表只列容器发布的端口,`ss` 只看 WSL 自己的监听 —— 宿主上直接装的
+# MySQL / Redis 占着 13400+ 段时,前两个探针都看不见,只有真去连一下才知道(2026-11-15 补)。
+# 判据故意宽松:连得上就算有人,不管是谁 —— 撞槽这件事上「宁可不猜」比「猜准了省一次」值钱。
+port_answers() { # port_answers <端口>
+  if [ -n "${CHATAPP_CI_PORT_ANSWERS+x}" ]; then
+    case " ${CHATAPP_CI_PORT_ANSWERS} " in *" $1 "*) return 0 ;; esac
+    return 1
+  fi
+  timeout 1 bash -c "echo > /dev/tcp/127.0.0.1/$1" 2>/dev/null
+}
+
 # 本项目(按 compose 的 working_dir 标签精确认)已经占着的槽位,空格分隔。
 # 不能用容器名 / 项目名前缀判:`chatapp-ci-s9-mysql` 也以 `chatapp-ci` 开头,撞槽的另一个
 # 目录起的栈同样叫 `chatapp-ci-s9` —— 只有 working_dir 能区分「谁起的」。
@@ -132,8 +144,18 @@ if [ -n "$slot" ] && [ -z "$extern_ports" ]; then
   taken=1
   # 这个槽是自己的栈(同一目录上次没拆)→ 复用,不算被占。
   case " $owned " in *" $slot "*) taken=0 ;; esac
-  # 两个端口都空闲 → 直接用。
-  if [ "$taken" = 1 ] && slot_free "$slot" "$busy"; then taken=0; fi
+  # 两个端口都空闲 → 直接用;但先做一次「真连一下」的双保险:docker 与 ss 都看不见的野生服务
+  # (宿主上直接装的 MySQL/Redis)在这里会被抓到。抓到就**不猜**:既不用这个槽(可能连到别人的库),
+  # 也不静默顺延(会掩盖「段位里有野生服务」这件事),直接报错并给一个肯定空闲的槽位建议。
+  if [ "$taken" = 1 ] && slot_free "$slot" "$busy"; then
+    taken=0
+    for probe_port in $((13400 + slot)) $((13500 + slot)); do
+      if port_answers "$probe_port"; then
+        next_slot=$(choose_slot "$slot" "$busy $((13400 + slot)) $((13500 + slot))" "$owned") || next_slot=""
+        die "槽 $slot 的端口 $probe_port 有人在应答,但 docker 里没有认领它的 compose 项目(多半是宿主上直接起的 MySQL/Redis);别猜着用 —— 换一个空闲槽${next_slot:+:CHATAPP_CI_SLOT=$next_slot},或先停掉那个进程"
+      fi
+    done
+  fi
   if [ "$taken" = 1 ]; then
     # 注意 `$( ) || 赋值`:放在子 shell 里失败只影响那一层,这里显式兜住。
     next_slot=$(choose_slot "$slot" "$busy" "$owned") || next_slot=""
