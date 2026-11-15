@@ -46,7 +46,7 @@
 | 广场列表 | offset 50000 | 3521ms → **163ms** | 开发机 | 同上 |
 | 候选池 | 2 万资料完善账号 | **12–22ms**(走 shuffle_key 索引) | 开发机 | 同上 §5 |
 | 削峰 | 500 条通知突发 | p50 **227.9ms → 24.1ms**,p99 271→178.6 | 容器 | [peak-shaving](../reports/peak-shaving.md) §2 |
-| 可观测 | 告警规则 / 看板 | **<!-- num:alert_rules -->17<!-- /num --> 条规则**(E-4 后),12 面板,抓取 15s | — | [observability](observability.md) |
+| 可观测 | 告警规则 / 看板 | **<!-- num:alert_rules -->17<!-- /num --> 条规则**(E-4 后),<!-- num:dashboard_panels -->12<!-- /num --> 面板,抓取 15s | — | [observability](observability.md) |
 | 查询质量 | 候选池冷/热请求 SQL 条数 | 16 / 7(有门禁,涨了就红) | 测试 | `config/test_query_budget.py` |
 | 测试规模 | 后端 / imserver | **679** / **61**(42 unit + 19 db) | — | — |
 
@@ -172,7 +172,7 @@ A:设计上 `/metrics` 暴露 RED + IM 连接/发送/死锁重试/池等待 + �
 + 依赖读数(MySQL 连接、Redis 内存);告警经 Alertmanager 推到**邮件**(与 22:00 服务器日报同一条链路);
 runbook 写清了「哪条告警 → 看哪块板 → 做什么」。**2026-11-03 上线**,**2026-11-05 补齐尾巴(E-4)**:
 容器 6 个(prometheus/grafana/alertmanager/node-exporter/mysqld-exporter/redis-exporter)+
-2 个 systemd 服务(alert-relay、celery-exporter),6 个 target(api/im/node/celery/mysql/redis)全 `up`;
+2 个 systemd 服务(alert-relay、celery-exporter),<!-- num:alert_targets -->6<!-- /num --> 个 target(api/im/node/celery/mysql/redis)全 `up`;
 探针改成 30s 粒度(脚本内复测一次),告警从「只落日志」变成「发到邮箱」。
 仍未做的:告警到手机(邮件到手机的延迟取决于邮箱客户端)、tracing、真实 DAU 采集。
 
@@ -194,7 +194,7 @@ runbook 写清了「哪条告警 → 看哪块板 → 做什么」。**2026-11-0
   超 200MB 提前转,用 `copytruncate` 因为 gunicorn/celery 一直开着文件(见 `runbook.md` §7)。
 - **观测栈已上线(2026-11-03,2026-11-05 补齐 E-4)**:容器 6 个(prometheus/grafana/alertmanager/
   mysqld-exporter/redis-exporter/node-exporter,均有 mem_limit,合计 ~344MB)+ 2 个 systemd 服务
-  (alert-relay、celery-exporter),**6 个 target 全 `up`**(api/im/node/celery/mysql/redis);
+  (alert-relay、celery-exporter),**<!-- num:alert_targets -->6<!-- /num --> 个 target 全 `up`**(api/im/node/celery/mysql/redis);
   实测代价 **+3.6%**(100 并发 473→490 rps,在噪声内)。
 - **MySQL 看门狗已演练(2026-11-05,E-5)**:`kill -9 mysqld + mysqld_safe` 双杀实测两次,
   看门狗 **24.2s / 27.2s** 自动拉起(检测延迟 20s/24s、拉起 2.9–4.2s),告警 **25.4s / 28.4s** 到达,

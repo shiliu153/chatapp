@@ -30,7 +30,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts import facts
+from scripts import check_cpp_comments, facts
 
 #: 仓库根(自测在真实仓库上做只读冒烟;不依赖 cwd)。
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -291,6 +291,137 @@ class ComputeTests(TempRepoCase):
     def test_workflows_missing_dir_is_zero(self):
         """目录不存在按 0 算(没有 workflow 是合法状态)。"""
         self.assertEqual(facts._workflows(self.root), "0")  # noqa: SLF001
+
+    def test_alert_targets_counts_job_names(self):
+        """``- job_name:`` 行数就是抓取目标数。"""
+        targets = self.root / "deploy" / "observability"
+        targets.mkdir(parents=True)
+        (targets / "prometheus.yml").write_text(
+            "scrape_configs:\n  - job_name: api\n  - job_name: im\n", encoding="utf-8"
+        )
+        self.assertEqual(facts._alert_targets(self.root), "2")  # noqa: SLF001
+
+    def test_alert_targets_missing_file_raises(self):
+        """配置文件缺失是「判不出来」,不是 0 个。"""
+        with self.assertRaises(FileNotFoundError):
+            facts._alert_targets(self.root)  # noqa: SLF001
+
+    def test_dashboard_panels_sums_every_dashboard(self):
+        """多个看板的 panel 数相加。"""
+        dashboards = self.root / "deploy" / "observability" / "grafana" / "dashboards"
+        dashboards.mkdir(parents=True)
+        (dashboards / "a.json").write_text('{"panels": [{}, {}, {}]}', encoding="utf-8")
+        (dashboards / "b.json").write_text('{"panels": [{}]}', encoding="utf-8")
+        self.assertEqual(facts._dashboard_panels(self.root), "4")  # noqa: SLF001
+
+    def test_dashboard_panels_without_panels_raises(self):
+        """看板里没有 panels 数组是判不出来。"""
+        dashboards = self.root / "deploy" / "observability" / "grafana" / "dashboards"
+        dashboards.mkdir(parents=True)
+        (dashboards / "a.json").write_text('{"rows": []}', encoding="utf-8")
+        with self.assertRaises(ValueError):
+            facts._dashboard_panels(self.root)  # noqa: SLF001
+
+    def test_cpp_comment_blocks_counts_separator_pairs(self):
+        """每个块上下各一条分隔线,所以块数 = 分隔线行数 ÷ 2。"""
+        src = self.root / "imserver" / "src"
+        src.mkdir(parents=True)
+        separator = "//" + "-" * 115
+        block = (
+            f"{separator}\n// 函数简介\n{separator}\nvoid a();\n"
+            f"{separator}\n// 函数简介\n{separator}\nvoid b();\n"
+        )
+        (src / "x.h").write_text(block, encoding="utf-8")
+        self.assertEqual(facts._cpp_comment_blocks(self.root), "2")  # noqa: SLF001
+
+    def test_cpp_comment_blocks_odd_separators_raise(self):
+        """分隔线是奇数说明块结构坏了 —— 宁可判不出来,也不要报一个错数字。"""
+        src = self.root / "imserver" / "src"
+        src.mkdir(parents=True)
+        separator = "//" + "-" * 115
+        (src / "x.h").write_text(f"{separator}\nvoid a();\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            facts._cpp_comment_blocks(self.root)  # noqa: SLF001
+
+
+class PatternCollisionTests(unittest.TestCase):
+    """断言正则必须**互不相交**:同一处文本被两个事实命中,会包上两个哨兵(结构就坏了)。"""
+
+    def _ids_matching(self, line: str) -> list[str]:
+        """返回这一行会被哪些事实命中。
+
+        Args:
+            line: 待测文本。
+
+        Returns:
+            命中的事实 id 列表(顺序同 :data:`facts.FACTS`)。
+        """
+        return [
+            fact.id
+            for fact in facts.FACTS
+            for pattern in fact.patterns
+            if pattern.search(line)
+        ]
+
+    def test_dashboard_panel_is_not_cpp_block(self):
+        """看板的「12 块」只属于 dashboard_panels。"""
+        self.assertEqual(self._ids_matching("| 看板 | 12 块(新增业务漏斗) |"), ["dashboard_panels"])
+
+    def test_cpp_block_is_not_dashboard_panel(self):
+        """C++ 的「637 个块」只属于 cpp_comment_blocks。"""
+        self.assertEqual(self._ids_matching("一条硬事实:637 个块**没有一个**落在函数体内部。"), ["cpp_comment_blocks"])
+
+    def test_cpp_subtotal_not_matched(self):
+        """`tests/` 的子集计数(共 108 个块)不是 C++ 注释块总数 → 一个都不许命中。"""
+        self.assertEqual(
+            self._ids_matching("`tests/` 的 15 个用例文件共 108 个块 = 107 个 `TEST`"), []
+        )
+
+    def test_cpp_table_row_matched_once(self):
+        """``| 函数注释块 | 637 = `src/` 529 + `tests/` 108 |`` 只命中总数那一处。"""
+        self.assertEqual(
+            self._ids_matching("| 函数注释块 | 637 = `src/` 529 + `tests/` 108 |"),
+            ["cpp_comment_blocks"],
+        )
+
+    def test_panel_comma_form(self):
+        """容量文档里「,12 面板,抓取 15s」这一格。"""
+        self.assertEqual(self._ids_matching("(E-4 后),12 面板,抓取 15s"), ["dashboard_panels"])
+
+    def test_alert_targets_row(self):
+        """「6 个 target(api/im/...)」只属于 alert_targets。"""
+        self.assertEqual(
+            self._ids_matching("6 个 target(api/im/node/celery/mysql/redis)全 `up`"),
+            ["alert_targets"],
+        )
+
+
+def _tree_sitter_available() -> bool:
+    """当前环境有没有装 tree-sitter(没有就跳过 AST 口径的交叉校验)。
+
+    Returns:
+        两个 wheel 都导入成功时返回 ``True``。
+    """
+    try:
+        import tree_sitter  # noqa: F401  (只探可用性)
+        import tree_sitter_cpp  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+@unittest.skipUnless(_tree_sitter_available(), "需要 tree-sitter(CI 与 bootstrap 环境里有)")
+class CppBlockCrossCheckTests(unittest.TestCase):
+    """分隔线口径(纯标准库)必须等于 AST 口径 —— 两套算法只准有一个答案。"""
+
+    def test_separator_count_equals_ast_blocks(self):
+        """``_cpp_comment_blocks`` 的块数 == ``check_cpp_comments`` 逐文件 ``blocks`` 之和。"""
+        parser = check_cpp_comments.load_parser()
+        imserver = REPO_ROOT / "imserver"
+        total = 0
+        for path in check_cpp_comments.iter_sources(imserver):
+            total += check_cpp_comments.check_file(REPO_ROOT, imserver, path, parser).blocks
+        self.assertEqual(facts._cpp_comment_blocks(REPO_ROOT), str(total))  # noqa: SLF001
 
 
 class CommandLineTests(unittest.TestCase):
