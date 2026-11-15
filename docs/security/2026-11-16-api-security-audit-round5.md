@@ -134,9 +134,9 @@
 | ID | 等级 | 标题 | 主要影响 | 状态 |
 |---|---|---|---|---|
 | H-1 | 高危 | Redis 仍无口令，且本轮新增三类敏感物料 | 同网容器被拿下后：① 读走轮换后的 refresh 令牌（30 天）；② 拿 DAU 名单（用户 id 集合）；③ 改准入快照 / 额度计数 | **承接（未修）**：`requirepass` 仍未开（§4.1） |
-| M-1 | 中危 | 四个新接口没有按用户限流 | 单账号可高频打聚合 / 写库 + 入队的接口；`DELETE /devices/{端}` 每次入队一个 Celery 任务 | 新增 |
-| M-2 | 中危 | 聊天搜索是前导通配 `LIKE '%kw%'`，`im_message` 正文无索引 | 单账号 60 次/分钟即可让 2C2G 的 MySQL 持续全扫自己全部消息 | 新增（首次审查） |
-| M-3 | 中危 | 语音转码仍在请求路径，且本轮多了一个入口 | 一次上传 3 个子进程（各 15 秒上限）；两路并发即占满两个 worker | 承接 + 升档 |
+| M-1 | 中危 | 四个新接口没有按用户限流 | 单账号可高频打聚合 / 写库 + 入队的接口；`DELETE /devices/{端}` 每次入队一个 Celery 任务 | **已修**：四个 scope（`stats` 240/h、`devices_read` 480/h、`devices_write` 30/h、`quota` 480/h）+ 四个视图挂限流 + 四份接口文档（#372 → #376 → `e986150`） |
+| M-2 | 中危 | 聊天搜索是前导通配 `LIKE '%kw%'`，`im_message` 正文无索引 | 单账号 60 次/分钟即可让 2C2G 的 MySQL 持续全扫自己全部消息 | **已降频**：搜索桶 60 次/分钟 burst 20 → 10 次/分钟 burst 5，`limit` 上限 50 → 20（#374 → #375 → `358d5be`）；**扫描量本身未降**（不加索引），FULLTEXT 仍待排期 |
+| M-3 | 中危 | 语音转码仍在请求路径，且本轮多了一个入口 | 一次上传 3 个子进程（各 15 秒上限）；两路并发即占满两个 worker | **已加闸**：`config/transcode_gate.py` 全局单槽，抢不到立即 503 + `50302` + `Retry-After`，两个入口共用一个槽（#373 → #377 → `417f013`）；异步化仍待排期 |
 | L-1 | 低危 | 内部 HMAC 无 nonce | 同网可在 300 秒窗口内重放；被 `msg_id` 幂等压到「重复入队」 | 承接 |
 | L-2 | 低危 | 分页游标不签名 | 客户端可伪造 `(时间, 主键)`，只影响自己可见的分页位置 | 承接 |
 | L-3 | 低危 | 镜像仍是可变 tag（`certbot/certbot:latest` 最糟） | 供应链漂移；Actions 已 pin 到 SHA，镜像没跟上 | 半承接 |
@@ -364,15 +364,19 @@ imserver / worker / 未来新增容器都在同一个 Redis 上，攻击面并�
 
 | 批次 | 内容 | 项 | 规模 |
 |---|---|---|---|
-| A | Redis 硬化（`requirepass` 落地，三处配置同改） | H-1 | 部署脚本 + backend + imserver 配置，**一条栈做不完 → 拆两个工单**（`deploy+backend`、`imserver`） |
-| B | 四个新接口补按用户限流 | M-1 | 后端（`settings` + 四个视图 + 三份文档） |
-| C | 聊天搜索降成本（FULLTEXT 或时间窗或压额度） | M-2 | imserver + `docs/ops` |
-| D | 语音转码挪出请求路径（Celery 或全局并发闸） | M-3 | 后端 + `docs/pitfalls` |
+| A | Redis 硬化（`requirepass` 落地，三处配置同改） | H-1 | 部署脚本 + backend + imserver 配置，**一条栈做不完 → 拆两个工单**（`deploy+backend`、`imserver`）· **未开单**（`deploy/**` 只能人改，#371 挂着） |
+| B | 四个新接口补按用户限流 | M-1 | 后端（`settings` + 四个视图 + 三份文档）· **已闭环**（#372 → #376） |
+| C | 聊天搜索降成本（FULLTEXT 或时间窗或压额度） | M-2 | imserver + `docs/ops` · **已闭环「压额度」这一档**（#374 → #375）；FULLTEXT 仍待排期 |
+| D | 语音转码挪出请求路径（Celery 或全局并发闸） | M-3 | 后端 + `docs/pitfalls` · **已闭环「全局并发闸」这一档**（#373 → #377）；Celery 异步化仍待排期 |
 | E | 小修 | L-3、L-7、L-8 | 部署（镜像 digest）/ 后端+nginx（语音签名）/ CI（外部数据白名单），分别开单 |
 | F | 记录项 | L-1、L-2、L-4、L-5、L-6 | 文档（`docs/pitfalls` / `docs/ops`）记录为已知风险，不排期 |
 
 **建议顺序**：A → B → D → C。A 未闭环前，任何「新部署到公网」都不要做；
 B/D 都是「一个已认证账号即可触发」的那一档，优先于 C（C 需要历史数据量才有量级）。
+
+**执行进度（2026-11-16 当日）**：B / C / D 三批已按上面的拆法各开一单并合并（#376 / #375 / #377），
+**A（H-1 Redis 口令）仍未开**——它只能由主人改 `deploy/**`，工单 #371 挂着；
+E 与 F 尚未排期。
 
 ---
 
@@ -389,7 +393,8 @@ docker compose -f /opt/chatapp/docker-compose.yml exec redis redis-cli -n 0 keys
 docker compose -f /opt/chatapp/docker-compose.yml exec redis redis-cli -n 0 smembers "activity:dau:$(date +%Y%m%d)"
 docker compose -f /opt/chatapp/docker-compose.yml exec redis redis-cli -n 0 keys 'swipe_like:*'
 
-# M-1：四个新接口应当出现 429（当前都没有额度）
+# M-1：四个新接口应当出现 429（2026-11-16 已补额度：stats 240/h、devices_write 30/h）
+# 注意 devices_write 只有 30/h，跑 60 次会先撞到额度 —— 现在这条命令应当出现 429。
 for i in $(seq 1 60); do curl -s -o /dev/null -w '%{http_code} ' \
   -H "Authorization: Bearer $TOKEN" "https://<站点>/api/v1/stats/me?period=year"; done; echo
 for i in $(seq 1 60); do curl -s -o /dev/null -w '%{http_code} ' \
