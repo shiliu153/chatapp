@@ -28,7 +28,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from config import error_codes, images, storage
+from config import error_codes, images, storage, transcode_gate
 from discovery.cache_keys import invalidate_candidates, invalidate_pool_globally
 from feed.services import follow_state_for_profiles
 from im import voice
@@ -283,6 +283,7 @@ def my_voice(request):
     返回参数:
         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
         DELETE 幂等 204(没有语音时也返回 204)。
+        POST 在服务器缺 ffmpeg 或转码槽被占用时回 503 + ``50302``,后者带 ``Retry-After``。
 
     使用示例:
         ``self.client.post("/api/v1/users/me/voice", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``VoiceTests.upload``)
@@ -293,6 +294,9 @@ def my_voice(request):
         否则超限时会留下没有数据库行的孤儿文件。
         缺文件、超过 5MB 或格式不在白名单抛 ``serializers.ValidationError``(400);
         配额已满抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
+        转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到立即
+        503 + ``Retry-After``,不排队 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
+        占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。
     """
     profile = get_profile(request.user)
     if request.method == "DELETE":
@@ -305,14 +309,22 @@ def my_voice(request):
     serializer = ProfileVoiceUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     upload = serializer.validated_data["file"]
-    try:
-        data, duration_ms = normalize_profile_voice(upload.read(), upload.content_type)
-    except voice.VoiceUnavailable:
-        logger.error("资料语音上传失败:服务器缺少 ffmpeg/ffprobe")
-        return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
-                         "message": "语音自我介绍暂不可用"}, status=503)
-    except voice.VoiceError as error:
-        return Response({"code": 400, "message": str(error)}, status=400)
+
+    # 抢槽在真正转码之前:抢不到立刻失败,把请求线程让给别的接口(M-3)。
+    with transcode_gate.slot() as acquired:
+        if not acquired:
+            logger.warning("profile_voice_transcode_busy", extra={"user_id": request.user.id})
+            return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                             "message": "语音自我介绍暂不可用"}, status=503,
+                            headers={"Retry-After": str(transcode_gate.retry_after())})
+        try:
+            data, duration_ms = normalize_profile_voice(upload.read(), upload.content_type)
+        except voice.VoiceUnavailable:
+            logger.error("资料语音上传失败:服务器缺少 ffmpeg/ffprobe")
+            return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                             "message": "语音自我介绍暂不可用"}, status=503)
+        except voice.VoiceError as error:
+            return Response({"code": 400, "message": str(error)}, status=400)
 
     # 配额检查在落盘之前(M7):超限时一个字节都不写进媒体目录。
     storage.ensure_quota(request.user, len(data))
