@@ -146,7 +146,13 @@ Write-Host "[gate] 可以派单" -ForegroundColor Green
 # 而面板上每个健康位都是 ready。判据就在这一层:宿主通、WSL 不通。
 # 这里直接调 curl(不经过 shell),避免 wsl.exe 参数拼接时的引号问题。
 Write-Host "[gate] 检查 WSL 出网…" -ForegroundColor Cyan
-$probeArgs = @('-o', '/dev/null', '-w', '%{http_code}', '-m', '8', 'https://api.github.com/')
+# 探测目标必须是 `/rate_limit`,不能是根路径 `https://api.github.com/`(2026-11-15 实测):
+# 机场出口 IP 对 GitHub API 的**根路径**恒返回 403(Varnish 直接回,连 200 都没有),
+# 而 `/rate_limit` 稳定 200。用根路径时「直连 200 / 代理 403」→ 本脚本每次都判
+# 「不能派单」,而 worker 其实一切正常 —— 守门脚本自己变成了阻断源。
+# 同一口径已经在 start-superagent.sh 的 EGRESS_PROBE_URL 与 scripts/superagent_health.py
+# 的 EGRESS_URL 里定过(issue #303 / #284),这里补上,别再三处各写各的。
+$probeArgs = @('-o', '/dev/null', '-w', '%{http_code}', '-m', '10', 'https://api.github.com/rate_limit')
 $direct = Invoke-Wsl -WslArgs (@('-d', $Distro, '-e', 'curl', '-sS') + $probeArgs) -TimeoutMs 20000
 $proxy = Invoke-Wsl -WslArgs (@('-d', $Distro, '-e', 'curl', '-sS', '-x', 'http://127.0.0.1:7890') + $probeArgs) -TimeoutMs 20000
 

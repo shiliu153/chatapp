@@ -14,6 +14,11 @@
    被间歇重置(见 docs/ops/superagent.md §11)。测 cloudflare 选出来的
    "最快节点"和"能稳定拉 GitHub 的节点"是两件事,所以这里另外造一个
    `github` 组,直接拿 `https://api.github.com/rate_limit` 当测速 URL。
+4. **自愈窗口要短,还要有组级兜底** —— url-test 组只在测速那一刻知道节点死没死,
+   窗口多长,故障就能持续多长(2026-11-14 的 2 分钟断流就是这么被放大的)。
+   所以组参数(`interval` / `timeout` / `max_failed_times`)由 `override.yaml`
+   决定而不是写死,并在它外面再套一层 `fallback` 组:整池 IEPL 一起抽风时
+   落到机场自带的全量节点池。
 
 渲染失败时**绝不覆盖现有配置** —— 机场订阅偶尔会返回一页 HTML 错误页或
 残缺的 YAML,把它写进 config.yaml 会让 mihomo 起不来,进而让整个 worker
@@ -46,8 +51,17 @@ CLASH_UA = "clash-verge/v1.6.0"
 # 拉订阅的超时。订阅站直连通常 200~400ms;给 20s 足够,再久就是真挂了。
 FETCH_TIMEOUT = 20
 
-# 校验门槛:低于这个节点数基本可以确定拿到的是错误页或残配置。
+# 验证节点数门槛:低于这个节点数基本可以确定拿到的是错误页或残配置。
 MIN_PROXIES = 10
+
+# 健康检查窗口的默认值(``override.yaml`` 的 ``github_group`` 段可以覆盖)。
+# 为什么不沿用 mihomo 自己的默认(300s 间隔 / 5s 超时 / 5 次失败):
+# url-test 组只在**测速那一刻**知道节点死没死,窗口多长故障就能持续多长 ——
+# 2026-11-14 21:28 实测到的「经代理连续 4 次 000、同一时刻直连连续 4 次 200、
+# 两分钟后自己恢复」就是 300s 窗口的形状。12 个 IEPL 节点测一轮的成本可以忽略。
+DEFAULT_INTERVAL = 60
+DEFAULT_TIMEOUT_MS = 3000
+DEFAULT_MAX_FAILED_TIMES = 1
 
 # 机场会在 proxies 里塞几条"信息节点"(剩余流量/套餐到期/下次重置),
 # 它们其实是同一台服务器的真 trojan 入口。放进 github 测速组只会污染测速
@@ -221,7 +235,9 @@ def inject_github_group(cfg: dict[str, Any], spec: dict[str, Any]) -> bool:
         "type": "url-test",
         "proxies": nodes,
         "url": spec.get("url") or "https://api.github.com/rate_limit",
-        "interval": int(spec.get("interval") or 300),
+        "interval": int(spec.get("interval") or DEFAULT_INTERVAL),
+        "timeout": int(spec.get("timeout") or DEFAULT_TIMEOUT_MS),
+        "max-failed-times": int(spec.get("max_failed_times") or DEFAULT_MAX_FAILED_TIMES),
         "tolerance": int(spec.get("tolerance") or 100),
         "lazy": False,
     }
@@ -249,6 +265,92 @@ def inject_github_group(cfg: dict[str, Any], spec: dict[str, Any]) -> bool:
     return True
 
 
+def inject_fallback_group(
+    cfg: dict[str, Any], spec: dict[str, Any], primary: str
+) -> bool:
+    """在 GitHub 测速组外面再套一层 fallback 组,并让它接管默认出口。
+
+    为什么需要这一层:``github`` 组是 url-test,只能在**它自己的节点池**里换节点。
+    机场的 IEPL 线路一起抽风时(单线路故障 / 该线路全部节点被同一次网络事件影响),
+    池子里没有一个活着,worker 就没有出口了 —— 2026-11-15 之前的样子。
+    fallback 组按 ``members`` 的顺序取第一个「活着」的成员,成员可以是另一个组;
+    所以这里让第二层直接落到机场自带的全量节点池。
+
+    参数说明:
+        cfg: 已校验的配置(原地修改)。
+        spec: ``override.yaml`` 的 ``github_fallback`` 段。
+        primary: 第一层组的名字(通常是 ``github``);该组不存在时不建 fallback。
+
+    返回参数:
+        True 表示建组并接管了「节点选择」的首位;False 表示前提不满足、保持原样。
+
+    使用示例:
+        inject_fallback_group(cfg, override["github_fallback"], "github")
+
+    备注信息:
+        成员的第一个必须是 primary,顺序即优先级 —— 把「自动选择」放前面等于放弃
+        「按 GitHub 实测选节点」这件事。缺省的第二层成员不存在(机场换了组名)时
+        只保留 primary 一个成员,这种单成员 fallback 没有意义,直接不建组。
+    """
+    group_name = spec.get("name") or "github-fallback"
+    names = {str(g.get("name")) for g in cfg["proxy-groups"]}
+    if primary not in names:
+        print(
+            f"render-config: {primary} 组不存在,跳过 {group_name}(组级兜底没有第一层可包)",
+            file=sys.stderr,
+        )
+        return False
+
+    members = [primary]
+    for extra in spec.get("members") or []:
+        extra = str(extra)
+        if extra == primary or extra not in names:
+            continue
+        members.append(extra)
+    if len(members) < 2:
+        print(
+            f"render-config: 警告 —— {group_name} 的第二层成员都不在配置里,"
+            "跳过组级兜底(只剩 url-test 自己那池节点)",
+            file=sys.stderr,
+        )
+        return False
+
+    fallback_group = {
+        "name": group_name,
+        "type": "fallback",
+        "proxies": members,
+        "url": spec.get("url") or "https://api.github.com/rate_limit",
+        "interval": int(spec.get("interval") or DEFAULT_INTERVAL),
+        "timeout": int(spec.get("timeout") or DEFAULT_TIMEOUT_MS),
+        "lazy": False,
+    }
+    cfg["proxy-groups"].insert(0, fallback_group)
+
+    main = next((g for g in cfg["proxy-groups"] if g.get("name") == "节点选择"), None)
+    if main is None:
+        main = next(
+            (g for g in cfg["proxy-groups"] if g.get("type") == "select"),
+            None,
+        )
+    if main is None or not isinstance(main.get("proxies"), list):
+        print(
+            f"render-config: 警告 —— 找不到可接管的 select 组,{group_name} 已建但没人指向它",
+            file=sys.stderr,
+        )
+        return True
+
+    members_of_main = main["proxies"]
+    if group_name in members_of_main:
+        members_of_main.remove(group_name)
+    members_of_main.insert(0, group_name)
+    print(
+        f"render-config: 已建组 {group_name}(fallback → {' → '.join(members)}),"
+        f"并设为「{main.get('name')}」默认出口",
+        file=sys.stderr,
+    )
+    return True
+
+
 def apply_override(cfg: dict[str, Any], override: dict[str, Any], secret: str | None) -> None:
     """把本地覆写应用到配置上(原地修改)。
 
@@ -260,7 +362,9 @@ def apply_override(cfg: dict[str, Any], override: dict[str, Any], secret: str | 
             不设也能用,但设了可以挡住本机其他进程误调)。
     """
     for key, value in override.items():
-        if key == "github_group":
+        # github_group / github_fallback 是本脚本自己的蓝图,不是 mihomo 的配置键,
+        # 不能原样写进 config.yaml(mihomo 会因为未知键直接起不来)。
+        if key in ("github_group", "github_fallback"):
             continue
         cfg[key] = value
 
@@ -315,7 +419,14 @@ def main() -> None:
         die(f"订阅不是合法 YAML(可能是 HTML 错误页):{exc}")
     cfg = validate(parsed)
     spec = override.get("github_group") or {}
-    inject_github_group(cfg, spec)
+    injected = inject_github_group(cfg, spec)
+    if injected:
+        # 兜底组包在 github 组外面:整池 IEPL 一起抽风时还有路可走。
+        inject_fallback_group(
+            cfg,
+            override.get("github_fallback") or {},
+            str(spec.get("name") or "github"),
+        )
     apply_override(cfg, override, secret)
 
     # 原子落盘:先写同目录临时文件再 rename。中途失败不会留下半个
