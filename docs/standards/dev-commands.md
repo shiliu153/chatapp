@@ -107,6 +107,28 @@ worker 在自己工单目录里跑 `verify.sh backend` 时自起自拆,与母体
 cd <任一检出目录> && bash scripts/verify.sh deps --keep-deps   # 起来后用 --keep-deps 别在收尾时拆掉
 ```
 
+**撞槽兜底与并发上限**(2026-11-15 补):
+
+槽位是「仓库根路径 `cksum % 100`」,两个目录理论上会撞到同一槽(每对约 1%)。撞了不会静默翻车:
+
+- **派生的槽被别的项目占着** → `scripts/stacks/env.sh` 自动顺延到下一个「MySQL / Redis 两个端口
+  都空闲」的槽,并在 stderr 打一行
+  `[env] 提示:<目录> 派生的槽 9 已被别的项目占用(MySQL 13409 / Redis 13509),顺延到槽 10(…)`;
+- **显式 `CHATAPP_CI_SLOT=N` 撞上了** → 不静默改写,直接退出 2 并给出可用槽位(`CHATAPP_CI_SLOT=<空槽>`);
+- **本项目自己的栈在跑** → 既不顺延也不报错(那就是复用)。认「自己的栈」按 compose 的
+  `project.working_dir` 标签,**不看容器名/项目名前缀**:撞槽的另一个目录起的项目名也叫 `chatapp-ci-s9`;
+- 端口探测取两个来源的并集:docker 的已发布宿主端口 + WSL 内 `ss` 的原生监听。**docker 那条不能省**:
+  本机 WSL 走 Docker Desktop 的引擎,容器端口发布在 **Windows 宿主** 上,WSL 里的 `ss` 看不到
+  (2026-11-15 实测:`chatapp-ci-s9` 明明在跑,WSL 里 13400-13699 的监听列表是空的)。
+
+顺延出来的栈仍是「同一目录 + 同一规则」算出来的,下次跑还是它;但若占用它的项目先消失,下次会算回原槽,
+那一套要用 `CHATAPP_CI_SLOT=<顺延后的槽> bash scripts/verify.sh deps down` 手动收。
+
+**并发上限**(2026-11-15 实测,15.8GiB 的 WSL):一套依赖栈 = MySQL 390-460MiB + Redis 4-5MiB
+(空库 388MiB / 4MiB;跑完一整轮 backend 全量 1119 个用例后 458MiB / 5MiB),即 **≈ 0.45GiB/套**。
+同时跑 4-5 套 ≈ 2.2GiB,只占 WSL 内存的 1/7 左右 —— 先撞墙的不是内存,而是槽位空间(0-99 共 100 个)
+和 WSL 上其余吃内存的东西(Python 测试进程 / Node / Flutter)。要超过 4 套并跑,先 `docker stats` 看一眼。
+
 ## 3. 前端(cwd = `app/`)
 
 ```bash
