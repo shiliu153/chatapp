@@ -1,8 +1,9 @@
-"""滑卡接口的限流。
+"""发现页接口的限流:滑卡、撤销滑卡、访客列表 / 人数、每日喜欢额度查询。
 
 额度见 ``settings.DEFAULT_THROTTLE_RATES["swipe"]``(300/小时)——
 正常手速远达不到,主要用于挡住脚本刷卡。撤销单独占一个 scope(``swipe_undo``):
 它不该和「正常滑卡」抢同一份额度,否则划得多的人会先被撤销卡住。
+额度查询单独占 ``quota``:它只读一次 Redis,不该和滑卡抢额度(第五轮 M-1)。
 """
 
 from rest_framework.throttling import SimpleRateThrottle
@@ -66,3 +67,14 @@ class VisitsCountThrottle(UserScopedThrottle):
     """
 
     scope = "visits_count"
+
+
+class QuotaThrottle(UserScopedThrottle):
+    """按用户限流每日喜欢额度查询;额度见 ``settings.DEFAULT_THROTTLE_RATES["quota"]``。
+
+    ``GET /api/v1/discovery/quota`` 只读一次 Redis,是四个新入口里最便宜的,但同属
+    「新接口必须与既有读接口同档限流」这一类(第五轮 M-1);额度取 480 次/小时 ——
+    与未读数角标同档,足够滑卡过程中反复刷新剩余次数。
+    """
+
+    scope = "quota"

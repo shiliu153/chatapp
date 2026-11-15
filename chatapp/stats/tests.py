@@ -37,6 +37,7 @@ from . import im_source
 from .metrics import fill_retention, match_rate, recent_rows
 from .models import DailyMetric
 from .services import METRICS, period_bounds, period_window
+from .throttles import StatsThrottle
 
 User = get_user_model()
 
@@ -271,6 +272,17 @@ class StatsApiTests(APITestCase):
         """未带令牌 401。"""
         response = APIClient().get(URL)
         self.assertEqual(response.status_code, 401)
+
+    def test_stats_are_throttled_per_user(self):
+        """第五轮 M-1:报告接口按用户限流,超限 429(额度 240/hour)。
+
+        ``period=year`` 时七个标量子查询各扫一整年,额度按账号计才挡得住一个脚本;
+        框架限流器的业务码就是 HTTP 状态码 ``429``(专属业务码只给短信重发 / 锁号 /
+        每日喜欢额度),与 ``docs/api/conventions.md`` 的「429 文案差异」一致。
+        """
+        with patch.dict(StatsThrottle.THROTTLE_RATES, {"stats": "2/hour"}):
+            statuses = [self.client.get(URL).status_code for _ in range(3)]
+        self.assertEqual(statuses, [200, 200, 429])
 
     def test_unmatched_matches_still_counted(self):
         """解除过的配对仍按创建时间计入(口径是「区间内新产生的配对」)。"""

@@ -6,10 +6,11 @@
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.response import Response
 
 from .services import PERIODS, collect, parse_period, period_bounds
+from .throttles import StatsThrottle
 
 STATS_SCHEMA = inline_serializer("MyStats", fields={
     "period": serializers.CharField(),
@@ -30,6 +31,7 @@ STATS_SCHEMA = inline_serializer("MyStats", fields={
     description="统计周期:week(自然周,周一起)/ month(自然月)/ year(自然年),缺省 week")],
     responses={200: STATS_SCHEMA})
 @api_view(["GET"])
+@throttle_classes([StatsThrottle])
 def my_stats(request):
     """个人使用报告(GET /api/v1/stats/me)。
 
@@ -51,6 +53,7 @@ def my_stats(request):
     备注信息:
         ``period`` 不在 ``week`` / ``month`` / ``year`` 之内时由 ``parse_period`` 主动抛
         ``InvalidPeriod``,全局异常处理收成 400 + ``40005``。
+        按用户限流见 ``stats/throttles.py::StatsThrottle``(240 次/小时),超限 429。
     """
     period = parse_period(request.query_params.get("period"))
     start, end = period_bounds(period)
