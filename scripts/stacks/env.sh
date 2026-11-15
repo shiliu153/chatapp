@@ -38,26 +38,27 @@ die() { printf '错误: %s\n' "$*" >&2; exit 2; }
 # 同一个目录每次派生出同一个结果,不同目录几乎必然不同 —— 这就是「并发互不拆台」的依据。
 CHATAPP_MAIN_CHECKOUT=${CHATAPP_MAIN_CHECKOUT:-$HOME/src/chatapp}
 
-# 取槽位:显式 CHATAPP_CI_SLOT 优先,否则按仓库根路径哈希。
-# 哈希用 cksum 而不用 md5sum / sha1sum:cksum 是 POSIX 必备,精简镜像里另外两个不一定有。
-ci_slot() {
-  if [ -n "${CHATAPP_CI_SLOT:-}" ]; then
-    case $CHATAPP_CI_SLOT in
-      ''|*[!0-9]*) die "CHATAPP_CI_SLOT 必须是 0-99 的整数,当前是「$CHATAPP_CI_SLOT」" ;;
-    esac
-    [ "$((10#$CHATAPP_CI_SLOT))" -le 99 ] \
-      || die "CHATAPP_CI_SLOT 必须是 0-99 的整数,当前是「$CHATAPP_CI_SLOT」"
-    printf '%s' "$((10#$CHATAPP_CI_SLOT))"
-    return 0
-  fi
+# 按仓库根路径哈希取槽(0-99)。用 cksum 而不用 md5sum / sha1sum:cksum 是 POSIX 必备,
+# 精简镜像里另外两个不一定有。
+path_slot() {
   local sum
   sum=$(printf '%s' "$ROOT" | cksum)
   printf '%s' "$(( ${sum%% *} % 100 ))"
 }
 
 # 母体检出保持文档口径;其余目录一律派生(显式 CHATAPP_CI_SLOT 在母体里也生效)。
-if [ -n "${CHATAPP_CI_SLOT:-}" ] || [ "$ROOT" != "$CHATAPP_MAIN_CHECKOUT" ]; then
-  slot=$(ci_slot)
+# 校验必须留在外面这一层:放进 `$( )` 里就只在子 shell 里退出,调用方看不见非零码。
+slot=""
+if [ -n "${CHATAPP_CI_SLOT:-}" ]; then
+  case $CHATAPP_CI_SLOT in
+    ''|*[!0-9]*) die "CHATAPP_CI_SLOT 必须是 0-99 的整数,当前是「$CHATAPP_CI_SLOT」" ;;
+  esac
+  slot=$((10#$CHATAPP_CI_SLOT))
+  [ "$slot" -le 99 ] || die "CHATAPP_CI_SLOT 必须是 0-99 的整数,当前是「$CHATAPP_CI_SLOT」"
+elif [ "$ROOT" != "$CHATAPP_MAIN_CHECKOUT" ]; then
+  slot=$(path_slot)
+fi
+if [ -n "$slot" ]; then
   COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-chatapp-ci-s$slot}
   MYSQL_PORT=${MYSQL_PORT:-$((13400 + slot))}
   REDIS_PORT=${REDIS_PORT:-$((13500 + slot))}
