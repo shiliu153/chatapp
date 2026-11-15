@@ -32,8 +32,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py media_disk_report --help``
+
+        备注信息:
+            ``--warn-mb`` 缺省时取 ``settings.MEDIA_DISK_WARN_MB``;``--fail-over`` 供 cron 判定失败。
         """
         parser.add_argument("--warn-mb", type=int, default=None,
                             help="告警线(MB);默认取 MEDIA_DISK_WARN_MB")
@@ -43,15 +52,20 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """收集目录与数据库用量并打印。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项(``warn_mb`` / ``fail_over``)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
 
-        Raises:
-            SystemExit: 传了 ``--fail-over`` 且超过告警线时,退出码 1。
+        使用示例:
+            ``python manage.py media_disk_report --fail-over``(见 ``deploy/oneclick.sh``);
+            单测里用 ``--warn-mb 1 --fail-over`` 触发退出码 1(见 ``users/tests.py``)。
+
+        备注信息:
+            只读命令,不写库也不删文件;传了 ``--fail-over`` 且媒体目录总占用超过告警线时,
+            主动以退出码 1 结束(``SystemExit``),让 cron 与监控直接判失败。
         """
         root = Path(settings.MEDIA_ROOT)
         total_disk = 0
@@ -88,11 +102,17 @@ class Command(BaseCommand):
     def _directory_usage(self, path):
         """统计一个目录下的文件数与总字节。
 
-        Args:
+        参数说明:
             path: 目录路径(可能不存在)。
 
-        Returns:
+        返回参数:
             ``(文件数, 总字节数)`` 二元组;目录不存在时为 ``(0, 0)``。
+
+        使用示例:
+            ``count, size = self._directory_usage(root / directory)``(见本模块 ``handle``)
+
+        备注信息:
+            单个文件 ``stat()`` 失败只跳过这一条,不影响其余文件的统计。
         """
         if not path.exists():
             return 0, 0
@@ -111,12 +131,19 @@ class Command(BaseCommand):
     def _sum(self, model, **filters):
         """按过滤条件汇总某个模型的 ``bytes``。
 
-        Args:
+        参数说明:
             model: 带 ``bytes`` 字段的模型。
             **filters: 额外的过滤条件(如 ``status``)。
 
-        Returns:
+        返回参数:
             总字节数;没有行时为 0。
+
+        使用示例:
+            ``self._sum(ChatImage, status=ChatImageStatus.VISIBLE)``(见本模块 ``handle``)
+
+        备注信息:
+            聊天图/语音是否可见由调用方显式传 ``status`` 过滤,这里只做 ``SUM(bytes)``;
+            ``aggregate`` 在无命中行时返回 ``None``,统一折成 0。
         """
         return model.objects.filter(**filters).aggregate(
             value=Sum("bytes"))["value"] or 0

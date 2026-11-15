@@ -25,14 +25,21 @@ class ProfileAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         """保存资料,并记录封禁状态变更。
 
-        改动前先取旧状态,保存后交给 ``log_ban_change`` 比对 —— 只有真正发生
-        封禁/解封时才会写审计记录。
-
-        Args:
+        参数说明:
             request: 当前后台请求。
             obj: 待保存的资料对象。
             form: 后台表单。
             change: ``True`` 表示修改已有对象,``False`` 表示新建。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.client.post("/admin/users/profile/<id>/change/", {...})``(见 ``ops/tests.py`` 的后台审核用例)
+
+        备注信息:
+            改动前先取旧状态,保存后交给 ``log_ban_change`` 比对 —— 只有真正发生
+            封禁/解封时才会写审计记录。
         """
         old_status = None
         if change:
@@ -46,10 +53,19 @@ class ProfileAdmin(admin.ModelAdmin):
 def approve_photos(modeladmin, request, queryset):
     """批量过审所选照片。
 
-    Args:
+    参数说明:
         modeladmin: 当前 ModelAdmin 实例。
         request: 当前后台请求。
         queryset: 选中的照片查询集。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``self.client.post("/admin/users/photo/", {"action": "approve_photos", "_selected_action": [p.pk]})``(见 ``users/tests.py`` 的 ``PhotoAdminActionTests._run_action``)
+
+    备注信息:
+        与 ``ops`` 审核台共用 ``users.services.review_photos``,审计记录与资料状态重算同口径。
     """
     _review_photos(modeladmin, request, queryset, PhotoStatus.APPROVED)
 
@@ -58,10 +74,19 @@ def approve_photos(modeladmin, request, queryset):
 def reject_photos(modeladmin, request, queryset):
     """批量驳回所选照片。
 
-    Args:
+    参数说明:
         modeladmin: 当前 ModelAdmin 实例。
         request: 当前后台请求。
         queryset: 选中的照片查询集。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``self.client.post("/admin/users/photo/", {"action": "reject_photos", "_selected_action": [p.pk]})``(见 ``users/tests.py`` 的 ``PhotoAdminActionTests._run_action``)
+
+    备注信息:
+        驳回会让照片不再计入「资料完善」,照片不足的人掉回 ``incomplete`` 并失去候选资格。
     """
     _review_photos(modeladmin, request, queryset, PhotoStatus.REJECTED)
 
@@ -69,11 +94,20 @@ def reject_photos(modeladmin, request, queryset):
 def _review_photos(modeladmin, request, queryset, status):
     """两个审核动作的公共实现:调用服务层并回显处理条数。
 
-    Args:
+    参数说明:
         modeladmin: 当前 ModelAdmin 实例,用于回显消息。
         request: 当前后台请求。
         queryset: 选中的照片查询集。
         status: 目标审核状态。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_review_photos(modeladmin, request, queryset, PhotoStatus.APPROVED)``(见本模块 ``approve_photos``)
+
+    备注信息:
+        处理条数以服务层返回值为准(``queryset.update`` 的实际影响行数),不按选中条数猜。
     """
     count = review_photos(queryset, status, request.user)
     modeladmin.message_user(request, f"已处理 {count} 张照片")
@@ -91,11 +125,17 @@ class PhotoAdmin(admin.ModelAdmin):
     def preview(self, obj):
         """在列表页渲染照片缩略图。
 
-        Args:
+        参数说明:
             obj: 当前照片对象。
 
-        Returns:
+        返回参数:
             限高 60px 的 ``<img>`` 标签;没有文件时返回 ``-``。
+
+        使用示例:
+            ``list_display = ("id", "preview", "user", "status", "order", "created_at")``(见本模块 ``PhotoAdmin``)
+
+        备注信息:
+            用 ``format_html`` 拼标签,不走字符串拼接,避免文件名里的特殊字符被当成 HTML。
         """
         if not obj.file:
             return "-"

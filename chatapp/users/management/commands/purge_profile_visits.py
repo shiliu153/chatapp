@@ -21,8 +21,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py purge_profile_visits --help``
+
+        备注信息:
+            ``--apply`` 才真删;``--days`` 默认取 ``users.services.PROFILE_VISIT_RETENTION_DAYS``。
         """
         parser.add_argument("--apply", action="store_true", help="真正删除;默认只打印")
         parser.add_argument("--days", type=int, default=PROFILE_VISIT_RETENTION_DAYS,
@@ -31,12 +40,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """按保留期删除(或列出)过期记录。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项(``apply`` / ``days``)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py purge_profile_visits --apply``(见 ``deploy/oneclick.sh`` 的每日维护)
+
+        备注信息:
+            默认 dry-run,只打印将删除的条数与最早一条的时间;``--apply`` 才走
+            ``QuerySet.delete()``,按 ``last_at`` 早于保留期截断。
         """
         days = int(options["days"])
         cutoff = timezone.now() - timedelta(days=days)

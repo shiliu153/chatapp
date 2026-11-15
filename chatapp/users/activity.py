@@ -33,8 +33,15 @@ HOURS_PER_DAY = 24
 def _client():
     """取默认 Redis 连接(与缓存共用一个 DB,但键名不带缓存前缀)。
 
-    Returns:
+    返回参数:
         django_redis 的连接对象。
+
+    使用示例:
+        ``pipe = _client().pipeline()``(见本模块 ``touch``)
+
+    备注信息:
+        与 ``django.core.cache`` 共用一个 DB,但键名不带缓存前缀;改用 ``cache`` 会因为
+        前缀与序列化器对不上而写读的不是同一个键。
     """
     return get_redis_connection("default")
 
@@ -42,11 +49,17 @@ def _client():
 def _local(at: datetime | None) -> datetime:
     """把时刻换算成 ``Asia/Shanghai`` 本地时间。
 
-    Args:
+    参数说明:
         at: 目标时刻;``None`` 表示「现在」。naive 值按当前时区补齐。
 
-    Returns:
+    返回参数:
         带时区的本地时刻。
+
+    使用示例:
+        ``local = _local(at)``(见本模块 ``touch``)
+
+    备注信息:
+        切日、切小时之前必须先过本函数:活跃集合按本地自然日分桶,按 UTC 切日会错。
     """
     if at is None:
         return dj_timezone.localtime()
@@ -58,11 +71,17 @@ def _local(at: datetime | None) -> datetime:
 def day_key(day: date) -> str:
     """拼出当日活跃集合的键。
 
-    Args:
+    参数说明:
         day: 本地自然日。
 
-    Returns:
+    返回参数:
         ``activity:dau:{YYYYMMDD}``。
+
+    使用示例:
+        ``pipe.sadd(day_key(day), int(user_id))``(见本模块 ``touch``)
+
+    备注信息:
+        日期按 ``settings.TIME_ZONE`` 的自然日格式化,调用方负责先把时刻换算到本地时区。
     """
     return f"activity:dau:{day:%Y%m%d}"
 
@@ -70,12 +89,18 @@ def day_key(day: date) -> str:
 def hour_key(day: date, hour: int) -> str:
     """拼出某个小时的活跃集合的键。
 
-    Args:
+    参数说明:
         day: 本地自然日。
         hour: 小时(0–23),两位补零。
 
-    Returns:
+    返回参数:
         ``activity:dau:{YYYYMMDD}:{HH}``。
+
+    使用示例:
+        ``pipe.scard(hour_key(day, hour))``(见本模块 ``hourly_counts``)
+
+    备注信息:
+        小时取 ``settings.TIME_ZONE`` 的本地小时,不按 UTC。
     """
     return f"activity:dau:{day:%Y%m%d}:{hour:02d}"
 
@@ -83,11 +108,20 @@ def hour_key(day: date, hour: int) -> str:
 def touch(user_id: int, at: datetime | None = None) -> None:
     """记一次活跃:往当日集合与当小时集合各 ``SADD`` 一次。
 
-    两条 ``SADD`` 与两条 ``EXPIRE`` 压进同一个 pipeline(一个往返);失败只记日志。
-
-    Args:
+    参数说明:
         user_id: 账号 id。
         at: 记录用的时刻,``None`` 取现在。**只为测试造历史数据**,生产路径不要传。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``activity.touch(user_id)``(见 ``users/presence.py`` 的 ``touch``)
+        造历史数据走 ``at``:``activity.touch(user.id, at=_local(day, 9))``(见 ``stats/tests.py``)
+
+    备注信息:
+        两条 ``SADD`` 与两条 ``EXPIRE`` 压进同一个 pipeline(一个往返);Redis 出错只记
+        warning,本函数不抛异常 —— 它挂在认证热路径上,不能拖累业务请求。
     """
     try:
         local = _local(at)
@@ -107,11 +141,18 @@ def touch(user_id: int, at: datetime | None = None) -> None:
 def daily_users(day: date) -> set:
     """取某一天的活跃用户集合。
 
-    Args:
+    参数说明:
         day: 本地自然日。
 
-    Returns:
+    返回参数:
         账号 id 集合;集合不存在或 Redis 不可用时是**空集**(本函数不抛异常)。
+
+    使用示例:
+        ``return activity.daily_users(day)``(见 ``stats/metrics.py`` 的日活快照)
+
+    备注信息:
+        Redis 读失败只记 warning 并返回空集,调用方无法区分「当天 0 人」与「读失败」;
+        需要区分时改用 ``daily_count``(它返回 ``None``)。
     """
     try:
         members = _client().smembers(day_key(day))
@@ -124,14 +165,18 @@ def daily_users(day: date) -> set:
 def daily_count(day: date) -> int | None:
     """取某一天的活跃人数。
 
-    区分「当天没采到」与「采到了 0 人」:键不存在返回 ``None``,看板据此显示 ``—``。
-    Redis 的集合没有「存在但为空」这种状态,因此 ``SCARD == 0`` 等价于键不存在。
-
-    Args:
+    参数说明:
         day: 本地自然日。
 
-    Returns:
+    返回参数:
         去重人数;当天没有记录(或 Redis 不可用)返回 ``None``。
+
+    使用示例:
+        ``if activity.daily_count(day) is None:``(见 ``stats/metrics.py``)
+
+    备注信息:
+        必须区分「当天没采到」与「采到了 0 人」:键不存在返回 ``None``,看板据此显示 ``—``。
+        Redis 的集合没有「存在但为空」这种状态,因此 ``SCARD == 0`` 等价于键不存在。
     """
     try:
         count = int(_client().scard(day_key(day)))
@@ -144,13 +189,17 @@ def daily_count(day: date) -> int | None:
 def hourly_counts(day: date) -> list[int] | None:
     """取某一天 24 个小时各自的活跃人数。
 
-    24 条 ``SCARD`` 走一次 pipeline;24 个键全不存在(当天没采到)返回 ``None``。
-
-    Args:
+    参数说明:
         day: 本地自然日。
 
-    Returns:
+    返回参数:
         长度 24 的整数列表(下标即小时);无数据或 Redis 不可用返回 ``None``。
+
+    使用示例:
+        ``"active_hours": activity.hourly_counts(day)``(见 ``stats/metrics.py`` 的快照字典)
+
+    备注信息:
+        24 条 ``SCARD`` 走一次 pipeline;24 个键全不存在(当天没采到)返回 ``None``。
     """
     try:
         pipe = _client().pipeline()

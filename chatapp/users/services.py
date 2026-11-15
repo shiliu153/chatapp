@@ -41,15 +41,20 @@ PROFILE_VISIT_RETENTION_DAYS = 90
 def record_profile_view(viewer_id: int, target_id: int) -> None:
     """记录一次「看了谁的资料」:落库访客记录,并按小时统计不同目标数(超阈值告警)。
 
-    同一小时内重复看同一个人只算一次(``cache.add`` 返回 False 即已记过),
-    这样阈值衡量的是**抓取广度**而不是刷新次数。
-
-    Args:
+    参数说明:
         viewer_id: 浏览者账号 id。
         target_id: 被浏览者账号 id。
 
-    Returns:
-        None。Redis / 数据库异常时只写 debug 日志,绝不影响资料接口。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``record_profile_view(request.user.id, target.id)``(见 ``users/views.py`` 的 ``public_profile``)
+
+    备注信息:
+        同一小时内重复看同一个人只算一次(``cache.add`` 返回 False 即已记过),
+        这样阈值衡量的是**抓取广度**而不是刷新次数。
+        Redis / 数据库异常时只写 debug 日志,绝不影响资料接口。
     """
     bucket = int(time.time()) // PROFILE_VIEW_TTL_SECONDS
     try:
@@ -77,20 +82,23 @@ def record_profile_view(viewer_id: int, target_id: int) -> None:
 def _record_visit(viewer_id: int, target_id: int) -> None:
     """把一次资料页访问写进 ``ProfileVisit``(每人一行,30 分钟窗口内只写一次)。
 
-    隐身判断取 ``Profile.visits_hidden``:资料是懒创建的,取不到 profile 视为「未隐身」。
-    写库放在内层 ``atomic()`` 里,失败只回滚到保存点,不会毒化外层事务
-    (``GET /users/{id}`` 本身没有外层事务,但测试与嵌套调用有)。
-
-    **只记录「会展示在访客列表里的人」**(M-2):访客列表只展示资料完善且有过审照片的
-    人,所以资料未完善的访问者即使落库也不会被看到 —— 批量造号可以拿它把表写爆。
-    判断口径与 ``discovery.services.visits_received_queryset`` 保持一致。
-
-    Args:
+    参数说明:
         viewer_id: 浏览者账号 id。
         target_id: 被浏览者账号 id。
 
-    Returns:
-        None。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_record_visit(viewer_id, target_id)``(见本模块 ``record_profile_view``)
+
+    备注信息:
+        隐身判断取 ``Profile.visits_hidden``:资料是懒创建的,取不到 profile 视为「未隐身」。
+        写库放在内层 ``atomic()`` 里,失败只回滚到保存点,不会毒化外层事务
+        (``GET /users/{id}`` 本身没有外层事务,但测试与嵌套调用有)。
+        **只记录「会展示在访客列表里的人」**:访客列表只展示资料完善且有过审照片的人,
+        所以资料未完善的访问者即使落库也不会被看到 —— 批量造号可以拿它把表写爆。
+        判断口径与 ``discovery.services.visits_received_queryset`` 保持一致。
     """
     if viewer_id == target_id:      # 自己看自己不算
         return
@@ -115,16 +123,20 @@ def _record_visit(viewer_id: int, target_id: int) -> None:
 
 
 def _trim_owner_visits(owner_id: int) -> None:
-    """每个 owner 只保留最近 N 条访客记录(M-2 的第二道闸)。
+    """每个 owner 只保留最近 N 条访客记录(第二道闸)。
 
-    ``N`` 取 ``settings.PROFILE_VISIT_MAX_PER_OWNER``(默认 500);``<=0`` 表示关闭。
-    先 ``COUNT`` 再决定是否淘汰:超过上限的账号极少,正常写入只多一条索引计数。
-
-    Args:
+    参数说明:
         owner_id: 被访问者账号 id。
 
-    Returns:
-        None。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_trim_owner_visits(target_id)``(见本模块 ``_record_visit``)
+
+    备注信息:
+        ``N`` 取 ``settings.PROFILE_VISIT_MAX_PER_OWNER``(默认 500);``<=0`` 表示关闭。
+        先 ``COUNT`` 再决定是否淘汰:超过上限的账号极少,正常写入只多一条索引计数。
     """
     limit = settings.PROFILE_VISIT_MAX_PER_OWNER
     if limit <= 0:
@@ -141,15 +153,19 @@ def _trim_owner_visits(owner_id: int) -> None:
 def get_profile(user):
     """取当前用户资料;没有就建空 Profile + 空 Preference(资料是懒创建的)。
 
-    结果挂在 ``user`` 实例上做**请求内记忆**:一次请求里视图、权限类、序列化器
-    会各调一次,不记忆就是每处两次 ``get_or_create``(2026-11-03 实测候选接口
-    因此多打 6 条 SQL)。同一请求内 ``profile.save()`` 改的就是这个实例,不会读到旧值。
-
-    Args:
+    参数说明:
         user: 当前用户。
 
-    Returns:
+    返回参数:
         该用户的 ``Profile`` 实例。
+
+    使用示例:
+        ``profile = get_profile(request.user)``(见 ``users/views.py`` 的 ``me``)
+
+    备注信息:
+        结果挂在 ``user`` 实例上做**请求内记忆**:一次请求里视图、权限类、序列化器
+        会各调一次,不记忆就是每处两次 ``get_or_create``(候选接口实测因此多打 6 条 SQL)。
+        同一请求内 ``profile.save()`` 改的就是这个实例,不会读到旧值。
     """
     cached = getattr(user, "_profile_cache", None)
     if cached is not None:
@@ -166,13 +182,20 @@ def get_profile(user):
 def review_photos(queryset, status, operator=None) -> int:
     """通过/驳回照片:落审核审计 + 重算资料完善状态;过审时把头像同步到 IM。admin 与 ops 共用。
 
-    Args:
+    参数说明:
         queryset: 待审核照片的查询集。
         status: 目标审核状态(``PhotoStatus`` 取值)。
         operator: 执行审核的运营账号,可为 ``None``。
 
-    Returns:
+    返回参数:
         实际更新的照片条数。
+
+    使用示例:
+        ``review_photos(targets, status_map[action], request.user)``(见 ``ops/views.py`` 的批量审核)
+
+    备注信息:
+        照片数量变化会影响「资料完善」判定(掉回未完善 = 失去候选资格),所以必然重算;
+        过审才同步 IM 头像,驳回不触发外部副作用。
     """
     user_ids = set(queryset.values_list("user_id", flat=True))
     count = queryset.update(status=status, reviewed_by=operator, reviewed_at=timezone.now())
@@ -188,8 +211,18 @@ def review_photos(queryset, status, operator=None) -> int:
 def sync_im_nickname(user) -> None:
     """昵称变更后同步到 IM 资料(经任务队列;失败可重试,不影响业务)。
 
-    Args:
+    参数说明:
         user: 昵称已变更的用户。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sync_im_nickname(profile.user)``(见 ``users/views.py`` 的 ``me``)
+
+    备注信息:
+        任务挂在 ``transaction.on_commit`` 上并以 ``robust=True`` 入队,事务回滚时不会改 IM;
+        昵称为空时直接返回,不发任务。
     """
     nickname = getattr(getattr(user, "profile", None), "nickname", "")
     if not nickname:
@@ -200,8 +233,17 @@ def sync_im_nickname(user) -> None:
 def sync_im_avatar(user_id: int) -> None:
     """照片过审后把头像同步到 IM(任务内部取第一张过审照片的绝对 URL)。
 
-    Args:
+    参数说明:
         user_id: 目标用户账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``sync_im_avatar(request.user.id)``(见 ``users/views.py`` 的 ``upload_photo``)
+
+    备注信息:
+        同样挂在 ``transaction.on_commit`` 上:照片行先提交,IM 侧才读得到过审照片。
     """
     transaction.on_commit(lambda: im_tasks.sync_profile.delay(user_id, "avatar"), robust=True)
 
@@ -209,15 +251,22 @@ def sync_im_avatar(user_id: int) -> None:
 def delete_account(user) -> None:
     """注销账号:删除该用户的全部数据,并清理磁盘文件 / 缓存 / IM 账号。
 
-    顺序有讲究:
-      1. 事务内先**收集**待删文件路径与 im_user_id(删行之后就取不到了,
-         且 `user.delete()` 会把实例主键置为 None);
-      2. 事务内删 User 行(CASCADE 清掉全部关联数据);
-      3. 事务提交后(on_commit)删磁盘文件、清 Redis、入队 IM 删号 ——
-         响应路径禁止外部调用,且入队必须晚于提交(否则事务回滚了 IM 号却没了)。
-
-    Args:
+    参数说明:
         user: 待注销的用户实例。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``delete_account(request.user)``(见 ``users/views.py`` 的 ``me`` 的 DELETE 分支)
+
+    备注信息:
+        顺序有讲究,不可调换:
+        1. 事务内先**收集**待删文件路径与 im_user_id(删行之后就取不到了,
+           且 ``user.delete()`` 会把实例主键置为 ``None``);
+        2. 事务内删 User 行(CASCADE 清掉全部关联数据);
+        3. 事务提交后(on_commit)删磁盘文件、清 Redis、入队 IM 删号 ——
+           响应路径禁止外部调用,且入队必须晚于提交(否则事务回滚了 IM 号却没了)。
     """
     from feed.models import PostImage   # 延迟导入,避免 app 加载顺序问题(同 im/tasks.py)
     from im.models import ChatImage, ChatVoice

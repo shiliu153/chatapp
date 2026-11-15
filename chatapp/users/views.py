@@ -57,14 +57,20 @@ logger = logging.getLogger(__name__)
 def me(request):
     """我的资料:读取、局部更新与账号注销(GET/PATCH/DELETE /api/v1/users/me)。
 
-    DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
-    PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
-
-    Args:
+    参数说明:
         request: DRF 请求对象。``DELETE`` 时 body 需带 ``phone``。
 
-    Returns:
+    返回参数:
         GET/PATCH 返回完整资料;DELETE 返回 204 空响应。
+
+    使用示例:
+        ``self.client.get("/api/v1/users/me")``(见 ``users/tests.py`` 的 ``MeTests``)
+        注销:``self.client.delete("/api/v1/users/me", {"phone": "13800138000"}, format="json")``(见 ``users/tests.py`` 的 ``_delete``)
+
+    备注信息:
+        DELETE 是账号注销,由序列化器校验手机号二次确认后硬删除全部数据;
+        PATCH 在昵称变化时顺带把新昵称同步到 IM 资料。
+        重封禁用户由全局权限类拦成 403(白名单只放行 GET),防「注销洗白」。
     """
     if request.method == "DELETE":
         # 手机号二次确认:不可恢复操作,body 必须带上当前账号的手机号。
@@ -99,11 +105,17 @@ def me(request):
 def tag_list(request):
     """标签池全量列表(GET /api/v1/users/tags)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         全部标签(12 个,由数据迁移写入);重封禁用户由全局权限类放行本接口。
+
+    使用示例:
+        ``self.client.get("/api/v1/users/tags")``(见 ``users/tests.py`` 的 ``MeTests``)
+
+    备注信息:
+        标签池不接受写接口,只能由数据迁移维护;``feed`` 与资料卡展示都取这一份。
     """
     return Response(TagSerializer(Tag.objects.all(), many=True).data)
 
@@ -114,17 +126,21 @@ def tag_list(request):
 def public_profile(request, user_id):
     """他人资料卡(GET /api/v1/users/{user_id})。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
         user_id: 目标账号 id。
 
-    Returns:
+    返回参数:
         公开资料(不含手机号、生日、偏好与缺失项),含共同标签与关注态
         (``is_followed`` / ``follower_count`` / ``following_count``)。
 
-    Raises:
-        NotFound: 对方与当前用户互相拉黑、资料不存在,或对方处于重封禁状态 ——
-            三种情况统一按「用户不存在」处理,不泄漏账号是否存在。
+    使用示例:
+        ``self.client.get(f"/api/v1/users/{self.other.id}")``(见 ``users/tests.py`` 的 ``PublicProfileTests._get``)
+
+    备注信息:
+        对方与当前用户互相拉黑、资料不存在,或对方处于重封禁状态时统一抛 ``NotFound``,
+        按「用户不存在」处理,不泄漏账号是否存在。
+        关注态一次算好注入 context,单条资料卡只多一条聚合 SQL。
     """
     # 双向拉黑 = 互相不存在;heavy 封禁的人对外不可见(轻封禁仍可见,还能聊天)
     if user_id in blocked_user_ids(request.user):
@@ -147,18 +163,20 @@ def public_profile(request, user_id):
 def upload_photo(request):
     """上传照片(POST /api/v1/users/me/photos)。
 
-    上传后按 ``settings.AUTO_APPROVE`` 决定是否直接过审(开发期上传即过审);
-    过审时会顺带把头像同步到 IM。
-
-    Args:
+    参数说明:
         request: DRF 请求对象,multipart 字段为 ``file``。
 
-    Returns:
+    返回参数:
         201 + 照片对象;超出张数上限时返回 400。
 
-    Raises:
-        serializers.ValidationError: 图片缺失或超过大小上限。
-        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+    使用示例:
+        ``self.client.post("/api/v1/users/me/photos", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``PhotoTests.upload``)
+
+    备注信息:
+        上传后按 ``settings.AUTO_APPROVE`` 决定是否直接过审(开发期上传即过审);
+        过审时会顺带把头像同步到 IM。图片缺失或超过大小上限抛
+        ``serializers.ValidationError``;配额已满抛 ``config.storage.StorageQuotaExceeded``
+        (413/``41301``)。
     """
     serializer = PhotoUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -191,15 +209,20 @@ def upload_photo(request):
 def delete_photo(request, photo_id):
     """删除自己的照片(DELETE /api/v1/users/me/photos/{photo_id})。
 
-    只允许删除本人照片(查询集限定在 ``request.user.photos`` 上);
-    删除后重算资料完善状态,照片不足会掉回「未完善」并失去候选资格。
-
-    Args:
+    参数说明:
         request: DRF 请求对象。
         photo_id: 照片主键。
 
-    Returns:
+    返回参数:
         204 空响应。
+
+    使用示例:
+        ``self.client.delete(f"/api/v1/users/me/photos/{photo.id}")``(见 ``users/tests.py`` 的 ``PhotoTests``)
+
+    备注信息:
+        只允许删除本人照片(查询集限定在 ``request.user.photos`` 上);
+        删除后重算资料完善状态,照片不足会掉回「未完善」并失去候选资格。
+        非本人或不存在时 ``get_object_or_404`` 抛 404。
     """
     photo = get_object_or_404(request.user.photos, id=photo_id)
     photo.file.delete(save=False)   # 连磁盘文件一起删
@@ -213,26 +236,22 @@ def delete_photo(request, photo_id):
 def normalize_profile_voice(raw: bytes, content_type: str) -> tuple[bytes, int]:
     """校验并转码一段资料语音自我介绍(≤30 秒)。
 
-    转码本身**完全复用** ``im.voice.normalize``(ffprobe 校验 → ffmpeg 转 m4a/AAC,
-    含协议白名单、资源上限与最小环境),这里不重写任何 ffmpeg 调用。与聊天语音的差别只有两点:
-
-    1. 资料语音的契约只有一个 ``file`` 字段,**没有客户端声明的时长**;
-       ``im.voice.normalize`` 却要求 ``declared_ms`` 并与实测值比对。所以先用
-       ``ffprobe`` 探一次真实时长,再把它作为 ``declared_ms`` 传进去 —— 等价于
-       「不信任客户端声明」的原始意图,同时不用改 ``im/`` 一行代码;
-    2. 上限是 **30 秒**(聊天语音是 60 秒),超限抛 :class:`im.voice.VoiceError`,
-       由视图回 400(不新增业务码)。
-
-    Args:
+    参数说明:
         raw: 上传文件的原始字节。
         content_type: 上传声明的 MIME(可带 ``;codecs=...`` 参数)。
 
-    Returns:
+    返回参数:
         ``(m4a 字节, 实测毫秒)``。
 
-    Raises:
-        voice.VoiceUnavailable: 服务器缺 ffmpeg/ffprobe(视图回 503 + ``50302``)。
-        voice.VoiceError: 格式/大小/解码不合法,或时长超过 30 秒。
+    使用示例:
+        ``data, duration_ms = normalize_profile_voice(upload.read(), upload.content_type)``(见本模块 ``my_voice``)
+
+    备注信息:
+        转码完全复用 ``im.voice.normalize``(ffprobe 校验 → ffmpeg 转 m4a/AAC),这里不重写任何
+        ffmpeg 调用;先用 ``ffprobe`` 探真实时长再作为 ``declared_ms`` 传进去,等价于「不信任
+        客户端声明」,且不用改 ``im/`` 一行代码。
+        服务器缺 ffmpeg/ffprobe 抛 ``voice.VoiceUnavailable``(视图回 503 + ``50302``);
+        格式/大小/解码不合法或时长超过 30 秒抛 ``voice.VoiceError``。
     """
     suffix = voice.ALLOWED_CONTENT_TYPES.get(voice.base_content_type(content_type))
     if suffix is None:
@@ -258,24 +277,22 @@ def normalize_profile_voice(raw: bytes, content_type: str) -> tuple[bytes, int]:
 def my_voice(request):
     """资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
 
-    POST 是**覆盖式**的:一个账号只有一条语音,重复上传替换内容并删掉旧文件。
-    处理顺序刻意写成「转码 → 时长 → 配额 → 落盘」:
-
-    1. 转码与时长校验都在临时目录里完成,不碰媒体目录;
-    2. **配额检查必须在 ``file.save()`` 之前** —— ``FileField.save`` 会立即把文件写进
-       存储,先写后查会在超限时留下没有数据库行的孤儿文件,配额对磁盘占用就失效了;
-    3. 落盘成功后才删旧文件与旧行,中途失败时旧语音仍然可播放。
-
-    Args:
+    参数说明:
         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
 
-    Returns:
+    返回参数:
         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
         DELETE 幂等 204(没有语音时也返回 204)。
 
-    Raises:
-        serializers.ValidationError: 缺文件、超过 5MB 或格式不在白名单(400)。
-        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+    使用示例:
+        ``self.client.post("/api/v1/users/me/voice", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``VoiceTests.upload``)
+
+    备注信息:
+        POST 是**覆盖式**的:一个账号只有一条语音,重复上传替换内容并删掉旧文件。
+        处理顺序刻意写成「转码 → 时长 → 配额 → 落盘」:**配额检查必须在 ``file.save()`` 之前**,
+        否则超限时会留下没有数据库行的孤儿文件。
+        缺文件、超过 5MB 或格式不在白名单抛 ``serializers.ValidationError``(400);
+        配额已满抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
     """
     profile = get_profile(request.user)
     if request.method == "DELETE":
@@ -327,11 +344,18 @@ def my_voice(request):
 def presence_status(request):
     """批量查在线状态;被拉黑/不存在/自己/重封禁的人从结果里省略。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,``user_ids`` 为逗号分隔的账号 id,单次上限 100。
 
-    Returns:
+    返回参数:
         ``{"results": [{"user_id", "online", "last_active_at"}]}``。
+
+    使用示例:
+        ``self.client.get("/api/v1/presence", {"user_ids": str(self.other.id)})``(见 ``users/tests.py`` 的 ``PresenceApiTests``)
+
+    备注信息:
+        ``user_ids`` 缺失、非数字或超过上限时返回 400;结果去重且保持请求顺序。
+        在线与否读 ``users.presence`` 的 Redis 键,Redis 不可用时降级成全部离线而不是报错。
     """
     raw = request.query_params.get("user_ids", "")
     parts = [part.strip() for part in raw.split(",") if part.strip()]
@@ -365,11 +389,18 @@ def presence_status(request):
 def my_preference(request):
     """我的择偶偏好:读取与局部更新(GET/PATCH /api/v1/users/me/preference)。
 
-    Args:
+    参数说明:
         request: DRF 请求对象;``PATCH`` 支持部分字段。
 
-    Returns:
+    返回参数:
         更新后的完整偏好对象。
+
+    使用示例:
+        ``self.client.patch("/api/v1/users/me/preference", {"age_min": 22, "age_max": 30}, format="json")``(见 ``users/tests.py`` 的 ``PreferenceTests.test_update``)
+
+    备注信息:
+        偏好只影响自己的候选池,写入后立即让本人候选缓存失效;年龄区间由序列化器校验
+        (下限不小于 18、下限不得大于上限)。
     """
     profile = get_profile(request.user)
     preference = profile.preference

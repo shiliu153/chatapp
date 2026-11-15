@@ -28,11 +28,17 @@ PRESENCE_MAX_IDS = 100                 # 单次批量查询上限
 def _key(user_id: int) -> str:
     """拼出该用户的在线状态缓存键。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
 
-    Returns:
+    返回参数:
         Redis 键名。
+
+    使用示例:
+        ``cache.set(_key(user_id), int(time.time()), timeout=PRESENCE_TTL_SECONDS)``(见本模块 ``touch``)
+
+    备注信息:
+        键名不带缓存前缀(直连 ``cache`` 的默认序列化),批量读用 ``cache.get_many``。
     """
     return f"presence:{user_id}"
 
@@ -40,12 +46,19 @@ def _key(user_id: int) -> str:
 def touch(user_id: int) -> None:
     """记一次活跃;失败只记日志 —— presence 是点缀,绝不拖累业务请求。
 
-    这是全项目**唯一**「有认证请求」的证据点(``accounts.authentication`` 认证通过即
-    调它),因此日活 / 活跃时段的记录也接在这里(见 ``users.activity``):口径天然一致,
-    不必再改 ``authentication.py``。
-
-    Args:
+    参数说明:
         user_id: 账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``touch(user.id)``(见 ``accounts/authentication.py`` 的认证钩子)
+
+    备注信息:
+        这是全项目**唯一**「有认证请求」的证据点(认证通过即调它),因此日活 / 活跃时段的
+        记录也接在这里(见 ``users.activity``):口径天然一致,不必再改 ``authentication.py``。
+        Redis 写入失败只记 warning;``activity.touch`` 内部自己吞异常,这里不再包一层。
     """
     try:
         cache.set(_key(user_id), int(time.time()), timeout=PRESENCE_TTL_SECONDS)
@@ -58,8 +71,17 @@ def touch(user_id: int) -> None:
 def clear(user_id: int) -> None:
     """注销账号时抹掉在线痕迹;失败只记日志。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``presence.clear(user_id)``(见 ``users/services.py`` 的 ``delete_account``)
+
+    备注信息:
+        在事务提交后的清理回调里调用:删号前先清在线状态,避免「人已注销但仍显示在线」。
     """
     try:
         cache.delete(_key(user_id))
@@ -70,13 +92,18 @@ def clear(user_id: int) -> None:
 def get_presence(user_ids: list[int]) -> dict[int, dict]:
     """批量查:{user_id: {"online": bool, "last_active_at": iso|None}}。
 
-    无记录 / Redis 不可用 → online=False、last_active_at=None(前端不显示)。
-
-    Args:
+    参数说明:
         user_ids: 待查询的账号 id 列表。
 
-    Returns:
+    返回参数:
         以账号 id 为键的在线状态字典;每个 id 都有条目。
+
+    使用示例:
+        ``data = get_presence(visible)``(见 ``users/views.py`` 的 ``presence_status``)
+
+    备注信息:
+        无记录 / Redis 不可用 → online=False、last_active_at=None(前端不显示)。
+        一次 ``cache.get_many`` 读全部键,不做逐条查询。
     """
     now_ts = int(time.time())
     result = {uid: {"online": False, "last_active_at": None} for uid in user_ids}
