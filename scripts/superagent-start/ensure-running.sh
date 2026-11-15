@@ -130,6 +130,14 @@ if h.get('github') == 'starting':
 PY
 
 # ---------- 4. 周边依赖(只报告,不拦) ----------
+# 依赖容器这一项**从 2026-11-15 起不再是必需项**(便签「定母体常驻依赖栈去留」):
+# 每个检出目录按路径派生自己那套栈(scripts/stacks/env.sh 的槽位规则),worker 在自己的
+# 工单目录里跑 `verify.sh backend` 时自起自拆,不需要任何常驻容器。母体检出那套
+# `chatapp-ci-mysql` / `chatapp-ci-redis` 现在只是「可选缓存:起了能省一次 docker up」——
+# 起了报一句,没起也只报 info,**绝不拦派单**。此前它报 warn,会把「其实一切正常」
+# 读成「worker 的验证环境坏了」,是本脚本最贵的一次误报(2026-11-15 实测:两个容器都
+# 没起,而三张工单的 backend 验证全部自给自足跑绿)。
+# 去留结论与并发上限见 docs/standards/dev-commands.md「并发跑后端验证」。
 if ! curl -fsS -m 3 "http://127.0.0.1:8788/__failover/health" >/dev/null 2>&1; then
   warn "模型兜底代理(8788)没响应,worker 的模型调用会全挂:systemctl status superagent-failover"
 fi
@@ -137,21 +145,19 @@ if ! timeout 2 bash -c 'echo > /dev/tcp/127.0.0.1/7890' 2>/dev/null; then
   warn "出口代理(7890)没监听,worker 的外网操作会失败:systemctl status superagent-proxy"
 fi
 if command -v docker >/dev/null 2>&1; then
-  # 只盯 worker 真正需要的两个容器:它们的 restart 策略是 no(实测 2026-11-09),
-  # 所以 WSL 一重启就不会自己回来 —— 而 verify.sh 没有 MySQL/Redis 会全红。
   running=$(docker ps --format '{{.Names}}' 2>/dev/null)
-  missing=""
+  cached=""
   for c in chatapp-ci-mysql chatapp-ci-redis; do
-    echo "$running" | grep -qx "$c" || missing="$missing $c"
+    if echo "$running" | grep -qx "$c"; then cached="${cached:+$cached }$c"; fi
   done
-  if [ -n "$missing" ]; then
-    warn "worker 的验证环境没起:$missing(容器 restart=no,WSL 重启后不会自恢复)"
-    warn "  修:cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait"
+  if [ -n "$cached" ]; then
+    say "docker:母体缓存栈在跑($cached)"
   else
-    say "docker:chatapp-ci-mysql / chatapp-ci-redis 在跑"
+    say "docker:母体依赖栈未起(可选缓存;工单目录跑 verify.sh 时按目录自派生,不影响派单)"
   fi
 else
-  warn "找不到 docker 命令"
+  # 没有 docker 才是真问题:worker 接单后跑 backend 验证会没有 MySQL / Redis。
+  warn "找不到 docker 命令:worker 接单后跑 backend 验证起不来依赖"
 fi
 
 say "可以派单了"
