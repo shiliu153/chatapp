@@ -55,7 +55,7 @@
 | 错误响应契约 `{"code","message","request_id"}`;业务码 = HTTP 前 3 位 + 2 位序号(`config/error_codes.py`) | `config/tests.py` 红 |
 | 新增 / 改 `/api/v1` 接口必须同改 `docs/api/` 分册 | `ApiDocsCoverageTests` 红 |
 | 对外字段变更必须重生成 `docs/api/openapi.yml`(禁止手改) | `verify.sh backend` 的生成物校验红 |
-| 新增 / 改 `.py` 必须有模块与函数 docstring,公开函数带 `Args:`(`test_*`、`setUp`、`Meta`、函数内闭包豁免) | `CommentCoverageTests` 红 |
+| 新增 / 改 `.py` 必须有模块与函数 docstring,公开函数带参数必须写 `参数说明:`(`test_*`、`setUp`、`Meta`、函数内闭包豁免) | `CommentCoverageTests` 红 |
 | 版本号三处一致(`app/pubspec.yaml` 是唯一事实来源) | `sync_version.py --check` 红 |
 | App 模型读取的字段必须存在于 OpenAPI 契约 | `check_app_models.py` 红 |
 | 响应路径禁止任何第三方网络调用;跨系统副作用一律走 Celery 任务 | 代码审查拒 |
