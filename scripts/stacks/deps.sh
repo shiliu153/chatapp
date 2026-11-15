@@ -8,6 +8,8 @@
 # chatapp-ci / 13306 / 16379),所以并发的两个工单互不拆台。规则与优先级见 env.sh 顶部。
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/env.sh"
+# shellcheck source=scripts/stacks/mount-perms.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/mount-perms.sh"
 
 # 本项目(**不是**「所有 chatapp-ci 容器」)是否已经在跑:按 compose 的 project + service
 # 标签判,避免把别的目录那套栈当成自己的复用(复用错项目等于连到别人的库)。
@@ -21,18 +23,15 @@ compose_running() {
   return 0
 }
 
-# init 脚本的读权限:worker worktree 的 umask 077 会让 chatapp/db_setup_ci.sql 检出成 0600,
-# MySQL 容器以 mysql 用户读 /docker-entrypoint-initdb.d 时 Permission denied → 退出 1
-# (2026-11-14 实测偶发)。仓库里 git 只记录 100644 / 100755 两种模式,chmod 不产生变更。
-ensure_init_readable() {
-  local f="$ROOT/chatapp/db_setup_ci.sql"
-  [ -f "$f" ] || return 0
-  chmod 644 "$f" 2>/dev/null || true
-}
+# 被 compose 以 :ro 挂进容器、由非 root 用户读取的文件,起容器前补回 0644:
+# worker worktree 的 umask 077 会让它们检出成 0600,MySQL 读 init 脚本直接 Permission denied
+# → 退出 1(2026-11-14 实测偶发)。清单与函数在 scripts/stacks/mount-perms.sh 一处,
+# 新增挂载文件登记到那里的 MOUNT_READ_FILES(不用 glob);口径见 docs/pitfalls/testing.md
+# 「在 WSL / Linux 本地跑验证」第 5 条。
 
 case ${1:-} in
   up)
-    [ "$DRY_RUN" = 1 ] || ensure_init_readable
+    [ "$DRY_RUN" = 1 ] || ensure_mount_readable "$ROOT"
     if [ "$DRY_RUN" = 0 ] && compose_running; then
       echo "复用已在跑的依赖容器(项目 $COMPOSE_PROJECT_NAME,MySQL $MYSQL_PORT / Redis $REDIS_PORT)"
     else

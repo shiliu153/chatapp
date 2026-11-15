@@ -109,5 +109,25 @@ case $ddry in
   *) printf 'FAIL deps --dry-run 没有 -p %s\n' "$COMPOSE_PROJECT_NAME"; fail=1 ;;
 esac
 rm -rf "$tmp_a" "$tmp_b" "$tmp_c"
+# 挂载文件权限兜底(scripts/stacks/mount-perms.sh,deps.sh 在 `up` 前调用它)。
+# 场景:worker worktree 的 umask 077 会让被 compose 以 :ro 挂进容器的文件落成 0600,
+# MySQL 初始化读不到 init 脚本就 Permission denied 退出 1 —— 表象像后端用例红了,实际是环境。
+# 三个方向都要钉住:0600 → 0644 真的生效、清单外的文件不被误伤、清单里的路径真在仓库里。
+. "$ROOT/scripts/stacks/mount-perms.sh"
+perm_root=$(mktemp -d); mkdir -p "$perm_root/chatapp"
+: > "$perm_root/chatapp/db_setup_ci.sql"; chmod 600 "$perm_root/chatapp/db_setup_ci.sql"
+: > "$perm_root/chatapp/keep-0600.sql"; chmod 600 "$perm_root/chatapp/keep-0600.sql"
+ensure_mount_readable "$perm_root"
+perm=$(stat -c %a "$perm_root/chatapp/db_setup_ci.sql")
+if [ "$perm" = 644 ]; then echo "ok   挂载文件 0600 被补成 0644(db_setup_ci.sql)"
+else printf 'FAIL 挂载文件没被补成 0644,实际 %s\n' "$perm"; fail=1; fi
+keep=$(stat -c %a "$perm_root/chatapp/keep-0600.sql")
+if [ "$keep" = 600 ]; then echo "ok   清单外的文件模式不被改动"
+else printf 'FAIL 清单外的文件被改了模式(应保持 600,实际 %s)\n' "$keep"; fail=1; fi
+for rel in "${MOUNT_READ_FILES[@]}"; do
+  if [ -f "$ROOT/$rel" ]; then printf 'ok   挂载权限清单条目在仓库里存在(%s)\n' "$rel"
+  else printf 'FAIL 挂载权限清单里的 %s 在仓库里不存在(兜底会静默失效)\n' "$rel"; fail=1; fi
+done
+rm -rf "$perm_root"
 [ "$fail" = 0 ] && echo "全部通过" || echo "有失败"
 exit "$fail"
