@@ -113,23 +113,45 @@
 
 ### 5.1 数字
 
-**手写计数必然过期** —— 本仓库已经过期过五次(接口数在 5 个地方各写一个版本)。
-所以:
+**手写计数必然过期** —— 本仓库已经过期过五次(接口数在 5 个地方各写一个版本),
+而且同一份活文档里出现过两个互相矛盾的告警条数(证据见
+[数字机械化设计](../../docs/superpowers/specs/2026-11-16-facts-numbers-design.md) §1)。所以数字分四类处置,
+判据**只有一条**:这个数字能不能被机器数出来(同上 §2)。
 
-- **能用生成器的绝不用手写**:目录份数、归档份数、接口数、路径数、操作数一律引用
-  `docs/README.md`(生成物)或 `openapi.yml`;
-- **唯一保留的手写计数形态**是分册首句「本分册含 N 个接口」,因为它服务的是**分册自身**的
-  可读性。它由 `docs_lint` 的 `number` 规则机械核对:必须等于「接口一览表」里指向该分册的行数;
-- 其余 `N 份` / `N 条` / `N 个操作` 出现在历史叙事里(里程碑、发版记录、一次性报告)时
-  **不强制改** —— 那是「当时的事实」,机械禁会逼人改写历史。
+| 类型 | 例子 | 处置 |
+|---|---|---|
+| **A 统计型**(数得出来) | workflow 条数、门禁条数、接口操作数 / 路径数、文档份数、告警规则条数、业务码个数 | **不写**。用 `python scripts/facts.py --write` 生成的哨兵,见下 |
+| **B 规格型**(阈值 / 上限 / TTL) | 限流 120 次/小时、单账号 200MB、`ids` ≤ 50 条 | 照抄代码里的值;它跟着代码变,不跟仓库规模变 |
+| **C 测量型**(要跑才有) | 476 rps、p99 6.4s、1000 连接 0 失败 | 只出现在一次性报告里,**带上测量日期** |
+| **D 叙事型**(要跑全量测试才有) | 测试用例数(「N 条自动化测试」「N 个单元测试」这类写法) | **活文档禁写具体值**(`number` 规则 B 半),改写:给命令或不写数字 |
+
+**A 类:哨兵怎么写。** 数字由脚本计算并写进正文的哨兵区间,人只写句子。源文件里长这样
+(下面用 `<事实id>` 占位,免得这段说明本身被判定器扫到):
+
+```markdown
+共 <!-- num:<事实id> --><值><!-- /num --> 道门禁
+```
+
+- 读者看到的是「共 N 道门禁」的样子 —— HTML 注释不渲染,N 是脚本写的值;
+- 值过期、或者你**裸写**了这个数字(哪怕当时是对的),`python scripts/facts.py --check` 都判红;
+- 新增一条可统计的事实 = 在 `scripts/facts.py` 的 `FACTS` 里加一项,再跑一次 `--write`;
+- 标题里不要放哨兵(会打碎 anchor),改用文字表述;代码围栏里也不要(注释会当字面量显示)。
+
+**唯一保留的手写计数**是分册首句「本分册含 N 个接口」,因为它服务的是**分册自身**的可读性。
+它由 `number` 规则 A 半机械核对:必须等于「接口一览表」里指向该分册的行数
+(接口数是 15 个不同的值,收进哨兵等于造 15 条事实,反而更糟)。
+
+其余 `N 份` / `N 条` 出现在历史叙事里(里程碑、发版记录、一次性报告、backlog 的完成记录)时
+**不强制改** —— 那是「当时的事实」,机械禁会逼人改写历史。确需在活文档里引用一个
+不可保真的数字时,在那行行尾加 `<!-- lint:allow:number -->`(只豁免那一行)。
 
 ### 5.2 术语
 
 禁用词表由 [`sources-of-truth.md`](sources-of-truth.md) §5 **唯一维护**,本文件不抄第二份(同一张表两处手写必然分叉)。
 `term` 规则(`scripts/docs_lint.py` 的 `BANNED_TERMS`)按那张表拦截,当前是两类:
 
-1. **「N 轨」形式的轨数词** —— 与 `.github/workflows/` 现在 10 个文件的事实脱钩,且数字会继续变;
-   改写方式:「workflow(当前 10 个)」或直接点名轨(`contract` / `backend` …);
+1. **「N 轨」形式的轨数词** —— 与 `.github/workflows/` 现在 <!-- num:workflows -->10<!-- /num --> 个文件的事实脱钩,且数字会继续变;
+   改写方式:「workflow(当前 <!-- num:workflows -->10<!-- /num --> 个)」或直接点名轨(`contract` / `backend` …);
 2. **「N 轮安全审计」** —— 已有第四轮;改写方式:「`docs/security/` 下 N 份」或「四轮」。
 
 `term` 规则的作用域与豁免(**刻意收窄**,否则第一版就会红一片然后被人关掉):
@@ -163,16 +185,18 @@
 | `unindexed` | 非归档文档被索引覆盖 100% | 同上 |
 | `metadata` | 非归档文档的 front-matter 齐全且取值合法 | 同上 |
 | `term` | 作用域内禁用词 0 处(白名单与行内豁免除外) | 同上 |
-| `number` | 分册首句的接口数与接口一览表一致 | 同上 |
+| `number` | 分册首句的接口数与接口一览表一致(A 半);活文档里没有不可保真的计数(B 半) | 同上 |
 | 生成物 | `docs/README.md` / `archive/INDEX.md` / 接口一览计数与事实一致 | `python scripts/docs_index.py --check` |
+| 统计数字 | 正文里的 A 类数字(哨兵)与事实一致,且没有裸写 | `python scripts/facts.py --check` |
 
-这七条都在既有门禁里(`scripts/gates.toml` 的 `contract-docs-lint-run` /
-`contract-docs-lint-selftest` / `contract-docs-index-check` / `contract-docs-index-selftest`),
-本地与 CI 跑同一份清单:**不新增 gate**。改完文档先跑
+这些都在既有门禁里(`scripts/gates.toml` 的 `contract-docs-lint-run` /
+`contract-docs-lint-selftest` / `contract-docs-index-check` / `contract-docs-index-selftest` /
+`contract-facts-run` / `contract-facts-selftest`),本地与 CI 跑同一份清单。改完文档先跑
 
 ```bash
 python scripts/docs_lint.py
 python scripts/docs_index.py --check
+python scripts/facts.py --check
 ```
 
 两条都绿再提交;新增 / 搬动 / 归档文档后必须跑 `python scripts/docs_index.py --write`

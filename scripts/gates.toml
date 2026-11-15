@@ -100,7 +100,7 @@ cwd = "chatapp"
 command = "python manage.py test --noinput"
 reason = "后端全量测试(前置 MySQL + Redis);这是 backend 轨唯一的重活"
 
-# --- contract(本地与 CI 完全同源的 25 道) -------------------------------
+# --- contract(本地与 CI 完全同源的 27 道) -------------------------------
 
 [[gate]]
 id = "contract-app-models"
@@ -164,6 +164,20 @@ scope = "contract"
 kind = "python"
 command = "python -m unittest scripts.test_docs_lint -v"
 reason = "docs_lint 漏报 = 治理成果回流(脚本又躺回 docs/),误报 = 人被逼着把它关掉"
+
+[[gate]]
+id = "contract-facts-run"
+scope = "contract"
+kind = "python"
+command = "python scripts/facts.py --check"
+reason = "正文里的统计数字(workflow 条数 / 告警条数 / 接口数 / 文档份数 …)由 scripts/facts.py 计算:哨兵值过期、或者数字裸写没包哨兵,文档就与事实脱钩了 —— 实测抓到过真漂移(capacity-and-reliability.md 同一份文档里写着 10 条与 17 条告警,配置里是 17)"
+
+[[gate]]
+id = "contract-facts-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_facts -v"
+reason = "数字判定器判错的两个方向都不能静默:漏报 = 文档继续漂移,误报 = 人被逼着把门禁关掉(term 规则第一版差点红一片)"
 
 [[gate]]
 id = "contract-gh-guard-selftest"

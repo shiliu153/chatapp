@@ -88,7 +88,7 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
 
 ## 8. 交付与恢复纪律
 
-- **CI 的 workflow(当前 10 个)**:`backend` / `app` / `app-ui` / `web` / `web-e2e` / `imserver` /
+- **CI 的 workflow(当前 <!-- num:workflows -->10<!-- /num --> 个)**:`backend` / `app` / `app-ui` / `web` / `web-e2e` / `imserver` /
   `contract` 七条判定轨,另有 `auto-merge`(白名单自动合并)、`main-health`(每天检查默认分支每条
   workflow 的最新 push run)、`l4-intake`(需求自动入队,总闸默认 `off`)。
   **门禁清单的 owner 是 [`scripts/gates.toml`](../scripts/gates.toml)**:本地 `scripts/verify.sh contract`

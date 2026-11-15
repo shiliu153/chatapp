@@ -40,6 +40,13 @@
 | 只改文档 | `scripts/verify.sh contract` |
 
 - **推之前必须绿。**把该命令的末尾输出贴进 PR 描述。
+- **改了会动 A 类统计数字的东西**(加 workflow / 加门禁 / 加接口 / 增删文档 /
+  改 `deploy/observability/alerts.yml` / 加业务码)→ **先跑 `python scripts/facts.py --write`**
+  再提交。正文里的这类数字由脚本写进哨兵(HTML 注释夹住数字,事实 id 见
+  `scripts/facts.py` 的 `FACTS`),
+  忘跑的后果是 `contract` 轨红(设计如此:宁可在 CI 红一次,也不要静默漂移)。
+  口径见 [writing.md §5.1](docs/standards/writing.md);分类判据见
+  [数字机械化设计](docs/superpowers/specs/2026-11-16-facts-numbers-design.md) §2。
 - 它和 CI 跑同一套命令、同一套环境变量(`docker-compose.ci.yml`:母体检出 MySQL 在 13306、Redis 在 16379;
   其余目录按检出路径派生端口与项目名,见 [dev-commands.md](docs/standards/dev-commands.md)「并发跑后端验证」),所以本地绿 ≈ CI 绿。
 - 首次在新工单目录里跑,若报「没有可用的 venv」,先跑 `scripts/verify.sh bootstrap`(一次性)。
@@ -59,6 +66,7 @@
 | 新增 / 改 `.py` 必须有模块与函数 docstring,公开函数带参数必须写 `参数说明:`(`test_*`、`setUp`、`Meta`、函数内闭包豁免) | `CommentCoverageTests` 红 |
 | 版本号三处一致(`app/pubspec.yaml` 是唯一事实来源) | `sync_version.py --check` 红 |
 | App 模型读取的字段必须存在于 OpenAPI 契约 | `check_app_models.py` 红 |
+| 正文里的 A 类统计数字必须由 `scripts/facts.py` 写进哨兵,**不能裸写**(写了就算当场对也红) | `python scripts/facts.py --check` 红(`contract` 轨) |
 | 响应路径禁止任何第三方网络调用;跨系统副作用一律走 Celery 任务 | 代码审查拒 |
 | IM 副作用唯一入口是 `im/tasks.py`,任务参数是任务相关的 id、任务体内自己查库(不是「一律 user_id」:`post_commented`/`post_replied` 传 `comment_id`;唯一**不查库**的例外 `delete_account` 传 `im_user_id`) | 代码审查拒 |
 

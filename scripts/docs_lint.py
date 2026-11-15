@@ -37,9 +37,13 @@
   `docs/{ops,standards,api,pitfalls,backlog}/**`):归档与常驻 spec 是历史,不改写;
   一次性报告与教学材料同理。`docs/standards/sources-of-truth.md` 整文件白名单
   —— 它本身在**定义**这些禁用词。行内豁免 ``<!-- lint:allow:term -->`` 只豁免它所在的行。
-- **number**:`docs/api/*.md` 首句「本分册含 N 个接口」必须等于「接口一览」表里指向该分册
-  的行数。这是全仓唯一成体系的手写计数;其余 `N 份` / `N 条` 属历史叙事或已由生成器覆盖,
-  机械禁会把门禁变成噪音源。
+- **number**:两半,共用同一个规则名(所以仍然是六条规则)。
+  **A 半**:`docs/api/*.md` 首句「本分册含 N 个接口」必须等于「接口一览」表里指向该分册
+  的行数 —— 这是全仓唯一成体系的手写计数;其余 `N 份` / `N 条` 属历史叙事或已由生成器覆盖
+  (含 `scripts/facts.py` 的哨兵),机械禁会把门禁变成噪音源。
+  **B 半**:活文档里**不许写不可保真的计数**(测试用例数 / 自动化测试条数)。它在
+  `contract` 轨算不出来(要跑全量测试),写进去就只能靠人记得回来改 —— 与
+  `scripts/facts.py` 的 A 类数字正好互补:能数出来的交给生成器,数不出来的不许写具体值。
 
 不判(**刻意**,判不准或会变成噪音):
 
@@ -48,6 +52,9 @@
 - 「索引文件自己是否被索引」—— 根那三份是入口,不要求被指向;子 `README.md` 要。
 - 历史叙事里的数字(`docs/milestones.md`、发版记录、一次性报告)—— 那是「当时的事实」,
   逼着改等于改写历史。
+- 规格型数字(限流阈值 / 容量上限 / TTL)与测量型数字(压测 rps / p99)—— 前者要跟着代码
+  常量走、后者天然带日期,两者都不该由文档门禁决定。分类判据见
+  `docs/superpowers/specs/2026-11-16-facts-numbers-design.md` §2。
 
 用法
 ----
@@ -146,6 +153,29 @@ NUMBER_VOLUME_RE = re.compile(r"本分册含\s*(\d+)\s*个接口")
 
 #: 接口文档目录名(相对 `docs/`)。
 API_DOCS_SUBDIR = "api"
+
+#: 代码围栏行(``` 或 ~~~ 开头,允许缩进)。围栏里是示例,不是断言。
+FENCE_RE = re.compile(r"^\s*(```|~~~)")
+
+#: 不可保真计数的句式 —— **测试用例数**。`contract` 轨算不出来(要跑全量测试),
+#: 写进活文档就只能靠人记得回来改,所以这里禁的是「写具体值」这件事本身。
+#:
+#: 刻意收窄到两种最明确的写法:裸的 `N 例` / `N 个场景` / `N 条断言` 语义含糊
+#: (「实现前只有 7 例红」讲的是红的条数),禁它们会制造误报。
+UNVERIFIABLE_NUMBER_PATTERNS = (
+    re.compile(r"(\d+)\s*条\s*(?:自动化)?测试"),
+    re.compile(r"(\d+)\s*个\s*(?:自动化|单元|集成|后端|前端)?测试(?:用例)?"),
+)
+
+#: 不可保真计数规则的豁免文件(仓库相对路径)。
+#:
+#: `release.md` §6「上线实况」写的是**当次发版的证据**(「App 侧由 506 条自动化测试覆盖」),
+#: 数字天然带日期、只增不改。禁它等于逼每次发版都挂一行豁免标记,而那种摩擦会让人把
+#: 整条规则关掉 —— 与 `term` 规则「作用域刻意收窄」是同一个理由。
+UNVERIFIABLE_NUMBER_EXEMPT = ("docs/ops/release.md",)
+
+#: 数字规则的行内豁免标记:只豁免它所在的那一行(与 `scripts/facts.py` 共用同一个标记)。
+NUMBER_ALLOW_MARKER = "<!-- lint:allow:number -->"
 
 
 def _is_archived(path: Path, docs_dir: Path) -> bool:
@@ -531,6 +561,70 @@ def find_number_violations(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> L
     return violations
 
 
+def find_unverifiable_number_violations(
+    repo_root: Path, docs_subdir: str = DOCS_SUBDIR
+) -> List[dict]:
+    """找出活文档里「不可保真的计数」(number 规则的 B 半)。
+
+    判据是**能不能机械算出来**:测试用例数要跑全量测试才有真数,而 `contract` 轨只跑秒级
+    门禁 —— 于是写进文档的具体值必然过期,且没有任何东西会发现。与其等它漂,不如禁写:
+    改写方式是给命令(`scripts/verify.sh backend`)或不写数字。
+
+    作用域与豁免**复用 `term` 规则的那一套**(同样是活文档),只多一个整文件豁免
+    :data:`UNVERIFIABLE_NUMBER_EXEMPT`;行内豁免标记是
+    ``<!-- lint:allow:number -->``(与 `scripts/facts.py` 共用)。
+
+    Args:
+        repo_root: 仓库根目录。
+        docs_subdir: 相对 `repo_root` 的文档目录名,默认 `docs`。
+
+    Returns:
+        违例项列表,每项带 ``file`` / ``line`` / ``number`` / ``message``,按路径与行号排序。
+        每行最多报一处(同一行里写两个测试数不重复占两行报告)。
+    """
+    root = Path(repo_root).resolve()
+    violations: List[dict] = []
+    for path in term_scope_files(root, docs_subdir):
+        rel = path.relative_to(root).as_posix()
+        if rel in UNVERIFIABLE_NUMBER_EXEMPT:
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        in_fence = False
+        for lineno, line in enumerate(lines, 1):
+            if FENCE_RE.match(line):
+                in_fence = not in_fence
+                continue
+            if in_fence or NUMBER_ALLOW_MARKER in line:
+                continue
+            hit = next(
+                (
+                    match.group(0).strip()
+                    for pattern in UNVERIFIABLE_NUMBER_PATTERNS
+                    for match in [pattern.search(line)]
+                    if match
+                ),
+                None,
+            )
+            if hit is None:
+                continue
+            violations.append(
+                {
+                    "file": rel,
+                    "line": lineno,
+                    "number": hit,
+                    "message": (
+                        f"不可保真的计数「{hit}」:测试用例数要跑全量测试才算得准,"
+                        f"活文档里不写具体值(改写:给命令,或不写数字;"
+                        f"确需引用当时的证据时行尾加 {NUMBER_ALLOW_MARKER})"
+                    ),
+                }
+            )
+    return violations
+
+
 def lint(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
     """跑全部六条规则,返回一个扁平的违例列表。
 
@@ -590,6 +684,9 @@ def lint(repo_root: Path, docs_subdir: str = DOCS_SUBDIR) -> List[dict]:
         violations.append({"rule": "term", **item})
 
     for item in find_number_violations(repo_root, docs_subdir):
+        violations.append({"rule": "number", **item})
+
+    for item in find_unverifiable_number_violations(repo_root, docs_subdir):
         violations.append({"rule": "number", **item})
 
     violations.sort(key=lambda item: (item["rule"], item["file"], item["line"]))
