@@ -11,7 +11,7 @@
     - ``dev_reset_pair`` 命令:只清这一对、不动其他对、非法 IM id 报错;
     - 撤销滑卡(批次 O):硬删除、30 秒窗口、已配对/已解除拒绝、候选池复位、轻封禁 403;
     - 每日喜欢额度(批次 O):超限 ``429`` + ``42904``、``pass`` 与重放不占额度、撤销退回、
-      默认 ``0`` 时行为与加额度前一致。
+      默认 ``0`` 时行为与加额度前一致;额度查询接口本身按用户限流(第五轮 M-1)。
 """
 
 from datetime import date, timedelta
@@ -34,7 +34,7 @@ from users.models import (Photo, PhotoStatus, Preference, Profile, ProfileStatus
                            ProfileVisit, Tag)
 
 from .models import Match, Swipe, SwipeAction
-from .throttles import VisitsCountThrottle, VisitsThrottle
+from .throttles import QuotaThrottle, VisitsCountThrottle, VisitsThrottle
 
 User = get_user_model()
 
@@ -1492,6 +1492,20 @@ class SwipeDailyLikeQuotaTests(APITestCase):
         self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)
         self.assertEqual(self._quota(),
                          {"like_limit": 3, "likes_used": 1, "likes_remaining": 2})
+
+    def test_quota_endpoint_is_throttled_per_user(self):
+        """第五轮 M-1:额度查询按用户限流,超限 429(额度 480/hour)。
+
+        ``quota`` 是独立 scope:额度查询被限流后滑卡照常(两者不抢同一份额度)。
+        """
+        with patch.dict(QuotaThrottle.THROTTLE_RATES, {"quota": "2/hour"}):
+            self.assertEqual([self.client.get(self.QUOTA_URL).status_code
+                              for _ in range(2)], [200, 200])
+            blocked = self.client.get(self.QUOTA_URL)
+            self.assertEqual(blocked.status_code, 429)
+            self.assertEqual(blocked.json()["code"], 429)   # 框架限流器:业务码即 HTTP 码
+            self.assertIn("Retry-After", blocked.headers)
+            self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)
 
     @override_settings(SWIPE_DAILY_LIKE_LIMIT=2)
     def test_counter_key_is_per_user_and_per_day(self):

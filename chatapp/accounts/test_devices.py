@@ -40,6 +40,7 @@ from rest_framework.test import APITestCase
 from accounts import sms_codes
 from accounts.device_session import CLIENT_APP, CLIENT_WEB
 from accounts.models import DeviceSession, User
+from accounts.throttles import DevicesReadThrottle, DevicesWriteThrottle
 
 
 class DeviceApiTestCase(APITestCase):
@@ -215,6 +216,17 @@ class DeviceListTests(DeviceApiTestCase):
         """
         self.assertEqual(self.client.get("/api/v1/devices").status_code, 401)
 
+    def test_list_is_throttled_per_user(self):
+        """第五轮 M-1:设备列表按用户限流,超限 429(额度 480/hour)。
+
+        参数说明:
+            无。
+        """
+        access = self.login(CLIENT_APP).data["access"]
+        with patch.dict(DevicesReadThrottle.THROTTLE_RATES, {"devices_read": "2/hour"}):
+            statuses = [self.get_devices(access).status_code for _ in range(3)]
+        self.assertEqual(statuses, [200, 200, 429])
+
 
 class DeviceLogoutTests(DeviceApiTestCase):
     """单端下线:该端失效、另一端仍可用、幂等、非法端类型。"""
@@ -284,6 +296,40 @@ class DeviceLogoutTests(DeviceApiTestCase):
             response = self.client.delete("/api/v1/devices/web")
         self.assertEqual(response.status_code, 401)
         kick.assert_not_called()
+
+    def test_logout_is_throttled_per_user(self):
+        """第五轮 M-1:单端下线按用户限流(30/hour);被限流的那次不进视图、不入队。
+
+        参数说明:
+            无。
+        """
+        access = self.login(CLIENT_APP).data["access"]
+        with patch("im.tasks.kick_device.delay") as kick:
+            with patch.dict(DevicesWriteThrottle.THROTTLE_RATES, {"devices_write": "1/hour"}):
+                first = self.delete_device(access, CLIENT_WEB)
+                blocked = self.delete_device(access, CLIENT_WEB)
+        self.assertEqual(first.status_code, 204)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.data["code"], 429)
+        self.assertIn("Retry-After", blocked.headers)
+        kick.assert_called_once_with(self.user.id, CLIENT_WEB)   # 429 那次不入队
+
+    def test_write_quota_does_not_block_other_scopes(self):
+        """写额度用尽后,同一账号的列表 / 报告 / 额度查询照常可用(scope 互不影响)。
+
+        参数说明:
+            无。
+        """
+        access = self.login(CLIENT_APP).data["access"]
+        bearer = {"HTTP_AUTHORIZATION": f"Bearer {access}"}
+        with patch("im.tasks.kick_device.delay"):
+            with patch.dict(DevicesWriteThrottle.THROTTLE_RATES, {"devices_write": "1/hour"}):
+                self.assertEqual(self.delete_device(access, CLIENT_WEB).status_code, 204)
+                self.assertEqual(self.delete_device(access, CLIENT_WEB).status_code, 429)
+                self.assertEqual(self.get_devices(access).status_code, 200)
+                self.assertEqual(self.client.get("/api/v1/stats/me", **bearer).status_code, 200)
+                self.assertEqual(
+                    self.client.get("/api/v1/discovery/quota", **bearer).status_code, 200)
 
 
 class DeviceLoggedOutTests(DeviceApiTestCase):

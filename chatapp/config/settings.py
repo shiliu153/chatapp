@@ -363,6 +363,16 @@ PROFILE_VOICE_RATE = os.getenv("PROFILE_VOICE_RATE", _RELAXED or "10/hour")
 # 撤销滑卡(批次 O):30 秒窗口一次一个,正常使用一小时最多几十次;额度只用来挡住
 # 「撤销—重滑」脚本,与业务语义无关(见 discovery/quota.py)。
 SWIPE_UNDO_RATE = os.getenv("SWIPE_UNDO_RATE", _RELAXED or "120/hour")
+# 第五轮审计 M-1:本轮新增的四个入口补上按用户额度(与既有读接口同档)。
+# stats:``period=year`` 时七个标量子查询各自扫一整年,单请求最贵,额度取 240/h;
+# quota:只读一次 Redis,与未读数角标同档(480/h);
+# devices_read:一类端一行、一次库查询,与未读数同档(480/h);
+# devices_write:每次写库两处 + 入队一个 Celery 任务,必须比读紧得多(30/h)——
+# 正常使用(换设备 / 丢手机下线)一小时远到不了这个量,只有脚本会撞上。
+STATS_RATE = os.getenv("STATS_RATE", _RELAXED or "240/hour")
+QUOTA_RATE = os.getenv("QUOTA_RATE", _RELAXED or "480/hour")
+DEVICES_READ_RATE = os.getenv("DEVICES_READ_RATE", _RELAXED or "480/hour")
+DEVICES_WRITE_RATE = os.getenv("DEVICES_WRITE_RATE", _RELAXED or "30/hour")
 
 # 资料抓取监控(M2):同一账号一小时内浏览「多少个不同的人」超过该值就记 WARNING。
 # 限流只能压慢抓取,这个计数是发现「正在被批量爬」的早期信号;只告警不拦截。
@@ -422,6 +432,10 @@ REST_FRAMEWORK = {
         "post_likes_read": POST_LIKES_READ_RATE,
         "post_favorite": POST_FAVORITE_RATE,
         "favorites_read": FAVORITES_READ_RATE,
+        "stats": STATS_RATE,
+        "quota": QUOTA_RATE,
+        "devices_read": DEVICES_READ_RATE,
+        "devices_write": DEVICES_WRITE_RATE,
         "probe": PROBE_RATE,
         "logout": os.getenv("LOGOUT_RATE", "60/hour"),
         "feedback": FEEDBACK_RATE,

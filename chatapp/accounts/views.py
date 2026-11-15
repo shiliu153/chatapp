@@ -53,8 +53,8 @@ from .cookies import (clear_refresh_cookie, same_origin, set_refresh_cookie,
                       wants_cookie)
 from .exceptions import InvalidClientType, SingleDeviceSessionConflict, SmsServiceUnavailable
 from .serializers import PhoneSerializer, SmsVerifySerializer
-from .throttles import (LogoutThrottle, ProbeThrottle, SmsSendThrottle,
-                        SmsVerifyThrottle)
+from .throttles import (DevicesReadThrottle, DevicesWriteThrottle, LogoutThrottle,
+                        ProbeThrottle, SmsSendThrottle, SmsVerifyThrottle)
 from .tokens import SessionRefreshToken
 
 User = get_user_model()
@@ -607,6 +607,7 @@ def logout_all(request):
         }))})})
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([DevicesReadThrottle])
 def devices(request):
     """登录设备列表(GET /api/v1/devices)。
 
@@ -635,6 +636,7 @@ def devices(request):
     备注信息:
         ``current`` 只看请求头 ``X-Client``(缺省与未知取值一律按 ``app``),
         与签发令牌时的口径完全一致;服务端不按端判在线。
+        按用户限流见 ``accounts/throttles.py::DevicesReadThrottle``(480 次/小时),超限 429。
     """
     current = device_session.client_type_of(request)
     rows = [{
@@ -650,6 +652,7 @@ def devices(request):
 @extend_schema(responses={204: None})
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([DevicesWriteThrottle])
 def device_logout(request, client_type):
     """下线指定端的登录会话(DELETE /api/v1/devices/{client_type})。
 
@@ -677,6 +680,8 @@ def device_logout(request, client_type):
     备注信息:
         ``client_type`` 不是 ``app`` / ``web`` 时抛 ``InvalidClientType``
         (400 + 40004);允许踢当前正在用的这一端,语义等同「注销本端」。
+        按用户限流见 ``accounts/throttles.py::DevicesWriteThrottle``(30 次/小时),
+        超限 429 —— 每次调用都要写库两处并入队一个 Celery 任务,额度必须比读紧。
     """
     if client_type not in device_session.CLIENT_TYPES:
         raise InvalidClientType()

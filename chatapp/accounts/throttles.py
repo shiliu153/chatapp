@@ -1,8 +1,13 @@
-"""短信接口的限流:发码与校验各自按客户端 IP 计数。
+"""账号应用的限流:短信发码 / 校验、注销,以及登录设备列表与单端下线。
 
 设计要点:
-    额度配在 ``settings.DEFAULT_THROTTLE_RATES``,且 ``DEBUG`` 下会放宽 ——
-    两台模拟器共享宿主机的 ``127.0.0.1``,不放宽会互相把对方限流掉。
+    1. 匿名接口(短信、注销)按客户端 IP 计数,额度配在
+       ``settings.DEFAULT_THROTTLE_RATES``,且 ``DEBUG`` 下会放宽 ——
+       两台模拟器共享宿主机的 ``127.0.0.1``,不放宽会互相把对方限流掉;
+    2. 登录设备两个接口是**已认证**接口,按用户 id 计数(``UserScopedThrottle``)——
+       「账号自己的设备」按 IP 会让同一 NAT 下的两个账号互相挤;
+    3. 设备的读与写分两个 scope:``devices`` 列表只查一次库,``devices/{端}`` 下线
+       每次写库两处并入队一个 Celery 任务,额度必须紧得多。
 
 文件信息:
     文件名称          accounts/throttles.py
@@ -14,9 +19,12 @@
     仓库地址          https://github.com/shiliu153/chatapp
     修改记录
     2026-11-14        shiliu153          补齐文件头与函数注释
+    2026-11-16        shiliu153          新增登录设备读 / 写两个按用户限流(第五轮 M-1)
 """
 
 from rest_framework.throttling import SimpleRateThrottle
+
+from config.throttling import UserScopedThrottle
 
 
 class SmsSendThrottle(SimpleRateThrottle):
@@ -173,3 +181,30 @@ class LogoutThrottle(SimpleRateThrottle):
             作用域 ``logout`` 独立计数;「全端下线」与单端注销共用这一份额度。
         """
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
+
+
+class DevicesReadThrottle(UserScopedThrottle):
+    """按用户限流登录设备列表;额度见 ``settings.DEFAULT_THROTTLE_RATES["devices_read"]``。
+
+    ``GET /api/v1/devices`` 每次一条库查询(取该账号的会话行),成本不高,但它是
+    本轮新入口里最容易忘记加额度的一个(第五轮 M-1);额度取「未读数角标」同档
+    (480 次/小时),够设备页反复进出。
+    """
+
+    scope = "devices_read"
+
+
+class DevicesWriteThrottle(UserScopedThrottle):
+    """按用户限流单端下线;额度见 ``settings.DEFAULT_THROTTLE_RATES["devices_write"]``。
+
+    ``DELETE /api/v1/devices/{client_type}`` 每次写库两处(会话版本 +1、下线标记)
+    并经 ``im_tasks.kick_device.delay()`` 入队一个 Celery 任务 —— 一个账号就能把
+    ``default`` 队列灌满、牵连与它无关的业务任务,所以额度比读紧 16 倍(30 次/小时)。
+
+    与 ``logout_all`` 的口径差异:后者共用 ``LogoutThrottle``(按 IP)是因为它可能带
+    已失效的令牌、拿不到可靠身份;本接口要求有效 access,因此按用户计数 —— 同一
+    NAT 下两个账号不会互相挤。非法 ``client_type`` 的那次请求也会被计一次额度,
+    限流在视图执行前判定。
+    """
+
+    scope = "devices_write"

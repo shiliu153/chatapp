@@ -397,6 +397,7 @@ export interface paths {
          *     备注信息:
          *         ``current`` 只看请求头 ``X-Client``(缺省与未知取值一律按 ``app``),
          *         与签发令牌时的口径完全一致;服务端不按端判在线。
+         *         按用户限流见 ``accounts/throttles.py::DevicesReadThrottle``(480 次/小时),超限 429。
          */
         get: operations["devices_retrieve"];
         put?: never;
@@ -444,6 +445,8 @@ export interface paths {
          *     备注信息:
          *         ``client_type`` 不是 ``app`` / ``web`` 时抛 ``InvalidClientType``
          *         (400 + 40004);允许踢当前正在用的这一端,语义等同「注销本端」。
+         *         按用户限流见 ``accounts/throttles.py::DevicesWriteThrottle``(30 次/小时),
+         *         超限 429 —— 每次调用都要写库两处并入队一个 Celery 任务,额度必须比读紧。
          */
         delete: operations["devices_destroy"];
         options?: never;
@@ -603,6 +606,7 @@ export interface paths {
          *     备注信息:
          *         只读一个 Redis 计数,不查库;``like_limit = 0``(不限)时 ``likes_used`` 恒为 0、
          *         ``likes_remaining`` 为 ``null``,客户端据此决定要不要显示额度文案。
+         *         按用户限流见 ``discovery/throttles.py::QuotaThrottle``(480 次/小时),超限 429。
          */
         get: operations["discovery_quota_retrieve"];
         put?: never;
@@ -1882,6 +1886,7 @@ export interface paths {
          *     备注信息:
          *         ``period`` 不在 ``week`` / ``month`` / ``year`` 之内时由 ``parse_period`` 主动抛
          *         ``InvalidPeriod``,全局异常处理收成 400 + ``40005``。
+         *         按用户限流见 ``stats/throttles.py::StatsThrottle``(240 次/小时),超限 429。
          */
         get: operations["stats_me_retrieve"];
         put?: never;

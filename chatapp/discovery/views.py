@@ -58,8 +58,8 @@ from .serializers import (CandidateSerializer, DailyCandidatesSerializer,
                           SwipeUndoSerializer, VisitSerializer)
 from .services import (CandidateFilters, candidate_pool_ids, daily_candidate_ids,
                        likes_received_queryset, notify_match, visits_received_queryset)
-from .throttles import (CandidateThrottle, SwipeThrottle, SwipeUndoThrottle,
-                        VisitsCountThrottle, VisitsThrottle)
+from .throttles import (CandidateThrottle, QuotaThrottle, SwipeThrottle,
+                        SwipeUndoThrottle, VisitsCountThrottle, VisitsThrottle)
 
 User = get_user_model()
 
@@ -431,6 +431,7 @@ def swipe_undo(request):
 
 @extend_schema(responses={200: SwipeQuotaSerializer})
 @api_view(["GET"])
+@throttle_classes([QuotaThrottle])
 def quota_view(request):
     """查询每日喜欢额度(GET /api/v1/discovery/quota)。
 
@@ -446,6 +447,7 @@ def quota_view(request):
     备注信息:
         只读一个 Redis 计数,不查库;``like_limit = 0``(不限)时 ``likes_used`` 恒为 0、
         ``likes_remaining`` 为 ``null``,客户端据此决定要不要显示额度文案。
+        按用户限流见 ``discovery/throttles.py::QuotaThrottle``(480 次/小时),超限 429。
     """
     return Response(quota.quota_snapshot(request.user.id))
 
