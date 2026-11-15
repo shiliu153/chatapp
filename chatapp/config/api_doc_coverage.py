@@ -33,11 +33,19 @@ FENCE_RE = re.compile(r"^\s*```")
 def normalize_route(route: str) -> str:
     """把 Django 路径参数统一成文档里使用的 ``{name}`` 写法。
 
-    Args:
+    参数说明:
         route: URLconf 里的原始路径,如 ``me/photos/<int:photo_id>``。
 
-    Returns:
+    返回参数:
         归一化后的路径,如 ``me/photos/{photo_id}``。
+
+    使用示例:
+        ``normalize_route("me/photos/<int:photo_id>")`` 得到
+        ``"me/photos/{photo_id}"``(见 ``config/tests.py``)
+
+    备注信息:
+        只替换路径参数写法,不做首尾斜杠与大小写归一;带转换器的
+        ``<int:x>`` 与裸写的 ``<x>`` 结果一致。
     """
     return ROUTE_PARAM_RE.sub(r"{\1}", route)
 
@@ -53,8 +61,16 @@ def _methods_of(view) -> list[str]:
 def endpoints_from_urlconf() -> set[tuple[str, str]]:
     """枚举 URLconf 中全部可调用的接口。
 
-    Returns:
+    返回参数:
         ``{(HTTP 方法, 归一化路径)}`` 集合,仅含 ``/api/v1`` 下的接口。
+
+    使用示例:
+        ``missing = sorted(endpoints_from_urlconf() - set(endpoints_from_docs()))``
+        (见 ``config/tests.py::ApiDocsCoverageTests``)
+
+    备注信息:
+        只收 ``@api_view`` / ``as_view()`` 上真正声明了的方法(``_methods_of``),
+        ``/ops/`` 与 ``/admin/`` 不在 ``/api/v1`` 下,不会被枚举。
     """
     from config import api_urls
 
@@ -86,11 +102,19 @@ def _iter_doc_lines(text: str):
 def endpoints_from_docs(docs_dir: Path = DOCS_DIR) -> dict[tuple[str, str], str]:
     """从 ``docs/api`` 各分册里解析出已记录的接口信息行。
 
-    Args:
+    参数说明:
         docs_dir: 文档目录,默认 ``docs/api``。
 
-    Returns:
+    返回参数:
         ``{(HTTP 方法, 路径): "文件名:行号"}``,保留位置信息以便报错时直接定位。
+
+    使用示例:
+        ``documented = endpoints_from_docs(Path(tmp))``
+        (见 ``config/tests.py::ApiDocCoverageLogicTests``)
+
+    备注信息:
+        递归扫 ``*.md``,剥离 ``>`` / 反引号 / 加粗等装饰后按信息行正则匹配;
+        代码围栏内的示例不算,避免 README 的模板样例被当成真实接口。
     """
     documented: dict[tuple[str, str], str] = {}
     for md in sorted(Path(docs_dir).rglob("*.md")):
@@ -105,11 +129,19 @@ def endpoints_from_docs(docs_dir: Path = DOCS_DIR) -> dict[tuple[str, str], str]
 def find_problems(docs_dir: Path | None = None) -> list[str]:
     """双向比对 URLconf 与文档,列出全部不一致。
 
-    Args:
+    参数说明:
         docs_dir: 文档目录;``None`` 表示使用默认的 ``docs/api``。
 
-    Returns:
+    返回参数:
         问题描述列表;空列表表示文档与接口完全对齐。
+
+    使用示例:
+        ``problems = find_problems(Path(tmp))``
+        (见 ``config/tests.py::ApiDocCoverageLogicTests``)
+
+    备注信息:
+        两个方向都查:接口缺文档、文档记录已不存在的接口。门禁断言在
+        ``config/tests.py::ApiDocsCoverageTests``,本函数只返回问题不做断言。
     """
     real = endpoints_from_urlconf()
     documented = endpoints_from_docs(docs_dir or DOCS_DIR)

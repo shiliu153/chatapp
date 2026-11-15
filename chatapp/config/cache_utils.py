@@ -28,11 +28,18 @@ NULL = "__null__"
 def version(name: str) -> int:
     """读取一个版本号(不存在视为 0)。
 
-    Args:
+    参数说明:
         name: 版本名,如 ``disc:ver:42``。
 
-    Returns:
+    返回参数:
         当前版本;Redis 异常时返回 0(等价于退化为无缓存版本)。
+
+    使用示例:
+        ``cache_utils.version(user_version_key(me.id))``(见 ``discovery/services.py``)
+
+    备注信息:
+        Redis 抖动时记一次 ``cache_errors_total{name="version"}`` 并返回 0,
+        不抛异常:版本号只影响缓存命中,不该让请求失败。
     """
     try:
         return int(cache.get(name) or 0)
@@ -48,11 +55,19 @@ def bump_version(name: str) -> int:
     把别人已经加上去的计数覆盖掉(经典丢失更新)。``cache.add`` 是原子的,
     只有第一个线程能建成,之后的线程都走 INCR。
 
-    Args:
+    参数说明:
         name: 版本名。
 
-    Returns:
+    返回参数:
         递增后的版本;Redis 异常时返回 0(调用方无需感知)。
+
+    使用示例:
+        ``cache_utils.bump_version(user_version_key(user_id))``
+        (见 ``discovery/cache_keys.py`` 的写路径失效)
+
+    备注信息:
+        失败时记 ``cache_errors_total{name="bump"}`` 与一条 ``bump_version_failed``
+        日志并返回 0;返回 0 意味着旧缓存键重新可达,数据可能短暂偏旧。
     """
     try:
         cache.add(name, 0, None)
@@ -66,12 +81,19 @@ def bump_version(name: str) -> int:
 def ttl_with_jitter(ttl: int, ratio: float = 0.1) -> int:
     """给 TTL 加 ±ratio 的抖动,防止同批键同时过期(雪崩)。
 
-    Args:
+    参数说明:
         ttl: 基础 TTL(秒)。
         ratio: 抖动比例,0.1 表示 ±10%。
 
-    Returns:
+    返回参数:
         抖动后的 TTL,至少 1 秒。
+
+    使用示例:
+        ``cache.set(key, value, ttl_with_jitter(30))``(见本模块 ``get_or_load``)
+
+    备注信息:
+        下限兜成 1 秒,``ttl_with_jitter(0)`` 不等于「立即过期」;
+        别把这里的抖动当成 TTL 语义的一部分。
     """
     delta = ttl * ratio
     return max(1, int(round(ttl + random.uniform(-delta, delta))))
@@ -80,14 +102,23 @@ def ttl_with_jitter(ttl: int, ratio: float = 0.1) -> int:
 def get_or_load(key: str, ttl: int, loader, name: str = "default"):
     """Cache-Aside 读取:命中返回缓存,未命中回填并返回。
 
-    Args:
+    参数说明:
         key: 缓存键(调用方负责把版本号拼进去)。
         ttl: 基础过期时间(秒),实际写入时加抖动。
         loader: 未命中时的查库函数,返回任意可 pickle 的值。
         name: 指标标签(如 ``candidates``)。
 
-    Returns:
+    返回参数:
         ``loader`` 的返回值;缓存了空值哨兵时返回 ``None``。
+
+    使用示例:
+        ``ids = cache_utils.get_or_load(key, ttl, lambda: _query_pool_ids(...),
+        name="candidates")``(见 ``discovery/services.py`` 的候选池)
+
+    备注信息:
+        三防都在本函数内:空结果缓存 ``NULL`` 哨兵(防穿透)、``cache.add`` 抢锁
+        只让一个请求回填(防击穿)、写 TTL 前加抖动(防雪崩)。Redis 异常时
+        fail-open 直接调 ``loader``,缓存故障不拖慢或打断请求。
     """
     try:
         cached = cache.get(key)

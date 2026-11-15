@@ -20,8 +20,15 @@ from django.conf import settings
 def _networks():
     """解析 ``TRUSTED_PROXY_IPS`` 为网段列表。
 
-    Returns:
+    返回参数:
         ``ipaddress`` 网段对象列表;非法条目被忽略。
+
+    使用示例:
+        ``networks = _networks()``(见本模块 ``client_ip``)
+
+    备注信息:
+        每次调用重读 settings,改 ``TRUSTED_PROXY_IPS`` 后无需重启即可生效;
+        配置项缺失时按 ``127.0.0.1,::1`` 兜底。
     """
     raw = getattr(settings, "TRUSTED_PROXY_IPS", "127.0.0.1,::1") or ""
     networks = []
@@ -39,12 +46,19 @@ def _networks():
 def _is_trusted(remote: str, networks) -> bool:
     """判断直连对端是否在可信代理名单内。
 
-    Args:
+    参数说明:
         remote: ``REMOTE_ADDR`` 原文。
         networks: ``ipaddress`` 网段列表。
 
-    Returns:
+    返回参数:
         命中任一同网段返回 ``True``;非法地址返回 ``False``。
+
+    使用示例:
+        ``_is_trusted(remote, _networks())``(见本模块 ``client_ip``)
+
+    备注信息:
+        IPv4-mapped IPv6(``::ffff:127.0.0.1``)先归一成 IPv4 再比对,
+        所以名单只需写一份 IPv4。
     """
     try:
         address = ipaddress.ip_address(remote)
@@ -59,11 +73,19 @@ def _is_trusted(remote: str, networks) -> bool:
 def client_ip(request) -> str:
     """取请求的真实客户端 IP。
 
-    Args:
+    参数说明:
         request: Django/DRF 请求对象;可为 ``None``。
 
-    Returns:
+    返回参数:
         IP 字符串;拿不到时返回空串。直连对端不可信时,永远返回 ``REMOTE_ADDR``。
+
+    使用示例:
+        ``ip=client_ip(request) or None``(见 ``ops/views.py`` 的登录审计记录);
+        ``if allowed and client_ip(request) not in allowed:``(见 ``ops/middleware.py``)
+
+    备注信息:
+        只有直连对端命中 ``settings.TRUSTED_PROXY_IPS`` 才采信 ``X-Real-IP`` /
+        ``X-Forwarded-For``;否则伪造该头即可绕过 IP 白名单与登录锁定。
     """
     if request is None:
         return ""

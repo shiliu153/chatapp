@@ -30,8 +30,15 @@ app.autodiscover_tasks()
 def ping():
     """连通性探针。
 
-    Returns:
+    返回参数:
         固定字符串 ``pong``,用于确认 worker 可达。
+
+    使用示例:
+        ``from config.celery import ping`` 后 ``ping.apply().get()`` == ``"pong"``
+        (见 ``config/tests.py::CelerySkeletonTests``);队列里跑用 ``ping.delay()``。
+
+    备注信息:
+        不查库、不依赖其它任务,worker 进程能取到任务就算连通。
     """
     return "pong"
 
@@ -46,9 +53,18 @@ def _inject_request_id(headers=None, **kwargs):
 def _bind_request_id(task=None, **kwargs):
     """任务执行前,把消息 header 里的请求 ID 绑定到 worker 的上下文变量。
 
-    Args:
+    参数说明:
         task: Celery 任务实例(由 ``task_prerun`` 信号传入)。
         **kwargs: 信号附带的其余参数,忽略。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``task_prerun.connect(_bind_request_id)``(本模块末尾注册,不手工调用)
+
+    备注信息:
+        header 里没有请求 ID 时绑定 ``None``,等价于清空,不报错。
     """
     headers = getattr(getattr(task, "request", None), "headers", None) or {}
     set_request_id(headers.get("request_id"))
@@ -57,8 +73,17 @@ def _bind_request_id(task=None, **kwargs):
 def _clear_request_id(**kwargs):
     """任务结束后清理上下文变量,避免请求 ID 串到同 worker 的下一个任务。
 
-    Args:
+    参数说明:
         **kwargs: 信号附带的参数,忽略。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``task_postrun.connect(_clear_request_id)``(本模块末尾注册,不手工调用)
+
+    备注信息:
+        worker 进程复用,不清理会让下一个任务的日志带上上一个请求的 ID。
     """
     set_request_id(None)
 

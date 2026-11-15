@@ -40,11 +40,18 @@ class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """渲染一条日志。
 
-        Args:
+        参数说明:
             record: 日志记录。
 
-        Returns:
+        返回参数:
             单行 JSON 字符串(不含换行,异常堆栈已转义)。
+
+        使用示例:
+            ``json.loads(JsonFormatter().format(record))``(见 ``config/tests.py`` 的
+            ``JsonFormatterTests``);生产由 ``LOGGING["formatters"]["console"]`` 挂载。
+
+        备注信息:
+            只透出 ``EXTRA_FIELDS`` 白名单里的字段,其余 ``extra`` 一律丢弃。
         """
         payload = {
             "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(

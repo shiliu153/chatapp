@@ -65,12 +65,19 @@ BUDGET = {
 def _make_user(phone: str, gender: str = "female") -> User:
     """造一个资料完善、带一张已过审照片的用户。
 
-    Args:
+    参数说明:
         phone: 手机号(兼昵称)。
         gender: 性别。
 
-    Returns:
+    返回参数:
         新建用户。
+
+    使用示例:
+        ``self.me = _make_user("13800138000", gender="male")``(见本文件 ``setUp``)
+
+    备注信息:
+        性别影响候选池筛选,所以显式传参;资料与照片都置成可用状态,
+        否则接口会提前 403,SQL 条数预算测不到真实路径。
     """
     user = User.objects.create_user(phone=phone)
     Profile.objects.create(user=user, nickname=phone, gender=gender,
@@ -97,11 +104,19 @@ class QueryBudgetTests(APITestCase):
     def _count(self, url: str) -> int:
         """请求一个接口并返回执行的 SQL 条数。
 
-        Args:
+        参数说明:
             url: 接口路径。
 
-        Returns:
+        返回参数:
             本次请求的 SQL 条数。
+
+        使用示例:
+            ``self.assertLessEqual(self._count("/api/v1/matches"), BUDGET["matches"])``
+            (见本文件的预算用例)
+
+        备注信息:
+            先断言状态码 200 再数 SQL:请求失败时 SQL 条数没有意义,
+            失败信息里带响应前 200 字节便于定位。
         """
         with CaptureQueriesContext(connection) as context:
             response = self.client.get(url)
@@ -255,11 +270,18 @@ class IndexAndExistsTests(APITestCase):
     def _sql_of(self, queryset) -> str:
         """取查询集的 SQL 文本(参数已内联)。
 
-        Args:
+        参数说明:
             queryset: 要检查的查询集。
 
-        Returns:
+        返回参数:
             完整 SQL 字符串。
+
+        使用示例:
+            ``self._sql_of(likes_received_queryset(self.me))``(见本文件的 EXISTS 用例)
+
+        备注信息:
+            ``str(queryset.query)`` 不执行查询,只渲染 SQL,因此检查索引与
+            EXISTS 写法不会额外产生数据库往返。
         """
         return str(queryset.query)
 

@@ -36,12 +36,18 @@ DECLARATIVE_CLASS_NAMES = frozenset({"Meta"})
 def _is_exempt(node: ast.AST, inside_function: bool) -> bool:
     """判断节点是否豁免 docstring 要求(规则见 docs/standards/python.md §6)。
 
-    Args:
+    参数说明:
         node: 待判定的函数或类节点。
         inside_function: 该节点是否嵌套在某个函数体内。
 
-    Returns:
+    返回参数:
         True 表示豁免。
+
+    使用示例:
+        ``if _is_exempt(node, inside_function): continue``(见本模块 ``check_file``)
+
+    备注信息:
+        只依据名称与嵌套形态判定,不依据文件路径:路径特判是门禁脚本最容易出错的地方。
     """
     if inside_function:
         return True          # 闭包与局部类:所属函数的实现细节,不是对外 API
@@ -57,12 +63,19 @@ def _iter_symbols(node: ast.AST,
                   inside_function: bool = False) -> Iterator[tuple[ast.AST, bool]]:
     """递归产出文件中的全部函数与类,并标记其是否嵌套在函数体内。
 
-    Args:
+    参数说明:
         node: 当前遍历到的 AST 节点。
         inside_function: 当前节点是否已处于某个函数体内。
 
-    Yields:
-        ``(函数或类节点, 是否嵌套在函数体内)``。
+    返回参数:
+        生成器,逐步产出 ``(函数或类节点, 是否嵌套在函数体内)``。
+
+    使用示例:
+        ``for node, inside_function in _iter_symbols(tree):``(见本模块 ``check_file``)
+
+    备注信息:
+        ``inside_function`` 一旦为真就沿子树继续为真:闭包与局部类一律豁免,
+        判定口径与 ``_is_exempt`` 配套。
     """
     for child in ast.iter_child_nodes(node):
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -77,11 +90,17 @@ def _iter_symbols(node: ast.AST,
 def _display_path(path: Path) -> str:
     """给出门禁报错用的展示路径。
 
-    Args:
+    参数说明:
         path: 待展示的文件路径。
 
-    Returns:
+    返回参数:
         相对 chatapp/ 的路径;不在其下时(单元测试用临时目录)降级为文件名。
+
+    使用示例:
+        ``rel = _display_path(path)``(见本模块 ``check_file``)
+
+    备注信息:
+        报错信息里只出现相对路径,同一份输出在 CI 与本地才能直接对上。
     """
     try:
         return path.relative_to(BACKEND_ROOT).as_posix()
@@ -94,12 +113,19 @@ def iter_target_files(root: Path = BACKEND_ROOT, app: str | None = None) -> Iter
 
     跳过 migrations、缓存目录与空白文件(空的 __init__.py 无内容可写)。
 
-    Args:
+    参数说明:
         root: 后端根目录,默认 chatapp/。
         app: 只检查该 app 子目录;None 表示全量。
 
-    Yields:
-        待检查的文件路径,按路径升序。
+    返回参数:
+        生成器,按路径升序逐步产出待检查的文件路径。
+
+    使用示例:
+        ``for path in iter_target_files(root, app):``(见本模块 ``find_problems``)
+
+    备注信息:
+        按路径排序是为了让报错顺序稳定;``strip()`` 为空的文件一律跳过
+        (实际命中的都是 0 字节的 ``__init__.py``)。
     """
     base = root / app if app else root
     for path in sorted(base.rglob("*.py")):
@@ -113,11 +139,18 @@ def iter_target_files(root: Path = BACKEND_ROOT, app: str | None = None) -> Iter
 def check_file(path: Path) -> list[str]:
     """检查单个文件的注释覆盖情况。
 
-    Args:
+    参数说明:
         path: 待检查的 .py 文件。
 
-    Returns:
+    返回参数:
         缺口描述列表,格式 ``相对路径:行号 说明``;空列表表示通过。
+
+    使用示例:
+        ``problems.extend(check_file(path))``(见本模块 ``find_problems``)
+
+    备注信息:
+        只查模块 docstring 与符号 docstring 的有无和装饰符号;
+        「参数说明」结构缺口由 ``find_structure_warnings`` 单独判定。
     """
     problems: list[str] = []
     rel = _display_path(path)
@@ -144,11 +177,18 @@ def check_file(path: Path) -> list[str]:
 def _iter_comments(path: Path) -> Iterator[tuple[int, str]]:
     """产出文件中的 # 注释。
 
-    Args:
+    参数说明:
         path: 待扫描的 .py 文件。
 
-    Yields:
-        ``(行号, 注释原文)``;无法 tokenize 时结束产出。
+    返回参数:
+        生成器,逐步产出 ``(行号, 注释原文)``;无法 tokenize 时结束产出。
+
+    使用示例:
+        ``for lineno, text in _iter_comments(path):``(见本模块 ``find_tone_warnings``)
+
+    备注信息:
+        用 ``tokenize`` 而不是正则,避免把字符串里的 ``#`` 当成注释;
+        ``TokenError`` 直接结束产出,不抛给调用方。
     """
     with path.open(encoding="utf-8") as handle:
         try:
@@ -162,12 +202,19 @@ def _iter_comments(path: Path) -> Iterator[tuple[int, str]]:
 def find_problems(root: Path = BACKEND_ROOT, app: str | None = None) -> list[str]:
     """汇总全部注释缺口:docstring 覆盖、装饰符号与公开函数的 参数说明 小节。
 
-    Args:
+    参数说明:
         root: 后端根目录,默认 chatapp/。
         app: 只检查该 app 子目录;None 表示全量。
 
-    Returns:
+    返回参数:
         缺口描述列表;空列表表示全部通过。
+
+    使用示例:
+        ``problems = find_problems()``(见 ``config/tests.py::CommentCoverageTests``)
+
+    备注信息:
+        这是门禁的默认入口:结构缺口已并入本函数,命令行不加 ``--structure``
+        也会拦 ``参数说明`` 缺失。
     """
     problems: list[str] = []
     for path in iter_target_files(root, app):
@@ -181,12 +228,18 @@ def find_tone_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -> lis
 
     黑名单会有误报(如「兜底」在技术语境里合法),因此只报告不拦截。
 
-    Args:
+    参数说明:
         root: 后端根目录,默认 chatapp/。
         app: 只检查该 app 子目录;None 表示全量。
 
-    Returns:
+    返回参数:
         形如 ``相对路径:行号 口语词「命中词」`` 的提示列表。
+
+    使用示例:
+        ``python config/comment_coverage.py --warnings``(命令行入口会调用它)
+
+    备注信息:
+        docstring 与 ``#`` 注释两处都扫;「踩坑」里的「坑」按规范模板豁免。
     """
     warnings: list[str] = []
     for path in iter_target_files(root, app):
@@ -217,12 +270,19 @@ def find_structure_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -
     私有函数、``test_*`` 用例、生命周期钩子、无参函数、``@property`` 与函数内闭包
     不在检查范围内。
 
-    Args:
+    参数说明:
         root: 后端根目录,默认 chatapp/。
         app: 只检查该 app 子目录;None 表示全量。
 
-    Returns:
+    返回参数:
         形如 ``相对路径:行号 函数名 缺少 参数说明 小节`` 的列表。
+
+    使用示例:
+        ``python config/comment_coverage.py --structure``(命令行入口会调用它)
+
+    备注信息:
+        只判小节是否存在,不判内容质量;``self`` / ``cls`` 不计入参数,
+        私有函数、``test_*`` 用例、生命周期钩子、无参函数与 ``@property`` 不在范围内。
     """
     warnings: list[str] = []
     for path in iter_target_files(root, app):
@@ -253,11 +313,19 @@ def find_structure_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -
 def main(argv: list[str] | None = None) -> int:
     """命令行入口。
 
-    Args:
+    参数说明:
         argv: 参数列表;None 表示取 sys.argv。
 
-    Returns:
+    返回参数:
         进程退出码:0 表示通过,1 表示存在缺口。
+
+    使用示例:
+        ``python config/comment_coverage.py --app im``;脚本末尾即
+        ``sys.exit(main())``。
+
+    备注信息:
+        ``--structure`` 只是一个更窄的入口(同一份判定,排除 docstring 覆盖与
+        装饰符号两项检查),不改变默认路径的拦截范围。
     """
     parser = argparse.ArgumentParser(description="检查 Python 注释规范覆盖情况")
     parser.add_argument("--app", default=None, help="只检查指定 app 子目录")

@@ -42,8 +42,15 @@ class StorageQuotaExceeded(APIException):
 def quota_limit_bytes() -> int:
     """读取单账号配额(字节)。
 
-    Returns:
+    返回参数:
         配额字节数;``<= 0`` 表示未启用配额。
+
+    使用示例:
+        ``limit = quota_limit_bytes()``(见本模块 ``ensure_quota``)
+
+    备注信息:
+        取 ``settings.USER_STORAGE_QUOTA_BYTES``(由 ``.env`` 的
+        ``USER_STORAGE_QUOTA_MB`` 换算),配置缺失按 0 处理即关闭配额。
     """
     return int(getattr(settings, "USER_STORAGE_QUOTA_BYTES", 0) or 0)
 
@@ -55,11 +62,19 @@ def usage_bytes(user_id: int) -> int:
     资料语音自我介绍(一人一条,无过期概念)。
     已删除/已过期清理的行不计入(文件已经不在磁盘上)。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
 
-    Returns:
+    返回参数:
         已用字节数;没有任何媒体时为 0。
+
+    使用示例:
+        ``used = usage_bytes(user.id)``(见本模块 ``ensure_quota``);
+        单测里 ``storage.usage_bytes(self.user.id)``(见 ``users/tests.py``)
+
+    备注信息:
+        五条聚合查询,不做磁盘扫描;模型在函数体内导入以避免与各业务 app
+        形成循环依赖。参数是**账号 id**,不是 ``Profile`` 主键。
     """
     # 局部导入:本模块被多个 app 的 views 引用,模块级导入模型容易形成循环依赖
     from feed.models import PostImage
@@ -86,12 +101,21 @@ def usage_bytes(user_id: int) -> int:
 def ensure_quota(user, incoming_bytes: int) -> None:
     """在上传落盘前校验「已用 + 本次」是否超过配额。
 
-    Args:
+    参数说明:
         user: 当前登录用户。
         incoming_bytes: 本次将要写入磁盘的字节数(图片含缩略图)。
 
-    Raises:
-        StorageQuotaExceeded: 超过配额;异常消息里带已用/上限,便于客户端提示。
+    返回参数:
+        无返回值;未超限时静默通过。
+
+    使用示例:
+        ``storage.ensure_quota(request.user, len(normalized.data) + len(thumb_data))``
+        (见 ``im/views.py`` 的聊天图上传)
+
+    备注信息:
+        必须在**落盘前**调用,否则超限请求已经写出了文件。超过配额抛
+        ``StorageQuotaExceeded``(413 / ``41301``),消息里带已用与上限;
+        配额 ``<= 0`` 时直接返回,即关闭配额。
     """
     limit = quota_limit_bytes()
     if limit <= 0:
