@@ -211,14 +211,18 @@ docstring 形态,唯一收益是「两边长得一模一样」,代价是全部�
 
 判据只有一条:**有函数实体(签名 + 实现)的地方加块;类型、指令、表达式不加。**
 
+`tests/` 里的 helper / fixture 成员函数是有意的例外,按「可选」处理 —— 见下表
+「`tests/` 里的 helper / fixture 成员函数」那一行,理由见 §8.1。
+
 | 场景 | 加块 | 现库证据(2026-11-14) |
 |---|---|---|
-| 命名空间级函数,含 `.cpp` 匿名 namespace 里的本地 helper、测试文件里的辅助函数 | **加** | `src/net/ws_server.cpp` 匿名 namespace 的 `now_ms()` / `parse_uid()` / `is_sticker_id()`;`tests/guard_test.cpp` 里给测试造地址的 `ip()` |
+| 命名空间级函数,含 `.cpp` 匿名 namespace 里的本地 helper | **加** | `src/net/ws_server.cpp` 匿名 namespace 的 `now_ms()` / `parse_uid()` / `is_sticker_id()` |
 | 构造函数 / 析构函数 / 运算符重载 | **加**;使用示例写真实形态(`Class obj(...)`、`a = b`) | `src/store/mysql_pool.h` 的 `Lease(MysqlPool&, MYSQL*)`、`~Lease()`、`operator=(Lease&&)`;`src/store/stmt.h` 的 `MysqlError(int, const std::string&)` |
 | 类内 inline 定义(函数体写在类里) | **加,块放定义处** | `src/store/mysql_pool.h` 的 `MYSQL* get() const { return conn_; }`、`src/util/media_sign.h` 的 `bool enabled() const { return !secret_.empty(); }` |
 | 模板函数 | **加**(与普通函数同形) | 现库 0 个模板函数;将来加了照此执行 |
 | `main()` | **加** | `src/main.cpp`(备注写清「非回环监听必须显式 `IM_ALLOW_PUBLIC_BIND=1`」) |
-| gtest `TEST(套件, 用例)` | **加**,简介写「用例 验证…」,使用示例写 `ctest -R 套件.用例` | `tests/` 的 15 个用例文件共 108 个块 = 107 个 `TEST` + 1 个辅助函数 |
+| gtest `TEST(套件, 用例)` | **加**,简介写「用例 验证…」,使用示例写 `ctest -R 套件.用例` | `tests/` 的 15 个用例文件共 108 个块 = 107 个 `TEST` + `guard_test.cpp` 的 `ip()`(个例,不作为口径) |
+| `tests/` 里的 helper / fixture 成员函数(非 `TEST`) | **不加**(可选:愿意写就写,门禁按 helper 豁免) | 现库 22 处无块:`frames_fixture_test.cpp` 的 `load_fixture()` / `frame_of()` / `strip_media_queries()` / `expect_client_frame()`;`message_service_test.cpp` 的 `Fixture` 构造函数 + 2 个访问器 + 5 个 helper;`push_notifier_test.cpp` 的 `transport()` / `size()` / `body()` / `timestamp()` / `signature()` / `make_config()`;`token_test.cpp` 的 `b64url()` / `hmac_b64()` / `forge_token_with_sub()`;`sensitive_test.cpp` 的 `write_temp()` |
 | 纯数据结构 / `struct` 字段 | **不加**,用 `///` 或行内注释 | `src/store/models.h` 只有文件头、0 个函数块 |
 | lambda、函数体内的局部对象 | **不加** | `src/main.cpp` 的 `signals.async_wait([...](...){...})` 与 `threads.emplace_back([&io] { io.run(); })` |
 | 宏 | **不加** | `imserver/src` 与 `imserver/tests` 下 0 个 `#define`;将来有,只写文件头 |
@@ -292,14 +296,21 @@ docstring,正则分不清 `.h` 的声明、`.cpp` 的定义、lambda、`= delete
 这些是**结构判定**而不是白名单:扫描不进入 `compound_statement`(函数体)与 `lambda_expression`,
 `= delete` 看节点的 `delete_method_clause`;`= default` 按「定义处」处理,照常要块(§4 未变)。
 
-**`tests/` 的实际边界**(与 §4 表格的偏差,门禁按现库事实收窄):现库 637 个块 = `src/` 529 +
-`tests/` 108(107 个 `TEST` + `guard_test.cpp` 的 `ip()`)。§4 的表格说「`tests/` 里的辅助函数也要块」,
-但现库做不到:`tests/` 有 **22 个** helper / fixture 方法**完全没有块**(`frames_fixture_test.cpp` 4 个、
-`message_service_test.cpp` 的 `Fixture` 构造函数与 2 个访问器 + 5 个 helper、`push_notifier_test.cpp` 6 个、
-`token_test.cpp` 3 个、`sensitive_test.cpp` 1 个),多数连注释都没有;`ip()` 有块但性质相同。
-所以门禁对 `tests/` 只强制 `TEST` 用例块,这 23 个函数(22 + `ip()`)按 helper 处理,
-`--verbose` 会把它们数出来。要么后续单补齐这 22 处注释,要么把 §4 表格改成与现库一致 ——
-两件事都不在本门禁的范围里。
+**`tests/` 的边界**(与 §4 表格同一口径,2026-11-15 收敛):`tests/` 只强制 `TEST(套件, 用例)` 块。
+现库 637 个块 = `src/` 529 + `tests/` 108(107 个 `TEST` + `guard_test.cpp` 的 `ip()`);另有
+**22 处** helper / fixture 方法没有块(`frames_fixture_test.cpp` 4 个、`message_service_test.cpp`
+的 `Fixture` 构造函数与 2 个访问器 + 5 个 helper、`push_notifier_test.cpp` 6 个、`token_test.cpp`
+3 个、`sensitive_test.cpp` 1 个),按**可选**处理:`--verbose` 会把它们数成「豁免的 tests 辅助函数」,
+门禁不因此判红。
+
+为什么 `tests/` 与 `src/` 不同:`src/` 匿名 namespace 的 helper 是真逻辑,块里的「备注信息」值得写
+实现选择;而 `tests/` 这 22 处多是 fixture 构造 / 访问器与断言脚手架,五字段块里的「参数说明 /
+返回参数 / 使用示例」写出来是模板噪音。`TEST` 用例相反 —— 它的「使用示例 = `ctest -R 套件.用例`」
+有复现价值,所以强制。
+
+要把 helper 也纳入强制,顺序固定:先补齐现库这 22 处块(imserver 栈),再把
+`scripts/check_cpp_comments.py` 的 `exempt_tests` 分支去掉(flow 栈)。两步都做完才叫收敛 ——
+只改门禁会把 22 处存量直接刷红。
 
 ### 8.2 怎么跑
 
