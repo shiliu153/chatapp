@@ -121,6 +121,63 @@ choose_slot() { # choose_slot <起始槽> <监听端口清单> <本项目已占�
   return 1
 }
 
+# ---- 孤儿栈回收:本目录起过哪些槽、该拆哪些项目 ---------------------------
+# 为什么需要:撞槽顺延出来的栈(比如槽 10)在「占用方消失」之后,下次派生会算回原槽 9,
+# 那套 s10 就成了没人认领的孤儿 —— 白占内存与端口段。所以 `deps.sh up` 把起过的槽记下来,
+# `deps.sh down` 把「记录里不是当前槽」的项目也一并拆掉;拆之前必须确认该项目的 compose
+# `working_dir` 标签就是本目录 —— 别人的栈一律不碰。
+
+# 状态文件位置:走 git 的 git-path —— 普通检出落在 `.git/` 里,worktree 落在主仓库的
+# `.git/worktrees/<名>/` 里;两者都不会进版本库,也随 worktree 一起消失。不在 git 仓库里时
+# 退化到 `$TMPDIR`(按仓库根路径哈希命名,同一目录仍是同一份)。
+ci_slot_state_file() {
+  local p
+  if p=$(git -C "$ROOT" rev-parse --git-path chatapp-ci-slots 2>/dev/null) && [ -n "$p" ]; then
+    case $p in /*) printf '%s' "$p" ;; *) printf '%s' "$ROOT/$p" ;; esac
+    return 0
+  fi
+  printf '%s' "${TMPDIR:-/tmp}/chatapp-ci-slots-$(printf '%s' "$ROOT" | cksum | cut -d' ' -f1)"
+}
+
+# 记下本目录起过的槽(幂等)。写不了就静默放过:状态文件只影响「收孤儿」这一步,
+# 不该因为它把起容器弄失败。
+remember_slot() { # remember_slot <槽>
+  local f
+  [ -n "${1:-}" ] || return 0
+  f=$(ci_slot_state_file)
+  mkdir -p "$(dirname -- "$f")" 2>/dev/null || return 0
+  if ! grep -qx "$1" "$f" 2>/dev/null; then printf '%s\n' "$1" >>"$f" 2>/dev/null || true; fi
+  return 0
+}
+
+# 本目录记录过的槽(空格分隔、去重)。
+remembered_slots() {
+  local f
+  f=$(ci_slot_state_file)
+  [ -f "$f" ] || return 0
+  awk 'NF && !seen[$1]++ { printf "%s ", $1 }' "$f" 2>/dev/null || true
+}
+
+# 该拆哪些 compose 项目:当前派生的那个 + 记录里其余槽。纯函数(不碰 docker),
+# 于是 scripts/test_verify.sh 能离线钉住「两个槽都点名」。
+projects_to_teardown() { # projects_to_teardown <当前槽,可为空> <记录过的槽位清单>
+  local cur=${1:-} s
+  if [ -n "$cur" ]; then printf 'chatapp-ci-s%s ' "$cur"; fi
+  # shellcheck disable=SC2086  # 第二个参数是空格分隔的槽位清单,必须逐词展开
+  for s in ${2:-}; do
+    if [ -n "$cur" ] && [ "$s" = "$cur" ]; then continue; fi
+    printf 'chatapp-ci-s%s ' "$s"
+  done
+}
+
+# 某个 compose 项目是不是本目录起的(按 working_dir 标签认;`-a` 连已停止的容器一起算,
+# 因为孤儿栈常常是停着但还占着卷的那一坨)。
+project_owned_by_this_dir() { # project_owned_by_this_dir <compose 项目名>
+  command -v docker >/dev/null 2>&1 || return 1
+  docker ps -aq --filter "label=com.docker.compose.project=$1" \
+    --filter "label=com.docker.compose.project.working_dir=$ROOT" 2>/dev/null | grep -q .
+}
+
 # 母体检出保持文档口径;其余目录一律派生(显式 CHATAPP_CI_SLOT 在母体里也生效)。
 # 校验必须留在外面这一层:放进 `$( )` 里就只在子 shell 里退出,调用方看不见非零码。
 slot=""

@@ -146,6 +146,18 @@ esac
 probe_check "自己的栈 + 端口应答时仍复用" "$derived" \
   "$(probe_env "$tmp_b" CHATAPP_MAIN_CHECKOUT="$tmp_a" CHATAPP_CI_PORT_ANSWERS="$d_mysql" \
     CHATAPP_CI_OWNED_SLOTS="${d_proj#chatapp-ci-s}")"
+# 孤儿栈回收(env.sh「孤儿栈回收」一节 + deps.sh down):撞槽顺延出来的栈在占用方消失后会算回
+# 原槽,down 必须把两个项目都点名。两个纯函数与状态文件都能离线验,不必起容器。
+probe_check "down 点名当前槽 + 记录里的孤儿槽" "chatapp-ci-s9 chatapp-ci-s10 " \
+  "$(projects_to_teardown 9 "10 9")"
+probe_check "母体检出(当前项目 chatapp-ci 由 down 主路径拆)时仍点名记录里的槽" \
+  "chatapp-ci-s10 " "$(projects_to_teardown "" "10")"
+state_root=$(mktemp -d)
+state_out=$(env TMPDIR="$state_root" bash -c \
+  '. "$1/scripts/stacks/env.sh"; ROOT="$2"; remember_slot 42; remember_slot 42; remember_slot 43; remembered_slots' \
+  _ "$ROOT" "$state_root")
+probe_check "状态文件记录去重(42 43)" "42 43 " "$state_out"
+rm -rf "$state_root"
 # 拆容器必须点名本项目,否则「只拆自己」不成立。
 ddry=$(bash "$V" deps --dry-run 2>/dev/null)
 case $ddry in

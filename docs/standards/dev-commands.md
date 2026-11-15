@@ -124,9 +124,15 @@ cd <任一检出目录> && bash scripts/verify.sh deps        # 只起依赖(不
   「真连一下」(`/dev/tcp`,1s 超时)。连得上但 docker 里没人认领 → **退出 2 并给出空闲槽建议**,
   既不猜着用(可能连到别人的库),也不静默顺延(那会掩盖「段位里有野生服务」这件事)。
 
-顺延出来的栈仍是「同一目录 + 同一规则」算出来的,下次跑还是它;但若占用它的项目先消失,下次会算回原槽,
-那一套要用 `CHATAPP_CI_SLOT=<顺延后的槽> bash scripts/stacks/deps.sh down` 手动收
-(`verify.sh` 没有 `deps down` 子命令;`deps.sh down` 同样按目录派生,只有显式给槽才能拆到顺延出来的那套)。
+顺延出来的栈仍是「同一目录 + 同一规则」算出来的,下次跑还是它。**孤儿栈有机械兜底**(2026-11-15 补):
+
+- `deps.sh up` 成功后会把这个目录起过的**槽**记进状态文件;位置走 `git rev-parse --git-path
+  chatapp-ci-slots`(普通检出在 `.git/` 里、worktree 在主仓库 `.git/worktrees/<名>/` 里),
+  **不进版本库**,worktree 删掉时一起消失;不在 git 仓库里时退化到 `$TMPDIR`;
+- `deps.sh down` 除了拆当前派生的项目,还会把状态里**不是当前槽**的项目一并 `down -v` ——
+  前提是该项目的 compose 标签 `project.working_dir` 就是本目录,**别人的栈一律不碰**;
+- 所以「占用方消失、派生算回原槽」之后,跑一轮 `bash scripts/verify.sh backend`(收尾会自动 down)
+  或 `bash scripts/stacks/deps.sh down`,两套一起收掉,不需要再手记槽位。
 
 **并发上限**(2026-11-15 实测,15.8GiB 的 WSL):一套依赖栈 = MySQL 390-460MiB + Redis 4-5MiB
 (空库 388MiB / 4MiB;跑完一整轮 backend 全量 1119 个用例后 458MiB / 5MiB),即 **≈ 0.45GiB/套**。

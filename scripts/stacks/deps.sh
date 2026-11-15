@@ -38,6 +38,8 @@ case ${1:-} in
       run "起依赖容器($COMPOSE_PROJECT_NAME:MySQL $MYSQL_PORT / Redis $REDIS_PORT)" \
         docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" up -d --wait
     fi
+    # 记下本目录起过的槽 —— `down` 靠它兜底收孤儿栈(见 env.sh「孤儿栈回收」一节)。
+    if [ "$DRY_RUN" = 0 ]; then remember_slot "$slot"; fi
     ;;
   down)
     # 注意:这里必须用 if,不能写 `[ … ] && { … }` —— 后者在 set -e 下,
@@ -49,6 +51,20 @@ case ${1:-} in
     # 只拆本项目:`-p` 显式指定,拆谁由派生结果决定,不看环境里残留的 COMPOSE_PROJECT_NAME。
     run "拆除依赖容器($COMPOSE_PROJECT_NAME)" \
       docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE" down -v
+    # 兜底收孤儿:本目录起过、但按当前派生算不到的槽 —— 典型是撞槽顺延出来的那套,占用方
+    # 消失后派生算回原槽,它就没人认领了。拆之前逐个确认 compose 的 working_dir 标签是本目录,
+    # 别人的栈一律不碰。
+    orphan_projects=$(projects_to_teardown "$slot" "$(remembered_slots)")
+    read -r -a orphans <<<"$orphan_projects"
+    for proj in "${orphans[@]}"; do
+      if [ "$proj" = "$COMPOSE_PROJECT_NAME" ]; then continue; fi
+      if project_owned_by_this_dir "$proj"; then
+        run "拆除孤儿依赖容器($proj)" \
+          docker compose -p "$proj" -f "$COMPOSE" down -v
+      fi
+    done
+    # 清空状态:这一轮之后本目录名下没有已知的栈了。
+    : >"$(ci_slot_state_file)" 2>/dev/null || true
     ;;
   *)
     die "用法: $0 up|down"
