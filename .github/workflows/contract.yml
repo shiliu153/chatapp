@@ -27,11 +27,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 两道门禁的外部依赖:PyYAML(docs_* 脚本)与 shellcheck(静态检查)。
-      # 缺工具是 fail-closed(gates.toml 的 requires),装不上就会红,不会静默跳过。
-      - name: 装外部工具(PyYAML / shellcheck)
+      # 门禁的外部依赖:PyYAML(docs_* 脚本)、tree-sitter + tree-sitter-cpp(C++ 注释门禁的
+      # 解析器,版本与本地脚手架同一份 scripts/requirements-gates.txt)与 shellcheck(静态检查)。
+      # 缺工具是 fail-closed(gates.toml 的 requires / 脚本自身退出码 2),装不上就会红,不会静默跳过。
+      - name: 装外部工具(PyYAML / tree-sitter / shellcheck)
         run: |
-          pip install PyYAML
+          pip install PyYAML -r scripts/requirements-gates.txt
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
 
       # 一个 step 跑完全部门禁:执行器逐条 `::group::` 打印、失败时打

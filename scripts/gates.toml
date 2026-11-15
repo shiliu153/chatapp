@@ -100,7 +100,7 @@ cwd = "chatapp"
 command = "python manage.py test --noinput"
 reason = "后端全量测试(前置 MySQL + Redis);这是 backend 轨唯一的重活"
 
-# --- contract(本地与 CI 完全同源的 21 道) -------------------------------
+# --- contract(本地与 CI 完全同源的 25 道) -------------------------------
 
 [[gate]]
 id = "contract-app-models"
@@ -115,6 +115,20 @@ scope = "contract"
 kind = "python"
 command = "python -m unittest scripts.test_check_docs_links -v"
 reason = "文档断链检测是 L4「机械一致性」信号唯一的实现,它自己坏了没人会当场发现"
+
+[[gate]]
+id = "contract-cpp-comment-gate"
+scope = "contract"
+kind = "python"
+command = "python scripts/check_cpp_comments.py --check"
+reason = "imserver 的 C++ 注释是「块」不是 docstring,此前明确没有门禁(cpp.md §8):PR #313 补齐 67 个文件 / 637 个块之后,新增 C++ 代码没有任何东西会拦。tree-sitter 给出函数边界,所以声明 / 定义 / lambda / = delete 都能判准,当前基线零误报"
+
+[[gate]]
+id = "contract-cpp-comment-gate-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_check_cpp_comments -v"
+reason = "注释门禁的两个方向都不能静默:误报(lambda / = delete / struct / 宏 / 函数体内局部对象)会把人逼着把门禁关掉,漏报则规范退回 review 自觉"
 
 [[gate]]
 id = "contract-deploy-gate-selftest"

@@ -1,0 +1,20 @@
+# 门禁脚本的 Python 依赖(不是后端依赖)。
+#
+# 装法:python -m pip install -r scripts/requirements-gates.txt
+# 谁装:本地 scripts/stacks/bootstrap.sh(建 venv 时一并装);CI 是 .github/workflows/contract.yml
+#       里「装外部工具」那一步的 pip 行 —— 与本地同一份文件,不各写各的版本。
+#
+# 为什么单独一份、不并进 chatapp/requirements.lock
+# ------------------------------------------------
+# tree-sitter 只服务于 scripts/ 下的门禁脚本(C++ 注释门禁要 AST 级入口,正则判不准
+# `.h` 声明 / `.cpp` 定义 / lambda / `= delete` 的差别,见 docs/standards/cpp.md §8)。
+# 把它写进后端锁定文件会让「后端运行时依赖」和「工程脚本依赖」混成一份:
+#   - 生产镜像会多装两个用不到的 wheel;
+#   - chatapp/config/tests.py::DependencyLockTests 比对的是 requirements.txt 的直接依赖,
+#     混进来就得在那边加豁免 —— 那才是真正的口径分叉。
+#
+# 版本钉死而不是写区间:门禁的判定结论必须可复现。tree-sitter-cpp 升小版本可能改语法树
+# (节点类型/嵌套),判定跟着变;升级时改这里 + 跑 scripts/test_check_cpp_comments.py 与
+# 真实 imserver/(67 个文件 / 637 个块)两处,绿了再合。
+tree-sitter==0.26.1
+tree-sitter-cpp==0.23.4

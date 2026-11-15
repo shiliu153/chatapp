@@ -16,8 +16,8 @@ C++ 侧不改造成 docstring 形态,理由见 §1。
 
 | 手段 | 入口 | 现状 |
 |---|---|---|
-| 机械门禁 | 无 | 未立项,理由见 §8 |
-| 人工 | 改 `imserver/` 任一 `.cpp` / `.h` 前对照 §4 的边界表 | 强制 |
+| 机械门禁 | `python scripts/check_cpp_comments.py --check`(门禁 id `contract-cpp-comment-gate`;本地 `scripts/verify.sh contract`,CI 的 `contract.yml` 调同一个执行器 `scripts/run_gates.py`) | 已落地(2026-11-15):文件头 22 行块 + 函数注释块 + 分隔线宽度 + 块不许落进函数体;当前基线 67 个文件 / 637 个块**零误报**,见 §8 |
+| 人工 | 改 `imserver/` 任一 `.cpp` / `.h` 前对照 §4 的边界表 | 强制(门禁只判形状;「这块该不该有、内容写对没有」仍靠人,见 §9) |
 
 **基线**(2026-11-14 按 `imserver/` 实测;数字都可以用下面的命令复算,不靠记忆):
 
@@ -272,20 +272,62 @@ docker run --rm -v "$PWD:/src" imserver-dev \
   只在编译时暴露,review 看不出来。
 - 只改 `docs/` 时跑 `scripts/verify.sh contract` 就够,不必起容器。
 
-## 8. 门禁现状(为什么还没有检查脚本)
+## 8. 门禁现状(机械门禁 `contract-cpp-comment-gate`)
 
-**现在没有机械门禁**,这是刻意留的、也是暂时的:
+**2026-11-15 起有机械门禁**:`scripts/check_cpp_comments.py`(脚本在 `scripts/`,门禁 id
+`contract-cpp-comment-gate`)。此前长期「没有门禁」的理由是判不准 —— 这套注释是「块」不是
+docstring,正则分不清 `.h` 的声明、`.cpp` 的定义、lambda、`= delete`;而误报的硬门禁会让人把
+门禁关掉。这两条靠「换解析器」解决,不靠放宽判据。
 
-- 这套注释是「块」不是 docstring,没有 AST 级入口。能机检的三件事(分隔线宽度、5 字段齐全、
-  函数块覆盖率)都需要能识别函数定义的解析器(clang-query / tree-sitter),正则判不准 ——
-  `.h` 里的声明、`.cpp` 里的定义、lambda、`= delete` 在文本上长得都像函数。
-- 误报的硬门禁会降低规范权威性。[python.md](python.md) §7 已经定过这个口径:`参数说明:` 小节
-  只报告、不拦截。
-- 现在靠:review 按 §4 的边界表看 + 本文件开头的复算命令核基线。
-- 若要立项:脚本放 `scripts/`(`docs/` 下只放文档,见 [writing.md](writing.md) §6 与 `docs_lint`
-  的 structure 规则),命令注册进 `scripts/gates.toml` 的 `contract` 组,本地与 CI 用同一个
-  执行器 `scripts/run_gates.py`。归属上,代码在 `imserver` 栈、脚本在 `flow` 栈,
-  **一次改动只碰一条栈**。
+### 8.1 判什么(全部是结构判定)
+
+| 判据 | 出处 | 怎么判 |
+|---|---|---|
+| 文件头 22 行块:字段齐全、顺序固定、固定值逐字一致、`文件名称` == 该文件相对 `imserver/` 的路径 | §2 | 解析块里 `* 字段名 + 值` 的行;**行数不硬卡死**(`修改记录` 只增行,现库 66 个 22 行 + `src/net/frames.h` 23 行) |
+| 函数注释块:`src/` 下每个函数定义 + 每个头文件函数声明各一块;`tests/` 下每个 `TEST(套件, 用例)` 各一块 | §3 / §5 | tree-sitter 的 `function_definition` / `declaration` / `field_declaration` 节点;只看命名空间与类作用域 |
+| 块形状:紧贴签名上方、上下各一条分隔线、5 字段齐全且顺序固定 | §3.1 | 分隔线判据是「去掉行首缩进后 == `//` + 115 个 `-`」,**不按整行宽度卡缩进**(`src/util/media_sign.h` 的 2 空格缩进合法) |
+| 块不许落进函数体 | §4 那条硬事实 | 分隔线缩进 ≥4 空格即判红(现库 637 个块一个都没有) |
+
+**豁免**(§4 边界表):lambda、函数体内的局部对象、宏、纯数据 `struct` 字段、`= delete` 都不需要块。
+这些是**结构判定**而不是白名单:扫描不进入 `compound_statement`(函数体)与 `lambda_expression`,
+`= delete` 看节点的 `delete_method_clause`;`= default` 按「定义处」处理,照常要块(§4 未变)。
+
+**`tests/` 的实际边界**(与 §4 表格的偏差,门禁按现库事实收窄):现库 637 个块 = `src/` 529 +
+`tests/` 108(107 个 `TEST` + `guard_test.cpp` 的 `ip()`)。§4 的表格说「`tests/` 里的辅助函数也要块」,
+但现库做不到:`tests/` 有 **22 个** helper / fixture 方法**完全没有块**(`frames_fixture_test.cpp` 4 个、
+`message_service_test.cpp` 的 `Fixture` 构造函数与 2 个访问器 + 5 个 helper、`push_notifier_test.cpp` 6 个、
+`token_test.cpp` 3 个、`sensitive_test.cpp` 1 个),多数连注释都没有;`ip()` 有块但性质相同。
+所以门禁对 `tests/` 只强制 `TEST` 用例块,这 23 个函数(22 + `ip()`)按 helper 处理,
+`--verbose` 会把它们数出来。要么后续单补齐这 22 处注释,要么把 §4 表格改成与现库一致 ——
+两件事都不在本门禁的范围里。
+
+### 8.2 怎么跑
+
+```bash
+python scripts/check_cpp_comments.py --check     # 直接跑(缺省行为同上)
+python scripts/check_cpp_comments.py --check --verbose   # 打基线计数 / 解析告警 / tests/ 豁免清单
+scripts/verify.sh contract                       # 本地全量 contract 门禁(含本门禁与它的自测)
+```
+
+退出码:`0` 合规(默认**零输出**)、`1` 有违规(逐条 `<文件>:<行>: <缺什么>` + 末尾汇总)、
+`2` 工具自身出错(缺 wheel / 文件读不了 / 解析出 `ERROR` 节点)。**退出码 2 在执行器里同样是红**,
+「跑不了」不许伪装成「全绿」。
+
+依赖只有两个 wheel(`tree-sitter` + `tree-sitter-cpp`,PyPI 有预编译包,不需要本机编译器),
+版本钉在 [`scripts/requirements-gates.txt`](../../scripts/requirements-gates.txt):本地由
+`scripts/verify.sh bootstrap` 装,CI 由 `contract.yml` 的 pip 那一行装。选 tree-sitter 而不是
+`universal-ctags` 的理由:ctags 只给「哪里有个函数」的行号,不给「这个节点在类作用域里、是不是
+`= delete`、有没有函数体」,而这些正是判准与豁免的分界线。
+
+自测在 `scripts/test_check_cpp_comments.py`(临时目录造样本,不读真实 `imserver/`):
+合规样本零输出;缺块 / 缺字段 / 分隔线少一个 `-` / `文件名称` 写错 / 块与签名夹空行 / 块落进函数体
+各命中一次;lambda、`= delete`、`struct`、宏、函数体内局部对象零误报。
+
+### 8.3 还没判的
+
+- **内容质量**:字段齐了但写「无 / 无返回值 / 无」这种噪音(§9 的反例),机械判不了 —— 那是 review 的事。
+- **`///` 与块的取舍**:`///` 讲设计,块讲调用(§3.2),门禁只要求块存在,不评价 `///`。
+- **块的缩进风格一致性**(§6「同一文件不许混用」):门禁只接受顶格与 2 空格,不判一文件内是否统一。
 
 ## 9. 正反例
 
