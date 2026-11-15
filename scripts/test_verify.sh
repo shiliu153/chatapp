@@ -158,6 +158,72 @@ state_out=$(env TMPDIR="$state_root" bash -c \
   _ "$ROOT" "$state_root")
 probe_check "状态文件记录去重(42 43)" "42 43 " "$state_out"
 rm -rf "$state_root"
+# 拆除通道(deps.sh down + env.sh 的 CHATAPP_CI_NO_COLLISION_GUARD):拆栈不需要空闲端口,
+# 所以 down 在 source env.sh **之前**就关掉撞槽守卫 —— 否则「目标槽的端口被孤儿栈占着」
+# 会让 down 直接退出 2 并建议换槽,那套栈就永远拆不掉(2026-11-15 实测:工单目录被 prune
+# 删掉后留下的 chatapp-ci-s70 只能手工 docker compose down)。跳过守卫之后,认领责任落在
+# deps.sh:不是本目录起的项目默认拒绝,确实要拆加 CHATAPP_CI_FORCE_DOWN=1。全程离线。
+guard_off=$(probe_env "$tmp_b" CHATAPP_MAIN_CHECKOUT="$tmp_a" CHATAPP_CI_NO_COLLISION_GUARD=1 \
+  CHATAPP_CI_LISTENING_PORTS="$d_mysql" 2>&1); guard_rc=$?
+probe_check "down 语义(禁止撞槽守卫)时端口被占也不退出、仍用派生槽" "0 $derived" \
+  "$guard_rc $guard_off"
+probe_check "down 语义时显式 CHATAPP_CI_SLOT 撞槽也不退出" "chatapp-ci-s70 13470 13570 13470" \
+  "$(probe_env "$tmp_a" CHATAPP_MAIN_CHECKOUT="$tmp_a" CHATAPP_CI_SLOT=70 \
+    CHATAPP_CI_NO_COLLISION_GUARD=1 CHATAPP_CI_LISTENING_PORTS="13470 13570")"
+# 下面三条钉「跳过守卫之后谁还能拆」:用假 docker 回答 deps.sh 用到的查询(容器 / 卷 /
+# working_dir 标签),并记录调用 —— 不起容器也能验「默认拒绝 / FORCE 放行 / 本目录照常拆」。
+fake_bin=$(mktemp -d); fake_root=$(mktemp -d)
+mkdir -p "$fake_root/scripts/stacks" "$fake_bin/tmp"
+cp "$ROOT/scripts/stacks/deps.sh" "$ROOT/scripts/stacks/env.sh" \
+  "$ROOT/scripts/stacks/mount-perms.sh" "$fake_root/scripts/stacks/"
+cat >"$fake_bin/docker" <<'FAKE_DOCKER'
+#!/usr/bin/env bash
+# 假 docker:只回答 deps.sh down 用到的三类查询,并把每次调用记进 $FAKE_DOCKER_LOG。
+# FAKE_DOCKER_PRESENT=1 名下有名有姓(容器或卷);FAKE_DOCKER_OWNED=1 working_dir 就是本目录。
+printf '%s\n' "$*" >>"${FAKE_DOCKER_LOG:-/dev/null}"
+case ${1:-} in
+  ps)
+    [ "${FAKE_DOCKER_PRESENT:-0}" = 1 ] || exit 0
+    case " $* " in
+      *--format*) printf '%s\n' "${FAKE_DOCKER_WD:-}" ;;
+      *working_dir=*) [ "${FAKE_DOCKER_OWNED:-0}" = 1 ] && printf 'cid\n' ;;
+      *) printf 'cid\n' ;;
+    esac
+    ;;
+  volume)
+    [ "${FAKE_DOCKER_PRESENT:-0}" = 1 ] && printf 'vol\n'
+    ;;
+esac
+exit 0
+FAKE_DOCKER
+chmod +x "$fake_bin/docker"
+fake_down() { # fake_down <输出文件> [环境赋值...] → 打印「退出码 down-v 条数」,完整输出进文件
+  local outfile=$1; shift
+  local log; log=$(mktemp); local rc=0 out=""
+  # shellcheck disable=SC2086  # "$@" 是若干 NAME=VALUE,必须逐词传给 env
+  out=$(env -u COMPOSE_PROJECT_NAME -u MYSQL_PORT -u REDIS_PORT -u CHATAPP_CI_LISTENING_PORTS \
+    -u CHATAPP_CI_OWNED_SLOTS -u CHATAPP_CI_PORT_ANSWERS \
+    PATH="$fake_bin:$PATH" TMPDIR="$fake_bin/tmp" FAKE_DOCKER_LOG="$log" \
+    CHATAPP_MAIN_CHECKOUT="$ROOT" CHATAPP_CI_LISTENING_PORTS= CHATAPP_CI_OWNED_SLOTS= \
+    CHATAPP_CI_PORT_ANSWERS= "$@" bash "$fake_root/scripts/stacks/deps.sh" down 2>&1) || rc=$?
+  printf '%s' "$out" >"$outfile"
+  printf '%s %s\n' "$rc" "$(grep -c 'down -v' "$log" 2>/dev/null || true)"
+  rm -f "$log"
+}
+refuse_out="$fake_bin/refuse.out"
+probe_check "不是本目录起的栈默认拒绝(退出 2、一条 down 都不发)" "2 0" \
+  "$(fake_down "$refuse_out" FAKE_DOCKER_PRESENT=1 FAKE_DOCKER_WD=/root/work/gone)"
+case $(cat "$refuse_out") in
+  *CHATAPP_CI_FORCE_DOWN=1*) printf 'ok   拒绝时提示加 CHATAPP_CI_FORCE_DOWN=1\n' ;;
+  *) printf 'FAIL 拒绝时没提示 CHATAPP_CI_FORCE_DOWN=1(实际:%s)\n' "$(cat "$refuse_out")"; fail=1 ;;
+esac
+probe_check "CHATAPP_CI_FORCE_DOWN=1 时放行(真的发 down -v)" "0 1" \
+  "$(fake_down "$fake_bin/force.out" FAKE_DOCKER_PRESENT=1 CHATAPP_CI_FORCE_DOWN=1)"
+probe_check "本目录起的栈照常拆" "0 1" \
+  "$(fake_down "$fake_bin/owned.out" FAKE_DOCKER_PRESENT=1 FAKE_DOCKER_OWNED=1)"
+probe_check "名下没有容器与卷时静默放过(干净目录跑 down 不报错)" "0 0" \
+  "$(fake_down "$fake_bin/none.out" FAKE_DOCKER_PRESENT=0)"
+rm -rf "$fake_bin" "$fake_root"
 # 拆容器必须点名本项目,否则「只拆自己」不成立。
 ddry=$(bash "$V" deps --dry-run 2>/dev/null)
 case $ddry in
