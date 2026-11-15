@@ -40,7 +40,8 @@
 | 只改文档 | `scripts/verify.sh contract` |
 
 - **推之前必须绿。**把该命令的末尾输出贴进 PR 描述。
-- 它和 CI 跑同一套命令、同一套环境变量(`docker-compose.ci.yml`:MySQL 在 13306、Redis 在 16379),所以本地绿 ≈ CI 绿。
+- 它和 CI 跑同一套命令、同一套环境变量(`docker-compose.ci.yml`:母体检出 MySQL 在 13306、Redis 在 16379;
+  其余目录按检出路径派生端口与项目名,见 [dev-commands.md](docs/standards/dev-commands.md)「并发跑后端验证」),所以本地绿 ≈ CI 绿。
 - 首次在新工单目录里跑,若报「没有可用的 venv」,先跑 `scripts/verify.sh bootstrap`(一次性)。
 - **`web` / `app` 必须在 Linux 文件系统上跑**(工单目录本来就在 `/root` 下)。脚本会拒绝 `/mnt/*` 路径:9p 太慢,vitest/flutter 会超时,那是环境不是代码。
 - `web` 需要 **Node 22**(与 CI 一致);Node 24 会让 `profile-store` 的上传照片用例报 `webidl.is.File` 断言失败。

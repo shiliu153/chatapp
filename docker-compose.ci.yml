@@ -3,20 +3,26 @@
 #
 # 端口刻意不映射成 3306 / 6379:Windows 本机已跑着开发用 MySQL 与 chatapp-redis,
 # 而 Docker Desktop 的发布端口落在 Windows 宿主上,直接照搬会撞车。
-# 这里用 13306 / 16379,scripts/verify.sh 通过 DB_PORT / REDIS_URL 指过来。
-name: chatapp-ci
+#
+# 项目名与端口**全部可派生**,不写死:并发跑两个工单时,后一个 `down -v` 会把前一个
+# 正在用的库拆掉(2026-11-14 实测 pymysql 1053 / 1049 / 1044 成批报错)。派生规则
+# 只写在 scripts/stacks/env.sh 一处,那里同时把 COMPOSE_PROJECT_NAME / MYSQL_PORT /
+# REDIS_PORT 导给 verify.sh,再由它导出 DB_PORT / BROKER_URL / REDIS_URL。
+# 母体检出仍是 chatapp-ci + 13306 / 16379(文档口径),其余目录走 13400+ / 13500+ 槽位。
+name: ${COMPOSE_PROJECT_NAME:-chatapp-ci}
 
 services:
   mysql:
     image: mysql:8.0
-    container_name: chatapp-ci-mysql
+    # 容器名也必须带项目名:compose 的项目名变了但容器名写死,两个项目会撞同名容器。
+    container_name: ${COMPOSE_PROJECT_NAME:-chatapp-ci}-mysql
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: chatapp_dev
       MYSQL_USER: chatapp
       MYSQL_PASSWORD: chatapp_ci
     ports:
-      - "13306:3306"
+      - "${MYSQL_PORT:-13306}:3306"
     volumes:
       # 挂在 initdb.d 下:容器首次初始化时自动执行,补 test 库授权。
       # 不挂数据卷,保证每次 up 都是干净库;verify.sh 结束默认 down -v。
@@ -32,9 +38,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: chatapp-ci-redis
+    container_name: ${COMPOSE_PROJECT_NAME:-chatapp-ci}-redis
     ports:
-      - "16379:6379"
+      - "${REDIS_PORT:-16379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

@@ -82,6 +82,19 @@ docker compose -f docker-compose.dev.yml up -d             # Redis 容器(redis:
 python -m celery -A config worker -l info --pool=solo      # IM 副作用 worker(Windows 只能 solo);改了任务代码必须重启它
 ```
 
+**并发跑后端验证**(多个工单 / 多个 worktree 同时跑 `scripts/verify.sh backend`):
+
+```bash
+bash scripts/verify.sh backend                    # 依赖栈按检出目录自动派生,互不拆台
+CHATAPP_CI_SLOT=7 bash scripts/verify.sh backend  # 同一目录要临时错开(或端口撞了)时指定槽位 0-99
+```
+
+每个检出目录起**自己那套**依赖容器:母体检出(`$HOME/src/chatapp`)保持 `chatapp-ci` + MySQL `13306` /
+Redis `16379`(文档通篇按这套写);其余目录按路径哈希派生到 `chatapp-ci-s<槽>` + MySQL `13400`-`13499` /
+Redis `13500`-`13599`。`MYSQL_PORT` / `REDIS_PORT` / `COMPOSE_PROJECT_NAME` 一旦由外部给出就照用
+(CI 就是这么注入它自己那套 service 的)。派生规则只写在 `scripts/stacks/env.sh` 一处,
+`scripts/verify.sh backend` 结束时的 `deps down -v` 只拆本项目 —— 这就是两个工单并跑不再互相拆容器的原因。
+
 ## 3. 前端(cwd = `app/`)
 
 ```bash
