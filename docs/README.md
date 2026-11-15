@@ -27,7 +27,7 @@ owner: scripts/docs_index.py
 
 ## 1. 非归档文档
 
-共 **81** 份 / **13** 个目录(不含本文件)。
+共 **82** 份 / **13** 个目录(不含本文件)。
 
 ### `docs/` 根(2 份)
 
@@ -138,7 +138,7 @@ owner: scripts/docs_index.py
 |---|---|
 | [2026-11-03-fullstack-review.md](reviews/2026-11-03-fullstack-review.md) | chatapp 全栈工程审查报告 |
 
-### `docs/security/`(5 份)
+### `docs/security/`(6 份)
 
 | 文档 | 标题 |
 |---|---|
@@ -146,6 +146,7 @@ owner: scripts/docs_index.py
 | [2026-10-28-api-security-audit-round2.md](security/2026-10-28-api-security-audit-round2.md) | chat_app 第二轮安全审计（2026-10-28） |
 | [2026-11-01-api-security-audit-round3.md](security/2026-11-01-api-security-audit-round3.md) | chat_app 第三轮安全审计（2026-11-01） |
 | [2026-11-08-api-security-audit-round4.md](security/2026-11-08-api-security-audit-round4.md) | chat_app 第四轮安全审计（2026-11-08） |
+| [2026-11-16-api-security-audit-round5.md](security/2026-11-16-api-security-audit-round5.md) | chat_app 第五轮安全审计（2026-11-16） |
 | [README.md](security/README.md) | docs/security/ — 安全审计报告(只增不改) |
 
 ### `docs/standards/`(6 份)
