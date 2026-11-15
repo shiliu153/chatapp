@@ -76,6 +76,19 @@
     `skipped` 不算红)。
   下面这些**永远不算低风险**,一律人工:**改 `app/` 的 UI 可见行为**、`deploy/**`、`.github/**`、
   生成物、版本号、依赖锁、任何**安全策略**变更(例如 fail-closed 口径)、数据迁移。
+- **`flow` 栈的脚本改动:本机会话自己合,不必再占一轮确认**(2026-11-15 主人补充)。上一条的门槛是
+  「diff **只**落在 docstring / `#` 注释 / `docs/**` / 仓库根说明性文档」,纯脚本改动落在门槛外,
+  但实测风险同级(PR #346 只动 `scripts/stacks/**` + `scripts/test_verify.sh` + `docs/**`,零业务代码)。
+  同时满足下面**全部**条件的可以自合 squash:
+  - diff **只**落在 `scripts/**` 与 `docs/**`(`deploy/**` 见 §六,仍禁改);
+  - 没碰任何业务代码(`chatapp/**` / `web/**` / `app/**` / `imserver/**`)、生成物、版本号、依赖锁、
+    数据迁移、安全策略口径 —— 上面「永远不算低风险」那张表**照旧优先**,命中就一律人工;
+  - 改到的 `.sh` 过 `shellcheck -S error`;该栈门禁绿:本地 `scripts/verify.sh contract`,
+    CI 已触发的 check 必须全部 success(按 paths 跳过的 `skipped` 不算红);
+  - 若改动了门禁清单(`scripts/gates.toml`),**同一次改动内**把 `docs/standards/sources-of-truth.md`
+    等处写死的条数改准(口径以 `python scripts/run_gates.py --list` 为准)。
+  推论:**别再开「合并 PR #N」这类便签** —— 该由人合的 PR 在正文写清「等主人拍板」即可,
+  便签板只记真正没做完的活。
 - **不开 auto-merge**:仓库 `allow_auto_merge=false` 且 `main` 没有 branch protection(2026-11-14
   实测),arm auto-merge ≈ 立即合并、并不会等 CI 绿。「绿了才合」只能靠合并前自己查 check runs。
 - 不属于上面低风险的 PR:**不要自己合并**,不开 auto-merge,不运行任何 merge 命令。
