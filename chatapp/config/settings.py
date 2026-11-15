@@ -36,8 +36,15 @@ def _read_app_version() -> str:
         直接读它,OpenAPI 文档就不会再手写一份版本号而漂移;真正的三端一致性校验由
         ``scripts/sync_version.py`` 负责。
 
-    Returns:
+    返回参数:
         形如 ``1.0.4`` 的版本号;文件缺失或解析失败时返回 ``0.0.0``(宁可有值,不让生成失败)。
+
+    使用示例:
+        ``"VERSION": _read_app_version()``(见本文件 ``SPECTACULAR_SETTINGS``)
+
+    备注信息:
+        只读文件、不写回:版本号仍只由 ``app/pubspec.yaml`` 决定;
+        正则只取 ``version:`` 后第一段数字,忽略 ``+build`` 后缀。
     """
     pubspec = BASE_DIR.parent / "app" / "pubspec.yaml"
     try:
@@ -65,12 +72,20 @@ ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 def assert_production_secret_key(secret: str, debug: bool) -> None:
     """生产环境拒绝使用开发默认密钥。
 
-    Args:
+    参数说明:
         secret: 当前生效的 ``SECRET_KEY``。
         debug: 当前 ``DEBUG`` 开关。
 
-    Raises:
-        ImproperlyConfigured: ``DEBUG`` 关闭且仍在使用开发默认密钥。
+    返回参数:
+        无返回值;配置安全时静默通过。
+
+    使用示例:
+        ``assert_production_secret_key(SECRET_KEY, DEBUG)``(本文件模块级调用)
+
+    备注信息:
+        ``DEBUG`` 关闭且仍在使用开发默认密钥时抛 ``ImproperlyConfigured``,
+        让进程起不来 —— 该密钥同时用于 JWT、验证码 HMAC 与 session 签名,
+        生产漏配等于全站可伪造。
     """
     if not debug and secret == _DEV_SECRET_KEY:
         raise ImproperlyConfigured(
@@ -612,12 +627,21 @@ def assert_production_media_sign_secret(secret: str, debug: bool) -> None:
     验签侧在密钥为空时**只放行 ``DEBUG``**,因此「漏配」与「生产开着 ``DEBUG``」是同一个
     后果;此处只挡前者,后者由部署核对单的 ``DEBUG=0`` 保证(见 ``docs/ops/runbook.md``)。
 
-    Args:
+    参数说明:
         secret: 当前生效的 ``IM_MEDIA_SIGN_SECRET``。
         debug: 当前 ``DEBUG`` 开关。
 
-    Raises:
-        ImproperlyConfigured: ``DEBUG`` 关闭且密钥为空。
+    返回参数:
+        无返回值;配置安全时静默通过。
+
+    使用示例:
+        ``assert_production_media_sign_secret(IM_MEDIA_SIGN_SECRET, DEBUG)``
+        (本文件模块级调用)
+
+    备注信息:
+        ``DEBUG`` 关闭且密钥为空时抛 ``ImproperlyConfigured``,进程直接起不来:
+        漏配密钥时 nginx 的 ``auth_request`` 子请求会变成「不签名也放行」。
+        「生产开着 ``DEBUG``」这一半由部署核对单保证,不在本函数判定。
     """
     if not debug and not secret:
         raise ImproperlyConfigured("生产必须配置 IM_MEDIA_SIGN_SECRET(聊天媒体签名)")

@@ -83,11 +83,18 @@ class JsonLogTests(SimpleTestCase):
     def _record(self, **extra) -> logging.LogRecord:
         """构造一条带指定 extra 的日志记录。
 
-        Args:
+        参数说明:
             **extra: 要附加到记录上的字段。
 
-        Returns:
+        返回参数:
             ``logging.LogRecord`` 实例。
+
+        使用示例:
+            ``self._record(phone="13800138000", request_id="rid-2")``(见本文件格式化用例)
+
+        备注信息:
+            只为覆盖 ``JsonFormatter`` 的白名单字段而造记录,不经过真实的
+            logger 与 handler。
         """
         record = logging.LogRecord("chatapp.request", logging.INFO, __file__, 1,
                                    "GET /x -> 200 12ms", None, None)
@@ -386,12 +393,19 @@ class CommentCoverageLogicTests(SimpleTestCase):
     def _write(self, tmp, body):
         """把源码写进临时目录的 demo.py,返回其路径。
 
-        Args:
+        参数说明:
             tmp: 临时目录路径。
             body: 要写入的 Python 源码。
 
-        Returns:
+        返回参数:
             写好的 demo.py 路径。
+
+        使用示例:
+            ``path = self._write(tmp, body)``(见本文件的注释覆盖率用例)
+
+        备注信息:
+            文件名固定 ``demo.py``,同一临时目录里连续写会覆盖,
+            需要多份样本时请各用各的临时目录。
         """
         path = Path(tmp) / "demo.py"
         path.write_text(body, encoding="utf-8")
@@ -567,7 +581,7 @@ class CommentCoverageLogicTests(SimpleTestCase):
         self.assertTrue(any("greet" in p and "参数说明" in p for p in problems))
 
     def test_legacy_args_section_still_passes_the_default_gate(self):
-        """过渡态:存量用 ``Args:`` 写的符号也算合规,不逼后人做一次性换算。"""
+        """过渡态:存量按 Google 小节(``Args`` / ``Returns``)写参数的符号也算合规,不逼后人做一次性换算。"""
         from config.comment_coverage import find_problems
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -589,11 +603,18 @@ class QueryParamTests(SimpleTestCase):
     def _get(self, query):
         """构造带查询串的 GET 请求。
 
-        Args:
+        参数说明:
             query: 查询参数字典。
 
-        Returns:
+        返回参数:
             Django ``WSGIRequest``。
+
+        使用示例:
+            ``int_param(self._get({"limit": "abc"}), "limit", default=10)``
+            (见本文件的查询参数用例)
+
+        备注信息:
+            路径固定 ``/x``:``int_param`` / ``optional_id`` 只看查询串,与路径无关。
         """
         return self.factory.get("/x", query)
 
@@ -684,12 +705,20 @@ class ClientIpTests(SimpleTestCase):
     def _request(self, remote="127.0.0.1", **extra):
         """构造一个带指定 REMOTE_ADDR 的请求。
 
-        Args:
+        参数说明:
             remote: 直连对端地址。
             **extra: 额外的 META 项(如 ``HTTP_X_REAL_IP``)。
 
-        Returns:
+        返回参数:
             Django 请求对象。
+
+        使用示例:
+            ``request = self._request(HTTP_X_REAL_IP="203.0.113.7")``
+            (见本文件的客户端 IP 用例)
+
+        备注信息:
+            ``remote`` 默认回环,即「对端是可信代理」,此时才会采信
+            ``X-Real-IP`` / ``X-Forwarded-For``;要测直连伪造,显式传非回环地址。
         """
         request = RequestFactory().get("/", **extra)
         request.META["REMOTE_ADDR"] = remote
@@ -728,13 +757,19 @@ class ImageGuardTests(SimpleTestCase):
     def _encoded(self, fmt="PNG", size=(1, 1), exif=None):
         """生成一张测试图片的字节。
 
-        Args:
+        参数说明:
             fmt: Pillow 格式名。
             size: 宽高。
             exif: 可选的 EXIF 对象。
 
-        Returns:
+        返回参数:
             编码后的字节。
+
+        使用示例:
+            ``images.open_checked(self._encoded("GIF"))``(见本文件的图片格式用例)
+
+        备注信息:
+            传 ``exif`` 才会写入元数据,用来验证重编码后 EXIF/GPS 已被剥离。
         """
         buffer = io.BytesIO()
         image = Image.new("RGB", size, "red")
@@ -786,11 +821,19 @@ class DependencyLockTests(SimpleTestCase):
     def _parse(path: Path) -> dict[str, str]:
         """解析 requirements 文件为「规范化包名 → 原始行」。
 
-        Args:
+        参数说明:
             path: requirements 文件路径。
 
-        Returns:
+        返回参数:
             包名统一小写、下划线转连字符后的字典;注释与空行忽略。
+
+        使用示例:
+            ``lock = self._parse(Path(settings.BASE_DIR) / "requirements.lock")``
+            (见本文件的 lock 用例)
+
+        备注信息:
+            ``@staticmethod``,不依赖用例实例;包名归一才能让
+            ``PyJWT`` 与 ``pyjwt`` 这类写法互相比较。
         """
         entries = {}
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -896,12 +939,18 @@ class MetricsTests(APITestCase):
 def metric_value(metric_name: str, **labels) -> float:
     """读一个指标的当前值(标签组合还没出现过时按 0 处理)。
 
-    Args:
+    参数说明:
         metric_name: 指标名(如 ``logins_total``)。
         **labels: 标签组合。
 
-    Returns:
+    返回参数:
         当前累计值;不存在时为 0.0(便于直接断言增量)。
+
+    使用示例:
+        ``before_ok = metric_value("logins_total", result="success")``(见本文件的登录计数用例)
+
+    备注信息:
+        读的是进程内 ``metrics.REGISTRY``;断言增量时要在操作前后各读一次再相减。
     """
     value = metrics.REGISTRY.get_sample_value(metric_name, labels)
     return 0.0 if value is None else value
@@ -922,12 +971,18 @@ class BusinessMetricTests(APITestCase):
     def _make_user(self, phone, gender="female"):
         """造一个资料完善、带已过审照片的用户。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             gender: 性别。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``me = self._make_user("13800138000", gender="male")``(见本文件的业务指标用例)
+
+        备注信息:
+            资料与照片都置成可用状态,否则接口会提前 403,测不到真实路径。
         """
         from accounts.models import User
         from users.models import Photo, PhotoStatus, Profile, ProfileStatus
@@ -1039,11 +1094,18 @@ class _BoomView(APIView):
     def get(self, request):
         """故意抛 ``RuntimeError``,模拟代码 bug 或 DB 故障。
 
-        Args:
+        参数说明:
             request: 当前请求(未使用)。
 
-        Raises:
-            RuntimeError: 恒抛,供上层异常处理器转成 500。
+        返回参数:
+            无返回:本方法恒抛异常。
+
+        使用示例:
+            ``resp = self.client.get("/api/v1/_boom")``(见本文件的未预期异常用例)
+
+        备注信息:
+            恒抛 ``RuntimeError``,由 ``api_exception_handler`` 转成 500 JSON;
+            该视图只在本文件的 ``urlpatterns`` 里注册。
         """
         raise RuntimeError("boom")
 

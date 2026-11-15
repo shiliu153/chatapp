@@ -19,9 +19,19 @@ def bridge_existing_users(apps, schema_editor):
     两行取**同一个值**:老令牌按 ``app`` 兜底,而 ``web`` 与 ``app`` 同值意味着升级后
     网页端的老 refresh 也不会立刻失效(它们同样没有 ``ct``)。之后再登录才各自递增。
 
-    Args:
+    参数说明:
         apps: 迁移期间的应用注册表。
         schema_editor: 当前数据库的 schema 编辑器(未使用)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``python manage.py migrate accounts 0006``
+
+    备注信息:
+        由 Django 迁移框架在 ``migrate`` 时调用,不手工执行。会为每个已有账号建
+        ``app`` 与 ``web`` 两行,``ignore_conflicts=True`` 让重复执行幂等。
     """
     User = apps.get_model("accounts", "User")
     DeviceSession = apps.get_model("accounts", "DeviceSession")

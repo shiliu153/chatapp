@@ -57,12 +57,19 @@ SCHEMA_INEXPRESSIBLE: dict[tuple[str, str], set[str]] = {
 def docs_fields(docs_dir: Path = DOCS_DIR) -> dict[tuple[str, str], dict[str, set[str]]]:
     """从 ``docs/api`` 各分册解析出每个接口声明的请求/响应字段。
 
-    Args:
+    参数说明:
         docs_dir: 文档目录,默认 ``docs/api``。
 
-    Returns:
+    返回参数:
         ``{(HTTP 方法, 路径): {"request": {...}, "response": {...}}}``。
         没有参数表的接口(如 ``health``)返回空集合,表示「文档声明它没有字段」。
+
+    使用示例:
+        ``declared = docs_fields(docs_dir or DOCS_DIR)``(见本模块 ``find_problems``)
+
+    备注信息:
+        递归扫 ``*.md``,每个分册交给 ``_parse_doc_file`` 就地解析,
+        ``同 [X.Y]`` 形式的字段继承也在那里展开。
     """
     parsed: dict[tuple[str, str], dict[str, set[str]]] = {}
     for md in sorted(Path(docs_dir).rglob("*.md")):
@@ -73,13 +80,20 @@ def docs_fields(docs_dir: Path = DOCS_DIR) -> dict[tuple[str, str], dict[str, se
 def _parse_doc_file(md: Path, parsed: dict[tuple[str, str], dict[str, set[str]]]) -> None:
     """解析单个分册:接口小节 → 请求/响应字段,并就地展开 ``同 [X.Y]`` 引用。
 
-    Args:
+    参数说明:
         md: markdown 分册路径。
         parsed: 汇总结果(跨分册共享,原地写入)。
 
-    Notes:
+    返回参数:
+        无返回值;结果原地写进 ``parsed``,并按引用补齐继承来的字段。
+
+    使用示例:
+        ``_parse_doc_file(md, parsed)``(见本模块 ``docs_fields``)
+
+    备注信息:
         每个「请求参数 / 响应参数」标记后**只取第一张表**。``users.md §2.1`` 在响应表后面
         还有 ``tags[]`` / ``photos[]`` 两张子结构表,它们不是顶层字段,混进来会让门禁误报。
+        代码围栏内的表格不算,避免示例片段被当成真实字段。
     """
     sections: dict[str, tuple[str, str]] = {}
     refs: dict[tuple[str, str], str] = {}
@@ -150,12 +164,19 @@ def _parse_doc_file(md: Path, parsed: dict[tuple[str, str], dict[str, set[str]]]
 def _resolve(schema: dict, document: dict) -> dict:
     """把 ``$ref`` 解析成组件定义(只处理本文件用到的单层引用链)。
 
-    Args:
+    参数说明:
         schema: 可能带 ``$ref`` 的 schema 片段。
         document: 整份 OpenAPI 文档(取 ``components.schemas``)。
 
-    Returns:
+    返回参数:
         解析后的 schema 字典;引用不存在时返回空字典。
+
+    使用示例:
+        ``resolved = _resolve(schema, document)``(见本模块 ``_object_fields``)
+
+    备注信息:
+        引用链用 ``seen`` 记已展开的 ``$ref``,遇到循环引用直接返回空字典,
+        不死循环;只在本模块的比对场景下够用,不是通用解析器。
     """
     seen: set[str] = set()
     while isinstance(schema, dict) and "$ref" in schema:
@@ -171,12 +192,19 @@ def _resolve(schema: dict, document: dict) -> dict:
 def _object_fields(schema: dict, document: dict) -> set[str]:
     """取出一个 schema 片段的顶层字段名(数组会先解开成元素)。
 
-    Args:
+    参数说明:
         schema: schema 片段(可能是对象、数组或 ``$ref``)。
         document: 整份 OpenAPI 文档。
 
-    Returns:
+    返回参数:
         顶层属性名集合;不是对象时返回空集合。
+
+    使用示例:
+        ``names |= _object_fields(media.get("schema", {}), document)``
+        (见本模块 ``_request_fields``)
+
+    备注信息:
+        只取一层:嵌套结构由文档以「结构见某某小节」描述,不参与字段级比对。
     """
     resolved = _resolve(schema, document)
     if resolved.get("type") == "array":
@@ -188,12 +216,19 @@ def _object_fields(schema: dict, document: dict) -> set[str]:
 def _request_fields(operation: dict, document: dict) -> set[str]:
     """取出一个操作「能收到的字段」:路径/查询/请求头参数 + 请求体字段。
 
-    Args:
+    参数说明:
         operation: OpenAPI 的 operation 对象(某个方法)。
         document: 整份 OpenAPI 文档。
 
-    Returns:
+    返回参数:
         字段名集合。
+
+    使用示例:
+        ``"request": _request_fields(operation, schema)``(见本模块 ``schema_fields``)
+
+    备注信息:
+        ``parameters`` 不区分 ``in``(path / query / header 都算):本项目文档把
+        ``post_id`` 这类路径参数写进「请求参数」表,所以这里一并计入。
     """
     names = {param["name"] for param in operation.get("parameters", []) if "name" in param}
     body = operation.get("requestBody", {}).get("content", {})
@@ -205,12 +240,19 @@ def _request_fields(operation: dict, document: dict) -> set[str]:
 def _response_fields(operation: dict, document: dict) -> set[str]:
     """取出一个操作成功响应的顶层字段(分页信封会解到 ``results[]`` 的条目)。
 
-    Args:
+    参数说明:
         operation: OpenAPI 的 operation 对象(某个方法)。
         document: 整份 OpenAPI 文档。
 
-    Returns:
+    返回参数:
         字段名集合;204 等无响应体时为空集合。
+
+    使用示例:
+        ``"response": _response_fields(operation, schema)``(见本模块 ``schema_fields``)
+
+    备注信息:
+        200 / 201 都算成功响应,先命中的那个生效;只有「``results`` + 别的信封字段」
+        才按分页信封解开,``GET /presence`` 那种只有 ``results`` 的是业务字段。
     """
     responses = operation.get("responses", {})
     for code in SUCCESS_CODES:
@@ -232,11 +274,17 @@ def _response_fields(operation: dict, document: dict) -> set[str]:
 def schema_fields(schema: dict) -> dict[tuple[str, str], dict[str, set[str]]]:
     """从 OpenAPI 文档里取出每个操作的请求/响应字段。
 
-    Args:
+    参数说明:
         schema: 整份 OpenAPI 文档(``SchemaGenerator.get_schema()`` 的返回值)。
 
-    Returns:
+    返回参数:
         ``{(HTTP 方法, 路径): {"request": {...}, "response": {...}}}``。
+
+    使用示例:
+        ``generated = schema_fields(generate_schema())``(见本模块 ``find_problems``)
+
+    备注信息:
+        方法名统一转大写;``parameters`` / ``summary`` 这类非操作方法键会被跳过。
     """
     found: dict[tuple[str, str], dict[str, set[str]]] = {}
     for path, item in schema.get("paths", {}).items():
@@ -253,8 +301,15 @@ def schema_fields(schema: dict) -> dict[tuple[str, str], dict[str, set[str]]]:
 def generate_schema() -> dict:
     """在进程内生成 OpenAPI 文档(不落盘、不碰数据库)。
 
-    Returns:
+    返回参数:
         OpenAPI 3.0 文档字典。
+
+    使用示例:
+        ``cls.schema = generate_schema()``(见 ``config/test_schema_contract.py``)
+
+    备注信息:
+        ``drf_spectacular`` 在函数体内导入:只有跑门禁时才需要它,
+        导入失败不应该影响其它路径。落盘生成走 ``manage.py spectacular``。
     """
     from drf_spectacular.generators import SchemaGenerator
 
@@ -264,12 +319,19 @@ def generate_schema() -> dict:
 def _diff(declared: set[str], generated: set[str]) -> tuple[set[str], set[str]]:
     """比较文档声明与生成结果,分别返回「缺的」与「多的」。
 
-    Args:
+    参数说明:
         declared: 文档声明的字段集合。
         generated: 代码生成出来的字段集合。
 
-    Returns:
+    返回参数:
         ``(文档有但 schema 没有, schema 有但文档没有)``。
+
+    使用示例:
+        ``missing, extra = _diff(declared[key][side], generated[key][side])``
+        (见本模块 ``find_problems``)
+
+    备注信息:
+        返回两个方向的差集而不是布尔值,报错信息才能分别说清是哪一侧要改。
     """
     return declared - generated, generated - declared
 
@@ -277,12 +339,21 @@ def _diff(declared: set[str], generated: set[str]) -> tuple[set[str], set[str]]:
 def find_problems(docs_dir: Path | None = None, schema: dict | None = None) -> list[str]:
     """双向比对文档字段与生成字段,列出全部不一致。
 
-    Args:
+    参数说明:
         docs_dir: 文档目录;``None`` 表示使用默认的 ``docs/api``。
         schema: 已生成好的 OpenAPI 文档;``None`` 表示现场生成。
 
-    Returns:
+    返回参数:
         问题描述列表;空列表表示字段级完全对齐。
+
+    使用示例:
+        ``problems = find_problems(schema=self.schema)``
+        (见 ``config/test_schema_contract.py``)
+
+    备注信息:
+        分页信封字段(``count`` / ``next_cursor`` 等)在「多出来」那一侧被排除,
+        原因见模块头的「分页信封不参与比对」;请求侧还会减掉
+        ``SCHEMA_INEXPRESSIBLE`` 里登记的豁免字段。
     """
     declared = docs_fields(docs_dir or DOCS_DIR)
     generated = schema_fields(schema if schema is not None else generate_schema())

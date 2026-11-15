@@ -32,8 +32,15 @@ import os
 def _multiproc_dir() -> str:
     """读取多进程指标目录。
 
-    Returns:
+    返回参数:
         ``PROMETHEUS_MULTIPROC_DIR`` 的值;未配置时返回空串(此时本配置什么也不做)。
+
+    使用示例:
+        ``path = _multiproc_dir()``
+
+    备注信息:
+        每次调用都重读环境变量,不在模块顶层缓存:gunicorn 的 hook 可能在本进程
+        读到 .env 之前就被触发。
     """
     return os.environ.get("PROMETHEUS_MULTIPROC_DIR", "")
 
@@ -41,8 +48,19 @@ def _multiproc_dir() -> str:
 def on_starting(server):
     """master 启动前准备 mmap 目录。
 
-    Args:
+    参数说明:
         server: gunicorn 的 Arbiter 实例(未使用,由 gunicorn 传入)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``gunicorn config.wsgi:application -c gunicorn.conf.py -b 127.0.0.1:8000 -w 2``
+        启动时由 Arbiter 自动调用,无需手工调用。
+
+    备注信息:
+        未配置 ``PROMETHEUS_MULTIPROC_DIR`` 时直接返回,不做任何改动。
+        会删除目录下所有 ``*.db``(上次 ``kill -9`` 留下的残留),失败静默跳过。
     """
     path = _multiproc_dir()
     if not path:
@@ -60,9 +78,19 @@ def on_starting(server):
 def child_exit(server, worker):
     """worker 退出时删掉它自己的 mmap 文件。
 
-    Args:
+    参数说明:
         server: gunicorn 的 Arbiter 实例(未使用)。
         worker: 退出的 worker,``worker.pid`` 是该进程号。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        worker 退出时由 gunicorn 自动调用 ``child_exit(server, worker)``,无需手工调用。
+
+    备注信息:
+        未配置 ``PROMETHEUS_MULTIPROC_DIR`` 时直接返回。``prometheus_client``
+        在函数体内延迟导入,理由见模块头的「绝对不能顶层 import」一段。
     """
     if not _multiproc_dir():
         return

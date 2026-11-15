@@ -16,11 +16,18 @@ from rest_framework import serializers
 def _as_list(item) -> serializers.BaseSerializer:
     """把「序列化器类」或「序列化器实例」统一成 ``many=True`` 的列表序列化器。
 
-    Args:
+    参数说明:
         item: 序列化器类(如 ``PostSerializer``)或实例(``inline_serializer`` 的返回值)。
 
-    Returns:
+    返回参数:
         ``many=True`` 的序列化器实例。
+
+    使用示例:
+        ``"results": _as_list(item_serializer)``(见本模块 ``cursor_page``)
+
+    备注信息:
+        只用于拼 ``@extend_schema`` 的响应信封,不参与运行时序列化,
+        因此每次调用都新建实例,不与其它 schema 共享状态。
     """
     serializer_class = item if isinstance(item, type) else type(item)
     return serializer_class(many=True)
@@ -29,12 +36,20 @@ def _as_list(item) -> serializers.BaseSerializer:
 def cursor_page(name: str, item_serializer) -> serializers.Serializer:
     """构造游标分页响应信封(``config.cursor.paginated_response`` 的形状)。
 
-    Args:
+    参数说明:
         name: 组件名(必须全项目唯一)。
         item_serializer: ``results[]`` 元素的序列化器(类或实例)。
 
-    Returns:
+    返回参数:
         ``{count, next_cursor, has_more, results}`` 的内联序列化器。
+
+    使用示例:
+        ``@extend_schema(responses={200: cursor_page("MatchPage", MATCH_ENTRY_SCHEMA)})``
+        (见 ``discovery/views.py::match_list``)
+
+    备注信息:
+        ``name`` 重复会让 ``docs/api/openapi.yml`` 生成出互相覆盖的组件,
+        重生成后 git diff 会变;新增接口请先用全仓搜索确认名字没被占用。
     """
     return inline_serializer(name, fields={
         "count": serializers.IntegerField(),
@@ -47,12 +62,20 @@ def cursor_page(name: str, item_serializer) -> serializers.Serializer:
 def offset_page(name: str, item_serializer) -> serializers.Serializer:
     """构造 offset 分页响应信封(``DefaultLimitOffsetPagination`` 的形状)。
 
-    Args:
+    参数说明:
         name: 组件名(必须全项目唯一)。
         item_serializer: ``results[]`` 元素的序列化器(类或实例)。
 
-    Returns:
+    返回参数:
         ``{count, next, previous, results}`` 的内联序列化器。
+
+    使用示例:
+        ``@extend_schema(responses={200: offset_page("CommentPage", PostCommentSerializer)})``
+        (见 ``feed/views.py`` 的评论列表)
+
+    备注信息:
+        与 ``cursor_page`` 的差别只在 ``next`` / ``previous`` 两个绝对链接字段;
+        ``name`` 同样必须全项目唯一。
     """
     return inline_serializer(name, fields={
         "count": serializers.IntegerField(),
@@ -65,8 +88,15 @@ def offset_page(name: str, item_serializer) -> serializers.Serializer:
 def cursor_params() -> list[OpenApiParameter]:
     """游标分页接口的查询参数(``limit`` + ``before``)。
 
-    Returns:
+    返回参数:
         两个 ``OpenApiParameter``;路径参数由库自动补,不在此声明。
+
+    使用示例:
+        ``@extend_schema(parameters=cursor_params(), responses=...)``
+        (见 ``discovery/views.py::match_list``)
+
+    备注信息:
+        每次调用返回新对象:drf-spectacular 生成时会就地补字段,共享实例会互相污染。
     """
     return [
         OpenApiParameter("limit", int, OpenApiParameter.QUERY, required=False,
@@ -79,8 +109,15 @@ def cursor_params() -> list[OpenApiParameter]:
 def offset_params() -> list[OpenApiParameter]:
     """offset 分页接口的查询参数(``limit`` + ``offset``)。
 
-    Returns:
+    返回参数:
         两个 ``OpenApiParameter``。
+
+    使用示例:
+        ``@extend_schema(parameters=offset_params(), responses=...)``
+        (见 ``moderation/views.py`` 的拉黑列表)
+
+    备注信息:
+        每次调用返回新对象,理由同 ``cursor_params``。
     """
     return [
         OpenApiParameter("limit", int, OpenApiParameter.QUERY, required=False,

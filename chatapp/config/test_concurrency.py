@@ -25,11 +25,18 @@ User = get_user_model()
 def _make_user(phone: str) -> User:
     """造一个资料完善、带一张已过审照片的用户。
 
-    Args:
+    参数说明:
         phone: 手机号(兼昵称)。
 
-    Returns:
+    返回参数:
         新建用户。
+
+    使用示例:
+        ``self.me = _make_user("13800138000")``(见本文件 ``setUp``)
+
+    备注信息:
+        资料写成 ``ProfileStatus.COMPLETE`` 且照片 ``APPROVED``,
+        否则接口会因「资料未完善 / 照片待审」提前 403,测不到并发写本身。
     """
     user = User.objects.create_user(phone=phone)
     Profile.objects.create(user=user, nickname=phone, gender="female",
@@ -51,8 +58,15 @@ class ConcurrentWriteTests(TransactionTestCase):
     def _client(self) -> APIClient:
         """返回一个带当前用户令牌的客户端(每个线程一个实例)。
 
-        Returns:
+        返回参数:
             已注入 Authorization 头的 ``APIClient``。
+
+        使用示例:
+            ``return self._client().post(url)``(见本文件的并发写用例)
+
+        备注信息:
+            ``APIClient`` 共享会有线程安全问题,所以每个线程各拿一个;
+            令牌取自 ``setUp`` 里预生成的 ``self.token``。
         """
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}")

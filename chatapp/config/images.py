@@ -61,16 +61,20 @@ class NormalizedImage:
 def open_checked(raw: bytes) -> Image.Image:
     """打开图片并检查格式与像素上限(此时尚未解码像素)。
 
-    Args:
+    参数说明:
         raw: 上传的原始字节。
 
-    Returns:
+    返回参数:
         已通过校验、尚未 ``load()`` 的 PIL 图片对象。
 
-    Raises:
-        UnsupportedImage: 格式不在 jpg/png/webp 白名单内。
-        ImageTooLarge: 像素总数超过 ``MAX_IMAGE_PIXELS``。
-        ImageError: 文件不是可识别的图片。
+    使用示例:
+        ``image = images.open_checked(upload.read())``(见 ``im/views.py`` 的聊天图上传)
+
+    备注信息:
+        只读文件头,不解码像素:解压炸弹在 ``load()`` 时才会分配内存,
+        所以像素上限必须在这里先拦。格式不在白名单抛 ``UnsupportedImage``;
+        像素总数超 ``MAX_IMAGE_PIXELS`` 抛 ``ImageTooLarge``;
+        不是可识别的图片抛 ``ImageError``。
     """
     try:
         image = Image.open(io.BytesIO(raw))
@@ -92,15 +96,20 @@ def open_checked(raw: bytes) -> Image.Image:
 def normalize(image: Image.Image, *, max_side: int = MAX_IMAGE_SIDE) -> NormalizedImage:
     """按 EXIF 方向摆正、缩到上限并重新编码(丢弃全部元数据)。
 
-    Args:
+    参数说明:
         image: ``open_checked`` 返回的图片。
         max_side: 长边上限;超过则等比缩小。
 
-    Returns:
+    返回参数:
         重编码后的图片数据与尺寸。
 
-    Raises:
-        UnsupportedImage: 打开后格式丢失或不在白名单内。
+    使用示例:
+        ``normalized = images.normalize(images.open_checked(raw))``
+        (见 ``users/views.py`` 的资料图上传)
+
+    备注信息:
+        重编码即剥离 EXIF/GPS:``clean.info = {}`` 后重新保存。JPEG 质量 85、
+        PNG 走 optimize、WEBP 质量 85;格式丢失或不在白名单抛 ``UnsupportedImage``。
     """
     fmt = (image.format or "").upper()
     if fmt not in ALLOWED_FORMATS:

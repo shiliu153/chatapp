@@ -31,19 +31,37 @@ class RequestIdMiddleware:
     def __init__(self, get_response):
         """按 Django 中间件协议保存下游处理链。
 
-        Args:
+        参数说明:
             get_response: Django 传入的下一层处理函数。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``"config.middleware.RequestIdMiddleware"``(见 ``config/settings.py``
+            的 ``MIDDLEWARE``),由 Django 在启动时构造。
+
+        备注信息:
+            不要手工构造:中间件实例由 Django 缓存复用,自行 new 一个不会参与请求链。
         """
         self.get_response = get_response
 
     def __call__(self, request):
         """处理单个请求:注入追踪 ID、记访问日志、回写响应头。
 
-        Args:
+        参数说明:
             request: Django 请求对象。
 
-        Returns:
+        返回参数:
             下游返回的响应对象,已带上 ``X-Request-Id`` 头。
+
+        使用示例:
+            由 Django 在每个请求上调用 ``self(request)``,业务代码不直接调。
+
+        备注信息:
+            客户端传来的 ``X-Request-Id`` 先过正则白名单(1–64 位安全字符),
+            不合格就换成新生成的 uuid;耗时超过 ``REQUEST_SLOW_MS`` 的日志升 WARNING。
+            末尾在 ``finally`` 里清空上下文变量,避免 ID 串到同线程的下一个请求。
         """
         raw_request_id = request.headers.get("X-Request-Id", "")
         request_id = (raw_request_id if _REQUEST_ID_RE.fullmatch(raw_request_id)
@@ -68,13 +86,20 @@ class RequestIdMiddleware:
     def _log_fields(request, response, duration_ms: float) -> dict:
         """拼出结构化日志字段(JSON 模式下直接成为顶层字段)。
 
-        Args:
+        参数说明:
             request: Django 请求对象。
             response: 下游响应。
             duration_ms: 耗时(毫秒)。
 
-        Returns:
+        返回参数:
             ``extra`` 字典;``sql_count`` 只在 DEBUG 下采集(生产不开 SQL 记录)。
+
+        使用示例:
+            ``extra=self._log_fields(request, response, duration_ms)``(见本模块 ``__call__``)
+
+        备注信息:
+            未登录请求的 ``user_id`` 写 ``None``;字段名必须落在
+            ``config/logging.py::JsonFormatter.EXTRA_FIELDS`` 白名单内才会输出。
         """
         user = getattr(request, "user", None)
         authenticated = getattr(user, "is_authenticated", False)
@@ -102,19 +127,36 @@ class MetricsMiddleware:
     def __init__(self, get_response):
         """按 Django 中间件协议保存下游处理链。
 
-        Args:
+        参数说明:
             get_response: Django 传入的下一层处理函数。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``"config.middleware.MetricsMiddleware"``(见 ``config/settings.py``
+            的 ``MIDDLEWARE``),由 Django 在启动时构造。
+
+        备注信息:
+            必须排在 ``RequestIdMiddleware`` 之后,日志与指标才能共用同一个请求上下文。
         """
         self.get_response = get_response
 
     def __call__(self, request):
         """处理单个请求并记录指标。
 
-        Args:
+        参数说明:
             request: Django 请求对象。
 
-        Returns:
+        返回参数:
             下游返回的响应对象(原样透传)。
+
+        使用示例:
+            由 Django 在每个请求上调用 ``self(request)``,业务代码不直接调。
+
+        备注信息:
+            ``/metrics`` 自身直接跳过,不计数;异常在 ``except`` 里记一次 500 后再上抛,
+            所以「报错的请求」也出现在延迟分布里。``INFLIGHT`` 在 ``finally`` 里递减。
         """
         if request.path == "/metrics":
             return self.get_response(request)

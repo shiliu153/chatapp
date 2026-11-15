@@ -45,12 +45,21 @@ def _first_message(data):
 def api_exception_handler(exc, context):
     """把 DRF 的异常响应改写成本项目的统一错误信封。
 
-    Args:
+    参数说明:
         exc: 抛出的异常实例。
         context: DRF 提供的上下文(含 view 与 request)。
 
-    Returns:
+    返回参数:
         改写后的 Response;未预期异常返回 500 JSON,不再交回 Django。
+
+    使用示例:
+        ``"EXCEPTION_HANDLER": "config.exceptions.api_exception_handler"``
+        (见 ``config/settings.py`` 的 ``REST_FRAMEWORK``),由 DRF 全局调用。
+
+    备注信息:
+        ``code`` 优先取异常的 ``detail_code``(如 40101),没有则用 HTTP 状态码;
+        ``request_id`` 取当前请求上下文,便于与访问日志对账。
+        未预期异常走 ``logger.exception`` 保留堆栈后返回 500 JSON。
     """
     response = exception_handler(exc, context)
     if response is None:
@@ -80,13 +89,21 @@ def server_error(request, *args, **kwargs):
     只有非 DRF 路径(中间件、模板视图)才会走到这里;DRF 视图的未预期异常
     在 ``api_exception_handler`` 里已经转成 JSON。
 
-    Args:
+    参数说明:
         request: 触发 500 的请求。
         *args: Django 预留的位置参数。
         **kwargs: Django 预留的关键字参数。
 
-    Returns:
+    返回参数:
         ``/api/`` 或 ``/ops/`` 下是 JSON 响应,其余是纯文本 500。
+
+    使用示例:
+        ``handler500 = "config.exceptions.server_error"``(见 ``config/urls.py``),
+        由 Django 在未捕获异常时调用。
+
+    备注信息:
+        先记一条 ``django_500`` 日志(带 ``path`` 与 ``request_id``)再返回,
+        保证非 DRF 路径的故障也能在日志里定位。
     """
     request_id = current_request_id()
     logger.error("django_500", extra={"path": request.path, "request_id": request_id})
