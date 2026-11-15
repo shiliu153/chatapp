@@ -49,11 +49,18 @@ class BlockSerializer(serializers.ModelSerializer):
     def get_nickname(self, block) -> str:
         """取被拉黑方的昵称。
 
-        Args:
+        参数说明:
             block: 拉黑记录。
 
-        Returns:
+        返回参数:
             昵称;对方没有资料行时返回空串。
+
+        使用示例:
+            ``BlockSerializer(block, context={"request": request}).data["nickname"]``(见
+            ``moderation/views.py`` 的 ``blocks``)
+
+        备注信息:
+            对方账号可能存在但没有资料行,此时返回空串而不是抛异常,前端按空昵称渲染。
         """
         profile = getattr(block.blocked, "profile", None)
         return profile.nickname if profile else ""
@@ -61,11 +68,20 @@ class BlockSerializer(serializers.ModelSerializer):
     def get_avatar_url(self, block) -> str | None:
         """取被拉黑方第一张已过审照片的绝对 URL。
 
-        Args:
+        参数说明:
             block: 拉黑记录。
 
-        Returns:
+        返回参数:
             头像绝对 URL;没有已过审照片时返回 ``None``。
+
+        使用示例:
+            ``BlockSerializer(block, context={"request": request}).data["avatar_url"]``(见
+            ``moderation/views.py`` 的 ``blocks``)
+
+        备注信息:
+            按 ``photos`` 的默认顺序取第一张 ``PhotoStatus.APPROVED``,未过审的一律跳过;
+            用 ``self.context["request"].build_absolute_uri`` 拼绝对地址,因此序列化时必须
+            传 ``context={"request": request}``。
         """
         for photo in block.blocked.photos.all():
             if photo.status == PhotoStatus.APPROVED:

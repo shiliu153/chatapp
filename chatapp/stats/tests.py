@@ -46,11 +46,17 @@ URL = "/api/v1/stats/me"
 def _make_user(phone: str) -> User:
     """造一个只带账号行的用户(报告接口不需要资料与照片)。
 
-    Args:
+    参数说明:
         phone: 手机号(兼昵称)。
 
-    Returns:
+    返回参数:
         新建用户。
+
+    使用示例:
+        ``self.me = _make_user("13400134000")``(见 ``StatsApiTests.setUp``)
+
+    备注信息:
+        只建账号行,不建 ``Profile``:报告接口只数配对 / 滑卡 / 访客 / 动态 / 关注。
     """
     return User.objects.create_user(phone=phone)
 
@@ -58,13 +64,20 @@ def _make_user(phone: str) -> User:
 def _at(model, when: datetime, **fields):
     """按指定时刻创建一行(``created_at`` 是 ``auto_now_add``,只能建完再改)。
 
-    Args:
+    参数说明:
         model: 模型类。
         when: ``created_at`` 要落到的时刻。
         **fields: 其余建行字段。
 
-    Returns:
+    返回参数:
         创建好的行;``created_at`` 已改成 ``when``。
+
+    使用示例:
+        ``_at(Swipe, moment, swiper=self.me, target=actor, action=SwipeAction.LIKE)``(见 ``StatsApiTests._seed``)
+
+    备注信息:
+        先 ``create`` 再 ``update``:``auto_now_add`` 字段由 Django 在 ``create`` 时强制写成当前时间,
+        构造时显式传值会被覆盖。
     """
     row = model.objects.create(**fields)
     model.objects.filter(pk=row.pk).update(created_at=when)
@@ -75,12 +88,18 @@ def _at(model, when: datetime, **fields):
 def _inside(period: str, today: date | None = None) -> datetime:
     """取周期内一个安全的时刻(区间起点后 12 小时)。
 
-    Args:
+    参数说明:
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示今天。
 
-    Returns:
+    返回参数:
         带时区的时刻。
+
+    使用示例:
+        ``self._seed(_inside(period), _just_before(period))``(见 ``StatsApiTests.test_each_period_counts_only_rows_inside_it``)
+
+    备注信息:
+        偏移 12 小时是为了离两端边界都远,不受断言当天时刻影响。
     """
     after, _ = period_window(period, today)
     return after + timedelta(hours=12)
@@ -89,12 +108,18 @@ def _inside(period: str, today: date | None = None) -> datetime:
 def _just_before(period: str, today: date | None = None) -> datetime:
     """取周期起点前一秒(必定落在区间外)。
 
-    Args:
+    参数说明:
         period: ``week`` / ``month`` / ``year``。
         today: 参照日期;``None`` 表示今天。
 
-    Returns:
+    返回参数:
         带时区的时刻。
+
+    使用示例:
+        ``self._seed(_inside(period), _just_before(period))``(见 ``StatsApiTests.test_each_period_counts_only_rows_inside_it``)
+
+    备注信息:
+        与 ``_inside`` 配对使用:同一套数据在区间内与区间外各造一份,验证只数区间内的。
     """
     after, _ = period_window(period, today)
     return after - timedelta(seconds=1)
@@ -152,9 +177,16 @@ class StatsApiTests(APITestCase):
     def _seed(self, inside: datetime, outside: datetime) -> None:
         """在两个时刻各造一套「七项指标各 1」的数据,并混入不该计入的干扰行。
 
-        Args:
+        参数说明:
             inside: 落在统计区间内的时刻。
             outside: 落在统计区间外的时刻(区间起点前一秒)。
+
+        使用示例:
+            ``self._seed(_inside(period), _just_before(period))``(见 ``StatsApiTests.test_each_period_counts_only_rows_inside_it``)
+
+        备注信息:
+            干扰行都是别人的活动(他人的配对 / 滑卡 / 动态 / 点赞 / 关注),一条都不能计到
+            当前用户的报告里,用来钉住「只数我自己」的口径。
         """
         inner_a, inner_b, outer_a, outer_b = self.peers
         for moment, actor, other in ((inside, inner_a, inner_b), (outside, outer_a, outer_b)):
@@ -181,11 +213,17 @@ class StatsApiTests(APITestCase):
     def _get(self, period: str | None = None) -> dict:
         """请求报告接口并返回 JSON。
 
-        Args:
+        参数说明:
             period: 传给 ``period`` 查询参数的周期;``None`` 表示不传。
 
-        Returns:
+        返回参数:
             响应 JSON。
+
+        使用示例:
+            ``data = self._get("week")``(见 ``StatsApiTests.test_default_period_is_week``)
+
+        备注信息:
+            顺带断言 200:数字断言失败时错误信息里带上响应体片段,便于定位。
         """
         params = {"period": period} if period else {}
         response = self.client.get(URL, params)
@@ -272,14 +310,20 @@ ACTIVITY_DAYS = [SNAPSHOT_DAY + timedelta(days=offset) for offset in range(-10, 
 def _local(day: date, hour: int = 10, minute: int = 0, second: int = 0) -> datetime:
     """造一个 ``Asia/Shanghai`` 本地时刻。
 
-    Args:
+    参数说明:
         day: 本地自然日。
         hour: 小时。
         minute: 分钟。
         second: 秒。
 
-    Returns:
+    返回参数:
         带时区的时刻。
+
+    使用示例:
+        ``_at(Swipe, _local(day, 11, 5), swiper=a, target=c, action=SwipeAction.LIKE)``(见 ``MetricsDailyCommandTests.test_snapshot_numbers``)
+
+    备注信息:
+        时区取 ``timezone.get_current_timezone()``,与命令的切日口径一致。
     """
     return datetime.combine(day, time(hour, minute, second),
                             tzinfo=timezone.get_current_timezone())
@@ -296,8 +340,14 @@ class MetricsDailyCommandTests(TestCase):
     def _drop_activity(self):
         """清掉本类用到的活跃集合(Redis DB 跨用例共享,必须自己打扫)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.addCleanup(self._drop_activity)``(见 ``MetricsDailyCommandTests.setUp``)
+
+        备注信息:
+            一天 24 个小时桶都要删:只删日集合会让上一条用例的小时分布漏到本条。
         """
         keys = []
         for day in ACTIVITY_DAYS:
@@ -308,13 +358,20 @@ class MetricsDailyCommandTests(TestCase):
     def _user(self, phone, joined=None, complete=False):
         """造一个账号,可指定注册时刻并可置为「资料已完善」。
 
-        Args:
+        参数说明:
             phone: 手机号(唯一)。
             joined: ``date_joined`` 要落到的时刻;``None`` 表示就用当前时间。
             complete: 是否把资料状态置为 ``complete``。
 
-        Returns:
+        返回参数:
             新建的账号。
+
+        使用示例:
+            ``a = self._user("13900000001", joined=long_ago)``(见 ``MetricsDailyCommandTests.test_snapshot_numbers``)
+
+        备注信息:
+            ``date_joined`` 与资料状态都要建完再 ``update``:``create_user`` 会把 ``date_joined``
+            写成当前时间,``Profile.status`` 由 ``get_or_create`` 建出的缺省值决定。
         """
         user = User.objects.create_user(phone=phone)
         if joined is not None:
@@ -327,11 +384,17 @@ class MetricsDailyCommandTests(TestCase):
     def _run(self, *args):
         """跑一次命令并返回标准输出。
 
-        Args:
+        参数说明:
             *args: 命令行参数。
 
-        Returns:
+        返回参数:
             命令的完整 stdout。
+
+        使用示例:
+            ``out = self._run("--date", SNAPSHOT_DAY.isoformat(), "--backfill", "3", "--dry-run")``(见 ``MetricsDailyCommandTests.test_dry_run_prints_without_writing``)
+
+        备注信息:
+            走 ``call_command``(与真实入口同一份参数解析),stdout 收进 ``StringIO`` 便于按行断言。
         """
         out = StringIO()
         call_command("metrics_daily", *args, stdout=out)

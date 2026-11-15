@@ -31,12 +31,19 @@ User = get_user_model()
 def _notification(user, **overrides):
     """造一条通知(默认参数可被覆盖)。
 
-    Args:
+    参数说明:
         user: 接收者。
         **overrides: 覆盖默认字段。
 
-    Returns:
+    返回参数:
         新建的 ``InAppNotification``。
+
+    使用示例:
+        ``mine = _notification(self.me, actor=self.actor)``(见 ``notifications/test_api.py`` 的 ``NotificationListApiTests.test_returns_own_notifications_only``)
+
+    备注信息:
+        默认值是一条 ``post_like``(目标 ``post`` id 3、正文「小明 赞了你的动态」),
+        只想改一两个字段时不必把整条都写出来。
     """
     fields = {
         "user": user,
@@ -62,12 +69,18 @@ class NotificationListApiTests(APITestCase):
     def _get(self, path="/api/v1/notifications", **params):
         """发一次 GET。
 
-        Args:
-            path: 请求路径。
+        参数说明:
+            path: 请求路径,默认 ``/api/v1/notifications``。
             **params: 查询参数。
 
-        Returns:
+        返回参数:
             DRF 响应对象。
+
+        使用示例:
+            ``resp = self._get("/api/v1/notifications/unread_count")``(见 ``notifications/test_api.py`` 的 ``NotificationListApiTests.test_unread_count_matches_window_and_flag``)
+
+        备注信息:
+            走已装好 JWT 的 ``self.client``,所以只在 ``setUp`` 里登录一次即可。
         """
         return self.client.get(path, params)
 
@@ -178,11 +191,17 @@ class NotificationReadApiTests(APITestCase):
     def _read(self, body):
         """发一次标记已读。
 
-        Args:
+        参数说明:
             body: JSON body(dict)。
 
-        Returns:
+        返回参数:
             DRF 响应对象。
+
+        使用示例:
+            ``self._read({"all": True})``(见 ``notifications/test_api.py`` 的 ``NotificationReadApiTests.test_marks_all``)
+
+        备注信息:
+            固定打 ``POST /api/v1/notifications/read``,``format="json"``。
         """
         return self.client.post("/api/v1/notifications/read", body, format="json")
 

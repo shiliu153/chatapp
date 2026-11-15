@@ -6,12 +6,20 @@ from django.db import migrations, models
 def backfill_dedupe_keys(apps, schema_editor):
     """给已有的待处理举报补去重键。
 
-    历史数据里同一对用户可能已有重复的 pending 记录;唯一约束允许多个 NULL,
-    因此每对只补最早的一条,其余保持 NULL,不会因为回填而迁移失败。
-
-    Args:
+    参数说明:
         apps: 迁移时的应用注册表。
         schema_editor: 数据库 schema 编辑器(本函数不使用)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``migrations.RunPython(backfill_dedupe_keys, clear_dedupe_keys)``(见本文件
+        ``Migration.operations``)
+
+    备注信息:
+        历史数据里同一对用户可能已有重复的 pending 记录;唯一约束允许多个 NULL,
+        因此每对只补最早的一条,其余保持 NULL,不会因为回填而迁移失败。
     """
     Report = apps.get_model("moderation", "Report")
     seen = set()
@@ -26,9 +34,20 @@ def backfill_dedupe_keys(apps, schema_editor):
 def clear_dedupe_keys(apps, schema_editor):
     """回滚时清空去重键。
 
-    Args:
+    参数说明:
         apps: 迁移时的应用注册表。
         schema_editor: 数据库 schema 编辑器(本函数不使用)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        迁移回滚时由 ``RunPython(backfill_dedupe_keys, clear_dedupe_keys)`` 的第二个参数调用
+        (见本文件 ``Migration.operations``)
+
+    备注信息:
+        整表置空,不分 pending 与否:本函数是 ``AddField`` 的反向步骤,列随后会被删掉,
+        回滚不需要保留任何去重键。
     """
     Report = apps.get_model("moderation", "Report")
     Report.objects.update(dedupe_key=None)

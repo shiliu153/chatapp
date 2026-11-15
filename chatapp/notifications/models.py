@@ -40,8 +40,14 @@ class PushDevice(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        返回参数:
             ``用户 id:平台:registration_id``。
+
+        使用示例:
+            ``str(device)``(Django 后台列表与日志格式化按 ``str()`` 调用)
+
+        备注信息:
+            无特殊约束。
         """
         return f"{self.user_id}:{self.platform}:{self.registration_id}"
 
@@ -75,11 +81,17 @@ class NotificationPreference(models.Model):
     def for_user(cls, user):
         """取(必要时创建)用户的通知偏好。
 
-        Args:
+        参数说明:
             user: 目标用户。
 
-        Returns:
+        返回参数:
             该用户的 ``NotificationPreference`` 实例。
+
+        使用示例:
+            ``preference = NotificationPreference.for_user(request.user)``(见 ``notifications/views.py`` 的 ``preferences``)
+
+        备注信息:
+            首次读取才落库,五类通知默认全开;``get_or_create`` 保证一个账号只有一行。
         """
         preference, _ = cls.objects.get_or_create(user=user)
         return preference
@@ -87,11 +99,17 @@ class NotificationPreference(models.Model):
     def allows(self, kind: str) -> bool:
         """判断某一类通知是否开启。
 
-        Args:
+        参数说明:
             kind: 通知类型,取值 ``like`` / ``match`` / ``message`` / ``system`` / ``social``。
 
-        Returns:
+        返回参数:
             开启返回 ``True``;未知类型返回 ``False``(宁可不发)。
+
+        使用示例:
+            ``if not NotificationPreference.for_user(user).allows(kind):``(见 ``notifications/tasks.py`` 的 ``send_push``)
+
+        备注信息:
+            未登记的 ``kind`` 一律按关闭处理,新增事件类型时不必再改这里的兜底分支。
         """
         return {
             "like": self.likes,
@@ -166,7 +184,13 @@ class InAppNotification(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        返回参数:
             ``用户 id:类型:正文``。
+
+        使用示例:
+            ``str(notification)``(Django 后台列表与日志格式化按 ``str()`` 调用)
+
+        备注信息:
+            无特殊约束。
         """
         return f"{self.user_id}:{self.kind}:{self.text}"

@@ -87,14 +87,18 @@ class NotificationReadSerializer(serializers.Serializer):
     def validate(self, attrs):
         """校验「必须给出 ids 或 all=true」。
 
-        Args:
+        参数说明:
             attrs: 已通过字段级校验的数据。
 
-        Returns:
+        返回参数:
             通过校验的数据。
 
-        Raises:
-            serializers.ValidationError: 两个字段都没给(空 body 会静默成功,不能接受)。
+        使用示例:
+            ``serializer = NotificationReadSerializer(data=request.data)``(见 ``notifications/views.py`` 的 ``notification_read``,``is_valid()`` 触发本方法)
+
+        备注信息:
+            ``serializers.ValidationError``: 两个字段都没给(空 body 会静默成功,不能接受),
+            视图侧因此对空 body 返回 400。
         """
         if not attrs.get("ids") and not attrs.get("all"):
             raise serializers.ValidationError("请提供 ids 或 all=true")
@@ -110,13 +114,19 @@ class UnreadCountSerializer(serializers.Serializer):
 def notification_payload(notification, request) -> dict:
     """把一条通知拼成列表项字典(含触发者摘要与头像)。
 
-    Args:
+    参数说明:
         notification: ``InAppNotification`` 实例;调用方需已 ``select_related``
             触发者资料并 ``prefetch_related`` 触发者照片,避免 N+1。
         request: 当前请求,用于把头像拼成绝对 URL。
 
-    Returns:
+    返回参数:
         ``{id, kind, text, is_read, created_at, actor, target}``。
+
+    使用示例:
+        ``[notification_payload(row, request) for row in rows]``(见 ``notifications/views.py`` 的 ``notification_list``)
+
+    备注信息:
+        无触发者时 ``actor`` 为 ``None``;头像取该触发者第一张已过审照片,没有则为 ``None``。
     """
     actor = None
     if notification.actor_id:

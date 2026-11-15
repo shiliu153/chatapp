@@ -30,8 +30,14 @@ OTP_ATTEMPT_TTL = 300
 def mark_verified(request) -> None:
     """记录「第二因子已通过」的时间戳。
 
-    Args:
+    参数说明:
         request: Django 请求对象(原地写 session)。
+
+    使用示例:
+        ``mark_verified(request)``(见本文件 ``otp_verify`` 的验证成功分支)。
+
+    备注信息:
+        写入 ``otp_verified_at`` 的同时清掉旧版本的布尔标记 ``otp_verified``。
     """
     request.session["otp_verified_at"] = int(time.time())
     request.session.pop("otp_verified", None)   # 清掉旧版本的布尔标记
@@ -42,11 +48,18 @@ def is_verified(request) -> bool:
 
     没有时间戳(旧版本 session 或从未验证)一律视为未验证,强制重验一次。
 
-    Args:
+    参数说明:
         request: Django 请求对象。
 
-    Returns:
+    返回参数:
         在 ``OPS_OTP_TTL`` 内验证过返回 ``True``。
+
+    使用示例:
+        ``if is_verified(request):``(见 ``ops/middleware.py`` 的
+        ``StaffSecurityMiddleware.__call__`` 与本文件 ``otp_verify``)。
+
+    备注信息:
+        无特殊约束。
     """
     raw = request.session.get("otp_verified_at")
     if raw is None:
@@ -59,13 +72,19 @@ def is_verified(request) -> bool:
 
 
 def _attempt_key(user_id: int) -> str:
-    """OTP 尝试次数的缓存键。
+    """拼出 OTP 尝试次数的缓存键。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
 
-    Returns:
+    返回参数:
         缓存键字符串。
+
+    使用示例:
+        ``key = _attempt_key(user.id)``(见本文件 ``_bump_attempt``)。
+
+    备注信息:
+        键名形如 ``ops:otp:attempt:{user_id}``,过期时间由 ``OTP_ATTEMPT_TTL`` 控制。
     """
     return f"ops:otp:attempt:{user_id}"
 
@@ -73,20 +92,33 @@ def _attempt_key(user_id: int) -> str:
 def _too_many_attempts(user_id: int) -> bool:
     """判断是否已超过 OTP 尝试次数。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
 
-    Returns:
+    返回参数:
         超过上限返回 ``True``。
+
+    使用示例:
+        ``if _too_many_attempts(user.id):``(见本文件 ``otp_verify``)。
+
+    备注信息:
+        上限是 ``OTP_ATTEMPT_LIMIT``(10 次 / ``OTP_ATTEMPT_TTL`` 秒),超限时页面回 429。
     """
     return int(cache.get(_attempt_key(user_id), 0) or 0) >= OTP_ATTEMPT_LIMIT
 
 
 def _bump_attempt(user_id: int) -> None:
-    """OTP 失败计数 +1。
+    """给 OTP 失败计数 +1。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
+
+    使用示例:
+        ``_bump_attempt(user.id)``(见本文件 ``otp_verify`` 的验证失败分支)。
+
+    备注信息:
+        首次失败用 ``cache.add`` 建键并带上 ``OTP_ATTEMPT_TTL``;键已存在则 ``incr``,
+        ``incr`` 遇到键被清掉时降级为 ``set``。
     """
     key = _attempt_key(user_id)
     if not cache.add(key, 1, OTP_ATTEMPT_TTL):
@@ -100,11 +132,19 @@ def _bump_attempt(user_id: int) -> None:
 def otp_verify(request):
     """第二因子验证/绑定页(GET/POST /ops/otp/)。
 
-    Args:
+    参数说明:
         request: Django 请求对象;POST 带 ``code`` 与可选 ``next``。
 
-    Returns:
+    返回参数:
         GET 渲染验证页;POST 成功跳回 ``next``(或举报列表),失败回显错误。
+
+    使用示例:
+        ``resp = self.client.post("/ops/otp/", {"code": totp.code_at(secret)})``
+        (见 ``ops/tests.py`` 的 ``StaffOtpTests``);路由见 ``ops/urls.py`` 的
+        ``path("otp/", otp_verify, name="otp")``。
+
+    备注信息:
+        未绑定密钥时先在 session 里放一个待确认密钥,确认成功后才写库;尝试超限回 429。
     """
     user = request.user
     next_url = request.POST.get("next") or request.GET.get("next") or ""
@@ -152,11 +192,18 @@ def _safe_redirect(next_url: str):
     ``ALLOWED_HOSTS`` 为空时 ``url_has_allowed_host_and_scheme`` 会放开任意主机,
     因此这种情况退化为「只允许站内相对路径」(L-6)。
 
-    Args:
+    参数说明:
         next_url: 用户提交的下一跳地址。
 
-    Returns:
+    返回参数:
         站内地址的 302;``next`` 为空或站外时回到举报列表。
+
+    使用示例:
+        ``return _safe_redirect(next_url)``(见本文件 ``otp_verify``)、
+        ``_safe_redirect("/ops/users/")``(见 ``ops/tests.py`` 的 ``OpsSafeRedirectTests``)。
+
+    备注信息:
+        无特殊约束。
     """
     allowed_hosts = {host for host in settings.ALLOWED_HOSTS if host and host != "*"}
     if next_url:

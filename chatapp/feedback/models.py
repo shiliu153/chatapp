@@ -53,7 +53,18 @@ class Feedback(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``feedback#主键(用户:类型)``。
+
+        使用示例:
+            ``str(feedback)``
+
+        备注信息:
+            用用户主键而不是手机号:运营台列表页(``ops/views.py`` 的 ``feedback_list``)
+            直接渲染 ``user`` / ``user__profile`` 的字段,本方法只服务日志与调试输出,
+            不额外查库。
         """
         return f"feedback#{self.pk}({self.user_id}:{self.type})"

@@ -129,13 +129,19 @@ class PushDeviceApiTests(APITestCase):
     def _register(self, rid="rid-1", platform="android", version="1.0.0"):
         """上报一台设备。
 
-        Args:
-            rid: registration_id。
+        参数说明:
+            rid: ``registration_id``。
             platform: 平台。
             version: App 版本。
 
-        Returns:
+        返回参数:
             DRF 响应对象。
+
+        使用示例:
+            ``resp = self._register("rid-1")``(见 ``notifications/tests.py`` 的 ``PushDeviceApiTests.test_register_is_idempotent``)
+
+        备注信息:
+            固定打 ``POST /api/v1/push/devices``,``format="json"``。
         """
         return self.client.post("/api/v1/push/devices", {
             "registration_id": rid, "platform": platform, "app_version": version,
@@ -479,11 +485,17 @@ class InternalPushEndpointTests(TestCase):
     def _body(self, **overrides):
         """构造事件体(JSON 字符串)。
 
-        Args:
+        参数说明:
             **overrides: 覆盖默认字段。
 
-        Returns:
+        返回参数:
             JSON 字符串。
+
+        使用示例:
+            ``body = self._body(from_user_id=self.to_user.id)``(见 ``notifications/tests.py`` 的 ``InternalPushEndpointTests.test_same_sender_and_receiver_rejected``)
+
+        备注信息:
+            紧凑分隔符 + ``ensure_ascii=False``:签名按原始 body 计算,换个分隔符就验不过。
         """
         data = {
             "to_user_id": self.to_user.id,
@@ -499,15 +511,22 @@ class InternalPushEndpointTests(TestCase):
               signature=None):
         """按内部签名口径发一次请求。
 
-        Args:
+        参数说明:
             body: 请求体字符串。
             timestamp: 时间戳(默认当前秒)。
             secret: 签名密钥。
             path: 用于计算签名的路径。
             signature: 直接指定签名(默认按 secret 计算)。
 
-        Returns:
+        返回参数:
             Django 测试客户端响应。
+
+        使用示例:
+            ``resp = self._post(body)``(见 ``notifications/tests.py`` 的 ``InternalPushEndpointTests.test_valid_event_is_queued``)
+
+        备注信息:
+            签名头固定 ``X-IM-Timestamp`` / ``X-IM-Signature``;想验「坏签名」时直接传
+            ``signature=...``,想验「过期时间戳」时传 ``timestamp=...`` 即可,不必自己拼头。
         """
         ts = str(int(time.time())) if timestamp is None else str(timestamp)
         sig = signature if signature is not None else signature_for(ts, path, body, secret)

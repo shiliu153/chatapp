@@ -43,11 +43,17 @@ DEFAULT_RECENT_DAYS = 30
 def day_range(day: date) -> tuple:
     """把 ``Asia/Shanghai`` 自然日换算成左闭右开的 aware datetime 区间。
 
-    Args:
+    参数说明:
         day: 本地自然日。
 
-    Returns:
+    返回参数:
         ``(start, end)``:当日 ``00:00`` 与次日 ``00:00``(均为带时区的时刻)。
+
+    使用示例:
+        ``start, end = day_range(day)``(见本模块 ``build_snapshot``、``stats/im_source.py`` 的 ``count_messages``)
+
+    备注信息:
+        切日口径只此一处:命令、看板与 IM 消息量统计都走它,不要用 ``datetime.now()`` 或按 UTC 切日。
     """
     tz = timezone.get_current_timezone()
     start = datetime.combine(day, time.min, tzinfo=tz)
@@ -58,11 +64,18 @@ def day_range(day: date) -> tuple:
 def _active_users(day: date) -> set | None:
     """取某一天的活跃用户集合,区分「没采到」与「采到了但是 0 人」。
 
-    Args:
+    参数说明:
         day: 本地自然日。
 
-    Returns:
+    返回参数:
         账号 id 集合;当天没有活动记录(Redis 集合不存在)返回 ``None``。
+
+    使用示例:
+        ``active = _active_users(day)``(见本模块 ``_retention`` 与 ``build_snapshot``)
+
+    备注信息:
+        先问 ``activity.daily_count`` 再取集合:``None`` 表示当天没采到(看板渲染 ``—``),
+        空集合表示采到了但没人活跃,两者不可互推。
     """
     if activity.daily_count(day) is None:
         return None
@@ -72,11 +85,18 @@ def _active_users(day: date) -> set | None:
 def _cohort(day: date) -> set:
     """取某一天注册的用户 id 集合(留存的分母)。
 
-    Args:
+    参数说明:
         day: 本地自然日。
 
-    Returns:
+    返回参数:
         当日注册用户的账号 id 集合。
+
+    使用示例:
+        ``cohort = _cohort(day)``(见本模块 ``build_snapshot`` 与 ``fill_retention``)
+
+    备注信息:
+        留存一律按「首日注册 cohort」算:分子是这批人里目标日仍然活跃的人数,
+        不要拿「当日活跃」反推 —— 分母不同,数字没法解释。
     """
     start, end = day_range(day)
     return set(
@@ -88,12 +108,18 @@ def _cohort(day: date) -> set:
 def _retention(cohort: set, target_day: date) -> int | None:
     """算 cohort 在目标日的留存人数。
 
-    Args:
+    参数说明:
         cohort: 首日注册的用户 id 集合。
         target_day: 目标日(次日 / 第 7 日)。
 
-    Returns:
+    返回参数:
         ``len(cohort ∩ 目标日活跃)``;目标日没有活动记录返回 ``None``。
+
+    使用示例:
+        ``_retention(cohort, day + timedelta(days=1))``(见本模块 ``build_snapshot`` 与 ``fill_retention``)
+
+    备注信息:
+        取交集而不是直接用目标日活跃人数:非 cohort 的活跃用户一条都不能算进留存。
     """
     active = _active_users(target_day)
     if active is None:
@@ -104,11 +130,19 @@ def _retention(cohort: set, target_day: date) -> int | None:
 def build_snapshot(day: date) -> dict:
     """算出某一天的全部指标(只算不写库)。
 
-    Args:
+    参数说明:
         day: 本地自然日。
 
-    Returns:
+    返回参数:
         可直接交给 ``DailyMetric`` 的字段字典;采不到的字段为 ``None``。
+
+    使用示例:
+        ``snapshot = build_snapshot(day)``(见 ``stats/management/commands/metrics_daily.py`` 的 ``handle``)
+
+    备注信息:
+        只算不写库,落库是 ``save_snapshot`` 的事。``profiles_completed`` 只能按**当前**
+        ``Profile.status`` 近似 —— ``Profile`` 没有 ``completed_at``,回填历史日期时算的是
+        「这些人现在完善没完善」,这是已知近似。
     """
     start, end = day_range(day)
     cohort = _cohort(day)
@@ -136,13 +170,19 @@ def build_snapshot(day: date) -> dict:
 def save_snapshot(day: date, snapshot: dict | None = None) -> DailyMetric:
     """算出并写入某一天的快照(``update_or_create``,同一天重跑覆盖而不新增)。
 
-    Args:
+    参数说明:
         day: 本地自然日。
         snapshot: 已算好的字段字典;``None`` 表示现算。命令传进来复用一次计算,
             免得同一天算两遍(消息量还要连一次 IM 库)。
 
-    Returns:
+    返回参数:
         写入后的 ``DailyMetric`` 行。
+
+    使用示例:
+        ``row = save_snapshot(day, snapshot)``(见 ``stats/management/commands/metrics_daily.py`` 的 ``handle``)
+
+    备注信息:
+        ``date`` 唯一 + ``update_or_create``:同一天跑几次表里都只有一行,重跑覆盖旧值。
     """
     row, _created = DailyMetric.objects.update_or_create(
         date=day, defaults=snapshot if snapshot is not None else build_snapshot(day),
@@ -153,15 +193,20 @@ def save_snapshot(day: date, snapshot: dict | None = None) -> DailyMetric:
 def fill_retention(day: date, field: str) -> bool:
     """给**已存在**的那一行补留存(「每天只跑昨天」时维持存的唯一途径)。
 
-    Args:
+    参数说明:
         day: 待补留存的那一行对应的本地自然日。
         field: ``retention_d1`` 或 ``retention_d7``。
 
-    Returns:
+    返回参数:
         是否真的更新了;行不存在返回 ``False``(不为补留存凭空造行)。
 
-    Raises:
-        ValueError: ``field`` 不是留存字段。
+    使用示例:
+        ``fill_retention(day, field)``(见 ``stats/management/commands/metrics_daily.py`` 的 ``_fill_window_retention``);
+        测试 ``self.assertFalse(fill_retention(orphan, "retention_d1"))``(见 ``stats/tests.py`` 的 ``MetricsDailyCommandTests.test_fill_retention_does_not_create_rows``)
+
+    备注信息:
+        ``field`` 不是留存字段时抛 ``ValueError``。只 update 已存在行的单个列,
+        不改其它字段,也不新增行。
     """
     if field not in RETENTION_FIELDS:
         raise ValueError(f"未知的留存字段:{field}")
@@ -175,11 +220,18 @@ def fill_retention(day: date, field: str) -> bool:
 def recent_rows(days: int = DEFAULT_RECENT_DAYS) -> list:
     """取最近 ``days`` 天的快照(看板用,一条 SQL 取完)。
 
-    Args:
+    参数说明:
         days: 取多少行,缺省 30。
 
-    Returns:
+    返回参数:
         ``DailyMetric`` 列表,按日期倒序。
+
+    使用示例:
+        ``rows = stats_metrics.recent_rows(METRICS_TREND_DAYS)``(见 ``ops/views.py`` 的 ``metrics``)
+
+    备注信息:
+        模型 ``Meta.ordering`` 已按日期倒序,这里不再排序;汇总、配对率、时段横条
+        都由调用方在这份内存列表上算,不在循环里查库。
     """
     return list(DailyMetric.objects.all()[:days])
 
@@ -187,11 +239,18 @@ def recent_rows(days: int = DEFAULT_RECENT_DAYS) -> list:
 def match_rate(row: DailyMetric) -> float | None:
     """算配对率 ``matches / swipes_like``。
 
-    Args:
+    参数说明:
         row: 一行快照。
 
-    Returns:
+    返回参数:
         比值(``0.0`` 起,可能大于 1);分母为 0 时返回 ``None``(看板显示 ``—``)。
+
+    使用示例:
+        ``_format_rate(stats_metrics.match_rate(row))``(见 ``ops/views.py`` 的 ``_metrics_trend``)
+
+    备注信息:
+        分母为 0 返回 ``None`` 而不是 ``0.0``:「当天没有喜欢」与「喜欢了但一次没配上」
+        是两件事,看板必须能区分。
     """
     if not row.swipes_like:
         return None

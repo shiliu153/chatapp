@@ -30,13 +30,20 @@ User = get_user_model()
 def make_user(phone: str, nickname: str, *, complete: bool = False) -> User:
     """造一个带资料的用户。
 
-    Args:
+    参数说明:
         phone: 手机号(唯一)。
         nickname: 昵称。
         complete: 是否把资料标成「完善」(滑卡要求对方资料完善)。
 
-    Returns:
+    返回参数:
         新建用户。
+
+    使用示例:
+        ``self.author = make_user("13800138000", "作者")``(见 ``notifications/test_hooks.py`` 的 ``PostLikeNotificationTests.setUp``)
+
+    备注信息:
+        手机号在库内唯一,同一用例内不能重复;``complete=False`` 时资料是
+        ``ProfileStatus.INCOMPLETE``。
     """
     user = User.objects.create_user(phone=phone)
     Profile.objects.create(user=user, nickname=nickname,
@@ -58,8 +65,14 @@ class PostLikeNotificationTests(APITestCase):
     def _like(self):
         """点赞(执行提交回调)。
 
-        Returns:
+        返回参数:
             DRF 响应对象。
+
+        使用示例:
+            ``self._like()``(见 ``notifications/test_hooks.py`` 的 ``PostLikeNotificationTests.test_first_like_notifies_author``)
+
+        备注信息:
+            用 ``captureOnCommitCallbacks(execute=True)`` 包住请求,通知才会在用例里真的落库。
         """
         with self.captureOnCommitCallbacks(execute=True):
             return self.client.post(f"/api/v1/posts/{self.post.id}/like")
@@ -113,12 +126,19 @@ class CommentNotificationTests(APITestCase):
     def _comment(self, text, parent_id=None):
         """发表评论或回复(执行提交回调)。
 
-        Args:
+        参数说明:
             text: 正文。
             parent_id: 被回复的评论 id;``None`` 表示顶级评论。
 
-        Returns:
+        返回参数:
             新评论的 id。
+
+        使用示例:
+            ``comment_id = self._comment("写得好")``(见 ``notifications/test_hooks.py`` 的 ``CommentNotificationTests.test_top_comment_notifies_post_author``)
+
+        备注信息:
+            同时把 ``im.tasks.post_commented.delay`` / ``post_replied.delay`` 的 mock 存到
+            ``self.commented`` / ``self.replied``,方便断言「灰条次数不变」。
         """
         body = {"text": text}
         if parent_id is not None:

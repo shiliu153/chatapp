@@ -34,11 +34,18 @@ class InAppNotificationModelTests(TestCase):
     def _create(self, **overrides):
         """造一条通知(默认参数可被覆盖)。
 
-        Args:
+        参数说明:
             **overrides: 覆盖 ``InAppNotification.objects.create`` 的字段。
 
-        Returns:
+        返回参数:
             新建的通知。
+
+        使用示例:
+            ``first = self._create(text="第一条")``(见 ``notifications/test_in_app.py`` 的 ``InAppNotificationModelTests.test_ordering_is_created_at_then_id_desc``)
+
+        备注信息:
+            默认值是一条 ``post_like``(触发者为 ``self.actor``、目标 ``post`` id 7),
+            接收者固定 ``self.user``。
         """
         fields = {
             "user": self.user,

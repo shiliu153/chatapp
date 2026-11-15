@@ -24,10 +24,16 @@ class Command(BaseCommand):
     help = "删除过期站内通知(默认 dry-run;加 --apply 才真删)"
 
     def add_arguments(self, parser):
-        """注册命令行参数。
+        """注册命令行参数(``--apply`` / ``--days``)。
 
-        Args:
+        参数说明:
             parser: argparse 的解析器。
+
+        使用示例:
+            ``python manage.py notifications_prune --apply --days 1000``(见 ``notifications/test_in_app.py`` 的 ``NotificationsPruneCommandTests``)
+
+        备注信息:
+            两个参数都可选:``--apply`` 不传即 dry-run,``--days`` 默认 ``DEFAULT_DAYS``(90)。
         """
         parser.add_argument("--apply", action="store_true",
                             help="真正删除;不加时只统计将要删除的条数")
@@ -37,9 +43,16 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """执行清理。
 
-        Args:
+        参数说明:
             *args: 透传的位置参数。
             **options: 解析后的命令行选项(``apply`` / ``days``)。
+
+        使用示例:
+            ``python manage.py notifications_prune --apply --days 1000``(见 ``notifications/test_in_app.py`` 的 ``NotificationsPruneCommandTests.test_custom_retention_days``)
+
+        备注信息:
+            默认只统计将删除的条数并打印 dry-run 提示,加 ``--apply`` 才真删;删除是硬删,
+            不接 cron(取舍见模块 docstring)。
         """
         days = options["days"]
         cutoff = timezone.now() - timedelta(days=days)

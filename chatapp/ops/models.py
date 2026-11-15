@@ -41,7 +41,13 @@ class MediaAccessLog(models.Model):
     def __str__(self) -> str:
         """后台列表里的可读标识。
 
-        Returns:
+        返回参数:
             形如 ``image/all/120`` 的摘要。
+
+        使用示例:
+            ``str(log)``(审计行由 ``ops/views.py`` 的 ``_log_media_access`` 写入)。
+
+        备注信息:
+            无特殊约束。
         """
         return f"{self.kind}/{self.filter}/{self.count}"

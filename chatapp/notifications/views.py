@@ -53,16 +53,20 @@ DEVICE_TRANSFER_TEXT = "你的设备已在另一账号登录,推送已切换"
 def register_device(request):
     """上报推送设备(POST /api/v1/push/devices)。
 
-    幂等:同一 registration_id 重复上报只更新归属与版本;同账号的其他设备被删除。
-    设备**易主**(这个 registration_id 原本挂在别的账号下)照旧允许,但会写一条
-    ``push_device_transfer`` warning 日志,并在事务提交后给原账号写一条系统站内通知
-    ——知道别人 registration_id 的人仍然能把设备抢走,但原账号至少看得见这件事。
-
-    Args:
+    参数说明:
         request: DRF 请求对象,body 需带 ``registration_id`` 与 ``platform``。
 
-    Returns:
+    返回参数:
         ``{"registration_id": str, "platform": str}``。
+
+    使用示例:
+        ``resp = self.client.post("/api/v1/push/devices", {"registration_id": "rid-1", "platform": "android", "app_version": "1.0.0"}, format="json")``(见 ``notifications/tests.py`` 的 ``PushDeviceApiTests._register``)
+
+    备注信息:
+        幂等:同一 ``registration_id`` 重复上报只更新归属与版本;同账号的其他设备被删除。
+        设备**易主**(这个 ``registration_id`` 原本挂在别的账号下)照旧允许,但会写一条
+        ``push_device_transfer`` warning 日志,并在事务提交后给原账号写一条系统站内通知
+        ——知道别人 ``registration_id`` 的人仍然能把设备抢走,但原账号至少看得见这件事。
     """
     serializer = DeviceSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -100,14 +104,18 @@ def register_device(request):
 def unregister_device(request, registration_id):
     """解绑推送设备(DELETE /api/v1/push/devices/{registration_id})。
 
-    幂等:设备不存在、或属于别人,一律 204(不泄漏他人设备信息)。
-
-    Args:
+    参数说明:
         request: DRF 请求对象。
-        registration_id: 极光 registration_id。
+        registration_id: 极光 ``registration_id``。
 
-    Returns:
+    返回参数:
         204 空响应。
+
+    使用示例:
+        ``resp = self.client.delete("/api/v1/push/devices/rid-1")``(见 ``notifications/tests.py`` 的 ``PushDeviceApiTests.test_unregister_is_idempotent``)
+
+    备注信息:
+        幂等:设备不存在、或属于别人,一律 204(不泄漏他人设备信息)。
     """
     PushDevice.objects.filter(user=request.user, registration_id=registration_id).delete()
     return Response(status=204)
@@ -120,14 +128,18 @@ def unregister_device(request, registration_id):
 def preferences(request):
     """读取或修改通知偏好(GET/PATCH /api/v1/push/preferences)。
 
-    PATCH 为局部更新:只改传入的字段,未传的保持不变。
-
-    Args:
+    参数说明:
         request: DRF 请求对象;PATCH 时 body 可带
             ``likes`` / ``matches`` / ``messages`` / ``system`` / ``social``。
 
-    Returns:
+    返回参数:
         ``{"likes": bool, "matches": bool, "messages": bool, "system": bool, "social": bool}``。
+
+    使用示例:
+        ``resp = self.client.patch("/api/v1/push/preferences", {"social": False}, format="json")``(见 ``notifications/test_api.py`` 的 ``NotificationPreferenceApiTests``)
+
+    备注信息:
+        PATCH 为局部更新:只改传入的字段,未传的保持不变;偏好不存在时先按默认值建一行。
     """
     preference = NotificationPreference.for_user(request.user)
     if request.method == "PATCH":
@@ -140,12 +152,19 @@ def preferences(request):
 def _visible_notifications(user):
     """当前用户 90 天内可见的通知查询集(列表与未读数共用同一口径)。
 
-    Args:
+    参数说明:
         user: 当前用户。
 
-    Returns:
+    返回参数:
         已按 ``-created_at, -id`` 排序、并预取触发者资料与照片的查询集
         (预取是为了列表序列化时不产生 N+1)。
+
+    使用示例:
+        ``paginated_response(request, _visible_notifications(request.user), ...)``(见本文件 ``notification_list``)
+
+    备注信息:
+        截断口径是 ``NOTIFICATION_WINDOW_DAYS``(90 天),更早的记录仍留在库里,
+        物理回收交给 ``notifications_prune`` 命令。
     """
     cutoff = timezone.now() - timedelta(days=NOTIFICATION_WINDOW_DAYS)
     return (InAppNotification.objects
@@ -161,15 +180,19 @@ def _visible_notifications(user):
 def notification_list(request):
     """站内通知列表(GET /api/v1/notifications)。
 
-    只返回自己的、90 天内的通知,按时间倒序;默认走复合游标分页
-    (``{count, next_cursor, has_more, results}``),带 ``offset`` 的老客户端
-    仍走 offset 兼容路径。
-
-    Args:
+    参数说明:
         request: DRF 请求对象,提供 ``limit`` / ``before``(或兼容的 ``offset``)。
 
-    Returns:
+    返回参数:
         分页后的通知列表;``results[]`` 每项含触发者摘要与跳转目标。
+
+    使用示例:
+        ``resp = self.client.get("/api/v1/notifications", {"limit": 1})``(见 ``notifications/test_api.py`` 的 ``NotificationListApiTests._get``)
+
+    备注信息:
+        只返回自己的、90 天内的通知,按时间倒序;默认走复合游标分页
+        (``{count, next_cursor, has_more, results}``),带 ``offset`` 的老客户端
+        仍走 offset 兼容路径。限流按用户计数(``NotificationsThrottle``)。
     """
     return paginated_response(
         request, _visible_notifications(request.user),
@@ -184,13 +207,18 @@ def notification_list(request):
 def notification_unread_count(request):
     """未读通知数(GET /api/v1/notifications/unread_count)。
 
-    口径与列表完全一致(自己的、90 天内),供消息页铃铛角标使用。
-
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         ``{"unread": n}``。
+
+    使用示例:
+        ``resp = self.client.get("/api/v1/notifications/unread_count")``(见 ``notifications/test_api.py`` 的 ``NotificationListApiTests.test_unread_count_matches_window_and_flag``)
+
+    备注信息:
+        口径与列表完全一致(自己的、90 天内),供消息页铃铛角标使用;
+        限流额度与列表互不占用(``NotificationsUnreadThrottle`` 独立 scope)。
     """
     unread = _visible_notifications(request.user).filter(is_read=False).count()
     return Response({"unread": unread})
@@ -201,14 +229,18 @@ def notification_unread_count(request):
 def notification_read(request):
     """标记已读(POST /api/v1/notifications/read)。
 
-    两种用法:``{"ids": [...]}`` 只标指定几条,``{"all": true}`` 标全部未读。
-    只影响自己的通知,幂等 204;别人的 id 混进来会被静默过滤。
-
-    Args:
+    参数说明:
         request: DRF 请求对象;body 需带 ``ids`` 或 ``all=true``。
 
-    Returns:
+    返回参数:
         204 空响应。
+
+    使用示例:
+        ``resp = self.client.post("/api/v1/notifications/read", {"all": True}, format="json")``(见 ``notifications/test_api.py`` 的 ``NotificationReadApiTests._read``)
+
+    备注信息:
+        两种用法:``{"ids": [...]}`` 只标指定几条,``{"all": true}`` 标全部未读。
+        只影响自己的通知,幂等 204;别人的 id 混进来会被静默过滤。
     """
     serializer = NotificationReadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)

@@ -37,9 +37,16 @@ RETRY_POLICY = dict(autoretry_for=(Exception,), retry_backoff=True, retry_jitter
 def send_sms_code(phone: str, code: str) -> None:
     """发送验证码短信。
 
-    Args:
+    参数说明:
         phone: 接收手机号。
         code: 验证码明文。
+
+    使用示例:
+        ``send_sms_code.delay(phone, code)``(见 ``accounts/views.py`` 的 ``sms_send``)
+
+    备注信息:
+        后端实现由 ``get_sms_backend()`` 按配置选择;入队失败由调用方 fail-closed
+        (见 ``accounts/views.py`` 的 ``sms_send``)。任务自带指数退避重试(最多 5 次)。
     """
     get_sms_backend().send_code(phone, code)
 
@@ -47,11 +54,18 @@ def send_sms_code(phone: str, code: str) -> None:
 def like_cooldown_key(user_id: int) -> str:
     """「新的喜欢」推送的冷却键。
 
-    Args:
+    参数说明:
         user_id: 接收者账号 id。
 
-    Returns:
+    返回参数:
         Redis 缓存键。
+
+    使用示例:
+        ``cooldown_key = like_cooldown_key(user_id)``(见本文件 ``send_push``)
+
+    备注信息:
+        键内只放账号 id,冷却时长由 ``settings.PUSH_LIKE_COOLDOWN_SECONDS`` 决定;
+        ``push_test`` 命令带 ``--force`` 时按同一个键删掉冷却。
     """
     return f"push:like:{user_id}"
 
@@ -59,14 +73,18 @@ def like_cooldown_key(user_id: int) -> str:
 def message_dedup_key(dedupe_key: str) -> str:
     """新消息推送的幂等键(按消息 id)。
 
-    imserver 侧的重试、Django 侧的重投都可能让同一个事件到两次;
-    同一条消息只该响一次。
-
-    Args:
+    参数说明:
         dedupe_key: 由 imserver 事件带过来的消息标识(``msg_id``)。
 
-    Returns:
+    返回参数:
         Redis 缓存键。
+
+    使用示例:
+        ``key = message_dedup_key(dedupe_key)``(见本文件 ``send_message_push``)
+
+    备注信息:
+        imserver 侧的重试、Django 侧的重投都可能让同一个事件到两次;
+        同一条消息只该响一次,占用时长由 ``settings.PUSH_DEDUP_TTL`` 决定。
     """
     return f"push:msg:{dedupe_key}"
 
@@ -74,13 +92,20 @@ def message_dedup_key(dedupe_key: str) -> str:
 def message_payload(from_nickname: str, preview: str, from_user_id: int) -> dict:
     """构造新消息推送的标题 / 正文 / 附加数据。
 
-    Args:
+    参数说明:
         from_nickname: 发送者昵称(可为空)。
         preview: 消息预览文本(可能是空串,如纯图片消息)。
         from_user_id: 发送者账号 id,用于点击跳转会话。
 
-    Returns:
+    返回参数:
         ``{"title": str, "alert": str, "extras": dict}``。
+
+    使用示例:
+        ``payload = message_payload(from_nickname, preview, from_user_id)``(见本文件 ``send_message_push``)
+
+    备注信息:
+        昵称为空时标题回落为「新消息」,预览为空或全空白时正文回落为固定文案;
+        正文按 ``PREVIEW_MAX`` 截断,``extras.deeplink`` 与 App 的 go_router 路径一致。
     """
     title = from_nickname or "新消息"
     alert = (preview or "").strip()[:PREVIEW_MAX] or "给你发来一条消息"
@@ -99,11 +124,17 @@ def message_payload(from_nickname: str, preview: str, from_user_id: int) -> dict
 def _active_devices(user) -> list[str]:
     """取该用户当前可投递的设备。
 
-    Args:
+    参数说明:
         user: 接收者账号。
 
-    Returns:
-        registration_id 列表;空表示没有设备可推。
+    返回参数:
+        ``registration_id`` 列表;空表示没有设备可推。
+
+    使用示例:
+        ``registration_ids = _active_devices(user)``(见本文件 ``send_push``)
+
+    备注信息:
+        一个账号在库里只留最新一台设备(上报时旧记录被删),所以这里不做去重。
     """
     return list(PushDevice.objects.filter(user=user).values_list("registration_id",
                                                                  flat=True))
@@ -113,15 +144,20 @@ def _active_devices(user) -> list[str]:
 def send_push(user_id: int, kind: str, title: str, alert: str, extras: dict) -> None:
     """按偏好与设备发送一条「喜欢 / 配对 / 系统」推送;任一步不满足都静默返回。
 
-    Args:
+    参数说明:
         user_id: 接收者账号 id。
         kind: 通知类型,``like`` / ``match`` / ``system``。
         title: 通知标题。
         alert: 通知正文。
         extras: 附加数据(含 ``deeplink``)。
 
-    Raises:
-        RuntimeError: 推送通道返回失败,触发 Celery 重试。
+    使用示例:
+        ``send_push.delay(user_id, kind, title, alert, extras)``(见 ``notifications/services.py`` 的 ``enqueue_push``)
+
+    备注信息:
+        逐层短路:通道 ``off`` → 账号不存在 → 偏好关闭 → 没有设备 → ``like`` 冷却期内
+        已推过,任一层不满足即记一条 ``push_skipped_total{reason}`` 后返回。
+        ``RuntimeError``: 推送通道返回失败,触发 Celery 重试(重试前先释放 ``like`` 冷却键)。
     """
     if provider_name() == PROVIDER_OFF:
         metrics.push_skipped(PUSH_SKIP_PROVIDER_OFF)
@@ -162,18 +198,22 @@ def send_message_push(to_user_id: int, from_user_id: int, from_nickname: str,
                       preview: str, dedupe_key: str) -> None:
     """给「离线且收到新消息」的一侧发一条推送。
 
-    触发方是 **imserver**(用户消息落库后、目标不在线时发内部事件过来),
-    所以这里要自己再核一遍权限与偏好 —— 不能相信上游已经过滤干净。
-
-    Args:
+    参数说明:
         to_user_id: 接收者账号 id。
         from_user_id: 发送者账号 id。
         from_nickname: 发送者昵称(用于标题)。
         preview: 消息预览(文本消息给正文,图片/语音给固定文案)。
         dedupe_key: 消息标识(同一消息只推一次)。
 
-    Raises:
-        RuntimeError: 推送通道返回失败,触发 Celery 重试。
+    使用示例:
+        ``send_message_push.delay(to_user_id, from_user_id, from_nickname, preview, dedupe_key)``(见 ``notifications/services.py`` 的 ``enqueue_message_push``)
+
+    备注信息:
+        触发方是 **imserver**(用户消息落库后、目标不在线时发内部事件过来),
+        所以这里要自己再核一遍权限与偏好 —— 不能相信上游已经过滤干净。
+        逐层短路:通道 ``off`` → 账号不存在 → 封禁 → 偏好关闭 → 没有设备 → 该 ``msg_id``
+        已推过,任一层不满足即记一条 ``push_skipped_total{reason}`` 后返回。
+        ``RuntimeError``: 推送通道返回失败,触发 Celery 重试(重试前先释放幂等键)。
     """
     if provider_name() == PROVIDER_OFF:
         metrics.push_skipped(PUSH_SKIP_PROVIDER_OFF)

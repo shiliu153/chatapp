@@ -32,11 +32,17 @@ DATE_FORMAT = "%Y-%m-%d"
 def _show(value) -> str:
     """把缺失值渲染成 ``-``(与命令输出约定一致)。
 
-    Args:
+    参数说明:
         value: 任意指标值,``None`` 表示没采到。
 
-    Returns:
+    返回参数:
         可打印的文本。
+
+    使用示例:
+        ``f" msg={_show(snapshot['messages'])}"``(见本文件 ``_format_line``)
+
+    备注信息:
+        ``None`` 与 ``0`` 必须打印成不同内容:前者是「没采到」,后者是「采到了 0」。
     """
     return "-" if value is None else str(value)
 
@@ -44,12 +50,18 @@ def _show(value) -> str:
 def _format_line(day, snapshot) -> str:
     """拼出一天的单行输出。
 
-    Args:
+    参数说明:
         day: 本地自然日。
-        snapshot: :func:`stats.metrics.build_snapshot` 的返回值。
+        snapshot: ``stats.metrics.build_snapshot`` 的返回值。
 
-    Returns:
+    返回参数:
         形如 ``2026-11-09 dau=12 new=3 done=1 like=40 pass=25 match=8 msg=137 d1=- d7=-``。
+
+    使用示例:
+        ``self.stdout.write(_format_line(day, snapshot))``(见本文件 ``handle``)
+
+    备注信息:
+        字段顺序是命令的输出契约,测试按整行比对(见 ``stats/tests.py`` 的 ``test_dry_run_prints_without_writing``)。
     """
     return (
         f"{day:%Y-%m-%d} dau={_show(snapshot['dau'])} new={snapshot['new_users']}"
@@ -68,8 +80,15 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 解析器。
+
+        使用示例:
+            ``call_command("metrics_daily", "--date", "2026-11-02")``(框架先调本方法注册参数,见 ``stats/tests.py`` 的 ``MetricsDailyCommandTests._run``)
+
+        备注信息:
+            三个参数:``--date``(缺省昨天)、``--backfill``(以 ``--date`` 为终点往前共 N 天)、
+            ``--dry-run``(只打印不写库)。参数解析本身由 Django 负责,本方法只声明。
         """
         parser.add_argument(
             "--date", default=None,
@@ -84,15 +103,20 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """按窗口逐日算快照,再补前后两天的留存。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项(``date`` / ``backfill`` / ``dry_run`` 等)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值;进度与数字全部写进 ``self.stdout``。
 
-        Raises:
-            CommandError: 日期格式非法、``--backfill`` 不为正,或写库失败。
+        使用示例:
+            ``python manage.py metrics_daily --date 2026-11-15``(只算指定那天);
+            ``python manage.py metrics_daily --backfill 30 --dry-run``(回填最近 30 天,先看数字)
+
+        备注信息:
+            日期格式非法、``--backfill`` 不为正、或写库失败时主动抛 ``CommandError``(退出码 1)。
+            ``--dry-run`` 下跳过留存回填(那一步要写库),IM 库读不到只留空消息量并仍然退出 0。
         """
         dry_run = bool(options["dry_run"])
         end_day = self._parse_date(options.get("date"))
@@ -125,14 +149,17 @@ class Command(BaseCommand):
     def _parse_date(self, raw):
         """解析 ``--date``;缺省取「昨天」。
 
-        Args:
+        参数说明:
             raw: 命令行传入的字符串,可能为 ``None``。
 
-        Returns:
+        返回参数:
             本地自然日。
 
-        Raises:
-            CommandError: 格式不是 ``YYYY-MM-DD``。
+        使用示例:
+            ``end_day = self._parse_date(options.get("date"))``(见本文件 ``handle``)
+
+        备注信息:
+            ``raw`` 不是 ``YYYY-MM-DD`` 时抛 ``CommandError``,不让 ``ValueError`` 冒到调用方。
         """
         if not raw:
             return timezone.localdate() - timedelta(days=1)
@@ -144,15 +171,18 @@ class Command(BaseCommand):
     def _window(self, end_day, backfill):
         """算出要处理的日子,按时间升序、含 ``end_day`` 端点。
 
-        Args:
+        参数说明:
             end_day: 窗口终点。
             backfill: ``--backfill`` 的值,``None`` 表示只算终点那一天。
 
-        Returns:
+        返回参数:
             日期列表(升序)。
 
-        Raises:
-            CommandError: ``--backfill`` 不为正数。
+        使用示例:
+            ``window = self._window(end_day, options.get("backfill"))``(见本文件 ``handle``)
+
+        备注信息:
+            ``--backfill`` 不为正数时抛 ``CommandError``;端点含在里面,``--backfill 3`` 是 3 天。
         """
         days = 1 if backfill is None else int(backfill)
         if days <= 0:
@@ -162,11 +192,17 @@ class Command(BaseCommand):
     def _fill_window_retention(self, window):
         """给窗口内每一天补留存(目标日没数据就留空)。
 
-        Args:
+        参数说明:
             window: 日期列表。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._fill_window_retention(window)``(见本文件 ``handle``)
+
+        备注信息:
+            逐日逐字段调 ``stats.metrics.fill_retention``,只 update 已存在的行。
         """
         for day in window:
             for field in RETENTION_FIELDS:
@@ -178,11 +214,17 @@ class Command(BaseCommand):
         缺了这一步,「每天只跑昨天」时昨天的次日留存要等到后天那次运行才会被补上,
         而那次运行的窗口里根本没有昨天。
 
-        Args:
-            end_day: 窗口终点(通常是 --date)。
+        参数说明:
+            end_day: 窗口终点(通常是 ``--date``)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._fill_edge_retention(end_day)``(见本文件 ``handle``)
+
+        备注信息:
+            目标行不存在时 ``fill_retention`` 直接返回 ``False``,这里不再检查。
         """
         fill_retention(end_day - timedelta(days=1), "retention_d1")
         fill_retention(end_day - timedelta(days=7), "retention_d7")
