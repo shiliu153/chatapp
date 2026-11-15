@@ -543,8 +543,8 @@ class CommentCoverageLogicTests(SimpleTestCase):
                              '    """\n')
             self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
 
-    def test_private_function_is_exempt_from_args_section(self):
-        """私有函数允许只写首行,不要求 Args 小节。"""
+    def test_private_function_is_exempt_from_param_section(self):
+        """私有函数允许只写首行,不要求 参数说明 小节。"""
         from config.comment_coverage import find_structure_warnings
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -552,8 +552,8 @@ class CommentCoverageLogicTests(SimpleTestCase):
                              '    """向某人问好。"""\n')
             self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
 
-    def test_test_function_is_exempt_from_args_section(self):
-        """test_* 用例豁免 Args 小节(用例名即文档)。"""
+    def test_test_function_is_exempt_from_param_section(self):
+        """test_* 用例豁免 参数说明 小节(用例名即文档)。"""
         from config.comment_coverage import find_structure_warnings
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -561,8 +561,8 @@ class CommentCoverageLogicTests(SimpleTestCase):
                              '    """验证问候语。"""\n')
             self.assertEqual(find_structure_warnings(root=Path(tmp)), [])
 
-    def test_function_without_params_is_exempt_from_args_section(self):
-        """没有参数的函数不需要 Args 小节。"""
+    def test_function_without_params_is_exempt_from_param_section(self):
+        """没有参数的函数不需要 参数说明 小节。"""
         from config.comment_coverage import find_structure_warnings
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -580,14 +580,28 @@ class CommentCoverageLogicTests(SimpleTestCase):
             problems = find_problems(root=Path(tmp))
         self.assertTrue(any("greet" in p and "参数说明" in p for p in problems))
 
-    def test_legacy_args_section_still_passes_the_default_gate(self):
-        """过渡态:存量按 Google 小节(``Args`` / ``Returns``)写参数的符号也算合规,不逼后人做一次性换算。"""
+    def test_legacy_args_section_fails_the_default_gate(self):
+        """Google 风格的 ``Args:`` 不再算合规:默认路径判红,并点名该函数与五小节口径。"""
         from config.comment_coverage import find_problems
 
         with tempfile.TemporaryDirectory() as tmp:
             self._write(tmp, '"""演示模块。"""\n\n\ndef greet(name):\n'
                              '    """向某人问好。\n\n'
                              "    Args:\n"
+                             "        name: 被问候者的名字。\n"
+                             '    """\n')
+            problems = find_problems(root=Path(tmp))
+        self.assertTrue(any("greet" in p and "Args:" in p for p in problems))
+        self.assertTrue(any("参数说明" in p and "python.md" in p for p in problems))
+
+    def test_param_section_passes_the_default_gate(self):
+        """新口径的通过样本:写了 参数说明 小节的公开函数在默认路径上零缺口。"""
+        from config.comment_coverage import find_problems
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, '"""演示模块。"""\n\n\ndef greet(name):\n'
+                             '    """向某人问好。\n\n'
+                             "    参数说明:\n"
                              "        name: 被问候者的名字。\n"
                              '    """\n')
             self.assertEqual(find_problems(root=Path(tmp)), [])

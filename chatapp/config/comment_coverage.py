@@ -24,6 +24,8 @@ SKIP_DIRS = {"migrations", "__pycache__"}
 DECORATION_RE = re.compile("[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F\u26A0]")
 # 单字口语词仅在其前一字为「踩」时豁免 —— 「踩坑记录:docs/pitfalls/...」是规范模板要求的写法
 CASUAL_RE = re.compile(r"(别用|别在|别把|别出|够用|我们|压根|悄悄|顺手|其实|干脆|偷懒|(?<!踩)坑)")
+# Google 风格的小节标题已不再被接受:命中时报告要指向五小节写法,而不是泛泛说「缺少」
+LEGACY_SECTION_RE = re.compile(r"^\s*(Args|Returns|Raises):\s*$", re.MULTILINE)
 
 # unittest / Django 的测试生命周期钩子:由框架调用,不是对外 API
 LIFECYCLE_NAMES = frozenset({"setUp", "tearDown", "setUpClass", "tearDownClass",
@@ -265,8 +267,9 @@ def find_structure_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -
 
     判定口径见 ``docs/standards/python.md`` §3 与 §7:公开函数只要带参数就必须写
     ``参数说明:`` 小节。这里只判「有没有这个小节」,不判内容质量,因此可以进硬门禁;
-    过渡态下 ``Args:`` 与 ``参数说明:`` 二者其一即算合规(全仓存量换算不在本门禁范围)。
-    结果已并入 ``find_problems`` 的默认路径,本函数保留为只查结构的单独入口。
+    Google 风格的 ``Args:`` / ``Returns:`` / ``Raises:`` 一律**不算合规**,命中时报告
+    里会直接点名该用哪一小节。结果已并入 ``find_problems`` 的默认路径,
+    本函数保留为只查结构的单独入口。
     私有函数、``test_*`` 用例、生命周期钩子、无参函数、``@property`` 与函数内闭包
     不在检查范围内。
 
@@ -305,7 +308,14 @@ def find_structure_warnings(root: Path = BACKEND_ROOT, app: str | None = None) -
             if not params:
                 continue
             doc = ast.get_docstring(node)
-            if doc and "参数说明:" not in doc and "Args:" not in doc:
+            if not doc or "参数说明:" in doc:
+                continue
+            legacy = LEGACY_SECTION_RE.search(doc)
+            if legacy:
+                warnings.append(
+                    f"{rel}:{node.lineno} {node.name} 用了 {legacy.group(1)}: 小节,"
+                    f"请改成五小节的 参数说明(见 docs/standards/python.md §3)")
+            else:
                 warnings.append(f"{rel}:{node.lineno} {node.name} 缺少 参数说明 小节")
     return warnings
 
