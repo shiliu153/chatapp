@@ -95,6 +95,18 @@ Redis `13500`-`13599`。`MYSQL_PORT` / `REDIS_PORT` / `COMPOSE_PROJECT_NAME` 一
 (CI 就是这么注入它自己那套 service 的)。派生规则只写在 `scripts/stacks/env.sh` 一处,
 `scripts/verify.sh backend` 结束时的 `deps down -v` 只拆本项目 —— 这就是两个工单并跑不再互相拆容器的原因。
 
+**母体检出那套常驻栈不是必需项**(2026-11-15 定,原便签「定母体常驻依赖栈去留」):
+worker 在自己工单目录里跑 `verify.sh backend` 时自起自拆,与母体的 `chatapp-ci` 无关
+(2026-11-15 实测:母体的 `chatapp-ci-mysql` / `chatapp-ci-redis` 两个容器都没起,
+而三张工单的 backend 验证全部自给自足跑绿)。所以这两个容器降级为**可选缓存** ——
+起了能省一次 `docker up`,没起也照常派单;守门脚本
+`scripts/superagent-start/ensure-running.sh` 对它们只报 info,不再报 warn
+(此前那句「worker 的验证环境没起」是纯误报)。要手动补缓存(可选):
+
+```bash
+cd <任一检出目录> && bash scripts/verify.sh deps --keep-deps   # 起来后用 --keep-deps 别在收尾时拆掉
+```
+
 ## 3. 前端(cwd = `app/`)
 
 ```bash

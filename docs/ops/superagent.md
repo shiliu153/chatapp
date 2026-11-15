@@ -43,7 +43,7 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
 
 | 组件 | 位置 / 版本 | 说明 |
 |---|---|---|
-| MySQL + Redis | `docker compose -f docker-compose.ci.yml up -d --wait` | MySQL `127.0.0.1:13306`、Redis `127.0.0.1:16379`;端口刻意避开 Windows 本机 3306/6379 |
+| MySQL + Redis | `docker compose -f docker-compose.ci.yml up -d --wait` | 母体检出是 MySQL `127.0.0.1:13306`、Redis `127.0.0.1:16379`(端口刻意避开 Windows 本机 3306/6379);**工单目录不起在母体这套上**,`scripts/verify.sh backend` 会按目录派生自己的栈(见 [dev-commands.md](../standards/dev-commands.md)「并发跑后端验证」) |
 | 后端解释器 | `~/venvs/chatapp`(3.12) | `scripts/verify.sh bootstrap` 建;CI 用 3.11,差异见 §6 |
 | Node | `~/node22`(22.x,与 `web.yml` 一致) | Node 24 会让 web 一条 jsdom 用例失败 |
 | Flutter | `~/flutter`(3.47.2,与 `app.yml` 一致) | **不要**用 `/mnt/d/.../flutter`(Windows SDK) |
@@ -742,14 +742,18 @@ dsh-superagent-github (dsh-superagent/github-watch): pending (waiting for servic
 有进程却抢不到锁说明是真并发,清了会打架。这个判据是安全的:锁的持有者如果活着,
 `pgrep -f 'node /usr/local/bin/dsh'` 一定看得到。
 
-**坑 2:容器 `restart=no`,不会自己回来。**
+**坑 2:容器 `restart=no`,不会自己回来 —— 但它已不再是必需项。**
 
 `chatapp-ci-mysql` / `chatapp-ci-redis` 的 restart 策略是 `no`(实测 2026-11-09),
-WSL 一重启就全部 `Exited (255)`。它们不影响派单,但 worker 接单后跑 `verify.sh` 会全红。
-守门脚本会点名这两个容器并给出恢复命令:
+WSL 一重启就全部 `Exited (255)`。**2026-11-15 起这不再影响派单**:每个工单目录按路径派生
+自己那套依赖栈,`verify.sh backend` 自起自拆(见
+[dev-commands.md](../standards/dev-commands.md)「并发跑后端验证」)。母体这套只剩
+「可选缓存:起了能省一次 `docker up`」的价值,守门脚本对它只报 info
+(`docker:母体依赖栈未起(可选缓存…)`),**不再报 warn** —— 此前那句「worker 的验证环境没起」
+会把「一切正常」读成「环境坏了」。要手动补缓存(可选):
 
 ```bash
-cd <工单目录> && docker compose -f docker-compose.ci.yml up -d --wait
+cd <任一检出目录> && bash scripts/verify.sh deps --keep-deps
 ```
 
 (其余 `dev374-*` / `im-lead` / `chatapp-iso-*` / `imserver-*` 属于别的活儿,不在此列。)
