@@ -10,7 +10,8 @@
       不能删别人的、状态随照片增减在完善/未完善间流转;
     - 资料语音:3 秒 201 + 签名地址、31 秒 400(提示 30 秒)、覆盖上传只剩一条且旧文件已删、
       我的/他人资料都返回 ``voice``、没录过为 ``null``、DELETE 幂等且删文件、
-      配额超限 413+41301 且不落盘、缺 ffmpeg 503+50302、不进「资料完善」判定、限流;
+      配额超限 413+41301 且不落盘、缺 ffmpeg 503+50302、转码槽被占 503+50302+Retry-After、
+      不进「资料完善」判定、限流;
     - 偏好:默认值、更新、区间非法、未满 18 下限、目标性别为空表示不限;
     - admin 审核动作:驳回与通过时的状态重算、记录审核人与时间;
     - 他人资料卡:只返回公开字段、重封禁不可见、轻封禁可见、拉黑双向不可见、404;
@@ -55,7 +56,7 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from accounts import sms_codes
-from config import storage
+from config import storage, transcode_gate
 from discovery.models import Match, Swipe
 from feed.models import Follow, Post, PostComment, PostImage
 from im import tasks as im_tasks
@@ -603,6 +604,23 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
         resp = self.upload()
         self.assertEqual(resp.status_code, 503)
         self.assertEqual(resp.json()["code"], 50302)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_transcode_busy_returns_503_with_retry_after(self, _probe, _transcode, _ffmpeg):
+        """转码槽被占:立刻 503 + ``50302`` + ``Retry-After``,不落盘(M-3)。"""
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        resp = self.upload()
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp.json()["code"], 50302)
+        self.assertEqual(resp.headers["Retry-After"], "5")
+        self.assertEqual(ProfileVoice.objects.count(), 0)
+        self.assertEqual(self.voice_files(), [])
+        # 释放后同一个请求能进:证明上面的 503 是槽造成的,不是别的失败路径。
+        transcode_gate.release()
+        self.assertEqual(self.upload().status_code, 201)
 
     def test_rejects_non_audio(self):
         resp = self.upload(name="a.png", content=b"png", content_type="image/png")

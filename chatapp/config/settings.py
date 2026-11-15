@@ -687,6 +687,15 @@ CHAT_VOICE_RETENTION_DAYS = int(os.getenv("CHAT_VOICE_RETENTION_DAYS", "30"))
 PROFILE_VOICE_MAX_MS = 30000
 PROFILE_VOICE_MAX_BYTES = 5 * 1024 * 1024
 
+# --- 语音转码全局并发闸(第五轮审计 M-3,实现见 config/transcode_gate.py)---
+# 两个入口都在请求线程里同步跑 ffmpeg,生产 2 个 gunicorn worker 两路并发就占满处理能力;
+# 这里用 Redis 单槽把并发压到 1 路,其余请求立刻 503(同一个槽 = 两个入口共享)。
+# 槽 TTL 必须远大于 im/voice.py 的 15 秒子进程上限:它同时是「进程崩溃后的自愈时间」,
+# 配小了正常转码还没结束槽就过期,并发上限等于失效。
+TRANSCODE_GATE_TTL = int(os.getenv("TRANSCODE_GATE_TTL", "60"))
+# 503 响应头 ``Retry-After`` 的秒数(一次转码通常 0.2–0.5 秒,5 秒足够覆盖抖动)。
+TRANSCODE_GATE_RETRY_AFTER = int(os.getenv("TRANSCODE_GATE_RETRY_AFTER", "5"))
+
 # --- 存储配额与磁盘告警(M7)---
 # 单账号媒体总量上限(资料图 + 广场图 + 聊天图 + 聊天语音 + 资料语音)。按审计估算,
 # 聊天图 30 次/小时 × 5MB 单日可达 3.6GB,200MB 把单个小号的天花板压住;

@@ -1019,7 +1019,8 @@ export interface paths {
          *
          *     返回参数:
          *         201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
-         *         400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
+         *         400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)或转码槽被占用
+         *         (同为 ``50302``,响应头带 ``Retry-After``)。
          *
          *     使用示例:
          *         ``self.client.post(self.url, {"file": SimpleUploadedFile("a.m4a", content, content_type="audio/mp4"), "duration_ms": duration_ms}, format="multipart")``
@@ -1029,6 +1030,9 @@ export interface paths {
          *         配额检查在落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
          *         缺 ffmpeg/ffprobe 时按 ``voice.VoiceUnavailable`` 回 503,不静默降级;
          *         时长与格式不合法按 ``voice.VoiceError`` 回 400。
+         *         转码前先抢 ``config.transcode_gate`` 的全局槽(与资料语音共用一个槽):抢不到立即
+         *         503 + ``Retry-After``,不排队 —— 生产只有 2 个 worker,同步转码两路就会把登录与
+         *         健康检查一起拖住(第五轮审计 M-3)。槽在 ``with`` 退出时释放,异常路径同样释放。
          */
         post: operations["im_voices_create"];
         delete?: never;
@@ -2185,6 +2189,7 @@ export interface paths {
          *     返回参数:
          *         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
          *         DELETE 幂等 204(没有语音时也返回 204)。
+         *         POST 在服务器缺 ffmpeg 或转码槽被占用时回 503 + ``50302``,后者带 ``Retry-After``。
          *
          *     使用示例:
          *         ``self.client.post("/api/v1/users/me/voice", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``VoiceTests.upload``)
@@ -2195,6 +2200,9 @@ export interface paths {
          *         否则超限时会留下没有数据库行的孤儿文件。
          *         缺文件、超过 5MB 或格式不在白名单抛 ``serializers.ValidationError``(400);
          *         配额已满抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
+         *         转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到立即
+         *         503 + ``Retry-After``,不排队 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
+         *         占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。
          */
         post: operations["users_me_voice_create"];
         /**
@@ -2206,6 +2214,7 @@ export interface paths {
          *     返回参数:
          *         POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
          *         DELETE 幂等 204(没有语音时也返回 204)。
+         *         POST 在服务器缺 ffmpeg 或转码槽被占用时回 503 + ``50302``,后者带 ``Retry-After``。
          *
          *     使用示例:
          *         ``self.client.post("/api/v1/users/me/voice", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``VoiceTests.upload``)
@@ -2216,6 +2225,9 @@ export interface paths {
          *         否则超限时会留下没有数据库行的孤儿文件。
          *         缺文件、超过 5MB 或格式不在白名单抛 ``serializers.ValidationError``(400);
          *         配额已满抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
+         *         转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到立即
+         *         503 + ``Retry-After``,不排队 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
+         *         占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。
          */
         delete: operations["users_me_voice_destroy"];
         options?: never;

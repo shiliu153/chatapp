@@ -925,8 +925,10 @@ HttpApi::response_type HttpApi::route(const http::request<http::string_body>& re
     if (keyword.empty() || keyword.size() > 150) {
       return error_response(req, http::status::unprocessable_entity, 42201, "关键词长度不合法");
     }
+    // 默认 20 不变(客户端 App/Web 都按 20 请求),但**上限从 50 收到 20**(M-2):
+    // 搜索是前导通配全表扫描,单次返回越少、单次成本越低;客户端本来也用不到更大的页。
     const int limit =
-        static_cast<int>(std::clamp<uint64_t>(query_uint(target, "limit", 20), 1, 50));
+        static_cast<int>(std::clamp<uint64_t>(query_uint(target, "limit", 20), 1, 20));
     const uint64_t before_id = query_uint(target, "before_id", 0);
     // 多取一条判断 has_more,不靠 rows.size()==limit 猜。
     auto rows = messages_.search(*uid, keyword, before_id, limit + 1);

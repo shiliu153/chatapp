@@ -180,8 +180,11 @@ class HttpApi {
   RedisClient& redis_;
   /// 离线新消息推送(C-1):/internal/send 这条路径也要推(im_send、Django 通知都走它)。
   PushNotifier& push_;
-  // 搜索:每账号 60 次/分钟、burst 20。
-  RateTable search_table_{1.0, 20.0};
+  // 搜索:每账号 10 次/分钟、burst 5(第五轮审计 M-2,2026-11-16 收紧;原 60 次/分钟、burst 20)。
+  // 比历史/会话列表更紧的理由:搜索走 `LIKE '%关键词%'` 前导通配,而 `im_message.body`
+  // 没有索引(本单不加 schema),每次都要扫「我参与的全部会话的全部文本消息」,
+  // 成本与历史消息总量成正比、与关键词无关 —— 只能靠压低调用频率来控总量。
+  RateTable search_table_{10.0 / 60.0, 5.0};
   // 普通读接口(会话列表 / 历史消息):每账号 120 次/分钟、burst 40。
   // 之前这两个接口完全没有按账号限流,单账号即可持续打库(M-2)。
   RateTable read_table_{2.0, 40.0};
