@@ -46,6 +46,12 @@
 - **原因**:WSL 的 `/mnt/*` 是 9p 挂载,读 `node_modules`(几万个小文件)与 Flutter 缓存的延迟比 Linux 原生文件系统高一个数量级,worker 启动阶段就超时。
 - **处置**:在 **Linux 文件系统上的克隆 / worktree** 里跑(工单 worktree 本来就在 `/root` 下)。`scripts/verify.sh web|app` 已内置 `assert_linux_fs()`:命中 `/mnt/*` 立即拒绝并给出提示,免得你等二十分钟才发现是环境。
 
+### 5. umask 077 的检出让挂载进容器的文件变 0600(MySQL 起不来)
+
+- **现象**:`scripts/verify.sh backend` 在起依赖那一步就挂:MySQL 容器退出码 1,容器日志里是 `/docker-entrypoint-initdb.d/10-grant-test-db.sql: Permission denied`;若只看到后续报错,则表现为成批用例 `pymysql … 1044 / 1053`(授权脚本压根没跑,`test` 库与授权都没建),看着像后端代码坏了。实测**偶发**(2026-11-14,只在 worker 的 worktree 上出现过)。
+- **原因**:worker 的 worktree 以 `umask 077` 创建,仓库里记作 100644 的 `chatapp/db_setup_ci.sql` 在 worktree 里落成 **0600**;`docker-compose.ci.yml` 把它以 `:ro` 挂到 `/docker-entrypoint-initdb.d/`,容器内的非 root 用户读不到 → 初始化直接失败。git 只记录 100644 / 100755 两种模式,所以这是**工作区模式**问题,`git status` 看不出来。
+- **处置**:`scripts/stacks/mount-perms.sh` 在起容器前把清单里的文件补回 0644(`scripts/stacks/deps.sh` 的 `up` 分支调用,`chmod` 不产生仓库变更)。**新增任何被 compose 以 `:ro` 挂进容器、且容器内以非 root 用户读取的仓库文件时,把它登记到该文件的 `MOUNT_READ_FILES` 显式列表**(刻意不用 glob:免得将来无意中改掉别的文件的模式);`scripts/test_verify.sh` 里有一条自测钉住「0600 → 0644 生效、清单外文件不动、清单条目在仓库里存在」。
+
 ## 前端(Flutter widget 测试)
 
 - 脚手架:`test/support/harness.dart::pumpApp`(真实 provider + 假网络 + 假 IM,可传 `imClient:` 自定义);假网络按 `"METHOD path"` 铺响应,没铺的路由返回 404 提示你。
