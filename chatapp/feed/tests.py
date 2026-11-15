@@ -63,8 +63,18 @@ class FeedApiMixin:
     def login(self, user):
         """给测试客户端装上指定用户的令牌。
 
-        Args:
+        参数说明:
             user: 目标用户。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.login(self.me)``(见 ``feed/tests.py`` 的 ``FeedFlowTests.setUp``)
+
+        备注信息:
+            一次调用覆盖测试客户端的 ``Authorization`` 头,对之后的所有请求生效;
+            令牌由 ``RefreshToken.for_user`` 现签,单个用例内不会过期。
         """
         self.client.credentials(
             HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
@@ -80,11 +90,19 @@ class FeedApiMixin:
     def image(self, name="a.png"):
         """造一个 1x1 的 PNG 上传对象。
 
-        Args:
+        参数说明:
             name: 文件名。
 
-        Returns:
+        返回参数:
             可直接塞进 multipart 的上传文件。
+
+        使用示例:
+            ``self.image("a.png")``(见 ``feed/tests.py`` 的
+            ``PostCreateTests.test_create_with_images_keeps_order``)
+
+        备注信息:
+            内容取自模块级常量 ``PNG_1PX``,``content_type`` 固定 ``image/png``;
+            需要真实落盘时先调 ``use_temp_media`` 把 ``MEDIA_ROOT`` 指到临时目录。
         """
         return SimpleUploadedFile(name, PNG_1PX, content_type="image/png")
 
@@ -288,12 +306,20 @@ class FeedFlowTests(FeedApiMixin, APITestCase):
     def _make_user(self, phone, nickname):
         """造一个资料完善的用户。
 
-        Args:
+        参数说明:
             phone: 手机号。
             nickname: 昵称。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self._make_user("13800138000", "我")``(见 ``feed/tests.py`` 的
+            ``FeedFlowTests.setUp``)
+
+        备注信息:
+            同时落一条 ``Profile`` 行并置为 ``ProfileStatus.COMPLETE``;
+            手机号在库内唯一,同一用例内不能重复使用同一个号码。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=nickname, status=ProfileStatus.COMPLETE)
@@ -575,13 +601,21 @@ class PostCommentThreadTests(FeedApiMixin, APITestCase):
     def _comment(self, text, author=None, parent=None):
         """直接落一条评论/回复,跳过接口(构造场景用)。
 
-        Args:
+        参数说明:
             text: 正文。
             author: 作者,默认 ``self.me``。
             parent: 父评论,``None`` 表示顶级评论。
 
-        Returns:
+        返回参数:
             新建的评论实例。
+
+        使用示例:
+            ``self._comment("一楼", author=self.author)``(见 ``feed/tests.py`` 的
+            ``PostCommentThreadTests.test_reply_to_top_level_sets_parent_and_reply_to``)
+
+        备注信息:
+            带 ``parent`` 时把 ``reply_to`` 一并置成父评论的作者,复刻接口对回复的归一化结果;
+            挂在 ``setUp`` 里那条动态上,不经过限流与违禁词校验。
         """
         return PostComment.objects.create(
             post=self.post, author=author or self.me, text=text, parent=parent,
@@ -790,11 +824,18 @@ class FollowApiTests(FeedApiMixin, APITestCase):
     def follow_url(self, user_id=None):
         """关注接口的完整路径。
 
-        Args:
+        参数说明:
             user_id: 目标账号 id;``None`` 表示 ``self.other``。
 
-        Returns:
+        返回参数:
             ``/api/v1/users/{id}/follow``。
+
+        使用示例:
+            ``self.client.post(self.follow_url())``(见 ``feed/tests.py`` 的
+            ``FollowApiTests.test_follow_creates_relation``)
+
+        备注信息:
+            只拼路径,不发起请求;关注与取消关注共用同一个路径,靠 HTTP 方法区分。
         """
         return f"/api/v1/users/{user_id or self.other.id}/follow"
 
@@ -935,24 +976,39 @@ class PostLikesListTests(FeedApiMixin, APITestCase):
     def url(self, post_id=None):
         """点赞列表的路径(默认指向 ``setUp`` 里那条动态)。
 
-        Args:
+        参数说明:
             post_id: 目标动态主键;``None`` 表示 ``setUp`` 里的动态。
 
-        Returns:
+        返回参数:
             接口路径。
+
+        使用示例:
+            ``self.client.get(self.url())``(见 ``feed/tests.py`` 的
+            ``PostLikesListTests.test_three_likers_newest_first``)
+
+        备注信息:
+            只拼路径,不发起请求;指向不存在的动态时由接口返回 404。
         """
         return f"/api/v1/posts/{post_id or self.post.id}/likes"
 
     def _liker(self, phone, nickname, at):
         """造一个点赞者,并把点赞时间钉死(避免同一微秒造成顺序不稳定)。
 
-        Args:
+        参数说明:
             phone: 手机号(唯一)。
             nickname: 昵称。
             at: 点赞时间。
 
-        Returns:
+        返回参数:
             新建的点赞者用户。
+
+        使用示例:
+            ``self._liker("13700137000", "最早", now - timedelta(minutes=3))``(见
+            ``feed/tests.py`` 的 ``PostLikesListTests.test_three_likers_newest_first``)
+
+        备注信息:
+            先建账号与资料再落点赞行,最后直接 ``update`` 把 ``created_at`` 改成 ``at``
+            (``auto_now_add`` 不接受显式赋值)。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=nickname)
@@ -1078,11 +1134,18 @@ class PostFavoriteApiTests(FeedApiMixin, APITestCase):
     def url(self, post_id=None):
         """收藏接口的路径(默认指向 ``setUp`` 里那条动态)。
 
-        Args:
+        参数说明:
             post_id: 目标动态主键;``None`` 表示 ``setUp`` 里的动态。
 
-        Returns:
+        返回参数:
             接口路径。
+
+        使用示例:
+            ``self.client.post(self.url())``(见 ``feed/tests.py`` 的
+            ``PostFavoriteApiTests.test_favorite_is_idempotent``)
+
+        备注信息:
+            只拼路径,不发起请求;收藏与取消收藏共用同一个路径,靠 HTTP 方法区分。
         """
         return f"/api/v1/posts/{post_id or self.post.id}/favorite"
 
@@ -1152,12 +1215,20 @@ class FavoritesFeedTests(FeedApiMixin, APITestCase):
     def _favorite(self, post, at):
         """收藏一条动态并把收藏时间钉死。
 
-        Args:
+        参数说明:
             post: 目标动态。
             at: 收藏时间。
 
-        Returns:
+        返回参数:
             新建的收藏行。
+
+        使用示例:
+            ``self._favorite(new_post, now - timedelta(minutes=2))``(见 ``feed/tests.py`` 的
+            ``FavoritesFeedTests.test_ordered_by_favorite_time_not_post_time``)
+
+        备注信息:
+            收藏人固定为 ``self.me``;落库后直接 ``update`` 改写 ``created_at``,
+            用于把「按收藏时间倒序」与「按发帖时间倒序」区分开。
         """
         favorite = PostFavorite.objects.create(post=post, user=self.me)
         PostFavorite.objects.filter(pk=favorite.pk).update(created_at=at)

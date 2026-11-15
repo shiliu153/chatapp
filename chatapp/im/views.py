@@ -67,12 +67,20 @@ def user_sig(request):
     端类型取请求头 ``X-Client``(缺省 ``app``):只踢**本端**旧会话、按**本端**版本
     签发 token(``sv`` 是该端版本,``ct`` 是端类型),另一端的在线会话不受影响。
 
-    Args:
+    参数说明:
         request: DRF 请求对象。
 
-    Returns:
+    返回参数:
         ``{backend, token, im_user_id, ws_url, http_url, expire}``;
         ``backend`` 恒为 ``self``(腾讯分支已于 2026-11-08 删除)。
+
+    使用示例:
+        ``resp = self.client.post("/api/v1/im/user_sig")``(见 ``im/tests.py`` 的 ``UserSigApiTests``)
+
+    备注信息:
+        首次调用同步建号并在缓存置 30 天标记,建号失败不置标记,下次调用自动重试。
+        踢旧会话必须发生在签发新凭证之前,顺序反了会把本机刚建立的会话一起踢掉。
+        会话版本同步失败时不签发 token,直接返回 503。
     """
     # 重封禁由全局权限类 IsNotHeavyBanned 拦下,这里不再重复检查
     user = request.user
@@ -127,15 +135,21 @@ def upload_image(request):
     同步落盘 + 生成缩略图,不进 Celery:这条路径没有第三方调用,
     符合「响应路径禁止外部调用」纪律。文件名带随机 uuid,不可枚举。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,multipart 字段为 ``file``。
 
-    Returns:
+    返回参数:
         201 + ``{id, url, thumb_url, width, height, size}``;URL 用
         ``settings.MEDIA_BASE_URL`` 拼绝对地址(与 IM 头像同步同一套)。
 
-    Raises:
-        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+    使用示例:
+        ``self.client.post(self.url, {"file": SimpleUploadedFile("a.png", PNG_1PX, content_type="image/png")}, format="multipart")``
+        (见 ``im/tests.py`` 的 ``ChatImageUploadTests.upload``,其中 ``self.url = "/api/v1/im/images"``)
+
+    备注信息:
+        配额检查在任何一次落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``
+        (413/``41301``),库内与磁盘上都不留痕迹。
+        非图片、尺寸超限返回 400;格式与大小的校验在 ``ChatImageUploadSerializer`` 里。
     """
     serializer = ChatImageUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -198,15 +212,21 @@ def upload_voice(request):
     同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
     没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
 
-    Returns:
+    返回参数:
         201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
         400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
 
-    Raises:
-        config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+    使用示例:
+        ``self.client.post(self.url, {"file": SimpleUploadedFile("a.m4a", content, content_type="audio/mp4"), "duration_ms": duration_ms}, format="multipart")``
+        (见 ``im/tests.py`` 的 ``ChatVoiceUploadTests.upload``,其中 ``self.url = "/api/v1/im/voices"``)
+
+    备注信息:
+        配额检查在落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
+        缺 ffmpeg/ffprobe 时按 ``voice.VoiceUnavailable`` 回 503,不静默降级;
+        时长与格式不合法按 ``voice.VoiceError`` 回 400。
     """
     serializer = ChatVoiceUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -249,12 +269,20 @@ def image_auth(request):
     这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而图片本身
     已经是「谁拿到链接谁能看」的语义,靠签名与有效期兜底。
 
-    Args:
+    参数说明:
         request: DRF 请求对象,nginx 通过 ``X-Original-URI`` 传入原始 URI
             (含 ``?e=&s=``)。
 
-    Returns:
+    返回参数:
         通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403。
+
+    使用示例:
+        ``self.client.get(self.url, HTTP_X_ORIGINAL_URI=original)``(见 ``im/tests.py`` 的 ``ChatImageAuthTests.auth``)
+
+    备注信息:
+        不校验登录态:nginx 的内部子请求不带 Authorization,靠签名与有效期兜底。
+        路径前缀在这里显式校验一次,``media_sign.verify`` 内部还会再查,
+        因此以后改签名逻辑也不会把资料图、广场图放进来。
     """
     original = request.headers.get("X-Original-URI", "")
     parts = urlsplit(original)

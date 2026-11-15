@@ -50,15 +50,21 @@ class FeedPage(NamedTuple):
 def visible_base(viewer):
     """广场可见性的基础查询集(不注解、不预取),用于取当页 id 与总数。
 
-    重封禁作者用**子查询**而不是 ``author__profile__status`` 关联过滤:后者会生成
-    LEFT JOIN,MySQL 优化器因此放弃 ``created_at`` 索引、改成全表扫 + filesort
-    (2026-11-03 实测 10 万条动态 214ms;改 NOT IN 子查询后走索引,同数据量 ~1ms)。
-
-    Args:
+    参数说明:
         viewer: 当前浏览者。
 
-    Returns:
+    返回参数:
         只带可见性过滤的 ``Post`` 查询集。
+
+    使用示例:
+        ``post = get_object_or_404(visible_base(request.user), pk=post_id)``(见 ``feed/views.py`` 的 ``post_likes``)
+
+    备注信息:
+        重封禁作者用**子查询**而不是 ``author__profile__status`` 关联过滤:后者会生成
+        LEFT JOIN,MySQL 优化器因此放弃 ``created_at`` 索引、改成全表扫 + filesort
+        (2026-11-03 实测 10 万条动态 214ms;改 NOT IN 子查询后走索引,同数据量 ~1ms)。
+        拉黑名单每次调用都现查一次库(``moderation.services.blocked_user_ids``),
+        分页场景由调用方复用同一个 base,不要在多处重复调用本函数。
     """
     blocked = blocked_user_ids(viewer)
     banned_author_ids = Profile.objects.filter(
@@ -71,14 +77,23 @@ def visible_base(viewer):
 def visible_posts(viewer, base=None):
     """广场可见动态:排除双向拉黑与重封禁作者;注解赞/评数与「我是否已赞/已收藏」。
 
-    Args:
+    参数说明:
         viewer: 当前浏览者。
         base: 已构建的可见性查询集(可选)。分页场景下复用同一个 base,
             避免 ``blocked_user_ids`` 被重复执行两次。
 
-    Returns:
-        已注解 ``like_count`` / ``comment_count`` / ``liked_by_me`` /
-        ``is_favorited`` 的查询集。
+    返回参数:
+        已注解 ``like_count`` / ``comment_count`` / ``liked_by_me`` / ``is_favorited``
+        的查询集,按 ``created_at`` 与 ``id`` 倒序。
+
+    使用示例:
+        ``post = visible_posts(request.user).get(pk=post.pk)``(见 ``feed/views.py`` 的 ``_create_post``)
+
+    备注信息:
+        ``liked_by_me`` 与 ``is_favorited`` 都是嵌进同一条 SQL 的 ``Exists`` 子查询,
+        往返次数与页大小无关;不要改成在序列化器里逐条 ``.exists()``,广场一页 20 条
+        会变成 20 次往返(``config/test_query_budget.py`` 会红)。
+        ``annotate`` 触发 GROUP BY 时 ``Meta.ordering`` 会被丢弃,因此这里显式 ``order_by``。
     """
     return ((base if base is not None else visible_base(viewer))
             .select_related("author__profile")
@@ -98,15 +113,19 @@ def visible_posts(viewer, base=None):
 def following_base(viewer):
     """关注流的可见性基础查询集:只含**我关注的人**,不含自己。
 
-    可见性复用 :func:`visible_base`(排除双向拉黑与重封禁作者),只是把作者范围
-    收窄到我的关注列表 —— 与广场主流程同一套规则,不另立口径。关注流**不含自己**
-    的动态:自己的动态在 ``/posts/mine``,混进来会让「关注」tab 变成第二个「我的」。
-
-    Args:
+    参数说明:
         viewer: 当前浏览者。
 
-    Returns:
+    返回参数:
         只含关注者动态的基础查询集(未注解、未预取)。
+
+    使用示例:
+        ``page_visible_posts(request.user, limit, before=read_before(request), base=following_base(request.user))``(见 ``feed/views.py`` 的 ``following_posts``)
+
+    备注信息:
+        可见性复用 :func:`visible_base`(排除双向拉黑与重封禁作者),只是把作者范围
+        收窄到我的关注列表 —— 与广场主流程同一套规则,不另立口径。关注流**不含自己**
+        的动态:自己的动态在 ``/posts/mine``,混进来会让「关注」tab 变成第二个「我的」。
     """
     followee_ids = Follow.objects.filter(follower=viewer).values("followee_id")
     return (visible_base(viewer)
@@ -118,16 +137,7 @@ def page_visible_posts(viewer, limit: int, before: tuple | None = None,
                        offset: int | None = None, base=None) -> "FeedPage":
     """两段式取一页动态:先按索引取当页 id,再只对这几条做聚合。
 
-    为什么不能直接 ``visible_posts(viewer)[offset:offset+limit]``:注解里有
-    ``COUNT(DISTINCT)``,MySQL 必须先把**全表**分组完才能 LIMIT;10 万条动态时
-    单次请求实测 3.3 秒。拆成「取 id(走 created_at 索引) + 对 10 条聚合」后,
-    成本与数据量脱钩。
-
-    翻页用**复合游标**而不是 offset(审查 N-5):动态流是头部持续插入的列表,
-    offset 在「读完第 1 页、又有人发了新动态」时必然重复一条并漏掉一条。
-    ``offset`` 参数只为还在用老版本客户端的设备保留。
-
-    Args:
+    参数说明:
         viewer: 当前浏览者。
         limit: 每页条数。
         before: 游标 ``(created_at, id)``;``None`` 表示第一页。
@@ -135,8 +145,21 @@ def page_visible_posts(viewer, limit: int, before: tuple | None = None,
         base: 已构建的可见性查询集(可选)。关注流传 :func:`following_base`,
             广场主流程不传(等价于 ``visible_base(viewer)``)。
 
-    Returns:
+    返回参数:
         当页的 ``FeedPage``(行、可见总数、是否还有下一页、下一页游标)。
+
+    使用示例:
+        ``page = page_visible_posts(request.user, limit, before=read_before(request))``(见 ``feed/views.py`` 的 ``_page_visible_posts``)
+
+    备注信息:
+        为什么不能直接 ``visible_posts(viewer)[offset:offset+limit]``:注解里有
+        ``COUNT(DISTINCT)``,MySQL 必须先把**全表**分组完才能 LIMIT;10 万条动态时
+        单次请求实测 3.3 秒。拆成「取 id(走 created_at 索引) + 对 10 条聚合」后,
+        成本与数据量脱钩。
+        翻页用**复合游标**而不是 offset(审查 N-5):动态流是头部持续插入的列表,offset 在
+        「读完第 1 页、又有人发了新动态」时必然重复一条并漏掉一条;``offset`` 参数
+        只为还在用老版本客户端的设备保留。
+        当页没有任何可见动态时返回 ``rows`` 为空、``next_cursor`` 为 ``None`` 的 ``FeedPage``。
     """
     base = base if base is not None else visible_base(viewer)
     total = base.count()
@@ -163,19 +186,23 @@ def page_visible_posts(viewer, limit: int, before: tuple | None = None,
 def visible_likers(post, viewer):
     """某条动态下对 ``viewer`` 可见的点赞者,按点赞时间倒序。
 
-    可见性沿用评论那套「双向拉黑 + 重封禁作者」口径(不另立一份):
-    我拉黑的 / 拉黑我的人、以及被重封禁的账号,不出现点赞列表里,
-    因此接口回执的 ``count`` 是**过滤后**的人数,而不是原始点赞行数。
-
-    ``select_related("user__profile")`` + ``prefetch_related("user__photos")`` 是
-    ``author_brief`` 的取数前提:两条 SQL 固定,与页大小无关(禁止循环里查库)。
-
-    Args:
+    参数说明:
         post: 目标动态(调用方已确认它对 ``viewer`` 可见)。
         viewer: 当前浏览者。
 
-    Returns:
+    返回参数:
         已按 ``-created_at, -id`` 排序、带作者信息预取的 ``PostLike`` 查询集。
+
+    使用示例:
+        ``likers = visible_likers(post, request.user)``(见 ``feed/views.py`` 的 ``post_likes``)
+
+    备注信息:
+        可见性沿用评论那套「双向拉黑 + 重封禁作者」口径(不另立一份):我拉黑的 /
+        拉黑我的人、以及被重封禁的账号,不出现点赞列表里,因此接口回执的 ``count``
+        是**过滤后**的人数,而不是原始点赞行数。
+        ``select_related("user__profile")`` + ``prefetch_related("user__photos")`` 是
+        ``author_brief`` 的取数前提:两条 SQL 固定,与页大小无关(禁止循环里查库)。
+        返回的是查询集,``count()`` 与分页由调用方执行。
     """
     banned_user_ids = Profile.objects.filter(
         status=ProfileStatus.BANNED_HEAVY).values("user_id")
@@ -190,25 +217,28 @@ def visible_likers(post, viewer):
 def page_favorite_posts(viewer, limit: int, before: tuple | None = None) -> "FeedPage":
     """「我的收藏」一页:排序与游标都建在**收藏行**上,不是发帖时间。
 
-    实现是两段式(与 :func:`page_visible_posts` 同构,但游标换了一行):
-        1. 先算可见帖子集 ``base``,只在其中取我的收藏行(收藏了但已被拉黑/封禁的
-           动态连 ``count`` 都不算);
-        2. 按 ``PostFavorite.created_at`` 倒序取 ``limit + 1`` 个 ``(post_id,
-           created_at, id)`` 判断 ``has_more`` 并记录游标 —— 游标指向收藏行,
-           所以「先收藏新帖、后收藏老帖」时顺序按收藏时间走,不会退化成发帖时间;
-        3. 再用 :func:`visible_posts` 取当页带注解的对象,并按第 2 步的顺序还原
-           (``pk__in`` 不保序,Django 不会替我们排)。
-
-    动态被删时 ``PostFavorite`` 随 ``CASCADE`` 一起消失,列表自动少一条,
-    不需要额外的清理逻辑。
-
-    Args:
+    参数说明:
         viewer: 当前浏览者(收藏的归属人)。
         limit: 每页条数。
         before: 游标 ``(收藏行 created_at, 收藏行 id)``;``None`` 表示第一页。
 
-    Returns:
+    返回参数:
         当页的 :class:`FeedPage`(``rows`` 为 ``Post``,``total`` 为可见收藏总数)。
+
+    使用示例:
+        ``page = page_favorite_posts(request.user, limit, before=read_before(request))``(见 ``feed/views.py`` 的 ``favorite_posts``)
+
+    备注信息:
+        实现是两段式(与 :func:`page_visible_posts` 同构,但游标换了一行):
+            1. 先算可见帖子集 ``base``,只在其中取我的收藏行(收藏了但已被拉黑/封禁的
+               动态连 ``count`` 都不算);
+            2. 按 ``PostFavorite.created_at`` 倒序取 ``limit + 1`` 个 ``(post_id,
+               created_at, id)`` 判断 ``has_more`` 并记录游标 —— 游标指向收藏行,
+               所以「先收藏新帖、后收藏老帖」时顺序按收藏时间走,不会退化成发帖时间;
+            3. 再用 :func:`visible_posts` 取当页带注解的对象,并按第 2 步的顺序还原
+               (``pk__in`` 不保序,Django 不会替调用方排序)。
+        动态被删时 ``PostFavorite`` 随 ``CASCADE`` 一起消失,列表自动少一条,
+        不需要额外的清理逻辑。
     """
     base = visible_base(viewer)
     favorites = PostFavorite.objects.filter(user=viewer,
@@ -236,10 +266,19 @@ def page_favorite_posts(viewer, limit: int, before: tuple | None = None) -> "Fee
 def delete_post(post) -> None:
     """删除动态:先关闭该动态全部待处理举报(标记 + 通知),再删图片文件与行。
 
-    作者自删与运营删除共用:否则作者自删后举报会在 ops 队列里悬空。
-
-    Args:
+    参数说明:
         post: 待删除的动态。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``delete_post(post)``(见 ``feed/views.py`` 的 ``post_detail`` 与 ``ops/views.py`` 的 ``post_report_delete_post``)
+
+    备注信息:
+        作者自删与运营删除共用:否则作者自删后举报会在 ops 队列里悬空。
+        举报行逐条落库,举报者通知经 ``notify_report_handled`` 内部的 ``on_commit`` 入队;
+        图片文件先于动态行删除,不留孤儿文件。本函数自身不开事务。
     """
     pending = list(PostReport.objects.filter(post=post, status=ReportStatus.PENDING))
     for report in pending:
@@ -256,13 +295,22 @@ def delete_post(post) -> None:
 def notify_comment_created(comment) -> None:
     """评论创建后调用:顶级评论通知动态作者,回复通知被回复者。
 
-    自己评论自己的动态、自己回复自己都不入队(不打扰)。
-
-    站内通知(批次 H)与 IM 灰条**并存**:灰条是聊天记录里的事实,通知是聚合索引;
-    这里只追加通知调用,不改灰条的入队条件与次数。
-
-    Args:
+    参数说明:
         comment: 刚创建的评论或回复。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``notify_comment_created(comment)``(见 ``feed/views.py`` 的 ``post_comments``)
+
+    备注信息:
+        自己评论自己的动态、自己回复自己都不入队(不打扰)。
+        站内通知(批次 H)与 IM 灰条**并存**:灰条是聊天记录里的事实,通知是聚合索引;这里只追加
+        通知调用,不改灰条的入队条件与次数 —— 灰条分别走 ``im/tasks.py`` 的
+        ``post_commented`` 与 ``post_replied``,任务参数是评论主键。
+        两种副作用都挂在 ``transaction.on_commit`` 上,DB 提交后才入队;通知带
+        ``dedupe_key``,同一条评论不会写出第二条同类型通知。
     """
     if comment.parent_id is None:
         if comment.post.author_id == comment.author_id:
@@ -289,12 +337,22 @@ def notify_comment_created(comment) -> None:
 def visible_comments(post, viewer):
     """某条动态下对 ``viewer`` 可见的评论与回复,按时间正序。
 
-    Args:
+    参数说明:
         post: 目标动态。
         viewer: 当前浏览者。
 
-    Returns:
-        排除双向拉黑与重封禁作者后的评论查询集;作者与被回复者已预取。
+    返回参数:
+        排除双向拉黑与重封禁作者后的评论查询集;作者与被回复者已预取,按时间正序。
+
+    使用示例:
+        ``top = visible_comments(post, request.user).filter(parent__isnull=True)``(见 ``feed/views.py`` 的 ``post_comments``)
+
+    备注信息:
+        正序来自 ``PostComment.Meta.ordering``(``created_at``、``id``),本函数不再追
+        ``order_by``,调用方另排会覆盖该顺序。
+        列表接口用 ``Prefetch(..., to_attr="visible_replies")`` 一次取回当页评论的
+        可见回复,序列化时只取前两条(见 ``feed/serializers.py`` 的 ``get_replies``),
+        避免逐条查库;返回的是查询集,分页由调用方执行。
     """
     blocked = blocked_user_ids(viewer)
     return (post.comments
@@ -307,15 +365,23 @@ def visible_comments(post, viewer):
 def create_comment(post, author, text, parent=None):
     """创建评论或回复,并把层级归一到两级。
 
-    Args:
+    参数说明:
         post: 被评论的动态。
         author: 评论者。
         text: 已通过校验的正文。
         parent: 被回复的评论(调用方已确认它属于 ``post``);``None`` 表示顶级评论。
 
-    Returns:
+    返回参数:
         新建的 ``PostComment``;回复的 ``parent`` 一定是顶级评论,
         ``reply_to`` 是真正被回复的那个人。
+
+    使用示例:
+        ``comment = create_comment(post, request.user, serializer.validated_data["text"], parent)``(见 ``feed/views.py`` 的 ``post_comments``)
+
+    备注信息:
+        被回复的本身是回复时,``parent`` 归一到它所属的顶级评论,``reply_to`` 记被回复
+        的那个人,层级因此恒为两级。本函数只写库:通知与 IM 灰条由调用方另调
+        ``notify_comment_created``。
     """
     if parent is None:
         return PostComment.objects.create(post=post, author=author, text=text)
@@ -327,8 +393,17 @@ def create_comment(post, author, text, parent=None):
 def delete_comment(comment) -> None:
     """删除一条评论;删顶级评论时回复由数据库 CASCADE 一并删除。
 
-    Args:
+    参数说明:
         comment: 待删除的评论(调用方已校验作者身份)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``delete_comment(comment)``(见 ``feed/views.py`` 的 ``post_comment_detail``)
+
+    备注信息:
+        本函数不做权限判断,非作者与非本动态的校验在视图里完成。
     """
     comment.delete()
 
@@ -336,12 +411,19 @@ def delete_comment(comment) -> None:
 def follow(follower, followee) -> bool:
     """关注某人(幂等);重复关注不报错、不产生第二行。
 
-    Args:
+    参数说明:
         follower: 关注者(当前登录用户)。
         followee: 被关注者(调用方已校验存在、未重封禁、未互相拉黑、不是自己)。
 
-    Returns:
+    返回参数:
         本次是否**新建**了关注关系(已关注过返回 ``False``)。
+
+    使用示例:
+        ``follow(request.user, target)``(见 ``feed/views.py`` 的 ``follow_user``)
+
+    备注信息:
+        ``(follower, followee)`` 唯一约束 + ``get_or_create`` 让并发重复关注也只落一行。
+        关注是**有向**关系:不发通知、不建立聊天权限、不碰 IM。
     """
     _, created = Follow.objects.get_or_create(follower=follower, followee=followee)
     return created
@@ -350,9 +432,18 @@ def follow(follower, followee) -> bool:
 def unfollow(follower, followee) -> None:
     """取消关注(幂等):没有该关系时静默返回。
 
-    Args:
+    参数说明:
         follower: 关注者(当前登录用户)。
         followee: 被取消关注的人。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``unfollow(request.user, target)``(见 ``feed/views.py`` 的 ``follow_user``)
+
+    备注信息:
+        按过滤条件删除,没有该关系时不报错、不抛异常;不产生通知、不影响聊天权限。
     """
     Follow.objects.filter(follower=follower, followee=followee).delete()
 
@@ -360,17 +451,23 @@ def unfollow(follower, followee) -> None:
 def follow_state_for_profiles(profiles, viewer) -> dict[int, dict]:
     """批量取「资料卡关注态」:是否已关注 + 粉丝数 + 关注数。
 
-    单条资料卡时用**一条**聚合 SQL 同时算三个值(资料页接口因此只多 1 条查询);
-    批量时退化成三条分组 SQL(分别取粉丝数、关注数、我关注了谁),条数与资料数无关,
-    不会出现 N+1(``config/test_query_budget.py`` 会拦)。
-
-    Args:
+    参数说明:
         profiles: 资料对象序列;只用到 ``user_id``,``None`` 项自动忽略。
         viewer: 当前登录用户(未登录传 ``None``)。
 
-    Returns:
+    返回参数:
         ``{user_id: {"is_followed": bool, "follower_count": int,
         "following_count": int}}``;没有资料的 id 不出现在字典里。
+
+    使用示例:
+        ``follow_state = follow_state_for_profiles([profile], request.user)``(见 ``users/views.py`` 的 ``public_profile``)
+
+    备注信息:
+        单条资料卡时用**一条**聚合 SQL 同时算三个值(资料页接口因此只多 1 条查询);
+        批量时退化成三条分组 SQL(分别取粉丝数、关注数、我关注了谁),条数与资料数无关,
+        不会出现 N+1(``config/test_query_budget.py`` 会拦)。
+        ``viewer`` 为 ``None`` 时 ``is_followed`` 恒为 ``False``;``profiles`` 里没有有效项
+        时返回空字典。
     """
     user_ids = [profile.user_id for profile in profiles if profile is not None]
     if not user_ids:

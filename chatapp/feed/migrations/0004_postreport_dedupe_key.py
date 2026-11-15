@@ -14,9 +14,19 @@ HANDLED = "handled"
 def fill_dedupe_keys(apps, schema_editor):
     """给存量待处理举报补去重键;同键重复行标记为已处理。
 
-    Args:
+    参数说明:
         apps: 迁移期应用注册表。
         schema_editor: 迁移期数据库编辑器(未使用)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``migrations.RunPython(fill_dedupe_keys, migrations.RunPython.noop)``(见本模块 ``operations``)
+
+    备注信息:
+        重复行不删而是标成「已处理」并把 ``dedupe_key`` 置空,否则加唯一索引会失败;
+        回滚方向用 ``RunPython.noop``,不做逆操作。
     """
     PostReport = apps.get_model("feed", "PostReport")
     seen = set()

@@ -624,12 +624,20 @@ class ChatImageModelTests(TestCase):
 def _jpeg_with_orientation(size=(40, 20), orientation=6):
     """生成一张带 EXIF 方向标签的 JPEG(6 = 顺时针 90°,显示时宽高互换)。
 
-    Args:
+    参数说明:
         size: 原始像素尺寸(宽, 高)。
         orientation: EXIF Orientation 值。
 
-    Returns:
+    返回参数:
         JPEG 字节内容。
+
+    使用示例:
+        ``content = _jpeg_with_orientation()``(见 ``im/tests.py`` 的
+        ``ChatImageUploadTests.test_exif_orientation_swaps_dimensions_and_reencodes``)
+
+    备注信息:
+        方向标签写在 EXIF 的 ``0x0112`` 上;``orientation=6`` 时图片逻辑宽高与
+        ``size`` 相反,用来验证上传接口会先 ``exif_transpose`` 再量尺寸。
     """
     buffer = io.BytesIO()
     image = Image.new("RGB", size, (200, 30, 30))
@@ -658,13 +666,21 @@ class ChatImageUploadTests(APITestCase):
     def upload(self, name="a.png", content=PNG_1PX, content_type="image/png"):
         """上传一张图片。
 
-        Args:
+        参数说明:
             name: 文件名。
             content: 文件字节内容。
             content_type: MIME 类型。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``response = self.upload()``(见 ``im/tests.py`` 的
+            ``ChatImageUploadTests.test_upload_returns_urls_and_dimensions``)
+
+        备注信息:
+            以 multipart 打到 ``/api/v1/im/images``,身份取 ``setUp`` 里装的令牌;
+            限流计数留在 Redis,依赖 ``setUp`` 的 ``cache.clear()``。
         """
         return self.client.post(
             self.url, {"file": SimpleUploadedFile(name, content, content_type=content_type)},
@@ -834,19 +850,38 @@ class ChatImageAuthTests(APITestCase):
     def auth(self, original):
         """带 ``X-Original-URI`` 调验签接口。
 
-        Args:
+        参数说明:
             original: nginx 传入的原始 URI。
 
-        Returns:
+        返回参数:
             DRF 响应对象。
+
+        使用示例:
+            ``self.auth(self.signed())``(见 ``im/tests.py`` 的
+            ``ChatImageAuthTests.test_valid_signature_passes_without_jwt``)
+
+        备注信息:
+            模拟 nginx ``auth_request`` 子请求,因此不带 ``Authorization`` 头;
+            通过时返回 204,缺头、过期、篡改或非聊天路径返回 403。
         """
         return self.client.get(self.url, HTTP_X_ORIGINAL_URI=original)
 
     def signed(self):
         """生成一个当前有效的签名 URL。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             带 ``?e=&s=`` 的路径。
+
+        使用示例:
+            ``self.assertEqual(self.auth(self.signed()).status_code, 204)``(见
+            ``im/tests.py`` 的 ``ChatImageAuthTests.test_valid_signature_passes_without_jwt``)
+
+        备注信息:
+            在 ``override_settings`` 里用固定密钥与 ``IM_MEDIA_SIGN_TTL=86400`` 现签,
+            保证用例内的 ``?e=`` 未过期;待签路径取 ``setUp`` 里的 ``self.media``。
         """
         with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
             return media_sign.sign_url(self.media, now=int(time.time()))
@@ -898,13 +933,22 @@ class ChatImageCleanupTests(TestCase):
     def make_image(self, name="a.jpg", days_old=0, status=ChatImageStatus.VISIBLE):
         """造一张聊天图片并把 ``created_at`` 往前挪。
 
-        Args:
+        参数说明:
             name: 原图文件名。
             days_old: 创建时间往前挪几天。
             status: 初始状态。
 
-        Returns:
+        返回参数:
             刷新后的 ``ChatImage`` 实例。
+
+        使用示例:
+            ``image = self.make_image(days_old=31)``(见 ``im/tests.py`` 的
+            ``ChatImageCleanupTests.test_retention_removes_files_and_marks_expired``)
+
+        备注信息:
+            原图与缩略图都用 ``PNG_1PX`` 落盘(缩略图名由 ``name`` 派生),归属 ``setUp``
+            里那个用户;``created_at`` 是 ``auto_now_add``,只能落库后再 ``update``,
+            因此末尾 ``refresh_from_db`` 让调用方拿到挪过时间的实例。
         """
         image = ChatImage.objects.create(
             owner=self.user,
@@ -920,11 +964,19 @@ class ChatImageCleanupTests(TestCase):
     def run_cleanup(self, *args):
         """跑一次清理命令并返回标准输出。
 
-        Args:
+        参数说明:
             *args: 透传给命令的参数。
 
-        Returns:
+        返回参数:
             命令的标准输出。
+
+        使用示例:
+            ``self.run_cleanup("--apply")``(见 ``im/tests.py`` 的
+            ``ChatImageCleanupTests.test_retention_removes_files_and_marks_expired``)
+
+        备注信息:
+            不带 ``--apply`` 时命令按 dry-run 走,只打印不删;``stdout`` 被重定向到
+            ``StringIO``,断言只读返回值,不打进测试日志。
         """
         out = StringIO()
         call_command("im_media_cleanup", *args, stdout=out)
@@ -1023,13 +1075,21 @@ class ChatVoiceUploadTests(APITestCase):
     def upload(self, content=b"fake-m4a", content_type="audio/mp4", duration_ms=12500):
         """上传一段语音。
 
-        Args:
+        参数说明:
             content: 文件字节。
             content_type: MIME 类型。
             duration_ms: 客户端声明时长。
 
-        Returns:
+        返回参数:
             DRF 测试客户端响应。
+
+        使用示例:
+            ``response = self.upload()``(见 ``im/tests.py`` 的
+            ``ChatVoiceUploadTests.test_upload_returns_signed_url``)
+
+        备注信息:
+            以 multipart 打到 ``/api/v1/im/voices``,文件名固定 ``a.m4a``;
+            服务端缺 ``ffmpeg`` 时返回 503,声明时长与实测偏差过大时返回 400。
         """
         return self.client.post(
             self.url,
@@ -1186,12 +1246,21 @@ class ChatVoiceCleanupTests(TestCase):
     def make_voice(self, name="v.m4a", created_days_ago=0):
         """造一条语音行(带真实文件)。
 
-        Args:
+        参数说明:
             name: 文件名。
             created_days_ago: 创建时间距今天数。
 
-        Returns:
+        返回参数:
             保存后的 ``ChatVoice``。
+
+        使用示例:
+            ``old = self.make_voice("old.m4a", created_days_ago=31)``(见 ``im/tests.py`` 的
+            ``ChatVoiceCleanupTests.test_expires_old_voice_and_keeps_fresh``)
+
+        备注信息:
+            文件内容固定 3 字节,经 ``ContentFile`` 落到 ``MEDIA_ROOT``(由 ``setUp`` 指向
+            临时目录);``created_at`` 是 ``auto_now_add``,改写走 ``update``,
+            因此返回对象上的 ``created_at`` 仍是创建时刻。
         """
         voice = ChatVoice(owner=self.user, duration_ms=5000, bytes=3)
         voice.file.save(name, ContentFile(b"abc"), save=False)

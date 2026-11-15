@@ -35,8 +35,17 @@ class Post(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``post#主键(作者 id)``。
+
+        使用示例:
+            ``str(post)``
+
+        备注信息:
+            括号里是作者账号 id,便于后台列表与日志里对照账号,不需要额外查库。
         """
         return f"post#{self.pk}({self.author_id})"
 
@@ -56,8 +65,17 @@ class PostImage(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``post_image#主键(post=动态 id)``。
+
+        使用示例:
+            ``str(post_image)``
+
+        备注信息:
+            ``post=`` 后是所属动态的主键,配图本身没有别的可读字段。
         """
         return f"post_image#{self.pk}(post={self.post_id})"
 
@@ -78,8 +96,17 @@ class PostLike(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``post_like(动态 id:用户 id)``。
+
+        使用示例:
+            ``str(like)``
+
+        备注信息:
+            冒号两侧都是主键:左边为动态,右边为点赞者账号。
         """
         return f"post_like({self.post_id}:{self.user_id})"
 
@@ -114,8 +141,17 @@ class PostFavorite(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``post_favorite(动态 id:用户 id)``。
+
+        使用示例:
+            ``str(favorite)``
+
+        备注信息:
+            冒号两侧都是主键:左边为动态,右边为收藏者账号。
         """
         return f"post_favorite({self.post_id}:{self.user_id})"
 
@@ -145,8 +181,17 @@ class PostComment(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``post_comment#主键(post=动态 id)``。
+
+        使用示例:
+            ``str(comment)``
+
+        备注信息:
+            ``post=`` 后是所属动态的主键,评论是顶级评论还是回复由 ``parent`` 区分。
         """
         return f"post_comment#{self.pk}(post={self.post_id})"
 
@@ -182,13 +227,21 @@ class PostReport(models.Model):
     def save(self, *args, **kwargs):
         """保存前维护去重键。
 
-        待处理举报写入 ``举报人:动态:pending``;离开待处理状态就清空,
-        这样处理完可以再次举报同一动态,并发提交仍被唯一约束挡住。
-
-        Args:
+        参数说明:
             *args: 透传给 ``Model.save``。
             **kwargs: 透传给 ``Model.save``;``update_fields`` 会补上 ``dedupe_key``,
                 否则只改 ``status`` 时去重键清不掉。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``report.save(update_fields=["status", "handled_note", "handled_at"])``(见 ``feed/services.py`` 的 ``delete_post``)
+
+        备注信息:
+            待处理举报写入 ``举报人:动态:pending``;离开待处理状态就清空,这样处理完可以再次
+            举报同一动态,并发提交仍被唯一约束挡住。
+            带 ``update_fields`` 时会自动追加 ``dedupe_key``,调用方不必自己列全。
         """
         if self.status == ReportStatus.PENDING:
             if not self.dedupe_key:
@@ -203,8 +256,17 @@ class PostReport(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``post_report#主键(举报人->动态:类型)``。
+
+        使用示例:
+            ``str(report)``
+
+        备注信息:
+            动态被删除后 ``post`` 置空(``SET_NULL``),此时括号里显示 ``None``。
         """
         return f"post_report#{self.pk}({self.reporter_id}->{self.post_id}:{self.type})"
 
@@ -234,7 +296,16 @@ class Follow(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``follow(关注者 id->被关注者 id)``。
+
+        使用示例:
+            ``str(follow)``
+
+        备注信息:
+            箭头方向就是关注方向(左关注右),两个 id 都是账号 id。
         """
         return f"follow({self.follower_id}->{self.followee_id})"

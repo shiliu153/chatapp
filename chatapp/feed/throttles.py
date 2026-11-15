@@ -32,24 +32,38 @@ class PostCreateThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         """按用户 id 生成限流缓存键。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图;DRF 接口要求,此处未使用。
 
-        Returns:
+        返回参数:
             该用户在 ``post_create`` 作用域下的缓存键。
+
+        使用示例:
+            ``self.client.post(self.URL, {"text": "只发文字"}, format="multipart")``(见 ``feed/tests.py`` 的 ``PostCreateTests``)
+
+        备注信息:
+            键里的 ``ident`` 恒为 ``request.user.id``;未登录请求在权限检查阶段就返回 401,
+            不会走到本方法。额度读 ``settings.DEFAULT_THROTTLE_RATES["post_create"]``。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
 
     def allow_request(self, request, view):
         """只对 POST 计数,读列表不限流。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图。
 
-        Returns:
+        返回参数:
             非 POST 时恒为 ``True``,否则走父类的额度判定。
+
+        使用示例:
+            ``self.client.get("/api/v1/posts")``(见 ``feed/tests.py`` 的 ``FeedFlowTests``)
+
+        备注信息:
+            GET 与 POST 共用 ``/api/v1/posts`` 一个视图,看列表不应消耗发布额度;
+            超限时由父类返回 ``False``,接口按 DRF 口径回 429。
         """
         if request.method != "POST":
             return True
@@ -64,24 +78,38 @@ class PostCommentThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         """按用户 id 生成限流缓存键。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图;DRF 接口要求,此处未使用。
 
-        Returns:
+        返回参数:
             该用户在 ``post_comment`` 作用域下的缓存键。
+
+        使用示例:
+            ``self.client.post(f"/api/v1/posts/{self.post.id}/comments", {"text": "好漂亮"}, format="json")``(见 ``feed/tests.py`` 的 ``PostCommentTests``)
+
+        备注信息:
+            键里的 ``ident`` 恒为 ``request.user.id``;未登录请求在权限检查阶段就返回 401,
+            不会走到本方法。额度读 ``settings.DEFAULT_THROTTLE_RATES["post_comment"]``。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
 
     def allow_request(self, request, view):
         """只对 POST 计数,读评论不限流。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图。
 
-        Returns:
+        返回参数:
             非 POST 时恒为 ``True``,否则走父类的额度判定。
+
+        使用示例:
+            ``self.client.get(f"/api/v1/posts/{self.post.id}/comments")``(见 ``feed/tests.py`` 的 ``PostCommentTests``)
+
+        备注信息:
+            GET 与 POST 共用 ``/api/v1/posts/{post_id}/comments`` 一个视图,看评论列表不应
+            消耗发表额度;超限时由父类返回 ``False``,接口按 DRF 口径回 429。
         """
         if request.method != "POST":
             return True
@@ -96,12 +124,20 @@ class PostReportThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         """按用户 id 生成限流缓存键。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图;DRF 接口要求,此处未使用。
 
-        Returns:
+        返回参数:
             该用户在 ``post_report`` 作用域下的缓存键。
+
+        使用示例:
+            ``self.client.post(self.url, {"type": "porn", "detail": "色情图"}, format="json")``(见 ``feed/tests.py`` 的 ``PostReportTests``)
+
+        备注信息:
+            键里的 ``ident`` 恒为 ``request.user.id``;未登录请求在权限检查阶段就返回 401,
+            不会走到本方法。额度读 ``settings.DEFAULT_THROTTLE_RATES["post_report"]``。
+            限流在视图执行前计数,因此幂等命中已有举报(返回 200)的那次请求同样计一次。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
 

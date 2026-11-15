@@ -22,11 +22,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """逐条同步并汇总成败数量。
 
-        单条失败不中断整体流程,只在结尾汇总告警。
-
-        Args:
+        参数说明:
             *args: 位置参数,未使用。
             **options: 已解析的命令行参数(本命令无参数)。
+
+        返回参数:
+            无返回值;汇总行写到标准输出。
+
+        使用示例:
+            ``python manage.py im_sync_nicknames``(见 ``docs/pitfalls/im.md``)
+
+        备注信息:
+            单条失败不中断整体流程,只在结尾汇总告警;只同步非空昵称。
+            按成败数量选用 ``style.SUCCESS`` 或 ``style.WARNING`` 输出汇总行。
         """
         ok = fail = 0
         for profile in Profile.objects.exclude(nickname="").select_related("user"):

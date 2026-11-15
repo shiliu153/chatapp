@@ -53,8 +53,17 @@ class ChatImage(models.Model):
     def signed_file_url(self) -> str:
         """运营台预览用:带签名的原图绝对地址。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``MEDIA_BASE_URL + 文件路径`` 并附签名 query。
+
+        使用示例:
+            ``{{ image.signed_file_url }}``(见 ``ops/templates/ops/partials/chat_images_table.html``)
+
+        备注信息:
+            URL 的有效期由 ``IM_MEDIA_SIGN_TTL`` 决定;未配置签名密钥时退化为不带 query 的绝对地址。
         """
         return media_sign.sign_url(f"{settings.MEDIA_BASE_URL.rstrip('/')}{self.file.url}")
 
@@ -62,16 +71,34 @@ class ChatImage(models.Model):
     def signed_thumb_url(self) -> str:
         """运营台预览用:带签名的缩略图绝对地址。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``MEDIA_BASE_URL + 缩略图路径`` 并附签名 query。
+
+        使用示例:
+            ``{{ image.signed_thumb_url }}``(见 ``ops/templates/ops/partials/chat_images_table.html``)
+
+        备注信息:
+            URL 的有效期由 ``IM_MEDIA_SIGN_TTL`` 决定;未配置签名密钥时退化为不带 query 的绝对地址。
         """
         return media_sign.sign_url(f"{settings.MEDIA_BASE_URL.rstrip('/')}{self.thumb.url}")
 
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``chat_image#主键(owner=发送者 id)``。
+
+        使用示例:
+            ``str(image)``(见 ``im/tests.py`` 的 ``ChatImageModelTests``)
+
+        备注信息:
+            只拼主键与发送者 id,不触发任何关联查询。
         """
         return f"chat_image#{self.pk}(owner={self.owner_id})"
 
@@ -113,8 +140,17 @@ class ChatVoice(models.Model):
     def signed_file_url(self) -> str:
         """运营台播放用:带签名的语音绝对地址。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``MEDIA_BASE_URL + 文件路径`` 并附签名 query。
+
+        使用示例:
+            ``{{ voice.signed_file_url }}``(见 ``ops/templates/ops/report_detail.html``)
+
+        备注信息:
+            URL 的有效期由 ``IM_MEDIA_SIGN_TTL`` 决定;未配置签名密钥时退化为不带 query 的绝对地址。
         """
         return media_sign.sign_url(f"{settings.MEDIA_BASE_URL.rstrip('/')}{self.file.url}")
 
@@ -122,15 +158,33 @@ class ChatVoice(models.Model):
     def duration_seconds(self) -> int:
         """时长(秒,四舍五入),运营台展示用。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             至少为 1 的整秒数。
+
+        使用示例:
+            ``{{ voice.duration_seconds }}``(见 ``ops/templates/ops/report_detail.html``)
+
+        备注信息:
+            毫秒数四舍五入到秒;不足 1 秒按 1 秒显示,避免运营台出现「0 秒」。
         """
         return max(1, round(self.duration_ms / 1000))
 
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``chat_voice#主键(owner=发送者 id)``。
+
+        使用示例:
+            ``str(voice)``
+
+        备注信息:
+            只拼主键与发送者 id,不触发任何关联查询;本仓库内无直接调用点。
         """
         return f"chat_voice#{self.pk}(owner={self.owner_id})"

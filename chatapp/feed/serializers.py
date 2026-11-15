@@ -41,12 +41,19 @@ POST_LIKER_SCHEMA = inline_serializer("PostLiker", fields={
 def author_brief(user, request):
     """构造动态/评论里的作者简要信息。
 
-    Args:
+    参数说明:
         user: 作者用户实例。
         request: 当前请求,用于把头像拼成绝对 URL。
 
-    Returns:
+    返回参数:
         ``{user_id, nickname, avatar_url}``;无资料或无已过审照片时对应字段为空。
+
+    使用示例:
+        ``brief = author_brief(like.user, request)``(见 ``feed/views.py`` 的 ``post_likes``)
+
+    备注信息:
+        昵称取本地资料,资料缺失时为空串;头像只认第一张**已过审**照片,
+        未过审的图片不会出现在任何列表里。
     """
     profile = getattr(user, "profile", None)
     avatar_url = None
@@ -77,11 +84,18 @@ class PostSerializer(serializers.ModelSerializer):
     def get_author(self, post):
         """取动态作者的简要信息。
 
-        Args:
+        参数说明:
             post: 动态对象。
 
-        Returns:
+        返回参数:
             ``author_brief`` 的结果。
+
+        使用示例:
+            ``PostSerializer(post, context={"request": request}).data["author"]``(见 ``feed/views.py`` 的 ``post_detail``)
+
+        备注信息:
+            走 ``author_brief``;``request`` 从 ``self.context`` 取,序列化时必须带 context,
+            否则取不到请求、拼不出绝对头像 URL。
         """
         return author_brief(post.author, self.context["request"])
 
@@ -89,11 +103,18 @@ class PostSerializer(serializers.ModelSerializer):
     def get_images(self, post):
         """取全部配图的绝对 URL。
 
-        Args:
+        参数说明:
             post: 动态对象。
 
-        Returns:
+        返回参数:
             URL 列表,按 ``order`` 排序。
+
+        使用示例:
+            ``PostSerializer(post, context={"request": request}).data["images"]``(见 ``feed/views.py`` 的 ``post_detail``)
+
+        备注信息:
+            顺序由模型的 ``ordering`` 决定,视图侧用 ``prefetch_related("images")``
+            预取,这里不再逐条查库。
         """
         request = self.context["request"]
         return [request.build_absolute_uri(image.file.url) for image in post.images.all()]
@@ -121,22 +142,35 @@ class PostCommentSerializer(serializers.ModelSerializer):
     def get_author(self, comment):
         """取评论作者的简要信息。
 
-        Args:
+        参数说明:
             comment: 评论对象。
 
-        Returns:
+        返回参数:
             ``author_brief`` 的结果。
+
+        使用示例:
+            ``PostCommentSerializer(comment, context={"request": request}).data["author"]``(见 ``feed/views.py`` 的 ``post_comments``)
+
+        备注信息:
+            与动态作者同一套摘要口径(见 ``author_brief``);作者已注销时昵称为空串。
         """
         return author_brief(comment.author, self.context["request"])
 
     def _visible_replies(self, comment):
         """取该评论下的可见回复(优先用视图预取的结果)。
 
-        Args:
+        参数说明:
             comment: 顶级评论。
 
-        Returns:
+        返回参数:
             按时间正序的回复列表;结果会缓存在实例上,避免重复查询。
+
+        使用示例:
+            ``replies = self._visible_replies(comment)[:2]``(见本文件 ``get_replies``)
+
+        备注信息:
+            优先用视图 ``Prefetch(..., to_attr="visible_replies")`` 的结果;没有预取时现查
+            并写回 ``comment.visible_replies``,同一实例多次序列化不会重复查库。
         """
         cached = getattr(comment, "visible_replies", None)
         if cached is not None:
@@ -150,11 +184,17 @@ class PostCommentSerializer(serializers.ModelSerializer):
     def get_reply_to(self, comment):
         """取被回复者的简要信息。
 
-        Args:
+        参数说明:
             comment: 评论对象。
 
-        Returns:
+        返回参数:
             ``{user_id, nickname}``;顶级评论或被回复者已注销时为 ``None``。
+
+        使用示例:
+            ``PostCommentSerializer(comment, context={"request": request}).data["reply_to"]``(见 ``feed/views.py`` 的 ``post_comments``)
+
+        备注信息:
+            只读 ``comment.reply_to``,不额外查库;该外键在作者注销时置空。
         """
         user = comment.reply_to
         if user is None:
@@ -165,11 +205,17 @@ class PostCommentSerializer(serializers.ModelSerializer):
     def get_reply_count(self, comment) -> int:
         """取该楼层可见回复的总数(回复对象恒为 0)。
 
-        Args:
+        参数说明:
             comment: 评论对象。
 
-        Returns:
+        返回参数:
             可见回复条数。
+
+        使用示例:
+            ``PostCommentSerializer(comment, context={"request": request}).data["reply_count"]``(见 ``feed/views.py`` 的 ``post_comments``)
+
+        备注信息:
+            层级只有两级,所以回复对象本身恒为 0;顶层评论的计数已剔除被拉黑 / 被重封禁的回复者。
         """
         if comment.parent_id is not None:
             return 0
@@ -179,11 +225,18 @@ class PostCommentSerializer(serializers.ModelSerializer):
     def get_replies(self, comment):
         """取该楼层内嵌的前两条回复(回复对象恒为空)。
 
-        Args:
+        参数说明:
             comment: 评论对象。
 
-        Returns:
+        返回参数:
             回复对象列表,最多 2 条。
+
+        使用示例:
+            ``PostCommentSerializer(comment, context={"request": request}).data["replies"]``(见 ``feed/views.py`` 的 ``post_comments``)
+
+        备注信息:
+            只内嵌前两条,完整回复列表走 ``GET .../comments/{id}/replies``;回复对象内
+            ``replies`` 恒为空、``reply_count`` 恒为 0,避免响应随层级膨胀。
         """
         if comment.parent_id is not None:
             return []
@@ -199,14 +252,18 @@ class PostCreateSerializer(serializers.Serializer):
     def validate_text(self, value):
         """校验正文:违禁词检查 + 去首尾空白。
 
-        Args:
+        参数说明:
             value: 提交的正文。
 
-        Returns:
+        返回参数:
             去空白后的正文。
 
-        Raises:
-            serializers.ValidationError: 命中违禁词。
+        使用示例:
+            ``serializer = PostCreateSerializer(data=request.data, context={"request": request}); serializer.is_valid(raise_exception=True)``(见 ``feed/views.py`` 的 ``_create_post``)
+
+        备注信息:
+            命中违禁词时主动抛 ``serializers.ValidationError``(400);空串放行,
+            「图文全空」由 ``validate`` 整体判定。
         """
         if value and find_blocked_word(value):
             raise serializers.ValidationError("内容包含违规内容,请修改")
@@ -215,15 +272,19 @@ class PostCreateSerializer(serializers.Serializer):
     def validate(self, attrs):
         """校验图文整体约束。
 
-        Args:
+        参数说明:
             attrs: 已通过字段级校验的数据。
 
-        Returns:
+        返回参数:
             通过校验的数据。
 
-        Raises:
-            serializers.ValidationError: 图文全空、图片超过 9 张、单张超过 5MB,
-                或文件不是有效图片。
+        使用示例:
+            ``serializer.is_valid(raise_exception=True)``(见 ``feed/views.py`` 的 ``_create_post``)
+
+        备注信息:
+            图片从 ``self.context["request"].FILES`` 取,所以实例化时必须带 context。
+            图文全空、图片超过 9 张、单张超过 5MB,或文件不是有效图片时
+            主动抛 ``serializers.ValidationError``(400)。
         """
         files = self.context["request"].FILES.getlist("images")
         if not attrs.get("text") and not files:
@@ -247,14 +308,17 @@ class PostCommentCreateSerializer(serializers.Serializer):
     def validate_text(self, value):
         """校验评论内容:违禁词检查、去空白、非空。
 
-        Args:
+        参数说明:
             value: 提交的评论内容。
 
-        Returns:
+        返回参数:
             去空白后的评论内容。
 
-        Raises:
-            serializers.ValidationError: 命中违禁词,或去空白后为空。
+        使用示例:
+            ``serializer = PostCommentCreateSerializer(data=request.data); serializer.is_valid(raise_exception=True)``(见 ``feed/views.py`` 的 ``post_comments``)
+
+        备注信息:
+            命中违禁词或去空白后为空时主动抛 ``serializers.ValidationError``(400)。
         """
         if find_blocked_word(value):
             raise serializers.ValidationError("评论包含违规内容,请修改")
