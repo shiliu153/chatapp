@@ -19,8 +19,19 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """声明命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 的参数解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py im_send --from u2 --to u3 --text "你好"``
+            (见 ``docs/standards/dev-commands.md``)
+
+        备注信息:
+            ``--from`` / ``--to`` 必填,分别存进 ``sender`` / ``receiver``;
+            ``--text`` 与 ``--notice`` 二选一,必须且只能给一个。
         """
         parser.add_argument("--from", dest="sender", required=True, help="发送方 IM id,如 u2")
         parser.add_argument("--to", dest="receiver", required=True, help="接收方 IM id,如 u3")
@@ -30,12 +41,21 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """按参数发送文本或灰条。
 
-        Args:
+        参数说明:
             *args: 位置参数,未使用。
             **options: 已解析的命令行参数(``sender`` / ``receiver`` / ``text`` / ``notice``)。
 
-        Raises:
-            CommandError: 两个内容参数同时给出或都未给出,或 IM 侧发送失败。
+        返回参数:
+            无返回值;成功时打印 ``已发送`` 汇总行。
+
+        使用示例:
+            ``python manage.py im_send --from u2 --to u3 --notice``
+            (见 ``docs/standards/dev-commands.md``)
+
+        备注信息:
+            走 imserver 内部 API,不经 App;账号未导入 imserver 时发送必然失败。
+            CommandError: ``--text`` 与 ``--notice`` 同时给出或都未给出。
+            CommandError: IM 侧发送失败(账号未导入时典型返回 7013)。
         """
         text, notice = options["text"], options["notice"]
         if bool(text) == bool(notice):

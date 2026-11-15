@@ -19,14 +19,17 @@ class ChatImageUploadSerializer(serializers.Serializer):
     def validate_file(self, value):
         """校验大小与格式。
 
-        Args:
+        参数说明:
             value: 上传的图片文件(DRF 已用 Pillow 校验过是真实图片)。
 
-        Returns:
+        返回参数:
             通过校验的文件对象。
 
-        Raises:
-            serializers.ValidationError: 超过大小上限,或格式不在白名单。
+        使用示例:
+            ``serializer.is_valid(raise_exception=True)``(见 ``im/views.py`` 的 ``upload_image``)
+
+        备注信息:
+            超过大小上限,或格式不在白名单时抛 ``serializers.ValidationError``,由 DRF 转成 400。
         """
         if value.size > settings.CHAT_IMAGE_MAX_BYTES:
             raise serializers.ValidationError("图片不能超过 5MB")
@@ -44,14 +47,18 @@ class ChatVoiceUploadSerializer(serializers.Serializer):
     def validate_file(self, value):
         """校验大小与 MIME。
 
-        Args:
+        参数说明:
             value: 上传的文件对象。
 
-        Returns:
+        返回参数:
             通过校验的文件对象。
 
-        Raises:
-            serializers.ValidationError: 超过大小上限或类型不在白名单。
+        使用示例:
+            ``serializer.is_valid(raise_exception=True)``(见 ``im/views.py`` 的 ``upload_voice``)
+
+        备注信息:
+            超过大小上限或类型不在白名单时抛 ``serializers.ValidationError``,由 DRF 转成 400;
+            MIME 先经 ``base_content_type`` 去掉 ``;codecs=...`` 再比对。
         """
         if value.size > settings.CHAT_VOICE_MAX_BYTES:
             raise serializers.ValidationError("语音不能超过 5MB")

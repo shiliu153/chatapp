@@ -721,16 +721,20 @@ export interface paths {
         /**
          * @description 我的收藏(GET /api/v1/feed/favorites)。
          *
-         *     按**收藏时间倒序**(不是发帖时间),响应形状与广场列表逐字段一致。
-         *     游标建在 ``PostFavorite`` 行上(见 ``services.page_favorite_posts``):
-         *     收藏了但已不可见的动态(被双向拉黑 / 作者被重封禁 / 已被删)**既不出现在列表,
-         *     也不计入 ``count``**。新接口没有老客户端,不提供 ``offset`` 兼容分支。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{count, next_cursor, has_more, results}``,``results[]`` 为动态对象。
+         *
+         *     使用示例:
+         *         ``data = self.client.get(self.URL).json()``(见 ``feed/tests.py`` 的 ``FavoritesFeedTests``)
+         *
+         *     备注信息:
+         *         按**收藏时间倒序**(不是发帖时间),响应形状与广场列表逐字段一致。
+         *         游标建在 ``PostFavorite`` 行上(见 ``services.page_favorite_posts``):
+         *         收藏了但已不可见的动态(被双向拉黑 / 作者被重封禁 / 已被删)**既不出现在列表,
+         *         也不计入 ``count``**。新接口没有老客户端,不提供 ``offset`` 兼容分支。
          */
         get: operations["feed_favorites_retrieve"];
         put?: never;
@@ -751,15 +755,19 @@ export interface paths {
         /**
          * @description 关注流(GET /api/v1/feed/following)。
          *
-         *     只含**我关注的人**的动态(不含自己),可见性复用广场口径
-         *     (排除双向拉黑与重封禁作者);游标分页,响应形状与广场列表完全一致。
-         *     新接口没有老客户端,因此不提供 ``offset`` 兼容分支。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{count, next_cursor, has_more, results}``。
+         *
+         *     使用示例:
+         *         ``first = self.client.get(self.URL, {"limit": 10}).json()``(见 ``feed/tests.py`` 的 ``FollowingFeedTests``)
+         *
+         *     备注信息:
+         *         只含**我关注的人**的动态(不含自己),可见性复用广场口径
+         *         (排除双向拉黑与重封禁作者);游标分页,响应形状与广场列表完全一致。
+         *         新接口没有老客户端,因此不提供 ``offset`` 兼容分支。
          */
         get: operations["feed_following_retrieve"];
         put?: never;
@@ -842,15 +850,21 @@ export interface paths {
          *     同步落盘 + 生成缩略图,不进 Celery:这条路径没有第三方调用,
          *     符合「响应路径禁止外部调用」纪律。文件名带随机 uuid,不可枚举。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,multipart 字段为 ``file``。
          *
-         *     Returns:
+         *     返回参数:
          *         201 + ``{id, url, thumb_url, width, height, size}``;URL 用
          *         ``settings.MEDIA_BASE_URL`` 拼绝对地址(与 IM 头像同步同一套)。
          *
-         *     Raises:
-         *         config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+         *     使用示例:
+         *         ``self.client.post(self.url, {"file": SimpleUploadedFile("a.png", PNG_1PX, content_type="image/png")}, format="multipart")``
+         *         (见 ``im/tests.py`` 的 ``ChatImageUploadTests.upload``,其中 ``self.url = "/api/v1/im/images"``)
+         *
+         *     备注信息:
+         *         配额检查在任何一次落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``
+         *         (413/``41301``),库内与磁盘上都不留痕迹。
+         *         非图片、尺寸超限返回 400;格式与大小的校验在 ``ChatImageUploadSerializer`` 里。
          */
         post: operations["im_images_create"];
         delete?: never;
@@ -872,12 +886,20 @@ export interface paths {
          *     这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而图片本身
          *     已经是「谁拿到链接谁能看」的语义,靠签名与有效期兜底。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,nginx 通过 ``X-Original-URI`` 传入原始 URI
          *             (含 ``?e=&s=``)。
          *
-         *     Returns:
+         *     返回参数:
          *         通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403。
+         *
+         *     使用示例:
+         *         ``self.client.get(self.url, HTTP_X_ORIGINAL_URI=original)``(见 ``im/tests.py`` 的 ``ChatImageAuthTests.auth``)
+         *
+         *     备注信息:
+         *         不校验登录态:nginx 的内部子请求不带 Authorization,靠签名与有效期兜底。
+         *         路径前缀在这里显式校验一次,``media_sign.verify`` 内部还会再查,
+         *         因此以后改签名逻辑也不会把资料图、广场图放进来。
          */
         get: operations["im_images_auth_retrieve"];
         put?: never;
@@ -905,12 +927,20 @@ export interface paths {
          *     端类型取请求头 ``X-Client``(缺省 ``app``):只踢**本端**旧会话、按**本端**版本
          *     签发 token(``sv`` 是该端版本,``ct`` 是端类型),另一端的在线会话不受影响。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{backend, token, im_user_id, ws_url, http_url, expire}``;
          *         ``backend`` 恒为 ``self``(腾讯分支已于 2026-11-08 删除)。
+         *
+         *     使用示例:
+         *         ``resp = self.client.post("/api/v1/im/user_sig")``(见 ``im/tests.py`` 的 ``UserSigApiTests``)
+         *
+         *     备注信息:
+         *         首次调用同步建号并在缓存置 30 天标记,建号失败不置标记,下次调用自动重试。
+         *         踢旧会话必须发生在签发新凭证之前,顺序反了会把本机刚建立的会话一起踢掉。
+         *         会话版本同步失败时不签发 token,直接返回 503。
          */
         post: operations["im_user_sig_create"];
         delete?: never;
@@ -934,15 +964,21 @@ export interface paths {
          *     同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
          *     没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
          *
-         *     Returns:
+         *     返回参数:
          *         201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
          *         400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
          *
-         *     Raises:
-         *         config.storage.StorageQuotaExceeded: 账号媒体存储配额已满(413/``41301``)。
+         *     使用示例:
+         *         ``self.client.post(self.url, {"file": SimpleUploadedFile("a.m4a", content, content_type="audio/mp4"), "duration_ms": duration_ms}, format="multipart")``
+         *         (见 ``im/tests.py`` 的 ``ChatVoiceUploadTests.upload``,其中 ``self.url = "/api/v1/im/voices"``)
+         *
+         *     备注信息:
+         *         配额检查在落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
+         *         缺 ffmpeg/ffprobe 时按 ``voice.VoiceUnavailable`` 回 503,不静默降级;
+         *         时长与格式不合法按 ``voice.VoiceError`` 回 400。
          */
         post: operations["im_voices_create"];
         delete?: never;
@@ -1111,28 +1147,38 @@ export interface paths {
         /**
          * @description 广场动态:列表与发布(GET/POST /api/v1/posts)。
          *
-         *     GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
-         *     限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+         *
+         *     使用示例:
+         *         ``data = self.client.get("/api/v1/posts").json()``(见 ``feed/tests.py`` 的 ``FeedFlowTests``)、
+         *         ``self.client.post(self.URL, {"text": "今天天气真好"}, format="multipart")``(见同文件 ``PostCreateTests``)
+         *
+         *     备注信息:
+         *         GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
+         *         限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
          */
         get: operations["posts_list"];
         put?: never;
         /**
          * @description 广场动态:列表与发布(GET/POST /api/v1/posts)。
          *
-         *     GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
-         *     限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时为 multipart,正文 ``text`` + 可选多张 ``images``。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的动态列表;POST 返回 201 + 新动态。
+         *
+         *     使用示例:
+         *         ``data = self.client.get("/api/v1/posts").json()``(见 ``feed/tests.py`` 的 ``FeedFlowTests``)、
+         *         ``self.client.post(self.URL, {"text": "今天天气真好"}, format="multipart")``(见同文件 ``PostCreateTests``)
+         *
+         *     备注信息:
+         *         GET 返回可见动态(排除双向拉黑与重封禁作者);POST 发布一条新动态。
+         *         限流只作用于 POST(见 ``PostCreateThrottle.allow_request``)。
          */
         post: operations["posts_create"];
         delete?: never;
@@ -1151,15 +1197,20 @@ export interface paths {
         /**
          * @description 动态详情与删除(GET/DELETE /api/v1/posts/{post_id})。
          *
-         *     DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
-         *     删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回动态详情;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``resp = self.client.get(f"/api/v1/posts/{post.id}")``(见 ``feed/tests.py`` 的 ``FeedFlowTests``)、
+         *         ``resp = self.client.delete(f"/api/v1/posts/{post.id}")``(见同文件 ``PostDeleteTests``)
+         *
+         *     备注信息:
+         *         DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
+         *         删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
          */
         get: operations["posts_retrieve"];
         put?: never;
@@ -1167,15 +1218,20 @@ export interface paths {
         /**
          * @description 动态详情与删除(GET/DELETE /api/v1/posts/{post_id})。
          *
-         *     DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
-         *     删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回动态详情;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``resp = self.client.get(f"/api/v1/posts/{post.id}")``(见 ``feed/tests.py`` 的 ``FeedFlowTests``)、
+         *         ``resp = self.client.delete(f"/api/v1/posts/{post.id}")``(见同文件 ``PostDeleteTests``)
+         *
+         *     备注信息:
+         *         DELETE 只允许作者本人操作,非作者一律 404(不暴露该动态是否存在);
+         *         删除走 ``services.delete_post``,会连带关闭待处理举报并删除图片文件。
          */
         delete: operations["posts_destroy"];
         options?: never;
@@ -1193,30 +1249,40 @@ export interface paths {
         /**
          * @description 评论列表与发表评论(GET/POST /api/v1/posts/{post_id}/comments)。
          *
-         *     GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
-         *     层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+         *
+         *     使用示例:
+         *         ``data = self.client.get(f"/api/v1/posts/{self.post.id}/comments").json()``(见 ``feed/tests.py`` 的 ``PostCommentTests``)、
+         *         ``self.client.post(self.url, {"text": "沙发"}, format="json")``(见同文件 ``PostCommentThreadTests``)
+         *
+         *     备注信息:
+         *         GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
+         *         层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
          */
         get: operations["posts_comments_retrieve"];
         put?: never;
         /**
          * @description 评论列表与发表评论(GET/POST /api/v1/posts/{post_id}/comments)。
          *
-         *     GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
-         *     层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象;POST 时 body 需带 ``text``,可选 ``parent_id``。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         GET 返回分页后的顶级评论;POST 返回 201 + 新评论。
+         *
+         *     使用示例:
+         *         ``data = self.client.get(f"/api/v1/posts/{self.post.id}/comments").json()``(见 ``feed/tests.py`` 的 ``PostCommentTests``)、
+         *         ``self.client.post(self.url, {"text": "沙发"}, format="json")``(见同文件 ``PostCommentThreadTests``)
+         *
+         *     备注信息:
+         *         GET 只返回顶级评论(内嵌前两条回复);POST 可带 ``parent_id`` 发表回复,
+         *         层级由 ``services.create_comment`` 归一为两级,提醒在事务提交后入队。
          */
         post: operations["posts_comments_create"];
         delete?: never;
@@ -1238,18 +1304,20 @@ export interface paths {
         /**
          * @description 删除自己的评论(DELETE /api/v1/posts/{post_id}/comments/{comment_id})。
          *
-         *     删顶级评论会连带删除该楼全部回复;非作者一律 404(不暴露存在性)。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *         comment_id: 评论主键。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         Http404: 动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的。
+         *     使用示例:
+         *         ``resp = self.client.delete(f"/api/v1/posts/{self.post.id}/comments/{root.id}")``(见 ``feed/tests.py`` 的 ``PostCommentThreadTests``)
+         *
+         *     备注信息:
+         *         删顶级评论会连带删除该楼全部回复;非作者一律 404(不暴露存在性)。
+         *         动态不可见,或评论不存在 / 不属于该动态 / 不是自己发的时主动抛 ``Http404``。
          */
         delete: operations["posts_comments_destroy"];
         options?: never;
@@ -1267,16 +1335,20 @@ export interface paths {
         /**
          * @description 某条顶级评论的回复列表(GET /api/v1/posts/{post_id}/comments/{comment_id}/replies)。
          *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``offset``。
          *         post_id: 动态主键。
          *         comment_id: 顶级评论主键。
          *
-         *     Returns:
+         *     返回参数:
          *         分页后的回复列表,按时间正序。
          *
-         *     Raises:
-         *         Http404: 动态不可见、评论不存在/不属于该动态/本身是回复。
+         *     使用示例:
+         *         ``resp = self.client.get(f"/api/v1/posts/{self.post.id}/comments/{root.id}/replies")``(见 ``feed/tests.py`` 的 ``PostCommentThreadTests``)
+         *
+         *     备注信息:
+         *         按用户限流(生产额度 360/hour),超限 429 + 统一错误信封。
+         *         动态不可见、评论不存在 / 不属于该动态 / 本身是回复时主动抛 ``Http404``。
          */
         get: operations["posts_comments_replies_retrieve"];
         put?: never;
@@ -1299,39 +1371,45 @@ export interface paths {
         /**
          * @description 收藏与取消收藏(POST/DELETE /api/v1/posts/{post_id}/favorite)。
          *
-         *     **两个方法都恒 204**(首次收藏、重复收藏、没收藏过就取消,全都 204):
-         *     与关注接口同口径,客户端只做乐观翻转,不需要知道「是不是第一次」。
-         *     收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
-         *     只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         Http404: 动态不存在或对当前用户不可见。
+         *     使用示例:
+         *         ``first = self.client.post(self.url())``(见 ``feed/tests.py`` 的 ``PostFavoriteApiTests``)、
+         *         ``self.client.delete(self.url())``(见同文件同类的取消收藏用例)
+         *
+         *     备注信息:
+         *         **两个方法都恒 204**(首次收藏、重复收藏、没收藏过就取消,全都 204):
+         *         与关注接口同口径,客户端只做乐观翻转,不需要知道「是不是第一次」。
+         *         收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
+         *         只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
+         *         动态不存在或对当前用户不可见时主动抛 ``Http404``。
          */
         post: operations["posts_favorite_create"];
         /**
          * @description 收藏与取消收藏(POST/DELETE /api/v1/posts/{post_id}/favorite)。
          *
-         *     **两个方法都恒 204**(首次收藏、重复收藏、没收藏过就取消,全都 204):
-         *     与关注接口同口径,客户端只做乐观翻转,不需要知道「是不是第一次」。
-         *     收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
-         *     只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         Http404: 动态不存在或对当前用户不可见。
+         *     使用示例:
+         *         ``first = self.client.post(self.url())``(见 ``feed/tests.py`` 的 ``PostFavoriteApiTests``)、
+         *         ``self.client.delete(self.url())``(见同文件同类的取消收藏用例)
+         *
+         *     备注信息:
+         *         **两个方法都恒 204**(首次收藏、重复收藏、没收藏过就取消,全都 204):
+         *         与关注接口同口径,客户端只做乐观翻转,不需要知道「是不是第一次」。
+         *         收藏自己的动态允许(书签语义)。**不发通知、不产生 IM 灰条** —— 收藏是私密书签,
+         *         只动 ``PostFavorite`` 一张表(不调 ``notify_on_commit``、不碰 ``im/tasks.py``)。
+         *         动态不存在或对当前用户不可见时主动抛 ``Http404``。
          */
         delete: operations["posts_favorite_destroy"];
         options?: never;
@@ -1351,29 +1429,39 @@ export interface paths {
         /**
          * @description 点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
          *
-         *     点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
-         *     首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``first = self.client.post(f"/api/v1/posts/{self.post.id}/like")``(见 ``feed/tests.py`` 的 ``PostLikeTests``)、
+         *         ``self.client.delete(f"/api/v1/posts/{self.post.id}/like")``(见同文件同类的幂等用例)
+         *
+         *     备注信息:
+         *         点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+         *         首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
          */
         post: operations["posts_like_create"];
         /**
          * @description 点赞与取消点赞(POST/DELETE /api/v1/posts/{post_id}/like)。
          *
-         *     点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
-         *     首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         POST 返回 ``{"liked": true}``;DELETE 返回 204 空响应。
+         *
+         *     使用示例:
+         *         ``first = self.client.post(f"/api/v1/posts/{self.post.id}/like")``(见 ``feed/tests.py`` 的 ``PostLikeTests``)、
+         *         ``self.client.delete(f"/api/v1/posts/{self.post.id}/like")``(见同文件同类的幂等用例)
+         *
+         *     备注信息:
+         *         点赞幂等:重复点赞返回 200(首次为 201);取消点赞幂等,没赞过也返回 204。
+         *         首次点赞会给动态作者写一条站内通知(自己赞自己不通知,取消赞不通知)。
          */
         delete: operations["posts_like_destroy"];
         options?: never;
@@ -1391,21 +1479,23 @@ export interface paths {
         /**
          * @description 点赞列表(GET /api/v1/posts/{post_id}/likes)。
          *
-         *     按**点赞时间倒序**返回「谁点了赞」,游标建在 ``PostLike`` 行上。
-         *     动态本身走广场可见性口径,不可见(不存在 / 双向拉黑 / 作者被重封禁)一律 404;
-         *     点赞者同样过滤双向拉黑与重封禁账号,``count`` 是**过滤后**的可见人数。
-         *     没人点赞返回 200 + 空列表(不 404)。新接口没有老客户端,不提供 ``offset`` 兼容分支。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{count, next_cursor, has_more, results}``,``results[]`` 元素为
          *         ``{user_id, nickname, avatar_url, liked_at}``。
          *
-         *     Raises:
-         *         Http404: 动态不存在或对当前用户不可见。
+         *     使用示例:
+         *         ``data = self.client.get(self.url()).json()``(见 ``feed/tests.py`` 的 ``PostLikesListTests``)
+         *
+         *     备注信息:
+         *         按**点赞时间倒序**返回「谁点了赞」,游标建在 ``PostLike`` 行上。
+         *         动态本身走广场可见性口径,不可见(不存在 / 双向拉黑 / 作者被重封禁)一律 404;
+         *         点赞者同样过滤双向拉黑与重封禁账号,``count`` 是**过滤后**的可见人数。
+         *         没人点赞返回 200 + 空列表(不 404)。新接口没有老客户端,不提供 ``offset`` 兼容分支。
+         *         动态不存在或对当前用户不可见时主动抛 ``Http404``。
          */
         get: operations["posts_likes_retrieve"];
         put?: never;
@@ -1428,17 +1518,20 @@ export interface paths {
         /**
          * @description 举报动态(POST /api/v1/posts/{post_id}/report)。
          *
-         *     幂等:同一动态已有待处理举报时返回已有记录(200),本次新建返回 201。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,body 需带 ``type`` 与可选 ``detail``。
          *         post_id: 动态主键。
          *
-         *     Returns:
+         *     返回参数:
          *         ``{id, status}``。
          *
-         *     Raises:
-         *         ValidationError: 举报自己的动态。
+         *     使用示例:
+         *         ``resp = self.client.post(self.url, {"type": "porn", "detail": "色情图"}, format="json")``(见 ``feed/tests.py`` 的 ``PostReportTests``)
+         *
+         *     备注信息:
+         *         幂等:同一动态已有待处理举报时返回已有记录(200),本次新建返回 201;
+         *         并发提交由 ``dedupe_key`` 的唯一约束兜底,``get_or_create`` 回查已有行。
+         *         举报自己的动态时主动抛 ``ValidationError``。
          */
         post: operations["posts_report_create"];
         delete?: never;
@@ -1457,14 +1550,18 @@ export interface paths {
         /**
          * @description 我的动态列表(GET /api/v1/posts/mine)。
          *
-         *     与广场列表不同:这里只按作者过滤,不套用 ``visible_posts`` 的可见性规则 ——
-         *     自己发过的动态自己始终能看到。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象,支持 ``limit`` / ``before``(或兼容的 ``offset``)。
          *
-         *     Returns:
+         *     返回参数:
          *         分页后的动态列表,按发布时间倒序。
+         *
+         *     使用示例:
+         *         ``data = self.client.get("/api/v1/posts/mine").json()``(见 ``feed/tests.py`` 的 ``FeedFlowTests``)
+         *
+         *     备注信息:
+         *         与广场列表不同:这里只按作者过滤,不套用 ``visible_posts`` 的可见性规则 ——
+         *         自己发过的动态自己始终能看到。
          */
         get: operations["posts_mine_retrieve"];
         put?: never;
@@ -1750,41 +1847,45 @@ export interface paths {
         /**
          * @description 关注与取消关注(POST/DELETE /api/v1/users/{user_id}/follow)。
          *
-         *     幂等:重复关注、重复取消都返回 204(不返回 201,也不报 409);
-         *     不能关注自己(400);与我互相拉黑、对方不存在或处于重封禁状态一律 404
-         *     (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
-         *     关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         user_id: 被关注/被取消关注的账号 id。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         ValidationError: 关注自己(400)。
-         *         NotFound: 对方不存在、与我互相拉黑,或处于重封禁状态。
+         *     使用示例:
+         *         ``resp = self.client.post(self.follow_url())``(见 ``feed/tests.py`` 的 ``FollowApiTests``)、
+         *         ``self.client.delete(self.follow_url())``(见同文件同类的取消关注用例)
+         *
+         *     备注信息:
+         *         幂等:重复关注、重复取消都返回 204(不返回 201,也不报 409);
+         *         不能关注自己(400);与我互相拉黑、对方不存在或处于重封禁状态一律 404
+         *         (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
+         *         关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
+         *         关注自己时主动抛 ``ValidationError``;对方不存在 / 互相拉黑 / 重封禁时主动抛 ``NotFound``。
          */
         post: operations["users_follow_create"];
         /**
          * @description 关注与取消关注(POST/DELETE /api/v1/users/{user_id}/follow)。
          *
-         *     幂等:重复关注、重复取消都返回 204(不返回 201,也不报 409);
-         *     不能关注自己(400);与我互相拉黑、对方不存在或处于重封禁状态一律 404
-         *     (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
-         *     关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
-         *
-         *     Args:
+         *     参数说明:
          *         request: DRF 请求对象。
          *         user_id: 被关注/被取消关注的账号 id。
          *
-         *     Returns:
+         *     返回参数:
          *         204 空响应。
          *
-         *     Raises:
-         *         ValidationError: 关注自己(400)。
-         *         NotFound: 对方不存在、与我互相拉黑,或处于重封禁状态。
+         *     使用示例:
+         *         ``resp = self.client.post(self.follow_url())``(见 ``feed/tests.py`` 的 ``FollowApiTests``)、
+         *         ``self.client.delete(self.follow_url())``(见同文件同类的取消关注用例)
+         *
+         *     备注信息:
+         *         幂等:重复关注、重复取消都返回 204(不返回 201,也不报 409);
+         *         不能关注自己(400);与我互相拉黑、对方不存在或处于重封禁状态一律 404
+         *         (三种情况统一按「用户不存在」处理,不泄漏账号是否存在)。
+         *         关注**不发通知、不建立聊天权限**,只影响「关注」tab 的内容。
+         *         关注自己时主动抛 ``ValidationError``;对方不存在 / 互相拉黑 / 重封禁时主动抛 ``NotFound``。
          */
         delete: operations["users_follow_destroy"];
         options?: never;
@@ -2525,11 +2626,17 @@ export interface components {
             /**
              * @description 取该楼层可见回复的总数(回复对象恒为 0)。
              *
-             *     Args:
+             *     参数说明:
              *         comment: 评论对象。
              *
-             *     Returns:
+             *     返回参数:
              *         可见回复条数。
+             *
+             *     使用示例:
+             *         ``PostCommentSerializer(comment, context={"request": request}).data["reply_count"]``(见 ``feed/views.py`` 的 ``post_comments``)
+             *
+             *     备注信息:
+             *         层级只有两级,所以回复对象本身恒为 0;顶层评论的计数已剔除被拉黑 / 被重封禁的回复者。
              */
             readonly reply_count: number;
             readonly replies: {

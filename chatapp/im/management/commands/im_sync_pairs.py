@@ -24,8 +24,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py im_sync_pairs --dry-run``(见 ``docs/standards/dev-commands.md``)
+
+        备注信息:
+            只有一个 ``--dry-run`` 开关,默认关;打开时只统计待同步的配对数,不写 imserver。
         """
         parser.add_argument("--dry-run", action="store_true",
                             help="只统计不写入")
@@ -33,9 +42,20 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """逐条同步并汇总成败数量。
 
-        Args:
+        参数说明:
             *args: 位置参数,未使用。
             **options: 已解析的命令行参数;``dry_run`` 为真时只统计。
+
+        返回参数:
+            无返回值;汇总行写到标准输出。
+
+        使用示例:
+            ``python manage.py im_sync_pairs``(见 ``docs/ops/imserver.md`` 的上线回填步骤)
+
+        备注信息:
+            只处理 ``unmatched_at IS NULL`` 的有效配对;``im_pair`` 以 ``(user_a,user_b)`` 为主键,命令幂等。
+            逐条先 ``ensure_account`` 补建 IM 账号(发送要求收件人存在,缺行会导致配对灰条与消息 42201),
+            再 ``pair_add``;单条失败只累加计数,不中断整体流程。
         """
         dry_run = options["dry_run"]
         ok = fail = 0

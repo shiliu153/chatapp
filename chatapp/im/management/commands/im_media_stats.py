@@ -23,12 +23,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """收集并打印用量信息。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
             **options: 命令行选项(未使用)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值;报表写到标准输出。
+
+        使用示例:
+            ``python manage.py im_media_stats``(见 ``docs/ops/imserver.md`` 的媒体用量一节)
+
+        备注信息:
+            只读命令,不写库也不删文件;磁盘部分扫 ``MEDIA_ROOT/chat`` 下全部文件并按字节求和,
+            目录不存在时磁盘统计按 0 处理;标准输出按状态、磁盘与 Top 5 发送者三段打印。
         """
         root = Path(settings.MEDIA_ROOT) / CHAT_DIR
         files = [path for path in root.rglob("*") if path.is_file()] if root.exists() else []

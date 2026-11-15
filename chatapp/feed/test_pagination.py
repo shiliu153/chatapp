@@ -24,12 +24,19 @@ User = get_user_model()
 def _make_author(phone: str, status: str = ProfileStatus.COMPLETE):
     """造一个带资料的作者。
 
-    Args:
+    参数说明:
         phone: 手机号。
         status: 资料状态(用于验证重封禁作者被排除)。
 
-    Returns:
+    返回参数:
         新建用户。
+
+    使用示例:
+        ``self.viewer = _make_author("13800138000")``(见 ``feed/test_pagination.py`` 的
+        ``PageVisiblePostsTests.setUp``)
+
+    备注信息:
+        昵称直接取手机号;手机号在库内唯一,同一用例内不能重复使用同一个号码。
     """
     user = User.objects.create_user(phone=phone)
     Profile.objects.create(user=user, nickname=phone, status=status)

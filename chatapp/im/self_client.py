@@ -27,11 +27,17 @@ REPORT_HANDLED_TEXT = "您提交的举报已处理,感谢您对社区安全的�
 def _uid(identifier: str) -> int:
     """把 IM 账号转成用户 id。
 
-    Args:
+    参数说明:
         identifier: ``u9`` 或 ``system_notice``。
 
-    Returns:
+    返回参数:
         用户 id;系统通知为 0。
+
+    使用示例:
+        ``body = {"uid": _uid(identifier), "block": block}``(见本模块 ``kick_user``)
+
+    备注信息:
+        除 ``system_notice`` 外的标识符必须是 ``u`` + 数字,否则 ``int`` 转换抛 ``ValueError``。
     """
     if identifier == SYSTEM_NOTICE_IDENTIFIER:
         return 0
@@ -41,12 +47,20 @@ def _uid(identifier: str) -> int:
 def _post(path: str, payload: dict) -> bool:
     """调用一次内部 API。
 
-    Args:
+    参数说明:
         path: 以 ``/internal/`` 开头的路径。
         payload: JSON 请求体。
 
-    Returns:
+    返回参数:
         2xx 返回 ``True``;网络/HTTP 错误返回 ``False``。
+
+    使用示例:
+        ``self.assertTrue(self_client._post(path, {"uid": 1}))``(见 ``config/tests.py`` 的 ``test_im_call_success_and_failure_are_counted``)
+
+    备注信息:
+        请求体按固定分隔符序列化后与时间戳一起做 HMAC-SHA256,交给 imserver 校验;超时 5 秒。
+        任何异常都只记日志并返回 ``False``(对外函数永不抛异常),同时按结果给
+        ``im_calls_total`` 计数。
     """
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     timestamp = str(int(time.time()))
@@ -193,13 +207,20 @@ def kick_user(identifier: str, block: bool = False,
     请求体里的 ``client_type`` 只在按端踢时出现:不带它 = **踢全部端**
     (封禁 / 注销的语义),带上就只踢该端(同类端顶号)。
 
-    Args:
+    参数说明:
         identifier: 目标 IM 账号,如 ``u9``。
         block: 是否同时写入封禁键。
         client_type: ``app`` / ``web``;``None`` 表示踢全部端。
 
-    Returns:
+    返回参数:
         成功返回 ``True``;网络/HTTP 错误返回 ``False``。
+
+    使用示例:
+        ``kick_user(user.im_user_id, client_type=client_type)``(见 ``im/views.py`` 的 ``user_sig``)
+
+    备注信息:
+        封禁与注销走 ``block=True`` + ``client_type=None``(踢全部端);同类端顶号只传
+        ``client_type``,另一端的在线会话必须留着。
     """
     body = {"uid": _uid(identifier), "block": block}
     if client_type is not None:
@@ -213,13 +234,20 @@ def set_session_version(identifier: str, version: int,
 
     imserver 在 WS 鉴权时比对 token 里的 ``sv``;不一致即拒绝旧 token(H3)。
 
-    Args:
+    参数说明:
         identifier: IM 账号,如 ``u9``。
         version: 该端当前的会话版本。
         client_type: ``app`` 或 ``web``;imserver 按 ``(uid, ct)`` 落库。
 
-    Returns:
+    返回参数:
         同步成功返回 ``True``;网络/HTTP 错误返回 ``False``。
+
+    使用示例:
+        ``set_session_version(user.im_user_id, version, client_type=client_type)``(见 ``im/views.py`` 的 ``user_sig``)
+
+    备注信息:
+        必须在签发 token **之前**同步成功:否则新 token 带的是 imserver 还没见过的版本,
+        连接会被自己拒绝,调用方因此按 fail-closed 处理(失败返回 503)。
     """
     return _post("/internal/session_version",
                  {"uid": _uid(identifier), "version": int(version),
@@ -229,12 +257,18 @@ def set_session_version(identifier: str, version: int,
 def pair_add(user_a_identifier: str, user_b_identifier: str) -> bool:
     """建立聊天权限(配对成功)。
 
-    Args:
+    参数说明:
         user_a_identifier: 一方 IM 账号。
         user_b_identifier: 另一方 IM 账号。
 
-    Returns:
+    返回参数:
         同步成功返回 ``True``;失败返回 ``False``。
+
+    使用示例:
+        ``self_client.pair_add(identifier_a, identifier_b)``(见 ``im/client.py`` 的 ``pair_add``)
+
+    备注信息:
+        配对成功后调用;失败由调用方的重试策略处理。
     """
     return _post("/internal/pair", {"a": _uid(user_a_identifier),
                                     "b": _uid(user_b_identifier), "action": "add"})
@@ -243,12 +277,18 @@ def pair_add(user_a_identifier: str, user_b_identifier: str) -> bool:
 def pair_remove(user_a_identifier: str, user_b_identifier: str) -> bool:
     """移除聊天权限(解除配对/拉黑)。
 
-    Args:
+    参数说明:
         user_a_identifier: 一方 IM 账号。
         user_b_identifier: 另一方 IM 账号。
 
-    Returns:
+    返回参数:
         同步成功返回 ``True``;失败返回 ``False``。
+
+    使用示例:
+        ``self_client.pair_remove(identifier_a, identifier_b)``(见 ``im/client.py`` 的 ``pair_remove``)
+
+    备注信息:
+        解除配对或拉黑时调用;失败由调用方的重试策略处理。
     """
     return _post("/internal/pair", {"a": _uid(user_a_identifier),
                                     "b": _uid(user_b_identifier), "action": "remove"})

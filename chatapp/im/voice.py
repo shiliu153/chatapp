@@ -56,8 +56,17 @@ class VoiceUnavailable(Exception):
 def _child_env() -> dict[str, str]:
     """构造子进程的最小环境变量。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         只保留 ``PATH`` 与临时目录相关变量,避免继承 ``FFREPORT`` 等可被利用的配置。
+
+    使用示例:
+        ``env = _child_env()``(见本模块 ``_run``)
+
+    备注信息:
+        ``PATH`` 取不到时回落到 ``/usr/local/bin:/usr/bin:/bin``;``LC_ALL`` / ``LANG`` 固定为 ``C``。
     """
     env = {"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
            "LC_ALL": "C", "LANG": "C"}
@@ -86,14 +95,20 @@ def _apply_limits() -> None:
 def _run(args: list[str]) -> subprocess.CompletedProcess:
     """以最小权限执行 ffmpeg/ffprobe。
 
-    Args:
+    参数说明:
         args: 完整参数数组(含可执行文件名),不经 shell。
 
-    Returns:
-        子进程结果;超时抛 ``subprocess.TimeoutExpired``,由调用方转成 ``VoiceError``。
+    返回参数:
+        子进程结果;退出码由调用方判定。
 
-    Raises:
-        subprocess.TimeoutExpired: 处理超过 ``PROCESS_TIMEOUT_SECONDS``。
+    使用示例:
+        ``result = _run([FFPROBE, "-v", "error", "-protocol_whitelist", PROTOCOL_WHITELIST])``(见本模块 ``_probe_ms``)
+
+    备注信息:
+        ``stdin`` 接 ``DEVNULL``,超时 ``PROCESS_TIMEOUT_SECONDS`` 秒,POSIX 下用
+        ``preexec_fn`` 挂 ``_apply_limits``;环境变量只留 ``_child_env()`` 给出的几项。
+        处理超过 ``PROCESS_TIMEOUT_SECONDS`` 时抛 ``subprocess.TimeoutExpired``,
+        由调用方转成 ``VoiceError``。
     """
     return subprocess.run(
         args,
@@ -113,11 +128,17 @@ def base_content_type(value: str) -> str:
     Web 的 ``MediaRecorder`` 给出的是 ``audio/webm;codecs=opus``,浏览器
     ``Blob.type`` 会原样带上参数;精确匹配会把正常录音挡在门外。
 
-    Args:
+    参数说明:
         value: 上传声明的 MIME 原值。
 
-    Returns:
+    返回参数:
         形如 ``audio/webm`` 的主类型;空值返回空串。
+
+    使用示例:
+        ``base_content_type(value.content_type)``(见 ``im/serializers.py`` 的 ``ChatVoiceUploadSerializer.validate_file``)
+
+    备注信息:
+        纯字符串处理,不判定 MIME 是否在白名单内 —— 白名单比对由调用方负责。
     """
     return (value or "").split(";", 1)[0].strip().lower()
 
@@ -125,8 +146,17 @@ def base_content_type(value: str) -> str:
 def ffmpeg_available() -> bool:
     """检查转码依赖是否齐全。
 
-    Returns:
+    参数说明:
+        无。
+
+    返回参数:
         两者都在 PATH 中时为 ``True``。
+
+    使用示例:
+        ``if not voice.ffmpeg_available():``(见 ``users/views.py`` 的 ``normalize_profile_voice``)
+
+    备注信息:
+        只查 ``PATH``,不实际执行 ffmpeg/ffprobe;缺失属部署问题,调用方回 503。
     """
     return shutil.which(FFMPEG) is not None and shutil.which(FFPROBE) is not None
 
@@ -134,14 +164,18 @@ def ffmpeg_available() -> bool:
 def _probe_ms(path: Path) -> int:
     """用 ffprobe 读真实时长。
 
-    Args:
+    参数说明:
         path: 本地音频文件。
 
-    Returns:
+    返回参数:
         时长(毫秒)。
 
-    Raises:
-        VoiceError: ffprobe 读不出时长(不是音频 / 文件损坏)。
+    使用示例:
+        ``duration = voice._probe_ms(Path("a.m4a"))``(见 ``im/tests.py`` 的 ``VoiceCommandHardeningTests.test_probe_uses_protocol_whitelist``)
+
+    备注信息:
+        ``ffprobe`` 读不出时长(不是音频 / 文件损坏)或超时时抛 ``VoiceError``。
+        返回值不小于 0,单位是毫秒。
     """
     try:
         result = _run(
@@ -159,12 +193,19 @@ def _probe_ms(path: Path) -> int:
 def _transcode(src: Path, dst: Path) -> None:
     """把任意输入转成 m4a/AAC 单声道。
 
-    Args:
+    参数说明:
         src: 输入文件。
         dst: 输出文件(扩展名 ``.m4a``)。
 
-    Raises:
-        VoiceError: ffmpeg 非零退出或超时。
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``voice._transcode(src, Path(workdir) / "out.m4a")``(见 ``im/tests.py`` 的 ``VoiceCommandHardeningTests.test_transcode_args_are_hardened``)
+
+    备注信息:
+        统一转 AAC 单声道,采样率与码率取 ``CHAT_VOICE_SAMPLE_RATE`` / ``CHAT_VOICE_BITRATE``,
+        并去掉元数据、字幕与数据流。``ffmpeg`` 非零退出或超时抛 ``VoiceError``。
     """
     try:
         result = _run(
@@ -182,17 +223,22 @@ def _transcode(src: Path, dst: Path) -> None:
 def normalize(raw: bytes, content_type: str, declared_ms: int) -> tuple[bytes, int]:
     """校验并转码一段上传的语音。
 
-    Args:
+    参数说明:
         raw: 原始文件字节。
         content_type: 上传声明的 MIME。
         declared_ms: 客户端声明的时长(毫秒)。
 
-    Returns:
+    返回参数:
         ``(m4a 字节, 实测毫秒)``。
 
-    Raises:
-        VoiceUnavailable: 服务器缺 ffmpeg/ffprobe。
-        VoiceError: 格式、时长、大小或解码不合法。
+    使用示例:
+        ``data, duration_ms = voice.normalize(upload.read(), upload.content_type, serializer.validated_data["duration_ms"])``
+        (见 ``im/views.py`` 的 ``upload_voice``)
+
+    备注信息:
+        时长以 ``ffprobe`` 实测值为准,不信任客户端声明;声明值与实测值相差超过
+        ``CHAT_VOICE_DURATION_TOLERANCE_MS`` 时按不合法处理。
+        服务器缺 ffmpeg/ffprobe 抛 ``VoiceUnavailable``;格式、时长、大小或解码不合法抛 ``VoiceError``。
     """
     suffix = ALLOWED_CONTENT_TYPES.get(base_content_type(content_type))
     if suffix is None:

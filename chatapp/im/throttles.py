@@ -19,12 +19,18 @@ class ChatImageThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         """按用户 id 生成限流缓存键。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图;DRF 接口要求,此处未使用。
 
-        Returns:
+        返回参数:
             该用户在 ``chat_image`` 作用域下的缓存键。
+
+        使用示例:
+            DRF 每次限流检查时调用 ``throttle.get_cache_key(request, view)``(见 ``config/throttling.py`` 的 ``UserScopedThrottle``)
+
+        备注信息:
+            键里的 ``ident`` 恒为 ``request.user.id``;额度由 ``chat_image`` 作用域读取。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
 
@@ -37,11 +43,17 @@ class ChatVoiceThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         """按用户 id 生成限流缓存键。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图;DRF 接口要求,此处未使用。
 
-        Returns:
+        返回参数:
             该用户在 ``chat_voice`` 作用域下的缓存键。
+
+        使用示例:
+            DRF 每次限流检查时调用 ``throttle.get_cache_key(request, view)``(见 ``config/throttling.py`` 的 ``UserScopedThrottle``)
+
+        备注信息:
+            键里的 ``ident`` 恒为 ``request.user.id``;额度由 ``chat_voice`` 作用域读取。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
