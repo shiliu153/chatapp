@@ -34,7 +34,13 @@ die() { printf '错误: %s\n' "$*" >&2; exit 2; }
 #   3. 仓库根就是母体检出(`CHATAPP_MAIN_CHECKOUT`,默认 `$HOME/src/chatapp`)→ 沿用
 #      文档口径:端口 13306 / 16379、项目名 chatapp-ci(README / runbook / 踩坑手册都按这套写);
 #   4. 其余任何目录(worker 的工单 worktree、临时 worktree、任意克隆)→ 按路径哈希取槽
-#      0-99:MySQL 13400+槽、Redis 13500+槽、项目名 `chatapp-ci-s<槽>`。
+#      0-99:MySQL 13400+槽、Redis 13500+槽、项目名 `chatapp-ci-s<槽>`;
+#   5. **撞槽兜底**:规则 4 命中的槽若已被「别的 compose 项目」占着(该槽的 MySQL / Redis
+#      端口有人在听,而且不是本项目自己的工作区),自动顺延到下一个「两个端口都空闲」的槽,
+#      并在 stderr 打一行提示;显式 `CHATAPP_CI_SLOT=N` 撞上了则**不静默改写**,直接报错并
+#      给出可用槽位建议。本项目自己的栈在跑(按 compose 的 working_dir 标签认)则照旧复用。
+#      判定必须留在这里:DB_PORT / BROKER_URL / TEST_REDIS_* 都由槽位派生,挪到 deps.sh
+#      改端口会变成「容器起在新槽、Django 连旧槽」。
 # 同一个目录每次派生出同一个结果,不同目录几乎必然不同 —— 这就是「并发互不拆台」的依据。
 CHATAPP_MAIN_CHECKOUT=${CHATAPP_MAIN_CHECKOUT:-$HOME/src/chatapp}
 
@@ -44,6 +50,63 @@ path_slot() {
   local sum
   sum=$(printf '%s' "$ROOT" | cksum)
   printf '%s' "$(( ${sum%% *} % 100 ))"
+}
+
+# ---- 撞槽判定:两个探针 + 两个纯函数 -----------------------------------
+# 为什么探针要能被环境变量顶掉:scripts/test_verify.sh 要在**不碰 docker、不起容器**的
+# 前提下钉住「槽被占时选下一个槽」这条规则,所以两个探针各留一个离线注入口
+# (CHATAPP_CI_LISTENING_PORTS / CHATAPP_CI_OWNED_SLOTS)。生产路径不设它们就走真实探测。
+
+# 宿主上已被占用的端口,空格分隔。两个来源取并集:
+#   1. docker —— 所有容器已发布的宿主端口。**这条不能省**:本机 WSL 走 Docker Desktop 的
+#      引擎,容器端口发布在 Windows 宿主上,WSL 里 `ss -ltn` 看不到(2026-11-15 实测:
+#      chatapp-ci-s9 明明在跑,WSL 里 13400-13699 的监听列表是空的);
+#   2. ss —— WSL 自己的原生监听(例如手起的 mysqld / redis),没有这个工具就跳过。
+# 两个来源都拿不到就返回空 = 认为没人占:宁可不顺延,也不要凭空挪槽(挪错等于连到别人的库)。
+listening_ports() {
+  if [ -n "${CHATAPP_CI_LISTENING_PORTS+x}" ]; then printf '%s' "$CHATAPP_CI_LISTENING_PORTS"; return 0; fi
+  # 收尾统一成「空格分隔」:slot_free / choose_slot 都按 ` case " $list " in *" $port "* ) `
+  # 判成员,混进换行就会漏判(2026-11-15 自测当场抓到:docker 的输出是多行的)。
+  {
+    if command -v docker >/dev/null 2>&1; then
+      docker ps --format '{{.Ports}}' 2>/dev/null |
+        tr ',' '\n' | sed -n 's/^.*:\([0-9][0-9]*\)->.*$/\1/p'
+    fi
+    if command -v ss >/dev/null 2>&1; then
+      ss -ltn 2>/dev/null | awk 'NR > 1 { p = $4; sub(/.*:/, "", p); print p }'
+    fi
+  } | tr '\n' ' '
+}
+
+# 本项目(按 compose 的 working_dir 标签精确认)已经占着的槽位,空格分隔。
+# 不能用容器名 / 项目名前缀判:`chatapp-ci-s9-mysql` 也以 `chatapp-ci` 开头,撞槽的另一个
+# 目录起的栈同样叫 `chatapp-ci-s9` —— 只有 working_dir 能区分「谁起的」。
+owned_slots() {
+  if [ -n "${CHATAPP_CI_OWNED_SLOTS+x}" ]; then printf '%s' "$CHATAPP_CI_OWNED_SLOTS"; return 0; fi
+  command -v docker >/dev/null 2>&1 || return 0
+  docker ps --filter "label=com.docker.compose.project.working_dir=$ROOT" \
+    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null |
+    awk '/^chatapp-ci-s[0-9]+$/ { sub(/^chatapp-ci-s/, ""); printf "%s ", $0 }'
+}
+
+# 槽位是否空闲:该槽的 MySQL / Redis 两个宿主端口都没人在听。纯函数,只读第二个参数。
+slot_free() { # slot_free <槽> <监听端口清单>
+  case " $2 " in *" $((13400 + $1)) "*) return 1 ;; esac
+  case " $2 " in *" $((13500 + $1)) "*) return 1 ;; esac
+  return 0
+}
+
+# 从起始槽往后找第一个能用的槽(最多绕一圈 100 个):这个槽是自己的栈(复用)或两个端口都空闲
+# 就算能用;一个都没有就返回 1 且不打印。纯函数 —— 顺延结果因此可离线复算。
+choose_slot() { # choose_slot <起始槽> <监听端口清单> <本项目已占槽位清单>
+  local i=0 slot
+  while [ "$i" -lt 100 ]; do
+    slot=$(( ($1 + i) % 100 ))
+    case " $3 " in *" $slot "*) printf '%s' "$slot"; return 0 ;; esac
+    if slot_free "$slot" "$2"; then printf '%s' "$slot"; return 0; fi
+    i=$((i + 1))
+  done
+  return 1
 }
 
 # 母体检出保持文档口径;其余目录一律派生(显式 CHATAPP_CI_SLOT 在母体里也生效)。
@@ -58,6 +121,36 @@ if [ -n "${CHATAPP_CI_SLOT:-}" ]; then
 elif [ "$ROOT" != "$CHATAPP_MAIN_CHECKOUT" ]; then
   slot=$(path_slot)
 fi
+# 撞槽兜底(文件头规则 5)。只在这两种情况动手:槽位非空(派生的或显式给的),且端口没被
+# 外部指定 —— CI 注入 MYSQL_PORT / REDIS_PORT / COMPOSE_PROJECT_NAME 时一律不探测。
+extern_ports=""
+if [ -n "${MYSQL_PORT:-}${REDIS_PORT:-}${COMPOSE_PROJECT_NAME:-}" ]; then extern_ports=1; fi
+
+if [ -n "$slot" ] && [ -z "$extern_ports" ]; then
+  busy=$(listening_ports)
+  owned=$(owned_slots)
+  taken=1
+  # 这个槽是自己的栈(同一目录上次没拆)→ 复用,不算被占。
+  case " $owned " in *" $slot "*) taken=0 ;; esac
+  # 两个端口都空闲 → 直接用。
+  if [ "$taken" = 1 ] && slot_free "$slot" "$busy"; then taken=0; fi
+  if [ "$taken" = 1 ]; then
+    # 注意 `$( ) || 赋值`:放在子 shell 里失败只影响那一层,这里显式兜住。
+    next_slot=$(choose_slot "$slot" "$busy" "$owned") || next_slot=""
+    if [ -z "$next_slot" ]; then
+      die "槽 $slot 的端口被别的项目占着,而且 0-99 找不到空闲槽:先 docker ps --format '{{.Names}} {{.Ports}}' 收掉不用的栈"
+    fi
+    if [ -n "${CHATAPP_CI_SLOT:-}" ]; then
+      # 显式指定的槽不静默改写:偷偷换槽会让人以为自己的 CHATAPP_CI_SLOT 生效了。
+      die "CHATAPP_CI_SLOT=$slot 的端口已被别的项目占用(MySQL $((13400 + slot)) / Redis $((13500 + slot)));换一个空闲槽:CHATAPP_CI_SLOT=$next_slot"
+    fi
+    printf '[env] 提示:%s 派生的槽 %s 已被别的项目占用(MySQL %s / Redis %s),顺延到槽 %s(MySQL %s / Redis %s);要指定别的槽用 CHATAPP_CI_SLOT=<0-99>\n' \
+      "$ROOT" "$slot" "$((13400 + slot))" "$((13500 + slot))" \
+      "$next_slot" "$((13400 + next_slot))" "$((13500 + next_slot))" >&2
+    slot=$next_slot
+  fi
+fi
+
 if [ -n "$slot" ]; then
   COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-chatapp-ci-s$slot}
   MYSQL_PORT=${MYSQL_PORT:-$((13400 + slot))}

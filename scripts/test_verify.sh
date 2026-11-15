@@ -56,8 +56,13 @@ probe_env() { # probe_env <目录> [环境赋值...] → 「项目名 MySQL端�
   mkdir -p "$dir/scripts/stacks"
   cp "$ROOT/scripts/stacks/env.sh" "$dir/scripts/stacks/env.sh"
   # shellcheck disable=SC2086  # "$@" 是若干 NAME=VALUE,必须逐词传给 env
+  # 两个 CHATAPP_CI_* 是 env.sh 的**离线探针**(撞槽判定的注入口)。这里默认填空 =
+  # 「假装没有端口被占、没有自己的栈」,于是派生结果只由路径决定 —— 自测不会被宿主上
+  # 真在跑的容器带跑;要造「撞槽」场景再按需覆盖(见下面那组用例)。
   env -u COMPOSE_PROJECT_NAME -u MYSQL_PORT -u REDIS_PORT \
       -u DB_PORT -u BROKER_URL -u REDIS_URL -u TEST_REDIS_HOST -u TEST_REDIS_PORT \
+      -u CHATAPP_CI_LISTENING_PORTS -u CHATAPP_CI_OWNED_SLOTS \
+      CHATAPP_CI_LISTENING_PORTS= CHATAPP_CI_OWNED_SLOTS= \
       "$@" bash -c '. "$1/scripts/stacks/env.sh"; printf "%s %s %s %s\n" \
         "$COMPOSE_PROJECT_NAME" "$MYSQL_PORT" "$REDIS_PORT" "$DB_PORT"' _ "$dir"
 }
@@ -102,6 +107,32 @@ done
 if [ "$other" != "$derived" ]; then
   printf 'ok   两个不同目录派生出不同的栈(%s / %s)\n' "${derived%% *}" "${other%% *}"
 else printf 'FAIL 两个不同目录派生出了同一套栈(%s)\n' "$derived"; fail=1; fi
+# 撞槽兜底(scripts/stacks/env.sh 规则 5):槽位是「路径哈希 % 100」,两个目录理论上会撞到
+# 同一槽;撞了必须自己顺延,不能等 docker compose 拿端口冲突报错。这组用例全程离线 ——
+# CHATAPP_CI_LISTENING_PORTS 假装「这些端口有人听」,CHATAPP_CI_OWNED_SLOTS 假装「这些槽
+# 是自己的栈」,所以不必真起容器。
+bumped=$(probe_env "$tmp_b" CHATAPP_MAIN_CHECKOUT="$tmp_a" CHATAPP_CI_LISTENING_PORTS="$d_mysql")
+read -r b_proj b_mysql b_redis b_dbport <<< "$bumped"
+if [ "$b_proj" != "$d_proj" ] && [ "$b_mysql" != "$d_mysql" ]; then
+  printf 'ok   撞槽(MySQL %s 在听)时顺延到别的槽(%s → %s)\n' "$d_mysql" "$d_proj" "$b_proj"
+else printf 'FAIL 槽 %s 的 MySQL 端口被占,却仍用原槽\n' "$d_proj"; fail=1; fi
+probe_check "顺延后 DB_PORT 跟着新槽" "$b_mysql" "$b_dbport"
+probe_check "顺延后 Redis 端口仍是同一个槽" "$((13500 + 10#${b_proj#chatapp-ci-s}))" "$b_redis"
+probe_check "本项目自己的槽(按 working_dir 认)继续复用" "$derived" \
+  "$(probe_env "$tmp_b" CHATAPP_MAIN_CHECKOUT="$tmp_a" CHATAPP_CI_LISTENING_PORTS="$d_mysql" \
+    CHATAPP_CI_OWNED_SLOTS="${d_proj#chatapp-ci-s}")"
+probe_env "$tmp_b" CHATAPP_MAIN_CHECKOUT="$tmp_a" CHATAPP_CI_SLOT="${d_proj#chatapp-ci-s}" \
+  CHATAPP_CI_LISTENING_PORTS="$d_mysql" >/dev/null 2>&1
+if [ $? = 2 ]; then echo "ok   显式 CHATAPP_CI_SLOT 撞槽时退出 2(给建议,不静默改写)"
+else echo "FAIL 显式 CHATAPP_CI_SLOT 撞槽时应退出 2"; fail=1; fi
+probe_check "外部显式给端口时一律不探测(CI 口径)" "handpicked 23306 26379 23306" \
+  "$(probe_env "$tmp_b" MYSQL_PORT=23306 REDIS_PORT=26379 COMPOSE_PROJECT_NAME=handpicked \
+    CHATAPP_CI_LISTENING_PORTS="13463 13464 13563 13564")"
+if [ "$(choose_slot 99 "13499" "")" = 0 ]; then echo "ok   槽位顺延在 99 之后回到 0"
+else echo "FAIL 槽位顺延在 99 之后没有回到 0"; fail=1; fi
+if choose_slot 0 "$(seq -s ' ' 13400 13499)" "" >/dev/null 2>&1; then
+  echo "FAIL 0-99 全被占满时 choose_slot 不该成功"; fail=1
+else echo "ok   0-99 全占满时 choose_slot 返回失败"; fi
 # 拆容器必须点名本项目,否则「只拆自己」不成立。
 ddry=$(bash "$V" deps --dry-run 2>/dev/null)
 case $ddry in
