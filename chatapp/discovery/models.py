@@ -46,8 +46,17 @@ class Swipe(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``发起者->目标:动作``。
+
+        使用示例:
+            ``str(swipe)``
+
+        备注信息:
+            两个 id 都是账号 id,``action`` 是 ``SwipeAction`` 的原始值(``like`` / ``pass``)。
         """
         return f"{self.swiper_id}->{self.target_id}:{self.action}"
 
@@ -89,12 +98,19 @@ class Match(models.Model):
     def pair_kwargs(cls, user1, user2):
         """配对一律按 id 排序存储,保证 (1,2) 与 (2,1) 是同一行。
 
-        Args:
+        参数说明:
             user1: 配对中的一方。
             user2: 配对中的另一方。
 
-        Returns:
+        返回参数:
             ``get_or_create`` 用的关键字参数,``user_a`` 恒为 id 较小的一方。
+
+        使用示例:
+            ``match, created = Match.objects.get_or_create(**Match.pair_kwargs(me, target))``(见 ``discovery/views.py`` 的 ``swipe``)
+
+        备注信息:
+            与 ``match_user_a_before_b`` 检查约束配套:约束保证「没有反序行」,本方法保证写入前
+            就按升序摆好,不靠捕获 IntegrityError 兜底。
         """
         a, b = (user1, user2) if user1.id < user2.id else (user2, user1)
         return {"user_a": a, "user_b": b}
@@ -103,26 +119,51 @@ class Match(models.Model):
     def is_active(self) -> bool:
         """配对是否仍然有效(未解除)。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``True`` 表示正常配对;``False`` 表示已被任一方解除。
+
+        使用示例:
+            ``self.assertTrue(match.is_active)``(见 ``discovery/tests.py`` 的 ``test_new_match_is_active``)
+
+        备注信息:
+            只判 ``unmatched_at`` 是否为空,不查库;列表查询另有 ``unmatched_at__isnull=True`` 过滤。
         """
         return self.unmatched_at is None
 
     def other_user(self, user):
         """取配对中的另一方。
 
-        Args:
+        参数说明:
             user: 配对中的任意一方。
 
-        Returns:
+        返回参数:
             另一方用户实例。
+
+        使用示例:
+            ``other = match.other_user(me)``(见 ``discovery/views.py`` 的 ``unmatch``)
+
+        备注信息:
+            只比较 ``user_a_id``:不属于这一对的 ``user`` 会被当成 ``user_a``,返回 ``user_b`` ——
+            调用方必须传配对中的一方。
         """
         return self.user_b if self.user_a_id == user.id else self.user_a
 
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``match(较小 id,较大 id)``。
+
+        使用示例:
+            ``str(match)``
+
+        备注信息:
+            两个 id 都是账号 id,顺序恒为升序(由 ``pair_kwargs`` 与检查约束保证)。
         """
         return f"match({self.user_a_id},{self.user_b_id})"

@@ -30,12 +30,18 @@ class DevResetPairCommandTests(TestCase):
     def _run(self, a, b):
         """跑一次命令并返回标准输出。
 
-        Args:
+        参数说明:
             a: ``--a`` 的取值。
             b: ``--b`` 的取值。
 
-        Returns:
+        返回参数:
             命令写进 stdout 的文本。
+
+        使用示例:
+            ``text = self._run(f"u{self.alice.id}", str(self.bob.id))``(见本文件 ``DevResetPairCommandTests``)
+
+        备注信息:
+            用 ``io.StringIO`` 接 ``stdout`` 再回读文本,断言只看输出文案,不解析日志。
         """
         out = io.StringIO()
         call_command("dev_reset_pair", a=a, b=b, stdout=out)

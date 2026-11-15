@@ -42,12 +42,20 @@ User = get_user_model()
 def _years_ago(today, years):
     """取 ``years`` 年前的今天;2 月 29 日退化成 2 月 28 日。
 
-    Args:
+    参数说明:
         today: 参照日期。
         years: 往前推的年数。
 
-    Returns:
+    返回参数:
         推算出的日期。
+
+    使用示例:
+        ``birthday=_years_ago(today, 18)``(见 ``discovery/tests.py`` 的
+        ``CandidateTests.test_age_boundaries_are_inclusive``)
+
+    备注信息:
+        ``today`` 是 2 月 29 日而目标年份不是闰年时 ``date()`` 抛 ``ValueError``,这里退化到
+        2 月 28 日。
     """
     try:
         return date(today.year - years, today.month, today.day)
@@ -136,15 +144,23 @@ class CandidateTests(APITestCase):
     def _make_user(self, phone, gender="female", birthday="2000-01-01", city="上海", complete=True):
         """造一个用户,可选地补齐资料并加一张已过审照片。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             gender: 性别。
             birthday: 生日。
             city: 城市。
             complete: 为 ``True`` 时资料置为完善并附一张已过审照片。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self._make_user("13900139001", complete=False)``(见 ``discovery/tests.py`` 的
+            ``CandidateTests.test_excludes_self_incomplete_and_no_photo``)
+
+        备注信息:
+            资料行总是建出来,``complete=False`` 只把状态置为未完善;候选池口径是「完善 + 过审照片」,
+            所以要造「完善但没照片」的人得再单独删 ``Photo`` 行。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(
@@ -158,11 +174,18 @@ class CandidateTests(APITestCase):
     def _ids(self, resp):
         """从候选响应里取出 ``user_id`` 列表。
 
-        Args:
+        参数说明:
             resp: 接口响应。
 
-        Returns:
+        返回参数:
             候选人的账号 id 列表,保持响应顺序。
+
+        使用示例:
+            ``self.assertEqual(self._ids(resp), [other.id])``(见 ``discovery/tests.py`` 的
+            ``CandidateTests.test_excludes_self_incomplete_and_no_photo``)
+
+        备注信息:
+            候选池响应是裸数组(没有 ``results`` 包装),与喜欢/访客列表的取法不同。
         """
         return [item["user_id"] for item in resp.json()]
 
@@ -256,13 +279,21 @@ class CandidateShuffleTests(APITestCase):
     def _make_user(self, phone, gender="female", city="上海"):
         """造一个资料完善、带一张已过审照片的用户。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             gender: 性别。
             city: 城市。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``user = self._make_user(f"1390013900{index}")``(见 ``discovery/tests.py`` 的
+            ``CandidateShuffleTests.test_pool_is_capped_then_sampled``)
+
+        备注信息:
+            生日固定 ``2000-01-01``;要改 ``shuffle_key`` 或城市由调用方自己再
+            ``Profile.objects.filter(user=...)``。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(
@@ -332,12 +363,19 @@ class SwipeApiTests(APITestCase):
     def _make_user(self, phone, gender="female"):
         """造一个资料完善、带已过审照片的用户。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             gender: 性别。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self.target = self._make_user("13900139000", gender="female")``(见 ``discovery/tests.py``
+            的 ``SwipeApiTests.setUp``)
+
+        备注信息:
+            城市与生日写死成上海 / ``2000-01-01``;滑卡口径只要求目标资料完善,不看偏好。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=phone, gender=gender, birthday="2000-01-01",
@@ -348,12 +386,21 @@ class SwipeApiTests(APITestCase):
     def swipe(self, target_id, action="like"):
         """提交一次滑卡。
 
-        Args:
+        参数说明:
             target_id: 目标账号 id。
             action: ``like`` 或 ``pass``。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``resp = self.swipe(self.target.id)``(见 ``discovery/tests.py`` 的
+            ``SwipeApiTests.test_like_creates_swipe``)、
+            ``self.swipe(self.target.id, action="pass")``(见 ``SwipeApiTests.test_pass_never_matches``)
+
+        备注信息:
+            POST ``/api/v1/discovery/swipe``,请求体是 ``{"target_user_id", "action"}``;互喜入队的
+            灰条任务要配合 ``captureOnCommitCallbacks(execute=True)`` 才会真触发。
         """
         return self.client.post(self.URL, {"target_user_id": target_id, "action": action}, format="json")
 
@@ -475,13 +522,20 @@ class MatchListTests(APITestCase):
     def _make_user(self, phone, nickname=None, with_photo=True):
         """造一个资料完善的用户,可选是否带已过审照片。
 
-        Args:
+        参数说明:
             phone: 手机号。
             nickname: 昵称;``None`` 表示用手机号。
             with_photo: 是否加一张已过审照片。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self._make_user("13900139000", with_photo=False)``(见 ``discovery/tests.py`` 的
+            ``MatchListTests.test_avatar_null_without_approved_photo``)
+
+        备注信息:
+            性别固定 ``female``;``with_photo=False`` 用来断言配对列表里头像降级为 ``null``。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=nickname or phone, gender="female",
@@ -640,7 +694,7 @@ class LikesReceivedTests(APITestCase):
                    city="上海", complete=True, photo=True, status=None):
         """造一个用户;默认资料完善并带一张已过审照片。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             gender: 性别。
             birthday: 生日;``None`` 表示未填。
@@ -649,8 +703,15 @@ class LikesReceivedTests(APITestCase):
             photo: 是否加一张已过审照片。
             status: 显式指定资料状态(用于封禁场景)。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self._make_user("13900139002", status=ProfileStatus.BANNED_LIGHT)``(见
+            ``discovery/tests.py`` 的 ``LikesReceivedTests.test_excludes_incomplete_no_photo_and_banned``)
+
+        备注信息:
+            ``status`` 优先于 ``complete``:传了状态就不再按 ``complete`` 推导完善态。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(
@@ -665,19 +726,36 @@ class LikesReceivedTests(APITestCase):
     def _like_me(self, user):
         """让对方喜欢我。
 
-        Args:
+        参数说明:
             user: 发起喜欢的用户。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._like_me(a)``(见 ``discovery/tests.py`` 的
+            ``LikesReceivedTests.test_lists_only_incoming_likes``)
+
+        备注信息:
+            直接写 ``Swipe`` 行,不走接口,所以不会触发配对判定与灰条任务。
         """
         Swipe.objects.create(swiper=user, target=self.me, action=SwipeAction.LIKE)
 
     def _ids(self, resp):
         """取出列表响应里的 ``user_id``。
 
-        Args:
+        参数说明:
             resp: 接口响应。
 
-        Returns:
+        返回参数:
             user_id 列表,保持响应顺序。
+
+        使用示例:
+            ``self.assertEqual(self._ids(resp), [a.id])``(见 ``discovery/tests.py`` 的
+            ``LikesReceivedTests.test_lists_only_incoming_likes``)
+
+        备注信息:
+            只读 ``results`` 这一页,不看 ``count``;要总数看 ``likes/count`` 接口。
         """
         return [item["user_id"] for item in resp.json()["results"]]
 
@@ -825,12 +903,19 @@ class UnmatchApiTests(APITestCase):
     def _make_user(self, phone, nickname):
         """造一个资料完善的用户(带一张已过审照片)。
 
-        Args:
+        参数说明:
             phone: 手机号。
             nickname: 昵称。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self.other = self._make_user("13900139000", "小红")``(见 ``discovery/tests.py`` 的
+            ``UnmatchApiTests.setUp``)
+
+        备注信息:
+            昵称是必填的位置参数,没有默认值;性别固定 ``female``。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(user=user, nickname=nickname, gender="female",
@@ -903,15 +988,22 @@ class VisitsReceivedTests(APITestCase):
     def _make_user(self, phone, gender="female", complete=True, photo=True, status=None):
         """造一个用户;默认资料完善并带一张已过审照片。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             gender: 性别。
             complete: 是否把资料置为完善。
             photo: 是否加一张已过审照片。
             status: 显式指定资料状态(用于封禁场景)。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``self._make_user("13900139001", photo=False)``(见 ``discovery/tests.py`` 的
+            ``VisitsReceivedTests.test_excludes_incomplete_no_photo_and_banned``)
+
+        备注信息:
+            生日与城市写死 ``2000-01-01`` / 上海;``status`` 优先于 ``complete``。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(
@@ -926,12 +1018,20 @@ class VisitsReceivedTests(APITestCase):
     def _visit(self, viewer, minutes_ago=0):
         """让 viewer 访问我一次。
 
-        Args:
+        参数说明:
             viewer: 访客。
             minutes_ago: 访问发生在多少分钟前(用于排序断言)。
 
-        Returns:
+        返回参数:
             写入的记录。
+
+        使用示例:
+            ``self._visit(a, minutes_ago=30)``(见 ``discovery/tests.py`` 的
+            ``VisitsReceivedTests.test_newest_visit_first``)
+
+        备注信息:
+            直接写 ``ProfileVisit`` 行并显式给 ``last_at``,绕开 30 分钟合并窗口;``owner`` 固定是
+            ``setUp`` 里的 ``self.me``。
         """
         return ProfileVisit.objects.create(
             viewer=viewer, owner=self.me,
@@ -940,11 +1040,18 @@ class VisitsReceivedTests(APITestCase):
     def _ids(self, resp):
         """取出列表响应里的 ``user_id``。
 
-        Args:
+        参数说明:
             resp: 接口响应。
 
-        Returns:
+        返回参数:
             user_id 列表,保持响应顺序。
+
+        使用示例:
+            ``self.assertEqual(self._ids(resp), [a.id])``(见 ``discovery/tests.py`` 的
+            ``VisitsReceivedTests.test_lists_visitors``)
+
+        备注信息:
+            只读 ``results`` 这一页;要总数看 ``visits/count``。
         """
         return [item["user_id"] for item in resp.json()["results"]]
 
@@ -1093,12 +1200,19 @@ class VisitsReceivedTests(APITestCase):
 def _make_swipe_user(phone, gender="female"):
     """造一个资料完善、带已过审照片的用户(撤销与每日额度用例共用)。
 
-    Args:
+    参数说明:
         phone: 手机号,同时用作昵称。
         gender: 性别。
 
-    Returns:
+    返回参数:
         新建的用户实例。
+
+    使用示例:
+        ``self.me = _make_swipe_user("13800138000", gender="male")``(见 ``discovery/tests.py``
+        的 ``SwipeUndoTests.setUp``)
+
+    备注信息:
+        模块级函数,三个滑卡相关的测试类共用;生日与城市写死 ``2000-01-01`` / 上海。
     """
     user = User.objects.create_user(phone=phone)
     Profile.objects.create(user=user, nickname=phone, gender=gender, birthday="2000-01-01",
@@ -1126,12 +1240,19 @@ class SwipeUndoTests(APITestCase):
     def _swipe(self, target_id, action="like"):
         """提交一次滑卡。
 
-        Args:
+        参数说明:
             target_id: 目标账号 id。
             action: ``like`` 或 ``pass``。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.assertEqual(self._swipe(self.target.id).status_code, 200)``(见 ``discovery/tests.py``
+            的 ``SwipeUndoTests.test_undo_deletes_swipe_and_returns_target``)
+
+        备注信息:
+            POST ``SWIPE_URL``;撤销用例靠它先造出一条可撤销的滑卡记录。
         """
         return self.client.post(self.SWIPE_URL,
                                 {"target_user_id": target_id, "action": action}, format="json")
@@ -1139,16 +1260,36 @@ class SwipeUndoTests(APITestCase):
     def _undo(self):
         """调用撤销接口(无请求体)。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``resp = self._undo()``(见 ``discovery/tests.py`` 的
+            ``SwipeUndoTests.test_undo_deletes_swipe_and_returns_target``)
+
+        备注信息:
+            POST ``/api/v1/discovery/swipe/undo``;窗口按滑卡时间算,不用传参数。
         """
         return self.client.post(self.URL)
 
     def _candidate_ids(self):
         """拉一页候选卡,返回其账号 id。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             候选卡片上的 ``user_id`` 列表。
+
+        使用示例:
+            ``self.assertIn(self.target.id, self._candidate_ids())``(见 ``discovery/tests.py`` 的
+            ``SwipeUndoTests.test_undo_restores_target_to_candidates``)
+
+        备注信息:
+            固定 ``limit=20``,先断言 200;候选池走缓存,撤销后要靠版本号失效才能看到目标复位。
         """
         resp = self.client.get(self.CANDIDATES_URL, {"limit": 20})
         self.assertEqual(resp.status_code, 200)
@@ -1275,12 +1416,20 @@ class SwipeDailyLikeQuotaTests(APITestCase):
     def _swipe(self, target_id, action="like"):
         """提交一次滑卡。
 
-        Args:
+        参数说明:
             target_id: 目标账号 id。
             action: ``like`` 或 ``pass``。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.assertEqual(self._swipe(self.targets[0].id).status_code, 200)``(见
+            ``discovery/tests.py`` 的
+            ``SwipeDailyLikeQuotaTests.test_over_limit_returns_429_with_business_code``)
+
+        备注信息:
+            额度按 ``SWIPE_DAILY_LIKE_LIMIT`` 计,``pass`` 不占额度;被拒的那次不落 ``Swipe`` 行。
         """
         return self.client.post(self.SWIPE_URL,
                                 {"target_user_id": target_id, "action": action}, format="json")
@@ -1288,8 +1437,18 @@ class SwipeDailyLikeQuotaTests(APITestCase):
     def _quota(self):
         """查询额度接口。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             响应体字典。
+
+        使用示例:
+            ``self.assertEqual(self._quota()["likes_used"], 2)``(见 ``discovery/tests.py`` 的
+            ``SwipeDailyLikeQuotaTests.test_over_limit_returns_429_with_business_code``)
+
+        备注信息:
+            GET ``/api/v1/discovery/quota``;先断言 200 再返回 ``resp.json()``。
         """
         resp = self.client.get(self.QUOTA_URL)
         self.assertEqual(resp.status_code, 200)
@@ -1393,11 +1552,18 @@ class SwipeQuotaDisabledTests(APITestCase):
 def _make_tag(name):
     """造一个兴趣标签(批次 S 的标签筛选用例共用)。
 
-    Args:
+    参数说明:
         name: 标签名(唯一)。
 
-    Returns:
+    返回参数:
         新建或已存在的标签。
+
+    使用示例:
+        ``hiking = _make_tag("徒步")``(见 ``discovery/tests.py`` 的
+        ``CandidateFilterTests.test_tag_ids_filter_requires_one_match``)
+
+    备注信息:
+        用 ``Tag.objects.get_or_create``,同名重复调用返回同一行;``icon`` 默认 ``star``。
     """
     tag, _ = Tag.objects.get_or_create(name=name, defaults={"icon": "star"})
     return tag
@@ -1419,14 +1585,21 @@ class CandidateFilterTests(APITestCase):
     def _make(self, phone, city="上海", birthday="2000-01-01", tags=()):
         """造一个候选用户,可附带标签。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             city: 城市。
             birthday: 生日。
             tags: 要挂上的标签序列。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``both = self._make("13900139000", tags=[hiking, reading])``(见 ``discovery/tests.py`` 的
+            ``CandidateFilterTests.test_tag_ids_filter_requires_one_match``)
+
+        备注信息:
+            先走 ``_make_swipe_user`` 建人,再用 ``update()`` 改城市与生日;传了 ``tags`` 才写 M2M。
         """
         user = _make_swipe_user(phone)
         Profile.objects.filter(user=user).update(city=city, birthday=birthday)
@@ -1437,19 +1610,38 @@ class CandidateFilterTests(APITestCase):
     def _ids(self, resp):
         """从响应里取出 ``user_id`` 列表(保持顺序)。
 
-        Args:
+        参数说明:
             resp: 接口响应。
 
-        Returns:
+        返回参数:
             账号 id 列表。
+
+        使用示例:
+            ``self.assertEqual(self._ids(resp), [in_range.id])``(见 ``discovery/tests.py`` 的
+            ``CandidateFilterTests.test_age_range_filter_overrides_preference``)
+
+        备注信息:
+            候选池响应是裸数组,直接遍历 ``resp.json()``。
         """
         return [item["user_id"] for item in resp.json()]
 
     def _pool_keys(self):
         """Redis 里所有候选池键(去掉前缀,便于断言后缀)。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             键名字符串列表。
+
+        使用示例:
+            ``filtered = [key for key in self._pool_keys() if ":f" in key.split(":p", 1)[-1]]``
+            (见 ``discovery/tests.py`` 的
+            ``CandidateFilterTests.test_default_path_keeps_cache_key_and_filter_adds_fingerprint``)
+
+        备注信息:
+            经 ``django_redis.get_redis_connection("default")`` 直接 ``keys("*disc:cand:*")``,
+            只留 ``self.me`` 名下的键,并去掉 ``chatapp:2:`` 前缀。
         """
         from django_redis import get_redis_connection
 
@@ -1563,13 +1755,20 @@ class DailyPicksTests(APITestCase):
     def _make(self, phone, city="上海", tags=()):
         """造一个候选用户,可指定城市与标签。
 
-        Args:
+        参数说明:
             phone: 手机号,同时用作昵称。
             city: 城市。
             tags: 要挂上的标签序列。
 
-        Returns:
+        返回参数:
             新建的用户实例。
+
+        使用示例:
+            ``two_shared = self._make("13900139000", tags=[hiking, reading])``(见 ``discovery/tests.py``
+            的 ``DailyPicksTests.test_orders_by_shared_tag_count``)
+
+        备注信息:
+            先走 ``_make_swipe_user`` 建人,再 ``update()`` 改城市;生日沿用对方的默认值。
         """
         user = _make_swipe_user(phone)
         Profile.objects.filter(user=user).update(city=city)
@@ -1580,11 +1779,18 @@ class DailyPicksTests(APITestCase):
     def _ids(self, resp):
         """从响应里取出精选卡片的 ``user_id`` 列表(保持顺序)。
 
-        Args:
+        参数说明:
             resp: 接口响应。
 
-        Returns:
+        返回参数:
             账号 id 列表。
+
+        使用示例:
+            ``self.assertEqual(len(self._ids(self.client.get(self.URL))), 6)``(见 ``discovery/tests.py``
+            的 ``DailyPicksTests.test_default_limit_and_cap``)
+
+        备注信息:
+            精选响应是 ``{date, candidates}``,要取 ``json()["candidates"]``,与候选池的裸数组不同。
         """
         return [item["user_id"] for item in resp.json()["candidates"]]
 

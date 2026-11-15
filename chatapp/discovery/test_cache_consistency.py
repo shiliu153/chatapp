@@ -36,13 +36,20 @@ class _Base(APITestCase):
     def _make_user(self, phone, gender="female", complete=True):
         """造一个资料完善的用户(带一张已过审照片)。
 
-        Args:
+        参数说明:
             phone: 手机号。
             gender: 性别。
             complete: 是否资料完善。
 
-        Returns:
+        返回参数:
             新建用户。
+
+        使用示例:
+            ``self.me = self._make_user("13800138000", gender="male")``(见本文件 ``_Base.setUp``)
+
+        备注信息:
+            ``complete=True`` 时补一张已过审照片 —— 没有过审照片的人进不了候选池,
+            否则本文件的缓存断言会全都变成空池。
         """
         user = User.objects.create_user(phone=phone)
         Profile.objects.create(
@@ -61,11 +68,18 @@ class CandidateCacheTests(_Base):
     def _count_pool_queries(self, requests: int) -> int:
         """跑 ``requests`` 次候选接口,统计真正查库的次数。
 
-        Args:
+        参数说明:
             requests: 请求次数。
 
-        Returns:
+        返回参数:
             ``_query_pool_ids`` 被调用的次数。
+
+        使用示例:
+            ``self.assertEqual(self._count_pool_queries(3), 1)``(见本文件 ``CandidateCacheTests``)
+
+        备注信息:
+            用 ``patch.object`` 包住 ``services._query_pool_ids``,命中缓存时它一次都不会被调用,
+            这就是「缓存确实省掉了那次查询」的证据。
         """
         calls = []
         original = services._query_pool_ids
@@ -149,11 +163,18 @@ class CandidateCacheDisabledTests(_Base):
     def _count_pool_queries(self, requests: int) -> int:
         """跑 ``requests`` 次候选接口,统计真正查库的次数。
 
-        Args:
+        参数说明:
             requests: 请求次数。
 
-        Returns:
+        返回参数:
             ``_query_pool_ids`` 被调用的次数。
+
+        使用示例:
+            ``self.assertEqual(self._count_pool_queries(3), 1)``(见本文件的缓存用例)
+
+        备注信息:
+            与 ``CandidateCacheTests`` 的同名方法同实现:TTL 关闭时这里应当**每次都查库**,
+            用来钉住 ``CANDIDATE_CACHE_TTL <= 0`` 的语义。
         """
         calls = []
         original = services._query_pool_ids

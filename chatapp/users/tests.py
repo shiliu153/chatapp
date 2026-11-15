@@ -122,8 +122,18 @@ class AuthMixin:
     def login(self, user):
         """把指定用户的 access token 装到测试客户端。
 
-        Args:
+        参数说明:
             user: 目标用户。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.login(self.user)``(见 ``users/tests.py`` 的 ``PhotoTests.setUp``)
+
+        备注信息:
+            只写 ``Authorization`` 头,不落 session;令牌由 ``RefreshToken.for_user`` 直接签发,
+            不经过短信登录链路。
         """
         refresh = RefreshToken.for_user(user)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
@@ -179,11 +189,18 @@ class ProfileUpdateTests(AuthMixin, APITestCase):
     def _full_profile(self, **overrides):
         """拼一份完整的资料提交体。
 
-        Args:
+        参数说明:
             **overrides: 需要覆盖的字段。
 
-        Returns:
+        返回参数:
             可直接作为 PATCH body 的字典。
+
+        使用示例:
+            ``{**self._full_profile(), "tag_ids": [tag.id]}``(见 ``users/tests.py`` 的
+            ``ProfileUpdateTests.test_update_fields``)
+
+        备注信息:
+            默认值是一份能通过校验的最小完整资料,用例只覆盖自己关心的字段。
         """
         data = {
             "nickname": "小明",
@@ -284,13 +301,22 @@ class PhotoTests(AuthMixin, APITestCase):
     def upload(self, name="a.png", content=PNG_1PX, content_type="image/png"):
         """上传一张图片到相册。
 
-        Args:
+        参数说明:
             name: 文件名。
             content: 文件字节内容。
             content_type: MIME 类型。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.upload()``(见 ``users/tests.py`` 的 ``PhotoTests.test_upload_auto_approved_in_dev``)、
+            ``self.upload(name="a.txt", content=b"not an image", content_type="text/plain")``
+            (见 ``PhotoTests.test_upload_rejects_non_image``)
+
+        备注信息:
+            走 multipart 上传 ``/api/v1/users/me/photos``;图片必须落在 ``setUp`` 建的临时
+            ``MEDIA_ROOT``,不能写进真实 media 目录。
         """
         return self.client.post(self.url, {"file": SimpleUploadedFile(name, content, content_type=content_type)},
                                 format="multipart")
@@ -298,8 +324,18 @@ class PhotoTests(AuthMixin, APITestCase):
     def fill_profile(self):
         """补全资料(会触发昵称同步任务,测试里挡掉)。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             PATCH 资料接口的响应对象。
+
+        使用示例:
+            ``self.fill_profile()``(见 ``users/tests.py`` 的
+            ``PhotoTests.test_status_becomes_complete_with_approved_photo``)
+
+        备注信息:
+            补全时会改昵称,``im.tasks.sync_profile.delay`` 在这里用 ``patch`` 挡掉,断言不关心同步。
         """
         # 补全资料会改昵称 → 触发 IM 同步任务,测试里一律挡掉
         with patch("im.tasks.sync_profile.delay"):
@@ -428,13 +464,21 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
     def upload(self, content=b"fake-m4a", name="a.m4a", content_type="audio/mp4"):
         """上传一段资料语音。
 
-        Args:
+        参数说明:
             content: 文件字节。
             name: 文件名。
             content_type: MIME 类型。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.upload(content=b"second")``(见 ``users/tests.py`` 的
+            ``ProfileVoiceTests.test_second_upload_replaces_and_deletes_old_file``)
+
+        备注信息:
+            走 multipart 上传 ``/api/v1/users/me/voice``;用例调用前用 ``patch`` 固定
+            ``im.voice._probe_ms`` / ``_transcode`` / ``ffmpeg_available``,不需要真 ffmpeg。
         """
         return self.client.post(
             self.url,
@@ -444,8 +488,18 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
     def voice_files(self):
         """列出媒体目录里已落盘的语音文件。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             语音文件的 ``Path`` 列表(覆盖上传的断言用「只剩一个」)。
+
+        使用示例:
+            ``self.assertEqual(self.voice_files(), [])``(见 ``users/tests.py`` 的
+            ``ProfileVoiceTests.test_rejects_over_thirty_seconds``)
+
+        备注信息:
+            目录不存在时返回空列表;根目录是 ``setUp`` 建的临时 ``MEDIA_ROOT`` 下的 ``voices/``。
         """
         root = Path(self.media_dir) / "voices"
         return sorted(root.rglob("*.m4a")) if root.exists() else []
@@ -592,12 +646,21 @@ class StorageUsageTests(TestCase):
     def _chat_image(self, size, status=ChatImageStatus.VISIBLE):
         """造一条聊天图元数据(不写磁盘,只落 ``bytes``)。
 
-        Args:
+        参数说明:
             size: 字节数。
             status: 图片状态。
 
-        Returns:
+        返回参数:
             新建的 ``ChatImage``。
+
+        使用示例:
+            ``self._chat_image(30)``(见 ``users/tests.py`` 的
+            ``StorageUsageTests.test_usage_sums_all_media_types``)、
+            ``self._chat_image(30, status=ChatImageStatus.EXPIRED)``
+            (见 ``StorageUsageTests.test_expired_or_deleted_media_not_counted``)
+
+        备注信息:
+            ``file`` / ``thumb`` 只是占位字符串,不触发存储读写;用量统计只认 ``bytes`` 与状态。
         """
         return ChatImage.objects.create(
             owner=self.user, file="chat/a.jpg", thumb="chat/a_t.jpg",
@@ -642,12 +705,19 @@ class MediaCommandTests(TestCase):
     def _write(self, relative, content=b"abc"):
         """在临时 MEDIA_ROOT 下写一个文件。
 
-        Args:
+        参数说明:
             relative: 相对 ``MEDIA_ROOT`` 的路径。
             content: 文件内容。
 
-        Returns:
+        返回参数:
             写入后的绝对路径。
+
+        使用示例:
+            ``self._write("photos/a.png", b"12345")``(见 ``users/tests.py`` 的
+            ``MediaCommandTests.test_media_bytes_backfill_fills_sizes``)
+
+        备注信息:
+            父目录不存在会自动建;返回值供需要 ``os.utime`` 改时间戳或断言存在性的用例使用。
         """
         path = Path(settings.MEDIA_ROOT) / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -744,12 +814,20 @@ class PhotoAdminActionTests(TestCase):
     def _run_action(self, action, *photos):
         """通过 admin 的批量动作接口对指定照片执行审核。
 
-        Args:
+        参数说明:
             action: admin action 名称(``approve_photos`` / ``reject_photos``)。
             *photos: 要处理的照片对象。
 
-        Returns:
+        返回参数:
             admin 接口的响应对象。
+
+        使用示例:
+            ``self._run_action("approve_photos", self.photo)``(见 ``users/tests.py`` 的
+            ``PhotoAdminActionTests.test_approve_action_completes_profile_again``)
+
+        备注信息:
+            走 ``/admin/users/photo/`` 的表单提交(``_selected_action`` 传主键),成功时是 302,
+            不是 JSON 响应。
         """
         return self.client.post("/admin/users/photo/", {
             "action": action,
@@ -796,8 +874,18 @@ class PublicProfileTests(AuthMixin, APITestCase):
     def _get(self):
         """请求他人资料卡。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.assertEqual(self._get().status_code, 404)``(见 ``users/tests.py`` 的
+            ``PublicProfileTests.test_heavy_banned_target_is_invisible``)
+
+        备注信息:
+            目标是 ``setUp`` 里建的 ``self.other``;要查响应体时再 ``.json()``。
         """
         return self.client.get(f"/api/v1/users/{self.other.id}")
 
@@ -853,17 +941,37 @@ class SharedTagsTests(AuthMixin, APITestCase):
     def _set_tags(self, user, tags):
         """给指定用户设置标签。
 
-        Args:
+        参数说明:
             user: 目标用户。
             tags: 标签对象序列。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._set_tags(self.me, [self.tags[0], self.tags[2]])``(见 ``users/tests.py`` 的
+            ``SharedTagsTests.test_returns_intersection_only``)
+
+        备注信息:
+            经 ``services.get_profile(user).tags`` 整体替换,不是追加。
         """
         services.get_profile(user).tags.set(tags)
 
     def _shared_tags(self):
         """请求他人资料卡并取出 ``shared_tags``。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``shared_tags`` 列表。
+
+        使用示例:
+            ``self.assertEqual(self._shared_tags(), [])``(见 ``users/tests.py`` 的
+            ``SharedTagsTests.test_empty_when_no_overlap``)
+
+        备注信息:
+            非 200 时先带响应体前 200 字节断言失败,避免后续 ``KeyError`` 掩盖真正原因。
         """
         response = self.client.get(f"/api/v1/users/{self.other.id}")
         self.assertEqual(response.status_code, 200, response.content[:200])
@@ -916,8 +1024,18 @@ class FollowStateTests(AuthMixin, APITestCase):
     def _state(self):
         """请求他人资料卡并取出三个关注态字段。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``(is_followed, follower_count, following_count)`` 三元组。
+
+        使用示例:
+            ``self.assertEqual(self._state(), (False, 0, 0))``(见 ``users/tests.py`` 的
+            ``FollowStateTests.test_default_state_is_not_followed``)
+
+        备注信息:
+            非 200 时先带响应体前 200 字节断言失败;查询条数守卫用例靠重复调用它比对 SQL 条数。
         """
         response = self.client.get(f"/api/v1/users/{self.other.id}")
         self.assertEqual(response.status_code, 200, response.content[:200])
@@ -966,11 +1084,19 @@ class ProfileScrapeMonitorTests(TestCase):
     def _count(self, viewer_id):
         """读该浏览者当前小时的计数。
 
-        Args:
+        参数说明:
             viewer_id: 浏览者账号 id。
 
-        Returns:
+        返回参数:
             计数;没记录时为 ``None``。
+
+        使用示例:
+            ``self.assertEqual(self._count(1), 1)``(见 ``users/tests.py`` 的
+            ``ProfileScrapeMonitorTests.test_same_target_counted_once_per_hour``)
+
+        备注信息:
+            直接读缓存键 ``profile_view_count:{viewer_id}:{bucket}``,``bucket`` 是 ``setUp`` 里
+            按 ``PROFILE_VIEW_TTL_SECONDS`` 算出的当前小时。
         """
         return cache.get(f"profile_view_count:{viewer_id}:{self.bucket}")
 
@@ -1070,11 +1196,18 @@ class ActivityTests(TestCase):
     def _drop_keys(self, *days):
         """删掉这些日子的活跃集合,避免用例之间互相污染。
 
-        Args:
+        参数说明:
             *days: 本地自然日。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.addCleanup(self._drop_keys, self.DAY, self.DAY + timedelta(days=1))``
+            (见 ``users/tests.py`` 的 ``ActivityTests.setUp``)
+
+        备注信息:
+            除了日集合,还要删当天 24 个小时桶的键,否则小时维度的断言会串味。
         """
         keys = []
         for day in days:
@@ -1085,14 +1218,21 @@ class ActivityTests(TestCase):
     def _at(self, hour, minute=0, second=0, day=None):
         """造一个本地时区的时刻。
 
-        Args:
+        参数说明:
             hour: 小时。
             minute: 分钟。
             second: 秒。
             day: 日期;``None`` 取 ``DAY``。
 
-        Returns:
+        返回参数:
             带时区的时刻。
+
+        使用示例:
+            ``activity.touch(9, at=self._at(10, 30))``(见 ``users/tests.py`` 的
+            ``ActivityTests.test_touch_records_day_and_hour``)
+
+        备注信息:
+            时区取 ``timezone.get_current_timezone()``,与 ``activity`` 的切日口径一致。
         """
         target = day or self.DAY
         return datetime(target.year, target.month, target.day, hour, minute, second,
@@ -1257,11 +1397,19 @@ class DeleteAccountTests(AuthMixin, APITestCase):
     def _delete(self, phone="13800138000"):
         """调用账号注销接口。
 
-        Args:
+        参数说明:
             phone: 二次确认用的手机号。
 
-        Returns:
+        返回参数:
             DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self._delete(phone="13900139000")``(见 ``users/tests.py`` 的
+            ``DeleteAccountTests.test_phone_mismatch_rejected_and_data_kept``)
+
+        备注信息:
+            手机号放在 DELETE 请求体里(``format="json"``),不是 query 参数;不传时用 ``setUp``
+            里注册的手机号。
         """
         return self.client.delete(self.url, {"phone": phone}, format="json")
 
@@ -1455,12 +1603,20 @@ class ProfileVisitWriteTests(TestCase):
     def _make_displayable(self, user, nickname="小明"):
         """把用户补成「资料完善 + 一张过审照片」——访客记录只对这类访问者落库(M-2)。
 
-        Args:
+        参数说明:
             user: 目标账号。
             nickname: 昵称(资料完善必填项之一)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._make_displayable(self.viewer, "小明")``(见 ``users/tests.py`` 的
+            ``ProfileVisitWriteTests.setUp``)
+
+        备注信息:
+            直接改 ``user.profile`` 落库再 ``refresh_status()``;照片固定写 ``photos/visit-test.jpg``,
+            不碰磁盘。
         """
         profile = user.profile
         profile.nickname = nickname

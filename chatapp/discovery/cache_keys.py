@@ -17,11 +17,17 @@ POOL_VERSION_KEY = "disc:ver:global"
 def user_version_key(user_id: int) -> str:
     """单个用户的候选池版本键。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
 
-    Returns:
+    返回参数:
         Redis 键名。
+
+    使用示例:
+        ``cache_utils.bump_version(user_version_key(user_id))``(见本模块 ``invalidate_candidates``)
+
+    备注信息:
+        键形如 ``disc:ver:{uid}``,只影响这个用户自己的候选池(滑卡、改偏好)。
     """
     return f"disc:ver:{user_id}"
 
@@ -29,8 +35,18 @@ def user_version_key(user_id: int) -> str:
 def invalidate_candidates(user_id: int) -> None:
     """让某个用户的候选池缓存失效(滑卡、改偏好)。
 
-    Args:
+    参数说明:
         user_id: 账号 id。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``invalidate_candidates(me.id)``(见 ``discovery/views.py`` 的 ``swipe``)
+
+    备注信息:
+        只是把版本号加一,旧缓存键随即不可达,不做逐键删除;
+        照片过审、资料变更这类影响所有人的场景用 ``invalidate_pool_globally``。
     """
     cache_utils.bump_version(user_version_key(user_id))
 

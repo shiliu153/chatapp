@@ -25,11 +25,19 @@ SHUFFLE_KEY_UPPER = 1_000_000_000
 def random_shuffle_key():
     """生成候选池的随机排序键。
 
-    用 ``secrets`` 而不是 ``random``:这个值会长期落库并决定「谁先被看到」,
-    虽然不涉及资金,但也不该是可预测的伪随机序列。
+    参数说明:
+        无。
 
-    Returns:
+    返回参数:
         ``[0, 10^9)`` 区间内的整数。
+
+    使用示例:
+        ``profile.shuffle_key = users.models.random_shuffle_key()``(见 ``users/migrations/0005_photo_bytes_profile_shuffle_key.py``)
+        也直接作为 ``Profile.shuffle_key`` 的字段默认值。
+
+    备注信息:
+        用 ``secrets`` 而不是 ``random``:这个值会长期落库并决定「谁先被看到」,
+        虽然不涉及资金,但也不该是可预测的伪随机序列。
     """
     return secrets.randbelow(SHUFFLE_KEY_UPPER)
 
@@ -37,15 +45,20 @@ def random_shuffle_key():
 def calculate_age(birthday, today=None):
     """按「今年生日是否已过」计算周岁。
 
-    不用「天数差 / 365」的近似算法:那种写法在闰年与生日当天都会差一岁,
-    而本项目要用年龄做候选过滤与未成年人拦截,差一岁是合规问题。
-
-    Args:
+    参数说明:
         birthday: 出生日期。
         today: 参照日期;``None`` 表示取本地时区的今天(便于测试注入)。
 
-    Returns:
+    返回参数:
         周岁整数。
+
+    使用示例:
+        ``if calculate_age(value) < 18:``(见 ``users/serializers.py`` 的生日校验)
+        测试注入参照日期:``calculate_age(date(2008, 9, 10), today)``(见 ``users/tests.py``)
+
+    备注信息:
+        不用「天数差 / 365」的近似算法:那种写法在闰年与生日当天都会差一岁,
+        而本项目要用年龄做候选过滤与未成年人拦截,差一岁是合规问题。
     """
     today = today or timezone.localdate()
     return today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
@@ -54,12 +67,19 @@ def calculate_age(birthday, today=None):
 def shift_years(day, years):
     """把日期往前推 N 年;2 月 29 日退化成 2 月 28 日。
 
-    Args:
+    参数说明:
         day: 起始日期。
         years: 往前推的年数。
 
-    Returns:
+    返回参数:
         推后得到的日期。
+
+    使用示例:
+        ``return shift_years(today, age_min), shift_years(today, age_max + 1)``(见本模块 ``birthday_bounds``)
+
+    备注信息:
+        只有 2 月 29 日会命中 ``ValueError`` 分支:目标年份不是闰年时退到 2 月 28 日,
+        保证年龄区间换算不会因为闰年漏掉一天。
     """
     try:
         return day.replace(year=day.year - years)
@@ -70,16 +90,21 @@ def shift_years(day, years):
 def birthday_bounds(age_min, age_max, today=None):
     """把年龄区间换算成生日区间:birthday <= upper 且 birthday > lower。
 
-    推导:age >= age_min ⇔ 生日不晚于"今天减 age_min 年";
-         age <= age_max ⇔ 生日晚于"今天减 (age_max+1) 年"。
-
-    Args:
+    参数说明:
         age_min: 年龄下限(含)。
         age_max: 年龄上限(含)。
         today: 参照日期;``None`` 表示取本地时区的今天。
 
-    Returns:
+    返回参数:
         ``(upper, lower)`` 二元组,对应上面两个比较边界。
+
+    使用示例:
+        ``return birthday_bounds(age_min, age_max)``(见 ``discovery/services.py`` 的 ``_resolve_age_bounds``)
+
+    备注信息:
+        推导:age >= age_min 等价于生日不晚于「今天减 age_min 年」;
+        age <= age_max 等价于生日晚于「今天减 (age_max+1) 年」。
+        候选池与喜欢列表都用这对边界过滤 ``Profile.birthday``。
     """
     today = today or timezone.localdate()
     return shift_years(today, age_min), shift_years(today, age_max + 1)
@@ -118,8 +143,17 @@ class Tag(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             标签名称。
+
+        使用示例:
+            ``str(tag)``
+
+        备注信息:
+            只用于后台列表与日志输出,不参与任何业务判定。
         """
         return self.name
 
@@ -154,8 +188,17 @@ class Profile(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``昵称(账号 id)``;昵称为空时用 ``?`` 占位。
+
+        使用示例:
+            ``str(profile)``
+
+        备注信息:
+            括号里是账号 id(``user_id``),不是资料表主键;对外的 ``id`` 才是资料主键。
         """
         return f"{self.nickname or '?'}({self.user_id})"
 
@@ -163,17 +206,36 @@ class Profile(models.Model):
     def age(self):
         """由生日换算出的周岁。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             周岁;未填生日时返回 ``None``。
+
+        使用示例:
+            ``serializers.IntegerField(source="swiper.profile.age", read_only=True)``(见 ``discovery/serializers.py``)
+
+        备注信息:
+            每次访问都现算(见 ``calculate_age``),不落库:周岁跨年就会变,存列必然过期。
         """
         return calculate_age(self.birthday) if self.birthday else None
 
     def missing_fields(self):
         """列出「资料完善」还缺哪些项。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             缺失字段名列表(``nickname`` / ``gender`` / ``birthday`` / ``city`` /
             ``bio`` / ``photos``);空列表表示资料已完善。
+
+        使用示例:
+            ``self.assertIn("nickname", profile.missing_fields())``(见 ``users/tests.py``)
+
+        备注信息:
+            判定口径的唯一事实来源,``refresh_status`` 与 ``/users/me`` 的提示都读它。
+            至少一张已过审照片才算填了 ``photos``;资料语音刻意不计入。
         """
         missing = []
         if not self.nickname:
@@ -194,8 +256,17 @@ class Profile(models.Model):
     def is_banned(self):
         """当前是否处于任一封禁状态。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             轻封禁或重封禁时为 ``True``。
+
+        使用示例:
+            ``if get_profile(me).is_banned:``(见 ``discovery/views.py`` 的滑卡与撤销)
+
+        备注信息:
+            只看 ``status`` 是否落在 ``BANNED_STATUSES``,不查库;权限类里的全域拦截另有入口。
         """
         return self.status in self.BANNED_STATUSES
 
@@ -240,8 +311,17 @@ class Photo(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``photo#主键(账号 id)``。
+
+        使用示例:
+            ``str(photo)``
+
+        备注信息:
+            括号里是账号 id(``user_id``),不是照片主键之外的资料 id。
         """
         return f"photo#{self.pk}({self.user_id})"
 
@@ -259,8 +339,17 @@ class Preference(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``preference(资料 id)``。
+
+        使用示例:
+            ``str(preference)``
+
+        备注信息:
+            括号里是资料表主键(``profile_id``),不是账号 id。
         """
         return f"preference({self.profile_id})"
 
@@ -292,8 +381,17 @@ class ProfileVoice(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``profile_voice#主键(资料 id)``。
+
+        使用示例:
+            ``str(voice)``
+
+        备注信息:
+            括号里是资料表主键(``profile_id``),不是账号 id。
         """
         return f"profile_voice#{self.pk}(profile={self.profile_id})"
 
@@ -331,7 +429,16 @@ class ProfileVisit(models.Model):
     def __str__(self):
         """后台与日志中的可读表示。
 
-        Returns:
+        参数说明:
+            无。
+
+        返回参数:
             ``visit(浏览者 id -> 被访问者 id)``。
+
+        使用示例:
+            ``str(visit)``
+
+        备注信息:
+            两个 id 都是账号 id(``viewer_id`` / ``owner_id``)。
         """
         return f"visit({self.viewer_id}->{self.owner_id})"

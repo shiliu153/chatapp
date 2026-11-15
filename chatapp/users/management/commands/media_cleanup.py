@@ -25,8 +25,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py media_cleanup --help``
+
+        备注信息:
+            ``--apply`` 才真删;``--orphan-hours`` 是 mtime 宽限期,默认 24 小时,传 0 表示不扫。
         """
         parser.add_argument("--apply", action="store_true", help="真正删除;默认只打印")
         parser.add_argument("--orphan-hours", type=int, default=24,
@@ -35,12 +44,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """扫描两个目录并删除(或列出)孤儿文件。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项(``apply`` / ``orphan_hours``)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py media_cleanup --apply``(见 ``deploy/oneclick.sh`` 的每日维护)
+
+        备注信息:
+            库里登记过的文件一律保留,只删磁盘多出来的;mtime 距今不足宽限期的跳过,
+            避免误删正在上传的文件;删除失败写 stderr 后继续,不中断后续文件。
         """
         apply = bool(options["apply"])
         orphan_hours = int(options["orphan_hours"])

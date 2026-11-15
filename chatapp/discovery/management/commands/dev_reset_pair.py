@@ -32,8 +32,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """声明命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 的参数解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py dev_reset_pair --help``
+
+        备注信息:
+            ``--a`` 与 ``--b`` 都必填,收账号 id(``u8`` 与 ``8`` 等价,查的是 ``User.id``)。
         """
         parser.add_argument(
             "--a", required=True, help="账号 id,如 u8 或 8(查的是 User.id,不是 IM 会话 id)")
@@ -43,12 +52,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """执行重置:删除两人之间双向的滑卡与配对记录。
 
-        Args:
+        参数说明:
             *args: 位置参数,未使用。
             **options: 已解析的命令行参数(``a`` / ``b``,均为账号 id,可写成 ``u8`` 或 ``8``)。
 
-        Raises:
-            CommandError: 两个账号 id 指向同一个人,或格式非法、账号不存在。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py dev_reset_pair --a u8 --b u9``(见 ``docs/standards/dev-commands.md``)
+
+        备注信息:
+            两个参数指向同一个人时主动抛 ``CommandError``;格式非法或账号不存在时同样抛
+            ``CommandError``(见 ``_user_by_account_id``)。IM 聊天记录不动,重配会再发一条灰条。
         """
         user_a = self._user_by_account_id(options["a"])
         user_b = self._user_by_account_id(options["b"])
@@ -68,14 +84,17 @@ class Command(BaseCommand):
     def _user_by_account_id(self, raw: str):
         """把账号 id(``u8`` 或 ``8``)解析成用户。
 
-        Args:
+        参数说明:
             raw: 命令行传入的账号 id,形如 ``u8`` 或 ``8``。
 
-        Returns:
+        返回参数:
             对应的用户实例。
 
-        Raises:
-            CommandError: 格式不是 ``u<数字>`` 或纯数字,或该账号不存在。
+        使用示例:
+            ``user_a = self._user_by_account_id(options["a"])``(见本模块 ``handle``)
+
+        备注信息:
+            格式不是 ``u<数字>`` 或纯数字、或该账号不存在时,主动抛 ``CommandError``。
         """
         matched = ACCOUNT_ID_RE.fullmatch(raw)
         if matched is None:

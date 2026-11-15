@@ -31,12 +31,19 @@ from users.models import Photo, Preference, Profile, ProfileStatus
 def _median_ms(fn, repeat: int) -> float:
     """重复执行取中位耗时。
 
-    Args:
+    参数说明:
         fn: 无参可调用对象。
-        repeat: 重复次数。
+        repeat: 重复次数,小于 1 时按 1 次算。
 
-    Returns:
-        中位耗时(毫秒)。
+    返回参数:
+        中位耗时(毫秒),保留两位小数。
+
+    使用示例:
+        ``cost = _median_ms(lambda o=offset: page_visible_posts(profile.user, o, page), repeat)``
+        (见本模块 ``handle``)
+
+    备注信息:
+        取中位数是为了压掉共享机器上的抖动,单次测量不足以横向比较。
     """
     samples = []
     for _ in range(max(1, repeat)):
@@ -49,11 +56,17 @@ def _median_ms(fn, repeat: int) -> float:
 def _explain_rows(queryset) -> list[str]:
     """取查询集的传统 EXPLAIN(每行一个表)。
 
-    Args:
+    参数说明:
         queryset: 要分析的查询集。
 
-    Returns:
+    返回参数:
         ``table/type/key/rows/Extra`` 组成的可读行列表。
+
+    使用示例:
+        ``for line in _explain_rows(queryset):``(见本模块 ``handle``)
+
+    备注信息:
+        ``type=ALL`` 即全表扫,用来确认「走没走索引」,而不只看耗时。
     """
     sql, params = queryset.query.sql_with_params()
     with connection.cursor() as cursor:
@@ -77,8 +90,18 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """声明命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 的参数解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py scale_probe --help``
+
+        备注信息:
+            ``--offsets`` 收逗号分隔的 offset 列表;``--explain`` 才打印执行计划;
+            ``--phone`` 不传时取第一个资料完善的账号作探针。
         """
         parser.add_argument("--offsets", default="0,100,1000,10000",
                             help="广场列表要测的 offset,逗号分隔")
@@ -90,12 +113,20 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """执行探测并打印表格。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项(``repeat`` / ``limit`` / ``phone`` / ``explain`` / ``offsets``)。
 
-        Raises:
-            CommandError: 没有可用的已完善资料账号。
+        返回参数:
+            无返回值;结果以 Markdown 表格写到 stdout。
+
+        使用示例:
+            ``python manage.py scale_probe --repeat 5 --offsets 0,1000,10000,50000 --explain --phone <手机号>``
+            (见 ``docs/reports/scale-report.md``)
+
+        备注信息:
+            没有资料完善的账号时主动抛 ``CommandError``,提示先跑 ``seed_scale_users``;
+            探测跑的是线上同款查询集,不是另写的 SQL。
         """
         repeat = options["repeat"]
         page = options["limit"]

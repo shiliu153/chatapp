@@ -40,14 +40,18 @@ class PresenceThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         """按用户 id 生成限流缓存键。
 
-        与短信接口按 IP 限流不同:在线状态是登录后才会调用的接口,
-        按用户计数比按 IP 更准确(同一出口 IP 可能有多台设备)。
-
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图;DRF 接口要求,此处未使用。
 
-        Returns:
+        返回参数:
             该用户在 ``presence`` 作用域下的缓存键。
+
+        使用示例:
+            ``self.client.get("/api/v1/presence", {"user_ids": str(self.other.id)})``(见 ``users/tests.py`` 的 ``PresenceApiTests``)
+
+        备注信息:
+            与短信接口按 IP 限流不同:在线状态是登录后才会调用的接口,
+            按用户计数比按 IP 更准确(同一出口 IP 可能有多台设备)。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}

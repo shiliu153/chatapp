@@ -24,12 +24,18 @@ class SwipeThrottle(SimpleRateThrottle):
     def get_cache_key(self, request, view):
         """按用户 id 生成限流缓存键。
 
-        Args:
+        参数说明:
             request: 当前请求。
             view: 当前视图;DRF 接口要求,此处未使用。
 
-        Returns:
+        返回参数:
             该用户在 ``swipe`` 作用域下的缓存键。
+
+        使用示例:
+            ``self.client.post("/api/v1/discovery/swipe", {...}, format="json")``(见 ``discovery/tests.py`` 的 ``SwipeApiTests.test_throttled``)
+
+        备注信息:
+            额度按账号计而不是按 IP:同一出口 IP 下可能有多台设备,按 IP 会让正常用户互相牵连。
         """
         return self.cache_format % {"scope": self.scope, "ident": request.user.id}
 

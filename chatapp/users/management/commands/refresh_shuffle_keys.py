@@ -23,8 +23,17 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """注册命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py refresh_shuffle_keys --help``
+
+        备注信息:
+            ``--batch-size`` 是每批 ``bulk_update`` 的行数,默认 500;``--dry-run`` 只统计不写库。
         """
         parser.add_argument("--batch-size", type=int, default=500,
                             help="每批 bulk_update 的行数")
@@ -33,12 +42,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """执行轮换并打印影响行数。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项(``batch_size`` / ``dry_run``)。
 
-        Returns:
-            None。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py refresh_shuffle_keys``(见 ``deploy/oneclick.sh`` 的每日维护)
+
+        备注信息:
+            建议每天低峰执行一次:键长期不变会让同一批人一直排在同一位置;
+            游标只取 ``id``,新键在 Python 侧生成后按批 ``bulk_update`` 写回。
         """
         batch_size = max(int(options["batch_size"]), 1)
         dry_run = bool(options["dry_run"])
@@ -58,12 +74,18 @@ class Command(BaseCommand):
     def _flush(self, batch, dry_run):
         """把一批新键写回数据库。
 
-        Args:
+        参数说明:
             batch: 已改好 ``shuffle_key`` 的 Profile 列表。
             dry_run: 为 ``True`` 时只计数。
 
-        Returns:
-            本批处理的行数。
+        返回参数:
+            本批处理的行数;空批返回 0。
+
+        使用示例:
+            ``total += self._flush(batch, dry_run)``(见本模块 ``handle``)
+
+        备注信息:
+            ``batch`` 里是只 ``only("id")`` 取出的对象,``bulk_update`` 只写 ``shuffle_key`` 一列。
         """
         if not batch:
             return 0

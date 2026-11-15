@@ -30,11 +30,17 @@ class CandidateSerializer(serializers.ModelSerializer):
     def get_photos(self, profile):
         """只返回已过审的照片。
 
-        Args:
+        参数说明:
             profile: 候选人的资料。
 
-        Returns:
+        返回参数:
             已过审照片的序列化数据。
+
+        使用示例:
+            ``CandidateSerializer(ordered, many=True, context={"request": request}).data``(见 ``discovery/views.py`` 的 ``_candidate_cards``)
+
+        备注信息:
+            待审核与已驳回的照片绝不能出现在候选卡上:过滤在内存里做,状态本身不对外暴露。
         """
         approved = [p for p in profile.user.photos.all() if p.status == PhotoStatus.APPROVED]
         return PhotoSerializer(approved, many=True, context=self.context).data
@@ -103,11 +109,17 @@ class LikeReceivedSerializer(serializers.ModelSerializer):
     def get_photos(self, swipe):
         """只返回已过审照片。
 
-        Args:
+        参数说明:
             swipe: 一条「对方喜欢我」的记录。
 
-        Returns:
+        返回参数:
             已过审照片的序列化数据。
+
+        使用示例:
+            ``LikeReceivedSerializer(rows, many=True, context={"request": request}).data``(见 ``discovery/views.py`` 的 ``likes_received``)
+
+        备注信息:
+            照片取自 ``swipe.swiper``(喜欢我的人),不是当前用户;状态过滤口径与候选卡一致。
         """
         approved = [p for p in swipe.swiper.photos.all() if p.status == PhotoStatus.APPROVED]
         return PhotoSerializer(approved, many=True, context=self.context).data
@@ -135,11 +147,17 @@ class VisitSerializer(serializers.ModelSerializer):
     def get_photos(self, visit):
         """只返回已过审照片。
 
-        Args:
+        参数说明:
             visit: 一条访客记录。
 
-        Returns:
+        返回参数:
             已过审照片的序列化数据。
+
+        使用示例:
+            ``VisitSerializer(rows, many=True, context={"request": request}).data``(见 ``discovery/views.py`` 的 ``visits``)
+
+        备注信息:
+            照片取自 ``visit.viewer``(来访者),不是当前用户;状态过滤口径与候选卡一致。
         """
         approved = [p for p in visit.viewer.photos.all() if p.status == PhotoStatus.APPROVED]
         return PhotoSerializer(approved, many=True, context=self.context).data

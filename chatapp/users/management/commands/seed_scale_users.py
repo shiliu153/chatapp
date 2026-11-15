@@ -49,8 +49,18 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         """声明命令行参数。
 
-        Args:
+        参数说明:
             parser: argparse 的参数解析器。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py seed_scale_users --help``
+
+        备注信息:
+            ``--count`` 是账号数,上限 ``PHONE_MAX``;``--posts`` 为 0 表示不造动态;
+            ``--clean`` 只删 199 号段内的账号;``--dry-run`` 只打印计划。
         """
         parser.add_argument("--count", type=int, default=10_000, help="用户数")
         parser.add_argument("--posts", type=int, default=0, help="动态总数(0 = 不造)")
@@ -61,12 +71,21 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """执行造数或清理。
 
-        Args:
+        参数说明:
             *args: 位置参数(未使用)。
-            **options: 命令行选项。
+            **options: 命令行选项(``count`` / ``posts`` / ``batch`` / ``clean`` / ``dry_run``)。
 
-        Raises:
-            CommandError: 数量非法或号段越界。
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``python manage.py seed_scale_users --count 20000 --posts 100000``
+            (见 ``docs/reports/scale-report.md``);清理用
+            ``python manage.py seed_scale_users --count 20000 --clean``。
+
+        备注信息:
+            ``--count`` 不在 1..``PHONE_MAX`` 之间时主动抛 ``CommandError``;全程 ``bulk_create``,
+            幂等且不造聊天消息(``im_message`` 在独立的 ``chatapp_im`` 库)。
         """
         count = options["count"]
         batch = max(100, options["batch"])
@@ -95,12 +114,18 @@ class Command(BaseCommand):
     def _create_users(self, count: int, batch: int) -> list[int]:
         """批量创建账号并返回它们的 id。
 
-        Args:
+        参数说明:
             count: 账号数量。
             batch: 每批条数。
 
-        Returns:
+        返回参数:
             新建或已存在的账号 id 列表。
+
+        使用示例:
+            ``user_ids = self._create_users(count, batch)``(见本模块 ``handle``)
+
+        备注信息:
+            号码从 ``PHONE_BASE`` 顺序分配,``ignore_conflicts`` 跳过已存在,重复执行不产生重复账号。
         """
         phones = [str(PHONE_BASE + i) for i in range(count)]
         for start in range(0, count, batch):
@@ -116,9 +141,18 @@ class Command(BaseCommand):
     def _create_profiles(self, user_ids: list[int], batch: int) -> None:
         """为每个账号建一条资料(资料完善,进候选池)。
 
-        Args:
+        参数说明:
             user_ids: 账号 id 列表。
             batch: 每批条数。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._create_profiles(user_ids, batch)``(见本模块 ``handle``)
+
+        备注信息:
+            已有资料的账号跳过;资料状态直接置为 ``ProfileStatus.COMPLETE``,便于进候选池。
         """
         existing = set(Profile.objects.filter(user_id__in=user_ids)
                        .values_list("user_id", flat=True))
@@ -142,9 +176,19 @@ class Command(BaseCommand):
     def _create_photos(self, user_ids: list[int], batch: int) -> None:
         """给每个账号加一张已过审照片(候选池的准入条件)。
 
-        Args:
+        参数说明:
             user_ids: 账号 id 列表。
             batch: 每批条数。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._create_photos(user_ids, batch)``(见本模块 ``handle``)
+
+        备注信息:
+            只补没有已过审照片的账号;文件字段写 ``photos/scale/{user_id}.jpg``,
+            ``bytes`` 固定 1024,不产生真实文件。
         """
         with_photo = set(Photo.objects.filter(user_id__in=user_ids, status=PhotoStatus.APPROVED)
                          .values_list("user_id", flat=True))
@@ -157,10 +201,19 @@ class Command(BaseCommand):
     def _create_posts(self, user_ids: list[int], total: int, batch: int) -> None:
         """按账号轮转分配动态。
 
-        Args:
+        参数说明:
             user_ids: 账号 id 列表。
             total: 动态总数。
             batch: 每批条数。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._create_posts(user_ids, options["posts"], batch)``(见本模块 ``handle``)
+
+        备注信息:
+            ``user_ids`` 为空时直接返回;攒够 ``batch`` 条就 ``bulk_create`` 一次,避免内存堆积。
         """
         if not user_ids:
             return
@@ -178,10 +231,20 @@ class Command(BaseCommand):
     def _clean(self, count: int, batch: int, dry_run: bool) -> None:
         """删除号段内的账号及其级联数据。
 
-        Args:
+        参数说明:
             count: 号段内的账号数量。
             batch: 每批删除条数。
             dry_run: 只统计不删除。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self._clean(count, batch, options["dry_run"])``(见本模块 ``handle`` 的 ``--clean`` 分支)
+
+        备注信息:
+            只按手机号命中 199 号段,资料/照片/动态随级联删除,不会误伤真实数据;
+            每批删除包在 ``transaction.atomic()`` 里。
         """
         phones = [str(PHONE_BASE + i) for i in range(count)]
         total = 0

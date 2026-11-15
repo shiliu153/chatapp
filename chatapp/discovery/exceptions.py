@@ -38,14 +38,20 @@ class SwipeLikeQuotaExceeded(Throttled):
     def __init__(self, wait=None):
         """记录恢复所需的秒数。
 
-        ``self.wait`` 必须在 ``super().__init__()`` **之后**赋值:DRF 的
-        ``Throttled.__init__`` 会用自己的 ``wait`` 参数(默认 ``None``)覆写这个属性,
-        写在前面会被清掉,响应就丢了 ``Retry-After``。同理不走 ``wait=`` 形参 ——
-        那会让 DRF 在中文文案后面追加一句英文 ``Expected available in N seconds.``,
-        而这里等的是「到明天 0 点」,读起来更像故障而不是配额。
-
-        Args:
+        参数说明:
             wait: 距额度重置(次日 00:00)的秒数,用于 ``Retry-After``。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``raise SwipeLikeQuotaExceeded(wait=ttl)``(见 ``discovery/quota.py`` 的 ``consume_like``)
+
+        备注信息:
+            ``self.wait`` 必须在 ``super().__init__()`` **之后**赋值:DRF 的 ``Throttled.__init__``
+            会用自己的 ``wait`` 参数(默认 ``None``)覆写这个属性,写在前面会被清掉,响应就丢了
+            ``Retry-After``。同理不走 ``wait=`` 形参 —— 那会让 DRF 在中文文案后面追加一句英文
+            ``Expected available in N seconds.``,而这里等的是「到明天 0 点」,读起来更像故障而不是配额。
         """
         detail = (f"今天的喜欢次数已用完,预计 {int(wait)} 秒后恢复"
                   if wait else self.default_detail)

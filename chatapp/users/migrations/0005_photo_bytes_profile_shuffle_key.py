@@ -12,9 +12,20 @@ from django.db import migrations, models
 def randomize_existing_shuffle_keys(apps, schema_editor):
     """给存量资料各分配一个随机排序键。
 
-    Args:
+    参数说明:
         apps: 迁移期间的应用注册表。
         schema_editor: 当前数据库的 schema 编辑器(未使用)。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``migrations.RunPython(randomize_existing_shuffle_keys, migrations.RunPython.noop)``
+        (见本模块 ``operations``)
+
+    备注信息:
+        字段默认值由 Django 求值一次,存量行会拿到同一个 key,靠这次迁移逐行重分配;
+        回滚方向用 ``RunPython.noop``,不做逆操作。
     """
     Profile = apps.get_model("users", "Profile")
     for profile in Profile.objects.all().iterator():
