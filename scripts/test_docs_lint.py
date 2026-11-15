@@ -408,6 +408,101 @@ class NumberRuleTests(unittest.TestCase):
         self.assertEqual(self._messages(), [])
 
 
+class UnverifiableNumberTests(unittest.TestCase):
+    """number 规则的 B 半:活文档里不许写「不可保真」的计数(测试用例数)。"""
+
+    def setUp(self):
+        """建一个只有 docs/ 的临时仓库。"""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "docs").mkdir()
+
+    def tearDown(self):
+        """清理。"""
+        self.tmp.cleanup()
+
+    def _hits(self) -> list:
+        """跑一次 B 半规则,返回 ``(file, line)`` 列表。"""
+        return [
+            (item["file"], item["line"])
+            for item in docs_lint.find_unverifiable_number_violations(self.root)
+        ]
+
+    def test_automated_test_count_reported(self):
+        """「N 条自动化测试」是算不出来的数字 → 报(这是 release.md 里唯一合法的历史写法)。"""
+        write_doc(self.root, "docs/ops/x.md", "App 侧由 659 条自动化测试覆盖。\n", header=GOOD_HEADER)
+        self.assertEqual(self._hits(), [("docs/ops/x.md", 6)])
+
+    def test_test_case_count_reported(self):
+        """「N 个单元测试」同样报。"""
+        write_doc(self.root, "docs/ops/x.md", "后端 1096 个单元测试全绿。\n", header=GOOD_HEADER)
+        self.assertEqual(self._hits(), [("docs/ops/x.md", 6)])
+
+    def test_release_doc_exempt(self):
+        """`release.md` 的上线实况是当次发版的证据,整文件豁免。"""
+        write_doc(
+            self.root,
+            "docs/ops/release.md",
+            "App 侧由 659 条自动化测试覆盖。\n",
+            header=GOOD_HEADER,
+        )
+        self.assertEqual(self._hits(), [])
+
+    def test_inline_marker_exempts_only_its_line(self):
+        """行内标记只豁免它所在的那一行。"""
+        write_doc(
+            self.root,
+            "docs/ops/x.md",
+            "当时是 506 条自动化测试 <!-- lint:allow:number -->\n现在 659 条自动化测试\n",
+            header=GOOD_HEADER,
+        )
+        self.assertEqual(self._hits(), [("docs/ops/x.md", 7)])
+
+    def test_code_fence_exempt(self):
+        """围栏里是示例,不是断言。"""
+        write_doc(
+            self.root,
+            "docs/ops/x.md",
+            "```\n659 条自动化测试\n```\n",
+            header=GOOD_HEADER,
+        )
+        self.assertEqual(self._hits(), [])
+
+    def test_history_dir_exempt(self):
+        """一次性报告 / 历史目录不在作用域(改历史等于改写证据)。"""
+        write_doc(self.root, "docs/reports/x.md", "659 条自动化测试\n", header=GOOD_HEADER)
+        self.assertEqual(self._hits(), [])
+
+    def test_ambiguous_count_not_reported(self):
+        """裸的「N 例」不判:它常指「红的条数」而不是总数,禁它会制造误报。"""
+        write_doc(
+            self.root,
+            "docs/pitfalls/backend.md",
+            "别被「实现前只有 7 例红」误导。\n",
+            header=GOOD_HEADER,
+        )
+        self.assertEqual(self._hits(), [])
+
+    def test_spec_number_not_reported(self):
+        """规格型数字(限流 / 上限)与测量型数字不归这条规则管。"""
+        write_doc(
+            self.root,
+            "docs/ops/x.md",
+            "限流 120 次/小时,单账号上限 200MB,压测 476 rps。\n",
+            header=GOOD_HEADER,
+        )
+        self.assertEqual(self._hits(), [])
+
+    def test_lint_surfaces_it_under_number_rule(self):
+        """走一遍 `lint()`:两半共用 rule 名 `number`(所以仍然是六条规则)。"""
+        (self.root / "README.md").write_text(
+            "# 根\n\n- [x](docs/ops/x.md)\n", encoding="utf-8"
+        )
+        write_doc(self.root, "docs/ops/x.md", "659 条自动化测试全绿\n", header=GOOD_HEADER)
+        rules = [item["rule"] for item in docs_lint.lint(self.root) if item["rule"] == "number"]
+        self.assertEqual(rules, ["number"])
+
+
 class CommandLineTests(unittest.TestCase):
     """CLI:退出码与 JSON 形状(L4 判定器消费 JSON)。"""
 

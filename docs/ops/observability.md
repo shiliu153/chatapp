@@ -350,7 +350,7 @@ curl -s http://127.0.0.1:8000/metrics | head        # 未配 METRICS_TOKEN 时�
 | 容器 | 6 个:prometheus / alertmanager / grafana / node-exporter / mysqld-exporter / redis-exporter(**新增 2 个**;旧的 alert-relay 容器已删除) |
 | systemd | `chatapp-alert-relay`(≈10MB)、`chatapp-celery-exporter`(≈20MB) |
 | 抓取 | 6 个 target 全 `up`(api / im / node / celery / mysql / redis) |
-| 规则 | **17 条**告警加载,`promtool check rules` SUCCESS |
+| 规则 | **<!-- num:alert_rules -->17<!-- /num --> 条**告警加载,`promtool check rules` SUCCESS |
 | 看板 | 12 块(新增业务漏斗、Celery、缓存命中率与 IM 失败率、MySQL/Redis 读数) |
 | 告警链路 | 合成告警 `SyntheticProbe` → relay → 邮件到达(relay 日志 `email:directmail ok`);恢复后再发一封 |
 | 探针 | 手动跑 `exit=0`(31ms);上线首小时的 301 假故障已修(见 §2.2 第 6 条) |
