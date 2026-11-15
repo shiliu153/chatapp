@@ -41,6 +41,10 @@ die() { printf '错误: %s\n' "$*" >&2; exit 2; }
 #      给出可用槽位建议。本项目自己的栈在跑(按 compose 的 working_dir 标签认)则照旧复用。
 #      判定必须留在这里:DB_PORT / BROKER_URL / TEST_REDIS_* 都由槽位派生,挪到 deps.sh
 #      改端口会变成「容器起在新槽、Django 连旧槽」。
+#      例外(拆除通道,2026-11-15 补):`deps.sh down` 会在 source 本文件**之前**先
+#      `export CHATAPP_CI_NO_COLLISION_GUARD=1`,整块判定跳过 —— 拆栈不需要空闲端口,
+#      守卫却会把「目标槽被孤儿栈占着」当成致命错误,让那套栈永远拆不掉(实测见
+#      docs/standards/dev-commands.md「拆除通道」)。跳过后的认领责任在 deps.sh 的 down 分支。
 # 同一个目录每次派生出同一个结果,不同目录几乎必然不同 —— 这就是「并发互不拆台」的依据。
 CHATAPP_MAIN_CHECKOUT=${CHATAPP_MAIN_CHECKOUT:-$HOME/src/chatapp}
 
@@ -195,7 +199,11 @@ fi
 extern_ports=""
 if [ -n "${MYSQL_PORT:-}${REDIS_PORT:-}${COMPOSE_PROJECT_NAME:-}" ]; then extern_ports=1; fi
 
-if [ -n "$slot" ] && [ -z "$extern_ports" ]; then
+# 拆除通道的开关(文件头规则 5 的例外):置 1 表示「我只是要拆栈,别问我端口空不空」。
+# 只有 scripts/stacks/deps.sh 的 down 分支会设它,且必须设在自己的 source 之前。
+if [ "${CHATAPP_CI_NO_COLLISION_GUARD:-0}" = 1 ]; then guard_off=1; else guard_off=0; fi
+
+if [ -n "$slot" ] && [ -z "$extern_ports" ] && [ "$guard_off" = 0 ]; then
   busy=$(listening_ports)
   owned=$(owned_slots)
   taken=1

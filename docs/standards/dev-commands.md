@@ -134,6 +134,24 @@ cd <任一检出目录> && bash scripts/verify.sh deps        # 只起依赖(不
 - 所以「占用方消失、派生算回原槽」之后,跑一轮 `bash scripts/verify.sh backend`(收尾会自动 down)
   或 `bash scripts/stacks/deps.sh down`,两套一起收掉,不需要再手记槽位。
 
+**拆除通道**(2026-11-15 补,原来是「拆不掉」的坑):撞槽守卫在 `env.sh` 被 source 的那一刻就跑,
+而 `down` 也会 source 它 —— 于是「要拆的栈自己占着那个槽的端口」反而让 `down` 退出 2 并建议换槽,
+孤儿栈彻底拆不掉(实测:worker 工单目录被 prune 删掉后留下的 `chatapp-ci-s70`,只能手工
+`docker compose -p chatapp-ci-s70 -f docker-compose.ci.yml down -v`)。现在:
+
+- `deps.sh down` 在 source 之前就 `export CHATAPP_CI_NO_COLLISION_GUARD=1`,env.sh 的撞槽判定
+  块整块跳过 —— **`down` 不受端口守卫影响**,`CHATAPP_CI_SLOT=N` 撞槽也照拆;
+- 守卫跳过之后按 compose 的 `project.working_dir` 标签认领:本目录起的照常 `down -v`;
+  项目名下**没有容器也没有卷**就静默放过(干净目录跑一次 `down` 不报错);
+  有东西但**不是本目录起的**,默认**拒绝**并打印
+  `项目 X 不是本目录起的(working_dir=…,本目录 …);确实要拆就加 CHATAPP_CI_FORCE_DOWN=1`;
+- `CHATAPP_CI_FORCE_DOWN=1` 是**孤儿清理通道**:工单目录已被删、`working_dir` 指向不存在的路径时
+  用它拆:
+
+```bash
+CHATAPP_CI_SLOT=70 CHATAPP_CI_FORCE_DOWN=1 bash scripts/stacks/deps.sh down   # 拆孤儿栈
+```
+
 **并发上限**(2026-11-15 两轮实测,15.8GiB 的 WSL,不是推算):
 
 - **单套**:MySQL 390-460MiB + Redis 4-5MiB(空库 388MiB / 4MiB;跑满一轮 backend 全量 1119 个用例后
