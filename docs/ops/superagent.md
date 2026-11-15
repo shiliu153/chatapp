@@ -570,8 +570,9 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 | 事 | 命令 |
 |---|---|
 | 安装 / 升级(幂等) | `wsl -e bash -c 'SUB_URL="https://…" bash /root/src/chatapp/scripts/superagent-proxy/install.sh'`(首次要带 `SUB_URL`,之后读 `$DIR/subscription.url`) |
-| 三路对比探针 | `bash /root/.dsh/proxy/bin/probe.sh`(默认各 30 次;`--count 20` 快跑) |
-| 手动刷订阅 | `bash /root/.dsh/proxy/bin/refresh.sh`(`--dry-run` 只报差异) |
+| 三路对比探针 | `bash /root/.dsh/proxy/bin/probe.sh`(默认各 30 次;`--count 20` 快跑;`--allow-fail 1` 放宽到允许 1 次失败) |
+| 看当前出口组 | `bash /root/.dsh/proxy/bin/probe.sh --count 1` 末尾那张表(每组 `now` + 最近一次健康检查 `delay`);也可直接查控制器,见 §12.7 |
+| 手动刷订阅 | `bash /root/.dsh/proxy/bin/refresh.sh`(`--dry-run` 只报差异;正常跑完会把主组对齐到 `github-fallback`) |
 | 状态 / 日志 | `systemctl status superagent-proxy` · `journalctl -u superagent-proxy -n 50 --no-pager` |
 | 当前选中节点 | `curl -H "Authorization: Bearer $(cat /root/.dsh/proxy/controller.secret)" http://127.0.0.1:9091/proxies/github` |
 | 定时刷新 | `systemctl list-timers superagent-proxy-refresh`(每 6 小时 `:20`,随机延迟 ≤10min) |
@@ -590,6 +591,8 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 | 另建 `github` 测速组 | 机场的「自动选择」测的是 `http://cp.cloudflare.com`,选出的是「连 cloudflare 最快」,不等于「能稳定拉 GitHub」。新组直接拿 `https://api.github.com/rate_limit` 当测速 URL,只收名字含 `IEPL` 的专线节点(≤12 个),并插到「节点选择」首位当默认出口 —— 不动 rules,机场自带的「国际媒体」「电报代理」等分流组照旧 |
 | 预下 `geoip.metadb` | 订阅里有 `GEOIP,CN` / `GEOIP,NETFLIX`,mihomo 首次启动要这份数据;而那时代理还没起来,直连 GitHub release 实测 504。`install.sh` 会先试三个源;全失败也**不算致命** —— mihomo 启动时会用自己的 CDN 补上(实测 3s) |
 | 刷新用热重载而非重启 | `PUT /configs` 不断已建立的连接;内容没变时连重载都不做。订阅的端口每次都在变(见 12.6),所以实际每轮都会重载一次,影响 <1s |
+| **健康检查窗口 60 秒 + 组级 fallback**(2026-11-15) | url-test 组只在**测速那一刻**知道节点死没死,窗口多长故障就能持续多长:300s 的旧值意味着「节点刚测完就挂掉」时最长 5 分钟每条请求都往死节点上撞 —— 2026-11-14 21:28 实测的那个 2 分钟窗(经 7890 连续 4 次 000、同一时刻直连连续 4 次 200、21:29:33 自己恢复)就是它的形状。现在 `github` 组 `interval=60 / timeout=3000ms / max-failed-times=1`,外面再套一层 `github-fallback`(fallback: `github` → 机场全量池 `自动选择`),整池 IEPL 一起抽风时还有路可走 |
+| **关掉 `profile.store-selected`**(2026-11-15) | select 组会记住「上次被手动选中的那个」,优先级**高于**配置里的 `proxies[0]`。2026-11-15 实测:`节点选择` 被钉在 `🇸🇬\|新加坡-IEPL 02` 这个**单个节点**上,而精心配的 `github` / `github-fallback` 两个组根本不在出口链路上 —— 健康检查全白做,面板上看还一切正常。现在配置关掉选择记忆,且 `refresh.sh` 每次跑完都会把主组对齐到配置首位成员(幂等) |
 
 ### 12.5 为什么这些脚本在仓库里而不是工单里
 
@@ -611,6 +614,21 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
   首轮没有任何增量可省。这与代理无关:改造前后都是这个量级。**重启后不要以为「派单丢了」** ——
   `work/` 空 + `github: starting` 时先等,别按 §4.1 去补发评论(会多开 worktree)。
   稳态是增量轮询,`github: ready` 会一直保持。
+  2026-11-14 实测区间更宽:**一轮 15~25 分钟**(116 个 thread、每次 `gh api` 约 10s),
+  出网抖动会把这个耗时进一步放大(每多一次重试就多 10s)。所以「派单后 8 分钟还没回执」
+  在轮询途中是正常的,**判断丢单要看 §4.1 的三张表,不要看时间**。
+
+- **节点级瞬时失效是本机常态**(2026-11-15 复盘)。机场是共享出口,单节点会在几十秒尺度上
+  抽风,而命中它的请求一律 `000`(连接建立后上游无响应),mihomo 的 journal 里**只留一行
+  `match … using 节点选择[…]`,没有任何错误行** —— 所以「当时是不是节点坏了」在日志里查不出来。
+  现在靠三件事兜住:① 健康窗口 60s(见 §12.4);② `probe.sh` 默认**零容忍**并打印出口组的
+  `now` 与最近 `delay`;③ `scripts/superagent-health` 每 15 分钟验一次出网(§15)。
+
+- **`probe.sh` 的「成功」口径是 HTTP 2xx,不是 curl 退出码**(2026-11-15 起)。旧判据把
+  「通是通了、但返回 403」算成成功(机场错误页、GitHub 的 403 都长这样),于是探针会给出
+  「20/20,可以用」的虚假安全感。同时旧判据允许「偶发 000」混过去 —— 而 worker 一轮要读
+  60~100 次 GitHub,几个百分点的失败率就足够让整轮踩雷。现在默认 `--allow-fail 0`,
+  要放宽必须显式写出来(排障时才这么做)。
 - **机场端口是端口池随机分配**:每次拉订阅返回的端口都不一样(实测两次差 27 个节点),
   多端口并存、旧端口短期内仍可用。所以刷新定在每 6 小时:万一某天旧端口被回收,
   最长 6 小时能自愈。`refresh.sh` 的差异报告会把「端口/地址变化」单独归一类,不混进节点增减。
@@ -643,6 +661,8 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 | `probe.sh` 判 mihomo 比直连差 | 换线路:`/root/.dsh/proxy/bin/override.yaml` 的 `include_pattern`(默认只收 IEPL);改完跑 `refresh.sh` |
 | 某天突然全部超时 | 端口可能被回收:先 `refresh.sh`,再看 `journalctl` |
 | 想确认到底走没走代理 | `curl -x http://127.0.0.1:7890 https://api.ipify.org` 看出口 IP |
+| **想知道「现在走哪个节点、健康检查挂没挂」** | `bash /root/.dsh/proxy/bin/probe.sh --count 1` 末尾那张表(三组各一行);或直接查控制器:`curl -s -H "Authorization: Bearer $(cat /root/.dsh/proxy/controller.secret)" http://127.0.0.1:9091/proxies/github`(`now` = 选中的节点,`history[-1].delay` = 最近一次测速毫秒数)。若 `节点选择.now` 是**具体节点名**而不是 `github-fallback`,说明选择记忆被打开了或被手动钉过:跑一次 `refresh.sh` 对齐 |
+| 出网时好时坏(间歇 `000` / `http=403`) | ① 先看上面那条的出口组表,某节点 `delay` 特别大就当它坏了;② `probe.sh --count 30` 看失败率(默认零容忍,有失败即不健康);③ 换一批线路:调 `override.yaml` 的 `include_pattern` 再 `refresh.sh`;④ 根路径 `https://api.github.com/` 经机场出口**恒 403**(#303),别拿它当探针目标 —— 三处探测(`start-superagent.sh`、`ensure-running.ps1`、`superagent_health.py`)都用 `/rate_limit` |
 | 启动/`status` 输出里有 `[select] egress-bad` | 7890 在听但经它出网不通(2026-11-13 的形态):看 `journalctl -u superagent-proxy -n 50 --no-pager`;若宿主也连不通,WSL 的 `networkingMode` 是不是不是 mirrored(§12.0) |
 
 ### 12.8 回退
@@ -681,6 +701,13 @@ pwsh -File scripts\superagent-start\ensure-running.ps1
 它做三件事:探测 WSL(短超时)→ 冷状态就显式拉起 → 调 WSL 里的
 `/root/ensure-superagent.sh`(没跑就 `start`,并等到能接单),最后报告出口代理 /
 模型兜底 / docker 是否就绪(缺了只警告不拦)。
+
+**出网探测用 `/rate_limit`,不是根路径**(2026-11-15 修正)。旧版探的是
+`https://api.github.com/`,而机场出口 IP 对该路径**恒 403**(#303 记录过,当时只修了
+`start-superagent.sh`),于是守门脚本每次都判「不能派单」—— 一个自身错误的闸门把派单
+彻底堵死,而 worker 其实完全正常。现在三处探测(`start-superagent.sh` 的
+`EGRESS_PROBE_URL`、本脚本、`scripts/superagent_health.py` 的 `EGRESS_URL`)**同一个口径**:
+`https://api.github.com/rate_limit` + 2xx 才算通。改任何一处之前先看 §12.7 最后一行。
 
 WSL 侧也可以直接跑:`bash /root/ensure-superagent.sh`。
 

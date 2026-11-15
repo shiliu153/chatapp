@@ -80,8 +80,28 @@ if run "$T/good.yaml" "$T/out.yaml"; then
   check "github 组测的是 GitHub"          "[g for g in cfg['proxy-groups'] if g['name']=='github'][0]['url'].startswith('https://api.github.com')"
   check "信息节点被排除在测速组之外"      "all('流量' not in p for p in [g for g in cfg['proxy-groups'] if g['name']=='github'][0]['proxies'])"
   check "github 组只收 IEPL 节点"         "all('IEPL' in p for p in [g for g in cfg['proxy-groups'] if g['name']=='github'][0]['proxies'])"
-  check "节点选择 的默认出口是 github"    "[g for g in cfg['proxy-groups'] if g['name']=='节点选择'][0]['proxies'][0] == 'github'"
+  check "节点选择 的默认出口是 github-fallback" "[g for g in cfg['proxy-groups'] if g['name']=='节点选择'][0]['proxies'][0] == 'github-fallback'"
   check "rules 原样保留"                  "cfg['rules'][-1] == 'MATCH,节点选择'"
+  # 健康检查窗口(2026-11-15):300s 的窗口意味着节点刚测完就挂掉时故障能持续 5 分钟,
+  # 这正是 2026-11-14 那次 2 分钟断流的形状。三档都要钉住,别让「顺手改回默认值」溜过去。
+  check "github 组 interval 来自 override" \
+    "[g for g in cfg['proxy-groups'] if g['name']=='github'][0]['interval'] == 60"
+  check "github 组 timeout 来自 override" \
+    "[g for g in cfg['proxy-groups'] if g['name']=='github'][0]['timeout'] == 3000"
+  check "github 组 max-failed-times 来自 override" \
+    "[g for g in cfg['proxy-groups'] if g['name']=='github'][0]['max-failed-times'] == 1"
+  # 组级兜底:整池 IEPL 一起抽风时落到机场全量池。成员顺序 = 优先级,别把「自动选择」放前面。
+  check "fallback 组已注入且类型正确" \
+    "[g for g in cfg['proxy-groups'] if g['name']=='github-fallback'][0]['type'] == 'fallback'"
+  check "fallback 成员顺序 = [github, 自动选择]" \
+    "[g for g in cfg['proxy-groups'] if g['name']=='github-fallback'][0]['proxies'] == ['github', '自动选择']"
+  check "github_group / github_fallback 蓝图没被写进配置" \
+    "('github_group' not in cfg) and ('github_fallback' not in cfg)"
+  # 选择记忆必须关掉:否则 select 组会按 cache.db 里的「上次手动选中」走,配置里的
+  # proxies[0] 形同虚设 —— 2026-11-15 实测「节点选择」被钉在一个具体节点上,
+  # github / github-fallback 两个组根本没在出口链路上,健康检查全白做。
+  check "profile.store-selected 为 false(不记住手动选择)" \
+    "(cfg.get('profile') or {}).get('store-selected') is False"
 else
   bad "正常订阅渲染成功"; cat "$T/err"
 fi
@@ -108,6 +128,8 @@ make_sub "$T/noiepl.yaml" 12 0 "🇺🇸|美国-中转"
 if run "$T/noiepl.yaml" "$T/out4.yaml"; then
   ok "无 IEPL 时仍渲染成功(降级)"
   check "无 IEPL 时不建 github 组" "not any(g['name']=='github' for g in cfg['proxy-groups'])" "$T/out4.yaml"
+  check "无 IEPL 时也不建 github-fallback(没有第一层可包)" \
+    "not any(g['name']=='github-fallback' for g in cfg['proxy-groups'])" "$T/out4.yaml"
   check "无 IEPL 时默认出口仍是机场原组" \
     "[g for g in cfg['proxy-groups'] if g['name']=='节点选择'][0]['proxies'][0] == '自动选择'" "$T/out4.yaml"
 else
@@ -118,7 +140,35 @@ fi
 stray=$(find "$T" -maxdepth 1 -name '.config-*' | wc -l)
 [ "$stray" -eq 0 ] && ok "没有残留临时文件" || bad "残留了 $stray 个临时文件"
 
-# ---------- 6. 启动脚本的选路判定(2026-11-13:端口活 **且** 出网真通) ----------
+# ---------- 6. probe.sh 的判据(2026-11-15:2xx 才算成功 + 间歇失败也算不健康) ----------
+# 为什么要钉住:这套判据正是两次误判的来源 —— 旧版只看 curl 退出码,于是「代理通
+# 但返回 403」被算成成功;旧版也不区分「偶发 000」。判据坏掉时探针会给出
+# 「20/20,可以用」这种虚假安全感,比没有探针更糟。
+judge_case() { # $1=描述 $2=期望退出码 $3..=judge 的成功/失败计数
+  local desc="$1" want="$2"
+  shift 2
+  ( . "$HERE/probe.sh"; COUNT=20; judge "$@" ) >"$T/judge.out" 2>&1
+  local got=$?
+  if [ "$got" = "$want" ]; then
+    ok "$desc"
+  else
+    bad "$desc(期望退出码 $want,实得 $got)"
+    sed 's/^/       /' "$T/judge.out"
+  fi
+}
+
+ALLOW_FAIL=0
+judge_case "全通 → 可用"                    0 20 0 20 0
+judge_case "mihomo 有 1 次失败 → 不健康"    1 19 1 20 0
+judge_case "mihomo 完全不通 → 不健康"       1 0 20 20 0
+judge_case "mihomo 比直连差 → 不健康"       1 18 0 20 0
+ALLOW_FAIL=1
+judge_case "放宽到允许 1 次失败 → 可用"     0 19 1 19 1
+judge_case "放宽后仍有 2 次失败 → 不健康"   1 18 2 20 0
+ALLOW_FAIL=0
+
+# ---------- 7. 启动脚本的选路判定(2026-11-13:端口活 **且** 出网真通) ----------
+
 # 为什么挂在这里:这是「7890 在听、出网 0%」唯一的机械防线 —— 旧判据只看端口,
 # 于是永不回退、worker 全断而面板全绿。用例本身在 scripts/test_start_superagent.sh
 # (纯离线:端口与探测都打桩),这里只负责让它进 contract 轨(不新增 workflow step)。

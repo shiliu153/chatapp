@@ -22,15 +22,45 @@ external-controller: 127.0.0.1:9091
 mode: rule
 log-level: info
 
+# 关掉「选择记忆」(2026-11-15,有实测):
+#   select 组的手动选中会被 mihomo 存进 cache.db,重载/重启后**优先于配置里的 proxies[0]**。
+#   于是「节点选择」可能被钉在某个具体节点上 —— 而单个节点没有任何健康检查。
+#   2026-11-15 实测就撞上了:`节点选择 now=🇸🇬|新加坡-IEPL 02`,而我们精心配的
+#   github / github-fallback 两个组根本没在出口链路上,健康检查等于白做。
+#   关掉之后,配置里的 proxies[0] 是唯一事实来源;refresh.sh 每次热重载后还会再对齐一次。
+profile:
+  store-selected: false
+
 # GitHub 专用测速组。机场自带的「自动选择」测的是 http://cp.cloudflare.com,
 # 选出来的是「连 cloudflare 最快的节点」,不等于「能稳定拉 GitHub 的节点」。
 # 本项目的实际痛点是 api.github.com 新建 TLS 连接被间歇重置(§11),
 # 所以这里直接拿 GitHub 当测速目标。
+#
+# 健康检查窗口为什么是 60 秒(2026-11-15 从 300s 收紧):
+#   url-test 组只在**测速那一刻**知道节点死没死。窗口 300s 意味着节点刚测完就挂掉时,
+#   最长 5 分钟内每条请求都往死节点上撞 —— 2026-11-14 21:28 实测到的那 2 分钟窗
+#   (经 7890 连续 4 次 000、同一时刻直连连续 4 次 200、21:29:33 自己恢复)就是它的形状。
+#   12 个 IEPL 节点测一轮的成本可以忽略,所以窗口压到 60s:最坏自愈时间从 5 分钟降到 1 分钟。
+#   timeout 与 max-failed-times 一起收紧:单次测速别拖到 5s,一次测不通就当它是死的。
 github_group:
   name: github
   url: https://api.github.com/rate_limit
-  interval: 300        # 5 分钟一次;106 个节点全测太吵,只测 IEPL 精选
+  interval: 60         # 60 秒一次;只测 IEPL 精选(≤12 个),不是 106 个全测
+  timeout: 3000        # ms;单次测速超时,默认 5s 会把一轮自愈拖长
+  max_failed_times: 1  # 测不通一次就判死,立刻换节点(默认 5 次太钝)
   tolerance: 100       # ms;差值小于这个不切,避免来回抖
   max_nodes: 12
   include_pattern: IEPL   # 只挑专线;中转/直连线路实测更差
   exclude_pattern: 流量|套餐|重置|到期
+
+# 组级兜底(2026-11-15 加):github 组是 url-test,它只能在**它自己的节点池**里换;
+# 万一整池 IEPL 一起抽风(机场单线路故障),worker 就没有出口了。所以再套一层 fallback:
+# 先走 github 组(按 GitHub 实测选出的最佳 IEPL),该组整体判死时立刻落到机场自带的全量池。
+# 注意 members 的顺序就是优先级,别把「自动选择」放前面 —— 它测的是 cloudflare,与 GitHub 无关。
+github_fallback:
+  name: github-fallback
+  interval: 60
+  timeout: 3000
+  members:
+    - github          # 第一层:IEPL 里按 GitHub 实测最好的那个
+    - 自动选择        # 第二层:机场全量节点池(105 个),组级兜底
