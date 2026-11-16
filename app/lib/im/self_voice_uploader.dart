@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 
 import '../core/api_client.dart';
 import '../core/api_exception.dart';
+import 'upload_idempotency.dart';
 import 'voice_transcode.dart';
 
 /// 语音上传结果,字段与 `POST /api/v1/im/voices` 的 `201` 响应一一对应。
@@ -53,13 +54,29 @@ abstract class SelfVoiceUploader {
 /// - 抢到转码槽 → `201 + {id,url,duration_ms,size,status:ready}`,直接用;
 /// - 槽被占 → `202 + {id,status:pending,retry_after}`,文件已落临时区、转码在 Celery 里排队,
 ///   这里按 `retry_after` 轮询 §6.5 直到 `ready`(或 `failed`)。
+///
+/// 上传请求本身带 `Idempotency-Key`(口径 `docs/api/conventions.md`「幂等键」):
+/// 同一段录音的所有重试复用同一个 key,服务端据此重放第一次的结果(同一个 `id`),
+/// 不再为「响应没回来」的重试多转码一份文件;重录(本地临时路径变了)才是新 key。
+/// 轮询是 `GET`,不带幂等键 —— 它只读,重复问没有副作用。
 class ApiVoiceUploader implements SelfVoiceUploader {
+  /// 参数说明:
+  /// - [_api] 业务请求通道(JWT / 刷新都在这一层)。
+  /// - [pollRetryAfter] 首轮轮询间隔的兜底(测试里调小,免得真等 5 秒);
+  ///   不传就用 202 响应里的 `retry_after`。
+  /// - [sleep] 轮询等待;测试里注入 no-op,真实运行走 `Future.delayed`。
+  /// - [maxAttempts] 轮询次数上限。
+  /// - [keys] 幂等键缓存,缺省每个上传器一份;单测可注入固定种子。
+  /// - [retry] 上传的退避重试策略,缺省 [UploadRetry];单测注入假 sleep 免得真等。
   ApiVoiceUploader(
     this._api, {
     this.pollRetryAfter,
     this.sleep,
     this.maxAttempts = VoiceTranscodePoller.defaultMaxAttempts,
-  });
+    UploadKeyCache? keys,
+    UploadRetry? retry,
+  })  : _keys = keys ?? UploadKeyCache(),
+        _retry = retry ?? UploadRetry();
 
   final ApiClient _api;
 
@@ -71,17 +88,31 @@ class ApiVoiceUploader implements SelfVoiceUploader {
 
   final int maxAttempts;
 
+  final UploadKeyCache _keys;
+  final UploadRetry _retry;
+
+  /// 幂等键的作用域就是接口路径(服务端按「接口 + 账号 + key」区分)。
+  static const String idempotencyScope = 'im/voices';
+
   @override
   Future<ChatVoiceUpload> upload(String localPath, int durationMs,
       {VoiceTranscodeHook? hook}) async {
+    // 读文件放在重试之外:文件没了再试一百遍也还是没了,该立刻冒泡
     final bytes = await File(localPath).readAsBytes();
     final name = localPath.split(Platform.pathSeparator).last;
-    final data = await _api.post('/im/voices', data: FormData.fromMap({
-      // .m4a 不在 mime 包里,不显式声明会退化成 application/octet-stream 被服务端拒绝
-      'file': MultipartFile.fromBytes(bytes, filename: name,
-          contentType: DioMediaType('audio', 'mp4')),
-      'duration_ms': '$durationMs',
-    })) as Map<String, dynamic>;
+    final key = _keys.keyFor(idempotencyScope, localPath);
+    final data = await _retry.run(
+      key,
+      // FormData 必须每次重建:multipart 流只能消费一次,复用会发出空文件
+      (key) => _api.post('/im/voices',
+          headers: {idempotencyKeyHeader: key},
+          data: FormData.fromMap({
+            // .m4a 不在 mime 包里,不显式声明会退化成 application/octet-stream 被服务端拒绝
+            'file': MultipartFile.fromBytes(bytes, filename: name,
+                contentType: DioMediaType('audio', 'mp4')),
+            'duration_ms': '$durationMs',
+          })),
+    ) as Map<String, dynamic>;
 
     // 202 与 201 的判别用响应体里的 `status`:契约里 202 **恒为** status=pending,
     // 201 恒为 ready(docs/api/im.md §6.4)。不走 HTTP 状态码 —— ApiClient 只回 body,

@@ -30,6 +30,8 @@ class ProfileController extends AsyncNotifier<Profile> {
   ///   bytes: 本地录音字节。
   ///   filename: multipart 文件名。
   ///   hook: 转码进度回调(录音卡据此把状态切成「处理中」)。
+  ///   keySource: 这次录音的身份(本地临时路径),同一次录音的多次重试必须传同一个值,
+  ///     否则服务端会把同一次上传当两次(幂等键失效,见 `im/upload_idempotency.dart`)。
   ///
   /// Returns:
   ///   可播放的资料语音。
@@ -38,10 +40,11 @@ class ProfileController extends AsyncNotifier<Profile> {
   ///   [ApiException]:400 时长超限 / 413 配额满 等,message 都是中文可直接展示;
   ///   [VoiceTranscodeException]:转码失败或轮询超时。
   Future<VoiceIntro> uploadVoice(Uint8List bytes, String filename,
-      {VoiceTranscodeHook? hook}) async {
+      {VoiceTranscodeHook? hook, String? keySource}) async {
     final voice = await ref.read(profileRepositoryProvider).uploadVoice(
           bytes,
           filename,
+          keySource: keySource,
           // 受理即下线旧语音:服务端在 202 时已经把旧文件删掉了(覆盖语义),
           // 本地不跟着清会让资料页继续显示一条已经听不到的语音。
           hook: VoiceTranscodeHook(

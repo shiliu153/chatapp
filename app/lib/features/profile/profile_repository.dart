@@ -6,16 +6,33 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api_client.dart';
 import '../../core/api_exception.dart';
 import '../../core/providers.dart';
+import '../../im/upload_idempotency.dart';
 import '../../im/voice_transcode.dart';
 import 'models.dart';
 
 class ProfileRepository {
-  ProfileRepository(this._api, {this.sleep});
+  /// 参数说明:
+  /// - [_api] 业务请求通道。
+  /// - [sleep] 转码轮询的等待实现;测试里注入 no-op,免得真等 5 秒。
+  /// - [keys] 上传幂等键缓存(资料语音用),缺省本仓储一份;单测可注入固定种子。
+  /// - [retry] 上传的退避重试策略,缺省 [UploadRetry];单测注入假 sleep 免得真等。
+  ProfileRepository(this._api, {this.sleep, UploadKeyCache? keys, UploadRetry? retry})
+      : _keys = keys ?? UploadKeyCache(),
+        _retry = retry ?? UploadRetry();
 
   final ApiClient _api;
 
   /// 转码轮询的等待实现;测试里注入 no-op,免得真等 5 秒。
   final Future<void> Function(Duration delay)? sleep;
+
+  final UploadKeyCache _keys;
+  final UploadRetry _retry;
+
+  /// 资料语音上传的幂等键作用域(服务端按「接口 + 账号 + key」区分)。
+  static const String voiceIdempotencyScope = 'users/me/voice';
+
+  /// 不带来源时的兜底序号:保证「每次调用一个新 key」而不是所有调用共用一个。
+  int _voiceKeySequence = 0;
 
   Future<Profile> fetchMe() async =>
       Profile.fromJson(await _api.get('/users/me') as Map<String, dynamic>);
@@ -51,20 +68,35 @@ class ProfileRepository {
   /// 落临时区、转码在 Celery 里排队,这里按 `retry_after` 轮询 §2.13 直到 `ready`。
   /// 转码失败抛 [VoiceTranscodeException],文案可直接展示。
   ///
+  /// 上传请求本身带 `Idempotency-Key`(口径 `docs/api/conventions.md`「幂等键」):同一次
+  /// 录音的所有重试复用同一个 key,服务端据此重放第一次的结果,不会为「响应没回来」的重试
+  /// 多存一份语音。轮询走 `GET`,不带幂等键(它只读,重复问没有副作用)。
+  ///
   /// Args:
   ///   bytes: 本地录音字节。
   ///   filename: multipart 里的文件名。
   ///   hook: 转码进度回调(受理时通知卡片显示「处理中」,离开页面时让轮询收工)。
+  ///   keySource: 「这次上传的身份」,**同一次录音的多次重试要传同一个值**
+  ///     (录音卡传本地临时录音路径:重录会换路径 → 自然换新 key)。
+  ///     不传则退化为「每次调用一个新 key」——重试仍不会多存一份(轮内同 key),
+  ///     只是「上传成功后丢响应、用户手动再点一次」时会多传一份。
   ///
   /// Returns:
   ///   可播放的资料语音;`url` 是限时签名地址,直接用,别再拼 `API_BASE`。
   Future<VoiceIntro> uploadVoice(Uint8List bytes, String filename,
-      {VoiceTranscodeHook? hook}) async {
-    final data = await _api.post('/users/me/voice',
-        data: FormData.fromMap({
-          'file': MultipartFile.fromBytes(bytes,
-              filename: filename, contentType: DioMediaType('audio', 'mp4')),
-        })) as Map<String, dynamic>;
+      {VoiceTranscodeHook? hook, String? keySource}) async {
+    final source = keySource ?? 'call-${_voiceKeySequence++}';
+    final key = _keys.keyFor(voiceIdempotencyScope, source);
+    final data = await _retry.run(
+      key,
+      // FormData 必须每次重建:multipart 流只能消费一次,复用会发出空文件
+      (key) => _api.post('/users/me/voice',
+          headers: {idempotencyKeyHeader: key},
+          data: FormData.fromMap({
+            'file': MultipartFile.fromBytes(bytes,
+                filename: filename, contentType: DioMediaType('audio', 'mp4')),
+          })),
+    ) as Map<String, dynamic>;
 
     // 202 与 201 的判别用响应体里的 `status`:契约里 202 恒为 pending、201 恒为 ready
     // (docs/api/users.md §2.11)。body 已经足够区分,不必再看 HTTP 状态码。
