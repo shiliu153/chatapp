@@ -344,6 +344,43 @@ class ConfigTests(unittest.TestCase):
         with unittest.mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(mail.main(["check"]), 1)
 
+    def test_load_env_file_fills_only_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "health.env")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "# 注释行\n"
+                    "\n"
+                    'MAIL_SMTP_URL="smtps://smtpdm.aliyun.com:465"\n'
+                    "MAIL_FROM=bot@example.com\n"
+                    "export MAIL_TO='owner@example.com'\n"
+                    "MAIL_PASS=should-not-override\n"
+                )
+            env = {"MAIL_PASS": "from-shell"}
+            loaded = mail.load_env_file(path, env)
+            self.assertEqual(env["MAIL_SMTP_URL"], "smtps://smtpdm.aliyun.com:465")
+            self.assertEqual(env["MAIL_FROM"], "bot@example.com")
+            self.assertEqual(env["MAIL_TO"], "owner@example.com", "export 前缀与引号都要剥掉")
+            self.assertEqual(env["MAIL_PASS"], "from-shell", "shell 里已有的键不能被文件覆盖")
+            self.assertNotIn("MAIL_PASS", loaded)
+
+    def test_load_env_file_missing_file_raises(self):
+        with self.assertRaises(mail.MailError):
+            mail.load_env_file("/nonexistent/health.env", {})
+
+    def test_cli_check_with_env_file(self):
+        """运维自检的实际用法:`mail.py check --env-file <env>` 必须真的读到文件里的配置。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "health.env")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "MAIL_SMTP_URL=smtps://smtpdm.aliyun.com:465\n"
+                    "MAIL_FROM=bot@example.com\n"
+                    "MAIL_TO=owner@example.com\n"
+                )
+            with unittest.mock.patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(mail.main(["check", "--env-file", path]), 0)
+
     def test_cli_send_fails_when_config_missing(self):
         with unittest.mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(

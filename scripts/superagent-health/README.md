@@ -130,7 +130,7 @@ grep -n '^SUPERAGENT_AUTOREHEAL' /root/.dsh/superagent-health.env
 python3 /root/src/chatapp/scripts/superagent_health.py --skip-egress --skip-cursor \
   --ci-red 1 --runs-file /tmp/runs.json      # 用真快照:gh api "repos/shiliu153/chatapp/actions/runs?branch=main&event=push&per_page=100" > /tmp/runs.json
 # 发信配置齐不齐 / 主题长什么样(都不联网、不发信)
-python3 /root/src/chatapp/scripts/lib/mail.py check
+python3 /root/src/chatapp/scripts/lib/mail.py check --env-file /root/.dsh/superagent-health.env
 python3 /root/src/chatapp/scripts/lib/mail.py subject --category 巡检 --subject worker --verdict 游标停摆
 ```
 
