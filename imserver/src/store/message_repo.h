@@ -269,8 +269,8 @@ class MessageRepo {
   /// Args:
   ///   lease: 借出的数据库连接。
   ///   uid: 请求者账号(只能搜到自己参与的会话)。
-  ///   keyword: 用户关键词(先剥 BOOLEAN MODE 操作符再走 FULLTEXT 短语匹配,
-  ///   另留 LIKE 做精确判定;大小写不敏感)。
+  ///   keyword: 用户关键词(先剥 BOOLEAN MODE 操作符;有 2 字符以上的词就走 FULLTEXT
+  ///   短语筛选 + LIKE 收口,全是单字则退回 LIKE 全扫;大小写不敏感)。
   ///   before_id: 游标,只取 msg_id 小于它的消息;0 表示第一页。
   ///   limit: 最多返回条数(1–100)。
   ///
@@ -280,7 +280,7 @@ class MessageRepo {
 // 函数简介     关键词搜索我参与的未撤回文本消息
 // 参数说明     lease            借出的数据库连接 事务边界由调用方决定
 //              uid              请求者 user_id 只能搜到自己参与的会话
-//              keyword          用户关键词 走 FULLTEXT 短语匹配 另留 LIKE 做精确判定
+//              keyword          用户关键词 任一词≥2字符走 FULLTEXT 筛选 全单字退回 LIKE 全扫
 //              before_id        游标 只取 msg_id 小于它的消息 0 表示第一页
 //              limit            最多返回条数 内部夹在 1..100
 // 返回参数     std::vector<MessageRow>  命中的消息行 新到旧
@@ -292,7 +292,7 @@ class MessageRepo {
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     关键词搜索我参与的未撤回文本消息 自行借连接
 // 参数说明     uid              请求者 user_id
-//              keyword          用户关键词 走 FULLTEXT 短语匹配 另留 LIKE 做精确判定
+//              keyword          用户关键词 任一词≥2字符走 FULLTEXT 筛选 全单字退回 LIKE 全扫
 //              before_id        游标 只取 msg_id 小于它的消息 0 表示第一页
 //              limit            最多返回条数 内部夹在 1..100
 // 返回参数     std::vector<MessageRow>  命中的消息行 新到旧

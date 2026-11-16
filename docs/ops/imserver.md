@@ -808,14 +808,28 @@ curl -G 'https://<域名>/im/api/search' \
 - 排序 **新 → 旧**(`msg_id DESC`),翻页只认 `before_id`;
 - 搜索范围仅限**已有会话**:从没聊过的人不会出现。
 
-匹配由**两条条件**一起完成(2026-11-16 第五轮审计 M-2 起,SQL 见
-`imserver/src/store/message_repo.cpp::search`):
+`search()` 按「关键词里有没有可交给索引的词」分**三条路**(2026-11-16 第五轮审计 M-2 起,
+SQL 见 `imserver/src/store/message_repo.cpp::search`),顺序不能反:
 
-1. **索引收窄**:`MATCH(m.body) AGAINST('<关键词>' IN BOOLEAN MODE)` 走 `im_message` 上的
-   ngram FULLTEXT 索引 `ft_message_body`(迁移 `009_message_fulltext.sql`:
+| 关键词 | 走的条件 | 结果集 | 成本 |
+|---|---|---|---|
+| 剥完只剩空白(纯操作符,如 `+-`) | 不查询,直接返回空 | 与改前一致(改前 `LIKE '%+-%'` 同样一条都命不中) | 零 |
+| **全是单字**(按 UTF-8 字符数,如 `火`、`a b`) | 只 `m.body LIKE '%关键词%' ESCAPE '!'` —— **不加 MATCH** | 与改前逐条一致 | 与改前一致(全扫,受 §16.5 的 10 次/分钟压着) |
+| 至少一个词 ≥2 字符(`火锅`、`火锅 店`、`c++ 2.0`) | `MATCH(m.body) AGAINST('<关键词>' IN BOOLEAN MODE)` **+** 上面那条 `LIKE` | 与改前逐条一致 | 索引命中数(远小于我的历史消息量) |
+
+两条条件同时用的那一档里:
+
+1. **索引收窄**:`MATCH(... IN BOOLEAN MODE)` 走 `im_message` 上的 ngram FULLTEXT 索引
+   `ft_message_body`(迁移 `009_message_fulltext.sql`:
    `ALTER TABLE im_message ADD FULLTEXT KEY ft_message_body (body) WITH PARSER ngram`);
-2. **精确判定**:`m.body LIKE '%关键词%' ESCAPE '!'` 留在后面,用户输入里的 `%`、`_`、`!`
+2. **精确判定**:`m.body LIKE '%关键词%' ESCAPE '!'`,用户输入里的 `%`、`_`、`!`
    仍按 `imserver/src/util/like.h` 的规则转义(转义符 `!`),搜「100%」不会变成通配。
+
+**单字关键词为什么必须退回 LIKE**:`ngram_token_size=2`,单字在建索引时就被丢掉,
+`MATCH('"火"' IN BOOLEAN MODE)` 命中 0 行 —— 而改前 `LIKE '%火%'` 是搜得到的。中文单字搜索
+(搜「店」「钱」「猫」)是真实用法,把这类关键词交给 `MATCH` 等于静默的功能回归,所以
+`has_indexable_term()`(`imserver/src/util/fulltext.h`)先判一次:一个 ≥2 字符的词都没有,就不加
+`MATCH`。
 
 **为什么留两道而不是只留 MATCH**:ngram 按两字切词,同一份关键词在 FULLTEXT 与 LIKE 下
 **不完全等价**,而口径要求「原来搜不到的不会变成搜得到、原来搜得到的不会变成搜不到」。
@@ -840,10 +854,10 @@ curl -G 'https://<域名>/im/api/search' \
 - `%` 与 `_` **不剥**:它们在 FULLTEXT 里只是普通字符(通配语义只存在于 LIKE,由第 2 条挡);
 - 关键词被剥成空(例如只输入 `+-`)时 `search()` 直接返回空结果,不发起查询。
 
-**ngram 最小词长 = 2**(MySQL 8 默认 `ngram_token_size=2`):单字关键词(含单个 emoji)
-建不出索引项,**搜不到属于预期**,不是 bug。同理,「只由单字组成的词」(例如 `a b`)也搜不到;
-`c++` 这类剥掉操作符后只剩单字的输入同样搜不到,而 `c++ 2.0` 仍能搜到(`2.0` 那段建得出
-索引项)。
+**词长口径**(MySQL 8 默认 `ngram_token_size=2`,按 **UTF-8 字符数**判,一个汉字算 1 个字符):
+`火锅`、`c++ 2.0`、`火锅 店` 走索引档;`火`、`a b`(每段都是单字)走 LIKE 全扫档;
+`c++` 剥掉操作符后只剩单字 `c`,同样走 LIKE 全扫档。**这三档的结果集都与改前逐条一致**,
+差别只在成本。
 
 **成本口径(2026-11-16 第五轮审计 M-2 改写)**:改之前 `m.body LIKE '%关键词%'` 是前导通配,
 `im_message` 上没有任何可用索引,**一次搜索的成本与「我参与的全部会话里的文本消息总量」
@@ -865,6 +879,10 @@ curl -G 'https://<域名>/im/api/search' \
 增长。**最坏情况仍可能是全量级**:关键词出现在绝大多数消息里时,倒排链本身就接近全表 ——
 那时新旧两版同阶,但新版本读的是索引,频率仍被 §16.5 的令牌桶压着。另外 `EXPLAIN` 对
 FULLTEXT 给的 `rows` 是占位值(InnoDB 不提供精确估算),不要拿它当读量。
+
+**单字关键词那一档没有索引收益**(就是改前的全扫),这是为「结果集不变」付的代价:
+中文单字搜索是真实用法,不能让它在换实现时静默消失;频率仍被 §16.5 的 10 次/分钟、
+`limit` 上限 20 压着,与 M-2 降频那一半的口径一致。
 
 代价在**写入侧**:每条 `im_message` 的插入/撤回/删除都要多维护一份倒排索引(正文按双字切词)。
 这笔交换的前提是「发消息每秒个位数、搜索要扫全量历史」,真到写入成为瓶颈时再谈异步。
@@ -907,12 +925,14 @@ App/Web 都有 300ms 防抖,正常输入(含连续删字重搜)不会撞到;多�
 ```bash
 # HTTP 集成(含中文命中/排序/游标分页/对端资料/撤回不可见/空关键词/未认证/
 # limit 上限 20/限流:第 6 次突发即 429 + 42901/
-# FULLTEXT 之后:`%` `_` `+` `-` 不报错也不误命中、带空格的关键词仍精确、单字搜不到)
+# FULLTEXT 之后:`%` `_` `+` `-` 不报错也不误命中、带空格的关键词仍精确、
+# 单字关键词仍搜得到(走 LIKE 全扫那条路))
 docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scripts/test_http.sh
 ```
 
 断言在 `imserver/tests/integration/test_search.py`;unit 侧 `like_test.cpp` 覆盖 `%`/`_`/`!` 的
-LIKE 转义,`fulltext_test.cpp` 覆盖 BOOLEAN MODE 的操作符剥离与多短语切分。
+LIKE 转义,`fulltext_test.cpp` 覆盖 BOOLEAN MODE 的操作符剥离、多短语切分与「关键词里有没有
+≥2 字符的词」的判定(单字走 LIKE 全扫那一条路的开关)。
 限流断言用**独立账号**(桶按账号共享,和功能断言混用会先撞自己的桶)。
 
 ### 16.8 排查
@@ -920,7 +940,7 @@ LIKE 转义,`fulltext_test.cpp` 覆盖 BOOLEAN MODE 的操作符剥离与多短�
 | 现象 | 先查 |
 |---|---|
 | 明明有这条消息却搜不到 | 是不是图片/语音;是否已撤回;会话是否被自己删除;是否拉黑了对方 |
-| **单字关键词搜不到** | **预期行为**:ngram 最小词长 2(§16.4),两字以上才建得出索引项;不是 bug |
+| **单字关键词搜不到** | 不该发生:单字(每段都 <2 字符)走的是 `LIKE` 全扫那条路(§16.4 的三条路),改前能搜到的现在也能搜到;真搜不到先查 `has_indexable_term()` 是否把它误判成有索引词 |
 | 关键词带空格 / 标点时命中变多或变少 | 不该发生:MATCH 只做超集筛选、LIKE 收口(§16.4 的三行实测对照) |
 | 搜索一律 `500 + 50001`,日志有 `MysqlError` `1191` | 迁移 `009_message_fulltext.sql` 没跑:`docker compose run --rm imserver --migrate` |
 | 401 | `user_sig` 的 token 是否过期;是否在别的设备登录把 `sv` 顶掉 |

@@ -21,6 +21,7 @@
 * 2026-11-16        shiliu153          新增文件 聊天搜索改 FULLTEXT 后的关键词转义
 ********************************************************************************************************************/
 #pragma once
+#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -62,14 +63,54 @@ inline std::string boolean_keyword(const std::string& keyword) {
   return out.substr(first, last - first + 1);
 }
 
+/// 关键词里是否有「建得出 ngram 索引项」的词:至少一个词有 2 个以上字符。
+///
+/// ngram 按两个字切词(`ngram_token_size=2`),单字符的词不产生任何 token,
+/// 拿它去 `MATCH` 会命中 0 行 —— 单字关键词只能退回 `LIKE` 全扫那条路,
+/// 否则结果集就从「搜得到」变成「搜不到」(§16.4 的三条路)。
+///
+/// 这里的「字符」是 UTF-8 码点,不是字节(一个汉字 3 字节,按字节判会把「火」算成 3)。
+///
+/// Args:
+///   keyword: 用户输入的关键词(未经转义)。
+///
+/// Returns:
+///   有任何一个词长 ≥2 个字符返回 true;空关键词 / 纯操作符返回 false。
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     判断关键词里是否存在两个字符以上的词
+// 参数说明     keyword          用户输入的关键词
+// 返回参数     bool             任一词 ≥2 个 UTF-8 字符返回 true
+// 使用示例     has_indexable_term("火锅 店");
+// 备注信息     先按 boolean_keyword 剥操作符再按空白切词 续字节(10xxxxxx)不计入字符数
+//-------------------------------------------------------------------------------------------------------------------
+inline bool has_indexable_term(const std::string& keyword) {
+  const std::string terms = boolean_keyword(keyword);
+  std::size_t chars = 0;
+  for (const char c : terms) {
+    if ((static_cast<unsigned char>(c) & 0xC0U) == 0x80U) {
+      continue;
+    }
+    if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+      if (chars >= 2) {
+        return true;
+      }
+      chars = 0;
+      continue;
+    }
+    ++chars;
+  }
+  return chars >= 2;
+}
+
 /// 用户关键词 → 可安全交给 `AGAINST(... IN BOOLEAN MODE)` 的查询串。
 ///
 /// 每个以空白分开的词各自包成一条双引号短语,短语之间用空格连接。BOOLEAN MODE 里
 /// 不带 `+` 的多个词是「可选」语义(命中任意一个就算),所以这个串给的是**超集**:
 /// 精确与否由调用方再补一道 `LIKE` 判定 —— 这是「换实现但不改可见性」的机械保证。
 ///
-/// 单字符的词(含单个 emoji)在 ngram 分词下建不出索引项,会被 MySQL 忽略,
-/// 因此只由单字符组成的词(例如 `a b`)搜不到,属预期(§16.4)。
+/// 单字符的词(含单个 emoji)在 ngram 分词下建不出索引项,会被 MySQL 忽略;
+/// 所以调用方必须先用 `has_indexable_term` 判一次,全是单字的关键词走 `LIKE` 全扫,
+/// 不要把它交给 `MATCH`(§16.4 的三条路)。
 ///
 /// Args:
 ///   keyword: 用户输入的关键词(未经转义)。

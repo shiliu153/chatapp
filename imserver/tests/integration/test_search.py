@@ -2,7 +2,7 @@
 
 覆盖:中文命中与排序、对端资料、游标分页、撤回后不可见、空关键词、未认证、
 `limit` 上限收敛到 20、限流(每账号 10 次/分钟、burst 5 → 第 6 次起 429 + 42901)、
-FULLTEXT(ngram)之后的特殊字符与单字关键词口径(M-2)。
+FULLTEXT(ngram)之后的特殊字符口径与单字关键词仍能搜到(M-2)。
 
 限流桶按账号共享,所以「断言链」与「限流断言」必须用**不同的 uid**:
 同一个 uid 连打十几次会先撞到自己的桶(第五轮审计 M-2 把 search 的桶从
@@ -187,12 +187,13 @@ async def main():
     assert search(extra, "+-")["items"] == []
     await extra_ws.close()
 
-    # ngram 最小词长 = 2(M-2):单字关键词没有索引项,搜不到属于预期;
-    # 两字关键词必须能搜到(证明 ngram 索引真的生效)。
+    # 单字关键词(M-2 复审):ngram 最小词长 = 2,MATCH 对单字必然 0 行,所以这条路**不加**
+    # MATCH、退回改前的 LIKE 全扫 —— 改前 `LIKE '%火%'` 能命中,现在必须照样命中;
+    # 两字关键词走索引,结果也必须一致。
     pair(single, peer)
     single_ws = await auth(single)
     await send_text(single_ws, 300, peer, "火锅店在楼下")
-    assert search(single, "火")["items"] == []
+    assert [item["text"] for item in search(single, "火")["items"]] == ["火锅店在楼下"]
     assert [item["text"] for item in search(single, "火锅")["items"]] == ["火锅店在楼下"]
     await single_ws.close()
 

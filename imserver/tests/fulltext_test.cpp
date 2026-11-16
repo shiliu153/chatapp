@@ -63,6 +63,23 @@ TEST(FulltextTest, KeepsLikeWildcardChars) {
 }
 
 //-------------------------------------------------------------------------------------------------------------------
+// 函数简介     用例 验证「有没有可交给索引的词」按 UTF-8 字符数判定
+// 参数说明     无
+// 返回参数     void             无返回值
+// 使用示例     ctest -R FulltextTest.DetectsIndexableTerm
+// 备注信息     单字(火)按字节判会算成 3 个字符 所以这里只认码点 多词里任一个够长就 true
+//-------------------------------------------------------------------------------------------------------------------
+TEST(FulltextTest, DetectsIndexableTerm) {
+  EXPECT_TRUE(has_indexable_term("火锅"));
+  EXPECT_TRUE(has_indexable_term("c++ 2.0"));
+  EXPECT_TRUE(has_indexable_term("火锅 店"));
+  EXPECT_FALSE(has_indexable_term("火"));
+  EXPECT_FALSE(has_indexable_term("a b"));
+  EXPECT_FALSE(has_indexable_term("+-"));
+  EXPECT_FALSE(has_indexable_term(""));
+}
+
+//-------------------------------------------------------------------------------------------------------------------
 // 函数简介     用例 验证关键词被包成带双引号的短语
 // 参数说明     无
 // 返回参数     void             无返回值
