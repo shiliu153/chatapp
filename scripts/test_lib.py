@@ -551,5 +551,24 @@ class ReleasesCliTests(unittest.TestCase):
             self.assertEqual(code, 2)
 
 
+class CiRedSingleSourceTests(unittest.TestCase):
+    """CI 红轨判据只能有一份实现:`l4_intake` 与 worker 巡检都从 `scripts.lib.ci_red` 取。
+
+    为什么钉:worker 巡检器是**自包含安装**的(见 `scripts/superagent_health.py` 顶部的两条
+    导入路径),所以判据被抽成了只依赖标准库的 `scripts/lib/ci_red.py`;`l4_intake` 只是转手
+    再导出。一旦有人在 `l4_intake` 里重新抄一份,两边口径会静默分叉 —— 表现是「L4 认为红、
+    巡检认为绿」,没有任何测试会自己喊。
+    """
+
+    def test_l4_intake_reexports_same_objects(self):
+        from scripts import l4_intake
+        from scripts.lib import ci_red
+
+        self.assertIs(l4_intake.red_runs, ci_red.red_runs)
+        self.assertIs(l4_intake.is_red_run, ci_red.is_red_run)
+        self.assertIs(l4_intake.latest_runs_by_workflow, ci_red.latest_runs_by_workflow)
+        self.assertIs(l4_intake.RED_CONCLUSIONS, ci_red.RED_CONCLUSIONS)
+
+
 if __name__ == "__main__":
     unittest.main()

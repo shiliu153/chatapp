@@ -30,6 +30,9 @@ chmod +x "$TARGET/notify.sh" "$TARGET/run.sh"
 # 发信内核(主题规范 + SMTP + 去重 + 配额)跟巡检一起装:notify.sh 找不到它就只能落盘。
 mkdir -p "$TARGET/lib"
 cp -a "$HERE/../lib/mail.py" "$TARGET/lib/mail.py"
+# CI 红轨判据与巡检器**同级**:巡检器是自包含安装的,仓库不在 sys.path 里,
+# 只能按同名模块 import(见 superagent_health.py 顶部那段 try/except)。
+cp -a "$HERE/../lib/ci_red.py" "$TARGET/ci_red.py"
 
 cp -a "$HERE/superagent-health.service" "$HERE/superagent-health.timer" "$UNIT_DIR/"
 

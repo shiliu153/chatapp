@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -1074,6 +1075,76 @@ class _RestartRecorder:
         """被 `maybe_autoreheal` 调用一次,记一笔并返回预设结果。"""
         self.calls.append(1)
         return self.rc, self.output
+
+
+class InstalledLayoutTests(unittest.TestCase):
+    """安装布局(自包含目录)必须能跑起来 —— 这是 2026-11-17 真实踩到的坑。
+
+    `install.sh` 把巡检器拷到 `/root/.dsh/healthcheck/` 由 systemd 直接执行,那时**仓库不在
+    `sys.path` 里**。CI 红轨那一项最初写成 `from scripts import l4_intake`,装上去之后每轮
+    都 `ModuleNotFoundError`,整轮巡检崩掉、只剩一条空告警发出去(正文是空的,却看不出为什么)。
+
+    所以这里把「巡检器 + 它依赖的判据」拷进一个临时目录,在**没有仓库**的环境里真跑一次:
+    能 import、能判红、退出码是 1。
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp()
+        source = Path(__file__).resolve().parent
+        shutil.copy(source / "superagent_health.py", os.path.join(self.tmp, "superagent_health.py"))
+        shutil.copy(source / "lib" / "ci_red.py", os.path.join(self.tmp, "ci_red.py"))
+        self.db = os.path.join(self.tmp, "orchestrator.sqlite")
+        make_db(self.tmp).close()
+        self.runs = os.path.join(self.tmp, "runs.json")
+        with open(self.runs, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "workflow_runs": [
+                        {
+                            "name": "web",
+                            "conclusion": "failure",
+                            "created_at": "2026-11-16T01:00:00Z",
+                            "head_sha": "abcdef1234567",
+                            "html_url": "https://example.invalid/run",
+                        }
+                    ]
+                },
+                handle,
+            )
+
+    def test_runs_without_repo_on_path(self) -> None:
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)
+        done = subprocess.run(
+            [
+                sys.executable,
+                "superagent_health.py",
+                "--db",
+                self.db,
+                "--skip-egress",
+                "--skip-cursor",
+                "--skip-enqueue",
+                "--ci-red",
+                "1",
+                "--runs-file",
+                self.runs,
+            ],
+            cwd=self.tmp,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+        )
+        self.assertNotIn("ModuleNotFoundError", done.stderr, done.stderr)
+        self.assertNotIn("ImportError", done.stderr, done.stderr)
+        self.assertIn("CI 红轨 web", done.stdout)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+
+    def test_ci_red_module_is_the_shared_one(self) -> None:
+        """仓库布局下必须拿到 `scripts.lib.ci_red` 本体,而不是另一份同名拷贝。"""
+        from scripts.lib import ci_red
+
+        self.assertIs(healthcheck.ci_red, ci_red)
 
 
 if __name__ == "__main__":
