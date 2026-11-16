@@ -24,6 +24,18 @@ http.interceptors.request.use((config) => {
   return config
 })
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /**
+     * 上传请求的重放钩子:401 刷新后用新令牌重发**同一次上传**时,用它重新构造 multipart 请求体。
+     *
+     * 为什么需要:已经发出去的 `FormData` 会被浏览器标脏,直接重发同一个对象会丢文件 / 丢字段。
+     * 只有上传类请求会传它(见 `src/api/idempotency.ts`),普通 JSON 请求不带。
+     */
+    rebuildBody?: () => FormData
+  }
+}
+
 type RetriableConfig = InternalAxiosRequestConfig & { _retried?: boolean }
 
 let refreshing: Promise<string> | null = null
@@ -64,6 +76,8 @@ http.interceptors.response.use(
       try {
         const access = await refreshing
         config.headers.Authorization = `Bearer ${access}`
+        // 同一次上传的重放:multipart 请求体必须重建(已发送的 FormData 会被浏览器标脏)
+        if (config.rebuildBody) config.data = config.rebuildBody()
         return await http.request(config)
       } catch (refreshError) {
         tokenStore.clear()
