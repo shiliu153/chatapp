@@ -253,5 +253,236 @@ class BuildReportTests(unittest.TestCase):
         self.assertEqual(report.exit_code(), 2)
 
 
+class CursorStallTests(unittest.TestCase):
+    """第四项:游标新鲜度。判错的两个方向都要钉住 —— 闲置不许报、真停摆必须报。
+
+    2026-11-16 两次「面板全绿但派工评论没人读」的真事故,就是游标停在几小时前不动,
+    而现有三项检查一条都抓不到。
+    """
+
+    NOW = datetime(2026, 11, 16, 14, 0, tzinfo=timezone.utc)
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp()
+        self.conn = make_db(self.tmp)
+
+    def _cursor(self, number: int, when: datetime) -> None:
+        """写一条 `github-cursor:<number>`(与 orchestrator 同格式:JSON 字符串)。"""
+        value = when.isoformat().replace("+00:00", "Z")
+        self.conn.execute(
+            "insert or replace into kv values (?, ?)",
+            ("github-cursor:%s" % number, json.dumps(value)),
+        )
+        self.conn.commit()
+
+    @staticmethod
+    def _notifications(*items: dict):
+        """造一个「取未读通知」的函数,并记下被调用的次数。"""
+        calls = []
+
+        def loader():
+            calls.append(1)
+            return list(items), None
+
+        loader.calls = calls  # type: ignore[attr-defined]
+        return loader
+
+    def test_stale_cursor_with_newer_unread_is_bad(self) -> None:
+        self._cursor(405, self.NOW - timedelta(minutes=52))
+        unread = [
+            {
+                "number": "405",
+                "title": "[工单] flow: 巡检加「轮询游标新鲜度」",
+                "updated_at": (self.NOW - timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
+            }
+        ]
+        check, unknown = healthcheck.check_cursor(
+            self.conn, self.NOW, 10, self._notifications(*unread)
+        )
+        self.assertEqual(check.state, healthcheck.BAD, check.detail)
+        self.assertIsNone(unknown)
+        self.assertIn("2026-11-16T13:08Z", check.detail)  # 游标时间
+        self.assertIn("52 分钟", check.detail)  # 落后分钟数
+        self.assertIn("1 条", check.detail)  # 未读条数
+        self.assertIn("#405", check.detail)  # 前 3 条标题
+
+    def test_stale_cursor_without_newer_unread_is_ok(self) -> None:
+        """闲置时段:游标不动,但通知里没有比它更新的东西 —— 必须不报。"""
+        self._cursor(405, self.NOW - timedelta(hours=3))
+        old = [
+            {
+                "number": "288",
+                "title": "老通知(游标之前就有的)",
+                "updated_at": (self.NOW - timedelta(hours=5)).isoformat().replace("+00:00", "Z"),
+            }
+        ]
+        check, unknown = healthcheck.check_cursor(
+            self.conn, self.NOW, 10, self._notifications(*old)
+        )
+        self.assertEqual(check.state, healthcheck.OK, check.detail)
+        self.assertIsNone(unknown)
+        self.assertIn("闲置", check.detail)
+
+    def test_fresh_cursor_is_ok_and_never_fetches(self) -> None:
+        """正常路径完全离线:游标新鲜时连通知都不取(不花限流、不因网络抖动误判)。"""
+        self._cursor(405, self.NOW - timedelta(minutes=2))
+        loader = self._notifications()
+        check, unknown = healthcheck.check_cursor(self.conn, self.NOW, 10, loader)
+        self.assertEqual(check.state, healthcheck.OK, check.detail)
+        self.assertIsNone(unknown)
+        self.assertEqual(loader.calls, [], "游标新鲜时不该去取通知")
+        self.assertIn("落后 2 分钟", check.detail)
+
+    def test_missing_cursor_is_skipped(self) -> None:
+        check, unknown = healthcheck.check_cursor(self.conn, self.NOW, 10, self._notifications())
+        self.assertEqual(check.state, healthcheck.OK, check.detail)
+        self.assertIsNone(unknown)
+        self.assertIn("跳过", check.detail)
+
+    def test_unread_without_timestamp_counts_as_pending(self) -> None:
+        """时间解析不出来时按「有活」处理:宁可多报一次,也别把真停摆吞掉。"""
+        self._cursor(405, self.NOW - timedelta(hours=1))
+        check, _ = healthcheck.check_cursor(
+            self.conn,
+            self.NOW,
+            10,
+            self._notifications({"number": "399", "title": "无时间戳", "updated_at": ""}),
+        )
+        self.assertEqual(check.state, healthcheck.BAD, check.detail)
+
+    def test_notifications_unavailable_is_unknown_not_ok(self) -> None:
+        """游标落后且通知取不到 = 判不出来,绝不能当成正常。"""
+        self._cursor(405, self.NOW - timedelta(hours=1))
+        check, unknown = healthcheck.check_cursor(
+            self.conn, self.NOW, 10, lambda: ([], "gh api notifications 退出码 1:EOF")
+        )
+        self.assertEqual(check.state, healthcheck.BAD, check.detail)
+        self.assertIsNotNone(unknown)
+        self.assertIn("取不到未读通知", check.detail)
+
+    def test_heartbeat_is_reported_but_does_not_decide(self) -> None:
+        """`github-since` 只是旁证:它新鲜也不会把「有未读」的停摆洗成正常。"""
+        self._cursor(405, self.NOW - timedelta(hours=1))
+        self.conn.execute(
+            "insert or replace into kv values ('github-since', ?)",
+            (json.dumps(self.NOW.isoformat().replace("+00:00", "Z")),),
+        )
+        self.conn.commit()
+        unread = [
+            {
+                "number": "405",
+                "title": "新评论",
+                "updated_at": self.NOW.isoformat().replace("+00:00", "Z"),
+            }
+        ]
+        check, _ = healthcheck.check_cursor(self.conn, self.NOW, 10, self._notifications(*unread))
+        self.assertEqual(check.state, healthcheck.BAD, check.detail)
+        self.assertIn("轮询心跳", check.detail)
+
+
+class NotificationParsingTests(unittest.TestCase):
+    """通知响应的解析:只认未读,编号从 subject.url 尾巴取,坏数据不许抛。"""
+
+    def test_filters_read_items_and_extracts_number(self) -> None:
+        payload = [
+            {
+                "unread": True,
+                "updated_at": "2026-11-16T14:03:52Z",
+                "subject": {"title": "工单 A", "url": "https://api.github.com/repos/o/r/issues/405"},
+                "repository": {"full_name": "o/r"},
+            },
+            {
+                "unread": False,
+                "updated_at": "2026-11-16T13:00:00Z",
+                "subject": {"title": "已读的", "url": "https://api.github.com/repos/o/r/pulls/404"},
+            },
+            "垃圾行",
+        ]
+        items = healthcheck.parse_notifications(payload)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["number"], "405")
+        self.assertEqual(items[0]["repo"], "o/r")
+
+    def test_non_list_payload_is_empty(self) -> None:
+        for payload in ({"message": "Bad credentials"}, None, "x"):
+            self.assertEqual(healthcheck.parse_notifications(payload), [])
+
+    def test_notifications_file_is_offline_injection(self) -> None:
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "notifications.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(
+                [
+                    {
+                        "unread": True,
+                        "updated_at": "2026-11-16T14:03:52Z",
+                        "subject": {"title": "注入的", "url": "https://api.github.com/repos/o/r/issues/399"},
+                    }
+                ],
+                handle,
+            )
+        items, error = healthcheck.load_notifications_file(path)
+        self.assertIsNone(error)
+        self.assertEqual(items[0]["number"], "399")
+
+    def test_missing_notifications_file_reports_error(self) -> None:
+        items, error = healthcheck.load_notifications_file("/nonexistent/notifications.json")
+        self.assertEqual(items, [])
+        self.assertIsNotNone(error)
+
+
+class CursorReportTests(unittest.TestCase):
+    """整轮拼装:反证(陈旧游标 + 注入未读)必须让 CLI 退出码变成 1。"""
+
+    NOW = datetime(2026, 11, 16, 14, 0, tzinfo=timezone.utc)
+
+    def _setup(self, cursor_minutes_ago: int, unread_minutes_ago: Optional[int] = None):
+        """造临时库 + 注入用的通知文件,返回 `(db 路径, 通知文件路径)`。"""
+        tmp = tempfile.mkdtemp()
+        conn = make_db(tmp)
+        when = (self.NOW - timedelta(minutes=cursor_minutes_ago)).isoformat().replace("+00:00", "Z")
+        conn.execute("insert into kv values ('github-cursor:405', ?)", (json.dumps(when),))
+        conn.commit()
+        conn.close()
+        path = os.path.join(tmp, "notifications.json")
+        items = []
+        if unread_minutes_ago is not None:
+            items.append(
+                {
+                    "unread": True,
+                    "updated_at": (self.NOW - timedelta(minutes=unread_minutes_ago))
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                    "subject": {"title": "派工评论", "url": "https://api.github.com/repos/o/r/issues/405"},
+                }
+            )
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(items, handle)
+        return os.path.join(tmp, "orchestrator.sqlite"), path
+
+    def _report(self, db: str, notes: str):
+        """用注入文件跑一整轮(离线),返回报告。"""
+        args = healthcheck.build_parser().parse_args(
+            [
+                "--db", db, "--skip-egress", "--skip-enqueue",
+                "--notifications-file", notes, "--workdir", "/nonexistent",
+            ]
+        )
+        return healthcheck.build_report(args, now=self.NOW)
+
+    def test_stale_plus_unread_exits_one(self) -> None:
+        report = self._report(*self._setup(cursor_minutes_ago=52, unread_minutes_ago=3))
+        self.assertIn(healthcheck.CURSOR_CHECK, report.anomalies)
+        self.assertEqual(report.exit_code(), 1)
+
+    def test_stale_without_unread_stays_green(self) -> None:
+        report = self._report(*self._setup(cursor_minutes_ago=52))
+        self.assertEqual(report.exit_code(), 0, report.anomalies)
+
+    def test_fresh_cursor_stays_green(self) -> None:
+        report = self._report(*self._setup(cursor_minutes_ago=3, unread_minutes_ago=1))
+        self.assertEqual(report.exit_code(), 0, report.anomalies)
+
+
 if __name__ == "__main__":
     unittest.main()

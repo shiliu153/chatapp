@@ -58,7 +58,7 @@ eval 模式 `observe`、允许清单只有 `shiliu153`。
 
 | 现象 | 处置 |
 |---|---|
-| **派单后一直没动静**(面板 Overview 无 Working、`work/` 下没有新目录) | **先确认「是否入队」**,不要先怀疑 worker / Docker / 模型 —— 见 §4 的「入队三连」。`status` 全绿也不能证明评论已进队列 |
+| **派单后一直没动静**(面板 Overview 无 Working、`work/` 下没有新目录) | **先确认「是否入队」**,不要先怀疑 worker / Docker / 模型 —— 见 §4 的「入队三连」。`status` 全绿也不能证明评论已进队列。**再先看游标新鲜度(巡检第四项,§15)**:`github-cursor:*` 落在几小时前而通知里躺着未读 ⇒ 是通知轮询停摆,不是评论没发出来 |
 | `person / blocked`、`person / failed` | 在面板上直接回一句让它继续;或 **Retry**(新 Assignment,同 Session / 同目录 / 同分支) |
 | `person / delivery` | Input 没送达,重试是唯一解法,**不要**删工单 |
 | `The prepare command failed` | 输出里写着原因(克隆路径、代理、ref 冲突)。修好后 Retry |
@@ -853,27 +853,66 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 - **自动单不会自己进队列。** 正文里刻意不含任何 `@`,派工仍要人在评论里做(§4.1)。
 - **首次启用是人的动作。** `L4_INTAKE` 默认 `off`:机制上线不等于开始开单,开不开由人决定。
 
-## 15. worker 健康巡检(superagent-health,2026-11-13 起)
+## 15. worker 健康巡检(superagent-health,2026-11-13 起;第四项 2026-11-16 补)
 
 **它补的是「绿着但不动」这一类故障** —— 不是红轨告警(`main-health` 已经管那个),而是
-「面板每个健康位都 `ready`、其实早就不干活」。两次实测:
+「面板每个健康位都 `ready`、其实早就不干活」。三次实测:
 
 | 故障 | 表现 | 面板/文档 |
 |---|---|---|
 | mihomo 解析不到机场节点域名 | 106 个节点全 timeout、出网 0%,worker 的 git 与轮询全断 | 7890 端口在听 ⇒ §12.6 的选路不回退宿主,`status` 全绿 |
 | 模型流 `stream idle timeout` | assignment 卡在 `running` **6 小时**,worktree 0 提交 | `errors: {}`,没有任何一层会报错 |
+| 通知轮询停摆(2026-11-16 一天两次) | `github-cursor:*` 停在几小时前,派工评论没人读,`thread` / `ticket` 全空 | `status` 全绿、出网正常、限流没打满,`errors: {}` |
 
 它由 **systemd timer 每 15 分钟**跑一轮(开机 3 分钟后先补一轮),**不依赖任何交互式会话**:
 这台机器会关机,关机期间没有 worker 也就没有可巡检的对象,恢复开机后第一轮立刻告诉你
 「现在能不能干活」。
 
-查三类:
+查四类:
 
 | 检查 | 判据 |
 |---|---|
 | 出网 | 经代理 `GET https://api.github.com/rate_limit` 必须 2xx |
 | 入队三连 | `thread` / `trigger_thread` / `ticket` 三张表都要有该 issue(`@SUPERAGENT_HEALTH_ISSUES`) |
 | 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束(**自动扫全表**,不用配置) |
+| 游标新鲜度 | `kv` 里 `github-cursor:*` 的最新时间落后超过 10 分钟(`SUPERAGENT_CURSOR_STALE_MINUTES`),**且** GitHub 通知里有「未读且 `updated_at` 晚于游标」的条目 |
+
+**游标新鲜度的判据是「有未读但游标没动」,不是「游标没动」**:闲置时段没有新评论,游标本来
+就不动,只判时间会天天误报。所以先看是否落后阈值,再取 `gh api notifications` 判断有没有比
+游标更新的未读:有 → 异常(打印游标时间、落后分钟数、未读条数与前 3 条标题);没有 → 闲置,
+跳过。游标新鲜时**完全不联网**,也就不会因为一次网络抖动误报。
+
+告警里同时带「轮询心跳 `github-since`」作旁证:它每轮结束都会前进,**停在很久以前** ⇒
+轮询 loop 自己停了;**新鲜而游标不动** ⇒ 本来就是闲置。心跳不参与判定。
+
+**巡检只告警,不重启 orchestrator**(重启会杀掉正在跑的会话,要单独评审)。真停摆时的取证
+顺序与根因见 §15.1。
+
+### 15.1 游标停摆怎么取证(2026-11-16 实测)
+
+```bash
+# ① 进程还在、跑了多久(重启过的话 etime 会很小)
+ps -o pid,etime,stat,cmd -p $(pgrep -f "dsh --profile superagent")
+# ② 游标停在什么时候 —— 只看不动的那几个 key,别拿 github-since 当进度
+python3 -c "import sqlite3;c=sqlite3.connect('file:/root/.dsh/state/superagent/orchestrator.sqlite?mode=ro',uri=True).cursor();print(c.execute(\"select max(value),count(*) from kv where key like 'github-cursor:%'\").fetchall())"
+# ③ 有没有备份可以对比(重启前的那份最能说明「停摆早于这次重启」)
+ls -lt /root/.dsh/state/superagent/orchestrator.sqlite.bak-*
+```
+
+三条实测结论(写给下一次排障的人):
+
+- **`kill -USR1 <orchestrator>` 当前不能用**:这个 DSH 版本(以及 `/root/dsh-superagent/lib`
+  里的 GitHub source)没有任何 `SIGUSR*` 处理器(Node 对 `SIGUSR1` 的默认动作是**终止进程**),
+  发过去等于把 orchestrator 杀掉 —— **别发**。要看 poll loop 卡在哪,只能靠日志 + 代码定位。
+- **日志里没有每轮 poll 的痕迹**:`.artifacts/*.log` 只有启动两行(200 字节级),所以「挂在哪
+  一次 fetch」从日志里读不出来;`ctx.report("github", …)` 也只在**一轮跑完**时才写健康位,
+  于是一轮卡住时面板永远停在上一轮的 `ready` —— 这正是「绿着但不动」的来源。
+- **轮询 round 没有整轮看门狗**:单条 `gh` 子进程有 90s 超时,但 `watch()` 的 `while` 里没有任何
+  针对「一整轮」的定时器;任一处 `await` 永久挂住,循环就再也不回来,而 `SIGUSR1` 又不可用。
+  这需要上游(DEPLOY 那套 `/root/dsh-superagent`)修,本地巡检只能**发现**它。
+
+**所以第四项巡检是目前唯一能在面板全绿时发现它的手段**:发现 → 按上面三条取证 →
+人工决定是否 `start-superagent.sh restart`(会杀掉正在跑的会话,必须人来拍板)。
 
 异常走 `/root/.dsh/superagent-health.env` 里配的通道(优先级:`NOTIFY_CMD` → SMTP →
 GitHub issue 评论 → 仅落盘),**同一种异常 6 小时只发一次**;发送失败不记指纹(记了就等于
