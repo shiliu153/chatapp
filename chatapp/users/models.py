@@ -363,8 +363,12 @@ class ProfileVoice(models.Model):
         3. 文件与聊天语音同源:``im.voice.normalize`` 统一转成 m4a/AAC,播放兼容性由
            转码层负责,本表不关心原始格式;
         4. ``bytes`` 计入账号存储配额的第五类(见 ``config.storage.usage_bytes``);
-        5. **对外地址不签名**:语音与照片同口径是**公开**媒体(``/media/voices/`` 由 nginx
-           裸静态直出),所以序列化器直接用 DRF 的绝对 URL,不做「签了名却没人验」的样子货。
+        5. **对外地址限时签名**(2026-11-16 起,第五轮审计 L-7):``file`` 落在
+           ``/media/voices/`` 下,该前缀已进 ``im.media_sign.SIGN_PATH_PREFIXES``,序列化器
+           用 ``media_sign.sign_url`` 给出带 ``e``/``s`` 的绝对地址,过期或篡改由 nginx 的
+           ``auth_request`` 子请求(``im/views.py::image_auth``)挡成 403。语音是声纹、属于
+           身份特征,泄露后无法更换,所以不再给永久直链。「谁能听」没有变:任何能看这份
+           资料卡的人都能听。
 
     Attributes:
         duration_ms: ``ffprobe`` 实测时长(毫秒),对外原样返回。

@@ -1,4 +1,4 @@
-"""聊天图片的限时签名 URL。
+"""私聊媒体与资料语音的限时签名 URL。
 
 签名规则与 imserver 的 ``src/util/media_sign.cpp`` **逐字节一致**,任何一侧改算法
 都必须先让两侧的共享测试向量变红:
@@ -7,9 +7,11 @@
     sig            = hmac_sha256(secret, signing_string).hexdigest()
 
 设计要点:
-    1. ``exp`` 按整点对齐(``now - now % 3600 + ttl``):同一小时内同一张图给出同一个
+    1. ``exp`` 按整点对齐(``now - now % 3600 + ttl``):同一小时内同一个媒体给出同一个
        URL,客户端与浏览器缓存不会因为「每次刷新历史都换 URL」而全部失效;
-    2. 只签 ``/media/chat/`` 下的路径 —— 用户照片、广场图片仍走公开直出,不在此列;
+    2. 只签 ``SIGN_PATH_PREFIXES`` 里的前缀 —— 聊天图片/语音(``/media/chat/``)与资料
+       语音自我介绍(``/media/voices/``,语音是声纹,属于身份特征);用户资料图与广场图
+       仍是公开直出,不在此列。判据统一收到 ``is_signable_path`` 一处;
     3. 密钥为空时签名侧与验签侧分开处理:签名侧直接不签(``sign_query`` 返回空串、
        ``sign_url`` 原样返回),验签侧则**只在 ``DEBUG`` 下放行** —— 本地 ``runserver``
        没有 nginx 验签,不能把开发环境的图片全打成 403;生产 ``DEBUG`` 为假时缺密钥
@@ -25,8 +27,31 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 
-SIGN_PATH_PREFIX = "/media/chat/"
+SIGN_PATH_PREFIXES = ("/media/chat/", "/media/voices/")
 BUCKET_SECONDS = 3600
+
+
+def is_signable_path(path: str) -> bool:
+    """路径是否属于「可签名 / 可验签」的媒体白名单。
+
+    参数说明:
+        path: 规范化路径(``urlsplit(url).path``,不含 query),如
+            ``/media/voices/2026/11/7-a1b2.m4a``;整条 URL 请先过 ``path_of``。
+
+    返回参数:
+        ``True`` = 可签名、可验签;``False`` = 不在白名单,签名与验签都应拒绝。
+
+    使用示例:
+        ``if not media_sign.is_signable_path(parts.path):``(见 ``im/views.py`` 的
+        ``image_auth``)
+
+    备注信息:
+        白名单是常量 ``SIGN_PATH_PREFIXES``:``/media/chat/``(聊天图片与语音)与
+        ``/media/voices/``(资料语音自我介绍)。资料图、广场图是公开内容,不在此列。
+        纯字符串前缀匹配:只认 ``/media/chat/`` 这种带结尾斜杠的前缀,``/media/chatx``
+        不会被误放进来。
+    """
+    return path.startswith(SIGN_PATH_PREFIXES)
 
 
 def _secret() -> str:
@@ -195,11 +220,12 @@ def verify(path: str, expires: str, signature_value: str, *, now: int | None = N
         ``media_sign.verify(parts.path, query["e"][0], query["s"][0])``(见 ``im/views.py`` 的 ``image_auth``)
 
     备注信息:
-        只放行 ``/media/chat/`` 下的路径,其余一律拒绝。
+        只放行 ``is_signable_path`` 认可的路径(``/media/chat/`` 与 ``/media/voices/``),
+        其余一律拒绝;资料图、广场图不在白名单里。
         未配置密钥时返回 ``bool(settings.DEBUG)``:仅开发环境放行,生产缺密钥一律拒绝(fail-closed)。
         过期、``e`` 无法解析或签名不符都返回 ``False``,不抛异常。
     """
-    if not path.startswith(SIGN_PATH_PREFIX):
+    if not is_signable_path(path):
         return False
     if not _secret():
         return bool(settings.DEBUG)

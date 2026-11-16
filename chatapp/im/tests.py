@@ -788,7 +788,7 @@ class ChatImageUploadTests(APITestCase):
 
 
 class MediaSignTests(SimpleTestCase):
-    """聊天图片签名:共享向量、过期、篡改、路径白名单、未配置密钥时的放行。"""
+    """媒体签名:共享向量、过期、篡改、路径白名单(聊天媒体 + 资料语音)、空密钥口径。"""
 
     def test_shared_vector_matches_imserver(self):
         self.assertEqual(
@@ -827,6 +827,22 @@ class MediaSignTests(SimpleTestCase):
                                                query["s"][0], now=1761868800))
             self.assertFalse(media_sign.verify("/media/photos/a.jpg", query["e"][0],
                                                query["s"][0], now=1761782400))
+
+    def test_voice_path_is_signable_and_verifies(self):
+        """``/media/voices/``(资料语音)自 L-7 起也能签名,并能验签通过。"""
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
+            signed = media_sign.sign_url("/media/voices/2026/11/a.m4a", now=1761782400)
+            query = parse_qs(urlsplit(signed).query)
+            self.assertTrue(signed.startswith("/media/voices/2026/11/a.m4a?e="))
+            self.assertTrue(media_sign.verify("/media/voices/2026/11/a.m4a", query["e"][0],
+                                              query["s"][0], now=1761782400))
+
+    def test_signable_path_whitelist_matches_prefixes(self):
+        """白名单只有聊天媒体与资料语音;资料图/广场图/近似前缀一律不可签(单一判定)。"""
+        for path in ("/media/chat/2026/10/a.jpg", "/media/voices/2026/11/a.m4a"):
+            self.assertTrue(media_sign.is_signable_path(path))
+        for path in ("/media/photos/a.jpg", "/media/square/a.jpg", "/media/chatx/a.jpg", "/"):
+            self.assertFalse(media_sign.is_signable_path(path))
 
     @override_settings(DEBUG=True)
     def test_disabled_secret_passes_everything(self):
@@ -920,6 +936,74 @@ class ChatImageAuthTests(APITestCase):
         profile.status = ProfileStatus.BANNED_HEAVY
         profile.save(update_fields=["status"])
         self.assertEqual(self.auth(self.signed()).status_code, 204)
+
+
+@override_settings(IM_MEDIA_SIGN_SECRET="s")
+class VoiceAuthTests(APITestCase):
+    """资料语音验签(L-7):``/media/voices/`` 有效 204,无签名/过期/篡改 403,无需 JWT。"""
+
+    def setUp(self):
+        self.url = "/api/v1/im/images/auth"
+        self.media = "/media/voices/2026/11/7-a1b2c3.m4a"
+
+    def auth(self, original):
+        """带 ``X-Original-URI`` 调验签接口。
+
+        参数说明:
+            original: nginx 传入的原始 URI(带 ``?e=&s=``)。
+
+        返回参数:
+            DRF 响应对象:通过 204,拒绝 403。
+
+        使用示例:
+            ``self.assertEqual(self.auth(self.signed()).status_code, 204)``(见
+            ``im/tests.py`` 的 ``VoiceAuthTests.test_signed_voice_url_passes``)
+
+        备注信息:
+            与 ``ChatImageAuthTests`` 同一接口,只是待签路径换成 ``/media/voices/``;
+            该子请求不带 ``Authorization``,断言的纯粹是「签名有效」。
+        """
+        return self.client.get(self.url, HTTP_X_ORIGINAL_URI=original)
+
+    def signed(self):
+        """生成一个当前有效的资料语音签名 URL。
+
+        参数说明:
+            无。
+
+        返回参数:
+            带 ``?e=&s=`` 的 ``/media/voices/...`` 路径。
+
+        使用示例:
+            ``self.auth(self.signed())``(见 ``im/tests.py`` 的 ``VoiceAuthTests``)
+
+        备注信息:
+            TTL 固定 86400,保证用例内的 ``e`` 未过期;待签路径取 ``setUp`` 里的 ``self.media``。
+        """
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400):
+            return media_sign.sign_url(self.media, now=int(time.time()))
+
+    def test_signed_voice_url_passes(self):
+        """``/media/voices/`` 已进白名单:有效签名放行(给 nginx 收口铺路)。"""
+        self.assertEqual(self.auth(self.signed()).status_code, 204)
+
+    def test_unsigned_voice_url_is_forbidden(self):
+        """缺签名(裸路径)403 —— nginx 收口后这就是「直链失效」的判据。"""
+        response = self.auth(self.media)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["code"], 403)
+
+    def test_expired_voice_signature_is_forbidden(self):
+        """过期签名 403。"""
+        with override_settings(IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=60):
+            stale = media_sign.sign_url(self.media, now=1)
+            self.assertEqual(self.auth(stale).status_code, 403)
+
+    def test_tampered_voice_signature_is_forbidden(self):
+        """篡改 ``s`` 403:``e`` 合法、签名换成全 0。"""
+        parts = urlsplit(self.signed())
+        forged = f"{parts.path}?e={parse_qs(parts.query)['e'][0]}&s={'0' * 64}"
+        self.assertEqual(self.auth(forged).status_code, 403)
 
 
 class ChatImageCleanupTests(TestCase):

@@ -73,7 +73,7 @@
 | POST | `/api/v1/im/user_sig` | 获取 IM 登录凭证 | [im](im.md) |
 | POST | `/api/v1/im/images` | 上传聊天图片(返回签名 URL) | [im](im.md) |
 | POST | `/api/v1/im/voices` | 上传聊天语音(转码 m4a,返回签名 URL) | [im](im.md) |
-| GET | `/api/v1/im/images/auth` | 聊天图片验签(nginx 内部子请求) | [im](im.md) |
+| GET | `/api/v1/im/images/auth` | 媒体验签(nginx 内部子请求:聊天媒体与资料语音) | [im](im.md) |
 | GET | `/api/v1/app/config` | 获取应用最低版本配置 | [app](app.md) |
 | POST | `/api/v1/reports` | 举报用户 | [moderation](moderation.md) |
 | POST | `/api/v1/feedback` | 提交意见反馈 | [feedback](feedback.md) |

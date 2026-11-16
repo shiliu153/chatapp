@@ -9,8 +9,9 @@
     4. 公开资料卡上的 ``shared_tags`` 与关注态三个字段都支持「批量注入 context」,
        单条场景有各自的兜底查询,不会退化成 N+1;
     5. 资料语音(批次 R)在「我的资料」与「他人公开资料」里都是 ``voice: {url,
-       duration_ms} | null``;``url`` 是 DRF 拼的**公开绝对地址**(与照片同口径,不签名、
-       不过期 —— 语音本来就是「能看我资料的人都能听」)。
+       duration_ms} | null``;``url`` 是**限时签名**的绝对地址(2026-11-16 起,与聊天媒体
+       同一套 ``im.media_sign``:带 ``e``/``s``,过期失效,TTL 走 ``IM_MEDIA_SIGN_TTL``)。
+       「谁能听」没有变(任何能看资料卡的人都能听),变的是链接不再永久有效。
 """
 
 from django.conf import settings
@@ -18,6 +19,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from feed.services import follow_state_for_profiles
+from im import media_sign
 from im.voice import ALLOWED_CONTENT_TYPES as ALLOWED_AUDIO_CONTENT_TYPES
 from im.voice import base_content_type
 from moderation.text_check import find_blocked_word
@@ -137,41 +139,69 @@ class PreferenceSerializer(serializers.ModelSerializer):
         return attrs
 
 
-def voice_payload(profile, context=None) -> dict | None:
+def voice_payload(profile) -> dict | None:
     """把资料语音序列化成对外载荷 ``{url, duration_ms}``。
 
     参数说明:
         profile: 资料对象;``voice`` 反向一对一不存在时按「没录过」处理。
-        context: 序列化器上下文,必须带 ``request`` —— 缺了它 ``url`` 会退化成相对路径。
 
     返回参数:
-        ``{"url": 公开绝对地址, "duration_ms": 实测毫秒}``;没有语音时为 ``None``。
+        ``{"url": 限时签名的绝对地址, "duration_ms": 实测毫秒}``;没有语音时为 ``None``。
 
     使用示例:
-        ``return voice_payload(profile, self.context)``(见本模块两个 ``get_voice``)
+        ``return voice_payload(profile)``(见本模块两个 ``get_voice``)
 
     备注信息:
         没有语音的人返回 ``None``(API 里是 JSON ``null``),客户端据此隐藏播放器。
+        ``url`` 由 ``ProfileVoiceSerializer`` 用 ``MEDIA_BASE_URL`` + ``media_sign.sign_url``
+        生成,因此**不需要**序列化器上下文里的 ``request``。
     """
     record = getattr(profile, "voice", None)
     if record is None:
         return None
-    return ProfileVoiceSerializer(record, context=context or {}).data
+    return ProfileVoiceSerializer(record).data
 
 
 class ProfileVoiceSerializer(serializers.ModelSerializer):
     """资料语音的只读表示(嵌套在资料里,同时也是上传接口的响应体)。
 
-    ``url`` 与 ``PhotoSerializer`` 完全同口径:交给 DRF 的 ``FileField`` 拼绝对地址,
-    **不签名**。语音是公开媒体(``/media/voices/`` 由 nginx 裸静态直出),签一个没人
-    校验的 ``e``/``s`` 只会让人误以为「过期即失效」。
+    ``url`` 是**限时签名**的绝对地址(2026-11-16 起,第五轮审计 L-7):与聊天图片/语音
+    同一套 ``im.media_sign``,形如 ``https://<域名>/media/voices/2026/11/x.m4a?e=..&s=..``,
+    过期或签名不符时由 nginx 的子请求 ``/api/v1/im/views.py::image_auth`` 挡成 403。
+    语音是声纹,属于身份特征,泄露后无法更换,所以不再给「永久可用的直链」。
+
+    实现在 ``get_url`` 里:``MEDIA_BASE_URL`` 拼绝对地址后交给 ``media_sign.sign_url``,
+    与 ``im/views.py`` 上传聊天语音返回 ``url`` 的那一行同口径,不另写一套拼接。
     """
 
-    url = serializers.FileField(source="file", read_only=True)
+    url = serializers.SerializerMethodField()
 
     class Meta:
         model = ProfileVoice
         fields = ["url", "duration_ms"]
+
+    @extend_schema_field(serializers.URLField())
+    def get_url(self, record) -> str:
+        """资料语音的限时签名绝对地址。
+
+        参数说明:
+            record: ``ProfileVoice`` 实例(``Meta.model``),直接用 ``file`` 的相对路径。
+
+        返回参数:
+            ``MEDIA_BASE_URL`` + ``file.url`` 再经 ``media_sign.sign_url`` 加 ``e``/``s``;
+            未配置 ``IM_MEDIA_SIGN_SECRET`` 时返回不带 query 的绝对地址(开发环境)。
+
+        使用示例:
+            ``data["url"]``(见 ``users/tests.py`` 的 ``ProfileVoiceTests``)
+
+        备注信息:
+            签名 URL 每小时稳定(``media_sign.expires_at`` 按整点对齐),所以同一小时内
+            同一段语音的 URL 不变,客户端可以放心缓存响应体;但**不要持久化**,过期后
+            要重新拉资料接口换新链接。
+            已有 query 一律丢弃(``sign_url`` 的语义),``file.url`` 本身不带 query。
+        """
+        base = settings.MEDIA_BASE_URL.rstrip("/")
+        return media_sign.sign_url(f"{base}{record.file.url}")
 
 
 class ProfileSerializer(serializers.ModelSerializer):
@@ -207,9 +237,10 @@ class ProfileSerializer(serializers.ModelSerializer):
             ``ProfileSerializer(profile, context={"request": request}).data["voice"]``(见 ``users/views.py`` 的 ``me``)
 
         备注信息:
-            只在「我的资料」里出现;载荷由 ``voice_payload`` 拼,``url`` 是公开绝对地址、不签名。
+            只在「我的资料」里出现;载荷由 ``voice_payload`` 拼,``url`` 是限时签名的
+            绝对地址(带 ``e``/``s``,过期失效)。
         """
-        return voice_payload(profile, self.context)
+        return voice_payload(profile)
 
 
 class PublicProfileSerializer(serializers.ModelSerializer):
@@ -369,10 +400,11 @@ class PublicProfileSerializer(serializers.ModelSerializer):
             ``PublicProfileSerializer(profile, context={"request": request}).data["voice"]``(见 ``users/views.py`` 的 ``public_profile``)
 
         备注信息:
-            语音是**公开**的:任何能看这条资料卡的人都能听到(与照片同口径,不做
-            「仅配对后可听」)。可见性由 ``public_profile`` 视图保证,这里不再过滤。
+            语音对**能看这条资料卡的人**是公开的(与照片同口径,不做「仅配对后可听」);
+            「公开」只讲可见性,``url`` 本身是限时签名地址(带 ``e``/``s``),过期即失效。
+            可见性由 ``public_profile`` 视图保证,这里不再过滤。
         """
-        return voice_payload(profile, self.context)
+        return voice_payload(profile)
 
     @extend_schema_field(PhotoSerializer(many=True))
     def get_photos(self, profile):
