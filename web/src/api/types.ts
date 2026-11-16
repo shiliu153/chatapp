@@ -26,15 +26,32 @@ export interface Photo {
 }
 
 /**
- * 资料语音自我介绍(users.md §2.1 / §2.6)。
+ * 资料语音自我介绍(users.md §2.1 / §2.11)。
  *
  * 直接引用**生成类型**(`npm run gen:api` 的产物),不手写一份同样形状的结构:
  * 后端改字段时前端要么跟着改、要么编译期就红,不会出现「两处声明各说各话」。
  *
- * 语义提醒:`url` 是 **m4a 公开绝对地址**(与照片同口径:不签名、不过期),原样交给播放器,
- * **不要拼 `API_BASE`**;`duration_ms` 是服务端 ffprobe 实测(≤30000),客户端不声明。
+ * 语义提醒:`url` 是 **m4a 绝对地址,带限时签名**(`e`/`s`,TTL 与聊天媒体同源,
+ * 2026-11-16 起第五轮审计 L-7),原样交给播放器、**不要拼 `API_BASE`**;过期或篡改后 nginx
+ * 回 403,重新拉资料接口即可拿到新链接。`duration_ms` 是服务端 ffprobe 实测(≤30000),
+ * 客户端不声明。转码进度(`pending` / `failed`)不在本结构里,查 users.md §2.13。
  */
 export type ProfileVoice = components['schemas']['ProfileVoice']
+
+/**
+ * 语音转码状态(im.md §6.5 / users.md §2.13,M-3)。
+ *
+ * 聊天语音与资料语音的两个轮询接口**同形状**,所以只留一个类型:`status` 是三态
+ * `pending` / `ready` / `failed`,`failed` 的原因在 `code`(业务码,如 `41301`)或 `message`
+ * (可直接展示的中文)。同样引用生成类型,后端改字段时编译期就红。
+ */
+export type VoiceStatus = components['schemas']['VoiceStatus']
+
+/** 上传被转码槽挡住时的 202 受理体(im.md §6.4 / users.md §2.11):只有 id 与轮询建议间隔。 */
+export type VoiceQueued = components['schemas']['VoiceQueued']
+
+/** 三态字面量。后端 `status` 是字符串,前端只认这三个值,其余按 `pending`(继续等)处理。 */
+export type VoiceStatusCode = 'pending' | 'ready' | 'failed'
 
 export interface Preference {
   /** null = 不限 */

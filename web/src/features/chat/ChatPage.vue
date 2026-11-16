@@ -481,7 +481,12 @@ async function onSend() {
 }
 
 async function onRetry(message: ChatMessage) {
-  await store.resend(message).catch(() => {})
+  // 语音的重试是「重新上传本地 Blob」(M-3):Blob 已不在内存里时 store 会抛出一句
+  // 可直接展示的话(「本地录音已失效,请重新录制」),这里必须说出来 ——
+  // 点了「重发」却什么都不发生,用户只会以为按钮坏了。
+  await store.resend(message).catch((error) => {
+    if (message.kind === ChatMessageKind.voice) toast.show(parseApiError(error).message)
+  })
 }
 
 /** 贴纸是**直接发送**(不插输入框):点一下就是一条消息(批次 J)。 */

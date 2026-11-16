@@ -19,6 +19,7 @@
  */
 
 import type { components } from './schema'
+import type { UploadedVoice } from '@/im/self/voice'
 import type {
   AppNotification,
   Candidate,
@@ -80,4 +81,14 @@ export type AppNotificationUnknown = MustBeNever<
   UnknownFields<AppNotification, Schema<'NotificationItem'>>
 >
 export type LoginDeviceUnknown = MustBeNever<UnknownFields<LoginDevice, Schema<'DeviceItem'>>>
+/**
+ * 聊天语音上传载荷(M-3,im.md §6.4 的 201 响应)。
+ *
+ * 这是**手写**类型里唯一会直接决定「上行帧长什么样」的:字段名与 `send` 帧里的
+ * `voice.url` / `duration_ms` / `size` 一一对应,后端改名而这里没跟 → 发送出去的
+ * 语音字段是 undefined,气泡能发出去但对方播不了。
+ */
+export type UploadedVoiceUnknown = MustBeNever<
+  UnknownFields<UploadedVoice, Schema<'ChatVoiceUploaded'>>
+>
 export type MyStatsUnknown = MustBeNever<UnknownFields<MyStats, Schema<'MyStats'>>>

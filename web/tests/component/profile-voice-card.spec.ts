@@ -72,6 +72,26 @@ async function recordAndSave(w: ReturnType<typeof mount>) {
   await flushPromises()
 }
 
+
+/** 一条语音转码状态(users.md §2.13);`retry_after` 取 1 秒让用例跑得快。 */
+function voiceStatus(
+  code: 'pending' | 'ready' | 'failed',
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id: 7,
+    status: code,
+    url: code === 'ready' ? 'https://cdn/media/voices/new.m4a?e=1&s=x' : null,
+    duration_ms: code === 'ready' ? 12500 : null,
+    size: code === 'ready' ? 72000 : null,
+    code: null,
+    message: null,
+    ...extra,
+  }
+}
+
+const queued = { id: 7, status: 'pending', retry_after: 1 }
+
 describe('ProfileVoiceCard', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -260,5 +280,105 @@ describe('ProfileVoiceCard', () => {
 
     expect(w.find('.voice-bar').exists()).toBe(false)
     expect(w.text()).toContain('当前浏览器不支持录音')
+  })
+})
+
+describe('ProfileVoiceCard:异步转码(M-3)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.stubGlobal('MediaRecorder', FakeRecorder)
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })) },
+    })
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:preview'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+    setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('保存被 202 受理:先显示「正在转码」,轮询 ready 后变成播放条', async () => {
+    const { w } = await mountCard()
+    const answers = [voiceStatus('pending'), voiceStatus('ready')]
+    server.use(
+      mswHttp.post('/api/v1/users/me/voice', () => HttpResponse.json(queued, { status: 202 })),
+      mswHttp.get('/api/v1/users/me/voice', () =>
+        HttpResponse.json(answers.shift() ?? voiceStatus('ready')),
+      ),
+    )
+
+    await recordAndSave(w)
+
+    // 202 之后:旧语音已下线、新地址还没出来,这一行只表达「在等」
+    expect(w.find('[data-testid="voice-processing"]').exists()).toBe(true)
+    expect(w.text()).toContain('正在转码')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+
+    expect(w.find('[data-testid="voice-processing"]').exists()).toBe(false)
+    expect(w.text()).toContain('语音已保存')
+    expect(w.text()).toContain('13″') // 12500ms 实测时长,显示的是服务端值
+  })
+
+  it('轮询到 failed:显示服务端原因,草稿保留可原地点「保存语音」重试', async () => {
+    const { w } = await mountCard()
+    server.use(
+      mswHttp.post('/api/v1/users/me/voice', () => HttpResponse.json(queued, { status: 202 })),
+      mswHttp.get('/api/v1/users/me/voice', () =>
+        HttpResponse.json(
+          voiceStatus('failed', { code: '41301', message: '存储空间已满,请先删除部分照片' }),
+        ),
+      ),
+    )
+
+    await recordAndSave(w)
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+
+    expect(w.find('[data-testid="voice-processing"]').exists()).toBe(false)
+    expect(w.text()).toContain('存储空间已满')
+    // 重试 = 再点一次「保存语音」(重新上传本地 Blob),草稿不能丢
+    expect(w.find('.voice-card__save').exists()).toBe(true)
+
+    // 重试这一次服务端抢到了转码槽(201):保存成功
+    server.use(
+      mswHttp.post('/api/v1/users/me/voice', () =>
+        HttpResponse.json({ url: 'https://cdn/media/voices/new.m4a', duration_ms: 12500 }, {
+          status: 201,
+        }),
+      ),
+    )
+    await w.find('.voice-card__save').trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('语音已保存')
+    expect(w.find('.voice-card__delete').exists()).toBe(true)
+  })
+
+  it('轮询回 404:按「未录制」渲染,不谎报已保存', async () => {
+    const { w } = await mountCard()
+    server.use(
+      mswHttp.post('/api/v1/users/me/voice', () => HttpResponse.json(queued, { status: 202 })),
+      mswHttp.get('/api/v1/users/me/voice', () =>
+        HttpResponse.json({ code: 404, message: '未找到', request_id: 'r' }, { status: 404 }),
+      ),
+    )
+
+    await recordAndSave(w)
+    await flushPromises()
+
+    expect(w.text()).not.toContain('语音已保存')
+    expect(w.text()).toContain('没有查到这段语音')
+    // 草稿还在:提示与「保存语音」都给用户一条出路
+    expect(w.find('.voice-card__save').exists()).toBe(true)
   })
 })

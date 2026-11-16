@@ -118,10 +118,14 @@ async function loginClient(options: { uploader?: boolean } = {}): Promise<{
       : undefined,
     options.uploader
       ? async () => ({
-          id: 2,
-          url: 'http://cdn/media/chat/v.m4a',
-          duration_ms: 3200,
-          size: 12345,
+          // 201 路径:上传即拿到地址(M-3 的 202 受理在 chat-voice-async.spec.ts 里单独测)
+          queued: false as const,
+          voice: {
+            id: 2,
+            url: 'http://cdn/media/chat/v.m4a',
+            duration_ms: 3200,
+            size: 12345,
+          },
         })
       : undefined,
   )
