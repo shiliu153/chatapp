@@ -37,7 +37,7 @@
 >
 > **整改状态（后续回填，2026-11-16 当日）**：B / C / D 三批已闭环（#376 / #375 / #377）；
 > A（H-1）的 **Compose 侧已落地**（#371 → #380 → `8c01039`），**现网那台本机 Redis 仍未开口令**；
-> E 批的 L-3 已闭环（#381 运行时镜像 + #382 构建期 base），L-7 / L-8 与 F 批未排期。逐项状态以 §3 风险总表与 §6 执行进度为准，
+> E 批的 L-3 已闭环（#381 运行时镜像 + #382 构建期 base + #383 imserver 栈），L-7 / L-8 与 F 批未排期。逐项状态以 §3 风险总表与 §6 执行进度为准，
 > 正文其余段落是审计当时的快照（例如「`deploy/oneclick.sh:481` 仍是 `redis://redis:6379/2`」现在已不成立）。
 
 ---
@@ -144,7 +144,7 @@
 | M-3 | 中危 | 语音转码仍在请求路径，且本轮多了一个入口 | 一次上传 3 个子进程（各 15 秒上限）；两路并发即占满两个 worker | **已加闸**：`config/transcode_gate.py` 全局单槽，抢不到立即 503 + `50302` + `Retry-After`，两个入口共用一个槽（#373 → #377 → `417f013`）；异步化仍待排期 |
 | L-1 | 低危 | 内部 HMAC 无 nonce | 同网可在 300 秒窗口内重放；被 `msg_id` 幂等压到「重复入队」 | 承接 |
 | L-2 | 低危 | 分页游标不签名 | 客户端可伪造 `(时间, 主键)`，只影响自己可见的分页位置 | 承接 |
-| L-3 | 低危 | 镜像仍是可变 tag（`certbot/certbot:latest` 最糟） | 供应链漂移；Actions 已 pin 到 SHA，镜像没跟上 | **已修**：运行时三个镜像（#381）+ 构建期三个 base（#382）都钉成「版本 tag + 多架构 digest」；`imserver/Dockerfile` 的 `FROM` 属 imserver 栈，另开单 |
+| L-3 | 低危 | 镜像仍是可变 tag（`certbot/certbot:latest` 最糟） | 供应链漂移；Actions 已 pin 到 SHA，镜像没跟上 | **已修**：deploy 侧运行时三个镜像（#381）+ 构建期三个 base（#382）+ imserver 栈的 base 与测试镜像（#383），全部钉成「版本 tag + 多架构 digest」 |
 | L-4 | 低危 | 管理员口令打印到 stdout + `admin.txt` 明文 | 部署日志 / 录屏泄露运营口令 | 承接 |
 | L-5 | 低危 | `POST /push/devices` 不校验 `registration_id` 归属 | 知道别人设备 id 即可抢归属（推送 `off` 时影响有限） | 承接（已留痕 + 通知） |
 | L-6 | 低危 | refresh 宽限复用把轮换后的令牌明文放进 Redis | 旧 refresh 在 60 秒内仍可换出新令牌；Redis 可读即拿到新令牌 | 新增 |
@@ -305,7 +305,7 @@ imserver / worker / 未来新增容器都在同一个 Redis 上，攻击面并�
 |---|---|---|---|
 | L-1 | [chatapp/notifications/internal.py:87-118](../../chatapp/notifications/internal.py)、[imserver/src/service/push_notifier.cpp](../../imserver/src/service/push_notifier.cpp) | 内部 HMAC 只校验 ±300 秒时间戳，无 `(timestamp, signature)` 去重缓存 | 记录（承接）；影响被 `msg_id` 幂等压到「重复入队」 |
 | L-2 | [chatapp/config/cursor.py](../../chatapp/config/cursor.py) | 游标是 base64 明文 `(时间, 主键)`，无签名；本轮新增的点赞列表 / 我的收藏 / 关注流沿用 | 记录（承接）：泄露的只是「某条记录的时间与主键」，查询始终带可见性过滤 |
-| L-3 | [deploy/docker-compose.yml.tmpl](../../deploy/docker-compose.yml.tmpl)、[deploy/docker/Dockerfile](../../deploy/docker/Dockerfile)、[deploy/docker/web.Dockerfile](../../deploy/docker/web.Dockerfile) | 镜像仍是 `mysql:8.0` / `redis:7-alpine` / **`certbot/certbot:latest`**；Actions 已在本轮全部 pin 到提交 SHA（改善） | **已修（#381 + #382）**：运行时钉成 `mysql:8.0.46@sha256:7dcddc01…`（`mysql` 与 `db-init` 同一 digest）、`redis:7.4.12-alpine@sha256:7f7d30b7…`、`certbot/certbot:v5.10.0@sha256:c5698da8…`；构建期钉成 `python:3.11.18-slim-bookworm@sha256:a83ba18a…`、`node:22.23.5-alpine@sha256:1314fb30…`、`nginxinc/nginx-unprivileged:1.27.5-alpine@sha256:65e3e85d…`；取的都是多架构 index digest。升级 recipe 见 `deploy/README.md` §12.1。**`imserver/Dockerfile` 的 `FROM` 仍是移动 tag**（imserver 栈，另开单） |
+| L-3 | [deploy/docker-compose.yml.tmpl](../../deploy/docker-compose.yml.tmpl)、[deploy/docker/Dockerfile](../../deploy/docker/Dockerfile)、[deploy/docker/web.Dockerfile](../../deploy/docker/web.Dockerfile)、[imserver/Dockerfile](../../imserver/Dockerfile)、[imserver/Dockerfile.dev](../../imserver/Dockerfile.dev)、[imserver/docker-compose.test.yml](../../imserver/docker-compose.test.yml) | 镜像仍是 `mysql:8.0` / `redis:7-alpine` / **`certbot/certbot:latest`**，imserver 侧 `ubuntu:24.04` 也是滚动 tag；Actions 已在本轮全部 pin 到提交 SHA（改善） | **已修（#381 + #382 + #383）**：运行时钉成 `mysql:8.0.46@sha256:7dcddc01…`（`mysql` 与 `db-init` 同一 digest）、`redis:7.4.12-alpine@sha256:7f7d30b7…`、`certbot/certbot:v5.10.0@sha256:c5698da8…`；构建期钉成 `python:3.11.18-slim-bookworm@sha256:a83ba18a…`、`node:22.23.5-alpine@sha256:1314fb30…`、`nginxinc/nginx-unprivileged:1.27.5-alpine@sha256:65e3e85d…`；imserver 栈钉成 `ubuntu:24.04@sha256:73b99939…`（两个 Dockerfile 同一 digest）+ 测试 compose 与生产同 digest 的 mysql / redis。取的都是多架构 index digest。升级 recipe 见 `deploy/README.md` §12.1 与 `docs/ops/imserver.md` §1.2 |
 | L-4 | [deploy/oneclick.sh:400-404](../../deploy/oneclick.sh)、[deploy/oneclick.sh:926](../../deploy/oneclick.sh) | 部署结束把管理员口令打印到 stdout，`secrets/admin.txt` 明文（600） | 记录（承接）；建议只打「见 `secrets/admin.txt`」+ 首次登录强制改密 |
 | L-5 | [chatapp/notifications/views.py:53-90](../../chatapp/notifications/views.py) | `registration_id` 易主照旧允许，只留痕 + 给原账号发通知；归属校验仍未加 | 记录（承接第四轮 M-5 的第二个选项）：推送 `PUSH_PROVIDER=off` 时只影响归属 |
 | L-6 | [chatapp/accounts/views.py:376-407](../../chatapp/accounts/views.py)、[:486-487](../../chatapp/accounts/views.py)、[chatapp/config/settings.py:569](../../chatapp/config/settings.py) | 刷新宽限：旧 refresh 被拉黑后 60 秒内仍能通过 `auth:refresh_grace:{jti}` 换出新令牌；新 refresh 明文存 Redis | 记录；宽限期是「多标签页并发刷新」的必要妥协，但**必须与 A2（Redis 口令）一起看**：它把一个长期凭证放进了无口令的 Redis |
@@ -373,7 +373,7 @@ imserver / worker / 未来新增容器都在同一个 Redis 上，攻击面并�
 | B | 四个新接口补按用户限流 | M-1 | 后端（`settings` + 四个视图 + 三份文档）· **已闭环**（#372 → #376） |
 | C | 聊天搜索降成本（FULLTEXT 或时间窗或压额度） | M-2 | imserver + `docs/ops` · **已闭环「压额度」这一档**（#374 → #375）；FULLTEXT 仍待排期 |
 | D | 语音转码挪出请求路径（Celery 或全局并发闸） | M-3 | 后端 + `docs/pitfalls` · **已闭环「全局并发闸」这一档**（#373 → #377）；Celery 异步化仍待排期 |
-| E | 小修 | L-3、L-7、L-8 | 部署（镜像 digest）/ 后端+nginx（语音签名）/ CI（外部数据白名单），分别开单 · **L-3 已闭环**（#381 + #382；`imserver/Dockerfile` 归 imserver 栈另开单）；L-7、L-8 未排期 |
+| E | 小修 | L-3、L-7、L-8 | 部署（镜像 digest）/ 后端+nginx（语音签名）/ CI（外部数据白名单），分别开单 · **L-3 已闭环**（#381 运行时 + #382 构建期 + #383 imserver 栈）；L-7、L-8 未排期 |
 | F | 记录项 | L-1、L-2、L-4、L-5、L-6 | 文档（`docs/pitfalls` / `docs/ops`）记录为已知风险，不排期 |
 
 **建议顺序**：A → B → D → C。A 未闭环前，任何「新部署到公网」都不要做；
@@ -382,7 +382,7 @@ B/D 都是「一个已认证账号即可触发」的那一档，优先于 C（C 
 **执行进度（2026-11-16 当日）**：B / C / D 三批已按上面的拆法各开一单并合并（#376 / #375 / #377）；
 **A（H-1 Redis 口令）的 Compose 侧已落地**（#371 → #380 → `8c01039`），**现网那台本机 Redis 仍未开口令** ——
 那是服务器上的手工动作，仓库里改不到，口径与核对清单见 `docs/ops/runbook.md` §10.1；
-E 批的 L-3 已闭环（#381），L-7 / L-8 与 F 批尚未排期。
+E 批的 L-3 已闭环（#381 / #382 / #383），L-7 / L-8 与 F 批尚未排期。
 
 ---
 
