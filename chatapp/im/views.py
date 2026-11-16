@@ -276,9 +276,9 @@ def upload_voice(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def image_auth(request):
-    """nginx ``auth_request`` 子请求:校验聊天图片签名(GET /api/v1/im/images/auth)。
+    """nginx ``auth_request`` 子请求:校验媒体签名(GET /api/v1/im/images/auth)。
 
-    这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而图片本身
+    这条路径**不校验登录态**:nginx 的内部子请求不会带 Authorization,而媒体本身
     已经是「谁拿到链接谁能看」的语义,靠签名与有效期兜底。
 
     参数说明:
@@ -286,15 +286,21 @@ def image_auth(request):
             (含 ``?e=&s=``)。
 
     返回参数:
-        通过返回 204;缺头、路径不在 ``/media/chat/`` 下、过期或签名不符返回 403。
+        通过返回 204;缺头、路径不在可签名白名单(``/media/chat/`` 与 ``/media/voices/``)
+        下、过期或签名不符返回 403。
 
     使用示例:
         ``self.client.get(self.url, HTTP_X_ORIGINAL_URI=original)``(见 ``im/tests.py`` 的 ``ChatImageAuthTests.auth``)
 
     备注信息:
         不校验登录态:nginx 的内部子请求不带 Authorization,靠签名与有效期兜底。
-        路径前缀在这里显式校验一次,``media_sign.verify`` 内部还会再查,
-        因此以后改签名逻辑也不会把资料图、广场图放进来。
+        路径前缀在这里显式校验一次(判据是 ``media_sign.is_signable_path``,
+        ``media_sign.verify`` 内部还会再查),因此以后改签名逻辑也不会把资料图、
+        广场图放进来。
+        白名单自 2026-11-16 起含 ``/media/voices/``(资料语音自我介绍,第五轮审计 L-7):
+        Django 这一侧只负责「发签名 + 放行验签」,**不负责强制** —— 要等
+        ``deploy/nginx`` 给 ``/media/voices/`` 也加上 ``auth_request`` 之后,「无签名即 403」
+        才真正成立(nginx 属 ``deploy/**``,不在后端栈的范围)。
     """
     original = request.headers.get("X-Original-URI", "")
     parts = urlsplit(original)
@@ -302,9 +308,9 @@ def image_auth(request):
     expires = (query.get("e") or [""])[0]
     signature_value = (query.get("s") or [""])[0]
     # L-6:显式校验路径前缀,与 docstring 一致。``media_sign.verify`` 内部也查一次,
-    # 但那是「签名覆盖路径」的兜底;这里先挡掉非聊天媒体的请求,避免以后改签名逻辑时
-    # 把资料图/广场图也放进来。
-    if not parts.path.startswith(media_sign.SIGN_PATH_PREFIX):
+    # 但那是「签名覆盖路径」的兜底;这里先挡掉不在白名单里的请求,避免以后改签名逻辑时
+    # 把资料图/广场图也放进来。白名单与签名侧共用 ``is_signable_path``,不留两套判定。
+    if not media_sign.is_signable_path(parts.path):
         return Response({"code": 403, "message": "图片链接已失效"}, status=403)
     if not original or not media_sign.verify(parts.path, expires, signature_value):
         return Response({"code": 403, "message": "图片链接已失效"}, status=403)

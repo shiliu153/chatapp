@@ -140,19 +140,20 @@ curl -X POST http://<域名>/api/v1/im/images \
 
 ---
 
-### 6.3 聊天图片验签(nginx 内部)
+### 6.3 媒体验签(nginx 内部:聊天媒体与资料语音)
 
 > `GET` `/api/v1/im/images/auth` · 无需鉴权 · 无额外限流
 
 **接口描述**
 
-生产 nginx 对 `/media/chat/` 的请求先做一次内部子请求(`auth_request`),由本接口
+生产 nginx 对受保护媒体前缀的请求先做一次内部子请求(`auth_request`),由本接口
 校验 URL 上的签名与有效期:通过返回 204(nginx 放行静态文件),失败返回 403。
 **不是给客户端调的**:请求头 `X-Original-URI` 由 nginx 注入,客户端直接调用只会拿到 403。
 
-- 签名规则:`HMAC-SHA256(IM_MEDIA_SIGN_SECRET, path + "\n" + e)`,小写 hex
+- 签名规则:`HMAC-SHA256(IM_MEDIA_SIGN_SECRET, path + "\n" + e)`,小写 hex(**算法未变,两侧仍逐字节一致**)
 - 有效期:`e` 为过期时间戳,由服务端按整点对齐 + `IM_MEDIA_SIGN_TTL`(默认 24h)生成
-- 只接受 `/media/chat/` 下的路径;用户照片与广场图片不在此列
+- 可签名/可验签的路径白名单 = `im/media_sign.py::SIGN_PATH_PREFIXES`:`/media/chat/`(聊天图片与语音)+ `/media/voices/`(资料语音自我介绍,2026-11-16 起);用户资料图与广场图片不在此列
+- 目前 nginx 只把这个子请求接在 `/media/chat/` 上;`/media/voices/` 的 `auth_request` 属于 `deploy/**`,上线前资料语音的直链仍可无签名访问
 
 **请求参数**(请求头)
 

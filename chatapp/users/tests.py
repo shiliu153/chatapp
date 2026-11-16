@@ -38,6 +38,7 @@ from datetime import date, datetime, timedelta, timezone as dt_timezone
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -59,7 +60,7 @@ from accounts import sms_codes
 from config import storage, transcode_gate
 from discovery.models import Match, Swipe
 from feed.models import Follow, Post, PostComment, PostImage
-from im import tasks as im_tasks
+from im import media_sign, tasks as im_tasks
 from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
 from moderation.models import BanLog, Block, Report
 
@@ -449,18 +450,39 @@ class PhotoTests(AuthMixin, APITestCase):
 
 
 class ProfileVoiceTests(AuthMixin, APITestCase):
-    """资料语音自我介绍(批次 R):上传/覆盖/删除、30 秒上限、签名 URL、配额不落盘。"""
+    """资料语音自我介绍(批次 R + L-7):上传/覆盖/删除、30 秒上限、限时签名 URL、配额不落盘。"""
 
     def setUp(self):
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
-        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
+                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
         override.enable()
         self.addCleanup(override.disable)
         cache.clear()
         self.user = User.objects.create_user(phone="13800138000")
         self.login(self.user)
         self.url = "/api/v1/users/me/voice"
+        self.auth_url = "/api/v1/im/images/auth"
+
+    def auth(self, original):
+        """模拟 nginx 的 ``auth_request`` 子请求验签。
+
+        参数说明:
+            original: nginx 注入的原始 URI(带 ``?e=&s=``)。
+
+        返回参数:
+            DRF 响应对象:通过 204,拒绝 403。
+
+        使用示例:
+            ``self.assertEqual(self.auth(url).status_code, 204)``(见 ``users/tests.py`` 的
+            ``ProfileVoiceTests.test_uploaded_voice_url_passes_image_auth``)
+
+        备注信息:
+            走与聊天媒体同一个验签接口 ``/api/v1/im/images/auth``(L-7 把 ``/media/voices/``
+            也纳入白名单);该子请求不带 ``Authorization``,因此断言的是「签名本身有效」。
+        """
+        return self.client.get(self.auth_url, HTTP_X_ORIGINAL_URI=original)
 
     def upload(self, content=b"fake-m4a", name="a.m4a", content_type="audio/mp4"):
         """上传一段资料语音。
@@ -508,19 +530,59 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
     @patch("im.voice._probe_ms", return_value=3000)
-    def test_upload_three_seconds_returns_public_url(self, _probe, _transcode, _ffmpeg):
-        """3 秒语音:201 + 公开绝对地址(无 query)+ 实测时长,文件与行都落库。"""
+    def test_upload_three_seconds_returns_signed_url(self, _probe, _transcode, _ffmpeg):
+        """3 秒语音:201 + 限时签名绝对地址(带 ``e``/``s``)+ 实测时长,文件与行都落库。"""
         resp = self.upload()
         self.assertEqual(resp.status_code, 201, resp.json())
         data = resp.json()
-        self.assertTrue(data["url"].startswith("http://testserver/media/voices/"))
-        self.assertNotIn("?", data["url"])
+        self.assertTrue(data["url"].startswith("http://cdn.test/media/voices/"))
+        query = parse_qs(urlsplit(data["url"]).query)
+        self.assertIn("e", query)
+        self.assertTrue(query["s"][0])
         self.assertEqual(data["duration_ms"], 3000)
         record = ProfileVoice.objects.get()
         self.assertEqual(record.profile.user_id, self.user.id)
         self.assertEqual(record.bytes, len(b"transcoded"))
         self.assertRegex(record.file.name, r"^voices/\d{4}/\d{2}/\d+-[0-9a-f]{32}\.m4a$")
         self.assertTrue(record.file.storage.exists(record.file.name))
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_uploaded_voice_url_passes_image_auth(self, _probe, _transcode, _ffmpeg):
+        """上传拿到的签名 URL 能过 nginx 子请求验签(204):``/media/voices/`` 已进白名单。"""
+        url = self.upload().json()["url"]
+        self.assertEqual(self.auth(url).status_code, 204)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_expired_voice_url_is_forbidden(self, _probe, _transcode, _ffmpeg):
+        """过期签名 403:用「很早以前」签的 URL 打验签接口(L-7 的反例之一)。"""
+        self.assertEqual(self.upload().status_code, 201)
+        record = ProfileVoice.objects.get()
+        stale = media_sign.sign_url(f"http://cdn.test{record.file.url}", now=1)
+        self.assertEqual(self.auth(stale).status_code, 403)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_tampered_voice_url_is_forbidden(self, _probe, _transcode, _ffmpeg):
+        """篡改 ``s`` 403:换上合法 ``e`` 但签名换成全 0(L-7 的反例之二)。"""
+        url = self.upload().json()["url"]
+        parts = urlsplit(url)
+        expires = parse_qs(parts.query)["e"][0]
+        forged = f"{parts.path}?e={expires}&s={'0' * 64}"
+        self.assertEqual(self.auth(forged).status_code, 403)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_unsigned_voice_url_is_forbidden(self, _probe, _transcode, _ffmpeg):
+        """缺签名 403:裸路径(不带 ``e``/``s``)过不了验签(L-7 的反例之三)。"""
+        self.assertEqual(self.upload().status_code, 201)
+        record = ProfileVoice.objects.get()
+        self.assertEqual(self.auth(f"http://cdn.test{record.file.url}").status_code, 403)
 
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
@@ -551,7 +613,7 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
     @patch("im.voice._probe_ms", return_value=3000)
     def test_me_and_public_profile_expose_voice_url(self, _probe, _transcode, _ffmpeg):
-        """``GET /users/me`` 与他人资料卡都返回 ``voice``,URL 是公开绝对地址。"""
+        """``GET /users/me`` 与他人资料卡都返回 ``voice``,URL 是限时签名绝对地址。"""
         self.assertEqual(self.upload().status_code, 201)
         mine = self.client.get("/api/v1/users/me").json()["voice"]
         self.assertIsNotNone(mine)
@@ -564,10 +626,12 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
         voice = public.json()["voice"]
         self.assertEqual(voice["duration_ms"], 3000)
         for url in (mine["url"], voice["url"]):
-            # 与照片完全同口径:公开绝对地址、**不带任何 query**。语音落在
-            # /media/voices/,nginx 是裸静态直出,签 e/s 也没有人校验,所以干脆不签。
-            self.assertTrue(url.startswith("http://testserver/media/voices/"))
-            self.assertNotIn("?", url)
+            # 位置仍是 /media/voices/(可见性与照片同口径:能看资料卡就能听),但地址
+            # 自 L-7 起是限时的:带 e/s,过期或篡改由 nginx 子请求挡成 403。
+            self.assertTrue(url.startswith("http://cdn.test/media/voices/"))
+            query = parse_qs(urlsplit(url).query)
+            self.assertIn("e", query)
+            self.assertTrue(query["s"][0])
 
     def test_voice_is_null_without_upload(self):
         """没录过语音时字段是 ``null``,而不是报错或空对象。"""

@@ -128,6 +128,12 @@ print('done', len(ids))
 - **`upload_to` 已含 `chat/voices/%Y/%m/`**:与图片一样,保存时只传文件名,否则会落成嵌套的 `chat/voices/2026/10/chat/voices/2026/10/...`。
 - **语音上传 400「只支持 M4A/AAC/WebM/OGG」的两种真因(2026-10-27 上线实测)**:① App 用 Dio 的 `MultipartFile.fromBytes` 传 `.m4a`,mime 包查不到该扩展名 → 实际发的是 `application/octet-stream`;② Web 的 `Blob.type` 是 `audio/webm;codecs=opus`,服务端精确匹配白名单会拒。修复:服务端 `voice.base_content_type()` 先按 `;` 截断再小写;App 显式 `contentType: DioMediaType('audio','mp4')`;Web 构造 Blob 时 `type: mimeType.split(';')[0]`。**mock 测试发现不了**,必须用真实客户端或 `curl -F "file=@x.m4a;type=audio/mp4"` 验一次。
 
+## 资料语音签名(2026-11-16,第五轮审计 L-7 的 backend 半边)
+
+- **签名已发但还没强制**:Django 自 2026-11-16 起对 `voice.url` 发带 `e`/`s` 的限时地址,`/media/voices/` 也进了 `im/media_sign.py::SIGN_PATH_PREFIXES`,但 nginx 侧 `auth_request` 归 `deploy/**` 还没接上 —— 所以**改了签名口径 ≠ 直链立刻失效**,服务器侧配好 `location /media/voices/` 之前,裸 URL 仍能直接下载。验收要分开看:后端能自证「签名对/过期/篡改 403」,「无签名 403」必须等 nginx 收口。
+- **白名单只有一处,别加第二套判定**:可签/可验的前缀在 `SIGN_PATH_PREFIXES`(`/media/chat/` + `/media/voices/`),`media_sign.verify` 与视图 `im/views.py::image_auth` 都走 `is_signable_path()`。新增一类需要签名的媒体时**只改这个集合**,不要在视图里再写 `path.startswith(...)` —— 两套判定迟早不一致,表现是「签得出、验不过」或「把资料图/广场图放进来」。
+- **资料语音与聊天语音是两件事**:资料语音(`users.ProfileVoice`,`/media/voices/`)签名在**响应时**由序列化器 `ProfileVoiceSerializer.get_url` 现签,不进库、不需要请求上下文;聊天语音(`im.ChatVoice`,`/media/chat/voices/`)在 `im/views.py::upload_voice` 与 `ChatVoice.signed_file_url` 里签。两处都调 `media_sign.sign_url`,别把 URL 写进库 —— 过期后历史录音会永久 403。
+
 ## 会话版本与配对校验(2026-10-28)
 
 - **旧 token 重连 40101 = 会话版本没同步**:token 里的 `sv` 必须等于 `im_user.session_version`。同步有两条路径:登录后的 Celery 任务 `sync_session_version`,以及 `POST /im/user_sig` 里签发前的同步调用(失败直接 503,不签发)。排查顺序:Django 日志里 `set_session_version` 是否失败 → `im_user.session_version` 是否是旧值 → token 是否带 `sv`(老 token 的 `sv=0`,过渡期放行)。

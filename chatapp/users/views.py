@@ -281,7 +281,8 @@ def my_voice(request):
         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
 
     返回参数:
-        POST 201 + ``{url, duration_ms}``(``url`` 为公开绝对地址,与照片同口径);
+        POST 201 + ``{url, duration_ms}``(``url`` 为**限时签名**的绝对地址,带 ``e``/``s``,
+        TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
         DELETE 幂等 204(没有语音时也返回 204)。
         POST 在服务器缺 ffmpeg 或转码槽被占用时回 503 + ``50302``,后者带 ``Retry-After``。
 
