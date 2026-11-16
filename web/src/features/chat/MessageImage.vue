@@ -33,7 +33,13 @@ const src = computed(() => objectUrl.value ?? props.message.imageLargeUrl ?? pro
 </script>
 
 <template>
-  <div class="message-image" :class="{ 'message-image--pending': props.message.isPending }">
+  <div
+    class="message-image"
+    :class="{
+      'message-image--pending': props.message.isPending,
+      'message-image--gone': props.message.localFileGone,
+    }"
+  >
     <img
       v-if="src && !failed"
       class="message-image__img"
@@ -43,6 +49,11 @@ const src = computed(() => objectUrl.value ?? props.message.imageLargeUrl ?? pro
       @click="$emit('open')"
     />
     <span v-else-if="failed" class="message-image__fallback">图片加载失败</span>
+    <!--
+      本地文件已失效(410 号单):画静态空框,别再让「呼吸」动画暗示「还在加载」——
+      等一个永远不会来的预览,比直接说失效更让人困惑(原因文字写在气泡上)。
+    -->
+    <span v-else-if="props.message.localFileGone" class="message-image__fallback">图片已失效</span>
     <span v-else class="message-image__placeholder" aria-hidden="true" />
   </div>
 </template>
@@ -63,6 +74,11 @@ const src = computed(() => objectUrl.value ?? props.message.imageLargeUrl ?? pro
   max-width: 240px;
   max-height: 240px;
   cursor: zoom-in;
+}
+/* 本地文件已失效:虚线框 + 静态文字,与「加载中」的实底呼吸框区分开(410 号单) */
+.message-image--gone {
+  border: 1px dashed var(--color-text3);
+  background: none;
 }
 .message-image__fallback {
   padding: var(--space-md);

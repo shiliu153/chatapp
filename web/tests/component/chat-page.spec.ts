@@ -170,6 +170,54 @@ describe('ChatPage', () => {
     expect(store.resend).toHaveBeenCalled()
   })
 
+  it('图片重发但本地文件已失效:toast 说出原因,按钮换成「不可重试」说明(#410)', async () => {
+    // 走真实的 store.resend:没有 pendingFiles 条目 → 抛「图片已失效,请重新选择」
+    const { w } = await mountPage([
+      msg({ msgId: 'img-old', isSelf: true, kind: ChatMessageKind.image, isFailed: true }),
+    ])
+    await flushPromises()
+
+    await w.find('.message-bubble__retry').trigger('click')
+    await flushPromises()
+
+    // 核心:点了必须有反应(以前是静默 return,界面上什么都不发生)
+    expect(w.find('.app-toast').text()).toContain('图片已失效')
+    // 气泡自己也要表明不可重试:按钮消失,改成说明文字
+    expect(w.find('.message-bubble__retry').exists()).toBe(false)
+    expect(w.find('[data-testid="local-file-gone"]').text()).toContain('请重新选择')
+  })
+
+  it('从「⋯」菜单点重发也是同一口径:失败照样 toast(不再静默 catch)', async () => {
+    const { w, store } = await mountPage([msg({ isFailed: true })])
+    store.resend = vi.fn(async () => {
+      throw new Error('网络连接失败,请检查网络后重试')
+    })
+    await flushPromises()
+
+    await w.find('.message-bubble__more').trigger('click')
+    await w.find('.message-menu__retry').trigger('click')
+    await flushPromises()
+
+    expect(store.resend).toHaveBeenCalled()
+    expect(w.find('.app-toast').text()).toContain('网络连接失败')
+  })
+
+  it('本地文件已失效的图片:菜单里不再给「重发」(不留点了没用的入口)', async () => {
+    const { w } = await mountPage([
+      msg({
+        msgId: 'img-old',
+        isSelf: true,
+        kind: ChatMessageKind.image,
+        isFailed: true,
+        localFileGone: true,
+      }),
+    ])
+    await flushPromises()
+
+    await w.find('.message-bubble__more').trigger('click')
+    expect(w.find('.message-menu__retry').exists()).toBe(false)
+  })
+
   it('自己 2 分钟内的消息:菜单点「撤回」→ 调 store', async () => {
     const { w, store } = await mountPage([msg({ isSelf: true, timestamp: Date.now() })])
     store.revokeMessage = vi.fn(async () => {})

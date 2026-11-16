@@ -86,6 +86,14 @@ export interface ChatMessage {
    * 换成「转码中…」——同一个 loading 位,只是告诉用户等的是什么。
    */
   voiceTranscoding?: boolean
+  /**
+   * 图片的本地待发文件已经失效(410 号单):刷新 / 换页 / 浏览器回收内存后 `File` 没了。
+   *
+   * 只出现在**本地的失败气泡**上,服务端不下发。为 true 时「重发」按钮不再显示
+   * (再点也只会再抛一次「图片已失效」),气泡上直接写清楚要重新选图 ——
+   * 这个字段的唯一用途是让「不能重试」在界面上可见,而不是点了没反应。
+   */
+  localFileGone?: boolean
   /** 贴纸 id(如 `sticker_01`),只有 kind=sticker 有值 */
   stickerId?: string | null
   /** 已撤回:渲染成居中灰字,不再显示内容 */

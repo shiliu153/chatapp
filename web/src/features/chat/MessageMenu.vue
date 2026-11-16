@@ -94,8 +94,10 @@ onUnmounted(() => {
     >
       复制
     </button>
+    <!-- 本地文件已失效(410 号单)时不给「重发」:菜单和气泡按钮必须同一口径,否则用户从
+         菜单点下去还是「点了没反应」 -->
     <button
-      v-if="props.message.isFailed"
+      v-if="props.message.isFailed && !props.message.localFileGone"
       type="button"
       class="message-menu__retry"
       role="menuitem"

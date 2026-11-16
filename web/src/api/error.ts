@@ -34,6 +34,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 这次失败是不是「本地就错了」(压缩失败、画布不可用这类,不是服务端回来的结果)。
+ *
+ * 为什么要单独一个函数:`parseApiError` 把**网络错误**与**本地错误**都折成
+ * `status=undefined` 的 `ApiError`(`http` 的拦截器又把 axios 的网络错误先转成了
+ * `ApiError`),单看它分不开。而上传重试恰恰要区分这两者 —— 请求没到服务端值得退避
+ * 再试,本地错误再试一百遍也一样。判据:既不是 axios 错误,也不是 `ApiError`。
+ */
+export function isLocalError(error: unknown): boolean {
+  return !axios.isAxiosError(error) && !(error instanceof ApiError)
+}
+
 type Envelope = { code?: unknown; message?: unknown; request_id?: unknown }
 
 function asEnvelope(data: unknown): Envelope | null {
