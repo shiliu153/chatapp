@@ -4,6 +4,8 @@
 # 为什么要有去重:定时器 15 分钟一轮,一个卡死的 assignment 会连续命中几十轮 ——
 # 不去重就是每 15 分钟一封邮件,人会直接把告警规则关掉,那比没有告警更糟。
 # 指纹变了(换了异常种类)或距上次发送超过 6 小时,才再发一次。
+# **指纹只含「检查名 + 状态」,不含数字**(落后几分钟 / 几条 / 几秒 / 哪个目录):口径与理由见
+# 下面 `fingerprint_terms` 前的注释 —— 指纹里混进数字,就等于没有去重。
 #
 # 退出码语义(给 systemd 看,和 healthcheck.py 的 0/1/2 不同):
 #   0 = 本轮没事,或者异常已经成功报出去了 —— 告警通道是我们选的通道,报出去就算完成。
@@ -67,6 +69,52 @@ else
   CHECKER=$SUPERAGENT_HEALTH_CHECKER
 fi
 
+# 指纹口径(2026-11-16 修订,issue #412):**只取「检查名 + 状态」**,丢掉一切每轮都会变的数字。
+#
+# 为什么:巡检输出每一行的后半段几乎都是动态值 —— `游标停在 …(落后 12 分钟)`、
+# `有未读且比游标新 3 条: #405 …`、`僵尸 assignment ce1d46c9: state=running 已 1.7h · 最后 report: …`、
+# `出网(api.github.com): HTTP 403:代理通但接口报错`。整行进指纹 ⇒ 故障持续期间**每轮指纹都不一样**
+# ⇒ 6 小时去重形同虚设(停摆一小时就 4 封),既吵又吃阿里云邮件推送的日额度。
+#
+# 规则(顺序即实现顺序):
+#   1) `❌`/`❓` 行首标记 = **状态**(bad / unknown)——「同一种故障」的第一维;
+#   2) 第一个冒号前 = **检查名**,原样保留 —— 它本身就是稳定身份(僵尸 assignment 带 8 位 id 前缀、
+#      入队三连带 issue 编号),丢掉它会把「两类故障合成一条」,反而吞掉真告警;
+#   3) 第一个冒号后 = 说明,**一律丢掉**(分钟数 / 条数 / 耗时 / 目录名 / 已运行多久 / report 摘要);
+#   4) `❓ 判不出来: …` 额外保留原因的稳定前缀(截到第一个左括号),否则「打不开状态库」与
+#      「取不到未读通知」会撞成同一个指纹;
+#   5) 最后 `sort -u`:多条僵尸 assignment 的枚举顺序不该影响指纹;
+#   6) `rc` 也进指纹:巡检自己挂掉时 stdout 是空的、原因只在 stderr,那一轮要和「有异常」区分开,
+#      也不能让不同轮的自挂塌成同一个空指纹。
+#
+# ✅ 行从来不进指纹(和改口径之前一样):`出网 … 0.9s` 的耗时、`worktrees: 2 个目录: …` 的目录数
+# 都长在 ✅ 行上,本轮一并确认过 —— 它们既不该造新指纹,也不该把已发的告警挡住。
+fingerprint_terms() { # fingerprint_terms <rc> <巡检输出文件>
+  awk -v rc="$1" '
+    function trim(text) { sub(/[[:space:]]+$/, "", text); return text }
+    BEGIN { print "rc=" rc }
+    /^❌ / {
+      line = $0
+      sub(/^❌ /, "", line)
+      cut = index(line, ":")
+      print "bad:" trim(cut > 0 ? substr(line, 1, cut - 1) : line)
+      next
+    }
+    /^❓ / {
+      line = $0
+      sub(/^❓ /, "", line)
+      cut = index(line, ":")
+      name = (cut > 0) ? substr(line, 1, cut - 1) : line
+      reason = (cut > 0) ? substr(line, cut + 1) : ""
+      sub(/^[[:space:]]+/, "", reason)
+      paren = index(reason, "(")
+      if (paren > 0) reason = substr(reason, 1, paren - 1)
+      print "unknown:" trim(name) ":" trim(reason)
+      next
+    }
+  ' "$2"
+}
+
 OUT=$(mktemp); trap 'rm -f "$OUT"' EXIT
 python3 "$CHECKER" ${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"} ${IGNORE_ARGS[@]+"${IGNORE_ARGS[@]}"} \
   ${CURSOR_ARGS[@]+"${CURSOR_ARGS[@]}"} ${AUTOREHEAL_ARGS[@]+"${AUTOREHEAL_ARGS[@]}"} \
@@ -80,13 +128,16 @@ if [ "$RC" -eq 0 ]; then
   exit 0
 fi
 
-FP=$( { printf 'rc=%s\n' "$RC"; grep -E '^(❌|❓)' "$OUT" || true; } | sha256sum | cut -c1-16)
+TERMS=$(fingerprint_terms "$RC" "$OUT" | sort -u)
+FP=$(printf '%s\n' "$TERMS" | sha256sum | cut -c1-16)
 LAST_FP=$(cat "$STATE_DIR/last-fingerprint" 2>/dev/null || true)
 LAST_TS=$(cat "$STATE_DIR/last-sent" 2>/dev/null || echo 0)
 NOW=$(date +%s)
 
 if [ "$FP" = "$LAST_FP" ] && [ $((NOW - LAST_TS)) -lt "$RESEND_AFTER" ]; then
   echo "run: 同一异常 $FP 已于 $(( (NOW - LAST_TS) / 60 )) 分钟前告警过,本轮不重复发(每 $((RESEND_AFTER / 3600))h 提醒一次)"
+  # 把「指纹由哪几项算出来」打出来,否则事后完全看不出这轮为什么被判成同一种异常。
+  echo "     (指纹口径 = 检查名+状态;本轮指纹项:$(printf '%s\n' "$TERMS" | paste -sd, -))"
   exit 0
 fi
 
