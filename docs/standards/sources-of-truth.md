@@ -65,7 +65,7 @@
 
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
-| 门禁清单(有哪些、跑什么) | [`scripts/gates.toml`](../../scripts/gates.toml)(**唯一事实来源**);workflow 只留 job 名与装配 | 机械:`python scripts/run_gates.py --list`(与注册表逐条一致)+ `python -m unittest scripts.test_gates`(两边无命令字面量、条数相等) | **已落地**(2026-11-14 第 4 节):本地与 CI 调**同一份清单、同一个执行器**,19 / 15 的差额归零(现 `contract` 组 <!-- num:gates_contract -->29 / 29<!-- /num -->,条数以 `python scripts/run_gates.py --list` 为准) |
+| 门禁清单(有哪些、跑什么) | [`scripts/gates.toml`](../../scripts/gates.toml)(**唯一事实来源**);workflow 只留 job 名与装配 | 机械:`python scripts/run_gates.py --list`(与注册表逐条一致)+ `python -m unittest scripts.test_gates`(两边无命令字面量、条数相等) | **已落地**(2026-11-14 第 4 节):本地与 CI 调**同一份清单、同一个执行器**,19 / 15 的差额归零(现 `contract` 组 <!-- num:gates_contract -->31 / 31<!-- /num -->,条数以 `python scripts/run_gates.py --list` 为准) |
 | 新增一道门禁的改动点 | 同上 —— `gates.toml` 加一个 `[[gate]]` | 机械:`scripts/test_gates.py::SameSourceTests::test_no_gate_command_literal_in_wiring`(命令出现在 `contract.yml` / `verify.sh` / `stacks/*.sh` 里即红) | **已落地**(2026-11-14 第 4 节):**1 处** |
 | 各栈装配(起容器 / 装依赖 / 迁移 / 生成物校验) | [`scripts/stacks/*.sh`](../../scripts/stacks) | 机械:`scripts/test_gates.py::SameSourceTests::test_heavy_workflows_call_shared_stack_scripts`(四条 workflow 与 `verify.sh` 调同一份) | **已落地**(2026-11-14 第 4 节,D3-B) |
 | 本地验证入口(子命令与退出码) | [`scripts/verify.sh`](../../scripts/verify.sh) | 机械:`bash scripts/test_verify.sh` + `python scripts/run_gates.py --scope contract` | 已落地(第 4 节:contract 分支收成一行调用执行器,并把 `test_verify.sh` 自己也收进注册表) |
