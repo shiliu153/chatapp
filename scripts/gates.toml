@@ -121,7 +121,7 @@ id = "contract-cpp-comment-gate"
 scope = "contract"
 kind = "python"
 command = "python scripts/check_cpp_comments.py --check"
-reason = "imserver 的 C++ 注释是「块」不是 docstring,此前明确没有门禁(cpp.md §8):PR #313 补齐 67 个文件 / 637 个块之后,新增 C++ 代码没有任何东西会拦。tree-sitter 给出函数边界,所以声明 / 定义 / lambda / = delete 都能判准,当前基线零误报"
+reason = "imserver 的 C++ 注释是「块」不是 docstring,此前明确没有门禁(cpp.md §8):PR #313 把整套注释块补齐之后,新增 C++ 代码没有任何东西会拦。tree-sitter 给出函数边界,所以声明 / 定义 / lambda / = delete 都能判准,当前基线零误报(文件数 / 块数不写死,现算用 --verbose)"
 
 [[gate]]
 id = "contract-cpp-comment-gate-selftest"

@@ -15,6 +15,6 @@
 #
 # 版本钉死而不是写区间:门禁的判定结论必须可复现。tree-sitter-cpp 升小版本可能改语法树
 # (节点类型/嵌套),判定跟着变;升级时改这里 + 跑 scripts/test_check_cpp_comments.py 与
-# 真实 imserver/(67 个文件 / 637 个块)两处,绿了再合。
+# 真实 imserver/(`python scripts/check_cpp_comments.py --check`,零输出零退出)两处,绿了再合。
 tree-sitter==0.26.1
 tree-sitter-cpp==0.23.4
