@@ -75,7 +75,7 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
   `MultiProcessCollector`,否则计数器按进程分裂、`rate()` 误判重置。业务指标含
   `logins_total` / `swipes_total` / `matches_total` / `im_calls_total`。
 - **采集**:Prometheus 多 target(api / im / node / celery / mysqld / redis),Grafana 概览看板,
-  Alertmanager 规则经宿主机 relay 转邮件(与 22:00 服务器日报同一条链路,去重键 `groupKey + status`);
+  Alertmanager 规则经宿主机 relay 转邮件(与 22:00 服务器日报同一条链路,去重键 `groupKey + status`;主题规范见 [ops/mail.md](ops/mail.md));
   Loki 作为可选 profile 按需启用。**target 数与规则条数的 owner 是
   [ops/observability.md](ops/observability.md)**,本页不写数字。
 - **日志**:单行 JSON,字段含 `route` / `status` / `duration_ms` / `request_id`;前端未捕获异常经
@@ -88,9 +88,11 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
 
 ## 8. 交付与恢复纪律
 
-- **CI 的 workflow(当前 <!-- num:workflows -->10<!-- /num --> 个)**:`backend` / `app` / `app-ui` / `web` / `web-e2e` / `imserver` /
-  `contract` 七条判定轨,另有 `auto-merge`(白名单自动合并)、`main-health`(每天检查默认分支每条
-  workflow 的最新 push run)、`l4-intake`(需求自动入队,总闸默认 `off`)。
+- **CI 的 workflow(当前 <!-- num:workflows -->9<!-- /num --> 个)**:`backend` / `app` / `app-ui` / `web` / `web-e2e` / `imserver` /
+  `contract` 七条判定轨,另有 `auto-merge`(白名单自动合并)、`l4-intake`(需求自动入队,总闸默认 `off`)。
+  默认分支红轨**不再由 workflow 建 issue**:2026-11-16 起并入 WSL 的 worker 巡检
+  (`scripts/superagent_health.py` 的 `ci-red` 项,判据复用 `scripts/l4_intake.py::red_runs`),
+  随巡检邮件一起报,口径见 [ops/mail.md](ops/mail.md)。
   **门禁清单的 owner 是 [`scripts/gates.toml`](../scripts/gates.toml)**:本地 `scripts/verify.sh contract`
   与 CI 调**同一个执行器**(`scripts/run_gates.py`),两边条数相等。
   **`contract` / `backend` / `web` 是默认分支的必需检查**(2026-11-12 起),backend / web 的重活按改动面跑

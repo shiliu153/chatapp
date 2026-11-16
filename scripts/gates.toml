@@ -215,6 +215,13 @@ command = "python -m unittest scripts.test_lib -v"
 reason = "scripts/lib/ 是四个发版脚本与 GitHub 常量的唯一实现(repo / version / docs / artifacts);它坏了四个脚本会一起静默走偏,而且没有第二份实现能对照"
 
 [[gate]]
+id = "contract-mail-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_mail -v"
+reason = "发信内核是「告警能不能到人」的唯一通道,它坏掉的三种方式都不自己喊:主题格式漂了收件箱又变成每封一样、去重坏了要么每轮一封要么把真故障吞掉、失败被吞了巡检会以为自己报过而 systemd 全绿"
+
+[[gate]]
 id = "contract-observability-selftest"
 scope = "contract"
 kind = "python"

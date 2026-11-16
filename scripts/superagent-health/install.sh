@@ -27,6 +27,9 @@ mkdir -p "$TARGET"
 cp -a "$HERE/../superagent_health.py" "$TARGET/"
 cp -a "$HERE/notify.sh" "$HERE/run.sh" "$TARGET/"
 chmod +x "$TARGET/notify.sh" "$TARGET/run.sh"
+# 发信内核(主题规范 + SMTP + 去重 + 配额)跟巡检一起装:notify.sh 找不到它就只能落盘。
+mkdir -p "$TARGET/lib"
+cp -a "$HERE/../lib/mail.py" "$TARGET/lib/mail.py"
 
 cp -a "$HERE/superagent-health.service" "$HERE/superagent-health.timer" "$UNIT_DIR/"
 

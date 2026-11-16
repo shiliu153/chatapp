@@ -8,8 +8,14 @@
 | mihomo 解析不到机场节点域名 | 106 个节点全 timeout,出网 0%;worker 的 git / 轮询全断 | 7890 在听,`status` 全绿 |
 | 模型流 `stream idle timeout` | assignment 卡在 `running` **6 小时**,worktree 0 提交 | `errors: {}` |
 
-所以补的不是「红轨告警」(main-health 已经管),而是**外部周期性探测**:出网真的能通吗、
+所以补的不是「红轨告警」(那是另一类问题),而是**外部周期性探测**:出网真的能通吗、
 派出去的评论真的进队列了吗、有没有 assignment 早就跑死了。
+
+> **2026-11-16 起多了一项**:默认分支的 **CI 红轨**也在这里查。原先它由
+> `.github/workflows/main-health.yml` 每天建一条 GitHub issue 承载 —— issue 是待办不是告警,
+> 没人订阅就没人看见。现在红轨与 worker 巡检走**同一个出口(邮件)**,判据仍然复用
+> `scripts/l4_intake.py::red_runs`(与 L4 自动入队同一个函数)。已知偏差:WSL 关机期间
+> 没人报红轨,开机后第一轮(`OnBootSec`)补报。
 
 ## 它多久跑一次 / 谁来跑
 
@@ -28,6 +34,7 @@ systemd timer,**每 15 分钟一轮**,开机 3 分钟后先补一轮(`OnBootSec`
 | 入队三连 | `thread` / `trigger_thread` / `ticket` 三张表都要有该 issue | 评论没进队列(§4.1 的静默丢单) |
 | 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束 | 工单跑死了(模型流超时那类) |
 | 游标新鲜度 | `kv` 里 `github-cursor:*` 的最新时间落后超过 10 分钟(`SUPERAGENT_CURSOR_STALE_MINUTES`),**且** GitHub 通知里有「未读且 `updated_at` 晚于游标」的条目 | 通知轮询停摆:有活要干却没人读,派工评论不会进队列 |
+| CI 红轨(默认关) | 默认分支上每条 workflow 的最新一次 push run 都不是红的(`scripts/l4_intake.py::red_runs` 判据) | 合并后的红没人管(2026-11-11 那条红挂了 20 小时) |
 | worktrees | `work/` 下的目录清单 | 仅供核对,不告警 |
 
 **游标新鲜度只判「有未读但游标没动」**,不是单纯判「游标没动」:闲置时段没有新评论,游标
@@ -84,16 +91,24 @@ sudo bash scripts/superagent-health/install.sh --uninstall
 
 配置在 `/root/.dsh/superagent-health.env`(chmod 600,不进仓库;模板见 `superagent-health.env.example`)。
 
-优先级:`SUPERAGENT_NOTIFY_CMD` → SMTP → GitHub issue 评论 → 仅落盘 + journal。
+优先级:`SUPERAGENT_NOTIFY_CMD`(逃生口)→ 统一邮件内核 → 仅落盘 + journal。
 
-- **SMTP(推荐)**:`SUPERAGENT_SMTP_URL="smtps://smtp.qq.com:465"` + `_MAIL_FROM` / `_MAIL_TO` /
-  `_SMTP_USER` / `_SMTP_PASS`(QQ 邮箱用授权码)。发信**不走 http 代理**(mihomo 是 HTTP 代理,SMTP 过不去),
-  `notify.sh` 里显式 `env -u *_proxy`。
-- **GitHub issue 评论**:`SUPERAGENT_GH_ISSUE=<编号>`,用 WSL 已有的 `gh`/`gh-agent` 凭据,
-  GitHub 把评论通知投递到账号邮箱 —— 零新增密钥,同时留一份审计记录。
+- **邮件内核(推荐)**:`MAIL_SMTP_URL="smtps://smtpdm.aliyun.com:465"` + `MAIL_FROM` /
+  `MAIL_TO` / `MAIL_USER` / `MAIL_PASS`。**与服务器日报同一个发信账号**,于是收件箱里
+  worker 告警与服务器日报来自同一发信人、共用同一份额度(5/分钟、50/天)。
+  邮件**不走 http 代理**(mihomo 是 HTTP 代理,SMTP 过不去),`notify.sh` 里显式 `env -u *_proxy`
+  的老写法已删掉 —— 内核用 `smtplib` 直连,本来就不吃代理变量。
+- **逃生口**:`SUPERAGENT_NOTIFY_CMD`,一条能吃掉 stdin 为正文的任意命令。内核装不上时用它兜。
+
+**主题规范**(`docs/ops/mail.md` 是唯一事实来源):`[chatapp·类别] 对象 — 结论`,三段固定,
+类别封闭枚举。worker 巡检固定发 `[chatapp·巡检] worker — <第一个异常项名>`,结论里**不带数字**。
+
+> 2026-11-16 起**删掉了「GitHub issue 评论」通道**(`SUPERAGENT_GH_ISSUE`):issue 是待办不是告警,
+> 没人订阅就没人看见,而且类别与结论会被 GitHub 的通知模板抹平。
 
 **去重**:同一种异常(指纹相同)每 6 小时只发一次(`SUPERAGENT_HEALTH_RESEND_SECONDS`),
-异常消失时状态自动清空。没有去重就是每 15 分钟一封,人会把告警关掉 —— 那比没有告警更糟。
+异常消失时状态自动清空。指纹只含「检查名 + 状态」,**不含任何每轮都会变的数字**。
+没有去重就是每 15 分钟一封,人会把告警关掉 —— 那比没有告警更糟。
 
 ## 手动跑 / 排障
 
@@ -106,11 +121,17 @@ python3 /root/src/chatapp/scripts/superagent_health.py --cursor-stale-minutes 0 
   --notifications-file /tmp/notifications.json
 systemctl list-timers superagent-health.timer
 journalctl -u superagent-health -n 50 --no-pager
-cat /root/.dsh/state/superagent-health/last-alert.md   # 最近一条告警原文
+cat /root/.dsh/state/superagent-health/last-alert.md   # 最近一条告警原文(第一行就是主题)
 # 安全自愈:看今天自愈了几次、每次结果(告警有 6 小时去重,这里是逐次记录)
 tail -n 20 /root/.dsh/state/superagent-health/autoreheal.log
 # 开关当前是否打开(为空 = 关);打开/关闭都是改 env 文件里那行
 grep -n '^SUPERAGENT_AUTOREHEAL' /root/.dsh/superagent-health.env
+# CI 红轨那一项(默认关):先手动跑一轮看判据与指纹对不对
+python3 /root/src/chatapp/scripts/superagent_health.py --skip-egress --skip-cursor \
+  --ci-red 1 --runs-file /tmp/runs.json      # 用真快照:gh api "repos/shiliu153/chatapp/actions/runs?branch=main&event=push&per_page=100" > /tmp/runs.json
+# 发信配置齐不齐 / 主题长什么样(都不联网、不发信)
+python3 /root/src/chatapp/scripts/lib/mail.py check
+python3 /root/src/chatapp/scripts/lib/mail.py subject --category 巡检 --subject worker --verdict 游标停摆
 ```
 
 退出码:`0` 正常 / `1` 有异常 / `2` 判不出来(按异常处理 —— 判不出来绝不能算正常)。
@@ -118,7 +139,8 @@ grep -n '^SUPERAGENT_AUTOREHEAL' /root/.dsh/superagent-health.env
 ## 自测
 
 ```bash
-python -m unittest scripts.test_superagent_health -v     # 46 条,纯离线
+python -m unittest scripts.test_superagent_health -v     # 纯离线,不联网不碰真库
+python -m unittest scripts.test_mail -v                  # 发信内核:主题 / 去重 / 配额 / 失败语义
 ```
 
 自测里有一条是真事故的回放:用 LIKE 匹配原始 JSON 会把带空格的 `"number": 285` 判成 0 张单,
@@ -127,6 +149,10 @@ python -m unittest scripts.test_superagent_health -v     # 46 条,纯离线
 游标新鲜度那组用例钉的是判错的两个方向:**落后 + 有未读 → 报**,**落后 + 无未读 → 不报**
 (闲置),**新鲜 → 不报且根本不取通知**(断言取通知的函数没被调用);另有「通知取不到 ⇒
 判不出来(退出码 2)」与「游标落后时心跳新鲜也不能洗白」两条。
+
+**CI 红轨**那组钉三件事:判据与 `l4_intake.red_runs` 完全一致(`cancelled` / `timed_out` /
+`startup_failure` 都算红、`skipped` / 还在跑不算红)、**每条红轨一个检查名**(否则新红一条会被
+旧红的 6 小时去重吞掉)、形状不对或取不到快照一律算「判不出来」而不是「全绿」。
 
 **安全自愈**那组把四道闸逐条钉住(尤其「本该不重启却重启了」这个方向,那会把别人的活连同
 会话一起弄丢):停摆 + 无活跃 assignment + worktree 干净 → **回调刚好被调一次**、告警含

@@ -169,7 +169,7 @@ RPS −20% / p99 +20% 直接判回归。造数用 `seed_scale_users`,清理用 `
 
 **Q:怎么知道线上现在没坏?**
 A:设计上 `/metrics` 暴露 RED + IM 连接/发送/死锁重试/池等待 + 队列积压 + 业务漏斗(登录/滑卡/配对)
-+ 依赖读数(MySQL 连接、Redis 内存);告警经 Alertmanager 推到**邮件**(与 22:00 服务器日报同一条链路);
++ 依赖读数(MySQL 连接、Redis 内存);告警经 Alertmanager 推到**邮件**(与 22:00 服务器日报同一条链路;主题规范见 [mail.md](mail.md));
 runbook 写清了「哪条告警 → 看哪块板 → 做什么」。**2026-11-03 上线**,**2026-11-05 补齐尾巴(E-4)**:
 容器 6 个(prometheus/grafana/alertmanager/node-exporter/mysqld-exporter/redis-exporter)+
 2 个 systemd 服务(alert-relay、celery-exporter),<!-- num:alert_targets -->6<!-- /num --> 个 target(api/im/node/celery/mysql/redis)全 `up`;

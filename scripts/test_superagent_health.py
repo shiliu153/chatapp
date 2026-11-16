@@ -382,6 +382,143 @@ class CursorStallTests(unittest.TestCase):
         self.assertIn("轮询心跳", check.detail)
 
 
+class CiRedTests(unittest.TestCase):
+    """第五项:默认分支的 CI 红轨(2026-11-16 从 main-health.yml 的 issue 并进来)。
+
+    钉两件事:①判据与 `l4_intake.red_runs` 完全一致(不许各写一份);②**每条红轨一个
+    检查名** —— 否则指纹(检查名+状态)会把「web 红了」与「imserver 红了」压成同一个,
+    新红一条会被 6 小时去重吞掉。
+    """
+
+    @staticmethod
+    def _run(name: str, conclusion, created: str = "2026-11-16T01:00:00Z", sha: str = "abcdef1234567"):
+        """造一条 Actions run 记录(只保留判定用得到的字段)。"""
+        return {
+            "name": name,
+            "conclusion": conclusion,
+            "created_at": created,
+            "head_sha": sha,
+            "html_url": f"https://github.com/shiliu153/chatapp/actions/runs/{name}",
+        }
+
+    def _loader(self, payload):
+        """把一份快照包成 loader(与 `--runs-file` 走同一个形状)。"""
+        return lambda: (payload, None)
+
+    def test_all_green_is_ok(self) -> None:
+        payload = {"workflow_runs": [self._run("web", "success"), self._run("backend", "success")]}
+        checks, unknown = healthcheck.ci_red_checks(self._loader(payload))
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].state, healthcheck.OK, checks[0].detail)
+        self.assertIsNone(unknown)
+        self.assertIn("2 条 workflow", checks[0].detail)
+
+    def test_one_check_per_red_track(self) -> None:
+        payload = {
+            "workflow_runs": [
+                self._run("web", "failure"),
+                self._run("imserver", "timed_out"),
+                self._run("backend", "success"),
+            ]
+        }
+        checks, unknown = healthcheck.ci_red_checks(self._loader(payload))
+        self.assertIsNone(unknown)
+        self.assertEqual(len(checks), 2, "两条红轨必须给两个检查名")
+        names = sorted(check.name for check in checks)
+        self.assertEqual(names, ["CI 红轨 imserver", "CI 红轨 web"])
+        for check in checks:
+            self.assertEqual(check.state, healthcheck.BAD)
+        detail = next(check.detail for check in checks if check.name.endswith("web"))
+        self.assertIn("failure", detail)
+        self.assertIn("abcdef1", detail)
+        self.assertIn("actions/runs/web", detail)
+
+    def test_not_run_green_conclusions_count_as_red(self) -> None:
+        """cancelled / startup_failure 这些「没跑绿」都算红,只认 failure 会静默漏报。"""
+        for conclusion in ("cancelled", "timed_out", "startup_failure", "action_required", "stale"):
+            payload = {"workflow_runs": [self._run("web", conclusion)]}
+            checks, _ = healthcheck.ci_red_checks(self._loader(payload))
+            self.assertEqual(checks[0].state, healthcheck.BAD, f"{conclusion} 应当算红")
+
+    def test_running_and_skipped_are_not_red(self) -> None:
+        for conclusion in (None, "success", "skipped", "neutral"):
+            payload = {"workflow_runs": [self._run("web", conclusion)]}
+            checks, _ = healthcheck.ci_red_checks(self._loader(payload))
+            self.assertEqual(checks[0].state, healthcheck.OK, f"{conclusion} 不该算红")
+
+    def test_latest_run_per_workflow_wins(self) -> None:
+        """老的一条红、新的一条绿 —— 看的是最新那次,不许把已经修好的轨继续报红。"""
+        payload = {
+            "workflow_runs": [
+                self._run("web", "failure", created="2026-11-15T01:00:00Z"),
+                self._run("web", "success", created="2026-11-16T01:00:00Z"),
+            ]
+        }
+        checks, _ = healthcheck.ci_red_checks(self._loader(payload))
+        self.assertEqual(checks[0].state, healthcheck.OK, checks[0].detail)
+
+    def test_bad_shape_is_unknown_not_ok(self) -> None:
+        checks, unknown = healthcheck.ci_red_checks(self._loader({"oops": 1}))
+        self.assertEqual(checks[0].state, healthcheck.BAD)
+        self.assertIsNotNone(unknown, "形状不对必须报「判不出来」,不能算正常")
+
+    def test_fetch_failure_is_unknown_not_ok(self) -> None:
+        checks, unknown = healthcheck.ci_red_checks(lambda: (None, "gh api actions/runs 退出码 1:EOF"))
+        self.assertEqual(checks[0].state, healthcheck.BAD)
+        self.assertIn("EOF", checks[0].detail)
+        self.assertIsNotNone(unknown)
+
+    def test_gate_off_by_default(self) -> None:
+        """总闸默认关:不打开时巡检结果与加这一项之前完全一致(连联网都不联)。"""
+        tmp = tempfile.mkdtemp()
+        make_db(tmp).close()
+        args = healthcheck.build_parser().parse_args(
+            ["--db", os.path.join(tmp, "orchestrator.sqlite"), "--skip-egress", "--skip-cursor"]
+        )
+        report = healthcheck.build_report(args)
+        self.assertEqual([check for check in report.checks if "CI 红轨" in check.name], [])
+
+    def test_gate_on_with_runs_file(self) -> None:
+        """打开总闸 + 本地快照:红轨进报告,退出码 1,且不影响「判不出来」的语义。"""
+        tmp = tempfile.mkdtemp()
+        make_db(tmp).close()
+        runs_path = os.path.join(tmp, "runs.json")
+        with open(runs_path, "w", encoding="utf-8") as handle:
+            json.dump({"workflow_runs": [self._run("web", "failure")]}, handle)
+        args = healthcheck.build_parser().parse_args(
+            [
+                "--db",
+                os.path.join(tmp, "orchestrator.sqlite"),
+                "--skip-egress",
+                "--skip-cursor",
+                "--ci-red",
+                "1",
+                "--runs-file",
+                runs_path,
+            ]
+        )
+        report = healthcheck.build_report(args)
+        self.assertIn("CI 红轨 web", report.anomalies)
+        self.assertEqual(report.exit_code(), 1)
+
+    def test_skip_flag_wins_over_gate(self) -> None:
+        tmp = tempfile.mkdtemp()
+        make_db(tmp).close()
+        args = healthcheck.build_parser().parse_args(
+            [
+                "--db",
+                os.path.join(tmp, "orchestrator.sqlite"),
+                "--skip-egress",
+                "--skip-cursor",
+                "--ci-red",
+                "1",
+                "--skip-ci-red",
+            ]
+        )
+        report = healthcheck.build_report(args)
+        self.assertEqual([check for check in report.checks if "CI 红轨" in check.name], [])
+
+
 class NotificationParsingTests(unittest.TestCase):
     """通知响应的解析:只认未读,编号从 subject.url 尾巴取,坏数据不许抛。"""
 
@@ -749,6 +886,9 @@ class RunFingerprintTests(unittest.TestCase):
     (`SUPERAGENT_HEALTH_CHECKER`)和告警通道(`SUPERAGENT_NOTIFY_CMD`)换成假的。
     """
 
+    #: 告警主题的前缀(2026-11-16 起的规范:类别 / 对象 / 结论三段,见 docs/ops/mail.md)。
+    SUBJECT_PREFIX = "[chatapp·巡检] worker — "
+
     def setUp(self) -> None:
         """建临时状态目录,并写一个「输出由用例给定」的假巡检器(不联网、不碰真库)。"""
         self.tmp = tempfile.mkdtemp()
@@ -800,7 +940,7 @@ class RunFingerprintTests(unittest.TestCase):
         """返回真正发出去的告警条数(假通道每被调用一次就追加一段)。"""
         try:
             with open(self.notify_log, encoding="utf-8") as handle:
-                return sum(1 for line in handle if line.startswith("[superagent]"))
+                return sum(1 for line in handle if line.startswith(self.SUBJECT_PREFIX))
         except FileNotFoundError:
             return 0
 
@@ -899,6 +1039,21 @@ class RunFingerprintTests(unittest.TestCase):
         self.assertEqual(self._fingerprint(), gh_down, "同一原因的 stderr 细节不同不该算新故障")
         self.assertIn("不重复发", out)
         self.assertEqual(self._sent(), 2)
+
+    def test_subject_is_mail_spec(self) -> None:
+        """主题必须是 `[chatapp·巡检] worker — <结论>`,结论取第一个异常项名(多项写「等 N 项」)。"""
+        self._round(
+            "❌ 游标新鲜度: 游标停在 2026-11-16T22:20Z(落后 12 分钟)\n"
+            "❌ 僵尸 assignment ce1d46c9: state=running 已 1.7h\n"
+        )
+        head = self._last_alert().splitlines()[0]
+        self.assertEqual(head, "[chatapp·巡检] worker — 游标新鲜度 等 2 项")
+
+    def test_subject_unknown_verdict(self) -> None:
+        """判不出来时结论写「判不出来」—— 主题里不许出现 rc 之类的数字(会破坏去重)。"""
+        self._round("❓ 判不出来: 打不开 orchestrator 状态库:x:unable to open\n", rc=2)
+        head = self._last_alert().splitlines()[0]
+        self.assertEqual(head, "[chatapp·巡检] worker — 判不出来")
 
 
 class _RestartRecorder:

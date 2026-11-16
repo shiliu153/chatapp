@@ -301,7 +301,8 @@ wsl -e bash /root/start-superagent.sh status
 **已知偏差(出现异常先看这里)**:
 - 用 `GITHUB_TOKEN` 合并**不会**触发默认分支上的 `push` 轨。仓库里**没有** `AUTOMERGE_TOKEN`
   secret(2026-11-12 核对),所以这条偏差现在**一直成立**。补偿是 PR 轨本身已经全量跑过
-  (contract/backend/web 不再按 paths 跳过),且 `main-health.yml` 每天兜底检查默认分支。
+  (contract/backend/web 不再按 paths 跳过),且 worker 巡检每 15 分钟兜底检查默认分支的 CI 红轨
+  (§15 的第五项;2026-11-16 之前这件事由 `main-health.yml` 建 issue 承担)。
   **补法**(2026-11-12):建 fine-grained PAT(只对 `shiliu153/chatapp`,Contents 读写 +
   Pull requests 读写,90 天过期),然后:
 
@@ -359,11 +360,12 @@ python scripts/apply_ruleset.py --apply
 > `python scripts/apply_ruleset.py --remove --apply` 回滚,再改方案
 > (退回「job 内 step 级 if」而不是 job 级 skip)。
 
-另外新增 `.github/workflows/main-health.yml`(每天 09:00 北京时间):默认分支上任何
-workflow 的**最新一次 push run** 是红的,就建/更新一条 issue;全绿自动关掉。
-2026-11-11 的 web 轨红了 20 小时、期间还完成了一次发版,缺的就是这一段。
-2026-11-13 起,它不再自己写 jq —— 红轨列表由 `scripts/l4_intake.py ci-red-summary` 解析,
-与 L4(§14)共用**同一个**解析器;改口径不会只改一边。
+**默认分支红轨的兜底在 2026-11-16 换了地方**:原先是一个 workflow(`main-health.yml`,每天
+09:00 北京时间建/更新一条 issue,全绿自动关),现在并入 §15 的 worker 巡检(第五项 `ci-red`,
+随巡检邮件报)。换的理由:issue 是**待办**不是**告警** —— 没人订阅就没人看见,还得人手动关;
+而红轨与「worker 还能不能干活」本来就该一起看。判据没变:任何 workflow 的**最新一次 push run**
+是红的就报,解析仍由 `scripts/l4_intake.py` 一处负责,与 L4(§14)共用**同一个**函数。
+代价是已知偏差:**WSL 关机期间没人报红轨**,开机后第一轮(`OnBootSec`)补报。
 
 ## 9. worker 侧硬拦:gh 包装器(gh-guard,2026-11-08 起)
 
@@ -849,14 +851,13 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
   在结论行里长得一样(都是「没有命中任何白名单信号」),区别只在这一行。
   2026-11-12 首轮真跑就出过这个歧义,所以它现在是必看的。
 - **`ci-red` 只认「最新一次 push run」。** 一条 workflow 红了、随后又被人手动重跑成绿,就不算红
-  —— 与 `main-health.yml` 同口径(它的红轨列表也由 `scripts/l4_intake.py` 解析)。
+  —— 与 §15 第五项同一个函数(`scripts/l4_intake.py::red_runs`),不各写一份判据。
 - **自动单不会自己进队列。** 正文里刻意不含任何 `@`,派工仍要人在评论里做(§4.1)。
 - **首次启用是人的动作。** `L4_INTAKE` 默认 `off`:机制上线不等于开始开单,开不开由人决定。
 
-## 15. worker 健康巡检(superagent-health,2026-11-13 起;第四项 2026-11-16 补)
+## 15. worker 健康巡检(superagent-health,2026-11-13 起;第四项 / 第五项 2026-11-16 补)
 
-**它补的是「绿着但不动」这一类故障** —— 不是红轨告警(`main-health` 已经管那个),而是
-「面板每个健康位都 `ready`、其实早就不干活」。三次实测:
+**它补的是「绿着但不动」这一类故障** —— 面板每个健康位都 `ready`、其实早就不干活。三次实测:
 
 | 故障 | 表现 | 面板/文档 |
 |---|---|---|
@@ -868,7 +869,7 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 这台机器会关机,关机期间没有 worker 也就没有可巡检的对象,恢复开机后第一轮立刻告诉你
 「现在能不能干活」。
 
-查四类:
+查五项:
 
 | 检查 | 判据 |
 |---|---|
@@ -876,6 +877,11 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 | 入队三连 | `thread` / `trigger_thread` / `ticket` 三张表都要有该 issue(`@SUPERAGENT_HEALTH_ISSUES`) |
 | 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束(**自动扫全表**,不用配置) |
 | 游标新鲜度 | `kv` 里 `github-cursor:*` 的最新时间落后超过 10 分钟(`SUPERAGENT_CURSOR_STALE_MINUTES`),**且** GitHub 通知里有「未读且 `updated_at` 晚于游标」的条目 |
+| CI 红轨(**默认关**) | 默认分支上每条 workflow 的**最新一次 push run** 都不能是红的(`SUPERAGENT_HEALTH_CI_RED=1` 才查;判据 = `scripts/l4_intake.py::red_runs`) |
+
+第五项是 2026-11-16 从 `main-health.yml` 并过来的,理由与代价见 §8.1 上方那段。它**每条红轨
+一个检查名**(`CI 红轨 <workflow>`),这样指纹能把「web 红了」与「imserver 红了」分开 ——
+否则新红一条会被旧红那 6 小时去重吞掉。
 
 **游标新鲜度的判据是「有未读但游标没动」,不是「游标没动」**:闲置时段没有新评论,游标本来
 就不动,只判时间会天天误报。所以先看是否落后阈值,再取 `gh api notifications` 判断有没有比

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""superagent worker 健康检查:出网、入队三连、僵尸 assignment、轮询游标新鲜度。
+"""superagent worker 健康检查:出网、入队三连、僵尸 assignment、轮询游标新鲜度、CI 红轨。
 
 为什么存在
 ----------
@@ -30,6 +30,12 @@
 任何一条命中就**只告警、绝不重启**。闸的顺序写在 `maybe_autoreheal` 里,是安全契约,别优化掉。
 取证与根因见 `docs/ops/superagent.md` §15 与 PR 正文。
 
+第五项(2026-11-16 并入):**默认分支的 CI 红轨**。此前这件事由 `.github/workflows/main-health.yml`
+每天建一条 GitHub issue 来承载,而 issue 是「待办」不是「告警」:没人订阅就没人看见,还要人
+手动关。现在改成与 worker 巡检同一个出口(邮件),判据仍然复用 `scripts/l4_intake.py` 的
+`red_runs()` —— 口径只有一份,不许再各写一份 jq。代价是已知偏差:**WSL 关机期间没人报红轨**,
+与「worker 也不在」是同一段时间,开机后第一轮(`OnBootSec`)会立刻补报。
+
 退出码
 ------
 0 = 全部正常;1 = 有异常(该发告警);2 = 判不出来(同样该发告警,但绝不能当成正常)。
@@ -43,6 +49,7 @@
     python3 healthcheck.py --skip-cursor        # 不查游标(完全离线)
     python3 healthcheck.py --notifications-file n.json   # 用本地 JSON 冒充未读通知
     python3 healthcheck.py --autoreheal 1       # 打开安全自愈(默认 0 = 关)
+    python3 healthcheck.py --ci-red 1 --runs-file runs.json   # 打开 CI 红轨(默认关)
 """
 
 from __future__ import annotations
@@ -58,15 +65,27 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+# `python3 scripts/superagent_health.py` 时 sys.path[0] 是 scripts/,而
+# `python3 -m unittest scripts.test_superagent_health` 时仓库根已在 sys.path 里。
+# 显式补一次,让 `from scripts import ...` 在两种调用方式下都成立
+# (与 `scripts/lib/__init__.py` 里写下的约定是同一段样板)。
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts import l4_intake  # noqa: E402  (必须在 sys.path 修好之后)
+from scripts.lib import repo as lib_repo  # noqa: E402  (同上)
 
 DEFAULT_DB = "/root/.dsh/state/superagent/orchestrator.sqlite"
 DEFAULT_WORK = "/root/.dsh/state/superagent/work"
 DEFAULT_PROXY = "http://127.0.0.1:7890"
 DEFAULT_PROXY_CONFIG = "/root/.dsh/proxy/config.yaml"
 DEFAULT_TOKEN = "/root/.dsh/github-mcp-token.txt"
+DEFAULT_BRANCH = "main"
 EGRESS_URL = "https://api.github.com/rate_limit"
 NOTIFICATIONS_PATH = "notifications?all=false&per_page=50"
+CI_RUNS_PATH = "repos/{repo}/actions/runs?branch={branch}&event=push&per_page=100"
 DEFAULT_CURSOR_STALE_MINUTES = 10
 GH_CLI_CANDIDATES = ("/root/.dsh/bin/gh-agent", "/root/.local/bin/gh-agent")
 DEFAULT_AUTOREHEAL_MIN_MINUTES = 20
@@ -81,6 +100,7 @@ BAD = "bad"
 
 CURSOR_CHECK = "游标新鲜度"
 AUTOREHEAL_CHECK = "安全自愈"
+CI_RED_CHECK = "CI 红轨"
 
 
 @dataclass
@@ -484,6 +504,111 @@ def check_cursor(
         ),
         None,
     )
+
+
+def fetch_ci_runs(
+    gh_cli: Optional[str],
+    proxy: str,
+    repo: str = lib_repo.DEFAULT_REPO,
+    branch: str = DEFAULT_BRANCH,
+    timeout: float = 25.0,
+) -> Tuple[Any, Optional[str]]:
+    """调 `gh api .../actions/runs` 取默认分支的 push run 快照(第五项的事实源)。
+
+    Args:
+        gh_cli: GitHub CLI 路径;None 表示自动探测。
+        proxy: 出口代理 URL;国内直连 GitHub 不通,必须走它。
+        repo: `owner/name`,默认本仓库。
+        branch: 默认分支名(2026-11-11 改过名,写死会静默失效,所以可配)。
+        timeout: 子进程超时秒数。
+
+    Returns:
+        `(runs 快照, 失败原因)`。取不到时不抛异常 —— 由调用方报成「判不出来」。
+
+    为什么要跟 `fetch_notifications` 一样走 `gh api`:token 与代理配置都在 gh 那边,
+    systemd 里再抄一份凭据只是多一处会漂移的东西。
+    """
+    binary = find_gh_cli(gh_cli)
+    if not binary:
+        return None, "找不到 GitHub CLI(gh / gh-agent)"
+    path = CI_RUNS_PATH.format(repo=repo, branch=branch)
+    env = dict(os.environ)
+    env.update({"HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "https_proxy": proxy, "http_proxy": proxy})
+    try:
+        done = subprocess.run(
+            [binary, "api", path], capture_output=True, text=True, timeout=timeout, env=env
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    if done.returncode != 0:
+        reason = (done.stderr or done.stdout or "").strip().splitlines()
+        return None, f"{binary} api actions/runs 退出码 {done.returncode}:{reason[-1] if reason else '(无输出)'}"
+    try:
+        return json.loads(done.stdout or "{}"), None
+    except ValueError as exc:
+        return None, f"runs 响应不是 JSON:{exc}"
+
+
+def load_runs_file(path: str) -> Tuple[Any, Optional[str]]:
+    """读本地 JSON 冒充 runs 快照(自测与反证用,完全不联网)。
+
+    Args:
+        path: 快照文件路径。
+
+    Returns:
+        `(runs 快照, 失败原因)`。
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle), None
+    except (OSError, ValueError) as exc:
+        return None, f"读不到 runs 快照 {path}:{exc}"
+
+
+def ci_red_checks(loader: Callable[[], Tuple[Any, Optional[str]]]) -> Tuple[List[Check], Optional[str]]:
+    """第五项巡检:默认分支上有没有 workflow 的最新一次 push run 是红的。
+
+    Args:
+        loader: 取 runs 快照的函数,返回 `(快照, 失败原因)`。
+
+    Returns:
+        `(检查结果列表, 判不出来的原因)`。全绿时给一条 `ok`;有红轨时**每条红轨一个
+        Check**,名字里带 workflow 名 —— 这样 `run.sh` 的指纹(检查名+状态)才能区分
+        「web 红了」与「imserver 红了」,新红一条不会因为旧红还在而被去重吞掉。
+
+    判据复用 `scripts/l4_intake.py::red_runs`(与 L4 自动入队同一个函数):
+    `cancelled` / `timed_out` / `startup_failure` 这些「没跑绿」都算红,只认 `failure`
+    会把五种红静默当绿。这里**不**自己写第二份判定。
+    """
+    payload, error = loader()
+    if error:
+        return (
+            [Check(CI_RED_CHECK, BAD, f"取不到默认分支的 run 快照:{error}")],
+            f"{CI_RED_CHECK}:取不到 run 快照({error})",
+        )
+    try:
+        red = l4_intake.red_runs(payload)
+        latest = l4_intake.latest_runs_by_workflow(payload)
+    except ValueError as exc:
+        return (
+            [Check(CI_RED_CHECK, BAD, f"run 快照形状不对:{exc}")],
+            f"{CI_RED_CHECK}:run 快照形状不对({exc})",
+        )
+    if not red:
+        return [Check(CI_RED_CHECK, OK, f"{len(latest)} 条 workflow 的最新 push run 均绿")], None
+
+    checks: List[Check] = []
+    for run in red:
+        name = str(run.get("name") or "(无名 workflow)")
+        sha = "".join(ch for ch in str(run.get("head_sha") or "") if ch.isalnum())[:7]
+        checks.append(
+            Check(
+                f"{CI_RED_CHECK} {name}",
+                BAD,
+                f"结论 {run.get('conclusion')} · {sha or '(无 sha)'} · {run.get('html_url') or '(无链接)'}",
+            )
+        )
+    return checks, None
 
 
 def open_db(path: str) -> sqlite3.Connection:
@@ -944,7 +1069,48 @@ def build_report(
                 )
         for check in check_worktrees(conn, args.workdir):
             report.add(check)
+
+    if _ci_red_enabled(args) and not args.skip_ci_red:
+        checks, unknown = ci_red_checks(_ci_red_loader(args))
+        for check in checks:
+            report.add(check)
+        if unknown:
+            report.unknown.append(unknown)
     return report
+
+
+def _ci_red_loader(args: argparse.Namespace) -> Callable[[], Tuple[Any, Optional[str]]]:
+    """按命令行参数给出「取 runs 快照」的函数(文件注入优先,否则走 gh)。
+
+    Args:
+        args: 已解析的命令行参数。
+
+    Returns:
+        一个无参函数,返回 `(runs 快照, 失败原因)`。文件注入让自测与反证完全离线。
+
+    为什么放在 `with conn:` 之外:这一项要联网(经代理调 GitHub),而状态库连接只在
+    「读本地状态」的那几项里需要。混在一起会让一次网络超时把状态库连接晾在那儿。
+    """
+    if args.runs_file:
+        path = args.runs_file
+        return lambda: load_runs_file(path)
+    return lambda: fetch_ci_runs(args.gh_cli, args.proxy, args.repo, args.ci_branch)
+
+
+def _ci_red_enabled(args: argparse.Namespace) -> bool:
+    """CI 红轨那一项的总闸:只有显式写成 `1/on/true/yes` 才算开(默认关)。
+
+    Args:
+        args: 已解析的命令行参数(默认值取自 `SUPERAGENT_HEALTH_CI_RED`)。
+
+    Returns:
+        是否本轮检查 CI 红轨。
+
+    与 `SUPERAGENT_AUTOREHEAL` / `L4_INTAKE` 同一口径:**机制上线不等于开始执行**。
+    默认关的理由是这一项要联网(经代理调 GitHub),先让它在人盯着的时候跑几轮,
+    确认判据与指纹都对,再交给 timer。
+    """
+    return _truthy(args.ci_red)
 
 
 def _notification_loader(
@@ -1113,6 +1279,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--skip-egress", action="store_true", help="跳过联网检查(离线自测)")
     parser.add_argument("--skip-enqueue", action="store_true", help="跳过入队三连")
+    parser.add_argument(
+        "--ci-red",
+        default=os.environ.get("SUPERAGENT_HEALTH_CI_RED"),
+        help="CI 红轨总闸:1/on = 开,其它(含默认的空值)= 关。默认关 —— 机制上线不等于开始执行",
+    )
+    parser.add_argument(
+        "--ci-branch",
+        default=os.environ.get("SUPERAGENT_CI_BRANCH", DEFAULT_BRANCH),
+        help=f"查红轨用的分支(默认 {DEFAULT_BRANCH};改名后必须同步,否则静默查空)",
+    )
+    parser.add_argument(
+        "--repo",
+        default=os.environ.get("SUPERAGENT_HEALTH_REPO", lib_repo.DEFAULT_REPO),
+        help="查红轨用的仓库(owner/name,默认本仓库)",
+    )
+    parser.add_argument(
+        "--runs-file",
+        default=None,
+        help="用本地 JSON 冒充 runs 快照(自测 / 反证,不联网)",
+    )
+    parser.add_argument("--skip-ci-red", action="store_true", help="即使总闸开着也跳过 CI 红轨")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     parser.add_argument(
         "--autoreheal",
