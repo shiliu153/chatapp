@@ -40,11 +40,12 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
+from django_redis import get_redis_connection
 from PIL import Image
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from config import transcode_gate
+from config import idempotency, transcode_gate
 from users.models import Photo, PhotoStatus, Profile, ProfileStatus
 from users.services import get_profile
 
@@ -1464,6 +1465,242 @@ class ChatVoiceAsyncTranscodeTests(APITestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data["code"], 50302)
         self.assertEqual(ChatVoice.objects.count(), 0)
+
+
+class UploadIdempotencyTests(APITestCase):
+    """上传幂等键(``Idempotency-Key``):同 key 重放、不同 key 各一份、不带 key 行为不变、
+    失败释放 key、并发同 key 只处理一次、异步语音 ``pending`` 期间同 key 拿回同一个 id。
+
+    覆盖验收口径(issue #414「验收口径」第 2 条)的①–⑥,外加「映射指向已被删的行」这条常态:
+    运营删图或 30 天回收之后,旧 key 必须能被重新处理,而不是永远回放一个 404 的 id。
+    """
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
+                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
+        override.enable()
+        self.addCleanup(override.disable)
+        cache.clear()   # 限流计数与幂等映射都在 Redis,用例之间必须清
+        self.user = User.objects.create_user(phone="13900139011")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.user).access_token}")
+        self.image_url = "/api/v1/im/images"
+        self.voice_url = "/api/v1/im/voices"
+
+    def image(self, key=None, name="a.png", content=PNG_1PX, content_type="image/png"):
+        """上传一张聊天图片,可选带 ``Idempotency-Key``。
+
+        参数说明:
+            key: 幂等键;``None`` 表示不带这个请求头(老客户端行为)。
+            name: 文件名。
+            content: 文件字节。
+            content_type: MIME 类型。
+
+        返回参数:
+            DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.image(key="k-1")``(见本类 ``test_same_key_replays_one_image``)
+
+        备注信息:
+            以 multipart 打到 ``/api/v1/im/images``;幂等键走 Django 测试客户端的
+            ``HTTP_IDEMPOTENCY_KEY``,等价于真实请求里的 ``Idempotency-Key`` 头。
+        """
+        extra = {"HTTP_IDEMPOTENCY_KEY": key} if key is not None else {}
+        return self.client.post(
+            self.image_url,
+            {"file": SimpleUploadedFile(name, content, content_type=content_type)},
+            format="multipart", **extra)
+
+    def voice(self, key=None, content=b"fake-m4a", content_type="audio/mp4",
+              duration_ms=12500):
+        """上传一段聊天语音,可选带 ``Idempotency-Key``。
+
+        参数说明:
+            key: 幂等键;``None`` 表示不带这个请求头。
+            content: 文件字节。
+            content_type: MIME 类型。
+            duration_ms: 客户端声明时长。
+
+        返回参数:
+            DRF 测试客户端的响应对象。
+
+        使用示例:
+            ``self.voice(key="k-voice")``(见本类 ``test_pending_voice_replays_same_id``)
+
+        备注信息:
+            文件名固定 ``a.m4a``;用例自行 ``patch`` 掉 ffmpeg / ffprobe,
+            不需要真 ffmpeg(与 ``ChatVoiceUploadTests.upload`` 同口径)。
+        """
+        extra = {"HTTP_IDEMPOTENCY_KEY": key} if key is not None else {}
+        return self.client.post(
+            self.voice_url,
+            {"file": SimpleUploadedFile("a.m4a", content, content_type=content_type),
+             "duration_ms": duration_ms},
+            format="multipart", **extra)
+
+    def idem_keys(self):
+        """列出 Redis 里现存的全部幂等键(结果键 + 在途锁)。
+
+        参数说明:
+            无。
+
+        返回参数:
+            解码后的键名列表(升序);空列表表示「释放干净」。
+
+        使用示例:
+            ``self.assertEqual(self.idem_keys(), [])``(见本类 ``test_failed_upload_releases_key``)
+
+        备注信息:
+            直接扫真实 Redis(``*upload_idem*`` 已含 django-redis 的 ``KEY_PREFIX:VERSION``
+            前缀),比猜键名更硬:漏删的锁与漏删的结果键都会被抓出来。
+        """
+        connection = get_redis_connection("default")
+        return sorted(key.decode() for key in connection.keys("*upload_idem*"))
+
+    def chat_files(self):
+        """媒体目录 ``chat/`` 下已落盘的正式文件(原图 / 缩略图 / 语音)。
+
+        参数说明:
+            无。
+
+        返回参数:
+            ``Path`` 列表(升序);目录不存在时返回空列表。
+
+        使用示例:
+            ``self.assertEqual(len(self.chat_files()), 2)``(见本类 ``test_same_key_replays_one_image``)
+
+        备注信息:
+            只数 ``chat/`` 子目录:异步语音的临时区在 ``MEDIA_ROOT`` 的另一处,
+            而这里要断言的是「正式落盘几份」。
+        """
+        root = Path(self.media_dir) / "chat"
+        return sorted(p for p in root.rglob("*") if p.is_file()) if root.exists() else []
+
+    def test_same_key_replays_one_image(self):
+        """① 同 key 连打两次:只有一个文件、一个行,两次响应体相同,映射 TTL ≤ 24 小时。"""
+        first = self.image(key="k-1")
+        self.assertEqual(first.status_code, 201, first.data)
+        second = self.image(key="k-1")
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertEqual(first.json(), second.json())
+        self.assertEqual(ChatImage.objects.count(), 1)
+        self.assertEqual(len(self.chat_files()), 2)   # 原图 + 缩略图,只落过一份
+        ttl = cache.ttl(idempotency.RESULT_KEY.format(idempotency.IMAGE, self.user.id, "k-1"))
+        self.assertGreater(ttl, 0)
+        self.assertLessEqual(ttl, idempotency.TTL)
+
+    def test_different_keys_create_two_images(self):
+        """② 不同 key → 两份资源(幂等键不是「一个账号只处理一次」)。"""
+        self.assertEqual(self.image(key="k-1").status_code, 201)
+        self.assertEqual(self.image(key="k-2").status_code, 201)
+        self.assertEqual(ChatImage.objects.count(), 2)
+        self.assertEqual(len(self.chat_files()), 4)
+
+    def test_without_key_uploads_every_time(self):
+        """③ 不带 key:行为与加幂等之前逐字一致 —— 每次各落一份,Redis 里不留痕迹。"""
+        self.assertEqual(self.image().status_code, 201)
+        self.assertEqual(self.image().status_code, 201)
+        self.assertEqual(ChatImage.objects.count(), 2)
+        self.assertEqual(len(self.chat_files()), 4)
+        self.assertEqual(self.idem_keys(), [])
+
+    def test_failed_upload_releases_key(self):
+        """④ 首次 400 后同 key 重试能成功:失败必须释放 key,否则用户改好文件也传不上。"""
+        rejected = self.image(key="k-retry", name="a.txt", content=b"not an image",
+                              content_type="text/plain")
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(self.idem_keys(), [])      # 结果键与在途锁都不许残留
+        retried = self.image(key="k-retry")
+        self.assertEqual(retried.status_code, 201, retried.data)
+        self.assertEqual(ChatImage.objects.count(), 1)
+
+    def test_quota_rejection_releases_key(self):
+        """413 也走「失败释放」:配额被挤爆之后重试不该被自己的 key 挡住。"""
+        with self.settings(USER_STORAGE_QUOTA_BYTES=1):
+            rejected = self.image(key="k-quota")
+        self.assertEqual(rejected.status_code, 413)
+        self.assertEqual(rejected.data["code"], 41301)
+        self.assertEqual(self.idem_keys(), [])
+        self.assertEqual(self.image(key="k-quota").status_code, 201)
+
+    def test_missing_ffmpeg_releases_key(self):
+        """503(缺 ffmpeg)同样释放 key:依赖装好之后同 key 能直接重传。"""
+        with patch("im.voice.ffmpeg_available", return_value=False):
+            rejected = self.voice(key="k-ffmpeg")
+        self.assertEqual(rejected.status_code, 503)
+        self.assertEqual(rejected.data["code"], 50302)
+        self.assertEqual(self.idem_keys(), [])
+        with patch("im.voice.ffmpeg_available", return_value=True), \
+                patch("im.voice._transcode",
+                      side_effect=lambda src, dst: dst.write_bytes(b"transcoded")), \
+                patch("im.voice._probe_ms", return_value=12500):
+            self.assertEqual(self.voice(key="k-ffmpeg").status_code, 201)
+
+    def test_concurrent_same_key_returns_409(self):
+        """⑤ 并发同 key:后到的那个不处理,回 409 + 40901;锁释放后同 key 恢复正常。"""
+        lock = idempotency.LOCK_KEY.format(idempotency.IMAGE, self.user.id, "k-busy")
+        # 手工放一把在途锁 = 「另一次同 key 请求正在处理」的那一刻
+        self.assertTrue(cache.add(lock, 1, 60))
+        busy = self.image(key="k-busy")
+        self.assertEqual(busy.status_code, 409)
+        self.assertEqual(busy.data["code"], 40901)
+        self.assertEqual(ChatImage.objects.count(), 0)   # 第二个请求一行都不建
+        self.assertEqual(self.chat_files(), [])
+
+        cache.delete(lock)                               # 上一次请求结束、放锁
+        self.assertEqual(self.image(key="k-busy").status_code, 201)
+
+    def test_same_key_replays_one_voice(self):
+        """同步路径同上:同 key 两次只转码一次、只建一行、响应体相同。"""
+        with patch("im.voice.ffmpeg_available", return_value=True), \
+                patch("im.voice._transcode",
+                      side_effect=lambda src, dst: dst.write_bytes(b"transcoded")), \
+                patch("im.voice._probe_ms", return_value=12500):
+            first = self.voice(key="k-v1")
+            second = self.voice(key="k-v1")
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertEqual(first.json(), second.json())
+        self.assertEqual(ChatVoice.objects.count(), 1)
+        self.assertEqual(len(self.chat_files()), 1)
+
+    @patch("im.tasks.transcode_chat_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    def test_pending_voice_replays_same_id(self, _ffmpeg, delay):
+        """⑥ 异步语音:``pending`` 期间同 key 重试回同一个 202、同一个 id,只入队一次。"""
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        with self.captureOnCommitCallbacks(execute=True):
+            first = self.voice(key="k-voice")
+        self.assertEqual(first.status_code, 202, first.data)
+        with self.captureOnCommitCallbacks(execute=True):
+            second = self.voice(key="k-voice")
+        self.assertEqual(second.status_code, 202, second.data)
+        self.assertEqual(second.data["id"], first.data["id"])
+        self.assertEqual(ChatVoice.objects.count(), 1)
+        delay.assert_called_once_with(first.data["id"])
+
+    def test_stale_mapping_is_reprocessed(self):
+        """映射指向的行已被删(运营删除 / 30 天回收):丢掉映射,按首次请求重来。"""
+        first = self.image(key="k-stale")
+        self.assertEqual(first.status_code, 201, first.data)
+        ChatImage.objects.filter(id=first.data["id"]).delete()
+        second = self.image(key="k-stale")
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertNotEqual(second.data["id"], first.data["id"])
+        self.assertEqual(ChatImage.objects.count(), 1)
+
+    def test_invalid_key_is_rejected(self):
+        """key 超长或含白名单外字符 → 400,且不建行(忽略它比报错更难查)。"""
+        too_long = self.image(key="k" * (idempotency.MAX_KEY_LENGTH + 1))
+        self.assertEqual(too_long.status_code, 400)
+        self.assertIn("Idempotency-Key", too_long.json()["message"])
+        spaced = self.image(key="k 1")
+        self.assertEqual(spaced.status_code, 400)
+        self.assertEqual(ChatImage.objects.count(), 0)
 
 
 class ChatVoiceStatusTests(APITestCase):

@@ -59,7 +59,7 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from accounts import sms_codes
-from config import storage, transcode_gate
+from config import idempotency, storage, transcode_gate
 from discovery.models import Match, Swipe
 from feed.models import Follow, Post, PostComment, PostImage
 from im import media_sign, tasks as im_tasks
@@ -454,7 +454,8 @@ class PhotoTests(AuthMixin, APITestCase):
 
 
 class ProfileVoiceTests(AuthMixin, APITestCase):
-    """资料语音自我介绍(批次 R + L-7):上传/覆盖/删除、30 秒上限、限时签名 URL、配额不落盘。"""
+    """资料语音自我介绍(批次 R + L-7):上传/覆盖/删除、30 秒上限、限时签名 URL、配额不落盘,
+    以及 ``Idempotency-Key`` 的幂等语义(同 key 重放、失败释放、``pending`` 同 id)。"""
 
     def setUp(self):
         self.media_dir = tempfile.mkdtemp()
@@ -488,13 +489,14 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
         """
         return self.client.get(self.auth_url, HTTP_X_ORIGINAL_URI=original)
 
-    def upload(self, content=b"fake-m4a", name="a.m4a", content_type="audio/mp4"):
+    def upload(self, content=b"fake-m4a", name="a.m4a", content_type="audio/mp4", key=None):
         """上传一段资料语音。
 
         参数说明:
             content: 文件字节。
             name: 文件名。
             content_type: MIME 类型。
+            key: 幂等键(``Idempotency-Key``);``None`` 表示不带这个请求头。
 
         返回参数:
             DRF 测试客户端的响应对象。
@@ -507,10 +509,11 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
             走 multipart 上传 ``/api/v1/users/me/voice``;用例调用前用 ``patch`` 固定
             ``im.voice._probe_ms`` / ``_transcode`` / ``ffmpeg_available``,不需要真 ffmpeg。
         """
+        extra = {"HTTP_IDEMPOTENCY_KEY": key} if key is not None else {}
         return self.client.post(
             self.url,
             {"file": SimpleUploadedFile(name, content, content_type=content_type)},
-            format="multipart")
+            format="multipart", **extra)
 
     def voice_files(self):
         """列出媒体目录里已落盘的语音文件。
@@ -853,6 +856,71 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
         cache.clear()
         self.assertEqual(self.upload().status_code, 201)
         self.assertEqual(self.upload().status_code, 429)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_same_idempotency_key_replays_one_voice(self, _probe, _transcode, _ffmpeg):
+        """同一个 ``Idempotency-Key`` 打两次:只转码一次、只留一个文件,两次响应体相同。"""
+        first = self.upload(key="k-1")
+        second = self.upload(key="k-1")
+        self.assertEqual(first.status_code, 201, first.json())
+        self.assertEqual(second.status_code, 201, second.json())
+        self.assertEqual(second.json(), first.json())
+        self.assertEqual(ProfileVoice.objects.count(), 1)
+        self.assertEqual(len(self.voice_files()), 1)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_different_key_overwrites_once_more(self, _probe, _transcode, _ffmpeg):
+        """不同 key 就是两次独立上传:覆盖式语义照旧(仍是一人一条,文件换过一次)。"""
+        self.assertEqual(self.upload(key="k-1").status_code, 201)
+        first = ProfileVoice.objects.get().file.name
+        self.assertEqual(self.upload(key="k-2", content=b"second").status_code, 201)
+        self.assertEqual(ProfileVoice.objects.count(), 1)
+        self.assertNotEqual(ProfileVoice.objects.get().file.name, first)
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_quota_rejection_releases_key(self, _probe, _transcode, _ffmpeg):
+        """413 释放 key:配额恢复后同 key 重传能成功(不会被自己的 key 挡住)。"""
+        with self.settings(USER_STORAGE_QUOTA_BYTES=1):
+            rejected = self.upload(key="k-quota")
+        self.assertEqual(rejected.status_code, 413)
+        self.assertEqual(rejected.json()["code"], 41301)
+        self.assertIsNone(cache.get(
+            idempotency.RESULT_KEY.format(idempotency.PROFILE_VOICE, self.user.id, "k-quota")))
+        self.assertEqual(self.upload(key="k-quota").status_code, 201)
+
+    @patch("im.tasks.transcode_profile_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    def test_pending_voice_replays_same_id(self, _ffmpeg, delay):
+        """``pending`` 期间同 key 重试:回同一个 202、同一个 id,只入队一次。"""
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        with self.captureOnCommitCallbacks(execute=True):
+            first = self.upload(key="k-pending")
+        self.assertEqual(first.status_code, 202, first.json())
+        with self.captureOnCommitCallbacks(execute=True):
+            second = self.upload(key="k-pending")
+        self.assertEqual(second.status_code, 202, second.json())
+        self.assertEqual(second.json()["id"], first.json()["id"])
+        self.assertEqual(ProfileVoice.objects.count(), 1)
+        delay.assert_called_once_with(first.json()["id"])
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_mapping_of_deleted_voice_is_reprocessed(self, _probe, _transcode, _ffmpeg):
+        """删掉语音再重传同一个 key:映射指向的行已不在,必须重新处理而不是回放旧结果。"""
+        self.assertEqual(self.upload(key="k-del").status_code, 201)
+        self.assertEqual(self.client.delete(self.url).status_code, 204)
+        replayed = self.upload(key="k-del")
+        self.assertEqual(replayed.status_code, 201, replayed.json())
+        record = ProfileVoice.objects.get()
+        self.assertIn(record.file.url, replayed.json()["url"])
 
 
 class StorageUsageTests(TestCase):

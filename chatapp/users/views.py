@@ -7,6 +7,8 @@
        全部数据并释放手机号(同号可重新注册为全新账号);
     3. 照片数量变化会影响「资料完善」判定,因此上传与删除后都要 ``refresh_status()``;
        资料语音(批次 R)刻意**不**参与该判定,所以语音上传/删除都不调 ``refresh_status()``。
+    4. 资料语音上传接受可选请求头 ``Idempotency-Key``(逻辑在 ``config/idempotency.py``):
+       同 key 的重试不重复转码、不多留文件;不带时行为与加这一层之前逐字一致。
 
 关联文档:
     - 接口契约:docs/api/users.md
@@ -27,7 +29,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
 
-from config import error_codes, images, storage, transcode_gate
+from config import error_codes, idempotency, images, storage, transcode_gate
 from discovery.cache_keys import invalidate_candidates, invalidate_pool_globally
 from feed.services import follow_state_for_profiles
 from im import media_sign, transcode_queue, voice
@@ -236,26 +238,31 @@ def delete_photo(request, photo_id):
     return Response(status=204)
 
 
-def _queue_profile_voice(user, profile, upload) -> Response:
+def _queue_profile_voice(user, profile, upload, session) -> Response:
     """把一次资料语音上传改走异步:落临时区 + 标 pending + 入队,回 202。
 
     参数说明:
         user: 当前登录账号。
         profile: 当前账号的资料(语音是一对一,没有就现建一行 ``pending``)。
         upload: 已通过浅校验的上传文件。
+        session: 本次请求的幂等会话(``config.idempotency.Session``);行提交后把
+            ``key → {id, status: pending}`` 写进 Redis,``pending`` 期间同 key 重试
+            拿回同一个 id,不会又落一份临时文件。
 
     返回参数:
         202 + ``{id, status, retry_after}``;服务器缺 ``ffmpeg`` / ``ffprobe`` 时回
         503 + ``50302``。
 
     使用示例:
-        ``return _queue_profile_voice(request.user, profile, upload)``(见本模块 ``my_voice``)
+        ``return _queue_profile_voice(request.user, profile, upload, session)``
+        (见本模块 ``my_voice``)
 
     备注信息:
         **覆盖式**在异步路径上的表现:受理的同时就把旧语音下线(删旧文件、``bytes`` 归零),
         旧行因此不会既占配额又停在 ``pending`` 上;转码失败时该行是 ``failed`` 且没有文件,
         用户重录即可(失败重试 UI 另单处理)。
         行先提交、任务后入队(``transaction.on_commit``),worker 才查得到它。
+        缺 ffmpeg 时不受理,幂等 key 由 ``with`` 退出时释放(所以修好环境后同 key 能重传)。
     """
     if not voice.ffmpeg_available():
         logger.error("资料语音上传失败:服务器缺少 ffmpeg/ffprobe")
@@ -275,13 +282,50 @@ def _queue_profile_voice(user, profile, upload) -> Response:
         record.file.storage.delete(old_name)
     voice_id = record.pk
     transaction.on_commit(lambda: transcode_profile_voice.delay(voice_id), robust=True)
+    session.remember(voice_id, idempotency.PENDING)
     logger.info("profile_voice_queued", extra={"user_id": user.id, "voice_id": voice_id})
     return Response({"id": voice_id, "status": TranscodeStatus.PENDING,
                      "retry_after": transcode_gate.retry_after()}, status=202)
 
 
+def _replay_profile_voice(request, profile, saved: dict):
+    """按 Redis 里存的结果重放一次资料语音上传响应。
+
+    参数说明:
+        request: DRF 请求对象(序列化器要拿它拼签名地址)。
+        profile: 当前账号的资料(语音是一对一,重放必须先确认还是同一行)。
+        saved: 幂等会话里读到的映射 ``{"id": 行主键, "status": ready|pending}``。
+
+    返回参数:
+        可重放的 ``Response``;行已不可用时返回 ``None``,由调用方丢掉映射后重新处理。
+
+    使用示例:
+        ``replay = _replay_profile_voice(request, profile, session.saved)``
+        (见本模块 ``my_voice``)
+
+    备注信息:
+        资料语音是**覆盖式**的,所以要多比一次 id:同一个账号换了文件重录之后,
+        旧 key 的映射指向的行已经不是当前那条了,此时重放会把别人(同一个用户)的新语音
+        的地址当成旧请求的结果 —— 认准 id 才能只重放「那次请求自己的结果」。
+        ``failed`` 的行不重放:上一次尝试已经失败,用户重传应当照常处理。
+    """
+    record = getattr(profile, "voice", None)
+    if record is None or record.pk != saved["id"]:
+        return None
+    if record.transcode_status == TranscodeStatus.FAILED:
+        return None
+    if saved["status"] == idempotency.PENDING:
+        return Response({"id": record.pk, "status": TranscodeStatus.PENDING,
+                         "retry_after": transcode_gate.retry_after()}, status=202)
+    if not record.file:
+        return None
+    return Response(ProfileVoiceSerializer(record, context={"request": request}).data,
+                    status=201)
+
+
 @extend_schema(methods=["GET"], responses={200: VoiceStatusSerializer})
 @extend_schema(methods=["POST"], request=ProfileVoiceUploadSerializer,
+               parameters=[idempotency.schema_parameter()],
                responses={201: ProfileVoiceSerializer, 202: VOICE_QUEUED_RESPONSE})
 @extend_schema(methods=["DELETE"], request=None, responses={204: None})
 @api_view(["GET", "POST", "DELETE"])
@@ -290,7 +334,8 @@ def my_voice(request):
     """资料语音自我介绍:读取转码状态、上传/覆盖与删除(GET/POST/DELETE /api/v1/users/me/voice)。
 
     参数说明:
-        request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+        request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``;``POST`` 的请求头
+            可带 ``Idempotency-Key``(可选,不带时行为与加幂等之前逐字一致)。
 
     返回参数:
         GET 200 + ``{id, status, url, duration_ms, size, code, message}``(``pending`` 时
@@ -298,7 +343,8 @@ def my_voice(request):
         ``code`` / ``message``);没有语音时 404。
         POST 201 + ``{url, duration_ms, status}``(``url`` 为**限时签名**的绝对地址,带
         ``e``/``s``,TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
-        POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``。
+        POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``;
+        POST 同一个 ``Idempotency-Key`` 的上一次还没处理完时 409 + ``40901``。
         DELETE 幂等 204(没有语音时也返回 204)。
 
     使用示例:
@@ -315,6 +361,9 @@ def my_voice(request):
         占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。异步路径的配额同样在
         worker 落盘前检查,超限时该行转 ``failed`` + ``transcode_error=41301``。
         GET 与 POST/DELETE 的限流分开:轮询走 ``voice_status``,不占 10 次/小时的改资料额度。
+        ``Idempotency-Key`` 重放按 id 认行:换了文件重录之后旧 key 的映射不再命中
+        (见 ``_replay_profile_voice``);失败(400/413/503)一律释放 key,用户改好文件
+        用同一个 key 重传不会被自己挡住。
     """
     profile = get_profile(request.user)
     if request.method == "GET":
@@ -338,40 +387,51 @@ def my_voice(request):
             existing.delete()
         return Response(status=204)
 
-    serializer = ProfileVoiceUploadSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-    upload = serializer.validated_data["file"]
+    with idempotency.guard(request, idempotency.PROFILE_VOICE) as session:
+        if session.saved is not None:
+            replayed = _replay_profile_voice(request, profile, session.saved)
+            if replayed is not None:
+                return replayed
+            # 行已被删 / 转码失败 / 已被另一次上传覆盖:映射作废,按首次请求重来
+            session.discard()
 
-    # 抢槽在真正转码之前:抢不到就改走异步,把请求线程让给别的接口(M-3)。
-    with transcode_gate.slot() as acquired:
-        if not acquired:
-            logger.warning("profile_voice_transcode_busy", extra={"user_id": request.user.id})
-            return _queue_profile_voice(request.user, profile, upload)
-        try:
-            data, duration_ms = voice.normalize_profile(upload.read(), upload.content_type)
-        except voice.VoiceUnavailable:
-            logger.error("资料语音上传失败:服务器缺少 ffmpeg/ffprobe")
-            return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
-                             "message": "语音自我介绍暂不可用"}, status=503)
-        except voice.VoiceError as error:
-            return Response({"code": 400, "message": str(error)}, status=400)
+        serializer = ProfileVoiceUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        upload = serializer.validated_data["file"]
 
-    # 配额检查在落盘之前(M7):超限时一个字节都不写进媒体目录。
-    storage.ensure_quota(request.user, len(data))
+        # 抢槽在真正转码之前:抢不到就改走异步,把请求线程让给别的接口(M-3)。
+        with transcode_gate.slot() as acquired:
+            if not acquired:
+                logger.warning("profile_voice_transcode_busy",
+                               extra={"user_id": request.user.id})
+                return _queue_profile_voice(request.user, profile, upload, session)
+            try:
+                data, duration_ms = voice.normalize_profile(upload.read(), upload.content_type)
+            except voice.VoiceUnavailable:
+                logger.error("资料语音上传失败:服务器缺少 ffmpeg/ffprobe")
+                return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                                 "message": "语音自我介绍暂不可用"}, status=503)
+            except voice.VoiceError as error:
+                return Response({"code": 400, "message": str(error)}, status=400)
 
-    record = getattr(profile, "voice", None) or ProfileVoice(profile=profile)
-    old_name = record.file.name or ""
-    stem = f"{request.user.id}-{uuid.uuid4().hex}"
-    record.file.save(f"{stem}.m4a", ContentFile(data), save=False)
-    record.duration_ms = duration_ms
-    record.bytes = len(data)
-    record.transcode_status = TranscodeStatus.READY
-    record.transcode_error = ""
-    record.save()
-    if old_name and old_name != record.file.name:
-        record.file.storage.delete(old_name)
-    return Response(ProfileVoiceSerializer(record, context={"request": request}).data,
-                    status=201)
+        # 配额检查在落盘之前(M7):超限时一个字节都不写进媒体目录。
+        storage.ensure_quota(request.user, len(data))
+
+        record = getattr(profile, "voice", None) or ProfileVoice(profile=profile)
+        old_name = record.file.name or ""
+        stem = f"{request.user.id}-{uuid.uuid4().hex}"
+        record.file.save(f"{stem}.m4a", ContentFile(data), save=False)
+        record.duration_ms = duration_ms
+        record.bytes = len(data)
+        record.transcode_status = TranscodeStatus.READY
+        record.transcode_error = ""
+        record.save()
+        if old_name and old_name != record.file.name:
+            record.file.storage.delete(old_name)
+        # 行已提交才写映射:重放路径按这个 id 回查那一行
+        session.remember(record.pk, idempotency.READY)
+        return Response(ProfileVoiceSerializer(record, context={"request": request}).data,
+                        status=201)
 
 
 @extend_schema(parameters=[OpenApiParameter(
