@@ -314,6 +314,8 @@ docker compose start web worker
 - 外部镜像钉成「具体版本 tag + digest」(第五轮 L-3):`mysql:8.0.46`、`redis:7.4.12-alpine`、
   `certbot/certbot:v5.10.0` 后面都跟 `@sha256:`,而且取的是**多架构 index digest**
   (amd64 / arm64 都能拉)。这样 registry 上同名 tag 被重推也不影响已部署内容;
+  **构建期**的三个 base 同理(`python:3.11.18-slim-bookworm`、`node:22.23.5-alpine`、
+  `nginxinc/nginx-unprivileged:1.27.5-alpine`,见 `deploy/docker/*.Dockerfile`);
   **代价是不会自动跟着打补丁** —— 升级要主动做,见下面的 recipe;
 - 仍存在的已知风险:
   - 未接真实短信商时,封闭测试必须显式 `--allow-dev-sms`(固定验证码);
@@ -323,20 +325,32 @@ docker compose start web worker
 
 ### 12.1 升级钉住的镜像(L-3 的日常动作)
 
+钉住的是**六个** base/运行时镜像:compose 里的 `mysql` / `redis` / `certbot`,以及两个
+Dockerfile 里的 `python` / `node` / `nginx-unprivileged`。改法一样,生效方式不同(见步骤 3)。
+
 ```bash
 # 1) 取新 digest。要看 Digest: 那一行(index digest),不是 Manifests 里某个平台的子 digest
 docker buildx imagetools inspect mysql:8.0
 docker buildx imagetools inspect redis:7-alpine
 docker buildx imagetools inspect certbot/certbot:latest
+docker buildx imagetools inspect python:3.11-slim-bookworm
+docker buildx imagetools inspect node:22-alpine
+docker buildx imagetools inspect nginxinc/nginx-unprivileged:1.27-alpine
 
-# 2) 改 deploy/docker-compose.yml.tmpl 里对应那一行的「tag@sha256:...」,
+# 2) 改对应那一行的「tag@sha256:...」:运行时镜像在 deploy/docker-compose.yml.tmpl,
+#    构建期镜像在 deploy/docker/Dockerfile 与 deploy/docker/web.Dockerfile;
 #    然后重跑 oneclick.sh 渲染(它会覆盖 /opt/chatapp/docker-compose.yml)
 
-# 3) 拉新镜像并重建对应服务;db-init 与 mysql 必须用同一个 digest
+# 3a) 运行时镜像:拉新的、重建对应服务;db-init 与 mysql 必须用同一个 digest
 docker compose -f /opt/chatapp/docker-compose.yml pull
 docker compose -f /opt/chatapp/docker-compose.yml up -d --no-deps --force-recreate mysql redis
+
+# 3b) 构建期镜像:必须重新构建 web / nginx(compose pull 拉不到它们,它们不是 registry 镜像)
+docker compose -f /opt/chatapp/docker-compose.yml build web nginx
+docker compose -f /opt/chatapp/docker-compose.yml up -d --no-deps --force-recreate web worker nginx
 ```
 
 MySQL 与 Redis 换小版本前先按 §8 备份;`db-init` 那行的 digest 必须和 `mysql` 服务一致
 (它是 mysql 客户端,版本漂移会让 `ALTER USER ... IDENTIFIED WITH mysql_native_password`
-这类语句行为不一致)。
+这类语句行为不一致)。`--no-build` 部署方式下(用预构建 tar 包)换了 base 之后必须先在
+**构建机**上重建镜像,不能指望服务器自己拉。
