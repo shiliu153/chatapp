@@ -7,7 +7,9 @@ import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/app_avatar.dart';
+import '../../../core/widgets/app_spinner.dart';
 import '../../../im/im_client.dart';
+import '../../../im/voice_transcode.dart';
 import 'voice_bubble.dart';
 import '../../../core/theme/heart_colors.dart';
 import '../stickers.dart';
@@ -214,15 +216,18 @@ class MessageBubble extends StatelessWidget {
         color: selected ? colors.brand : colors.text3,
       );
 
-  /// 我方气泡左侧的状态词(只会是「发送中」或「已读」,其它情况返回 null)。
+  /// 我方气泡左侧的状态词(只可能是「处理中」「发送中」或「已读」,其它情况返回 null)。
   ///
   /// 口径:
+  /// - **转码中优先于「发送中」**(M-3):上传已被服务端受理(202),气泡在等轮询结果,
+  ///   这时还说「发送中」会让人以为 WS 帧已经发出去了;
   /// - 失败不写字 —— 左侧已有红色重发图标,再写字是重复;
   /// - **未读不写字** —— 微信口径。一屏十几条都挂「未读」是纯噪声,而且区分不了
   ///   「已送达未读 / 没送达」;「有没有『已读』这两个字」本身就是未读的信号;
   /// - 不支持已读回执时一律不显示,不给假状态。
   String? _statusLabel() {
     if (!message.isSelf) return null;
+    if (message.isTranscoding) return voiceTranscodePendingText;
     if (message.isPending) return '发送中';
     if (message.isFailed) return null;
     if (!readReceiptEnabled || message.isRevoked) return null;
@@ -230,6 +235,7 @@ class MessageBubble extends StatelessWidget {
   }
 
   Key? _statusKey() {
+    if (message.isTranscoding) return const Key('chat.status.transcoding');
     if (message.isPending) return const Key('chat.status.pending');
     if (isRead) return const Key('chat.status.read');
     return null;
@@ -286,6 +292,9 @@ class MessageBubble extends StatelessWidget {
   Widget _bubbleContent(BuildContext context) {
     final colors = context.heart;
     if (message.kind == ChatMessageKind.voice) {
+      // 转码中(M-3):还没有可播放地址,气泡先显示「转圈 + 处理中」,
+      // 别拿本地文件先播 —— 用户会以为已经发出去了。
+      if (message.isTranscoding) return _voiceTranscoding(colors);
       return VoiceBubble(message: message);
     }
     if (message.kind == ChatMessageKind.sticker) {
@@ -315,6 +324,36 @@ class MessageBubble extends StatelessWidget {
       child: Text(message.text,
           style: AppText.body
               .copyWith(color: message.isSelf ? Colors.white : colors.text1)),
+    );
+  }
+
+  /// 语音「转码中」占位气泡(M-3):转圈 + 「处理中」,尺寸与语音气泡同高。
+  ///
+  /// 颜色口径:「心跳」§2.2 —— 进行中状态走中性色,主色留给真正的高音;自己这边气泡底
+  /// 是 brand 实底,所以内容用白色(与语音气泡的文字同口径),对端用 `text3`。
+  ///
+  /// Args:
+  ///   colors: 「心跳」色板(浅 / 深两套)。
+  Widget _voiceTranscoding(HeartColors colors) {
+    final foreground = message.isSelf ? Colors.white : colors.text3;
+    return Container(
+      key: const Key('chat.voice.transcoding'),
+      width: 150,
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: message.isSelf ? colors.brand : colors.bgCard,
+        borderRadius: BorderRadius.circular(AppRadius.bubble),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppSpinner(size: AppSpacing.lg, color: foreground),
+          const SizedBox(width: AppSpacing.sm),
+          Text(voiceTranscodePendingText,
+              style: AppText.micro.copyWith(color: foreground)),
+        ],
+      ),
     );
   }
 

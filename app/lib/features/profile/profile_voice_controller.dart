@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../im/voice_recorder.dart';
+import '../../im/voice_transcode.dart';
 import '../chat/voice_record_controller.dart';
 import 'models.dart';
 
@@ -23,6 +24,16 @@ enum ProfileVoicePhase {
 
   /// 正在上传(按钮禁用,失败回到 [recorded],本地录音保留可重试)。
   uploading,
+
+  /// 上传已被受理、转码排队中(M-3,`202`):等轮询结果,期间不能重录/删除。
+  ///
+  /// 与 [uploading] 分开是因为它们对用户的意义不同:上传是「我的文件在传」,
+  /// 转码是「服务端在转」—— 后者可能等几秒到几十秒,文案要说清在等什么。
+  transcoding,
+
+  /// 转码失败(M-3):本地录音还在,可以原地 [ProfileVoiceController.retry];
+  /// 重录也允许。失败原因见 [ProfileVoiceController.failureMessage]。
+  failed,
 
   /// 服务端已有语音(可试听、删除、重录)。
   saved,
@@ -61,7 +72,10 @@ class ProfileVoiceController extends ChangeNotifier {
   }
 
   /// 上传本地录音(页面侧接到 `ProfileController.uploadVoice`)。
-  final Future<VoiceIntro> Function(String path) onUpload;
+  ///
+  /// 第二个参数是转码进度回调:服务端把上传受理为排队转码(`202`)时会调它的 `onQueued`,
+  /// 控制器据此把相位切成 [ProfileVoicePhase.transcoding]。
+  final Future<VoiceIntro> Function(String path, VoiceTranscodeHook hook) onUpload;
 
   /// 删除服务端语音(页面侧接到 `ProfileController.deleteVoice`)。
   final Future<void> Function() onDelete;
@@ -74,6 +88,8 @@ class ProfileVoiceController extends ChangeNotifier {
   VoiceIntro? _voice;
   String? _localPath;
   int _localDurationMs = 0;
+  String? _failureMessage;
+  bool _disposed = false;
 
   /// 当前状态。
   ProfileVoicePhase get phase => _phase;
@@ -96,8 +112,12 @@ class ProfileVoiceController extends ChangeNotifier {
   /// 录制中还剩几秒(倒计时)。
   int get remainingSeconds => (maxSeconds - seconds).clamp(0, maxSeconds);
 
-  /// 是否正在上传(页面据此禁用按钮)。
-  bool get busy => _phase == ProfileVoicePhase.uploading;
+  /// 是否正在上传 / 转码中(页面据此禁用按钮)。
+  bool get busy =>
+      _phase == ProfileVoicePhase.uploading || _phase == ProfileVoicePhase.transcoding;
+
+  /// 转码失败时的中文提示;没有失败时是 null。
+  String? get failureMessage => _failureMessage;
 
   /// 转发录音控制器的变化;并兜住「到 30 秒自动停」——那条路径不经过 [stop],
   /// 录音器自己把相位打回 idle,这里据此把本地录音收成「已录」。
@@ -112,10 +132,11 @@ class ProfileVoiceController extends ChangeNotifier {
 
   /// 开始录音;从「已录」状态开始会先丢掉那段本地录音,已保存的语音不受影响。
   Future<void> start() async {
-    if (_phase == ProfileVoicePhase.recording || _phase == ProfileVoicePhase.uploading) return;
+    if (_phase == ProfileVoicePhase.recording || busy) return;
     await _discardLocalFile();
     _localPath = null;
     _localDurationMs = 0;
+    _failureMessage = null; // 重新录一段等于放弃上一次失败
     await _record.start();
     _phase = _record.phase == VoicePhase.recording
         ? ProfileVoicePhase.recording
@@ -133,32 +154,65 @@ class ProfileVoiceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 上传本地录音;失败时回到「已录」并把异常抛给页面(提示用后端 message)。
+  /// 上传本地录音,必要时等转码。
+  ///
+  /// 三种落点:
+  /// - 同步成功(`201`)→ [ProfileVoicePhase.saved],清掉本地临时文件;
+  /// - 异步受理(`202`)→ 先切 [ProfileVoicePhase.transcoding],轮询到 `ready` 再落 `saved`;
+  /// - 转码失败 / 超时 → [ProfileVoicePhase.failed],**本地录音留着**,用户可原地 [retry]。
+  ///
+  /// 其它异常(400 时长超限 / 413 配额满 / 网络)原样抛给页面,由卡片弹后端 message。
   Future<void> upload() async {
     final path = _localPath;
-    if (path == null || _phase == ProfileVoicePhase.uploading) return;
+    if (path == null || busy) return;
     _phase = ProfileVoicePhase.uploading;
+    _failureMessage = null;
     notifyListeners();
     try {
-      _voice = await onUpload(path);
+      _voice = await onUpload(
+          path,
+          VoiceTranscodeHook(
+            onQueued: (_, _) => _enterTranscoding(),
+            cancelled: () => _disposed,
+          ));
       _phase = ProfileVoicePhase.saved;
       await _discardLocalFile();
       _localPath = null;
       _localDurationMs = 0;
+    } on VoiceTranscodeException catch (error) {
+      // 文件已经被服务端收下、只是没转成:不弹 toast,直接停在「失败 + 重试」,
+      // 让用户看得见原因(如 41301 存储已满)。
+      _failureMessage = error.message;
+      _phase = ProfileVoicePhase.failed;
     } catch (_) {
       // 本地录音留着,用户可以原地重试;网络错误的 message 由页面弹。
-      _phase = ProfileVoicePhase.recorded;
+      _phase = _localPath == null
+          ? ProfileVoicePhase.idle
+          : ProfileVoicePhase.recorded;
       rethrow;
     } finally {
       notifyListeners();
     }
   }
 
+  /// 转码失败后原地重试:重新上传同一段本地录音。
+  Future<void> retry() async {
+    if (_phase != ProfileVoicePhase.failed) return;
+    await upload();
+  }
+
+  /// 进入「转码中」:由上传结果里的 `onQueued` 回调触发。
+  void _enterTranscoding() {
+    if (_disposed) return;
+    _phase = ProfileVoicePhase.transcoding;
+    notifyListeners();
+  }
+
   /// 删除:服务端有语音就调 DELETE,再清掉本地录音;最终回到 [ProfileVoicePhase.idle]。
   ///
   /// 删除失败时异常原样抛出且状态不变(页面提示「删除失败」,播放条还在)。
   Future<void> remove() async {
-    if (_phase == ProfileVoicePhase.recording || _phase == ProfileVoicePhase.uploading) return;
+    if (_phase == ProfileVoicePhase.recording || busy) return;
     if (_voice != null) {
       await onDelete();
       _voice = null;
@@ -172,10 +226,11 @@ class ProfileVoiceController extends ChangeNotifier {
 
   /// 丢弃本地录音(「重新录制」前调用);已保存的语音不动。
   Future<void> discardLocal() async {
-    if (_phase == ProfileVoicePhase.recording || _phase == ProfileVoicePhase.uploading) return;
+    if (_phase == ProfileVoicePhase.recording || busy) return;
     await _discardLocalFile();
     _localPath = null;
     _localDurationMs = 0;
+    _failureMessage = null;
     _phase = _voice == null ? ProfileVoicePhase.idle : ProfileVoicePhase.saved;
     notifyListeners();
   }
@@ -188,6 +243,7 @@ class ProfileVoiceController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _record
       ..removeListener(_onRecordChanged)
       ..dispose();

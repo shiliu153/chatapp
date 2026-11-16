@@ -6,6 +6,7 @@ import 'im_client.dart';
 import 'self_image_uploader.dart';
 import 'self_transport.dart';
 import 'self_voice_uploader.dart';
+import 'voice_transcode.dart';
 
 class _PendingSend {
   _PendingSend(this.peerId, this.completer,
@@ -253,11 +254,19 @@ class SelfImClient extends ImClient {
   }
 
   @override
-  Future<ChatMessage> resend(ChatMessage message) {
+  Future<ChatMessage> resend(ChatMessage message, {VoiceTranscodeHook? onTranscode}) {
     final refMsgId = message.ref?.msgId;
     if (message.kind == ChatMessageKind.image && message.localPath != null) {
       return sendImage(peerId: message.peerId, imagePath: message.localPath!,
           refMsgId: refMsgId);
+    }
+    // 语音重发(M-3)= **重新上传同一段本地录音**:上传可能再撞一次转码槽拿到 202,
+    // 所以转码回调必须一起带下去。漏了这一支就会掉进下面的 `sendText`,
+    // 变成「重试一条语音,发出一条空文本」。
+    if (message.kind == ChatMessageKind.voice && message.localPath != null) {
+      return sendVoice(peerId: message.peerId, localPath: message.localPath!,
+          durationMs: message.voiceDurationMs, refMsgId: refMsgId,
+          onTranscode: onTranscode);
     }
     return sendText(peerId: message.peerId, text: message.text,
         clientMsgId: message.msgId, refMsgId: refMsgId);
@@ -300,13 +309,14 @@ class SelfImClient extends ImClient {
 
   @override
   Future<ChatMessage> sendVoice({required String peerId, required String localPath,
-      required int durationMs, int? refMsgId}) async {
+      required int durationMs, int? refMsgId, VoiceTranscodeHook? onTranscode}) async {
     final uploader = _voiceUpload;
     if (uploader == null) {
       throw const ImException(42202, '当前聊天服务暂不支持语音');
     }
-    // 先上传(Django 会统一转 m4a 并校验时长),再发 WS 帧
-    final voice = await uploader.upload(localPath, durationMs);
+    // 先上传(Django 会统一转 m4a 并校验时长;抢不到转码槽时改走 202 + 轮询),
+    // 拿到可播放地址后再发 WS 帧 —— 帧里的 `url` 必须是已经能播的那个。
+    final voice = await uploader.upload(localPath, durationMs, hook: onTranscode);
     final id = 'local-${DateTime.now().microsecondsSinceEpoch}';
     final completer = Completer<ChatMessage>();
     _pendingSends[id] = _PendingSend(peerId, completer, voice: voice);

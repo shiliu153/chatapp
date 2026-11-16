@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,7 @@ import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/features/chat/chat_controller.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/im_manager.dart';
+import 'package:chatapp_app/im/voice_transcode.dart';
 
 import '../../support/fake_im_client.dart';
 import '../../support/scripted_adapter.dart';
@@ -208,6 +211,59 @@ void main() {
     expect(fake.log.where((l) => l.startsWith('delete:')).length, 1);
     final left = container.read(chatProvider('u9')).value!.map((m) => m.msgId).toList();
     expect(left, ['103']);
+  });
+
+  test('语音 202:消息先挂「转码中」,轮询 ready 后上屏成正常语音(M-3)', () async {
+    final container = makeContainer();
+    await container.read(imStatusProvider.notifier).login();
+    openChat(container);
+    await container.read(chatProvider('u9').future);
+
+    fake.voiceQueued = true;
+    final gate = Completer<void>();
+    fake.voiceGate = gate;
+    final sending = container
+        .read(chatProvider('u9').notifier)
+        .sendVoice('/tmp/voice.m4a', 3200);
+    await pumpEventQueue();
+
+    final inFlight = container.read(chatProvider('u9')).value!.single;
+    expect(inFlight.kind, ChatMessageKind.voice);
+    expect(inFlight.isTranscoding, isTrue, reason: '气泡要打成「处理中」而不是「发送中」');
+    expect(inFlight.isPending, isTrue);
+
+    gate.complete();
+    await sending;
+
+    final done = container.read(chatProvider('u9')).value!.single;
+    expect(done.isTranscoding, isFalse);
+    expect(done.isPending, isFalse);
+    expect(done.voiceUrl, 'http://cdn/v.m4a');
+  });
+
+  test('语音转码失败:消息落成失败态,重试会重新上传同一段录音', () async {
+    final container = makeContainer();
+    await container.read(imStatusProvider.notifier).login();
+    openChat(container);
+    await container.read(chatProvider('u9').future);
+
+    fake.voiceError = const VoiceTranscodeException('存储空间已满,请先删除部分照片');
+    await container
+        .read(chatProvider('u9').notifier)
+        .sendVoice('/tmp/voice.m4a', 3200);
+
+    final failed = container.read(chatProvider('u9')).value!.single;
+    expect(failed.isFailed, isTrue);
+    expect(failed.isTranscoding, isFalse);
+    expect(failed.localPath, '/tmp/voice.m4a', reason: '本地文件在,才能原地重试');
+
+    fake.voiceError = null;
+    await container.read(chatProvider('u9').notifier).retry(failed);
+
+    expect(fake.log.where((l) => l.startsWith('sendVoice:')).length, 2);
+    final resent = container.read(chatProvider('u9')).value!.single;
+    expect(resent.isFailed, isFalse);
+    expect(resent.voiceUrl, 'http://cdn/v.m4a');
   });
 
   test('多选删除失败:异常冒出来,本地一条都不动', () async {

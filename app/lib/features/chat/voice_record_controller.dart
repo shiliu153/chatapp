@@ -15,6 +15,10 @@ const String voiceTextStartFailed = '录音启动失败，请重试';
 const String voiceTextTooShort = '说话时间太短';
 const String voiceTextSendFailed = '语音发送失败，点击重试';
 
+/// 重发语音时本地录音已被系统清掉(M-3):临时目录不保证长期存在,只能重录。
+/// App 侧独有(Web 端没有这一段),不进 `VOICE_TEXT` 对齐表。
+const String voiceRetryMissingFileText = '录音已过期，请重新录制';
+
 const int _minDurationMs = 1000;
 
 /// 聊天语音上限 60 秒。资料语音自我介绍是 **30 秒**,由调用方传

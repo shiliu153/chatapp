@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:chatapp_app/im/im_bootstrap.dart';
 import 'package:chatapp_app/im/im_client.dart';
+import 'package:chatapp_app/im/voice_transcode.dart';
 
 /// 测试用假 IM 客户端:不碰原生插件,行为可编排,调用有流水可断言。
 class FakeImClient extends ImClient {
@@ -148,12 +149,35 @@ class FakeImClient extends ImClient {
     );
   }
 
+  /// 置上则语音发送先回调「排队转码」(模拟 202 → 轮询),再走正常返回 / 抛错。
+  ///
+  /// 等价于真实链路里 `ApiVoiceUploader` 在 202 时先 `onQueued` 再轮询到 ready:
+  /// 界面因此会经过一次「处理中」态,测试据此断言气泡文案。
+  bool voiceQueued = false;
+
+  /// 置上则语音发送抛这个错(模拟转码失败 / 轮询超时)。
+  Object? voiceError;
+
+  /// 置上则语音发送在回调「排队转码」之后挂住,直到测试 complete ——
+  /// 用来观察「处理中」这个中间态(FakeImClient 平时是立刻返回的)。
+  Completer<void>? voiceGate;
+
   @override
   Future<ChatMessage> sendVoice({required String peerId, required String localPath,
-      required int durationMs, int? refMsgId}) async {
+      required int durationMs, int? refMsgId, VoiceTranscodeHook? onTranscode}) async {
     log.add(refMsgId == null
         ? 'sendVoice:$peerId:$localPath:$durationMs'
         : 'sendVoice:$peerId:$localPath:$durationMs:ref=$refMsgId');
+    if (voiceQueued) {
+      onTranscode?.onQueued?.call(46, const Duration(seconds: 5));
+      voiceQueued = false;
+    }
+    final gate = voiceGate;
+    if (gate != null) {
+      voiceGate = null;
+      await gate.future;
+    }
+    if (voiceError != null) throw voiceError!;
     if (sendError != null) throw sendError!;
     return ChatMessage(
       msgId: 'sent-${++_seq}',

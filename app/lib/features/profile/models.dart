@@ -35,22 +35,39 @@ class Photo {
 /// 没录过语音时后端返回 JSON `null`(不是空对象),所以 [parse] 收 `Object?`:
 /// 只认 Map,其余一律按「没录过」处理。
 class VoiceIntro {
-  const VoiceIntro({required this.url, required this.durationMs});
+  const VoiceIntro({
+    required this.url,
+    required this.durationMs,
+    this.status = 'ready',
+    this.id,
+  });
 
   /// 解析 `voice` 字段;`null` / 非对象原样返回 `null`。
+  ///
+  /// `status` 是 M-3 加的**纯加法字段**:`201` 上传响应与资料里的 `voice` 恒为 `ready`
+  /// (`docs/api/users.md` §2.11);轮询接口的多态响应由 `im/voice_transcode.dart` 的
+  /// `VoiceTranscode` 承载,这里只认「已经是这条语音了」的那一份。
   static VoiceIntro? parse(Object? json) => json is Map<String, dynamic>
       ? VoiceIntro(
           url: (json['url'] ?? '') as String,
           durationMs: (json['duration_ms'] ?? 0) as int,
+          status: (json['status'] as String?) ?? 'ready',
+          id: (json['id'] as num?)?.toInt(),
         )
       : null;
 
-  /// 公开绝对地址(`/media/voices/…`,与照片同口径:不签名、不过期)。
+  /// 公开绝对地址(`/media/voices/…`,限时签名,过期后重新拉资料即可)。
   /// 直接喂 `UrlSource`,**不要**再拼 `API_BASE`。
   final String url;
 
   /// 服务端实测时长(毫秒),≤30000。
   final int durationMs;
+
+  /// 转码状态:资料里的语音恒为 `ready`(`202` 的排队态不走这个模型)。
+  final String status;
+
+  /// 资料语音主键(轮询 `GET /users/me/voice` 时带回);资料内嵌的 `voice` 不带该字段。
+  final int? id;
 
   /// 播放条上的时长文案,如 `0:18`。
   String get durationLabel => formatVoiceDuration(durationMs);

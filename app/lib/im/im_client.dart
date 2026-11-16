@@ -4,6 +4,7 @@
 library;
 
 import 'im_bootstrap.dart';
+import 'voice_transcode.dart';
 
 enum ChatMessageKind { text, matchNotice, banNotice, image, voice, sticker, other }
 
@@ -96,6 +97,7 @@ class ChatMessage {
     this.text = '',
     this.isPending = false,
     this.isFailed = false,
+    this.isTranscoding = false,
     this.localPath,
     this.imageUrl,
     this.imageLargeUrl,
@@ -126,6 +128,12 @@ class ChatMessage {
   /// 发送失败(可点重发)。
   final bool isFailed;
 
+  /// 语音正在服务端排队转码(M-3):上传已被受理(202),还没拿到可播放地址。
+  ///
+  /// 与 [isPending] 并存 —— 它仍然是「没发出去」,只是原因从「等回执」变成了「等转码」,
+  /// 界面据此把状态词从「发送中」换成「处理中」。
+  final bool isTranscoding;
+
   /// 图片消息的本机文件(发送中先上屏;接收方通常为 null)。
   final String? localPath;
 
@@ -153,7 +161,8 @@ class ChatMessage {
   /// 为 null = 没有引用。**上行只发 `ref_msg_id`**,这里的快照一律由服务端生成。
   final QuoteRef? ref;
 
-  ChatMessage copyWith({bool? isPending, bool? isFailed, String? imageUrl, bool? isRevoked,
+  ChatMessage copyWith({bool? isPending, bool? isFailed, bool? isTranscoding,
+          String? imageUrl, bool? isRevoked,
       String? voiceUrl, int? voiceDurationMs, String? stickerId, QuoteRef? ref}) =>
       ChatMessage(
         msgId: msgId,
@@ -165,6 +174,7 @@ class ChatMessage {
         text: text,
         isPending: isPending ?? this.isPending,
         isFailed: isFailed ?? this.isFailed,
+        isTranscoding: isTranscoding ?? this.isTranscoding,
         localPath: localPath,
         imageUrl: imageUrl ?? this.imageUrl,
         imageLargeUrl: imageLargeUrl,
@@ -420,8 +430,16 @@ abstract class ImClient {
       int? refMsgId});
 
   /// 发送语音(不支持时抛 [ImException] 42202)。
+  ///
+  /// Args:
+  ///   peerId: 对端 IM id。
+  ///   localPath: 本地录音文件。
+  ///   durationMs: 客户端测得的时长(服务端 ffprobe 会复核)。
+  ///   refMsgId: 引用回复时被引用消息的 id。
+  ///   onTranscode: 转码进度回调(M-3)。服务端抢不到转码槽时上传改走异步,这里是
+  ///     唯一的通知口 —— 界面据 `onQueued` 把气泡打成「处理中」,`cancelled` 让轮询收工。
   Future<ChatMessage> sendVoice({required String peerId, required String localPath,
-      required int durationMs, int? refMsgId}) =>
+      required int durationMs, int? refMsgId, VoiceTranscodeHook? onTranscode}) =>
       throw const ImException(42202, '当前聊天服务暂不支持语音');
 
   /// 发送贴纸(不支持时抛 [ImException] 42202)。
@@ -459,7 +477,11 @@ abstract class ImClient {
   Future<void> revokeMessage(String msgId);
 
   /// 该 SDK 版本无原生重发:等价于用原内容重新发送(引用关系一并带回去)。
-  Future<ChatMessage> resend(ChatMessage message) {
+  ///
+  /// Args:
+  ///   message: 待重发的消息(失败态的那条)。
+  ///   onTranscode: 语音转码进度回调,原样转交给 [sendVoice](其它类型忽略)。
+  Future<ChatMessage> resend(ChatMessage message, {VoiceTranscodeHook? onTranscode}) {
     final refMsgId = message.ref?.msgId;
     if (message.kind == ChatMessageKind.image && message.localPath != null) {
       return sendImage(peerId: message.peerId, imagePath: message.localPath!,
@@ -467,7 +489,8 @@ abstract class ImClient {
     }
     if (message.kind == ChatMessageKind.voice && message.localPath != null) {
       return sendVoice(peerId: message.peerId, localPath: message.localPath!,
-          durationMs: message.voiceDurationMs, refMsgId: refMsgId);
+          durationMs: message.voiceDurationMs, refMsgId: refMsgId,
+          onTranscode: onTranscode);
     }
     if (message.kind == ChatMessageKind.sticker && message.stickerId != null) {
       return sendSticker(peerId: message.peerId, stickerId: message.stickerId!,

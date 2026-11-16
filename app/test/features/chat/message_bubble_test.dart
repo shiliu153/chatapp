@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/widgets/app_avatar.dart';
 import 'package:chatapp_app/features/chat/widgets/message_bubble.dart';
 import 'package:chatapp_app/im/im_client.dart';
+import 'package:chatapp_app/im/voice_transcode.dart';
 import '../../support/heart_theme.dart';
 
 ChatMessage _m({
@@ -10,6 +11,9 @@ ChatMessage _m({
   ChatMessageKind kind = ChatMessageKind.text,
   String text = '你好',
   bool isFailed = false,
+  bool isPending = false,
+  bool isTranscoding = false,
+  int voiceDurationMs = 0,
   String? localPath,
   String? stickerId,
   bool isRevoked = false,
@@ -22,6 +26,9 @@ ChatMessage _m({
       kind: kind,
       text: text,
       isFailed: isFailed,
+      isPending: isPending,
+      isTranscoding: isTranscoding,
+      voiceDurationMs: voiceDurationMs,
       localPath: localPath,
       stickerId: stickerId,
       isRevoked: isRevoked,
@@ -43,6 +50,30 @@ void main() {
         MessageBubble(message: _m(isSelf: true, isFailed: true), onRetry: () => retried++));
     await tester.tap(find.byKey(const Key('chat.retry')));
     expect(retried, 1);
+  });
+
+  testWidgets('语音转码中(M-3):转圈 + 「处理中」,不渲染播放条也没有「发送中」', (tester) async {
+    await _pump(
+        tester,
+        MessageBubble(
+            message: _m(
+                isSelf: true,
+                kind: ChatMessageKind.voice,
+                isPending: true,
+                isTranscoding: true,
+                localPath: '/tmp/voice.m4a',
+                voiceDurationMs: 3200,
+                text: ''),
+            selfAvatarUrl: null));
+    // 气泡里有常驻转圈:这里只能有限推进,不能 pumpAndSettle
+    await tester.pump();
+
+    expect(find.byKey(const Key('chat.voice.transcoding')), findsOneWidget);
+    expect(find.text(voiceTranscodePendingText), findsWidgets);
+    expect(find.byKey(const Key('chat.status.transcoding')), findsOneWidget);
+    // 「处理中」取代「发送中」,且还没有可播的播放条
+    expect(find.text('发送中'), findsNothing);
+    expect(find.byKey(const Key('chat.voice.slider')), findsNothing);
   });
 
   testWidgets('图片消息:本地文件不存在也走 errorBuilder 不炸', (tester) async {

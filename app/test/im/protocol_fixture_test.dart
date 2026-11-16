@@ -16,6 +16,7 @@ import 'package:chatapp_app/im/self_image_uploader.dart';
 import 'package:chatapp_app/im/self_im_client.dart';
 import 'package:chatapp_app/im/self_transport.dart';
 import 'package:chatapp_app/im/self_voice_uploader.dart';
+import 'package:chatapp_app/im/voice_transcode.dart';
 
 /// 假传输:只记录客户端发出的帧,并把测试注入的帧喂给客户端。
 class FakeTransport implements SelfTransport {
@@ -59,7 +60,8 @@ class FakeImageUploader implements SelfImageUploader {
 /// 假语音上传器:返回与 fixture 完全一致的语音元数据。
 class FakeVoiceUploader implements SelfVoiceUploader {
   @override
-  Future<ChatVoiceUpload> upload(String localPath, int durationMs) async =>
+  Future<ChatVoiceUpload> upload(String localPath, int durationMs,
+      {VoiceTranscodeHook? hook}) async =>
       const ChatVoiceUpload(
         id: 2,
         url: 'http://cdn/media/chat/v.m4a',
