@@ -311,8 +311,32 @@ docker compose start web worker
   本来就能读 `secrets/`,不因此扩大面;需要换口令时重跑脚本加 `--rotate-secrets`;
 - 生产默认 `DEBUG=0`、`AUTO_APPROVE=0`、`OPS_OTP_REQUIRED=1`、`HTTPS_ENABLED=1`、
   `SMS_DEV_MODE=0`、`SMS_ALLOW_STAFF_LOGIN=0`;
+- 外部镜像钉成「具体版本 tag + digest」(第五轮 L-3):`mysql:8.0.46`、`redis:7.4.12-alpine`、
+  `certbot/certbot:v5.10.0` 后面都跟 `@sha256:`,而且取的是**多架构 index digest**
+  (amd64 / arm64 都能拉)。这样 registry 上同名 tag 被重推也不影响已部署内容;
+  **代价是不会自动跟着打补丁** —— 升级要主动做,见下面的 recipe;
 - 仍存在的已知风险:
   - 未接真实短信商时,封闭测试必须显式 `--allow-dev-sms`(固定验证码);
   - 聊天图片/语音没有机器审核,只有 `/ops/` 人工抽审;
   - 媒体存本地磁盘,未接对象存储/CDN;
   - 备份文件未自动加密,需运维按 §8 自行加密/离线保存。
+
+### 12.1 升级钉住的镜像(L-3 的日常动作)
+
+```bash
+# 1) 取新 digest。要看 Digest: 那一行(index digest),不是 Manifests 里某个平台的子 digest
+docker buildx imagetools inspect mysql:8.0
+docker buildx imagetools inspect redis:7-alpine
+docker buildx imagetools inspect certbot/certbot:latest
+
+# 2) 改 deploy/docker-compose.yml.tmpl 里对应那一行的「tag@sha256:...」,
+#    然后重跑 oneclick.sh 渲染(它会覆盖 /opt/chatapp/docker-compose.yml)
+
+# 3) 拉新镜像并重建对应服务;db-init 与 mysql 必须用同一个 digest
+docker compose -f /opt/chatapp/docker-compose.yml pull
+docker compose -f /opt/chatapp/docker-compose.yml up -d --no-deps --force-recreate mysql redis
+```
+
+MySQL 与 Redis 换小版本前先按 §8 备份;`db-init` 那行的 digest 必须和 `mysql` 服务一致
+(它是 mysql 客户端,版本漂移会让 `ALTER USER ... IDENTIFIED WITH mysql_native_password`
+这类语句行为不一致)。
