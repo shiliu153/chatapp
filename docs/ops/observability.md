@@ -202,7 +202,72 @@ echo 'PROMETHEUS_MULTIPROC_DIR=/dev/shm/chatapp-prometheus' >> /www/wwwroot/chat
 - 合并失败(目录被删/权限变化)时 `render()` 会**退回本进程视图**并记一次
   `cache_errors_total{name="metrics_multiprocess"}` —— 抓取宁可少几个数,也不能返回 500。
 
+### 2.4 镜像钉 digest 后拉不到(manifest unknown,2026-11-16)
 
+第五轮 L-3 把观测栈的镜像钉成了「版本 tag + 多架构 index digest」(理由见
+[deploy/README.md](../../deploy/README.md) §12.1)。代价是钉 digest 之后多了一种**硬失败形态**:
+钉住的那个 digest 一旦在镜像站侧拿不到,`pull` 就直接失败 —— 和网络、令牌、`docker login` 都无关,
+**先看这一节,别按「拉不动 = 网络问题」排查**。
+
+**现象**(`docker compose pull` 或 `docker compose up -d` 直接报错退出):
+
+```
+manifest unknown
+no matching manifest for linux/amd64 in the manifest list entries
+```
+
+**原因**,两种,处置方向相反:
+
+1. **digest 在镜像站侧已不提供** —— 镜像站换了重推策略、回收了旧 manifest,或者它自己重推过
+   同一个 tag。此时 tag 还是那个 tag,digest 已经不是原来那个了;
+2. **钉住的其实是平台子 manifest** —— 抄的是 `Manifests:` 列表里 `linux/amd64` 那一行的
+   digest,不是顶部的 `Digest:`(index digest),所以 manifest list 里找不到本机架构那一份。
+
+**处置**:重取 index digest → **两处一起改** → 再 pull。
+
+```bash
+# 1) 取 Digest: 那一行(index digest)。不要抄 Manifests: 下面的平台子 digest
+docker buildx imagetools inspect prom/prometheus:v2.55.1
+#    Digest:    sha256:2659f4...        ← 要的是这一行
+#    Manifests: ... Platform: linux/amd64   ← 这些是子 manifest,钉它们会「no matching manifest」
+
+# 2) 同改两处(只换 digest,不动版本 tag):
+#    deploy/observability/docker-compose.yml          官方源镜像
+#    deploy/observability/docker-compose.mirror.yml   镜像站镜像
+#    漏改后者时 override 会把钉住的引用盖回旧 digest,照样拉不到。
+
+# 3) 重新 pull,只重建受影响的那个容器(观测栈全部 host 网络,不必整栈重启)
+docker compose pull prometheus && docker compose up -d --no-deps prometheus
+```
+
+**一条口径**:官方源与 `docker.m.daocloud.io` 给出的 index digest **应当一致** —— 镜像站是纯代理,
+digest 由上游决定。两边不一致说明**这个镜像是镜像站自己重推的**:优先换回官方源,而不是把镜像站
+的 digest 钉上去(钉了以后换机器/换镜像站还得再改一次,而且内容已经不是上游那份)。
+
+实测(2026-11-16,本机 amd64,`prom/prometheus:v2.55.1` 两边一致):
+
+```
+$ docker buildx imagetools inspect prom/prometheus:v2.55.1 | head -3
+Name:      docker.io/prom/prometheus:v2.55.1
+MediaType: application/vnd.docker.distribution.manifest.list.v2+json
+Digest:    sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+
+$ docker buildx imagetools inspect docker.m.daocloud.io/prom/prometheus:v2.55.1 | head -3
+Name:      docker.m.daocloud.io/prom/prometheus:v2.55.1
+MediaType: application/vnd.docker.distribution.manifest.list.v2+json
+Digest:    sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3
+```
+
+- 改完必须让 `deploy/observability/docker-compose.yml` 与 `docker-compose.mirror.yml` 的 digest
+  **完全一致**,否则「有没有 override」会决定拉哪一份内容,排查时看起来像灵异事件;
+- 镜像站两边都拿不到时,别在 2C2G 机器上边拉边等:在能连 Docker Hub 的机器上
+  `docker pull` + `docker save`,再把 tar 搬过去 `docker load`,compose 里继续钉同一个 digest;
+- **升级钉住镜像的日常节奏**(什么时候该换版本、compose 与 Dockerfile 的区别、`db-init` 必须与
+  `mysql` 同 digest)写在 [deploy/README.md](../../deploy/README.md) §12.1,本节只讲「已经钉住了、
+  然后拉不到」怎么办,不重复那套流程;
+- 门禁:`deploy/**` 与 `imserver/**` 里任何镜像写成裸 tag(少 `@sha256:`)会被
+  `contract-image-pin-gate`(`scripts/check_image_pins.py --check`)判红,它**不联网**、
+  只判「有没有写 digest」—— digest 真不真、架构对不对,仍然靠本节的 `imagetools inspect` 与 `pull`。
 
 ## 3. 指标清单
 
