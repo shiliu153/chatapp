@@ -187,6 +187,20 @@ command = "sh scripts/gh-guard/selftest.sh"
 reason = "gh-guard 是 worker 唯一的机械拦截(不自合 / 不发版),此前没有任何回归,绕过口直到 P0 审计才发现"
 
 [[gate]]
+id = "contract-image-pin-gate"
+scope = "contract"
+kind = "python"
+command = "python scripts/check_image_pins.py --check"
+reason = "镜像引用必须带 @sha256: digest:裸 tag 会让「同一份 compose 文件」在下次构建时拉出另一份内容,而这种漂移不报任何错。第五轮 L-3 把 deploy 与 imserver 侧全部钉死了(#381 / #382 / #383),这条门禁是让下一个新加的服务不能把纪律悄悄退回去"
+
+[[gate]]
+id = "contract-image-pin-gate-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_check_image_pins -v"
+reason = "门禁两个方向都会坏:少报 = 裸 tag 没人拦(等于没写);多报 = 自建镜像 / stage 别名 / 变量插值被误判,人只能加白名单把门禁关掉。另外它自己踩过一个坑 —— 按文件后缀判会把 docker-compose.yml.tmpl 整个漏掉,自测里钉住了这条"
+
+[[gate]]
 id = "contract-l4-intake-selftest"
 scope = "contract"
 kind = "python"
