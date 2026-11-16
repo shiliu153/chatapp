@@ -16,17 +16,17 @@ C++ 侧不改造成 docstring 形态,理由见 §1。
 
 | 手段 | 入口 | 现状 |
 |---|---|---|
-| 机械门禁 | `python scripts/check_cpp_comments.py --check`(门禁 id `contract-cpp-comment-gate`;本地 `scripts/verify.sh contract`,CI 的 `contract.yml` 调同一个执行器 `scripts/run_gates.py`) | 已落地(2026-11-15):文件头 22 行块 + 函数注释块 + 分隔线宽度 + 块不许落进函数体;当前基线 67 个文件 / <!-- num:cpp_comment_blocks -->637<!-- /num --> 个块**零误报**,见 §8 |
+| 机械门禁 | `python scripts/check_cpp_comments.py --check`(门禁 id `contract-cpp-comment-gate`;本地 `scripts/verify.sh contract`,CI 的 `contract.yml` 调同一个执行器 `scripts/run_gates.py`) | 已落地(2026-11-15):文件头 22 行块 + 函数注释块 + 分隔线宽度 + 块不许落进函数体;当前基线 69 个文件 / <!-- num:cpp_comment_blocks -->646<!-- /num --> 个块**零误报**,见 §8 |
 | 人工 | 改 `imserver/` 任一 `.cpp` / `.h` 前对照 §4 的边界表 | 强制(门禁只判形状;「这块该不该有、内容写对没有」仍靠人,见 §9) |
 
 **基线**(2026-11-14 按 `imserver/` 实测;数字都可以用下面的命令复算,不靠记忆):
 
 | 项 | 实测 |
 |---|---|
-| 带文件头的文件 | 67 = `src/` 52 + `tests/` 15;头部 22 行(唯一例外见 §2.3) |
-| 函数注释块 | <!-- num:cpp_comment_blocks -->637<!-- /num --> = `src/` 529 + `tests/` 108 |
-| 每个块的字段 | 5 个,<!-- num:cpp_comment_blocks -->637<!-- /num --> 块全覆盖(函数简介 / 参数说明 / 返回参数 / 使用示例 / 备注信息) |
-| 块内分隔线 | 每块上下各 1 条,共 <!-- num:cpp_comment_blocks -->637<!-- /num --> × 2 条;宽度 117 显示列(`//` + 115 个 `-`) |
+| 带文件头的文件 | 69 = `src/` 53 + `tests/` 16;头部 22 行(唯一例外见 §2.3) |
+| 函数注释块 | <!-- num:cpp_comment_blocks -->646<!-- /num --> = `src/` 531 + `tests/` 115 |
+| 每个块的字段 | 5 个,<!-- num:cpp_comment_blocks -->646<!-- /num --> 块全覆盖(函数简介 / 参数说明 / 返回参数 / 使用示例 / 备注信息) |
+| 块内分隔线 | 每块上下各 1 条,共 <!-- num:cpp_comment_blocks -->646<!-- /num --> × 2 条;宽度 117 显示列(`//` + 115 个 `-`) |
 | 落在函数体内部的块 | 0 |
 
 ```bash
@@ -221,7 +221,7 @@ docstring 形态,唯一收益是「两边长得一模一样」,代价是全部�
 | 类内 inline 定义(函数体写在类里) | **加,块放定义处** | `src/store/mysql_pool.h` 的 `MYSQL* get() const { return conn_; }`、`src/util/media_sign.h` 的 `bool enabled() const { return !secret_.empty(); }` |
 | 模板函数 | **加**(与普通函数同形) | 现库 0 个模板函数;将来加了照此执行 |
 | `main()` | **加** | `src/main.cpp`(备注写清「非回环监听必须显式 `IM_ALLOW_PUBLIC_BIND=1`」) |
-| gtest `TEST(套件, 用例)` | **加**,简介写「用例 验证…」,使用示例写 `ctest -R 套件.用例` | `tests/` 的 15 个用例文件共 108 个块 = 107 个 `TEST` + `guard_test.cpp` 的 `ip()`(个例,不作为口径) |
+| gtest `TEST(套件, 用例)` | **加**,简介写「用例 验证…」,使用示例写 `ctest -R 套件.用例` | `tests/` 的 16 个用例文件共 115 个块 = 114 个 `TEST` + `guard_test.cpp` 的 `ip()`(个例,不作为口径) |
 | `tests/` 里的 helper / fixture 成员函数(非 `TEST`) | **不加**(可选:愿意写就写,门禁按 helper 豁免) | 现库 22 处无块:`frames_fixture_test.cpp` 的 `load_fixture()` / `frame_of()` / `strip_media_queries()` / `expect_client_frame()`;`message_service_test.cpp` 的 `Fixture` 构造函数 + 2 个访问器 + 5 个 helper;`push_notifier_test.cpp` 的 `transport()` / `size()` / `body()` / `timestamp()` / `signature()` / `make_config()`;`token_test.cpp` 的 `b64url()` / `hmac_b64()` / `forge_token_with_sub()`;`sensitive_test.cpp` 的 `write_temp()` |
 | 纯数据结构 / `struct` 字段 | **不加**,用 `///` 或行内注释 | `src/store/models.h` 只有文件头、0 个函数块 |
 | lambda、函数体内的局部对象 | **不加** | `src/main.cpp` 的 `signals.async_wait([...](...){...})` 与 `threads.emplace_back([&io] { io.run(); })` |
@@ -229,7 +229,7 @@ docstring 形态,唯一收益是「两边长得一模一样」,代价是全部�
 | `= delete` | **不加**(表明接口不存在,没有实现可讲) | 10 处:`src/store/stmt.h`、`src/store/mysql_pool.h`、`src/store/redis_client.h`、`src/service/push_notifier.h` |
 | `= default` | **按「定义处」处理**:定义写在 `.cpp` 且承载函数语义时加块,备注里点明 `= default` | `src/store/stmt.cpp` 的 `Stmt::~Stmt() = default;` 有块;对应 `src/store/stmt.h` 的 `~Stmt();` 声明也有块 |
 
-一条硬事实:<!-- num:cpp_comment_blocks -->637<!-- /num --> 个块**没有一个**落在函数体内部。块分隔线的缩进只有两种 —— 顶格 1260 条、
+一条硬事实:<!-- num:cpp_comment_blocks -->646<!-- /num --> 个块**没有一个**落在函数体内部。块分隔线的缩进只有两种 —— 顶格 1260 条、
 类体缩进 2 空格 14 条(`src/util/media_sign.h`),缩进 ≥4 空格的为 0。函数体里出现的 `//`
 都是行内注释(解释「为什么」),不套块。
 
@@ -252,7 +252,7 @@ docstring 形态,唯一收益是「两边长得一模一样」,代价是全部�
 - 现库两种写法:多数文件块**顶格**(1260 条分隔线);`src/util/media_sign.h` 的类成员块整体
   **缩进 2 空格**(14 条,分隔线整行 119 列,`-` 的个数不变)。
 - 规则:**跟随所在文件的既有写法**,同一个文件里不许混用;新建文件从顶格开始。
-- 块与上文之间:现库约六成(390 / 637)块前空一行,其余紧跟 `public:` / `private:` 或上一段代码。
+- 块与上文之间:现库约六成(397 / 646)块前空一行,其余紧跟 `public:` / `private:` 或上一段代码。
   规则:与上一段代码之间空一行;**紧跟访问控制标签或类体首行时不空**;同一文件内保持一致。
 - 文件末尾保持一个换行(仓库统一),不要在块后留多余空行。
 
@@ -287,17 +287,17 @@ docstring,正则分不清 `.h` 的声明、`.cpp` 的定义、lambda、`= delete
 
 | 判据 | 出处 | 怎么判 |
 |---|---|---|
-| 文件头 22 行块:字段齐全、顺序固定、固定值逐字一致、`文件名称` == 该文件相对 `imserver/` 的路径 | §2 | 解析块里 `* 字段名 + 值` 的行;**行数不硬卡死**(`修改记录` 只增行,现库 66 个 22 行 + `src/net/frames.h` 23 行) |
+| 文件头 22 行块:字段齐全、顺序固定、固定值逐字一致、`文件名称` == 该文件相对 `imserver/` 的路径 | §2 | 解析块里 `* 字段名 + 值` 的行;**行数不硬卡死**(`修改记录` 只增行,现库 68 个 22 行 + `src/net/frames.h` 23 行) |
 | 函数注释块:`src/` 下每个函数定义 + 每个头文件函数声明各一块;`tests/` 下每个 `TEST(套件, 用例)` 各一块 | §3 / §5 | tree-sitter 的 `function_definition` / `declaration` / `field_declaration` 节点;只看命名空间与类作用域 |
 | 块形状:紧贴签名上方、上下各一条分隔线、5 字段齐全且顺序固定 | §3.1 | 分隔线判据是「去掉行首缩进后 == `//` + 115 个 `-`」,**不按整行宽度卡缩进**(`src/util/media_sign.h` 的 2 空格缩进合法) |
-| 块不许落进函数体 | §4 那条硬事实 | 分隔线缩进 ≥4 空格即判红(现库 <!-- num:cpp_comment_blocks -->637<!-- /num --> 个块一个都没有) |
+| 块不许落进函数体 | §4 那条硬事实 | 分隔线缩进 ≥4 空格即判红(现库 <!-- num:cpp_comment_blocks -->646<!-- /num --> 个块一个都没有) |
 
 **豁免**(§4 边界表):lambda、函数体内的局部对象、宏、纯数据 `struct` 字段、`= delete` 都不需要块。
 这些是**结构判定**而不是白名单:扫描不进入 `compound_statement`(函数体)与 `lambda_expression`,
 `= delete` 看节点的 `delete_method_clause`;`= default` 按「定义处」处理,照常要块(§4 未变)。
 
 **`tests/` 的边界**(与 §4 表格同一口径,2026-11-15 收敛):`tests/` 只强制 `TEST(套件, 用例)` 块。
-现库 <!-- num:cpp_comment_blocks -->637<!-- /num --> 个块 = `src/` 529 + `tests/` 108(107 个 `TEST` + `guard_test.cpp` 的 `ip()`);另有
+现库 <!-- num:cpp_comment_blocks -->646<!-- /num --> 个块 = `src/` 531 + `tests/` 115(114 个 `TEST` + `guard_test.cpp` 的 `ip()`);另有
 **22 处** helper / fixture 方法没有块(`frames_fixture_test.cpp` 4 个、`message_service_test.cpp`
 的 `Fixture` 构造函数与 2 个访问器 + 5 个 helper、`push_notifier_test.cpp` 6 个、`token_test.cpp`
 3 个、`sensitive_test.cpp` 1 个),按**可选**处理:`--verbose` 会把它们数成「豁免的 tests 辅助函数」,

@@ -127,6 +127,7 @@ constexpr Migration kMigrations[] = {
     {6, "006_quote.sql"},
     {7, "007_conversation_flags.sql"},
     {8, "008_message_hidden.sql"},
+    {9, "009_message_fulltext.sql"},
 };
 
 }  // namespace

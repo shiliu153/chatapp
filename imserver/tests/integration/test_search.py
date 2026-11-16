@@ -1,7 +1,8 @@
 """`GET /im/api/search` 的 HTTP 集成测试。
 
 覆盖:中文命中与排序、对端资料、游标分页、撤回后不可见、空关键词、未认证、
-`limit` 上限收敛到 20、限流(每账号 10 次/分钟、burst 5 → 第 6 次起 429 + 42901)。
+`limit` 上限收敛到 20、限流(每账号 10 次/分钟、burst 5 → 第 6 次起 429 + 42901)、
+FULLTEXT(ngram)之后的特殊字符与单字关键词口径(M-2)。
 
 限流桶按账号共享,所以「断言链」与「限流断言」必须用**不同的 uid**:
 同一个 uid 连打十几次会先撞到自己的桶(第五轮审计 M-2 把 search 的桶从
@@ -113,7 +114,9 @@ async def main():
     side = base + 2
     # limited:只用于限流断言,必须从**满桶**开始,所以单独一个从没搜过的账号。
     limited = base + 3
-    for uid in (me, peer, side, limited):
+    # extra / single:只用于 FULLTEXT 的两组新断言,各自重开一个满桶(每个最多搜 5 次)。
+    extra, single = base + 4, base + 5
+    for uid in (me, peer, side, limited, extra, single):
         ensure(uid)
     pair(me, peer)
     # side 与 me 也配对:side 发的批量消息落在同一个会话里,双方都能搜到,
@@ -165,6 +168,33 @@ async def main():
     assert len(bulk["items"]) == LIMIT_CAP, len(bulk["items"])
     assert bulk["has_more"] is True
     await side_ws.close()
+
+    # 特殊字符(第五轮审计 M-2):关键词改走 MATCH ... AGAINST('...' IN BOOLEAN MODE) 之后,
+    # 用户输入直接进 BOOLEAN MODE 的语法 —— `%` `_` `+` `-` 既不能让查询报错,
+    # 也不能放宽命中(「100%」不许变成匹配一切)。
+    pair(extra, peer)
+    extra_ws = await auth(extra)
+    for index, text in enumerate(["折扣 100% 到手", "a_b 是变量名", "火锅 店 周末排号"]):
+        await send_text(extra_ws, 200 + index, peer, text)
+    assert [item["text"] for item in search(extra, "100%")["items"]] == ["折扣 100% 到手"]
+    assert [item["text"] for item in search(extra, "a_b")["items"]] == ["a_b 是变量名"]
+    # 关键词含空格:ngram 把空格切开的词只索引前一段,MATCH 因此是超集,
+    # 最终结果靠 LIKE 收口 —— 这里断言「只命中真正含这段字面的那一条」。
+    assert [item["text"] for item in search(extra, "火锅 店")["items"]] == ["火锅 店 周末排号"]
+    # `%` 在 LIKE 里是通配符、在 FULLTEXT 里只是普通字符:裸的 a%b 既不该命中 a_b,也不该报错。
+    assert search(extra, "a%b")["items"] == []
+    # 全是操作符的关键词剥完为空:直接返回空列表,不把空短语丢给 MySQL。
+    assert search(extra, "+-")["items"] == []
+    await extra_ws.close()
+
+    # ngram 最小词长 = 2(M-2):单字关键词没有索引项,搜不到属于预期;
+    # 两字关键词必须能搜到(证明 ngram 索引真的生效)。
+    pair(single, peer)
+    single_ws = await auth(single)
+    await send_text(single_ws, 300, peer, "火锅店在楼下")
+    assert search(single, "火")["items"] == []
+    assert [item["text"] for item in search(single, "火锅")["items"]] == ["火锅店在楼下"]
+    await single_ws.close()
 
     # 限流(M-2):每账号 10 次/分钟、burst 5 —— 新账号连打 11 次,
     # 前 5 次从满桶放行,第 6 次起一律 429 + 42901(不靠 sleep 等补令牌)。
