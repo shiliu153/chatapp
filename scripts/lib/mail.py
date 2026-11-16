@@ -62,7 +62,11 @@ PROJECT_TAG = "chatapp"
 #:
 #: ``CI`` 与 ``巡检`` 分开,是因为它们指向两种不同的处置:前者要去看代码/门禁,
 #: 后者要去看这台机器还能不能干活。合成一类等于没分类。
-CATEGORIES = ("日报", "巡检", "告警", "CI", "备份", "部署")
+#:
+#: ``会话`` 是 2026-11-17 补的:服务器上还有一路「DSH 会话通知」(dsh-email-push 插件经 SSH
+#: 调服务器的 notify),它既不是日报也不是告警 —— 原先落到默认配置上,于是每封都顶着
+#: 「服务器日报」的名字。规范要覆盖全部发信方,不能只覆盖仓库这一路。
+CATEGORIES = ("日报", "巡检", "告警", "CI", "备份", "部署", "会话")
 
 #: 级别只影响正文首行与日志,不进主题(主题三段固定,便于排序与去重)。
 LEVELS = ("info", "warn", "error")
@@ -631,6 +635,47 @@ class Mailer:
         raise MailError(f"投递失败(重试 {RETRY_ATTEMPTS} 次):{last_error}")
 
 
+def load_env_file(path: str, env: Optional[Dict[str, str]] = None) -> List[str]:
+    """把 `KEY=VALUE` 配置文件补进环境变量(**已存在的键不覆盖**)。
+
+    参数说明:
+        path: 配置文件路径(每行 `KEY=VALUE`,允许 `#` 注释、空行、值两侧引号)。
+        env: 目标字典;默认 ``os.environ``(自测注入用)。
+
+    返回参数:
+        实际补上的键名列表(已存在的键不计入)。
+
+    使用示例:
+        ``load_env_file("/root/.dsh/superagent-health.env")``
+
+    备注信息:
+        「shell 里显式 export 的值优先、文件只补缺」——这样同一个文件既能当运维的默认配置,
+        又能在临时排障时用一条 `MAIL_DRY_RUN=1 mail.py check --env-file …` 覆盖掉。
+        读不到文件抛 :class:`MailError`:静默当成「没配」会让排障绕远路。
+    """
+    target = os.environ if env is None else env
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as exc:
+        raise MailError(f"读不到配置文件 {path}:{exc}") from exc
+    loaded: List[str] = []
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :]
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if not key or key in target:
+            continue
+        cleaned = value.strip().strip("\"'")
+        target[key] = cleaned
+        loaded.append(key)
+    return loaded
+
+
 def _read_body(path: Optional[str]) -> str:
     """读正文:``-`` 表示 stdin,``None`` 表示空正文。
 
@@ -672,6 +717,14 @@ def build_parser() -> argparse.ArgumentParser:
         不必真发一封邮件。
     """
     parser = argparse.ArgumentParser(description="统一发信内核(主题规范 + SMTP + 去重 + 配额)")
+    # `--env-file` 挂成「子命令也能带」的公共参数:运维习惯写成
+    # `mail.py check --env-file <env>`,放在子命令前面反而别扭。
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--env-file",
+        default=None,
+        help="配置文件(每行 KEY=VALUE;只补缺,shell 里已 export 的键优先)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_message_args(target: argparse.ArgumentParser) -> None:
@@ -679,7 +732,7 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--subject", required=True, help="对象(哪台机器 / 哪个服务)")
         target.add_argument("--verdict", required=True, help="结论(发生了什么 / 处理到哪一步)")
 
-    send = sub.add_parser("send", help="发一封(走配置里的 SMTP)")
+    send = sub.add_parser("send", parents=[common], help="发一封(走配置里的 SMTP)")
     add_message_args(send)
     send.add_argument("--body", default="", help="正文(短文本直接给)")
     send.add_argument("--body-file", default=None, help="正文文件;`-` 表示 stdin")
@@ -692,10 +745,10 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"同键去重窗口(分钟,默认 {DEDUP_DEFAULT_MINUTES})",
     )
 
-    subject = sub.add_parser("subject", help="只渲染主题行(不联网、不发信)")
+    subject = sub.add_parser("subject", parents=[common], help="只渲染主题行(不联网、不发信)")
     add_message_args(subject)
 
-    sub.add_parser("check", help="只校验配置齐不齐(不联网)")
+    sub.add_parser("check", parents=[common], help="只校验配置齐不齐(不联网)")
     return parser
 
 
@@ -716,9 +769,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         再发),而配置缺失 / 传输失败 / 配额耗尽都是「没发出去」,必须让上层看见。
     """
     args = build_parser().parse_args(argv)
-    config = MailConfig.from_env()
 
     try:
+        if args.env_file:
+            load_env_file(args.env_file)
+        config = MailConfig.from_env()
+
         if args.command == "subject":
             print(render_subject(args.category, args.subject, args.verdict))
             return 0

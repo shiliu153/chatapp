@@ -32,7 +32,7 @@
 | 字段 | 取值 | 谁决定 |
 |---|---|---|
 | 项目标签 | 固定 `chatapp` | `scripts/lib/mail.py::PROJECT_TAG` |
-| 类别 | **封闭枚举**:`日报` / `巡检` / `告警` / `CI` / `备份` / `部署` | `scripts/lib/mail.py::CATEGORIES` |
+| 类别 | **封闭枚举**:`日报` / `巡检` / `告警` / `CI` / `备份` / `部署` / `会话` | `scripts/lib/mail.py::CATEGORIES` |
 | 对象 | 哪台机器 / 哪个服务 / 哪条告警 | 发信点 |
 | 结论 | 发生了什么 / 处理到哪一步 | 发信点 |
 
@@ -60,6 +60,7 @@
 | MySQL 看门狗 | 宕机 / 拉起 / 恢复 | `[chatapp·告警] MySQL 看门狗 — 已自动拉起` | error | 脚本内「只报一次」状态文件 |
 | 探针(imserver readyz / Django health) | 30 秒一轮,失败才发 | `[chatapp·告警] 探针 — imserver readyz 不通` | error | 脚本内失败态去重 |
 | 部署 | 手工 | `[chatapp·部署] chatapp — 已完成` | info / error | 不需要 |
+| DSH 会话通知 | 每轮结束 / 需要人选择 | `[chatapp·会话] chat_app — 第 3 轮结束` | info / warn | 插件内节流(最小间隔 + 每日上限) |
 
 > 上表的示例主题就是**规范本身**:`scripts/test_mail.py::DocsTableTests` 会把每条示例
 > 拿回 `render_subject()` 重新渲染,不一致即红。改格式必须同一次改代码、本表与用例。
@@ -69,12 +70,27 @@
 ```
 WSL(worker 巡检)  ─> scripts/lib/mail.py ─┐
 服务器脚本(日报 / 看门狗 / 探针 / relay) ─> /opt/notify ─┴─> 阿里云邮件推送 ─> 同一收件箱
+DSH 会话通知(经 SSH)  ─> /opt/notify ─────┘
 ```
 
 | 侧 | 实现 | 主题怎么来 |
 |---|---|---|
 | 仓库 / WSL | `scripts/lib/mail.py`(本模块:主题渲染 + SMTP + 去重 + 配额 + JSONL 日志) | `render_subject()` 一处生成 |
 | 服务器 | `/opt/notify/bin/notify`(不在仓库,`deploy/**` 由主人维护) | 调用方按本表拼 `--title` |
+
+**服务器上的四份配置(2026-11-17 起各自有身份)**,主题 = `subject_prefix` + `级别标记` + `title`:
+
+| 配置 | 谁用 | `from_name` | `subject_prefix` |
+|---|---|---|---|
+| `/root/.config/notify/config.ini` | **默认配置**:未显式指定 `NOTIFY_CONFIG` 的调用方 → 目前只有 DSH 会话通知 | `chatapp 会话` | `[chatapp·会话]` |
+| `/etc/notify/daily.ini` | 22:00 服务器日报(`daily-digest.sh` 显式指定) | `chatapp 日报` | `[chatapp·日报]` |
+| `/etc/notify/alerts.ini` | Alertmanager relay / MySQL 看门狗 / imserver 探针 | `chatapp 告警` | `[chatapp·告警]` |
+| WSL `/root/.dsh/superagent-health.env` | worker 巡检(直连同一阿里云账号的 SMTP) | — | 主题由 `mail.py` 渲染 `[chatapp·巡检]` |
+
+> 为什么默认配置绑「会话」而不是「日报」:DSH 的 `dsh-email-push` 插件是**唯一不传
+> `NOTIFY_CONFIG` 的调用方**,原先它落到日报那份配置上,于是每封会话通知都顶着
+> 「服务器日报」的名字 —— 这正是 2026-11-16 那次「所有邮件都叫服务器日报」的根因。
+> 其余三个发信方各自显式指定 ini,互不干扰。
 
 **为什么没把 `/opt/notify` 搬进仓库**:它正在服务器上跑,自带配额 / 去重 / 发送日志 / 状态库,
 日报脚本也在服务器上;迁移的收益(少一份实现)小于风险(把一条在用的通道改坏)。
@@ -85,10 +101,13 @@ WSL(worker 巡检)  ─> scripts/lib/mail.py ─┐
 
 ## 5. 配额预算
 
-阿里云邮件推送的发信额度是**共享的**(日报与全部告警同一个账号):每分钟 5 封、每天 50 封。
+阿里云邮件推送的发信额度是**共享的**(日报、告警、会话通知、worker 巡检同一个账号):
+每分钟 5 封、每天 **200** 封(`/etc/notify/daily.ini` 与 `alerts.ini` 的 `per_day` 是权威值;
+`deploy/observability/notify-alerts.ini.tmpl` 里写的 50 是旧值,见 issue #403)。
 按上面这张表算,正常一天的量级是:日报 1 封 + 备份随日报 + 巡检告警(每指纹 6 小时一次,
-一个持续故障一天最多 4 封)+ 告警(去重窗口 60 分钟)+ 探针(失败态去重)。留足余量,
-但**不要**把去重窗口调短来「看得更勤」—— 那会先耗尽额度,再让真告警发不出去。
+一个持续故障一天最多 4 封)+ 告警(去重窗口 60 分钟)+ 探针(失败态去重)+ 会话通知(插件内
+最小间隔 + 每日上限)。留足余量,但**不要**把去重窗口调短来「看得更勤」—— 那会先耗尽额度,
+再让真告警发不出去。
 
 配额耗尽的语义是**失败**(`MailError`),不是静默跳过:那一刻我们确实没把告警发出去。
 
@@ -99,7 +118,7 @@ WSL(worker 巡检)  ─> scripts/lib/mail.py ─┐
 | `MAIL_SMTP_URL` / `MAIL_FROM` / `MAIL_TO` | 空 | 发信三要素;缺一个就发不出去(`mail.py check` 会点名缺哪个) |
 | `MAIL_USER` / `MAIL_PASS` | 空 | SMTP 认证(阿里云用发信密码) |
 | `MAIL_STATE_DB` / `MAIL_LOG` | `~/.local/state/mail/` | 去重与配额状态库 / JSONL 发送日志 |
-| `MAIL_PER_MINUTE` / `MAIL_PER_DAY` | 5 / 50 | 配额(与阿里云额度对齐) |
+| `MAIL_PER_MINUTE` / `MAIL_PER_DAY` | 5 / 50 | 配额(本机按账号实际额度设成 5 / 200,与服务器 ini 对齐) |
 | `MAIL_DRY_RUN` | 关 | 只渲染不投递(演练 / 排障) |
 | `SUPERAGENT_HEALTH_CI_RED` | 关 | worker 巡检里「CI 红轨」那一项的开关 |
 
@@ -110,8 +129,8 @@ WSL(worker 巡检)  ─> scripts/lib/mail.py ─┐
 ## 7. 排障
 
 ```bash
-# 配置齐不齐(不联网、不发信)
-python3 scripts/lib/mail.py check
+# 配置齐不齐(不联网、不发信;--env-file 只补缺,shell 里已 export 的键优先)
+python3 scripts/lib/mail.py check --env-file /root/.dsh/superagent-health.env
 # 主题长什么样(不联网、不发信)
 python3 scripts/lib/mail.py subject --category 巡检 --subject worker --verdict 游标停摆
 # 真发一封(演练)
@@ -119,6 +138,9 @@ MAIL_DRY_RUN=1 python3 scripts/lib/mail.py send --category 巡检 \
     --subject worker --verdict 演练 --body "只渲染不投递"
 # 最近发了什么、有没有被去重跳过
 tail -n 20 ~/.local/state/mail/mail.jsonl
-# 服务器侧(不在仓库)
+# 服务器侧(不在仓库):三份配置各渲染一次,不发信
+NOTIFY_CONFIG=/etc/notify/daily.ini  /opt/notify/bin/notify send --title 服务器 --body x --dry-run --json
+NOTIFY_CONFIG=/etc/notify/alerts.ini /opt/notify/bin/notify send --title 看门狗 --body x --dry-run --json
+/opt/notify/bin/notify send --title "会话验证" --body x --dry-run --json   # 默认配置 = 会话
 /opt/notify/bin/notify log -n 10
 ```
