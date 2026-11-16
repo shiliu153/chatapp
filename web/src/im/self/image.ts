@@ -6,18 +6,27 @@
  *
  * **失败重试的口径与语音一致**(参考语音那条:PR 406 的 `voice-status.ts` / `voice.ts`;410 号单
  * 把图片对齐过来):
- * - 上传的幂等度足够(最坏留下一条没人引用的图,由 30 天过期回收),所以
- *   **网络抖动 / 429 / 5xx 自己退避重试**,不该让用户手动点「重发」;
+ * - **网络抖动 / 429 / 5xx 自己退避重试**,不该让用户手动点「重发」;
+ * - **`409` + `40901` 也是可重试**(同一个 `Idempotency-Key` 的上一次上传还在处理中):
+ *   退避 1–2 秒后用**同一个 key** 再打一次,拿回的就是首次的结果,不能当终态失败报给用户;
  * - `401 / 403 / 404` 这类「再问也一样」的错误**立刻冒泡**(令牌失效、被封禁、对端或资源
  *   不在了),4xx 里的校验类错误(400 像素超限、413 存储配额满)同理 —— 重复上传只会再错
  *   一次,早点把服务端的中文原因交给用户比多转两圈有用。
+ *
+ * **一次上传一个幂等键**(`docs/api/conventions.md` §幂等键):`uploadChatImage` 进来时生成
+ * 一个 key,这次上传的所有自动重试都复用它;换一张图再走一次才会换 key。请求体每次重试都
+ * 重新构造(`FormData` 已被发过就标脏),口径与生成都放在 `src/api/idempotency.ts`。
  *
  * 学习点(写在代码里,`docs/**` 是另一条栈):
  * 「点了没反应」几乎都是**把异常吞成了 `return`**。重试路径必须能说出「为什么不行」,
  * 所以本地文件失效时抛 `Error(CHAT_IMAGE_LOCAL_GONE_TEXT)` 而不是静默返回。
  */
 
-import { isLocalError, parseApiError } from '@/api/error'
+import {
+  newIdempotencyKey,
+  type UploadRetryOptions,
+  withUploadRetries,
+} from '@/api/idempotency'
 import { http } from '@/api/http'
 
 export interface UploadedImage {
@@ -48,49 +57,13 @@ export const CHAT_IMAGE_UPLOAD_BASE_DELAY_MS = 500
 /** 退避上限:图片上传本来就是百毫秒级,退太久不如让用户重选。 */
 export const CHAT_IMAGE_UPLOAD_MAX_DELAY_MS = 4000
 
-/** 上传参数(单测注入点:不必真等,也不必真压缩)。 */
-export interface ImageUploadOptions {
-  /** 最多试几次,缺省 `CHAT_IMAGE_UPLOAD_ATTEMPTS` */
-  attempts?: number
-  /** 延时注入点;缺省 `setTimeout`(假定时器能够推进) */
-  sleep?: (ms: number) => Promise<void>
-}
-
-/** 默认延时:与语音轮询同口径用 `setTimeout`,否则假定时器里永远推进不下去。 */
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms))
-}
-
 /**
- * 这次上传失败值不值得退避重试;值得就返回要等多久(毫秒),不值得返回 `null`。
+ * 上传参数(单测注入点:不必真等,也不必真压缩)。
  *
- * 判据三条,和 `voice-status.ts::pollVoiceStatus` 是同一套:
- * 1. 请求没到服务端(断网 / 超时)→ 退避再试;
- * 2. `429` 限流 → 按服务端 `Retry-After` 等,没给就用退避值;
- * 3. `5xx` → 退避再试(服务端重启中,再问一次大概率就好了)。
- * 其余(401 / 403 / 404 / 400 / 413 …)一律不重试,原样上抛。
- *
- * Args:
- *   error: 上一次上传抛出的异常(axios 错误、`ApiError` 或本地错误)。
- *   backoffMs: 本次退避建议值(毫秒),由调用方按尝试次数翻倍。
- *
- * Returns:
- *   要等的毫秒数;`null` 表示「再试也一样,立刻冒泡」。
+ * 字段与另外两个上传入口同一份(`UploadRetryOptions`);图片的缺省值见上面三个
+ * `CHAT_IMAGE_UPLOAD_*` 常量。
  */
-export function imageUploadRetryDelay(error: unknown, backoffMs: number): number | null {
-  const apiError = parseApiError(error)
-  if (apiError.status === undefined) {
-    // 没有 HTTP 状态码:请求没到服务端(断网/超时)值得退避再试;
-    // 本地错误(压缩失败这类)再试一百遍也一样,直接抛
-    return isLocalError(error) ? null : backoffMs
-  }
-  if (apiError.status === 429) {
-    return apiError.retryAfter ? apiError.retryAfter * 1000 : backoffMs
-  }
-  if (apiError.status >= 500) return backoffMs
-  // 401 / 403 / 404 是「再问也一样」;其余 4xx 是请求本身不对(像素超限 / 配额满 / 格式不支持)
-  return null
-}
+export type ImageUploadOptions = UploadRetryOptions
 
 /** 压到长边 1920 的 JPEG;环境不支持 canvas 时原样返回。 */
 export async function compressImage(
@@ -114,19 +87,36 @@ export async function compressImage(
   return blob ?? file
 }
 
-/** 把压缩后的图 POST 上去,返回后端给的 URL 与尺寸(单次尝试,不含重试)。 */
-async function postChatImage(blob: Blob): Promise<UploadedImage> {
+/**
+ * 构造一次 multipart 请求体。
+ *
+ * **每次尝试都要新建**:`FormData` 一旦发出去就被浏览器标脏,重试复用同一个对象会丢文件。
+ * 单测据此断言「第二次请求的 body 里文件还在」。
+ */
+function chatImageForm(blob: Blob): FormData {
   const form = new FormData()
   form.append('file', blob, 'chat.jpg')
-  const response = await http.post('/im/images', form)
+  return form
+}
+
+/** 把压缩后的图 POST 上去,返回后端给的 URL 与尺寸(单次尝试,不含重试)。 */
+async function postChatImage(blob: Blob, idempotencyKey: string): Promise<UploadedImage> {
+  const response = await http.post('/im/images', chatImageForm(blob), {
+    headers: { 'Idempotency-Key': idempotencyKey },
+    // 401 刷新后重放同一次上传时也重建请求体(见 `src/api/http.ts` 的 `rebuildBody`)
+    rebuildBody: () => chatImageForm(blob),
+  })
   return response.data as UploadedImage
 }
 
 /**
- * 压缩后上传,返回后端给的 URL 与尺寸;**抖动 / 限流 / 5xx 自己退避重试**。
+ * 压缩后上传,返回后端给的 URL 与尺寸;**抖动 / 限流 / `40901` / 5xx 自己退避重试**。
  *
  * 「先压再重试」是刻意的:该重试的是**网络那一段**,本地坏图重压一遍还是坏,
  * 别把 CPU 花在重试上(压缩失败直接抛)。
+ *
+ * **幂等键在压缩之后、第一次请求之前生成**:本次调用的所有重试(含 401 刷新后的重放)
+ * 都用同一个 key,服务端因此不会为重试多落一份文件;换一张图才会换 key。
  *
  * Args:
  *   file: 用户刚选的图片文件。
@@ -143,18 +133,12 @@ export async function uploadChatImage(
   file: File,
   options: ImageUploadOptions = {},
 ): Promise<UploadedImage> {
-  const attempts = Math.max(1, options.attempts ?? CHAT_IMAGE_UPLOAD_ATTEMPTS)
-  const sleep = options.sleep ?? defaultSleep
   const blob = await compressImage(file)
-  let backoffMs = CHAT_IMAGE_UPLOAD_BASE_DELAY_MS
-  for (let attempt = 1; ; attempt += 1) {
-    try {
-      return await postChatImage(blob)
-    } catch (error) {
-      const delay = attempt < attempts ? imageUploadRetryDelay(error, backoffMs) : null
-      if (delay === null) throw error
-      await sleep(delay)
-      backoffMs = Math.min(CHAT_IMAGE_UPLOAD_MAX_DELAY_MS, backoffMs * 2)
-    }
-  }
+  const idempotencyKey = newIdempotencyKey()
+  return withUploadRetries(() => postChatImage(blob, idempotencyKey), {
+    attempts: options.attempts ?? CHAT_IMAGE_UPLOAD_ATTEMPTS,
+    sleep: options.sleep,
+    baseDelayMs: options.baseDelayMs ?? CHAT_IMAGE_UPLOAD_BASE_DELAY_MS,
+    maxDelayMs: options.maxDelayMs ?? CHAT_IMAGE_UPLOAD_MAX_DELAY_MS,
+  })
 }

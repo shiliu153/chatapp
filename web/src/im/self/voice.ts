@@ -9,8 +9,16 @@
  * - **抢不到槽**(202):网络侧不再回 503,而是把原始文件排进 Celery,响应只有
  *   `{id, status:"pending", retry_after}`。这时**必须先轮询** `GET /im/voices/{id}`
  *   拿到 `ready` 的 `url` 才能发 —— 拿不到地址的 `send` 帧对方播不了。
+ *
+ * 上传本身带 `Idempotency-Key`(`docs/api/conventions.md` §幂等键):重试复用同一个 key,
+ * 服务端不会因为「响应丢了重发一次」多建一条语音;`409` + `40901` 当可重试,不是终态失败。
  */
 
+import {
+  newIdempotencyKey,
+  type UploadRetryOptions,
+  withUploadRetries,
+} from '@/api/idempotency'
 import { http } from '@/api/http'
 import { pollVoiceStatus } from '@/api/voice-status'
 import type { VoiceQueued, VoiceStatus } from '@/api/types'
@@ -58,25 +66,54 @@ export function canRecordVoice(): boolean {
 }
 
 /**
+ * 构造一次 multipart 请求体(`file` + `duration_ms`)。
+ *
+ * **每次尝试都要新建**:`FormData` 发出去就被浏览器标脏,重试复用同一个对象会丢文件/丢字段。
+ */
+function chatVoiceForm(blob: Blob, durationMs: number): FormData {
+  const form = new FormData()
+  form.append('file', blob, 'voice.m4a')
+  form.append('duration_ms', String(Math.round(durationMs)))
+  return form
+}
+
+/**
  * 上传一段录音。抢到转码槽时直接拿到签名 URL;抢不到时拿到受理体,交给 `awaitChatVoice`。
+ *
+ * **幂等键**:一次「用户发出去的语音」生成一个 key(本函数进来时生成),上传的所有自动重试
+ * 复用它 —— 网络抖动 / `429` / `5xx` / `409` + `40901`(同 key 的上一次还在处理中)都退避后
+ * **同 key** 再打一次,不会因为重试多建一条语音(`docs/api/conventions.md` §幂等键)。
+ * `400`(格式 / 时长不符)与 `413`(配额满)不重试,原样上抛。
  *
  * Args:
  *   blob: 浏览器录出来的音频(容器随引擎不同,服务端统一转 m4a)。
  *   durationMs: 客户端测得的时长;服务端会用 ffprobe 实测并比对(相差 >2 秒回 400)。
+ *   options: 重试参数(单测注入点),缺省 3 次 + 500ms 起翻倍退避。
  *
  * Returns:
  *   201 → `{queued:false, voice}`;202 → `{queued:true, id, retryAfterSeconds}`。
+ *
+ * Raises:
+ *   ApiError: 400 / 413 / 401 / 403 / 404 等不可重试错误,或重试次数用尽仍失败。
  */
-export async function uploadChatVoice(blob: Blob, durationMs: number): Promise<ChatVoiceUpload> {
-  const form = new FormData()
-  form.append('file', blob, 'voice.m4a')
-  form.append('duration_ms', String(Math.round(durationMs)))
-  const response = await http.post('/im/voices', form)
-  if (response.status === 202) {
-    const queued = response.data as VoiceQueued
-    return { queued: true, id: queued.id, retryAfterSeconds: queued.retry_after }
-  }
-  return { queued: false, voice: response.data as UploadedVoice }
+export async function uploadChatVoice(
+  blob: Blob,
+  durationMs: number,
+  options: UploadRetryOptions = {},
+): Promise<ChatVoiceUpload> {
+  const idempotencyKey = newIdempotencyKey()
+  return withUploadRetries(async () => {
+    const response = await http.post('/im/voices', chatVoiceForm(blob, durationMs), {
+      headers: { 'Idempotency-Key': idempotencyKey },
+      // 401 刷新后重放同一次上传:请求体重建,key 不变
+      rebuildBody: () => chatVoiceForm(blob, durationMs),
+    })
+    if (response.status === 202) {
+      const queued = response.data as VoiceQueued
+      return { queued: true as const, id: queued.id, retryAfterSeconds: queued.retry_after }
+    }
+    return { queued: false as const, voice: response.data as UploadedVoice }
+  }, options)
 }
 
 /** 查一条聊天语音的转码状态(`GET /im/voices/{voice_id}`,im.md §6.5)。 */

@@ -1,5 +1,10 @@
 import { http } from './http'
 import { parseApiError } from './error'
+import {
+  newIdempotencyKey,
+  type UploadRetryOptions,
+  withUploadRetries,
+} from './idempotency'
 import { pollVoiceStatus } from './voice-status'
 import type {
   Page,
@@ -84,22 +89,55 @@ export type ProfileVoiceUpload =
   | { queued: true; id: number; retryAfterSeconds: number }
 
 /**
+ * 构造一次资料语音的 multipart 请求体(`file` 一个字段;契约 users.md §2.11)。
+ *
+ * **每次尝试都要新建**:`FormData` 发出去就被浏览器标脏,重试复用同一个对象会丢文件。
+ * 重新包一层 Blob 是为了把 type 钉成白名单值:part 的 Content-Type 取的就是 `Blob.type`。
+ */
+function profileVoiceForm(blob: Blob): FormData {
+  const type = profileVoicePartType(blob.type)
+  const form = new FormData()
+  form.append('file', new Blob([blob], { type }), `intro.${VOICE_SUFFIX[type] ?? 'm4a'}`)
+  return form
+}
+
+/**
  * 上传/覆盖语音自我介绍(multipart 字段 `file`;users.md §2.11)。
  *
  * 两条路:抢到转码槽 → `201` + 签名 `url`;抢不到 → `202` + `{id, status:"pending",
  * retry_after}`,此时**旧语音已经下线**,必须轮询 `GET /users/me/voice` 等新的转码结果。
+ *
+ * **幂等键**(`docs/api/conventions.md` §幂等键):一次「用户点保存」生成一个 key,本次上传的
+ * 所有自动重试复用同一个;网络抖动 / `429` / `5xx` / `409` + `40901` 都退避后**同 key** 再打,
+ * 不会因为响应丢了重发而多转码一次。`400`(格式 / 时长)与 `413`(配额满)立刻冒泡。
+ *
+ * Args:
+ *   blob: 用户确认要保存的录音。
+ *   options: 重试参数(单测注入点),缺省 3 次 + 500ms 起翻倍退避。
+ *
+ * Returns:
+ *   201 → `{queued:false, voice}`;202 → `{queued:true, id, retryAfterSeconds}`。
+ *
+ * Raises:
+ *   ApiError: 不可重试的 4xx,或重试次数用尽仍失败。
  */
-export async function uploadProfileVoice(blob: Blob): Promise<ProfileVoiceUpload> {
-  const type = profileVoicePartType(blob.type)
-  const form = new FormData()
-  // 重新包一层 Blob 是为了把 type 钉成白名单值:part 的 Content-Type 取的就是 Blob.type
-  form.append('file', new Blob([blob], { type }), `intro.${VOICE_SUFFIX[type] ?? 'm4a'}`)
-  const response = await http.post('/users/me/voice', form)
-  if (response.status === 202) {
-    const queued = response.data as VoiceQueued
-    return { queued: true, id: queued.id, retryAfterSeconds: queued.retry_after }
-  }
-  return { queued: false, voice: response.data as ProfileVoice }
+export async function uploadProfileVoice(
+  blob: Blob,
+  options: UploadRetryOptions = {},
+): Promise<ProfileVoiceUpload> {
+  const idempotencyKey = newIdempotencyKey()
+  return withUploadRetries(async () => {
+    const response = await http.post('/users/me/voice', profileVoiceForm(blob), {
+      headers: { 'Idempotency-Key': idempotencyKey },
+      // 401 刷新后重放同一次上传:请求体重建,key 不变
+      rebuildBody: () => profileVoiceForm(blob),
+    })
+    if (response.status === 202) {
+      const queued = response.data as VoiceQueued
+      return { queued: true as const, id: queued.id, retryAfterSeconds: queued.retry_after }
+    }
+    return { queued: false as const, voice: response.data as ProfileVoice }
+  }, options)
 }
 
 /**

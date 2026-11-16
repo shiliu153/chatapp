@@ -8,13 +8,16 @@
  *    用户去点「重发」好;但次数有上限,试够了要老实把错误抛给 UI。
  *
  * 顺带钉住:4xx 里的校验类错误(400 像素超限 / 413 配额满)不重试,重复上传只会再错一次。
+ * 第四条判据 `409` + `40901`(同 key 的上一次还在跑,可重试)与幂等键那一整套见
+ * `upload-idempotency.spec.ts`(工单 #417):分类函数已挪到 `src/api/idempotency.ts`,
+ * 三个上传入口共用一份。
  */
 import { HttpResponse, http as mswHttp } from 'msw'
 import { describe, expect, it, vi } from 'vitest'
+import { uploadRetryDelay } from '@/api/idempotency'
 import {
   CHAT_IMAGE_UPLOAD_ATTEMPTS,
   CHAT_IMAGE_UPLOAD_BASE_DELAY_MS,
-  imageUploadRetryDelay,
   uploadChatImage,
 } from '@/im/self/image'
 import { server } from '../support/server'
@@ -148,9 +151,9 @@ describe('uploadChatImage:「再问也一样」的错误立刻冒泡', () => {
   })
 })
 
-describe('imageUploadRetryDelay:分类判据本身', () => {
+describe('uploadRetryDelay:分类判据本身(三个上传入口共用)', () => {
   it('没有 HTTP 状态码的本地错误(压缩失败)不重试', () => {
-    expect(imageUploadRetryDelay(new Error('canvas 炸了'), 500)).toBeNull()
+    expect(uploadRetryDelay(new Error('canvas 炸了'), 500)).toBeNull()
   })
 
   it('429 没给 Retry-After 时用退避值', () => {
@@ -158,7 +161,7 @@ describe('imageUploadRetryDelay:分类判据本身', () => {
       isAxiosError: true,
       response: { status: 429, headers: {}, data: { code: 42901, message: '操作太频繁' } },
     })
-    expect(imageUploadRetryDelay(error, 800)).toBe(800)
+    expect(uploadRetryDelay(error, 800)).toBe(800)
   })
 
   it('401 / 403 / 404 一律返回 null(立刻冒泡)', () => {
@@ -167,7 +170,7 @@ describe('imageUploadRetryDelay:分类判据本身', () => {
         isAxiosError: true,
         response: { status, headers: {}, data: { code: status, message: 'nope' } },
       })
-      expect(imageUploadRetryDelay(error, 500)).toBeNull()
+      expect(uploadRetryDelay(error, 500)).toBeNull()
     }
   })
 })
