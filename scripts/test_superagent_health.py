@@ -736,6 +736,171 @@ class AutohealTests(unittest.TestCase):
         self.assertEqual(report.exit_code(), 2)
 
 
+RUN_SH = Path(__file__).resolve().parent / "superagent-health" / "run.sh"
+
+
+class RunFingerprintTests(unittest.TestCase):
+    """`run.sh` 的告警指纹口径:同一故障多轮数字在变 ⇒ 指纹不变;不同检查名 ⇒ 指纹不同。
+
+    为什么单独测这一层:判定逻辑再对,指纹里只要混进一个动态数字,`6 小时去重`就静默失效 ——
+    故障持续期间每 15 分钟一封(2026-11-16 实测),既吵,又会把真正的告警挤出邮件日额度
+    (阿里云推送有 `per_day` 上限)。反过来,指纹口径**收得太狠**(只留「有异常」)会把两类
+    故障合成一条,真告警被去重吞掉。所以这里钉两个方向,都跑真的 `run.sh`,只把巡检器
+    (`SUPERAGENT_HEALTH_CHECKER`)和告警通道(`SUPERAGENT_NOTIFY_CMD`)换成假的。
+    """
+
+    def setUp(self) -> None:
+        """建临时状态目录,并写一个「输出由用例给定」的假巡检器(不联网、不碰真库)。"""
+        self.tmp = tempfile.mkdtemp()
+        self.state = os.path.join(self.tmp, "state")
+        os.makedirs(self.state)
+        self.notify_log = os.path.join(self.tmp, "notify.log")
+        self.text_path = os.path.join(self.tmp, "checker-out.txt")
+        self.checker = os.path.join(self.tmp, "fake_checker.py")
+        with open(self.checker, "w", encoding="utf-8") as handle:
+            handle.write(
+                "import os, sys\n"
+                "with open(os.environ['FAKE_OUT'], encoding='utf-8') as handle:\n"
+                "    sys.stdout.write(handle.read())\n"
+                "sys.exit(int(os.environ['FAKE_RC']))\n"
+            )
+
+    def _round(self, text: str, rc: int = 1) -> str:
+        """跑一轮真的 `run.sh`,巡检输出用 `text` 顶替。
+
+        Args:
+            text: 假巡检器打印的整份输出(必须和 `superagent_health.py` 的渲染格式一致)。
+            rc: 假巡检器的退出码(1 = 有异常,2 = 判不出来)。
+
+        Returns:
+            `run.sh` 的 stdout + stderr。
+
+        env 是**从零搭的**:真环境里的 `SUPERAGENT_HEALTH_*` 会把用例带偏;
+        `SUPERAGENT_HEALTH_ENV` 指到不存在的文件,免得 source 到本机真实告警配置。
+        """
+        with open(self.text_path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            "HOME": self.tmp,
+            "SUPERAGENT_HEALTH_ENV": os.path.join(self.tmp, "absent.env"),
+            "SUPERAGENT_HEALTH_STATE": self.state,
+            "SUPERAGENT_HEALTH_CHECKER": self.checker,
+            "SUPERAGENT_NOTIFY_CMD": "cat >> " + self.notify_log,
+            "FAKE_OUT": self.text_path,
+            "FAKE_RC": str(rc),
+        }
+        done = subprocess.run(
+            ["bash", str(RUN_SH)], capture_output=True, text=True, env=env, timeout=120
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        return done.stdout + done.stderr
+
+    def _sent(self) -> int:
+        """返回真正发出去的告警条数(假通道每被调用一次就追加一段)。"""
+        try:
+            with open(self.notify_log, encoding="utf-8") as handle:
+                return sum(1 for line in handle if line.startswith("[superagent]"))
+        except FileNotFoundError:
+            return 0
+
+    def _fingerprint(self) -> str:
+        """返回 `run.sh` 记下的最近一次指纹。"""
+        with open(os.path.join(self.state, "last-fingerprint"), encoding="utf-8") as handle:
+            return handle.read().strip()
+
+    def _last_alert(self) -> str:
+        """返回 `last-alert.md` 原文(通道落盘的那一份)。"""
+        with open(os.path.join(self.state, "last-alert.md"), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_same_fault_with_new_numbers_reuses_fingerprint(self) -> None:
+        """同一处停摆,落后 12 分钟 vs 18 分钟、未读 3 条 vs 7 条、耗时 0.9s vs 2.7s ⇒ 只发一封。"""
+        self._round(
+            "✅ 出网(api.github.com): HTTP 200 · 0.9s\n"
+            "✅ worktrees: 2 个目录: a, b\n"
+            "❌ 游标新鲜度: 游标停在 2026-11-16T22:20Z(落后 12 分钟,阈值 1;最新一条是 "
+            "github-cursor:412) · 有未读且比游标新 3 条: #412 工单 等 3 条\n"
+            "结论:异常 1 项 → 游标新鲜度\n"
+        )
+        first = self._fingerprint()
+        self.assertEqual(self._sent(), 1)
+        self.assertIn("落后 12 分钟", self._last_alert())
+
+        out = self._round(
+            "✅ 出网(api.github.com): HTTP 200 · 2.7s\n"
+            "✅ worktrees: 9 个目录: a, b, c, d, e, f, g, h, i\n"
+            "❌ 游标新鲜度: 游标停在 2026-11-16T22:20Z(落后 18 分钟,阈值 1;最新一条是 "
+            "github-cursor:412) · 有未读且比游标新 7 条: #412 工单 等 7 条\n"
+            "结论:异常 1 项 → 游标新鲜度\n"
+        )
+        self.assertEqual(self._fingerprint(), first)
+        self.assertIn("不重复发", out)
+        self.assertEqual(self._sent(), 1, "第二轮被去重时不该再发一封")
+        self.assertIn("落后 12 分钟", self._last_alert(), "去重的那轮不该覆盖 last-alert")
+        self.assertNotIn("落后 18 分钟", self._last_alert())
+
+    def test_different_check_names_get_different_fingerprints(self) -> None:
+        """游标停摆 vs 僵尸 assignment 是两类故障 ⇒ 指纹必须不同(否则僵尸那条被吞)。"""
+        self._round("❌ 游标新鲜度: 游标停在 2026-11-16T22:20Z(落后 12 分钟)\n")
+        cursor = self._fingerprint()
+        out = self._round(
+            "❌ 僵尸 assignment ce1d46c9: state=running 已 1.7h · '示例工单' · 最后 report: (无)\n"
+        )
+        self.assertNotEqual(self._fingerprint(), cursor)
+        self.assertNotIn("不重复发", out)
+        self.assertEqual(self._sent(), 2)
+
+    def test_zombie_age_and_report_do_not_change_fingerprint(self) -> None:
+        """同一个僵尸 assignment:已 1.7h → 2.4h、report 从「(无)」变成有字 ⇒ 指纹不变。"""
+        self._round(
+            "❌ 僵尸 assignment ce1d46c9: state=running 已 1.7h · '示例工单' · 最后 report: (无)\n"
+        )
+        first = self._fingerprint()
+        out = self._round(
+            "❌ 僵尸 assignment ce1d46c9: state=running 已 2.4h · '示例工单' · 最后 report: 半成品\n"
+        )
+        self.assertEqual(self._fingerprint(), first)
+        self.assertIn("不重复发", out)
+        self.assertEqual(self._sent(), 1)
+
+    def test_second_zombie_is_a_new_fingerprint(self) -> None:
+        """多出一个僵尸 assignment 是「新的一个故障」—— 不能被并进上一条的 6 小时去重里。"""
+        self._round(
+            "❌ 僵尸 assignment ce1d46c9: state=running 已 1.7h · '示例工单' · 最后 report: (无)\n"
+        )
+        out = self._round(
+            "❌ 僵尸 assignment ce1d46c9: state=running 已 1.7h · '示例工单' · 最后 report: (无)\n"
+            "❌ 僵尸 assignment 9f8e7d6c: state=pending 已 3.0h · '另一单' · 最后 report: (无)\n"
+        )
+        self.assertNotIn("不重复发", out)
+        self.assertEqual(self._sent(), 2)
+
+    def test_unknown_causes_are_not_merged(self) -> None:
+        """「判不出来」的原因不同(打不开库 vs 取不到通知)⇒ 两条告警;原因里的动态细节不算新故障。"""
+        self._round(
+            "❓ 判不出来: 打不开 orchestrator 状态库(/root/.dsh/state/o.sqlite):unable to open\n"
+            "结论:判不出来(按异常处理)\n",
+            rc=2,
+        )
+        db_down = self._fingerprint()
+        self._round(
+            "❓ 判不出来: 游标新鲜度:取不到未读通知(gh api notifications 退出码 1:EOF)\n"
+            "结论:判不出来(按异常处理)\n",
+            rc=2,
+        )
+        self.assertNotEqual(self._fingerprint(), db_down)
+        gh_down = self._fingerprint()
+        out = self._round(
+            "❓ 判不出来: 游标新鲜度:取不到未读通知(gh api notifications 退出码 1:timeout)\n"
+            "结论:判不出来(按异常处理)\n",
+            rc=2,
+        )
+        self.assertEqual(self._fingerprint(), gh_down, "同一原因的 stderr 细节不同不该算新故障")
+        self.assertIn("不重复发", out)
+        self.assertEqual(self._sent(), 2)
+
+
 class _RestartRecorder:
     """假的重启回调:只记录被调用、返回预设的退出码与输出(绝不碰真进程)。"""
 
