@@ -24,8 +24,9 @@ name: L4 需求自动入队
 
 on:
   schedule:
-    # 09:20 北京时间(01:20 UTC),故意排在 main-health(09:00)之后:
-    # 先让「默认分支有红轨」的聚合 issue 落地,再按栈开可接的单。
+    # 09:20 北京时间(01:20 UTC)。2026-11-16 起不再需要排在 main-health 之后 ——
+    # 那个每天建「默认分支有红轨」issue 的 workflow 已删除,红轨改由 WSL 的 worker 巡检
+    # (superagent_health.py 的 ci-red 项)发邮件;L4 仍然是「按栈开可接的单」的唯一入口。
     - cron: '20 1 * * *'
   workflow_dispatch:
     inputs:
@@ -96,8 +97,8 @@ jobs:
               || echo '{"__error__":"连错误原因都写不出来"}' > "$2"
           }
 
-          # 与 main-health.yml 同一条 API、同一个解析器(l4_intake.py ci-red-summary),
-          # 不复制扫描逻辑。
+          # 同一个解析器(l4_intake.py ci-red-summary)也给 WSL 的 worker 巡检用
+          # (superagent_health.py 的 ci-red 项直接 import red_runs),不复制扫描逻辑。
           if ! gh api "repos/$REPO/actions/runs?branch=$BASE&event=push&per_page=100" \
                 > .l4/runs.json 2> .l4/runs.err; then
             echo "::warning::读不到 runs:$(cat .l4/runs.err 2>/dev/null)"

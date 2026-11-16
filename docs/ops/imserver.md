@@ -399,7 +399,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash -c \
 | 周期 | 每分钟调用一次;**脚本内部失败隔 30s 复测一次**(2026-11-05 改,见下) |
 | 目标 | 默认两个:`im=http://127.0.0.1:9101/internal/readyz`、`api=http://127.0.0.1:8000/api/v1/health`(`IM_PROBE_TARGETS` 可改) |
 | 判定 | 首轮全健康即退出;有失败则 30s 后复测,两次都失败才算 1 次,计数到 2 发告警 |
-| 告警 | 写 `/www/wwwlogs/imserver_probe.log` + 发**邮件**(`/opt/notify`,与 22:00 日报同链路) |
+| 告警 | 写 `/www/wwwlogs/imserver_probe.log` + 发**邮件**(`/opt/notify`,与 22:00 日报同链路;主题规范见 [mail.md](mail.md)) |
 | 去重 | 同一事件只告警一次;恢复时清零并记一行 `RECOVERED` |
 | 日志 | `/www/wwwlogs/imserver_probe.log`(超 1MB 自动只留最后 500 行) |
 | 环境文件 | `/www/server/imserver/probe.env`(600):`IM_PROBE_NOTIFY_CONFIG` / `IM_PROBE_TARGETS` 等;**别写进计划任务命令**(面板任务记录存 sqlite,UI 和备份都能看到) |

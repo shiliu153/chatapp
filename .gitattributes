@@ -33,6 +33,11 @@ scripts/superagent-health/* text eol=lf
 scripts/superagent_health.py text eol=lf
 scripts/test_superagent_health.py text eol=lf
 
+# 统一发信内核(2026-11-16):notify.sh 在 WSL 里 `python3 lib/mail.py` 调用它,
+# 与上面同理由固定 LF —— Windows 检出带 CRLF 会让 shebang 失效、WSL 侧 diff 全脏。
+scripts/lib/mail.py text eol=lf
+scripts/test_mail.py text eol=lf
+
 # 运维补丁固定 LF:scripts/patches/*.patch 是给 WSL 里 `git apply` 用的,
 # Windows 检出若带 CRLF,补丁会一个 hunk 都应用不上(2026-11-09 加;
 # 2026-11-14 治理第 2 节把补丁从文档目录搬到 scripts/patches/,规则本身按扩展名,不用改)。

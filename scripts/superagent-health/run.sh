@@ -58,6 +58,20 @@ if [ -n "${SUPERAGENT_RESTART_SCRIPT:-}" ]; then
   AUTOREHEAL_ARGS+=(--restart-script "$SUPERAGENT_RESTART_SCRIPT")
 fi
 
+# CI 红轨(2026-11-16 起从 main-health.yml 的 issue 并进来,默认关):同样的道理,
+# env 里配了就必须显式传参,否则「以为开着」而实际一次都没查。分支名也可配 ——
+# 2026-11-11 的 master→main 改名曾让写死 ref 的机制静默失效。
+CI_ARGS=()
+if [ -n "${SUPERAGENT_HEALTH_CI_RED:-}" ]; then
+  CI_ARGS+=(--ci-red "$SUPERAGENT_HEALTH_CI_RED")
+fi
+if [ -n "${SUPERAGENT_CI_BRANCH:-}" ]; then
+  CI_ARGS+=(--ci-branch "$SUPERAGENT_CI_BRANCH")
+fi
+if [ -n "${SUPERAGENT_HEALTH_REPO:-}" ]; then
+  CI_ARGS+=(--repo "$SUPERAGENT_HEALTH_REPO")
+fi
+
 # 仓库里跑时检查器在 scripts/ 下;装到 /root/.dsh/healthcheck/ 后与 run.sh 同级。
 if [ -z "${SUPERAGENT_HEALTH_CHECKER:-}" ]; then
   if [ -f "$HERE/superagent_health.py" ]; then
@@ -115,9 +129,30 @@ fingerprint_terms() { # fingerprint_terms <rc> <巡检输出文件>
   ' "$2"
 }
 
+# 主题里的「结论」从巡检输出里取:**第一个异常项的名字**(多项时写「等 N 项」),
+# 没有异常但判不出来时写「判不出来」。刻意不带数字 —— 数字每轮都在变,混进主题
+# 就等于没有去重(与上面指纹同一个口径)。主题格式本身由 mail.py 渲染,这里只给结论。
+verdict_of() { # verdict_of <巡检输出文件>
+  awk '
+    /^❌ / {
+      line = $0
+      sub(/^❌ /, "", line)
+      cut = index(line, ":")
+      names[count++] = (cut > 0) ? substr(line, 1, cut - 1) : line
+    }
+    /^❓ / { unknown = 1 }
+    END {
+      if (count == 0) { print (unknown ? "判不出来" : "有异常"); exit }
+      if (count == 1) { print names[0]; exit }
+      print names[0] " 等 " count " 项"
+    }
+  ' "$1"
+}
+
 OUT=$(mktemp); trap 'rm -f "$OUT"' EXIT
 python3 "$CHECKER" ${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"} ${IGNORE_ARGS[@]+"${IGNORE_ARGS[@]}"} \
   ${CURSOR_ARGS[@]+"${CURSOR_ARGS[@]}"} ${AUTOREHEAL_ARGS[@]+"${AUTOREHEAL_ARGS[@]}"} \
+  ${CI_ARGS[@]+"${CI_ARGS[@]}"} \
   >"$OUT" 2>"$STATE_DIR/last-stderr.log"
 RC=$?
 
@@ -141,7 +176,7 @@ if [ "$FP" = "$LAST_FP" ] && [ $((NOW - LAST_TS)) -lt "$RESEND_AFTER" ]; then
   exit 0
 fi
 
-SUBJECT="[superagent] worker 健康检查异常(rc=$RC)"
+SUBJECT_VERDICT=$(verdict_of "$OUT")
 {
   echo "时间:$(date -u +%FT%TZ)"
   echo "主机:$(hostname)"
@@ -159,11 +194,13 @@ SUBJECT="[superagent] worker 健康检查异常(rc=$RC)"
     echo "  4) 游标新鲜度 ❌(有未读通知但游标没动):先按 §15 取证,再决定是否重启 ——"
     echo "     重启会杀掉正在跑的会话,巡检脚本**不会**替你重启(自愈开关 SUPERAGENT_AUTOREHEAL 未开)"
   fi
+  echo "  5) CI 红轨 ❌(默认分支有 workflow 没跑绿):先看那一轨的日志再合代码;"
+  echo "     口径与 L4 自动入队同一个解析器(scripts/l4_intake.py 的 red_runs)"
   echo
   echo "本文件:$STATE_DIR/last-alert.md"
 } >"$STATE_DIR/pending-alert.md"
 
-if bash "$HERE/notify.sh" "$SUBJECT" "$STATE_DIR/pending-alert.md"; then
+if bash "$HERE/notify.sh" 巡检 worker "$SUBJECT_VERDICT" "$STATE_DIR/pending-alert.md"; then
   printf '%s' "$FP" >"$STATE_DIR/last-fingerprint"
   printf '%s' "$NOW" >"$STATE_DIR/last-sent"
   exit 0

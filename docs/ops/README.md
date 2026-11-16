@@ -26,6 +26,7 @@
 | [superagent.md](superagent.md) | 派单、升级 worker、worker 全断排障、出口代理 | 操作前读 |
 | [certificates.md](certificates.md) | 证书续期与到期巡检 | 操作前读 |
 | [observability.md](observability.md) | 指标 / 看板 / 告警规则的取数与判读 | 改告警前读 |
+| [mail.md](mail.md) | **邮件主题规范**(`[chatapp·类别] 对象 — 结论`)、发信点清单、配额预算 | 新增 / 改发信点时读 |
 | [capacity-and-reliability.md](capacity-and-reliability.md) | **引用任何容量数字之前** | 数字唯一 owner |
 | [nginx-security.md](nginx-security.md) | 配反代、安全头、后台 IP 白名单、媒体验签 | 操作前读 |
 | [push.md](push.md) | 推送链路契约(通道固定 `off`,只留接口与代码) | 改推送相关时读 |

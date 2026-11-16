@@ -27,7 +27,7 @@ owner: scripts/docs_index.py
 
 ## 1. 非归档文档
 
-共 **82** 份 / **13** 个目录(不含本文件)。
+共 **83** 份 / **13** 个目录(不含本文件)。
 
 ### `docs/` 根(2 份)
 
@@ -91,7 +91,7 @@ owner: scripts/docs_index.py
 | [P14-收尾横扫.md](learning/backend-guide/P14-收尾横扫.md) | P14 · 收尾横扫与文档门禁（约 272 行 + 全局对账） |
 | [README.md](learning/backend-guide/README.md) | 后端通读 · 自学指导书（索引） |
 
-### `docs/ops/`(11 份)
+### `docs/ops/`(12 份)
 
 | 文档 | 标题 |
 |---|---|
@@ -100,6 +100,7 @@ owner: scripts/docs_index.py
 | [certificates.md](ops/certificates.md) | 证书与续期（生产） |
 | [dual-server-vs-upgrade-2026-11-04.md](ops/dual-server-vs-upgrade-2026-11-04.md) | 双机负载均衡 vs 只升配:决策记录(2026-11-04) |
 | [imserver.md](ops/imserver.md) | 自建 IM 运维手册 |
+| [mail.md](ops/mail.md) | 邮件:主题规范与发信点 |
 | [nginx-security.md](ops/nginx-security.md) | nginx 安全基线(HTTPS + 安全头 + 后台白名单) |
 | [observability.md](ops/observability.md) | 可观测性:指标、看板与告警 |
 | [push.md](ops/push.md) | 推送(C-1):链路、开关与验证 |
