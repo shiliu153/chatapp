@@ -20,3 +20,7 @@ PHONE_NOT_ALLOWED = 40301         # 封闭测试:号码不在受邀白名单内
 CHAT_VOICE_UNAVAILABLE = 50302    # 服务器缺 ffmpeg/ffprobe,语音上传暂不可用
 STORAGE_QUOTA_EXCEEDED = 41301    # 单账号媒体存储配额已满
 INVALID_PERIOD = 40005            # 使用报告的 period 取值非法(只允许 week/month/year)
+# 上传幂等(`Idempotency-Key`):同一个 key 的上一次上传还在处理中。**一码一义**:
+# 不复用 42901(重发太快,那是按额度限流),也不占 50302(缺 ffmpeg)。
+# 409 = 请求与资源当前状态冲突,客户端拿**同一个 key** 退避重试即可(见 config/idempotency.py)。
+UPLOAD_IN_FLIGHT = 40901

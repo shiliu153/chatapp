@@ -1033,11 +1033,14 @@ paths:
         符合「响应路径禁止外部调用」纪律。文件名带随机 uuid,不可枚举。
 
         参数说明:
-            request: DRF 请求对象,multipart 字段为 ``file``。
+            request: DRF 请求对象,multipart 字段为 ``file``;请求头可带
+                ``Idempotency-Key``(可选,不带时行为与加幂等之前逐字一致)。
 
         返回参数:
             201 + ``{id, url, thumb_url, width, height, size}``;URL 用
             ``settings.MEDIA_BASE_URL`` 拼绝对地址(与 IM 头像同步同一套)。
+            同一个 ``Idempotency-Key`` 的重试返回同一行、同一个 201 响应体(不落盘、不建行);
+            并发同 key 时后到的那个 409 + ``40901``。
 
         使用示例:
             ``self.client.post(self.url, {"file": SimpleUploadedFile("a.png", PNG_1PX, content_type="image/png")}, format="multipart")``
@@ -1047,6 +1050,17 @@ paths:
             配额检查在任何一次落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``
             (413/``41301``),库内与磁盘上都不留痕迹。
             非图片、尺寸超限返回 400;格式与大小的校验在 ``ChatImageUploadSerializer`` 里。
+            幂等映射只存「id + 状态」(Redis,24 小时):重放时按 id 回查那一行重新签名,
+            而不是回放存下来的签名地址 —— 签名是会过期的,存下来的地址重放时可能已经失效。
+            本次请求没写成结果就退出 ``with``(400/413/503/异常)会释放 key,用户改好文件
+            用同一个 key 重传不会被自己挡住。
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: '可选幂等键:1-128 个字母、数字与 . _ : -,客户端每次上传生成一个,重试时复用同一个。服务端 24 小时内对同一个
+          key 只处理一次,重试直接返回首次的结果(命中已完成的映射时不会重复落盘、不会多建行)。'
       tags:
       - im
       requestBody:
@@ -1162,12 +1176,16 @@ paths:
         符合「响应路径禁止外部调用」纪律。
 
         参数说明:
-            request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
+            request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``;请求头可带
+                ``Idempotency-Key``(可选,不带时行为与加幂等之前逐字一致)。
 
         返回参数:
             201 + ``{id, url, duration_ms, size, status}``(同步路径,``status`` 恒为 ``ready``);
             202 + ``{id, status: "pending", retry_after}``(槽被占用,转码已入队,不带 ``url``);
-            400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
+            400 参数不合法;503 服务器缺 ffmpeg(``code=50302``);
+            409 + ``40901``(同一个 ``Idempotency-Key`` 的上一次还没处理完)。
+            同 key 重试不会新建第二条:已完成的重放 201 / 202,``pending`` 期间重放的 202
+            带的是**同一个 id**。
 
         使用示例:
             ``self.client.post(self.url, {"file": SimpleUploadedFile("a.m4a", content, content_type="audio/mp4"), "duration_ms": duration_ms}, format="multipart")``
@@ -1181,6 +1199,15 @@ paths:
             **不再回 503**,而是改走异步并回 202 —— 异步路径里配额只能在 worker 落盘前检查,
             超限时该行转 ``failed`` + ``transcode_error=41301``(异步没法同步回 413)。
             槽在 ``with`` 退出时释放,异常路径同样释放。
+            幂等映射只存 id 与状态(Redis,24 小时),异步路径记 ``pending``:``pending`` 期间
+            同 key 重试拿回同一个 id 继续轮询,而不是又落一份临时文件。
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: '可选幂等键:1-128 个字母、数字与 . _ : -,客户端每次上传生成一个,重试时复用同一个。服务端 24 小时内对同一个
+          key 只处理一次,重试直接返回首次的结果(命中已完成的映射时不会重复落盘、不会多建行)。'
       tags:
       - im
       requestBody:
@@ -2721,7 +2748,8 @@ paths:
         资料语音自我介绍:读取转码状态、上传/覆盖与删除(GET/POST/DELETE /api/v1/users/me/voice)。
 
         参数说明:
-            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``;``POST`` 的请求头
+                可带 ``Idempotency-Key``(可选,不带时行为与加幂等之前逐字一致)。
 
         返回参数:
             GET 200 + ``{id, status, url, duration_ms, size, code, message}``(``pending`` 时
@@ -2729,7 +2757,8 @@ paths:
             ``code`` / ``message``);没有语音时 404。
             POST 201 + ``{url, duration_ms, status}``(``url`` 为**限时签名**的绝对地址,带
             ``e``/``s``,TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
-            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``。
+            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``;
+            POST 同一个 ``Idempotency-Key`` 的上一次还没处理完时 409 + ``40901``。
             DELETE 幂等 204(没有语音时也返回 204)。
 
         使用示例:
@@ -2746,6 +2775,9 @@ paths:
             占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。异步路径的配额同样在
             worker 落盘前检查,超限时该行转 ``failed`` + ``transcode_error=41301``。
             GET 与 POST/DELETE 的限流分开:轮询走 ``voice_status``,不占 10 次/小时的改资料额度。
+            ``Idempotency-Key`` 重放按 id 认行:换了文件重录之后旧 key 的映射不再命中
+            (见 ``_replay_profile_voice``);失败(400/413/503)一律释放 key,用户改好文件
+            用同一个 key 重传不会被自己挡住。
       tags:
       - users
       security:
@@ -2763,7 +2795,8 @@ paths:
         资料语音自我介绍:读取转码状态、上传/覆盖与删除(GET/POST/DELETE /api/v1/users/me/voice)。
 
         参数说明:
-            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``;``POST`` 的请求头
+                可带 ``Idempotency-Key``(可选,不带时行为与加幂等之前逐字一致)。
 
         返回参数:
             GET 200 + ``{id, status, url, duration_ms, size, code, message}``(``pending`` 时
@@ -2771,7 +2804,8 @@ paths:
             ``code`` / ``message``);没有语音时 404。
             POST 201 + ``{url, duration_ms, status}``(``url`` 为**限时签名**的绝对地址,带
             ``e``/``s``,TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
-            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``。
+            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``;
+            POST 同一个 ``Idempotency-Key`` 的上一次还没处理完时 409 + ``40901``。
             DELETE 幂等 204(没有语音时也返回 204)。
 
         使用示例:
@@ -2788,6 +2822,16 @@ paths:
             占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。异步路径的配额同样在
             worker 落盘前检查,超限时该行转 ``failed`` + ``transcode_error=41301``。
             GET 与 POST/DELETE 的限流分开:轮询走 ``voice_status``,不占 10 次/小时的改资料额度。
+            ``Idempotency-Key`` 重放按 id 认行:换了文件重录之后旧 key 的映射不再命中
+            (见 ``_replay_profile_voice``);失败(400/413/503)一律释放 key,用户改好文件
+            用同一个 key 重传不会被自己挡住。
+      parameters:
+      - in: header
+        name: Idempotency-Key
+        schema:
+          type: string
+        description: '可选幂等键:1-128 个字母、数字与 . _ : -,客户端每次上传生成一个,重试时复用同一个。服务端 24 小时内对同一个
+          key 只处理一次,重试直接返回首次的结果(命中已完成的映射时不会重复落盘、不会多建行)。'
       tags:
       - users
       requestBody:
@@ -2823,7 +2867,8 @@ paths:
         资料语音自我介绍:读取转码状态、上传/覆盖与删除(GET/POST/DELETE /api/v1/users/me/voice)。
 
         参数说明:
-            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``;``POST`` 的请求头
+                可带 ``Idempotency-Key``(可选,不带时行为与加幂等之前逐字一致)。
 
         返回参数:
             GET 200 + ``{id, status, url, duration_ms, size, code, message}``(``pending`` 时
@@ -2831,7 +2876,8 @@ paths:
             ``code`` / ``message``);没有语音时 404。
             POST 201 + ``{url, duration_ms, status}``(``url`` 为**限时签名**的绝对地址,带
             ``e``/``s``,TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
-            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``。
+            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``;
+            POST 同一个 ``Idempotency-Key`` 的上一次还没处理完时 409 + ``40901``。
             DELETE 幂等 204(没有语音时也返回 204)。
 
         使用示例:
@@ -2848,6 +2894,9 @@ paths:
             占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。异步路径的配额同样在
             worker 落盘前检查,超限时该行转 ``failed`` + ``transcode_error=41301``。
             GET 与 POST/DELETE 的限流分开:轮询走 ``voice_status``,不占 10 次/小时的改资料额度。
+            ``Idempotency-Key`` 重放按 id 认行:换了文件重录之后旧 key 的映射不再命中
+            (见 ``_replay_profile_voice``);失败(400/413/503)一律释放 key,用户改好文件
+            用同一个 key 重传不会被自己挡住。
       tags:
       - users
       security:
