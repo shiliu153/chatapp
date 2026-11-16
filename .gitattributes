@@ -37,6 +37,8 @@ scripts/test_superagent_health.py text eol=lf
 # 与上面同理由固定 LF —— Windows 检出带 CRLF 会让 shebang 失效、WSL 侧 diff 全脏。
 scripts/lib/mail.py text eol=lf
 scripts/test_mail.py text eol=lf
+# CI 红轨判据:install.sh 把它拷到 /root/.dsh/healthcheck/ 与巡检器同级并由 python3 导入。
+scripts/lib/ci_red.py text eol=lf
 
 # 运维补丁固定 LF:scripts/patches/*.patch 是给 WSL 里 `git apply` 用的,
 # Windows 检出若带 CRLF,补丁会一个 hunk 都应用不上(2026-11-09 加;
