@@ -172,9 +172,23 @@
   (`// @generated-from-openapi sha256=…`,内容是 openapi.yml 规范化后的 sha256);
   `contract` 轨的 `contract-openapi-web-stamp` 门禁只比指纹,**纯 Python、不需要 Node**,秒级。
   改了 openapi.yml 忘了重生成 → 立刻红,提示里直接给出该跑的那条命令。
-- **两个别踩的坑**:
-  ① **别用 `npm run gen:api`** —— 它不写指纹,跑完门禁会红;生成入口是
-  `python scripts/gen_web_schema.py`(`scripts/stacks/web.sh` 已经改成调它);
-  ② **指纹按规范化后的内容算**(`\r\n` → `\n`)。Windows 检出是 CRLF、WSL / CI 是 LF,
+- **生成入口只有一条:`npm run gen:api`(2026-11-16 起)**:`web/package.json` 的 `gen:api`
+  已经改成调 `scripts/gen_web_schema.py`,**会写指纹**;`verify.sh web` 里 `scripts/stacks/web.sh`
+  调的是同一个脚本,所以「人跑一次」和「门禁跑一次」产出逐字节相同,本地跑完 `git status` 干净。
+  脚本的 `ROOT` 由 `Path(__file__).resolve().parents[1]` 推导,从 `web/` 调**不用**加 `--root`
+  (实测:`cd web && python3 ../scripts/gen_web_schema.py` 直接改的就是仓库根那份生成物)。
+- **解释器名:WSL / CI 侧 `python3`,Windows 本地 `py -3`**:
+  - `web/package.json` 里写 `python3`。工单目录(WSL,Ubuntu 24.04)实测**只有 `python3`**
+    (`/usr/bin/python3`,3.12.3),敲 `python` 是 `command not found`(exit 127)——而 `web`
+    本来就只能在 Linux 文件系统上跑,所以这条是主路,写 `python` 只会把「跑错命令」换成另一种红。
+  - CI 那侧门禁命令写在 `scripts/gates.toml` 里时一律写 `python`(`setup-python` 装的那份),
+    但真正执行的是 `scripts/run_gates.py`,它把开头的 `python` 换成 `$CHATAPP_PY`(缺省 `python3`)。
+    `main` 上 2026-11-16 那次 contract 跑的实测日志是 `+ python3 scripts/gen_web_schema.py --check`
+    并绿 —— 也就是说 CI 与 WSL **最终落在同一个解释器名上**,`package.json` 写 `python3` 与之同口径。
+    另外 CI **不跑** `npm run gen:api`(它跑 `scripts/stacks/web.sh`),两侧不会打架。
+  - Windows 本地检出没有 `python3` 时,在 `web/` 里改跑 `py -3 ../scripts/gen_web_schema.py`
+    (或 `python ../scripts/gen_web_schema.py`);**别**把这条路写回 `package.json`,
+    那会让 WSL / CI 侧当场 127。
+- **指纹按规范化后的内容算**(`\r\n` → `\n`)。Windows 检出是 CRLF、WSL / CI 是 LF,
   不规范化会让同一份契约算出两个哈希 —— 那是 `artifacts.py` 早就踩过的同一个坑,
   `scripts/test_gen_web_schema.py` 专门钉了一条「CRLF 与 LF 同指纹」。

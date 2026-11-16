@@ -34,9 +34,11 @@ schema.d.ts。于是存在一个两头都看不见的缝:
 
 注意事项
 --------
-``web/package.json`` 的 ``gen:api`` 仍然是裸的 ``openapi-typescript`` —— 它**不写指纹**,
-跑完本门禁会红。生成请用本脚本(``scripts/stacks/web.sh`` 已经改成调它),``npm run gen:api``
-只留着给「临时看一眼类型」用。
+``web/package.json`` 的 ``gen:api`` 与 ``scripts/stacks/web.sh`` 现在调的**都是本脚本**
+(2026-11-16 起,``gen:api`` 不再是裸的 ``openapi-typescript``),所以人工生成与门禁生成
+产出同一份带指纹的文件。解释器名按侧取:npm 脚本里写 ``python3``(WSL / CI 侧只有它,
+写 ``python`` 会 exit 127),Windows 本地检出改跑 ``py -3 scripts/gen_web_schema.py``;
+两侧依据与实测记录见 ``docs/pitfalls/web.md``。
 """
 
 from __future__ import annotations
@@ -168,7 +170,7 @@ def check(root: Path = ROOT) -> Result:
         return Result(
             ok=False,
             problems=(
-                f"{SCHEMA} 第一行没有契约指纹(它是旧生成物,或者用 npm run gen:api 生成的)",
+                f"{SCHEMA} 第一行没有契约指纹(它是 2026-11-16 之前的旧生成物,或第一行不是指纹注释)",
                 "跑 python scripts/gen_web_schema.py 重新生成并提交",
             ),
             expected=expected,
