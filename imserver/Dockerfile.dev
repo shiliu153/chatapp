@@ -1,4 +1,6 @@
-FROM ubuntu:24.04
+# L-3:与 imserver/Dockerfile 用同一个 base digest —— 测试镜像与生产镜像跑同一个 Ubuntu
+# 补丁级别,否则「测试绿了、生产红」可能来自系统库差异而不是代码。升级时两处一起改。
+FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build pkg-config git python3 python3-pip \

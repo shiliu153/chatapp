@@ -1,6 +1,8 @@
 services:
   mysql:
-    image: mysql:8.0
+    # L-3:与 deploy/docker-compose.yml.tmpl 的生产版本同一个 digest —— 测试跑在
+    # 与生产同一个小版本的 MySQL 上,迁移/索引行为才可比
+    image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: chatapp_im
@@ -12,7 +14,8 @@ services:
       interval: 3s
       retries: 20
   redis:
-    image: redis:7-alpine
+    # L-3:同上,与生产同一个 redis 版本
+    image: redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     expose: ["6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

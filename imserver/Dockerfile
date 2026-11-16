@@ -1,4 +1,7 @@
-FROM ubuntu:24.04 AS build
+# L-3:base 钉「tag + 多架构 index digest」—— 上游 ubuntu:24.04 是滚动 tag,被重推就会
+# 悄悄换掉构建基线。两个 stage 必须用同一个 digest(否则 build 与 runtime 的 libssl3 等
+# 运行库版本可能不一致);升 Ubuntu 点版本时**两处一起改**,recipe 见 docs/ops/imserver.md §1.2。
+FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8 AS build
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build pkg-config \
@@ -10,7 +13,7 @@ COPY . .
 RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DIM_BUILD_TESTS=OFF \
  && cmake --build build
 
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
 ENV DEBIAN_FRONTEND=noninteractive
 # curl 是运行镜像的必需依赖,不是顺手装的工具:compose 里 imserver 的 healthcheck 就是
 # `curl -fsS http://127.0.0.1:9101/internal/healthz`(见 deploy/docker-compose.yml.tmpl),
