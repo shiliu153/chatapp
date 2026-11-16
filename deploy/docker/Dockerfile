@@ -2,8 +2,10 @@
 #
 # 构建上下文是仓库根目录(见 deploy/docker-compose.yml.tmpl),因此只能 COPY
 # 仓库内路径。依赖装 requirements.lock(精确版本),不装 requirements.txt 的区间。
-# 钉 Debian 12(bookworm):比 floating slim(trixie)更稳,镜像站也一定有
-FROM python:3.11-slim-bookworm
+# 钉 Debian 12(bookworm):比 floating slim(trixie)更稳,镜像站也一定有。
+# L-3:再钉「补丁版本 + 多架构 index digest」—— registry 上同名 tag 被重推也不影响构建结果。
+# 升 Python 补丁版时要同时改这里与 deploy/README.md §12.1 的 recipe。
+FROM python:3.11.18-slim-bookworm@sha256:a83ba18aef0f865b1a4a611c2cf460fe446f2795673bbb9fe43be570439e3b39
 
 # 国内服务器默认走阿里云 PyPI / Debian 镜像;可用 --build-arg 覆盖
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
