@@ -356,6 +356,7 @@ if [ "$ROTATE_SECRETS" = 1 ]; then
     IM_JWT_SECRET=""
     IM_INTERNAL_SECRET=""
     IM_MEDIA_SIGN_SECRET=""
+    REDIS_PASSWORD=""
 fi
 
 SECRET_KEY=${SECRET_KEY:-$(gen_hex 32)}
@@ -365,6 +366,16 @@ IM_DB_PASSWORD=${IM_DB_PASSWORD:-$(gen_hex 12)}
 IM_JWT_SECRET=${IM_JWT_SECRET:-$(gen_hex 32)}
 IM_INTERNAL_SECRET=${IM_INTERNAL_SECRET:-$(gen_hex 32)}
 IM_MEDIA_SIGN_SECRET=${IM_MEDIA_SIGN_SECRET:-$(gen_hex 32)}
+
+# H-1:Redis 口令(第四轮 A2 / 第五轮 H-1)。口令能进数据卷以外的一切地方,轮换安全。
+# REDIS_PASSWORD_NEW 标记「本次是第一次生成」:老部署的 web/worker/imserver 还在用
+# 不带口令的 REDIS_URL,而 compose 不保证因 env_file 内容变化就重建容器(见下方 UP_FLAGS),
+# 所以这一轮必须显式 --force-recreate,否则新口令生效后应用侧全部 AUTH 失败。
+REDIS_PASSWORD_NEW=0
+if [ -z "${REDIS_PASSWORD:-}" ]; then
+    REDIS_PASSWORD=$(gen_hex 12)
+    REDIS_PASSWORD_NEW=1
+fi
 
 # 管理员口令:命令行 > 已保存 > 新生成
 if [ -z "$ADMIN_PASSWORD" ] && [ -f "$ADMIN_TXT" ]; then
@@ -392,6 +403,7 @@ ADMIN_PASSWORD=${ADMIN_PASSWORD:-$(gen_hex 12)}
     printf 'IM_JWT_SECRET=%q\n' "$IM_JWT_SECRET"
     printf 'IM_INTERNAL_SECRET=%q\n' "$IM_INTERNAL_SECRET"
     printf 'IM_MEDIA_SIGN_SECRET=%q\n' "$IM_MEDIA_SIGN_SECRET"
+    printf 'REDIS_PASSWORD=%q\n' "$REDIS_PASSWORD"
     printf 'ADMIN_PHONE=%q\n' "$ADMIN_PHONE"
     printf 'ADMIN_PASSWORD=%q\n' "$ADMIN_PASSWORD"
 } > "$VALUES_FILE"
@@ -432,8 +444,11 @@ DB_PASSWORD=$DB_PASSWORD
 DB_HOST=mysql
 DB_PORT=3306
 DB_SSL_DISABLED=1
-REDIS_URL=redis://redis:6379/0
-BROKER_URL=redis://redis:6379/1
+# H-1:口令走 URL 的 userinfo 段(形如 redis://冒号口令@主机/库,用户名为空)。口令是
+# openssl rand 出来的十六进制,不含需要百分号编码的字符。缓存(DB0)与 Celery broker(DB1)
+# 是同一个 Redis,必须一起改;broker 的环境变量名必须是 BROKER_URL,见 settings.py 的注释。
+REDIS_URL=redis://:$REDIS_PASSWORD@redis:6379/0
+BROKER_URL=redis://:$REDIS_PASSWORD@redis:6379/1
 
 IM_SELF_URL=http://imserver:9101
 IM_SELF_WS_URL=$WS_SCHEME://$PUBLIC_AUTHORITY/im/ws
@@ -478,7 +493,9 @@ IM_LISTEN_WS=0.0.0.0:9100
 IM_LISTEN_HTTP=0.0.0.0:9101
 IM_ALLOW_PUBLIC_BIND=1
 IM_MYSQL_DSN=mysql://imserver:$IM_DB_PASSWORD@mysql:3306/chatapp_im
-IM_REDIS_URL=redis://redis:6379/2
+# H-1:imserver 侧同一个口令(DB2);redis_client.cpp 的 parse_redis_url 支持
+# redis://冒号口令@主机/库 并先 AUTH,所以这里只改配置、不动源码。
+IM_REDIS_URL=redis://:$REDIS_PASSWORD@redis:6379/2
 IM_JWT_SECRET=$IM_JWT_SECRET
 IM_INTERNAL_SECRET=$IM_INTERNAL_SECRET
 IM_MIGRATIONS_DIR=/usr/local/share/imserver/migrations
@@ -561,6 +578,7 @@ HTTPS_PORT=$HTTPS_PORT
 DOCKER_SUBNET=$DOCKER_SUBNET
 MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
 DB_PASSWORD=$DB_PASSWORD
+REDIS_PASSWORD=$REDIS_PASSWORD
 IMSERVER_TAG=local
 PIP_INDEX_URL=$PIP_INDEX_URL
 NPM_REGISTRY=$NPM_REGISTRY
@@ -748,8 +766,12 @@ compose run --rm --no-deps migrate
 
 log "启动应用容器"
 UP_FLAGS=(--no-build --no-deps)
-# 轮换密钥后 env_file 内容变了,显式重建,避免旧进程继续用旧口令
-[ "$ROTATE_SECRETS" = 1 ] && UP_FLAGS+=(--force-recreate)
+# 轮换密钥后 env_file 内容变了,显式重建,避免旧进程继续用旧口令。
+# REDIS_PASSWORD_NEW:老部署第一次拿到 Redis 口令时同理 —— 不重建就还在用不带口令的
+# REDIS_URL,而 redis 侧已经要求 AUTH,应用会全部报错。
+if [ "$ROTATE_SECRETS" = 1 ] || [ "$REDIS_PASSWORD_NEW" = 1 ]; then
+    UP_FLAGS+=(--force-recreate)
+fi
 compose up -d "${UP_FLAGS[@]}" web worker imserver
 wait_for_healthy web 180
 wait_for_healthy imserver 180

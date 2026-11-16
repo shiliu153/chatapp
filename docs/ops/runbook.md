@@ -538,3 +538,27 @@ nginx 的三条硬要求与两个易错点:
 `collectstatic` → 重启 web 与 worker → 生产冒烟。IM 侧按 [imserver.md](imserver.md) 执行镜像替换与
 `readyz` 校验。**部署前必须跑 `python scripts/deploy_gate.py`**(只认合并后 SHA 且该 SHA 的 check 全绿)。
 
+### 10.1 部署后核对单
+
+每次部署、或改过 `secrets/*.env` / 生产 `.env` 之后按顺序过一遍;任何一条不符,先修好再往上叠改动。
+
+| 核对项 | 命令 | 期望 |
+|---|---|---|
+| 存活 / 就绪 | `curl -s https://<域名>/api/v1/readyz` | `status` 为 `ok`,`checks.db` 与 `checks.redis` 都是 `ok`(该探针写入后读回,能证明 Redis 序列化链路没断) |
+| Redis 已开口令 | `docker compose -f /opt/chatapp/docker-compose.yml exec redis redis-cli ping` | `NOAUTH Authentication required`;回 `PONG` 说明口令没生效 |
+| Redis 口令可用 | `docker compose -f /opt/chatapp/docker-compose.yml exec redis sh -c 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping'` | `PONG` |
+| imserver 依赖 | `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9101/internal/readyz` | `200`(503 = MySQL/Redis 连不上,先怀疑 `IM_REDIS_URL` 少了口令) |
+
+Celery 侧确认 worker 真在消费(不是只有 web 绿):`chatapp logs worker` 看任务日志,或在 web 容器里
+`manage.py shell` 入队一条任务。**为什么单列 Redis 口令这两条**:Redis 里放着轮换后的 refresh
+令牌、日活名单、滑卡额度与所有限流计数,是多个安全控制的信任锚(第五轮审计 H-1);
+它一旦退回无口令,不会立刻报错,只会静默失去这一层。
+
+> **两种部署形态要改的地方不同**:`deploy/` 那套是**全 Docker Compose**(口令由
+> `deploy/oneclick.sh` 生成 → `secrets/values.env` → 渲染进 `docker-compose.yml` 与两份 `*.env`);
+> 现网(`chat.shiliu153.cn`)是**宝塔 + supervisor + 本机 MySQL/Redis + imserver 容器**
+> (见 [deploy/README.md](../../deploy/README.md) §11),开口令要改宿主机 `redis.conf` 的
+> `requirepass`、重启 redis、再改生产 `.env` 的 `REDIS_URL` / `BROKER_URL` 与 imserver 容器的
+> `IM_REDIS_URL`,最后重启 web / worker / imserver。**仓库里的模板改动只覆盖前者**,现网那一步是
+> 手工动作,不能靠合并代码完成。
+
