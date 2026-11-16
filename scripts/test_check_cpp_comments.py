@@ -317,7 +317,7 @@ class ViolationTests(SampleCase):
         self.assertIn(f"imserver/src/blank.h:{self.find_line(body, 'void separated')}:", out)
 
     def test_block_inside_function_body(self):
-        """块落进函数体:分隔线缩进 ≥4 空格判红(现库 637 个块没有一个在函数体里)。"""
+        """块落进函数体:分隔线缩进 ≥4 空格判红(现库全部注释块都在函数体外)。"""
         body = (
             header("src/inside.cpp")
             + block("外层的函数")
@@ -330,6 +330,10 @@ class ViolationTests(SampleCase):
         self.assertEqual(code, 1)
         self.assertIn("落进了函数体", out)
         self.assertIn(f"imserver/src/inside.cpp:{self.find_line(body, '函数体里的块') - 1}:", out)
+        # 提示语里不许再写死基线个数(「现库 N 个块」那种字面量):每加一个 C++ 函数就漂
+        # 一次,而 facts.py 的哨兵只覆盖 docs/**,漂了没人会发现。判据不钉具体值 —— 钉值
+        # 本身就是同一种病 —— 只要求「现库」后面不跟数字。
+        self.assertNotRegex(out, r"现库\s*\d")
 
     def test_missing_header(self):
         """缺文件头:文件直接从 ``#include`` 开始。"""
@@ -451,7 +455,10 @@ class ToolingTests(SampleCase):
         self.assertIn("解析失败", err)
 
     def test_repository_itself_is_green(self):
-        """真实 ``imserver/``(67 个文件 / 637 个块)必须零输出零退出 —— 门禁的第一口径是零误报。"""
+        """真实 ``imserver/`` 必须零输出零退出 —— 门禁的第一口径是零误报。
+
+        文件数与块数不写在这里:每次加 C++ 代码都会变,要现算就 ``--verbose``。
+        """
         if not (check_cpp_comments.DEFAULT_ROOT / "src").is_dir():
             self.skipTest("没有真实仓库内容(只跑了 scripts/ 的副本)")
         out, err = io.StringIO(), io.StringIO()
