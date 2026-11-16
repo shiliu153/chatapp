@@ -27,6 +27,7 @@
 #include <unordered_set>
 
 #include "store/stmt.h"
+#include "util/fulltext.h"
 #include "util/like.h"
 
 namespace {
@@ -492,7 +493,7 @@ void MessageRepo::delete_for_user(MysqlPool::Lease& lease, uint64_t uid) {
 // 函数简介     关键词搜索我参与的未撤回文本消息
 // 参数说明     lease            借出的数据库连接 事务边界由调用方决定
 //              uid              请求者 user_id 只能搜到自己参与的会话
-//              keyword          用户关键词 先 like_pattern 转义再 lease.escape 处理引号
+//              keyword          用户关键词 任一词≥2字符走 FULLTEXT 筛选 全单字退回 LIKE 全扫
 //              before_id        游标 只取 msg_id 小于它的消息 0 表示第一页
 //              limit            最多返回条数 内部夹在 1..100
 // 返回参数     std::vector<MessageRow>  命中的消息行 新到旧
@@ -504,7 +505,20 @@ std::vector<MessageRow> MessageRepo::search(MysqlPool::Lease& lease, uint64_t ui
                                             int limit) {
   limit = std::clamp(limit, 1, 100);
   const std::string owner = std::to_string(uid);
-  // like_pattern 先转义 %/_/!,再由 escape() 处理引号与反斜杠,两处各管一层。
+  // 三条路,顺序不能反(M-2 复审):
+  // ① 关键词剥完没有可查的词(纯操作符,例如 `+-`)→ 直接无命中,不发起查询;
+  const std::string phrase = boolean_phrase(keyword);
+  if (phrase.empty()) {
+    return {};
+  }
+  // ② 全是单字(按 UTF-8 码点判,不是字节)→ **不加 MATCH**。ngram 最小词长 2,单字查询
+  //    在 MATCH 下必然 0 行,而改前 `LIKE '%火%'` 是搜得到的 —— 这种关键词退回改前的
+  //    全扫路径,结果集逐条不变;成本与改前一致,仍受 §16.5 的 10 次/分钟压着。
+  // ③ 至少有一个词 ≥2 字符 → MATCH 收窄 + LIKE 收口(下面的两条条件)。
+  const bool use_match = has_indexable_term(keyword);
+  // 三层转义各管一边:boolean_phrase 挡 BOOLEAN MODE 的操作符并切成多个短语,
+  // like_pattern 挡 LIKE 的 %/_/!,escape() 处理引号与反斜杠(两个字符串各过一遍)。
+  const std::string escaped_phrase = use_match ? lease.escape(phrase) : std::string();
   const std::string pattern = lease.escape(like_pattern(keyword));
   std::string sql =
       "SELECT " + std::string(kColumnsM) +
@@ -521,6 +535,14 @@ std::vector<MessageRow> MessageRepo::search(MysqlPool::Lease& lease, uint64_t ui
       " AND b.peer_id=IF(c.user_a=" + owner + ",c.user_b,c.user_a)) ";
   if (before_id > 0) {
     sql += "AND m.msg_id<" + std::to_string(before_id) + " ";
+  }
+  // 有可交给索引的词时两条一起才是「既降扫描量、又不改可见性」:
+  // ① MATCH ... IN BOOLEAN MODE 用迁移 009 的 ngram FULLTEXT 索引(ft_message_body)先把候选行
+  //    从「我参与的全部文本消息」压到「关键词命中索引的消息」,EXPLAIN 是 type=fulltext;
+  // ② LIKE 留在后面做精确判定 —— ngram 按双字切词,带空格的词、`%` 这类标点会让 MATCH
+  //    命中得比要的宽,所以 MATCH 只当前置筛选(超集),LIKE 保证结果集与改前逐条一致。
+  if (use_match) {
+    sql += "AND MATCH(m.body) AGAINST('" + escaped_phrase + "' IN BOOLEAN MODE) ";
   }
   sql += "AND m.body LIKE '" + pattern + "' ESCAPE '!' "
          "ORDER BY m.msg_id DESC LIMIT " + std::to_string(limit);
@@ -539,7 +561,7 @@ std::vector<MessageRow> MessageRepo::search(MysqlPool::Lease& lease, uint64_t ui
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     关键词搜索我参与的未撤回文本消息 自行借连接
 // 参数说明     uid              请求者 user_id
-//              keyword          用户关键词 内部按 LIKE 转义
+//              keyword          用户关键词 任一词≥2字符走 FULLTEXT 筛选 全单字退回 LIKE 全扫
 //              before_id        游标 只取 msg_id 小于它的消息 0 表示第一页
 //              limit            最多返回条数 内部夹在 1..100
 // 返回参数     std::vector<MessageRow>  命中的消息行 新到旧
