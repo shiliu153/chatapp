@@ -4,6 +4,7 @@ import { http } from '@/api/http'
 import { parseApiError } from '@/api/error'
 import { sessionEvents } from '@/api/session-events'
 import { getImClient } from '@/im/client'
+import { CHAT_IMAGE_LOCAL_GONE_TEXT } from '@/im/self/image'
 import { CHAT_VOICE_LOCAL_GONE_TEXT } from '@/im/self/voice'
 import { ChatMessageKind, SYSTEM_NOTICE_PEER_ID } from '@/im/types'
 import type {
@@ -180,6 +181,37 @@ export const useChatStore = defineStore('chat', () => {
 
   function messagesOf(peerId: string): ChatMessage[] {
     return messages.value[peerId] ?? []
+  }
+
+  /**
+   * 从列表里摘掉一条(重发前清掉旧的失败气泡;成功的消息由发送路径重新上屏)。
+   *
+   * 只在「确认能重发」之后调用 —— 顺序反过来就会出现「气泡没了、消息也没发出去」,
+   * 那正是 410 号单要修的「点了没反应」。
+   */
+  function removeMessage(peerId: string, msgId: string): void {
+    messages.value = {
+      ...messages.value,
+      [peerId]: messagesOf(peerId).filter((item) => item.msgId !== msgId),
+    }
+  }
+
+  /**
+   * 把图片气泡标成「本地文件已失效」:气泡留着(用户得知道这条没发出去),
+   * 但摘掉「重发」按钮(410 号单)。
+   *
+   * 为什么不是直接删掉气泡:删掉就等于「点了重发,消息凭空消失」,用户既没发出去,
+   * 也不知道该重新选图;留着 + 写明原因才能让下一步动作用户自己做。
+   */
+  function markLocalFileGone(message: ChatMessage): void {
+    messages.value = {
+      ...messages.value,
+      [message.peerId]: messagesOf(message.peerId).map((item) =>
+        item.msgId === message.msgId
+          ? { ...item, isPending: false, isFailed: true, localFileGone: true }
+          : item,
+      ),
+    }
   }
 
   function setLocalUnread(peerId: string, count: number): void {
@@ -715,8 +747,25 @@ export const useChatStore = defineStore('chat', () => {
    * 签名 URL,拿它重发等于重发一个快过期的地址(而转码失败的语音根本没有 `url`)。
    * Blob 只活在内存里,刷新/换页之后就没了 —— 这种情况下把气泡留在原地并抛出
    * `CHAT_VOICE_LOCAL_GONE_TEXT`,由 ChatPage 提示「请重新录制」,而不是点了没反应。
+   *
+   * 图片从 410 号单起走**同一套口径**:先确认本地 `File` 还在,再动消息列表。
+   * 顺序是硬约束:文件已经失效时若先把消息摘掉再 `return`,用户看到的就是
+   * 「点了重发,气泡消失、什么都没发出去」—— 界面上一点反馈都没有,只会反复点。
+   * 现在的做法是抛出 `CHAT_IMAGE_LOCAL_GONE_TEXT`(ChatPage 原样 toast),
+   * 并把气泡标成不可重试(见 `markLocalFileGone`)。
    */
   async function resend(message: ChatMessage): Promise<void> {
+    if (message.kind === 'image') {
+      const file = takePendingFile(message.msgId)
+      if (!file) {
+        markLocalFileGone(message)
+        throw new Error(CHAT_IMAGE_LOCAL_GONE_TEXT)
+      }
+      removeMessage(message.peerId, message.msgId)
+      // 重新上传:成功了会就地换成真实消息;失败则占位回到可重试的失败态
+      await sendImage(message.peerId, file)
+      return
+    }
     if (message.kind === 'voice') {
       const pendingVoice = pendingVoices.get(message.msgId)
       if (!pendingVoice) throw new Error(CHAT_VOICE_LOCAL_GONE_TEXT)
@@ -728,16 +777,9 @@ export const useChatStore = defineStore('chat', () => {
       await sendVoice(message.peerId, pendingVoice.blob, pendingVoice.durationMs)
       return
     }
-    const list = messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId)
-    messages.value = { ...messages.value, [message.peerId]: list }
+    removeMessage(message.peerId, message.msgId)
     if (message.kind === 'sticker' && message.stickerId) {
       await sendSticker(message.peerId, message.stickerId)
-      return
-    }
-    if (message.kind === 'image') {
-      const file = takePendingFile(message.msgId)
-      if (!file) return
-      await sendImage(message.peerId, file)
       return
     }
     await sendText(message.peerId, message.text)

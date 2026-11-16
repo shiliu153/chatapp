@@ -4,6 +4,7 @@ import AppAvatar from '@/components/AppAvatar.vue'
 import MessageImage from './MessageImage.vue'
 import MessageVoice from './MessageVoice.vue'
 import { stickerById, UNKNOWN_STICKER_LABEL } from './stickers'
+import { CHAT_IMAGE_LOCAL_GONE_TEXT } from '@/im/self/image'
 import { ChatMessageKind } from '@/im/types'
 import type { ChatMessage } from '@/im/types'
 
@@ -232,13 +233,24 @@ const quoteText = computed(() => {
         <span v-else class="message-bubble__text">{{ props.message.text }}</span>
 
         <button
-          v-if="props.message.isFailed"
+          v-if="props.message.isFailed && !props.message.localFileGone"
           type="button"
           class="message-bubble__retry"
           @click="$emit('retry')"
         >
           重发
         </button>
+        <!--
+          本地文件已失效(410 号单):不画「重发」按钮 —— 再点也只会再抛一次同一句话。
+          改成写明原因,让用户知道该重新选图,而不是反复点一个永远没反应的按钮。
+        -->
+        <span
+          v-else-if="props.message.localFileGone"
+          class="message-bubble__gone"
+          data-testid="local-file-gone"
+        >
+          {{ CHAT_IMAGE_LOCAL_GONE_TEXT }}
+        </span>
         <span v-else-if="props.message.isPending" class="message-bubble__pending">
           {{ pendingLabel }}
         </span>
@@ -395,6 +407,14 @@ const quoteText = computed(() => {
   color: var(--color-bg-card);
   font-size: var(--text-badge);
   cursor: pointer;
+}
+/* 「本地文件已失效」的说明:占「重发」的同一位置,但只说明原因、不可点 */
+.message-bubble__gone {
+  flex: none;
+  max-width: 180px;
+  font-size: var(--text-badge);
+  opacity: 0.85;
+  text-align: right;
 }
 /* 只有悬停/聚焦时才露出,平时不干扰阅读 */
 .message-bubble__more {

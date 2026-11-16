@@ -138,7 +138,9 @@ async function onMenuAction(
     await store.deleteMessage(target).catch(() => {})
     return
   }
-  await store.resend(target).catch(() => {})
+  // 菜单里的「重发」与气泡上的「重发」**必须走同一个入口**:这里原来是一句静默的
+  // `.catch(() => {})`,于是从菜单点重发时「本地文件已失效」被吞掉,又变成点了没反应(410 号单)
+  await onRetry(target)
 }
 
 function pickEmoji(emoji: string) {
@@ -481,11 +483,12 @@ async function onSend() {
 }
 
 async function onRetry(message: ChatMessage) {
-  // 语音的重试是「重新上传本地 Blob」(M-3):Blob 已不在内存里时 store 会抛出一句
-  // 可直接展示的话(「本地录音已失效,请重新录制」),这里必须说出来 ——
-  // 点了「重发」却什么都不发生,用户只会以为按钮坏了。
+  // 图片与语音的重试都是「重新上传本地内容」(语音 M-3 / 图片 410 号单):本地那份已经不在
+  // 内存里时 store 会抛出一句可直接展示的话(「图片已失效,请重新选择」/「本地录音已失效,
+  // 请重新录制」),这里必须说出来 —— 点了「重发」却什么都不发生,用户只会以为按钮坏了。
+  // 其它原因的重发失败(网络、服务端拒绝)同样要说:静默 catch 是同一个坑。
   await store.resend(message).catch((error) => {
-    if (message.kind === ChatMessageKind.voice) toast.show(parseApiError(error).message)
+    toast.show(parseApiError(error).message)
   })
 }
 
