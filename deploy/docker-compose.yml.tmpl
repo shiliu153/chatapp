@@ -8,7 +8,10 @@
 #   - 两张网络(M-6):default 负责对外(nginx/证书/出站),backend 放 MySQL 与 Redis,
 #     只有 web/worker/imserver 同时接入。nginx 与 certbot 没有 backend 路由,
 #     即使被攻陷也连不到 3306/6379;
-#   - 每个服务都有内存与进程上限(M-5):单个服务失控不会把 2C2G 整机拖死。
+#   - 每个服务都有内存与进程上限(M-5):单个服务失控不会把 2C2G 整机拖死;
+#   - 外部镜像一律钉成「具体版本 tag + digest」(L-3):tag 只用来读,digest 才是事实 ——
+#     registry 上同名 tag 被重推也不影响已部署内容。换版本要改这里并重跑脚本,
+#     升级 recipe 见 deploy/README.md §12(用 buildx imagetools 取新 digest,别手抄)。
 name: chatapp
 
 x-app: &app
@@ -31,7 +34,8 @@ x-app: &app
 
 services:
   mysql:
-    image: mysql:8.0
+    # L-3:钉版本 + digest(多架构 index digest,amd64/arm64 都能拉)
+    image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -65,7 +69,8 @@ services:
         max-file: "5"
 
   redis:
-    image: redis:7-alpine
+    # L-3:钉版本 + digest;7-alpine 是滚动 tag,写死 7.4.12-alpine 才知道自己跑的是哪版
+    image: redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
     # H-1(第四轮 A2 / 第五轮 H-1):Redis 里放着轮换后的 refresh 令牌、DAU 名单、
     # 滑卡额度与所有限流计数,是多个安全控制的信任锚 —— 同网任一容器被拿下即可读改,
     # 所以必须开口令。口令由 oneclick.sh 生成并写进 secrets/values.env,
@@ -107,7 +112,8 @@ services:
 
   # 建 chatapp_im 库与 imserver 账号;每次部署都跑,SQL 幂等。
   db-init:
-    image: mysql:8.0
+    # 与 mysql 服务同一个镜像(同一 digest),客户端版本不会与服务器版本漂移
+    image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
     depends_on:
       mysql:
         condition: service_healthy
@@ -262,7 +268,8 @@ services:
 
   # 只在签发/续期时用 `docker compose --profile tools run --rm certbot ...` 调用
   certbot:
-    image: certbot/certbot:latest
+    # L-3:原来是最糟的 `latest`(完全可变)—— 钉到具体版本 + digest
+    image: certbot/certbot:v5.10.0@sha256:c5698da859429ccee0fcc299a8000368198222d1f9e789ab6e388b491e8ce06d
     profiles: ["tools"]
     volumes:
       - chatapp_certs:/etc/letsencrypt

@@ -34,6 +34,11 @@
 > gunicorn worker 被两路转码占满即全站排队（M-3，承接并升档）；
 > ③ **Redis 依然是信任锚**（H-1 承接）：口令仍未开，而本轮又往 Redis 里放了三类敏感物料
 > ——轮换后的 refresh 令牌（宽限窗口内）、日活集合里的用户 id、滑卡额度计数。
+>
+> **整改状态（后续回填，2026-11-16 当日）**：B / C / D 三批已闭环（#376 / #375 / #377）；
+> A（H-1）的 **Compose 侧已落地**（#371 → #380 → `8c01039`），**现网那台本机 Redis 仍未开口令**；
+> E 批的 L-3 已闭环（#381），L-7 / L-8 与 F 批未排期。逐项状态以 §3 风险总表与 §6 执行进度为准，
+> 正文其余段落是审计当时的快照（例如「`deploy/oneclick.sh:481` 仍是 `redis://redis:6379/2`」现在已不成立）。
 
 ---
 
@@ -62,7 +67,7 @@
 | L-1 内部 HMAC 无 nonce | 记录 | **不变**：`notifications/internal.py:87-118` 仍只校验 ±300 秒时间戳 |
 | L-2 匿名 `/client-errors` 写 error 日志 | 已修 | **成立**（日志降级 + 采样） |
 | L-3 分页游标不签名 | 记录 | **不变**，且本轮新增两个游标接口（点赞列表 / 我的收藏）沿用同一实现 |
-| L-4 Actions 与镜像可变 tag | 记录 | **一半改善**：Actions 全部 pin 到提交 SHA；**镜像仍是裸 tag**，其中 `certbot/certbot:latest` 是彻底可变的（L-3） |
+| L-4 Actions 与镜像可变 tag | 记录 | **已修**：Actions 全部 pin 到提交 SHA；镜像也钉到版本 + digest（L-3，#381） |
 | L-5 关注接口存在「账号是否存在」口径 | 记录 | **不变**（与 `GET /users/{id}` 同口径） |
 | L-6 语音同步转码 | 记录 | **恶化**：资料语音自我介绍把同一条同步转码路径复制到了第二个入口，且一次上传 3 个子进程（M-3） |
 | L-7 管理员口令打印到 stdout | 记录 | **不变**：`deploy/oneclick.sh:926` 仍打印 `$ADMIN_PASSWORD`（L-4） |
@@ -133,13 +138,13 @@
 
 | ID | 等级 | 标题 | 主要影响 | 状态 |
 |---|---|---|---|---|
-| H-1 | 高危 | Redis 仍无口令，且本轮新增三类敏感物料 | 同网容器被拿下后：① 读走轮换后的 refresh 令牌（30 天）；② 拿 DAU 名单（用户 id 集合）；③ 改准入快照 / 额度计数 | **承接（未修）**：`requirepass` 仍未开（§4.1） |
+| H-1 | 高危 | Redis 仍无口令，且本轮新增三类敏感物料 | 同网容器被拿下后：① 读走轮换后的 refresh 令牌（30 天）；② 拿 DAU 名单（用户 id 集合）；③ 改准入快照 / 额度计数 | **Compose 侧已修**：`--requirepass` + 缓存 / broker / imserver 三处 URL 同改（#371 → #380 → `8c01039`）；**现网（宝塔 + 本机 Redis）仍未执行** —— 那是服务器上的手工动作，口径见 `docs/ops/runbook.md` §10.1 |
 | M-1 | 中危 | 四个新接口没有按用户限流 | 单账号可高频打聚合 / 写库 + 入队的接口；`DELETE /devices/{端}` 每次入队一个 Celery 任务 | **已修**：四个 scope（`stats` 240/h、`devices_read` 480/h、`devices_write` 30/h、`quota` 480/h）+ 四个视图挂限流 + 四份接口文档（#372 → #376 → `e986150`） |
 | M-2 | 中危 | 聊天搜索是前导通配 `LIKE '%kw%'`，`im_message` 正文无索引 | 单账号 60 次/分钟即可让 2C2G 的 MySQL 持续全扫自己全部消息 | **已降频**：搜索桶 60 次/分钟 burst 20 → 10 次/分钟 burst 5，`limit` 上限 50 → 20（#374 → #375 → `358d5be`）；**扫描量本身未降**（不加索引），FULLTEXT 仍待排期 |
 | M-3 | 中危 | 语音转码仍在请求路径，且本轮多了一个入口 | 一次上传 3 个子进程（各 15 秒上限）；两路并发即占满两个 worker | **已加闸**：`config/transcode_gate.py` 全局单槽，抢不到立即 503 + `50302` + `Retry-After`，两个入口共用一个槽（#373 → #377 → `417f013`）；异步化仍待排期 |
 | L-1 | 低危 | 内部 HMAC 无 nonce | 同网可在 300 秒窗口内重放；被 `msg_id` 幂等压到「重复入队」 | 承接 |
 | L-2 | 低危 | 分页游标不签名 | 客户端可伪造 `(时间, 主键)`，只影响自己可见的分页位置 | 承接 |
-| L-3 | 低危 | 镜像仍是可变 tag（`certbot/certbot:latest` 最糟） | 供应链漂移；Actions 已 pin 到 SHA，镜像没跟上 | 半承接 |
+| L-3 | 低危 | 镜像仍是可变 tag（`certbot/certbot:latest` 最糟） | 供应链漂移；Actions 已 pin 到 SHA，镜像没跟上 | **已修**：三个外部镜像钉成「版本 tag + 多架构 digest」（#381）；`Dockerfile` 的 `FROM` 仍是移动 tag，另开单 |
 | L-4 | 低危 | 管理员口令打印到 stdout + `admin.txt` 明文 | 部署日志 / 录屏泄露运营口令 | 承接 |
 | L-5 | 低危 | `POST /push/devices` 不校验 `registration_id` 归属 | 知道别人设备 id 即可抢归属（推送 `off` 时影响有限） | 承接（已留痕 + 通知） |
 | L-6 | 低危 | refresh 宽限复用把轮换后的令牌明文放进 Redis | 旧 refresh 在 60 秒内仍可换出新令牌；Redis 可读即拿到新令牌 | 新增 |
@@ -300,7 +305,7 @@ imserver / worker / 未来新增容器都在同一个 Redis 上，攻击面并�
 |---|---|---|---|
 | L-1 | [chatapp/notifications/internal.py:87-118](../../chatapp/notifications/internal.py)、[imserver/src/service/push_notifier.cpp](../../imserver/src/service/push_notifier.cpp) | 内部 HMAC 只校验 ±300 秒时间戳，无 `(timestamp, signature)` 去重缓存 | 记录（承接）；影响被 `msg_id` 幂等压到「重复入队」 |
 | L-2 | [chatapp/config/cursor.py](../../chatapp/config/cursor.py) | 游标是 base64 明文 `(时间, 主键)`，无签名；本轮新增的点赞列表 / 我的收藏 / 关注流沿用 | 记录（承接）：泄露的只是「某条记录的时间与主键」，查询始终带可见性过滤 |
-| L-3 | [deploy/docker-compose.yml.tmpl:34](../../deploy/docker-compose.yml.tmpl)、[:68](../../deploy/docker-compose.yml.tmpl)、[:92](../../deploy/docker-compose.yml.tmpl)、[:247](../../deploy/docker-compose.yml.tmpl) | 镜像仍是 `mysql:8.0` / `redis:7-alpine` / **`certbot/certbot:latest`**；Actions 已在本轮全部 pin 到提交 SHA（改善） | 记录；建议把三个镜像钉到 digest，`latest` 至少钉到具体版本 |
+| L-3 | [deploy/docker-compose.yml.tmpl](../../deploy/docker-compose.yml.tmpl) | 镜像仍是 `mysql:8.0` / `redis:7-alpine` / **`certbot/certbot:latest`**；Actions 已在本轮全部 pin 到提交 SHA（改善） | **已修（#381）**：钉成 `mysql:8.0.46@sha256:7dcddc01…`（`mysql` 与 `db-init` 同一 digest）、`redis:7.4.12-alpine@sha256:7f7d30b7…`、`certbot/certbot:v5.10.0@sha256:c5698da8…`；取的是多架构 index digest。升级 recipe 见 `deploy/README.md` §12.1。**`deploy/docker/*.Dockerfile` 的 `FROM` 仍是移动 tag**，另开单 |
 | L-4 | [deploy/oneclick.sh:400-404](../../deploy/oneclick.sh)、[deploy/oneclick.sh:926](../../deploy/oneclick.sh) | 部署结束把管理员口令打印到 stdout，`secrets/admin.txt` 明文（600） | 记录（承接）；建议只打「见 `secrets/admin.txt`」+ 首次登录强制改密 |
 | L-5 | [chatapp/notifications/views.py:53-90](../../chatapp/notifications/views.py) | `registration_id` 易主照旧允许，只留痕 + 给原账号发通知；归属校验仍未加 | 记录（承接第四轮 M-5 的第二个选项）：推送 `PUSH_PROVIDER=off` 时只影响归属 |
 | L-6 | [chatapp/accounts/views.py:376-407](../../chatapp/accounts/views.py)、[:486-487](../../chatapp/accounts/views.py)、[chatapp/config/settings.py:569](../../chatapp/config/settings.py) | 刷新宽限：旧 refresh 被拉黑后 60 秒内仍能通过 `auth:refresh_grace:{jti}` 换出新令牌；新 refresh 明文存 Redis | 记录；宽限期是「多标签页并发刷新」的必要妥协，但**必须与 A2（Redis 口令）一起看**：它把一个长期凭证放进了无口令的 Redis |
@@ -364,19 +369,20 @@ imserver / worker / 未来新增容器都在同一个 Redis 上，攻击面并�
 
 | 批次 | 内容 | 项 | 规模 |
 |---|---|---|---|
-| A | Redis 硬化（`requirepass` 落地，三处配置同改） | H-1 | 部署脚本 + backend + imserver 配置，**一条栈做不完 → 拆两个工单**（`deploy+backend`、`imserver`）· **未开单**（`deploy/**` 只能人改，#371 挂着） |
+| A | Redis 硬化（`requirepass` 落地，三处配置同改） | H-1 | 部署脚本 + backend + imserver 配置 · **Compose 侧已闭环**（#371 → #380 → `8c01039`，只改配置没动业务代码）；**现网（宝塔 + 本机 Redis）待执行** |
 | B | 四个新接口补按用户限流 | M-1 | 后端（`settings` + 四个视图 + 三份文档）· **已闭环**（#372 → #376） |
 | C | 聊天搜索降成本（FULLTEXT 或时间窗或压额度） | M-2 | imserver + `docs/ops` · **已闭环「压额度」这一档**（#374 → #375）；FULLTEXT 仍待排期 |
 | D | 语音转码挪出请求路径（Celery 或全局并发闸） | M-3 | 后端 + `docs/pitfalls` · **已闭环「全局并发闸」这一档**（#373 → #377）；Celery 异步化仍待排期 |
-| E | 小修 | L-3、L-7、L-8 | 部署（镜像 digest）/ 后端+nginx（语音签名）/ CI（外部数据白名单），分别开单 |
+| E | 小修 | L-3、L-7、L-8 | 部署（镜像 digest）/ 后端+nginx（语音签名）/ CI（外部数据白名单），分别开单 · **L-3 已闭环**（#381）；L-7、L-8 未排期 |
 | F | 记录项 | L-1、L-2、L-4、L-5、L-6 | 文档（`docs/pitfalls` / `docs/ops`）记录为已知风险，不排期 |
 
 **建议顺序**：A → B → D → C。A 未闭环前，任何「新部署到公网」都不要做；
 B/D 都是「一个已认证账号即可触发」的那一档，优先于 C（C 需要历史数据量才有量级）。
 
-**执行进度（2026-11-16 当日）**：B / C / D 三批已按上面的拆法各开一单并合并（#376 / #375 / #377），
-**A（H-1 Redis 口令）仍未开**——它只能由主人改 `deploy/**`，工单 #371 挂着；
-E 与 F 尚未排期。
+**执行进度（2026-11-16 当日）**：B / C / D 三批已按上面的拆法各开一单并合并（#376 / #375 / #377）；
+**A（H-1 Redis 口令）的 Compose 侧已落地**（#371 → #380 → `8c01039`），**现网那台本机 Redis 仍未开口令** ——
+那是服务器上的手工动作，仓库里改不到，口径与核对清单见 `docs/ops/runbook.md` §10.1；
+E 批的 L-3 已闭环（#381），L-7 / L-8 与 F 批尚未排期。
 
 ---
 
