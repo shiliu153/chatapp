@@ -16,6 +16,10 @@ import { PROFILE_VOICE_MAX_MS, PROFILE_VOICE_MAX_SECONDS } from './voiceIntro'
  * 「已保存」(试听 / 重录 / 删除)。录音状态机复用 `useVoiceRecorder`(资料侧只改上限
  * 参数),录音条是 `VoiceRecordBar`,播放条是 `MessageVoice` —— 三件都不复制第二份。
  *
+ * 转码(M-3):保存时服务端可能回 202 受理(转码槽被占),这段时间旧语音已经下线,
+ * 卡片显示「正在转码」并锁住按钮;`ready` 才变成播放条,`failed` 提示原因并**保留本地
+ * 草稿**(再点一次「保存语音」= 重试)。服务端回 404 表示没有语音,按「未录制」渲染。
+ *
  * 数据只经由 store(`uploadVoice` / `removeVoice`),本组件不直接调 http。
  */
 const store = useProfileStore()
@@ -33,7 +37,7 @@ const saved = computed(() => store.profile?.voice ?? null)
 
 const recorder = useVoiceRecorder({
   maxDurationMs: PROFILE_VOICE_MAX_MS,
-  enabled: () => canRecordVoice() && !busy.value,
+  enabled: () => canRecordVoice() && !busy.value && !store.voiceProcessing,
   // 资料侧的「发送」= 先留在本地试听,用户确认后再上传(server 只收 file)
   onSend: async (blob, durationMs) => {
     setLocal(blob, durationMs)
@@ -106,9 +110,15 @@ async function onSave(): Promise<void> {
   busy.value = true
   hint.value = ''
   try {
-    await store.uploadVoice(blob)
-    clearLocal()
-    hint.value = '语音已保存'
+    // 202 时这里会一直等到转码落定(store 内部轮询),期间 store.voiceProcessing 为 true
+    const outcome = await store.uploadVoice(blob)
+    if (outcome === 'ready') {
+      clearLocal()
+      hint.value = '语音已保存'
+      return
+    }
+    // 轮询回 404:服务端查不到这段语音,不能谎报「已保存」;草稿留着可再存一次
+    hint.value = '没有查到这段语音，请重新保存或重录'
   } catch (e) {
     // 失败保留本地录音,原地点「保存语音」可重试(不必重录)
     hint.value = parseApiError(e).message
@@ -158,8 +168,18 @@ onBeforeUnmount(() => {
     />
 
     <template v-else>
+      <!-- 转码中(202 受理):旧语音已下线、新地址还没出来,这行只表达「在等」 -->
+      <div
+        v-if="store.voiceProcessing"
+        class="voice-card__row voice-card__row--pending"
+        data-testid="voice-processing"
+        aria-live="polite"
+      >
+        <span class="voice-card__status">正在转码，大约几秒…</span>
+      </div>
+
       <!-- 刚录好、还没上传:可以试听,再决定保存还是重录 -->
-      <div v-if="localBlob" class="voice-card__row voice-card__row--local">
+      <div v-else-if="localBlob" class="voice-card__row voice-card__row--local">
         <MessageVoice
           :url="localUrl || null"
           :duration-ms="localDurationMs"
@@ -206,7 +226,7 @@ onBeforeUnmount(() => {
         <button
           type="button"
           class="voice-card__mic"
-          :aria-disabled="!canRecordVoice()"
+          :aria-disabled="!canRecordVoice() || store.voiceProcessing"
           aria-label="录制语音自我介绍"
           @click="onStartRecording"
         >
@@ -247,7 +267,8 @@ onBeforeUnmount(() => {
   gap: var(--space-md);
 }
 .voice-card__row--local,
-.voice-card__row--saved {
+.voice-card__row--saved,
+.voice-card__row--pending {
   flex-wrap: wrap;
 }
 .voice-card__mic {

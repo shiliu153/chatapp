@@ -437,6 +437,52 @@ describe('chat store', () => {
     expect(store.messagesOf('u8').some((item) => item.msgId === 'real-2')).toBe(true)
   })
 
+  it('sendVoice 转码中:202 受理期间占位气泡标成 voiceTranscoding(文案换「转码中」)', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    let transcoding = false
+    client.sendVoice = vi.fn(async (...args: unknown[]) => {
+      // 第 5 个参数是 M-3 的 UI 回调:客户端在 202 受理、开始等转码时调用它
+      const options = args[4] as { onTranscoding?: () => void } | undefined
+      options?.onTranscoding?.()
+      transcoding = store.messagesOf('u8').some((item) => item.voiceTranscoding === true)
+      return msg({ msgId: 'real-3', peerId: 'u8', isSelf: true, kind: 'voice' as never })
+    })
+
+    await store.sendVoice('u8', new Blob(['a']), 3000)
+
+    expect(transcoding).toBe(true)
+    // 转换完成后气泡被真实消息替换,标记不该留在正式消息上
+    const voices = store.messagesOf('u8').filter((item) => item.kind === 'voice')
+    expect(voices[0].msgId).toBe('real-3')
+    expect(voices[0].voiceTranscoding).toBeUndefined()
+  })
+
+  it('resend 语音但本地录音已失效:抛「请重新录制」,气泡留在原地', async () => {
+    const { client } = fakeClient()
+    setImClientFactory(() => client as unknown as ImClient)
+    const store = useChatStore()
+    // 刷新后重开的会话就是这样:历史里的语音气泡没有本地 Blob
+    store.messages = {
+      u8: [
+        msg({
+          msgId: 'old-1',
+          peerId: 'u8',
+          isSelf: true,
+          isFailed: true,
+          kind: 'voice' as never,
+        }),
+      ],
+    }
+    const failed = store.messagesOf('u8')[0]
+
+    await expect(store.resend(failed)).rejects.toThrow('本地录音已失效')
+    // 气泡不能「点了就没」:否则用户既没发出去、也没法重录
+    expect(store.messagesOf('u8')).toHaveLength(1)
+    expect(client.sendVoice).not.toHaveBeenCalled()
+  })
+
   it('sendImage 先插入 isPending 占位,成功后替换成真实消息', async () => {
     const { client } = fakeClient()
     setImClientFactory(() => client as unknown as ImClient)

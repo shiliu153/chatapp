@@ -49,6 +49,12 @@ export interface QuoteTarget {
   text: string
 }
 
+/** 发送语音时的 UI 回调(M-3):上传被 202 受理、开始等转码时触发一次。 */
+export interface SendVoiceOptions {
+  /** 进入「转码中」状态:store 用它把占位气泡的文案从「发送中…」换成「转码中…」 */
+  onTranscoding?: () => void
+}
+
 export interface ChatMessage {
   msgId: string
   /** 对端 IM id,如 'u9' */
@@ -73,6 +79,13 @@ export interface ChatMessage {
   voiceUrl?: string | null
   /** 语音时长(毫秒),气泡宽度与秒数展示用 */
   voiceDurationMs?: number
+  /**
+   * 语音还在服务端转码(M-3):上传被 202 受理、正按 `retry_after` 轮询状态。
+   *
+   * 只出现在本地的乐观占位气泡上(服务端不下发这个字段)。UI 用它把「发送中…」
+   * 换成「转码中…」——同一个 loading 位,只是告诉用户等的是什么。
+   */
+  voiceTranscoding?: boolean
   /** 贴纸 id(如 `sticker_01`),只有 kind=sticker 有值 */
   stickerId?: string | null
   /** 已撤回:渲染成居中灰字,不再显示内容 */
@@ -208,9 +221,20 @@ export interface ImClient {
    */
   sendText(peerId: string, text: string, refMsgId?: number): Promise<ChatMessage>
   sendImage(peerId: string, file: File, refMsgId?: number): Promise<ChatMessage>
-  /** 发送语音(不支持时抛错) */
-  sendVoice(peerId: string, blob: Blob, durationMs: number, refMsgId?: number):
-    Promise<ChatMessage>
+  /**
+   * 发送语音(不支持时抛错)。
+   *
+   * 内部顺序固定:先上传(服务端转 m4a),再发 WS `send` 帧。上传若被 202 受理
+   * (转码槽被占,M-3),会先按 `retry_after` 轮询到 `ready` 才发帧 —— 没有 `url` 的
+   * 语音帧对方播不了。轮询期间通过 `options.onTranscoding` 通知 UI 换文案。
+   */
+  sendVoice(
+    peerId: string,
+    blob: Blob,
+    durationMs: number,
+    refMsgId?: number,
+    options?: SendVoiceOptions,
+  ): Promise<ChatMessage>
   /** 发送贴纸(不支持时抛错):消息里只带 id,资源在客户端本地 */
   sendSticker(peerId: string, stickerId: string, refMsgId?: number): Promise<ChatMessage>
   /** 删一条聊天记录。菜单里的「删除」用它;实现按批量接口走,别各写一份。 */

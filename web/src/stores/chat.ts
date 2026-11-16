@@ -4,6 +4,7 @@ import { http } from '@/api/http'
 import { parseApiError } from '@/api/error'
 import { sessionEvents } from '@/api/session-events'
 import { getImClient } from '@/im/client'
+import { CHAT_VOICE_LOCAL_GONE_TEXT } from '@/im/self/voice'
 import { ChatMessageKind, SYSTEM_NOTICE_PEER_ID } from '@/im/types'
 import type {
   ChatMessage,
@@ -621,6 +622,10 @@ export const useChatStore = defineStore('chat', () => {
    *
    * 占位必须先于 `ensureConnected()` 插入 —— 连不上时也要留一条可重试的气泡,
    * 否则用户录了一段话会凭空消失。
+   *
+   * M-3 起上传可能是 **202 受理**(转码槽被占):那段等待在 `client.sendVoice` 里
+   * 按 `retry_after` 轮询,期间通过 `onTranscoding` 把占位标成「转码中…」;失败
+   * (`failed` / 超时)与发送失败走同一条路 —— 气泡转成可重试的失败态。
    */
   async function sendVoice(peerId: string, blob: Blob, durationMs: number): Promise<ChatMessage> {
     const placeholder: ChatMessage = {
@@ -646,7 +651,10 @@ export const useChatStore = defineStore('chat', () => {
     try {
       await ensureConnected()
       const target = quoteTarget.value
-      const sent = await client.sendVoice(peerId, blob, durationMs, target?.msgId)
+      const sent = await client.sendVoice(peerId, blob, durationMs, target?.msgId, {
+        onTranscoding: () =>
+          replaceMessage(placeholder.msgId, { ...placeholder, voiceTranscoding: true }),
+      })
       const message = target ? { ...sent, ref: localRefOf(target) } : sent
       replaceMessage(placeholder.msgId, message)
       pendingVoices.delete(placeholder.msgId)
@@ -700,8 +708,26 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** 重发失败的消息:文本直接重发,图片/语音用缓存的本地内容重发。 */
+  /**
+   * 重发失败的消息:文本直接重发,图片/语音用缓存的本地内容重发。
+   *
+   * 语音的重试**必须是重新上传本地 Blob**(M-3):服务端消息里只有一个 24 小时有效的
+   * 签名 URL,拿它重发等于重发一个快过期的地址(而转码失败的语音根本没有 `url`)。
+   * Blob 只活在内存里,刷新/换页之后就没了 —— 这种情况下把气泡留在原地并抛出
+   * `CHAT_VOICE_LOCAL_GONE_TEXT`,由 ChatPage 提示「请重新录制」,而不是点了没反应。
+   */
   async function resend(message: ChatMessage): Promise<void> {
+    if (message.kind === 'voice') {
+      const pendingVoice = pendingVoices.get(message.msgId)
+      if (!pendingVoice) throw new Error(CHAT_VOICE_LOCAL_GONE_TEXT)
+      messages.value = {
+        ...messages.value,
+        [message.peerId]: messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId),
+      }
+      pendingVoices.delete(message.msgId)
+      await sendVoice(message.peerId, pendingVoice.blob, pendingVoice.durationMs)
+      return
+    }
     const list = messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId)
     messages.value = { ...messages.value, [message.peerId]: list }
     if (message.kind === 'sticker' && message.stickerId) {
@@ -712,17 +738,6 @@ export const useChatStore = defineStore('chat', () => {
       const file = takePendingFile(message.msgId)
       if (!file) return
       await sendImage(message.peerId, file)
-      return
-    }
-    if (message.kind === 'voice') {
-      const voice = pendingVoices.get(message.msgId)
-      if (!voice) return
-      pendingVoices.delete(message.msgId)
-      messages.value = {
-        ...messages.value,
-        [message.peerId]: messagesOf(message.peerId).filter((item) => item.msgId !== message.msgId),
-      }
-      await sendVoice(message.peerId, voice.blob, voice.durationMs)
       return
     }
     await sendText(message.peerId, message.text)

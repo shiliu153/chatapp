@@ -10,11 +10,12 @@ import {
   type ImConversationFlagsResult,
   type ImEvent,
   type ImSearchResult,
+  type SendVoiceOptions,
 } from '../types'
 import { type UploadedImage, uploadChatImage } from './image'
 import { conversationFromJson, messageFromJson } from './map'
 import { BrowserWebSocketTransport, type SelfTransport } from './transport'
-import { type UploadedVoice, uploadChatVoice } from './voice'
+import { awaitChatVoice, type ChatVoiceUpload, type UploadedVoice, uploadChatVoice } from './voice'
 
 interface PendingSend {
   peerId: string
@@ -34,8 +35,14 @@ export class SelfImClient implements ImClient {
     private readonly transportFactory: () => SelfTransport =
       () => new BrowserWebSocketTransport(),
     private readonly uploadImage: (file: File) => Promise<UploadedImage> = uploadChatImage,
-    private readonly uploadVoice: (blob: Blob, durationMs: number) => Promise<UploadedVoice> =
+    /** 上传语音:201 直接给地址,202 给受理体(M-3);测试注入这里 */
+    private readonly uploadVoice: (blob: Blob, durationMs: number) => Promise<ChatVoiceUpload> =
       uploadChatVoice,
+    /** 202 之后等转码落定(轮询 `GET /im/voices/{id}`);与上传分开注入,便于单测只造假网络 */
+    private readonly waitVoice: (
+      voiceId: number,
+      retryAfterSeconds: number,
+    ) => Promise<UploadedVoice> = awaitChatVoice,
   ) {}
 
   readonly capabilities: ImCapabilities = {
@@ -398,9 +405,19 @@ export class SelfImClient implements ImClient {
     blob: Blob,
     durationMs: number,
     refMsgId?: number,
+    options?: SendVoiceOptions,
   ): Promise<ChatMessage> {
     // 先上传(Django 统一转 m4a 并校验时长),再发 WS 帧
-    const voice = await this.uploadVoice(blob, durationMs)
+    const uploaded = await this.uploadVoice(blob, durationMs)
+    let voice: UploadedVoice
+    if (uploaded.queued) {
+      // 202:转码槽被占,文件已排队。**必须先轮询到 url** 才能发帧 ——
+      // 服务端受理时还没有可播放地址,拿空 url 发出去的语音对方只会看到占位。
+      options?.onTranscoding?.()
+      voice = await this.waitVoice(uploaded.id, uploaded.retryAfterSeconds)
+    } else {
+      voice = uploaded.voice
+    }
     const id = `local-${Date.now()}${Math.floor(Math.random() * 1000)}`
     for (let attempt = 0; attempt < 3; attempt++) {
       const promise = new Promise<ChatMessage>((resolve, reject) => {

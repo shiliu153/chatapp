@@ -84,6 +84,13 @@ const isNotice = computed(
 )
 const isImage = computed(() => props.message.kind === ChatMessageKind.image)
 const isVoice = computed(() => props.message.kind === ChatMessageKind.voice)
+/**
+ * 发送中的文案。
+ *
+ * 语音上传被 202 受理后要等服务端转码(M-3),这段等待与「正在发送」不是一回事:
+ * 同一个 loading 位,文案换成「转码中…」,用户才知道为什么还没发出去。
+ */
+const pendingLabel = computed(() => (props.message.voiceTranscoding ? '转码中…' : '发送中…'))
 const isUnsupported = computed(() => props.message.kind === ChatMessageKind.other)
 /** 贴纸(批次 J):资源在本地,未知 id 降级成「[贴纸]」文本 */
 const isSticker = computed(() => props.message.kind === ChatMessageKind.sticker)
@@ -232,7 +239,9 @@ const quoteText = computed(() => {
         >
           重发
         </button>
-        <span v-else-if="props.message.isPending" class="message-bubble__pending">发送中…</span>
+        <span v-else-if="props.message.isPending" class="message-bubble__pending">
+          {{ pendingLabel }}
+        </span>
         <span v-else-if="showRead" class="message-bubble__read" data-testid="chat-read">已读</span>
       </div>
     </div>
