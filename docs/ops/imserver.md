@@ -43,6 +43,13 @@ scp imserver-image.tar.gz root@<SERVER_IP>:/tmp/
 > `docker load`(会报 `repositories: no such file`)。要么直接传 `.tar`,
 > 要么按上面压成 `.tar.gz` 后在服务器先解压。
 
+> **base 镜像已钉死(第五轮 L-3)**:`imserver/Dockerfile` 与 `Dockerfile.dev` 的 `FROM` 都是
+> `ubuntu:24.04@sha256:73b99939…`(多架构 index digest),`docker-compose.test.yml` 里的
+> mysql / redis 也钉到与生产**同一个 digest** —— 测试跑在与生产同一个小版本上,迁移与索引
+> 行为才可比。代价是**不会自动跟安全补丁**:升级时先 `docker buildx imagetools inspect ubuntu:24.04`
+> 取 `Digest:` 那一行(index digest,不是某个平台的子 digest),**同时改两个 Dockerfile**,
+> 再按本节流程重建并上传镜像。
+
 ### 1.3 服务器落盘
 
 ```bash
