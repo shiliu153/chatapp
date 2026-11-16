@@ -58,7 +58,7 @@ jobs:
     # 这两个容器只在 test job 真的执行时才启动(无关改动时 test 被跳过)。
     services:
       mysql:
-        image: mysql:8.0
+        image: mysql:8.0.46@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: chatapp_dev
@@ -74,7 +74,7 @@ jobs:
           --health-start-period=30s
 
       redis:
-        image: redis:7-alpine
+        image: redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
         ports:
           - 6379:6379
         options: >-

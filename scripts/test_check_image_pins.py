@@ -1,11 +1,11 @@
-"""``scripts/check_image_pins.py`` 的自测(纯离线,临时目录里造 compose 与 Dockerfile)。
+"""``scripts/check_image_pins.py`` 的自测(纯离线,临时目录里造 compose / Dockerfile / workflow)。
 
 进 CI 的 `contract` 轨。它守的是「镜像引用必须带 digest」这一条供应链纪律,而这类门禁
 两个方向都会坏:
 
-- **少报**:新加的服务用裸 tag 却没人拦 —— 门禁等于没写,漂移照旧;
-- **多报**:自建镜像(`chatapp-web:local`)、`FROM` 的 stage 别名、compose 变量插值被误判成
-  裸 tag —— 人被迫在门禁里加白名单,门禁慢慢被关掉。
+- **少报**:新加的服务(或新加的 workflow `services:`)用裸 tag 却没人拦 —— 门禁等于没写,漂移照旧;
+- **多报**:自建镜像(`chatapp-web:local`)、`FROM` 的 stage 别名、compose 变量插值、workflow 的
+  `uses:` 被误判成裸 tag —— 人被迫在门禁里加白名单,门禁慢慢被关掉。
 
 两边都由下面钉住。
 """
@@ -125,6 +125,37 @@ class ReferenceParsingTests(unittest.TestCase):
         path = self._write("deploy/docker/Dockerfile", "FROM scratch\n")
         self.assertEqual(check_image_pins.references_in(path), [])
 
+    def test_python_from_import_in_workflow_is_not_a_base_image(self):
+        """workflow 里 `from django.db import connections` 不是 `FROM django.db`。
+
+        `.github/` 加进扫描面后实测到的假红:CI 用 `python -c '...'` 等 MySQL,脚本里有一行
+        `from django.db import connections`,而 `FROM` 正则不区分大小写。假红比漏报更伤 ——
+        人会去给门禁加白名单。
+        """
+        path = self._write(
+            ".github/workflows/backend.yml",
+            "      - run: |\n"
+            "          python -c '\n"
+            "          from django.db import connections\n"
+            "          from django.db import transaction\n"
+            "          '\n",
+        )
+        self.assertEqual(check_image_pins.references_in(path), [])
+
+    def test_yaml_from_line_is_not_a_base_image(self):
+        """YAML 里任何 `from xxx` 行都不按 Dockerfile 口径判。"""
+        path = self._write("deploy/a.yml", "services:\n  x:\n    from: ubuntu:24.04\n")
+        self.assertEqual(check_image_pins.references_in(path), [])
+
+    def test_dockerfile_image_key_is_not_read(self):
+        """反向也分流:Dockerfile 里只有 `FROM` 算引用,`image:` 那一行不算。
+
+        这不是「现实里会写」的形态,而是分流本身的钉子:两个正则各归各的文件类型,
+        判定不再依赖「这一行长什么样」。
+        """
+        path = self._write("imserver/Dockerfile", "image: ubuntu:24.04\n")
+        self.assertEqual(check_image_pins.references_in(path), [])
+
 
 class FindUnpinnedTests(unittest.TestCase):
     """整仓库口径:扫哪些文件、报不报、报得对不对。"""
@@ -170,9 +201,44 @@ class FindUnpinnedTests(unittest.TestCase):
         self.assertEqual(len(problems), 1)
         self.assertIn("deploy/docker-compose.yml.tmpl:3", problems[0])
 
-    def test_scope_is_deploy_and_imserver_only(self):
-        """范围外(`.github/` 等)的裸 tag 不归本门禁管,别顺手报红。"""
+    def test_workflow_bare_tag_is_reported(self):
+        """`.github/workflows/` 也在扫描面内:CI 的 services 镜像裸 tag 必须报红。
+
+        CI 里换的是「跑测试用的那一对数据库 / 缓存」,漂移同样不报错 —— 只是把
+        `bash scripts/verify.sh contract` 与本机跑的容器悄悄换成了另一份内容。
+        """
         self._write(".github/workflows/x.yml", "services:\n  db:\n    image: mysql:8.0\n")
+        problems = check_image_pins.find_unpinned(self.root)
+        self.assertEqual(len(problems), 1)
+        self.assertIn(".github/workflows/x.yml:3", problems[0])
+        self.assertIn("mysql:8.0", problems[0])
+
+    def test_pinned_workflow_is_clean(self):
+        """workflow 里钉好的引用不报红(否则人只能给 CI 加白名单)。"""
+        self._write(
+            ".github/workflows/x.yml",
+            f"services:\n  db:\n    image: mysql:8.0.46@{GOOD_DIGEST}\n"
+            f"  cache:\n    image: redis:7.4.12-alpine@{GOOD_DIGEST}\n",
+        )
+        self.assertEqual(check_image_pins.find_unpinned(self.root), [])
+
+    def test_workflow_uses_and_other_keys_are_not_images(self):
+        """workflow 里只有 `image:` 算镜像引用:`uses:` / `runs-on:` 里的 `@` 不是 digest。"""
+        self._write(
+            ".github/workflows/x.yml",
+            "jobs:\n"
+            "  a:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n"
+            "      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0\n"
+            "        with:\n"
+            "          python-version: '3.11'\n"
+            "    env:\n"
+            "      DB_IMAGE: mysql:8.0\n"
+            "      # image: redis:7-alpine\n"
+            "    # from: ubuntu:24.04\n",
+        )
         self.assertEqual(check_image_pins.find_unpinned(self.root), [])
 
     def test_yaml_outside_scope_roots_is_ignored(self):

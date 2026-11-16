@@ -191,7 +191,7 @@ id = "contract-image-pin-gate"
 scope = "contract"
 kind = "python"
 command = "python scripts/check_image_pins.py --check"
-reason = "镜像引用必须带 @sha256: digest:裸 tag 会让「同一份 compose 文件」在下次构建时拉出另一份内容,而这种漂移不报任何错。第五轮 L-3 把 deploy 与 imserver 侧全部钉死了(#381 / #382 / #383),这条门禁是让下一个新加的服务不能把纪律悄悄退回去"
+reason = "镜像引用必须带 @sha256: digest:裸 tag 会让「同一份 compose 文件」在下次构建时拉出另一份内容,而这种漂移不报任何错。第五轮 L-3 把 deploy 与 imserver 侧全部钉死了(#381 / #382 / #383),CI 的四处 services 镜像(backend / web-e2e 的 mysql 与 redis)随后跟上,扫描面因此含 .github/;这条门禁是让下一个新加的服务不能把纪律悄悄退回去"
 
 [[gate]]
 id = "contract-image-pin-gate-selftest"
