@@ -13,6 +13,8 @@ token 解析逻辑),三个脚本各自抄了一份 ``app/pubspec.yaml`` 的路�
     version.py    pubspec 路径、版本正则、三处版本号的读 / 写 / 比对
     docs.py       发版记录(``docs/releases.yml``)的解析 / 渲染 / 校验(C8)
     artifacts.py  「生成物 == HEAD」的比对语义(忽略行尾,C9;可独立执行)
+    mail.py       统一发信内核(主题规范 / SMTP / 去重 / 配额;可独立执行)
+    ci_red.py     CI 红轨的判定口径(L4 自动入队与 worker 巡检共用)
 
 导入约定(不各抄一套 ``try/except ImportError``)
 ------------------------------------------------

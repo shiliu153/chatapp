@@ -32,8 +32,9 @@
 
 第五项(2026-11-16 并入):**默认分支的 CI 红轨**。此前这件事由 `.github/workflows/main-health.yml`
 每天建一条 GitHub issue 来承载,而 issue 是「待办」不是「告警」:没人订阅就没人看见,还要人
-手动关。现在改成与 worker 巡检同一个出口(邮件),判据仍然复用 `scripts/l4_intake.py` 的
-`red_runs()` —— 口径只有一份,不许再各写一份 jq。代价是已知偏差:**WSL 关机期间没人报红轨**,
+手动关。现在改成与 worker 巡检同一个出口(邮件),判据仍然复用同一份实现
+(`scripts/lib/ci_red.py`,L4 与巡检都从它取),不再各写一份。
+代价是已知偏差:**WSL 关机期间没人报红轨**,
 与「worker 也不在」是同一段时间,开机后第一轮(`OnBootSec`)会立刻补报。
 
 退出码
@@ -70,18 +71,30 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # `python3 scripts/superagent_health.py` 时 sys.path[0] 是 scripts/,而
 # `python3 -m unittest scripts.test_superagent_health` 时仓库根已在 sys.path 里。
-# 显式补一次,让 `from scripts import ...` 在两种调用方式下都成立
+# 显式补一次,让 `from scripts...` 在两种调用方式下都成立
 # (与 `scripts/lib/__init__.py` 里写下的约定是同一段样板)。
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts import l4_intake  # noqa: E402  (必须在 sys.path 修好之后)
-from scripts.lib import repo as lib_repo  # noqa: E402  (同上)
+# CI 红轨的判定口径在 `scripts/lib/ci_red.py`(**唯一一份**,L4 自动入队也用它)。
+# 但巡检器是**自包含安装**的:`install.sh` 把它与 `ci_red.py` 并排拷到
+# `/root/.dsh/healthcheck/`,那时仓库不在 `sys.path` 里,`from scripts...` 必然失败 ——
+# 2026-11-17 实测过这一版:整轮巡检 `ModuleNotFoundError`,只剩一条空告警发出去。
+# 所以仓库布局与安装布局各一条导入路径,两种都能跑。
+try:  # 仓库内 / unittest
+    from scripts.lib import ci_red
+except ImportError:  # 安装布局:与 superagent_health.py 同级
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import ci_red  # type: ignore[no-redef]
 
 DEFAULT_DB = "/root/.dsh/state/superagent/orchestrator.sqlite"
 DEFAULT_WORK = "/root/.dsh/state/superagent/work"
 DEFAULT_PROXY = "http://127.0.0.1:7890"
 DEFAULT_PROXY_CONFIG = "/root/.dsh/proxy/config.yaml"
 DEFAULT_TOKEN = "/root/.dsh/github-mcp-token.txt"
+# 仓库 slug 写一份字面量而不是 import `scripts.lib.repo`:同样是安装布局的问题
+# (那个包在 `/root/.dsh/healthcheck/` 里不存在)。它可被 `--repo` / `SUPERAGENT_HEALTH_REPO`
+# 覆盖,而 lib 那边防的是「四个发版脚本各抄一份」,与本文件的用途不重叠。
+DEFAULT_REPO = "shiliu153/chatapp"
 DEFAULT_BRANCH = "main"
 EGRESS_URL = "https://api.github.com/rate_limit"
 NOTIFICATIONS_PATH = "notifications?all=false&per_page=50"
@@ -509,7 +522,7 @@ def check_cursor(
 def fetch_ci_runs(
     gh_cli: Optional[str],
     proxy: str,
-    repo: str = lib_repo.DEFAULT_REPO,
+    repo: str = DEFAULT_REPO,
     branch: str = DEFAULT_BRANCH,
     timeout: float = 25.0,
 ) -> Tuple[Any, Optional[str]]:
@@ -576,7 +589,7 @@ def ci_red_checks(loader: Callable[[], Tuple[Any, Optional[str]]]) -> Tuple[List
         Check**,名字里带 workflow 名 —— 这样 `run.sh` 的指纹(检查名+状态)才能区分
         「web 红了」与「imserver 红了」,新红一条不会因为旧红还在而被去重吞掉。
 
-    判据复用 `scripts/l4_intake.py::red_runs`(与 L4 自动入队同一个函数):
+    判据复用 `scripts/lib/ci_red.py::red_runs`(与 L4 自动入队同一份实现):
     `cancelled` / `timed_out` / `startup_failure` 这些「没跑绿」都算红,只认 `failure`
     会把五种红静默当绿。这里**不**自己写第二份判定。
     """
@@ -587,8 +600,8 @@ def ci_red_checks(loader: Callable[[], Tuple[Any, Optional[str]]]) -> Tuple[List
             f"{CI_RED_CHECK}:取不到 run 快照({error})",
         )
     try:
-        red = l4_intake.red_runs(payload)
-        latest = l4_intake.latest_runs_by_workflow(payload)
+        red = ci_red.red_runs(payload)
+        latest = ci_red.latest_runs_by_workflow(payload)
     except ValueError as exc:
         return (
             [Check(CI_RED_CHECK, BAD, f"run 快照形状不对:{exc}")],
@@ -1291,7 +1304,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--repo",
-        default=os.environ.get("SUPERAGENT_HEALTH_REPO", lib_repo.DEFAULT_REPO),
+        default=os.environ.get("SUPERAGENT_HEALTH_REPO", DEFAULT_REPO),
         help="查红轨用的仓库(owner/name,默认本仓库)",
     )
     parser.add_argument(

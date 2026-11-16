@@ -63,6 +63,13 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts import check_docs_links  # noqa: E402  (必须在 sys.path 修好之后)
+from scripts.lib import ci_red  # noqa: E402  (同上)
+from scripts.lib.ci_red import (  # noqa: E402,F401  (转手 re-export,既有调用方不用改)
+    RED_CONCLUSIONS,
+    is_red_run,
+    latest_runs_by_workflow,
+    red_runs,
+)
 
 # ── 信号名与标签
 
@@ -635,90 +642,15 @@ def locked_version(repo_root: Path, ecosystem: str, package: str) -> Optional[st
 
 
 # ── 事实提取:ci-red
-
-#: 这些结论视为「红」。命名对齐 `scripts/deploy_gate.py::OK_CONCLUSIONS` —— 那边定义
-#: 什么算通过,这边定义什么算失败,看的是同一个 GitHub `conclusion` 字段。
-#:
-#: 为什么不写 `== "failure"`:`cancelled`(并发组被顶 / 手动取消 / 整轮被取消)、
-#: `timed_out`、`startup_failure`(workflow 文件本身解析失败,run 根本没起来)、
-#: `action_required`(要人工批准才跑)、`stale`(排队太久被 GitHub 判废)全都是
-#: **没跑绿**。只认 `failure` 等于把这五种红静默当绿 —— 2026-11-13 #283/#285 修的就是这个。
-#: `success` / `skipped` / `neutral` 不判红(`skipped` 在 `ci-scope.sh` 的「按改动面跑」
-#: 里是正常结果,与 required check 语义一致);`conclusion is None` 也不判红 ——
-#: 那是**还在跑**,等下一轮快照。
-RED_CONCLUSIONS = frozenset(
-    {"failure", "cancelled", "timed_out", "startup_failure", "action_required", "stale"}
-)
-
-
-def is_red_run(run: dict) -> bool:
-    """判断一条 run 是不是「红」——口径唯一入口,`red_runs` 与 `scan_info` 共用。
-
-    Args:
-        run: 一条 Actions run 记录。
-
-    Returns:
-        结论落在 :data:`RED_CONCLUSIONS` 里为 `True`;`success` / `skipped` /
-        `neutral` 与 `conclusion is None`(仍在跑)一律 `False`。
-    """
-    return run.get("conclusion") in RED_CONCLUSIONS
-
-
-def latest_runs_by_workflow(runs: Any) -> List[dict]:
-    """取出「每条 workflow 的最新一次 run」(与 `main-health.yml` 同口径)。
-
-    Args:
-        runs: `gh api .../actions/runs` 的响应(需含 `workflow_runs`),或直接是列表。
-
-    Returns:
-        每项是一个 run 字典,按创建时间倒序。空列表表示没有任何 run。
-
-    Raises:
-        ValueError: 形状不对(调用方 fail-closed)。
-    """
-    if isinstance(runs, dict):
-        items = runs.get("workflow_runs")
-    else:
-        items = runs
-    if not isinstance(items, list):
-        raise ValueError("runs 响应里没有 workflow_runs 列表")
-
-    ordered = sorted(
-        (run for run in items if isinstance(run, dict)),
-        key=lambda run: str(run.get("created_at") or ""),
-        reverse=True,
-    )
-    seen: set = set()
-    latest: List[dict] = []
-    for run in ordered:
-        name = run.get("name")
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        latest.append(run)
-    return latest
-
-
-def red_runs(runs: Any) -> List[dict]:
-    """从 runs 快照里挑出「最新一次 push run 是红的」那些 workflow。
-
-    判据是 :data:`RED_CONCLUSIONS`(红集合),不是「等于 `failure`」。
-
-    Args:
-        runs: `gh api .../actions/runs` 的响应。
-
-    Returns:
-        红 run 的字典列表,按 workflow 名字典序。
-
-    Raises:
-        ValueError: 形状不对。
-    """
-    red = [run for run in latest_runs_by_workflow(runs) if is_red_run(run)]
-    return sorted(red, key=lambda run: str(run.get("name")))
+#
+# 判定口径(RED_CONCLUSIONS / is_red_run / latest_runs_by_workflow / red_runs)在
+# `scripts/lib/ci_red.py`:worker 巡检器是自包含安装的(仓库不在 sys.path 里),所以判据
+# 必须是一个**只依赖标准库**的模块才能被两边共用。这里只保留「渲染成 Markdown」,
+# 因为它要用到本模块的 `inline_code` / `sanitize_external_text`。
 
 
 def render_ci_red_summary(runs: Any) -> str:
-    """把红轨渲染成 Markdown 列表(`main-health.yml` 的 issue 正文原样用这一份)。
+    """把红轨渲染成 Markdown 列表(L4 的日报与巡检告警正文用同一份口径)。
 
     每行都带结论:`cancelled` / `timed_out` / `startup_failure` 这类红要看得出**红在哪**,
     否则正文里十条红轨长得一模一样,排查还得逐条点开 run。
@@ -734,7 +666,7 @@ def render_ci_red_summary(runs: Any) -> str:
         f" @ {re.sub(r'[^0-9A-Za-z]', '', str(run.get('head_sha') or ''))[:7]}"
         f" — 结论 {inline_code(run.get('conclusion'))}"
         f" — {sanitize_url(run.get('html_url')) or '(无链接)'}"
-        for run in red_runs(runs)
+        for run in ci_red.red_runs(runs)
     ]
     return "\n".join(items)
 
