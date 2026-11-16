@@ -259,6 +259,10 @@ CELERY_TASK_ROUTES = {
     "im.tasks.report_handled": {"queue": "notify"},
     "im.tasks.sync_profile": {"queue": "bulk"},
     "im.tasks.import_account": {"queue": "bulk"},
+    # 语音异步转码(M-3):一次 0.2–0.5 秒,但可以等 —— 转码慢一点只是客户端多轮询一次,
+    # 不该和封禁踢人抢同一个队列。
+    "im.tasks.transcode_chat_voice": {"queue": "bulk"},
+    "im.tasks.transcode_profile_voice": {"queue": "bulk"},
 }
 # notify 队列的消费速率上限(条/秒)。imserver 单机实测天花板 ~215 msg/s,
 # 配对高峰(一次活动 500 对)瞬间产生 1000 条灰条,不限速会把 imserver 打满、
@@ -357,6 +361,10 @@ FAVORITES_READ_RATE = os.getenv("FAVORITES_READ_RATE", _RELAXED or "120/hour")
 FEEDBACK_RATE = os.getenv("FEEDBACK_RATE", "50/hour" if DEBUG else "5/hour")
 CHAT_IMAGE_RATE = os.getenv("CHAT_IMAGE_RATE", "30/hour")   # 聊天图片上传,按用户计数
 CHAT_VOICE_RATE = os.getenv("CHAT_VOICE_RATE", "60/hour")   # 聊天语音上传,按用户计数
+# 语音转码状态轮询(第五轮审计 M-3):聊天语音与资料语音两个轮询接口共用一个 scope。
+# 一次转码 0.2–0.5 秒,客户端按 ``retry_after``(默认 5 秒)轮询即可,通常 1–2 次就结束;
+# 480/h 是「一小时内频繁失败重试也不会被 429 挡住」的档位,与未读数角标同档。
+VOICE_STATUS_RATE = os.getenv("VOICE_STATUS_RATE", _RELAXED or "480/hour")
 # 资料语音自我介绍(批次 R):一人一条、覆盖式替换,正常使用一小时最多改几次;
 # 额度只用来挡住「反复上传大文件」的脚本。
 PROFILE_VOICE_RATE = os.getenv("PROFILE_VOICE_RATE", _RELAXED or "10/hour")
@@ -442,6 +450,7 @@ REST_FRAMEWORK = {
         "chat_image": CHAT_IMAGE_RATE,
         "chat_voice": CHAT_VOICE_RATE,
         "profile_voice": PROFILE_VOICE_RATE,
+        "voice_status": VOICE_STATUS_RATE,
         "client_error": os.getenv("CLIENT_ERROR_RATE", "120/hour"),
     },
 }
@@ -688,12 +697,15 @@ PROFILE_VOICE_MAX_MS = 30000
 PROFILE_VOICE_MAX_BYTES = 5 * 1024 * 1024
 
 # --- 语音转码全局并发闸(第五轮审计 M-3,实现见 config/transcode_gate.py)---
-# 两个入口都在请求线程里同步跑 ffmpeg,生产 2 个 gunicorn worker 两路并发就占满处理能力;
-# 这里用 Redis 单槽把并发压到 1 路,其余请求立刻 503(同一个槽 = 两个入口共享)。
+# 转码是重 CPU 的子进程(ffprobe + ffmpeg),同一时刻只放一路:抢到槽的请求线程直接转码,
+# 抢不到的不再排队等线程,而是落临时区入队交给 Celery worker(见 im/tasks.py)——
+# 所以槽现在保护的是「worker 并发」,不是 gunicorn 线程。槽仍然全局一个,聊天语音与
+# 资料语音共享。
 # 槽 TTL 必须远大于 im/voice.py 的 15 秒子进程上限:它同时是「进程崩溃后的自愈时间」,
 # 配小了正常转码还没结束槽就过期,并发上限等于失效。
 TRANSCODE_GATE_TTL = int(os.getenv("TRANSCODE_GATE_TTL", "60"))
-# 503 响应头 ``Retry-After`` 的秒数(一次转码通常 0.2–0.5 秒,5 秒足够覆盖抖动)。
+# 异步路径 202 响应体里的 ``retry_after``(秒):客户端按它轮询转码状态。一次转码通常
+# 0.2–0.5 秒,5 秒足够覆盖抖动;抢不到槽时任务也按它退避重试。
 TRANSCODE_GATE_RETRY_AFTER = int(os.getenv("TRANSCODE_GATE_RETRY_AFTER", "5"))
 
 # --- 存储配额与磁盘告警(M7)---

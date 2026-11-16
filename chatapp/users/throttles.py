@@ -27,9 +27,31 @@ class ProfileVoiceThrottle(UserScopedThrottle):
 
     上传与删除共用一个计数桶:两者都是「改资料」动作,额度(默认 10 次/小时)
     对正常用户(录一次 + 一两次替换)足够,对脚本则够紧。
+    同一路径上的 ``GET``(查转码状态)不吃这个额度,走 ``voice_status`` scope。
     """
 
     scope = "profile_voice"
+
+    def allow_request(self, request, view):
+        """只给写方法计数。
+
+        参数说明:
+            request: 当前请求。
+            view: 当前视图;DRF 接口要求,此处未使用。
+
+        返回参数:
+            非 ``POST`` / ``DELETE`` 一律放行(返回 ``True``),写方法交给基类按额度判定。
+
+        使用示例:
+            ``DRF 每次限流检查时调用 throttle.allow_request(request, view)``(见 ``config/throttling.py`` 的 ``UserScopedThrottle``)
+
+        备注信息:
+            ``users.views.my_voice`` 一个视图同时承载 GET/POST/DELETE:轮询一次几百毫秒就
+            一次,若也计入 10 次/小时的改资料额度,用户录完一次语音就再也查不到状态了。
+        """
+        if request.method not in ("POST", "DELETE"):
+            return True
+        return super().allow_request(request, view)
 
 
 class PresenceThrottle(SimpleRateThrottle):

@@ -1,4 +1,4 @@
-"""IM 接口的路由:签发 userSig、上传聊天图片、nginx 子请求验签。
+"""IM 接口的路由:签发 userSig、上传聊天图片与语音、查语音转码状态、nginx 子请求验签。
 
 本文件挂载在 ``/api/v1/im/`` 前缀下;接口契约见 docs/api/im.md。
 """
@@ -11,5 +11,6 @@ urlpatterns = [
     path("user_sig", views.user_sig),
     path("images", views.upload_image),
     path("voices", views.upload_voice),
+    path("voices/<int:voice_id>", views.voice_status),
     path("images/auth", views.image_auth),
 ]

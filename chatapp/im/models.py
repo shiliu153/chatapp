@@ -6,13 +6,35 @@
 设计要点:
     1. 文件名带随机 uuid(由视图生成),不用自增主键 —— 防止顺着 URL 遍历别人的私聊图;
     2. 运营删除只改 ``status`` 并留 ``deleted_by/deleted_at``,不删行 —— 审计可查;
-    3. ``width/height`` 存的是**显示尺寸**(已按 EXIF 方向校正),不是文件原始像素。
+    3. ``width/height`` 存的是**显示尺寸**(已按 EXIF 方向校正),不是文件原始像素;
+    4. 语音多一个**转码进度**维度(``transcode_status``,第五轮审计 M-3):抢不到转码槽的
+       上传先落临时区并入队,行以 ``pending`` 存在、``file`` 指向临时区路径,worker 转完
+       才写正式路径。它与审核用的 ``ChatVoiceStatus`` 是两条互不相干的轴,别混用。
 """
 
 from django.conf import settings
 from django.db import models
 
 from . import media_sign
+
+
+class TranscodeStatus(models.TextChoices):
+    """语音转码的三态进度,聊天语音与资料语音共用同一套取值(M-3)。
+
+    设计要点:
+        1. **与审核状态分开**:``ChatVoiceStatus``(``visible`` / ``deleted`` /
+           ``expired``)是运营视角的审核与保留期,不能拿来表达「转码还没跑完」——
+           两条轴的生命周期彼此独立,混用会让「已删除」与「转码中」互相覆盖;
+        2. **默认 ``ready``**:列上线时存量行都已转码完成,新列必须带一个让老数据
+           语义不变的默认值,所以默认值只能是 ``ready``;
+        3. **只在这里定义一次**:``users.models.ProfileVoice`` 也从本模块导入(``im`` 是
+           下层);``im/tasks.py`` 反过来导入 ``users.models`` 走的是运行期延迟导入,
+           不构成循环导入。
+    """
+
+    PENDING = "pending", "转码中"
+    READY = "ready", "可播放"
+    FAILED = "failed", "转码失败"
 
 
 class ChatImageStatus(models.TextChoices):
@@ -117,6 +139,10 @@ class ChatVoice(models.Model):
     Attributes:
         deleted_by: 执行删除的运营账号;未删除时为 ``None``。
         deleted_at: 删除时间;未删除时为 ``None``。
+        transcode_status: 转码进度(``pending`` / ``ready`` / ``failed``);抢不到转码槽的
+            上传先落临时区并入队,回到 ``ready`` 才算可播放。
+        transcode_error: 转码失败原因:能定位到业务码时写业务码(如 ``41301``),
+            否则写一句短文案;成功时为空串。
     """
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
@@ -127,6 +153,10 @@ class ChatVoice(models.Model):
     mime = models.CharField("MIME", max_length=32, default="audio/mp4")
     status = models.CharField("状态", max_length=10, choices=ChatVoiceStatus.choices,
                               default=ChatVoiceStatus.VISIBLE)
+    transcode_status = models.CharField("转码状态", max_length=10,
+                                        choices=TranscodeStatus.choices,
+                                        default=TranscodeStatus.READY)
+    transcode_error = models.CharField("转码失败原因", max_length=64, blank=True, default="")
     deleted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
                                    on_delete=models.SET_NULL, related_name="+")
     deleted_at = models.DateTimeField(null=True, blank=True)
@@ -151,7 +181,11 @@ class ChatVoice(models.Model):
 
         备注信息:
             URL 的有效期由 ``IM_MEDIA_SIGN_TTL`` 决定;未配置签名密钥时退化为不带 query 的绝对地址。
+            转码还没完成(``pending`` / ``failed``)的语音没有正式文件,此时返回空串而不是
+            抛 ``ValueError`` —— 运营台列表按 ``ready`` 过滤,这里只是兜底,别让模板 500。
         """
+        if not self.file:
+            return ""
         return media_sign.sign_url(f"{settings.MEDIA_BASE_URL.rstrip('/')}{self.file.url}")
 
     @property

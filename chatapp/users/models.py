@@ -19,6 +19,8 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from im.models import TranscodeStatus
+
 SHUFFLE_KEY_UPPER = 1_000_000_000
 
 
@@ -369,16 +371,26 @@ class ProfileVoice(models.Model):
            ``auth_request`` 子请求(``im/views.py::image_auth``)挡成 403。语音是声纹、属于
            身份特征,泄露后无法更换,所以不再给永久直链。「谁能听」没有变:任何能看这份
            资料卡的人都能听。
+        6. **转码可能是异步的**(第五轮审计 M-3):抢不到转码槽时上传先落临时区并入队,
+           行以 ``transcode_status=pending`` 存在、``file`` 指向临时区路径、``bytes=0``
+           (临时区不计配额),worker 转完才写正式路径。
 
     Attributes:
         duration_ms: ``ffprobe`` 实测时长(毫秒),对外原样返回。
         bytes: 转码后文件字节数,配额按它求和。
+        transcode_status: 转码进度(``pending`` / ``ready`` / ``failed``),取值与聊天语音共用
+            ``im.models.TranscodeStatus``(只定义一处);存量行默认 ``ready``。
+        transcode_error: 转码失败原因:业务码(如 ``41301``)或一句短文案,成功时为空串。
     """
 
     profile = models.OneToOneField(Profile, on_delete=models.CASCADE, related_name="voice")
     file = models.FileField("语音", upload_to="voices/%Y/%m/")
     duration_ms = models.PositiveIntegerField("时长(毫秒)")
     bytes = models.PositiveIntegerField("字节数")
+    transcode_status = models.CharField("转码状态", max_length=10,
+                                        choices=TranscodeStatus.choices,
+                                        default=TranscodeStatus.READY)
+    transcode_error = models.CharField("转码失败原因", max_length=64, blank=True, default="")
     created_at = models.DateTimeField("首次上传", auto_now_add=True)
     updated_at = models.DateTimeField("最近更新", auto_now=True)
 
