@@ -158,3 +158,23 @@
   `clientErrors.rememberRequestId()`，上报时带上，前后端日志就能按同一个 id 对上。
 
 
+
+## schema.d.ts 的「过期」是一种两边都看不见的漂移(2026-11-16,PR #376)
+
+- **症状**:一个只改后端视图 docstring 的 PR,`backend` / `contract` / `smoke` 全绿,只有 `web` 轨红在
+  「`schema.d.ts` 与契约不一致」。当时的处置是靠人合并前逐条核对 diff —— 那是纪律,不是机制。
+- **为什么两边都看不见**:`docs/api/openapi.yml` 由 `verify.sh backend` 重新生成,
+  `web/src/api/schema.d.ts` 由 `verify.sh web` 重新生成;`scripts/lib/artifacts.py` 只比
+  「**工作区 vs HEAD**」,所以「openapi 与 HEAD 一致、而 schema 已过期」这件事在 backend 轨里没有任何读数。
+  视图 docstring 会进 openapi 的 `description`,而 openapi-typescript 会把 description 原样写进
+  `schema.d.ts` 的 JSDoc —— 所以**改注释也算改契约**。
+- **现在的判定**:`scripts/gen_web_schema.py` 在生成物第一行写一行契约指纹
+  (`// @generated-from-openapi sha256=…`,内容是 openapi.yml 规范化后的 sha256);
+  `contract` 轨的 `contract-openapi-web-stamp` 门禁只比指纹,**纯 Python、不需要 Node**,秒级。
+  改了 openapi.yml 忘了重生成 → 立刻红,提示里直接给出该跑的那条命令。
+- **两个别踩的坑**:
+  ① **别用 `npm run gen:api`** —— 它不写指纹,跑完门禁会红;生成入口是
+  `python scripts/gen_web_schema.py`(`scripts/stacks/web.sh` 已经改成调它);
+  ② **指纹按规范化后的内容算**(`\r\n` → `\n`)。Windows 检出是 CRLF、WSL / CI 是 LF,
+  不规范化会让同一份契约算出两个哈希 —— 那是 `artifacts.py` 早就踩过的同一个坑,
+  `scripts/test_gen_web_schema.py` 专门钉了一条「CRLF 与 LF 同指纹」。

@@ -208,6 +208,20 @@ command = "python -m unittest discover -s deploy/observability -p 'test_*.py' -v
 reason = "告警中转链路哑了没人会发现(告警本来就不常发),载荷渲染 / 去重键 / HTTP 入口都要有回归"
 
 [[gate]]
+id = "contract-openapi-web-stamp"
+scope = "contract"
+kind = "python"
+command = "python scripts/gen_web_schema.py --check"
+reason = "schema.d.ts 是 openapi.yml 的派生生成物,两者由不同栈重新生成:只跑 verify.sh backend 的改动(例如改视图 docstring,它会进 openapi 的 description)能让 openapi 与 HEAD 一致而 schema.d.ts 已过期,backend 轨全绿、只有 web 轨红(2026-11-16 PR #376 实测)。这道门禁比指纹、纯 Python 不需要 Node,所以能在 contract 组立刻红"
+
+[[gate]]
+id = "contract-openapi-web-stamp-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_gen_web_schema -v"
+reason = "指纹判定器判错的两个方向都不能静默:漏报 = 改了契约不重生成仍然绿(本门禁存在的理由),误报 = CRLF/LF 让同一份契约算出两个哈希把 Windows 检出永远判红"
+
+[[gate]]
 id = "contract-proxy-selftest"
 scope = "contract"
 kind = "shell"

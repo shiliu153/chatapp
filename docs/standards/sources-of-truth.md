@@ -65,7 +65,7 @@
 
 | 事实 | 唯一 owner | 校验手段 | 状态 |
 |---|---|---|---|
-| 门禁清单(有哪些、跑什么) | [`scripts/gates.toml`](../../scripts/gates.toml)(**唯一事实来源**);workflow 只留 job 名与装配 | 机械:`python scripts/run_gates.py --list`(与注册表逐条一致)+ `python -m unittest scripts.test_gates`(两边无命令字面量、条数相等) | **已落地**(2026-11-14 第 4 节):本地与 CI 调**同一份清单、同一个执行器**,19 / 15 的差额归零(现 `contract` 组 **27 / 27**,条数以 `python scripts/run_gates.py --list` 为准) |
+| 门禁清单(有哪些、跑什么) | [`scripts/gates.toml`](../../scripts/gates.toml)(**唯一事实来源**);workflow 只留 job 名与装配 | 机械:`python scripts/run_gates.py --list`(与注册表逐条一致)+ `python -m unittest scripts.test_gates`(两边无命令字面量、条数相等) | **已落地**(2026-11-14 第 4 节):本地与 CI 调**同一份清单、同一个执行器**,19 / 15 的差额归零(现 `contract` 组 <!-- num:gates_contract -->29 / 29<!-- /num -->,条数以 `python scripts/run_gates.py --list` 为准) |
 | 新增一道门禁的改动点 | 同上 —— `gates.toml` 加一个 `[[gate]]` | 机械:`scripts/test_gates.py::SameSourceTests::test_no_gate_command_literal_in_wiring`(命令出现在 `contract.yml` / `verify.sh` / `stacks/*.sh` 里即红) | **已落地**(2026-11-14 第 4 节):**1 处** |
 | 各栈装配(起容器 / 装依赖 / 迁移 / 生成物校验) | [`scripts/stacks/*.sh`](../../scripts/stacks) | 机械:`scripts/test_gates.py::SameSourceTests::test_heavy_workflows_call_shared_stack_scripts`(四条 workflow 与 `verify.sh` 调同一份) | **已落地**(2026-11-14 第 4 节,D3-B) |
 | 本地验证入口(子命令与退出码) | [`scripts/verify.sh`](../../scripts/verify.sh) | 机械:`bash scripts/test_verify.sh` + `python scripts/run_gates.py --scope contract` | 已落地(第 4 节:contract 分支收成一行调用执行器,并把 `test_verify.sh` 自己也收进注册表) |
@@ -117,7 +117,8 @@
 |---|---|---|---|
 | 脚本放在哪(唯一家 + 3 处已裁决例外) | `scripts/`(域内子目录);**例外**:`tools/`(容器内 `/repo/tools` 路径被 `imserver/scripts/test_http.sh` 硬编码)、`perf/`(20+ 处历史报告的「当时命令」引用,搬了变死链)、`imserver/scripts/`(C++ 测试入口与镜像同源) | 机械:`python scripts/docs_lint.py` 的 structure 规则(`docs/` 下不得有脚本 / 补丁 / 配置)+ `git grep` 例外清单 | **已裁决**(2026-11-14 第 5 节,D2-A):`docs/` 侧已清零(第 2 节);三处例外的理由写在 [release.md §3.2](../ops/release.md) 与本节,不再悬着 |
 | 仓库名(`owner/name`) | 第 5 节 `scripts/lib/repo.py` | 机械:`git grep -c "DEFAULT_REPO =" -- 'scripts/**/*.py'` 命中 = 1 | **已落地**(2026-11-14 第 5 节):4 → **1**,同性质三处(`DEFAULT_TOKEN_FILE` / `API` / token 解析逻辑)一并收进同一模块 |
-| 「生成物 == HEAD」的比对语义(忽略行尾) | 第 5 节 `scripts/lib/artifacts.py` | 机械:`python -m unittest scripts.test_lib`(正反两面)+ 注册表两道 `kind = "artifact"` 门禁(`backend-openapi-artifact` / `web-schema-artifact`) | **已落地**(2026-11-14 第 5 节):shell 的 `check_artifact` 已删除,语义只有 Python 一份;退出码由 2 改为 **1**(判定失败,不是执行器故障) |
+| **生成物 == HEAD** 的比对语义(忽略行尾) | 第 5 节 `scripts/lib/artifacts.py` | 机械:`python -m unittest scripts.test_lib`(正反两面)+ 注册表两道 `kind = "artifact"` 门禁(`backend-openapi-artifact` / `web-schema-artifact`) | **已落地**(2026-11-14 第 5 节):shell 的 `check_artifact` 已删除,语义只有 Python 一份;退出码由 2 改为 **1**(判定失败,不是执行器故障) |
+| **契约 → 派生生成物**的「跟没跟上」(openapi.yml → schema.d.ts) | [`scripts/gen_web_schema.py`](../../scripts/gen_web_schema.py) 写在生成物第一行的**契约指纹** | 机械:`python scripts/gen_web_schema.py --check`(门禁 `contract-openapi-web-stamp` + 自测 `contract-openapi-web-stamp-selftest`):指纹 = openapi.yml 规范化后的 sha256,**纯 Python、不需要 Node** | **已落地**(2026-11-16):补的是「两边都看不见的缝」—— `artifacts.py` 只比「工作区 vs HEAD」,所以只跑 `verify.sh backend` 的改动能让 openapi 与 HEAD 一致而 schema.d.ts 已过期,backend 轨全绿、只有 web 轨红(PR #376 实测) |
 
 ---
 
@@ -228,8 +229,13 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 
 ## 7. 待修清单(登记,本次不改)
 
+> **2026-11-16(契约指纹)**:`scripts/gen_web_schema.py` 落地 —— `contract` 组 **27 → 29** 道
+> (注册表总数 **41 → 43**),补的是「openapi.yml 变了但 schema.d.ts 没跟上」这道两边都看不见的缝
+> (见 §2.7 那一行);生成入口从 `npm run gen:api` 换成该脚本(它会写指纹),`npm run gen:api`
+> 只留着「临时看一眼类型」用,跑完本门禁会红。
+>
 > **2026-11-16(数字机械化)**:`scripts/facts.py` 落地 —— `contract` 组 **25 → 27** 道
-> (注册表总数 **39 → 41**),本节与 §2.3 / §4 C5 里的「现 27 / 27」已同步;
+> (注册表总数 **39 → 41**),本节与 §2.3 / §4 C5 里的「现 29 / 29」已同步;
 > 门禁条数此后仍以 `python scripts/run_gates.py --list` 为准。
 >
 > **2026-11-14 第 6 节收尾**:勾掉 3 项(六轨措辞、`errors.md` 总表、C6 重复必跑表),
@@ -238,7 +244,7 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 > **2026-11-14 第 5 节收尾**:勾掉「三处脚本家的归属」一项 —— D2-A 裁决为**例外**
 > (理由在 §2.7),不搬目录;并登记一条新欠账(`create_release` 仍无单测)。
 >
-> **2026-11-14 第 4 节收尾**:勾掉「本地 15 条 vs CI 19 条门禁」一项 —— C5 归零(当时 `contract` 组 21 / 21,现 27 / 27),
+> **2026-11-14 第 4 节收尾**:勾掉「本地 15 条 vs CI 19 条门禁」一项 —— C5 归零(当时 `contract` 组 21 / 21,现 29 / 29),
 > 门禁清单改由 `scripts/gates.toml` 单点维护。
 >
 > **2026-11-14 第 3 节收尾**:再勾掉 2 项(接口一览表、`CLAUDE.md` 的「三轮」),
@@ -253,7 +259,7 @@ git -c core.quotepath=false grep -c 'DEFAULT_REPO =' -- 'scripts/*.py'       # 4
 | ~~`CLAUDE.md` 文档导航表「三轮报告」→ 四轮(C3 的另一处)~~ | 第 6 节(原) | **已完成**(2026-11-14 第 3 节顺手):该行改为指向 [`docs/security/README.md`](../security/README.md) 并声明「轮次以目录为准」,不再写任何轮次数字 |
 | ~~19 处「六轨」措辞(12 个文件,其中 9 个非归档;归档 3 处按 §6 红线不改)~~ | 第 6 节(**原第 2 节,2026-11-14 改判**) | **已完成**(2026-11-14):活文档 4 处清零,`docs_lint` 的 `term` 规则防回归(作用域 + 白名单 + 行内豁免) |
 | ~~`errors.md` 业务码总表与 `error_codes.py` 不同步(C11)~~ | 第 6 节 | **已完成**(2026-11-14):总表删除(改分册指针),新增「每个业务码至少在一份分册出现」门禁 |
-| ~~本地 15 条 vs CI 19 条门禁(C5)~~ | 第 4 节 | **已完成**(2026-11-14):`scripts/gates.toml` + `scripts/run_gates.py` 单点维护,两边 **21 / 21**(现 27 / 27),差额 0 |
+| ~~本地 15 条 vs CI 19 条门禁(C5)~~ | 第 4 节 | **已完成**(2026-11-14):`scripts/gates.toml` + `scripts/run_gates.py` 单点维护,两边 **21 / 21**(现 29 / 29),差额 0 |
 | ~~`AGENTS.md` §三 与 `CONTRIBUTING.md` 重复的必跑表(C6)~~ | 第 6 节 | **已完成**(2026-11-14):`CONTRIBUTING.md` 收成指针,owner 只有 `AGENTS.md` §三/§四 |
 | ~~`tools/` `perf/` `imserver/scripts/` 三处脚本家的归属(C7 剩余)~~ | 第 5 节 | **已完成**(2026-11-14):D2-A 拍板**不搬目录**,三处登记为已裁决例外(容器内 `/repo` 路径、历史报告「当时命令」可复跑、C++ 测试入口与镜像同源),理由见 §2.7 与 release.md §3.2 |
 | `scripts/create_release.py` **仍无单测**(四个发版脚本里唯一有外部副作用:建 Release / 删附件 / 传 APK) | 未定(第 5 节拍板为「验收里明确排除并写理由」) | 待修(已登记,不阻塞):可测面几乎全是 `urllib` 胶水,真风险在副作用顺序(先查 tag / 先删后传),要 mock 大半个 REST 语义才测得动 |

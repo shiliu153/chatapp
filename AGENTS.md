@@ -23,7 +23,10 @@
 
 契约联动属于**同一条栈的附带改动**,必须同一次做完,不做就是 CI 红:
 
-- 改视图 / 序列化器 → 重生成 `docs/api/openapi.yml`,并同改 `docs/api/*.md`
+- 改视图 / 序列化器 → 重生成 `docs/api/openapi.yml`,并同改 `docs/api/*.md`;
+  **改了会进 `openapi.yml` 的 docstring 也算**(description 会落到 `web/src/api/schema.d.ts` 的 JSDoc),
+  所以还要 `python scripts/gen_web_schema.py` 重生成那个派生生成物 —— 漏了会被
+  `contract-openapi-web-stamp` 判红(判据与踩坑见 `docs/pitfalls/web.md`)
 - 改 WS 帧 → `imserver/tests/fixtures/ws/*.json` + imserver + App(`self_im_client.dart`)+ Web(`web/src/im/self/*`)四处同改
 - 改视觉 token / 字体 → `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css` 双份
 - 升版本号 → `app/pubspec.yaml`(唯一事实来源)+ `app/lib/core/app_info.dart` + `web/package.json`,并在 `docs/releases.yml` 记一条(再 `python scripts/releases.py --render`)
