@@ -38,8 +38,27 @@ systemd timer,**每 15 分钟一轮**,开机 3 分钟后先补一轮(`OnBootSec`
 同一条告警里还带一个旁证「轮询心跳 `github-since`」:它每轮结束都会前进,**停在很久以前**
 ⇒ 轮询 loop 自己停了;**新鲜而游标不动** ⇒ 本来就是闲置。它只做旁证,不参与判定。
 
-**巡检不重启 orchestrator**:这一步刻意留白 —— 重启会杀掉正在跑的会话,要单独评审。
-取证与排障口径见 `docs/ops/superagent.md` §15。
+**默认只告警,不重启 orchestrator**(2026-11-16 起有「安全自愈」,但总闸默认关):
+`SUPERAGENT_AUTOREHEAL=1` 且第四项判成停摆时,巡检会在**四道闸全过**的前提下自己跑
+`bash /root/start-superagent.sh restart`,把人工那一步省掉;任何一条不过就只告警。
+
+四道闸的**顺序是安全契约**(`superagent_health.py::maybe_autoreheal`,别优化掉):
+
+1. 状态库里**没有** `state ∈ {running, pending}` 的 assignment —— 重启不会杀掉正在跑的会话;
+2. `work/` 下每个 worktree 都没有未提交改动(`git status --porcelain` 为空)—— 有改动说明
+   有人的活还没落地;**确认不了干净也按脏处理**(fail-closed);
+3. 距上一次自愈尝试 ≥ `SUPERAGENT_AUTOREHEAL_MIN_MINUTES`(默认 20 分钟)—— 防抖,
+   否则巡检每 15 分钟就会重启一次;
+4. 以上全过才调重启回调(测试里注入假回调,生产才真跑 `start-superagent.sh`)。
+
+结果分三种:成功 → 告警里写「**已自动重启**」+ 重启前后游标;回调非零退出 → 告警里带失败
+原因、**按未自愈处理**(退出码仍是 1);某道闸不过 → 只告警,并写明是哪条闸、卡在什么上。
+每次尝试都追加一行到 `/root/.dsh/state/superagent-health/autoreheal.log`(时间 / 原因 /
+前后游标 / 退出码)—— 告警有 6 小时去重,「今天自愈了几次、结果如何」只能靠这个文件看。
+
+**开关默认关**:与 `L4_INTAKE` 同一口径,机制上线不等于开始执行;不写 `SUPERAGENT_AUTOREHEAL`
+时行为与本开关上线前**完全一致**(不读状态文件、不算闸门、不多一条检查)。取证与排障口径见
+`docs/ops/superagent.md` §15。
 
 **僵尸 assignment 可以「人工作废」**:DSH 没有取消 assignment 的 CLI/API,被模型流打断的那些会
 永远停在 `running`。确认「这张单已经由别的单/PR 完成」之后,把 id 前缀填进
@@ -88,6 +107,10 @@ python3 /root/src/chatapp/scripts/superagent_health.py --cursor-stale-minutes 0 
 systemctl list-timers superagent-health.timer
 journalctl -u superagent-health -n 50 --no-pager
 cat /root/.dsh/state/superagent-health/last-alert.md   # 最近一条告警原文
+# 安全自愈:看今天自愈了几次、每次结果(告警有 6 小时去重,这里是逐次记录)
+tail -n 20 /root/.dsh/state/superagent-health/autoreheal.log
+# 开关当前是否打开(为空 = 关);打开/关闭都是改 env 文件里那行
+grep -n '^SUPERAGENT_AUTOREHEAL' /root/.dsh/superagent-health.env
 ```
 
 退出码:`0` 正常 / `1` 有异常 / `2` 判不出来(按异常处理 —— 判不出来绝不能算正常)。
@@ -95,7 +118,7 @@ cat /root/.dsh/state/superagent-health/last-alert.md   # 最近一条告警原�
 ## 自测
 
 ```bash
-python -m unittest scripts.test_superagent_health -v     # 33 条,纯离线
+python -m unittest scripts.test_superagent_health -v     # 46 条,纯离线
 ```
 
 自测里有一条是真事故的回放:用 LIKE 匹配原始 JSON 会把带空格的 `"number": 285` 判成 0 张单,
@@ -104,3 +127,10 @@ python -m unittest scripts.test_superagent_health -v     # 33 条,纯离线
 游标新鲜度那组用例钉的是判错的两个方向:**落后 + 有未读 → 报**,**落后 + 无未读 → 不报**
 (闲置),**新鲜 → 不报且根本不取通知**(断言取通知的函数没被调用);另有「通知取不到 ⇒
 判不出来(退出码 2)」与「游标落后时心跳新鲜也不能洗白」两条。
+
+**安全自愈**那组把四道闸逐条钉住(尤其「本该不重启却重启了」这个方向,那会把别人的活连同
+会话一起弄丢):停摆 + 无活跃 assignment + worktree 干净 → **回调刚好被调一次**、告警含
+「已自动重启」、`autoreheal.log` 落盘;有 `running` / `pending` 会话、worktree 有未提交改动、
+worktree 根本不是 git 目录(确认不了)→ **一次都不调**;游标新鲜、总闸没开(`0`/`off`/空)、
+距上次自愈不足 20 分钟 → **一次都不调**;重启回调非零退出 → 告警带失败原因且退出码仍是 1。
+**自测里绝不真的调 `start-superagent.sh`** —— 回调是注入的假货,只记调用次数。

@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -482,6 +484,276 @@ class CursorReportTests(unittest.TestCase):
     def test_fresh_cursor_stays_green(self) -> None:
         report = self._report(*self._setup(cursor_minutes_ago=3, unread_minutes_ago=1))
         self.assertEqual(report.exit_code(), 0, report.anomalies)
+
+
+class AutohealTests(unittest.TestCase):
+    """安全自愈:四道闸全过才重启,任何一条不过都只告警。
+
+    这是全脚本唯一会**动进程**的地方(重启会杀掉正在跑的会话),所以每条闸都单独钉一遍:
+    判错的方向是「本该不重启却重启了」—— 那会把别人的活连同会话一起弄丢。
+    自测**绝不**调真的 `start-superagent.sh`:重启回调是注入的假货,只记调用次数。
+    """
+
+    NOW = datetime(2026, 11, 16, 14, 0, tzinfo=timezone.utc)
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp()
+        self.conn = make_db(self.tmp)
+        self.db = os.path.join(self.tmp, "orchestrator.sqlite")
+        self.state_dir = os.path.join(self.tmp, "health-state")
+        self.workdir = os.path.join(self.tmp, "work")
+        os.makedirs(self.workdir)
+        self.notes = os.path.join(self.tmp, "notifications.json")
+        with open(self.notes, "w", encoding="utf-8") as handle:
+            json.dump(
+                [
+                    {
+                        "unread": True,
+                        "updated_at": (self.NOW - timedelta(minutes=2))
+                        .isoformat()
+                        .replace("+00:00", "Z"),
+                        "subject": {"title": "派工评论", "url": "https://api.github.com/repos/o/r/issues/409"},
+                    }
+                ],
+                handle,
+            )
+
+    def tearDown(self) -> None:
+        self.conn.close()
+
+    # ── 造场景 ────────────────────────────────────────────────────────────
+
+    def _stall(self, cursor_minutes_ago: int = 52) -> None:
+        """把游标写旧,模拟「有未读但游标不动」。"""
+        when = (self.NOW - timedelta(minutes=cursor_minutes_ago)).isoformat().replace("+00:00", "Z")
+        self.conn.execute("insert or replace into kv values ('github-cursor:409', ?)", (json.dumps(when),))
+        self.conn.commit()
+
+    def _running_assignment(self, state: str = "running") -> None:
+        """塞一个还在跑的 assignment(重启会杀掉它)。"""
+        assignment = {
+            "id": "a-live-1",
+            "state": state,
+            "createdAt": self.NOW.isoformat().replace("+00:00", "Z"),
+            "startedAt": self.NOW.isoformat().replace("+00:00", "Z"),
+        }
+        self.conn.execute(
+            "insert or replace into ticket values ('t-1', ?)", (ticket_row(409, [assignment]),)
+        )
+        self.conn.commit()
+
+    def _worktree(self, name: str = "wt-a", dirty: bool = False) -> str:
+        """在 work/ 下建一个真的 git 仓库(worktree 的替身),可选留一个未提交文件。"""
+        path = os.path.join(self.workdir, name)
+        os.makedirs(path, exist_ok=True)
+        subprocess.run(["git", "init", "-q", path], check=True, capture_output=True)
+        if dirty:
+            with open(os.path.join(path, "wip.txt"), "w", encoding="utf-8") as handle:
+                handle.write("半截的活\n")
+        return path
+
+    def _report(self, *extra: str, autoreheal: str = "1", restart=None):
+        """跑一整轮(离线),返回 `(报告, 假回调)`。"""
+        args = healthcheck.build_parser().parse_args(
+            [
+                "--db", self.db, "--skip-egress", "--skip-enqueue",
+                "--notifications-file", self.notes, "--workdir", self.workdir,
+                "--autoreheal", autoreheal,
+                "--autoreheal-state-dir", self.state_dir,
+                *extra,
+            ]
+        )
+        recorder = restart if restart is not None else _RestartRecorder()
+        return healthcheck.build_report(args, now=self.NOW, restart=recorder), recorder
+
+    @staticmethod
+    def _autoreheal_check(report):
+        """取报告里那条「安全自愈」检查(没有则返回 None)。"""
+        for check in report.checks:
+            if check.name == healthcheck.AUTOREHEAL_CHECK:
+                return check
+        return None
+
+    # ── 四条闸 ───────────────────────────────────────────────────────────
+
+    def test_stall_with_nothing_running_restarts_once(self) -> None:
+        """停摆 + 无 running assignment + worktree 干净 → 调一次重启,告警写明已自动重启。"""
+        self._stall()
+        self._worktree("wt-clean")
+        report, recorder = self._report()
+
+        self.assertEqual(len(recorder.calls), 1, "该重启却没重启(或重启了多次)")
+        check = self._autoreheal_check(report)
+        self.assertIsNotNone(check)
+        self.assertEqual(check.state, healthcheck.OK, check.detail)
+        self.assertIn("已自动重启", check.detail)
+        text = healthcheck.render_text(report)
+        self.assertIn("已自动重启", text)
+        # 停摆本身仍是异常:自愈成功不等于这一轮没有异常。
+        self.assertEqual(report.exit_code(), 1)
+        # 审计痕迹必须落盘:时间 / 原因 / 前后游标 / 退出码。
+        with open(os.path.join(self.state_dir, "autoreheal.log"), encoding="utf-8") as handle:
+            line = handle.read().strip()
+        self.assertIn("result=ok", line)
+        self.assertIn("rc=0", line)
+        self.assertIn("cursor_before=", line)
+        self.assertIn("cursor_after=", line)
+        self.assertIn("trigger=游标新鲜度", line)
+        self.assertTrue(os.path.exists(os.path.join(self.state_dir, "last-autoreheal")))
+
+    def test_stall_with_running_assignment_never_restarts(self) -> None:
+        """有 running 的会话 → 重启会杀活,一律不重启。"""
+        self._stall()
+        self._running_assignment("running")
+        self._worktree("wt-clean")
+        report, recorder = self._report()
+
+        self.assertEqual(recorder.calls, [], "有 running assignment 时不许重启")
+        check = self._autoreheal_check(report)
+        self.assertIsNotNone(check)
+        self.assertIn("不重启", check.detail)
+        self.assertIn("running", check.detail)
+        self.assertEqual(report.exit_code(), 1)
+        self.assertFalse(os.path.exists(os.path.join(self.state_dir, "autoreheal.log")))
+
+    def test_pending_assignment_also_blocks(self) -> None:
+        """`pending` 同样是活(已派未跑),一样不许重启。"""
+        self._stall()
+        self._running_assignment("pending")
+        self._worktree("wt-clean")
+        _, recorder = self._report()
+        self.assertEqual(recorder.calls, [])
+
+    def test_dirty_worktree_blocks(self) -> None:
+        """worktree 有未提交改动 → 那是还没落地的活,不许重启。"""
+        self._stall()
+        self._worktree("wt-dirty", dirty=True)
+        report, recorder = self._report()
+
+        self.assertEqual(recorder.calls, [], "worktree 脏时不许重启")
+        check = self._autoreheal_check(report)
+        self.assertIn("未提交改动", check.detail)
+        self.assertIn("wt-dirty", check.detail)
+
+    def test_worktree_git_failure_blocks(self) -> None:
+        """确认不了干净(work/ 下不是 git 目录)= 按脏处理,fail-closed。"""
+        self._stall()
+        os.makedirs(os.path.join(self.workdir, "not-a-repo"))
+        _, recorder = self._report()
+        self.assertEqual(recorder.calls, [], "确认不了 worktree 干净就不许重启")
+
+    def test_missing_workdir_counts_as_clean(self) -> None:
+        """work/ 不存在 = 没有 worktree = 没有活,可以自愈。"""
+        self._stall()
+        self.workdir = os.path.join(self.tmp, "no-such-work")
+        _, recorder = self._report()
+        self.assertEqual(len(recorder.calls), 1)
+
+    # ── 总闸 / 判据边界 ──────────────────────────────────────────────────
+
+    def test_fresh_cursor_never_restarts(self) -> None:
+        """一切正常 → 重启回调一次都不调。"""
+        self._stall(cursor_minutes_ago=2)
+        self._worktree("wt-clean")
+        report, recorder = self._report()
+        self.assertEqual(recorder.calls, [])
+        self.assertIsNone(self._autoreheal_check(report), "正常时不该多出一条自愈检查")
+        self.assertEqual(report.exit_code(), 0)
+
+    def test_switch_off_never_restarts(self) -> None:
+        """`SUPERAGENT_AUTOREHEAL=0`(默认)→ 一律不重启,行为与加自愈之前完全一致。"""
+        self._stall()
+        self._worktree("wt-clean")
+        report, recorder = self._report(autoreheal="0")
+        self.assertEqual(recorder.calls, [])
+        self.assertIsNone(self._autoreheal_check(report))
+        self.assertEqual(report.anomalies, [healthcheck.CURSOR_CHECK])
+        self.assertEqual(report.exit_code(), 1)
+
+    def test_switch_defaults_to_off(self) -> None:
+        """一个字都没配(env 也没有)时,总闸默认是关。"""
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("SUPERAGENT_AUTOREHEAL", None)
+            args = healthcheck.build_parser().parse_args([])
+            self.assertFalse(healthcheck._autoreheal_enabled(args))
+        for value, expected in (
+            ("1", True), ("on", True), ("true", True), ("YES", True),
+            ("0", False), ("off", False), ("false", False), ("", False), (None, False),
+        ):
+            self.assertIs(healthcheck._truthy(value), expected, value)
+
+    def test_debounce_blocks_second_restart(self) -> None:
+        """距上次自愈不足 20 分钟 → 不重复重启。"""
+        self._stall()
+        self._worktree("wt-clean")
+        first, recorder = self._report()
+        self.assertEqual(len(recorder.calls), 1)
+        second, recorder2 = self._report()
+        self.assertEqual(recorder2.calls, [], "20 分钟内不许重启第二次")
+        check = self._autoreheal_check(second)
+        self.assertIn("距上次自愈", check.detail)
+        self.assertIn("20 分钟", check.detail)
+        self.assertEqual(self._autoreheal_check(first).state, healthcheck.OK)
+
+    def test_debounce_expires_after_threshold(self) -> None:
+        """过了 20 分钟以上,可以再自愈一次。"""
+        self._stall()
+        self._worktree("wt-clean")
+        self._report()
+        later = self.NOW + timedelta(minutes=21)
+        args = healthcheck.build_parser().parse_args(
+            [
+                "--db", self.db, "--skip-egress", "--skip-enqueue",
+                "--notifications-file", self.notes, "--workdir", self.workdir,
+                "--autoreheal", "1", "--autoreheal-state-dir", self.state_dir,
+            ]
+        )
+        recorder = _RestartRecorder()
+        healthcheck.build_report(args, now=later, restart=recorder)
+        self.assertEqual(len(recorder.calls), 1)
+
+    def test_restart_failure_is_reported_and_still_exits_one(self) -> None:
+        """重启命令非零退出 → 告警里带失败原因,按「未自愈」处理(退出码仍是 1)。"""
+        self._stall()
+        self._worktree("wt-clean")
+        report, _ = self._report(restart=_RestartRecorder(rc=3, output="端口被占"))
+        check = self._autoreheal_check(report)
+        self.assertEqual(check.state, healthcheck.BAD, check.detail)
+        self.assertIn("失败", check.detail)
+        self.assertIn("端口被占", check.detail)
+        self.assertEqual(report.exit_code(), 1)
+        with open(os.path.join(self.state_dir, "autoreheal.log"), encoding="utf-8") as handle:
+            self.assertIn("result=failed", handle.read())
+
+    def test_unknown_notifications_never_restart(self) -> None:
+        """游标落后但取不到未读通知 = 判不出来,连「是不是真停摆」都不知道 ⇒ 不许重启。"""
+        self._stall()
+        self._worktree("wt-clean")
+        os.remove(self.notes)
+        report, recorder = self._report()
+        self.assertEqual(recorder.calls, [])
+        self.assertTrue(report.unknown)
+        self.assertEqual(report.exit_code(), 2)
+
+
+class _RestartRecorder:
+    """假的重启回调:只记录被调用、返回预设的退出码与输出(绝不碰真进程)。"""
+
+    def __init__(self, rc: int = 0, output: str = "restarted") -> None:
+        """记下要返回的结果。
+
+        Args:
+            rc: 假回调的退出码。
+            output: 假回调的输出尾部。
+        """
+        self.rc = rc
+        self.output = output
+        self.calls = []
+
+    def __call__(self):
+        """被 `maybe_autoreheal` 调用一次,记一笔并返回预设结果。"""
+        self.calls.append(1)
+        return self.rc, self.output
 
 
 if __name__ == "__main__":
