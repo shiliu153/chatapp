@@ -32,6 +32,16 @@ if [ -n "${SUPERAGENT_HEALTH_IGNORE_ZOMBIES:-}" ]; then
   for id in $SUPERAGENT_HEALTH_IGNORE_ZOMBIES; do IGNORE_ARGS+=(--ignore "$id"); done
 fi
 
+# 游标新鲜度那两个配置同理:巡检器读 env,而 source 进来的变量不在子进程环境里,
+# 所以要么显式 export,要么改命令行。空值不 export(空串会让 python 的整数解析失效)。
+CURSOR_ARGS=()
+if [ -n "${SUPERAGENT_CURSOR_STALE_MINUTES:-}" ]; then
+  CURSOR_ARGS+=(--cursor-stale-minutes "$SUPERAGENT_CURSOR_STALE_MINUTES")
+fi
+if [ -n "${GH_CLI:-}" ]; then
+  CURSOR_ARGS+=(--gh-cli "$GH_CLI")
+fi
+
 # 仓库里跑时检查器在 scripts/ 下;装到 /root/.dsh/healthcheck/ 后与 run.sh 同级。
 if [ -z "${SUPERAGENT_HEALTH_CHECKER:-}" ]; then
   if [ -f "$HERE/superagent_health.py" ]; then
@@ -45,6 +55,7 @@ fi
 
 OUT=$(mktemp); trap 'rm -f "$OUT"' EXIT
 python3 "$CHECKER" ${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"} ${IGNORE_ARGS[@]+"${IGNORE_ARGS[@]}"} \
+  ${CURSOR_ARGS[@]+"${CURSOR_ARGS[@]}"} \
   >"$OUT" 2>"$STATE_DIR/last-stderr.log"
 RC=$?
 
@@ -76,6 +87,8 @@ SUBJECT="[superagent] worker 健康检查异常(rc=$RC)"
   echo "  1) bash /root/start-superagent.sh status                      # 健康位"
   echo "  2) bash /root/src/chatapp/scripts/superagent-proxy/probe.sh   # 三路出网对比"
   echo "  3) 卡死的 assignment 需要新单或重启:见 docs/ops/superagent.md §3"
+  echo "  4) 游标新鲜度 ❌(有未读通知但游标没动):先按 §15 取证,再决定是否重启 ——"
+  echo "     重启会杀掉正在跑的会话,巡检脚本**不会**替你重启"
   echo
   echo "本文件:$STATE_DIR/last-alert.md"
 } >"$STATE_DIR/pending-alert.md"
