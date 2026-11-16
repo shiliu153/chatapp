@@ -176,6 +176,11 @@ bash deploy/oneclick.sh --render-only --no-tls --app-dir ./deploy-render
 6. **确认定时任务**:`systemctl list-timers 'chatapp-*'` 应看到
    `chatapp-certbot-renew.timer`(仅 HTTPS)与 `chatapp-maintenance.timer`
    (候选池随机键 / **访客记录保留期** / 聊天媒体过期 / 孤儿文件 / 磁盘报表)。
+7. **核对 Redis 口令**:`docker compose -f /opt/chatapp/docker-compose.yml exec redis redis-cli ping`
+   应回 `NOAUTH Authentication required`(回 `PONG` 说明口令没生效,先看
+   `/opt/chatapp/.env` 里有没有 `REDIS_PASSWORD`);带口令
+   `... exec redis sh -c 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping'` 应回 `PONG`。
+   再确认应用侧没断:`curl -s https://<域名>/api/v1/readyz` 的 `checks.redis` 必须是 `ok`。
 
 ## 7. 日常运维
 
@@ -299,13 +304,15 @@ docker compose start web worker
   因此不再需要 `NET_BIND_SERVICE`;
   每个服务有 `mem_limit`/`pids_limit`,单服务失控不会拖垮 2C2G 整机(M-5);
 - `secrets/` 与 `.env` 均为 600,`values.env` 是唯一需要离线备份的密钥文件;
+- Redis 开 `requirepass`(第四轮 A2 / 第五轮 H-1):口令由 `oneclick.sh` 生成写进
+  `values.env` 的 `REDIS_PASSWORD`,经 `$APP_DIR/.env` 插值到 compose;Django 缓存(DB0)、
+  Celery broker(DB1)与 imserver(DB2)三侧同源。**不带口令连不上**(`redis-cli ping` 回
+  `NOAUTH`),口令写进容器 `command`,因此 `docker inspect` 能看到 —— 能跑 docker 命令的人
+  本来就能读 `secrets/`,不因此扩大面;需要换口令时重跑脚本加 `--rotate-secrets`;
 - 生产默认 `DEBUG=0`、`AUTO_APPROVE=0`、`OPS_OTP_REQUIRED=1`、`HTTPS_ENABLED=1`、
   `SMS_DEV_MODE=0`、`SMS_ALLOW_STAFF_LOGIN=0`;
 - 仍存在的已知风险:
   - 未接真实短信商时,封闭测试必须显式 `--allow-dev-sms`(固定验证码);
   - 聊天图片/语音没有机器审核,只有 `/ops/` 人工抽审;
   - 媒体存本地磁盘,未接对象存储/CDN;
-  - 备份文件未自动加密,需运维按 §8 自行加密/离线保存;
-  - **Redis 仍未设 `requirepass`**:imserver 已支持 `redis://:pass@host/db` 并 `AUTH`
-    (E-6②,2026-11-05),但开启口令要同时改 Django `REDIS_URL` 与 imserver
-    `IM_REDIS_URL` 并重启两侧,尚未执行;当前靠 `backend` 网络隔离兜底。
+  - 备份文件未自动加密,需运维按 §8 自行加密/离线保存。
