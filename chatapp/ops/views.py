@@ -42,7 +42,8 @@ from discovery.cache_keys import invalidate_pool_globally
 from feed.models import Post, PostReport
 from feed.services import delete_post
 from feedback.models import Feedback, FeedbackStatus, FeedbackType
-from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
+from im.models import (ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus,
+                       TranscodeStatus)
 from moderation.models import (BanAction, BanLog, Block, Report, ReportStatus,
                                ReportType)
 from moderation.services import log_ban_change, notify_report_handled
@@ -232,9 +233,10 @@ def _report_context(report):
             owner=report.target,
             created_at__gte=timezone.now() - timedelta(days=7),
         ).order_by("-created_at")[:12],
-        # 语音同理:可直接试听,不做转写
+        # 语音同理:可直接试听,不做转写(只列转码完成的 —— pending 行还没有正式文件)
         "chat_voices": ChatVoice.objects.select_related("owner").filter(
             owner=report.target,
+            transcode_status=TranscodeStatus.READY,
             created_at__gte=timezone.now() - timedelta(days=7),
         ).order_by("-created_at")[:12],
     }
@@ -1154,11 +1156,13 @@ def chat_voices(request):
         (见 ``ops/tests.py`` 的 ``ChatVoiceOpsTests``)
 
     备注信息:
-        只列 ``VISIBLE`` 状态的语音;``user`` 非数字时忽略,不报错;每次浏览都写一条
+        只列 ``VISIBLE`` 且转码完成(``transcode_status=ready``)的语音 —— ``pending`` 行还没有
+        正式文件,``signed_file_url`` 给不出可试听地址;``user`` 非数字时忽略,不报错;每次浏览都写一条
         ``MediaAccessLog``,审计写失败不影响页面。
     """
     qs = ChatVoice.objects.select_related("owner").filter(
-        status=ChatVoiceStatus.VISIBLE).order_by("-created_at")
+        status=ChatVoiceStatus.VISIBLE,
+        transcode_status=TranscodeStatus.READY).order_by("-created_at")
     user_id = optional_id(request.GET.get("user"))
     if user_id:
         qs = qs.filter(owner_id=user_id)
@@ -1200,7 +1204,8 @@ def chat_voice_delete(request, voice_id):
     voice.deleted_at = timezone.now()
     voice.save(update_fields=["status", "deleted_by", "deleted_at"])
     qs = ChatVoice.objects.select_related("owner").filter(
-        status=ChatVoiceStatus.VISIBLE).order_by("-created_at")
+        status=ChatVoiceStatus.VISIBLE,
+        transcode_status=TranscodeStatus.READY).order_by("-created_at")
     return render(request, "ops/partials/chat_voices_table.html", {"voices": qs[:120]})
 
 

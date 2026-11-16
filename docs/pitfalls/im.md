@@ -120,8 +120,8 @@ print('done', len(ids))
 
 ## 聊天语音(2026-10-27)
 
-- **语音上传 503 + `50302` 有两种成因,先看有没有 `Retry-After` 头**:带 `Retry-After` 是**转码槽被别的请求占着**(`config/transcode_gate.py` 的全局单槽,最多等一个 TTL/一次转码就恢复);不带才是下面这条。
-- **不带 `Retry-After` 的语音上传 503 + `50302` = 服务器没装 ffmpeg**:`shutil.which("ffmpeg")` 或 `ffprobe` 任一缺失就 fail closed(不静默降级,避免 Web 的 webm 存进去后 iOS 播不了)。先 `ffmpeg -version && ffprobe -version`;宝塔软件商店或 `apt install ffmpeg` 安装后无需重启 Django。
+- **语音上传 503 + `50302` 现在只有一种成因 = 服务器没装 ffmpeg**(2026-11-16 M-3 起):转码槽被别的上传占着**不再回 503**,而是回 `202 + status=pending`,由 Celery worker 排队转码,客户端轮询 `GET /im/voices/{id}`(聊天语音)或 `GET /users/me/voice`(资料语音)。看到「客户端一直拿到 `pending` 不变 `ready`」先查 worker 有没有起、`bulk` 队列有没有积压:`python manage.py voice_transcode_cleanup` 默认 dry-run 能看出攒了多少残骸。
+- **语音上传 503 + `50302` = 服务器没装 ffmpeg**:`shutil.which("ffmpeg")` 或 `ffprobe` 任一缺失就 fail closed(不静默降级,避免 Web 的 webm 存进去后 iOS 播不了)。先 `ffmpeg -version && ffprobe -version`;宝塔软件商店或 `apt install ffmpeg` 安装后无需重启 Django。
 - **语音文件被当孤儿删掉**:`im_media_cleanup` 的孤儿扫描以「库里 known 集合」判断,新增语音后**必须**把 `ChatVoice.file` 并进 `known`;漏了会在 24 小时宽限期后把正常语音全删掉(图片已有同款坑)。`test_orphan_scan_keeps_known_voice` 专门兜这个。
 - **统一转 m4a 是跨端播放的前提**:Chrome/Firefox 的 `MediaRecorder` 出 webm/opus,iOS 的 AVPlayer 播不了;服务端 ffmpeg 统一转 AAC 后存储格式唯一。**不要**改成「原样存」——Web→App 的语音会静默无声。
 - **时长以 ffprobe 为准**:客户端 `duration_ms` 只用来交叉校验(差 >2 秒拒绝),否则改个请求就能把 10 分钟音频塞进来。App 的 `record` 与 Web 的 `performance.now()` 在正常路径上都只差几百毫秒。

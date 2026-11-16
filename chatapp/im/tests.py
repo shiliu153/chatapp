@@ -8,8 +8,10 @@
       ``im_sync_nicknames``(含失败计数)、``im_sync_pairs``(回填配对);
     - IM 凭证接口:签发自建 token、重封禁 403、会话版本同步失败则 fail-closed、
       踢旧会话必须先于签发;
-    - 语音上传:成功返回四元组、时长/格式校验、缺 ffmpeg 与转码槽被占都回 503+50302
-      (后者带 ``Retry-After``)、限流;
+    - 语音上传:成功返回四元组 + ``status``、时长/格式校验、缺 ffmpeg 回 503+50302、
+      抢不到转码槽改走异步(202 + pending,worker 跑完轮询变 ready)、限流;
+    - 语音转码状态轮询(``GET /im/voices/{id}``):三态、只给创建者本人看、限流;
+    - 异步转码残骸兜底清理命令(``voice_transcode_cleanup``);
     - 副作用任务:``False`` 转异常以触发重试、缺用户时静默、注销删号不查库、
       解除配对时双向拉黑。
 """
@@ -57,7 +59,8 @@ from .client import (black_list_add, black_list_delete, delete_account,
                      send_match_notice, send_post_commented, send_post_replied,
                      send_report_handled, send_text, set_profile_avatar,
                      set_profile_nick, set_session_version)
-from .models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
+from . import transcode_queue
+from .models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus, TranscodeStatus
 from .throttles import ChatImageThrottle
 from .token import mint_im_token, verify_im_token
 from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
@@ -66,7 +69,7 @@ from .tasks import (ban_lifted, ban_notice, blacklist_add, blacklist_remove,
                     kick_pending, kick_pending_key,
                     post_commented as post_commented_task,
                     report_handled as report_handled_task, sync_profile,
-                    unmatch_blacklist)
+                    transcode_chat_voice, unmatch_blacklist)
 from .tasks import send_match_notice as send_match_notice_task
 
 User = get_user_model()
@@ -1195,7 +1198,11 @@ class ChatVoiceUploadTests(APITestCase):
         self.assertIn("?e=", data["url"])
         self.assertEqual(data["duration_ms"], 12500)
         self.assertEqual(data["size"], len(b"transcoded"))
+        # 纯加法:原有四个字段一字不差,只多一个 status(值恒为 ready)
+        self.assertEqual(set(data.keys()), {"id", "url", "duration_ms", "size", "status"})
+        self.assertEqual(data["status"], "ready")
         voice = ChatVoice.objects.get()
+        self.assertEqual(voice.transcode_status, TranscodeStatus.READY)
         self.assertEqual(voice.owner_id, self.user.id)
         self.assertRegex(voice.file.name, r"^chat/voices/\d{4}/\d{2}/\d+-[0-9a-f]{32}\.m4a$")
         self.assertTrue(voice.file.storage.exists(voice.file.name))
@@ -1206,21 +1213,26 @@ class ChatVoiceUploadTests(APITestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.data["code"], 50302)
 
+    @patch("im.tasks.transcode_chat_voice.delay")
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
     @patch("im.voice._probe_ms", return_value=12500)
-    def test_transcode_busy_returns_503_with_retry_after(self, _probe, _transcode, _ffmpeg):
-        """转码槽被占:立刻 503 + ``50302`` + ``Retry-After``,不排队也不落盘(M-3)。"""
+    def test_transcode_busy_queues_pending(self, _probe, _transcode, _ffmpeg, delay):
+        """转码槽被占:落临时区 + 入队,回 202 + ``pending`` + ``retry_after``(M-3)。"""
         self.assertTrue(transcode_gate.acquire())
         self.addCleanup(transcode_gate.release)
-        response = self.upload()
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.data["code"], 50302)
-        self.assertEqual(response.headers["Retry-After"], "5")
-        self.assertEqual(ChatVoice.objects.count(), 0)
-        # 释放后同一个请求能进:证明上面的 503 是槽造成的,不是别的失败路径。
-        transcode_gate.release()
-        self.assertEqual(self.upload().status_code, 201)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.upload()
+        self.assertEqual(response.status_code, 202, response.data)
+        self.assertEqual(response.data["status"], "pending")
+        self.assertEqual(response.data["retry_after"], 5)
+        self.assertNotIn("url", response.data)      # 还没有正式文件,拿不到地址
+        chat_voice = ChatVoice.objects.get()
+        self.assertEqual(chat_voice.transcode_status, TranscodeStatus.PENDING)
+        self.assertEqual(chat_voice.bytes, 0)       # 临时区不计配额
+        self.assertTrue(transcode_queue.is_staged(chat_voice.file.name))
+        self.assertTrue(default_storage.exists(chat_voice.file.name))
+        delay.assert_called_once_with(chat_voice.id)
 
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
@@ -1274,6 +1286,341 @@ class ChatVoiceUploadTests(APITestCase):
         cache.clear()
         self.assertEqual(self.upload(duration_ms=5000).status_code, 201)
         self.assertEqual(self.upload(duration_ms=5000).status_code, 429)
+
+
+class ChatVoiceAsyncTranscodeTests(APITestCase):
+    """语音异步转码全链路:抢不到槽 → 202 pending → worker 跑完 → 轮询 ready / failed(M-3)。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
+                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
+        override.enable()
+        self.addCleanup(override.disable)
+        cache.clear()
+        self.user = User.objects.create_user(phone="13900139010")
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.user).access_token}")
+        self.url = "/api/v1/im/voices"
+
+    def upload(self, content=b"fake-m4a", content_type="audio/mp4", duration_ms=12500):
+        """上传一段语音(与 ``ChatVoiceUploadTests.upload`` 同口径)。
+
+        参数说明:
+            content: 文件字节。
+            content_type: MIME 类型。
+            duration_ms: 客户端声明时长。
+
+        返回参数:
+            DRF 测试客户端响应。
+
+        使用示例:
+            ``response = self.upload()``(见本类的 ``queue``)
+
+        备注信息:
+            文件名固定 ``a.m4a``,以 multipart 打到 ``/api/v1/im/voices``。
+        """
+        return self.client.post(
+            self.url,
+            {"file": SimpleUploadedFile("a.m4a", content, content_type=content_type),
+             "duration_ms": duration_ms},
+            format="multipart")
+
+    def queue(self):
+        """占住转码槽再上传,拿到 202 响应与那条 ``pending`` 行。
+
+        参数说明:
+            无。
+
+        返回参数:
+            ``(response, chat_voice)``。
+
+        使用示例:
+            ``_, chat_voice = self.queue()``(见本类各用例)
+
+        备注信息:
+            入队挂在 ``transaction.on_commit`` 上,所以要用 ``captureOnCommitCallbacks``
+            执行一次回调,才会真的调用 ``transcode_chat_voice.delay``(用例里已 patch)。
+        """
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.upload()
+        self.assertEqual(response.status_code, 202, response.data)
+        return response, ChatVoice.objects.get()
+
+    def poll(self, voice_id):
+        """查一次转码状态并返回响应体。
+
+        参数说明:
+            voice_id: 聊天语音主键。
+
+        返回参数:
+            轮询接口的 JSON 响应体。
+
+        使用示例:
+            ``payload = self.poll(chat_voice.id)``(见本类各用例)
+
+        备注信息:
+            非 200 直接断言失败,避免后续读键时报 ``KeyError``。
+        """
+        response = self.client.get(f"/api/v1/im/voices/{voice_id}")
+        self.assertEqual(response.status_code, 200, response.data)
+        return response.json()
+
+    @patch("im.tasks.transcode_chat_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=12500)
+    def test_worker_turns_pending_into_ready(self, _probe, _transcode, _ffmpeg, _delay):
+        """worker 跑完后轮询变 ``ready`` 且带签名 url;临时文件已删。"""
+        _, chat_voice = self.queue()
+        staged = chat_voice.file.name
+        pending = self.poll(chat_voice.id)
+        self.assertEqual(pending["status"], "pending")
+        self.assertIsNone(pending["url"])
+        self.assertIsNone(pending["duration_ms"])
+
+        transcode_gate.release()      # 模拟 worker 抢到槽
+        transcode_chat_voice.apply(args=[chat_voice.id])
+
+        chat_voice.refresh_from_db()
+        self.assertEqual(chat_voice.transcode_status, TranscodeStatus.READY)
+        self.assertFalse(transcode_queue.is_staged(chat_voice.file.name))
+        self.assertFalse(default_storage.exists(staged))
+        payload = self.poll(chat_voice.id)
+        self.assertEqual(payload["status"], "ready")
+        self.assertTrue(payload["url"].startswith("http://cdn.test/media/chat/voices/"))
+        self.assertIn("?e=", payload["url"])
+        self.assertEqual(payload["duration_ms"], 12500)
+        self.assertEqual(payload["size"], len(b"transcoded"))
+        self.assertIsNone(payload["code"])
+
+    @patch("im.tasks.transcode_chat_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._probe_ms", side_effect=voice.VoiceError("音频无法解码,请重新录制"))
+    def test_bad_file_fails_and_cleans_tmp(self, _probe, _ffmpeg, _delay):
+        """坏文件:轮询 ``failed`` + 短文案,临时文件已删、行上没有文件。"""
+        _, chat_voice = self.queue()
+        staged = chat_voice.file.name
+
+        transcode_gate.release()
+        transcode_chat_voice.apply(args=[chat_voice.id])
+
+        chat_voice.refresh_from_db()
+        self.assertEqual(chat_voice.transcode_status, TranscodeStatus.FAILED)
+        self.assertEqual(chat_voice.file.name, "")
+        self.assertFalse(default_storage.exists(staged))
+        payload = self.poll(chat_voice.id)
+        self.assertEqual(payload["status"], "failed")
+        self.assertIsNone(payload["url"])
+        self.assertIsNone(payload["code"])          # 不是业务码,只有文案
+        self.assertEqual(payload["message"], "音频无法解码,请重新录制")
+
+    @patch("im.tasks.transcode_chat_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=12500)
+    def test_quota_exceeded_fails_with_code(self, _probe, _transcode, _ffmpeg, _delay):
+        """配额超限:落正式文件**之前**失败,``transcode_error=41301``,磁盘无正式文件。"""
+        _, chat_voice = self.queue()
+        staged = chat_voice.file.name
+
+        transcode_gate.release()
+        with self.settings(USER_STORAGE_QUOTA_BYTES=1):
+            transcode_chat_voice.apply(args=[chat_voice.id])
+
+        chat_voice.refresh_from_db()
+        self.assertEqual(chat_voice.transcode_status, TranscodeStatus.FAILED)
+        self.assertEqual(chat_voice.transcode_error, "41301")
+        self.assertEqual(chat_voice.bytes, 0)
+        self.assertFalse(default_storage.exists(staged))
+        chat_dir = Path(self.media_dir, "chat")
+        self.assertEqual(list(chat_dir.rglob("*")) if chat_dir.exists() else [], [])
+        payload = self.poll(chat_voice.id)
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["code"], "41301")
+        self.assertIsNone(payload["url"])
+
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=12500)
+    def test_missing_row_is_ignored(self, _probe, _transcode, _ffmpeg):
+        """行已被删(兜底清理收走)时任务静默返回,不抛异常。"""
+        _, chat_voice = self.queue()
+        transcode_gate.release()
+        ChatVoice.objects.filter(id=chat_voice.id).delete()
+        transcode_chat_voice.apply(args=[chat_voice.id])   # 不抛异常即通过
+        self.assertEqual(ChatVoice.objects.count(), 0)
+
+    @patch("im.voice.ffmpeg_available", return_value=False)
+    def test_busy_and_missing_ffmpeg_still_returns_503(self, _ffmpeg):
+        """缺 ffmpeg 时即使槽被占也回 503:不受理注定失败的转码。"""
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.upload()
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data["code"], 50302)
+        self.assertEqual(ChatVoice.objects.count(), 0)
+
+
+class ChatVoiceStatusTests(APITestCase):
+    """轮询接口 ``GET /im/voices/{id}``:三态、只给创建者本人、限流。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir, MEDIA_BASE_URL="http://cdn.test",
+                                 IM_MEDIA_SIGN_SECRET="s", IM_MEDIA_SIGN_TTL=86400)
+        override.enable()
+        self.addCleanup(override.disable)
+        cache.clear()
+        self.user = User.objects.create_user(phone="13900139011")
+        self.other = User.objects.create_user(phone="13900139012")
+        self.login(self.user)
+        self.ready = ChatVoice.objects.create(
+            owner=self.user, duration_ms=5000, bytes=1,
+            file=SimpleUploadedFile("a.m4a", b"x", content_type="audio/mp4"))
+
+    def login(self, user):
+        """把测试客户端切到某个账号。
+
+        参数说明:
+            user: 目标账号。
+
+        返回参数:
+            无返回值。
+
+        使用示例:
+            ``self.login(self.other)``(见本类 ``test_others_voice_is_not_found``)
+
+        备注信息:
+            每次调用都覆盖 Authorization 头,不会累积。
+        """
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(user).access_token}")
+
+    def test_ready_voice_returns_signed_url(self):
+        """``ready`` 的语音返回签名 url、实测时长与字节数,``code`` / ``message`` 为 null。"""
+        response = self.client.get(f"/api/v1/im/voices/{self.ready.id}")
+        self.assertEqual(response.status_code, 200, response.data)
+        payload = response.json()
+        self.assertEqual(payload["id"], self.ready.id)
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["duration_ms"], 5000)
+        self.assertEqual(payload["size"], 1)
+        self.assertTrue(payload["url"].startswith("http://cdn.test/media/chat/voices/"))
+        self.assertIsNone(payload["code"])
+        self.assertIsNone(payload["message"])
+
+    def test_pending_voice_has_no_url(self):
+        """``pending`` 时不带 url / 时长 / 字节数。"""
+        row = ChatVoice.objects.create(owner=self.user, duration_ms=3000, bytes=0,
+                                       transcode_status=TranscodeStatus.PENDING)
+        row.file = "tmp/voice/deadbeef.webm"
+        row.save()
+        payload = self.client.get(f"/api/v1/im/voices/{row.id}").json()
+        self.assertEqual(payload["status"], "pending")
+        self.assertIsNone(payload["url"])
+        self.assertIsNone(payload["duration_ms"])
+        self.assertIsNone(payload["size"])
+
+    def test_failed_voice_carries_business_code(self):
+        """``failed`` 时业务码进 ``code``、配一句可直接展示的中文。"""
+        row = ChatVoice.objects.create(owner=self.user, duration_ms=0, bytes=0,
+                                       transcode_status=TranscodeStatus.FAILED,
+                                       transcode_error="41301")
+        payload = self.client.get(f"/api/v1/im/voices/{row.id}").json()
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["code"], "41301")
+        self.assertIn("存储空间已满", payload["message"])
+
+    def test_others_voice_is_not_found(self):
+        """别人的语音一律 404(不确认资源是否存在)。"""
+        self.login(self.other)
+        self.assertEqual(
+            self.client.get(f"/api/v1/im/voices/{self.ready.id}").status_code, 404)
+
+    def test_missing_voice_is_404(self):
+        """不存在的 id 也是 404,与「不是我的」同一个响应。"""
+        self.assertEqual(self.client.get("/api/v1/im/voices/999999").status_code, 404)
+
+    def test_poll_is_throttled_by_voice_status_scope(self):
+        """轮询走 ``voice_status`` 额度:超限 429。"""
+        with patch("im.throttles.VoiceStatusThrottle.get_rate", return_value="1/hour"):
+            cache.clear()
+            self.assertEqual(
+                self.client.get(f"/api/v1/im/voices/{self.ready.id}").status_code, 200)
+            self.assertEqual(
+                self.client.get(f"/api/v1/im/voices/{self.ready.id}").status_code, 429)
+
+
+class VoiceTranscodeCleanupTests(TestCase):
+    """兜底清理命令 ``voice_transcode_cleanup``:24 小时前的 tmp 文件与 pending 行。"""
+
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media_dir, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(phone="13900139013")
+
+    def make_pending(self, age_hours: int):
+        """造一条指定「年龄」的 ``pending`` 行 + 它的临时文件。
+
+        参数说明:
+            age_hours: 行与文件分别回拨多少小时(模拟残骸)。
+
+        返回参数:
+            ``(行, 临时文件的存储相对路径)``。
+
+        使用示例:
+            ``row, name = self.make_pending(48)``(见本类各用例)
+
+        备注信息:
+            ``created_at`` 是 ``auto_now_add``,只能靠 ``queryset.update`` 回拨;
+            文件按 mtime 判定,所以同时 ``os.utime`` 一次。
+        """
+        name = transcode_queue.stage(b"raw", transcode_queue.staged_name("audio/mp4"))
+        row = ChatVoice(owner=self.user, duration_ms=1000, bytes=0,
+                        transcode_status=TranscodeStatus.PENDING)
+        row.file = name
+        row.save()
+        ChatVoice.objects.filter(id=row.id).update(
+            created_at=timezone.now() - timedelta(hours=age_hours))
+        old = time.time() - age_hours * 3600
+        os.utime(Path(self.media_dir) / name, (old, old))
+        return row, name
+
+    def test_dry_run_keeps_everything(self):
+        """默认 dry-run:只统计,不删行也不删文件。"""
+        row, name = self.make_pending(48)
+        out = StringIO()
+        call_command("voice_transcode_cleanup", stdout=out)
+        self.assertIn("mode=dry-run", out.getvalue())
+        self.assertTrue(ChatVoice.objects.filter(id=row.id).exists())
+        self.assertTrue(default_storage.exists(name))
+
+    def test_apply_drops_stale_rows_and_files(self):
+        """``--apply`` 删掉 48 小时前的行与文件,1 小时前的不动。"""
+        stale, stale_name = self.make_pending(48)
+        fresh, fresh_name = self.make_pending(1)
+        call_command("voice_transcode_cleanup", "--apply", stdout=StringIO())
+        self.assertFalse(ChatVoice.objects.filter(id=stale.id).exists())
+        self.assertFalse(default_storage.exists(stale_name))
+        self.assertTrue(ChatVoice.objects.filter(id=fresh.id).exists())
+        self.assertTrue(default_storage.exists(fresh_name))
+
+    def test_orphan_tmp_file_is_removed(self):
+        """没有行认领的旧临时文件也会被删(行建好之前就崩的情况)。"""
+        name = transcode_queue.stage(b"orphan", transcode_queue.staged_name("audio/webm"))
+        old = time.time() - 48 * 3600
+        os.utime(Path(self.media_dir) / name, (old, old))
+        call_command("voice_transcode_cleanup", "--apply", stdout=StringIO())
+        self.assertFalse(default_storage.exists(name))
 
 
 class VoiceCommandHardeningTests(SimpleTestCase):

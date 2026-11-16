@@ -10,7 +10,9 @@
       不能删别人的、状态随照片增减在完善/未完善间流转;
     - 资料语音:3 秒 201 + 签名地址、31 秒 400(提示 30 秒)、覆盖上传只剩一条且旧文件已删、
       我的/他人资料都返回 ``voice``、没录过为 ``null``、DELETE 幂等且删文件、
-      配额超限 413+41301 且不落盘、缺 ffmpeg 503+50302、转码槽被占 503+50302+Retry-After、
+      配额超限 413+41301 且不落盘、缺 ffmpeg 503+50302、
+      抢不到转码槽改走异步(202 + pending,worker 跑完轮询变 ready;失败落 41301/文案)、
+      轮询接口 ``GET /users/me/voice`` 的三态与 404、轮询不吃上传额度、
       不进「资料完善」判定、限流;
     - 偏好:默认值、更新、区间非法、未满 18 下限、目标性别为空表示不限;
     - admin 审核动作:驳回与通过时的状态重算、记录审核人与时间;
@@ -61,7 +63,9 @@ from config import storage, transcode_gate
 from discovery.models import Match, Swipe
 from feed.models import Follow, Post, PostComment, PostImage
 from im import media_sign, tasks as im_tasks
-from im.models import ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus
+from im import transcode_queue, voice
+from im.models import (ChatImage, ChatImageStatus, ChatVoice, ChatVoiceStatus,
+                       TranscodeStatus)
 from moderation.models import BanLog, Block, Report
 
 from . import activity, presence, services
@@ -669,22 +673,154 @@ class ProfileVoiceTests(AuthMixin, APITestCase):
         self.assertEqual(resp.status_code, 503)
         self.assertEqual(resp.json()["code"], 50302)
 
+    @patch("im.tasks.transcode_profile_voice.delay")
     @patch("im.voice.ffmpeg_available", return_value=True)
     @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
     @patch("im.voice._probe_ms", return_value=3000)
-    def test_transcode_busy_returns_503_with_retry_after(self, _probe, _transcode, _ffmpeg):
-        """转码槽被占:立刻 503 + ``50302`` + ``Retry-After``,不落盘(M-3)。"""
+    def test_transcode_busy_queues_pending(self, _probe, _transcode, _ffmpeg, delay):
+        """转码槽被占:202 + ``pending`` + ``retry_after``,临时区接管、配额不计(M-3)。"""
         self.assertTrue(transcode_gate.acquire())
         self.addCleanup(transcode_gate.release)
-        resp = self.upload()
-        self.assertEqual(resp.status_code, 503)
-        self.assertEqual(resp.json()["code"], 50302)
-        self.assertEqual(resp.headers["Retry-After"], "5")
-        self.assertEqual(ProfileVoice.objects.count(), 0)
-        self.assertEqual(self.voice_files(), [])
-        # 释放后同一个请求能进:证明上面的 503 是槽造成的,不是别的失败路径。
-        transcode_gate.release()
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.upload()
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertEqual(resp.json()["status"], "pending")
+        self.assertEqual(resp.json()["retry_after"], 5)
+        self.assertNotIn("url", resp.json())
+        record = ProfileVoice.objects.get()
+        self.assertEqual(record.transcode_status, TranscodeStatus.PENDING)
+        self.assertEqual(record.bytes, 0)                 # 临时区不计配额
+        self.assertTrue(transcode_queue.is_staged(record.file.name))
+        self.assertEqual(self.voice_files(), [])           # 正式媒体目录里还没有文件
+        delay.assert_called_once_with(record.id)
+
+    @patch("im.tasks.transcode_profile_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_overwrite_while_busy_drops_old_voice(self, _probe, _transcode, _ffmpeg, _delay):
+        """覆盖式在异步路径上:旧语音立即下线(旧文件已删),资料里 ``voice`` 变回 null。"""
         self.assertEqual(self.upload().status_code, 201)
+        old_name = ProfileVoice.objects.get().file.name
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.upload(content=b"second").status_code, 202)
+        self.assertFalse(default_storage.exists(old_name))
+        self.assertIsNone(self.client.get("/api/v1/users/me").json()["voice"])
+        self.assertEqual(ProfileVoice.objects.count(), 1)   # 一人一条,不新增行
+
+    @patch("im.tasks.transcode_profile_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_worker_turns_pending_into_ready(self, _probe, _transcode, _ffmpeg, _delay):
+        """worker 跑完后轮询变 ``ready``,资料里的 ``voice`` 恢复成公开地址。"""
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.upload().status_code, 202)
+        record = ProfileVoice.objects.get()
+        staged = record.file.name
+        self.assertEqual(self.poll()["status"], "pending")
+
+        transcode_gate.release()        # 模拟 worker 抢到槽
+        im_tasks.transcode_profile_voice.apply(args=[record.id])
+
+        record.refresh_from_db()
+        self.assertEqual(record.transcode_status, TranscodeStatus.READY)
+        self.assertEqual(record.duration_ms, 3000)
+        self.assertFalse(default_storage.exists(staged))
+        payload = self.poll()
+        self.assertEqual(payload["status"], "ready")
+        # 与 ProfileVoiceSerializer 同口径:限时签名绝对地址(L-7),带 e/s
+        self.assertTrue(payload["url"].startswith("http://cdn.test/media/voices/"))
+        self.assertIn("e=", payload["url"])
+        self.assertIn("s=", payload["url"])
+        self.assertEqual(self.client.get("/api/v1/users/me").json()["voice"]["duration_ms"], 3000)
+
+    @patch("im.tasks.transcode_profile_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._probe_ms", side_effect=voice.VoiceError("音频无法解码,请重新录制"))
+    def test_bad_file_fails_and_cleans_tmp(self, _probe, _ffmpeg, _delay):
+        """坏文件:轮询 ``failed`` + 文案,临时文件已删、资料里 ``voice`` 为 null。"""
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.upload().status_code, 202)
+        record = ProfileVoice.objects.get()
+        staged = record.file.name
+
+        transcode_gate.release()
+        im_tasks.transcode_profile_voice.apply(args=[record.id])
+
+        record.refresh_from_db()
+        self.assertEqual(record.transcode_status, TranscodeStatus.FAILED)
+        self.assertFalse(default_storage.exists(staged))
+        payload = self.poll()
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["message"], "音频无法解码,请重新录制")
+        self.assertIsNone(payload["url"])
+        self.assertIsNone(self.client.get("/api/v1/users/me").json()["voice"])
+
+    @patch("im.tasks.transcode_profile_voice.delay")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_quota_exceeded_fails_with_code(self, _probe, _transcode, _ffmpeg, _delay):
+        """配额超限:落正式文件**之前**失败,``transcode_error=41301``,磁盘无正式文件。"""
+        self.assertTrue(transcode_gate.acquire())
+        self.addCleanup(transcode_gate.release)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.upload().status_code, 202)
+        record = ProfileVoice.objects.get()
+
+        transcode_gate.release()
+        with self.settings(USER_STORAGE_QUOTA_BYTES=1):
+            im_tasks.transcode_profile_voice.apply(args=[record.id])
+
+        record.refresh_from_db()
+        self.assertEqual(record.transcode_status, TranscodeStatus.FAILED)
+        self.assertEqual(record.transcode_error, "41301")
+        self.assertEqual(self.voice_files(), [])
+        payload = self.poll()
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["code"], "41301")
+
+    def test_status_without_voice_is_404(self):
+        """没录过语音时轮询 404(而不是返回一个空对象)。"""
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    @patch("users.throttles.ProfileVoiceThrottle.get_rate", return_value="1/hour")
+    @patch("im.voice.ffmpeg_available", return_value=True)
+    @patch("im.voice._transcode", side_effect=lambda src, dst: dst.write_bytes(b"transcoded"))
+    @patch("im.voice._probe_ms", return_value=3000)
+    def test_polling_does_not_eat_upload_quota(self, _rate, _probe, _transcode, _ffmpeg):
+        """轮询走 ``voice_status`` 额度:连查三次也不影响「改资料」的 1 次/小时。"""
+        cache.clear()
+        self.assertEqual(self.upload().status_code, 201)
+        for _ in range(3):
+            self.assertEqual(self.client.get(self.url).status_code, 200)
+        self.assertEqual(self.upload().status_code, 429)
+
+    def poll(self):
+        """查一次自己的资料语音转码状态并返回响应体。
+
+        参数说明:
+            无。
+
+        返回参数:
+            ``GET /api/v1/users/me/voice`` 的 JSON 响应体。
+
+        使用示例:
+            ``payload = self.poll()``(见本类各异步用例)
+
+        备注信息:
+            非 200 直接断言失败,避免后续读键时报 ``KeyError``。
+        """
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200, resp.json())
+        return resp.json()
 
     def test_rejects_non_audio(self):
         resp = self.upload(name="a.png", content=b"png", content_type="image/png")

@@ -14,13 +14,12 @@
 """
 
 import logging
-import tempfile
 import uuid
-from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
+from django.db import transaction
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers
 from rest_framework.decorators import api_view, throttle_classes
@@ -31,7 +30,11 @@ from rest_framework.response import Response
 from config import error_codes, images, storage, transcode_gate
 from discovery.cache_keys import invalidate_candidates, invalidate_pool_globally
 from feed.services import follow_state_for_profiles
-from im import voice
+from im import media_sign, transcode_queue, voice
+from im.models import TranscodeStatus
+from im.serializers import VOICE_QUEUED_RESPONSE, VoiceStatusSerializer
+from im.tasks import transcode_profile_voice
+from im.throttles import VoiceStatusThrottle
 from moderation.services import blocked_user_ids
 
 from .models import Photo, PhotoStatus, Profile, ProfileStatus, ProfileVoice, Tag
@@ -233,58 +236,70 @@ def delete_photo(request, photo_id):
     return Response(status=204)
 
 
-def normalize_profile_voice(raw: bytes, content_type: str) -> tuple[bytes, int]:
-    """校验并转码一段资料语音自我介绍(≤30 秒)。
+def _queue_profile_voice(user, profile, upload) -> Response:
+    """把一次资料语音上传改走异步:落临时区 + 标 pending + 入队,回 202。
 
     参数说明:
-        raw: 上传文件的原始字节。
-        content_type: 上传声明的 MIME(可带 ``;codecs=...`` 参数)。
+        user: 当前登录账号。
+        profile: 当前账号的资料(语音是一对一,没有就现建一行 ``pending``)。
+        upload: 已通过浅校验的上传文件。
 
     返回参数:
-        ``(m4a 字节, 实测毫秒)``。
+        202 + ``{id, status, retry_after}``;服务器缺 ``ffmpeg`` / ``ffprobe`` 时回
+        503 + ``50302``。
 
     使用示例:
-        ``data, duration_ms = normalize_profile_voice(upload.read(), upload.content_type)``(见本模块 ``my_voice``)
+        ``return _queue_profile_voice(request.user, profile, upload)``(见本模块 ``my_voice``)
 
     备注信息:
-        转码完全复用 ``im.voice.normalize``(ffprobe 校验 → ffmpeg 转 m4a/AAC),这里不重写任何
-        ffmpeg 调用;先用 ``ffprobe`` 探真实时长再作为 ``declared_ms`` 传进去,等价于「不信任
-        客户端声明」,且不用改 ``im/`` 一行代码。
-        服务器缺 ffmpeg/ffprobe 抛 ``voice.VoiceUnavailable``(视图回 503 + ``50302``);
-        格式/大小/解码不合法或时长超过 30 秒抛 ``voice.VoiceError``。
+        **覆盖式**在异步路径上的表现:受理的同时就把旧语音下线(删旧文件、``bytes`` 归零),
+        旧行因此不会既占配额又停在 ``pending`` 上;转码失败时该行是 ``failed`` 且没有文件,
+        用户重录即可(失败重试 UI 另单处理)。
+        行先提交、任务后入队(``transaction.on_commit``),worker 才查得到它。
     """
-    suffix = voice.ALLOWED_CONTENT_TYPES.get(voice.base_content_type(content_type))
-    if suffix is None:
-        raise voice.VoiceError("只支持 M4A/AAC/WebM/OGG 音频")
     if not voice.ffmpeg_available():
-        raise voice.VoiceUnavailable()
-    with tempfile.TemporaryDirectory() as workdir:
-        probe_path = Path(workdir) / f"probe{suffix}"
-        probe_path.write_bytes(raw)
-        declared_ms = voice._probe_ms(probe_path)
-    data, duration_ms = voice.normalize(raw, content_type, declared_ms)
-    if duration_ms > settings.PROFILE_VOICE_MAX_MS:
-        raise voice.VoiceError(
-            f"语音自我介绍不能超过 {settings.PROFILE_VOICE_MAX_MS // 1000} 秒")
-    return data, duration_ms
+        logger.error("资料语音上传失败:服务器缺少 ffmpeg/ffprobe")
+        return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                         "message": "语音自我介绍暂不可用"}, status=503)
+    staged = transcode_queue.stage(upload.read(),
+                                   transcode_queue.staged_name(upload.content_type))
+    record = getattr(profile, "voice", None) or ProfileVoice(profile=profile)
+    old_name = record.file.name or ""
+    record.file = staged
+    record.bytes = 0
+    record.duration_ms = 0
+    record.transcode_status = TranscodeStatus.PENDING
+    record.transcode_error = ""
+    record.save()
+    if old_name and not transcode_queue.is_staged(old_name):
+        record.file.storage.delete(old_name)
+    voice_id = record.pk
+    transaction.on_commit(lambda: transcode_profile_voice.delay(voice_id), robust=True)
+    logger.info("profile_voice_queued", extra={"user_id": user.id, "voice_id": voice_id})
+    return Response({"id": voice_id, "status": TranscodeStatus.PENDING,
+                     "retry_after": transcode_gate.retry_after()}, status=202)
 
 
+@extend_schema(methods=["GET"], responses={200: VoiceStatusSerializer})
 @extend_schema(methods=["POST"], request=ProfileVoiceUploadSerializer,
-               responses={201: ProfileVoiceSerializer})
+               responses={201: ProfileVoiceSerializer, 202: VOICE_QUEUED_RESPONSE})
 @extend_schema(methods=["DELETE"], request=None, responses={204: None})
-@api_view(["POST", "DELETE"])
-@throttle_classes([ProfileVoiceThrottle])
+@api_view(["GET", "POST", "DELETE"])
+@throttle_classes([ProfileVoiceThrottle, VoiceStatusThrottle])
 def my_voice(request):
-    """资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
+    """资料语音自我介绍:读取转码状态、上传/覆盖与删除(GET/POST/DELETE /api/v1/users/me/voice)。
 
     参数说明:
         request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
 
     返回参数:
-        POST 201 + ``{url, duration_ms}``(``url`` 为**限时签名**的绝对地址,带 ``e``/``s``,
-        TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
+        GET 200 + ``{id, status, url, duration_ms, size, code, message}``(``pending`` 时
+        ``url`` / ``duration_ms`` / ``size`` 为 ``null``;``failed`` 时原因落在
+        ``code`` / ``message``);没有语音时 404。
+        POST 201 + ``{url, duration_ms, status}``(``url`` 为**限时签名**的绝对地址,带
+        ``e``/``s``,TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
+        POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``。
         DELETE 幂等 204(没有语音时也返回 204)。
-        POST 在服务器缺 ffmpeg 或转码槽被占用时回 503 + ``50302``,后者带 ``Retry-After``。
 
     使用示例:
         ``self.client.post("/api/v1/users/me/voice", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``VoiceTests.upload``)
@@ -295,14 +310,30 @@ def my_voice(request):
         否则超限时会留下没有数据库行的孤儿文件。
         缺文件、超过 5MB 或格式不在白名单抛 ``serializers.ValidationError``(400);
         配额已满抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
-        转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到立即
-        503 + ``Retry-After``,不排队 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
-        占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。
+        转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到时
+        **不再回 503**,改走异步并回 202 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
+        占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。异步路径的配额同样在
+        worker 落盘前检查,超限时该行转 ``failed`` + ``transcode_error=41301``。
+        GET 与 POST/DELETE 的限流分开:轮询走 ``voice_status``,不占 10 次/小时的改资料额度。
     """
     profile = get_profile(request.user)
+    if request.method == "GET":
+        record = getattr(profile, "voice", None)
+        if record is None:
+            raise NotFound("还没有语音自我介绍")
+        url = None
+        if record.transcode_status == TranscodeStatus.READY and record.file:
+            # 与 ProfileVoiceSerializer.get_url / 聊天语音轮询接口同一套签名口径
+            base = settings.MEDIA_BASE_URL.rstrip("/")
+            url = media_sign.sign_url(f"{base}{record.file.url}")
+        return Response(VoiceStatusSerializer(
+            transcode_queue.status_payload(record, url)).data)
+
     if request.method == "DELETE":
         existing = getattr(profile, "voice", None)
         if existing is not None:
+            if transcode_queue.is_staged(existing.file.name or ""):
+                transcode_queue.discard(existing.file.name)
             existing.file.delete(save=False)   # 连磁盘文件一起删
             existing.delete()
         return Response(status=204)
@@ -311,15 +342,13 @@ def my_voice(request):
     serializer.is_valid(raise_exception=True)
     upload = serializer.validated_data["file"]
 
-    # 抢槽在真正转码之前:抢不到立刻失败,把请求线程让给别的接口(M-3)。
+    # 抢槽在真正转码之前:抢不到就改走异步,把请求线程让给别的接口(M-3)。
     with transcode_gate.slot() as acquired:
         if not acquired:
             logger.warning("profile_voice_transcode_busy", extra={"user_id": request.user.id})
-            return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
-                             "message": "语音自我介绍暂不可用"}, status=503,
-                            headers={"Retry-After": str(transcode_gate.retry_after())})
+            return _queue_profile_voice(request.user, profile, upload)
         try:
-            data, duration_ms = normalize_profile_voice(upload.read(), upload.content_type)
+            data, duration_ms = voice.normalize_profile(upload.read(), upload.content_type)
         except voice.VoiceUnavailable:
             logger.error("资料语音上传失败:服务器缺少 ffmpeg/ffprobe")
             return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
@@ -336,6 +365,8 @@ def my_voice(request):
     record.file.save(f"{stem}.m4a", ContentFile(data), save=False)
     record.duration_ms = duration_ms
     record.bytes = len(data)
+    record.transcode_status = TranscodeStatus.READY
+    record.transcode_error = ""
     record.save()
     if old_name and old_name != record.file.name:
         record.file.storage.delete(old_name)

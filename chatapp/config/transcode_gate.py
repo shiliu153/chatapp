@@ -1,13 +1,14 @@
-"""语音转码的全局并发闸:同一时刻只放一路 ffmpeg/ffprobe,其余请求快速失败。
+"""语音转码的全局并发闸:同一时刻只放一路 ffmpeg/ffprobe。
 
-聊天语音与资料语音自我介绍共用同一条转码链路(``im/voice.py``),而生产只有 2 个
-gunicorn worker:两路并发转码就把处理能力占满,期间连登录与健康检查都在排队
-(第五轮安全审计 M-3)。转码子进程本身已有 15 秒超时与 ``RLIMIT_CPU/AS/FSIZE`` 兜底,
-所以问题只在「同步占用请求线程」—— 把并发压到 1 路即可,不需要改成异步任务。
+聊天语音与资料语音自我介绍共用同一条转码链路(``im/voice.py``)。转码是重 CPU 子进程
+(``ffprobe`` + ``ffmpeg``),生产机器扛不住多路并发,所以全局只放一路:抢到槽的调用方
+直接转码,**抢不到的不阻塞、也不失败**,而是改走异步 —— 视图把文件落进临时区并入队
+(``im/transcode_queue.py`` + ``im/tasks.py``),worker 拿到任务后再来抢同一个槽。槽因此
+保护的是「worker 并发」,不是 gunicorn 的请求线程(第五轮安全审计 M-3)。
 
 设计要点:
-    1. **单槽信号量,不是队列**:抢不到槽立刻回 503,不阻塞等待 —— 阻塞只是把排队
-       从请求线程挪进 Redis,出口延迟一点也没改善;
+    1. **单槽信号量,不是队列**:抢不到立刻返回 ``False``,不阻塞等待 —— 阻塞只是把排队
+       从请求线程挪进 Redis,出口延迟一点也没改善;异步那条路自然形成了有界排队;
     2. 抢槽是 ``SET key value NX EX <ttl>``(``cache.add``)的原子操作,``ttl`` 取
        ``settings.TRANSCODE_GATE_TTL``(默认 60 秒),远大于子进程 15 秒上限:
        进程崩溃没来得及释放时靠过期自愈,不会把语音入口永久锁死;
@@ -20,9 +21,11 @@ gunicorn worker:两路并发转码就把处理能力占满,期间连登录与健
     误删别人正在用的槽会把并发上限临时放宽到 2 路。异常路径请用 ``slot()`` 上下文管理器,
     它用 ``try/finally`` 保证一定释放 —— 直接 ``acquire()`` 后忘了 ``release()`` 的调用方,
     下一次语音上传要等 TTL 到点才能进。
+    抢不到槽的两种正确反应:视图把它当「改走异步」的信号(落临时区 + 入队,回 202);
+    worker 里的任务把它当「过几秒再试」(``self.retry``,行保持 ``pending``)。
 
 关联文档:
-    - 接口契约:docs/api/im.md(6.4)、docs/api/users.md(2.11)
+    - 接口契约:docs/api/im.md(6.4 / 6.5)、docs/api/users.md(2.11 / 2.12)
     - 踩坑记录:docs/pitfalls/im.md「语音上传 503 + 50302」
 
 文件信息:
@@ -35,6 +38,7 @@ gunicorn worker:两路并发转码就把处理能力占满,期间连登录与健
     仓库地址          https://github.com/shiliu153/chatapp
     修改记录
     2026-11-16        shiliu153          新建:语音转码全局并发闸(第五轮审计 M-3)
+    2026-11-16        shiliu153          槽的语义改为「保护 worker 并发」:抢不到不再回 503
 """
 
 import logging
@@ -74,7 +78,7 @@ def gate_ttl() -> int:
 
 
 def retry_after() -> int:
-    """``503`` 响应头 ``Retry-After`` 要写的秒数。
+    """异步路径 202 响应里的 ``retry_after``,以及 worker 抢不到槽时的重试间隔(秒)。
 
     参数说明:
         无。
@@ -83,11 +87,12 @@ def retry_after() -> int:
         ``settings.TRANSCODE_GATE_RETRY_AFTER``;未配置或配成非正数时回落到 5 秒。
 
     使用示例:
-        ``headers={"Retry-After": str(transcode_gate.retry_after())}``
+        ``return Response({"retry_after": transcode_gate.retry_after()}, status=202)``
         (见 ``im/views.py`` 的 ``upload_voice``)
 
     备注信息:
-        一次转码通常 0.2–0.5 秒,5 秒足够覆盖抖动;客户端按这个值退避重试即可。
+        一次转码通常 0.2–0.5 秒,5 秒足够覆盖抖动;客户端按它轮询转码状态,
+        worker 抢不到槽时也按它 ``self.retry`` 退避。
     """
     value = int(getattr(settings, "TRANSCODE_GATE_RETRY_AFTER", DEFAULT_RETRY_AFTER_SECONDS) or 0)
     return value if value > 0 else DEFAULT_RETRY_AFTER_SECONDS
@@ -101,11 +106,11 @@ def acquire() -> bool:
 
     返回参数:
         抢到槽返回 ``True``(调用方**必须**在转码结束后 ``release()``);
-        槽已被别的请求占着返回 ``False``(调用方回 503);
+        槽已被别的调用方占着返回 ``False``(视图改走异步、worker 退避重试);
         Redis 不可用时 fail-open 返回 ``True``。
 
     使用示例:
-        ``if not transcode_gate.acquire(): return _busy()``(见 ``im/views.py`` 的 ``upload_voice``)
+        ``with transcode_gate.slot() as acquired: ...``(见 ``im/views.py`` 的 ``upload_voice``)
 
     备注信息:
         ``cache.add`` 一条命令完成 ``SET NX EX``,不做重试与自旋 —— 等待等于把排队
@@ -149,15 +154,16 @@ def slot():
         无。
 
     返回参数:
-        ``with`` 语句的 ``as`` 值是一个布尔:是否抢到槽。``False`` 表示调用方应直接回 503。
+        ``with`` 语句的 ``as`` 值是一个布尔:是否抢到槽。``False`` 表示调用方要么改走异步
+        (视图落临时区 + 入队,回 202),要么退避重试(worker 里的 ``self.retry``)。
 
     使用示例:
         ``with transcode_gate.slot() as acquired: ...``(见 ``users/views.py`` 的 ``my_voice``)
 
     备注信息:
-        抢不到槽时不抛异常,只 yield ``False`` —— 503 的响应形态由视图决定(业务码与
-        ``Retry-After`` 与入口相关)。退出时(含异常)对抢到的槽调 ``release()``,
-        保证 ``voice.normalize`` / ``normalize_profile_voice`` 抛错时槽不泄漏。
+        抢不到槽时不抛异常,只 yield ``False`` —— 后续动作由调用方决定(视图回 202、
+        任务重试)。退出时(含异常)对抢到的槽调 ``release()``,保证 ``voice.normalize`` /
+        ``voice.normalize_profile`` 抛错时槽不泄漏。
     """
     acquired = acquire()
     try:

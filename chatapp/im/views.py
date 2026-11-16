@@ -1,4 +1,4 @@
-"""IM 接口:签发 userSig、上传聊天图片与语音、nginx 验签子请求。
+"""IM 接口:签发 userSig、上传聊天图片与语音、查语音转码状态、nginx 验签子请求。
 
 设计要点:
     IM 账号的供给由本模块自己保证:首次调用同步建号,成功后在 Redis 置 30 天标记,
@@ -12,6 +12,9 @@
 
     聊天图片上传是**同步落盘 + 同步生成缩略图**:这条路径没有任何第三方调用,
     符合「响应路径禁止外部调用」纪律;文件名带随机 uuid,不可枚举。
+    聊天语音有两条路(第五轮审计 M-3):抢到转码槽时请求线程内同步转码,行为与响应字段
+    与旧版完全一致(只多一个 ``status``);抢不到时落临时区并入队,回 **202 + pending**,
+    客户端按 ``retry_after`` 轮询 ``GET /im/voices/{id}``。
 
 关联文档:
     - 接口契约:docs/api/im.md
@@ -25,6 +28,8 @@ from urllib.parse import parse_qs, urlsplit
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from PIL import Image
 from rest_framework import serializers
@@ -36,12 +41,14 @@ from rest_framework.response import Response
 from accounts import device_session
 from config import error_codes, images, storage, transcode_gate
 
-from . import media_sign, voice
+from . import media_sign, transcode_queue, voice
 from .client import ensure_account, kick_user, set_session_version
-from .models import ChatImage, ChatVoice
-from .serializers import ChatImageUploadSerializer, ChatVoiceUploadSerializer
-from .tasks import kick_pending_key
-from .throttles import ChatImageThrottle, ChatVoiceThrottle, UserSigThrottle
+from .models import ChatImage, ChatVoice, TranscodeStatus
+from .serializers import (VOICE_QUEUED_RESPONSE, ChatImageUploadSerializer,
+                          ChatVoiceUploadSerializer, VoiceStatusSerializer)
+from .tasks import kick_pending_key, transcode_chat_voice
+from .throttles import (ChatImageThrottle, ChatVoiceThrottle, UserSigThrottle,
+                        VoiceStatusThrottle)
 from .token import mint_im_token
 
 logger = logging.getLogger(__name__)
@@ -197,28 +204,70 @@ def upload_image(request):
     }, status=201)
 
 
+def _queue_chat_voice(user, upload, duration_ms: int) -> Response:
+    """把一次聊天语音上传改走异步:落临时区 + 建 pending 行 + 入队,回 202。
+
+    参数说明:
+        user: 发送者账号。
+        upload: 已通过浅校验的上传文件。
+        duration_ms: 客户端声明的时长(毫秒),worker 转码时与 ``ffprobe`` 实测值比对。
+
+    返回参数:
+        202 + ``{id, status, retry_after}``(不带 ``url``);
+        服务器缺 ``ffmpeg`` / ``ffprobe`` 时改回 503 + ``50302``。
+
+    使用示例:
+        ``return _queue_chat_voice(request.user, upload, declared_ms)``
+        (见本模块 ``upload_voice``)
+
+    备注信息:
+        浅校验(大小 / MIME 白名单 / 声明时长上限)序列化器已经做过,深校验(实测时长)
+        只能由 worker 做。入队挂在 ``transaction.on_commit`` 上:行先提交,任务才可能查到它。
+        缺 ffmpeg 时**不受理**:否则客户端先拿到 202,再等来一个注定失败的转码,不如当场
+        回 503 让客户端提示「语音暂不可用」。
+    """
+    if not voice.ffmpeg_available():
+        logger.error("聊天语音上传失败:服务器缺少 ffmpeg/ffprobe")
+        return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
+                         "message": "语音消息暂不可用"}, status=503)
+    staged = transcode_queue.stage(upload.read(),
+                                   transcode_queue.staged_name(upload.content_type))
+    chat_voice = ChatVoice(owner=user, duration_ms=duration_ms, bytes=0,
+                           mime=voice.base_content_type(upload.content_type),
+                           transcode_status=TranscodeStatus.PENDING)
+    chat_voice.file = staged
+    chat_voice.save()
+    voice_id = chat_voice.pk
+    transaction.on_commit(lambda: transcode_chat_voice.delay(voice_id), robust=True)
+    logger.info("chat_voice_queued", extra={"user_id": user.id, "voice_id": voice_id})
+    return Response({"id": voice_id, "status": TranscodeStatus.PENDING,
+                     "retry_after": transcode_gate.retry_after()}, status=202)
+
+
 @extend_schema(request=ChatVoiceUploadSerializer,
                responses={201: inline_serializer("ChatVoiceUploaded", fields={
                    "id": serializers.IntegerField(),
                    "url": serializers.CharField(),
                    "duration_ms": serializers.IntegerField(),
                    "size": serializers.IntegerField(),
-               })})
+                   "status": serializers.CharField(),
+               }), 202: VOICE_QUEUED_RESPONSE})
 @api_view(["POST"])
 @throttle_classes([ChatVoiceThrottle])
 def upload_voice(request):
     """上传一段聊天语音(POST /api/v1/im/voices)。
 
-    同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
-    没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
+    抢到转码槽时同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘;
+    抢不到时落临时区并入队,由 worker 异步转码。全程本地进程,没有第三方网络调用,
+    符合「响应路径禁止外部调用」纪律。
 
     参数说明:
         request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
 
     返回参数:
-        201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
-        400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)或转码槽被占用
-        (同为 ``50302``,响应头带 ``Retry-After``)。
+        201 + ``{id, url, duration_ms, size, status}``(同步路径,``status`` 恒为 ``ready``);
+        202 + ``{id, status: "pending", retry_after}``(槽被占用,转码已入队,不带 ``url``);
+        400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
 
     使用示例:
         ``self.client.post(self.url, {"file": SimpleUploadedFile("a.m4a", content, content_type="audio/mp4"), "duration_ms": duration_ms}, format="multipart")``
@@ -228,24 +277,23 @@ def upload_voice(request):
         配额检查在落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
         缺 ffmpeg/ffprobe 时按 ``voice.VoiceUnavailable`` 回 503,不静默降级;
         时长与格式不合法按 ``voice.VoiceError`` 回 400。
-        转码前先抢 ``config.transcode_gate`` 的全局槽(与资料语音共用一个槽):抢不到立即
-        503 + ``Retry-After``,不排队 —— 生产只有 2 个 worker,同步转码两路就会把登录与
-        健康检查一起拖住(第五轮审计 M-3)。槽在 ``with`` 退出时释放,异常路径同样释放。
+        转码前先抢 ``config.transcode_gate`` 的全局槽(与资料语音共用一个槽):抢不到时
+        **不再回 503**,而是改走异步并回 202 —— 异步路径里配额只能在 worker 落盘前检查,
+        超限时该行转 ``failed`` + ``transcode_error=41301``(异步没法同步回 413)。
+        槽在 ``with`` 退出时释放,异常路径同样释放。
     """
     serializer = ChatVoiceUploadSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     upload = serializer.validated_data["file"]
+    declared_ms = serializer.validated_data["duration_ms"]
 
-    # 抢槽在真正转码之前:抢不到立刻失败,把请求线程让给别的接口(M-3)。
+    # 抢槽在真正转码之前:抢不到就改走异步,把请求线程让给别的接口(M-3)。
     with transcode_gate.slot() as acquired:
         if not acquired:
             logger.warning("chat_voice_transcode_busy", extra={"user_id": request.user.id})
-            return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
-                             "message": "语音消息暂不可用"}, status=503,
-                            headers={"Retry-After": str(transcode_gate.retry_after())})
+            return _queue_chat_voice(request.user, upload, declared_ms)
         try:
-            data, duration_ms = voice.normalize(
-                upload.read(), upload.content_type, serializer.validated_data["duration_ms"])
+            data, duration_ms = voice.normalize(upload.read(), upload.content_type, declared_ms)
         except voice.VoiceUnavailable:
             logger.error("聊天语音上传失败:服务器缺少 ffmpeg/ffprobe")
             return Response({"code": error_codes.CHAT_VOICE_UNAVAILABLE,
@@ -255,7 +303,8 @@ def upload_voice(request):
 
     stem = f"{request.user.id}-{uuid.uuid4().hex}"
     storage.ensure_quota(request.user, len(data))   # 配额检查在落盘前(M7)
-    chat_voice = ChatVoice(owner=request.user, duration_ms=duration_ms, bytes=len(data))
+    chat_voice = ChatVoice(owner=request.user, duration_ms=duration_ms, bytes=len(data),
+                           transcode_status=TranscodeStatus.READY)
     chat_voice.file.save(f"{stem}.m4a", ContentFile(data), save=False)
     chat_voice.save()
 
@@ -265,7 +314,43 @@ def upload_voice(request):
         "url": media_sign.sign_url(f"{base}{chat_voice.file.url}"),
         "duration_ms": chat_voice.duration_ms,
         "size": chat_voice.bytes,
+        "status": TranscodeStatus.READY,
     }, status=201)
+
+
+@extend_schema(responses={200: VoiceStatusSerializer})
+@api_view(["GET"])
+@throttle_classes([VoiceStatusThrottle])
+def voice_status(request, voice_id):
+    """查询一条聊天语音的转码状态(GET /api/v1/im/voices/{voice_id})。
+
+    只给创建者本人用:异步上传拿到 202 后,客户端按 ``retry_after`` 轮询本接口,
+    等 ``status`` 变成 ``ready`` 再拿 ``url`` 去发消息。
+
+    参数说明:
+        request: DRF 请求对象。
+        voice_id: 聊天语音主键。
+
+    返回参数:
+        200 + ``{id, status, url, duration_ms, size, code, message}``;``pending`` 时
+        ``url`` / ``duration_ms`` / ``size`` 为 ``null``,``failed`` 时失败原因落在
+        ``code``(业务码)或 ``message``(短文案)上。别人的语音或不存在都是 404。
+
+    使用示例:
+        ``self.client.get(f"/api/v1/im/voices/{voice.id}")``(见 ``im/tests.py`` 的
+        ``ChatVoiceStatusTests``)
+
+    备注信息:
+        查询集限定在 ``request.user`` 的语音上,他人 id 一律 404 —— 与「不确认资源是否存在」
+        的既有口径一致。URL 与上传接口同一套签名口径(``media_sign``)。
+    """
+    chat_voice = get_object_or_404(ChatVoice.objects.filter(owner=request.user), id=voice_id)
+    url = None
+    if chat_voice.transcode_status == TranscodeStatus.READY and chat_voice.file:
+        base = settings.MEDIA_BASE_URL.rstrip("/")
+        url = media_sign.sign_url(f"{base}{chat_voice.file.url}")
+    return Response(VoiceStatusSerializer(
+        transcode_queue.status_payload(chat_voice, url)).data)
 
 
 @extend_schema(parameters=[OpenApiParameter(

@@ -33,9 +33,9 @@
 ## 接口一览
 
 <!-- BEGIN generated:api-summary -->
-本目录共 **15** 份人读分册 + 本页;`openapi.yml` 共 **58** paths / **70** operations。
+本目录共 **15** 份人读分册 + 本页;`openapi.yml` 共 **59** paths / **72** operations。
 
-下表 **70** 行与 `openapi.yml` 的操作集合**逐一相等**(缺一行 / 多一行 / 重复一行,`python scripts/docs_index.py --check` 即红)。
+下表 **72** 行与 `openapi.yml` 的操作集合**逐一相等**(缺一行 / 多一行 / 重复一行,`python scripts/docs_index.py --check` 即红)。
 <!-- END generated:api-summary -->
 
 | 方法 | 路径 | 说明 | 分册 |
@@ -53,7 +53,8 @@
 | GET | `/api/v1/users/tags` | 获取标签池 | [users](users.md) |
 | POST | `/api/v1/users/me/photos` | 上传照片 | [users](users.md) |
 | DELETE | `/api/v1/users/me/photos/{photo_id}` | 删除照片 | [users](users.md) |
-| POST | `/api/v1/users/me/voice` | 上传 / 覆盖资料语音自我介绍(≤30 秒,覆盖式) | [users](users.md) |
+| POST | `/api/v1/users/me/voice` | 上传 / 覆盖资料语音自我介绍(≤30 秒,覆盖式;抢不到转码槽回 202) | [users](users.md) |
+| GET | `/api/v1/users/me/voice` | 查询资料语音转码状态(pending / ready / failed) | [users](users.md) |
 | DELETE | `/api/v1/users/me/voice` | 删除资料语音(幂等 204) | [users](users.md) |
 | GET | `/api/v1/users/me/preference` | 获取择偶偏好 | [users](users.md) |
 | PATCH | `/api/v1/users/me/preference` | 修改择偶偏好 | [users](users.md) |
@@ -72,7 +73,8 @@
 | DELETE | `/api/v1/matches/{user_id}` | 解除配对 | [discovery](discovery.md) |
 | POST | `/api/v1/im/user_sig` | 获取 IM 登录凭证 | [im](im.md) |
 | POST | `/api/v1/im/images` | 上传聊天图片(返回签名 URL) | [im](im.md) |
-| POST | `/api/v1/im/voices` | 上传聊天语音(转码 m4a,返回签名 URL) | [im](im.md) |
+| POST | `/api/v1/im/voices` | 上传聊天语音(转码 m4a,返回签名 URL;抢不到转码槽回 202) | [im](im.md) |
+| GET | `/api/v1/im/voices/{voice_id}` | 查询聊天语音转码状态(pending / ready / failed) | [im](im.md) |
 | GET | `/api/v1/im/images/auth` | 媒体验签(nginx 内部子请求:聊天媒体与资料语音) | [im](im.md) |
 | GET | `/api/v1/app/config` | 获取应用最低版本配置 | [app](app.md) |
 | POST | `/api/v1/reports` | 举报用户 | [moderation](moderation.md) |

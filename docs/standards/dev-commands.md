@@ -70,6 +70,7 @@ python manage.py seed_fake_users --count 20                # 造数(幂等;直�
 python manage.py refresh_shuffle_keys [--dry-run]          # 轮换候选池随机键(建议每天低峰)
 python manage.py media_bytes_backfill [--dry-run]          # 回填照片/动态图字节数(M7 上线必跑)
 python manage.py media_cleanup [--apply]                   # 清资料图/广场图孤儿文件(默认 dry-run)
+python manage.py voice_transcode_cleanup [--apply]         # 清语音转码残骸:24h 前的 tmp/voice 文件与 pending 行(默认 dry-run)
 python manage.py media_disk_report [--fail-over]           # 媒体磁盘报表;超告警线退出码 1
 python manage.py perf_tokens --count 50 --out ../perf/results/headers.jsonl  # 压测:签多账号令牌(写场景用;文件含活令牌,跑完删)
 python manage.py allowlist_seed_import [--dry-run]         # 把 .env 的准入名单种子导进库(幂等;不重新启用已停用的号)

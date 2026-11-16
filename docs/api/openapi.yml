@@ -1157,16 +1157,17 @@ paths:
       description: |-
         上传一段聊天语音(POST /api/v1/im/voices)。
 
-        同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘。全程本地进程,
-        没有第三方网络调用,符合「响应路径禁止外部调用」纪律。
+        抢到转码槽时同步执行:写临时文件 → ffprobe 校验时长 → ffmpeg 转 m4a → 落盘;
+        抢不到时落临时区并入队,由 worker 异步转码。全程本地进程,没有第三方网络调用,
+        符合「响应路径禁止外部调用」纪律。
 
         参数说明:
             request: DRF 请求对象,multipart 字段为 ``file`` 与 ``duration_ms``。
 
         返回参数:
-            201 + ``{id, url, duration_ms, size}``;URL 为限时签名地址。
-            400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)或转码槽被占用
-            (同为 ``50302``,响应头带 ``Retry-After``)。
+            201 + ``{id, url, duration_ms, size, status}``(同步路径,``status`` 恒为 ``ready``);
+            202 + ``{id, status: "pending", retry_after}``(槽被占用,转码已入队,不带 ``url``);
+            400 参数不合法;503 服务器缺 ffmpeg(``code=50302``)。
 
         使用示例:
             ``self.client.post(self.url, {"file": SimpleUploadedFile("a.m4a", content, content_type="audio/mp4"), "duration_ms": duration_ms}, format="multipart")``
@@ -1176,9 +1177,10 @@ paths:
             配额检查在落盘之前完成,超限时抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
             缺 ffmpeg/ffprobe 时按 ``voice.VoiceUnavailable`` 回 503,不静默降级;
             时长与格式不合法按 ``voice.VoiceError`` 回 400。
-            转码前先抢 ``config.transcode_gate`` 的全局槽(与资料语音共用一个槽):抢不到立即
-            503 + ``Retry-After``,不排队 —— 生产只有 2 个 worker,同步转码两路就会把登录与
-            健康检查一起拖住(第五轮审计 M-3)。槽在 ``with`` 退出时释放,异常路径同样释放。
+            转码前先抢 ``config.transcode_gate`` 的全局槽(与资料语音共用一个槽):抢不到时
+            **不再回 503**,而是改走异步并回 202 —— 异步路径里配额只能在 worker 落盘前检查,
+            超限时该行转 ``failed`` + ``transcode_error=41301``(异步没法同步回 413)。
+            槽在 ``with`` 退出时释放,异常路径同样释放。
       tags:
       - im
       requestBody:
@@ -1201,6 +1203,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatVoiceUploaded'
+          description: ''
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoiceQueued'
+          description: ''
+  /api/v1/im/voices/{voice_id}:
+    get:
+      operationId: im_voices_retrieve
+      description: |-
+        查询一条聊天语音的转码状态(GET /api/v1/im/voices/{voice_id})。
+
+        只给创建者本人用:异步上传拿到 202 后,客户端按 ``retry_after`` 轮询本接口,
+        等 ``status`` 变成 ``ready`` 再拿 ``url`` 去发消息。
+
+        参数说明:
+            request: DRF 请求对象。
+            voice_id: 聊天语音主键。
+
+        返回参数:
+            200 + ``{id, status, url, duration_ms, size, code, message}``;``pending`` 时
+            ``url`` / ``duration_ms`` / ``size`` 为 ``null``,``failed`` 时失败原因落在
+            ``code``(业务码)或 ``message``(短文案)上。别人的语音或不存在都是 404。
+
+        使用示例:
+            ``self.client.get(f"/api/v1/im/voices/{voice.id}")``(见 ``im/tests.py`` 的
+            ``ChatVoiceStatusTests``)
+
+        备注信息:
+            查询集限定在 ``request.user`` 的语音上,他人 id 一律 404 —— 与「不确认资源是否存在」
+            的既有口径一致。URL 与上传接口同一套签名口径(``media_sign``)。
+      parameters:
+      - in: path
+        name: voice_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - im
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoiceStatus'
           description: ''
   /api/v1/matches:
     get:
@@ -2665,19 +2715,22 @@ paths:
                 $ref: '#/components/schemas/Preference'
           description: ''
   /api/v1/users/me/voice:
-    post:
-      operationId: users_me_voice_create
+    get:
+      operationId: users_me_voice_retrieve
       description: |-
-        资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
+        资料语音自我介绍:读取转码状态、上传/覆盖与删除(GET/POST/DELETE /api/v1/users/me/voice)。
 
         参数说明:
             request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
 
         返回参数:
-            POST 201 + ``{url, duration_ms}``(``url`` 为**限时签名**的绝对地址,带 ``e``/``s``,
-            TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
+            GET 200 + ``{id, status, url, duration_ms, size, code, message}``(``pending`` 时
+            ``url`` / ``duration_ms`` / ``size`` 为 ``null``;``failed`` 时原因落在
+            ``code`` / ``message``);没有语音时 404。
+            POST 201 + ``{url, duration_ms, status}``(``url`` 为**限时签名**的绝对地址,带
+            ``e``/``s``,TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
+            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``。
             DELETE 幂等 204(没有语音时也返回 204)。
-            POST 在服务器缺 ffmpeg 或转码槽被占用时回 503 + ``50302``,后者带 ``Retry-After``。
 
         使用示例:
             ``self.client.post("/api/v1/users/me/voice", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``VoiceTests.upload``)
@@ -2688,9 +2741,53 @@ paths:
             否则超限时会留下没有数据库行的孤儿文件。
             缺文件、超过 5MB 或格式不在白名单抛 ``serializers.ValidationError``(400);
             配额已满抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
-            转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到立即
-            503 + ``Retry-After``,不排队 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
-            占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。
+            转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到时
+            **不再回 503**,改走异步并回 202 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
+            占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。异步路径的配额同样在
+            worker 落盘前检查,超限时该行转 ``failed`` + ``transcode_error=41301``。
+            GET 与 POST/DELETE 的限流分开:轮询走 ``voice_status``,不占 10 次/小时的改资料额度。
+      tags:
+      - users
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoiceStatus'
+          description: ''
+    post:
+      operationId: users_me_voice_create
+      description: |-
+        资料语音自我介绍:读取转码状态、上传/覆盖与删除(GET/POST/DELETE /api/v1/users/me/voice)。
+
+        参数说明:
+            request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
+
+        返回参数:
+            GET 200 + ``{id, status, url, duration_ms, size, code, message}``(``pending`` 时
+            ``url`` / ``duration_ms`` / ``size`` 为 ``null``;``failed`` 时原因落在
+            ``code`` / ``message``);没有语音时 404。
+            POST 201 + ``{url, duration_ms, status}``(``url`` 为**限时签名**的绝对地址,带
+            ``e``/``s``,TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
+            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``。
+            DELETE 幂等 204(没有语音时也返回 204)。
+
+        使用示例:
+            ``self.client.post("/api/v1/users/me/voice", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``VoiceTests.upload``)
+
+        备注信息:
+            POST 是**覆盖式**的:一个账号只有一条语音,重复上传替换内容并删掉旧文件。
+            处理顺序刻意写成「转码 → 时长 → 配额 → 落盘」:**配额检查必须在 ``file.save()`` 之前**,
+            否则超限时会留下没有数据库行的孤儿文件。
+            缺文件、超过 5MB 或格式不在白名单抛 ``serializers.ValidationError``(400);
+            配额已满抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
+            转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到时
+            **不再回 503**,改走异步并回 202 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
+            占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。异步路径的配额同样在
+            worker 落盘前检查,超限时该行转 ``failed`` + ``transcode_error=41301``。
+            GET 与 POST/DELETE 的限流分开:轮询走 ``voice_status``,不占 10 次/小时的改资料额度。
       tags:
       - users
       requestBody:
@@ -2714,19 +2811,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProfileVoice'
           description: ''
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoiceQueued'
+          description: ''
     delete:
       operationId: users_me_voice_destroy
       description: |-
-        资料语音自我介绍:上传/覆盖与删除(POST/DELETE /api/v1/users/me/voice)。
+        资料语音自我介绍:读取转码状态、上传/覆盖与删除(GET/POST/DELETE /api/v1/users/me/voice)。
 
         参数说明:
             request: DRF 请求对象。``POST`` 的 multipart 字段为 ``file``。
 
         返回参数:
-            POST 201 + ``{url, duration_ms}``(``url`` 为**限时签名**的绝对地址,带 ``e``/``s``,
-            TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
+            GET 200 + ``{id, status, url, duration_ms, size, code, message}``(``pending`` 时
+            ``url`` / ``duration_ms`` / ``size`` 为 ``null``;``failed`` 时原因落在
+            ``code`` / ``message``);没有语音时 404。
+            POST 201 + ``{url, duration_ms, status}``(``url`` 为**限时签名**的绝对地址,带
+            ``e``/``s``,TTL 与聊天媒体同源 ``IM_MEDIA_SIGN_TTL``,过期失效);
+            POST 抢不到转码槽时 202 + ``{id, status: "pending", retry_after}``。
             DELETE 幂等 204(没有语音时也返回 204)。
-            POST 在服务器缺 ffmpeg 或转码槽被占用时回 503 + ``50302``,后者带 ``Retry-After``。
 
         使用示例:
             ``self.client.post("/api/v1/users/me/voice", {"file": SimpleUploadedFile(...)}, format="multipart")``(见 ``users/tests.py`` 的 ``VoiceTests.upload``)
@@ -2737,9 +2843,11 @@ paths:
             否则超限时会留下没有数据库行的孤儿文件。
             缺文件、超过 5MB 或格式不在白名单抛 ``serializers.ValidationError``(400);
             配额已满抛 ``config.storage.StorageQuotaExceeded``(413/``41301``)。
-            转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到立即
-            503 + ``Retry-After``,不排队 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
-            占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。
+            转码前先抢 ``config.transcode_gate`` 的全局槽(与聊天语音共用一个槽):抢不到时
+            **不再回 503**,改走异步并回 202 —— 资料语音要跑两次 ``ffprobe`` 加一次 ``ffmpeg``,
+            占满 2 个 worker 期间连登录都会排队(第五轮审计 M-3)。异步路径的配额同样在
+            worker 落盘前检查,超限时该行转 ``failed`` + ``transcode_error=41301``。
+            GET 与 POST/DELETE 的限流分开:轮询走 ``voice_status``,不占 10 次/小时的改资料额度。
       tags:
       - users
       security:
@@ -2998,10 +3106,13 @@ components:
           type: integer
         size:
           type: integer
+        status:
+          type: string
       required:
       - duration_ms
       - id
       - size
+      - status
       - url
     ClientErrorPlatformEnum:
       enum:
@@ -4096,6 +4207,9 @@ components:
 
         实现在 ``get_url`` 里:``MEDIA_BASE_URL`` 拼绝对地址后交给 ``media_sign.sign_url``,
         与 ``im/views.py`` 上传聊天语音返回 ``url`` 的那一行同口径,不另写一套拼接。
+
+        ``status`` 是转码进度(纯加法,老客户端忽略即可):走异步路径时上传接口回 202,
+        这个字段只在同步成功的 201 里出现,值恒为 ``ready``。
       properties:
         url:
           type: string
@@ -4107,8 +4221,12 @@ components:
           minimum: 0
           format: int64
           title: 时长(毫秒)
+        status:
+          type: string
+          readOnly: true
       required:
       - duration_ms
+      - status
       - url
     ProfileVoiceUploadRequest:
       type: object
@@ -4543,6 +4661,55 @@ components:
           type: integer
       required:
       - count
+    VoiceQueued:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        retry_after:
+          type: integer
+      required:
+      - id
+      - retry_after
+      - status
+    VoiceStatus:
+      type: object
+      description: |-
+        语音转码状态的响应体:聊天语音与资料语音两个轮询接口同形状(M-3)。
+
+        ``pending`` 时 ``url`` / ``duration_ms`` / ``size`` 都是 ``null``(还没有正式文件);
+        ``failed`` 时同样为空,失败原因走 ``code``(业务码,如 ``41301``)或 ``message``
+        (短文案)。``ready`` 时 ``code`` / ``message`` 为 ``null``。
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        url:
+          type: string
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+        size:
+          type: integer
+          nullable: true
+        code:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+      required:
+      - code
+      - duration_ms
+      - id
+      - message
+      - size
+      - status
+      - url
   securitySchemes:
     bearerAuth:
       type: http

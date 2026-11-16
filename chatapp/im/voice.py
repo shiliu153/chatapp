@@ -11,7 +11,10 @@ App 录 m4a(AAC),Web 的 ``MediaRecorder`` 输出因浏览器而异(webm/ogg/mp4
     4. **把上传文件当不可信输入**(M5):协议白名单 ``file,pipe`` 挡住 HLS/concat
        之类的 playlist 去访问网络或读任意本地文件;``-nostdin`` + ``stdin=DEVNULL``
        防交互;POSIX 下再用 ``setrlimit`` 限 CPU/内存/输出文件大小;子进程环境只留
-       ``PATH``/``TMPDIR``,避免 ``FFREPORT`` 之类的环境变量被利用。
+       ``PATH``/``TMPDIR``,避免 ``FFREPORT`` 之类的环境变量被利用;
+    5. **同步与异步两条调用路共用本模块**(第五轮审计 M-3):抢到槽时请求线程直接转码,
+       抢不到时先暂存再交给 Celery worker;worker 手上只有临时文件,靠
+       ``content_type_for`` 从扩展名还原 MIME,``normalize`` 的校验一条都不少。
 """
 
 from __future__ import annotations
@@ -31,6 +34,16 @@ ALLOWED_CONTENT_TYPES = {
     "audio/aac": ".aac",
     "audio/webm": ".webm",
     "audio/ogg": ".ogg",
+}
+
+# 反查表:异步路径(临时区)只留下了扩展名,worker 要据此还原 MIME 再交给 ``normalize``。
+# 同一个扩展名可能对应多个 MIME(``audio/mp4`` / ``audio/m4a`` / ``audio/x-m4a``),
+# 取第一个即可 —— ``normalize`` 只用它查回同一个扩展名。
+CONTENT_TYPE_BY_SUFFIX = {
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".webm": "audio/webm",
+    ".ogg": "audio/ogg",
 }
 
 FFMPEG = "ffmpeg"
@@ -143,6 +156,31 @@ def base_content_type(value: str) -> str:
     return (value or "").split(";", 1)[0].strip().lower()
 
 
+def content_type_for(name: str) -> str:
+    """从暂存文件的路径反推 MIME(异步转码路径用)。
+
+    参数说明:
+        name: 存储相对路径,形如 ``tmp/voice/<uuid>.webm``。
+
+    返回参数:
+        与扩展名对应的 MIME,如 ``audio/webm``。
+
+    使用示例:
+        ``voice.normalize(raw, voice.content_type_for(row.file.name), row.duration_ms)``
+        (见 ``im/tasks.py`` 的 ``transcode_chat_voice``)
+
+    备注信息:
+        只在 worker 侧用:上传时做过 MIME 白名单校验,暂存文件名又由
+        ``transcode_queue.staged_name`` 按同一张表生成,所以扩展名可信。
+        取不到扩展名或扩展名不在表里时抛 ``VoiceError``(与同步路径同一套文案)。
+    """
+    suffix = Path(name or "").suffix.lower()
+    content_type = CONTENT_TYPE_BY_SUFFIX.get(suffix)
+    if content_type is None:
+        raise VoiceError("只支持 M4A/AAC/WebM/OGG 音频")
+    return content_type
+
+
 def ffmpeg_available() -> bool:
     """检查转码依赖是否齐全。
 
@@ -153,7 +191,7 @@ def ffmpeg_available() -> bool:
         两者都在 PATH 中时为 ``True``。
 
     使用示例:
-        ``if not voice.ffmpeg_available():``(见 ``users/views.py`` 的 ``normalize_profile_voice``)
+        ``if not ffmpeg_available():``(见本模块 ``normalize`` / ``normalize_profile``)
 
     备注信息:
         只查 ``PATH``,不实际执行 ffmpeg/ffprobe;缺失属部署问题,调用方回 503。
@@ -261,3 +299,42 @@ def normalize(raw: bytes, content_type: str, declared_ms: int) -> tuple[bytes, i
     if len(data) > settings.CHAT_VOICE_MAX_OUT_BYTES:
         raise VoiceError("语音文件过大")
     return data, duration
+
+
+def normalize_profile(raw: bytes, content_type: str) -> tuple[bytes, int]:
+    """校验并转码一段资料语音自我介绍(≤30 秒)。
+
+    参数说明:
+        raw: 上传文件的原始字节。
+        content_type: 上传声明的 MIME(可带 ``;codecs=...`` 参数)。
+
+    返回参数:
+        ``(m4a 字节, 实测毫秒)``。
+
+    使用示例:
+        ``data, duration_ms = voice.normalize_profile(upload.read(), upload.content_type)``
+        (见 ``users/views.py`` 的 ``my_voice``)
+
+    备注信息:
+        转码完全复用本模块的 ``normalize``(ffprobe 校验 → ffmpeg 转 m4a/AAC),这里不重写
+        任何 ffmpeg 调用;先用 ``ffprobe`` 探真实时长再作为 ``declared_ms`` 传进去,等价于
+        「不信任客户端声明」。
+        服务器缺 ffmpeg/ffprobe 抛 ``VoiceUnavailable``(调用方回 503 + ``50302``);
+        格式/大小/解码不合法或时长超过 ``settings.PROFILE_VOICE_MAX_MS`` 抛 ``VoiceError``。
+        同步与异步两条路都调本函数:资料语音不接收客户端声明时长,异步路径也不需要额外
+        参数,任务参数因此仍然只有行 id。
+    """
+    suffix = ALLOWED_CONTENT_TYPES.get(base_content_type(content_type))
+    if suffix is None:
+        raise VoiceError("只支持 M4A/AAC/WebM/OGG 音频")
+    if not ffmpeg_available():
+        raise VoiceUnavailable()
+    with tempfile.TemporaryDirectory() as workdir:
+        probe_path = Path(workdir) / f"probe{suffix}"
+        probe_path.write_bytes(raw)
+        declared_ms = _probe_ms(probe_path)
+    data, duration_ms = normalize(raw, content_type, declared_ms)
+    if duration_ms > settings.PROFILE_VOICE_MAX_MS:
+        raise VoiceError(
+            f"语音自我介绍不能超过 {settings.PROFILE_VOICE_MAX_MS // 1000} 秒")
+    return data, duration_ms

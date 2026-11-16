@@ -20,6 +20,7 @@ from rest_framework import serializers
 
 from feed.services import follow_state_for_profiles
 from im import media_sign
+from im.models import TranscodeStatus
 from im.voice import ALLOWED_CONTENT_TYPES as ALLOWED_AUDIO_CONTENT_TYPES
 from im.voice import base_content_type
 from moderation.text_check import find_blocked_word
@@ -140,24 +141,29 @@ class PreferenceSerializer(serializers.ModelSerializer):
 
 
 def voice_payload(profile) -> dict | None:
-    """把资料语音序列化成对外载荷 ``{url, duration_ms}``。
+    """把资料语音序列化成对外载荷 ``{url, duration_ms, status}``。
 
     参数说明:
         profile: 资料对象;``voice`` 反向一对一不存在时按「没录过」处理。
 
     返回参数:
-        ``{"url": 限时签名的绝对地址, "duration_ms": 实测毫秒}``;没有语音时为 ``None``。
+        ``{"url": 限时签名的绝对地址, "duration_ms": 实测毫秒, "status": 转码状态}``;
+        没有语音、或语音还在转码/转码失败时为 ``None``。
 
     使用示例:
         ``return voice_payload(profile)``(见本模块两个 ``get_voice``)
 
     备注信息:
-        没有语音的人返回 ``None``(API 里是 JSON ``null``),客户端据此隐藏播放器。
+        没有可播放的语音就返回 ``None``(API 里是 JSON ``null``),客户端据此隐藏播放器。
         ``url`` 由 ``ProfileVoiceSerializer`` 用 ``MEDIA_BASE_URL`` + ``media_sign.sign_url``
         生成,因此**不需要**序列化器上下文里的 ``request``。
+        ``pending`` / ``failed`` 也按 ``None`` 处理,原因有两条:一是这些行还没有正式文件
+        (``url`` 只能是 ``null``,老客户端拿到「有语音但没有地址」会报错);二是异步路径
+        上线前这种行根本不存在 —— 回 ``None`` 才是「与旧行为一致」。想知道进度就查
+        ``GET /users/me/voice``。
     """
     record = getattr(profile, "voice", None)
-    if record is None:
+    if record is None or record.transcode_status != TranscodeStatus.READY:
         return None
     return ProfileVoiceSerializer(record).data
 
@@ -172,13 +178,17 @@ class ProfileVoiceSerializer(serializers.ModelSerializer):
 
     实现在 ``get_url`` 里:``MEDIA_BASE_URL`` 拼绝对地址后交给 ``media_sign.sign_url``,
     与 ``im/views.py`` 上传聊天语音返回 ``url`` 的那一行同口径,不另写一套拼接。
+
+    ``status`` 是转码进度(纯加法,老客户端忽略即可):走异步路径时上传接口回 202,
+    这个字段只在同步成功的 201 里出现,值恒为 ``ready``。
     """
 
     url = serializers.SerializerMethodField()
+    status = serializers.CharField(source="transcode_status", read_only=True)
 
     class Meta:
         model = ProfileVoice
-        fields = ["url", "duration_ms"]
+        fields = ["url", "duration_ms", "status"]
 
     @extend_schema_field(serializers.URLField())
     def get_url(self, record) -> str:

@@ -1,6 +1,7 @@
-"""IM 接口的入参校验:聊天图片与语音上传。"""
+"""IM 接口的入参校验与响应序列化:聊天图片、语音上传与语音转码状态。"""
 
 from django.conf import settings
+from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
 
 from .voice import base_content_type
@@ -65,3 +66,30 @@ class ChatVoiceUploadSerializer(serializers.Serializer):
         if base_content_type(value.content_type) not in ALLOWED_AUDIO_CONTENT_TYPES:
             raise serializers.ValidationError("只支持 M4A/AAC/WebM/OGG 音频")
         return value
+
+
+class VoiceStatusSerializer(serializers.Serializer):
+    """语音转码状态的响应体:聊天语音与资料语音两个轮询接口同形状(M-3)。
+
+    ``pending`` 时 ``url`` / ``duration_ms`` / ``size`` 都是 ``null``(还没有正式文件);
+    ``failed`` 时同样为空,失败原因走 ``code``(业务码,如 ``41301``)或 ``message``
+    (短文案)。``ready`` 时 ``code`` / ``message`` 为 ``null``。
+    """
+
+    id = serializers.IntegerField()
+    status = serializers.CharField()
+    url = serializers.CharField(allow_null=True)
+    duration_ms = serializers.IntegerField(allow_null=True)
+    size = serializers.IntegerField(allow_null=True)
+    code = serializers.CharField(allow_null=True)
+    message = serializers.CharField(allow_null=True)
+
+
+# 202 的响应体:上传已受理、正在排队转码(不带 url —— 还没有正式文件)。
+# 两个上传入口共用同一个组件名与同一份字段,drf-spectacular 不会当成两个 schema。
+VOICE_QUEUED_RESPONSE = inline_serializer("VoiceQueued", fields={
+    "id": serializers.IntegerField(),
+    "status": serializers.CharField(),
+    "retry_after": serializers.IntegerField(),
+})
+

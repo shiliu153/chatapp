@@ -1,4 +1,4 @@
-"""IM 副作用任务:所有 IM 管理端调用统一走这里,响应路径禁止直接调用。
+"""IM 与媒体的后台任务:IM 管理端调用、账号同步,以及语音异步转码。
 
 设计要点:
     1. ``im/client.py`` 的函数对外永不抛异常(失败返回 ``False`` 只记日志);
@@ -9,26 +9,34 @@
        与 ``post_replied`` 传的是评论主键 ``comment_id``,由任务体查出动态作者与被回复者。
        唯一**不查库**的例外是 ``delete_account``:参数是 ``im_user_id`` 字符串,因为它由
        注销流程在用户行已删除之后入队,原因见该函数的说明;
-    3. 统一套用 ``RETRY_POLICY``(指数退避 + 抖动,最多 5 次);
+    3. 统一套用 ``RETRY_POLICY``(指数退避 + 抖动,最多 5 次);**语音转码的两个任务例外**,
+       它们不重试 —— 坏文件重试多少次都是坏的,失败原因落到行上由客户端轮询;
     4. 多端在线后「踢谁」要分清:按端踢(同类互顶 / 登录)带 ``client_type``,
        踢全部端(封禁 / 注销 / 退出所有设备)不带它。
 
 关联文档:
     - 踩坑记录:docs/pitfalls/im.md
+    - 接口契约:docs/api/im.md(6.4 / 6.5)、docs/api/users.md(2.11 / 2.12)
 """
 
 import logging
+import uuid
 
 from celery import shared_task
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.files.base import ContentFile
 
 from accounts import device_session
 from accounts.device_session import CLIENT_APP, CLIENT_TYPES
+from config import error_codes, storage, transcode_gate
 from users.models import PhotoStatus
 
 from . import client as im_client
+from . import transcode_queue
+from . import voice as voice_lib
+from .models import ChatVoice, TranscodeStatus
 
 logger = logging.getLogger(__name__)
 
@@ -621,3 +629,178 @@ def delete_account(im_user_id: str) -> None:
     """
     im_client.kick_user(im_user_id)
     _require(im_client.delete_account(im_user_id), "delete_account")
+
+
+# --- 语音异步转码(第五轮审计 M-3)---
+# 抢不到转码槽的上传不再同步转码,而是落临时区 + 入队(bulk 队列),由下面两个任务在
+# worker 里转码。槽的语义从「保护 gunicorn 请求线程」变成「保护 worker 并发」。
+
+
+def _mark_failed(row, reason: str, staged: str = "") -> None:
+    """把一条 ``pending`` 行标成 ``failed``,并删掉临时文件(幂等)。
+
+    参数说明:
+        row: 待标记的行(``ChatVoice`` 或 ``ProfileVoice``,两者字段同口径)。
+        reason: 失败原因:业务码字符串(如 ``41301``)或一句短文案,落库前截到 64 字。
+        staged: 要顺带删掉的临时文件路径;空串表示没有。
+
+    返回参数:
+        无返回值。
+
+    使用示例:
+        ``_mark_failed(row, str(error_codes.STORAGE_QUOTA_EXCEEDED), staged)``
+        (见本模块 ``_normalize_or_fail``)
+
+    备注信息:
+        ``file`` 一并清空:临时路径不能留在行上,否则兜底清理与 ``signed_file_url``
+        都会把它当成正式文件。只写失败相关的六个字段,不动审核``status`` 与时间戳。
+    """
+    transcode_queue.discard(staged)
+    row.file = ""
+    row.bytes = 0
+    row.duration_ms = 0
+    row.transcode_status = TranscodeStatus.FAILED
+    row.transcode_error = (reason or "")[:64]
+    row.save(update_fields=["file", "bytes", "duration_ms", "transcode_status",
+                            "transcode_error"])
+
+
+def _normalize_or_fail(user, row, staged: str, normalize, retry) -> tuple[bytes, int] | None:
+    """在转码槽里跑 ``normalize`` 并顺手查配额;已知失败当场把行标成 ``failed``。
+
+    参数说明:
+        user: 这一行属于的账号(配额按账号求和)。
+        row: 待转码的行。
+        staged: 临时文件的存储相对路径(失败时删掉它)。
+        normalize: 无参回调,返回 ``(m4a 字节, 实测毫秒)``;由调用方决定用哪个
+            ``voice`` 函数(聊天语音比声明时长,资料语音比 30 秒上限)。
+        retry: 无参回调,抢不到槽时调用(Celery 的 ``self.retry``,抛出重试)。
+
+    返回参数:
+        ``(data, duration_ms)``;行已被标成 ``failed`` 时返回 ``None``。
+
+    使用示例:
+        ``result = _normalize_or_fail(row.owner, row, staged, lambda: ..., self.retry)``
+        (见本模块 ``transcode_chat_voice``)
+
+    备注信息:
+        抢不到槽**不是**失败:槽只保护 worker 并发,这里交给 ``retry`` 退避重试,行保持
+        ``pending``、临时文件保留。配额检查在落正式文件之前,超限只能异步失败
+        (写 ``transcode_error=41301``),因为响应早已返回 202。
+    """
+    with transcode_gate.slot() as acquired:
+        if not acquired:
+            logger.warning("voice_transcode_slot_busy", extra={"voice_id": row.pk})
+            retry()
+            return None
+        try:
+            data, duration_ms = normalize()
+            storage.ensure_quota(user, len(data))
+        except voice_lib.VoiceUnavailable:
+            logger.error("语音转码失败:服务器缺少 ffmpeg/ffprobe")
+            _mark_failed(row, str(error_codes.CHAT_VOICE_UNAVAILABLE), staged)
+            return None
+        except voice_lib.VoiceError as error:
+            _mark_failed(row, str(error), staged)
+            return None
+        except storage.StorageQuotaExceeded:
+            _mark_failed(row, str(error_codes.STORAGE_QUOTA_EXCEEDED), staged)
+            return None
+    return data, duration_ms
+
+
+@shared_task(bind=True, max_retries=None)
+def transcode_chat_voice(self, voice_id: int) -> None:
+    """把一条排队中的聊天语音转码落盘(异步路径,第五轮审计 M-3)。
+
+    参数说明:
+        voice_id: ``im.ChatVoice`` 主键。``pending`` 期间行的 ``file`` 是临时区路径,
+            ``duration_ms`` 存的是客户端声明值(转码完成后覆盖为 ``ffprobe`` 实测值)。
+
+    返回参数:
+        无返回值;结果写在行上(``transcode_status`` / ``transcode_error`` / 文件与字节数)。
+
+    使用示例:
+        ``transcode_chat_voice.delay(chat_voice.id)``(见 ``im/views.py`` 的 ``upload_voice``)
+
+    备注信息:
+        行不存在或已不是 ``pending``(重复投递、兜底清理已收走)时直接返回,幂等。
+        抢不到槽时 ``self.retry`` 退避重试,行保持 ``pending`` —— 客户端继续轮询即可。
+        **不用 ``RETRY_POLICY``**:已知失败(坏文件、配额满、缺 ffmpeg)一律落到行上,
+        未预期的异常留给 worker 日志与 24 小时兜底清理,不无限重试。
+    """
+    row = ChatVoice.objects.filter(id=voice_id).first()
+    if row is None or row.transcode_status != TranscodeStatus.PENDING:
+        return
+    staged = row.file.name or ""
+    try:
+        raw = transcode_queue.read(staged)
+    except OSError:
+        _mark_failed(row, "临时文件已丢失", staged)
+        return
+    declared_ms = row.duration_ms
+    result = _normalize_or_fail(
+        row.owner, row, staged,
+        lambda: voice_lib.normalize(raw, voice_lib.content_type_for(staged), declared_ms),
+        lambda: self.retry(countdown=transcode_gate.retry_after()))
+    if result is None:
+        return
+    data, duration_ms = result
+    row.file.save(f"{row.owner_id}-{uuid.uuid4().hex}.m4a", ContentFile(data), save=False)
+    row.duration_ms = duration_ms
+    row.bytes = len(data)
+    row.mime = "audio/mp4"
+    row.transcode_status = TranscodeStatus.READY
+    row.transcode_error = ""
+    row.save(update_fields=["file", "duration_ms", "bytes", "mime",
+                            "transcode_status", "transcode_error"])
+    transcode_queue.discard(staged)
+
+
+@shared_task(bind=True, max_retries=None)
+def transcode_profile_voice(self, voice_id: int) -> None:
+    """把一条排队中的资料语音自我介绍转码落盘(异步路径,第五轮审计 M-3)。
+
+    参数说明:
+        voice_id: ``users.ProfileVoice`` 主键(资料语音一人一条,覆盖式替换)。
+
+    返回参数:
+        无返回值;结果写在行上(``transcode_status`` / ``transcode_error`` / 文件与字节数)。
+
+    使用示例:
+        ``transcode_profile_voice.delay(record.id)``(见 ``users/views.py`` 的 ``my_voice``)
+
+    备注信息:
+        转码用 ``voice.normalize_profile``(资料语音不接收客户端声明时长,先 ``ffprobe``
+        再比对 30 秒上限),因此任务参数同样只有行 id。
+        行不存在或已不是 ``pending`` 时直接返回;抢不到槽时退避重试,行保持 ``pending``。
+        ``users.models`` 在函数体内导入:``users`` 依赖 ``im.models``,模块级导入会成环。
+    """
+    from users.models import ProfileVoice   # 延迟导入,避免 app 加载顺序成环
+
+    row = (ProfileVoice.objects.filter(id=voice_id)
+           .select_related("profile__user").first())
+    if row is None or row.transcode_status != TranscodeStatus.PENDING:
+        return
+    user = row.profile.user
+    staged = row.file.name or ""
+    try:
+        raw = transcode_queue.read(staged)
+    except OSError:
+        _mark_failed(row, "临时文件已丢失", staged)
+        return
+    result = _normalize_or_fail(
+        user, row, staged,
+        lambda: voice_lib.normalize_profile(raw, voice_lib.content_type_for(staged)),
+        lambda: self.retry(countdown=transcode_gate.retry_after()))
+    if result is None:
+        return
+    data, duration_ms = result
+    row.file.save(f"{user.id}-{uuid.uuid4().hex}.m4a", ContentFile(data), save=False)
+    row.duration_ms = duration_ms
+    row.bytes = len(data)
+    row.transcode_status = TranscodeStatus.READY
+    row.transcode_error = ""
+    row.save(update_fields=["file", "duration_ms", "bytes",
+                            "transcode_status", "transcode_error"])
+    transcode_queue.discard(staged)
