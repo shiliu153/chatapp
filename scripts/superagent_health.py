@@ -24,7 +24,10 @@
   **再**看 GitHub 通知里有没有「未读且 `updated_at` 晚于游标」的条目:
   有 → 有活要干却没干,判异常;没有 → 闲置,跳过。
 
-判定本身是只读的:**本脚本绝不重启 orchestrator**(重启会杀掉正在跑的会话,那是另一场评审)。
+判定本身是只读的。**重启是另一件事,默认不做**:只有显式打开 `SUPERAGENT_AUTOREHEAL=1`
+(默认 `0` = 关)且第四项判成停摆时,才去问「安全自愈」那四道闸 —— 有 `running` / `pending`
+的 assignment、有 worktree 没提交、距上次自愈不足最小间隔、或者压根确认不了干净与否,
+任何一条命中就**只告警、绝不重启**。闸的顺序写在 `maybe_autoreheal` 里,是安全契约,别优化掉。
 取证与根因见 `docs/ops/superagent.md` §15 与 PR 正文。
 
 退出码
@@ -39,6 +42,7 @@
     python3 healthcheck.py --skip-egress        # 离线/自测
     python3 healthcheck.py --skip-cursor        # 不查游标(完全离线)
     python3 healthcheck.py --notifications-file n.json   # 用本地 JSON 冒充未读通知
+    python3 healthcheck.py --autoreheal 1       # 打开安全自愈(默认 0 = 关)
 """
 
 from __future__ import annotations
@@ -65,11 +69,18 @@ EGRESS_URL = "https://api.github.com/rate_limit"
 NOTIFICATIONS_PATH = "notifications?all=false&per_page=50"
 DEFAULT_CURSOR_STALE_MINUTES = 10
 GH_CLI_CANDIDATES = ("/root/.dsh/bin/gh-agent", "/root/.local/bin/gh-agent")
+DEFAULT_AUTOREHEAL_MIN_MINUTES = 20
+DEFAULT_AUTOREHEAL_STATE_DIR = "/root/.dsh/state/superagent-health"
+DEFAULT_RESTART_SCRIPT = "/root/start-superagent.sh"
+AUTOREHEAL_LOG = "autoreheal.log"
+AUTOREHEAL_STAMP = "last-autoreheal"
+TRUTHY = ("1", "on", "true", "yes", "y")
 
 OK = "ok"
 BAD = "bad"
 
 CURSOR_CHECK = "游标新鲜度"
+AUTOREHEAL_CHECK = "安全自愈"
 
 
 @dataclass
@@ -605,15 +616,291 @@ def check_worktrees(conn: sqlite3.Connection, workdir: str) -> List[Check]:
     return [Check("worktrees", OK, f"{len(dirs)} 个目录: {', '.join(dirs) or '(空)'}")]
 
 
-def build_report(args: argparse.Namespace, now: Optional[datetime] = None) -> Report:
+def active_assignments(conn: sqlite3.Connection) -> List[str]:
+    """列出状态还是 `running` / `pending` 的 assignment —— 它们是「重启会杀掉的活」。
+
+    Args:
+        conn: orchestrator 状态库连接。
+
+    Returns:
+        每项形如 `ce1d46c9(running) @ '工单标题'`;没有活跃 assignment 时返回空列表。
+
+    这里**不按时间过滤**(与 `zombie_assignments` 不同):僵尸判据是「卡了多久」,而自愈的判据是
+    「有没有会话在跑」—— 一个刚开 8 分钟的正常会话同样是活,重启一样会把它打断。
+    """
+    out: List[str] = []
+    for _ticket_id, data in load_tickets(conn):
+        for assignment in data.get("assignments") or []:
+            state = assignment.get("state")
+            if state in ("running", "pending"):
+                out.append(f"{str(assignment.get('id'))[:8]}({state}) @ {data.get('title')!r}")
+    return out
+
+
+def dirty_worktrees(workdir: str) -> Tuple[List[str], Optional[str]]:
+    """看 `work/` 下每个 worktree 有没有未提交改动(`git status --porcelain` 非空)。
+
+    Args:
+        workdir: orchestrator 的 work/ 目录(每个子目录是一个 worktree)。
+
+    Returns:
+        `(有改动的目录名列表, 判不出来的原因)`。原因非空表示**确认不了干净**,
+        调用方必须按「不许重启」处理(fail-closed):判不出来的干净等于不干净。
+
+    `work/` 不存在 = 没有 worktree = 没有活,按干净处理;`git status` 失败(不是 git 目录、
+    git 缺失、超时)一律算判不出来,而不是猜「大概没改动」。
+    """
+    try:
+        names = sorted(
+            name for name in os.listdir(workdir) if os.path.isdir(os.path.join(workdir, name))
+        )
+    except FileNotFoundError:
+        return [], None
+    except OSError as exc:
+        return [], f"读不到 {workdir}:{type(exc).__name__}: {exc}"
+    dirty: List[str] = []
+    for name in names:
+        path = os.path.join(workdir, name)
+        try:
+            done = subprocess.run(
+                ["git", "-C", path, "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return [], f"跑不了 git status({path}):{type(exc).__name__}: {exc}"
+        if done.returncode != 0:
+            tail = (done.stderr or done.stdout or "").strip().splitlines()
+            return [], f"git status 失败({path},退出码 {done.returncode}):{tail[-1] if tail else '(无输出)'}"
+        if done.stdout.strip():
+            dirty.append(name)
+    return dirty, None
+
+
+def read_last_autoreheal(state_dir: str) -> Optional[datetime]:
+    """读上一次自动自愈**尝试**的时间(防抖用)。
+
+    Args:
+        state_dir: 运行时状态目录(`/root/.dsh/state/superagent-health`)。
+
+    Returns:
+        上一次尝试的时间;文件不存在或读不出来返回 None(= 从未自愈过)。
+
+    失败也记时间:重启命令自己挂掉时进程通常仍停摆,不记就会每 15 分钟锤一次。
+    """
+    try:
+        with open(os.path.join(state_dir, AUTOREHEAL_STAMP), "r", encoding="utf-8") as handle:
+            raw = handle.read().strip()
+    except OSError:
+        return None
+    return _parse_ts(raw)
+
+
+def _write_last_autoreheal(state_dir: str, now: datetime) -> Optional[str]:
+    """把「刚刚尝试过自愈」的时刻写进状态目录(成败都写)。
+
+    Args:
+        state_dir: 运行时状态目录。
+        now: 尝试时间。
+
+    Returns:
+        写入失败的原因;成功返回 None。
+
+    写不进去不是致命错误,但必须让告警看得见:防抖失效意味着下一轮可能又重启一次。
+    """
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        with open(os.path.join(state_dir, AUTOREHEAL_STAMP), "w", encoding="utf-8") as handle:
+            handle.write(_iso(now) + "\n")
+    except OSError as exc:
+        return f"写不了 {os.path.join(state_dir, AUTOREHEAL_STAMP)}:{type(exc).__name__}: {exc}"
+    return None
+
+
+def append_autoreheal_log(state_dir: str, line: str) -> Optional[str]:
+    """把一次自愈尝试追加进 `autoreheal.log`(时间 / 触发原因 / 前后游标 / 退出码)。
+
+    Args:
+        state_dir: 运行时状态目录。
+        line: 已经渲染好的一行(不带换行)。
+
+    Returns:
+        写入失败的原因;成功返回 None。
+
+    为什么单独一个日志文件而不只靠告警:告警有 6 小时去重(同一种异常只发一次),
+    而「今天自愈了几次、每次结果如何」是判断要不要继续开这个开关的依据,必须一笔一笔留住。
+    """
+    path = os.path.join(state_dir, AUTOREHEAL_LOG)
+    try:
+        os.makedirs(state_dir, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except OSError as exc:
+        return f"写不了 {path}:{type(exc).__name__}: {exc}"
+    return None
+
+
+def default_restart(script: str = DEFAULT_RESTART_SCRIPT, timeout: float = 180.0) -> Tuple[int, str]:
+    """默认的重启实现:`bash <script> restart` —— 全脚本里唯一会动到 orchestrator 进程的地方。
+
+    Args:
+        script: 启动脚本路径(默认 `/root/start-superagent.sh`)。
+        timeout: 子进程超时秒数;超时按失败(退出码 124)处理。
+
+    Returns:
+        `(退出码, 输出尾部)`;**不抛异常**:重启失败要比重启本身更好定位。
+
+    自测里**绝不许**走到这里(那会杀掉正在跑的会话,包括跑测试的自己),所以
+    `maybe_autoreheal` 的回调是参数注入的,只有生产路径才用这个默认实现。
+    """
+    try:
+        done = subprocess.run(
+            ["bash", script, "restart"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return 124, f"bash {script} restart 超时(>{timeout:.0f}s)"
+    except OSError as exc:
+        return 127, f"{type(exc).__name__}: {exc}"
+    output = ((done.stdout or "") + (done.stderr or "")).strip().replace("\n", " ")
+    return done.returncode, output[-300:]
+
+
+def maybe_autoreheal(
+    conn: sqlite3.Connection,
+    workdir: str,
+    now: datetime,
+    min_minutes: int,
+    state_dir: str,
+    cursor_detail: str,
+    restart: Callable[[], Tuple[int, str]],
+) -> Check:
+    """安全自愈:四道闸全过才重启,任何一条不过都只告警(**顺序是安全契约,不许调整**)。
+
+    调用前提:第四项「游标新鲜度」已经判成 `bad`(有未读通知且比游标新)。闸门顺序:
+
+    1. 状态库里**没有** `state ∈ {running, pending}` 的 assignment —— 重启会杀掉正在跑的会话;
+    2. `work/` 下每个 worktree 都没有未提交改动(`git status --porcelain` 为空)—— 有改动说明
+       有人的活还没落地,重启会让他白干;确认不了干净也按「有改动」处理(fail-closed);
+    3. 距上一次自愈尝试 ≥ `min_minutes`(默认 20 分钟)防抖 —— 否则巡检每 15 分钟就会重启一次;
+    4. 以上全过,才调用注入的 `restart` 回调。
+
+    Args:
+        conn: orchestrator 状态库连接(只读)。
+        workdir: orchestrator 的 work/ 目录。
+        now: 当前时间(测试注入)。
+        min_minutes: 两次自愈尝试之间的最小间隔(分钟)。
+        state_dir: 运行时状态目录(防抖时间戳与 `autoreheal.log` 都落在这里)。
+        cursor_detail: 第四项检查的说明原文,写进日志当「触发原因」。
+        restart: 无参回调,返回 `(退出码, 输出尾部)`。自测注入假回调,生产用 `default_restart`。
+
+    Returns:
+        一条 `Check`:成功 = `ok` 且正文含「已自动重启」;回调失败 = `bad` 且带失败原因
+        (调用方保证游标那项仍是 `bad`,所以退出码依旧是 1);任一闸不过 = `ok` 且写明不重启的原因。
+    """
+    cursors_before = read_cursors(conn)
+    newest_before = max((moment for _key, moment in cursors_before), default=None)
+
+    def _cursor_note() -> str:
+        """渲染日志里的「重启前游标」,读不到就写「(读不到)」。"""
+        if newest_before is None:
+            return "(读不到游标)"
+        lag = (now - newest_before).total_seconds() / 60.0
+        return f"{_iso(newest_before)}(落后 {lag:.0f} 分钟)"
+
+    # ① 有会话在跑 —— 一律不重启。
+    active = active_assignments(conn)
+    if active:
+        more = f" 等 {len(active)} 个" if len(active) > 3 else ""
+        return Check(
+            AUTOREHEAL_CHECK,
+            OK,
+            f"不重启:有 {len(active)} 个 running/pending 的 assignment({'; '.join(active[:3])}{more})"
+            f" —— 重启会杀掉正在跑的会话",
+        )
+
+    # ② worktree 必须全部干净;确认不了 = 不干净。
+    dirty, error = dirty_worktrees(workdir)
+    if error:
+        return Check(AUTOREHEAL_CHECK, OK, f"不重启:确认不了 worktree 干净({error})")
+    if dirty:
+        more = f" 等 {len(dirty)} 个" if len(dirty) > 3 else ""
+        return Check(
+            AUTOREHEAL_CHECK,
+            OK,
+            f"不重启:{len(dirty)} 个 worktree 有未提交改动({', '.join(dirty[:3])}{more})"
+            f" —— 那是还没落地的活",
+        )
+
+    # ③ 防抖:距上一次自愈尝试不足阈值就不重复重启。
+    last = read_last_autoreheal(state_dir)
+    if last is not None:
+        waited = (now - last).total_seconds() / 60.0
+        if waited < min_minutes:
+            return Check(
+                AUTOREHEAL_CHECK,
+                OK,
+                f"不重启:距上次自愈 {waited:.0f} 分钟(阈值 {min_minutes} 分钟)",
+            )
+
+    # ④ 四道闸全过:记时间戳 → 立刻重启 → 落日志。写时间戳必须**在重启之前**,
+    #    否则重启把这一轮打断,下一轮就会毫无防抖地再来一次。
+    stamp_error = _write_last_autoreheal(state_dir, now)
+    returncode, output = restart()
+    cursors_after = read_cursors(conn)
+    newest_after = max((moment for _key, moment in cursors_after), default=None)
+    after_note = _iso(newest_after) if newest_after is not None else "(读不到游标)"
+    verdict = "ok" if returncode == 0 else "failed"
+    log_error = append_autoreheal_log(
+        state_dir,
+        " ".join(
+            [
+                _iso(now),
+                f"result={verdict}",
+                f"rc={returncode}",
+                f"trigger={CURSOR_CHECK}",
+                f"cursor_before={_cursor_note()}",
+                f"cursor_after={after_note}",
+                f"reason={cursor_detail}",
+                f"output={output or '(无输出)'}",
+            ]
+        ),
+    )
+    problems = [item for item in (stamp_error, log_error) if item]
+    tail = f" · 注意:{'; '.join(problems)}" if problems else ""
+    if returncode == 0:
+        return Check(
+            AUTOREHEAL_CHECK,
+            OK,
+            f"已自动重启(退出码 0) · 重启前游标 {_cursor_note()} → 重启后 {after_note}"
+            f" · 日志 {os.path.join(state_dir, AUTOREHEAL_LOG)}{tail}",
+        )
+    return Check(
+        AUTOREHEAL_CHECK,
+        BAD,
+        f"已尝试自动重启但失败(退出码 {returncode}):{output or '(无输出)'} · 按未自愈处理{tail}",
+    )
+
+
+def build_report(
+    args: argparse.Namespace,
+    now: Optional[datetime] = None,
+    restart: Optional[Callable[[], Tuple[int, str]]] = None,
+) -> Report:
     """跑完整一轮巡检。
 
     Args:
         args: 已解析的命令行参数。
         now: 当前时间(测试注入用),默认取 UTC now。
+        restart: 自愈用的重启回调;None 表示用默认实现(`bash <script> restart`)。
+            自测必须注入假回调 —— 真的调一次会杀掉正在跑的会话(包括跑测试的自己)。
 
     Returns:
-        巡检结果。
+        巡检结果。`SUPERAGENT_AUTOREHEAL` 关着(默认)时结果与加自愈之前**完全一致**:
+        不读状态文件、不算闸门、也不多出一条检查。
     """
     report = Report()
     now = now or datetime.now(timezone.utc)
@@ -642,6 +929,19 @@ def build_report(args: argparse.Namespace, now: Optional[datetime] = None) -> Re
             report.add(check)
             if unknown:
                 report.unknown.append(unknown)
+            elif check.state != OK and _autoreheal_enabled(args):
+                # 只有第四项**确实判成停摆**(不是「判不出来」)才谈自愈,而且开关默认关。
+                report.add(
+                    maybe_autoreheal(
+                        conn,
+                        args.workdir,
+                        now,
+                        args.autoreheal_min_minutes,
+                        args.autoreheal_state_dir,
+                        check.detail,
+                        restart or _default_restart_callback(args),
+                    )
+                )
         for check in check_worktrees(conn, args.workdir):
             report.add(check)
     return report
@@ -726,6 +1026,49 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _truthy(value: Any) -> bool:
+    """把 `1/on/true/yes/y` 这类写法认成「开」,其余(含None空串)一律是「关」。
+
+    Args:
+        value: 命令行或环境变量里的原始值。
+
+    Returns:
+        是否算打开。
+
+    只认白名单而不是「非空即真」:`SUPERAGENT_AUTOREHEAL=off` / `=0` / `=false` 都必须**关**,
+    否则运维按文档写 `off` 反而把重启打开,那是最糟的一种误读。
+    """
+    if value is None:
+        return False
+    return str(value).strip().lower() in TRUTHY
+
+
+def _autoreheal_enabled(args: argparse.Namespace) -> bool:
+    """自愈总闸:只有显式写成 `1/on/true/yes` 才算开(默认关)。
+
+    Args:
+        args: 已解析的命令行参数(默认值取自 `SUPERAGENT_AUTOREHEAL`)。
+
+    Returns:
+        是否允许本轮执行自愈。
+
+    与 L4 的 `L4_INTAKE` 同一口径:**机制上线不等于开始执行**,开不开由人显式决定。
+    """
+    return _truthy(args.autoreheal)
+
+
+def _default_restart_callback(args: argparse.Namespace) -> Callable[[], Tuple[int, str]]:
+    """把默认重启实现绑到当前的 `--restart-script`,给 `maybe_autoreheal` 当回调。
+
+    Args:
+        args: 已解析的命令行参数。
+
+    Returns:
+        无参回调,返回 `(退出码, 输出尾部)`。
+    """
+    return lambda: default_restart(args.restart_script)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """构造命令行解析器。"""
     parser = argparse.ArgumentParser(description="superagent worker 健康检查")
@@ -771,6 +1114,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-egress", action="store_true", help="跳过联网检查(离线自测)")
     parser.add_argument("--skip-enqueue", action="store_true", help="跳过入队三连")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
+    parser.add_argument(
+        "--autoreheal",
+        default=os.environ.get("SUPERAGENT_AUTOREHEAL"),
+        help="安全自愈总闸:1/on = 开,其它(含默认的空值)= 关。默认关 —— 机制上线不等于开始执行",
+    )
+    parser.add_argument(
+        "--autoreheal-min-minutes",
+        type=int,
+        default=_env_int("SUPERAGENT_AUTOREHEAL_MIN_MINUTES", DEFAULT_AUTOREHEAL_MIN_MINUTES),
+        help="两次自愈尝试之间的最小间隔(分钟,默认 20;防抖,避免巡检每轮都重启)",
+    )
+    parser.add_argument(
+        "--autoreheal-state-dir",
+        default=os.environ.get("SUPERAGENT_HEALTH_STATE", DEFAULT_AUTOREHEAL_STATE_DIR),
+        help="自愈的状态目录:防抖时间戳与 autoreheal.log 都写在这里",
+    )
+    parser.add_argument(
+        "--restart-script",
+        default=os.environ.get("SUPERAGENT_RESTART_SCRIPT", DEFAULT_RESTART_SCRIPT),
+        help="默认重启回调执行的脚本(自测一律注入假回调,不会走到这里)",
+    )
     return parser
 
 

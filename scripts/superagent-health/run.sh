@@ -42,6 +42,20 @@ if [ -n "${GH_CLI:-}" ]; then
   CURSOR_ARGS+=(--gh-cli "$GH_CLI")
 fi
 
+# 安全自愈(2026-11-16 起,默认关):开关 / 阈值 / 状态目录同样必须走命令行 ——
+# source 进来的变量不会自动 export 给 python,只配 env 而不传参就会「以为开了其实没开」
+# (或者相反,更糟)。状态目录永远显式传给巡检器,于是 autoreheal.log 与去重指纹落在同一处。
+AUTOREHEAL_ARGS=(--autoreheal-state-dir "$STATE_DIR")
+if [ -n "${SUPERAGENT_AUTOREHEAL:-}" ]; then
+  AUTOREHEAL_ARGS+=(--autoreheal "$SUPERAGENT_AUTOREHEAL")
+fi
+if [ -n "${SUPERAGENT_AUTOREHEAL_MIN_MINUTES:-}" ]; then
+  AUTOREHEAL_ARGS+=(--autoreheal-min-minutes "$SUPERAGENT_AUTOREHEAL_MIN_MINUTES")
+fi
+if [ -n "${SUPERAGENT_RESTART_SCRIPT:-}" ]; then
+  AUTOREHEAL_ARGS+=(--restart-script "$SUPERAGENT_RESTART_SCRIPT")
+fi
+
 # 仓库里跑时检查器在 scripts/ 下;装到 /root/.dsh/healthcheck/ 后与 run.sh 同级。
 if [ -z "${SUPERAGENT_HEALTH_CHECKER:-}" ]; then
   if [ -f "$HERE/superagent_health.py" ]; then
@@ -55,7 +69,7 @@ fi
 
 OUT=$(mktemp); trap 'rm -f "$OUT"' EXIT
 python3 "$CHECKER" ${ISSUE_ARGS[@]+"${ISSUE_ARGS[@]}"} ${IGNORE_ARGS[@]+"${IGNORE_ARGS[@]}"} \
-  ${CURSOR_ARGS[@]+"${CURSOR_ARGS[@]}"} \
+  ${CURSOR_ARGS[@]+"${CURSOR_ARGS[@]}"} ${AUTOREHEAL_ARGS[@]+"${AUTOREHEAL_ARGS[@]}"} \
   >"$OUT" 2>"$STATE_DIR/last-stderr.log"
 RC=$?
 
@@ -87,8 +101,13 @@ SUBJECT="[superagent] worker 健康检查异常(rc=$RC)"
   echo "  1) bash /root/start-superagent.sh status                      # 健康位"
   echo "  2) bash /root/src/chatapp/scripts/superagent-proxy/probe.sh   # 三路出网对比"
   echo "  3) 卡死的 assignment 需要新单或重启:见 docs/ops/superagent.md §3"
-  echo "  4) 游标新鲜度 ❌(有未读通知但游标没动):先按 §15 取证,再决定是否重启 ——"
-  echo "     重启会杀掉正在跑的会话,巡检脚本**不会**替你重启"
+  if [ -n "${SUPERAGENT_AUTOREHEAL:-}" ]; then
+    echo "  4) 游标新鲜度 ❌(有未读通知但游标没动):自愈已开,结果见上面「安全自愈」一行"
+    echo "     (有 running/pending 会话或 worktree 未提交时**不会**重启;记录见 $STATE_DIR/autoreheal.log)"
+  else
+    echo "  4) 游标新鲜度 ❌(有未读通知但游标没动):先按 §15 取证,再决定是否重启 ——"
+    echo "     重启会杀掉正在跑的会话,巡检脚本**不会**替你重启(自愈开关 SUPERAGENT_AUTOREHEAL 未开)"
+  fi
   echo
   echo "本文件:$STATE_DIR/last-alert.md"
 } >"$STATE_DIR/pending-alert.md"
