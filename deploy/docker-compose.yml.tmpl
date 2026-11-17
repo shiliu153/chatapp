@@ -43,7 +43,8 @@ services:
       - --max-connections=200
     environment:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD}"
-      # L-9:root 只允许来自 compose 子网(默认 172.28.0.%),不是 "%"
+      # L-9:root 只允许来自 mysql 实际所在的那张网(默认 172.29.0.%,即下面 backend 的
+      # __BACKEND_SUBNET__,由 oneclick.sh 的 BACKEND_SUBNET 派生),不是 "%"。
       MYSQL_ROOT_HOST: "__MYSQL_ROOT_HOST__"
       MYSQL_DATABASE: chatapp
       MYSQL_USER: chatapp
@@ -342,3 +343,10 @@ networks:
     # M-6:MySQL/Redis 只挂在这张网上;internal 让这张网单独没有出站路由。
     # 需要出站的服务(web/worker)同时接 default,出站走 default。
     internal: true
+    # 必须钉死网段(#445,2026-11-17 实测):不写 ipam 时这张网的子网由 Docker 从地址池
+    # 自动分配(实测 172.25.0.0/16),而 L-9 的 MYSQL_ROOT_HOST 与 H-1 的 IM_INTERNAL_ALLOW
+    # 都按「mysql 所在的网」派生 —— 不钉就会算到 default 的网段上,db-init 以 root 从
+    # backend 侧连进来必 1045,从零 up 起不来。换网段只改 oneclick.sh 的 BACKEND_SUBNET。
+    ipam:
+      config:
+        - subnet: "__BACKEND_SUBNET__"

@@ -39,11 +39,18 @@ NO_BUILD=0
 HTTP_PORT=80
 HTTPS_PORT=443
 DOCKER_SUBNET="172.28.0.0/16"
+# 第二张网的网段(2026-11-17 修 #445):MySQL/Redis 只接在 `backend`(internal)上,
+# 而 `backend` 原来**没有 ipam**,子网由 Docker 从地址池里自动分配(实测可能是 172.25.x.x)。
+# 后果是 L-9 的 `MYSQL_ROOT_HOST` 与 H-1 的 `IM_INTERNAL_ALLOW` 都按 `DOCKER_SUBNET` 派生,
+# 指的却是 default 那张网 —— `db-init` 从 backend 侧以 root 连 mysql 直接 1045,
+# 从零 `up` 起不来。所以 backend 必须有自己钉死的网段,且不能与 DOCKER_SUBNET 重叠。
+BACKEND_SUBNET="172.29.0.0/16"
 # nginx 在 compose 网络里的固定地址:H-2 要求可信代理只写这一个地址,
 # 而不是整个 /16(否则任何容器都能伪造 X-Real-IP)。
 NGINX_IP="172.28.0.10"
-# L-9:MySQL root 只允许来自 compose 子网(不是 "%")。按 /16 取前三段。
-MYSQL_ROOT_HOST=$(printf '%s' "$DOCKER_SUBNET" | awk -F'[./]' '{print $1"."$2"."$3".%"}')
+# L-9:MySQL root 只允许来自「mysql 实际所在的那张网」,不是 "%"。按 /16 取前三段。
+# 注意是 BACKEND_SUBNET 而不是 DOCKER_SUBNET —— mysql 只接 backend(见上面)。
+MYSQL_ROOT_HOST=$(printf '%s' "$BACKEND_SUBNET" | awk -F'[./]' '{print $1"."$2"."$3".%"}')
 ADMIN_PHONE=""
 ADMIN_PASSWORD=""
 PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
@@ -503,8 +510,10 @@ IM_MIGRATIONS_DIR=/usr/local/share/imserver/migrations
 IM_ALLOWED_ORIGINS=$PUBLIC_URL
 IM_TRUSTED_PROXIES=127.0.0.1,::1,$NGINX_IP
 # H-1:Django 在容器里,源地址不是回环;内部接口按「显式网段 + HMAC」放行。
-# 只写 compose 子网(web/worker/migrate 都是一次性容器,IP 不固定)。
-IM_INTERNAL_ALLOW=127.0.0.1,::1,$DOCKER_SUBNET
+# web/worker/migrate 都同时接 default 与 backend,IP 不固定;两张网都要列 ——
+# 只列 default(DOCKER_SUBNET)时能不能通取决于 DNS 先返回哪张网的地址(实测先回 default),
+# 换成 backend 地址就 403。#445 起把 BACKEND_SUBNET 也列进去。
+IM_INTERNAL_ALLOW=127.0.0.1,::1,$DOCKER_SUBNET,$BACKEND_SUBNET
 IM_MEDIA_PREFIX=$PUBLIC_URL/media/chat/
 IM_MEDIA_SIGN_SECRET=$IM_MEDIA_SIGN_SECRET
 IM_MEDIA_SIGN_TTL=3600
@@ -586,6 +595,7 @@ render_tmpl "$SCRIPT_DIR/docker-compose.yml.tmpl" "$APP_DIR/docker-compose.yml" 
     "REPO_DIR=$REPO_DIR" \
     "APP_DIR=$APP_DIR" \
     "DOCKER_SUBNET=$DOCKER_SUBNET" \
+    "BACKEND_SUBNET=$BACKEND_SUBNET" \
     "NGINX_IP=$NGINX_IP" \
     "MYSQL_ROOT_HOST=$MYSQL_ROOT_HOST"
 chmod 644 "$APP_DIR/docker-compose.yml"
