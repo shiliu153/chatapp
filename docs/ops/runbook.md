@@ -538,6 +538,19 @@ nginx 的三条硬要求与两个易错点:
 `collectstatic` → 重启 web 与 worker → 生产冒烟。IM 侧按 [imserver.md](imserver.md) 执行镜像替换与
 `readyz` 校验。**部署前必须跑 `python scripts/deploy_gate.py`**(只认合并后 SHA 且该 SHA 的 check 全绿)。
 
+**判定:本次 PR 动了 `chatapp/im/tasks.py`、`chatapp/notifications/tasks.py` 或任何
+`@shared_task` 定义,worker 重启就不是可选项。** worker 只认**启动时**注册的任务:漏重启时接口
+照常成功、任务照常入队,却永远不会被执行 —— 语音转码的表现是客户端一直 `pending`,
+典型的「部署看起来成功、功能静默不工作」。用回滚点当 `<旧SHA>` 判一下:
+
+```bash
+git diff --name-only <旧SHA> <新SHA> | grep -E '(^|/)tasks\.py$'   # 任务模块有改动
+git diff -U0 <旧SHA> <新SHA> | grep -E '^\+.*@shared_task'         # 新增/改了任务定义
+```
+
+命中任意一条就重启 worker(只重启 web 不够):`/www/server/panel/pyenv/bin/supervisorctl restart "chatapp-celery:*"`,
+再按 §10.1 的两条语音转码核对项验收。
+
 ### 10.1 部署后核对单
 
 每次部署、或改过 `secrets/*.env` / 生产 `.env` 之后按顺序过一遍;任何一条不符,先修好再往上叠改动。
@@ -548,9 +561,24 @@ nginx 的三条硬要求与两个易错点:
 | Redis 已开口令 | `docker compose -f /opt/chatapp/docker-compose.yml exec redis redis-cli ping` | `NOAUTH Authentication required`;回 `PONG` 说明口令没生效 |
 | Redis 口令可用 | `docker compose -f /opt/chatapp/docker-compose.yml exec redis sh -c 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping'` | `PONG` |
 | imserver 依赖 | `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9101/internal/readyz` | `200`(503 = MySQL/Redis 连不上,先怀疑 `IM_REDIS_URL` 少了口令) |
+| worker 已注册新任务 | `cd /www/wwwroot/chatapp/chatapp && python manage.py shell -c "from im.tasks import transcode_chat_voice, transcode_profile_voice; print(transcode_chat_voice.name, transcode_profile_voice.name)"` | 打印 `im.tasks.transcode_chat_voice im.tasks.transcode_profile_voice`(与 `CELERY_TASK_ROUTES` 的键一致);重启后 worker 启动日志的 `[queues]` 段有 `.> bulk`、`[tasks]` 段有这两个任务名(没重启的 worker 两段都还是旧的) |
+| 语音异步转码端到端 | 先按下方命令占住转码槽,再上传一段语音拿到 `202 + status=pending`;放槽后按 `retry_after` 轮询 `GET /api/v1/im/voices/{id}`;最后跑 `cd /www/wwwroot/chatapp/chatapp && python manage.py voice_transcode_cleanup` | 两次轮询内(间隔默认 5 秒)变 `status=ready`(worker 抢不到槽时也按同一个 `retry_after` 退避);清理命令输出 `pending 行:0 条;临时文件:0 个`(只统计 24 小时前的残骸) |
 
-Celery 侧确认 worker 真在消费(不是只有 web 绿):`chatapp logs worker` 看任务日志,或在 web 容器里
-`manage.py shell` 入队一条任务。**为什么单列 Redis 口令这两条**:Redis 里放着轮换后的 refresh
+Celery 侧确认 worker 真在消费(不是只有 web 绿):`/www/server/panel/pyenv/bin/supervisorctl tail chatapp-celery:chatapp-celery_00`
+看任务日志,或在 web 容器里 `manage.py shell` 入队一条任务。
+
+**语音上传的 `202` 只在转码槽被占用时出现**:槽空闲时是同步转码,直接回 `201 + status=ready` ——
+这条路径不经过 worker,不能拿来验「worker 已注册新任务」。要稳定走异步,先占住槽再上传:
+
+```bash
+cd /www/wwwroot/chatapp/chatapp
+# 占槽 60 秒(打印 True;Redis 不通会直接报错,不像 acquire() 那样 fail-open 放行)
+python manage.py shell -c "from config.transcode_gate import SLOT_KEY; from django.core.cache import cache; print(cache.add(SLOT_KEY, 'manual', 60))"
+# 此时上传语音 → 202 + pending;然后放槽,worker 在下一轮 retry_after 抢到槽完成转码
+python manage.py shell -c "from config.transcode_gate import SLOT_KEY; from django.core.cache import cache; cache.delete(SLOT_KEY)"
+```
+
+**为什么单列 Redis 口令这两条**:Redis 里放着轮换后的 refresh
 令牌、日活名单、滑卡额度与所有限流计数,是多个安全控制的信任锚(第五轮审计 H-1);
 它一旦退回无口令,不会立刻报错,只会静默失去这一层。
 
