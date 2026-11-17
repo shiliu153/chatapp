@@ -79,6 +79,14 @@ server {
         expires 1h;
     }
 
+    # 资料语音(声纹属身份特征):与 /media/chat/ 走完全相同的验签口径,共用下面那个
+    # auth_request 子请求。第五轮审计 L-7;后端白名单见 im/media_sign.SIGN_PATH_PREFIXES。
+    location ^~ /media/voices/ {
+        auth_request /_im_media_auth;
+        alias /srv/media/voices/;
+        expires 1h;
+    }
+
     location = /_im_media_auth {
         internal;
         proxy_pass http://web:8000/api/v1/im/images/auth;
@@ -89,6 +97,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # 资料图 / 广场图:公开直出,签名白名单里没有它们,别在这里加 auth_request
     location ^~ /media/ {
         alias /srv/media/;
         expires 7d;
