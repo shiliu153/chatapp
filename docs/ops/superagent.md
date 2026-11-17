@@ -535,6 +535,11 @@ dnsTunneling=true
 > **判据先收敛到一句话**:宿主连得通、WSL 连不通 + UDP 正常 = 先去查 `.wslconfig` 的
 > `networkingMode`,别在 mihomo 的规则和节点上耗时间。
 
+> **mirrored 还有第二件事**:`autoProxy` 默认**开**,它把 Windows 的系统代理导进 WSL 派生的
+> **每一个进程**(`wsl -e bash -c '…'` 也有,`http://127.0.0.1:7897`)—— Clash 一关就变成
+> 死端口,联网命令静默挂住。它与选路无关,但排查时极容易混淆;现象、判据与修法见 §12.6 最后
+> 一条与 §15 第六项。
+
 ### 12.1 为什么要换掉宿主代理
 
 改造前 worker 的出口是 `WSL → 宿主 NAT → 宿主 Clash(:7897) → 境外`。§11 排查时就已经发现
@@ -653,6 +658,15 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
   最坏约 `EGRESS_FAIL_THRESHOLD × (EGRESS_PROBE_TIMEOUT + EGRESS_PROBE_BACKOFF)` ≈ 18s
   (3 × (5s + 1s)),这是「真的断了要先确认三次」的代价。`status` 也会探一次,输出里会多两行
   stderr(`出口代理:…` / `出网探针:…`),不影响 JSON 与退出码。
+- **WSL 会把 Windows 的系统代理导进每一个进程**(2026-11-17 实测)。mirrored 模式下
+  `autoProxy` 默认开,`wsl -e bash -c 'echo $https_proxy'` 就有值(`http://127.0.0.1:7897`,
+  即宿主 Clash),**登录 shell 与非登录 shell 都一样** —— 旧文档里「`wsl -e bash -c` 起的非登录
+  shell 不带 `https_proxy`」是 NAT 时代的观察,**已作废**(`scripts/superagent-prune.sh` 头注释
+  同批改过)。它是**潜伏**故障:Clash 开着时一切正常,Clash 一关,所有没显式 export 代理的
+  `wsl -e bash -c '…'` 联网命令就静默挂住 —— git 自己不设代理超时,实测白卡约 130s 再抛 fatal。
+  根治在 **Windows 侧**:`%USERPROFILE%\.wslconfig` 的 `[wsl2]` 段加 `autoProxy=false`,再
+  `wsl --shutdown`;worker 自身不受影响(`start-superagent.sh` 无条件把四个变量覆盖成自己的出口)。
+  可见性由巡检第六项负责(§15):继承值指向死端口 = 红,活着 = 绿但文案写明潜伏态。
 
 ### 12.7 排障
 
@@ -855,7 +869,7 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 - **自动单不会自己进队列。** 正文里刻意不含任何 `@`,派工仍要人在评论里做(§4.1)。
 - **首次启用是人的动作。** `L4_INTAKE` 默认 `off`:机制上线不等于开始开单,开不开由人决定。
 
-## 15. worker 健康巡检(superagent-health,2026-11-13 起;第四项 / 第五项 2026-11-16 补)
+## 15. worker 健康巡检(superagent-health,2026-11-13 起;第四项 / 第五项 2026-11-16 补;第六项 2026-11-17 补)
 
 **它补的是「绿着但不动」这一类故障** —— 面板每个健康位都 `ready`、其实早就不干活。三次实测:
 
@@ -869,7 +883,7 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 这台机器会关机,关机期间没有 worker 也就没有可巡检的对象,恢复开机后第一轮立刻告诉你
 「现在能不能干活」。
 
-查五项:
+查五项,外加 2026-11-17 新增的第六项:
 
 | 检查 | 判据 |
 |---|---|
@@ -878,10 +892,24 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 | 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束(**自动扫全表**,不用配置) |
 | 游标新鲜度 | `kv` 里 `github-cursor:*` 的最新时间落后超过 10 分钟(`SUPERAGENT_CURSOR_STALE_MINUTES`),**且** GitHub 通知里有「未读且 `updated_at` 晚于游标」的条目 |
 | CI 红轨(**默认关**) | 默认分支上每条 workflow 的**最新一次 push run** 都不能是红的(`SUPERAGENT_HEALTH_CI_RED=1` 才查;判据 = `scripts/l4_intake.py::red_runs`) |
+| WSL 继承代理(第六项) | 进程环境里的 `http(s)_proxy` 排除 worker 自 export 的 `--proxy` 之后,对剩下的值做一次 3 秒 TCP 建连;**不通才算红** |
 
 第五项是 2026-11-16 从 `main-health.yml` 并过来的,理由与代价见 §8.1 上方那段。它**每条红轨
 一个检查名**(`CI 红轨 <workflow>`),这样指纹能把「web 红了」与「imserver 红了」分开 ——
 否则新红一条会被旧红那 6 小时去重吞掉。
+
+**第六项(2026-11-17)判的是「WSL 继承到的代理指向死端口」**:mirrored 模式下 WSL 的 `autoProxy`
+(默认开)把 Windows 的系统代理导进**它派生的每一个进程**的环境 —— 包括 `wsl -e bash -c '…'`
+起的非登录 shell(2026-11-17 实测 `echo $https_proxy` → `http://127.0.0.1:7897`)。Clash 开着时
+一切正常,Clash 一关那些命令就**静默挂住**:没有报错、没有退出码,看起来像卡死。判据两层:
+① 先排除 **worker 自己 export 的那个值**(`start-superagent.sh` 的 `--proxy`,默认
+`127.0.0.1:7890`)—— 不排除就会在一切正常时天天报红;② 对剩下的值做一次 TCP 建连(3 秒),
+**通 = 绿但文案写明「潜伏态」,不通 = 红**,文案直接指向根治动作(`.wslconfig` 加
+`autoProxy=false` 后 `wsl --shutdown`,Windows 侧动作,仓库里改不了)。
+单独跳过用 `--skip-proxy-inherit`,`--skip-egress` 也会一并跳过(离线自测只写后者)。
+已知局限:systemd 拉起的巡检进程通常**看不到**注入值(注入发生在 `wsl.exe` 派生的进程环境里,
+`/proc/1/environ` 与 `systemctl show-environment` 都是干净的),那时判绿 —— 它主要在人 / agent
+用 `wsl -e bash -c` 跑巡检、以及 worker 会话里生效,恰好就是会被继承代理坑到的那两个场景。
 
 **游标新鲜度的判据是「有未读但游标没动」,不是「游标没动」**:闲置时段没有新评论,游标本来
 就不动,只判时间会天天误报。所以先看是否落后阈值,再取 `gh api notifications` 判断有没有比

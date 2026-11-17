@@ -37,6 +37,16 @@
 代价是已知偏差:**WSL 关机期间没人报红轨**,
 与「worker 也不在」是同一段时间,开机后第一轮(`OnBootSec`)会立刻补报。
 
+第六项(2026-11-17 并入,输出里紧跟在「出网 / 出口节点」之后):**WSL 继承到的
+`http(s)_proxy` 是不是指向一个死端口**。mirrored 网络模式下 WSL 的 `autoProxy`(默认开)会把
+Windows 的系统代理导进**它派生的每一个进程**的环境里 —— 包括 `wsl -e bash -c '…'` 起的
+非登录 shell(2026-11-17 实测 `echo $https_proxy` → `http://127.0.0.1:7897`)。Clash 开着时
+一切正常,Clash 一关,那些命令就**静默挂住**:没有报错、没有退出码,看起来像卡死。这单的价值
+就是把这种「潜伏态」变成可见:继承值非空且**不是 worker 自己 export 的那个**(判据与盲区写在
+`check_proxy_inherit` 的 docstring 里),就对它的 `host:port` 建一次 TCP 连接 —— 通 = 绿但文案
+写明潜伏态,不通 = 红并指向 `.wslconfig` 的 `autoProxy=false`。
+根治动作在 Windows 侧(`.wslconfig` + `wsl --shutdown`),巡检只负责让它可见。
+
 退出码
 ------
 0 = 全部正常;1 = 有异常(该发告警);2 = 判不出来(同样该发告警,但绝不能当成正常)。
@@ -46,7 +56,8 @@
     python3 healthcheck.py                      # 人类可读摘要
     python3 healthcheck.py --json               # 机器可读
     python3 healthcheck.py --issue 285 --issue 280
-    python3 healthcheck.py --skip-egress        # 离线/自测
+    python3 healthcheck.py --skip-egress        # 离线/自测(连带跳过第六项)
+    python3 healthcheck.py --skip-proxy-inherit # 只跳过第六项
     python3 healthcheck.py --skip-cursor        # 不查游标(完全离线)
     python3 healthcheck.py --notifications-file n.json   # 用本地 JSON 冒充未读通知
     python3 healthcheck.py --autoreheal 1       # 打开安全自愈(默认 0 = 关)
@@ -56,18 +67,22 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 # `python3 scripts/superagent_health.py` 时 sys.path[0] 是 scripts/,而
 # `python3 -m unittest scripts.test_superagent_health` 时仓库根已在 sys.path 里。
@@ -114,6 +129,20 @@ BAD = "bad"
 CURSOR_CHECK = "游标新鲜度"
 AUTOREHEAL_CHECK = "安全自愈"
 CI_RED_CHECK = "CI 红轨"
+PROXY_INHERIT_CHECK = "WSL 继承代理"
+# 只看这四个变量:curl / git / npm / gh 认的就是它们(小写是事实标准,大写是历史写法,
+# Windows 侧导进来的两套都有)。`ALL_PROXY` 故意不看 —— 本机没有任何组件导出它,
+# 而镜像进来时它通常跟着 http(s)_proxy 一起,少一个变量不改变结论。
+INHERIT_PROXY_VARS = ("https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY")
+# 代理 URL 没写端口时的默认值(与 curl 的口径一致)。socks 系列同样支持,虽然本机用不到。
+PROXY_DEFAULT_PORTS = {
+    "http": 80,
+    "https": 443,
+    "socks": 1080,
+    "socks4": 1080,
+    "socks5": 1080,
+    "socks5h": 1080,
+}
 
 
 @dataclass
@@ -250,6 +279,183 @@ def check_proxy_selector(config_path: str) -> Check:
     if now == "HOST-FALLBACK":
         return Check("出口节点", OK, "走宿主兜底(机场线路不可用)")
     return Check("出口节点", OK, now)
+
+
+def parse_proxy_target(value: str) -> Optional[Tuple[str, int]]:
+    """把代理变量里的值解析成 `(主机, 端口)`,看不懂就返回 None。
+
+    Args:
+        value: `https_proxy` / `HTTPS_PROXY` 里的原始字符串,如 `http://127.0.0.1:7897`。
+
+    Returns:
+        `(host, port)`;值是空的、缺主机名、端口不是数字时返回 None。
+
+    三种写法都认:`http://host:port`(标准)、`host:port`(curl 也接受这种裸写法,Windows
+    那边导过来的值有可能是它)、`socks5://host:port`。没写端口时按 scheme 的默认端口补
+    (`http` → 80、`https` → 443、socks 系列 → 1080),与 curl 一致 —— 拿 80 去探一次
+    总比「解析失败所以跳过」安全:解析失败等于把这一项判成正常。
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if "://" not in raw:
+        raw = "http://" + raw
+    try:
+        parts = urllib.parse.urlsplit(raw)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:  # 非法端口(如 `http://127.0.0.1:db`)在 .port 上抛 ValueError
+        return None
+    if not host:
+        return None
+    if port is None:
+        port = PROXY_DEFAULT_PORTS.get((parts.scheme or "http").lower())
+    if not port:
+        return None
+    return host, int(port)
+
+
+def _is_loopback_host(host: str) -> bool:
+    """判断主机名是不是回环地址(127.0.0.0/8、::1、localhost)。
+
+    Args:
+        host: 主机名或 IP 字面量。
+
+    Returns:
+        是否算回环。
+
+    只用于告警文案里区分「继承来的是回环地址(autoProxy 的典型形态,端口一关就死)」还是
+    「继承来的是别的地址」—— **不参与判定**,判定只认连通探针。
+    """
+    lowered = host.strip().strip("[]").lower()
+    if lowered == "localhost" or lowered.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(lowered).is_loopback
+    except ValueError:
+        return False
+
+
+def probe_tcp(host: str, port: int, timeout: float = 3.0) -> Tuple[bool, str]:
+    """对 `host:port` 做一次真实 TCP 连通探针(不联网、不走代理、只建连)。
+
+    Args:
+        host: 目标主机(通常是 `127.0.0.1`)。
+        port: 目标端口。
+        timeout: 单次连接超时秒数(默认 3 秒,见巡检口径)。
+
+    Returns:
+        `(是否连通, 一句话旁证)`:连通给耗时、不通给异常类名。
+
+    为什么不做 HTTP 请求:`https_proxy` 指向的是一个**代理端口**,对它发 HTTP 请求既可能
+    被当成 CONNECT 目标(回 400)也可能被当成普通请求(回 403),两种都不代表端口死了。
+    「能建 TCP 连接」才是「这个端口上真有东西在听」的判据。
+    """
+    started = time.monotonic()
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True, f"{time.monotonic() - started:.2f}s"
+    except OSError as exc:  # 含 socket.timeout / ConnectionRefusedError / 名字解析失败
+        return False, type(exc).__name__
+
+
+def _norm_proxy(value: str) -> str:
+    """把代理值归一成「能比对」的形状(去空白、去尾斜杠、小写)。
+
+    Args:
+        value: 原始代理值。
+
+    Returns:
+        归一后的字符串。
+    """
+    return (value or "").strip().rstrip("/").lower()
+
+
+def check_proxy_inherit(
+    environ: Mapping[str, str],
+    own_proxy: str,
+    timeout: float = 3.0,
+    probe: Optional[Callable[[str, int, float], Tuple[bool, str]]] = None,
+) -> Check:
+    """第六项:WSL **继承到的** `http(s)_proxy` 是不是指向一个死端口。
+
+    Args:
+        environ: 环境变量视图(`os.environ` 或自测注入的字典)。
+        own_proxy: worker **自己** export 的代理(`start-superagent.sh` 的出口,即 `--proxy`)。
+        timeout: 探针超时秒数(默认 3 秒)。
+        probe: 探针实现(自测注入用),`None` = 用 `probe_tcp`。
+
+    Returns:
+        一条检查结果:继承值连不上 → `bad`;没继承 / 连得上 / 只有自 export → `ok`。
+
+    **判定口径(这是本项的契约,别按直觉改)**:
+
+    1. 只看**进程环境里的** `https_proxy` / `HTTPS_PROXY` / `http_proxy` / `HTTP_PROXY`。
+       这就是「WSL 继承到的值」唯一可观测的形态:WSL(mirrored 模式,`autoProxy` 默认开)
+       会把 Windows 的系统代理塞进**它派生的每一个进程**的环境里,`wsl -e bash -c '…'`
+       起的非登录 shell 一样带(2026-11-17 实测:`http://127.0.0.1:7897`)。
+       登录 shell 里 `/etc/profile.d/00-wsl-proxy.sh` 还会自己导一份,那条路的探针目标
+       是宿主网关的 7897,不通常常不生效,但它导出来的也会落进同一个变量,口径不变。
+    2. **先排除 worker 自 export 的那个值**:`start-superagent.sh` 无条件
+       `export http(s)_proxy=$PROXY`(默认 mihomo `127.0.0.1:7890`),worker 会话里这四个
+       变量本来就有值。所以「变量非空」不等于「被继承」,必须与该值(归一后)相等即跳过 ——
+       否则巡检在**一切正常**时天天报红,那比没有这一项更糟。
+       已知盲区:如果 Windows 系统代理**恰好**也是同一个地址(镜像模式下两边共用 127.0.0.1
+       时理论上可能),会被当成自 export 而漏报。那种情况探针本来就是通的,漏报的代价仅是
+       少一句「潜伏态」提示,不会造成假红。
+    3. **判定只认连通探针**:非空且不是自 export 的值 → 对它的 `host:port` 建一次 TCP 连接
+       (默认 3 秒超时)。不通 = 红,通 = 绿但文案写明「潜伏态」(代理一关就挂)。
+       量级上的取舍:此刻能连说明「Clash 正开着」,故障是潜伏的,**不该报红**;
+       但也不能沉默 —— 沉默正是这单要修的东西(见 `docs/ops/superagent.md` §15)。
+    4. 值不是可解析的代理地址时也报红:那种值对 curl/git 来说同样是错的,而且不会自己好。
+    """
+    probe = probe or probe_tcp
+    inherited: List[Tuple[str, str]] = []
+    for var in INHERIT_PROXY_VARS:
+        raw = (environ.get(var) or "").strip()
+        if not raw or _norm_proxy(raw) == _norm_proxy(own_proxy):
+            continue
+        if all(raw != seen for _var, seen in inherited):
+            inherited.append((var, raw))
+    own_note = f";已排除自 export 的 {own_proxy}" if own_proxy else ""
+    if not inherited:
+        return Check(
+            PROXY_INHERIT_CHECK,
+            OK,
+            f"未继承 http(s)_proxy(空值或只有 worker 自 export 的 {own_proxy or '(无)'})",
+        )
+
+    alive: List[str] = []
+    for var, raw in inherited:
+        target = parse_proxy_target(raw)
+        if target is None:
+            return Check(
+                PROXY_INHERIT_CHECK,
+                BAD,
+                f"{var}={raw} 不是可解析的代理地址 · 继承来的值对 curl/git 一样是错的,"
+                f"`wsl -e bash -c` 的联网命令会直接失败 → 先 unset,再按 .wslconfig "
+                f"加 autoProxy=false 后 wsl --shutdown 根治{own_note}",
+            )
+        host, port = target
+        connected, note = probe(host, port, timeout)
+        where = "回环地址" if _is_loopback_host(host) else "非回环地址"
+        if not connected:
+            return Check(
+                PROXY_INHERIT_CHECK,
+                BAD,
+                f"{var}={raw} 连不上({note},{where}) · WSL 继承到的代理指向死端口"
+                f"(mirrored 模式的 autoProxy 把 Windows 系统代理导进了 WSL),"
+                f"`wsl -e bash -c` 的联网命令会静默挂住 → .wslconfig 加 autoProxy=false "
+                f"后 wsl --shutdown{own_note}",
+            )
+        alive.append(f"{var}={raw} 可连({note},{where})")
+    return Check(
+        PROXY_INHERIT_CHECK,
+        OK,
+        " · ".join(alive)
+        + f" · 潜伏态:代理一关,`wsl -e bash -c` 的联网命令就静默挂住 → .wslconfig 加 "
+        f"autoProxy=false 后 wsl --shutdown{own_note}",
+    )
 
 
 def _iso(moment: datetime) -> str:
@@ -1047,6 +1253,12 @@ def build_report(
     if not args.skip_egress:
         report.add(check_egress(args.proxy, token))
         report.add(check_proxy_selector(args.proxy_config))
+        # 第六项跟这两项同一组(都是「代理 / 出网」),所以复用 `--skip-egress` 一起跳过 ——
+        # 离线自测与「不想看网络那几项」的场合只要一个开关;要单独关它用 `--skip-proxy-inherit`。
+        if not args.skip_proxy_inherit:
+            report.add(
+                check_proxy_inherit(os.environ, args.proxy, args.proxy_inherit_timeout)
+            )
 
     try:
         conn = open_db(args.db)
@@ -1291,6 +1503,17 @@ def build_parser() -> argparse.ArgumentParser:
         "被模型流打断的那些会永远停在 running,留在这里而不是让告警变成噪音",
     )
     parser.add_argument("--skip-egress", action="store_true", help="跳过联网检查(离线自测)")
+    parser.add_argument(
+        "--skip-proxy-inherit",
+        action="store_true",
+        help="只跳过第六项(WSL 继承到的 http(s)_proxy 指向死端口);探针是纯本地 TCP 建连",
+    )
+    parser.add_argument(
+        "--proxy-inherit-timeout",
+        type=float,
+        default=3.0,
+        help="第六项对继承到的代理做一次 TCP 探针的超时秒数(默认 3)",
+    )
     parser.add_argument("--skip-enqueue", action="store_true", help="跳过入队三连")
     parser.add_argument(
         "--ci-red",

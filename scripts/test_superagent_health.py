@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -181,6 +182,178 @@ class EgressTests(unittest.TestCase):
     def test_reports_selector_when_config_missing(self) -> None:
         check = healthcheck.check_proxy_selector("/nonexistent/config.yaml")
         self.assertEqual(check.state, healthcheck.OK)
+
+
+class ProxyInheritTests(unittest.TestCase):
+    """第六项:WSL 继承到的 http(s)_proxy 指向死端口(2026-11-17 并入)。
+
+    这一项最容易犯的两个错都要钉住:**漏报**(继承值指向死端口却判绿 —— 命令会静默挂住,
+    谁也不知道为什么)与**误报**(worker 自己 export 的 7890 被当成继承值 —— 一切正常时天天
+    报红,人会去关告警)。三种判定口径各一条用例,另外补「大写变量 / 畸形值 / 多变量混合」。
+
+    探针只用本机监听套接字与死端口(127.0.0.1:1),**不联网**。
+    """
+
+    OWN = healthcheck.DEFAULT_PROXY
+
+    def _listening_port(self) -> socket.socket:
+        """建一个只在本机回环监听的空套接字,用它的端口冒充「活着的代理端口」。
+
+        Returns:
+            已 `listen()` 的套接字;调用方负责 `close()`。
+        """
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        return server
+
+    def test_empty_env_is_ok(self) -> None:
+        check = healthcheck.check_proxy_inherit({}, self.OWN)
+        self.assertEqual(check.state, healthcheck.OK)
+        self.assertIn("未继承", check.detail)
+
+    def test_own_export_is_not_inheritance(self) -> None:
+        """worker 自 export 的那个值必须排除,否则正常状态下天天报红。"""
+        env = {
+            "https_proxy": self.OWN,
+            "HTTPS_PROXY": self.OWN + "/",
+            "http_proxy": self.OWN,
+            "HTTP_PROXY": self.OWN,
+        }
+        check = healthcheck.check_proxy_inherit(env, self.OWN)
+        self.assertEqual(check.state, healthcheck.OK)
+        self.assertIn("自 export", check.detail)
+
+    def test_dead_inherited_port_is_bad(self) -> None:
+        """核心用例:继承值指向死端口 → 红,且文案指向 .wslconfig 的 autoProxy。"""
+        check = healthcheck.check_proxy_inherit(
+            {"https_proxy": "http://127.0.0.1:1"}, self.OWN, timeout=0.5
+        )
+        self.assertEqual(check.state, healthcheck.BAD)
+        self.assertIn("autoProxy=false", check.detail)
+        self.assertIn("静默挂住", check.detail)
+        self.assertIn("127.0.0.1:1", check.detail)
+
+    def test_alive_inherited_port_is_ok_but_flagged_latent(self) -> None:
+        """活着判绿(此刻 Clash 开着),但必须写明「潜伏态」——沉默才是这单要修的毛病。"""
+        server = self._listening_port()
+        try:
+            port = server.getsockname()[1]
+            check = healthcheck.check_proxy_inherit(
+                {"https_proxy": f"http://127.0.0.1:{port}"}, self.OWN
+            )
+        finally:
+            server.close()
+        self.assertEqual(check.state, healthcheck.OK)
+        self.assertIn("潜伏态", check.detail)
+
+    def test_uppercase_variable_is_checked_too(self) -> None:
+        """Windows 侧导进来的可能是大写变量,只看小写就会漏。"""
+        check = healthcheck.check_proxy_inherit(
+            {"HTTPS_PROXY": "http://127.0.0.1:1"}, self.OWN, timeout=0.5
+        )
+        self.assertEqual(check.state, healthcheck.BAD)
+        self.assertIn("HTTPS_PROXY", check.detail)
+
+    def test_bare_host_port_form_is_parsed(self) -> None:
+        """`127.0.0.1:7897` 这种没写 scheme 的写法 curl 认,探针也得认。"""
+        self.assertEqual(healthcheck.parse_proxy_target("127.0.0.1:7897"), ("127.0.0.1", 7897))
+        self.assertEqual(healthcheck.parse_proxy_target("http://127.0.0.1"), ("127.0.0.1", 80))
+
+    def test_malformed_value_is_bad_not_silent(self) -> None:
+        """畸形值对 curl/git 一样是错的,不能因为「解析不出来」就跳过。"""
+        for value in ("http://127.0.0.1:db", "http://"):
+            check = healthcheck.check_proxy_inherit({"https_proxy": value}, self.OWN)
+            self.assertEqual(check.state, healthcheck.BAD, value)
+            self.assertIn("不是可解析", check.detail)
+
+    def test_timeout_from_probe_is_bad(self) -> None:
+        """黑洞端口(连上但没人应答 / 被丢包)走的是「注入探针返回不通」这条路。"""
+        calls = []
+
+        def dead_probe(host: str, port: int, timeout: float):
+            calls.append((host, port, timeout))
+            return False, "TimeoutError"
+
+        check = healthcheck.check_proxy_inherit(
+            {"https_proxy": "http://10.255.255.1:7897"}, self.OWN, timeout=0.5, probe=dead_probe
+        )
+        self.assertEqual(check.state, healthcheck.BAD)
+        self.assertIn("TimeoutError", check.detail)
+        self.assertEqual(calls, [("10.255.255.1", 7897, 0.5)])
+
+    def test_default_probe_timeout_is_three_seconds(self) -> None:
+        """默认 3 秒是票据里写死的口径;开关默认关(这一项对 timer 是常开检查)。"""
+        args = healthcheck.build_parser().parse_args([])
+        self.assertEqual(args.proxy_inherit_timeout, 3.0)
+        self.assertFalse(args.skip_proxy_inherit)
+
+    def test_loopback_is_labelled_in_detail(self) -> None:
+        """回环 / 非回环的标签只影响文案,但文案要能让人一眼看出「继承的是哪种地址」。"""
+        check = healthcheck.check_proxy_inherit(
+            {"http_proxy": "http://127.0.0.1:1"}, self.OWN, timeout=0.5
+        )
+        self.assertIn("回环地址", check.detail)
+        self.assertEqual(healthcheck._is_loopback_host("127.0.0.1"), True)
+        self.assertEqual(healthcheck._is_loopback_host("::1"), True)
+        self.assertEqual(healthcheck._is_loopback_host("192.168.101.1"), False)
+
+
+class ProxyInheritReportTests(unittest.TestCase):
+    """第六项在整轮巡检里的接线:默认跑、两个开关都能单独关掉它。
+
+    `check_egress` / `check_proxy_selector` 用 `patch.object` 顶掉 —— 本类只验接线,
+    不验那两项自己的判据(它们有自己的用例,且一个会真的联网)。
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp()
+        conn = make_db(self.tmp)
+        conn.close()
+        self.db = os.path.join(self.tmp, "orchestrator.sqlite")
+        self.ok_egress = unittest.mock.patch.object(
+            healthcheck, "check_egress", lambda *a, **k: healthcheck.Check("出网", healthcheck.OK, "假")
+        )
+        self.ok_selector = unittest.mock.patch.object(
+            healthcheck,
+            "check_proxy_selector",
+            lambda *a, **k: healthcheck.Check("出口节点", healthcheck.OK, "假"),
+        )
+        self.ok_egress.start()
+        self.ok_selector.start()
+        env_patcher = unittest.mock.patch.dict(
+            os.environ, {"https_proxy": "http://127.0.0.1:1"}, clear=True
+        )
+        env_patcher.start()
+        self.addCleanup(self.ok_egress.stop)
+        self.addCleanup(self.ok_selector.stop)
+        self.addCleanup(env_patcher.stop)
+
+    def _report(self, extra: list):
+        """跑一轮(跳过状态库里那几项),返回检查名列表。
+
+        Args:
+            extra: 追加的命令行参数。
+
+        Returns:
+            `报告里每条检查的名字` 列表。
+        """
+        args = healthcheck.build_parser().parse_args(
+            ["--db", self.db, "--skip-enqueue", "--skip-cursor"] + extra
+        )
+        return [check.name for check in healthcheck.build_report(args).checks]
+
+    def test_runs_by_default(self) -> None:
+        self.assertIn(healthcheck.PROXY_INHERIT_CHECK, self._report([]))
+
+    def test_own_switch_skips_only_this_one(self) -> None:
+        names = self._report(["--skip-proxy-inherit"])
+        self.assertNotIn(healthcheck.PROXY_INHERIT_CHECK, names)
+        self.assertIn("出网", names)
+
+    def test_skip_egress_still_covers_it(self) -> None:
+        """离线自测只写 `--skip-egress` 是既有约定,不能因此多跑一项本地探针。"""
+        self.assertNotIn(healthcheck.PROXY_INHERIT_CHECK, self._report(["--skip-egress"]))
 
 
 class AcknowledgeTests(unittest.TestCase):
