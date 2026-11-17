@@ -80,12 +80,19 @@ DSH 会话通知(经 SSH)  ─> /opt/notify ─────┘
 
 **服务器上的四份配置(2026-11-17 起各自有身份)**,主题 = `subject_prefix` + `级别标记` + `title`:
 
-| 配置 | 谁用 | `from_name` | `subject_prefix` |
-|---|---|---|---|
-| `/root/.config/notify/config.ini` | **默认配置**:未显式指定 `NOTIFY_CONFIG` 的调用方 → 目前只有 DSH 会话通知 | `chatapp 会话` | `[chatapp·会话]` |
-| `/etc/notify/daily.ini` | 22:00 服务器日报(`daily-digest.sh` 显式指定) | `chatapp 日报` | `[chatapp·日报]` |
-| `/etc/notify/alerts.ini` | Alertmanager relay / MySQL 看门狗 / imserver 探针 | `chatapp 告警` | `[chatapp·告警]` |
-| WSL `/root/.dsh/superagent-health.env` | worker 巡检(直连同一阿里云账号的 SMTP) | — | 主题由 `mail.py` 渲染 `[chatapp·巡检]` |
+| 配置(线上) | 仓库模板 | 谁用 | `from_name` | `subject_prefix` |
+|---|---|---|---|---|
+| `/root/.config/notify/config.ini` | [`deploy/observability/notify-session.ini.tmpl`](../../deploy/observability/notify-session.ini.tmpl) | **默认配置**:未显式指定 `NOTIFY_CONFIG` 的调用方 → 目前只有 DSH 会话通知 | `chatapp 会话` | `[chatapp·会话]` |
+| `/etc/notify/daily.ini` | [`deploy/observability/notify-daily.ini.tmpl`](../../deploy/observability/notify-daily.ini.tmpl) | 22:00 服务器日报(`daily-digest.sh` 显式指定) | `chatapp 日报` | `[chatapp·日报]` |
+| `/etc/notify/alerts.ini` | [`deploy/observability/notify-alerts.ini.tmpl`](../../deploy/observability/notify-alerts.ini.tmpl) | Alertmanager relay / MySQL 看门狗 / imserver 探针 | `chatapp 告警` | `[chatapp·告警]` |
+| WSL `/root/.dsh/superagent-health.env` | 仓库外(`scripts/superagent-health/**`) | worker 巡检(直连同一阿里云账号的 SMTP) | — | 主题由 `mail.py` 渲染 `[chatapp·巡检]` |
+
+> **仓库侧权威值是那三份模板**,线上 `/etc/notify/*.ini` 由模板 `install` 而来(命令在每份
+> 模板的文件头注释里,`install -m 600`,权限 600)。三份模板的 `[channels.*]` / `[limits]` /
+> `[log]` / `[state]` 逐字相同,只有 `[message]` 的 `from_name` / `subject_prefix` 两行是各自
+> 身份 —— 重建机器或加一台服务器时照四行表逐份铺即可,不必凭记忆重抄。
+> **`[state] path` 三份必须同一行、指向同一个 `state.db`**:共享去重库是这个四身份设计的地基,
+> 写错就等于「同一条告警/日报两边各发一遍」。
 
 > 为什么默认配置绑「会话」而不是「日报」:DSH 的 `dsh-email-push` 插件是**唯一不传
 > `NOTIFY_CONFIG` 的调用方**,原先它落到日报那份配置上,于是每封会话通知都顶着
@@ -94,7 +101,8 @@ DSH 会话通知(经 SSH)  ─> /opt/notify ─────┘
 
 **为什么没把 `/opt/notify` 搬进仓库**:它正在服务器上跑,自带配额 / 去重 / 发送日志 / 状态库,
 日报脚本也在服务器上;迁移的收益(少一份实现)小于风险(把一条在用的通道改坏)。
-两边共享的是**同一份主题规范**,不是同一份代码 —— 所以本表是唯一事实来源。
+两边共享的是**同一份主题规范**,不是同一份代码 —— 所以本表是唯一事实来源;配置模板
+(`deploy/observability/notify-*.ini.tmpl`)已在仓库,程序不在。
 
 **为什么邮件不走 http 代理**:mihomo 是 HTTP 代理,SMTP 过不去。`mail.py` 用 `smtplib`
 直连,`notify.sh` 也显式 `env -u *_proxy`。
@@ -102,8 +110,9 @@ DSH 会话通知(经 SSH)  ─> /opt/notify ─────┘
 ## 5. 配额预算
 
 阿里云邮件推送的发信额度是**共享的**(日报、告警、会话通知、worker 巡检同一个账号):
-每分钟 5 封、每天 **200** 封(`/etc/notify/daily.ini` 与 `alerts.ini` 的 `per_day` 是权威值;
-`deploy/observability/notify-alerts.ini.tmpl` 里写的 50 是旧值,见 issue #403)。
+每分钟 5 封、每天 **200** 封(`per_minute = 5` / `per_day = 200`,仓库侧权威值就是
+`deploy/observability/notify-*.ini.tmpl` 三份的 `[limits]`;线上 `/etc/notify/*.ini` 由模板
+`install` 而来,三份 `[limits]` 必须逐字一致 —— 它们共用一个 `state.db` 计数)。
 按上面这张表算,正常一天的量级是:日报 1 封 + 备份随日报 + 巡检告警(每指纹 6 小时一次,
 一个持续故障一天最多 4 封)+ 告警(去重窗口 60 分钟)+ 探针(失败态去重)+ 会话通知(插件内
 最小间隔 + 每日上限)。留足余量,但**不要**把去重窗口调短来「看得更勤」—— 那会先耗尽额度,
@@ -118,7 +127,7 @@ DSH 会话通知(经 SSH)  ─> /opt/notify ─────┘
 | `MAIL_SMTP_URL` / `MAIL_FROM` / `MAIL_TO` | 空 | 发信三要素;缺一个就发不出去(`mail.py check` 会点名缺哪个) |
 | `MAIL_USER` / `MAIL_PASS` | 空 | SMTP 认证(阿里云用发信密码) |
 | `MAIL_STATE_DB` / `MAIL_LOG` | `~/.local/state/mail/` | 去重与配额状态库 / JSONL 发送日志 |
-| `MAIL_PER_MINUTE` / `MAIL_PER_DAY` | 5 / 50 | 配额(本机按账号实际额度设成 5 / 200,与服务器 ini 对齐) |
+| `MAIL_PER_MINUTE` / `MAIL_PER_DAY` | 5 / 50(代码兜底值) | 配额;WSL 侧在 `superagent-health.env` 里按账号实际额度设成 5 / 200,与模板的 `[limits]` 同口径 |
 | `MAIL_DRY_RUN` | 关 | 只渲染不投递(演练 / 排障) |
 | `SUPERAGENT_HEALTH_CI_RED` | 关 | worker 巡检里「CI 红轨」那一项的开关 |
 

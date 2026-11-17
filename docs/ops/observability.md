@@ -93,8 +93,9 @@ ssh -L 3000:127.0.0.1:3000 root@<SERVER_IP>   # 然后浏览器打开 http://127
 `[chatapp·告警] 对象 — 结论` 规范)。要装三样东西:
 
 ```bash
-# 1) 告警专用 notify 配置(与日报共用发信账号/配额/去重库,只是主题前缀不同)
-#    先把模板里的 <收件邮箱>/<发信地址> 换成日报那份的值(见 /root/.config/notify/config.ini)
+# 1) 告警专用 notify 配置(与日报/会话共用发信账号/配额/去重库,只是主题前缀不同)
+#    先把模板里的 <收件邮箱>/<发信地址> 换成其它几份的值。四份配置的分工与仓库模板见
+#    docs/ops/mail.md §4:notify-alerts.ini.tmpl / notify-daily.ini.tmpl / notify-session.ini.tmpl
 install -m 600 deploy/observability/notify-alerts.ini.tmpl /etc/notify/alerts.ini
 
 # 2) 中转脚本 + systemd 单元(不再用容器,理由见文件头注释)
@@ -120,9 +121,11 @@ journalctl -u chatapp-alert-relay -n 20 --no-pager   # 或 tail /www/wwwlogs/ale
 要点与边界:
 
 - **去重与限流归 notify**:`--dedup-key` = Alertmanager 的 `groupKey + status`,同一组告警触发只发
-  一封、恢复再发一封;`--dedup-window 60` 分钟兜住「同组反复进出」。配额是日报那份的
-  **5 封/分钟、200 封/天**(2026-11-16 由 50 提到 200;`/root/.config/notify/config.ini` 与
-  `/etc/notify/alerts.ini` 两份的 `[limits] per_day` 必须一致,它们共用同一个 state.db 计数),
+  一封、恢复再发一封;`--dedup-window 60` 分钟兜住「同组反复进出」。配额是四份配置共用的
+  **5 封/分钟、200 封/天**(仓库侧权威值是 `deploy/observability/notify-alerts.ini.tmpl` /
+  `notify-daily.ini.tmpl` / `notify-session.ini.tmpl` 三份的 `[limits]`;线上
+  `/etc/notify/alerts.ini`、`/etc/notify/daily.ini`、`/root/.config/notify/config.ini` 的
+  `[limits]` 与 `[state] path` 必须逐字一致,它们共用同一个 state.db 计数),
   告警风暴仍会撞上限(那时优先级判断交给人,不要调大配额掩盖问题)。
   再往上是**服务商**的天花板:阿里云邮件推送每个主账户初始日额度 2000 封,其中**每天最多免费发
   200 封**,超出按量计费(约 0.01 元/封);控制台不能设「每日上限」,只能设信誉等级上限防超额消费。
