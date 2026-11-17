@@ -25,14 +25,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/build/imserver /usr/local/bin/imserver
 COPY --from=build /src/migrations /usr/local/share/imserver/migrations
+# 迁移 SQL 必须对运行用户可读:entrypoint 会以 uid 10001 跑 `--migrate`,而构建上下文里的
+# 0600(本机 checkout 的 umask 会带进来)会让它直接 "cannot open migration file" ——
+# fail-closed 本身是对的,但那样镜像永远起不来,所以这里和词表一样统一放开读权限。
+RUN chmod -R a+rX /usr/local/share/imserver/migrations
 # 聊天文字敏感词表(批次 Q):随镜像走,默认路径 /usr/local/share/imserver/data/sensitive_words.txt;
 # 想换成别的文件用 IM_SENSITIVE_WORDS_FILE 指过去(改词表 = 重启容器)。
 COPY --from=build /src/data /usr/local/share/imserver/data
 # 词表必须对运行用户可读:容器以 uid 10001 跑,而构建上下文里的 0600(本机 checkout 的
 # umask 会带进来)会让读词表直接 permission denied —— 那就成了「悄悄不拦」,比红更糟。
 RUN chmod -R a+rX /usr/local/share/imserver/data
+# 入口脚本:默认先 `imserver --migrate` 再起服务,迁移失败非零退出(fail-closed);
+# 带参数时原样透传,`docker compose run --rm imserver --migrate` 继续可用;
+# IM_SKIP_MIGRATE=1 跳过。行为与取舍见 imserver/docker-entrypoint.sh 与 docs/ops/imserver.md §1.5。
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# 必须对运行用户可执行可读:构建上下文里的 0600(本机 checkout 的 umask 会带进来)会让
+# uid 10001 起不来容器 —— 与上面词表同一个坑。
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
 # M-5:非 root 运行(监听 9100/9101 都是 >1024 的端口,不需要特权)
 RUN groupadd --gid 10001 app \
  && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 USER app
-ENTRYPOINT ["/usr/local/bin/imserver"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
