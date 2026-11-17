@@ -36,6 +36,8 @@ nginx 容器(固定 172.28.0.10,uid 101)
   其他容器无法伪造 `X-Real-IP`(H-2)。
 - 两张网络:`default` 负责对外,`backend`(internal)只放 MySQL/Redis,
   只有 web/worker/imserver 同时接入;nginx 与 certbot 没有到 3306/6379 的路由(M-6)。
+  (`backend` 的子网目前由 Docker 自动分配,不等于 `default` 的 `172.28.0.0/16` ——
+  这也是下面 §10「已知问题」里 `db-init` 起不来的原因。)
 - imserver 的 `/internal/*` 按 `IM_INTERNAL_ALLOW` 放行来源网段(默认 compose 子网),
   仍校验 HMAC;不再依赖「源地址是回环」这个在容器里不成立的假设(H-1)。
 - MySQL root 只允许来自 compose 子网(`MYSQL_ROOT_HOST=172.28.0.%`),不是 `%`(L-9)。
@@ -284,6 +286,24 @@ docker compose start web worker
 | 聊天全挂 / `user_sig` 503 | 从 web 容器 `curl http://imserver:9101/internal/healthz`:403 说明 `IM_INTERNAL_ALLOW` 没包含 compose 子网(H-1);200 再看 HMAC 密钥是否两边一致 |
 | 登录一直提示版本过低 | `MIN_APP_VERSION` 与 Web/APK 版本不一致;改 `.env` 后重启 web |
 | 首页 404 但 `/healthz` 正常 | nginx 模板缺 `root /usr/share/nginx/html;`(镜像自带的 `default.conf` 被整目录覆盖挂载);E-6① 已补,老配置照抄一行即可 |
+| `nginx` 容器 `running` 却一直被标 `unhealthy`,宿主机端口连不上,`docker logs` 里没有任何报错 | 容器里 `docker exec <nginx 容器> ls /etc/nginx/conf.d/`;报 `Permission denied` 就是配置目录权限(旧的整目录挂载 + `oneclick.sh` 的 `umask 077` 建成 700,uid 101 读不到,`include` 展开为空 → 一个端口都不监听)。修:`chmod 755 /opt/chatapp/nginx /opt/chatapp/nginx/conf.d` 后 `docker compose ... restart nginx`;模板已改成只挂单个 `default.conf`(2026-11-17,#445) |
+| `db-init` 退出码 1,日志 `ERROR 1045 (28000): Access denied for user 'root'@'172.x.y.z'` | `MYSQL_ROOT_HOST` 与实际连进来的子网对不上。`backend` 网的子网是 Docker 自动分配的(不一定是 `172.28.0.0/16`),而 `MYSQL_ROOT_HOST` 由 `DOCKER_SUBNET` 派生 —— 见本节末尾「已知问题」 |
+
+### 已知问题:从零 `up` 时 `db-init` 会因 root 主机名单不匹配退出 1(2026-11-17 实测,#445)
+
+- 现象:`docker compose up -d` 停在 `service "db-init" didn't complete successfully: exit 1`,
+  容器日志是 `ERROR 1045 (28000): Access denied for user 'root'@'172.x.y.z'`;
+  `migrate` / `web` / `worker` / `imserver` / `nginx` 全部停在 `created`,一个都没起来。
+- 原因:mysql 只接在 `backend` 网(`internal`),而这张网在模板里**没有写 ipam**,子网由 Docker
+  从地址池自动分配(实测 `172.25.0.0/16`);`MYSQL_ROOT_HOST`(L-9)却是从 `DOCKER_SUBNET`
+  派生的 `172.28.0.%` —— 那是 `default` 网的网段。`db-init` 从 `backend` 侧以 root 连进来,
+  于是必然 1045。
+- 临时绕法(只用于排查,不要当正式配置):把 `MYSQL_ROOT_HOST` 改成 `%` 后重跑。
+  注意 MySQL 账号是首次初始化数据卷时创建的,改了环境变量必须 `docker compose down -v`
+  清卷重起才生效(卷里已经有数据时不要这么做)。
+- 正解(待落地):给 `backend` 网钉一段自己的子网,让 `MYSQL_ROOT_HOST` 按**那一段**派生,
+  并把这一段也加进 `IM_INTERNAL_ALLOW`。这需要 `deploy/oneclick.sh` 新增 `BACKEND_SUBNET`
+  变量并多渲染一个占位符 —— 涉及部署脚本,本轮未改。
 
 ## 11. 与宝塔现网的关系
 

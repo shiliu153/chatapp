@@ -266,7 +266,16 @@ services:
       - "${HTTP_PORT:-80}:8080"
       - "${HTTPS_PORT:-443}:8443"
     volumes:
-      - "__APP_DIR__/nginx/conf.d:/etc/nginx/conf.d:ro,z"
+      # 只挂单个配置文件,不挂整个 conf.d 目录(2026-11-17 实测,#445):
+      # oneclick.sh 用 `umask 077` 建 $APP_DIR,`nginx/conf.d` 目录因此是 700;
+      # 容器里 nginx 以 uid 101 跑,`ls /etc/nginx/conf.d/` 直接 Permission denied,
+      # `include /etc/nginx/conf.d/*.conf` 展开为空 —— nginx 会「起来但一个端口都不监听」,
+      # 日志里一句报错都没有,只会让 compose 的 healthcheck 一直 Connection refused。
+      # 挂单文件时容器内父目录是镜像里的 /etc/nginx/conf.d(755),uid 101 读得到。
+      # 兼容性:oneclick.sh 切换 HTTPS 用的是 `cp https.conf conf.d/default.conf`,
+      # 原地写同一个 inode,挂单文件后容器里仍能看到新内容(实测 nginx -t 通过);
+      # 但不能用 `mv` / `sed -i` 这类「换 inode」的写法替换它。
+      - "__APP_DIR__/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf:ro,z"
       - chatapp_static:/srv/static:ro
       - chatapp_media:/srv/media:ro
       - chatapp_certs:/etc/letsencrypt:ro
