@@ -328,6 +328,9 @@ docker compose start web worker
 钉住的是**六个** base/运行时镜像:compose 里的 `mysql` / `redis` / `certbot`,以及两个
 Dockerfile 里的 `python` / `node` / `nginx-unprivileged`。改法一样,生效方式不同(见步骤 3)。
 
+> 拉不到时(`manifest unknown` / `no matching manifest`)见
+> [`docs/ops/observability.md`](../docs/ops/observability.md) §2.4。
+
 ```bash
 # 1) 取新 digest。要看 Digest: 那一行(index digest),不是 Manifests 里某个平台的子 digest
 docker buildx imagetools inspect mysql:8.0
@@ -354,3 +357,17 @@ MySQL 与 Redis 换小版本前先按 §8 备份;`db-init` 那行的 digest 必�
 (它是 mysql 客户端,版本漂移会让 `ALTER USER ... IDENTIFIED WITH mysql_native_password`
 这类语句行为不一致)。`--no-build` 部署方式下(用预构建 tar 包)换了 base 之后必须先在
 **构建机**上重建镜像,不能指望服务器自己拉。
+
+本节此前留了两个「要不要做」的尾巴,2026-11-17 拍板,两个都**不做**:
+
+1. **`deploy/observability/docker-compose.mirror.yml` 继续手写 digest,不改成「只写镜像前缀 +
+   digest 从 `.env` 插值」。** 理由是门禁口径:`scripts/check_image_pins.py` 对**含 `${...}`
+   插值的引用是豁免的**(见该脚本 `verdict()` 的备注信息),改成插值等于让
+   `contract-image-pin-gate` 在观测栈这份文件上从「必须带 digest」退化成「静态判不了」;而且 digest
+   一旦只活在服务器侧未入库的 `.env` 里,仓库就不再记录实际部署的是哪一份内容。现在两份手写虽然
+   啰嗦,但「两份 digest 必须完全一致」正是 §2.4 那条口径要的可见校验点,插值会把它一并取消。
+2. **两份升级清单不合并。** 本节这组走「改模板 → 重跑 `oneclick.sh` 渲染 → pull / 重建」,落在
+   `/opt/chatapp`;观测栈那组走「两张 compose 一起改 → override 覆盖 → 只 pull 受影响容器」,
+   落在 `/www/server/observability`,步骤在
+   [`docs/ops/observability.md`](../docs/ops/observability.md) §2.4。合并成一份清单只会把两套
+   动作、两个目录混在一起,而两边互相指一次就够了。
