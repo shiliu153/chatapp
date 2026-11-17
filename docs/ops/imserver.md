@@ -99,6 +99,8 @@ IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
 # IM_PUSH_URL=http://127.0.0.1:8000/internal/push/new-message
 # IM_PUSH_TIMEOUT_MS=2000
 # IM_PUSH_QUEUE=256
+# 容器 entrypoint 用(imserver 二进制不读):置 1 = 跳过启动前自动迁移,见 §1.5
+# IM_SKIP_MIGRATE=1
 ```
 
 - `IM_JWT_SECRET` 必须与 Django 的 `IM_SELF_SECRET` **完全一致**;
@@ -133,15 +135,25 @@ IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
 
 ### 1.5 迁移与启动
 
+镜像的 `ENTRYPOINT` 是 `docker-entrypoint.sh`:**启动时自己先跑迁移**(2026-11-17 起,issue #426)。
+
+- 无参数(`docker compose up -d`):先 `imserver --migrate`(按 `im_schema_version` 逐版执行、可重复),
+  全部成功后才 `exec imserver` 起服务;任一条迁移失败就**非零退出**,不会带着旧 schema 监听端口(fail-closed)。
+- 有参数:原样透传给 imserver —— 手工 `docker compose run --rm imserver --migrate` 仍然可用
+  (只跑迁移、不起服务),想单独确认迁移结果时用它。
+- `IM_SKIP_MIGRATE=1`:跳过迁移直接起服务,日志会打一行 `IM_SKIP_MIGRATE=1, skipping schema migration`。
+  **多实例同时上线时只让一个实例迁移,其余实例置 1**;本地调试也用它。
+
 ```bash
 cd /www/server/imserver
-docker compose run --rm imserver --migrate   # 逐版执行,可重复
-docker compose up -d
+docker compose up -d                        # entrypoint 先迁移,成功后才监听 9100/9101
+docker compose logs --tail=100 imserver     # 先 migrated 1..N,再 startup
 docker compose ps
 ```
 
 容器 `restart: unless-stopped` + `network_mode: host`:端口只监听 `127.0.0.1`,
-由宿主机 nginx 反代,不额外暴露公网端口。
+由宿主机 nginx 反代,不额外暴露公网端口。迁移失败时容器非零退出,`restart` 策略会重试
+(DB 没就绪会随重启自愈),但**端口始终不会监听**;先看日志区分「DB 未就绪」与「迁移 SQL 本身报错」。
 
 ### 1.6 Nginx
 
@@ -195,12 +207,14 @@ cd /tmp && tar -xzf imserver-image.tar.gz && docker load -i imserver-image.tar
 docker tag imserver:<新 commit> imserver:latest
 cd /www/server/imserver
 sed -i 's/^IMSERVER_IMAGE=.*/IMSERVER_IMAGE=imserver:<新 commit>/' .env
-docker compose run --rm imserver --migrate
-docker compose up -d
+docker compose up -d            # entrypoint 先迁移,失败则容器非零退出、不监听
+docker compose logs --tail=100 imserver
 ```
 
-迁移按 `im_schema_version` 逐版执行,重复执行安全。回滚镜像只需把 `.env`
-里的 tag 改回旧版本并 `docker compose up -d`(迁移不回滚,代码需向前兼容)。
+迁移按 `im_schema_version` 逐版执行,重复执行安全;**新镜像启动时会自动应用**(§1.5),
+不再需要单独一条 `docker compose run --rm imserver --migrate`(想手工确认时仍可用)。
+回滚镜像只需把 `.env` 里的 tag 改回旧版本并 `docker compose up -d`(迁移不回滚,代码需向前兼容)。
+多实例同时上线时,只让一个实例正常迁移,其余实例 `IM_SKIP_MIGRATE=1` 起。
 
 ## 4. IM 出问题时的回退(回退镜像 / 回退后端 SHA)
 
@@ -628,12 +642,13 @@ IM_MEDIA_SIGN_TTL=3600
 ### 14.3 上线顺序(必须按这个顺序)
 
 1. 部署 Django 新版本并 `python manage.py migrate`(会加 `moderation.0002`、`accounts.0003`);
-2. 构建/加载 imserver 新镜像,**先显式跑迁移**(entrypoint 不会自动迁移):
+2. 构建/加载 imserver 新镜像,`docker compose up -d` 时 entrypoint **先自动跑迁移**,失败即非零退出:
    ```bash
    cd /www/server/imserver
-   docker compose run --rm imserver --migrate
    docker compose up -d
+   docker compose logs --tail=100 imserver   # 先 migrated 1..N,再 startup
    ```
+   多实例同时上线时只让一个实例迁移,其余 `IM_SKIP_MIGRATE=1`(见 §1.5);
 3. **立刻**执行 `python manage.py im_sync_pairs`(把现有配对写入 `im_pair`,并补齐缺失的 `im_user` 行);
    不跑这一步,所有已配对老用户会收到 40302「无法发送」;
 4. 观察日志:正常配对用户不应出现 40302;旧设备重连应出现 40101(被顶下线);
@@ -890,10 +905,12 @@ FULLTEXT 给的 `rows` 是占位值(InnoDB 不提供精确估算),不要拿它�
 `limit` 上限仍压在 20(见 §16.2),单次返回条数不变;排序仍是 `msg_id DESC`,**没有**改成
 按相关度(`MATCH` 的 score)排 —— 那会改变 App / Web 看到的结果顺序。
 
-**上线顺序(硬约束)**:新镜像**起之前**必须先跑
-`docker compose run --rm imserver --migrate` 应用迁移 `009`(entrypoint 不会自动迁移)。
-没跑迁移就起新镜像,搜索会走 `MATCH` 而索引不存在 —— MySQL 报 `1191`,接口返回
-`500 + 50001`(见 §16.8)。回退镜像时**不要**手工 drop 这个索引,旧代码不认识它也不受影响。
+**上线顺序(硬约束)**:新镜像**开始监听之前**必须已应用迁移 `009` —— 自 2026-11-17 起由镜像的
+entrypoint 保证(启动先跑 `imserver --migrate`,失败则非零退出、不监听;见 §1.5)。
+手工 `docker compose run --rm imserver --migrate` 仍可用,但不再是必经步骤。
+没跑迁移就起新镜像(例如置了 `IM_SKIP_MIGRATE=1` 或用了旧镜像),搜索会走 `MATCH` 而索引不存在 ——
+MySQL 报 `1191`,接口返回 `500 + 50001`(见 §16.8)。回退镜像时**不要**手工 drop 这个索引,
+旧代码不认识它也不受影响。
 
 ### 16.5 限流
 
@@ -942,7 +959,7 @@ LIKE 转义,`fulltext_test.cpp` 覆盖 BOOLEAN MODE 的操作符剥离、多短�
 | 明明有这条消息却搜不到 | 是不是图片/语音;是否已撤回;会话是否被自己删除;是否拉黑了对方 |
 | **单字关键词搜不到** | 不该发生:单字(每段都 <2 字符)走的是 `LIKE` 全扫那条路(§16.4 的三条路),改前能搜到的现在也能搜到;真搜不到先查 `has_indexable_term()` 是否把它误判成有索引词 |
 | 关键词带空格 / 标点时命中变多或变少 | 不该发生:MATCH 只做超集筛选、LIKE 收口(§16.4 的三行实测对照) |
-| 搜索一律 `500 + 50001`,日志有 `MysqlError` `1191` | 迁移 `009_message_fulltext.sql` 没跑:`docker compose run --rm imserver --migrate` |
+| 搜索一律 `500 + 50001`,日志有 `MysqlError` `1191` | 迁移 `009_message_fulltext.sql` 没跑:先看容器启动日志有没有 `migrated` 9;若是 `IM_SKIP_MIGRATE=1` 或旧镜像,手工 `docker compose run --rm imserver --migrate` |
 | 401 | `user_sig` 的 token 是否过期;是否在别的设备登录把 `sv` 顶掉 |
 | 422 | `q` 是否为空;URL 解码后是否超过 150 字节 |
 | 429 | 是否绕过了 300ms 防抖;是否多个标签页同时搜;是否连续翻页超过 5 次(桶 = 10 次/分钟、突发 5) |
@@ -1241,16 +1258,17 @@ ORDER BY (s.pinned_at>0) DESC, s.pinned_at DESC, c.last_msg_at DESC
 
 ### 19.9 部署顺序(硬约束)
 
-**迁移 `007` 必须先于新镜像生效**:
+**迁移 `007` 必须先于新镜像开始监听** —— 自 2026-11-17 起由镜像 entrypoint 保证(§1.5):
 
 ```bash
 cd /www/server/imserver
-docker compose run --rm imserver --migrate   # 1–6 skipped,7 applied
-docker compose up -d                          # 再换新镜像
+docker compose up -d            # entrypoint 先迁移(1–6 skipped,7 applied),成功后才起服务
+docker compose logs --tail=100 imserver
 ```
 
 原因:新代码的 `SELECT` 读 `pinned_at` / `muted` 两列,**旧表没有这两列会直接报「列不存在」**,
-会话列表整页 500。反过来的顺序(先换镜像)不是「降级」而是「故障」。
+会话列表整页 500。迁移失败时容器非零退出、不监听端口,不会出现「先换镜像」那种故障。
+置了 `IM_SKIP_MIGRATE=1` 的实例仍需自己保证迁移先跑过(见 §1.5)。
 回滚镜像时迁移**不回滚**(多出来的两列旧代码不读,向前兼容)。
 
 ### 19.10 验证
@@ -1275,7 +1293,7 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | `400 + 42201` | `peer` 是否写成 `9`(少了 `u`)或 `u9 ` (带空格);开关是否传了 `"true"` 字符串 |
 | 连点置顶反而跳到最前 | 这是设计:`pinned_at` 只在「由未置顶 → 置顶」时写,重复置顶不改时间;若真跳了,说明客户端先发了 `false` 再发 `true` |
 | 换台设备看不到置顶 | 已知限制:`/im/api/*` 无实时同步,重拉一次 `GET /im/api/conversations` 即可(见 §19.1) |
-| 会话列表整页 500 且日志有 `Unknown column 'pinned_at'` | 部署顺序反了:先跑 `--migrate`(见 §19.9) |
+| 会话列表整页 500 且日志有 `Unknown column 'pinned_at'` | 迁移 `007` 没跑:先看启动日志有没有 `migrated` 7;若是 `IM_SKIP_MIGRATE=1` 或旧镜像,手工 `docker compose run --rm imserver --migrate`(见 §19.9) |
 
 ## 20. 聊天文字敏感词(2026-11-09,批次 Q)
 
@@ -1551,16 +1569,17 @@ curl -X POST 'https://<域名>/im/api/messages/delete' \
 
 ### 21.9 部署顺序(硬约束)
 
-**迁移 `008` 必须先于新镜像生效**:
+**迁移 `008` 必须先于新镜像开始监听** —— 自 2026-11-17 起由镜像 entrypoint 保证(§1.5):
 
 ```bash
 cd /www/server/imserver
-docker compose run --rm imserver --migrate   # 1–7 skipped,8 applied
-docker compose up -d                          # 再换新镜像
+docker compose up -d            # entrypoint 先迁移(1–7 skipped,8 applied),成功后才起服务
+docker compose logs --tail=100 imserver
 ```
 
 新代码的三处读路径都会 `LEFT JOIN im_message_hidden`,**表不存在会直接报错**
-(历史 / 搜索 / 会话列表整页 500)。反过来(先换镜像)不是降级而是故障。
+(历史 / 搜索 / 会话列表整页 500)。迁移失败时容器非零退出、不监听端口,不会出现「先换镜像」那种故障。
+置了 `IM_SKIP_MIGRATE=1` 的实例仍需自己保证迁移先跑过(见 §1.5)。
 回滚镜像时迁移**不回滚**(多出来的表旧代码不读,向前兼容)。
 
 ### 21.10 验证
@@ -1584,5 +1603,5 @@ docker compose -f imserver/docker-compose.test.yml run --rm test bash /src/scrip
 | 删了之后未读没减少 | 删的是**已读**消息(设计如此);或对端发的消息 `seq <= 我的 read_seq` |
 | 删了之后列表顶部还是那条 | 客户端本地缓存没刷新;服务端重拉 `GET /im/api/conversations` 确认 `last_message` 已回退 |
 | 整个接口 404 + 40401 | 新路径没加进 `http_api.cpp` 的硬白名单;或 `http_url` 拼错(少了 `im/api`) |
-| 整页 500 且日志有 `Table 'chatapp_im.im_message_hidden' doesn't exist` | 部署顺序反了:先 `--migrate`(见 §21.9) |
+| 整页 500 且日志有 `Table 'chatapp_im.im_message_hidden' doesn't exist` | 迁移 `008` 没跑:先看启动日志有没有 `migrated` 8;若是 `IM_SKIP_MIGRATE=1` 或旧镜像,手工 `docker compose run --rm imserver --migrate`(见 §21.9) |
 | 搜到了已删除的消息 | 该消息只在**对端**隐藏了(单方删除);确认请求用的 token 是你自己的 |
