@@ -305,10 +305,17 @@ docker compose start web worker
   每个服务有 `mem_limit`/`pids_limit`,单服务失控不会拖垮 2C2G 整机(M-5);
 - `secrets/` 与 `.env` 均为 600,`values.env` 是唯一需要离线备份的密钥文件;
 - Redis 开 `requirepass`(第四轮 A2 / 第五轮 H-1):口令由 `oneclick.sh` 生成写进
-  `values.env` 的 `REDIS_PASSWORD`,经 `$APP_DIR/.env` 插值到 compose;Django 缓存(DB0)、
+  `values.env` 的 `REDIS_PASSWORD`,再渲染进 `$APP_DIR/redis/redis.conf`(目录 700、文件 600,
+  以 `:ro` 挂进容器;`appendonly` / `maxmemory*` 也在同一份文件里);Django 缓存(DB0)、
   Celery broker(DB1)与 imserver(DB2)三侧同源。**不带口令连不上**(`redis-cli ping` 回
-  `NOAUTH`),口令写进容器 `command`,因此 `docker inspect` 能看到 —— 能跑 docker 命令的人
-  本来就能读 `secrets/`,不因此扩大面;需要换口令时重跑脚本加 `--rotate-secrets`;
+  `NOAUTH`);需要换口令时重跑脚本加 `--rotate-secrets`(每次重跑都会无条件重写 `redis.conf`);
+- 口令在 `docker inspect` 里能看到什么(2026-11-17,`#437` 之后):容器 `command` 只剩
+  `[redis-server, /usr/local/etc/redis/redis.conf]`,**`Config.Cmd` 不含口令**;但 `Config.Env`
+  里**仍有** `REDIS_PASSWORD`(healthcheck 要用它 `-a` 连自己才判得出 healthy),所以
+  「`docker inspect` 里完全没有口令」也不准确 —— `docker inspect` 照样能捞到这一条。
+  藏起来的是「命令行长串一眼可见」这条路;能跑 docker 命令的人本来也读得到 `secrets/`。
+  核对口令到底生效没有**别靠 `inspect`**,按 §6 第 7 条打一次(`-a` 回 `PONG`、不带 `-a`
+  回 `NOAUTH`;要确认口令落在哪,`grep requirepass /opt/chatapp/redis/redis.conf`);
 - 生产默认 `DEBUG=0`、`AUTO_APPROVE=0`、`OPS_OTP_REQUIRED=1`、`HTTPS_ENABLED=1`、
   `SMS_DEV_MODE=0`、`SMS_ALLOW_STAFF_LOGIN=0`;
 - 外部镜像钉成「具体版本 tag + digest」(第五轮 L-3):`mysql:8.0.46`、`redis:7.4.12-alpine`、

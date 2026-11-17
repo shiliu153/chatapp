@@ -138,7 +138,7 @@
 
 | ID | 等级 | 标题 | 主要影响 | 状态 |
 |---|---|---|---|---|
-| H-1 | 高危 | Redis 仍无口令，且本轮新增三类敏感物料 | 同网容器被拿下后：① 读走轮换后的 refresh 令牌（30 天）；② 拿 DAU 名单（用户 id 集合）；③ 改准入快照 / 额度计数 | **Compose 侧已修**：`--requirepass` + 缓存 / broker / imserver 三处 URL 同改（#371 → #380 → `8c01039`）；**现网（宝塔 + 本机 Redis）仍未执行** —— 那是服务器上的手工动作，口径见 `docs/ops/runbook.md` §10.1 |
+| H-1 | 高危 | Redis 仍无口令，且本轮新增三类敏感物料 | 同网容器被拿下后：① 读走轮换后的 refresh 令牌（30 天）；② 拿 DAU 名单（用户 id 集合）；③ 改准入快照 / 额度计数 | **Compose 侧已修**：`--requirepass` + 缓存 / broker / imserver 三处 URL 同改（#371 → #380 → `8c01039`）；**现网（宝塔 + 本机 Redis）仍未执行** —— 那是服务器上的手工动作，口径见 `docs/ops/runbook.md` §10.1（`#437` 起 `requirepass` 已从 `command` 挪进渲染的 `redis.conf`，见 §7 状态注记） |
 | M-1 | 中危 | 四个新接口没有按用户限流 | 单账号可高频打聚合 / 写库 + 入队的接口；`DELETE /devices/{端}` 每次入队一个 Celery 任务 | **已修**：四个 scope（`stats` 240/h、`devices_read` 480/h、`devices_write` 30/h、`quota` 480/h）+ 四个视图挂限流 + 四份接口文档（#372 → #376 → `e986150`） |
 | M-2 | 中危 | 聊天搜索是前导通配 `LIKE '%kw%'`，`im_message` 正文无索引 | 单账号 60 次/分钟即可让 2C2G 的 MySQL 持续全扫自己全部消息 | **已降频**：搜索桶 60 次/分钟 burst 20 → 10 次/分钟 burst 5，`limit` 上限 50 → 20（#374 → #375 → `358d5be`）；**扫描量本身未降**（不加索引），FULLTEXT 仍待排期 |
 | M-3 | 中危 | 语音转码仍在请求路径，且本轮多了一个入口 | 一次上传 3 个子进程（各 15 秒上限）；两路并发即占满两个 worker | **已加闸**：`config/transcode_gate.py` 全局单槽，抢不到立即 503 + `50302` + `Retry-After`，两个入口共用一个槽（#373 → #377 → `417f013`）；异步化仍待排期 |
@@ -161,7 +161,8 @@
 
 **位置**：
 [deploy/docker-compose.yml.tmpl:66-72](../../deploy/docker-compose.yml.tmpl)（`redis:7-alpine`，
-`command` 里没有 `--requirepass`）、
+`command` 里没有 `--requirepass`；**这是审计当时的快照** —— 2026-11-17 `#437` 起口令写在渲染的
+`redis.conf` 里，判据怎么改见 §7 状态注记）、
 [deploy/oneclick.sh:481](../../deploy/oneclick.sh)（`IM_REDIS_URL=redis://redis:6379/2`，
 无口令）、
 [chatapp/config/settings.py:198](../../chatapp/config/settings.py)（`REDIS_URL` 缺省无口令）、
@@ -191,7 +192,9 @@ imserver / worker / 未来新增容器都在同一个 Redis 上，攻击面并�
    `--requirepass $REDIS_PASSWORD`；`chatapp.env` 的 `REDIS_URL` / `BROKER_URL` 与
    `imserver.env` 的 `IM_REDIS_URL` 同改（imserver 的 `parse_redis_url` 已支持
    `redis://user:pass@host/db` 并 `AUTH`）；`deploy/oneclick.sh` 生成口令并写进
-   `secrets/values.env`；
+   `secrets/values.env`。
+   **2026-11-17 更新（`#437`）**：这一条已按「口令进渲染的 `redis.conf`」落地，**别再把
+   `--requirepass` 加回 `command`**（那是回退）；当前做法与排查口径见 §7 状态注记；
 2. 顺手把敏感物料从缓存搬走或缩短：`auth:refresh_grace` 的 TTL 已是 60 秒（可接受），
    但 DAU 集合建议只存 `hash(user_id)`（名单用途够了，反查不需要）；
 3. 部署核对单加一条「`redis-cli -a` 能连、不带口令连不上」的手测项。
@@ -369,7 +372,7 @@ imserver / worker / 未来新增容器都在同一个 Redis 上，攻击面并�
 
 | 批次 | 内容 | 项 | 规模 |
 |---|---|---|---|
-| A | Redis 硬化（`requirepass` 落地，三处配置同改） | H-1 | 部署脚本 + backend + imserver 配置 · **Compose 侧已闭环**（#371 → #380 → `8c01039`，只改配置没动业务代码）；**现网（宝塔 + 本机 Redis）待执行** |
+| A | Redis 硬化（`requirepass` 落地，三处配置同改） | H-1 | 部署脚本 + backend + imserver 配置 · **Compose 侧已闭环**（#371 → #380 → `8c01039`，只改配置没动业务代码；`#437` 起口令改由渲染的 `redis.conf` 承载）；**现网（宝塔 + 本机 Redis）待执行** |
 | B | 四个新接口补按用户限流 | M-1 | 后端（`settings` + 四个视图 + 三份文档）· **已闭环**（#372 → #376） |
 | C | 聊天搜索降成本（FULLTEXT 或时间窗或压额度） | M-2 | imserver + `docs/ops` · **已闭环「压额度」这一档**（#374 → #375）；FULLTEXT 仍待排期 |
 | D | 语音转码挪出请求路径（Celery 或全局并发闸） | M-3 | 后端 + `docs/pitfalls` · **已闭环「全局并发闸」这一档**（#373 → #377）；Celery 异步化仍待排期 |
@@ -389,10 +392,16 @@ E 批的 L-3 已闭环（#381 / #382 / #383），L-7 / L-8 与 F 批尚未排期
 ## 7. 关键复现命令
 
 ```bash
-# H-1：Redis 是否仍无口令（从任意同网容器）
+# H-1：Redis 是否仍无口令（从任意同网容器）。两条一起看，缺一条都不算命中：
+# ① 不带口令能不能连上：True ⇒ 没口令（能连就不必再看 ②）
 docker compose -f /opt/chatapp/docker-compose.yml exec web \
   sh -c 'python -c "import os,redis;print(redis.Redis.from_url(\"redis://redis:6379/0\").ping())"'
-# 返回 True、且 compose 的 redis command 里没有 --requirepass ⇒ 命中
+# ② 口令在渲染产物里、不在命令行里（2026-11-17 起这么看，见本节末尾的状态注记）
+grep -nE '^[[:space:]]*requirepass[[:space:]]+[^[:space:]]' /opt/chatapp/redis/redis.conf
+#    有输出 ⇒ 文件里写了 requirepass；容器里读的是同一份（:ro 挂载）
+RID=$(docker compose -f /opt/chatapp/docker-compose.yml ps -q redis)
+docker inspect -f '{{json .Config.Cmd}}' "$RID"   # 只剩 [redis-server,…,redis.conf]，无口令
+docker inspect -f '{{json .Config.Env}}' "$RID"   # 仍有 REDIS_PASSWORD（healthcheck 用）
 
 # H-1 ③：本轮新增的敏感物料就在同一个 Redis 里
 docker compose -f /opt/chatapp/docker-compose.yml exec redis redis-cli -n 0 keys 'auth:refresh_grace:*'
@@ -427,6 +436,18 @@ curl -s -H "Authorization: Bearer $TOKEN" "https://<站点>/api/v1/users/<他人
   | python -c 'import json,sys;print(json.load(sys.stdin)["voice"])'
 curl -sI "$(上一步的 url)" | head -3   # 不带令牌也应 200
 ```
+
+> **状态注记（2026-11-17，`#437` 之后）· 只修判据，不改结论**：H-1 那条复现判据原来写的是
+> 「compose 的 redis `command` 里没有 `--requirepass` ⇒ 命中」，**现在这条恒为真、等于判据失效** ——
+> `#437`（`76cc6ae`）把 `requirepass` / `appendonly` / `maxmemory*` 从容器 `command` 挪进了
+> `oneclick.sh` 渲染的 `$APP_DIR/redis/redis.conf`（600，以 `:ro` 挂进容器），`command` 恒为
+> `[redis-server, /usr/local/etc/redis/redis.conf]`，再也不会有 `--requirepass`。
+> 判据改成看**渲染产物**：`redis.conf` 里有 `requirepass`（上面 ②）且 `Config.Cmd` 里没有口令；
+> 注意 `Config.Env` 里**仍有** `REDIS_PASSWORD`（healthcheck 要用它连自己），**别拿「inspect 里
+> 没有口令」当判据** —— 口令位置与排查口径的事实来源是 [`deploy/README.md`](../../deploy/README.md) §12。
+> **H-1 的结论不变**：审计当时（2026-11-16）口令确实没开，现网（宝塔 + 本机 Redis）那套是另一件事，
+> 见 `docs/ops/runbook.md` §10.1。§4.1「位置」与验收 1 的原文都是当时的快照（那两处已各加一句
+> 指向本注记），**照着它们重做反而是回退 `#437`**。
 
 ---
 
