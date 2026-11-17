@@ -2,15 +2,17 @@
 #
 # 用法(服务器上,/www/server/imserver):
 #   docker compose pull            # 或 docker load -i imserver-image.tar.gz
-#   docker compose run --rm imserver --migrate
-#   docker compose up -d
+#   docker compose up -d           # 即「先迁移、再起服务」,不用手工先跑 --migrate
 #   docker compose logs -f --tail=100
+#   docker compose run --rm imserver --migrate   # 可选:只跑迁移、不起服务,用来单独确认迁移结果
 #
 # 说明:
 # - network_mode: host —— 配置里的 127.0.0.1:9100/9101 与宿主机 MySQL/Redis 直接互通,
 #   nginx 反代也走 127.0.0.1;容器不额外暴露端口。
 # - 密钥与数据库口令全部在 imserver.env(权限 600),不进仓库。
-# - 迁移是显式步骤(不放在 entrypoint 里),升级顺序见 docs/ops/imserver.md。
+# - 迁移由镜像 entrypoint 在启动时自动应用:先 `imserver --migrate` 成功才 `exec imserver`,
+#   任一条迁移失败即非零退出、不监听端口(fail-closed);多实例同时上线时只让一个实例迁移,
+#   其余实例置 `IM_SKIP_MIGRATE=1` 跳过。口径与升级顺序见 docs/ops/imserver.md §1.5。
 
 services:
   imserver:
