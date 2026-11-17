@@ -15,7 +15,8 @@
 # 设计原则:
 #   1. 幂等:重复执行只补齐缺失项,不覆盖已有数据库与密钥;
 #   2. 可预演:--render-only 不需要 root、不装 Docker、不碰端口;
-#   3. 密钥只落 $APP_DIR/secrets(600),数据库/Redis 不发布宿主机端口;
+#   3. 密钥只落 $APP_DIR/secrets(600) 与 $APP_DIR/redis/redis.conf(600,Redis 口令),
+#      数据库/Redis 不发布宿主机端口;
 #   4. 所有配置由模板渲染,重跑脚本会覆盖 $APP_DIR 下的生成物。
 # =============================================================================
 set -Eeuo pipefail
@@ -542,6 +543,43 @@ EOF
     chmod 600 "$APP_DIR/mysql/init/01-databases.sql"
 }
 
+# 渲染 Redis 配置(含口令)。口令为什么写进文件而不是容器的 command:
+# command 会原样出现在 `docker inspect` 的 Config.Cmd 里,任何能跑 docker 的人
+# 都能看到;写进文件后只有能读本文件的人(root)看得到,容器里以 :ro 挂载。
+# 重跑必须重新渲染(口令可能轮换),所以这里是无条件覆盖,不做「已存在就跳过」。
+write_redis_conf() {
+    # 目录 700 + 文件 600:口令在里面,宿主机上除 root 之外不可读
+    install -d -m 700 "$APP_DIR/redis"
+    cat > "$APP_DIR/redis/redis.conf" <<EOF
+# 由 deploy/oneclick.sh 生成;不要手改(重跑脚本会覆盖)
+# 口令只存在于本文件与 secrets/values.env;容器以只读方式挂载本文件,
+# 因此 docker inspect / docker ps 的 Config.Cmd 里不含口令。
+
+# 持久化:与原先 command 里的 --appendonly yes 等价
+appendonly yes
+
+# 内存上限与淘汰策略:与原先 command 里的 --maxmemory* 等价
+maxmemory 256mb
+maxmemory-policy noeviction
+
+# H-1:同网任一容器被拿下即可读改 Redis 里的一切(见 compose 里 redis 服务的注释)
+requirepass $REDIS_PASSWORD
+EOF
+    chmod 600 "$APP_DIR/redis/redis.conf"
+    # 官方镜像的 docker-entrypoint.sh 会先把进程降权到容器内的 redis 用户
+    # (uid 999 / gid 1000)再 exec redis-server —— 属主是 root 的 600 文件在容器里
+    # 读不到,redis 会以「Fatal error, can't open config file: Permission denied」退出。
+    # 所以把属主交给 redis,权限仍是 600(宿主上也只有 root 与它可读)。
+    # --render-only 不要求 root;非 root 渲染只是预览,碰不到容器,跳过即可
+    # (正式部署必须 root,那时会自动改属主)。
+    if [ "$(id -u)" -eq 0 ]; then
+        chown 999:1000 "$APP_DIR/redis/redis.conf"
+    else
+        warn "非 root 渲染:跳过 redis.conf 属主设置(正式部署会交给容器内 redis 用户)"
+    fi
+    log "Redis 口令已写入 $APP_DIR/redis/redis.conf(600,容器内只读挂载)"
+}
+
 log "生成配置到 $APP_DIR"
 render_tmpl "$SCRIPT_DIR/docker-compose.yml.tmpl" "$APP_DIR/docker-compose.yml" \
     "REPO_DIR=$REPO_DIR" \
@@ -566,6 +604,7 @@ chmod 644 "$APP_DIR/nginx/conf.d/default.conf"
 write_app_env 0
 write_imserver_env
 write_mysql_init
+write_redis_conf
 
 cat > "$APP_DIR/.env" <<EOF
 # 由 deploy/oneclick.sh 生成;供 docker compose 插值,不要手改

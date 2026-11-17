@@ -75,20 +75,20 @@ services:
     # 滑卡额度与所有限流计数,是多个安全控制的信任锚 —— 同网任一容器被拿下即可读改,
     # 所以必须开口令。口令由 oneclick.sh 生成并写进 secrets/values.env,
     # 经 $APP_DIR/.env 插值到这里;Django(DB0 缓存 / DB1 broker)与 imserver(DB2)同一个口令。
+    #
+    # 口令不进 command(2026-11-17):`--requirepass` 会原样落在 docker inspect 的
+    # Config.Cmd 里,任何能跑 docker 的人一眼可见。现在 requirepass / appendonly /
+    # maxmemory* 全写进 oneclick.sh 渲染的 $APP_DIR/redis/redis.conf(600),以 :ro
+    # 挂进容器;命令行只剩「用哪份配置启动」,不再含任何秘密。
     environment:
+      # 只剩健康检查在用(见下面的 healthcheck)。Redis 自身不再从这里取口令:
+      # 口令的事实来源是 redis.conf。
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
-    command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --maxmemory
-      - 256mb
-      - --maxmemory-policy
-      - noeviction
-      - --requirepass
-      - "${REDIS_PASSWORD}"
+    command: [redis-server, /usr/local/etc/redis/redis.conf]
     volumes:
       - chatapp_redis:/data
+      # 只读挂载:容器里没有任何进程需要改这份配置,只读能挡住「改配置改行为」
+      - "__APP_DIR__/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro"
     # M-6:只接 backend,nginx/certbot 没有到 6379 的路由
     networks: [backend]
     mem_limit: 320m
