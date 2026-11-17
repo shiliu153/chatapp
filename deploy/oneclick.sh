@@ -566,10 +566,11 @@ maxmemory-policy noeviction
 requirepass $REDIS_PASSWORD
 EOF
     chmod 600 "$APP_DIR/redis/redis.conf"
-    # 官方镜像的 docker-entrypoint.sh 会先把进程降权到容器内的 redis 用户
-    # (uid 999 / gid 1000)再 exec redis-server —— 属主是 root 的 600 文件在容器里
-    # 读不到,redis 会以「Fatal error, can't open config file: Permission denied」退出。
-    # 所以把属主交给 redis,权限仍是 600(宿主上也只有 root 与它可读)。
+    # compose 里 redis 服务直接以容器内 redis 用户(uid 999 / gid 1000)起进程
+    # (#441:cap_drop ALL 下 entrypoint 的 setpriv 降权必然失败)—— 属主是 root 的
+    # 600 文件在容器里读不到,redis 会以「Fatal error, can't open config file:
+    # Permission denied」退出。所以把属主交给 999:1000,权限仍是 600
+    # (宿主上也只有 root 与它可读)。
     # --render-only 不要求 root;非 root 渲染只是预览,碰不到容器,跳过即可
     # (正式部署必须 root,那时会自动改属主)。
     if [ "$(id -u)" -eq 0 ]; then
