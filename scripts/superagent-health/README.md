@@ -31,6 +31,7 @@ systemd timer,**每 15 分钟一轮**,开机 3 分钟后先补一轮(`OnBootSec`
 |---|---|---|
 | 出网 | 经代理 `GET https://api.github.com/rate_limit` 必须 2xx | worker 的 git / 轮询已经不能工作 |
 | 出口节点 | mihomo 当前节点;选到 `HOST-FALLBACK` 只记录不告警 | 机场线路挂了,正在走宿主兜底 |
+| WSL 继承代理(2026-11-17 起) | 进程环境里的 `http(s)_proxy` 排除 worker 自 export 的那个值后,对剩下的值做一次 TCP 探针(3 秒);不通才算红 | 继承到的是死端口:`wsl -e bash -c '…'` 的联网命令会**静默挂住**(mirrored 的 autoProxy 把 Windows 系统代理导进了 WSL) |
 | 入队三连 | `thread` / `trigger_thread` / `ticket` 三张表都要有该 issue | 评论没进队列(§4.1 的静默丢单) |
 | 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束 | 工单跑死了(模型流超时那类) |
 | 游标新鲜度 | `kv` 里 `github-cursor:*` 的最新时间落后超过 10 分钟(`SUPERAGENT_CURSOR_STALE_MINUTES`),**且** GitHub 通知里有「未读且 `updated_at` 晚于游标」的条目 | 通知轮询停摆:有活要干却没人读,派工评论不会进队列 |
@@ -44,6 +45,21 @@ systemd timer,**每 15 分钟一轮**,开机 3 分钟后先补一轮(`OnBootSec`
 
 同一条告警里还带一个旁证「轮询心跳 `github-since`」:它每轮结束都会前进,**停在很久以前**
 ⇒ 轮询 loop 自己停了;**新鲜而游标不动** ⇒ 本来就是闲置。它只做旁证,不参与判定。
+
+**「WSL 继承代理」判的是「继承到的值指向死端口」,不是「有继承值就红」**(2026-11-17 起)。
+mirrored 模式下 WSL 的 `autoProxy`(默认开)会把 Windows 的系统代理导进**它派生的每一个进程**
+的环境,`wsl -e bash -c 'echo $https_proxy'` 实测就有值(`http://127.0.0.1:7897`)。Clash 开着时
+一切正常,Clash 一关那些命令就**静默挂住**:没有报错、没有退出码。所以判据是两层的:① 排除
+**worker 自己 export 的那个值**(`start-superagent.sh` 的 `--proxy`,默认 `127.0.0.1:7890`)——
+不排除就会在一切正常时天天报红;② 对剩下的值做一次 TCP 建连(3 秒),**通 = 绿但文案写明
+「潜伏态」,不通 = 红**,并指向根治动作:`.wslconfig` 加 `autoProxy=false` 后 `wsl --shutdown`
+(Windows 侧,仓库改不了)。开关:`--skip-proxy-inherit` 单独跳过;`--skip-egress` 一并跳过
+(离线自测只写后者)。
+
+已知局限(不是 bug):systemd timer 拉起的巡检进程**通常看不到**注入值(注入发生在 `wsl.exe`
+派生的进程环境里,`/proc/1/environ` 与 `systemctl show-environment` 都是干净的),那时这一项
+判绿。它主要在人 / agent 用 `wsl -e bash -c` 跑巡检、以及 worker 会话里生效 —— 正好就是
+「会被继承代理坑到」的那两个场景。
 
 **默认只告警,不重启 orchestrator**(2026-11-16 起有「安全自愈」,但总闸默认关):
 `SUPERAGENT_AUTOREHEAL=1` 且第四项判成停摆时,巡检会在**四道闸全过**的前提下自己跑
@@ -129,6 +145,9 @@ grep -n '^SUPERAGENT_AUTOREHEAL' /root/.dsh/superagent-health.env
 # CI 红轨那一项(默认关):先手动跑一轮看判据与指纹对不对
 python3 /root/src/chatapp/scripts/superagent_health.py --skip-egress --skip-cursor \
   --ci-red 1 --runs-file /tmp/runs.json      # 用真快照:gh api "repos/shiliu153/chatapp/actions/runs?branch=main&event=push&per_page=100" > /tmp/runs.json
+# 「WSL 继承代理」那一项造红:把它指向一个死端口,应当红并指出 autoProxy(不联网)
+https_proxy=http://127.0.0.1:1 python3 /root/src/chatapp/scripts/superagent_health.py \
+  --skip-cursor --skip-ci-red --skip-enqueue
 # 发信配置齐不齐 / 主题长什么样(都不联网、不发信)
 python3 /root/src/chatapp/scripts/lib/mail.py check --env-file /root/.dsh/superagent-health.env
 python3 /root/src/chatapp/scripts/lib/mail.py subject --category 巡检 --subject worker --verdict 游标停摆
@@ -153,6 +172,11 @@ python -m unittest scripts.test_mail -v                  # 发信内核:主题 /
 **CI 红轨**那组钉三件事:判据与 `l4_intake.red_runs` 完全一致(`cancelled` / `timed_out` /
 `startup_failure` 都算红、`skipped` / 还在跑不算红)、**每条红轨一个检查名**(否则新红一条会被
 旧红的 6 小时去重吞掉)、形状不对或取不到快照一律算「判不出来」而不是「全绿」。
+
+**WSL 继承代理**那组钉两个方向:**继承值指向死端口 → 红且文案指向 `autoProxy`**,
+**只有 worker 自 export 的 7890 → 绿**(否则一切正常时天天报红,人会去关告警)。
+另外「活着 → 绿但写明潜伏态」「大写变量也查」「裸 `host:port` 也解析」「畸形值不许静默跳过」
+各一条;探针只用本机回环监听套接字与死端口,**不联网**。
 
 **安全自愈**那组把四道闸逐条钉住(尤其「本该不重启却重启了」这个方向,那会把别人的活连同
 会话一起弄丢):停摆 + 无活跃 assignment + worktree 干净 → **回调刚好被调一次**、告警含

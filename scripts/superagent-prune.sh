@@ -7,9 +7,16 @@
 #
 # 与网络有关的两条行为契约(issue #108),**顺序是契约的一部分**:
 #   1. 先看有没有活:`$WORKROOT` 下没有工单 worktree → 打印「无可清理」并 exit 0,
-#      不 fetch、不 rev-parse BASE。人跑 `wsl -e bash -c '...'` 时起的是非登录 shell、
-#      不带 https_proxy,而 worker 进程一直有代理;所以「本来就没东西可清」时去 fetch,
-#      只会白卡约 130s 再抛 fatal(实测见 docs/ops/superagent.md §4 第 4 步)。
+#      不 fetch、不 rev-parse BASE。**理由是「没活就别联网」,不是「反正没代理」** ——
+#      旧版这里写的是「人跑 `wsl -e bash -c '...'` 时起的是非登录 shell、不带 https_proxy」,
+#      2026-11-17 实测推翻:mirrored 模式下 WSL 的 autoProxy(默认开)会把 **Windows 的系统
+#      代理**导进它派生的**每一个**进程环境,`wsl -e bash -c 'echo $https_proxy'` 照样有值
+#      (`http://127.0.0.1:7897`)。那个地址就是宿主 Clash:Clash 一关它就是死端口,而 git
+#      自己不设代理超时 —— 于是「本来就没东西可清」时去 fetch,白卡约 130s 再抛 fatal
+#      (实测见 docs/ops/superagent.md §4 第 4 步)。结论不变、理由要改对:**联网动作一律
+#      排在「有没有活」之后,与「当前有没有代理」无关**。
+#      这种「继承到死端口」现在由巡检第六项变成可见(scripts/superagent_health.py 的
+#      `check_proxy_inherit`,口径见 docs/ops/superagent.md §15)。
 #   2. 再看网络:有活时 fetch 失败 → 退出码非 0 + 人话错误,且**一个 worktree 都不删**。
 #      不能「fetch 失败就拿现有的 origin/<默认分支> 继续判」:判「已合并」的基线必须是本次
 #      fetch 到的,拿过期基线判出 yes 再去删目录是危险动作。
