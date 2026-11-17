@@ -47,6 +47,13 @@ server {
         expires 1h;
     }
 
+    # 资料语音(声纹属身份特征):与聊天媒体同一套验签,共用下面那个子请求
+    location ^~ /media/voices/ {
+        auth_request /_im_media_auth;
+        alias /srv/media/voices/;
+        expires 1h;
+    }
+
     location = /_im_media_auth {
         internal;
         proxy_pass http://web:8000/api/v1/im/images/auth;
