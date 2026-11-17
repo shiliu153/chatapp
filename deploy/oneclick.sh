@@ -35,6 +35,8 @@ RENDER_ONLY=0
 ROTATE_SECRETS=0
 SKIP_DOCKER_INSTALL=0
 ALLOW_DEV_SMS=0
+# --allow-dev-sms 的准入名单种子(--dev-sms-phone,可重复);判据见下方「准入名单种子」。
+DEV_SMS_PHONES=()
 NO_BUILD=0
 HTTP_PORT=80
 HTTPS_PORT=443
@@ -100,7 +102,12 @@ chat 服务一键部署(Docker Compose)
   --no-build                 跳过镜像构建,直接用现有镜像
   --imserver-image-tar <文件> 用本地 docker save 的 imserver 镜像,避免在 2C2G 上编译
   --allow-dev-sms            允许写入 SMS_DEV_MODE=1(固定验证码 123456)
-                             仅限封闭测试;公网/TLS 部署必须显式加这个开关
+                             仅限封闭测试;公网/TLS 部署必须显式加这个开关。
+                             **必须同时给至少一个 --dev-sms-phone**
+  --dev-sms-phone <手机号>   准入名单种子(11 位手机号),可重复;只与 --allow-dev-sms
+                             同用。渲染成 SMS_PHONE_WHITELIST —— 固定验证码只对这些
+                             号码生效,其它号码一律拒;不给号码脚本直接报错退出
+                             (否则 migrate 会被 accounts.E001 拦住)
   --admin-phone <手机号>     运营管理员手机号(公网/TLS 部署必填)
   --admin-password <口令>    管理员口令(仅首次创建时生效)
   --pip-index-url <URL>      pip 镜像,默认阿里云
@@ -139,6 +146,7 @@ while [ $# -gt 0 ]; do
         --no-tls)            NO_TLS=1; shift ;;
         --staging)           STAGING=1; shift ;;
         --allow-dev-sms)     ALLOW_DEV_SMS=1; shift ;;
+        --dev-sms-phone)     need_value "$1" "${2:-}"; DEV_SMS_PHONES+=("$2"); shift 2 ;;
         --render-only)       RENDER_ONLY=1; shift ;;
         --rotate-secrets)    ROTATE_SECRETS=1; shift ;;
         --skip-docker-install) SKIP_DOCKER_INSTALL=1; shift ;;
@@ -305,10 +313,53 @@ if [ "$TLS" = 1 ] || [ "$PUBLIC_IS_LOOPBACK" = 0 ]; then
      否则请先接短信商,再把 SMS_DEV_MODE 设为 0。"
     fi
 fi
+# --- 准入名单种子:dev-sms 与白名单**不是互斥的**,必须并存(#448)-------------
+# 判据是读代码得的,别猜:
+#   * accounts/checks.py::check_dev_sms_requires_allowlist —— accounts.E001 只在
+#     「非 DEBUG + SMS_DEV_MODE=1 + SMS_PHONE_WHITELIST 空 + SMS_ALLOWLIST_STRICT
+#     不是显式 "0"」时红;命中则 `manage.py migrate` 直接 SystemCheckError 退出 1。
+#   * accounts/services.py::ensure_phone_allowed 第 3/4 条 —— 种子里有这个号码就放行;
+#     库或种子任一非空 = 「名单机制已生效」,名单外的号码一律拒。
+# 所以「固定验证码 + 非空种子」正好就是封闭测试要的形态:只有种子里的号码能用 123456
+# 登录。缺了种子只剩两条路,都不许走:① 放宽 accounts.E001(准入是长期安全边界);
+# ② 渲染 SMS_ALLOWLIST_STRICT=0(= 名单为空也放行任意号码,比不放号更糟)。
+# 结论:--allow-dev-sms 必须带 --dev-sms-phone,否则直接报错、不渲染注定起不来的栈。
+validate_dev_sms_phone() {
+    case "$1" in
+        1[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+        *) die "--dev-sms-phone 必须是 11 位手机号(1 开头、纯数字;多个号码请重复本参数,不要用逗号): $1" ;;
+    esac
+}
+if [ ${#DEV_SMS_PHONES[@]} -gt 0 ]; then
+    for _phone in "${DEV_SMS_PHONES[@]}"; do
+        validate_dev_sms_phone "$_phone"
+    done
+    unset _phone
+fi
+if [ "$ALLOW_DEV_SMS" = 1 ] && [ ${#DEV_SMS_PHONES[@]} -eq 0 ]; then
+    die "拒绝渲染:--allow-dev-sms 必须再给至少一个 --dev-sms-phone <手机号>。
+     固定验证码 + 空准入名单 = 任何手机号都能用 123456 登录(含运营账号);
+     而且准入检查 accounts.E001 会在这个栈的 migrate 上直接报 SystemCheckError(退出 1),
+     渲染出来的栈注定起不来。准入名单是这条路径的一部分,不是可选项:
+       sudo bash deploy/oneclick.sh --no-tls --allow-dev-sms --dev-sms-phone 13900000001
+     多个号码重复 --dev-sms-phone 即可。生产实例(接了真实短信商)不要加
+     --allow-dev-sms,名单走库表 /ops/allowlist/ 或 manage.py allowlist_seed_import。"
+fi
+if [ ${#DEV_SMS_PHONES[@]} -gt 0 ] && [ "$ALLOW_DEV_SMS" != 1 ]; then
+    die "--dev-sms-phone 只能与 --allow-dev-sms 一起用:它是固定验证码的准入种子,
+     没接短信商时才需要固定验证码。生产名单请用库表 /ops/allowlist/ 维护。"
+fi
+SMS_PHONE_WHITELIST=""
+if [ ${#DEV_SMS_PHONES[@]} -gt 0 ]; then
+    SMS_PHONE_WHITELIST=$(printf '%s\n' "${DEV_SMS_PHONES[@]}" | sort -u | tr '\n' ',')
+    SMS_PHONE_WHITELIST=${SMS_PHONE_WHITELIST%,}
+fi
+
 SMS_DEV_MODE=0
 if [ "$ALLOW_DEV_SMS" = 1 ]; then
     SMS_DEV_MODE=1
     warn "已启用 SMS_DEV_MODE=1(固定验证码 123456):仅限封闭测试,严禁对公网开放"
+    log "准入名单种子(SMS_PHONE_WHITELIST,只有这些号码能用 123456 登录): $SMS_PHONE_WHITELIST"
 fi
 
 if [ "$TLS" = 1 ]; then
@@ -481,6 +532,17 @@ OPS_OTP_REQUIRED=1
 OPS_ALLOWED_IPS=
 AUTO_APPROVE=0
 SMS_DEV_MODE=$SMS_DEV_MODE
+# 准入名单的兜底种子(名单主数据源是库表 accounts.PhoneAllowlist,/ops/allowlist/ 维护,
+# 加号/停用立刻生效)。--dev-sms-phone 渲染出来的号码写在这里:
+#   * 运行期(accounts/services.py::ensure_phone_allowed 第 3 条):固定验证码只对这些号码生效,
+#     库或种子非空即「名单机制已生效」,名单外的一律 403 + 40301;
+#   * 部署期(accounts/checks.py 的 accounts.E001):种子非空,migrate 不再 SystemCheckError。
+# 生产(没加 --allow-dev-sms)这里留空 = 照旧只认库表名单,判定完全不变。
+SMS_PHONE_WHITELIST=$SMS_PHONE_WHITELIST
+# 留空 = 按 DEBUG 自动(:accounts/services.py::_strict)。本栈 DEBUG=0,即生产口径 fail-closed:
+# 库与种子都空时拒绝一切号码。**不要在这里写 0** —— 那等于「名单为空也放行任意号码」,
+# 会让固定验证码对全网可用,正是准入闸门要防的那件事。
+SMS_ALLOWLIST_STRICT=
 
 MIN_APP_VERSION=$WEB_VERSION
 LATEST_APP_VERSION=$WEB_VERSION
@@ -676,6 +738,12 @@ if [ "$RENDER_ONLY" = 1 ]; then
     printf '\n下一步(去掉 --render-only 正式部署):\n'
     NEXT_ARGS=$([ "$TLS" = 1 ] && printf -- '--domain %s --email %s' "$DOMAIN" "$EMAIL" || printf -- '--no-tls')
     [ "$ALLOW_DEV_SMS" = 1 ] && NEXT_ARGS="$NEXT_ARGS --allow-dev-sms"
+    if [ ${#DEV_SMS_PHONES[@]} -gt 0 ]; then
+        for _phone in "${DEV_SMS_PHONES[@]}"; do
+            NEXT_ARGS="$NEXT_ARGS --dev-sms-phone $_phone"
+        done
+        unset _phone
+    fi
     [ -n "$ADMIN_PHONE" ] && NEXT_ARGS="$NEXT_ARGS --admin-phone $ADMIN_PHONE"
     printf '  sudo bash %s/deploy/oneclick.sh %s\n' "$REPO_DIR" "$NEXT_ARGS"
     exit 0
@@ -1004,7 +1072,7 @@ $(printf '%s✓ 部署完成%s' "$C_GREEN" "$C_RESET")
 
 $(printf '%s! 首次上线必读%s' "$C_YELLOW" "$C_RESET")
   1. 安全组/防火墙放行 TCP ${HTTP_PORT}、${HTTPS_PORT};$([ "$TLS" = 1 ] && printf 'HTTP 访问会自动 301 到 HTTPS。' || printf '当前是 HTTP 模式,未启用 HTTPS。')
-  2. $([ "$SMS_DEV_MODE" = 1 ] && printf 'SMS_DEV_MODE=1:验证码固定 123456,只适合封闭测试;接真实短信商后改成 0。' || printf 'SMS_DEV_MODE=0:已关闭固定验证码,需接真实短信商后才能登录。')
+  2. $([ "$SMS_DEV_MODE" = 1 ] && printf 'SMS_DEV_MODE=1:验证码固定 123456,只适合封闭测试;能登录的号码只有准入名单里的那批(SMS_PHONE_WHITELIST=%s,由 --dev-sms-phone 渲染),接真实短信商后改成 0。' "$SMS_PHONE_WHITELIST" || printf 'SMS_DEV_MODE=0:已关闭固定验证码,需接真实短信商后才能登录。')
      运营账号(staff/superuser)不能走短信登录,请直接用 $PUBLIC_URL/ops/ 的账号口令 + TOTP。
   3. AUTO_APPROVE=0:新资料图进入待审队列,去 /ops/photos/ 审核后才会出现在候选池。
   4. 首次进 /ops/ 会用管理员账号登录,并按提示绑定 TOTP(生产默认强制)。

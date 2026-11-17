@@ -68,11 +68,14 @@ nginx 容器(固定 172.28.0.10,uid 101)
 ```bash
 # 在仓库根目录
 sudo bash deploy/oneclick.sh --domain chat.example.com --email ops@example.com \
-    --admin-phone 13800138000 --allow-dev-sms
+    --admin-phone 13800138000 --allow-dev-sms --dev-sms-phone 13900000001
 ```
 
-> 最后两个参数不是可选的:公网/TLS 部署必须给 `--admin-phone`;
-> 没接真实短信商时还必须显式加 `--allow-dev-sms` 才会写入 `SMS_DEV_MODE=1`。
+> 后三个参数不是可选的:公网/TLS 部署必须给 `--admin-phone`;
+> 没接真实短信商时还必须显式加 `--allow-dev-sms` 才会写入 `SMS_DEV_MODE=1`;
+> 而 `--allow-dev-sms` 又**必须**配至少一个 `--dev-sms-phone <手机号>`(可重复),
+> 它会渲染成准入名单种子 `SMS_PHONE_WHITELIST` —— 固定验证码只对这些号码生效。
+> 不给号码时脚本直接报错退出,不会渲染出一个注定起不来的栈(见 §4.1)。
 > 不加 `--allow-dev-sms` 时 `SMS_DEV_MODE=0`,站点将无法用短信登录(这是有意的默认值)。
 
 脚本会依次完成:
@@ -122,12 +125,48 @@ bash deploy/oneclick.sh --render-only --no-tls --app-dir ./deploy-render
 | `--skip-docker-install` | 不自动安装 Docker |
 | `--no-build` | 跳过镜像构建,直接用现有镜像 |
 | `--imserver-image-tar <文件>` | 加载本地 `docker save` 的 imserver 镜像,跳过服务器编译 |
-| `--allow-dev-sms` | 允许写入 `SMS_DEV_MODE=1`(固定验证码 `123456`)。**默认不写**;TLS 或非回环地址的部署必须显式加它,否则脚本直接拒绝 |
+| `--allow-dev-sms` | 允许写入 `SMS_DEV_MODE=1`(固定验证码 `123456`)。**默认不写**;TLS 或非回环地址的部署必须显式加它,否则脚本直接拒绝。**必须同时给至少一个 `--dev-sms-phone`**,否则脚本直接报错退出(见 §4.1) |
+| `--dev-sms-phone <手机号>` | 准入名单种子,11 位手机号,可重复给出。渲染成 `chatapp.env` 的 `SMS_PHONE_WHITELIST`:**固定验证码只对这些号码生效**,名单外的一律 `403 + 40301`。只与 `--allow-dev-sms` 同用 |
 | `--admin-phone <手机号>` | 运营管理员手机号;公网/TLS 部署**必填**(仅 `--render-only` 本地预览允许占位 `13900000000`) |
 | `--admin-password <口令>` | 管理员口令(仅首次创建时生效) |
 | `--pip-index-url <URL>` | pip 镜像,默认阿里云 |
 | `--npm-registry <URL>` | npm 镜像,默认 npmmirror |
 | `--docker-repo-url <URL>` | RHEL 系 Docker CE 仓库,默认阿里云 |
+
+### 4.1 短信与准入名单:封闭测试 / 生产两套口径
+
+`--allow-dev-sms` 和准入名单**不是互斥的**,而是必须并存 —— 这条判断是照代码读出来的,
+不是配置口味(2026-11-17 修 `#448`;此前 `--allow-dev-sms` 渲染出的栈会被 `accounts.E001`
+挡在 `migrate` 上,从零起不来):
+
+- **部署期**(`chatapp/accounts/checks.py::check_dev_sms_requires_allowlist`):`accounts.E001`
+  只在「非 `DEBUG` + `SMS_DEV_MODE=1` + `SMS_PHONE_WHITELIST` 为空 + `SMS_ALLOWLIST_STRICT`
+  不是显式 `"0"`」时红,命中则 `manage.py migrate` 直接 `SystemCheckError` 退出 1。
+- **运行期**(`chatapp/accounts/services.py::ensure_phone_allowed`):库或种子任一非空 =
+  「名单机制已生效」,名单外的号码一律拒;种子里有这个号码就放行。
+- **空名单怎么处理**(`accounts/services.py::_strict`):`SMS_ALLOWLIST_STRICT` 留空 = 按
+  `DEBUG` 自动;本栈渲染的是 `DEBUG=0`,所以留空即**严格**(库与种子都空 = 谁都进不来)。
+
+所以「固定验证码 + 非空种子」正好是封闭测试要的形态:**只有种子里的号码能用 `123456` 登录**。
+脚本因此把两套口径分得很开:
+
+| | 封闭测试(`--allow-dev-sms` + `--dev-sms-phone`) | 生产(不加 `--allow-dev-sms`) |
+|---|---|---|
+| `SMS_DEV_MODE` | `1`(固定验证码 `123456`) | `0`(未接短信商时无法短信登录,有意如此) |
+| `SMS_PHONE_WHITELIST` | `--dev-sms-phone` 给的号码,逗号分隔 | 留空 |
+| `SMS_ALLOWLIST_STRICT` | 留空(= `DEBUG=0` 下严格) | 留空(= 严格) |
+| 谁能登录 | 只有种子号码(库表 `accounts.PhoneAllowlist` 里的也算) | 只认库表名单;库表也空 = 全拒 |
+
+两条不许走的路(也是本节的由来):
+
+1. **放宽 `accounts.E001`**:准入名单是长期安全边界(一个号泄露 = 账号被接管),
+   检查 fail-closed 是对的,不能为了「让 migrate 跑过去」拆掉闸门。
+2. **渲染 `SMS_ALLOWLIST_STRICT=0`**:它的语义是「名单为空也放行任意号码」,比不放号更糟 ——
+   等于把固定验证码开放给全网。所以脚本永远不写这个值,`--allow-dev-sms` 没给号码时
+   **直接报错退出**,而不是渲染出一个注定 `migrate` 失败的栈。
+
+> 库表名单(`accounts.PhoneAllowlist`)仍是主数据源,`/ops/allowlist/` 加号/停用立刻生效;
+> `.env` 的 `SMS_PHONE_WHITELIST` 只是冷启动种子 + 兜底安全网(库表被清空时老号还能登)。
 
 ## 5. 生成的文件
 
@@ -171,10 +210,12 @@ bash deploy/oneclick.sh --render-only --no-tls --app-dir ./deploy-render
 2. **登录 `/ops/`**:用 `secrets/admin.txt` 里的账号;首次登录会要求绑定 TOTP。
 3. **审核照片**:`AUTO_APPROVE=0`,新上传资料图是 `pending`,去 `/ops/photos/` 审核。
 4. **短信**:默认 `SMS_DEV_MODE=0`(未接短信商时无法登录);封闭测试需在部署时
-   显式加 `--allow-dev-sms`,验证码固定 `123456`。**运营账号(staff/superuser)不能
+   显式加 `--allow-dev-sms` 加至少一个 `--dev-sms-phone <手机号>`,验证码固定 `123456`,
+   **且只有 `SMS_PHONE_WHITELIST` 里那批号码能登录**(口径见 §4.1)。**运营账号(staff/superuser)不能
    走短信登录**(接口返回 403),只能从 `/ops/` 用账号口令 + TOTP 登录;
    封闭测试确需用运营账号登 App 时,在 `chatapp.env` 设 `SMS_ALLOW_STAFF_LOGIN=1`
-   并重启 web/worker(生产必须保持 0)。
+   并重启 web/worker(生产必须保持 0)。后续加号走 `/ops/allowlist/`(立刻生效,不用重启),
+   不必再重跑脚本。
 5. **发版**:Web 版本由 `web/package.json` 决定,脚本会把它写进
    `MIN_APP_VERSION`/`LATEST_APP_VERSION`;APK 需另行构建并放到站点可下载路径。
 6. **确认定时任务**:`systemctl list-timers 'chatapp-*'` 应看到
@@ -290,6 +331,23 @@ docker compose start web worker
 | 首页 404 但 `/healthz` 正常 | nginx 模板缺 `root /usr/share/nginx/html;`(镜像自带的 `default.conf` 被整目录覆盖挂载);E-6① 已补,老配置照抄一行即可 |
 | `nginx` 容器 `running` 却一直被标 `unhealthy`,宿主机端口连不上,`docker logs` 里没有任何报错 | 容器里 `docker exec <nginx 容器> ls /etc/nginx/conf.d/`;报 `Permission denied` 就是配置目录权限(旧的整目录挂载 + `oneclick.sh` 的 `umask 077` 建成 700,uid 101 读不到,`include` 展开为空 → 一个端口都不监听)。修:`chmod 755 /opt/chatapp/nginx /opt/chatapp/nginx/conf.d` 后 `docker compose ... restart nginx`;模板已改成只挂单个 `default.conf`(2026-11-17,#445) |
 | `db-init` 退出码 1,日志 `ERROR 1045 (28000): Access denied for user 'root'@'172.x.y.z'` | `MYSQL_ROOT_HOST` 与 mysql 实际所在网段对不上。`172.29.0.%` 是 `backend` 网(`BACKEND_SUBNET`)派生出来的;`172.28.0.%` 说明是 2026-11-17 之前渲染的旧配置 —— 重跑 `oneclick.sh` 让 `backend` 的 `ipam` 与 `MYSQL_ROOT_HOST` 一起更新,并 `down -v` 清卷重建(账号只在首次初始化数据卷时创建) |
+| `migrate` 退出码 1,`SystemCheckError: (accounts.E001) 生产开启了固定验证码(SMS_DEV_MODE=1),但没有任何准入名单种子` | 栈是 2026-11-17 之前用 `--allow-dev-sms` 渲染的旧产物:有 `SMS_DEV_MODE=1` 却没有 `SMS_PHONE_WHITELIST`。**别加 `--skip-checks`、也别写 `SMS_ALLOWLIST_STRICT=0`**(那等于放行任意号码),按 §4.1 重跑渲染并带上号码:`oneclick.sh ... --allow-dev-sms --dev-sms-phone <号码>`;只想让老号进来的话,也可以保留现有栈、在 `chatapp.env` 补一行 `SMS_PHONE_WHITELIST=13x,13y` 后重启 web/worker |
+
+### 已修(2026-11-17,#448):`--allow-dev-sms` 渲染出注定 `migrate` 失败的栈
+
+- 当时的现象:`oneclick.sh --allow-dev-sms --render-only` 渲染出的 `chatapp.env` 只有
+  `SMS_DEV_MODE=1`,没有 `SMS_PHONE_WHITELIST`;用它起栈时 `migrate` 直接
+  `SystemCheckError: (accounts.E001)` 退出 1(`web`/`worker`/`imserver`/`nginx` 全停在
+  `created`),即「封闭测试实例」这条路完全走不通。
+- 原因:准入检查是 **fail-closed** 的(`accounts/checks.py`),而脚本漏渲染了名单种子 ——
+  `--allow-dev-sms` 与准入名单本来就该并存,不是互斥(判据见 §4.1)。
+- 修法:`oneclick.sh` 新增 `--dev-sms-phone <手机号>`(可重复),渲染成
+  `SMS_PHONE_WHITELIST`;`--allow-dev-sms` 没带号码时**直接报错退出**并说明会被
+  `accounts.E001` 拦住,不再渲染注定起不来的栈。`accounts.E001` 本身**一个字没改**,
+  `SMS_ALLOWLIST_STRICT` 仍渲染为空(= `DEBUG=0` 下严格),没有引入「名单为空也放行」的口子。
+- 实测:同一份渲染产物只起 `db-init` + `migrate`,**`migrate` 退出 0**;把种子清空后同一命令
+  立刻复现 `accounts.E001`(退出 1);运行期 `ensure_phone_allowed` 对种子号码放行、
+  对名单外号码拒绝。
 
 ### 已修(2026-11-17,#445):从零 `up` 时 `db-init` 因 root 主机名单不匹配退出 1
 
@@ -343,7 +401,9 @@ docker compose start web worker
   核对口令到底生效没有**别靠 `inspect`**,按 §6 第 7 条打一次(`-a` 回 `PONG`、不带 `-a`
   回 `NOAUTH`;要确认口令落在哪,`grep requirepass /opt/chatapp/redis/redis.conf`);
 - 生产默认 `DEBUG=0`、`AUTO_APPROVE=0`、`OPS_OTP_REQUIRED=1`、`HTTPS_ENABLED=1`、
-  `SMS_DEV_MODE=0`、`SMS_ALLOW_STAFF_LOGIN=0`;
+  `SMS_DEV_MODE=0`、`SMS_ALLOW_STAFF_LOGIN=0`;准入名单(`SMS_PHONE_WHITELIST` 种子 +
+  库表 `accounts.PhoneAllowlist`)是**长期准入机制**,`accounts.E001` 保持 fail-closed,
+  脚本也**从不**渲染 `SMS_ALLOWLIST_STRICT=0`(口径见 §4.1);
 - 外部镜像钉成「具体版本 tag + digest」(第五轮 L-3):`mysql:8.0.46`、`redis:7.4.12-alpine`、
   `certbot/certbot:v5.10.0` 后面都跟 `@sha256:`,而且取的是**多架构 index digest**
   (amd64 / arm64 都能拉)。这样 registry 上同名 tag 被重推也不影响已部署内容;
@@ -351,7 +411,8 @@ docker compose start web worker
   `nginxinc/nginx-unprivileged:1.27.5-alpine`,见 `deploy/docker/*.Dockerfile`);
   **代价是不会自动跟着打补丁** —— 升级要主动做,见下面的 recipe;
 - 仍存在的已知风险:
-  - 未接真实短信商时,封闭测试必须显式 `--allow-dev-sms`(固定验证码);
+  - 未接真实短信商时,封闭测试必须显式 `--allow-dev-sms` + `--dev-sms-phone <号码>`
+    (固定验证码,且只对种子号码生效,见 §4.1);
   - 聊天图片/语音没有机器审核,只有 `/ops/` 人工抽审;
   - 媒体存本地磁盘,未接对象存储/CDN;
   - 备份文件未自动加密,需运维按 §8 自行加密/离线保存。
