@@ -58,3 +58,18 @@ Future<String> voiceTempPath() async {
 /// 临时文件路径工厂;测试里 override 成固定路径(避免依赖 path_provider 插件)。
 final voiceTempPathProvider =
     Provider<Future<String> Function()>((ref) => voiceTempPath);
+
+/// 本地录音是否还在(重发语音前必查):临时目录由系统清理,文件没了重传只会再失败一次。
+///
+/// 抽成 provider 的原因与 [voiceTempPathProvider] 一样:widget 测试跑在假时钟 zone 里,
+/// 真实文件 IO 的 Future 不完成,页面会卡在「点重试没反应」。测试里 override 成内存实现。
+final voiceFileExistsProvider = Provider<Future<bool> Function(String path)>(
+  (ref) => (path) async {
+    if (path.isEmpty) return false;
+    try {
+      return await File(path).exists();
+    } catch (_) {
+      return false; // 读不到就当没了:让用户重录,别让重试一直失败
+    }
+  },
+);

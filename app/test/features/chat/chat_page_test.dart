@@ -20,7 +20,9 @@ import 'package:chatapp_app/features/presence/presence_controller.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:chatapp_app/im/im_manager.dart';
+import 'package:chatapp_app/features/chat/voice_record_controller.dart';
 import 'package:chatapp_app/im/voice_recorder.dart';
+import 'package:chatapp_app/im/voice_transcode.dart';
 
 import '../../support/fake_im_client.dart';
 import '../../support/fake_voice.dart';
@@ -151,6 +153,64 @@ void main() {
     expect(recorder.started, isTrue);
     expect(recorder.startPath, '/tmp/voice.m4a');
     expect(fake.log.any((line) => line.startsWith('sendVoice:u9:/tmp/voice.m4a:')), isTrue);
+  });
+
+  testWidgets('语音上传被受理为排队转码:气泡先「处理中」,转完变成正常语音气泡', (tester) async {
+    await pumpChat(tester, overrides: [
+      voiceRecorderProvider.overrideWithValue(FakeVoiceRecorder()),
+      voiceTempPathProvider.overrideWithValue(() async => '/tmp/voice.m4a'),
+    ]);
+
+    // 模拟 202:先回调「排队转码」,再挂住等测试放行
+    fake.voiceQueued = true;
+    final gate = Completer<void>();
+    fake.voiceGate = gate;
+
+    final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('chat.mic'))));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 1100)));
+    await gesture.up();
+    // 转码中有常驻转圈:只能有限推进
+    await pumpFrames(tester);
+
+    expect(find.byKey(const Key('chat.voice.transcoding')), findsOneWidget);
+    expect(find.text(voiceTranscodePendingText), findsWidgets);
+    expect(find.byKey(const Key('chat.status.transcoding')), findsOneWidget);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('chat.voice.transcoding')), findsNothing);
+    expect(find.byKey(const Key('voice.bubble')), findsOneWidget);
+  });
+
+  testWidgets('重试语音时本地录音已被清掉:提示重录,不重发请求', (tester) async {
+    fake.history = {
+      'u9': [
+        ChatMessage(
+          msgId: 'local-9',
+          peerId: 'u9',
+          isSelf: true,
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+          kind: ChatMessageKind.voice,
+          localPath: '/tmp/gone.m4a',
+          voiceDurationMs: 3000,
+          isFailed: true,
+        ),
+      ],
+    };
+    await pumpChat(tester, overrides: [
+      // 真实文件 IO 在假时钟 zone 里不返回:这里直接声明「文件没了」
+      voiceFileExistsProvider.overrideWithValue((path) async => false),
+    ]);
+
+    await tester.tap(find.byKey(const Key('chat.retry')));
+    await tester.pump();
+
+    expect(find.text(voiceRetryMissingFileText), findsOneWidget);
+    expect(fake.log.where((line) => line.startsWith('sendVoice:')), isEmpty);
+    await drainToast(tester);
   });
 
   testWidgets('后端不支持语音时隐藏麦克风', (tester) async {

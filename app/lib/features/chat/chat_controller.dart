@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
+import '../../im/voice_transcode.dart';
 import 'conversations_controller.dart';
 
 /// 单个会话的消息流:历史 + 实时,外加乐观发送。
@@ -27,6 +28,10 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
   /// 客户端节流窗口:3 秒内最多发一次。
   static const typingThrottle = Duration(seconds: 3);
 
+  /// 控制器已销毁(离开聊天页)。语音转码轮询可能还在跑,它回来时必须知道「别再写状态」:
+  /// 销毁后再 `state = …` 会直接抛错。
+  bool _disposed = false;
+
   @override
   Future<List<ChatMessage>> build() async {
     final status = ref.watch(imStatusProvider);
@@ -48,6 +53,7 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     });
     ref.onDispose(sub.cancel);
     ref.onDispose(() => _typingCooldown?.cancel());
+    ref.onDispose(() => _disposed = true);
     _markRead(client);
     unawaited(_seedPeerReadSeq(client));
     return client.fetchHistory(peerId);
@@ -99,6 +105,7 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
   }
 
   void _append(ChatMessage message) {
+    if (_disposed) return;
     final current = state.value ?? const <ChatMessage>[];
     if (current.any((item) => item.msgId == message.msgId)) return;
     state = AsyncValue.data([...current, message]);
@@ -132,17 +139,35 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         ref: _localRef(ref.read(chatQuoteTargetProvider(peerId))),
       ));
 
-  Future<void> sendVoice(String path, int durationMs) => _sendOut(ChatMessage(
-        msgId: 'local-${DateTime.now().microsecondsSinceEpoch}',
-        peerId: peerId,
-        isSelf: true,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-        kind: ChatMessageKind.voice,
-        localPath: path,
-        voiceDurationMs: durationMs,
-        isPending: true,
-        ref: _localRef(ref.read(chatQuoteTargetProvider(peerId))),
-      ));
+  /// 发送语音(M-3:上传抢不到转码槽时走 202 + 轮询)。
+  ///
+  /// 「转码中」是一个**独立的界面态**:服务端受理为排队转码时,气泡从「发送中」换成
+  /// 「处理中」(转圈),等到轮询拿到 `ready` 才真正把 WS 帧发出去;轮询失败则落回
+  /// 普通的「发送失败 + 重试」。
+  Future<void> sendVoice(String path, int durationMs) {
+    final pending = ChatMessage(
+      msgId: 'local-${DateTime.now().microsecondsSinceEpoch}',
+      peerId: peerId,
+      isSelf: true,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      kind: ChatMessageKind.voice,
+      localPath: path,
+      voiceDurationMs: durationMs,
+      isPending: true,
+      ref: _localRef(ref.read(chatQuoteTargetProvider(peerId))),
+    );
+    return _sendOut(pending, onTranscode: _transcodeHook(pending));
+  }
+
+  /// 给一条语音消息造转码回调:受理时把气泡打成「处理中」,离开会话后让轮询收工。
+  ///
+  /// Args:
+  ///   pending: 本次发送的乐观消息(重发时是同一条,msgId 不变)。
+  VoiceTranscodeHook _transcodeHook(ChatMessage pending) => VoiceTranscodeHook(
+        onQueued: (_, _) => _replace(
+            pending.msgId, pending.copyWith(isPending: true, isTranscoding: true)),
+        cancelled: () => _disposed,
+      );
 
   /// 发贴纸(批次 J):消息里只带 id,图片资源在客户端本地。
   Future<void> sendSticker(String stickerId) => _sendOut(ChatMessage(
@@ -174,18 +199,26 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
         );
 
   /// 失败不抛异常、消息保留 isFailed;重发复用同一条(msgId 不变,靠 upsert 就地替换)。
-  Future<void> _sendOut(ChatMessage pendingMessage) async {
+  ///
+  /// Args:
+  ///   pendingMessage: 乐观上屏的那条消息。
+  ///   onTranscode: 语音转码进度回调(见 [sendVoice]);其它类型传 null。
+  Future<void> _sendOut(ChatMessage pendingMessage,
+      {VoiceTranscodeHook? onTranscode}) async {
     _upsert(pendingMessage);
     final client = ref.read(imClientProvider);
     try {
-      final sent = await client.resend(pendingMessage);
+      final sent = await client.resend(pendingMessage, onTranscode: onTranscode);
+      if (_disposed) return;
       // 上行只发了 `ref_msg_id`,回执里自然没有快照:把本地那份留在气泡上,
       // 否则「发送中」的引用块会在发送成功的一瞬间消失。
       _replace(pendingMessage.msgId, sent.copyWith(ref: pendingMessage.ref));
       // 发出去就清掉引用条:下一条消息默认不带引用。
       ref.read(chatQuoteTargetProvider(peerId).notifier).clear();
     } catch (_) {
-      _replace(pendingMessage.msgId, pendingMessage.copyWith(isPending: false, isFailed: true));
+      // 转码失败 / 发送失败都落这里:音频文件留在本地,重试就是重新上传同一段。
+      _replace(pendingMessage.msgId,
+          pendingMessage.copyWith(isPending: false, isFailed: true, isTranscoding: false));
     }
   }
 
@@ -207,8 +240,16 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
     }
   }
 
-  Future<void> retry(ChatMessage message) =>
-      _sendOut(message.copyWith(isPending: true, isFailed: false));
+  /// 重发一条失败的消息;语音带上转码回调(重发同样可能再排一次队)。
+  ///
+  /// 语音的本地文件是否还在(录音可能已被系统清掉)由页面先判 —— 这里只负责重发。
+  Future<void> retry(ChatMessage message) {
+    final pending =
+        message.copyWith(isPending: true, isFailed: false, isTranscoding: false);
+    return _sendOut(pending,
+        onTranscode:
+            pending.kind == ChatMessageKind.voice ? _transcodeHook(pending) : null);
+  }
 
   /// 删除本地消息:本地未发出的直接移出列表;已发出的尽力删 SDK 本地库。
   Future<void> deleteLocal(ChatMessage message) async {
@@ -273,6 +314,7 @@ class ChatController extends AsyncNotifier<List<ChatMessage>> {
   }
 
   void _replace(String msgId, ChatMessage next) {
+    if (_disposed) return; // 转码轮询回来得比页面晚:丢弃这次写状态
     final current = state.value ?? const <ChatMessage>[];
     state = AsyncValue.data(
         [for (final item in current) if (item.msgId == msgId) next else item]);

@@ -9,8 +9,10 @@ import '../../../core/theme/heart_colors.dart';
 import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_section_card.dart';
+import '../../../core/widgets/app_spinner.dart';
 import '../../../core/widgets/app_toast.dart';
 import '../../../im/voice_recorder.dart';
+import '../../../im/voice_transcode.dart';
 import '../profile_controller.dart';
 import '../profile_voice_controller.dart';
 import '../profile_voice_io.dart';
@@ -38,9 +40,13 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
     _voice = ProfileVoiceController(
       recorder: ref.read(voiceRecorderProvider),
       tempPath: ref.read(voiceTempPathProvider),
-      onUpload: (path) async {
+      // M-3:上传抢不到转码槽时服务端回 202,控制器按 retry_after 轮询到 ready 为止;
+      // `onQueued` 一到就把卡片切成「处理中」,并把资料里的旧语音先下线(服务端已删文件)。
+      onUpload: (path, hook) async {
         final bytes = await io.read(path);
-        return ref.read(profileProvider.notifier).uploadVoice(bytes, 'intro.m4a');
+        return ref
+            .read(profileProvider.notifier)
+            .uploadVoice(bytes, 'intro.m4a', hook: hook);
       },
       onDelete: () => ref.read(profileProvider.notifier).deleteVoice(),
       deleteFile: io.delete,
@@ -109,7 +115,7 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
           children: [
             _RecordButton(
               recording: recording,
-              enabled: phase != ProfileVoicePhase.uploading,
+              enabled: !_voice.busy,
               onStart: _voice.start,
               onEnd: _voice.stop,
             ),
@@ -118,7 +124,9 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
           ],
         ),
         if (recording) _recordingProgress(colors),
-        if (phase == ProfileVoicePhase.recorded || phase == ProfileVoicePhase.uploading) ...[
+        if (phase == ProfileVoicePhase.recorded ||
+            phase == ProfileVoicePhase.uploading ||
+            phase == ProfileVoicePhase.transcoding) ...[
           VoiceIntroBar(
             source: _voice.localPath ?? '',
             durationMs: _voice.localDurationMs,
@@ -138,9 +146,41 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
               Expanded(
                 child: _TextButton(
                   buttonKey: const Key('edit.voice.upload'),
-                  label: _voice.busy ? '上传中…' : '保存语音',
-                  primary: true,
+                  label: phase == ProfileVoicePhase.transcoding
+                      ? voiceTranscodePendingText
+                      : (_voice.busy ? '上传中…' : '保存语音'),
+                  primary: !_voice.busy,
                   onPressed: _voice.busy ? null : _upload,
+                ),
+              ),
+            ],
+          ),
+        ],
+        // M-3 失败态:原因写在状态行(上面),这里只给「重试 / 取消」两个动作。
+        // 重试 = 重新上传同一段本地录音(文件还在,不必重录)。
+        if (phase == ProfileVoicePhase.failed) ...[
+          VoiceIntroBar(
+            source: _voice.localPath ?? '',
+            durationMs: _voice.localDurationMs,
+            isLocal: true,
+            keyPrefix: 'edit.voice.local',
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: _TextButton(
+                  buttonKey: const Key('edit.voice.cancel'),
+                  label: '取消',
+                  onPressed: _voice.discardLocal,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: _TextButton(
+                  buttonKey: const Key('edit.voice.retry'),
+                  label: '重试',
+                  primary: true,
+                  onPressed: _voice.retry,
                 ),
               ),
             ],
@@ -166,23 +206,38 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
     );
   }
 
-  /// 麦克风旁的文案:按住录音 / 倒计时 / 上传中 / 已保存(时长)。
+  /// 麦克风旁的文案:按住录音 / 倒计时 / 上传中 / 转码中 / 已保存(时长) / 转码失败。
+  ///
+  /// 转码中(M-3)多挂一个小转圈:上传是「我的文件在传」,转码是「服务端在转」,
+  /// 后者可能要等几秒到几十秒,得让人看出还在动(「心跳」§7 加载走中性色)。
   Widget _status(BuildContext context, ProfileVoicePhase phase) {
     final colors = context.heart;
     final (text, color) = switch (phase) {
       ProfileVoicePhase.recording => ('还剩 ${_voice.remainingSeconds} 秒', colors.brand),
       ProfileVoicePhase.uploading => ('正在上传…', colors.text2),
+      ProfileVoicePhase.transcoding => ('转码中,请稍候…', colors.text2),
+      ProfileVoicePhase.failed =>
+        (_voice.failureMessage ?? voiceTranscodeFailedText, colors.danger),
       ProfileVoicePhase.recorded => ('已录好 ${_voice.localDurationMs ~/ 1000} 秒,可试听或保存',
           colors.text1),
       ProfileVoicePhase.saved => ('已保存 ${_voice.voice?.durationLabel ?? ''}', colors.text1),
       ProfileVoicePhase.idle => ('按住麦克风录音,最长 ${_voice.maxSeconds} 秒', colors.text2),
     };
-    return Text(
+    final label = Text(
       text,
       key: phase == ProfileVoicePhase.recording
           ? const Key('edit.voice.timer')
           : const Key('edit.voice.status'),
       style: AppText.caption.copyWith(color: color),
+    );
+    if (phase != ProfileVoicePhase.transcoding) return label;
+    return Row(
+      key: const Key('edit.voice.transcoding'),
+      children: [
+        const AppSpinner(),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(child: label),
+      ],
     );
   }
 

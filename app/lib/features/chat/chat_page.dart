@@ -376,6 +376,26 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
   }
 
+  /// 重发一条失败的消息(M-3:语音转码失败 / 发送失败都走这里)。
+  ///
+  /// 语音要先确认那段本地录音还在:临时目录会被系统清理,文件没了还去重传只会再失败一次,
+  /// 这时直接提示重录(与「点击重试」同一处入口,不给用户一个永远转圈的重试)。
+  ///
+  /// Args:
+  ///   message: 被点重发的消息。
+  Future<void> _retryMessage(ChatMessage message) async {
+    if (message.kind == ChatMessageKind.voice) {
+      final exists = await ref
+          .read(voiceFileExistsProvider)(message.localPath ?? '');
+      if (!mounted) return;
+      if (!exists) {
+        AppToast.show(context, voiceRetryMissingFileText);
+        return;
+      }
+    }
+    await ref.read(chatProvider(widget.peerId).notifier).retry(message);
+  }
+
   /// 贴纸是**直接发送**(不插输入框):点一下就是一条消息。
   Future<void> _sendSticker(String stickerId) async {
     await ref.read(chatProvider(widget.peerId).notifier).sendSticker(stickerId);
@@ -706,8 +726,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                             onTapQuote: message.ref == null
                                 ? null
                                 : () => _jumpToQuote('${message.ref!.msgId}'),
-                            onRetry: () =>
-                                ref.read(chatProvider(widget.peerId).notifier).retry(message),
+                            onRetry: () => _retryMessage(message),
                           ),
                         ),
                     };

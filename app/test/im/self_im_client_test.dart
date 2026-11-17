@@ -9,6 +9,7 @@ import 'package:chatapp_app/im/self_image_uploader.dart';
 import 'package:chatapp_app/im/self_im_client.dart';
 import 'package:chatapp_app/im/self_transport.dart';
 import 'package:chatapp_app/im/self_voice_uploader.dart';
+import 'package:chatapp_app/im/voice_transcode.dart';
 
 class FakeTransport implements SelfTransport {
   final _frames = StreamController<String>.broadcast();
@@ -346,6 +347,80 @@ void main() {
     expect(sent.voiceDurationMs, 12500);
   });
 
+  test('sendVoice 把转码回调透传给上传器(M-3)', () async {
+    final transport = FakeTransport();
+    final uploader = FakeVoiceUploader();
+    final client = SelfImClient(
+        transportFactory: () => transport, voiceUploader: uploader);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', token: 'tok');
+    await pumpEventQueue();
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
+    }));
+    await login;
+
+    var queued = 0;
+    final hook = VoiceTranscodeHook(onQueued: (id, retry) => queued++);
+    final pending = client.sendVoice(
+        peerId: 'u2', localPath: '/tmp/a.m4a', durationMs: 12500, onTranscode: hook);
+    await pumpEventQueue();
+
+    expect(uploader.hooks.single, same(hook));
+
+    final id = (jsonDecode(transport.sent.last) as Map<String, dynamic>)['id'];
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'ack', 'id': id,
+      'data': {'msg_id': '78', 'seq': 4, 'ts': 1700000000000},
+    }));
+    await pending;
+    expect(queued, 0, reason: '假上传器走同步路径,不该谎报排队');
+  });
+
+  test('resend 一条失败的语音:重新上传同一段录音,并带上转码回调', () async {
+    final transport = FakeTransport();
+    final uploader = FakeVoiceUploader();
+    final client = SelfImClient(
+        transportFactory: () => transport, voiceUploader: uploader);
+    await client.init(bootstrap);
+    final login = client.login(userId: 'u9', token: 'tok');
+    await pumpEventQueue();
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'auth_ok', 'data': {'uid': 9, 'heartbeat_sec': 25},
+    }));
+    await login;
+
+    final hook = VoiceTranscodeHook(onQueued: (id, retry) {});
+    final pending = client.resend(
+      const ChatMessage(
+        msgId: 'local-9',
+        peerId: 'u2',
+        isSelf: true,
+        timestamp: 1700000000000,
+        kind: ChatMessageKind.voice,
+        localPath: '/tmp/retry.m4a',
+        voiceDurationMs: 3200,
+        isFailed: true,
+      ),
+      onTranscode: hook,
+    );
+    await pumpEventQueue();
+
+    // 语音重发必须重新上传并再发一次 kind=voice 帧 —— 而不是掉进 sendText 发出空文本
+    expect(uploader.uploads.single, ('/tmp/retry.m4a', 3200));
+    expect(uploader.hooks.single, same(hook));
+    final frame = jsonDecode(transport.sent.last) as Map<String, dynamic>;
+    expect(frame['data']['kind'], 'voice');
+    expect(frame['data']['text'], isNull);
+
+    transport.emit(jsonEncode({
+      'v': 1, 'type': 'ack', 'id': frame['id'],
+      'data': {'msg_id': '79', 'seq': 5, 'ts': 1700000000001},
+    }));
+    final sent = await pending;
+    expect(sent.kind, ChatMessageKind.voice);
+  });
+
   test('sendVoice 没有上传器时抛 42202 且不发帧', () async {
     final transport = FakeTransport();
     final client = SelfImClient(transportFactory: () => transport);
@@ -441,9 +516,14 @@ class FakeVoiceUploader implements SelfVoiceUploader {
   final Object? failure;
   final uploads = <(String, int)>[];
 
+  /// 每次上传收到的转码回调:用来断言「界面能收到处理中 / 取消信号」。
+  final hooks = <VoiceTranscodeHook?>[];
+
   @override
-  Future<ChatVoiceUpload> upload(String localPath, int durationMs) async {
+  Future<ChatVoiceUpload> upload(String localPath, int durationMs,
+      {VoiceTranscodeHook? hook}) async {
     uploads.add((localPath, durationMs));
+    hooks.add(hook);
     if (failure != null) throw failure!;
     return const ChatVoiceUpload(
       id: 2,

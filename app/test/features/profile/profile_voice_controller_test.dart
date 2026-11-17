@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:chatapp_app/core/api_exception.dart';
 import 'package:chatapp_app/features/chat/voice_record_controller.dart';
 import 'package:chatapp_app/features/profile/models.dart';
 import 'package:chatapp_app/features/profile/profile_voice_controller.dart';
 import 'package:chatapp_app/im/voice_recorder.dart';
+import 'package:chatapp_app/im/voice_transcode.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -31,15 +34,26 @@ void main() {
   late List<String> uploaded;
   late DateTime clock;
   late bool failUpload;
+  late bool queued;
+  late String? transcodeFailure;
+  Completer<void>? gate;
   late int deleteCalls;
   late List<String> deletedFiles;
 
   ProfileVoiceController build({VoiceIntro? initial}) => ProfileVoiceController(
         recorder: recorder,
         tempPath: () async => '/tmp/profile-voice-1.m4a',
-        onUpload: (path) async {
+        onUpload: (path, hook) async {
           if (failUpload) throw ApiException('语音不能超过 30 秒', statusCode: 400);
           uploaded.add(path);
+          // 模拟 202(M-3):先回调「排队转码」,再按 [queueOutcome] 决定落点。
+          if (queued) hook.onQueued?.call(7, const Duration(seconds: 5));
+          // 观察「转码中」用:置上则挂在这里,测试推进后再放行
+          final pendingGate = gate;
+          if (pendingGate != null) await pendingGate.future;
+          if (transcodeFailure != null) {
+            throw VoiceTranscodeException(transcodeFailure!);
+          }
           return const VoiceIntro(
               url: 'http://test/media/voices/intro.m4a', durationMs: 12000);
         },
@@ -55,6 +69,9 @@ void main() {
     notices = [];
     uploaded = [];
     failUpload = false;
+    queued = false;
+    transcodeFailure = null;
+    gate = null;
     deleteCalls = 0;
     deletedFiles = [];
     clock = DateTime(2026, 11, 9, 12);
@@ -186,6 +203,71 @@ void main() {
     await c.start();
     expect(c.phase, ProfileVoicePhase.idle);
     expect(notices, contains(voiceTextPermissionDenied));
+    c.dispose();
+  });
+
+  test('202(转码排队):先「转码中」,轮询 ready 后落 saved', () async {
+    queued = true;
+    gate = Completer<void>();
+    final c = build();
+    await c.start();
+    clock = clock.add(const Duration(seconds: 2));
+    await c.stop();
+
+    final uploading = c.upload();
+    await pumpEventQueue();
+    expect(c.phase, ProfileVoicePhase.transcoding);
+    expect(c.busy, isTrue, reason: '转码中按钮要禁用');
+
+    gate!.complete();
+    await uploading;
+    expect(c.phase, ProfileVoicePhase.saved);
+    expect(c.voice?.url, 'http://test/media/voices/intro.m4a');
+    expect(deletedFiles, ['/tmp/profile-voice-1.m4a'], reason: '落 saved 才清临时文件');
+    c.dispose();
+  });
+
+  test('转码中不能重录 / 删除(状态机不允许半路插队)', () async {
+    queued = true;
+    gate = Completer<void>();
+    final c = build();
+    await c.start();
+    clock = clock.add(const Duration(seconds: 2));
+    await c.stop();
+
+    final uploading = c.upload();
+    await pumpEventQueue();
+    await c.start();
+    expect(c.phase, ProfileVoicePhase.transcoding);
+    await c.remove();
+    expect(deleteCalls, 0);
+
+    gate!.complete();
+    await uploading;
+    c.dispose();
+  });
+
+  test('转码失败 → failed + 中文原因,重试重新上传后 saved', () async {
+    queued = true;
+    transcodeFailure = '存储空间已满,请先删除部分照片';
+    final c = build();
+    await c.start();
+    clock = clock.add(const Duration(seconds: 2));
+    await c.stop();
+
+    await c.upload();
+    expect(c.phase, ProfileVoicePhase.failed);
+    expect(c.failureMessage, '存储空间已满,请先删除部分照片');
+    expect(c.localPath, '/tmp/profile-voice-1.m4a', reason: '本地录音留着才能重试');
+    expect(deletedFiles, isEmpty);
+
+    // 用户删掉几张照片后点「重试」:重传同一段,这次转码成功
+    transcodeFailure = null;
+    queued = false;
+    await c.retry();
+    expect(c.phase, ProfileVoicePhase.saved);
+    expect(uploaded, ['/tmp/profile-voice-1.m4a', '/tmp/profile-voice-1.m4a']);
+    expect(c.failureMessage, isNull);
     c.dispose();
   });
 

@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 
 import '../core/api_client.dart';
+import '../core/api_exception.dart';
+import 'voice_transcode.dart';
 
-/// 语音上传结果,字段与 `POST /api/v1/im/voices` 的响应一一对应。
+/// 语音上传结果,字段与 `POST /api/v1/im/voices` 的 `201` 响应一一对应。
 class ChatVoiceUpload {
   const ChatVoiceUpload({
     required this.id,
@@ -29,18 +31,49 @@ class ChatVoiceUpload {
 }
 
 /// 上传器抽象:自建 IM 的语音要先经 Django 转码落盘,再发 WS 消息。
+///
+/// 返回的永远是**可播放**的上传结果 —— `202`(排队转码)由实现内部按 `retry_after`
+/// 轮询到 `ready` 再说,调用方(WS 发送链路)不需要知道异步这回事。转码失败时抛
+/// [VoiceTranscodeException](文案可直接展示)。
 abstract class SelfVoiceUploader {
-  Future<ChatVoiceUpload> upload(String localPath, int durationMs);
+  /// 上传并等到可播放。
+  ///
+  /// Args:
+  ///   localPath: 本地录音文件。
+  ///   durationMs: 客户端测得的时长,**服务端会与实测值比对**(差超过 2 秒回 400)。
+  ///   hook: 转码进度回调;服务端受理为排队转码时回调 `onQueued`,页面离开时靠
+  ///     `cancelled` 让轮询收工。
+  Future<ChatVoiceUpload> upload(String localPath, int durationMs,
+      {VoiceTranscodeHook? hook});
 }
 
 /// 走 Django 的上传实现(复用 ApiClient 的 JWT 与刷新通道)。
+///
+/// 两条路径(`docs/api/im.md` §6.4):
+/// - 抢到转码槽 → `201 + {id,url,duration_ms,size,status:ready}`,直接用;
+/// - 槽被占 → `202 + {id,status:pending,retry_after}`,文件已落临时区、转码在 Celery 里排队,
+///   这里按 `retry_after` 轮询 §6.5 直到 `ready`(或 `failed`)。
 class ApiVoiceUploader implements SelfVoiceUploader {
-  ApiVoiceUploader(this._api);
+  ApiVoiceUploader(
+    this._api, {
+    this.pollRetryAfter,
+    this.sleep,
+    this.maxAttempts = VoiceTranscodePoller.defaultMaxAttempts,
+  });
 
   final ApiClient _api;
 
+  /// 首轮轮询间隔的兜底(测试里调小,免得真等 5 秒);不传就用 202 响应里的 `retry_after`。
+  final Duration? pollRetryAfter;
+
+  /// 轮询等待;测试里注入 no-op,真实运行走 `Future.delayed`。
+  final Future<void> Function(Duration delay)? sleep;
+
+  final int maxAttempts;
+
   @override
-  Future<ChatVoiceUpload> upload(String localPath, int durationMs) async {
+  Future<ChatVoiceUpload> upload(String localPath, int durationMs,
+      {VoiceTranscodeHook? hook}) async {
     final bytes = await File(localPath).readAsBytes();
     final name = localPath.split(Platform.pathSeparator).last;
     final data = await _api.post('/im/voices', data: FormData.fromMap({
@@ -49,11 +82,54 @@ class ApiVoiceUploader implements SelfVoiceUploader {
           contentType: DioMediaType('audio', 'mp4')),
       'duration_ms': '$durationMs',
     })) as Map<String, dynamic>;
+
+    // 202 与 201 的判别用响应体里的 `status`:契约里 202 **恒为** status=pending,
+    // 201 恒为 ready(docs/api/im.md §6.4)。不走 HTTP 状态码 —— ApiClient 只回 body,
+    // 而 body 已经足够区分,少一个耦合面。
+    final queued = data['status'] == 'pending' ? VoiceQueued.parse(data) : null;
+    if (queued == null) return _uploadOf(data, durationMs);
+
+    hook?.onQueued?.call(queued.id, queued.retryAfter);
+    final result = await VoiceTranscodePoller(
+      fetch: () => _status(queued.id),
+      cancelled: hook?.cancelled,
+      sleep: sleep,
+      maxAttempts: maxAttempts,
+    ).run(retryAfter: pollRetryAfter ?? queued.retryAfter);
+    final status = result.status;
+    if (result.outcome == VoicePollOutcome.settled && status != null && status.isReady) {
+      return ChatVoiceUpload(
+        id: status.id == 0 ? queued.id : status.id,
+        url: status.url ?? '',
+        durationMs: status.durationMs ?? durationMs,
+        size: status.size ?? 0,
+      );
+    }
+    throw VoiceTranscodeException(voicePollFailureText(result), code: status?.code);
+  }
+
+  /// 查一次聊天语音转码状态(`GET /im/voices/{voice_id}`)。
+  ///
+  /// Returns:
+  ///   状态响应体;404(语音不存在 / 不是本人上传)原样抛 [ApiException],轮询器按 4xx 立即收工。
+  Future<VoiceTranscode?> _status(int voiceId) async =>
+      VoiceTranscode.parse(await _api.get('/im/voices/$voiceId'));
+
+  /// 解析 `201` 响应体。
+  ///
+  /// Args:
+  ///   data: `POST /im/voices` 的响应体。
+  ///   declaredDurationMs: 客户端声明的时长,服务端没回 `duration_ms` 时兜底。
+  ChatVoiceUpload _uploadOf(Map<String, dynamic> data, int declaredDurationMs) {
+    final url = data['url'] as String?;
+    if (url == null || url.isEmpty) {
+      throw const VoiceTranscodeException(voiceTranscodeFailedText);
+    }
     return ChatVoiceUpload(
-      id: data['id'] as int,
-      url: data['url'] as String,
-      durationMs: data['duration_ms'] as int,
-      size: data['size'] as int,
+      id: (data['id'] as num?)?.toInt() ?? 0,
+      url: url,
+      durationMs: (data['duration_ms'] as num?)?.toInt() ?? declaredDurationMs,
+      size: (data['size'] as num?)?.toInt() ?? 0,
     );
   }
 }
