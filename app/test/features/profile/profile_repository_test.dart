@@ -5,7 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/api_client.dart';
+import 'package:chatapp_app/core/api_exception.dart';
 import 'package:chatapp_app/features/profile/profile_repository.dart';
+import 'package:chatapp_app/im/upload_idempotency.dart';
 import 'package:chatapp_app/im/voice_transcode.dart';
 
 import '../../support/sample_data.dart';
@@ -13,12 +15,13 @@ import '../../support/scripted_adapter.dart';
 
 void main() {
   late ScriptedAdapter adapter;
+  late Dio dio;
   late ProfileRepository repository;
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     adapter = ScriptedAdapter({});
-    final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
+    dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     // 轮询等待换成 no-op:真等 5 秒会把单测拖成分钟级
     repository = ProfileRepository(ApiClient(dio), sleep: (delay) async {});
   });
@@ -180,5 +183,96 @@ void main() {
     final failed = await repository.fetchVoiceStatus();
     expect(failed!.isFailed, isTrue);
     expect(failed.code, '41301');
+  });
+
+  group('uploadVoice 幂等键', () {
+    // 单测里不真等:退避等待全部记账(轮询等待仍是 no-op)
+    late List<Duration> sleeps;
+    late ProfileRepository retrying;
+
+    setUp(() {
+      sleeps = <Duration>[];
+      retrying = ProfileRepository(ApiClient(dio), sleep: (delay) async {},
+          retry: UploadRetry(sleep: (delay) async => sleeps.add(delay)));
+    });
+
+    List<String?> sentKeys() => adapter.log
+        .map((options) => options.headers[idempotencyKeyHeader] as String?)
+        .toList();
+
+    test('带上合法 key;同一次录音(同一来源)复用同一个 key,重录才换', () async {
+      adapter.routes['POST /users/me/voice'] = (options) => ok(voiceJson(), status: 201);
+      final bytes = Uint8List.fromList([1, 2, 3]);
+      final first = await repository.uploadVoice(bytes, 'intro.m4a', keySource: '/tmp/v1.m4a');
+      await repository.uploadVoice(bytes, 'intro.m4a', keySource: '/tmp/v1.m4a');
+      await repository.uploadVoice(bytes, 'intro.m4a', keySource: '/tmp/v2.m4a');
+
+      expect(first.url, 'http://test/media/voices/intro.m4a');
+      final keys = sentKeys();
+      expect(keys.first, matches(RegExp(r'^[A-Za-z0-9._:-]{1,128}$')));
+      expect(keys[1], keys[0], reason: '上传失败后再点一次「上传」仍是同一次上传');
+      expect(keys[2], isNot(keys[0]), reason: '重录换了文件 → 换新 key');
+    });
+
+    test('没有来源时每次调用一个新 key', () async {
+      adapter.routes['POST /users/me/voice'] = (options) => ok(voiceJson(), status: 201);
+      final bytes = Uint8List.fromList([1, 2, 3]);
+      await repository.uploadVoice(bytes, 'intro.m4a');
+      await repository.uploadVoice(bytes, 'intro.m4a');
+      final keys = sentKeys();
+      expect(keys[1], isNot(keys[0]));
+    });
+
+    test('202 的轮询请求不带幂等键(只读接口)', () async {
+      adapter.routes['POST /users/me/voice'] =
+          (options) => ok({'id': 7, 'status': 'pending', 'retry_after': 1}, status: 202);
+      adapter.routes['GET /users/me/voice'] = (options) => ok({
+            'id': 7,
+            'status': 'ready',
+            'url': 'http://test/media/voices/7.m4a',
+            'duration_ms': 18000,
+            'size': 72000,
+            'code': null,
+            'message': null,
+          });
+
+      await repository.uploadVoice(Uint8List.fromList([1]), 'intro.m4a',
+          keySource: '/tmp/v1.m4a');
+
+      final polls = adapter.log.where((options) => options.method == 'GET');
+      expect(polls, hasLength(1));
+      expect(polls.single.headers.containsKey(idempotencyKeyHeader), isFalse);
+      expect(adapter.log.first.headers[idempotencyKeyHeader], isNotNull);
+    });
+
+    test('409 + 40901 退避后同 key 重试成功', () async {
+      var calls = 0;
+      adapter.routes['POST /users/me/voice'] = (options) {
+        calls++;
+        return calls == 1
+            ? jsonErrorWithHeaders(409,
+                code: idempotencyConflictCode, message: '上一次上传还在处理,请勿重复提交')
+            : ok(voiceJson(), status: 201);
+      };
+
+      final voice = await retrying.uploadVoice(Uint8List.fromList([1, 2, 3]), 'intro.m4a',
+          keySource: '/tmp/v1.m4a');
+
+      expect(voice.durationMs, 18000);
+      expect(calls, 2);
+      expect(sentKeys().toSet().length, 1);
+      expect(sleeps.single.inMilliseconds, inInclusiveRange(1000, 2000));
+    });
+
+    test('400 时长超限立刻冒泡,不重试', () async {
+      adapter.routes['POST /users/me/voice'] =
+          (options) => jsonError(400, '语音时长与声明不符');
+      await expectLater(
+        retrying.uploadVoice(Uint8List.fromList([1, 2, 3]), 'intro.m4a', keySource: '/tmp/v1.m4a'),
+        throwsA(isA<ApiException>().having((error) => error.message, 'message', '语音时长与声明不符')),
+      );
+      expect(adapter.log.length, 1);
+      expect(sleeps, isEmpty);
+    });
   });
 }

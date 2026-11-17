@@ -12,8 +12,11 @@ class ApiClient {
   Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
       _guard(() => _dio.get<dynamic>(path, queryParameters: query));
 
-  Future<dynamic> post(String path, {Object? data}) =>
-      _guard(() => _dio.post<dynamic>(path, data: data));
+  /// [headers] 是**逐请求**的头,目前只有上传类接口用它带 `Idempotency-Key`
+  /// (见 `im/upload_idempotency.dart`);`X-Client` 之类的全局头仍挂在拦截器上。
+  Future<dynamic> post(String path, {Object? data, Map<String, String>? headers}) =>
+      _guard(() => _dio.post<dynamic>(path,
+          data: data, options: headers == null ? null : Options(headers: headers)));
 
   Future<dynamic> patch(String path, {Object? data}) =>
       _guard(() => _dio.patch<dynamic>(path, data: data));

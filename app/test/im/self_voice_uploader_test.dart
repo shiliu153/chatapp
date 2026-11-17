@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chatapp_app/core/api_client.dart';
 import 'package:chatapp_app/core/api_exception.dart';
 import 'package:chatapp_app/im/self_voice_uploader.dart';
+import 'package:chatapp_app/im/upload_idempotency.dart';
 import 'package:chatapp_app/im/voice_transcode.dart';
 
 import '../support/scripted_adapter.dart';
@@ -15,12 +16,19 @@ void main() {
   late ApiVoiceUploader uploader;
   late Directory tempDir;
   late String filePath;
+  late List<Duration> sleeps;
 
   setUp(() async {
     adapter = ScriptedAdapter({});
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
-    // 轮询等待换成 no-op:5 秒真等会把单测拖成分钟级
-    uploader = ApiVoiceUploader(ApiClient(dio), sleep: (delay) async {});
+    sleeps = <Duration>[];
+    // 轮询等待换成 no-op:5 秒真等会把单测拖成分钟级;
+    // 上传的退避等待记账,断言「同一次上传的重试复用同一个 key」。
+    uploader = ApiVoiceUploader(
+      ApiClient(dio),
+      sleep: (delay) async {},
+      retry: UploadRetry(sleep: (delay) async => sleeps.add(delay)),
+    );
     tempDir = await Directory.systemTemp.createTemp('voice-uploader-test');
     filePath = '${tempDir.path}/voice.m4a';
     await File(filePath).writeAsBytes([0, 1, 2, 3]);
@@ -29,6 +37,10 @@ void main() {
   tearDown(() async {
     if (await tempDir.exists()) await tempDir.delete(recursive: true);
   });
+
+  /// 请求头里带的幂等键,按发出顺序。
+  List<String?> sentKeys() =>
+      adapter.log.map((options) => options.headers[idempotencyKeyHeader] as String?).toList();
 
   test('201:同步转码完成,直接拿到可播放上传结果', () async {
     adapter.routes['POST /im/voices'] = (options) => ok({
@@ -59,6 +71,8 @@ void main() {
     expect(form.fields.single.key, 'duration_ms');
     expect(form.fields.single.value, '12500');
     expect(form.files.single.value.contentType?.mimeType, 'audio/mp4');
+    // 上传带一个合法的幂等键(口径见 docs/api/conventions.md「幂等键」)
+    expect(sentKeys().single, matches(RegExp(r'^[A-Za-z0-9._:-]{1,128}$')));
   });
 
   test('202 → pending → ready:先回调排队,再轮询一次拿 url', () async {
@@ -98,6 +112,15 @@ void main() {
     // 时长 / 大小以服务端实测为准(不是客户端声明的 12500)
     expect(upload.durationMs, 11800);
     expect(upload.size, 47000);
+    // 轮询是 GET,不该带幂等键;上传只打一次
+    final posts = adapter.log.where((options) => options.method == 'POST');
+    expect(posts, hasLength(1));
+    expect(posts.single.headers[idempotencyKeyHeader], isNotNull);
+    expect(
+        adapter.log
+            .where((options) => options.method == 'GET')
+            .every((options) => !options.headers.containsKey(idempotencyKeyHeader)),
+        isTrue);
   });
 
   test('202 → failed:抛 VoiceTranscodeException,带上业务码与中文提示', () async {
@@ -168,5 +191,79 @@ void main() {
       uploader.upload(filePath, 3000),
       throwsA(isA<VoiceTranscodeException>()),
     );
+  });
+
+  group('幂等键 + 上传退避', () {
+    test('断网重试:所有重试复用同一个 key,第三次成功', () async {
+      adapter.routes['POST /im/voices'] = (options) {
+        if (adapter.log.length < 3) return offline(options);
+        return ok({
+          'id': 46,
+          'status': 'ready',
+          'url': 'http://test/media/chat/voices/46-aa.m4a',
+          'duration_ms': 9000,
+          'size': 30000,
+        }, status: 201);
+      };
+
+      final upload = await uploader.upload(filePath, 9000);
+
+      expect(upload.id, 46);
+      final keys = sentKeys();
+      expect(keys.length, 3);
+      expect(keys.toSet().length, 1, reason: '同一次上传的重试必须复用同一个 key');
+      expect(sleeps, [const Duration(milliseconds: 500), const Duration(seconds: 1)]);
+    });
+
+    test('409 + 40901 退避后同 key 重试成功', () async {
+      var calls = 0;
+      adapter.routes['POST /im/voices'] = (options) {
+        calls++;
+        return calls == 1
+            ? jsonErrorWithHeaders(409,
+                code: idempotencyConflictCode, message: '上一次上传还在处理,请勿重复提交')
+            : ok({
+                'id': 46,
+                'status': 'ready',
+                'url': 'http://test/media/chat/voices/46-bb.m4a',
+                'duration_ms': 9000,
+                'size': 30000,
+              }, status: 201);
+      };
+
+      final upload = await uploader.upload(filePath, 9000);
+
+      expect(upload.id, 46);
+      expect(calls, 2);
+      expect(sentKeys().toSet().length, 1);
+      expect(sleeps.single.inMilliseconds, inInclusiveRange(1000, 2000));
+    });
+
+    test('5xx 退避重试,同 key;重试用尽则抛最后一次错误', () async {
+      adapter.routes['POST /im/voices'] =
+          (options) => jsonErrorWithHeaders(503, code: 50302, message: '转码服务忙,请稍后再试');
+
+      await expectLater(
+        uploader.upload(filePath, 12500),
+        throwsA(isA<ApiException>()
+            .having((error) => error.code, 'code', 50302)
+            .having((error) => error.message, 'message', '转码服务忙,请稍后再试')),
+      );
+      final keys = sentKeys();
+      expect(keys.length, 3, reason: '3 次尝试(含第一次)');
+      expect(keys.toSet().length, 1);
+      expect(sleeps, [const Duration(milliseconds: 500), const Duration(seconds: 1)]);
+    });
+
+    test('400 时长不符立刻冒泡:不重试', () async {
+      adapter.routes['POST /im/voices'] = (options) => jsonError(400, '语音时长与声明不符');
+
+      await expectLater(
+        uploader.upload(filePath, 3000),
+        throwsA(isA<ApiException>().having((error) => error.message, 'message', '语音时长与声明不符')),
+      );
+      expect(adapter.log.length, 1);
+      expect(sleeps, isEmpty);
+    });
   });
 }

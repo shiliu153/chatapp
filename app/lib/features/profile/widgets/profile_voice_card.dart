@@ -44,9 +44,11 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
       // `onQueued` 一到就把卡片切成「处理中」,并把资料里的旧语音先下线(服务端已删文件)。
       onUpload: (path, hook) async {
         final bytes = await io.read(path);
+        // path 是这段录音的身份:上传失败后用户再点一次「上传」还是同一个幂等键
+        // (服务端重放第一次的结果,不会存下两条),重录换了文件才换新 key
         return ref
             .read(profileProvider.notifier)
-            .uploadVoice(bytes, 'intro.m4a', hook: hook);
+            .uploadVoice(bytes, 'intro.m4a', hook: hook, keySource: path);
       },
       onDelete: () => ref.read(profileProvider.notifier).deleteVoice(),
       deleteFile: io.delete,
