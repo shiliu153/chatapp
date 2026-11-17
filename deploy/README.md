@@ -31,16 +31,18 @@ nginx 容器(固定 172.28.0.10,uid 101)
   因此 nginx 进程不需要 root,也不需要 `NET_BIND_SERVICE`(`cap_drop: [ALL]`)。
   改端口时只改宿主机侧(`--http-port` / `--https-port`),容器内端口是固定的。
 
-- 所有容器在固定子网 `172.28.0.0/16` 内;nginx 固定 `172.28.0.10`,
+- 所有容器在两张钉死网段的网络里:`default` = `172.28.0.0/16`(对外),`backend` =
+  `172.29.0.0/16`(internal,只放 MySQL/Redis);nginx 固定 `172.28.0.10`,
   Django 与 imserver 的 `TRUSTED_PROXY_IPS` 只信任这一个地址(不再是整个子网),
   其他容器无法伪造 `X-Real-IP`(H-2)。
 - 两张网络:`default` 负责对外,`backend`(internal)只放 MySQL/Redis,
   只有 web/worker/imserver 同时接入;nginx 与 certbot 没有到 3306/6379 的路由(M-6)。
-  (`backend` 的子网目前由 Docker 自动分配,不等于 `default` 的 `172.28.0.0/16` ——
-  这也是下面 §10「已知问题」里 `db-init` 起不来的原因。)
-- imserver 的 `/internal/*` 按 `IM_INTERNAL_ALLOW` 放行来源网段(默认 compose 子网),
-  仍校验 HMAC;不再依赖「源地址是回环」这个在容器里不成立的假设(H-1)。
-- MySQL root 只允许来自 compose 子网(`MYSQL_ROOT_HOST=172.28.0.%`),不是 `%`(L-9)。
+  `backend` 的网段**必须钉死**(`BACKEND_SUBNET`,默认 `172.29.0.0/16`):不钉就由 Docker
+  自动分配,`MYSQL_ROOT_HOST` 与 `IM_INTERNAL_ALLOW` 会算到错的那张网上(2026-11-17,#445)。
+- imserver 的 `/internal/*` 按 `IM_INTERNAL_ALLOW` 放行来源网段(默认两段:
+  `default` 与 `backend` 都在内),仍校验 HMAC;不再依赖「源地址是回环」这个在容器里
+  不成立的假设(H-1)。
+- MySQL root 只允许来自 `backend` 网段(`MYSQL_ROOT_HOST=172.29.0.%`),不是 `%`(L-9)。
 - 应用与 imserver 镜像以非 root(`uid 10001`)运行;每个服务都有内存/进程上限(M-5)。
 - MySQL 里有两个库:`chatapp`(Django)与 `chatapp_im`(imserver),账号分离。
 - 聊天走自建 IM(唯一后端,腾讯云 IM 分支已于 2026-11-08 删除)。
@@ -283,27 +285,31 @@ docker compose start web worker
 | 502 | `chatapp status`;web/imserver 是否 healthy;nginx 是否在 web 重建后没重启 |
 | 聊天图 403 | 检查 `IM_MEDIA_SIGN_SECRET` 在 Django 与 imserver 是否一致、`IM_MEDIA_PREFIX` 是否等于 `MEDIA_BASE_URL + /media/chat/` |
 | 所有请求都像来自 127.0.0.1 | nginx 是否设置 `X-Real-IP`;`TRUSTED_PROXY_IPS` 是否包含 nginx 的固定地址 `172.28.0.10` |
-| 聊天全挂 / `user_sig` 503 | 从 web 容器 `curl http://imserver:9101/internal/healthz`:403 说明 `IM_INTERNAL_ALLOW` 没包含 compose 子网(H-1);200 再看 HMAC 密钥是否两边一致 |
+| 聊天全挂 / `user_sig` 503 | 从 web 容器 `curl http://imserver:9101/internal/healthz`:403 说明来源网段不在 `IM_INTERNAL_ALLOW` 里(H-1)—— 正常情况下它同时包含 `default` 与 `backend` 两段;再用 imserver 的 backend 地址测一次(`docker exec <web> curl http://<imserver 的 172.29.x.x>:9101/internal/healthz`);200 再看 HMAC 密钥是否两边一致 |
 | 登录一直提示版本过低 | `MIN_APP_VERSION` 与 Web/APK 版本不一致;改 `.env` 后重启 web |
 | 首页 404 但 `/healthz` 正常 | nginx 模板缺 `root /usr/share/nginx/html;`(镜像自带的 `default.conf` 被整目录覆盖挂载);E-6① 已补,老配置照抄一行即可 |
 | `nginx` 容器 `running` 却一直被标 `unhealthy`,宿主机端口连不上,`docker logs` 里没有任何报错 | 容器里 `docker exec <nginx 容器> ls /etc/nginx/conf.d/`;报 `Permission denied` 就是配置目录权限(旧的整目录挂载 + `oneclick.sh` 的 `umask 077` 建成 700,uid 101 读不到,`include` 展开为空 → 一个端口都不监听)。修:`chmod 755 /opt/chatapp/nginx /opt/chatapp/nginx/conf.d` 后 `docker compose ... restart nginx`;模板已改成只挂单个 `default.conf`(2026-11-17,#445) |
-| `db-init` 退出码 1,日志 `ERROR 1045 (28000): Access denied for user 'root'@'172.x.y.z'` | `MYSQL_ROOT_HOST` 与实际连进来的子网对不上。`backend` 网的子网是 Docker 自动分配的(不一定是 `172.28.0.0/16`),而 `MYSQL_ROOT_HOST` 由 `DOCKER_SUBNET` 派生 —— 见本节末尾「已知问题」 |
+| `db-init` 退出码 1,日志 `ERROR 1045 (28000): Access denied for user 'root'@'172.x.y.z'` | `MYSQL_ROOT_HOST` 与 mysql 实际所在网段对不上。`172.29.0.%` 是 `backend` 网(`BACKEND_SUBNET`)派生出来的;`172.28.0.%` 说明是 2026-11-17 之前渲染的旧配置 —— 重跑 `oneclick.sh` 让 `backend` 的 `ipam` 与 `MYSQL_ROOT_HOST` 一起更新,并 `down -v` 清卷重建(账号只在首次初始化数据卷时创建) |
 
-### 已知问题:从零 `up` 时 `db-init` 会因 root 主机名单不匹配退出 1(2026-11-17 实测,#445)
+### 已修(2026-11-17,#445):从零 `up` 时 `db-init` 因 root 主机名单不匹配退出 1
 
-- 现象:`docker compose up -d` 停在 `service "db-init" didn't complete successfully: exit 1`,
-  容器日志是 `ERROR 1045 (28000): Access denied for user 'root'@'172.x.y.z'`;
+- 当时的现象:`docker compose up -d` 停在 `service "db-init" didn't complete successfully: exit 1`,
+  日志是 `ERROR 1045 (28000): Access denied for user 'root'@'172.25.0.4'`;
   `migrate` / `web` / `worker` / `imserver` / `nginx` 全部停在 `created`,一个都没起来。
-- 原因:mysql 只接在 `backend` 网(`internal`),而这张网在模板里**没有写 ipam**,子网由 Docker
-  从地址池自动分配(实测 `172.25.0.0/16`);`MYSQL_ROOT_HOST`(L-9)却是从 `DOCKER_SUBNET`
-  派生的 `172.28.0.%` —— 那是 `default` 网的网段。`db-init` 从 `backend` 侧以 root 连进来,
-  于是必然 1045。
-- 临时绕法(只用于排查,不要当正式配置):把 `MYSQL_ROOT_HOST` 改成 `%` 后重跑。
-  注意 MySQL 账号是首次初始化数据卷时创建的,改了环境变量必须 `docker compose down -v`
-  清卷重起才生效(卷里已经有数据时不要这么做)。
-- 正解(待落地):给 `backend` 网钉一段自己的子网,让 `MYSQL_ROOT_HOST` 按**那一段**派生,
-  并把这一段也加进 `IM_INTERNAL_ALLOW`。这需要 `deploy/oneclick.sh` 新增 `BACKEND_SUBNET`
-  变量并多渲染一个占位符 —— 涉及部署脚本,本轮未改。
+- 原因:mysql 只接在 `backend` 网(`internal`),而这张网原来**没有写 ipam**,子网由 Docker
+  从地址池自动分配(实测 `172.25.0.0/16`);`MYSQL_ROOT_HOST`(L-9)却按 `DOCKER_SUBNET`
+  派生,算的是 `default` 网那段。`db-init` 从 `backend` 侧以 root 连进来,必然 1045。
+- 修法:`oneclick.sh` 新增 `BACKEND_SUBNET="172.29.0.0/16"`,`MYSQL_ROOT_HOST` 改按它派生,
+  `IM_INTERNAL_ALLOW` 同时列两段,模板里 `backend` 网络钉 `ipam`。
+  **换网段只改 `oneclick.sh` 的 `BACKEND_SUBNET` 一处**,它会同时流到三个地方:
+  `docker-compose.yml` 的 `backend.ipam.config[0].subnet`(经 `__BACKEND_SUBNET__` 占位)、
+  `MYSQL_ROOT_HOST`(经 `__MYSQL_ROOT_HOST__` 占位)、`secrets/imserver.env` 的 `IM_INTERNAL_ALLOW`。
+  改完必须重跑 `oneclick.sh` 重新渲染,并 `docker compose down -v` 清卷(账号只在首次初始化
+  数据卷时创建,旧卷不会跟着改)。
+- 为什么 `IM_INTERNAL_ALLOW` 要把两段都列上:web/worker/migrate 同时接 `default` 与 `backend`,
+  只列 `default` 时能不能通取决于 Docker DNS 先回哪张网的地址(实测先回 default);一旦拿到
+  `backend` 地址就是 403,表现为「聊天全挂 / `user_sig` 503」。实测:去掉 `172.29.0.0/16`
+  后从 web 直连 imserver 的 `backend` 地址回 403,加回来回 200。
 
 ## 11. 与宝塔现网的关系
 
