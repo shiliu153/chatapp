@@ -85,6 +85,29 @@ services:
       # 口令的事实来源是 redis.conf。
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
     command: [redis-server, /usr/local/etc/redis/redis.conf]
+    # 直接以容器内 redis 用户(uid 999 / gid 1000)起进程,不靠 entrypoint 的 setpriv 降权。
+    #
+    # 为什么必须显式写 user(#441,2026-11-17 实测):官方镜像的 docker-entrypoint.sh
+    # 在 uid 0 分支里先 `find . ! -user redis -exec chown redis` 再 `setpriv --reuid redis`。
+    # 下面的 cap_drop: [ALL] 把 CAP_SETUID/CAP_SETGID 也丢了 —— 实测容器直接
+    # `setpriv: setresuid failed: Operation not permitted` 退出码 127,栈里 redis 永远
+    # unhealthy,oneclick.sh 卡死在 wait_for_healthy redis。只有 uid 是 0 时 entrypoint 才走
+    # 这段,写成非 root 后整段被跳过(setpriv 与 chown 都不再执行),最终进程身份与原先
+    # setpriv 降权后完全一致(uid 999 / gid 1000),caps 仍然一枚不留。
+    #
+    # 为什么不选「cap_add: [SETUID, SETGID] 继续让 entrypoint 降权」(同样实测):首次
+    # 启动能成功,但第二次启动(restart / 宿主机重启 / compose down 再 up)必挂 ——
+    # /data 里 redis 自己建的 appendonlydir 是 700 且属主 redis,root 在丢了
+    # CAP_DAC_READ_SEARCH / CAP_DAC_OVERRIDE 之后连 `find` 都进不去,entrypoint 是
+    # `set -e`,`find: ./appendonlydir: Permission denied` 直接退出码 1,容器反复重启。
+    # 要修就得再补 DAC 类 capability,越补越多;直接以 999 起进程反而不需要任何 cap。
+    #
+    # 代价与前提:/data 必须对 999:1000 可写。docker 会在卷首次创建时把镜像里 /data
+    # 的内容连同属主(999:1000)一起拷进具名卷,所以正常路径开箱即用;万一 /data 变成
+    # 不可写,redis 会以 `Can't open or create append-only dir appendonlydir: Permission
+    # denied` 退出(fail-fast,不会「起得来但 AOF 是废的」)。配置文件的属主在
+    # oneclick.sh 里已交给 999:1000(600),这里以 :ro 挂载不变。
+    user: "999:1000"
     volumes:
       - chatapp_redis:/data
       # 只读挂载:容器里没有任何进程需要改这份配置,只读能挡住「改配置改行为」
