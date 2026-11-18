@@ -79,7 +79,9 @@ IM_MIGRATIONS_DIR=/usr/local/share/imserver/migrations
 IM_ALLOWED_ORIGINS=https://<DOMAIN>
 # 可信代理:只有直连对端命中这些地址才采信 X-Real-IP(默认本机)
 IM_TRUSTED_PROXIES=127.0.0.1,::1
-# 内部管理接口(/internal/*)允许的来源网段;容器部署时 Django 的源地址不是回环
+# 内部管理接口(/internal/*)允许的来源网段。现网 imserver 走 host 网络、Django 在宿主机上,
+# 源地址就是回环,写默认值即可;`deploy/` 的 Compose 形态必须同时列 default + backend 两段,
+# 写法与理由见下面那条 `IM_INTERNAL_ALLOW` 说明
 IM_INTERNAL_ALLOW=127.0.0.1,::1
 # 监听非回环地址必须显式置 1(默认 0,写错成 0.0.0.0 会启动失败)
 IM_ALLOW_PUBLIC_BIND=0
@@ -126,9 +128,27 @@ IM_MEDIA_PREFIX=https://<SERVER_IP>/media/chat/
   **不要显式置空**:那会让所有连接都按对端地址计数,nginx 反代时全站挤在
   `127.0.0.1` 一个 key 上(启动日志会打 `trusted_proxies_empty` 警告)。
 - `IM_INTERNAL_ALLOW`(默认 `127.0.0.1,::1`)决定「谁可以调 `/internal/*`」,支持
-  IP 与 CIDR,非法条目**启动即失败**。Django 在容器里时源地址是 `172.28.0.x` 而不是
-  回环,只写回环会让 `user_sig` 503、配对/封禁/踢人全部静默失败(H-1)。容器部署写
-  compose 子网(如 `172.28.0.0/16`);**来源网段只是第一道闸,HMAC 校验照旧**。
+  IP 与 CIDR,非法条目**启动即失败**;**来源网段只是第一道闸,HMAC 校验照旧**。
+  写法按部署形态分两种:
+  - **宝塔现网(本节)**:imserver 用 `network_mode: host`、Django 跑在宿主机上,源地址就是
+    回环,写默认的 `127.0.0.1,::1` 即可(见 1.4 的示例);
+  - **`deploy/` 的 Compose 形态**(全 Docker,[deploy/README.md](../../deploy/README.md)):
+    Django 与 imserver 都在容器里,Django 经 `IM_SELF_URL=http://imserver:9101` 访问,而
+    `imserver` 自己同时接 `default`(对外)与 `backend`(internal,只放 MySQL/Redis)两张网、
+    `web`/`worker` 也同时接这两张 —— **两段都要列**:
+
+    ```ini
+    IM_INTERNAL_ALLOW=127.0.0.1,::1,172.28.0.0/16,172.29.0.0/16
+    ```
+
+    只列 `default` 一段时,能不能通取决于 Docker DNS 先返回哪张网的地址(实测先回 default);
+    一旦拿到 `backend` 地址就是 403,表现为「聊天全挂 / `user_sig` 503」、配对/封禁/踢人
+    静默失败(H-1)。这两段由 `deploy/oneclick.sh` 的 `DOCKER_SUBNET`(默认 `172.28.0.0/16`)
+    与 `BACKEND_SUBNET`(默认 `172.29.0.0/16`)派生后写进 `secrets/imserver.env`,不用手改;
+    **换 `backend` 网段只改 `BACKEND_SUBNET` 一处**,它会同时流到 `docker-compose.yml` 的
+    `backend.ipam.config[0].subnet`、`MYSQL_ROOT_HOST` 与这里的 `IM_INTERNAL_ALLOW` 三处,
+    改完重跑脚本重新渲染(改 `DOCKER_SUBNET` 还要同步 `NGINX_IP` 的固定地址)。口径与
+    踩坑记录以 [deploy/README.md](../../deploy/README.md) §1、§10 为准,本文不另立一份。
 - `IM_ALLOW_PUBLIC_BIND`(默认 `0`):`IM_LISTEN_WS`/`IM_LISTEN_HTTP` 写成非回环地址
   时**必须显式置 1**,否则启动直接报错。9101 的内部接口靠「来源网段 + HMAC」保护,
   这个开关是防止部署时手滑把管理接口暴露到公网的最后一道闸。
@@ -268,6 +288,7 @@ curl -s -X POST http://<SERVER_IP>/api/v1/im/user_sig -H "Authorization: Bearer 
 | 消息重复 | 客户端是否复用 `client_msg_id`;服务端唯一键是否生效 |
 | `docker load` 报 `repositories: no such file` | 上传的是「套了一层的 tar」,先解压再 load |
 | 容器起来但 nginx 502 | 容器是否用 `network_mode: host`;`curl 127.0.0.1:9101/internal/healthz` |
+| `/internal/*` 一律 403、`user_sig` 503(只在 `deploy/` 的 Compose 形态) | 从 `web` 容器 `curl http://imserver:9101/internal/healthz`:403 说明来源网段不在 `IM_INTERNAL_ALLOW` 里(H-1)——它必须同时含 `default`(`172.28.0.0/16`)与 `backend`(`172.29.0.0/16`)两段;补法是重跑 `deploy/oneclick.sh` 重新渲染 `secrets/imserver.env`,再 `docker compose up -d --force-recreate imserver`(compose 不保证仅 `env_file` 内容变化就重建容器);200 则再查 `IM_INTERNAL_SECRET` 两边是否一致 |
 
 ## 7. 代码同步(2026-10-22)
 
