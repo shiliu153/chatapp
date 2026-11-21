@@ -130,7 +130,7 @@ print('done', len(ids))
 
 ## 资料语音签名(2026-11-16,第五轮审计 L-7 的 backend 半边)
 
-- **签名已发但还没强制**:Django 自 2026-11-16 起对 `voice.url` 发带 `e`/`s` 的限时地址,`/media/voices/` 也进了 `im/media_sign.py::SIGN_PATH_PREFIXES`,但 nginx 侧 `auth_request` 归 `deploy/**` 还没接上 —— 所以**改了签名口径 ≠ 直链立刻失效**,服务器侧配好 `location /media/voices/` 之前,裸 URL 仍能直接下载。验收要分开看:后端能自证「签名对/过期/篡改 403」,「无签名 403」必须等 nginx 收口。
+- **签名与强制已同批上线(2026-11-21)**:Django 自 2026-11-16 起对 `voice.url` 发带 `e`/`s` 的限时地址,`/media/voices/` 也在 `im/media_sign.py::SIGN_PATH_PREFIXES` 里;生产 nginx(宝塔形态,`/www/server/panel/vhost/nginx/chat.shiliu153.cn.conf`)的 `location ^~ /media/voices/` 到 2026-11-21 才补上 `auth_request`,同一天后端也升到带签名的版本,于是裸 URL 从「能下载」变成 **403**(实测:裸 / 篡改 / 过期 403,有效签名 200)。**顺序错了会出事**:只补 nginx 而代码还是旧版(不签发 `e`/`s`)时,所有资料语音会立刻 403 —— 我们 2026-11-21 就是这样试出来的,当场回滚后才随新版本一起上。验收要分开看:后端能自证「签名对/过期/篡改 403」,「无签名 403」要 nginx 收口之后才成立
 - **白名单只有一处,别加第二套判定**:可签/可验的前缀在 `SIGN_PATH_PREFIXES`(`/media/chat/` + `/media/voices/`),`media_sign.verify` 与视图 `im/views.py::image_auth` 都走 `is_signable_path()`。新增一类需要签名的媒体时**只改这个集合**,不要在视图里再写 `path.startswith(...)` —— 两套判定迟早不一致,表现是「签得出、验不过」或「把资料图/广场图放进来」。
 - **资料语音与聊天语音是两件事**:资料语音(`users.ProfileVoice`,`/media/voices/`)签名在**响应时**由序列化器 `ProfileVoiceSerializer.get_url` 现签,不进库、不需要请求上下文;聊天语音(`im.ChatVoice`,`/media/chat/voices/`)在 `im/views.py::upload_voice` 与 `ChatVoice.signed_file_url` 里签。两处都调 `media_sign.sign_url`,别把 URL 写进库 —— 过期后历史录音会永久 403。
 
