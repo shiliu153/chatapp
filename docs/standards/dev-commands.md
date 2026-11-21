@@ -96,6 +96,34 @@ Redis `13500`-`13599`。`MYSQL_PORT` / `REDIS_PORT` / `COMPOSE_PROJECT_NAME` 一
 (CI 就是这么注入它自己那套 service 的)。派生规则只写在 `scripts/stacks/env.sh` 一处,
 `scripts/verify.sh backend` 结束时的 `deps down -v` 只拆本项目 —— 这就是两个工单并跑不再互相拆容器的原因。
 
+**WSL 侧跑不通 `verify.sh backend` 时,先查这三件事**(2026-11-21 一次踩全,逐条有实测):
+
+1. **WSL 太旧 → Docker Desktop 的 WSL 集成 agent 起不来**。Docker Desktop 4.94 + WSL 2.5.7 时,
+   DD 自己跑 `wsl.exe -d ubuntu-24.04 -e whoami` 会卡 30 秒超时(`Wsl/Service/0x8007274c`),
+   `/var/run/docker.sock` 根本不会被创建;而 `scripts/stacks/env.sh` 的槽位探测里 `docker ps` 失败,
+   在 `set -euo pipefail` 下会让 `verify.sh` **一行都不打印就退 1**(看着像脚本坏了)。
+   手工跑同一条 `wsl.exe` 命令却是好的 —— 别拿手工结果当没事。
+   修:**`wsl --update`(需要一次 UAC)**,本机从 2.5.7 升到 3.0.5 后 DD 的集成自己就通了,
+   `/var/run/docker.sock` 变成真 socket(`srw-rw---- root docker`),bind mount 里的文件也能读了。
+   ——同一个 WSL 版本问题还会让**任何 bind mount 的普通文件读不出来**(`cat /src/x.sql` → `I/O error`,
+   目录能 `ls`、命名卷与 tmpfs 正常),`db_setup_ci.sql` 挂不上就是它。
+2. **Windows 的排除端口段会把文档口径的 13306 吃掉**。`netsh interface ipv4 show excludedportrange protocol=tcp`
+   里若有 `13296–13395`,Docker 就无法在宿主机绑 13306:容器照起、`docker ps` 只显示 `3306/tcp`(没有
+   `0.0.0.0:13306->3306/tcp`),Django 报 `Can't connect to MySQL server on '127.0.0.1' (timed out)`。
+   绕法:显式给端口,或挑一个**两端都不落在排除段**的槽(注意 `13400+槽` 与 `13500+槽` 都可能命中):
+
+   ```bash
+   MYSQL_PORT=13396 REDIS_PORT=13397 bash scripts/verify.sh backend
+   ```
+
+   要彻底让出排除段得管理员跑 `net stop winnat && net start winnat`(排除了就重启后重算),这条**没在本机做过**。
+3. **MySQL 刚起就跑 backend 会被 2013 打断**。官方镜像的 entrypoint 会先起一个临时 server 建库授权、
+   再关掉重启(约 30–60 秒),这期间任何连接都是 `Lost connection to MySQL server during query`;
+   `mysqladmin ping` 是未认证探测,早期就回 200,别拿它当就绪信号。等 `docker ps` 显示 `(healthy)` 再跑。
+
+> 已知抖动:`discovery.tests.SwipeDailyLikeQuotaTests.test_pass_is_not_limited` 在 1178 例全量里
+> 偶发 `401 != 200`(单独跑该类 8 例全绿,重跑一次即绿),2026-11-21 实测两次中一次。
+
 **母体检出那套常驻栈不是必需项**(2026-11-15 定,原便签「定母体常驻依赖栈去留」):
 worker 在自己工单目录里跑 `verify.sh backend` 时自起自拆,与母体的 `chatapp-ci` 无关
 (2026-11-15 实测:母体的 `chatapp-ci-mysql` / `chatapp-ci-redis` 两个容器都没起,
