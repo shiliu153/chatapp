@@ -567,6 +567,24 @@ git diff -U0 <旧SHA> <新SHA> | grep -E '^\+.*@shared_task'         # 新增/�
 Celery 侧确认 worker 真在消费(不是只有 web 绿):`/www/server/panel/pyenv/bin/supervisorctl tail chatapp-celery:chatapp-celery_00`
 看任务日志,或在 web 容器里 `manage.py shell` 入队一条任务。
 
+> **上表 Redis 两行是 compose 形态的命令;现网是宝塔形态,改用宿主机命令**(2026-11-21 起现网 Redis
+> 已开 `requirepass`):
+>
+> ```bash
+> redis-cli -h 127.0.0.1 -p 6379 ping                                                   # 期望 NOAUTH Authentication required
+> redis-cli -h 127.0.0.1 -p 6379 -a "$(cat /root/.chatapp/redis-password)" --no-auth-warning ping   # 期望 PONG
+> ```
+>
+> 口令存在服务器 `/root/.chatapp/redis-password`(目录 700、文件 600),仓库里没有。**换口令要四处同改**,
+> 少一处就有一方连不上:`/www/wwwroot/chatapp/chatapp/.env`(`REDIS_URL` / `BROKER_URL`)、
+> `/www/server/imserver/imserver.env`(`IM_REDIS_URL`)、`/www/server/observability/docker-compose.yml`
+> 的 `REDIS_ADDR`、`/etc/systemd/system/chatapp-celery-exporter.service` 的 `--broker-url`;改完
+> `cd /www/server/imserver && docker compose up -d`、`cd /www/server/observability && docker compose up -d redis-exporter`、
+> `systemctl daemon-reload && systemctl restart chatapp-celery-exporter`、
+> `/www/server/panel/pyenv/bin/supervisorctl restart "chatapp-web:*" "chatapp-celery:*"`(supervisor 里的名字是
+> `组:进程`,直接写 `chatapp-web` 会报 no such process)。
+> 另外:宝塔面板自带的 Redis 管理页要单独填一次口令,否则那页连不上(不影响站点)。
+
 **语音上传的 `202` 只在转码槽被占用时出现**:槽空闲时是同步转码,直接回 `201 + status=ready` ——
 这条路径不经过 worker,不能拿来验「worker 已注册新任务」。要稳定走异步,先占住槽再上传:
 
