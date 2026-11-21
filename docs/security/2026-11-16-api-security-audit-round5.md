@@ -199,6 +199,17 @@ imserver / worker / 未来新增容器都在同一个 Redis 上，攻击面并�
    但 DAU 集合建议只存 `hash(user_id)`（名单用途够了，反查不需要）；
 3. 部署核对单加一条「`redis-cli -a` 能连、不带口令连不上」的手测项。
 
+> **状态注记(2026-11-21,现网闭环)· 只补现状,不改上面的结论**:宝塔形态的现网
+> (`chat.shiliu153.cn`,宿主机 Redis 7.4)已开 `requirepass`,口令放在
+> `/root/.chatapp/redis-password`(目录 700 / 文件 600,仓库里没有)。四处消费方同期改完并重启:
+> Django 的 `.env`(`REDIS_URL` / `BROKER_URL`)、`/www/server/imserver/imserver.env`(`IM_REDIS_URL`)、
+> observability 的 `REDIS_ADDR`、`chatapp-celery-exporter` 的 `--broker-url`。实测:
+> `redis-cli -h 127.0.0.1 -p 6379 ping` → `NOAUTH Authentication required`,带口令 → `PONG`;
+> `/api/v1/readyz` 的 `checks.redis=ok`;`http://127.0.0.1:9101/internal/readyz` 200;
+> Celery `inspect ping` 单节点 `pong`;Prometheus `up{job="redis"}=1`(redis-exporter 也带了口令)。
+> 换口令的四处联动与本机核对命令见 [runbook §10.1](../ops/runbook.md)。上面第 1 条讲的
+> 「compose 模板里怎么放口令」与这条不是同一套形态,别互相套用。
+
 ---
 
 ### 4.2 中危
