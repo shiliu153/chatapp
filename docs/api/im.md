@@ -159,7 +159,10 @@ curl -X POST http://<域名>/api/v1/im/images \
 - 签名规则:`HMAC-SHA256(IM_MEDIA_SIGN_SECRET, path + "\n" + e)`,小写 hex(**算法未变,两侧仍逐字节一致**)
 - 有效期:`e` 为过期时间戳,由服务端按整点对齐 + `IM_MEDIA_SIGN_TTL`(默认 24h)生成
 - 可签名/可验签的路径白名单 = `im/media_sign.py::SIGN_PATH_PREFIXES`:`/media/chat/`(聊天图片与语音)+ `/media/voices/`(资料语音自我介绍,2026-11-16 起);用户资料图与广场图片不在此列
-- 目前 nginx 只把这个子请求接在 `/media/chat/` 上;`/media/voices/` 的 `auth_request` 属于 `deploy/**`,上线前资料语音的直链仍可无签名访问
+- **两个特权前缀都已收口**(2026-11-21 起):`/media/chat/` 与 `/media/voices/` 在生产 nginx 上都挂了同一个
+  `auth_request /_im_media_auth`(宝塔形态的站点配置;模板见 `deploy/nginx/https.conf.tmpl` 与 `http.conf.tmpl`)。
+  实测(2026-11-21,chat.shiliu153.cn):裸 URL / 篡改签名 / 过期签名一律 **403**,有效签名 **200**,资料图与广场图 **200**。
+  **注意:两半必须同批上线** —— 只补 nginx 而后端还是旧代码(不签发 `e`/`s`)时,全部资料语音会立刻 403
 
 **请求参数**(请求头)
 

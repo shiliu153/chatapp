@@ -567,6 +567,15 @@ git diff -U0 <旧SHA> <新SHA> | grep -E '^\+.*@shared_task'         # 新增/�
 Celery 侧确认 worker 真在消费(不是只有 web 绿):`/www/server/panel/pyenv/bin/supervisorctl tail chatapp-celery:chatapp-celery_00`
 看任务日志,或在 web 容器里 `manage.py shell` 入队一条任务。
 
+> **worker 启动参数必须带队列清单(2026-11-21 实测踩到)**:宝塔 supervisor 里的 `chatapp-celery` 原来只有
+> `celery -A config worker -l info --concurrency=1`,而 `config/settings.py` 的 `CELERY_TASK_ROUTES` 把任务分到
+> `critical` / `notify` / `bulk` —— worker 默认只消费 `default`,于是这三条**一条都不消费**:实测积压
+> `critical=37`、`bulk=1`,表现是「接口全绿、任务永不执行」(语音一直 `pending`、封禁与踢人不下发)。
+> 现网已改成 `-Q critical,default,notify,bulk`,改的是两处:`/www/server/panel/plugin/supervisor/profile/chatapp-celery.ini`
+> 与面板的 `/www/server/panel/plugin/supervisor/config.json`(改完 `supervisorctl reread && supervisorctl update`,
+> 再 `restart "chatapp-celery:*"`)。**验收看启动日志的 `[queues]` 段有四行**,再看四条队列的 `llen` 落到 0。
+> 资源够的话按 [peak-shaving.md](../reports/peak-shaving.md) 拆成两个 worker(`-Q critical` 与 `-Q default,notify,bulk`)。
+
 > **上表 Redis 两行是 compose 形态的命令;现网是宝塔形态,改用宿主机命令**(2026-11-21 起现网 Redis
 > 已开 `requirepass`):
 >
