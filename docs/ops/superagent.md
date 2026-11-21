@@ -667,6 +667,11 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
   根治在 **Windows 侧**:`%USERPROFILE%\.wslconfig` 的 `[wsl2]` 段加 `autoProxy=false`,再
   `wsl --shutdown`;worker 自身不受影响(`start-superagent.sh` 无条件把四个变量覆盖成自己的出口)。
   可见性由巡检第六项负责(§15):继承值指向死端口 = 红,活着 = 绿但文案写明潜伏态。
+- **本机已落地(2026-11-21)**:宿主的 `%USERPROFILE%\.wslconfig` 的 `[wsl2]` 段已加
+  `autoProxy=false`(`networkingMode=mirrored` / `dnsTunneling=true` 原样保留),`wsl --shutdown`
+  后实测:重启前 `echo $https_proxy` = `http://127.0.0.1:7897`,重启后为空;`git ls-remote --heads
+  origin main` 不显式带代理即可成功;巡检第六项文案为「未继承 http(s)_proxy」。**换机器 / 重装 WSL
+  要重做这一步** —— 它落在宿主配置里,不在仓库里,新环境默认仍是开着的。
 
 ### 12.7 排障
 
@@ -905,7 +910,8 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 ① 先排除 **worker 自己 export 的那个值**(`start-superagent.sh` 的 `--proxy`,默认
 `127.0.0.1:7890`)—— 不排除就会在一切正常时天天报红;② 对剩下的值做一次 TCP 建连(3 秒),
 **通 = 绿但文案写明「潜伏态」,不通 = 红**,文案直接指向根治动作(`.wslconfig` 加
-`autoProxy=false` 后 `wsl --shutdown`,Windows 侧动作,仓库里改不了)。
+`autoProxy=false` 后 `wsl --shutdown`,Windows 侧动作,仓库里改不了;本机已于 2026-11-21 做完,
+见 §12.6 最后一条)。
 单独跳过用 `--skip-proxy-inherit`,`--skip-egress` 也会一并跳过(离线自测只写后者)。
 已知局限:systemd 拉起的巡检进程通常**看不到**注入值(注入发生在 `wsl.exe` 派生的进程环境里,
 `/proc/1/environ` 与 `systemctl show-environment` 都是干净的),那时判绿 —— 它主要在人 / agent
