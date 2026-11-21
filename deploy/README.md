@@ -422,6 +422,13 @@ docker compose start web worker
 钉住的是**六个** base/运行时镜像:compose 里的 `mysql` / `redis` / `certbot`,以及两个
 Dockerfile 里的 `python` / `node` / `nginx-unprivileged`。改法一样,生效方式不同(见步骤 3)。
 
+> **升级节奏(2026-11-21 主人拍板):每月 1 号检查一次。** 已建每月 1 号 10:00 的定时提醒
+> (DSH 定时任务「检查钉住的镜像 digest 是否有更新」),它跑下面这套 `imagetools inspect` 比对,
+> 有差异就把「文件 + 行号 + 旧/新 digest」列给你,**改动仍然由主人批**(`deploy/**` 属禁改区)。
+> 钉住 digest 的代价就是不自动跟补丁,所以这个月检是它唯一的补偿机制:漏一次就多漂一个月的补丁。
+> MySQL / Redis 换小版本前先按 §8 备份,改完按 [`docs/ops/runbook.md`](../docs/ops/runbook.md)
+> §10.1 过一遍部署后核对单。
+
 > 拉不到时(`manifest unknown` / `no matching manifest`)见
 > [`docs/ops/observability.md`](../docs/ops/observability.md) §2.4。
 
