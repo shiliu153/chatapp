@@ -50,6 +50,23 @@ scp imserver-image.tar.gz root@<SERVER_IP>:/tmp/
 > 取 `Digest:` 那一行(index digest,不是某个平台的子 digest),**同时改两个 Dockerfile**,
 > 再按本节流程重建并上传镜像。
 
+> **构建时 apt 拉不下来(2026-11-21 实测)**:Dockerfile 里的 `archive.ubuntu.com` 在构建容器里会
+> 偶发 `502 Bad Gateway`(当天连续四次都失败),换成 **https** 镜像站又会在 `ca-certificates` 装好之前
+> 报 `Certificate verification failed`(只能用 http)。可用做法:**复制一份临时构建上下文,仓库里的
+> Dockerfile 一个字不改**,只在副本里换 apt 源并加重试:
+>
+> ```bash
+> cp -a imserver /tmp/imserver-build && cd /tmp/imserver-build
+> sed -i -e 's|http://archive.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' \
+>        -e 's|http://security.ubuntu.com/ubuntu|http://mirrors.aliyun.com/ubuntu|g' Dockerfile
+> sed -i 's|apt-get update|apt-get -o Acquire::Retries=5 update|g; s|apt-get install|apt-get -o Acquire::Retries=5 install|g' Dockerfile
+> docker build -t imserver:<短 commit> .
+> ```
+>
+> 换的只是「从哪儿下 deb」,两个 stage 的 `FROM` 仍钉同一个 digest,产物等价(成品镜像 387 MB 左右)。
+> 另外:用 Docker Desktop 的引擎构建时,如果 Windows 侧系统代理(Clash 之类)已经坏了,构建容器会继承
+> 它并一起超时 —— 补四个空 `--build-arg http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY=` 让构建直连。
+
 ### 1.3 服务器落盘
 
 ```bash
