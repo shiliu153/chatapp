@@ -75,14 +75,16 @@ flutter:
   uses-material-design: true
 
   fonts:
-    - family: SpaceGrotesk
+    # 「余烬 Ember」§4.1:只打包 Fraunces 一个可变字体(含 opsz / SOFT / WONK / wght 轴),
+    # 只服务 display / title 两档;中文不打包(走系统字族,见 core/theme/app_typography.dart)。
+    # 与 web/public/fonts/Fraunces-Variable.ttf 必须同名同内容,由 web/tests/unit/fonts.spec.ts 双向比对。
+    #
+    # **可变字体只声明一条**(不写 weight):写了 weight 等于告诉 Flutter「这份文件只有那个字重」,
+    # 其余字重会被**假粗体**合成(描边加粗,衬线会糊)。真实字重轴由 TextStyle 的
+    # `fontVariations: [FontVariation('wght', …)]` 驱动,见 app_typography.dart。
+    - family: Fraunces
       fonts:
-        - asset: assets/fonts/SpaceGrotesk-Regular.ttf
-          weight: 400
-        - asset: assets/fonts/SpaceGrotesk-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/SpaceGrotesk-Bold.ttf
-          weight: 700
+        - asset: assets/fonts/Fraunces-Variable.ttf
   assets:
     - assets/fonts/OFL.txt
     # 证书绑定用的根证书(发版前用 tool/verify_pinning.dart 验证)
