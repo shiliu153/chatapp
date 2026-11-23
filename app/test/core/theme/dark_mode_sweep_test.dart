@@ -193,7 +193,7 @@ void main() {
         prefs: _loggedIn, brightness: Brightness.dark);
     await pumpFrames(tester);
 
-    for (final tab in ['发现', '广场', '消息', '我的']) {
+    for (final tab in ['遇见', '回声', '对话', '我']) {
       await tester.tap(navTab(tab));
       await pumpFrames(tester);
       expectNoLightSurfaces(tester, '首页/$tab');

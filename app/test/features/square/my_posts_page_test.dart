@@ -20,7 +20,7 @@ void main() {
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await pumpFrames(tester); // 广场空态涟漪在 IndexedStack 隐藏页一直跑,禁 settle
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await pumpFrames(tester);
 
     await tester.tap(find.byKey(const Key('my.row.posts')));
@@ -52,7 +52,7 @@ void main() {
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await pumpFrames(tester); // 广场空态涟漪在隐藏页一直跑
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await pumpFrames(tester);
     await tester.tap(find.byKey(const Key('my.row.posts')));
     await tester.pumpAndSettle();
@@ -70,7 +70,7 @@ void main() {
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await pumpFrames(tester); // 广场空态涟漪在 IndexedStack 隐藏页一直跑,禁 settle
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await pumpFrames(tester);
 
     await tester.tap(find.byKey(const Key('my.row.posts')));

@@ -34,7 +34,7 @@ void main() {
     final fake = await pumpApp(tester, adapter, prefs: _loggedInAsU7);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
     expect(find.text('Alice'), findsOneWidget);
 
@@ -48,7 +48,7 @@ void main() {
     await tester.tap(find.byKey(const Key('login.submit')));
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
     expect(find.text('Bob'), findsOneWidget);
     expect(find.text('Alice'), findsNothing);

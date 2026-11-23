@@ -72,7 +72,7 @@ void main() {
     final fake = FakeImClient()..conversations = [_conversation()];
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     expect(find.text('小红'), findsNWidgets(2)); // 横滑条 + 列表行
@@ -85,7 +85,7 @@ void main() {
     final fake = FakeImClient();
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     expect(find.text('还没有消息'), findsOneWidget);
@@ -96,7 +96,7 @@ void main() {
     final fake = FakeImClient()..loginError = const ImException(6001, 'boom');
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('6001'), findsOneWidget);
@@ -107,7 +107,7 @@ void main() {
     final fake = FakeImClient()..conversations = [_conversation(), _systemConversation()];
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('chats.systemNotice')), findsOneWidget);
@@ -135,7 +135,7 @@ void main() {
       };
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('chats.tile:u9')));
@@ -149,7 +149,7 @@ void main() {
     final fake = FakeImClient()..conversations = [_conversation()];
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('chats.stripItem:u9')));
@@ -168,7 +168,7 @@ void main() {
         });
     await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
     await pumpFrames(tester);
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await pumpFrames(tester);
 
     // 横滑条 + 列表行各一个呼吸点;系统通知(非真人)没有。呼吸点是无限动画,禁 settle。
@@ -180,7 +180,7 @@ void main() {
     final adapter = _adapter();   // 默认 'GET /presence' 返回空
     await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     expect(find.byType(BreathingDot), findsNothing);
@@ -197,7 +197,7 @@ void main() {
         });
     await pumpApp(tester, adapter, prefs: _loggedIn, imClient: fake);
     await pumpFrames(tester);
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await pumpFrames(tester);
 
     expect(find.byType(BreathingDot), findsNWidgets(2));
@@ -211,7 +211,7 @@ void main() {
     await pumpApp(tester, _adapter(),
         prefs: {..._loggedIn, 'chat_draft:u9': '我还没发出去的话'}, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     expect(find.text('[草稿] 我还没发出去的话'), findsOneWidget);
@@ -222,7 +222,7 @@ void main() {
     final fake = FakeImClient()..conversations = [_conversation(text: '对方最后一句')];
     await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     expect(find.text('对方最后一句'), findsOneWidget);
@@ -236,7 +236,7 @@ void main() {
         imClient: fake,
         overrides: [imStatusProvider.overrideWith(_ConnectingImManager.new)]);
     await pumpFrames(tester);
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await pumpFrames(tester);
 
     expect(find.byType(ChatsSkeleton), findsOneWidget);

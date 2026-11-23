@@ -102,7 +102,7 @@ void main() {
     );
     await pumpApp(tester, adapter, prefs: _loggedIn, imClient: FakeImClient());
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     // 铃铛角标 = 未读数
@@ -140,7 +140,7 @@ void main() {
       notificationsBadgeRefreshInterval: const Duration(milliseconds: 200),
     );
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
 
     final before = unreadCalls;

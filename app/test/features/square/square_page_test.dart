@@ -23,7 +23,7 @@ ScriptedAdapter _adapter(Map<String, dynamic> postsPage,
     });
 
 Future<void> _openSquare(WidgetTester tester) async {
-  await tester.tap(navTab('广场'));
+  await tester.tap(navTab('回声'));
   await tester.pumpAndSettle();
 }
 
@@ -47,10 +47,10 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     // 广场空态的 HeartRipple 在 IndexedStack 隐藏页也一直跑:全程禁 settle
     await pumpFrames(tester);
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await pumpFrames(tester); // HeartRipple 无限动画,禁 settle
 
-    expect(find.text('广场'), findsNWidgets(2)); // 底栏 tab + 页内大标题
+    expect(find.text('广场'), findsOneWidget); // 页内大标题(底栏 tab 自 E-5.1 起叫「回声」)
     expect(find.text('还没有动态'), findsOneWidget);
     expect(find.text('发一条,让大家认识你'), findsOneWidget);
 
@@ -64,7 +64,7 @@ void main() {
     adapter.routes['GET /posts'] = offline;
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await pumpFrames(tester); // 错误态无无限动画,但起始 IndexedStack 里广场页在转圈
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('square.retry')), findsOneWidget);
@@ -195,7 +195,7 @@ void main() {
 
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await pumpFrames(tester); // 呼吸点是无限动画,不能 pumpAndSettle
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await pumpFrames(tester);
 
     expect(
@@ -243,7 +243,7 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     // 推荐空态有无限涟漪,全程禁 settle
     await pumpFrames(tester);
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await pumpFrames(tester);
 
     await tester.tap(find.byKey(const Key('square.tab.following')));

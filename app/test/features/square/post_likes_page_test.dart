@@ -31,7 +31,7 @@ void main() {
     );
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('post.likeCount.1')));
@@ -59,7 +59,7 @@ void main() {
     );
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('post.likeCount.1')));

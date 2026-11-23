@@ -17,7 +17,7 @@ ThemeMode currentThemeMode(WidgetTester tester) =>
 
 /// 走到「我的 → 设置」,并滚到「外观」卡片可见(它在设置页最后一张卡)。
 Future<void> openSettings(WidgetTester tester) async {
-  await tester.tap(navTab('我的'));
+  await tester.tap(navTab('我'));
   await tester.pumpAndSettle();
   await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
   await tester.pumpAndSettle();

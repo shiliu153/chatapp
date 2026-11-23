@@ -55,7 +55,7 @@ ImConversation _conversation(String peerId, {int unread = 2, bool pinned = false
 Future<void> _openChats(WidgetTester tester, FakeImClient fake) async {
   await pumpApp(tester, _adapter(), prefs: _loggedIn, imClient: fake);
   await tester.pumpAndSettle();
-  await tester.tap(navTab('消息'));
+  await tester.tap(navTab('对话'));
   await tester.pumpAndSettle();
 }
 

@@ -46,6 +46,7 @@ dependencies:
   audioplayers: ^6.8.1
   path_provider: ^2.1.6
   flutter_secure_storage: 9.2.4
+  phosphor_glyphs: ^2.1.2
 
 dev_dependencies:
   flutter_test:
