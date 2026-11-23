@@ -1,0 +1,152 @@
+/******************************************************************************
+GENERATED CODE - DO NOT EDIT BY HAND.
+源: design/tokens/ 下的 JSON:primitive.color.json, semantic.light.json, semantic.dark.json, scale.json
+生成: python scripts/design_tokens.py --write
+改了 token 请改 design/tokens/ 里的 JSON 并重跑生成器;直接手改本文件会被门禁判红。
+*/
+
+:root {
+  --color-accent-default: #B4610C;
+  --color-accent-on: #FFFFFF;
+  --color-border-divider: #EDE6DF;
+  --color-border-strong: #DED4C9;
+  --color-brand-default: #C93C22;
+  --color-brand-on: #FFFFFF;
+  --color-overlay-scrim: #1C1714EB;
+  --color-status-danger: #A81E3C;
+  --color-status-info: #54409E;
+  --color-status-on-danger: #FFFFFF;
+  --color-status-on-success: #FFFFFF;
+  --color-status-on-warning: #FFFFFF;
+  --color-status-success: #10784A;
+  --color-status-warning: #8A5F00;
+  --color-surface-card: #FFFFFF;
+  --color-surface-page: #FBF7F3;
+  --color-surface-sunken: #F5EFE8;
+  --color-text-primary: #1C1714;
+  --color-text-secondary: #6A5F55;
+  --color-text-tertiary: #8F8478;
+  --elevation-1: 0 2px 8px rgba(28,23,20,0.06);
+  --elevation-2: 0 10px 24px rgba(28,23,20,0.10);
+  --font-family-body: PingFang SC, MiSans, HarmonyOS Sans, Noto Sans CJK SC, sans-serif;
+  --font-family-display: Fraunces;
+  --font-line-height-body: 1.55;
+  --font-line-height-caption: 1.45;
+  --font-line-height-display: 1.15;
+  --font-line-height-micro: 1.3;
+  --font-line-height-subtitle: 1.35;
+  --font-line-height-title: 1.25;
+  --font-size-body: 15px;
+  --font-size-caption: 13px;
+  --font-size-display: 32px;
+  --font-size-micro: 11px;
+  --font-size-subtitle: 17px;
+  --font-size-title: 24px;
+  --font-weight-body: 400;
+  --font-weight-bold: 700;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --motion-reduced-duration-ms: 120ms;
+  --motion-spring-effects-damping: 1.0;
+  --motion-spring-effects-stiffness: 1600;
+  --motion-spring-fast-damping: 0.6;
+  --motion-spring-fast-stiffness: 800;
+  --motion-spring-gentle-damping: 0.8;
+  --motion-spring-gentle-stiffness: 200;
+  --motion-spring-standard-damping: 0.8;
+  --motion-spring-standard-stiffness: 380;
+  --radius-lg: 20px;
+  --radius-md: 16px;
+  --radius-pill: 999px;
+  --radius-sm: 12px;
+  --radius-xl: 24px;
+  --radius-xs: 8px;
+  --size-control-height: 52px;
+  --size-icon-16: 16px;
+  --size-icon-20: 20px;
+  --size-icon-24: 24px;
+  --size-nav-height: 64px;
+  --size-touch-app: 48px;
+  --size-touch-web: 44px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-40: 40px;
+}
+
+/* 跟随系统（显式选了 light 时不生效） */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-accent-default: #FFC38F;
+    --color-accent-on: #1A0F0B;
+    --color-border-divider: #2E2723;
+    --color-border-strong: #3A332D;
+    --color-brand-default: #FF9370;
+    --color-brand-on: #1A0F0B;
+    --color-overlay-scrim: #000000EB;
+    --color-status-danger: #FF8FA3;
+    --color-status-info: #B3A5FF;
+    --color-status-on-danger: #2A0410;
+    --color-status-on-success: #04140E;
+    --color-status-on-warning: #14100A;
+    --color-status-success: #4FD69A;
+    --color-status-warning: #FFC152;
+    --color-surface-card: #1E1916;
+    --color-surface-page: #14110F;
+    --color-surface-sunken: #100D0B;
+    --color-text-primary: #F6F1EB;
+    --color-text-secondary: #C4B9AD;
+    --color-text-tertiary: #A39789;
+  }
+}
+
+/* 显式选择:优先级高于系统偏好 */
+[data-theme="dark"] {
+  --color-accent-default: #FFC38F;
+  --color-accent-on: #1A0F0B;
+  --color-border-divider: #2E2723;
+  --color-border-strong: #3A332D;
+  --color-brand-default: #FF9370;
+  --color-brand-on: #1A0F0B;
+  --color-overlay-scrim: #000000EB;
+  --color-status-danger: #FF8FA3;
+  --color-status-info: #B3A5FF;
+  --color-status-on-danger: #2A0410;
+  --color-status-on-success: #04140E;
+  --color-status-on-warning: #14100A;
+  --color-status-success: #4FD69A;
+  --color-status-warning: #FFC152;
+  --color-surface-card: #1E1916;
+  --color-surface-page: #14110F;
+  --color-surface-sunken: #100D0B;
+  --color-text-primary: #F6F1EB;
+  --color-text-secondary: #C4B9AD;
+  --color-text-tertiary: #A39789;
+}
+
+[data-theme="light"] {
+  --color-accent-default: #B4610C;
+  --color-accent-on: #FFFFFF;
+  --color-border-divider: #EDE6DF;
+  --color-border-strong: #DED4C9;
+  --color-brand-default: #C93C22;
+  --color-brand-on: #FFFFFF;
+  --color-overlay-scrim: #1C1714EB;
+  --color-status-danger: #A81E3C;
+  --color-status-info: #54409E;
+  --color-status-on-danger: #FFFFFF;
+  --color-status-on-success: #FFFFFF;
+  --color-status-on-warning: #FFFFFF;
+  --color-status-success: #10784A;
+  --color-status-warning: #8A5F00;
+  --color-surface-card: #FFFFFF;
+  --color-surface-page: #FBF7F3;
+  --color-surface-sunken: #F5EFE8;
+  --color-text-primary: #1C1714;
+  --color-text-secondary: #6A5F55;
+  --color-text-tertiary: #8F8478;
+}

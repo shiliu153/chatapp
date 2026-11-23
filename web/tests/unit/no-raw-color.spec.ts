@@ -9,15 +9,27 @@ import { describe, expect, it } from 'vitest'
  * 出现一处裸 `#rrggbb` 或 `rgb(...)`,那块在暗色下就会保持浅色 —— 而且**不会有
  * 任何报错**,只有这条测试会红。
  *
- * 扫描范围:`src/**` 的 .vue / .css / .ts,排除 `src/styles/tokens.css`
- * (那里就是色值的唯一事实来源)。
+ * 扫描范围:`src/**` 的 .vue / .css / .ts,排除**色值文件**
+ * (`src/styles/tokens.css` 与它的接班人 `src/styles/tokens.generated.css`)——
+ * 那里的裸值不是违规,而是全部色值的来源,其余文件只能引用变量。
  *
  * 白名单:纯黑 / 纯白 / 全透明三色(`#fff` / `#ffffff` / `#000` / `#000000` /
  * `rgb(0 0 0)` 等)。它们在两种主题下语义相同,且没有对应语义 token
  * (如照片查看器纯黑底)。
  */
 const SRC = resolve(process.cwd(), 'src')
-const TOKENS_FILE = resolve(SRC, 'styles/tokens.css')
+
+/**
+ * 色值文件白名单。
+ *
+ * `tokens.css` 是「心跳」期手写的色值来源,`tokens.generated.css` 是「余烬 Ember」的
+ * 生成物(`scripts/design_tokens.py` 从 `design/tokens/*.json` 生成,禁手改)。
+ * 过渡期两者并存;E-3 接线后手写那份会被删除,这里只剩生成物。
+ */
+const TOKEN_FILES = new Set([
+  resolve(SRC, 'styles/tokens.css'),
+  resolve(SRC, 'styles/tokens.generated.css'),
+])
 
 /** 允许的裸色值(小写比较)。 */
 const ALLOWED = new Set([
@@ -45,7 +57,7 @@ function walk(dir: string, out: string[] = []): string[] {
   return out
 }
 
-const files = walk(SRC).filter((f) => f !== TOKENS_FILE)
+const files = walk(SRC).filter((f) => !TOKEN_FILES.has(f))
 
 /** 逐行找裸色值,返回 `相对路径:行号: 内容` 列表。 */
 function findRawColors(): string[] {
@@ -73,11 +85,12 @@ describe('禁用裸色值(Web)', () => {
     expect(files.length).toBeGreaterThan(30)
   })
 
-  it('src/**(除 styles/tokens.css)不得出现裸 hex / rgb()', () => {
+  it('src/**(除色值文件)不得出现裸 hex / rgb()', () => {
     const hits = findRawColors()
     expect(
       hits,
-      '裸色值请先加进 tokens.css(:root + [data-theme=\'dark\'] 各一份),再引用变量:\n' +
+      '裸色值请先加进色值文件(tokens.generated.css 由 design/tokens 生成,'
+        + "旧的手写 tokens.css 在过渡期仍要两份同步),再引用变量:\n" +
         hits.join('\n'),
     ).toEqual([])
   })

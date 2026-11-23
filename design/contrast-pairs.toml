@@ -1,0 +1,126 @@
+# 对比度校验配对表 —— 规范的「哪两个 token 要对撞」只写在这里。
+#
+# 阈值不写在本文件:它们由 `scripts/design_contrast.py` 从设计规范的 §3.4 分级表
+# 解析而来(阈值只有一处 owner = 规范正文,不许在代码里另写一份)。
+# 因此本文件只做映射:`rule` 必须命中规范表里某一行的行首标签。
+#
+# 字段
+# ----
+# name 人读的名字(出现在失败输出里)
+# rule 规范 §3.4 的行首标签:正文 / 次级 / 三级 / 按钮文字 / 强调文字
+# fg   前景 token 路径(点分,DTCG 解析后取值)
+# bg   背景 token 路径
+
+[[pair]]
+name = "正文 / 页面底"
+rule = "正文"
+fg = "color.text.primary"
+bg = "color.surface.page"
+
+[[pair]]
+name = "正文 / 卡片"
+rule = "正文"
+fg = "color.text.primary"
+bg = "color.surface.card"
+
+[[pair]]
+name = "正文 / 凹陷底"
+rule = "正文"
+fg = "color.text.primary"
+bg = "color.surface.sunken"
+
+[[pair]]
+name = "次级 / 卡片"
+rule = "次级"
+fg = "color.text.secondary"
+bg = "color.surface.card"
+
+[[pair]]
+name = "次级 / 页面底"
+rule = "次级"
+fg = "color.text.secondary"
+bg = "color.surface.page"
+
+[[pair]]
+name = "次级 / 凹陷底"
+rule = "次级"
+fg = "color.text.secondary"
+bg = "color.surface.sunken"
+
+[[pair]]
+name = "三级 / 卡片"
+rule = "三级"
+fg = "color.text.tertiary"
+bg = "color.surface.card"
+
+[[pair]]
+name = "三级 / 页面底"
+rule = "三级"
+fg = "color.text.tertiary"
+bg = "color.surface.page"
+
+[[pair]]
+name = "品牌文字·链接 / 卡片"
+rule = "强调文字"
+fg = "color.brand.default"
+bg = "color.surface.card"
+
+[[pair]]
+name = "次强调 / 卡片"
+rule = "强调文字"
+fg = "color.accent.default"
+bg = "color.surface.card"
+
+[[pair]]
+name = "错误文字 / 卡片"
+rule = "强调文字"
+fg = "color.status.danger"
+bg = "color.surface.card"
+
+[[pair]]
+name = "成功文字 / 卡片"
+rule = "强调文字"
+fg = "color.status.success"
+bg = "color.surface.card"
+
+[[pair]]
+name = "警告文字 / 卡片"
+rule = "强调文字"
+fg = "color.status.warning"
+bg = "color.surface.card"
+
+[[pair]]
+name = "系统·官方文字 / 卡片"
+rule = "强调文字"
+fg = "color.status.info"
+bg = "color.surface.card"
+
+[[pair]]
+name = "主按钮文字 / 主色底"
+rule = "按钮文字"
+fg = "color.brand.on"
+bg = "color.brand.default"
+
+[[pair]]
+name = "次按钮文字 / 次强调底"
+rule = "按钮文字"
+fg = "color.accent.on"
+bg = "color.accent.default"
+
+[[pair]]
+name = "危险按钮文字 / 危险底"
+rule = "按钮文字"
+fg = "color.status.onDanger"
+bg = "color.status.danger"
+
+[[pair]]
+name = "成功按钮文字 / 成功底"
+rule = "按钮文字"
+fg = "color.status.onSuccess"
+bg = "color.status.success"
+
+[[pair]]
+name = "警告按钮文字 / 警告底"
+rule = "按钮文字"
+fg = "color.status.onWarning"
+bg = "color.status.warning"

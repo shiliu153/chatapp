@@ -100,7 +100,7 @@ cwd = "chatapp"
 command = "python manage.py test --noinput"
 reason = "后端全量测试(前置 MySQL + Redis);这是 backend 轨唯一的重活"
 
-# --- contract(本地与 CI 完全同源的 27 道) -------------------------------
+# --- contract(本地与 CI 完全同源;条数以 `python scripts/run_gates.py --list` 为准) ---
 
 [[gate]]
 id = "contract-app-models"
@@ -136,6 +136,48 @@ scope = "contract"
 kind = "python"
 command = "python -m unittest scripts.test_deploy_gate -v"
 reason = "部署闸门防的是「main 红了还上线」,纯标准库 + 临时 git 仓库自测,不碰生产"
+
+[[gate]]
+id = "contract-design-contrast"
+scope = "contract"
+kind = "python"
+command = "python scripts/design_contrast.py --check"
+reason = "对比度的阈值 owner 是设计规范 §3.4 的分级表,配对映射在 design/contrast-pairs.toml:脚本把两者对撞,双模式逐对判 WCAG 比值与 APCA Lc。判据不写死在代码里,改规范即改门禁"
+
+[[gate]]
+id = "contract-design-contrast-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_design_contrast -v"
+reason = "对比度门禁最危险的失效形态是「没算却绿了」:规范被挪走 / §3.4 改名 / 表被改坏时必须 fail-closed,配对表引用不存在的档时必须报错。已有 43 条用例中的一半在钉这两面"
+
+[[gate]]
+id = "contract-design-spec-sync"
+scope = "contract"
+kind = "python"
+command = "python scripts/design_spec_sync.py --check"
+reason = "设计规范 §3.2 的色阶表与 §3.3 的语义色表是给人读的产物,owner 是 design/tokens/*.json:双向判「表里有 token 没有 / token 有表里没有 / 值或透明度不同」。首次接入就抓到一处真漂移(overlay.scrim vs surface.scrim)"
+
+[[gate]]
+id = "contract-design-spec-sync-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_design_spec_sync -v"
+reason = "双向判定的两个方向都会坏:漏报 = 规范继续承诺不存在的值,误报 = 人被逼着把门禁关掉;另外「表读不出来」必须 fail-closed(标题改名最容易踩),否则空结果会被当成通过"
+
+[[gate]]
+id = "contract-design-tokens"
+scope = "contract"
+kind = "python"
+command = "python scripts/design_tokens.py --check"
+reason = "design/tokens/*.json 是视觉 token 的唯一事实来源,Dart 与 CSS 两份实现由它生成(手改双份会漂移,这正是旧规范的结构性问题)。门禁按字节比对生成物,CRLF 也过不去"
+
+[[gate]]
+id = "contract-design-tokens-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_design_tokens -v"
+reason = "生成器判错的两个方向都不能静默:别名悬空/循环会产出空值(渲染成透明,比门禁红难查),色阶自然序与 8 位 alpha 分量顺序错了会静默生成「看起来对」的错误常量"
 
 [[gate]]
 id = "contract-docs-index-check"

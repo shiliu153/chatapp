@@ -21,7 +21,9 @@
 
 | 文档 | 状态 | 说明 |
 |---|---|---|
-| [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **常驻,强制** | 「心跳」UI 设计规则 v1.5。所有 App 端 UI 改动动手前必读;**永远不归档** |
+| [specs/2026-11-23-ui-redesign-ember-design.md](specs/2026-11-23-ui-redesign-ember-design.md) | **v0.1 草案,待评审** | 「余烬 Ember」:从零重建的 UI 设计语言(双模式色彩、APCA 分级对比度、spring 动效、组件状态矩阵、含信息架构)。**token 单一事实来源 + 生成链路 + 对比度门禁**是它的核心,不只是一套配色 |
+| [plans/2026-11-23-ui-redesign-ember.md](plans/2026-11-23-ui-redesign-ember.md) | **进行中**(E-1 已落地) | 上面那份 spec 的实施计划:E-1 token 链路(已在会话内联交付,四道门禁进了注册表)→ E-2 app 接线 → E-3 web 接线 → E-4 转正归档 → E-5+ 逐页迁移。**E-2 起走工单** |
+| [specs/2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) | **过渡期,被 Ember 取代** | 「心跳」UI 设计规则 v1.5。v0.1 草案期间**存量页面仍按此维护**;Ember v1.0 生效并完成页面迁移后 `git mv` 归档。冲突时新增/改版页面以 Ember 为准 |
 | [specs/2026-11-07-superagent-dev-workflow-design.md](specs/2026-11-07-superagent-dev-workflow-design.md) | **已交付;spec 常驻** | 引入 WSL `dsh-superagent` 后的开发流程:人只开单与验收,实现交给 worker,CI 当唯一裁判。P0–P3 的实施计划(流程自身的引导,按约定必须内联做、不派工单)已于 2026-11-11 执行完毕,plan 已归档到 [archive/plans/](archive/plans/2026-11-07-superagent-dev-workflow.md);**spec 保留在 `specs/` 作常驻流程参考**(运维手册见 [docs/ops/superagent.md](../ops/superagent.md)) |
 | [specs/2026-11-08-superagent-automation-ladder-design.md](specs/2026-11-08-superagent-automation-ladder-design.md) | 进行中(**L1–L4 已实现**,L4 总闸默认未开) | 自动化阶梯 L0–L4:把「人出现在流程里的那几处」逐个换成确定性机制。**L1(closeout 一条命令)/ L2(白名单自动合)/ L3(模拟器进 CI)/ L4(需求自动入队)均已实现**(实施记录见该 spec §9):L4 是唯一「替人决定做什么」的一级,所以只开三类机器可判的信号、判不出来就不开单、派单仍由人;执行者是确定性 workflow,`eval.mode` 保持 `observe`(spec §6.2)。总闸 `L4_INTAKE` **默认 `off`**,启用是人的一次显式动作 |
 | [specs/2026-11-16-facts-numbers-design.md](specs/2026-11-16-facts-numbers-design.md) | **实现中** | 文档关键数字的机械化:正文里的统计数字(workflow 条数 / 门禁条数 / 接口数 / 文档份数 / 告警条数 / 业务码数)由 `scripts/facts.py` 计算并注入哨兵(`<!-- num:id -->值<!-- /num -->`),`--check` 双层判定(值对 + 裸数字判红);不可保真的数字(测试用例数等)改为禁用写法。承接治理第 3 节的「手写计数必然过期」,补上治理没覆盖的内联数字 |

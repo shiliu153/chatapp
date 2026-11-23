@@ -10,7 +10,7 @@
 |---|---|
 | 后端 | [docs/standards/python.md](docs/standards/python.md)、[docs/pitfalls/backend.md](docs/pitfalls/backend.md) |
 | IM 协议 / imserver | [imserver/tests/fixtures/ws/README.md](imserver/tests/fixtures/ws/README.md)、[docs/pitfalls/im.md](docs/pitfalls/im.md) |
-| App | [docs/superpowers/specs/2026-09-15-ui-design-language-design.md](docs/superpowers/specs/2026-09-15-ui-design-language-design.md)(「心跳」,强制)、[docs/pitfalls/frontend.md](docs/pitfalls/frontend.md) |
+| App | [docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md)(「余烬 Ember」:新增 / 改版页)、[docs/superpowers/specs/2026-09-15-ui-design-language-design.md](docs/superpowers/specs/2026-09-15-ui-design-language-design.md)(「心跳」:存量页)、[docs/pitfalls/frontend.md](docs/pitfalls/frontend.md) |
 | 网页端 | [docs/pitfalls/web.md](docs/pitfalls/web.md) |
 
 ## 二、一单一条栈
@@ -29,6 +29,8 @@
   `contract-openapi-web-stamp` 判红(判据与踩坑见 `docs/pitfalls/web.md`)
 - 改 WS 帧 → `imserver/tests/fixtures/ws/*.json` + imserver + App(`self_im_client.dart`)+ Web(`web/src/im/self/*`)四处同改
 - 改视觉 token / 字体 → `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css` 双份
+  (**仅限 E-2 / E-3 合并前**;之后只改 `design/tokens/*.json` 再跑 `python scripts/design_tokens.py --write`,
+  三份生成物与门禁由 `scripts/verify.sh contract` 兜住)
 - 升版本号 → `app/pubspec.yaml`(唯一事实来源)+ `app/lib/core/app_info.dart` + `web/package.json`,并在 `docs/releases.yml` 记一条(再 `python scripts/releases.py --render`)
 - 新增 / 改 `/api/v1` 接口 → `docs/api/` 对应分册
 

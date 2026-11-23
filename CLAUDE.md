@@ -47,9 +47,19 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。完整�
 
 **当前风险最高的两项**(与代码质量无关,优先于任何性能项):① **固定验证码 `123456` + 手机号白名单** —— 白名单(`SMS_PHONE_WHITELIST` + 库表 `accounts.PhoneAllowlist`,运营在 `/ops/allowlist/` 维护)是**长期准入机制**,名单本身就是安全边界(一个号泄露 = 该账号被接管);日常运维见 [runbook §6](docs/ops/runbook.md);② **备份** —— 每天三层(03:20 自建双库全量 / 03:30 宝塔原生 / 04:10 树莓派拉走)+ **恢复演练已真跑通过**,剩余风险是「服务器与树莓派同时没了」(无对象存储预算);详见 [runbook §5](docs/ops/runbook.md)。
 
-## UI 设计规则(2026-09-15 起,常驻,强制)
+## UI 设计规则(2026-11-23 起**双轨**:Ember 管新页 / 心跳管存量)
 
-**所有 App 端 UI 开发(改版/新页面/新组件/新动效)一律遵循「心跳」设计规则**:`docs/superpowers/specs/2026-09-15-ui-design-language-design.md`(v1.5,已获用户批准)。动手前先读它,要点:
+**UI 开发自 2026-11-23 起是双轨的 —— 先看你改的是哪一种**:
+
+- **新增页面 / 改版 / 新组件 / 新动效** → 读 [「余烬 Ember」](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md)(v0.1 草案)
+  与它的[实施计划](docs/superpowers/plans/2026-11-23-ui-redesign-ember.md);
+- **只维护存量页面** → 仍按「心跳」:`docs/superpowers/specs/2026-09-15-ui-design-language-design.md`(v1.5)。
+  两文冲突时,**新写的那部分**以 Ember 为准。
+- token 的唯一事实来源已经是 `design/tokens/*.json`(生成 `app/lib/core/theme/tokens.g.dart` 与
+  `web/src/styles/tokens.generated.css`),**但两端还没接线** —— 所以下面「双份维护」那条规矩
+  在工单 E-2 / E-3 合并前**依然有效**,不要提前按新链路行事。
+
+「心跳」的要点(**存量页面**照此执行):
 
 - 色板/渐变/字阶/圆角/间距/动效时长全走 token,**禁止新代码出现裸 hex、裸字号、裸间距**(页面改造时顺手按文档 §2.3 对照表清理旧硬编码)
 - 主色 #FF2C55 + 心跳渐变(粉→橙)只出现在引导视线处(主按钮/选中/未读/配对/在线光),其余走三级中性色阶
@@ -96,7 +106,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。完整�
 - **在线状态是公开信息**(不依赖配对);「在线」= 120 秒内有认证请求(45s 心跳)
 - **前端**:401 只走 `AuthInterceptor` 刷新通道;错误统一 `ApiException`;写操作后检查相关 provider 失效
 - **网页端**:401 只走 `api/http.ts` 的刷新通道(并发去重);错误统一 `ApiError`;页面只碰 store、不直接调 `http`
-- **「心跳」token 双份维护**:改任何视觉 token 或字体,**必须在同一次改动内同时改** `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css`(`web/public/fonts/*` 与 `app/assets/fonts/*` 保持一致);`web/tests/unit/tokens.spec.ts` 与 `fonts.spec.ts` 会双向比对,漏改即红
+- **「心跳」token 双份维护**(**仅存量页面、且仅到 E-2 / E-3 合并前**):改任何视觉 token 或字体,**必须在同一次改动内同时改** `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css`(`web/public/fonts/*` 与 `app/assets/fonts/*` 保持一致);`web/tests/unit/tokens.spec.ts` 与 `fonts.spec.ts` 会双向比对,漏改即红。接线之后改为只改 `design/tokens/*.json` 再跑 `python scripts/design_tokens.py --write`
 - **跨栈 IM 协议帧(2026-11-05 起,E-2)**:`imserver/tests/fixtures/ws/*.json` 是三端(App / Web / imserver)唯一的线上帧契约源。改任何 WS 帧格式必须**同一次改动内**同时改:fixture + imserver(`src/net/frames.h` 的构造 / `ws_server.cpp`)+ App(`self_im_client.dart` 与 `app/test/im/protocol_fixture_test.dart`)+ Web(`web/src/im/self/*` 与 `web/tests/unit/im-protocol-fixture.spec.ts`);三条 CI 轨(`imserver.yml`/`app.yml`/`web.yml`)各自会红。契约与改法见 `imserver/tests/fixtures/ws/README.md`
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步
 - **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/main` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。CI 跑在 Ubuntu + MySQL 8 + Redis 上,与本地 Windows 不同;顺序错了会变成「CI 红时生产已在跑未验证代码」

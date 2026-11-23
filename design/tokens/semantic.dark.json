@@ -1,0 +1,38 @@
+{
+  "color": {
+    "surface": {
+      "page": { "$value": "{color.paper.110}", "$type": "color" },
+      "card": { "$value": "{color.paper.95}", "$type": "color" },
+      "sunken": { "$value": "{color.paper.120}", "$type": "color" }
+    },
+    "overlay": {
+      "scrim": { "$value": "#000000EB", "$type": "color" }
+    },
+    "text": {
+      "primary": { "$value": "{color.paper.10}", "$type": "color" },
+      "secondary": { "$value": "{color.paper.50}", "$type": "color" },
+      "tertiary": { "$value": "{color.paper.60}", "$type": "color" }
+    },
+    "border": {
+      "divider": { "$value": "{color.paper.92}", "$type": "color" },
+      "strong": { "$value": "{color.paper.90}", "$type": "color" }
+    },
+    "brand": {
+      "default": { "$value": "{color.ember.300}", "$type": "color" },
+      "on": { "$value": "{color.ember.950}", "$type": "color" }
+    },
+    "accent": {
+      "default": { "$value": "#FFC38F", "$type": "color" },
+      "on": { "$value": "{color.ember.950}", "$type": "color" }
+    },
+    "status": {
+      "danger": { "$value": "#FF8FA3", "$type": "color" },
+      "onDanger": { "$value": "#2A0410", "$type": "color" },
+      "success": { "$value": "#4FD69A", "$type": "color" },
+      "onSuccess": { "$value": "#04140E", "$type": "color" },
+      "warning": { "$value": "#FFC152", "$type": "color" },
+      "onWarning": { "$value": "#14100A", "$type": "color" },
+      "info": { "$value": "#B3A5FF", "$type": "color" }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "color": {
+    "surface": {
+      "page": { "$value": "{color.paper.5}", "$type": "color" },
+      "card": { "$value": "{color.paper.0}", "$type": "color" },
+      "sunken": { "$value": "{color.paper.20}", "$type": "color" }
+    },
+    "overlay": {
+      "scrim": { "$value": "#1C1714EB", "$type": "color", "$description": "Toast 与遮罩（92% 不透明）" }
+    },
+    "text": {
+      "primary": { "$value": "{color.paper.100}", "$type": "color" },
+      "secondary": { "$value": "{color.paper.80}", "$type": "color" },
+      "tertiary": { "$value": "{color.paper.70}", "$type": "color" }
+    },
+    "border": {
+      "divider": { "$value": "{color.paper.30}", "$type": "color" },
+      "strong": { "$value": "{color.paper.40}", "$type": "color" }
+    },
+    "brand": {
+      "default": { "$value": "{color.ember.600}", "$type": "color" },
+      "on": { "$value": "{color.paper.0}", "$type": "color" }
+    },
+    "accent": {
+      "default": { "$value": "#B4610C", "$type": "color", "$description": "次强调：精选、徽标；语义层自有值，不建阶梯" },
+      "on": { "$value": "#FFFFFF", "$type": "color" }
+    },
+    "status": {
+      "danger": { "$value": "#A81E3C", "$type": "color" },
+      "onDanger": { "$value": "#FFFFFF", "$type": "color" },
+      "success": { "$value": "#10784A", "$type": "color" },
+      "onSuccess": { "$value": "#FFFFFF", "$type": "color" },
+      "warning": { "$value": "#8A5F00", "$type": "color" },
+      "onWarning": { "$value": "#FFFFFF", "$type": "color" },
+      "info": { "$value": "#54409E", "$type": "color" }
+    }
+  }
+}
