@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/widgets/app_text_action.dart';
 import '../../support/heart_theme.dart';
 
@@ -19,7 +19,7 @@ void main() {
     ));
 
     final text = tester.widget<Text>(find.text('保存'));
-    expect(text.style!.color, AppColors.brand);
+    expect(text.style!.color, EmberColors.light.brandDefault);
     expect(text.style!.fontWeight, FontWeight.w600);
     expect(text.style!.fontSize, 15);
 
@@ -40,7 +40,7 @@ void main() {
     ));
 
     final text = tester.widget<Text>(find.text('保存'));
-    expect(text.style!.color, AppColors.text3);
+    expect(text.style!.color, EmberColors.light.textTertiary);
     expect(tester.widget<AppTextAction>(find.byKey(const Key('act'))).onPressed,
         isNull);
     expect(taps, 0);

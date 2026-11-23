@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/heart_theme_context.dart';
-import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/ember_colors.dart';
 
 /// 动态配图(附录 D):1 张通栏大图(高 240);2–9 张统一 3 列正方格。
 /// 假网络/断网时图挂 → divider 底内容占位(非空态)。
@@ -54,7 +54,7 @@ class PostImages extends StatelessWidget {
     );
   }
 
-  Widget _image(int index, HeartColors colors) => Image.network(
+  Widget _image(int index, EmberColors colors) => Image.network(
         urls[index],
         fit: BoxFit.cover,
         errorBuilder: (_, _, _) => ColoredBox(

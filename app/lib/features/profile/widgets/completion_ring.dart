@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/ember_colors.dart';
 import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/theme/app_gradients.dart';
 import '../../../core/theme/app_typography.dart';
@@ -56,7 +56,7 @@ class _RingPainter extends CustomPainter {
   final double stroke;
 
   /// 自绘发生在 paint 阶段(拿不到 BuildContext),色板由外部注入。
-  final HeartColors colors;
+  final EmberColors colors;
 
   @override
   void paint(Canvas canvas, Size size) {

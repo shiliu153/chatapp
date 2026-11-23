@@ -21,7 +21,7 @@ class AppBadge extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: AppGradients.heartOf(colors),
         borderRadius: BorderRadius.circular(9),
-        boxShadow: AppShadows.primaryButton,
+        boxShadow: AppShadows.primaryGlow(colors.brandDefault),
       ),
       // 不用 Container.alignment:有界约束下会撑满整格(ListTile trailing 断言)
       child: Center(

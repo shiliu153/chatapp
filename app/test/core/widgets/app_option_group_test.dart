@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/theme/app_gradients.dart';
 import 'package:chatapp_app/core/widgets/app_option_group.dart';
 import '../../support/heart_theme.dart';
@@ -30,10 +30,10 @@ void main() {
         ))
         .decoration! as BoxDecoration;
 
-    expect(decorationOf('不限').gradient, AppGradients.heart);
+    expect(decorationOf('不限').gradient, AppGradients.heartOf(EmberColors.light));
     expect(tester.widget<Text>(find.text('不限')).style!.color, Colors.white);
     expect(decorationOf('女').gradient, isNull);
-    expect(tester.widget<Text>(find.text('女')).style!.color, AppColors.text2);
+    expect(tester.widget<Text>(find.text('女')).style!.color, EmberColors.light.textSecondary);
 
     await tester.tap(find.text('女'));
     expect(picked, 'female');

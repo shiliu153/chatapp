@@ -40,7 +40,7 @@ class _AppButtonState extends State<AppButton> {
             gradient: disabled ? null : AppGradients.heartOf(colors),
             color: disabled ? colors.divider : null,
             borderRadius: BorderRadius.circular(AppRadius.full),
-            boxShadow: disabled ? null : AppShadows.primaryButton,
+            boxShadow: disabled ? null : AppShadows.primaryGlow(colors.brandDefault),
           ),
           AppText.body.copyWith(color: Colors.white, fontWeight: FontWeight.w700),
         ),

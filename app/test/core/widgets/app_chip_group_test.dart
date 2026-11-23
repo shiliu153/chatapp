@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/widgets/app_chip_group.dart';
 import 'package:chatapp_app/core/widgets/app_option_group.dart';
 import '../../support/heart_theme.dart';
@@ -31,13 +31,13 @@ void main() {
         ))
         .decoration! as BoxDecoration;
 
-    expect(decorationOf('运动').color, AppColors.brand.withValues(alpha: .12));
-    expect(tester.widget<Text>(find.text('运动')).style!.color, AppColors.brand);
+    expect(decorationOf('运动').color, EmberColors.light.brandDefault.withValues(alpha: .12));
+    expect(tester.widget<Text>(find.text('运动')).style!.color, EmberColors.light.brandDefault);
 
     await tester.tap(find.text('音乐'));
     await tester.pump();
     expect(selected, {1, 2});
-    expect(decorationOf('音乐').color, AppColors.brand.withValues(alpha: .12));
+    expect(decorationOf('音乐').color, EmberColors.light.brandDefault.withValues(alpha: .12));
 
     await tester.tap(find.text('运动'));
     await tester.pump();

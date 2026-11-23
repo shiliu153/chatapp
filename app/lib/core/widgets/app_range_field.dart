@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_gradients.dart';
 import '../theme/app_typography.dart';
 import '../theme/heart_theme_context.dart';
-import '../theme/heart_colors.dart';
+import '../theme/ember_colors.dart';
 
 /// 「心跳」§7 区间选择:标题 + 双滑块。
 /// 选中轨道用 `gradientHeart` 着色(§7「选中:填充样式 + gradientHeart 着色」),
@@ -76,7 +76,7 @@ class _GradientRangeTrackShape extends RangeSliderTrackShape
   _GradientRangeTrackShape(this.colors);
 
   /// 当前主题的语义色板。
-  final HeartColors colors;
+  final EmberColors colors;
 
   @override
   bool get isRounded => true;

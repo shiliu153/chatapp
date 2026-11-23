@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:chatapp_app/core/theme/heart_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/theme/theme_mode_store.dart';
 
 import '../../support/harness.dart';
@@ -64,7 +64,7 @@ void main() {
     expect(currentThemeMode(tester), ThemeMode.dark);
     // 主题本身也确实是暗色板(darkTheme 的页面底色 = 深色 bgPage)
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
-    expect(app.darkTheme?.scaffoldBackgroundColor, HeartColors.dark.bgPage);
+    expect(app.darkTheme?.scaffoldBackgroundColor, EmberColors.dark.bgPage);
   });
 
   testWidgets('没存过时默认跟随系统', (tester) async {

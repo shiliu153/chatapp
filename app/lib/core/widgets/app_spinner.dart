@@ -6,7 +6,7 @@ import '../theme/heart_theme_context.dart';
 /// 小号「转圈」(「心跳」§7 加载):**常驻无限动画**,尺寸与描边集中在这里,
 /// 免得每处各写一份 `CircularProgressIndicator(strokeWidth: 2)`。
 ///
-/// 默认走中性色 [HeartColors.text3] —— 转码中这类「进行中但不抢视线」的状态用中性色,
+/// 默认走中性色 [EmberColors.text3] —— 转码中这类「进行中但不抢视线」的状态用中性色,
 /// 主色留给真正的高音(主按钮 / 选中 / 未读)。
 ///
 /// ⚠️ 可见转圈的用例**禁用 `pumpAndSettle`**(无限动画不收敛),要断言它请用 `tester.pump()`。

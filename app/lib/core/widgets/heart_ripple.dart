@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/heart_theme_context.dart';
 import '../theme/app_gradients.dart';
 import '../theme/app_motion.dart';
-import '../theme/heart_colors.dart';
+import '../theme/ember_colors.dart';
 
 /// 「心跳」规则附录 A.3 涟漪空态元素:中心渐变光点 + 双波循环扩散环
 /// (自光点处诞生、扩大渐隐,无静态环)。波纹 2.4s 循环;
@@ -72,7 +72,7 @@ class _HeartRippleState extends State<HeartRipple> with SingleTickerProviderStat
   }
 
   /// 一圈扩散波纹:0.2 → 1.0 倍尺寸(自光点溢出),不透明度 .65 → 0;phase 用于双波错峰。
-  Widget _ping(int index, double phase, HeartColors colors) => AnimatedBuilder(
+  Widget _ping(int index, double phase, EmberColors colors) => AnimatedBuilder(
         animation: _c,
         builder: (context, child) {
           final t = (_c.value + phase) % 1.0;

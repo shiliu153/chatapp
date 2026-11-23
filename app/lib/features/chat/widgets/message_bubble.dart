@@ -11,7 +11,7 @@ import '../../../core/widgets/app_spinner.dart';
 import '../../../im/im_client.dart';
 import '../../../im/voice_transcode.dart';
 import 'voice_bubble.dart';
-import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/ember_colors.dart';
 import '../stickers.dart';
 
 /// 单条消息(「心跳」附录 B.3):自己=brand 实底白字、对方=白底,
@@ -209,7 +209,7 @@ class MessageBubble extends StatelessWidget {
   ///
   /// Args:
   ///   colors: 「心跳」色板(浅 / 深两套)。
-  Widget _selectMark(HeartColors colors) => Icon(
+  Widget _selectMark(EmberColors colors) => Icon(
         selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
         key: Key('chat.select:${message.msgId}'),
         size: 22,
@@ -306,7 +306,7 @@ class MessageBubble extends StatelessWidget {
         onTap: onTapImage,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(AppRadius.image),
-          child: SizedBox(width: 140, height: 140, child: _image()),
+          child: SizedBox(width: 140, height: 140, child: _image(colors)),
         ),
       );
     }
@@ -334,7 +334,7 @@ class MessageBubble extends StatelessWidget {
   ///
   /// Args:
   ///   colors: 「心跳」色板(浅 / 深两套)。
-  Widget _voiceTranscoding(HeartColors colors) {
+  Widget _voiceTranscoding(EmberColors colors) {
     final foreground = message.isSelf ? Colors.white : colors.text3;
     return Container(
       key: const Key('chat.voice.transcoding'),
@@ -360,7 +360,7 @@ class MessageBubble extends StatelessWidget {
   /// 贴纸气泡(批次 J):**不画气泡底色**,只显示图片本身(贴纸自带描边与圆角)。
   ///
   /// 未知 id(老版本收到新贴纸)降级成 `[贴纸]` 文本 pill,不白屏、不抛异常。
-  Widget _sticker(HeartColors colors) {
+  Widget _sticker(EmberColors colors) {
     final sticker = stickerById(message.stickerId);
     if (sticker == null) {
       return Container(
@@ -394,21 +394,29 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _image() {
+  Widget _image(EmberColors colors) {
     final path = message.localPath;
     if (path != null && path.isNotEmpty) {
-      return Image.file(File(path), fit: BoxFit.cover, errorBuilder: _fallback);
+      return Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => _fallback(colors),
+      );
     }
     final url = message.imageUrl;
     if (url != null && url.isNotEmpty) {
-      return Image.network(url, fit: BoxFit.cover, errorBuilder: _fallback);
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => _fallback(colors),
+      );
     }
-    return _fallback(null, null, null);
+    return _fallback(colors);
   }
 
-  Widget _fallback(BuildContext? c, Object? e, StackTrace? s) {
-    // errorBuilder 会给回当前上下文,直接取色板(为 null 时退回浅色板,不至于炸)
-    final colors = c?.heart ?? HeartColors.light;
+  Widget _fallback(EmberColors colors) {
+    // 色板由外层 build 传入:errorBuilder 的上下文不可靠,而且「绕过主题直接取
+    // EmberColors.light」会被 no_raw_colors_test 判红(E-2 起的新判据)。
     return Container(
       color: colors.divider,
       child: Center(child: Icon(Icons.image_rounded, color: colors.text3)),

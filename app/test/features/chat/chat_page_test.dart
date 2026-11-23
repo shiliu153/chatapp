@@ -11,7 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/image_pick.dart';
 import 'package:chatapp_app/core/providers.dart';
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/widgets/avatar_hero.dart';
 import 'package:chatapp_app/features/auth/session.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
@@ -547,15 +547,15 @@ void main() {
     Icon sendIcon() => tester.widget<Icon>(find.descendant(
         of: find.byKey(const Key('chat.send')), matching: find.byType(Icon)));
 
-    expect(sendIcon().color, AppColors.text3);
+    expect(sendIcon().color, EmberColors.light.textTertiary);
 
     await tester.enterText(find.byKey(const Key('chat.input')), '在吗');
     await tester.pump();
-    expect(sendIcon().color, AppColors.brand);
+    expect(sendIcon().color, EmberColors.light.brandDefault);
 
     await tester.enterText(find.byKey(const Key('chat.input')), '');
     await tester.pump();
-    expect(sendIcon().color, AppColors.text3);
+    expect(sendIcon().color, EmberColors.light.textTertiary);
   });
 
   testWidgets('没有消息 → 空态「打个招呼吧」+ 副文案', (tester) async {

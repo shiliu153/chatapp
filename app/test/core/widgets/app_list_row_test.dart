@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/widgets/app_list_row.dart';
 import '../../support/heart_theme.dart';
 
@@ -56,7 +56,7 @@ void main() {
     ));
 
     final text = tester.widget<Text>(find.text('退出登录'));
-    expect(text.style!.color, AppColors.danger);
+    expect(text.style!.color, EmberColors.light.statusDanger);
     expect(text.style!.fontWeight, FontWeight.w600);
     expect(find.byIcon(Icons.chevron_right_rounded), findsNothing);
 

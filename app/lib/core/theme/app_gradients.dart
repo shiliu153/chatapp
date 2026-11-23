@@ -1,45 +1,33 @@
 import 'package:flutter/material.dart';
 
-import 'app_colors.dart';
-import 'heart_colors.dart';
+import 'ember_colors.dart';
 
-/// 「心跳」规则 §2.1 渐变(135° = 左上→右下)。
+/// 心跳期渐变的**过渡实现**:颜色改为从 [EmberColors] 取,不再是手写常量。
 ///
-/// 静态常量是**浅色**版本(给 const 上下文与既有 token 测试用);双主题之后取色走
-/// [heartOf] / [systemOf] / [heartSweepOf],暗色下 heartOrange 会提亮一档(§2.1.1)。
+/// spec §18.1 #2 规定「渐变全部取消,主色改实色」,所以这里保留三个构造函数的唯一
+/// 目的是让存量页面继续编译与显示,E-5 逐页迁移时逐个删除:
+/// - [heartOf]:粉橙渐变 → 现在是 `brand.default → accent.default` 的暖色渐变;
+/// - [systemOf]:紫蓝渐变 → 「系统 / 官方」在 §18.2 里合并成 `status.info` **单色**,
+///   所以两端取同一个色值(渲染成实色,不再有色相过渡);
+/// - [heartSweepOf]:完成度环的进度弧,与 [heartOf] 同色。
 abstract final class AppGradients {
-  static const heart = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [AppColors.brand, AppColors.heartOrange],
-  );
-  static const system = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [AppColors.violet, AppColors.systemBlue],
-  );
-
-  /// 附录 C.2 完成度环的进度弧:与 heart 同色,但沿圆周扫过(SweepGradient)。
-  static const heartSweep = SweepGradient(
-    colors: [AppColors.brand, AppColors.heartOrange],
-  );
-
-  /// 主题感知的心跳渐变(粉→橙)。
-  static LinearGradient heartOf(HeartColors colors) => LinearGradient(
+  /// 主题感知的「心跳」渐变(旧:粉→橙;现:朱砂→琥珀)。
+  static LinearGradient heartOf(EmberColors colors) => LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [colors.brand, colors.heartOrange],
+        colors: [colors.brandDefault, colors.accentDefault],
       );
 
-  /// 主题感知的系统渐变(紫→蓝)。
-  static LinearGradient systemOf(HeartColors colors) => LinearGradient(
+  /// 主题感知的「系统」渐变。§18.2:系统 / 官方统一 `status.info` 单色,
+  /// 两端同值即为实色(保留函数是为了让存量页面不改调用)。
+  static LinearGradient systemOf(EmberColors colors) => LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [colors.violet, colors.systemBlue],
+        colors: [colors.statusInfo, colors.statusInfo],
       );
 
-  /// 主题感知的完成度环进度弧。
-  static SweepGradient heartSweepOf(HeartColors colors) => SweepGradient(
-        colors: [colors.brand, colors.heartOrange],
+  /// 主题感知的完成度环进度弧(沿圆周扫过)。
+  static SweepGradient heartSweepOf(EmberColors colors) => SweepGradient(
+        colors: [colors.brandDefault, colors.accentDefault],
       );
 }

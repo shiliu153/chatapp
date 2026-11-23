@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_gradients.dart';
-import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/ember_colors.dart';
 import '../../../core/theme/heart_theme_context.dart';
 
 /// 发现页的「撤销上一次滑卡」按钮(批次 O,discovery.md §3.9)。
@@ -139,7 +139,7 @@ class _UndoRingPainter extends CustomPainter {
   final double progress;
 
   /// 自绘发生在 paint 阶段(拿不到 BuildContext),色板由外部注入。
-  final HeartColors colors;
+  final EmberColors colors;
 
   /// 置灰时进度弧也退成中性色,呼应「不可点」。
   final bool active;
