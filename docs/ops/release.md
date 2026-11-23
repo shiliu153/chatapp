@@ -896,6 +896,58 @@ integration_test)覆盖。
 **日志**:`app.log` 最近 500 行 **0 个 5xx、0 条 ERROR**;`celery.log` 无 error;
 imserver 容器 `imserver:1.0.13` Up、`internal/healthz` / `internal/readyz` 200。
 
+## 6.9 v1.0.14 上线实况(2026-11-23 14:37–14:42,纯客户端发版)
+
+**本版特殊性:生产基线已经在 `c6ee6b4`(2026-11-21 升到 `main`),所以 1.0.14 相对生产只有客户端改动 ——
+后端 / imserver / deploy 三个目录 `git diff` 全为空,因此无迁移、无 imserver 镜像重建、无 pip 变更。**
+判断依据(可复现):
+
+```bash
+git diff --name-only c6ee6b4..8245e19 -- chatapp imserver deploy   # 空
+git diff --name-only 0eb02a1..8245e19 -- imserver                 # 空(生产镜像 tag 0eb02a1 的源码与目标一致)
+```
+
+- **回滚点(先记录后动手)**:
+  - 代码 `c6ee6b4ad4a1`(本版之前的生产 SHA),记录在 `/www/backup/chatapp-rollback-1.0.14.txt`
+  - `.env` `/www/backup/chatapp-env-1.0.13-20261123-143726.bak`
+  - 旧 Web 前端 `/www/backup/chatapp-web-dist-1.0.13-20261123-143726.tar.gz`
+    (145 KB = `index.html` + `assets`);服务器侧另留 `index.html.bak.20261123-143759` 与 `assets.old.20261123-143759`
+  - imserver 镜像 `imserver:0eb02a1`(本版未动);旧包 `chatapp-1.0.13.apk` 仍在站点根
+- **部署**:`git fetch --prune && git reset --hard 8245e19`(后端文件零变化,只为让服务器 SHA 与
+  「部署只认 origin/main」对齐)→ `manage.py check` **零 issue** → `migrate --check` **无待执行** →
+  `pip check` 无破损 → `.env` 只改 `LATEST_APP_VERSION=1.0.14` 与 `APP_DOWNLOAD_URL`
+  (`MIN_APP_VERSION` 保持 1.0.1)→ 重启 `chatapp-web:chatapp-web_00`。
+  **celery 未重启**:相对生产 `chatapp/**/tasks.py` 零改动,且实测 venv 侧已注册
+  `im.tasks.transcode_chat_voice` / `im.tasks.transcode_profile_voice`。
+- **Web**:本地 `npm run build`(Node 22)→ `dist` 打包(479 KB / 114 assets + 12 贴纸 + 4 字体)→
+  scp 后两侧 `sha256` 逐字节一致 → 旧 `assets` 改名 `assets.old.20261123-143759` →
+  **解包内容直接覆盖站点根**(不是 `dist/` 子目录,1.0.10 踩过)→ `index.html` 由
+  `assets/index-DbOSdKtw.js` 换成 `assets/index-BzWFu__z.js`。
+- **APK**:`chatapp-1.0.14.apk`(61,538,738 字节,SHA-1 `058640b31f6c330b30e633beb11b5e76a1c597de`,
+  `versionCode=15` / `versionName=1.0.14`,release keystore 签名),服务器侧 `sha1sum` 与本地一致。
+
+**冒烟(全绿)**:
+
+| 项 | 结果 |
+|---|---|
+| `/api/v1/app/config` | `{"min_app_version":"1.0.1","latest_version":"1.0.14","download_url":"…/chatapp-1.0.14.apk"}` |
+| `/health` `/readyz` `/api/v1/readyz` | 200 / 200 / `{"status":"ok","checks":{"db":"ok","redis":"ok"}}` |
+| imserver `internal/readyz` | 200(容器 `imserver:0eb02a1` Up 46 小时,未重启) |
+| 站点根 / 新 chunk / CSS / 贴纸 / 深链 | 200 / 200(`index-BzWFu__z.js`)/ 200 / 200 / 200(`/notifications`) |
+| APK 下载 | `Range: bytes=0-99` → **206**,`Content-Length: 61538738`,`Accept-Ranges: bytes` |
+| 未认证探针 | `/api/v1/devices`、`/api/v1/stats/me`、`/im/api/conversations` 均 **401** |
+| Redis(H-1 口径) | `redis-cli ping` → `NOAUTH`;带 `/root/.chatapp/redis-password` → `PONG` |
+| 日志 | nginx 近 300 行 **0 个 5xx**;web stderr 只有未登录轮询的 401;celery `ERROR` 计数 **0** |
+
+**踩到的坑**:
+- **面板自带的 `python` 不是业务解释器**。`/www/server/panel/pyenv/bin/python manage.py check` 报
+  `ModuleNotFoundError: No module named 'django'`;gunicorn / celery 用的是
+  `/www/wwwroot/chatapp-venv/bin/python`(见 supervisor `profile/chatapp-web.ini` 的 `command`),
+  跑任何 `manage.py` 命令都用后者。
+
+**留给人验**:App 端逐页手测(模拟器点击/长连接的老问题见 `docs/pitfalls/android-emulator.md`);
+白名单账号的登录链路本次**未**跑 —— 登录会顶掉该账号现有端(多端在线语义),留主人自测时验。
+
 ## 7. 为什么这条约束值得存在
 
 版本号、tag、Release 是**同一件事的三个面**:版本号给客户端判升级,tag 给 git 定位「这个包是哪份代码」,
