@@ -49,6 +49,10 @@ Thumbs.db
 # Brainstorm 预览(Mockup)会话产物
 .superpowers/
 
+# 本机会话的临时产物(截图 / 镜像打包件 / git bundle / 一次性脚本)
+# 不入库:它们是本地残留,留着会让 release_prep.py 的「干净工作区」前置闸门直接失败
+.local/
+
 # 压测脚本与原始采样(2026-11-01 压测;含 venv 与服务器日志,不入库)
 .stress/
 
