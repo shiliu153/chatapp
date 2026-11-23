@@ -190,7 +190,7 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
                 background: widget.likeBlocked ? colors.bgCard : null,
                 gradient: widget.likeBlocked ? null : AppGradients.heartOf(colors),
                 borderColor: widget.likeBlocked ? colors.divider : null,
-                shadow: widget.likeBlocked ? AppShadows.card : AppShadows.primaryButton,
+                shadow: widget.likeBlocked ? AppShadows.card : AppShadows.primaryGlow(colors.brandDefault),
                 pulse: !widget.likeBlocked,
                 onPressed: _flying || widget.likeBlocked ? null : () => _flyOut(like: true),
               ),

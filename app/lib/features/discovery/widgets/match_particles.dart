@@ -2,27 +2,27 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/ember_colors.dart';
 
 
 /// 附录 A.5 配对粒子:progress 0→1 = 自碰撞点向四周飘散渐隐。
 /// 固定随机种子:轨迹每次一致,测试与手测可复现。
 class MatchParticlesPainter extends CustomPainter {
-  MatchParticlesPainter({required this.progress, required HeartColors colors})
+  MatchParticlesPainter({required this.progress, required EmberColors colors})
       : _particles = _build(colors);
 
   final double progress;
   final List<_Particle> _particles;
 
   /// 自绘发生在 paint 阶段(拿不到 BuildContext),色板由外部注入。
-  static List<Color> _paletteOf(HeartColors colors) => [
+  static List<Color> _paletteOf(EmberColors colors) => [
         colors.brand,
         colors.heartOrange,
         colors.amber,
         Colors.white,
       ];
 
-  static List<_Particle> _build(HeartColors colors) {
+  static List<_Particle> _build(EmberColors colors) {
     final palette = _paletteOf(colors);
     final random = math.Random(7);
     return [

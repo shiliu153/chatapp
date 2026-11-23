@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/heart_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/features/stats/stats_page.dart';
 
 import '../../support/harness.dart';
@@ -201,7 +201,7 @@ void main() {
     await pumpFrames(tester);
 
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
-    expect(scaffold.backgroundColor, HeartColors.dark.bgPage);
+    expect(scaffold.backgroundColor, EmberColors.dark.bgPage);
     expect(find.text('2026-11-09 ~ 2026-11-15'), findsOneWidget);
     expect(find.byKey(const Key('stats.card.new_followers')), findsOneWidget);
   });

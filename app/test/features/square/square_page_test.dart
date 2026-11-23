@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/widgets/breathing_dot.dart';
 import 'package:chatapp_app/features/profile/user_profile_page.dart';
 
@@ -87,7 +87,7 @@ void main() {
     await tester.tap(find.byKey(const Key('post.like.1')));
     await tester.pump();   // 乐观:马上变红
     expect(tester.widget<Icon>(find.byIcon(Icons.favorite_rounded)).color,
-        AppColors.brand);
+        EmberColors.light.brandDefault);
     await tester.pumpAndSettle();   // 请求失败 → 回滚
     expect(find.byIcon(Icons.favorite_border_rounded), findsOneWidget);
     await tester.pump(const Duration(seconds: 3)); // AppToast 2s Timer 收尾

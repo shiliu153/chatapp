@@ -281,7 +281,7 @@ class _ComposeFab extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: AppGradients.heartOf(colors),
-          boxShadow: AppShadows.primaryButton,
+          boxShadow: AppShadows.primaryGlow(colors.brandDefault),
         ),
         child: Material(
           color: Colors.transparent,

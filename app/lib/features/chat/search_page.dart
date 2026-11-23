@@ -16,7 +16,7 @@ import '../../core/widgets/app_skeleton.dart';
 import '../../core/widgets/app_sub_page_bar.dart';
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
-import '../../core/theme/heart_colors.dart';
+import '../../core/theme/ember_colors.dart';
 
 /// 聊天记录搜索页:输入关键词 → 300ms 防抖 → 调 IM 的 searchMessages;
 /// 点结果进聊天页并按 focus 定位(见 ChatPage.focusMsgId)。
@@ -223,7 +223,7 @@ class _SearchHitTile extends StatelessWidget {
 
   /// 把命中片段切成若干 TextSpan,命中部分主色加粗;过长时保留命中前后各 20 字。
   static List<TextSpan> _highlight(
-      String text, String keyword, HeartColors colors) {
+      String text, String keyword, EmberColors colors) {
     final plain = AppText.body.copyWith(color: colors.text2);
     final marked = AppText.body
         .copyWith(color: colors.brand, fontWeight: FontWeight.w600);

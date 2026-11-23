@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/heart_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/features/auth/login_page.dart';
 import 'package:chatapp_app/features/chat/chat_page.dart';
 import 'package:chatapp_app/features/chat/search_page.dart';
@@ -80,14 +80,14 @@ void expectNoLightSurfaces(WidgetTester tester, String page) {
     if (background == null) continue;
     expect(
       background,
-      HeartColors.dark.bgPage,
+      EmberColors.dark.bgPage,
       reason: '$page 的 Scaffold 底色仍是 ${background.toString()}',
     );
   }
 
   final forbidden = <Color, String>{
-    HeartColors.light.bgPage: 'light.bgPage',
-    HeartColors.light.divider: 'light.divider',
+    EmberColors.light.bgPage: 'light.bgPage',
+    EmberColors.light.divider: 'light.divider',
   };
   final hits = <String>[];
   for (final color in surfaceColors(tester)) {
@@ -235,7 +235,7 @@ void main() {
         .map((d) => d.decoration)
         .whereType<BoxDecoration>()
         .map((d) => d.color)
-        .where((c) => c == HeartColors.dark.bgCard);
+        .where((c) => c == EmberColors.dark.bgCard);
     expect(cards, isNotEmpty, reason: '设置页应有深色卡片底');
   });
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/theme/app_gradients.dart';
 import 'package:chatapp_app/core/widgets/app_progress_bar.dart';
 import '../../support/heart_theme.dart';
@@ -21,9 +21,9 @@ void main() {
         tester.widget<AnimatedContainer>(bars.at(index)).decoration!
             as BoxDecoration;
 
-    expect(decorationAt(0).gradient, AppGradients.heart);
+    expect(decorationAt(0).gradient, AppGradients.heartOf(EmberColors.light));
     expect(decorationAt(1).gradient, isNull);
-    expect(decorationAt(1).color, AppColors.divider);
+    expect(decorationAt(1).color, EmberColors.light.borderDivider);
     expect(tester.getSize(bars.at(0)).height, 4);
   });
 
@@ -39,7 +39,7 @@ void main() {
         (tester.widget<AnimatedContainer>(bars.at(i)).decoration!
                 as BoxDecoration)
             .gradient,
-        AppGradients.heart,
+        AppGradients.heartOf(EmberColors.light),
       );
     }
   });

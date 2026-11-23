@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/widgets/app_button.dart';
 import '../../support/heart_theme.dart';
 
@@ -46,7 +46,7 @@ void main() {
       matching: find.byType(Container),
     ));
     final decoration = container.decoration! as BoxDecoration;
-    expect(decoration.color, AppColors.danger);
+    expect(decoration.color, EmberColors.light.statusDanger);
     expect(decoration.gradient, isNull);
     final text = tester.widget<Text>(find.text('删除'));
     expect(text.style!.color, Colors.white);

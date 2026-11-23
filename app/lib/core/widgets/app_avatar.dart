@@ -4,7 +4,7 @@ import '../theme/app_gradients.dart';
 import '../theme/app_typography.dart';
 import 'breathing_dot.dart';
 import '../theme/heart_theme_context.dart';
-import '../theme/heart_colors.dart';
+import '../theme/ember_colors.dart';
 
 /// 「心跳」规则 §5.3 头像:一律圆形;可选光晕环(可聊/新配对)与在线绿点。
 /// 尺寸档:28/32/40/48/56/96(自由传入,在线点按 ≥48 取 11、否则 8)。
@@ -29,7 +29,7 @@ class AppAvatar extends StatelessWidget {
   final String? fallbackText;
 
   /// 首字占位的取色环(附录 B.7)。随主题走,所以不能是 static const。
-  static List<Color> _fallbackTints(HeartColors colors) => [
+  static List<Color> _fallbackTints(EmberColors colors) => [
         colors.brand,
         colors.violet,
         colors.green,
@@ -87,7 +87,7 @@ class AppAvatar extends StatelessWidget {
     return avatar;
   }
 
-  Widget _placeholder(HeartColors colors) {
+  Widget _placeholder(EmberColors colors) {
     final text = fallbackText;
     if (text == null || text.isEmpty) {
       return Container(

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/theme/app_radius.dart';
 import 'package:chatapp_app/core/widgets/app_section_card.dart';
 import '../../support/heart_theme.dart';
@@ -27,7 +27,7 @@ void main() {
       matching: find.byType(Container),
     ));
     final decoration = container.decoration! as BoxDecoration;
-    expect(decoration.color, AppColors.bgCard);
+    expect(decoration.color, EmberColors.light.surfaceCard);
     expect((decoration.borderRadius! as BorderRadius).topLeft.x, AppRadius.card);
 
     final titleY = tester.getCenter(find.text('基本信息')).dy;

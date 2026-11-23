@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/widgets/app_text_field.dart';
 import '../../support/heart_theme.dart';
 
@@ -50,12 +50,12 @@ void main() {
       return container.decoration! as BoxDecoration;
     }
 
-    expect((decorationOf().border! as Border).top.color, AppColors.divider);
+    expect((decorationOf().border! as Border).top.color, EmberColors.light.borderDivider);
     expect((decorationOf().border! as Border).top.width, 1);
 
     node.requestFocus();
     await tester.pumpAndSettle();
-    expect((decorationOf().border! as Border).top.color, AppColors.brand);
+    expect((decorationOf().border! as Border).top.color, EmberColors.light.brandDefault);
     expect((decorationOf().border! as Border).top.width, 1.5);
   });
 

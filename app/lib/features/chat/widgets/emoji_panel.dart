@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/ember_colors.dart';
 import '../../../core/theme/heart_theme_context.dart';
 import '../stickers.dart';
 
@@ -60,7 +60,7 @@ class _EmojiPanelState extends State<EmojiPanel> {
   }
 
   /// 顶部两个 tab(纯文字 + 选中下划线,不引入 TabBar 的主题依赖)。
-  Widget _tabs(HeartColors colors) {
+  Widget _tabs(EmberColors colors) {
     Widget item(String label, bool selected, Key key, VoidCallback onTap) => Expanded(
           child: InkWell(
             key: key,
@@ -108,7 +108,7 @@ class _EmojiPanelState extends State<EmojiPanel> {
         ],
       );
 
-  Widget _stickers(HeartColors colors) => GridView.count(
+  Widget _stickers(EmberColors colors) => GridView.count(
         crossAxisCount: 4,
         padding: const EdgeInsets.all(AppSpacing.sm),
         mainAxisSpacing: AppSpacing.xs,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/theme/app_colors.dart';
+import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/widgets/app_picker_field.dart';
 import '../../support/heart_theme.dart';
 
@@ -20,7 +20,7 @@ void main() {
 
     expect(find.text('生日'), findsOneWidget);
     expect(find.text('请选择'), findsOneWidget);
-    expect(tester.widget<Text>(find.text('请选择')).style!.color, AppColors.text3);
+    expect(tester.widget<Text>(find.text('请选择')).style!.color, EmberColors.light.textTertiary);
 
     // 注意:AppPickerField 的外层 Column 在宽松高度约束下会撑满整屏(Scaffold body),
     // 所以按 key 取中心会落到盒子外;点文字才是盒子内的精确位置。
@@ -41,7 +41,7 @@ void main() {
     ));
 
     expect(tester.widget<Text>(find.text('2000-01-01')).style!.color,
-        AppColors.text1);
+        EmberColors.light.textPrimary);
     expect(
       tester.getSize(find.descendant(
         of: find.byKey(const Key('p')),

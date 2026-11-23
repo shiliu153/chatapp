@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/ember_colors.dart';
 import '../../../core/theme/heart_theme_context.dart';
 
 /// 发现页加载骨架:与卡面等大的呼吸块 + 操作钮位。
@@ -83,7 +83,7 @@ class _DeckSkeletonState extends State<DeckSkeleton> with SingleTickerProviderSt
       );
   }
 
-  Widget _bar(double widthFactor, HeartColors colors) => FractionallySizedBox(
+  Widget _bar(double widthFactor, EmberColors colors) => FractionallySizedBox(
         alignment: Alignment.centerLeft,
         widthFactor: widthFactor,
         child: Container(

@@ -5,7 +5,7 @@ import '../../../core/api_exception.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/heart_colors.dart';
+import '../../../core/theme/ember_colors.dart';
 import '../../../core/theme/heart_theme_context.dart';
 import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_section_card.dart';
@@ -244,7 +244,7 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
   }
 
   /// 录制进度:已录时长占 30 秒的比例(替代波形,零动画、可回归)。
-  Widget _recordingProgress(HeartColors colors) {
+  Widget _recordingProgress(EmberColors colors) {
     final total = _voice.maxSeconds;
     final factor = total <= 0 ? 0.0 : (_voice.seconds / total).clamp(0.0, 1.0);
     return SizedBox(
