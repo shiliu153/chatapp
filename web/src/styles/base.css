@@ -1,21 +1,12 @@
 /* 全局重置、字体、焦点圈。数值只引用 CSS 变量(来源:design/tokens → tokens.generated.css;
    存量页面的旧变量名由 ember-compat.css 映射,见 main.ts 的引入顺序)。 */
+/* 标题字族: Fraunces 可变字体(「余烬 Ember」§4.1 —— 只用于 display / title 两档)。
+   单条 @font-face 覆盖 wght 轴;页面里取字重靠 font-weight,浏览器会走真实可变轴。
+   与 app/assets/fonts/Fraunces-Variable.ttf 必须同名同内容(web/tests/unit/fonts.spec.ts 双向比对)。 */
 @font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/SpaceGrotesk-Regular.ttf') format('truetype');
-  font-weight: 400;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/SpaceGrotesk-Medium.ttf') format('truetype');
-  font-weight: 500;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Space Grotesk';
-  src: url('/fonts/SpaceGrotesk-Bold.ttf') format('truetype');
-  font-weight: 700;
+  font-family: 'Fraunces';
+  src: url('/fonts/Fraunces-Variable.ttf') format('truetype');
+  font-weight: 100 900;
   font-display: swap;
 }
 

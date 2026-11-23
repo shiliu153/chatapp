@@ -65,7 +65,8 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。完整�
 
 - 暖纸 + 朱砂，**单一强调色**，没有渐变主按钮；禁止裸 hex / 裸字号 / 裸间距 / 裸圆角
 - 品牌色只出现在引导视线处（主按钮 / 选中 / 未读 / 配对 / 在线光），其余走三级中性色阶
-- 字体：`display` / `title` 档用 Fraunces（**尚未落地**，见 backlog 的字体单）、正文走系统无衬线；
+- 字体：`display` / `title` 两档用 **Fraunces 可变字体**（已落地：`app/assets/fonts/Fraunces-Variable.ttf` ↔
+  `web/public/fonts/Fraunces-Variable.ttf`，字重走 wght 轴）；正文走系统无衬线（中文不打包）；
   图标统一 **Phosphor**（Regular → 选中 Fill）
 - 动效全走弹簧（`spring.*`），**没有 curve 常量**；尊重 reduced-motion（120ms 线性淡入、不位移不缩放）
 - 深色模式**不用阴影**，改 `border` + 表面色差分层；不做纯装饰循环动画
@@ -109,7 +110,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。完整�
 - **在线状态是公开信息**(不依赖配对);「在线」= 120 秒内有认证请求(45s 心跳)
 - **前端**:401 只走 `AuthInterceptor` 刷新通道;错误统一 `ApiException`;写操作后检查相关 provider 失效
 - **网页端**:401 只走 `api/http.ts` 的刷新通道(并发去重);错误统一 `ApiError`;页面只碰 store、不直接调 `http`
-- **视觉 token 单一事实来源(2026-11-23 起)**:只改 `design/tokens/*.json`,再跑 `python scripts/design_tokens.py --write` 重生成 `app/lib/core/theme/tokens.g.dart` 与 `web/src/styles/tokens.generated.css`(两份都是生成物,**禁手改**);`scripts/verify.sh contract` 会跑三道 `design_*` 门禁(生成物字节比对 / 对比度 / 规范 ↔ token 双向比对)。E-2([#470](https://github.com/shiliu153/chatapp/pull/470))/ E-3([#468](https://github.com/shiliu153/chatapp/pull/468))之后两端**已不再有手写色值**,旧的「心跳」双份手改规矩作废。**字体仍是两份实物**(`app/assets/fonts/*` ↔ `web/public/fonts/*`,由 `web/tests/unit/fonts.spec.ts` 双向比对),且目前装的还是 Space Grotesk —— 换 Fraunces 属单独字体单,未换之前新页面按 Ember §4 取字号 / 字重、字族沿用现状并在 PR 正文注明「假定」
+- **视觉 token 单一事实来源(2026-11-23 起)**:只改 `design/tokens/*.json`,再跑 `python scripts/design_tokens.py --write` 重生成 `app/lib/core/theme/tokens.g.dart` 与 `web/src/styles/tokens.generated.css`(两份都是生成物,**禁手改**);`scripts/verify.sh contract` 会跑三道 `design_*` 门禁(生成物字节比对 / 对比度 / 规范 ↔ token 双向比对)。E-2([#470](https://github.com/shiliu153/chatapp/pull/470))/ E-3([#468](https://github.com/shiliu153/chatapp/pull/468))之后两端**已不再有手写色值**,旧的「心跳」双份手改规矩作废。**字体是两份实物**(`app/assets/fonts/*` ↔ `web/public/fonts/*`,由 `web/tests/unit/fonts.spec.ts` 双向比对,**同名同内容**)。2026-11-23 起已换成 Ember §4 的字族:**只有 Fraunces 一个可变字体**(`Fraunces-Variable.ttf`,含 opsz / SOFT / WONK / wght 轴,只服务 `display` / `title` 两档,真实字重走 `fontVariations` 的 wght 轴而不是假粗体);Space Grotesk 三份静态字重随「心跳」退役、已从两端删除;中文一律不打包,走系统字族链(token `font.family.body`)
 - **视觉规范口径**:设计与评审一律以 [「余烬 Ember」](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md) 为准(**v1.0 生效**,2026-11-23 评审通过同日转正);旧「心跳」规范已归档到 `docs/superpowers/archive/specs/`,**只作历史证据**,不再约束任何页面(包括还没迁移的存量页 —— 它们的新写的视觉取值同样只认 Ember)
 - **跨栈 IM 协议帧(2026-11-05 起,E-2)**:`imserver/tests/fixtures/ws/*.json` 是三端(App / Web / imserver)唯一的线上帧契约源。改任何 WS 帧格式必须**同一次改动内**同时改:fixture + imserver(`src/net/frames.h` 的构造 / `ws_server.cpp`)+ App(`self_im_client.dart` 与 `app/test/im/protocol_fixture_test.dart`)+ Web(`web/src/im/self/*` 与 `web/tests/unit/im-protocol-fixture.spec.ts`);三条 CI 轨(`imserver.yml`/`app.yml`/`web.yml`)各自会红。契约与改法见 `imserver/tests/fixtures/ws/README.md`
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步

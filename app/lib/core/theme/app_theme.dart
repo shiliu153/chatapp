@@ -55,9 +55,11 @@ ThemeData buildAppTheme({required Brightness brightness}) {
   final base = ThemeData(
     colorScheme: scheme,
     useMaterial3: true,
-    // 字体族仍沿用「心跳」期口径(§4 的 Fraunces 属 E-5 逐页迁移,不在 E-2 范围)。
-    fontFamily: 'SpaceGrotesk',
-    fontFamilyFallback: kFontFallback,
+    // 全局字族 = token `font.family.body`(系统无衬线链):Flutter 的 `fontFamily` 只认单个
+    // 名字,所以主字族留空(平台默认 SF / Roboto),中文按 token 顺序落到系统字族。
+    // 标题档的 Fraunces 是**组件级**取值(见 `AppText.display` / `AppText.title`)——
+    // 规范 §4.1 只让它服务 display / title 两档,不设成全局字族。
+    fontFamilyFallback: kBodyFontFallback,
     extensions: [colors],
   );
 

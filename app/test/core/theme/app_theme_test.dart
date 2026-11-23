@@ -10,13 +10,39 @@ import 'package:chatapp_app/core/theme/ember_colors.dart';
 import 'package:chatapp_app/core/theme/tokens.g.dart' as tokens;
 
 void main() {
-  test('主题:页面底取 surface.page,全局仍是 SpaceGrotesk(§4 属 E-5)', () {
+  test('主题:页面底取 surface.page;全局字族 = token 的 body 链(Ember §4.1)', () {
     final theme = buildAppTheme(brightness: Brightness.light);
     expect(theme.scaffoldBackgroundColor, EmberColors.light.surfacePage);
     expect(theme.canvasColor, EmberColors.light.surfacePage);
-    expect(theme.textTheme.bodyMedium?.fontFamily, 'SpaceGrotesk');
-    expect(AppText.body.fontFamily, 'SpaceGrotesk');
+    // 全局不再钉死某个具名字族(Space Grotesk 已随「心跳」一起退役):主字族交给平台
+    // 默认(Typography 会填 Roboto / SF),中文按 token `font.family.body` 链回落。
+    // 断言「不是 SpaceGrotesk」而不是「是 null」—— ThemeData 自己会填平台默认值。
+    expect(theme.textTheme.bodyMedium?.fontFamily, isNot('SpaceGrotesk'));
+    expect(theme.textTheme.bodyMedium?.fontFamilyFallback, contains('PingFang SC'));
+    expect(AppText.body.fontFamily, isNull);
     expect(AppText.body.fontFamilyFallback, contains('PingFang SC'));
+    // 标题两档才是 Fraunces(§4.1「只用于 display / title」)
+    expect(AppText.display.fontFamily, tokens.fontFamilyDisplay);
+    expect(AppText.title.fontFamily, tokens.fontFamilyDisplay);
+    expect(AppText.subtitle.fontFamily, isNull);
+    // §4.2 字阶:字号 / 行高来自生成物,不是页面里的魔法数
+    expect(AppText.body.fontSize, tokens.fontSizeBody);
+    expect(AppText.body.height, tokens.fontLineHeightBody);
+    expect(AppText.display.fontSize, tokens.fontSizeDisplay);
+    expect(AppText.display.height, tokens.fontLineHeightDisplay);
+    expect(AppText.micro.fontSize, tokens.fontSizeMicro);
+    expect(AppText.badge.fontSize, tokens.fontSizeMicro); // §18.4 两档合一
+  });
+
+  test('Fraunces 是可变字体:标题档走 wght 轴而不是假粗体', () {
+    // pubspec 里刻意没给 Fraunces 写 weight(写了就等于声明「只有那个字重」),
+    // 所以真实字重必须靠 fontVariations 驱动 —— 缺了它 32/w700 会是描边加粗的衬线。
+    expect(AppText.display.fontVariations, isNotNull);
+    expect(AppText.display.fontVariations!.single.axis, 'wght');
+    expect(AppText.display.fontVariations!.single.value, 700);
+    expect(AppText.title.fontVariations!.single.value, 600);
+    // 正文档不走可变轴(系统字族自己会挑)
+    expect(AppText.body.fontVariations, isNull);
   });
 
   test('colorScheme 逐槽位取 token,primary 是 brand.default 原值(禁止 fromSeed)', () {
