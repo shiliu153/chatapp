@@ -17,4 +17,4 @@
 | 测试 | [testing.md](testing.md) | 写 / 跑前后端测试 |
 | Web 端(Vue 网页端、构建与部署) | [web.md](web.md) | 改网页端、跑 e2e、部署静态站与反代 |
 
-另:设计与计划在 `docs/superpowers/{specs,plans}/`;UI 规范在 `specs/2026-09-15-ui-design-language-design.md`(强制);接口文档在 [`../api/README.md`](../api/README.md)。
+另:设计与计划在 `docs/superpowers/{specs,plans}/`;UI 规范在 `specs/2026-11-23-ui-redesign-ember-design.md`(v1.0,**强制**;旧「心跳」规范已归档,只作历史证据);接口文档在 [`../api/README.md`](../api/README.md)。

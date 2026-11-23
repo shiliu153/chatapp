@@ -10,7 +10,7 @@
 |---|---|
 | 后端 | [docs/standards/python.md](docs/standards/python.md)、[docs/pitfalls/backend.md](docs/pitfalls/backend.md) |
 | IM 协议 / imserver | [imserver/tests/fixtures/ws/README.md](imserver/tests/fixtures/ws/README.md)、[docs/pitfalls/im.md](docs/pitfalls/im.md) |
-| App | [docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md)(「余烬 Ember」:新增 / 改版页)、[docs/superpowers/specs/2026-09-15-ui-design-language-design.md](docs/superpowers/specs/2026-09-15-ui-design-language-design.md)(「心跳」:存量页)、[docs/pitfalls/frontend.md](docs/pitfalls/frontend.md) |
+| App | [docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md)(「余烬 Ember」,**v1.0:唯一在用的 UI 规范**;旧「心跳」规范已归档到 `docs/superpowers/archive/specs/`,只作历史证据)、[docs/pitfalls/frontend.md](docs/pitfalls/frontend.md) |
 | 网页端 | [docs/pitfalls/web.md](docs/pitfalls/web.md) |
 
 ## 二、一单一条栈
@@ -28,9 +28,11 @@
   所以还要 `python scripts/gen_web_schema.py` 重生成那个派生生成物 —— 漏了会被
   `contract-openapi-web-stamp` 判红(判据与踩坑见 `docs/pitfalls/web.md`)
 - 改 WS 帧 → `imserver/tests/fixtures/ws/*.json` + imserver + App(`self_im_client.dart`)+ Web(`web/src/im/self/*`)四处同改
-- 改视觉 token / 字体 → `app/lib/core/theme/*.dart` 与 `web/src/styles/tokens.css` 双份
-  (**仅限 E-2 / E-3 合并前**;之后只改 `design/tokens/*.json` 再跑 `python scripts/design_tokens.py --write`,
-  三份生成物与门禁由 `scripts/verify.sh contract` 兜住)
+- 改视觉 token → 只改 `design/tokens/*.json`,再跑 `python scripts/design_tokens.py --write`;
+  三份生成物(`app/lib/core/theme/tokens.g.dart` / `web/src/styles/tokens.generated.css` /
+  `design/tokens.resolved.json`)**禁手改**,门禁由 `scripts/verify.sh contract` 兜住
+  (E-2 / E-3 合并后两端已无手写色值,旧的「双份维护」规矩作废)。
+  **字体仍是两份实物**(`app/assets/fonts/*` ↔ `web/public/fonts/*`,由 `web/tests/unit/fonts.spec.ts` 双向比对),换字体要两边同名同内容
 - 升版本号 → `app/pubspec.yaml`(唯一事实来源)+ `app/lib/core/app_info.dart` + `web/package.json`,并在 `docs/releases.yml` 记一条(再 `python scripts/releases.py --render`)
 - 新增 / 改 `/api/v1` 接口 → `docs/api/` 对应分册
 
