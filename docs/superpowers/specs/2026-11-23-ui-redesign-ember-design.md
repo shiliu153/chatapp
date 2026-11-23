@@ -131,6 +131,13 @@
 | `status.onWarning` | `#FFFFFF` | `#14100A` | 警告底上的文字 |
 | `status.info` | `#54409E` | `#B3A5FF` | 系统通知、官方标识 |
 | `overlay.scrim` | `#1C1714` @ 92% | `#000000` @ 92% | Toast、遮罩 |
+| `overlay.on` | `#FFFFFF` | `#FFFFFF` | 遮罩上的文字（Toast） |
+
+> `overlay.on` 配 `overlay.scrim` 用：Toast 是「遮罩底 + 浅色字」，页面里不许再写死白字。
+> 对比度门禁走 `design/contrast-pairs.toml` 的实底口径（`parse_hex` 丢 alpha，量的是
+> `#1C1714` / `#000000`：浅色 17.77 / 109.5，深色 21.00 / 110.6）；真实叠底
+> （浅色页面底 `#FBF7F3` 上 92% 的 `#1C1714` ≈ `#2D2925`）对比度略低，仍远高于门槛
+> （WCAG 14.43 / APCA Lc 106.8；深色叠底 20.85 / 110.6）。
 
 ### 3.4 对比度口径（分级，且是门禁）
 
@@ -307,7 +314,7 @@
 | 底栏 | 悬浮胶囊：`surface.card` + `radius.xl`，高 64，左右外距 12、底距 10；四 tab；选中 = 朱砂胶囊（`brand.default`，高 40）+ 白图标 20 + 白字 10/w700 |
 | 消息气泡 | 自己：`brand.default` 实底 + `brand.on` 字，`radius.md` + 靠头像侧上角 6，最大宽 72%，内边距 12/16；对方：`surface.card` + `text.primary`，圆角镜像 |
 | 时间条 | 12 / `text.tertiary` 居中，上下边距 12；间隔 >5 分钟插入 |
-| Toast | `overlay.scrim` 底 + 白字 13 + `radius.md`；底栏上方 12；淡入 + 上移 8；2s 自动消失 |
+| Toast | `overlay.scrim` 底 + `overlay.on` 字 13 + `radius.md`；底栏上方 12；淡入 + 上移 8；2s 自动消失 |
 | 底部弹层 | `surface.card`；上圆角 24；顶部拖把 36×4 `border.divider` |
 | 空态 | 插画 72–96 + 标题 17/w600 + 说明 13/`text.secondary` + 可选主按钮 |
 | 骨架屏 | `surface.sunken` 色块，透明度 .5↔1，1.2s 循环，形状按目标内容 |
@@ -358,7 +365,7 @@
 | 气泡 | loading(发送中) | 气泡保持，右下角 12 转圈；不显示时间 |
 | 气泡 | error(发送失败) | 气泡左侧 `status.danger` 感叹号 + 点按重发（**不静默丢弃**） |
 | Sheet | default | `surface.card` + 上圆角 24 + 拖把 36×4 `border.divider`；进入 `spring.gentle`；scrim `surface.scrim` |
-| Toast | default | `surface.scrim` 底 + 白字 13 + `radius.md`；底栏上方 12；`spring.effects`；2s 自动消失；不可堆叠（新的顶替旧的） |
+| Toast | default | `surface.scrim` 底 + `overlay.on` 字 13 + `radius.md`；底栏上方 12；`spring.effects`；2s 自动消失；不可堆叠（新的顶替旧的） |
 | 空态 | default | 插画 72–96 + 标题 17/w600 + 说明 13 `text.secondary` + 可选主按钮；**禁止灰色图标占位** |
 | 骨架 | default | `surface.sunken`，透明度 .5↔1，1.2s 循环，形状按目标内容 |
 

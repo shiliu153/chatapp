@@ -12,6 +12,7 @@ GENERATED CODE - DO NOT EDIT BY HAND.
   --color-border-strong: #DED4C9;
   --color-brand-default: #C93C22;
   --color-brand-on: #FFFFFF;
+  --color-overlay-on: #FFFFFF;
   --color-overlay-scrim: #1C1714EB;
   --color-status-danger: #A81E3C;
   --color-status-info: #54409E;
@@ -87,6 +88,7 @@ GENERATED CODE - DO NOT EDIT BY HAND.
     --color-border-strong: #3A332D;
     --color-brand-default: #FF9370;
     --color-brand-on: #1A0F0B;
+    --color-overlay-on: #FFFFFF;
     --color-overlay-scrim: #000000EB;
     --color-status-danger: #FF8FA3;
     --color-status-info: #B3A5FF;
@@ -112,6 +114,7 @@ GENERATED CODE - DO NOT EDIT BY HAND.
   --color-border-strong: #3A332D;
   --color-brand-default: #FF9370;
   --color-brand-on: #1A0F0B;
+  --color-overlay-on: #FFFFFF;
   --color-overlay-scrim: #000000EB;
   --color-status-danger: #FF8FA3;
   --color-status-info: #B3A5FF;
@@ -135,6 +138,7 @@ GENERATED CODE - DO NOT EDIT BY HAND.
   --color-border-strong: #DED4C9;
   --color-brand-default: #C93C22;
   --color-brand-on: #FFFFFF;
+  --color-overlay-on: #FFFFFF;
   --color-overlay-scrim: #1C1714EB;
   --color-status-danger: #A81E3C;
   --color-status-info: #54409E;
