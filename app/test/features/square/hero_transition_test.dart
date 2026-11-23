@@ -25,7 +25,7 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await tester.pumpAndSettle();
 
     // 来源侧:头像被 AvatarHero 包住,tag 用来源自身 id(不是 userId)
@@ -57,7 +57,7 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await tester.pumpAndSettle();
 
     // 两个 Hero tag 必须不同(用 userId 派生会撞,debug 下直接抛异常)
@@ -87,7 +87,7 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('post.card.1')));
     await tester.pumpAndSettle();
@@ -123,7 +123,7 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await pumpFrames(tester); // 广场空态涟漪在 IndexedStack 隐藏页一直跑,禁 settle
 
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await pumpFrames(tester);
     await tester.tap(find.byKey(const Key('my.row.posts')));
     await tester.pumpAndSettle();

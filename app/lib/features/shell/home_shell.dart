@@ -7,7 +7,7 @@ import '../discovery/discovery_page.dart';
 import '../profile/my_profile_page.dart';
 import '../profile/profile_controller.dart';
 import '../square/square_page.dart';
-import 'app_bottom_bar.dart';
+import 'ember_nav_bar.dart';
 import 'banned_page.dart';
 
 class HomeShell extends ConsumerStatefulWidget {
@@ -31,7 +31,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     final unread = ref.watch(unreadTotalProvider);
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
-      bottomNavigationBar: AppBottomBar(
+      bottomNavigationBar: EmberNavBar(
         currentIndex: _index,
         onTap: (index) => setState(() => _index = index),
         unreadCount: unread,

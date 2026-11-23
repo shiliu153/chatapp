@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/features/shell/app_bottom_bar.dart';
+import 'package:chatapp_app/features/shell/ember_nav_bar.dart';
 
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
@@ -55,7 +55,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(adapter.log.where((r) => r.path == '/auth/sms/verify'), hasLength(1));
-    expect(find.byType(AppBottomBar), findsOneWidget); // 进主框架了
+    expect(find.byType(EmberNavBar), findsOneWidget); // 进主框架了
   });
 
   testWidgets('verify 网络级失败 → 自动重试一次后成功进入主框架', (tester) async {
@@ -77,7 +77,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(calls, 2);                                    // 重试了一次
-    expect(find.byType(AppBottomBar), findsOneWidget);  // 进主框架
+    expect(find.byType(EmberNavBar), findsOneWidget);  // 进主框架
   });
 
   testWidgets('verify 网络两次都失败 → 提示可直接再点登录', (tester) async {

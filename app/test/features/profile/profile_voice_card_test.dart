@@ -51,7 +51,7 @@ void main() {
       profileVoiceIoProvider.overrideWithValue(io),
     ]);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('my.card.identity')));
     await tester.pumpAndSettle();

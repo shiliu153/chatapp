@@ -18,7 +18,7 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
 
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('想找的人')); // 行在可视区外,先滚到位再点
     await tester.pumpAndSettle();

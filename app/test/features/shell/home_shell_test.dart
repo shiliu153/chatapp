@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/widgets/app_badge.dart';
-import 'package:chatapp_app/features/shell/app_bottom_bar.dart';
+import 'package:chatapp_app/core/ui/ember_badge.dart';
+import 'package:chatapp_app/features/shell/ember_nav_bar.dart';
 import 'package:chatapp_app/im/im_client.dart';
 
 import '../../support/fake_im_client.dart';
@@ -19,23 +19,23 @@ ScriptedAdapter _adapter({required Map<String, dynamic> profile}) => ScriptedAda
     });
 
 void main() {
-  testWidgets('四个 Tab 都在;广场可切换;「我的」显示昵称与资料入口', (tester) async {
+  testWidgets('四个 Tab 都在;回声可切换;「我」显示昵称与资料入口', (tester) async {
     final adapter = _adapter(profile: profileJson(nickname: '小明'));
     await pumpApp(tester, adapter, prefs: _loggedIn);
     // 广场空态的 HeartRipple 在 IndexedStack 隐藏页也一直跑(pumpAndSettle 永不收敛)
     await pumpFrames(tester);
 
-    expect(find.byType(AppBottomBar), findsOneWidget);
-    expect(navTab('发现'), findsOneWidget);
-    expect(navTab('广场'), findsOneWidget);
-    expect(navTab('消息'), findsOneWidget);
-    expect(navTab('我的'), findsOneWidget);
+    expect(find.byType(EmberNavBar), findsOneWidget);
+    expect(navTab('遇见'), findsOneWidget);
+    expect(navTab('回声'), findsOneWidget);
+    expect(navTab('对话'), findsOneWidget);
+    expect(navTab('我'), findsOneWidget);
 
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await pumpFrames(tester); // 空态涟漪无限动画(原 pumpAndSettle)
     expect(find.text('还没有动态'), findsOneWidget);
 
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await pumpFrames(tester);
     expect(find.text('小明'), findsOneWidget);
     expect(find.byKey(const Key('my.card.identity')), findsOneWidget); // 身份卡即编辑入口
@@ -70,6 +70,6 @@ void main() {
     await pumpFrames(tester); // 广场空态涟漪在隐藏页一直跑,禁 settle
 
     expect(find.text('3'), findsWidgets); // 角标数字
-    expect(find.byType(AppBadge), findsOneWidget); // 渐变角标(样式见 app_badge_test)
+    expect(find.byType(EmberBadge), findsOneWidget); // 朱砂角标(样式见 ember_badge_test)
   });
 }

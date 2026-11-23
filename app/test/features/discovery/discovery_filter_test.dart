@@ -191,9 +191,9 @@ void main() {
     expect(find.text('杭州的人,25'), findsOneWidget);
     final before = _candidateRequests(adapter).length;
 
-    await tester.tap(navTab('广场'));
+    await tester.tap(navTab('回声'));
     await pumpFrames(tester);
-    await tester.tap(navTab('发现'));
+    await tester.tap(navTab('遇见'));
     await pumpFrames(tester);
 
     // 首页四个 Tab 是 IndexedStack:切回来页面还在,候选池也还是筛过的那一版

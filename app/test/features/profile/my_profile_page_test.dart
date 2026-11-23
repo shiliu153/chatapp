@@ -22,7 +22,7 @@ void main() {
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
 
     expect(find.text('ID:u7'), findsOneWidget); // 身份卡里 ID 自带前缀
@@ -45,7 +45,7 @@ void main() {
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
 
     expect(find.text('未填'), findsWidgets);
@@ -59,7 +59,7 @@ void main() {
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('my.row.city')));
@@ -78,7 +78,7 @@ void main() {
     // 资料不完整时,IndexedStack 里活着的发现页会渲染 HeartRipple(无限动画),
     // 故这一整段只能用有限 pump(home_shell_test 同款处理)
     await pumpFrames(tester);
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await pumpFrames(tester);
 
     expect(find.byKey(const Key('my.ring')), findsOneWidget);
@@ -98,7 +98,7 @@ void main() {
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('my.ring')), findsNothing);
@@ -114,7 +114,7 @@ void main() {
     });
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('我的'));
+    await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('my.card.identity')));

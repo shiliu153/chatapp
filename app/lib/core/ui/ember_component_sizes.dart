@@ -79,4 +79,15 @@ abstract final class EmberComponentSizes {
 
   /// 输入框聚焦时的外扩光晕宽度(spec §8.3「2px 外扩 `brand.default` @12%」)。
   static const fieldFocusHalo = 2.0;
+
+  /// 底栏选中胶囊的宽度(spec §8.2 / §8.3 只给「高 40」,宽度规范未定;
+  /// 沿用 E-5.1 之前底栏的 68,四等分底栏里左右各留 8 的气口)。
+  static const navCapsuleWidth = 68.0;
+
+  /// 底栏选中胶囊的高度(spec §8.2 / §8.3「`brand.default` 胶囊高 40」)。
+  static const navCapsuleHeight = 40.0;
+
+  /// 选中时图标弹跳的终止缩放(spec §8.5「切换用 `spring.fast` 弹跳」只给了弹簧,
+  /// 没给幅度;1.1 沿用旧底栏手感,减弱动态效果时恒为 1)。
+  static const navIconPopScale = 1.1;
 }

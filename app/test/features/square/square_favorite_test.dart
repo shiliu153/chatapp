@@ -15,7 +15,7 @@ ScriptedAdapter _adapter(Map<String, dynamic> postsPage) => ScriptedAdapter({
     });
 
 Future<void> _openSquare(WidgetTester tester) async {
-  await tester.tap(navTab('广场'));
+  await tester.tap(navTab('回声'));
   await tester.pumpAndSettle();
 }
 

@@ -31,7 +31,7 @@ void main() {
   Future<void> pumpSearch(WidgetTester tester) async {
     fake = await pumpApp(tester, _adapter(), prefs: _loggedIn);
     await tester.pumpAndSettle();
-    await tester.tap(navTab('消息'));
+    await tester.tap(navTab('对话'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('chats.search')));
     await tester.pumpAndSettle();

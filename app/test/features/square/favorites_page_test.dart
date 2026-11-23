@@ -21,7 +21,7 @@ ScriptedAdapter _adapter(Map<String, dynamic> favoritesPage) => ScriptedAdapter(
 /// `ensureVisible` 只保证「在视口内」,底栏是浮在 body 之上的,所以要再往上滚一点
 /// 才能拿到真实指针(真机上点被底栏盖住的行同样是点不动的)。
 Future<void> _openFavorites(WidgetTester tester) async {
-  await tester.tap(navTab('我的'));
+  await tester.tap(navTab('我'));
   await tester.pumpAndSettle();
   await tester.ensureVisible(find.byKey(const Key('my.row.favorites')));
   await tester.pumpAndSettle();
