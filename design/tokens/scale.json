@@ -1,0 +1,90 @@
+{
+  "radius": {
+    "xs": { "$value": "8px", "$type": "dimension", "$description": "小标签、chip 内元素" },
+    "sm": { "$value": "12px", "$type": "dimension", "$description": "图片内容格、缩略图" },
+    "md": { "$value": "16px", "$type": "dimension", "$description": "输入框、次级容器" },
+    "lg": { "$value": "20px", "$type": "dimension", "$description": "卡片、大图" },
+    "xl": { "$value": "24px", "$type": "dimension", "$description": "底部弹层上圆角、全屏大卡" },
+    "pill": { "$value": "999px", "$type": "dimension", "$description": "按钮、头像、角标、导航胶囊" }
+  },
+  "space": {
+    "4": { "$value": "4px", "$type": "dimension" },
+    "8": { "$value": "8px", "$type": "dimension" },
+    "12": { "$value": "12px", "$type": "dimension" },
+    "16": { "$value": "16px", "$type": "dimension" },
+    "20": { "$value": "20px", "$type": "dimension", "$description": "页面水平内边距（统一值）" },
+    "24": { "$value": "24px", "$type": "dimension" },
+    "32": { "$value": "32px", "$type": "dimension" },
+    "40": { "$value": "40px", "$type": "dimension" }
+  },
+  "font": {
+    "family": {
+      "display": { "$value": "Fraunces", "$type": "fontFamily", "$description": "仅用于 display / title 两档" },
+      "body": { "$value": "PingFang SC, MiSans, HarmonyOS Sans, Noto Sans CJK SC, sans-serif", "$type": "fontFamily", "$description": "系统中文字体链；不打包中文" }
+    },
+    "size": {
+      "display": { "$value": "32px", "$type": "dimension" },
+      "title": { "$value": "24px", "$type": "dimension" },
+      "subtitle": { "$value": "17px", "$type": "dimension" },
+      "body": { "$value": "15px", "$type": "dimension" },
+      "caption": { "$value": "13px", "$type": "dimension" },
+      "micro": { "$value": "11px", "$type": "dimension", "$description": "角标下限，不跟随系统字号缩放" }
+    },
+    "weight": {
+      "body": { "$value": 400, "$type": "fontWeight" },
+      "medium": { "$value": 500, "$type": "fontWeight" },
+      "semibold": { "$value": 600, "$type": "fontWeight" },
+      "bold": { "$value": 700, "$type": "fontWeight" }
+    },
+    "lineHeight": {
+      "display": { "$value": 1.15, "$type": "number" },
+      "title": { "$value": 1.25, "$type": "number" },
+      "subtitle": { "$value": 1.35, "$type": "number" },
+      "body": { "$value": 1.55, "$type": "number" },
+      "caption": { "$value": 1.45, "$type": "number" },
+      "micro": { "$value": 1.3, "$type": "number" }
+    }
+  },
+  "motion": {
+    "spring": {
+      "fast": {
+        "damping": { "$value": 0.6, "$type": "number" },
+        "stiffness": { "$value": 800, "$type": "number" }
+      },
+      "standard": {
+        "damping": { "$value": 0.8, "$type": "number" },
+        "stiffness": { "$value": 380, "$type": "number" }
+      },
+      "gentle": {
+        "damping": { "$value": 0.8, "$type": "number" },
+        "stiffness": { "$value": 200, "$type": "number" }
+      },
+      "effects": {
+        "damping": { "$value": 1.0, "$type": "number" },
+        "stiffness": { "$value": 1600, "$type": "number" }
+      }
+    },
+    "reducedDurationMs": { "$value": 120, "$type": "duration", "$description": "减弱动态效果时的统一淡入时长" }
+  },
+  "elevation": {
+    "1": { "$value": "0 2px 8px rgba(28,23,20,0.06)", "$type": "shadow", "$description": "卡片；深色模式不用阴影，改用 border.divider" },
+    "2": { "$value": "0 10px 24px rgba(28,23,20,0.10)", "$type": "shadow", "$description": "浮层（底栏、sheet、浮卡）" }
+  },
+  "size": {
+    "control": {
+      "height": { "$value": "52px", "$type": "dimension", "$description": "按钮与输入框统一高度" }
+    },
+    "touch": {
+      "app": { "$value": "48px", "$type": "dimension", "$description": "可点区域下限（App）" },
+      "web": { "$value": "44px", "$type": "dimension", "$description": "可点区域下限（Web）" }
+    },
+    "icon": {
+      "16": { "$value": "16px", "$type": "dimension" },
+      "20": { "$value": "20px", "$type": "dimension" },
+      "24": { "$value": "24px", "$type": "dimension" }
+    },
+    "nav": {
+      "height": { "$value": "64px", "$type": "dimension", "$description": "悬浮胶囊底栏高度" }
+    }
+  }
+}

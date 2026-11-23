@@ -1,0 +1,35 @@
+{
+  "color": {
+    "ember": {
+      "50": { "$value": "#FFF0E9", "$type": "color", "$description": "朱砂最浅档：柔色底、头像底" },
+      "100": { "$value": "#FFD8C9", "$type": "color" },
+      "200": { "$value": "#FFB79E", "$type": "color" },
+      "300": { "$value": "#FF9370", "$type": "color", "$description": "深色模式主色" },
+      "400": { "$value": "#F2704A", "$type": "color" },
+      "500": { "$value": "#DC5127", "$type": "color" },
+      "600": { "$value": "#C93C22", "$type": "color", "$description": "浅色模式主色（品牌锚点）" },
+      "700": { "$value": "#A82E18", "$type": "color" },
+      "800": { "$value": "#862314", "$type": "color" },
+      "900": { "$value": "#6A1C10", "$type": "color" },
+      "950": { "$value": "#1A0F0B", "$type": "color", "$description": "朱砂近黑：深色模式主色之上的文字" }
+    },
+    "paper": {
+      "0": { "$value": "#FFFFFF", "$type": "color" },
+      "5": { "$value": "#FBF7F3", "$type": "color", "$description": "暖纸：浅色模式页面底" },
+      "10": { "$value": "#F6F1EB", "$type": "color", "$description": "深色模式主文字" },
+      "20": { "$value": "#F5EFE8", "$type": "color", "$description": "浅色模式凹陷底" },
+      "30": { "$value": "#EDE6DF", "$type": "color", "$description": "浅色模式分割线" },
+      "40": { "$value": "#DED4C9", "$type": "color", "$description": "浅色模式强描边" },
+      "50": { "$value": "#C4B9AD", "$type": "color", "$description": "深色模式次级文字" },
+      "60": { "$value": "#A39789", "$type": "color", "$description": "深色模式三级文字" },
+      "70": { "$value": "#8F8478", "$type": "color", "$description": "浅色模式三级文字" },
+      "80": { "$value": "#6A5F55", "$type": "color", "$description": "浅色模式次级文字" },
+      "90": { "$value": "#3A332D", "$type": "color", "$description": "深色模式强描边" },
+      "92": { "$value": "#2E2723", "$type": "color", "$description": "深色模式分割线" },
+      "95": { "$value": "#1E1916", "$type": "color", "$description": "深色模式卡片底" },
+      "100": { "$value": "#1C1714", "$type": "color", "$description": "浅色模式主文字" },
+      "110": { "$value": "#14110F", "$type": "color", "$description": "深色模式页面底" },
+      "120": { "$value": "#100D0B", "$type": "color", "$description": "深色模式凹陷底" }
+    }
+  }
+}
