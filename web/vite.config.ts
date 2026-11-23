@@ -2,13 +2,16 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import tailwindcss from '@tailwindcss/vite'
 
 const pkg = JSON.parse(
   readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf-8'),
 ) as { version: string }
 
 export default defineConfig({
-  plugins: [vue()],
+  // tailwindcss():把 `src/styles/tailwind.css` 里的 `@theme inline` 编译成语义工具类。
+  // 它只处理 @import/@theme/@utility 这些指令,不做别的 —— preflight 也没引(见该文件头)。
+  plugins: [vue(), tailwindcss()],
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },

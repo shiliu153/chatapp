@@ -1,0 +1,105 @@
+/* ============================================================
+   Tailwind v4 语义工具类入口(Ember)
+   ------------------------------------------------------------
+   定位:PrimeVue 无样式模式只产结构,视觉来自 token;页面写样式时优先用本文件
+   转发出来的**语义工具类**(`bg-surface-card` / `text-fg-secondary` /
+   `rounded-lg` / `p-20`),而不是裸的 `#hex` / `16px`。
+
+   为什么用 `@theme inline`,以及为什么这里一个值都没写:
+   工具类的取值必须落到 `tokens.generated.css` 的变量上,而不是被 Tailwind
+   在构建期内联成字面量 —— 一旦内联,`[data-theme='dark']` 的覆盖就失效了。
+   `@theme inline` 的语义是「把值原样写进工具类的声明里」,所以
+   `.bg-surface-card { background-color: var(--color-surface-card) }` 依然指向
+   运行时可切换的 CSS 变量;若去掉 `inline`,Tailwind 会先 `:root { --color-…: … }`
+   再引用,而我们的值本身就是同名变量,会变成自引用(必然失效)。
+
+   为什么**不引 preflight**:存量页面(心跳期)自己写了重置与排版(base.css),
+   Tailwind 的 preflight 会重排一遍按钮/表单/标题的默认样式,属于"悄悄换了页面外观",
+   而 E-3 明确不重排页面。等 E-5 逐页迁移完,再决定是否把 preflight 收进来。
+
+   命名约定(与 spec §3.3 / §5 的语义名一一对应):
+     颜色 → `--color-<名>`,工具类由属性前缀生成:`bg-surface-card` / `text-fg-primary` /
+            `border-divider` / `shadow-elevation-1`
+     圆角 → `--radius-<档>`,`rounded-lg`
+     间距 → `--spacing-<值>`,`p-20` / `gap-12`(4 基数,与 spec §5.2 同口径)
+     字阶 → `--text-<档>` + `--text-<档>--line-height`,`text-title` / `text-body`
+     字族 → `--font-<角色>`,`font-display` / `font-body`
+   ============================================================ */
+
+@layer theme, base, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@theme inline {
+  /* ---------- 表面 ---------- */
+  --color-surface-page: var(--color-surface-page);
+  --color-surface-card: var(--color-surface-card);
+  --color-surface-sunken: var(--color-surface-sunken);
+  /* 遮罩(Toast / 弹层背后),语义名 overlay.scrim */
+  --color-scrim: var(--color-overlay-scrim);
+
+  /* ---------- 前景(文字/图标) ---------- */
+  --color-fg-primary: var(--color-text-primary);
+  --color-fg-secondary: var(--color-text-secondary);
+  --color-fg-tertiary: var(--color-text-tertiary);
+
+  /* ---------- 描边 ---------- */
+  --color-divider: var(--color-border-divider);
+  --color-divider-strong: var(--color-border-strong);
+
+  /* ---------- 品牌与次强调 ---------- */
+  --color-brand: var(--color-brand-default);
+  --color-on-brand: var(--color-brand-on);
+  --color-accent: var(--color-accent-default);
+  --color-on-accent: var(--color-accent-on);
+
+  /* ---------- 状态色(每个都带自己的 on 色,不许拿白字凑) ---------- */
+  --color-danger: var(--color-status-danger);
+  --color-on-danger: var(--color-status-on-danger);
+  --color-success: var(--color-status-success);
+  --color-on-success: var(--color-status-on-success);
+  --color-warning: var(--color-status-warning);
+  --color-on-warning: var(--color-status-on-warning);
+  --color-info: var(--color-status-info);
+
+  /* ---------- 圆角(spec §5.1) ---------- */
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-pill: var(--radius-pill);
+
+  /* ---------- 间距(spec §5.2:4 基数) ---------- */
+  --spacing-4: var(--space-4);
+  --spacing-8: var(--space-8);
+  --spacing-12: var(--space-12);
+  --spacing-16: var(--space-16);
+  --spacing-20: var(--space-20);
+  --spacing-24: var(--space-24);
+  --spacing-32: var(--space-32);
+  --spacing-40: var(--space-40);
+
+  /* ---------- 字阶(spec §4.2:字号 + 行高成对) ---------- */
+  --text-display: var(--font-size-display);
+  --text-display--line-height: var(--font-line-height-display);
+  --text-title: var(--font-size-title);
+  --text-title--line-height: var(--font-line-height-title);
+  --text-subtitle: var(--font-size-subtitle);
+  --text-subtitle--line-height: var(--font-line-height-subtitle);
+  --text-body: var(--font-size-body);
+  --text-body--line-height: var(--font-line-height-body);
+  --text-caption: var(--font-size-caption);
+  --text-caption--line-height: var(--font-line-height-caption);
+  --text-micro: var(--font-size-micro);
+  --text-micro--line-height: var(--font-line-height-micro);
+
+  /* ---------- 字族(spec §4.1) ---------- */
+  --font-display: var(--font-family-display);
+  --font-body: var(--font-family-body);
+
+  /* ---------- 层级(spec §5.3:浅色用阴影,深色由页面改描边) ---------- */
+  --shadow-elevation-1: var(--elevation-1);
+  --shadow-elevation-2: var(--elevation-2);
+}

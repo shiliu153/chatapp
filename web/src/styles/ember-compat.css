@@ -1,0 +1,145 @@
+/* ============================================================
+   「余烬 Ember」兼容层(过渡期专用,随 E-5 逐页迁移删除)
+   ------------------------------------------------------------
+   为什么存在:E-3 把样式底座换成 tokens.generated.css,但存量页面是按「心跳」的
+   变量名(--color-text1 / --space-md / --text-caption …)写的。本单**不重排任何页面**,
+   所以在这一层把旧名映射到 Ember 语义 token,页面零改动。
+
+   三条规矩:
+   1. 本文件只允许写 `var(--…)` / `color-mix(… var(--…) …)` / `clamp(…)` 这类
+      「由 token 派生」的表达式;**不许出现写死的色值**(十六进制或 rgb 函数形式,
+      no-raw-color 门禁会拦)。
+   2. 本文件不是 token 的事实来源。改颜色只改 `design/tokens/*.json` 再跑
+      `python scripts/design_tokens.py --write`。
+   3. 每迁完一个页面,就把该页用到的别名从这里删掉;文件空了就整个删掉。
+      判据:`grep -rho "var(--[a-z0-9-]*" src/ --include=*.vue` 里不再出现旧名。
+
+   映射原则:同义优先(--color-text1 → 正文色),没有同义的按「最接近的语义角色」
+   落位,并在行内注明;Ember 刻意删掉的维度(渐变、旧 duration/curve 动效)
+   在下面单独成节,写清为什么还在。
+   ============================================================ */
+
+:root {
+  /* ---------- 语义色:旧名 → Ember 语义 token ---------- */
+  --color-brand: var(--color-brand-default); /* 主按钮底、未读、强调 */
+  --color-danger: var(--color-status-danger); /* 错误、删除 */
+  --color-green: var(--color-status-success); /* 在线点、成功 */
+  --color-amber: var(--color-status-warning); /* 会员、预警 */
+  --color-text1: var(--color-text-primary); /* 正文、标题 */
+  --color-text2: var(--color-text-secondary); /* 次级信息 */
+  --color-text3: var(--color-text-tertiary); /* 时间戳、占位 */
+  --color-divider: var(--color-border-divider); /* 分割线、描边 */
+  --color-bg-page: var(--color-surface-page); /* 页面底 */
+  --color-bg-card: var(--color-surface-card); /* 卡片、输入底 */
+  --color-photo-scrim: var(--color-overlay-scrim); /* 照片叠字遮罩 */
+
+  /* ---------- 派生色:用 color-mix 从 Ember 变量算出来,不写死值 ---------- */
+  /* 焦点圈与 hover 叠色:心跳期是「中性色叠一层」,这里仍然从正文色派生 */
+  --color-focus-ring: color-mix(in srgb, var(--color-text-primary) 45%, transparent);
+  --hover-overlay: color-mix(in srgb, var(--color-text-primary) 4%, transparent);
+  --hover-overlay-strong: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  /* brand 淡底(完善度提示条)与在线点外光晕 */
+  --tint-brand: color-mix(in srgb, var(--color-brand-default) 8%, transparent);
+  --glow-online: color-mix(in srgb, var(--color-status-success) 35%, transparent);
+  /* 照片上的浅色 chip:用卡片底色派生,深浅两模式下都跟随表面色 */
+  --overlay-on-photo: color-mix(in srgb, var(--color-surface-card) 22%, transparent);
+  /* 需要压暗底下内容的遮罩(报告弹窗、筛选面板) */
+  --scrim-strong: color-mix(in srgb, var(--color-text-primary) 55%, transparent);
+
+  /* ---------- 阴影:层级改用 Ember 的 elevation token ---------- */
+  --shadow-card: var(--elevation-1);
+  --shadow-floating-bar: var(--elevation-2);
+  /* 主按钮的「光晕」:Ember 用 emberGlow(朱砂径向光)而不是心跳的粉红光圈,
+     这里用 brand 的透明度派生,待 E-5 换成规范的 emberGlow 实现 */
+  --shadow-primary-button: 0 10px 24px color-mix(in srgb, var(--color-brand-default) 35%, transparent);
+  /* 输入框聚焦光晕:2px 外扩 @12%(spec §8.3「输入框 focus」) */
+  --focus-glow: 0 0 0 3px color-mix(in srgb, var(--color-brand-default) 12%, transparent);
+
+  /* ---------- 字族 / 字阶 / 字重 / 行高 ---------- */
+  /* Ember 的正文走系统中文字体(拉丁也走系统),display 才用 Fraunces;
+     存量页面统一引用 --font-latin,所以这里落到 body 字族 */
+  --font-latin: var(--font-family-body);
+  --text-display: var(--font-size-display);
+  --text-title: var(--font-size-title);
+  --text-subtitle: var(--font-size-subtitle);
+  --text-body: var(--font-size-body);
+  --text-caption: var(--font-size-caption);
+  --text-micro: var(--font-size-micro);
+  /* 角标 11px:Ember 的最小档就是 micro,没有单独的 badge 档 */
+  --text-badge: var(--font-size-micro);
+  --weight-medium: var(--font-weight-medium);
+  --weight-semibold: var(--font-weight-semibold);
+  --weight-bold: var(--font-weight-bold);
+  /* Ember 顶层字重只到 700,800 收敛到 bold(存量页面里用于强调数字) */
+  --weight-extrabold: var(--font-weight-bold);
+  --leading-tight: var(--font-line-height-title);
+  --leading-body: var(--font-line-height-body);
+
+  /* ---------- 间距:4 基数,Ember 用绝对值命名(--space-4 … --space-40) ---------- */
+  --space-xs: var(--space-4);
+  --space-sm: var(--space-8);
+  --space-md: var(--space-12);
+  --space-lg: var(--space-16);
+  --space-xl: var(--space-20);
+  --space-xxl: var(--space-24);
+  --space-page-h: var(--space-20); /* spec §5.2:页面水平内边距统一 20(E-5 换真值) */
+  --space-card-gap: var(--space-12);
+  --space-section-gap: var(--space-24);
+
+  /* ---------- 圆角:旧名按「最接近的档」落位 ---------- */
+  --radius-card: var(--radius-lg); /* 20 */
+  --radius-input: var(--radius-md); /* 16 */
+  --radius-chip: var(--radius-xs); /* 8 */
+  --radius-sheet: var(--radius-xl); /* 24 */
+  --radius-discovery-card: var(--radius-xl); /* 24 */
+  --radius-bubble: var(--radius-md); /* 18 → 16,Ember 没有单独气泡档 */
+  --radius-image: var(--radius-sm); /* 12 */
+  --radius-full: var(--radius-pill); /* 999 */
+
+  /* ============================================================
+     以下两节是「Ember 没有对应 token」的维度,为了让未迁移的页面继续动起来
+     而暂时保留的**页面本地常量**。它们不是设计 token,E-5 逐页迁移时一并清掉。
+     ============================================================ */
+
+  /* 动效:Ember 换成 spring(damping/stiffness),CSS 侧没有等价的 duration token,
+     存量页面还在用 duration + curve,这里保留过渡期取值 */
+  --motion-fast: 150ms;
+  --motion-base: 220ms;
+  --motion-medium: 320ms;
+  --motion-loop: 1200ms; /* 转圈 / 骨架循环 */
+  --ease-out: cubic-bezier(0.215, 0.61, 0.355, 1); /* easeOutCubic */
+
+  /* 字号:空态与配对页的大号 emoji(spec §8.2「空态插画 72–96」),无 token 对应 */
+  --text-emoji: 72px;
+
+  /* 布局几何(Web 专属,无 Dart / 无 Ember token 对应):
+     侧栏与两栏比例是自适应布局的行为参数,JS 侧另有一份(src/layout.ts),
+     两边一致由 tests/unit/layout-consistency.spec.ts 兜底 */
+  --sidebar-ratio: 16%;
+  --sidebar-min: 208px;
+  --sidebar-max: 264px;
+  --sidebar-drag-min: 72px;
+  --sidebar-drag-max: 360px;
+  --sidebar-icon-threshold: 176px;
+  --chatlist-ratio: 22%;
+  --chatlist-min: 264px;
+  --chatlist-max: 360px;
+  --bubble-max-ratio: 72%;
+  --feed-card-max: 520px;
+  --form-card-ratio: 32%;
+  --form-card-min: 420px;
+  --form-card-max: 520px;
+}
+
+/* 心跳的粉→橙渐变在 Ember 里被明确废止(spec §2「全站无渐变主按钮」),
+   但存量页面用 `background: var(--gradient-heart)` 铺底。过渡期把它降级成
+   同色双停的线性渐变 = 朱砂实色:语法不变、页面不改,视觉立刻落到新口径。
+   E-5 迁移时直接把 `background` 换成 var(--color-brand-default)。 */
+:root {
+  --gradient-heart: linear-gradient(135deg, var(--color-brand-default), var(--color-brand-default));
+}
+
+/* 暗色块:Ember 的暗色值已经在 tokens.generated.css 里按 [data-theme='dark'] 覆盖,
+   本层不需要再抄一遍。旧 tokens.css 那段(`--color-brand` 等 14 个色)随文件删除,
+   派生色的 color-mix 会自动跟着新值重新算,所以这里留空即可 —— 保留这段注释是为了
+   让下一个读者知道「暗色没漏」而不是「忘了写」。 */

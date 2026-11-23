@@ -2,7 +2,7 @@ import { computed, ref, type ComputedRef, type Ref } from 'vue'
 
 /**
  * 自适应布局的行为参数(拖拽数学需要数字,故 JS 也要一份)。
- * ⚠️ 与 src/styles/tokens.css 的 --sidebar-* / --chatlist-* / --bubble-max-ratio
+ * ⚠️ 与 src/styles/ember-compat.css 的 --sidebar-* / --chatlist-* / --bubble-max-ratio
  * 必须一致,由 tests/unit/layout-consistency.spec.ts 兜底。
  */
 export const layout = {

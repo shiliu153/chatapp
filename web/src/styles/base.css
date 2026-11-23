@@ -1,4 +1,5 @@
-/* 全局重置、字体、焦点圈。数值只引用 tokens.css 的变量。 */
+/* 全局重置、字体、焦点圈。数值只引用 CSS 变量(来源:design/tokens → tokens.generated.css;
+   存量页面的旧变量名由 ember-compat.css 映射,见 main.ts 的引入顺序)。 */
 @font-face {
   font-family: 'Space Grotesk';
   src: url('/fonts/SpaceGrotesk-Regular.ttf') format('truetype');

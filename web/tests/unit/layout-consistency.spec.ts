@@ -3,11 +3,18 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { layout } from '@/layout'
 
-const css = readFileSync(resolve(process.cwd(), 'src/styles/tokens.css'), 'utf8')
+/**
+ * 侧栏 / 两栏的几何参数在 JS(`src/layout.ts`,拖拽数学要用数字)与 CSS
+ * (`src/styles/ember-compat.css` 的「布局几何」节)各有一份,必须一致。
+ *
+ * E-3 之前这两份住在 `src/styles/tokens.css`;该文件已删除,布局几何作为
+ * 「Ember 没有对应 token」的页面本地常量搬进了兼容层,所以这里改读兼容层。
+ */
+const css = readFileSync(resolve(process.cwd(), 'src/styles/ember-compat.css'), 'utf8')
 
 function cssNumber(name: string): number {
   const m = css.match(new RegExp(`--${name}:\\s*([\\d.]+)(px|%)?;`))
-  if (!m) throw new Error(`tokens.css 缺少 --${name}`)
+  if (!m) throw new Error(`ember-compat.css 缺少 --${name}`)
   return Number(m[1])
 }
 

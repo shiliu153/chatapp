@@ -19,7 +19,7 @@ defineProps<{ current: string; min: string; downloadUrl: string }>()
   padding: 32px;
   text-align: center;
   background: var(--color-bg-page);
-  color: var(--color-text-1);
+  color: var(--color-text-primary);
 }
 
 .force-update__link {
