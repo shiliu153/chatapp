@@ -130,5 +130,7 @@
 - 2026-11-23：**规范评审通过**（主人审批 v0.1）→ 实施解封：本计划、spec §12 / §14 / §16、
   `docs/superpowers/README.md`、`docs/standards/sources-of-truth.md` §2.5、`CLAUDE.md` 的
   token 规矩段落同步改为「评审通过 / 实施期」。E-4 仍卡在「首个页面验收」，E-5 可开工。
-- 遗留提醒：字体资产仍是 Space Grotesk 双份（`app/assets/fonts/*` ↔ `web/public/fonts/*`），
-  Ember §4 的 Fraunces 标题字体没有落地 —— 需要单独一条字体单，不在 E-2 / E-3 范围内。
+- ~~遗留提醒：字体资产仍是 Space Grotesk 双份（`app/assets/fonts/*` ↔ `web/public/fonts/*`），
+  Ember §4 的 Fraunces 标题字体没有落地~~ —— **已解决（2026-11-23 字体单）**：两端换成
+  `Fraunces-Variable.ttf`（可变字体，字重走 wght 轴），Space Grotesk 三份静态字重删除，
+  `web/tests/unit/fonts.spec.ts` 仍双向比对（现在还会断言旧字体确实没了）。踩坑见 spec §4.1。

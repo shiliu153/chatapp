@@ -185,6 +185,14 @@
 - **只打包 Fraunces 一个可变字体文件**（含 optical size 轴），体积可控；中文**不打包**任何字族（思源宋体全量太大，子集化维护成本高于收益）。
 - 规则：`Fraunces` 只用于 `display` / `title` 两档；小字号数字（时间戳、角标、金额）走 `font.body`，避免衬线数字在小尺寸糊成一团。
 - 落地约束：字体文件必须 `app/assets/fonts/` 与 `web/public/fonts/` **同名同内容**，`fonts.spec.ts` 双向比对（沿用既有门禁）。
+- **已落地（2026-11-23）**：实物是 `Fraunces-Variable.ttf`（360,440 B，含 opsz / SOFT / WONK / wght 四轴）+ 同名 `OFL.txt`，两端逐字节一致；
+  旧的 Space Grotesk 三份静态字重随「心跳」一起删除。两端接法各有一处坑，记在这里免得下次重踩：
+  - **Flutter**：pubspec 的 `fonts:` 里**不要给可变字体写 `weight`** —— 写了等于声明「这份文件只有那个字重」，
+    其余字重会被**假粗体**合成（衬线描边加粗会糊）。真实字重走 `TextStyle.fontVariations: [FontVariation('wght', …)]`，
+    见 `app/lib/core/theme/app_typography.dart`。
+  - **Web**：一条 `@font-face` 声明 `font-weight: 100 900` 即可，浏览器按 `font-weight` 走真实轴（`web/src/styles/base.css`）。
+  - **全局字族**：`font.family.body` 在 token 里是一条 CSS 风格的字体链，Flutter 的 `fontFamily` 只认单个名字，
+    所以主字族留空（平台默认 SF / Roboto）、中文链落到 `fontFamilyFallback`（见 `kBodyFontFallback`）。
 
 ### 4.2 字阶
 
