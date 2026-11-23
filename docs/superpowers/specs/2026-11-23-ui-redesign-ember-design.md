@@ -1,10 +1,16 @@
 # UI 设计语言「余烬 Ember」— 从零重建的设计规范
 
-> **立项**：2026-11-23 · **状态**：v0.1 **评审通过**（2026-11-23 主人审批）· 进入实施期
+> **立项**：2026-11-23 · **状态**：**v1.0 生效**（2026-11-23 评审通过，同日转正）· 唯一在用的 UI 规范
 > **实施计划**：[../plans/2026-11-23-ui-redesign-ember.md](../plans/2026-11-23-ui-redesign-ember.md)
-> **取代**：[2026-09-15-ui-design-language-design.md](2026-09-15-ui-design-language-design.md)（「心跳」，v1.5）。
-> 那份文档的全部视觉口径（品牌色、渐变、字阶、圆角、动效、组件皮肤）自本文 v1.0 生效起作废；
-> 过渡期约束见 §12。
+> **取代**：[2026-09-15-ui-design-language-design.md](../archive/specs/2026-09-15-ui-design-language-design.md)（「心跳」，v1.5，**已归档**）。
+> 那份文档的全部视觉口径（品牌色、渐变、字阶、圆角、动效、组件皮肤）自本文 **v1.0 生效起作废**，只作历史证据保留。
+>
+> **版本变更记录**
+>
+> | 版本 | 日期 | 变更 |
+> |---|---|---|
+> | v0.1 | 2026-11-23 | 首版草案 → 同日评审通过（主人审批），进入实施期（双轨：新页按本文、存量页仍按「心跳」） |
+> | **v1.0** | 2026-11-23 | **转正生效**：token 链路（E-1）与两端接线（E-2 [#470](https://github.com/shiliu153/chatapp/pull/470) / E-3 [#468](https://github.com/shiliu153/chatapp/pull/468)）已合并、六道设计门禁在 `contract` 轨常驻；首个页面（E-5.1 底栏 shell，[#476](https://github.com/shiliu153/chatapp/pull/476)）按本规范交付并通过模拟器验收 —— §12 的三项齐备。同日旧「心跳」规范归档，**双轨结束、单轨生效** |
 >
 > 「余烬（Ember）」是**设计语言代号**，不是产品名。
 
@@ -502,15 +508,21 @@ scripts/design_tokens.py  （DTCG 解析 + 代码生成，纯标准库）
 
 - **唯一允许偏离的情形**：本文件未覆盖的新场景。处理顺序：先挑最接近的 token 复用 → 实现时注明 → 确需新 token 时先更新本文件（v1.x）。
 - **禁止**：裸 hex / 裸字号 / 裸间距 / 裸圆角；§3 之外的色相；渐变主按钮；纯装饰循环动画；灰色图标空态；深色模式套用阴影。
-- **过渡期（v0.1 → v1.0 生效前）**：
-  - 本文件已于 **2026-11-23 评审通过**，实施随之解封：`flow` 链路（E-1）与两端接线（E-2 / E-3）已落地，
-    逐页迁移（E-5）可以按 §14 开工单；
-  - 存量页面**继续按旧规范（心跳）**维护，直到该页被 E-5 迁移为止；
-  - **新增页面与改版页面按本文件**；
-  - 旧规范文件顶部加作废横幅，指向本文件；两文件同时存在期间，冲突以本文件为准（新写的部分）。
-- **v1.0 生效条件**：token 链路落地 + 门禁全绿 + 首个页面按新规范交付并通过验收 ——
-  前两项已完成（2026-11-23），**第三项尚未满足**，所以本文件暂不标 v1.0、旧规范暂不归档。
-  三项齐备后旧规范 `git mv` 到 `archive/specs/`，并同一次改掉 `CLAUDE.md` 的 UI 规则段与 `AGENTS.md` 的 App 行。
+- **过渡期已于 2026-11-23 结束**（本文 v1.0 生效），下面是它当时说了什么，供对照：
+  - 本文件 2026-11-23 评审通过后实施即解封：`flow` 链路（E-1）与两端接线（E-2 / E-3）已落地，
+    逐页迁移（E-5）按 §14 开工单；
+  - 过渡期内存量页面继续按旧规范（「心跳」）维护，直到该页被 E-5 迁移为止；**现在没有例外** ——
+    存量页在被迁移前照旧实现可以，但**任何新写的视觉取值只认本文**；
+  - 旧规范文件顶部的作废横幅与双轨口径已随归档消失（文件在
+    `archive/specs/2026-09-15-ui-design-language-design.md`，只作历史证据）。
+- **v1.0 生效条件（三项，2026-11-23 全部满足）**：
+  1. token 链路落地 —— E-1（[#467](https://github.com/shiliu153/chatapp/pull/467)）；
+  2. 门禁全绿 —— 六道设计门禁常驻 `contract` 轨（`contract-design-tokens` / `-contrast` / `-spec-sync`
+     各带一道 `-selftest`）；
+  3. 首个页面按新规范交付并通过验收 —— E-5.1 底栏 shell（[#476](https://github.com/shiliu153/chatapp/pull/476)），
+     2026-11-23 在本机 Pixel_7 模拟器上逐项手测（四个 tab / 深色 / 移除动画 / 字号 1.3）通过。
+  三项齐备后旧规范已 `git mv` 到 `archive/specs/`，`CLAUDE.md` 的 UI 规则段与 `AGENTS.md` 的 App 行
+  也在同一次改动里改成单轨。
 
 ---
 
@@ -524,15 +536,16 @@ scripts/design_tokens.py  （DTCG 解析 + 代码生成，纯标准库）
 
 ---
 
-## 14. 实施拆单（E-1 / E-2 / E-3 已落地；E-4 卡在首个页面验收；E-5 可开工）
+## 14. 实施拆单（E-1 / E-2 / E-3 / E-4 已落地；E-5 进行中）
 
 | 单 | 栈 | 内容 | 验收 | 状态 |
 |---|---|---|---|---|
 | E-1 | `flow` | `design/tokens/*.json` + `scripts/design_tokens.py` + `scripts/design_contrast.py` + `scripts/design_spec_sync.py` + 门禁注册 | 三个 `--check` 绿；`scripts/verify.sh contract` 绿 | **已落地**(2026-11-23)：双模式配对全过线，生成物按字节锁定，规范与 token 双向比对 |
 | E-2 | `app` | 换 `core/theme` 为生成物；`core/ui` 组件层按 §8 重建 | `scripts/verify.sh app` 绿 + 模拟器验收 | **已落地**(2026-11-23，PR [#470](https://github.com/shiliu153/chatapp/pull/470))：会话内联交付，工单 [#465](https://github.com/shiliu153/chatapp/issues/465) 随之关闭；`app/lib` 已无手写色值 |
 | E-3 | `web` | `tokens.generated.css` 接线 + PrimeVue unstyled + passThrough 映射；删除旧的 `tokens.css` 与 `tokens.spec.ts` 双份比对 | `scripts/verify.sh web` 绿 + axe 零 critical | **已落地**(2026-11-23，PR [#468](https://github.com/shiliu153/chatapp/pull/468))：会话内联交付，工单 [#466](https://github.com/shiliu153/chatapp/issues/466) 随之关闭；`tokens.css` 已删，`tokens.spec.ts` 改为生成物存在性断言 |
-| E-4 | `docs` | 本文转正 v1.0；旧规范归档；`CLAUDE.md` / `AGENTS.md` / `sources-of-truth.md` 三处引用同改 | `scripts/verify.sh contract` 绿 | **待开工**，前置是 §12 第三项（首个页面验收）—— E-2 / E-3 已满足前两项 |
-| E-5… | `app` / `web` | 逐页迁移（按 §13 分批），每页一单 | 每单 golden + 手测 | **可开工**(2026-11-23 评审通过后解封) |
+| E-4 | `docs` | 本文转正 v1.0；旧规范归档；`CLAUDE.md` / `AGENTS.md` / `sources-of-truth.md` 三处引用同改 | `scripts/verify.sh contract` 绿 | **已落地**(2026-11-23)：本文转 v1.0，旧规范 `git mv` 到 `archive/specs/`，四处引用同一次改完（纯文档，`contract` 轨 39/39 绿） |
+| E-5.1 | `app` | 底栏 shell + 四个 tab 骨架（含 Phosphor 图标） | `scripts/verify.sh app` 绿 + 8 张 golden + 模拟器手测 | **已落地**(2026-11-23，[#476](https://github.com/shiliu153/chatapp/pull/476))：底栏换 `EmberNavBar`（遇见/回声/对话/我），这就是 §12 第三项里的「首个页面」 |
+| E-5… | `app` / `web` | 逐页迁移（按 §13 分批），每页一单 | 每单 golden + 手测 | **进行中**(2026-11-23 起)：E-5.1 已交付，后续页单按批次排 |
 
 ---
 

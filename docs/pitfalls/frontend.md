@@ -5,7 +5,8 @@
 
 # 踩坑手册 · 前端(Flutter / Riverpod)
 
-> 索引见 [README.md](README.md)。UI 视觉规范以「心跳」设计规则(`specs/2026-09-15-ui-design-language-design.md`)为准。
+> 索引见 [README.md](README.md)。UI 视觉规范以 [「余烬 Ember」](../superpowers/specs/2026-11-23-ui-redesign-ember-design.md)(v1.0)为准;
+> 旧「心跳」规范已归档到 `../superpowers/archive/specs/`,**只作历史证据,不再是规则**。
 
 ## 核心约定(必须守)
 
@@ -55,7 +56,7 @@
 - ⚠️ **`AppToast.show(context, …)` 写在 async gap 之后会触发 `use_build_context_synchronously`**:`if (!mounted || files.isEmpty) return;` 这种**复合守卫 analyzer 不认**,要拆成两句 `if (!mounted) return;` + `if (files.isEmpty) return;`,并在每个 `await` 之后补 `if (!mounted) return;`(见 `post_compose_page.dart::_pick`)。
 - ⚠️ **分组卡两种内边距**:表单内容用 `AppSectionCard`(内边距 16),行式列表用 `AppRowGroup`(无内边距、行自带 16、行间 divider),不要混用。
 - 测试 keys:登录 `login.phone`/`login.code`/`login.sendCode`/`login.submit`/`login.brand`、启动 `splash.brand`/`splash.reread`/`splash.retry`、引导 `onboarding.next`/`onboarding.progress`/`onboarding.retry`、编辑资料 `edit.nickname`/`edit.birthday`/`edit.city`/`edit.bio`/`edit.save`/`edit.skeleton`/`edit.retry`、想找的人 `preference.city`/`preference.save`/`preference.retry`、设置 `settings.row.blocks`/`settings.row.agreement`/`settings.row.privacy`/`settings.logout`、黑名单 `unblock.{id}`/`unblock.confirm`/`blocked.empty`/`blocked.skeleton`/`blocked.retry`、照片 `photo.add`/`photo.delete.{id}`、发动态 `compose.text`/`compose.submit`/`compose.add`/`compose.picked.{i}`/`compose.counter`、协议 `legal.back`、封禁 `banned.logout`、弹窗 `agreement.accept`/`agreement.decline`/`post.delete.confirm`。
-- 规则细则见 [设计规则附录 E](../superpowers/specs/2026-09-15-ui-design-language-design.md)。
+- 规则细则见 [设计规则附录 E](../superpowers/archive/specs/2026-09-15-ui-design-language-design.md)(**已作废,只作历史参考**;在用的规范是 [「余烬 Ember」](../superpowers/specs/2026-11-23-ui-redesign-ember-design.md))。
 
 ## 在线状态前端(`features/presence/`)
 

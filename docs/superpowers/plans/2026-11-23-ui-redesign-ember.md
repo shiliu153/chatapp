@@ -83,25 +83,28 @@
 
 ---
 
-## E-4 · `docs` 栈：转正与归档 —— ⏳ 待开工
+## E-4 · `docs` 栈：转正与归档 —— ✅ 已交付（2026-11-23）
 
-- [ ] spec 头部 `v0.1 评审通过` → `v1.0 生效`。
-- [ ] 旧规范 `git mv docs/superpowers/specs/2026-09-15-ui-design-language-design.md docs/superpowers/archive/specs/`（**文件名与内容不改**）。
-- [ ] 同一次改动内改三处引用：`CLAUDE.md` 的 UI 规则段、`AGENTS.md` 的 App 行、
-      `docs/standards/sources-of-truth.md` §2.5。
-- [ ] `python scripts/docs_index.py --write` + `python scripts/facts.py --write`。
-- 验收：`scripts/verify.sh contract` 绿。
+- [x] spec 头部 `v0.1 评审通过` → `v1.0 生效`（并补版本变更记录）。
+- [x] 旧规范 `git mv docs/superpowers/specs/2026-09-15-ui-design-language-design.md docs/superpowers/archive/specs/`（**文件名与内容不改**，只把顶部作废横幅改成「已归档」）。
+- [x] 同一次改动内改引用：`CLAUDE.md` 的 UI 规则段（双轨 → 单轨）、`AGENTS.md` 的 App 行与 §二 token 条目、
+      `docs/standards/sources-of-truth.md` §2.5、`docs/pitfalls/README.md` 与 `frontend.md`、`docs/superpowers/README.md`，
+      以及三份 archive 文档里指向旧路径的相对链接。
+- [x] `python scripts/docs_index.py --write` + `python scripts/facts.py --write`。
+- 验收：`scripts/verify.sh contract` 39 / 39 绿。
 
-**前置**：spec §12 的三项 v1.0 生效条件 —— token 链路落地 ✅ + 门禁全绿 ✅ +
-**首个页面按新规范交付并通过验收**（未满足）。所以本单现在不能开，等 E-5 第一单合并后再做。
+**前置已满足**：spec §12 的三项 v1.0 生效条件 —— token 链路落地 ✅ + 门禁全绿 ✅ +
+首个页面按新规范交付并通过验收 ✅（E-5.1 底栏 shell，[#476](https://github.com/shiliu153/chatapp/pull/476)，2026-11-23 模拟器手测通过）。
 
 ---
 
 ## E-5+ · 逐页迁移（每页一单，`app` 或 `web`）
 
+- E-5.1 底栏 shell + 四个 Tab 骨架 —— ✅ 已交付（[#476](https://github.com/shiliu153/chatapp/pull/476)，2026-11-23）
+
 顺序按「用户停留时长 × 改动面」：
 
-1. 底栏 shell + 四个 Tab 骨架
+1. ~~底栏 shell + 四个 Tab 骨架~~ ✅
 2. 发现页（滑卡、操作钮、Hero 到资料页）
 3. 消息页 + 聊天页（气泡、输入栏、时间条）
 4. 我的 + 资料页

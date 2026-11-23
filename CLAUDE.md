@@ -47,25 +47,28 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。完整�
 
 **当前风险最高的两项**(与代码质量无关,优先于任何性能项):① **固定验证码 `123456` + 手机号白名单** —— 白名单(`SMS_PHONE_WHITELIST` + 库表 `accounts.PhoneAllowlist`,运营在 `/ops/allowlist/` 维护)是**长期准入机制**,名单本身就是安全边界(一个号泄露 = 该账号被接管);日常运维见 [runbook §6](docs/ops/runbook.md);② **备份** —— 每天三层(03:20 自建双库全量 / 03:30 宝塔原生 / 04:10 树莓派拉走)+ **恢复演练已真跑通过**,剩余风险是「服务器与树莓派同时没了」(无对象存储预算);详见 [runbook §5](docs/ops/runbook.md)。
 
-## UI 设计规则(2026-11-23 起**双轨**:Ember 管新页 / 心跳管存量)
+## UI 设计规则(2026-11-23 起**单轨**:只有「余烬 Ember」)
 
-**UI 开发自 2026-11-23 起是双轨的 —— 先看你改的是哪一种**:
+**UI 开发自 2026-11-23 起只有一套规则** —— 读 [「余烬 Ember」](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md)
+(**v1.0 生效**)与它的[实施计划](docs/superpowers/plans/2026-11-23-ui-redesign-ember.md)。
+新增页面、改版、新组件、新动效，以及**存量页面被逐页迁移时**，全部按它做。旧「心跳」规范（v1.5）
+已于同日归档到 `docs/superpowers/archive/specs/2026-09-15-ui-design-language-design.md`，
+**只作历史证据，不再是任何页面的维护依据**（引用它说明「当时怎么做的」可以，拿它当规则不行）。
 
-- **新增页面 / 改版 / 新组件 / 新动效** → 读 [「余烬 Ember」](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md)(v0.1 草案)
-  与它的[实施计划](docs/superpowers/plans/2026-11-23-ui-redesign-ember.md);
-- **只维护存量页面** → 仍按「心跳」:`docs/superpowers/specs/2026-09-15-ui-design-language-design.md`(v1.5)。
-  两文冲突时,**新写的那部分**以 Ember 为准。
-- token 的唯一事实来源已经是 `design/tokens/*.json`(生成 `app/lib/core/theme/tokens.g.dart` 与
-  `web/src/styles/tokens.generated.css`),**但两端还没接线** —— 所以下面「双份维护」那条规矩
-  在工单 E-2 / E-3 合并前**依然有效**,不要提前按新链路行事。
+- token 的唯一事实来源是 `design/tokens/*.json`，生成 `app/lib/core/theme/tokens.g.dart` 与
+  `web/src/styles/tokens.generated.css`（两份都是生成物，**禁手改**）；改值只改 JSON，再跑
+  `python scripts/design_tokens.py --write`，三份生成物与六道设计门禁由 `scripts/verify.sh contract` 兜住。
+- 规范未覆盖的新场景：先挑最接近的 token 复用 → 实现时注明 → 确需新 token 时**先改规范与 token 源**，
+  再动页面（不许页面内联临时值）。
 
-「心跳」的要点(**存量页面**照此执行):
+「余烬 Ember」的要点：
 
-- 色板/渐变/字阶/圆角/间距/动效时长全走 token,**禁止新代码出现裸 hex、裸字号、裸间距**(页面改造时顺手按文档 §2.3 对照表清理旧硬编码)
-- 主色 #FF2C55 + 心跳渐变(粉→橙)只出现在引导视线处(主按钮/选中/未读/配对/在线光),其余走三级中性色阶
-- 字体:全局 Space Grotesk(拉丁/数字)+ 中文系统 fallback;图标统一 Material `*_rounded` 变体
-- 动效三档(微交互/结构/情感),尊重 reduced-motion;不做纯装饰动画
-- 旧视觉专项(微信式聊天/抖音式消息页/微博式广场)与「心跳」冲突处一律作废,以「心跳」为准
+- 暖纸 + 朱砂，**单一强调色**，没有渐变主按钮；禁止裸 hex / 裸字号 / 裸间距 / 裸圆角
+- 品牌色只出现在引导视线处（主按钮 / 选中 / 未读 / 配对 / 在线光），其余走三级中性色阶
+- 字体：`display` / `title` 档用 Fraunces（**尚未落地**，见 backlog 的字体单）、正文走系统无衬线；
+  图标统一 **Phosphor**（Regular → 选中 Fill）
+- 动效全走弹簧（`spring.*`），**没有 curve 常量**；尊重 reduced-motion（120ms 线性淡入、不位移不缩放）
+- 深色模式**不用阴影**，改 `border` + 表面色差分层；不做纯装饰循环动画
 
 ## 目录结构
 
@@ -107,7 +110,7 @@ M0–M3 与后续七次追加均已交付;当前处于 **M4(运营)**。完整�
 - **前端**:401 只走 `AuthInterceptor` 刷新通道;错误统一 `ApiException`;写操作后检查相关 provider 失效
 - **网页端**:401 只走 `api/http.ts` 的刷新通道(并发去重);错误统一 `ApiError`;页面只碰 store、不直接调 `http`
 - **视觉 token 单一事实来源(2026-11-23 起)**:只改 `design/tokens/*.json`,再跑 `python scripts/design_tokens.py --write` 重生成 `app/lib/core/theme/tokens.g.dart` 与 `web/src/styles/tokens.generated.css`(两份都是生成物,**禁手改**);`scripts/verify.sh contract` 会跑三道 `design_*` 门禁(生成物字节比对 / 对比度 / 规范 ↔ token 双向比对)。E-2([#470](https://github.com/shiliu153/chatapp/pull/470))/ E-3([#468](https://github.com/shiliu153/chatapp/pull/468))之后两端**已不再有手写色值**,旧的「心跳」双份手改规矩作废。**字体仍是两份实物**(`app/assets/fonts/*` ↔ `web/public/fonts/*`,由 `web/tests/unit/fonts.spec.ts` 双向比对),且目前装的还是 Space Grotesk —— 换 Fraunces 属单独字体单,未换之前新页面按 Ember §4 取字号 / 字重、字族沿用现状并在 PR 正文注明「假定」
-- **视觉规范口径**:设计与评审一律以 [「余烬 Ember」](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md) 为准(v0.1 已于 2026-11-23 评审通过,现处实施期);「心跳」在存量页面被逐页迁移前仍是那些页的维护规则,见该文 §12 过渡期
+- **视觉规范口径**:设计与评审一律以 [「余烬 Ember」](docs/superpowers/specs/2026-11-23-ui-redesign-ember-design.md) 为准(**v1.0 生效**,2026-11-23 评审通过同日转正);旧「心跳」规范已归档到 `docs/superpowers/archive/specs/`,**只作历史证据**,不再约束任何页面(包括还没迁移的存量页 —— 它们的新写的视觉取值同样只认 Ember)
 - **跨栈 IM 协议帧(2026-11-05 起,E-2)**:`imserver/tests/fixtures/ws/*.json` 是三端(App / Web / imserver)唯一的线上帧契约源。改任何 WS 帧格式必须**同一次改动内**同时改:fixture + imserver(`src/net/frames.h` 的构造 / `ws_server.cpp`)+ App(`self_im_client.dart` 与 `app/test/im/protocol_fixture_test.dart`)+ Web(`web/src/im/self/*` 与 `web/tests/unit/im-protocol-fixture.spec.ts`);三条 CI 轨(`imserver.yml`/`app.yml`/`web.yml`)各自会红。契约与改法见 `imserver/tests/fixtures/ws/README.md`
 - **测试纪律**:后端全量绿(前置 Redis)+ `flutter analyze` 零告警;IM 一律 mock(`im.tasks.*.delay`);每步全绿再进下一步
 - **发布流程(2026-11-03 起,强制)**:分支提交 → `git push` → **开 PR** → **CI 全绿** → squash 合并 → **只部署 `origin/main` 的 SHA**。禁止把未合并的本地提交直接 bundle/scp 上线;部署前先 `git fetch` 确认要落的 commit 就是合并后的那个,并先记下回滚点(旧 SHA / 旧镜像 tag / `.env` 备份)。CI 跑在 Ubuntu + MySQL 8 + Redis 上,与本地 Windows 不同;顺序错了会变成「CI 红时生产已在跑未验证代码」

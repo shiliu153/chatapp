@@ -27,7 +27,7 @@ owner: scripts/docs_index.py
 
 ## 1. 非归档文档
 
-共 **86** 份 / **14** 个目录(不含本文件)。
+共 **85** 份 / **14** 个目录(不含本文件)。
 
 ### `docs/` 根(2 份)
 
@@ -173,11 +173,10 @@ owner: scripts/docs_index.py
 |---|---|
 | [2026-11-23-ui-redesign-ember.md](superpowers/plans/2026-11-23-ui-redesign-ember.md) | 实施计划：「余烬 Ember」接线与页面迁移 |
 
-### `docs/superpowers/specs/`(7 份)
+### `docs/superpowers/specs/`(6 份)
 
 | 文档 | 标题 |
 |---|---|
-| [2026-09-15-ui-design-language-design.md](superpowers/specs/2026-09-15-ui-design-language-design.md) | UI 设计规则(设计语言「心跳」) |
 | [2026-11-07-superagent-dev-workflow-design.md](superpowers/specs/2026-11-07-superagent-dev-workflow-design.md) | Superagent 本地开发流程设计(v1) |
 | [2026-11-08-superagent-automation-ladder-design.md](superpowers/specs/2026-11-08-superagent-automation-ladder-design.md) | Superagent 自动化阶梯设计(L0–L4) |
 | [2026-11-13-aws-distributed-deployment-design.md](superpowers/specs/2026-11-13-aws-distributed-deployment-design.md) | AWS 两台悉尼机的分布式部署设计 |
@@ -187,7 +186,7 @@ owner: scripts/docs_index.py
 
 ## 2. 归档
 
-`docs/superpowers/archive/` 共 **106** 份 = **41** spec + **65** plan。
+`docs/superpowers/archive/` 共 **107** 份 = **42** spec + **65** plan。
 
 逐份清单(日期 / 主题 / plan ↔ spec 对照)见 **[superpowers/archive/INDEX.md](superpowers/archive/INDEX.md)**。
 

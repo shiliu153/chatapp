@@ -5,7 +5,7 @@
 - **交接时的 `master`**:`50ebeac`(**接手前先 `git pull --ff-only` 确认已前进**)
 - **上位文档**:[批次 R–W 设计](../specs/2026-11-09-batch-r-w-design.md)(总纲)、
   [AGENTS.md](../../../../AGENTS.md)(执行约束)、[CLAUDE.md](../../../../CLAUDE.md)(契约)、
-  [心跳 UI 规则](../../specs/2026-09-15-ui-design-language-design.md)(App UI 强制)
+  [心跳 UI 规则](../specs/2026-09-15-ui-design-language-design.md)(App UI 强制)
 
 ---
 

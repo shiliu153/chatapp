@@ -1,11 +1,11 @@
 # docs/superpowers/archive/ — 归档清单
 
 > **本文件由 `scripts/docs_index.py` 生成,勿手改。**
-> 共 **106** 份 = **41** spec + **65** plan(扫描 `specs/` 与 `plans/`)。
+> 共 **107** 份 = **42** spec + **65** plan(扫描 `specs/` 与 `plans/`)。
 > 机器判定:每份归档文件在本表**以链接形式出现且仅出现一次**(`python scripts/docs_index.py --check`)。
 > 「哪天交付了什么、结论是什么」看 [../../milestones.md](../../milestones.md);归档流程见 [../README.md](../README.md)。
 
-## 1. specs(41 份)
+## 1. specs(42 份)
 
 | 日期 | 主题 | 文档 |
 |---|---|---|
@@ -20,6 +20,7 @@
 | 2026-09-12 | square-feed-design | [2026-09-12-square-feed-design.md](specs/2026-09-12-square-feed-design.md) |
 | 2026-09-13 | online-presence-design | [2026-09-13-online-presence-design.md](specs/2026-09-13-online-presence-design.md) |
 | 2026-09-13 | square-profile-presence-design | [2026-09-13-square-profile-presence-design.md](specs/2026-09-13-square-profile-presence-design.md) |
+| 2026-09-15 | ui-design-language-design | [2026-09-15-ui-design-language-design.md](specs/2026-09-15-ui-design-language-design.md) |
 | 2026-09-18 | m4-deploy-runthrough-design | [2026-09-18-m4-deploy-runthrough-design.md](specs/2026-09-18-m4-deploy-runthrough-design.md) |
 | 2026-09-18 | ui-revamp-batch1-design | [2026-09-18-ui-revamp-batch1-design.md](specs/2026-09-18-ui-revamp-batch1-design.md) |
 | 2026-09-19 | ui-revamp-batch2-design | [2026-09-19-ui-revamp-batch2-design.md](specs/2026-09-19-ui-revamp-batch2-design.md) |
