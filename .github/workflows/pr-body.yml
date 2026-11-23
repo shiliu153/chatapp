@@ -1,0 +1,39 @@
+name: PR 关单声明
+
+# 为什么单独一条轨
+# ----------------
+# 它判的是 **PR 正文**,不是仓库里的内容:`pull_request.body` 只在 pull_request 事件负载里,
+# 塞进 `contract.yml` 的 job 会破坏「contract 轨只剩一个门禁 step」这条自测
+# (`scripts/test_gates.py::SameSourceTests::test_contract_workflow_has_one_executor_step`)。
+#
+# 判据本身不写在这里:实现在 `scripts/check_pr_closes.py`,两个方向的自测在 contract 轨的
+# `contract-pr-closes-selftest` 里;本文件只负责装配(把事件负载喂给它)。
+#
+# 它挡的事(实测过两次):PR 合并后该关的 issue 没关 —— `#102` 悬了一整轮(活随 #103 合并了)、
+# `#466`(PR #468 正文写的是 `Refs #466`)。GitHub 只认 Closes / Fixes / Resolves 关键字。
+
+on:
+  pull_request:
+    # 正文只在 open / 重新打开 / 编辑时变;push 不改正文,不必重跑。
+    types: [opened, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-body:
+    name: pr-body
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.11'
+
+      - name: 正文必须声明 Closes #N(确实不关单就写「无」)
+        env:
+          # 事件负载路径由 GitHub 注入;脚本自己从 pull_request.body 取正文。
+          PR_EVENT_PATH: ${{ github.event_path }}
+        run: python scripts/check_pr_closes.py --event "$PR_EVENT_PATH"

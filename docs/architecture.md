@@ -88,8 +88,9 @@ App 常量、Web `package.json` 与关于页测试期望三处一致(CI `contrac
 
 ## 8. 交付与恢复纪律
 
-- **CI 的 workflow(当前 <!-- num:workflows -->9<!-- /num --> 个)**:`backend` / `app` / `app-ui` / `web` / `web-e2e` / `imserver` /
-  `contract` 七条判定轨,另有 `auto-merge`(白名单自动合并)、`l4-intake`(需求自动入队,总闸默认 `off`)。
+- **CI 的 workflow(当前 <!-- num:workflows -->10<!-- /num --> 个)**:`backend` / `app` / `app-ui` / `web` / `web-e2e` / `imserver` /
+  `contract` 七条判定轨,另有三条:`auto-merge`(白名单自动合并)、`l4-intake`(需求自动入队,总闸默认 `off`)、
+  `pr-body`(PR 正文必须声明 `Closes #<编号>` 或「无」,判定器 `scripts/check_pr_closes.py` 与它的自测在 contract 轨)。
   默认分支红轨**不再由 workflow 建 issue**:2026-11-16 起并入 WSL 的 worker 巡检
   (`scripts/superagent_health.py` 的 `ci-red` 项,判据复用 `scripts/l4_intake.py::red_runs`),
   随巡检邮件一起报,口径见 [ops/mail.md](ops/mail.md)。
