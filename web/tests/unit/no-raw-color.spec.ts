@@ -10,8 +10,9 @@ import { describe, expect, it } from 'vitest'
  * 任何报错**,只有这条测试会红。
  *
  * 扫描范围:`src/**` 的 .vue / .css / .ts,排除**色值文件**
- * (`src/styles/tokens.css` 与它的接班人 `src/styles/tokens.generated.css`)——
- * 那里的裸值不是违规,而是全部色值的来源,其余文件只能引用变量。
+ * (`src/styles/tokens.generated.css`,唯一一份色值来源)—— 那里的裸值不是违规,
+ * 而是全部色值的出处,其余文件(含 E-3 新增的 `ember-compat.css`)只能引用变量。
+ * 这条规矩在 E-3 之后更硬:手写的 `tokens.css` 已删除,白名单只剩生成物。
  *
  * 白名单:纯黑 / 纯白 / 全透明三色(`#fff` / `#ffffff` / `#000` / `#000000` /
  * `rgb(0 0 0)` 等)。它们在两种主题下语义相同,且没有对应语义 token
@@ -20,16 +21,13 @@ import { describe, expect, it } from 'vitest'
 const SRC = resolve(process.cwd(), 'src')
 
 /**
- * 色值文件白名单。
+ * 色值文件白名单(E-3 起只剩一份)。
  *
- * `tokens.css` 是「心跳」期手写的色值来源,`tokens.generated.css` 是「余烬 Ember」的
- * 生成物(`scripts/design_tokens.py` 从 `design/tokens/*.json` 生成,禁手改)。
- * 过渡期两者并存;E-3 接线后手写那份会被删除,这里只剩生成物。
+ * `tokens.generated.css` 是「余烬 Ember」的生成物(`scripts/design_tokens.py`
+ * 从 `design/tokens/*.json` 生成,禁手改)。「心跳」期手写的 `tokens.css` 已在 E-3
+ * 随接线删除 —— 它一旦被加回来,就说明有人在生成物之外又开了一个色值事实来源。
  */
-const TOKEN_FILES = new Set([
-  resolve(SRC, 'styles/tokens.css'),
-  resolve(SRC, 'styles/tokens.generated.css'),
-])
+const TOKEN_FILES = new Set([resolve(SRC, 'styles/tokens.generated.css')])
 
 /** 允许的裸色值(小写比较)。 */
 const ALLOWED = new Set([
@@ -89,8 +87,8 @@ describe('禁用裸色值(Web)', () => {
     const hits = findRawColors()
     expect(
       hits,
-      '裸色值请先加进色值文件(tokens.generated.css 由 design/tokens 生成,'
-        + "旧的手写 tokens.css 在过渡期仍要两份同步),再引用变量:\n" +
+      '裸色值请先加进 design/tokens/*.json 并重跑 python scripts/design_tokens.py --write,'
+        + '再从 tokens.generated.css 的变量引用:\n' +
         hits.join('\n'),
     ).toEqual([])
   })

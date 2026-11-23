@@ -4,7 +4,7 @@ import { ref } from 'vue'
 /**
  * 外观模式(计划 F-3):跟随系统 / 浅色 / 深色。
  *
- * 实现方式:`<html data-theme="dark|light">` + `tokens.css` 的 `[data-theme='dark']`
+ * 实现方式:`<html data-theme="dark|light">` + `tokens.generated.css` 的 `[data-theme="dark"]`
  * 覆盖块。页面与组件零改动,因为它们一直只用 CSS 变量取色。
  *
  * 为什么持久化在 localStorage 而不是后端:外观是纯客户端偏好,与账号无关;
