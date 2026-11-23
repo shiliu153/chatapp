@@ -175,3 +175,14 @@
   asset_bytes: 61505970
   asset_sha1: "94f80d55f0d7f7ceb58cbcc2816c9760ae0b7691"
   deploy_sha: "e7456f6"
+
+- version: "1.0.14"
+  date: "2026-11-23"
+  tag: "v1.0.14"
+  title: "v1.0.14 — 第五轮安全整改与发版工程收口"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.14"
+  note: ""
+  asset: "chatapp-1.0.14.apk"
+  asset_bytes: 0
+  asset_sha1: ""
+  deploy_sha: ""
