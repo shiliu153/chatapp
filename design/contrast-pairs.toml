@@ -124,3 +124,12 @@ name = "警告按钮文字 / 警告底"
 rule = "按钮文字"
 fg = "color.status.onWarning"
 bg = "color.status.warning"
+
+# 半透明遮罩这一对按「叠底前的实底」判:`parse_hex` 丢 alpha,所以量到的是
+# 更暗的那一档(`#1C1714` / `#000000`)。真实叠底(浅色页面底 `#FBF7F3` 上 92% 的
+# `#1C1714` ≈ `#2E2926`)对比度略低,但两种算法都远在门槛之上,见规范 §3.3 的注。
+[[pair]]
+name = "遮罩文字 / 遮罩底"
+rule = "次级"
+fg = "color.overlay.on"
+bg = "color.overlay.scrim"

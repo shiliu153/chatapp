@@ -6,7 +6,8 @@
       "sunken": { "$value": "{color.paper.120}", "$type": "color" }
     },
     "overlay": {
-      "scrim": { "$value": "#000000EB", "$type": "color" }
+      "scrim": { "$value": "#000000EB", "$type": "color" },
+      "on": { "$value": "{color.paper.0}", "$type": "color", "$description": "遮罩上的文字（Toast）" }
     },
     "text": {
       "primary": { "$value": "{color.paper.10}", "$type": "color" },

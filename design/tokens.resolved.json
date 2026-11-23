@@ -28,6 +28,10 @@
       "$type": "color",
       "$value": "#1A0F0B"
     },
+    "color.overlay.on": {
+      "$type": "color",
+      "$value": "#FFFFFF"
+    },
     "color.overlay.scrim": {
       "$type": "color",
       "$value": "#000000EB"
@@ -107,6 +111,10 @@
       "$value": "#C93C22"
     },
     "color.brand.on": {
+      "$type": "color",
+      "$value": "#FFFFFF"
+    },
+    "color.overlay.on": {
       "$type": "color",
       "$value": "#FFFFFF"
     },
