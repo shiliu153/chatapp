@@ -107,16 +107,36 @@ Redis `13500`-`13599`。`MYSQL_PORT` / `REDIS_PORT` / `COMPOSE_PROJECT_NAME` 一
    `/var/run/docker.sock` 变成真 socket(`srw-rw---- root docker`),bind mount 里的文件也能读了。
    ——同一个 WSL 版本问题还会让**任何 bind mount 的普通文件读不出来**(`cat /src/x.sql` → `I/O error`,
    目录能 `ls`、命名卷与 tmpfs 正常),`db_setup_ci.sql` 挂不上就是它。
-2. **Windows 的排除端口段会把文档口径的 13306 吃掉**。`netsh interface ipv4 show excludedportrange protocol=tcp`
+2. **Windows 的排除端口段可能把文档口径的 13306 吃掉**。`netsh interface ipv4 show excludedportrange protocol=tcp`
    里若有 `13296–13395`,Docker 就无法在宿主机绑 13306:容器照起、`docker ps` 只显示 `3306/tcp`(没有
    `0.0.0.0:13306->3306/tcp`),Django 报 `Can't connect to MySQL server on '127.0.0.1' (timed out)`。
-   绕法:显式给端口,或挑一个**两端都不落在排除段**的槽(注意 `13400+槽` 与 `13500+槽` 都可能命中):
+
+   **排除段会漂移,先查再判断**(winnat 重启 / WSL 与 Docker Desktop 升级 / 系统更新后都会重算)。
+   两行就能定性,别凭上次的印象:
+
+   ```powershell
+   netsh interface ipv4 show excludedportrange protocol=tcp     # 看 13306 落在哪一段里
+   ```
+   ```bash
+   docker run -d --rm --name portprobe -p 13306:80 alpine sleep 10 && docker ps --filter name=portprobe --format '{{.Ports}}'
+   docker rm -f portprobe
+   ```
+
+   **2026-11-23 实测:本机已经不用绕了。** 那天 `netsh` 的输出里没有任何段覆盖 13306(排除段变成了
+   `1172–1271` / `1410–1709` / `1802–2001` / `7289–7388` / `10212–10418` 等),`docker run -p 13306:80`
+   直接绑上 `0.0.0.0:13306->80/tcp`,文档口径的 `13306 / 16379` 可用。2026-11-21 那次是在
+   `wsl --update` 之后恢复的(WSL 2.5.7 → 3.0.5),所以「Docker Desktop / WSL 升过级」这件事本身
+   就可能把排除段一起改掉。
+
+   真命中时的两条路:① 显式给端口挑一个**两端都不落在排除段**的槽(注意 `13400+槽` 与 `13500+槽`
+   都可能命中,槽位由 `scripts/stacks/env.sh` 派生):
 
    ```bash
    MYSQL_PORT=13396 REDIS_PORT=13397 bash scripts/verify.sh backend
    ```
 
-   要彻底让出排除段得管理员跑 `net stop winnat && net start winnat`(排除了就重启后重算),这条**没在本机做过**。
+   ② 让出排除段需管理员跑 `net stop winnat && net start winnat`(排除了就重启后重算,不是永久生效),
+   再按上面两行重新确认。这条仍**没在本机做过** —— 现在也不需要(见上一段的实测)。
 3. **MySQL 刚起就跑 backend 会被 2013 打断**。官方镜像的 entrypoint 会先起一个临时 server 建库授权、
    再关掉重启(约 30–60 秒),这期间任何连接都是 `Lost connection to MySQL server during query`;
    `mysqladmin ping` 是未认证探测,早期就回 200,别拿它当就绪信号。等 `docker ps` 显示 `(healthy)` 再跑。
