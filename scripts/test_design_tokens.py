@@ -149,6 +149,37 @@ class TestGeneratedContent(unittest.TestCase):
         self.assertEqual(design_tokens.dart_type({"value": 700, "type": "fontWeight"}), "int")
         self.assertEqual(design_tokens.dart_type({"value": "Fraunces", "type": "fontFamily"}), "String")
 
+    def test_dart_number_keeps_two_decimals(self) -> None:
+        """``number`` 类型必须保住两位小数(行高 1.55 不能变成 1.6)。
+
+        备注信息：``:.1f`` 时代 Dart 侧 body 行高是 1.6、CSS 侧 1.55，而规范写 1.55 ——
+        两个生成物各说一套，``--check`` 只比字节所以发现不了。这条钉住两个方向：
+        该保留的小数不能被四舍五入，整数又要补 ``.0`` 才仍是 Dart 的 ``double``。
+        """
+        for value, expected in ((1.55, "1.55"), (1.15, "1.15"), (1.25, "1.25"),
+                                (1.3, "1.3"), (1.0, "1.0"), (0, "0.0")):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    design_tokens.dart_literal({"value": value, "type": "number"}), expected)
+
+    def test_repo_line_heights_match_the_token_source(self) -> None:
+        """仓库生成物里的行高常量必须与 ``design/tokens/scale.json`` 逐值相等。"""
+        scale = design_tokens.load_scale()
+        dart = design_tokens.emit_dart(
+            design_tokens.load_mode("light"), design_tokens.load_mode("dark"), scale)
+        line_heights = {
+            path: token for path, token in scale.items() if path.startswith("font.lineHeight.")
+        }
+        self.assertGreaterEqual(len(line_heights), 4, "行高 token 数量不对劲")
+        for path, token in line_heights.items():
+            step = path.rsplit(".", 1)[-1]
+            name = f"fontLineHeight{step[:1].upper()}{step[1:]}"
+            with self.subTest(path=path):
+                self.assertIn(
+                    f"const double {name} = {design_tokens.dart_double(float(token['value']))};",
+                    dart,
+                )
+
     def test_unknown_type_raises(self) -> None:
         with self.assertRaises(design_tokens.TokenError):
             design_tokens.dart_type({"value": 1, "type": "gradient"})
