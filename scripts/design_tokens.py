@@ -307,6 +307,28 @@ def dart_color(value: str) -> str:
     return f"0x{digits}"
 
 
+def dart_double(number: float) -> str:
+    """把浮点数渲染成 Dart 的 ``double`` 字面量(最短且能往返)。
+
+    参数说明:
+        number: 待渲染的数值。
+
+    返回参数:
+        str: 形如 ``1.55`` / ``1.0`` / ``0.06`` 的字面量文本。
+
+    使用示例:
+        ``dart_double(1.55) == "1.55"``
+
+    备注信息:
+        **刻意不用** ``f"{x:.1f}"``:那会把 ``1.15`` 舍成 ``1.1``、``1.55`` 舍成 ``1.6`` ——
+        ``font.lineHeight.*`` 这类「两位小数才有意义」的 token 于是与 CSS 生成物分叉
+        (2026-11-23 实测:Dart 侧 body 行高 1.6 / CSS 侧 1.55,规范写的是 1.55)。
+        ``repr`` 给的是最短可往返表示,整数要补 ``.0`` 才在 Dart 里仍是 double。
+    """
+    text = repr(float(number))
+    return text if ("." in text or "e" in text) else f"{text}.0"
+
+
 def dart_literal(token: dict[str, Any]) -> str:
     """把一个已解析的 token 转成 Dart 字面量。
 
@@ -330,7 +352,7 @@ def dart_literal(token: dict[str, Any]) -> str:
         number = re.sub(r"[a-zA-Z]+$", "", str(value))
         return f"{float(number):g}" if "." in str(float(number)) else f"{float(number):.1f}"
     if kind in {"number", "fontWeight"}:
-        return f"{float(value):.1f}" if kind == "number" else str(int(value))
+        return dart_double(float(value)) if kind == "number" else str(int(value))
     if kind in {"fontFamily", "shadow"}:
         return "'" + str(value).replace("'", "\\'") + "'"
     raise TokenError(f"不支持的 token 类型:{kind}")
