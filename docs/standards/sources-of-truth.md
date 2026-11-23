@@ -95,17 +95,17 @@
 | C++ 注释规范(`imserver/` 文件头 + 函数注释块) | [`docs/standards/cpp.md`](cpp.md) | 人工:**每次改 `imserver/` 任一 `.cpp` / `.h` 前**对照边界表;机械:`python scripts/check_cpp_comments.py --check`(门禁 `contract-cpp-comment-gate` + 自测 `contract-cpp-comment-gate-selftest`,随 `scripts/verify.sh contract` 跑),复算基线用该分册开头的三条 `git grep` 命令 | **已落地**(2026-11-14 按 SeekFree 风格补齐 67 个文件 / 637 个函数块) |
 | 写作规范(命名 / 元信息 / 状态 / 归档 / 口径页写法 / 数字与术语) | [`docs/standards/writing.md`](writing.md) | 机械:`python scripts/docs_lint.py` 的 `metadata`(元信息)/ `term`(术语)/ `number`(分册计数)三条规则 | **已落地**(2026-11-14 第 6 节,D4-A) |
 | UI 设计规则(「心跳」) | [2026-09-15-ui-design-language-design.md](../superpowers/specs/2026-09-15-ui-design-language-design.md)(**过渡期**:存量页面仍按它维护) | 人工:**每次改存量页面前**必读 | 被取代(2026-11-23) |
-| UI 设计规则(「余烬 Ember」) | [2026-11-23-ui-redesign-ember-design.md](../superpowers/specs/2026-11-23-ui-redesign-ember-design.md)(v0.1 草案) | 人工:**每次新增 / 改版页面前**必读;阈值口径另有机械校验(见下两行) | 草案,待评审 |
-| 视觉 token 源值(色阶 / 语义 / 尺度) | `design/tokens/*.json`(**唯一事实来源**,DTCG 形态) | 机械:`python scripts/design_tokens.py --check`(门禁 `contract-design-tokens`)+ `python -m unittest scripts.test_design_tokens`(门禁 `contract-design-tokens-selftest`),按字节比对生成物;规范正文里的两张色表由 `python scripts/design_spec_sync.py --check`(门禁 `contract-design-spec-sync`)双向比对 | **已落地**(2026-11-23,E-1):已生成 `app/lib/core/theme/tokens.g.dart` 与 `web/src/styles/tokens.generated.css`;两端**尚未接线**,现行实现仍是下一行的双份手改 |
+| UI 设计规则(「余烬 Ember」) | [2026-11-23-ui-redesign-ember-design.md](../superpowers/specs/2026-11-23-ui-redesign-ember-design.md)(v0.1,**2026-11-23 评审通过**) | 人工:**每次新增 / 改版页面前**必读;阈值口径另有机械校验(见下两行) | 评审通过,实施期(过渡期口径见该文 §12) |
+| 视觉 token 源值(色阶 / 语义 / 尺度) | `design/tokens/*.json`(**唯一事实来源**,DTCG 形态) | 机械:`python scripts/design_tokens.py --check`(门禁 `contract-design-tokens`)+ `python -m unittest scripts.test_design_tokens`(门禁 `contract-design-tokens-selftest`),按字节比对生成物;规范正文里的两张色表由 `python scripts/design_spec_sync.py --check`(门禁 `contract-design-spec-sync`)双向比对 | **已落地并接线**(2026-11-23):生成 `app/lib/core/theme/tokens.g.dart` 与 `web/src/styles/tokens.generated.css`,两端分别由 E-2(#470)/ E-3(#468)切到生成物,手写双份已删 |
 | 对比度口径(分级阈值) | Ember 规范 §3.4 的分级表(文档正文即事实) | 机械:`python scripts/design_contrast.py --check`(门禁 `contract-design-contrast`)+ `python -m unittest scripts.test_design_contrast`(门禁 `contract-design-contrast-selftest`);配对映射在 `design/contrast-pairs.toml`,阈值只在规范里 | **已落地**(2026-11-23) |
-| UI 视觉 token 取值(两端现行实现) | 同上(规则)+ 两端实现成对:`app/lib/core/theme/*.dart` ↔ `web/src/styles/tokens.css` | 机械:`web/tests/unit/tokens.spec.ts` 双向比对(漏改即红) | 已落地(**待废止**:E-2 / E-3 接线后由上面那行的生成物取代) |
 | spec / plan 的写作与归档流程 | [docs/superpowers/README.md §3](../superpowers/README.md) | 人工:**每次立项 / 交付归档时**对照 | 已落地 |
 
 > **token 为什么曾经是「成对」**:两端运行在不同语言里,旧方案没有共享的单一文件,
 > 「唯一」只能体现在**规则只有一个**(心跳 spec),双份实现由 `tokens.spec.ts` 双向钉死。
-> 2026-11-23 起这一形态**已被 `design/tokens/*.json` 取代**:生成器已就位且进了门禁,
-> 但 App / Web 两端尚未切到生成物(E-2 / E-3),所以「成对」这一行暂时仍是现行实现,
-> 状态标了「待废止」。接线完成后删掉那一行,**本表不再允许任何「双份都对」的事实**。
+> 2026-11-23 起这一形态**已被 `design/tokens/*.json` 取代**,且两端已切到生成物
+> (E-2 #470 / E-3 #468):手写双份与「成对」那一行同时删除。
+> **本表不再允许任何「双份都对」的事实** —— 视觉取值只认生成物,值对不对由 `contract` 轨的三道
+> `design_*` 门禁判。
 
 ### 2.6 运行与运维
 

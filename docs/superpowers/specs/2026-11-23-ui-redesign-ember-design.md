@@ -1,6 +1,7 @@
 # UI 设计语言「余烬 Ember」— 从零重建的设计规范
 
-> **立项**：2026-11-23 · **状态**：v0.1 草案，待评审
+> **立项**：2026-11-23 · **状态**：v0.1 **评审通过**（2026-11-23 主人审批）· 进入实施期
+> **实施计划**：[../plans/2026-11-23-ui-redesign-ember.md](../plans/2026-11-23-ui-redesign-ember.md)
 > **取代**：[2026-09-15-ui-design-language-design.md](2026-09-15-ui-design-language-design.md)（「心跳」，v1.5）。
 > 那份文档的全部视觉口径（品牌色、渐变、字阶、圆角、动效、组件皮肤）自本文 v1.0 生效起作废；
 > 过渡期约束见 §12。
@@ -495,10 +496,14 @@ scripts/design_tokens.py  （DTCG 解析 + 代码生成，纯标准库）
 - **唯一允许偏离的情形**：本文件未覆盖的新场景。处理顺序：先挑最接近的 token 复用 → 实现时注明 → 确需新 token 时先更新本文件（v1.x）。
 - **禁止**：裸 hex / 裸字号 / 裸间距 / 裸圆角；§3 之外的色相；渐变主按钮；纯装饰循环动画；灰色图标空态；深色模式套用阴影。
 - **过渡期（v0.1 → v1.0 生效前）**：
-  - 存量页面**继续按旧规范（心跳）**维护，不因为新规范草案而停手；
+  - 本文件已于 **2026-11-23 评审通过**，实施随之解封：`flow` 链路（E-1）与两端接线（E-2 / E-3）已落地，
+    逐页迁移（E-5）可以按 §14 开工单；
+  - 存量页面**继续按旧规范（心跳）**维护，直到该页被 E-5 迁移为止；
   - **新增页面与改版页面按本文件**；
   - 旧规范文件顶部加作废横幅，指向本文件；两文件同时存在期间，冲突以本文件为准（新写的部分）。
-- **v1.0 生效条件**：token 链路落地 + 门禁全绿 + 首个页面按新规范交付并通过验收。之后旧规范 `git mv` 到 `archive/specs/`，并同一次改掉 `CLAUDE.md` 的 UI 规则段与 `AGENTS.md` 的 App 行。
+- **v1.0 生效条件**：token 链路落地 + 门禁全绿 + 首个页面按新规范交付并通过验收 ——
+  前两项已完成（2026-11-23），**第三项尚未满足**，所以本文件暂不标 v1.0、旧规范暂不归档。
+  三项齐备后旧规范 `git mv` 到 `archive/specs/`，并同一次改掉 `CLAUDE.md` 的 UI 规则段与 `AGENTS.md` 的 App 行。
 
 ---
 
@@ -512,15 +517,15 @@ scripts/design_tokens.py  （DTCG 解析 + 代码生成，纯标准库）
 
 ---
 
-## 14. 实施拆单（E-1 已落地；E-2 / E-3 已开单，均未派单）
+## 14. 实施拆单（E-1 / E-2 / E-3 已落地；E-4 卡在首个页面验收；E-5 可开工）
 
 | 单 | 栈 | 内容 | 验收 | 状态 |
 |---|---|---|---|---|
 | E-1 | `flow` | `design/tokens/*.json` + `scripts/design_tokens.py` + `scripts/design_contrast.py` + `scripts/design_spec_sync.py` + 门禁注册 | 三个 `--check` 绿；`scripts/verify.sh contract` 绿 | **已落地**(2026-11-23)：双模式配对全过线，生成物按字节锁定，规范与 token 双向比对 |
-| E-2 | `app` | 换 `core/theme` 为生成物；`core/ui` 组件层按 §8 重建 | `scripts/verify.sh app` 绿 + 模拟器验收 | 待开工 |
-| E-3 | `web` | `tokens.generated.css` 接线 + PrimeVue unstyled + passThrough 映射；删除旧的 `tokens.css` 与 `tokens.spec.ts` 双份比对 | `scripts/verify.sh web` 绿 + axe 零 critical | 待开工 |
-| E-4 | `docs` | 本文转正 v1.0；旧规范归档；`CLAUDE.md` / `AGENTS.md` / `sources-of-truth.md` 三处引用同改 | `scripts/verify.sh contract` 绿 | 待开工 |
-| E-5… | `app` / `web` | 逐页迁移（按 §13 分批），每页一单 | 每单 golden + 手测 | 待开工 |
+| E-2 | `app` | 换 `core/theme` 为生成物；`core/ui` 组件层按 §8 重建 | `scripts/verify.sh app` 绿 + 模拟器验收 | **已落地**(2026-11-23，PR [#470](https://github.com/shiliu153/chatapp/pull/470))：会话内联交付，工单 [#465](https://github.com/shiliu153/chatapp/issues/465) 随之关闭；`app/lib` 已无手写色值 |
+| E-3 | `web` | `tokens.generated.css` 接线 + PrimeVue unstyled + passThrough 映射；删除旧的 `tokens.css` 与 `tokens.spec.ts` 双份比对 | `scripts/verify.sh web` 绿 + axe 零 critical | **已落地**(2026-11-23，PR [#468](https://github.com/shiliu153/chatapp/pull/468))：会话内联交付，工单 [#466](https://github.com/shiliu153/chatapp/issues/466) 随之关闭；`tokens.css` 已删，`tokens.spec.ts` 改为生成物存在性断言 |
+| E-4 | `docs` | 本文转正 v1.0；旧规范归档；`CLAUDE.md` / `AGENTS.md` / `sources-of-truth.md` 三处引用同改 | `scripts/verify.sh contract` 绿 | **待开工**，前置是 §12 第三项（首个页面验收）—— E-2 / E-3 已满足前两项 |
+| E-5… | `app` / `web` | 逐页迁移（按 §13 分批），每页一单 | 每单 golden + 手测 | **可开工**(2026-11-23 评审通过后解封) |
 
 ---
 
@@ -550,6 +555,7 @@ scripts/design_tokens.py  （DTCG 解析 + 代码生成，纯标准库）
 | 图标 | Phosphor Regular 取代 Material rounded | 与衬线标题的手作感一致 |
 | 生成器实现 | 纯标准库自研 DTCG 解析，**不用 Style Dictionary** | 它是 JS 包；`contract` 轨只装 Python，为两份产物引入 Node 与 `npm ci` 成本过高，且子集只需「分组 + 别名」 |
 | 对比度阈值归属 | 阈值只在规范 §3.4，脚本解析这张表 | 代码里再写一份阈值必然分叉；解析不出来时 fail-closed 判红 |
+| 规范评审 | **通过**（2026-11-23 主人审批 v0.1），实施解封：E-5 逐页迁移可开工 | 视觉口径必须先定稿才能派单，否则 worker 按未定稿施工 |
 | CSS 产物命名 | `tokens.generated.css`（过渡期与旧 `tokens.css` 并存） | 避免同一次改动同时动规则与被旧测试锁定的实现 |
 
 ---
