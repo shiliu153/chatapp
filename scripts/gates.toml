@@ -285,6 +285,13 @@ command = "python -m unittest scripts.test_gen_web_schema -v"
 reason = "指纹判定器判错的两个方向都不能静默:漏报 = 改了契约不重生成仍然绿(本门禁存在的理由),误报 = CRLF/LF 让同一份契约算出两个哈希把 Windows 检出永远判红"
 
 [[gate]]
+id = "contract-pr-closes-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_check_pr_closes -v"
+reason = "PR 正文的 Closes #N 判定器判错的两个方向都不能静默:漏报 = 活干完了 issue 还开着(踩过两次:#102 悬一整轮、#466 写成 Refs),误报 = 声明了不关单却被判红、红线被当噪音关掉"
+
+[[gate]]
 id = "contract-proxy-selftest"
 scope = "contract"
 kind = "shell"

@@ -74,10 +74,15 @@
 | 正文里的 A 类统计数字必须由 `scripts/facts.py` 写进哨兵,**不能裸写**(写了就算当场对也红) | `python scripts/facts.py --check` 红(`contract` 轨) |
 | 响应路径禁止任何第三方网络调用;跨系统副作用一律走 Celery 任务 | 代码审查拒 |
 | IM 副作用唯一入口是 `im/tasks.py`,任务参数是任务相关的 id、任务体内自己查库(不是「一律 user_id」:`post_commented`/`post_replied` 传 `comment_id`;唯一**不查库**的例外 `delete_account` 传 `im_user_id`) | 代码审查拒 |
+| PR 正文必须写 `Closes #<编号>`(确实不关单写「无」;`Refs` 不算) | `pr-body` 轨红(`scripts/check_pr_closes.py`) |
 
 ## 五、PR 规矩
 
 - 标题 `<type>(<scope>): <中文摘要>`;正文按 `.github/pull_request_template.md` 写四问:**改了什么 / 怎么验的(贴 verify 输出)/ 留了什么给人验 / 遗留**。
+- **正文必须声明关单**:在「关闭的 issue」小节写 `Closes #<编号>`(多个用逗号分隔);确实不关任何
+  issue 的(纯文档整改等)写「无」。**写 `Refs #N` 不算** —— GitHub 只认 Closes / Fixes / Resolves,
+  这条已经踩过两次:`#102` 悬了一整轮(活早随 #103 合并了)、`#466`(PR #468 正文写的是 `Refs #466`)。
+  2026-11-23 起由 `pr-body` 轨机械判定(`scripts/check_pr_closes.py`),漏写即红。
 - **低风险合并可以直接合**(2026-11-14 主人修订):满足下面**全部**条件的 PR,本机会话自己 squash
   合并即可,不必再单独占一轮确认:
   - diff **只**落在 docstring、`#` 注释、`docs/**`、以及仓库根的说明性文档(`AGENTS.md` /
