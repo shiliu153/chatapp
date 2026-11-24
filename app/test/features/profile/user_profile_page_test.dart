@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
@@ -29,6 +30,21 @@ class _LoggedInImManager extends ImManager {
 class _LoggedInSession extends SessionController {
   @override
   SessionState build() => const SessionLoggedIn();
+}
+
+
+/// 资料页正文是 ListView(头图 + 身份行占掉约一屏):信息卡 / 语音卡 / 相册都在
+/// 折叠线以下,**先滚再断言**才是对的判据(内容没进视口 ≠ 没渲染)。
+Future<void> scrollTo(WidgetTester tester, Finder target) async {
+  await tester.scrollUntilVisible(
+    target,
+    160,
+    scrollable: find.descendant(
+      of: find.byType(UserProfilePage),
+      matching: find.byType(Scrollable),
+    ).first, // 第一个才是正文 ListView(相册里的 GridView 也是 Scrollable)
+  );
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -85,6 +101,7 @@ void main() {
     expect(find.text('小红,25'), findsOneWidget); // 与发现卡同款格式(无「· 岁」)
     expect(find.text('ID:u9'), findsOneWidget);
     expect(find.text('上海'), findsOneWidget);
+    await scrollTo(tester, find.text('喜欢爬山'));
     expect(find.text('喜欢爬山'), findsOneWidget);
     expect(find.text('运动'), findsOneWidget);
 
@@ -121,8 +138,7 @@ void main() {
     await pumpProfile(tester);
 
     // 头图占了约一屏高,相册在折叠线以下,先滚到可见
-    await tester.ensureVisible(find.byKey(const Key('user.album.photo:0')));
-    await tester.pumpAndSettle();
+    await scrollTo(tester, find.byKey(const Key('user.album.photo:0')));
     await tester.tap(find.byKey(const Key('user.album.photo:0')));
     await tester.pumpAndSettle();
 
@@ -134,10 +150,9 @@ void main() {
         (options) => ok(publicProfileJson(voice: voiceJson()));
     await pumpProfile(tester);
 
-    await tester.ensureVisible(find.byKey(const Key('user.voice.bar')));
-    await tester.pumpAndSettle();
+    await scrollTo(tester, find.byKey(const Key('user.voice.bar')));
     expect(find.byKey(const Key('user.voice.bar')), findsOneWidget);
-    expect(find.text('语音自我介绍'), findsOneWidget);
+    expect(find.text('语音介绍'), findsOneWidget);
     expect(find.text('0:00 / 0:18'), findsOneWidget);
   });
 
@@ -146,7 +161,7 @@ void main() {
     await pumpProfile(tester);
 
     expect(find.byKey(const Key('user.voice.bar')), findsNothing);
-    expect(find.text('语音自我介绍'), findsNothing);
+    expect(find.text('语音介绍'), findsNothing);
   });
 
   testWidgets('404 → 「用户不存在」+ 重试按钮', (tester) async {
@@ -174,6 +189,7 @@ void main() {
 
     expect(adapter.log.lastWhere((r) => r.method == 'POST').path, '/reports');
     expect(find.text('已收到举报,我们会尽快处理'), findsOneWidget);
+    await drainToast(tester); // EmberToast 自带 2s 自动消失定时器
   });
 
   testWidgets('拉黑:确认 → POST /blocks + 删本机会话 + 返回上一页', (tester) async {
@@ -193,6 +209,7 @@ void main() {
     expect(fake.log, contains('deleteConversation:u9'));
     expect(find.text('首页'), findsOneWidget);   // 已返回上一页
     expect(find.text('已拉黑'), findsOneWidget);
+    await drainToast(tester); // EmberToast 自带 2s 自动消失定时器
   });
 
   testWidgets('拉黑后回黑名单页:缓存失效并重新拉取(复现 2026-09-11 手测)', (tester) async {
@@ -243,6 +260,7 @@ void main() {
 
     // 拉黑成功会 pop 回黑名单页;缓存若没失效,这里仍是空态(手测踩到的 bug)
     expect(find.text('小红'), findsOneWidget);
+    await drainToast(tester); // EmberToast 自带 2s 自动消失定时器
   });
 
   testWidgets('照片头图:渲染昵称·年龄/城市,不显示「详细资料」标题', (tester) async {
@@ -260,7 +278,7 @@ void main() {
     adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson(photos: const []));
     await pumpProfile(tester);
 
-    expect(find.byIcon(Icons.person_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsRegular.user), findsOneWidget);
     expect(find.text('相册'), findsNothing);
     expect(find.byKey(const Key('user.album.photo:0')), findsNothing);
   });
@@ -328,11 +346,13 @@ void main() {
     expect(hero.tag, 'avatar-post-1');
   });
 
-  testWidgets('无 heroTag(深链)→ 不包 Hero', (tester) async {
+  testWidgets('无 heroTag(深链)→ 头图不包 Hero', (tester) async {
     adapter.routes['GET /users/9'] = (options) => ok(publicProfileJson());
     await pumpProfile(tester);
 
-    expect(find.byType(Hero), findsNothing);
+    // 相册缩略图另有自己的 Hero(点开全屏用),这里只钉「头图那层不带 tag」
+    final hero = tester.widget<AvatarHero>(find.byType(AvatarHero));
+    expect(hero.tag, isNull);
   });
 
   testWidgets('点返回键 → 回到上一页', (tester) async {

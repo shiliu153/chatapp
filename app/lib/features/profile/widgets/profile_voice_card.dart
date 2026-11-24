@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import '../../../core/api_exception.dart';
 import '../../../core/theme/app_radius.dart';
@@ -308,7 +309,7 @@ class _RecordButton extends StatelessWidget {
           shape: BoxShape.circle,
         ),
         child: Icon(
-          recording ? Icons.mic_rounded : Icons.mic_none_rounded,
+          recording ? PhosphorIconsFill.microphone : PhosphorIconsRegular.microphone,
           size: 24,
           color: color,
         ),

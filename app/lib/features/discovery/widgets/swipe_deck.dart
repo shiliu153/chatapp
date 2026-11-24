@@ -231,6 +231,9 @@ class _SwipeDeckState extends State<SwipeDeck> with TickerProviderStateMixin {
                     child: ProfileCard(
                       candidate: top,
                       presence: widget.presenceById[top.userId],
+                      // 只有顶卡参与 Hero:它才是「点下去的那张卡」,也是点进资料页
+                      // 的飞行起点(E-5.4 page spec §3 Hero 三条入口之一)。
+                      heroTag: 'photo-user-${top.userId}',
                     ),
                   ),
                 ),

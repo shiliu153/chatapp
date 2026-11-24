@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/app.dart';
+import 'package:chatapp_app/features/profile/my_profile_page.dart';
 import 'package:chatapp_app/core/app_config.dart';
 import 'package:chatapp_app/core/providers.dart';
 import 'package:chatapp_app/core/theme/app_theme.dart';
@@ -64,6 +65,70 @@ Future<FakeImClient> pumpApp(WidgetTester tester, ScriptedAdapter adapter,
     child: const ChatApp(),
   ));
   return fake;
+}
+
+/// 把「我」页滚到某个入口可见。
+///
+/// Ember 的「我」页比心跳期高(tab 大标题 + 头像 96 + 行高 68–76):在 800×600 的
+/// 测试视口里,入口分组(我的动态 / 收藏 / 设置…)落在**折叠线以下**。
+/// `ensureVisible` 对「还没构建」的列表项无效(它先要求 finder 命中元素),所以这里
+/// 先 `scrollUntilVisible` 把行滚进来。
+Future<void> scrollMyProfileTo(
+  WidgetTester tester,
+  Finder target, {
+  bool frames = false,
+}) async {
+  if (target.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      target,
+      120,
+      // 只认「我」页自己的 ListView:底栏用 IndexedStack 保活,其它 Tab 也有 Scrollable
+      scrollable: find
+          .descendant(
+            of: find.byType(MyProfilePage),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+  }
+  await tester.ensureVisible(target);
+  if (frames) {
+    await pumpFrames(tester);
+  } else {
+    await tester.pumpAndSettle();
+  }
+}
+
+/// 从「我」页点某个入口(资料行 / 入口行)并等目标页起好。
+///
+/// [frames] 为真时,**点之前**用有限 pump(页面里有常驻动画的用例:发现页涟漪 /
+/// 在线点呼吸),点之后仍然是 `pumpAndSettle` —— 与各用例原有的写法一致。
+Future<void> tapMyProfileEntry(
+  WidgetTester tester,
+  Key key, {
+  bool frames = false,
+}) async {
+  final target = find.byKey(key);
+  if (target.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      target,
+      120,
+      scrollable: find
+          .descendant(
+            of: find.byType(MyProfilePage),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+  }
+  await tester.ensureVisible(target);
+  if (frames) {
+    await pumpFrames(tester);
+  } else {
+    await tester.pumpAndSettle();
+  }
+  await tester.tap(target);
+  await tester.pumpAndSettle();
 }
 
 /// 底部导航栏里的 Tab 标签(避开与各页 AppBar 标题重名)。

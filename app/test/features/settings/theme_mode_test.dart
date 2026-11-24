@@ -19,10 +19,7 @@ ThemeMode currentThemeMode(WidgetTester tester) =>
 Future<void> openSettings(WidgetTester tester) async {
   await tester.tap(navTab('我'));
   await tester.pumpAndSettle();
-  await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('my.row.settings')));
-  await tester.pumpAndSettle();
+  await tapMyProfileEntry(tester, const Key('my.row.settings'));
   await tester.scrollUntilVisible(
     find.byKey(const Key('settings.row.theme')),
     200,

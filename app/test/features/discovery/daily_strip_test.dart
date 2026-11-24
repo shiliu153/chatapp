@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:chatapp_app/features/profile/user_profile_page.dart';
+
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
@@ -81,6 +83,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ID:u9'), findsOneWidget);
+    // 签名在资料页信息卡里(头图 + 身份行之后),先滚到可见再断言
+    await tester.scrollUntilVisible(
+      find.text('喜欢爬山'),
+      160,
+      // 第一个才是正文 ListView(相册里的 GridView 也是 Scrollable)
+      scrollable: find
+          .descendant(
+            of: find.byType(UserProfilePage),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     expect(find.text('喜欢爬山'), findsOneWidget);
   });
 

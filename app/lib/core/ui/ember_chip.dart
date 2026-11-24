@@ -44,6 +44,7 @@ class EmberChip extends StatelessWidget {
     this.icon,
     this.semanticLabel,
     this.autofocus = false,
+    this.readOnly = false,
   });
 
   /// 文案(也是读屏默认标签)。
@@ -64,10 +65,33 @@ class EmberChip extends StatelessWidget {
   /// 是否自动取得焦点(键盘用户)。
   final bool autofocus;
 
+  /// 是否**只展示**、不可点(E-5.4 他人资料页的标签组)。
+  ///
+  /// 为什么不直接用「`onTap == null` = disabled」:§8.3 里 disabled 是
+  /// `surface.sunken` + `text.tertiary`,而展示态要的是 default 的
+  /// `surface.sunken` + `text.secondary` —— 两者字色不同。只读态因此保留 default
+  /// 的取值、去掉按压与热区(48 热区对不可点的元素没有意义,反而会撑高行)。
+  final bool readOnly;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.ember;
     final disabled = onTap == null;
+    if (readOnly) {
+      // 只读:直接给 default 的取值(§8.3 Chip default 行),不包可点外壳。
+      final visuals = _resolve(colors, const EmberPressState(
+        pressed: false,
+        focused: false,
+        hovered: false,
+        enabled: false,
+      ), disabled: false);
+      return Semantics(
+        container: true,
+        excludeSemantics: true,
+        label: semanticLabel ?? label,
+        child: _capsule(visuals, interactive: false),
+      );
+    }
     return EmberPressable(
       onTap: onTap,
       enabled: !disabled,
@@ -75,45 +99,51 @@ class EmberChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(tokens.radiusPill),
       autofocus: autofocus,
       semanticLabel: semanticLabel ?? (selected ? '$label，已选中' : label),
-      builder: (context, state) {
-        final visuals = _resolve(colors, state, disabled: disabled);
-        // 外层是 48 的热区,内层才是 36 的胶囊:热区够大,视觉不臃肿(§8.4)。
-        return SizedBox(
-          height: tokens.sizeTouchApp,
-          child: Center(
-            widthFactor: 1,
-            child: Container(
-              height: EmberComponentSizes.chipHeight,
-              padding: EdgeInsets.symmetric(horizontal: tokens.space12),
-              decoration: BoxDecoration(
-                color: visuals.background,
-                borderRadius: BorderRadius.circular(tokens.radiusPill),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (icon != null) ...[
-                    Icon(icon, size: tokens.sizeIcon16, color: visuals.foreground),
-                    SizedBox(width: tokens.space8),
-                  ],
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: tokens.fontSizeCaption,
-                      // 选中态加粗一档:颜色之外再给一条线索(§8.4「颜色不是唯一线索」)。
-                      fontWeight: visuals.emphasized ? FontWeight.w600 : FontWeight.w500,
-                      height: tokens.fontLineHeightCaption,
-                      color: visuals.foreground,
-                    ),
-                  ),
-                ],
-              ),
+      builder: (context, state) => _capsule(
+        _resolve(colors, state, disabled: disabled),
+        interactive: true,
+      ),
+    );
+  }
+
+  /// 胶囊本体。
+  ///
+  /// [interactive] 为真时外层补到 48 的热区(`size.touch.app`)、内层才是 36 的胶囊:
+  /// 热区够大、视觉不臃肿(§8.4);只读态不补热区(不可点的元素撑出 48 只会挤行高)。
+  Widget _capsule(_ChipVisuals visuals, {required bool interactive}) {
+    final capsule = Container(
+      height: EmberComponentSizes.chipHeight,
+      padding: EdgeInsets.symmetric(horizontal: tokens.space12),
+      decoration: BoxDecoration(
+        color: visuals.background,
+        borderRadius: BorderRadius.circular(tokens.radiusPill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: tokens.sizeIcon16, color: visuals.foreground),
+            SizedBox(width: tokens.space8),
+          ],
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: tokens.fontSizeCaption,
+              // 选中态加粗一档:颜色之外再给一条线索(§8.4「颜色不是唯一线索」)。
+              fontWeight: visuals.emphasized ? FontWeight.w600 : FontWeight.w500,
+              height: tokens.fontLineHeightCaption,
+              color: visuals.foreground,
             ),
           ),
-        );
-      },
+        ],
+      ),
+    );
+    if (!interactive) return capsule;
+    return SizedBox(
+      height: tokens.sizeTouchApp,
+      child: Center(widthFactor: 1, child: capsule),
     );
   }
 

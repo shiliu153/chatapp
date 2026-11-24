@@ -20,7 +20,12 @@ void main() {
 
     await tester.tap(navTab('我'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('想找的人')); // 行在可视区外,先滚到位再点
+    // 行在 800×600 视口的折叠线以下(新「我」页更高),先滚到位再点
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('my.row.preference')),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('想找的人'));
     await tester.pumpAndSettle();

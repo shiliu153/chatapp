@@ -2,14 +2,20 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/ember_colors.dart';
-import '../../../core/theme/heart_theme_context.dart';
-import '../../../core/theme/app_gradients.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/ember_colors.dart';
+import '../../../core/theme/ember_theme_context.dart';
 
-/// 「心跳」附录 C.2 完成度环:底环 3px divider + 渐变进度弧 3px + 中央 done/total。
-/// 它是「我的」页唯一的渐变高音,把视线引到「去完善」。
+/// 资料完善度环(E-5.4 page spec §3 / 上游 §18.5)。
+///
+/// 底环 3px `border.divider` + 进度弧 3px `brand.default` + 中央 `done/total`。
+///
+/// **不再用渐变弧**:心跳期(`AppGradients.heartSweepOf`)是「唯一的渐变高音」,
+/// 而 Ember §18.5 把渐变主视觉整体作废 —— 单一强调色只出现在引导视线处,
+/// 这里就用 `brand.default` 实色。深色下 `brand.default` 自动翻成浅朱砂(§3.3),
+/// 不需要第二套取值。
 class CompletionRing extends StatelessWidget {
+  /// 构造完成度环。
   const CompletionRing({
     super.key,
     required this.done,
@@ -17,45 +23,63 @@ class CompletionRing extends StatelessWidget {
     this.size = 44,
   });
 
+  /// 已完成项数。
   final int done;
+
+  /// 总项数。
   final int total;
+
+  /// 直径。
   final double size;
 
+  /// 环宽 3px(规范未覆盖,**保留现形态**)。
   static const _stroke = 3.0;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     // total=0 时不画弧,避免除零
     final progress = total <= 0 ? 0.0 : (done / total).clamp(0.0, 1.0);
-    return SizedBox.square(
-      key: const Key('my.ring'),
-      dimension: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CustomPaint(
-            size: Size.square(size),
-            painter: _RingPainter(progress: progress, stroke: _stroke, colors: colors),
+    return Semantics(
+      container: true,
+      label: '资料完成度，$done/$total',
+      child: ExcludeSemantics(
+        child: SizedBox.square(
+          key: const Key('my.ring'),
+          dimension: size,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              CustomPaint(
+                size: Size.square(size),
+                painter:
+                    _RingPainter(progress: progress, stroke: _stroke, colors: colors),
+              ),
+              Text('$done/$total', style: AppText.micro.copyWith(color: colors.textPrimary)),
+            ],
           ),
-          Text('$done/$total', style: AppText.micro.copyWith(color: colors.text1)),
-        ],
+        ),
       ),
     );
   }
 }
 
+/// 画底环与进度弧;自绘发生在 paint 阶段(拿不到 BuildContext),色板由外部注入。
 class _RingPainter extends CustomPainter {
+  /// 构造画笔。
   _RingPainter({
     required this.progress,
     required this.stroke,
     required this.colors,
   });
 
+  /// 进度 0–1。
   final double progress;
+
+  /// 环宽。
   final double stroke;
 
-  /// 自绘发生在 paint 阶段(拿不到 BuildContext),色板由外部注入。
+  /// 语义色板(由 widget 从 `context.ember` 取好传进来)。
   final EmberColors colors;
 
   @override
@@ -65,7 +89,7 @@ class _RingPainter extends CustomPainter {
     final base = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
-      ..color = colors.divider;
+      ..color = colors.borderDivider;
     canvas.drawArc(rect, 0, math.pi * 2, false, base);
 
     if (progress <= 0) return;
@@ -73,7 +97,7 @@ class _RingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round
-      ..shader = AppGradients.heartSweepOf(colors).createShader(rect);
+      ..color = colors.brandDefault;
     // 从 12 点方向起画,顺时针
     canvas.drawArc(rect, -math.pi / 2, math.pi * 2 * progress, false, arc);
   }

@@ -346,12 +346,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return '删除失败,请重试';
   }
 
-  void _openProfile(BuildContext context, Map<String, MatchEntry> cache) {
+  /// 打开对端资料页;`heroTag` 是**来源那一处**头像的 Hero tag。
+  ///
+  /// E-5.4 要求「对话页顶栏头像」与「气泡头像」两条入口都飞:顶栏头像是
+  /// `avatar-chat-<peerId>`(全页唯一),气泡头像按消息取 `avatar-msg-<msgId>`
+  /// (同一个人同屏多次,同 tag 会让 Hero 抛重复 tag)。
+  void _openProfile(
+    BuildContext context,
+    Map<String, MatchEntry> cache, {
+    String? heroTag,
+  }) {
     // 优先用 matches 缓存里的真实 id;缓存没有(如刚被清)就按 u9 → 9 兜底
     final userId =
         cache[widget.peerId]?.userId ?? int.tryParse(widget.peerId.replaceFirst('u', ''));
     if (userId == null) return;
-    context.push('/users/$userId', extra: 'avatar-chat-${widget.peerId}');
+    context.push(
+      '/users/$userId',
+      extra: heroTag ?? 'avatar-chat-${widget.peerId}',
+    );
   }
 
   /// 表情面板(E-5.3:`EmberSheet` 轻量选择,选完即关)。
@@ -739,6 +751,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                               selected: _selected.contains(message.msgId),
                               onToggleSelect: () => _toggleSelect(message),
                               onLongPress: () => _showMessageMenu(itemContext, message),
+                              // 气泡头像 → 对方资料页(E-5.4 Hero 三条入口之一):
+                              // 每条消息一个 tag,避免同一个人同屏多次时 tag 撞车。
+                              avatarHeroTag: 'avatar-msg-${message.msgId}',
+                              onTapAvatar: () => _openProfile(
+                                itemContext,
+                                ref.read(matchCacheProvider).value ??
+                                    const <String, MatchEntry>{},
+                                heroTag: 'avatar-msg-${message.msgId}',
+                              ),
                               onTapImage: () => _openImage(message),
                               // 点引用块跳回原消息(批次 L-2)
                               onTapQuote: message.ref == null

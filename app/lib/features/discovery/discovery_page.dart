@@ -328,9 +328,13 @@ class _DeckView extends ConsumerWidget {
                 presenceById: presenceById,
                 likeBlocked: quota.isBlockedAt(ref.read(discoveryClockProvider)()),
                 undoAction: undoAction,
-                // 拍板结果 3:本单只做普通 push,卡 → 资料页的 Hero 转场留给 E-5.4
-                onOpenProfile: (candidate) =>
-                    context.push('/users/${candidate.userId}'),
+                // 卡照片 → 资料页的 Hero(E-5.4 落地):tag 与卡面照片层、
+                // 资料页头图三处同名,资料页的 loading 骨架也带同名 Hero,
+                // 所以首帧就能找到落点(否则 Hero 只在 push 后一帧扫描,永远不飞)。
+                onOpenProfile: (candidate) => context.push(
+                  '/users/${candidate.userId}',
+                  extra: 'photo-user-${candidate.userId}',
+                ),
                 onDecide: (candidate, {required like}) =>
                     _decide(context, ref, candidate, like: like),
               );

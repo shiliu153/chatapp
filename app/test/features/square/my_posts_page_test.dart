@@ -23,8 +23,7 @@ void main() {
     await tester.tap(navTab('我'));
     await pumpFrames(tester);
 
-    await tester.tap(find.byKey(const Key('my.row.posts')));
-    await tester.pumpAndSettle();
+    await tapMyProfileEntry(tester, const Key('my.row.posts'), frames: true);
     expect(find.text('我发的'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('post.more.7')));
@@ -54,8 +53,7 @@ void main() {
     await pumpFrames(tester); // 广场空态涟漪在隐藏页一直跑
     await tester.tap(navTab('我'));
     await pumpFrames(tester);
-    await tester.tap(find.byKey(const Key('my.row.posts')));
-    await tester.pumpAndSettle();
+    await tapMyProfileEntry(tester, const Key('my.row.posts'), frames: true);
 
     expect(find.text('我的动态'), findsOneWidget);
     expect(find.byKey(const Key('myPosts.back')), findsOneWidget);
@@ -73,8 +71,7 @@ void main() {
     await tester.tap(navTab('我'));
     await pumpFrames(tester);
 
-    await tester.tap(find.byKey(const Key('my.row.posts')));
-    await tester.pumpAndSettle();
+    await tapMyProfileEntry(tester, const Key('my.row.posts'), frames: true);
     expect(find.text('还没发过动态'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('myPosts.compose')));

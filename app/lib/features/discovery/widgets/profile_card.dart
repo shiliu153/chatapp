@@ -6,6 +6,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/ember_theme_context.dart';
 import '../../../core/theme/tokens.g.dart' as tokens;
 import '../../../core/ui/ember_ui.dart';
+import '../../../core/widgets/avatar_hero.dart';
 import '../../presence/models.dart';
 import '../models.dart';
 
@@ -19,13 +20,24 @@ import '../models.dart';
 /// `border.divider` + `surface.card` 的色差分层。
 class ProfileCard extends StatefulWidget {
   /// 构造候选卡。
-  const ProfileCard({super.key, required this.candidate, this.presence});
+  const ProfileCard({
+    super.key,
+    required this.candidate,
+    this.presence,
+    this.heroTag,
+  });
 
   /// 卡上展示的人。
   final Candidate candidate;
 
   /// 在线状态(拿不到就不画在线点)。
   final Presence? presence;
+
+  /// 照片层的 Hero tag(E-5.4 落地:E-5.2 只做普通 push,转场留给本单)。
+  ///
+  /// 只包**照片本身**、不包整张卡:飞行途中只该是「同一张图」,叠字、指示点、
+  /// 操作钮跟着飞会让字在半路变形。`null`(golden 直出 / 非顶卡)时不包 Hero。
+  final String? heroTag;
 
   /// 照片左右切换热区宽度(spec §4「左右 56 热区切图」)。
   static const photoHotZoneWidth = 56.0;
@@ -73,15 +85,21 @@ class _ProfileCardState extends State<ProfileCard> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (photo == null)
-                const _PhotoPlaceholder()
-              else
-                Image.network(
-                  photo.url,
-                  key: ValueKey('card.photo.${photo.id}'),
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stack) => const _PhotoPlaceholder(),
-                ),
+              // 照片层:有 heroTag 时包一层 AvatarHero(与资料页头图同 tag 即飞)。
+              AvatarHero(
+                tag: widget.heroTag,
+                imageUrl: photo?.url,
+                fromRadius: tokens.radiusXl,
+                child: photo == null
+                    ? const _PhotoPlaceholder()
+                    : Image.network(
+                        photo.url,
+                        key: ValueKey('card.photo.${photo.id}'),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stack) =>
+                            const _PhotoPlaceholder(),
+                      ),
+              ),
               if (photos.length > 1) ...[
                 Positioned(
                   left: 0,
