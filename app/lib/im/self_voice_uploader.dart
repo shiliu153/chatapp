@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 
 import '../core/api_client.dart';
 import '../core/api_exception.dart';
+import 'local_file_name.dart';
 import 'upload_idempotency.dart';
 import 'voice_transcode.dart';
 
@@ -99,7 +100,9 @@ class ApiVoiceUploader implements SelfVoiceUploader {
       {VoiceTranscodeHook? hook}) async {
     // 读文件放在重试之外:文件没了再试一百遍也还是没了,该立刻冒泡
     final bytes = await File(localPath).readAsBytes();
-    final name = localPath.split(Platform.pathSeparator).last;
+    // 文件名按「路径里出现过的分隔符」取,不按本机平台取:Windows 上 `Platform.pathSeparator`
+    // 是 `\`,而临时目录 / 部分插件给的路径用 `/` 拼,切不动就会把整条路径当文件名发出去。
+    final name = localFileName(localPath);
     final key = _keys.keyFor(idempotencyScope, localPath);
     final data = await _retry.run(
       key,
