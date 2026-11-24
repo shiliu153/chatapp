@@ -194,6 +194,6 @@
   release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.15"
   note: ""
   asset: "chatapp-1.0.15.apk"
-  asset_bytes: 0
-  asset_sha1: ""
-  deploy_sha: ""
+  asset_bytes: 61720000
+  asset_sha1: "af63c9844157b74dbf3c7a3b9b1309c736522535"
+  deploy_sha: "4589436"
