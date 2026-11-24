@@ -186,3 +186,14 @@
   asset_bytes: 61538738
   asset_sha1: "058640b31f6c330b30e633beb11b5e76a1c597de"
   deploy_sha: "a98a4ce"
+
+- version: "1.0.15"
+  date: "2026-11-24"
+  tag: "v1.0.15"
+  title: "v1.0.15 — 修复 release 包无网络(补 INTERNET 权限)"
+  release: "https://github.com/shiliu153/chatapp/releases/tag/v1.0.15"
+  note: ""
+  asset: "chatapp-1.0.15.apk"
+  asset_bytes: 0
+  asset_sha1: ""
+  deploy_sha: ""
