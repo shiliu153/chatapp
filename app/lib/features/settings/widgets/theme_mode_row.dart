@@ -1,19 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
-import '../../../core/theme/app_radius.dart';
-import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/theme/heart_theme_context.dart';
+import '../../../core/theme/ember_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
 import '../../../core/theme/theme_controller.dart';
+import '../../../core/ui/ember_ui.dart';
 
-/// 「外观」三选一行(F-4):跟随系统 / 浅色 / 深色。
+/// 「外观」三选一卡(F-4,E-5.6b 迁移到 Ember):跟随系统 / 浅色 / 深色。
 ///
-/// 为什么不用 Switch:三态用开关表达不了。这里用「标题 + 下方分段控件」的形态,
-/// 沿用设置页既有行样式(高 64、左侧图标、标题 text1),分段控件本身走 token。
+/// 为什么不是开关:三态用 `Switch` 表达不了。形态 = 卡片里「图标 + 标题」一行 +
+/// 三个 [`EmberChip`](spec §8.3「Chip selected = `brand.default` + `brand.on`」),
+/// 三枚等宽铺满,选中靠实底 + 加粗字(§8.4「颜色不是唯一线索」)。
+///
+/// 读屏:`EmberChip` 自带「跟随系统,已选中」这类标签,本卡不再叠一层语义。
 class ThemeModeRow extends ConsumerWidget {
+  /// 构造外观卡。
   const ThemeModeRow({super.key});
 
+  /// 三个选项(顺序即界面顺序)。
   static const options = <(ThemeMode, String)>[
     (ThemeMode.system, '跟随系统'),
     (ThemeMode.light, '浅色'),
@@ -22,82 +28,52 @@ class ThemeModeRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.heart;
+    final colors = context.ember;
     final mode = ref.watch(themeModeProvider);
-    return Padding(
+    return EmberCard(
       key: const Key('settings.row.theme'),
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.md),
+      padding: EdgeInsets.symmetric(
+        horizontal: tokens.space20,
+        vertical: tokens.space16,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.brightness_6_rounded, size: 20, color: colors.text2),
-              const SizedBox(width: AppSpacing.md),
-              Text('外观',
-                  style: AppText.body.copyWith(
-                      color: colors.text1, fontWeight: FontWeight.w600)),
+              Icon(
+                PhosphorIconsRegular.circleHalf,
+                size: tokens.sizeIcon20,
+                color: colors.textSecondary,
+              ),
+              SizedBox(width: tokens.space8),
+              Text(
+                '外观',
+                style: AppText.subtitle.copyWith(color: colors.textPrimary),
+              ),
             ],
           ),
-          const SizedBox(height: AppSpacing.md),
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.xs),
-            decoration: BoxDecoration(
-              color: colors.bgPage,
-              borderRadius: BorderRadius.circular(AppRadius.chip),
-            ),
-            child: Row(
-              children: [
-                for (final (value, label) in options)
-                  Expanded(
-                    child: _Segment(
+          SizedBox(height: tokens.space12),
+          Row(
+            children: [
+              for (final (value, label) in options)
+                Expanded(
+                  child: Padding(
+                    // 相邻胶囊之间 8(§5.2 的 4 基数档),首尾不留外距
+                    padding: EdgeInsets.only(
+                      right: label == options.last.$2 ? 0 : tokens.space8,
+                    ),
+                    child: EmberChip(
                       label: label,
                       selected: mode == value,
-                      onTap: () => ref.read(themeModeProvider.notifier).setMode(value),
+                      onTap: () =>
+                          ref.read(themeModeProvider.notifier).setMode(value),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// 分段控件的一段:选中态用卡片底 + 主色字(与「心跳」§4 选中态一致)。
-class _Segment extends StatelessWidget {
-  const _Segment({required this.label, required this.selected, required this.onTap});
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.heart;
-    return Semantics(
-      selected: selected,
-      button: true,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          height: 36,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? colors.bgCard : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppRadius.chip),
-          ),
-          child: Text(
-            label,
-            style: AppText.body.copyWith(
-              color: selected ? colors.brand : colors.text2,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            ),
-          ),
-        ),
       ),
     );
   }

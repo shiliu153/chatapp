@@ -95,7 +95,7 @@ void main() {
     await tester.tap(find.byKey(const Key('settings.row.deleteAccount')));
     await tester.pumpAndSettle();
     expect(find.text('注销账号?'), findsOneWidget);
-    await tester.tap(find.text('继续'));
+    await tester.tap(find.text('继续注销'));
     await tester.pumpAndSettle();
 
     // 第二步:输入手机号
@@ -128,7 +128,7 @@ void main() {
     await _scrollSettingsTo(tester, const Key('settings.row.deleteAccount'));
     await tester.tap(find.byKey(const Key('settings.row.deleteAccount')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('继续'));
+    await tester.tap(find.text('继续注销'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('deleteAccount.phone')), '13900139000');
     await tester.pumpAndSettle();
