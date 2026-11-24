@@ -4,21 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/image_pick.dart';
-import '../../core/theme/heart_theme_context.dart';
-import '../../core/theme/app_radius.dart';
-import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/widgets/app_avatar.dart';
-import '../../core/widgets/app_button.dart';
-import '../../core/widgets/app_dialog.dart';
-import '../../core/widgets/app_empty_state.dart';
-import '../../core/widgets/app_error_view.dart';
-import '../../core/widgets/app_toast.dart';
+import '../../core/theme/ember_motion.dart';
+import '../../core/theme/ember_theme_context.dart';
+import '../../core/theme/tokens.g.dart' as tokens;
+import '../../core/ui/ember_ui.dart';
+import '../../core/widgets/app_spinner.dart';
 import '../../core/widgets/avatar_hero.dart';
-import '../../core/widgets/breathing_dot.dart';
 import '../../im/im_client.dart';
 import '../../im/im_manager.dart';
 import '../../im/im_repository.dart';
@@ -34,7 +30,8 @@ import 'match_cache.dart';
 import 'quote.dart';
 import 'recall.dart';
 import 'voice_record_controller.dart';
-import 'widgets/chat_bubbles_mark.dart';
+import 'widgets/chat_confirm_dialog.dart';
+import 'widgets/chat_illustration.dart';
 import 'widgets/chat_skeleton.dart';
 import 'widgets/emoji_panel.dart';
 import 'widgets/message_bubble.dart';
@@ -42,9 +39,24 @@ import 'widgets/more_panel.dart';
 import 'widgets/photo_viewer.dart';
 import 'widgets/voice_record_overlay.dart';
 
+/// 聊天页(「余烬 Ember」§9.4 二级页 shell + E-5.3 page spec §1 / §3 / §5)。
+///
+/// 本单只换视觉与动效:`chat_controller` / `im/` 传输层一行没动。
+/// 与心跳期(附录 B.2 / B.3)相比,用户看得见的变化(page spec §1 的表):
+/// 1. 顶栏 62 → **52**(§9.4:返回 22 + 标题 17/w600 居中);
+/// 2. 输入栏换 [EmberField](高 52,`surface.card` + 1px 描边 + `radius.md`);
+/// 3. 表情 / 更多面板从「输入栏下方的常驻条」改 [EmberSheet](轻量选择,§9.3);
+/// 4. 多选顶栏与底部操作条高度对齐 52,进出多选不跳版;
+/// 5. 空 / 错两态换 [EmberEmpty] + unDraw 插画(灰色图标占位是 §6 明令禁止的);
+/// 6. 图标一律 Phosphor,动效一律 spring(`_focusOn` 的滚动也改用弹簧曲线)。
 class ChatPage extends ConsumerStatefulWidget {
-  const ChatPage({super.key, required this.peerId, this.focusMsgId,
-      this.pickImage = pickChatImageFromGallery});
+  /// 构造聊天页。
+  const ChatPage({
+    super.key,
+    required this.peerId,
+    this.focusMsgId,
+    this.pickImage = pickChatImageFromGallery,
+  });
 
   /// 对方的 IM id,如 'u9'。
   final String peerId;
@@ -65,8 +77,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   final _scroll = ScrollController();
   final _itemKeys = <String, GlobalKey>{};
   bool _sending = false;
-  bool _showEmoji = false;
-  bool _showMore = false;
   bool _focusStarted = false;
   String? _highlightMsgId;
 
@@ -98,15 +108,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // 回填草稿(批次 T-2):预加载是后台跑的,这里等它一次再读,读不到就空着。
     _drafts = ref.read(draftStoreProvider.notifier);
     unawaited(_restoreDraft());
-    // 键盘弹起时收起表情/＋面板
-    _focusNode.addListener(() {
-      if (_focusNode.hasFocus && (_showEmoji || _showMore)) {
-        setState(() {
-          _showEmoji = false;
-          _showMore = false;
-        });
-      }
-    });
   }
 
   /// 把本机会话草稿回填进输入框(只回填一次,且不覆盖用户已经打的字)。
@@ -147,6 +148,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// 搜索定位:先回溯历史直到目标进列表,再逐屏滚动找到它的渲染对象,
   /// 最后 ensureVisible 居中并高亮 1.5s。目标已撤回/被删就静默停在原位。
   Future<void> _focusOn(String msgId) async {
+    // 减弱动态效果:直接落位(§7.3「取消位移」),不做滚动动画。
+    // 在第一个 `await` **之前**取:跨 async gap 再用 context 会被
+    // `use_build_context_synchronously` 判红,而且那时页面可能已被回收。
+    final reduced = EmberMotion.reducedOf(context);
     final controller = ref.read(chatProvider(widget.peerId).notifier);
     await controller.loadOlder(untilMsgId: msgId);
     if (!mounted) return;
@@ -167,8 +172,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await Scrollable.ensureVisible(
       targetContext,
       alignment: 0.5,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
+      // 位移类动画一律用 spring(§7.1):用弹簧采样出来的曲线,不写曲线常量。
+      duration: reduced ? Duration.zero : const Duration(milliseconds: 420),
+      curve: EmberMotion.gentleCurve,
     );
     if (!mounted) return;
     setState(() => _highlightMsgId = msgId);
@@ -232,8 +238,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     setState(() {
       _selectMode = true;
       _selected.clear();
-      _showEmoji = false;
-      _showMore = false;
     });
     FocusScope.of(context).unfocus();
     // 引用是「下一条要发的内容」,多选期间输入栏都不在,留着只会误导。
@@ -260,7 +264,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (!_canSelect(message)) return;
     final selected = _selected.contains(message.msgId);
     if (!selected && _selected.length >= ChatController.maxDeleteBatch) {
-      AppToast.show(context, '一次最多选 ${ChatController.maxDeleteBatch} 条');
+      EmberToast.show(context, '一次最多选 ${ChatController.maxDeleteBatch} 条');
       return;
     }
     setState(() {
@@ -296,7 +300,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ];
     if (texts.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: texts.join('\n')));
-    if (mounted) AppToast.show(context, '已复制');
+    if (mounted) EmberToast.show(context, '已复制');
   }
 
   /// 删除选中的消息:先确认,再走 IM 的批量删除。
@@ -307,11 +311,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final messages = ref.read(chatProvider(widget.peerId)).value ?? const <ChatMessage>[];
     final ids = [for (final message in _selectedMessages(messages)) message.msgId];
     if (ids.isEmpty) return;
-    final confirmed = await showConfirmDialog(
+    final confirmed = await showChatConfirmDialog(
       context,
+      icon: PhosphorIconsRegular.trash,
       title: '删除这 ${ids.length} 条?',
       message: '只在你这边删除,对方仍可见。',
-      confirmLabel: '删除',
+      confirmLabel: '删除 ${ids.length} 条',
       danger: true,
       confirmKey: const Key('chat.select.confirm'),
     );
@@ -320,12 +325,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       await ref.read(chatProvider(widget.peerId).notifier).deleteMessages(ids);
     } catch (error) {
       if (!mounted) return;
-      AppToast.show(context, _errorMessageOf(error));
+      EmberToast.show(context, _errorMessageOf(error));
       return; // 选中原样保留
     }
     if (!mounted) return;
     _exitSelectMode();
-    AppToast.show(context, '已删除');
+    EmberToast.show(context, '已删除');
   }
 
   /// 删除失败的提示文案:业务错误用服务端的话,其余给一句人话。
@@ -349,20 +354,37 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     context.push('/users/$userId', extra: 'avatar-chat-${widget.peerId}');
   }
 
-  void _toggleEmoji() {
-    setState(() {
-      _showEmoji = !_showEmoji;
-      _showMore = false;
-    });
-    if (_showEmoji) FocusScope.of(context).unfocus();
+  /// 表情面板(E-5.3:`EmberSheet` 轻量选择,选完即关)。
+  Future<void> _openEmojiSheet() async {
+    FocusScope.of(context).unfocus();
+    final result = await EmberSheet.show<EmojiSheetResult>(
+      context,
+      maxHeightRatio: 0.5,
+      // 内容本身是可滚的网格:下拉手势要留给网格,别把面板拖走。
+      draggable: false,
+      child: const EmojiSheet(),
+    );
+    if (!mounted || result == null) return;
+    switch (result) {
+      case EmojiPicked(:final emoji):
+        setState(() => _insertEmoji(emoji));
+        // 插完把焦点还给输入框:接着打字是常态,再点一次输入框很烦。
+        _focusNode.requestFocus();
+      case StickerPicked(:final stickerId):
+        await _sendSticker(stickerId);
+    }
   }
 
-  void _toggleMore() {
-    setState(() {
-      _showMore = !_showMore;
-      _showEmoji = false;
-    });
-    if (_showMore) FocusScope.of(context).unfocus();
+  /// ＋ 面板(E-5.3:`EmberSheet`),目前只有「相册」。
+  Future<void> _openMoreSheet() async {
+    FocusScope.of(context).unfocus();
+    final action = await EmberSheet.show<MoreSheetAction>(
+      context,
+      maxHeightRatio: 0.3,
+      child: const MoreSheet(),
+    );
+    if (!mounted || action == null) return;
+    if (action == MoreSheetAction.image) await _pickAndSendImage();
   }
 
   void _insertEmoji(String emoji) {
@@ -389,7 +411,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           .read(voiceFileExistsProvider)(message.localPath ?? '');
       if (!mounted) return;
       if (!exists) {
-        AppToast.show(context, voiceRetryMissingFileText);
+        EmberToast.show(context, voiceRetryMissingFileText);
         return;
       }
     }
@@ -404,7 +426,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _pickAndSendImage() async {
     final file = await widget.pickImage();
     if (file == null || !mounted) return;
-    setState(() => _showMore = false);
     await ref.read(chatProvider(widget.peerId).notifier).sendImage(file.path);
   }
 
@@ -521,17 +542,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       _startQuote(message);
     } else if (action == 'copy') {
       await Clipboard.setData(ClipboardData(text: message.text));
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制')));
-      }
+      if (mounted) EmberToast.show(context, '已复制');
     } else if (action == 'multi') {
       _enterSelectMode();
     } else if (action == 'recall') {
       try {
         await ref.read(chatProvider(widget.peerId).notifier).revoke(message);
-        if (mounted) AppToast.show(context, '已撤回');
+        if (mounted) EmberToast.show(context, '已撤回');
       } on ImException catch (error) {
-        if (mounted) AppToast.show(context, error.message);
+        if (mounted) EmberToast.show(context, error.message);
       }
     } else if (action == 'delete') {
       await ref.read(chatProvider(widget.peerId).notifier).deleteLocal(message);
@@ -566,7 +585,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   void _jumpToQuote(String msgId) {
     final items = ref.read(chatProvider(widget.peerId)).value ?? const <ChatMessage>[];
     if (!items.any((item) => item.msgId == msgId)) {
-      AppToast.show(context, '原消息不在当前记录中');
+      EmberToast.show(context, '原消息不在当前记录中');
       return;
     }
     unawaited(_focusOn(msgId));
@@ -575,8 +594,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<void> _unmatch() async {
     final userId = userIdFromImId(widget.peerId);
     if (userId == null) return;
-    final confirmed = await showConfirmDialog(
+    final confirmed = await showChatConfirmDialog(
       context,
+      icon: PhosphorIconsRegular.linkBreak,
       title: '解除配对?',
       message: '解除后双方将无法再聊天,且无法恢复。',
       confirmLabel: '解除配对',
@@ -587,7 +607,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     try {
       await ref.read(imRepositoryProvider).unmatch(userId);
     } on ApiException catch (error) {
-      if (mounted) AppToast.show(context, error.message);
+      if (mounted) EmberToast.show(context, error.message);
       return;
     }
     try {
@@ -596,13 +616,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ref.invalidate(matchCacheProvider);
     unawaited(ref.read(conversationsProvider.notifier).reload());
     if (!mounted) return;
-    AppToast.show(context, '已解除配对');
+    EmberToast.show(context, '已解除配对');
     Navigator.of(context).maybePop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     final messages = ref.watch(chatProvider(widget.peerId));
     // 存一份控制器:dispose 里不能用 ref,而「离开页面清掉正在输入」必须同步做
     _chat = ref.read(chatProvider(widget.peerId).notifier);
@@ -638,144 +658,138 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final liveMessages = messages.value ?? const <ChatMessage>[];
     final selectedMessages = _selectedMessages(liveMessages);
     final selectedCount = selectedMessages.length;
-    final hasSelectedText = selectedMessages.any((item) => item.kind == ChatMessageKind.text);
+    final hasSelectedText =
+        selectedMessages.any((item) => item.kind == ChatMessageKind.text);
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: Column(
-        children: [
-          if (_selectMode)
-            _SelectHeader(count: selectedCount, onCancel: _exitSelectMode)
-          else
-            _ChatHeader(
-              name: peerName,
-              presence: peerPresence,
-              typing: peerTyping,
-              avatarUrl: peerAvatarUrl,
-              heroTag: 'avatar-chat-${widget.peerId}',
-              onTapTitle: () => _openProfile(context, cache),
-              onMore: _unmatch,
-            ),
-          if (unmatched)
-            Container(
-              key: const Key('chat.unmatchedBanner'),
-              width: double.infinity,
-              color: colors.divider,
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.pageH, vertical: AppSpacing.sm),
-              child: Text('你们已解除配对',
+          children: [
+            if (_selectMode)
+              _SelectHeader(count: selectedCount, onCancel: _exitSelectMode)
+            else
+              _ChatHeader(
+                name: peerName,
+                presence: peerPresence,
+                typing: peerTyping,
+                avatarUrl: peerAvatarUrl,
+                heroTag: 'avatar-chat-${widget.peerId}',
+                onTapTitle: () => _openProfile(context, cache),
+                onMore: _unmatch,
+              ),
+            if (unmatched)
+              Container(
+                key: const Key('chat.unmatchedBanner'),
+                width: double.infinity,
+                // 提示条走凹陷面 + 次级文字(§8.3 次级容器),不抢正文视线。
+                color: colors.surfaceSunken,
+                padding: EdgeInsets.symmetric(
+                  horizontal: tokens.space20,
+                  vertical: tokens.space8,
+                ),
+                child: Text(
+                  '你们已解除配对',
                   textAlign: TextAlign.center,
-                  style: AppText.micro.copyWith(color: colors.text2)),
-            ),
-          Expanded(
-            child: messages.when(
-              loading: () => const ChatSkeleton(),
-              error: (error, _) => AppErrorView(
-                message: apiMessageOf(error),
-                onRetry: () => ref.invalidate(chatProvider(widget.peerId)),
+                  style: AppText.micro.copyWith(color: colors.textSecondary),
+                ),
               ),
-              data: (items) {
-                if (items.isEmpty) {
-                  return const Center(
-                    child: AppEmptyState(
-                      mark: ChatBubblesMark(),
-                      title: '打个招呼吧',
-                      description: '发条消息,开始你们的故事',
-                    ),
-                  );
-                }
-                if (!_focusStarted && widget.focusMsgId != null && items.isNotEmpty) {
-                  _focusStarted = true;
-                  WidgetsBinding.instance
-                      .addPostFrameCallback((_) => _focusOn(widget.focusMsgId!));
-                }
-                final chatItems = buildChatItems(items);
-                return ListView.builder(
-                  key: const Key('chat.list'),
-                  controller: _scroll,
-                  reverse: true, // 新消息在底部,进来就停在最新一条
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  itemCount: chatItems.length,
-                  itemBuilder: (context, index) {
-                    final item = chatItems[chatItems.length - 1 - index];
-                    return switch (item) {
-                      ChatTimeItem(:final label) => _TimeSeparator(label),
-                      // Builder 包一层:itemBuilder 的 context 是 sliver,取不到气泡自己的
-                      // 渲染对象(长按菜单要定位到气泡)
-                      ChatMessageItem(:final message) => Builder(
-                          key: _itemKeys.putIfAbsent(message.msgId, GlobalKey.new),
-                          builder: (itemContext) => MessageBubble(
-                            message: message,
-                            peerName: peerName,
-                            peerAvatarUrl: peerAvatarUrl,
-                            selfAvatarUrl: selfAvatarUrl,
-                            highlight: message.msgId == _highlightMsgId,
-                            readReceiptEnabled: readReceiptEnabled,
-                            // 我方消息 seq <= 对端已读位置 → 已读。seq=0 是本地乐观消息
-                            // (还没拿到服务端序号),不能算已读。
-                            isRead: message.seq > 0 && message.seq <= peerReadSeq,
-                            // 多选模式(批次 T-2):点本体=切换选中,长按菜单失效;
-                            // 入场时机体动作全部让给勾选(见 MessageBubble.selectionMode)。
-                            selectionMode: _selectMode,
-                            selectable: _canSelect(message),
-                            selected: _selected.contains(message.msgId),
-                            onToggleSelect: () => _toggleSelect(message),
-                            onLongPress: () => _showMessageMenu(itemContext, message),
-                            onTapImage: () => _openImage(message),
-                            // 点引用块跳回原消息(批次 L-2)
-                            onTapQuote: message.ref == null
-                                ? null
-                                : () => _jumpToQuote('${message.ref!.msgId}'),
-                            onRetry: () => _retryMessage(message),
+            Expanded(
+              child: messages.when(
+                loading: () => const ChatSkeleton(),
+                error: (error, _) => _ChatErrorView(
+                  message: apiMessageOf(error),
+                  onRetry: () => ref.invalidate(chatProvider(widget.peerId)),
+                ),
+                data: (items) {
+                  if (items.isEmpty) return const _ChatEmptyView();
+                  if (!_focusStarted && widget.focusMsgId != null && items.isNotEmpty) {
+                    _focusStarted = true;
+                    WidgetsBinding.instance
+                        .addPostFrameCallback((_) => _focusOn(widget.focusMsgId!));
+                  }
+                  final chatItems = buildChatItems(items);
+                  return ListView.builder(
+                    key: const Key('chat.list'),
+                    controller: _scroll,
+                    reverse: true, // 新消息在底部,进来就停在最新一条
+                    padding: EdgeInsets.symmetric(vertical: tokens.space12),
+                    itemCount: chatItems.length,
+                    itemBuilder: (context, index) {
+                      final item = chatItems[chatItems.length - 1 - index];
+                      return switch (item) {
+                        ChatTimeItem(:final label) => _TimeSeparator(label),
+                        // Builder 包一层:itemBuilder 的 context 是 sliver,取不到气泡自己的
+                        // 渲染对象(长按菜单要定位到气泡)
+                        ChatMessageItem(:final message) => Builder(
+                            key: _itemKeys.putIfAbsent(message.msgId, GlobalKey.new),
+                            builder: (itemContext) => MessageBubble(
+                              message: message,
+                              peerName: peerName,
+                              peerAvatarUrl: peerAvatarUrl,
+                              selfAvatarUrl: selfAvatarUrl,
+                              highlight: message.msgId == _highlightMsgId,
+                              readReceiptEnabled: readReceiptEnabled,
+                              // 我方消息 seq <= 对端已读位置 → 已读。seq=0 是本地乐观消息
+                              // (还没拿到服务端序号),不能算已读。
+                              isRead: message.seq > 0 && message.seq <= peerReadSeq,
+                              // 多选模式(批次 T-2):点本体=切换选中,长按菜单失效;
+                              // 入场时机体动作全部让给勾选(见 MessageBubble.selectionMode)。
+                              selectionMode: _selectMode,
+                              selectable: _canSelect(message),
+                              selected: _selected.contains(message.msgId),
+                              onToggleSelect: () => _toggleSelect(message),
+                              onLongPress: () => _showMessageMenu(itemContext, message),
+                              onTapImage: () => _openImage(message),
+                              // 点引用块跳回原消息(批次 L-2)
+                              onTapQuote: message.ref == null
+                                  ? null
+                                  : () => _jumpToQuote('${message.ref!.msgId}'),
+                              onRetry: () => _retryMessage(message),
+                            ),
                           ),
-                        ),
-                    };
-                  },
-                );
-              },
-            ),
-          ),
-          // 多选模式(批次 T-2):输入区整块让位给操作条。引用条也一起收掉 ——
-          // 它的作用域是「下一条要发的消息」,多选期间不该出现。
-          if (_selectMode)
-            _SelectActionBar(
-              count: selectedCount,
-              canCopy: hasSelectedText,
-              onCopy: () => _copySelected(liveMessages),
-              onDelete: _deleteSelected,
-            )
-          else ...[
-            // 引用条(批次 L-2):长按「引用」后出现在输入栏上方,可点 × 取消。
-            if (quoteTarget != null)
-              _QuoteBar(
-                key: const Key('chat.quoteBar'),
-                sender: quoteTarget.from == widget.peerId ? peerName : '我',
-                text: quoteTarget.text,
-                onClose: () =>
-                    ref.read(chatQuoteTargetProvider(widget.peerId).notifier).clear(),
+                      };
+                    },
+                  );
+                },
               ),
-            _InputBar(
-              controller: _input,
-              focusNode: _focusNode,
-              sending: _sending,
-              enabled: !unmatched,
-              showMore: imageEnabled,
-              showVoice: voiceEnabled && !unmatched,
-              onSend: _send,
-              // 输入中状态(批次 L-1)+ 草稿落盘(批次 T-2),都在 _onInputChanged 里
-              onInputChanged: _onInputChanged,
-              onToggleEmoji: _toggleEmoji,
-              onToggleMore: _toggleMore,
-              onSendVoice: (path, durationMs) => ref
-                  .read(chatProvider(widget.peerId).notifier)
-                  .sendVoice(path, durationMs),
             ),
-            if (_showEmoji)
-              EmojiPanel(onSelect: _insertEmoji, onSendSticker: _sendSticker)
-            else if (_showMore && imageEnabled)
-              MorePanel(onPickImage: _pickAndSendImage),
+            // 多选模式(批次 T-2):输入区整块让位给操作条。引用条也一起收掉 ——
+            // 它的作用域是「下一条要发的消息」,多选期间不该出现。
+            if (_selectMode)
+              _SelectActionBar(
+                count: selectedCount,
+                canCopy: hasSelectedText,
+                onCopy: () => _copySelected(liveMessages),
+                onDelete: _deleteSelected,
+              )
+            else ...[
+              // 引用条(批次 L-2):长按「引用」后出现在输入栏上方,可点 × 取消。
+              if (quoteTarget != null)
+                _QuoteBar(
+                  key: const Key('chat.quoteBar'),
+                  sender: quoteTarget.from == widget.peerId ? peerName : '我',
+                  text: quoteTarget.text,
+                  onClose: () =>
+                      ref.read(chatQuoteTargetProvider(widget.peerId).notifier).clear(),
+                ),
+              _InputBar(
+                controller: _input,
+                focusNode: _focusNode,
+                sending: _sending,
+                enabled: !unmatched,
+                showMore: imageEnabled,
+                showVoice: voiceEnabled && !unmatched,
+                onSend: _send,
+                // 输入中状态(批次 L-1)+ 草稿落盘(批次 T-2),都在 _onInputChanged 里
+                onInputChanged: _onInputChanged,
+                onToggleEmoji: _openEmojiSheet,
+                onToggleMore: _openMoreSheet,
+                onSendVoice: (path, durationMs) => ref
+                    .read(chatProvider(widget.peerId).notifier)
+                    .sendVoice(path, durationMs),
+              ),
+            ],
           ],
-        ],
         ),
       ),
     );
@@ -784,7 +798,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
 /// 多选模式的顶栏(批次 T-2):左「×」退出、中间「已选 N 条」。
 ///
-/// 与 [_ChatHeader] 同高 62,保证进出多选时消息列表不跳一下。
+/// 与 [_ChatHeader] 同高 **52**(§9.4),保证进出多选时消息列表不跳一下。
 class _SelectHeader extends StatelessWidget {
   const _SelectHeader({required this.count, required this.onCancel});
 
@@ -796,26 +810,26 @@ class _SelectHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     return SizedBox(
-      height: 62,
+      height: tokens.sizeControlHeight,
       child: Row(
         children: [
-          IconButton(
-            key: const Key('chat.select.cancel'),
-            tooltip: '退出多选',
-            onPressed: onCancel,
-            icon: Icon(Icons.close_rounded, size: 22, color: colors.text1),
+          _HeaderIcon(
+            entryKey: const Key('chat.select.cancel'),
+            icon: PhosphorIconsRegular.x,
+            label: '退出多选',
+            onTap: onCancel,
           ),
           Expanded(
             child: Text(
               '已选 $count 条',
               key: const Key('chat.select.count'),
-              style: AppText.subtitle.copyWith(fontSize: 17, color: colors.text1),
+              style: AppText.subtitle.copyWith(color: colors.textPrimary),
             ),
           ),
           // 与左侧关闭键等宽:文字左对齐贴住关闭键,不居中飘着
-          const SizedBox(width: 48),
+          SizedBox(width: tokens.sizeTouchApp),
         ],
       ),
     );
@@ -847,29 +861,29 @@ class _SelectActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     return Container(
-      color: colors.bgCard,
+      color: colors.surfaceCard,
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
+          padding: EdgeInsets.all(tokens.space12),
           child: Row(
             children: [
               Expanded(
-                child: AppButton(
+                child: EmberButton(
                   key: const Key('chat.select.copy'),
                   label: '复制文本',
-                  variant: AppButtonVariant.secondary,
+                  variant: EmberButtonVariant.secondary,
                   onPressed: canCopy ? onCopy : null,
                 ),
               ),
-              const SizedBox(width: AppSpacing.md),
+              SizedBox(width: tokens.space12),
               Expanded(
-                child: AppButton(
+                child: EmberButton(
                   key: const Key('chat.select.delete'),
                   label: '删除',
-                  variant: AppButtonVariant.dangerFilled,
+                  variant: EmberButtonVariant.danger,
                   onPressed: count == 0 ? null : onDelete,
                 ),
               ),
@@ -881,7 +895,42 @@ class _SelectActionBar extends StatelessWidget {
   }
 }
 
-/// 「心跳」附录 B.2 + C.8:高 62;返回 22;头像 32(带 Hero);标题两行居中(名字 + 状态行)。
+/// 顶栏图标按钮:热区 48×48、图标 24(§6 工具栏档 + §8.4 触控),读屏必带标签。
+class _HeaderIcon extends StatelessWidget {
+  const _HeaderIcon({
+    required this.entryKey,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final Key entryKey;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.ember;
+    return EmberPressable(
+      key: entryKey,
+      onTap: onTap,
+      pressedScale: 0.97,
+      borderRadius: BorderRadius.circular(tokens.radiusPill),
+      semanticLabel: label,
+      builder: (context, state) => SizedBox(
+        width: tokens.sizeTouchApp,
+        height: tokens.sizeTouchApp,
+        child: Icon(icon, size: tokens.sizeIcon24, color: colors.textPrimary),
+      ),
+    );
+  }
+}
+
+/// 二级页顶栏(§9.4):高 **52**;返回 22 档 + 头像 32 + 标题 17/w600;右侧更多。
+///
+/// 与心跳期(附录 B.2,高 62)的差别就是这一档高度与图标字族 —— 结构(头像 Hero、
+/// 名字 + 状态行、右侧「⋯」)保持不变,状态行仍然承载在线 / 正在输入。
 class _ChatHeader extends StatelessWidget {
   const _ChatHeader({
     required this.name,
@@ -905,7 +954,7 @@ class _ChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     final online = presence?.online ?? false;
     // 在线单独组装(绿点 + 「在线」);离线才用 presenceLabel 的「x 分钟前在线」。
     // 正在输入时**只显示这一句**:它比在线状态更具体,两行挤在一起反而看不清;
@@ -913,14 +962,14 @@ class _ChatHeader extends StatelessWidget {
     final statusLabel =
         typing ? '对方正在输入…' : (online ? '在线' : presenceLabel(presence));
     return SizedBox(
-      height: 62,
+      height: tokens.sizeControlHeight,
       child: Row(
         children: [
-          IconButton(
-            key: const Key('chat.back'),
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: Icon(Icons.arrow_back_ios_new_rounded,
-                size: 22, color: colors.text1),
+          _HeaderIcon(
+            entryKey: const Key('chat.back'),
+            icon: PhosphorIconsRegular.caretLeft,
+            label: '返回',
+            onTap: () => Navigator.of(context).maybePop(),
           ),
           Expanded(
             child: GestureDetector(
@@ -928,48 +977,62 @@ class _ChatHeader extends StatelessWidget {
               behavior: HitTestBehavior.opaque,
               onTap: onTapTitle,
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   AvatarHero(
                     tag: heroTag,
                     imageUrl: avatarUrl,
-                    fromRadius: AppRadius.full,
-                    child: AppAvatar(
-                      imageUrl: avatarUrl,
-                      size: 32,
-                      fallbackText: name,
+                    fromRadius: tokens.radiusPill,
+                    child: EmberAvatar(
+                      image: (avatarUrl == null || avatarUrl!.isEmpty)
+                          ? null
+                          : NetworkImage(avatarUrl!),
+                      size: EmberComponentSizes.avatarSm,
+                      name: name,
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
+                  SizedBox(width: tokens.space8),
+                  Flexible(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppText.subtitle
-                                .copyWith(fontSize: 17, color: colors.text1)),
-                        if (statusLabel != null) ...[
-                          const SizedBox(height: 1),
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.subtitle.copyWith(color: colors.textPrimary),
+                        ),
+                        if (statusLabel != null)
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (online && !typing) ...[
-                                BreathingDot(
-                                    key: const Key('chat.onlineDot'),
-                                    size: 8,
-                                    borderColor: colors.bgPage),
-                                const SizedBox(width: AppSpacing.xs),
+                                EmberOnlineDot(
+                                  key: const Key('chat.onlineDot'),
+                                  size: EmberComponentSizes.onlineDotSmall,
+                                  background: colors.surfacePage,
+                                ),
+                                SizedBox(width: tokens.space4),
                               ],
-                              Text(statusLabel,
+                              Flexible(
+                                child: Text(
+                                  statusLabel,
                                   // 正在输入单独给个 key:页面测试按 key 断言,
                                   // 不去比文案(文案以后可能改)
                                   key: typing ? const Key('chat.typing') : null,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textScaler: TextScaler.noScaling,
                                   style: AppText.micro.copyWith(
-                                      color: typing ? colors.brand : colors.text2)),
+                                    color: typing
+                                        ? colors.brandDefault
+                                        : colors.textSecondary,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                        ],
                       ],
                     ),
                   ),
@@ -977,14 +1040,19 @@ class _ChatHeader extends StatelessWidget {
               ),
             ),
           ),
-          // 与左侧返回键(48)等宽,保证「头像 + 名字」整块在屏幕上居中
+          // 与左侧返回键等宽,保证「头像 + 名字」整块在屏幕上居中
           SizedBox(
-            width: 48,
-            height: 48,
+            width: tokens.sizeTouchApp,
+            height: tokens.sizeTouchApp,
             child: PopupMenuButton<String>(
               key: const Key('chat.more'),
-              icon: Icon(Icons.more_horiz_rounded, size: 22, color: colors.text1),
+              tooltip: '更多',
               padding: EdgeInsets.zero,
+              icon: Icon(
+                PhosphorIconsRegular.dotsThree,
+                size: tokens.sizeIcon24,
+                color: colors.textPrimary,
+              ),
               onSelected: (value) {
                 if (value == 'unmatch') onMore();
               },
@@ -992,7 +1060,10 @@ class _ChatHeader extends StatelessWidget {
                 PopupMenuItem(
                   key: const Key('chat.menu.unmatch'),
                   value: 'unmatch',
-                  child: Text('解除配对', style: TextStyle(color: colors.danger)),
+                  child: Text(
+                    '解除配对',
+                    style: TextStyle(color: colors.statusDanger),
+                  ),
                 ),
               ],
             ),
@@ -1007,6 +1078,8 @@ class _ChatHeader extends StatelessWidget {
 ///
 /// 只显示本地摘要 —— 真正发给对端的快照由服务端生成,两边文案口径一致
 /// (见 `imserver` 的 `build_ref_snapshot` 与 `quote.dart::quoteSummaryOf`)。
+///
+/// 视觉同气泡里的引用块: `surface.sunken` + `radius.sm` + 左侧 2px `brand.default`(§8.3)。
 class _QuoteBar extends StatelessWidget {
   const _QuoteBar({
     super.key,
@@ -1026,50 +1099,68 @@ class _QuoteBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     return Container(
       width: double.infinity,
-      color: colors.bgCard,
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.pageH, AppSpacing.sm, AppSpacing.sm, 0),
+      color: colors.surfacePage,
+      padding: EdgeInsets.fromLTRB(
+        tokens.space20,
+        tokens.space8,
+        tokens.space8,
+        0,
+      ),
       child: Row(
         children: [
           Expanded(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.chip),
+              borderRadius: BorderRadius.circular(tokens.radiusSm),
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm, vertical: 6),
+                padding: EdgeInsets.symmetric(
+                  horizontal: tokens.space8,
+                  vertical: tokens.space4,
+                ),
                 decoration: BoxDecoration(
-                  color: colors.divider,
-                  border:
-                      Border(left: BorderSide(color: colors.brand, width: 3)),
+                  color: colors.surfaceSunken,
+                  border: Border(
+                    left: BorderSide(color: colors.brandDefault, width: 2),
+                  ),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('引用 $sender',
-                        key: const Key('chat.quoteBar.sender'),
-                        style: AppText.micro.copyWith(color: colors.brand)),
+                    Text(
+                      '引用 $sender',
+                      key: const Key('chat.quoteBar.sender'),
+                      style: AppText.micro.copyWith(color: colors.brandDefault),
+                    ),
                     Text(
                       text,
                       key: const Key('chat.quoteBar.text'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppText.micro.copyWith(color: colors.text2),
+                      style: AppText.micro.copyWith(color: colors.textSecondary),
                     ),
                   ],
                 ),
               ),
             ),
           ),
-          IconButton(
+          EmberPressable(
             key: const Key('chat.quoteBar.close'),
-            onPressed: onClose,
-            tooltip: '取消引用',
-            visualDensity: VisualDensity.compact,
-            icon: Icon(Icons.close_rounded, size: 20, color: colors.text2),
+            onTap: onClose,
+            pressedScale: 0.97,
+            borderRadius: BorderRadius.circular(tokens.radiusPill),
+            semanticLabel: '取消引用',
+            builder: (context, state) => SizedBox(
+              width: tokens.sizeTouchWeb,
+              height: tokens.sizeTouchWeb,
+              child: Icon(
+                PhosphorIconsRegular.x,
+                size: tokens.sizeIcon20,
+                color: colors.textSecondary,
+              ),
+            ),
           ),
         ],
       ),
@@ -1077,6 +1168,10 @@ class _QuoteBar extends StatelessWidget {
   }
 }
 
+/// 时间条:12 / `text.tertiary` 居中,上下边距 12,间隔 >5 分钟插入(§8.2)。
+///
+/// 「12」这一档在 `design/tokens/scale.json` 里没有(只有 11 `micro` 与 13 `caption`),
+/// 规范又禁止裸字号,所以取最接近的 `caption` 13 —— 与相邻的摘要同档,不跳字。
 class _TimeSeparator extends StatelessWidget {
   const _TimeSeparator(this.label);
 
@@ -1084,14 +1179,70 @@ class _TimeSeparator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     return Padding(
-        key: const Key('chat.time'),
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-        child: Center(
-          child: Text(label, style: AppText.micro.copyWith(color: colors.text3)),
+      key: const Key('chat.time'),
+      padding: EdgeInsets.symmetric(vertical: tokens.space12),
+      child: Center(
+        child: Text(
+          label,
+          textScaler: TextScaler.noScaling,
+          style: AppText.caption.copyWith(color: colors.textTertiary),
         ),
-      );
+      ),
+    );
+  }
+}
+
+/// 历史为空:居中一句「打个招呼吧」,不占满屏(page spec §5)。
+class _ChatEmptyView extends StatelessWidget {
+  const _ChatEmptyView();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.ember;
+    return Center(
+      child: Text(
+        '打个招呼吧',
+        textAlign: TextAlign.center,
+        style: AppText.caption.copyWith(color: colors.textTertiary),
+      ),
+    );
+  }
+}
+
+/// 历史加载失败:`EmberEmpty` 错误形态 + 「重试」(page spec §5)。
+class _ChatErrorView extends StatelessWidget {
+  const _ChatErrorView({required this.message, required this.onRetry});
+
+  /// 后端 / 网络给的文案(页面不自己编)。
+  final String message;
+
+  /// 重试回调。
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.all(tokens.space24),
+              child: EmberEmpty(
+                illustration: const ChatIllustration(ChatIllustrationKind.loadFailed),
+                title: '没能加载出来',
+                description: message,
+                actionLabel: '重试',
+                actionKey: const Key('chat.retryLoad'),
+                onAction: onRetry,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1146,7 +1297,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
       recorder: ref.read(voiceRecorderProvider),
       tempPath: ref.read(voiceTempPathProvider),
       onNotice: (message) {
-        if (mounted) AppToast.show(context, message);
+        if (mounted) EmberToast.show(context, message);
       },
       onSend: (path, durationMs) async => widget.onSendVoice(path, durationMs),
     )..addListener(_onVoiceChanged);
@@ -1164,128 +1315,132 @@ class _InputBarState extends ConsumerState<_InputBar> {
     super.dispose();
   }
 
-  /// 栏内图标:44 方块(与输入框同高,保证同行对齐),图标 24 居中。
+  /// 栏内图标:44×44 热区(§8.4),图标本体 24(§6 工具栏档)。
   Widget _iconButton({
     required Key key,
     required IconData icon,
+    required String label,
     required Color color,
     required VoidCallback? onPressed,
   }) =>
-      IconButton(
+      EmberPressable(
         key: key,
-        onPressed: onPressed,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-        icon: Icon(icon, size: 24, color: color),
+        onTap: onPressed,
+        pressedScale: 0.97,
+        borderRadius: BorderRadius.circular(tokens.radiusPill),
+        semanticLabel: label,
+        builder: (context, state) => SizedBox(
+          width: tokens.sizeTouchWeb,
+          height: tokens.sizeTouchWeb,
+          child: Icon(icon, size: tokens.sizeIcon24, color: color),
+        ),
       );
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     final seconds = _voice.seconds;
     return Stack(
       clipBehavior: Clip.none,
       children: [
         Container(
-          color: colors.bgCard,
+          color: colors.surfacePage,
           child: SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.sm),
+              padding: EdgeInsets.all(tokens.space8),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   if (widget.showVoice)
-                    GestureDetector(
-                      key: const Key('chat.mic'),
-                      behavior: HitTestBehavior.opaque,
-                      onLongPressStart: (_) => _voice.start(),
-                      onLongPressMoveUpdate: (details) =>
-                          _voice.updateCancelArm(details.localOffsetFromOrigin.dy < -60),
-                      onLongPressEnd: (_) => _voice.stopAndSend(),
-                      child: SizedBox(
-                        width: 44,
-                        height: 44,
-                        child: Icon(
-                          Icons.mic_rounded,
-                          size: 24,
-                          color: widget.enabled ? colors.text2 : colors.text3,
+                    // 长按录音是**手势**不是点击,所以这里用 GestureDetector 而不是
+                    // `EmberPressable`(后者的按压反馈由 tap 驱动,长按录音期间会让
+                    // 麦克风一直缩着)。热区 44×44 不变(§8.4)。
+                    Semantics(
+                      button: true,
+                      label: '按住说话',
+                      child: GestureDetector(
+                        key: const Key('chat.mic'),
+                        behavior: HitTestBehavior.opaque,
+                        onLongPressStart: widget.enabled ? (_) => _voice.start() : null,
+                        onLongPressMoveUpdate: widget.enabled
+                            ? (details) => _voice
+                                .updateCancelArm(details.localOffsetFromOrigin.dy < -60)
+                            : null,
+                        onLongPressEnd:
+                            widget.enabled ? (_) => _voice.stopAndSend() : null,
+                        child: SizedBox(
+                          width: tokens.sizeTouchWeb,
+                          height: tokens.sizeTouchWeb,
+                          child: Icon(
+                            PhosphorIconsRegular.microphone,
+                            size: tokens.sizeIcon24,
+                            color: widget.enabled
+                                ? colors.textSecondary
+                                : colors.textTertiary,
+                          ),
                         ),
                       ),
                     ),
                   // 表情在输入框左边
                   _iconButton(
                     key: const Key('chat.emoji.button'),
-                    icon: Icons.emoji_emotions_rounded,
-                    color: colors.text2,
+                    icon: PhosphorIconsRegular.smiley,
+                    label: '表情',
+                    color: widget.enabled ? colors.textSecondary : colors.textTertiary,
                     onPressed: widget.enabled ? widget.onToggleEmoji : null,
                   ),
                   Expanded(
-                    child: ListenableBuilder(
-                      listenable: widget.focusNode,
-                      builder: (context, child) => Container(
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: colors.bgCard,
-                          borderRadius: BorderRadius.circular(AppRadius.input),
-                          border: Border.all(
-                            color: widget.focusNode.hasFocus
-                                ? colors.brand
-                                : colors.divider,
-                            width: widget.focusNode.hasFocus ? 1.5 : 1,
-                          ),
-                          boxShadow: widget.focusNode.hasFocus
-                              ? [
-                                  BoxShadow(
-                                    color: colors.brand.withValues(alpha: .12),
-                                    blurRadius: 12,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        // 外观由外层容器绘制,TextField 自身无边框(避免装饰器自带
-                        // 高度约束在真机上把可见框压小)
-                        child: child,
-                      ),
-                      child: TextField(
-                        key: const Key('chat.input'),
+                    // EmberField 的 `TextField` 自带自己的 key,这里再包一层同名 key:
+                    // 页面测试按 `chat.input` 找输入框(整栏换组件后 key 不能丢)。
+                    child: KeyedSubtree(
+                      key: const Key('chat.input'),
+                      child: EmberField(
                         controller: widget.controller,
                         focusNode: widget.focusNode,
                         enabled: widget.enabled,
-                        textInputAction: TextInputAction.send,
+                        placeholder: '说点什么…',
+                        label: '消息',
                         onChanged: widget.onInputChanged,
                         onSubmitted: (_) => widget.onSend(),
-                        expands: true,
-                        maxLines: null,
-                        minLines: null,
-                        textAlignVertical: TextAlignVertical.center,
-                        style: AppText.body.copyWith(color: colors.text1),
-                        decoration: InputDecoration(
-                          isCollapsed: true,
-                          border: InputBorder.none,
-                          hintText: '说点什么…',
-                          hintStyle: AppText.body.copyWith(color: colors.text3),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-                        ),
                       ),
                     ),
                   ),
                   if (widget.showMore)
                     _iconButton(
                       key: const Key('chat.more.button'),
-                      icon: Icons.add_circle_rounded,
-                      color: colors.text2,
+                      icon: PhosphorIconsRegular.plus,
+                      label: '更多',
+                      color: widget.enabled ? colors.textSecondary : colors.textTertiary,
                       onPressed: widget.enabled ? widget.onToggleMore : null,
                     ),
                   ListenableBuilder(
                     listenable: widget.controller,
-                    builder: (context, _) => _iconButton(
-                      key: const Key('chat.send'),
-                      icon: Icons.send_rounded,
-                      color: widget.controller.text.trim().isEmpty || !widget.enabled
-                          ? colors.text3
-                          : colors.brand,
-                      onPressed: widget.sending || !widget.enabled ? null : widget.onSend,
-                    ),
+                    // sending:转圈替换纸飞机并禁连点(§8.3 按钮 loading 行)。
+                    builder: (context, _) => widget.sending
+                        ? Semantics(
+                            label: '发送中',
+                            child: SizedBox(
+                              width: tokens.sizeTouchWeb,
+                              height: tokens.sizeTouchWeb,
+                              child: Center(
+                                child: AppSpinner(
+                                  key: const Key('chat.send.busy'),
+                                  size: tokens.sizeIcon20,
+                                  color: colors.brandDefault,
+                                ),
+                              ),
+                            ),
+                          )
+                        : _iconButton(
+                            key: const Key('chat.send'),
+                            icon: PhosphorIconsFill.paperPlaneRight,
+                            label: '发送',
+                            color: widget.controller.text.trim().isEmpty || !widget.enabled
+                                ? colors.textTertiary
+                                : colors.brandDefault,
+                            onPressed: !widget.enabled ? null : widget.onSend,
+                          ),
                   ),
                 ],
               ),
@@ -1296,7 +1451,7 @@ class _InputBarState extends ConsumerState<_InputBar> {
           Positioned(
             left: 0,
             right: 0,
-            bottom: 64,
+            bottom: tokens.sizeControlHeight + tokens.space16,
             child: Center(
               child: VoiceRecordOverlay(
                 seconds: seconds,

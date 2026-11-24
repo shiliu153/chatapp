@@ -112,7 +112,10 @@ void main() {
     await pumpChat(tester);
     await tester.pumpAndSettle();
 
-    final input = tester.widget<TextField>(find.byKey(const Key('chat.input')));
+    final input = tester.widget<TextField>(find.descendant(
+      of: find.byKey(const Key('chat.input')),
+      matching: find.byType(TextField),
+    ));
     expect(input.controller!.text, '上次没说完的话');
   });
 

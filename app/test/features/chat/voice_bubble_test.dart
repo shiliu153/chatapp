@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import 'package:chatapp_app/features/chat/voice_playback.dart';
 import 'package:chatapp_app/features/chat/widgets/voice_bubble.dart';
@@ -172,7 +173,7 @@ void main() {
     expect(inA(find.text('2.0x')), findsOneWidget);
     expect(
       tester.widget<Icon>(inA(find.byKey(const Key('voice.play')))).icon,
-      Icons.pause_rounded,
+      PhosphorIconsRegular.pause,
     );
 
     // 换 B 播:A 必须复位(图标回播放、倍速回 1.0x),否则会「两条同时像在播」
@@ -181,12 +182,12 @@ void main() {
 
     expect(
       tester.widget<Icon>(inA(find.byKey(const Key('voice.play')))).icon,
-      Icons.play_arrow_rounded,
+      PhosphorIconsFill.play,
     );
     expect(inA(find.text('1.0x')), findsOneWidget);
     expect(
       tester.widget<Icon>(inB(find.byKey(const Key('voice.play')))).icon,
-      Icons.pause_rounded,
+      PhosphorIconsRegular.pause,
     );
     expect(player.played, [
       'http://cdn/media/chat/voices/va.m4a',

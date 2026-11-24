@@ -50,6 +50,16 @@ ChatMessage _textAt(String id, DateTime time, {required String text, bool isSelf
       text: text,
     );
 
+
+/// 输入框的 `TextField`:E-5.3 起输入栏是 `EmberField`(key 挂在外层 `KeyedSubtree`
+/// 上,方便测试仍按 `chat.input` 定位),所以取控件要走 descendant。
+TextField _inputTextField(WidgetTester tester) => tester.widget<TextField>(
+      find.descendant(
+        of: find.byKey(const Key('chat.input')),
+        matching: find.byType(TextField),
+      ),
+    );
+
 /// 让 IM 直接处于已登录态:testWidgets 的假时钟里裸 await 走 dio 的登录会死锁
 /// (dio 内部定时器不推进),登录流程本身在 im_manager_test / session_test 里测。
 class _LoggedInImManager extends ImManager {
@@ -273,7 +283,7 @@ void main() {
 
     expect(find.text('你好呀'), findsOneWidget);
     expect(fake.log, contains('send:u9:你好呀'));
-    expect(tester.widget<TextField>(find.byKey(const Key('chat.input'))).controller!.text, isEmpty);
+    expect(_inputTextField(tester).controller!.text, isEmpty);
   });
 
   testWidgets('发送失败 → 气泡保留 + 叹号;点叹号重发成功', (tester) async {
@@ -347,6 +357,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(calls.any((c) => c.method == 'Clipboard.setData'), isTrue);
+    await drainToast(tester); // 「已复制」是 EmberToast,跑完 2s 再结束
   });
 
   testWidgets('长按消息 → 删除本机', (tester) async {
@@ -385,8 +396,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('chat.emoji.😀')));
     await tester.pumpAndSettle();
-    expect(tester.widget<TextField>(find.byKey(const Key('chat.input'))).controller!.text,
-        contains('😀'));
+    expect(_inputTextField(tester).controller!.text, contains('😀'));
   });
 
   testWidgets('贴纸面板:切 tab 点选直接发送贴纸', (tester) async {
@@ -558,11 +568,13 @@ void main() {
     expect(sendIcon().color, EmberColors.light.textTertiary);
   });
 
-  testWidgets('没有消息 → 空态「打个招呼吧」+ 副文案', (tester) async {
+  testWidgets('没有消息 → 空态只留一句「打个招呼吧」', (tester) async {
     await pumpChat(tester);
 
+    // E-5.3 page spec §5:历史为空是「居中提示『打个招呼吧』,不占满屏」,
+    // 心跳期那条「发条消息,开始你们的故事」副文案与插画一起退役。
     expect(find.text('打个招呼吧'), findsOneWidget);
-    expect(find.text('发条消息,开始你们的故事'), findsOneWidget);
+    expect(find.text('发条消息,开始你们的故事'), findsNothing);
   });
 
   testWidgets('历史加载中 → 气泡骨架(有限 pump,不 settle)', (tester) async {
@@ -636,6 +648,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(fake.log, contains('revoke:sent-1'));
     expect(find.text('你撤回了一条消息'), findsOneWidget);
+    await drainToast(tester); // 「已撤回」是 EmberToast
   });
 
   testWidgets('「⋯」→ 解除配对 → 删会话并返回', (tester) async {
@@ -652,6 +665,7 @@ void main() {
     final delete = adapter.log.lastWhere((item) => item.method == 'DELETE');
     expect(delete.path, '/matches/9');
     expect(fake.log, contains('deleteConversation:u9'));
+    await drainToast(tester); // 「已解除配对」是 EmberToast
   });
 
   testWidgets('配对缓存里没有对方:显示横幅且输入框禁用', (tester) async {
@@ -659,8 +673,7 @@ void main() {
     await pumpChat(tester);
 
     expect(find.byKey(const Key('chat.unmatchedBanner')), findsOneWidget);
-    final input = tester.widget<TextField>(find.byKey(const Key('chat.input')));
-    expect(input.enabled, isFalse);
+    expect(_inputTextField(tester).enabled, isFalse);
   });
 
   testWidgets('系统通知会话不显示解除横幅', (tester) async {

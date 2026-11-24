@@ -1,13 +1,14 @@
-# 空态插画(E-5.2)
+# 空态插画(E-5.2 / E-5.3)
 
-三张 [unDraw](https://undraw.co) 插画,服务发现页的三种空/错误态
-(E-5.2 page spec §5、拍板结果第 5 条)。
+[unDraw](https://undraw.co) 插画,服务发现页(E-5.2)与对话线(E-5.3)的空 / 错误态。
 
 | 文件 | unDraw 原名 | 用在哪 |
 |---|---|---|
 | `discovery_empty_light/dark.png` | [No data](https://undraw.co/illustration/no-data_ig65) | 附近暂时没有新的人了 |
 | `discovery_profile_incomplete_light/dark.png` | [Profile data](https://undraw.co/illustration/profile-data_xkr9) | 资料没完善 |
 | `discovery_load_failed_light/dark.png` | [Connection lost](https://undraw.co/illustration/connection-lost_am29) | 加载失败 |
+| `chat_empty_light/dark.png` | [Chatting](https://undraw.co/illustration/chatting_29rn) | 会话列表空(「还没有对话」) |
+| `chat_error_light/dark.png` | [Connection lost](https://undraw.co/illustration/connection-lost_am29) | 会话列表 / 聊天页加载失败 |
 
 ## 为什么每张两份(明 / 暗)
 
@@ -19,6 +20,14 @@ unDraw 的默认着色是「浅色纸 + 深墨 + 紫色强调」,直接放进深
 | 强调色 | `#C93C22`(`brand.default` 浅色值) | `#FF9370`(`brand.default` 深色值) |
 | 墨色 | 原图 `#3f3d56` / `#2f2e41` | `#C4B9AD` / `#A39789`(`text.secondary` 深色档附近) |
 | 浅灰面 | 原图 `#e6e6e6` / `#f2f2f2` / `#ccc` | `#3A332D` / `#55493F`(`border.strong` 深色档附近) |
+
+`Chatting` 那张图比前几张多两类填充,深色版按同样思路翻转(不新增颜色):
+
+| 角色 | 原图 | 浅色 | 深色 |
+|---|---|---|---|
+| 手机屏面 | `#fff` | 原样(白) | `#1E1916`(`surface.card` 深色档) |
+| 描边墨 / 手机边 | `#090814` | 原样 | `#F6F1EB`(`text.primary` 深色档) |
+| 人物浅粉 | `#ed9da0` | 原样 | `#6B4A3E`(暖中性,与朱砂同族) |
 
 ## 导出口径
 

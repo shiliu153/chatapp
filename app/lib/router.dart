@@ -1,7 +1,8 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/theme/ember_motion.dart';
 import 'features/auth/login_page.dart';
 import 'features/auth/session.dart';
 import 'features/auth/splash_page.dart';
@@ -29,6 +30,43 @@ import 'features/square/post_likes_page.dart';
 import 'features/square/post_detail_args.dart';
 import 'features/square/post_detail_page.dart';
 import 'features/stats/stats_page.dart';
+
+/// 聊天页的转场:从右滑入,位移曲线取 `spring.standard`(E-5.3 page spec §1 第 7 条)。
+///
+/// 为什么单独给 `/chat/:peerId` 开一条 `pageBuilder` 而不是全局换掉页面转场:
+/// §9.4 的「二级页右滑入」是本单先落地的样板,但其余二级页还没迁移(E-5.6),
+/// 全局改会把它们的转场一起改掉。
+///
+/// 参数说明:
+/// - [state] go_router 的路由状态(取 key)。
+/// - [child] 目标页面。
+///
+/// Returns:
+///   带弹簧位移转场的页面。
+CustomTransitionPage<void> chatRoutePage(GoRouterState state, Widget child) =>
+    CustomTransitionPage<void>(
+      key: state.pageKey,
+      transitionDuration: const Duration(milliseconds: 320),
+      reverseTransitionDuration: const Duration(milliseconds: 240),
+      child: child,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        if (EmberMotion.reducedOf(context)) return child;
+        // 只关心「进入 / 退出」这一条 spring,`secondaryAnimation` 留给下层页面
+        // 自己画(这里不改下层,避免与被推走的列表叠出双层位移)。
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(1, 0),
+            end: Offset.zero,
+          ).animate(
+            CurvedAnimation(
+              parent: animation,
+              curve: EmberMotion.springCurve(EmberMotion.standard),
+            ),
+          ),
+          child: child,
+        );
+      },
+    );
 
 final routerProvider = Provider<GoRouter>((ref) {
   // 会话状态变化 → 让 GoRouter 重新跑一遍 redirect
@@ -61,9 +99,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           builder: (context, state) => const NotificationsPage()),
       GoRoute(
         path: '/chat/:peerId',
-        builder: (context, state) => ChatPage(
-          peerId: state.pathParameters['peerId']!,
-          focusMsgId: state.uri.queryParameters['focus'],
+        // 二级页右滑入(E-5.3 page spec §1 第 7 条):位移用 `spring.standard`,
+        // 不用 Material 默认的曲线;减弱动态效果时直接落终态(§7.3)。
+        pageBuilder: (context, state) => chatRoutePage(
+          state,
+          ChatPage(
+            peerId: state.pathParameters['peerId']!,
+            focusMsgId: state.uri.queryParameters['focus'],
+          ),
         ),
       ),
       GoRoute(path: '/search', builder: (context, state) => const SearchPage()),
