@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
@@ -110,7 +111,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 onSubmitted: (value) => _run(value.trim()),
                 decoration: InputDecoration(
                   hintText: '搜索聊天记录',
-                  prefixIcon: const Icon(Icons.search_rounded, size: 22),
+                  prefixIcon: const Icon(PhosphorIconsRegular.magnifyingGlass, size: 22),
                   filled: true,
                   fillColor: colors.bgPage,
                   contentPadding: const EdgeInsets.symmetric(vertical: 10),

@@ -61,7 +61,9 @@ void main() {
     addTearDown(fake.dispose);
   });
 
-  Future<void> pumpChat(WidgetTester tester, {List<Override> overrides = const []}) async {
+  /// [settle] 为 false 时只推进有限帧(气泡里的「发送中」转圈是常驻无限动画)。
+  Future<void> pumpChat(WidgetTester tester,
+      {List<Override> overrides = const [], bool settle = true}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     final container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
@@ -86,15 +88,31 @@ void main() {
       container: container,
       child: MaterialApp.router(theme: heartTheme, routerConfig: router),
     ));
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await pumpFrames(tester);
+    }
   }
 
   /// 长按第一条消息 → 点「多选」进多选模式。
-  Future<void> enterSelectMode(WidgetTester tester, String firstText) async {
+  ///
+  /// [settle] 为 false 时用有限 pump:气泡里有「发送中」转圈(常驻无限动画)时
+  /// `pumpAndSettle` 永远等不到静止。
+  Future<void> enterSelectMode(WidgetTester tester, String firstText,
+      {bool settle = true}) async {
     await tester.longPress(find.text(firstText));
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await pumpFrames(tester);
+    }
     await tester.tap(find.byKey(const Key('chat.menu.multi')));
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await pumpFrames(tester);
+    }
   }
 
   testWidgets('长按菜单里的「多选」进多选:顶栏变「已选 0 条」,输入栏换成操作条', (tester) async {
@@ -220,8 +238,9 @@ void main() {
         ),
       ],
     };
-    await pumpChat(tester);
-    await enterSelectMode(tester, '正常的');
+    // 发送中的气泡带转圈(无限动画),只能有限 pump。
+    await pumpChat(tester, settle: false);
+    await enterSelectMode(tester, '正常的', settle: false);
 
     expect(find.byKey(const Key('chat.select:1')), findsOneWidget);
     expect(find.byKey(const Key('chat.select:2')), findsNothing);
@@ -230,7 +249,7 @@ void main() {
     // 撤回的那条已是居中灰字,发送中的那条点了也不该被选中。
     // warnIfMissed: false 是**预期**:不可选的气泡不挂点击回调,点上去就该落空。
     await tester.tap(find.byKey(const Key('chat.bubble:local-1')), warnIfMissed: false);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
     expect(find.text('已选 0 条'), findsOneWidget);
   });
 

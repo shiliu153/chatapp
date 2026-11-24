@@ -1,22 +1,31 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
-import '../../../core/theme/heart_theme_context.dart';
-import '../../../core/theme/app_radius.dart';
-import '../../../core/theme/app_spacing.dart';
+import '../../../core/format.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/app_avatar.dart';
+import '../../../core/theme/ember_colors.dart';
+import '../../../core/theme/ember_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
+import '../../../core/ui/ember_ui.dart';
 import '../../../core/widgets/app_spinner.dart';
 import '../../../im/im_client.dart';
 import '../../../im/voice_transcode.dart';
-import 'voice_bubble.dart';
-import '../../../core/theme/ember_colors.dart';
 import '../stickers.dart';
+import 'voice_bubble.dart';
 
-/// 单条消息(「心跳」附录 B.3):自己=brand 实底白字、对方=白底,
-/// 圆形头像 40;match_notice/ban_notice 渲染成居中 pill 灰条。
+/// 单条消息(「余烬 Ember」§8.3 气泡行 / E-5.3 page spec §3)。
+///
+/// 与心跳期(附录 B.3)的差别只有取值,结构不变:
+/// - 圆角 18 → **16**(`radius.md`),靠头像侧上角 6;最大宽 72%;内边距 12/16;
+/// - 自己 `brand.default` 实底 + `brand.on` 字;对方 `surface.card` + `text.primary`
+///   (深色下再补 1px `border.divider` 分层 —— §5.3「深色不用阴影」);
+/// - 头像 [EmberAvatar] 40;发送中在气泡右下角出 12 转圈;**失败不静默丢弃**:
+///   左侧 `status.danger` 感叹号,点它重发;
+/// - 读屏一句话(§8.4):「我 / 对方，内容，时间，发送状态」。
 class MessageBubble extends StatelessWidget {
+  /// 构造气泡。
   const MessageBubble({
     super.key,
     required this.message,
@@ -36,12 +45,25 @@ class MessageBubble extends StatelessWidget {
     this.readReceiptEnabled = false,
   });
 
+  /// 这条消息。
   final ChatMessage message;
+
+  /// 对端昵称(头像首字与引用署名都用它)。
   final String? peerName;
+
+  /// 对端头像地址。
   final String? peerAvatarUrl;
+
+  /// 自己的头像地址。
   final String? selfAvatarUrl;
+
+  /// 长按(弹操作菜单)。
   final VoidCallback? onLongPress;
+
+  /// 重发(发送失败 / 语音转码失败都走这里)。
   final VoidCallback? onRetry;
+
+  /// 点图片气泡(全屏看图)。
   final VoidCallback? onTapImage;
 
   /// 点了气泡上方的引用块:跳到被引用的原消息(批次 L-2)。
@@ -70,19 +92,26 @@ class MessageBubble extends StatelessWidget {
   /// 是否支持已读回执(不支持时宁可不显示,也不要假状态)。
   final bool readReceiptEnabled;
 
+  /// 居中灰条里「互相喜欢」的兜底文案。
   static const noticeFallback = '你们已互相喜欢,开始聊天吧';
+
+  /// 搜索定位命中时的高亮淡入时长。
+  ///
+  /// 这是**纯透明度过渡**(无位移),不属于 §7.1 的四条 spring 位移档;规范只给了
+  /// 「120ms 减弱动态效果」这一个时长值,300ms 沿用既有手感并单点声明在这里。
+  static const _highlightFade = Duration(milliseconds: 300);
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     if (message.isRevoked) {
       return Padding(
         key: const Key('chat.revoked'),
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        padding: EdgeInsets.symmetric(vertical: tokens.space8),
         child: Center(
           child: Text(
             message.isSelf ? '你撤回了一条消息' : '对方撤回了一条消息',
-            style: AppText.micro.copyWith(color: colors.text3),
+            style: AppText.caption.copyWith(color: colors.textTertiary),
           ),
         ),
       );
@@ -98,26 +127,33 @@ class MessageBubble extends StatelessWidget {
       };
       return Padding(
         key: const Key('chat.notice'),
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+        padding: EdgeInsets.symmetric(vertical: tokens.space8),
         child: Center(
           child: Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md, vertical: 6),
-            decoration: BoxDecoration(
-              color: colors.divider,
-              borderRadius: BorderRadius.circular(AppRadius.full),
+            padding: EdgeInsets.symmetric(
+              horizontal: tokens.space12,
+              vertical: tokens.space4,
             ),
-            child: Text(label, style: AppText.micro.copyWith(color: colors.text2)),
+            decoration: BoxDecoration(
+              // 居中灰条是「系统口吻」,取凹陷面而不是卡片面(§8.3 次级容器)。
+              color: colors.surfaceSunken,
+              borderRadius: BorderRadius.circular(tokens.radiusPill),
+            ),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: AppText.micro.copyWith(color: colors.textSecondary),
+            ),
           ),
         ),
       );
     }
 
     final isSelf = message.isSelf;
-    final avatar = AppAvatar(
-      imageUrl: isSelf ? selfAvatarUrl : peerAvatarUrl,
-      size: 40,
-      fallbackText: isSelf ? '我' : (peerName ?? ''),
+    final avatar = EmberAvatar(
+      image: _avatarProvider(isSelf ? selfAvatarUrl : peerAvatarUrl),
+      size: EmberComponentSizes.avatarMd,
+      name: isSelf ? '我' : (peerName ?? ''),
     );
     final tappable = selectionMode && selectable;
     final bubble = GestureDetector(
@@ -138,6 +174,7 @@ class MessageBubble extends StatelessWidget {
         child: Opacity(
           opacity: message.isPending ? 0.6 : 1,
           child: ConstrainedBox(
+            // 最大宽 72%(§8.3 气泡行)。
             constraints:
                 BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
             // 引用块在气泡**上方**(批次 L-2):它是「我在回应什么」,不该抢正文的视线。
@@ -158,14 +195,18 @@ class MessageBubble extends StatelessWidget {
     return AnimatedContainer(
       // 搜索定位命中时整个消息行淡入主色底,1.5s 后由外层把 highlight 置回 false
       key: highlight ? Key('chat.highlight:${message.msgId}') : null,
-      duration: const Duration(milliseconds: 300),
+      duration: _highlightFade,
       decoration: BoxDecoration(
-        color: highlight ? colors.brand.withValues(alpha: 0.08) : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadius.card),
+        color: highlight
+            ? colors.brandDefault.withValues(alpha: 0.08)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(tokens.radiusMd),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+        padding: EdgeInsets.symmetric(
+          horizontal: tokens.space12,
+          vertical: tokens.space4,
+        ),
         child: Row(
           mainAxisAlignment: isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -174,113 +215,183 @@ class MessageBubble extends StatelessWidget {
             // 对齐的是勾,不是头像。
             if (selectionMode && selectable) ...[
               _selectMark(colors),
-              const SizedBox(width: AppSpacing.sm),
+              SizedBox(width: tokens.space8),
             ],
-            if (!isSelf) ...[avatar, const SizedBox(width: AppSpacing.sm)],
-            if (isSelf && message.isFailed) ...[
-              IconButton(
-                key: const Key('chat.retry'),
-                onPressed: onRetry,
-                icon: Icon(Icons.error_rounded, color: colors.danger, size: 20),
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
-            if (isSelf && _statusLabel() != null)
+            if (!isSelf) ...[avatar, SizedBox(width: tokens.space8)],
+            // 发送失败:左侧 `status.danger` 感叹号,点它重发(§8.3 气泡 error 行)。
+            if (isSelf && message.isFailed)
               Padding(
-                padding: const EdgeInsets.only(right: AppSpacing.xs),
-                child: Text(
-                  _statusLabel()!,
-                  key: _statusKey(),
-                  style: AppText.micro.copyWith(color: colors.text3),
+                padding: EdgeInsets.only(right: tokens.space4),
+                child: EmberPressable(
+                  key: const Key('chat.retry'),
+                  onTap: onRetry,
+                  pressedScale: 0.97,
+                  borderRadius: BorderRadius.circular(tokens.radiusPill),
+                  semanticLabel: '发送失败，点按重发',
+                  builder: (context, state) => SizedBox(
+                    width: tokens.sizeTouchWeb,
+                    height: tokens.sizeTouchWeb,
+                    child: Icon(
+                      PhosphorIconsFill.warningCircle,
+                      size: tokens.sizeIcon20,
+                      color: colors.statusDanger,
+                    ),
+                  ),
                 ),
               ),
-            bubble,
-            if (isSelf) ...[const SizedBox(width: AppSpacing.sm), avatar],
+            if (isSelf && message.isTranscoding)
+              Padding(
+                padding: EdgeInsets.only(right: tokens.space4),
+                child: Text(
+                  voiceTranscodePendingText,
+                  key: const Key('chat.status.transcoding'),
+                  style: AppText.micro.copyWith(color: colors.textTertiary),
+                ),
+              ),
+            if (isSelf && _readLabel() != null)
+              Padding(
+                padding: EdgeInsets.only(right: tokens.space4),
+                child: Text(
+                  _readLabel()!,
+                  key: const Key('chat.status.read'),
+                  style: AppText.micro.copyWith(color: colors.textTertiary),
+                ),
+              ),
+            // 读屏一句话(§8.4):方向 + 内容 + 时间 + 发送状态。
+            // 用 `excludeSemantics` 是为了**只念这一句**,不让里面的正文再念一遍;
+            // 头像与重发按钮留在外面,各自带自己的语义。
+            Semantics(
+              container: true,
+              label: _semanticLabel(),
+              excludeSemantics: true,
+              child: bubble,
+            ),
+            if (isSelf) ...[SizedBox(width: tokens.space8), avatar],
           ],
         ),
       ),
     );
   }
 
+  /// 头像图:地址为空或非法时返回 `null`,由 [EmberAvatar] 回落到首字。
+  ///
+  /// Args:
+  ///   url: 头像地址(可能为 null / 空串)。
+  ///
+  /// Returns:
+  ///   `NetworkImage` 或 null。
+  ImageProvider? _avatarProvider(String? url) =>
+      (url == null || url.isEmpty) ? null : NetworkImage(url);
+
   /// 多选态的勾选圈(批次 T-2)。
   ///
-  /// 选中 = 主色实心圆:这正是主色该出现的「视线锚点」(spec §2.1),未选 = `text3`
+  /// 选中 = 主色实心圆:这正是主色该出现的「视线锚点」(§2),未选 = `text.tertiary`
   /// 空心。key 挂在圈上,测试按 `chat.select:<msgId>` 断言某一行的勾选态。
   ///
   /// Args:
-  ///   colors: 「心跳」色板(浅 / 深两套)。
+  ///   colors: 「余烬 Ember」色板(浅 / 深两套)。
   Widget _selectMark(EmberColors colors) => Icon(
-        selected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+        selected ? PhosphorIconsFill.checkCircle : PhosphorIconsRegular.circle,
         key: Key('chat.select:${message.msgId}'),
-        size: 22,
-        color: selected ? colors.brand : colors.text3,
+        size: tokens.sizeIcon24,
+        color: selected ? colors.brandDefault : colors.textTertiary,
       );
 
-  /// 我方气泡左侧的状态词(只可能是「处理中」「发送中」或「已读」,其它情况返回 null)。
+  /// 我方消息的「已读」标记(其它情况返回 null)。
   ///
-  /// 口径:
-  /// - **转码中优先于「发送中」**(M-3):上传已被服务端受理(202),气泡在等轮询结果,
-  ///   这时还说「发送中」会让人以为 WS 帧已经发出去了;
-  /// - 失败不写字 —— 左侧已有红色重发图标,再写字是重复;
-  /// - **未读不写字** —— 微信口径。一屏十几条都挂「未读」是纯噪声,而且区分不了
-  ///   「已送达未读 / 没送达」;「有没有『已读』这两个字」本身就是未读的信号;
-  /// - 不支持已读回执时一律不显示,不给假状态。
-  String? _statusLabel() {
+  /// 口径(微信):
+  /// - 失败不写字 —— 左侧已有 `status.danger` 感叹号,再写字是重复;
+  /// - **未读不写字** —— 一屏十几条都挂「未读」是纯噪声,「有没有『已读』」本身就是
+  ///   未读的信号;
+  /// - 不支持已读回执 / 发送中 / 转码中一律不显示,不给假状态。
+  String? _readLabel() {
     if (!message.isSelf) return null;
-    if (message.isTranscoding) return voiceTranscodePendingText;
-    if (message.isPending) return '发送中';
-    if (message.isFailed) return null;
+    if (message.isPending || message.isTranscoding || message.isFailed) return null;
     if (!readReceiptEnabled || message.isRevoked) return null;
     return isRead ? '已读' : null;
   }
 
-  Key? _statusKey() {
-    if (message.isTranscoding) return const Key('chat.status.transcoding');
-    if (message.isPending) return const Key('chat.status.pending');
-    if (isRead) return const Key('chat.status.read');
-    return null;
+  /// 读屏播报用的内容文案(图片 / 语音 / 贴纸给词,不念 URL)。
+  String _semanticContent() => switch (message.kind) {
+        ChatMessageKind.text => message.text,
+        ChatMessageKind.image => '图片',
+        ChatMessageKind.voice => '语音 ${(message.voiceDurationMs / 1000).round()} 秒',
+        ChatMessageKind.sticker => '贴纸',
+        _ => message.text,
+      };
+
+  /// 读屏播报用的发送状态(§8.4「方向 + 内容 + 时间 + 发送状态」)。
+  ///
+  /// 对端消息没有发送状态可言(它已经在我这儿了),所以这一段只在我方消息上出现。
+  String? _semanticStatus() {
+    if (!message.isSelf) return null;
+    if (message.isTranscoding) return voiceTranscodePendingText;
+    if (message.isPending) return '发送中';
+    if (message.isFailed) return '发送失败，点按重发';
+    if (readReceiptEnabled && message.seq > 0) return isRead ? '已读' : '已送达';
+    return '已发送';
   }
+
+  /// 拼成一句话:方向，内容，时间，状态(缺的段直接不出现,不念「无」)。
+  String _semanticLabel() => [
+        message.isSelf ? '我' : '对方',
+        _semanticContent(),
+        formatMessageTime(
+          DateTime.fromMillisecondsSinceEpoch(message.timestamp),
+        ),
+        ?_semanticStatus(),
+      ].join('，');
 
   /// 气泡上方的引用块(批次 L-2)。
   ///
   /// 摘要来自**服务端快照**(`ref.text`):文本前 120 字,图片 / 语音 / 贴纸是
   /// `[图片]` / `[语音]` / `[贴纸]`;`revoked` 时只显示「消息已撤回」,不显示原文。
   ///
+  /// 视觉按 §8.3 次级容器:`surface.sunken` 底 + `radius.sm` + 左侧 2px `brand.default` 竖线。
+  ///
   /// Args:
-  ///   context: 构建上下文(取「心跳」色板)。
+  ///   context: 构建上下文(取「余烬 Ember」色板)。
   ///   ref: 服务端生成的引用快照。
   ///
   /// Returns:
   ///   可点击的引用块(点击跳回原消息)。
   Widget _quoteBlock(BuildContext context, QuoteRef ref) {
-    final colors = context.heart;
+    final colors = context.ember;
     // 一个会话只有两个人:引用块的署名不是对端就是我自己。
     final sender = ref.from == message.peerId ? (peerName ?? '对方') : '我';
     return ClipRRect(
-      borderRadius: BorderRadius.circular(AppRadius.chip),
+      borderRadius: BorderRadius.circular(tokens.radiusSm),
       child: GestureDetector(
         key: Key('chat.quote:${message.msgId}'),
         behavior: HitTestBehavior.opaque,
         onTap: onTapQuote,
         child: Container(
-          margin: const EdgeInsets.only(bottom: AppSpacing.xs),
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm, vertical: 6),
+          margin: EdgeInsets.only(bottom: tokens.space4),
+          padding: EdgeInsets.symmetric(
+            horizontal: tokens.space8,
+            vertical: tokens.space4,
+          ),
           decoration: BoxDecoration(
-            color: colors.divider,
-            border: Border(left: BorderSide(color: colors.brand, width: 3)),
+            color: colors.surfaceSunken,
+            // §8.3 引用条:左侧 2px `brand.default` 竖线。
+            border: Border(
+              left: BorderSide(color: colors.brandDefault, width: 2),
+            ),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(sender, style: AppText.micro.copyWith(color: colors.brand)),
+              Text(
+                sender,
+                style: AppText.micro.copyWith(color: colors.brandDefault),
+              ),
               Text(
                 ref.displayText,
                 key: ref.revoked ? const Key('chat.quote.revoked') : null,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: AppText.micro.copyWith(color: colors.text2),
+                style: AppText.micro.copyWith(color: colors.textSecondary),
               ),
             ],
           ),
@@ -289,13 +400,14 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
+  /// 气泡本体:按消息类型分派。
   Widget _bubbleContent(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     if (message.kind == ChatMessageKind.voice) {
       // 转码中(M-3):还没有可播放地址,气泡先显示「转圈 + 处理中」,
       // 别拿本地文件先播 —— 用户会以为已经发出去了。
       if (message.isTranscoding) return _voiceTranscoding(colors);
-      return VoiceBubble(message: message);
+      return MessageBubble._withPendingSpin(colors, message, VoiceBubble(message: message));
     }
     if (message.kind == ChatMessageKind.sticker) {
       return _sticker(colors);
@@ -305,53 +417,114 @@ class MessageBubble extends StatelessWidget {
         key: const Key('chat.image'),
         onTap: onTapImage,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.image),
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
           child: SizedBox(width: 140, height: 140, child: _image(colors)),
         ),
       );
     }
+    return MessageBubble._withPendingSpin(
+      colors,
+      message,
+      _textBubble(context, colors),
+    );
+  }
+
+  /// 文字气泡:自己 `brand.default` + `brand.on`;对方 `surface.card` + `text.primary`。
+  ///
+  /// 圆角 `radius.md`(16),**靠头像侧上角 6**(自己=右上、对方=左上);
+  /// 深色下对方气泡补 1px `border.divider` —— 深色不用阴影(§5.3)。
+  ///
+  /// Args:
+  ///   context: 取当前亮度(深色要描边分层)。
+  ///   colors: 「余烬 Ember」色板。
+  Widget _textBubble(BuildContext context, EmberColors colors) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isSelf = message.isSelf;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: EdgeInsets.symmetric(
+        horizontal: tokens.space16,
+        vertical: tokens.space12,
+      ),
       decoration: BoxDecoration(
-        color: message.isSelf ? colors.brand : colors.bgCard,
+        color: isSelf ? colors.brandDefault : colors.surfaceCard,
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(message.isSelf ? AppRadius.bubble : 6),
-          topRight: Radius.circular(message.isSelf ? 6 : AppRadius.bubble),
-          bottomLeft: Radius.circular(AppRadius.bubble),
-          bottomRight: Radius.circular(AppRadius.bubble),
+          topLeft: Radius.circular(isSelf ? tokens.radiusMd : 6),
+          topRight: Radius.circular(isSelf ? 6 : tokens.radiusMd),
+          bottomLeft: Radius.circular(tokens.radiusMd),
+          bottomRight: Radius.circular(tokens.radiusMd),
+        ),
+        border: (!isSelf && isDark)
+            ? Border.all(color: colors.borderDivider)
+            : null,
+      ),
+      child: Text(
+        message.text,
+        style: AppText.body.copyWith(
+          color: isSelf ? colors.brandOn : colors.textPrimary,
         ),
       ),
-      child: Text(message.text,
-          style: AppText.body
-              .copyWith(color: message.isSelf ? Colors.white : colors.text1)),
+    );
+  }
+
+  /// 发送中:气泡右下角 12 转圈(§8.3 气泡 loading 行),不另外写字。
+  ///
+  /// 12 的圆点正好落在气泡内边距(16/12)之外的那一小块留白里,不会盖住文字。
+  ///
+  /// Args:
+  ///   colors: 「余烬 Ember」色板。
+  ///   message: 这条消息(取 `isPending` / `isSelf`)。
+  ///   child: 气泡本体。
+  static Widget _withPendingSpin(EmberColors colors, ChatMessage message, Widget child) {
+    if (!message.isPending) return child;
+    return Stack(
+      children: [
+        child,
+        Positioned(
+          right: tokens.space4,
+          bottom: tokens.space4,
+          child: SizedBox(
+            width: tokens.space12,
+            height: tokens.space12,
+            child: CircularProgressIndicator(
+              key: const Key('chat.status.pending'),
+              strokeWidth: 1.5,
+              color: message.isSelf ? colors.brandOn : colors.textTertiary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   /// 语音「转码中」占位气泡(M-3):转圈 + 「处理中」,尺寸与语音气泡同高。
   ///
-  /// 颜色口径:「心跳」§2.2 —— 进行中状态走中性色,主色留给真正的高音;自己这边气泡底
-  /// 是 brand 实底,所以内容用白色(与语音气泡的文字同口径),对端用 `text3`。
+  /// 颜色口径:进行中状态走中性色(主色留给真正的高音);自己这边气泡底是
+  /// `brand.default` 实底,所以内容用 `brand.on`,对端用 `text.tertiary`。
   ///
   /// Args:
-  ///   colors: 「心跳」色板(浅 / 深两套)。
+  ///   colors: 「余烬 Ember」色板(浅 / 深两套)。
   Widget _voiceTranscoding(EmberColors colors) {
-    final foreground = message.isSelf ? Colors.white : colors.text3;
+    final foreground = message.isSelf ? colors.brandOn : colors.textTertiary;
     return Container(
       key: const Key('chat.voice.transcoding'),
       width: 150,
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      padding: EdgeInsets.symmetric(
+        horizontal: tokens.space12,
+        vertical: tokens.space8,
+      ),
       decoration: BoxDecoration(
-        color: message.isSelf ? colors.brand : colors.bgCard,
-        borderRadius: BorderRadius.circular(AppRadius.bubble),
+        color: message.isSelf ? colors.brandDefault : colors.surfaceCard,
+        borderRadius: BorderRadius.circular(tokens.radiusMd),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AppSpinner(size: AppSpacing.lg, color: foreground),
-          const SizedBox(width: AppSpacing.sm),
-          Text(voiceTranscodePendingText,
-              style: AppText.micro.copyWith(color: foreground)),
+          AppSpinner(size: tokens.sizeIcon16, color: foreground),
+          SizedBox(width: tokens.space8),
+          Text(
+            voiceTranscodePendingText,
+            style: AppText.micro.copyWith(color: foreground),
+          ),
         ],
       ),
     );
@@ -365,13 +538,18 @@ class MessageBubble extends StatelessWidget {
     if (sticker == null) {
       return Container(
         key: const Key('chat.sticker.unknown'),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: colors.divider,
-          borderRadius: BorderRadius.circular(AppRadius.bubble),
+        padding: EdgeInsets.symmetric(
+          horizontal: tokens.space16,
+          vertical: tokens.space12,
         ),
-        child: Text(unknownStickerLabel,
-            style: AppText.body.copyWith(color: colors.text2)),
+        decoration: BoxDecoration(
+          color: colors.surfaceSunken,
+          borderRadius: BorderRadius.circular(tokens.radiusMd),
+        ),
+        child: Text(
+          unknownStickerLabel,
+          style: AppText.body.copyWith(color: colors.textSecondary),
+        ),
       );
     }
     return Image.asset(
@@ -385,15 +563,21 @@ class MessageBubble extends StatelessWidget {
         height: 132,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: colors.divider,
-          borderRadius: BorderRadius.circular(AppRadius.image),
+          color: colors.surfaceSunken,
+          borderRadius: BorderRadius.circular(tokens.radiusSm),
         ),
-        child: Text(unknownStickerLabel,
-            style: AppText.micro.copyWith(color: colors.text3)),
+        child: Text(
+          unknownStickerLabel,
+          style: AppText.micro.copyWith(color: colors.textTertiary),
+        ),
       ),
     );
   }
 
+  /// 图片内容:本地文件优先(刚发出的图),其次远程地址,都失败给占位。
+  ///
+  /// Args:
+  ///   colors: 「余烬 Ember」色板(errorBuilder 里取不到可靠的主题上下文)。
   Widget _image(EmberColors colors) {
     final path = message.localPath;
     if (path != null && path.isNotEmpty) {
@@ -414,12 +598,15 @@ class MessageBubble extends StatelessWidget {
     return _fallback(colors);
   }
 
-  Widget _fallback(EmberColors colors) {
-    // 色板由外层 build 传入:errorBuilder 的上下文不可靠,而且「绕过主题直接取
-    // EmberColors.light」会被 no_raw_colors_test 判红(E-2 起的新判据)。
-    return Container(
-      color: colors.divider,
-      child: Center(child: Icon(Icons.image_rounded, color: colors.text3)),
-    );
-  }
+  /// 图片占位:`surface.sunken` + 破损图标(禁用灰色 Material 图标,§6)。
+  Widget _fallback(EmberColors colors) => Container(
+        color: colors.surfaceSunken,
+        child: Center(
+          child: Icon(
+            PhosphorIconsRegular.imageBroken,
+            size: tokens.sizeIcon24,
+            color: colors.textTertiary,
+          ),
+        ),
+      );
 }

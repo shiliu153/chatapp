@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
+
+import '../../../core/theme/tokens.g.dart' as tokens;
 
 /// 全屏看图:黑底、左右滑、双指缩放、点右上角关闭。聊天图片与资料页相册共用。
+///
+/// 「沉浸内容 = 全屏」(§9.3),所以底色保持纯黑 / 图标纯白 —— 它们是**两模式语义相同**
+/// 的两个例外(见 `no_raw_colors_test` 的白黑白名单)。
 class PhotoViewerPage extends StatefulWidget {
   const PhotoViewerPage({super.key, required this.urls, this.initialIndex = 0});
 
@@ -36,8 +42,11 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
                   child: Image.network(
                     widget.urls[index],
                     fit: BoxFit.contain,
-                    errorBuilder: (c, e, s) => const Icon(Icons.broken_image_outlined,
-                        color: Colors.white38, size: 64),
+                    errorBuilder: (c, e, s) => const Icon(
+                      PhosphorIconsRegular.imageBroken,
+                      color: Colors.white38,
+                      size: 64,
+                    ),
                   ),
                 ),
               ),
@@ -48,7 +57,9 @@ class _PhotoViewerPageState extends State<PhotoViewerPage> {
                 child: IconButton(
                   key: const Key('viewer.close'),
                   onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close, color: Colors.white),
+                  // 热区 48(§8.4),图标本体 24(§6 工具栏档)。
+                  iconSize: tokens.sizeIcon24,
+                  icon: const Icon(PhosphorIconsRegular.x, color: Colors.white),
                 ),
               ),
             ),

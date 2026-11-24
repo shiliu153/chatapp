@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
-import '../../../core/theme/heart_theme_context.dart';
-import '../../../core/theme/app_radius.dart';
-import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/ember_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
 import '../../../im/im_client.dart';
 import '../voice_playback.dart';
 
@@ -165,22 +165,24 @@ class _VoiceBubbleState extends ConsumerState<VoiceBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     final seconds = _totalSeconds.round();
     final width = (110 + seconds * 2).clamp(150, 240).toDouble();
-    final foreground = widget.message.isSelf ? Colors.white : colors.text1;
-    final active = widget.message.isSelf ? Colors.white : colors.brand;
-    final inactive =
-        widget.message.isSelf ? Colors.white.withValues(alpha: .3) : colors.divider;
+    // 自己这边是 `brand.default` 实底,前景一律 `brand.on`(§8.3 气泡行)。
+    final foreground = widget.message.isSelf ? colors.brandOn : colors.textPrimary;
+    final active = widget.message.isSelf ? colors.brandOn : colors.brandDefault;
+    final inactive = widget.message.isSelf
+        ? colors.brandOn.withValues(alpha: .3)
+        : colors.borderDivider;
     final value = (_dragging ? _dragSeconds : _position.inMilliseconds / 1000)
         .clamp(0.0, _totalSeconds);
     return Container(
       width: width,
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.sm, AppSpacing.xs, AppSpacing.sm, AppSpacing.xs),
+      padding: EdgeInsets.fromLTRB(
+          tokens.space8, tokens.space4, tokens.space8, tokens.space4),
       decoration: BoxDecoration(
-        color: widget.message.isSelf ? colors.brand : colors.bgCard,
-        borderRadius: BorderRadius.circular(AppRadius.bubble),
+        color: widget.message.isSelf ? colors.brandDefault : colors.surfaceCard,
+        borderRadius: BorderRadius.circular(tokens.radiusMd),
       ),
       child: Row(
         children: [
@@ -192,9 +194,11 @@ class _VoiceBubbleState extends ConsumerState<VoiceBubble> {
               width: 28,
               height: 28,
               child: Icon(
-                _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                // §6:图标一律 Phosphor;paused=Regular `pause`,未播=Fill `play`
+                // (Fill 在实底气泡上更实,与「选中用 Fill」同一套口径)。
+                _playing ? PhosphorIconsRegular.pause : PhosphorIconsFill.play,
                 key: const Key('voice.play'),
-                size: 20,
+                size: tokens.sizeIcon20,
                 color: foreground,
               ),
             ),
@@ -237,7 +241,7 @@ class _VoiceBubbleState extends ConsumerState<VoiceBubble> {
             behavior: HitTestBehavior.opaque,
             onTap: _cycleRate,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+              padding: EdgeInsets.symmetric(horizontal: tokens.space4),
               child: Text(
                 '${_rate}x',
                 style: AppText.micro.copyWith(

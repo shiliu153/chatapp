@@ -14,6 +14,7 @@ import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/im_manager.dart';
 
 import '../../support/fake_im_client.dart';
+import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
 import '../../support/heart_theme.dart';
@@ -69,8 +70,10 @@ void main() {
     addTearDown(fake.dispose);
   });
 
+  /// [settle] 为 false 时只推进有限帧:气泡里有「发送中」转圈(常驻无限动画,
+  /// §8.3),`pumpAndSettle` 永远等不到静止。
   Future<void> pumpChat(WidgetTester tester,
-      {List<Override> overrides = const []}) async {
+      {List<Override> overrides = const [], bool settle = true}) async {
     final dio = Dio(BaseOptions(baseUrl: 'http://test/api/v1'))..httpClientAdapter = adapter;
     final container = ProviderContainer(overrides: [
       baseDioProvider.overrideWithValue(dio),
@@ -98,7 +101,11 @@ void main() {
       container: container,
       child: MaterialApp.router(theme: heartTheme, routerConfig: router),
     ));
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await pumpFrames(tester);
+    }
   }
 
   testWidgets('打开会话时从会话列表补拉:只有 seq<=peer_read_seq 的我方消息显示已读',
@@ -148,7 +155,8 @@ void main() {
     fake.conversations = const [
       ImConversation(peerId: 'u9', unreadCount: 0, peerReadSeq: 1),
     ];
-    await pumpChat(tester);
+    // 发送中的气泡带转圈(无限动画),只能有限 pump。
+    await pumpChat(tester, settle: false);
 
     expect(find.byKey(const Key('chat.status.pending')), findsOneWidget);
     expect(find.byKey(const Key('chat.status.read')), findsNothing);

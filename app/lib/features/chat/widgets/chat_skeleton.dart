@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_radius.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_skeleton.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
+import '../../../core/ui/ember_ui.dart';
 
-/// 聊天页消息骨架:左右交错的头像圆块 + 气泡块 ×4。
-/// 呼吸动画为无限循环——可见它的测试只用有限 pump。
+/// 聊天页消息骨架:左右交错的头像圆块 + 气泡块 ×4(E-5.3 page spec §5「EmberSkeleton 按气泡形状」)。
+///
+/// 骨架是纯装饰(§8.4),循环呼吸由 [EmberSkeleton] 自己管 —— 可见它的测试只能用
+/// 有限 `pump`,禁 `pumpAndSettle`(它永远不会 settle)。
 class ChatSkeleton extends StatelessWidget {
+  /// 构造骨架。
   const ChatSkeleton({super.key});
 
   @override
-  Widget build(BuildContext context) => const Padding(
-        key: Key('chat.skeleton'),
-        padding: EdgeInsets.all(AppSpacing.lg),
-        child: Column(
+  Widget build(BuildContext context) => Padding(
+        key: const Key('chat.skeleton'),
+        padding: EdgeInsets.all(tokens.space20),
+        child: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _BubbleRow(alignEnd: false, bubbleWidth: 180),
@@ -33,20 +35,32 @@ class _BubbleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+        padding: EdgeInsets.only(bottom: tokens.space12),
         child: Row(
           mainAxisAlignment:
               alignEnd ? MainAxisAlignment.end : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (!alignEnd) ...[
-              const AppSkeleton(width: 40, height: 40, radius: AppRadius.full),
-              const SizedBox(width: AppSpacing.sm),
+              const EmberSkeleton(
+                width: EmberComponentSizes.avatarMd,
+                height: EmberComponentSizes.avatarMd,
+                shape: BoxShape.circle,
+              ),
+              SizedBox(width: tokens.space8),
             ],
-            AppSkeleton(width: bubbleWidth, height: 40, radius: AppRadius.bubble),
+            EmberSkeleton(
+              width: bubbleWidth,
+              height: tokens.space40,
+              radius: tokens.radiusMd,
+            ),
             if (alignEnd) ...[
-              const SizedBox(width: AppSpacing.sm),
-              const AppSkeleton(width: 40, height: 40, radius: AppRadius.full),
+              SizedBox(width: tokens.space8),
+              const EmberSkeleton(
+                width: EmberComponentSizes.avatarMd,
+                height: EmberComponentSizes.avatarMd,
+                shape: BoxShape.circle,
+              ),
             ],
           ],
         ),

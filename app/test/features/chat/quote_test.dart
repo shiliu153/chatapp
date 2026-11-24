@@ -300,5 +300,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('原消息不在当前记录中'), findsOneWidget);
+
+    // 提示是 `EmberToast`(2s 自动消失,timer 挂在静态字段上),跑完再结束用例 ——
+    // 否则 testWidgets 会因 pending timer 判红。
+    await tester.pump(const Duration(seconds: 3));
   });
 }

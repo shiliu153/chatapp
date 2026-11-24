@@ -3,14 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import '../../core/api_exception.dart';
 import '../../core/format.dart';
 import '../../core/theme/app_gradients.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/theme/ember_theme_context.dart';
 import '../../core/theme/heart_theme_context.dart';
+import '../../core/theme/tokens.g.dart' as tokens;
+import '../../core/ui/ember_ui.dart';
 import '../../core/widgets/app_avatar.dart';
-import '../../core/widgets/app_badge.dart';
 import '../../core/widgets/app_empty_state.dart';
 import '../../core/widgets/app_error_view.dart';
 import '../../core/widgets/app_list_row.dart';
@@ -216,7 +219,7 @@ class _NotificationsBellState extends ConsumerState<NotificationsBell> {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     final unread = ref.watch(notificationsUnreadCountProvider).value ?? 0;
     return Stack(
       clipBehavior: Clip.none,
@@ -225,14 +228,20 @@ class _NotificationsBellState extends ConsumerState<NotificationsBell> {
           key: const Key('chats.notifications'),
           tooltip: '通知',
           onPressed: () => context.push('/notifications'),
-          icon: Icon(Icons.notifications_rounded, size: 24, color: colors.text1),
+          // §6:图标一律 Phosphor;会话列表顶栏的铃铛与 E-5.3 同批换掉。
+          icon: Icon(
+            PhosphorIconsRegular.bell,
+            size: tokens.sizeIcon24,
+            color: colors.textPrimary,
+          ),
         ),
         if (unread > 0)
           Positioned(
             right: 4,
             top: 4,
             child: IgnorePointer(
-              child: AppBadge(count: unread),
+              // 角标数字已由按钮 tooltip / 通知页承担,这里只出画面不出声。
+              child: ExcludeSemantics(child: EmberBadge(count: unread)),
             ),
           ),
       ],

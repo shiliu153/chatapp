@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:chatapp_app/core/widgets/app_avatar.dart';
+import 'package:chatapp_app/core/ui/ember_ui.dart';
 import 'package:chatapp_app/features/chat/widgets/message_bubble.dart';
 import 'package:chatapp_app/im/im_client.dart';
 import 'package:chatapp_app/im/voice_transcode.dart';
@@ -93,10 +93,10 @@ void main() {
     expect(find.byKey(const Key('chat.notice')), findsOneWidget);
   });
 
-  testWidgets('头像用圆形 AppAvatar + 首字', (tester) async {
+  testWidgets('头像用圆形 EmberAvatar + 首字', (tester) async {
     await _pump(tester, MessageBubble(message: _m(), peerName: '小红'));
 
-    expect(find.byType(AppAvatar), findsOneWidget);
+    expect(find.byType(EmberAvatar), findsOneWidget);
     expect(find.text('小'), findsOneWidget);
   });
 
