@@ -78,8 +78,11 @@
 
 ### Task E-3.3 无障碍门禁
 
-- [ ] `web` 加 `@axe-core/playwright`（或 `vitest-axe`）冒烟：主流程页面零 critical。
-      **未做** —— 留给 E-5 第一个 web 页单带上（本单只做底座）。
+- [x] `web` 加 `@axe-core/playwright` 冒烟：主流程页面零 critical。
+      **已落地（2026-11-23，随 [#468](https://github.com/shiliu153/chatapp/pull/468)）** ——
+      `web/tests/e2e/support/a11y.ts` 提供 `expectNoCriticalA11y`，`ci-smoke.spec.ts` 在
+      登录 / 完善资料 / 发现 / 广场四页各扫一次；只卡 `critical` 档，`serious` 里的配色对比度
+      归 `scripts/design_contrast.py` 管（避免两份阈值）。
 
 ---
 
@@ -100,16 +103,38 @@
 
 ## E-5+ · 逐页迁移（每页一单，`app` 或 `web`）
 
+两条线分开排：**App 线（E-5.x）与 Web 线（W-5.x）各自一单一栈**，互不阻塞。
+
+### App 线（`app` 栈）
+
 - E-5.1 底栏 shell + 四个 Tab 骨架 —— ✅ 已交付（[#476](https://github.com/shiliu153/chatapp/pull/476)，2026-11-23）
+- E-5.2 遇见（发现）页 —— page spec 已拍板（[#486](https://github.com/shiliu153/chatapp/pull/486)，2026-11-24），
+  实现单 [#487](https://github.com/shiliu153/chatapp/issues/487)
 
 顺序按「用户停留时长 × 改动面」：
 
 1. ~~底栏 shell + 四个 Tab 骨架~~ ✅
-2. 发现页（滑卡、操作钮、Hero 到资料页）
+2. 发现页（滑卡、操作钮、Hero 到资料页）—— **进行中**（#487）
 3. 消息页 + 聊天页（气泡、输入栏、时间条）
 4. 我的 + 资料页
 5. 回声（广场）页
 6. 二级页（登录 / 引导 / 设置 / 编辑资料）
+
+### Web 线（`web` 栈）
+
+**现状**：E-3 只接底座 —— `tokens.generated.css` 已进样式入口、PrimeVue 走 unstyled + passThrough、
+`ember-compat.css` 承接旧变量名；**页面视觉仍是「旧布局 + 新色值」**。裸 hex 只剩
+`features/discovery/CandidateCard.vue` 与 `DailyStrip.vue` 各一处；axe 门禁已随 E-3.3 落地。
+
+顺序同样按「停留时长 × 改动面」，每单一页 spec 一单工单：
+
+1. **W-5.1 登录 + 引导**：`auth/LoginPage`、`onboarding/OnboardingPage`、`legal/LegalGate`、`app/ForceUpdate`
+2. **W-5.2 发现**：`discovery/DiscoveryPage`、`CandidateCard`、`SwipeDeck`、`MatchMoment`、`DailyStrip`、
+   `LikesPage`、`VisitsPage`
+3. **W-5.3 回声（广场）**：`square/` 的列表、详情、评论
+4. **W-5.4 对话**：`chat/ChatsPage`、`ChatPage`、气泡 / 输入栏 / 搜索 / 弹窗
+5. **W-5.5 我**：`profile/MyProfilePage`、`settings/`、编辑资料
+6. **W-5.6 二级与公共**：`notifications/`、`stats/`、设备管理、举报弹窗、`dev/ComponentsPage` 对齐新组件
 
 每单固定验收：`scripts/verify.sh app`（或 `web`）绿 + 该页 golden + 模拟器手测截图
 （App）/ 真浏览器截图（Web）。**不得声称 ready**：App UI 可见改动的 PR 一律 draft，等主人验收。
@@ -134,3 +159,8 @@
   Ember §4 的 Fraunces 标题字体没有落地~~ —— **已解决（2026-11-23 字体单）**：两端换成
   `Fraunces-Variable.ttf`（可变字体，字重走 wght 轴），Space Grotesk 三份静态字重删除，
   `web/tests/unit/fonts.spec.ts` 仍双向比对（现在还会断言旧字体确实没了）。踩坑见 spec §4.1。
+- 2026-11-24：**E-5.2 遇见页 page spec 已拍板并合并**（[#486](https://github.com/shiliu153/chatapp/pull/486)），
+  实现单 [#487](https://github.com/shiliu153/chatapp/issues/487) 已派给 worker。同一次改动把
+  **Web 线（W-5.1–W-5.6）单独排期**（E-3 只接底座，页面仍是「旧布局 + 新色值」），并把 E-3.3 的
+  过期勾回填 —— axe 冒烟其实随 [#468](https://github.com/shiliu153/chatapp/pull/468) 已落地
+  （`web/tests/e2e/support/a11y.ts`，登录 / 完善资料 / 发现 / 广场四页零 critical），此前标着「未做」。
