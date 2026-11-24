@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 联网权限**必须**留在 main:Flutter 模板只在 debug/profile 的 manifest 里声明
+         INTERNET(那是给热重载用的),release 构建不会合并它。缺了它,release 包所有
+         连接一律 EPERM 失败,Dio 统一翻成「网络不给力,请检查网络后重试」,而服务端
+         一条请求都收不到 —— 2026-11-24 排查 1.0.14 线上包即此因(aapt2 dump
+         permissions 无 INTERNET,debug 包有)。不要把它挪到 debug/ 里。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <application
         android:label="chatapp_app"

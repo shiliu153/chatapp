@@ -61,6 +61,12 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 > ```
 >
 > 2026-11-11 的 1.0.13 就是在默认分支 web 轨已经红着的情况下完成上线的 —— 纪律没有机械执行 = 没有纪律。
+>
+> **步骤 3 构建完先验一条**(2026-11-24 起):
+> `aapt2 dump permissions app/build/app/outputs/flutter-apk/app-release.apk | grep INTERNET`。
+> Flutter 模板只在 `debug/`、`profile/` 的清单里声明 `INTERNET`,release 不合并;缺了它整包没网,
+> 现象是登录页「网络不给力」而服务端 0 请求。1.0.1–1.0.14 全部踩过,详见
+> [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md)。
 
 ### 3.1 步骤 2 之前先跑一条命令(2026-11-09 起)
 
@@ -479,6 +485,10 @@ python scripts/create_release.py --version 1.0.7 \
   登录页;但**登录提交这一步在模拟器上失败**(见 `docs/pitfalls/android-emulator.md` 新增条目:
   点「获取验证码」报「网络不给力」,服务端 0 条 `/auth/sms/send`,而同机 `GET /app/config` 正常),
   因此通知页的模拟器逐页手测**待网络问题定位后补做**;App 侧目前由 506 条自动化测试覆盖。
+- **2026-11-24 更正**:上面这条「登录提交失败」**不是网络问题**,是 release 包缺
+  `android.permission.INTERNET`(debug 包有、release 不合并,见
+  [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md));已在 main 修复,随 1.0.15 发版。
+  也就是说 1.0.7 这个包装机后本来就是「完全没网」,与模拟器无关。
 
 
 ### 1.0.8 上线实况(2026-11-07 00:54–00:58)
@@ -499,8 +509,9 @@ python scripts/create_release.py --version 1.0.7 \
   点一条(服务端 `is_read=1` + 跳动态详情)→ 返回(未读点消失/全部已读变灰)→ 回消息页角标消失」;
   编辑资料页「保存」也回到右侧(顶栏修复生效)。**已知限制**:角标是 `FutureProvider`,
   App 常驻打开时不自动刷新(重启/失效后才更新),已记入计划执行记录的下一批待办。
-- **release 包的「网络超时」**:同机 debug 包同一路径成功,判据见
-  `docs/pitfalls/android-emulator.md`(模拟器长跑网络劣化);下一批手测前先冷启动复测。
+- **release 包的「网络超时」**:同机 debug 包同一路径成功 —— **2026-11-24 定位为 release 包缺
+  `INTERNET` 权限**,不是模拟器长跑劣化;判据与修复见
+  [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md)(已在 main 修复,随 1.0.15 发版)。
 
 
 ## 6.4 v1.0.9 的发版材料(批次 I · 广场关注 + 关注流)
@@ -600,8 +611,8 @@ python scripts/sync_version.py --check
   (服务端 `feed_follow` 同步落行 12→8)→ 返回广场切「关注」→ 只看到 Bob 的两条动态 →
   再进资料页点「已关注」→ 回到「0 粉丝 / 关注」(库内 0 行)。
   **release 包在同一模拟器上仍卡在「获取验证码 → 网络不给力」**(服务端 0 条 `/auth/sms/send`),
-  同一路径 debug 包成功 —— 与 1.0.8 记录的是同一环境问题,判据与处理见
-  `docs/pitfalls/android-emulator.md`。
+  同一路径 debug 包成功 —— **2026-11-24 定位:release 包缺 `INTERNET` 权限**(与 1.0.8 记的是同一根因,
+  不是环境问题),判据与修复见 [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md);已在 main 修复,随 1.0.15 发版。
 - **Web 生产验收(Chrome)**:`/home/square` 渲染「推荐 / 关注」两个 tab;「关注」空态正确;
   `/users/8` 显示「0 关注 0 粉丝 + 关注」→ 点击变「已关注 / 1 粉丝」→ 回广场「关注」tab
   只看到 Bob 的两条动态 → 再点「已关注」回到「关注 / 0 粉丝」。
