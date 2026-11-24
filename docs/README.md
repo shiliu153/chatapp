@@ -27,7 +27,7 @@ owner: scripts/docs_index.py
 
 ## 1. 非归档文档
 
-共 **87** 份 / **14** 个目录(不含本文件)。
+共 **88** 份 / **14** 个目录(不含本文件)。
 
 ### `docs/` 根(2 份)
 
@@ -173,7 +173,7 @@ owner: scripts/docs_index.py
 |---|---|
 | [2026-11-23-ui-redesign-ember.md](superpowers/plans/2026-11-23-ui-redesign-ember.md) | 实施计划：「余烬 Ember」接线与页面迁移 |
 
-### `docs/superpowers/specs/`(8 份)
+### `docs/superpowers/specs/`(9 份)
 
 | 文档 | 标题 |
 |---|---|
@@ -185,6 +185,7 @@ owner: scripts/docs_index.py
 | [2026-11-23-ui-redesign-ember-design.md](superpowers/specs/2026-11-23-ui-redesign-ember-design.md) | UI 设计语言「余烬 Ember」— 从零重建的设计规范 |
 | [2026-11-24-e5-2-discovery-page-spec.md](superpowers/specs/2026-11-24-e5-2-discovery-page-spec.md) | E-5.2 页面规格：遇见（发现）页 —— 滑卡、操作钮与配对编排 |
 | [2026-11-24-e5-3-chat-page-spec.md](superpowers/specs/2026-11-24-e5-3-chat-page-spec.md) | E-5.3 页面规格：对话（会话列表 + 聊天页）—— 气泡、输入栏、时间条 |
+| [2026-11-24-e5-4-profile-page-spec.md](superpowers/specs/2026-11-24-e5-4-profile-page-spec.md) | E-5.4 页面规格：我（我的主页）+ 资料页（他人资料） |
 
 ## 2. 归档
 
