@@ -107,18 +107,23 @@
 
 ### App 线（`app` 栈）
 
-- E-5.1 底栏 shell + 四个 Tab 骨架 —— ✅ 已交付（[#476](https://github.com/shiliu153/chatapp/pull/476)，2026-11-23）
-- E-5.2 遇见（发现）页 —— page spec 已拍板（[#486](https://github.com/shiliu153/chatapp/pull/486)，2026-11-24），
-  实现单 [#487](https://github.com/shiliu153/chatapp/issues/487)
+| 单 | 状态 |
+|---|---|
+| E-5.1 底栏 shell + 四个 Tab 骨架 | ✅ [#476](https://github.com/shiliu153/chatapp/pull/476)（2026-11-23） |
+| E-5.2 遇见（发现）页 | ✅ [#495](https://github.com/shiliu153/chatapp/pull/495)（2026-11-24） |
+| E-5.3 对话页（会话列表 + 聊天页） | ✅ [#501](https://github.com/shiliu153/chatapp/pull/501)（2026-11-24） |
+| E-5.4 我的 + 资料页（含 Hero 三条入口） | ✅ [#510](https://github.com/shiliu153/chatapp/pull/510)（2026-11-24） |
+| E-5.5 回声（广场）页 + 动态详情 | ✅ [#511](https://github.com/shiliu153/chatapp/pull/511)（2026-11-24） |
+| E-5.6 二级页（拆 a/b/c/d 四单） | 🔄 a 准入进行中（[#512](https://github.com/shiliu153/chatapp/pull/512)）；b 设置 [#507](https://github.com/shiliu153/chatapp/issues/507) / c 表单 [#508](https://github.com/shiliu153/chatapp/issues/508) / d 列表 [#509](https://github.com/shiliu153/chatapp/issues/509) 排队 |
 
 顺序按「用户停留时长 × 改动面」：
 
 1. ~~底栏 shell + 四个 Tab 骨架~~ ✅
-2. 发现页（滑卡、操作钮、Hero 到资料页）—— **进行中**（#487）
-3. 消息页 + 聊天页（气泡、输入栏、时间条）
-4. 我的 + 资料页
-5. 回声（广场）页
-6. 二级页（登录 / 引导 / 设置 / 编辑资料）
+2. ~~发现页（滑卡、操作钮、Hero 到资料页）~~ ✅
+3. ~~消息页 + 聊天页（气泡、输入栏、时间条）~~ ✅
+4. ~~我的 + 资料页~~ ✅
+5. ~~回声（广场）页~~ ✅
+6. 二级页（登录 / 引导 / 设置 / 编辑资料）—— 拆四单，进行中
 
 ### Web 线（`web` 栈）
 
@@ -164,3 +169,19 @@
   **Web 线（W-5.1–W-5.6）单独排期**（E-3 只接底座，页面仍是「旧布局 + 新色值」），并把 E-3.3 的
   过期勾回填 —— axe 冒烟其实随 [#468](https://github.com/shiliu153/chatapp/pull/468) 已落地
   （`web/tests/e2e/support/a11y.ts`，登录 / 完善资料 / 发现 / 广场四页零 critical），此前标着「未做」。
+- 2026-11-24：**App 线五单连交付** —— E-5.2 [#495](https://github.com/shiliu153/chatapp/pull/495)、
+  E-5.3 [#501](https://github.com/shiliu153/chatapp/pull/501)、E-5.4 [#510](https://github.com/shiliu153/chatapp/pull/510)、
+  E-5.5 [#511](https://github.com/shiliu153/chatapp/pull/511)（E-5.1 已于 11-23 交付）。每单都过
+  `verify.sh app` + golden + Semantics + `app-ui`（真模拟器），由本机会话逐单审核 diff 后合并。
+  过程中沉淀的三条口径写在这里，后续页单照做：
+  ① **临时产物不许进提交**（`tmp_*` / `scratch_*`，E-5.2 与 E-5.3 各出现过一次，靠审核抓）；
+  ② **组件级 golden 里带 `Image.asset` 的，`pumpScene` 必须先 `precacheImage`**，否则截到的是「图还没出来」那一帧
+     （E-5.5 的空态 golden 就这么漏了插画，返工一次）；
+  ③ **跨页 Hero 的骨架也要带同名 tag** —— Hero 只在 push 后下一帧扫一次，资料页首帧是 loading 骨架，
+     骨架不带 tag 就「有 tag 但不飞」（E-5.4 发现并写了用例钉住）。
+- 2026-11-24：E-5.6 拆四单后，**a 准入**（[#512](https://github.com/shiliu153/chatapp/pull/512)）落地了三个公共组件
+  `EmberPageScaffold` / `EmberSettingsTile` / `EmberDialog`，b/c/d 直接复用。同单还修了
+  `EmberField` 一个真实缺陷：聚焦时才包一层 `Container` 会让内层 `TextInputConnection` 重建、
+  同页第二个字段 `enterText` 静默丢字（真机丢 IME 组字）。另发现 `EmberButton` 读屏标签念两遍
+  （`EmberPressable` 的 Semantics 与内层 `Text` 各贡献一份），已开组件单
+  [#513](https://github.com/shiliu153/chatapp/issues/513) 单独修。
