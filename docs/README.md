@@ -27,7 +27,7 @@ owner: scripts/docs_index.py
 
 ## 1. 非归档文档
 
-共 **85** 份 / **14** 个目录(不含本文件)。
+共 **86** 份 / **14** 个目录(不含本文件)。
 
 ### `docs/` 根(2 份)
 
@@ -173,7 +173,7 @@ owner: scripts/docs_index.py
 |---|---|
 | [2026-11-23-ui-redesign-ember.md](superpowers/plans/2026-11-23-ui-redesign-ember.md) | 实施计划：「余烬 Ember」接线与页面迁移 |
 
-### `docs/superpowers/specs/`(6 份)
+### `docs/superpowers/specs/`(7 份)
 
 | 文档 | 标题 |
 |---|---|
@@ -183,6 +183,7 @@ owner: scripts/docs_index.py
 | [2026-11-16-facts-numbers-design.md](superpowers/specs/2026-11-16-facts-numbers-design.md) | 文档关键数字的机械化(生成 + 判定)设计 |
 | [2026-11-23-e5-1-shell-nav-page-spec.md](superpowers/specs/2026-11-23-e5-1-shell-nav-page-spec.md) | E-5.1 页面规格：底栏 shell + 四个 Tab（骨架） |
 | [2026-11-23-ui-redesign-ember-design.md](superpowers/specs/2026-11-23-ui-redesign-ember-design.md) | UI 设计语言「余烬 Ember」— 从零重建的设计规范 |
+| [2026-11-24-e5-2-discovery-page-spec.md](superpowers/specs/2026-11-24-e5-2-discovery-page-spec.md) | E-5.2 页面规格：遇见（发现）页 —— 滑卡、操作钮与配对编排 |
 
 ## 2. 归档
 
