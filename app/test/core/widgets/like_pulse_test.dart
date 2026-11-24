@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import 'package:chatapp_app/features/square/models.dart';
 import 'package:chatapp_app/features/square/widgets/post_card.dart';
@@ -37,9 +38,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80)); // 推到上升段
 
     // 只找点赞位的 ScaleTransition(评论位没有动画);
-    // 注意 find.ancestor 有两层命中:内层是脉冲(先),外层是 AppCard 按压 AnimatedScale(后)→ 取 first
+    // 注意 find.ancestor 有两层命中:内层是脉冲(先),外层是 EmberCard 按压的 Transform.scale(后)→ 取 first
     final pulse = find.ancestor(
-        of: find.byIcon(Icons.favorite_rounded),
+        of: find.byIcon(PhosphorIconsFill.heart),
         matching: find.byType(ScaleTransition));
     expect(pulse, findsWidgets);
     final scale = tester.widget<ScaleTransition>(pulse.first).scale.value;
@@ -67,9 +68,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 80));
 
     final pulse = find.ancestor(
-        of: find.byIcon(Icons.favorite_border_rounded),
+        of: find.byIcon(PhosphorIconsRegular.heart),
         matching: find.byType(ScaleTransition));
-    expect(pulse, findsWidgets); // 两层:内层脉冲 + 外层 AppCard 按压层
+    expect(pulse, findsWidgets); // 两层:内层脉冲 + 外层 EmberCard 按压层
     final scale = tester.widget<ScaleTransition>(pulse.first).scale.value;
     expect(scale, 1.0); // 脉冲没被触发
   });

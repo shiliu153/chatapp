@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import 'package:chatapp_app/features/square/widgets/post_images.dart';
 import '../../support/heart_theme.dart';
@@ -21,7 +22,7 @@ Future<void> _pump(WidgetTester tester, int count) async {
 }
 
 void main() {
-  testWidgets('1 张:通栏大图,宽撑满、高 240、R12', (tester) async {
+  testWidgets('1 张:通栏大图,宽撑满、高 240、radius.sm 12', (tester) async {
     await _pump(tester, 1);
     expect(find.byKey(const Key('post.image.0')), findsOneWidget);
     expect(find.byType(GridView), findsNothing); // 不走网格
@@ -34,7 +35,8 @@ void main() {
     await _pump(tester, 2);
     expect(find.byType(GridView), findsOneWidget);
     final size = tester.getSize(find.byKey(const Key('post.image.0')));
-    expect(size.width, closeTo((736 - 2 * 8.0) / 3, 0.5)); // 8 = AppSpacing.sm(间距 8,附录 D.2)
+    // 间距 4(E-5.5 §3「图片网格 间距 4」):格宽 = (可用宽 - 两个间距)/3
+    expect(size.width, closeTo((736 - 2 * 4.0) / 3, 0.5));
     expect(size.height, size.width); // AspectRatio 1 正方
   });
 
@@ -44,8 +46,8 @@ void main() {
     expect(find.byKey(const Key('post.image.4')), findsOneWidget);
   });
 
-  testWidgets('图挂了:divider 底占位仍在(key 保留)', (tester) async {
+  testWidgets('图挂了:surface.sunken 底 + Phosphor image 占位', (tester) async {
     await _pump(tester, 1);
-    expect(find.byIcon(Icons.image_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsRegular.image), findsOneWidget);
   });
 }

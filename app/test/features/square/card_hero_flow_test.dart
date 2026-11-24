@@ -5,6 +5,7 @@ import 'package:chatapp_app/core/widgets/card_hero.dart';
 import 'package:chatapp_app/features/square/post_detail_page.dart';
 import 'package:chatapp_app/features/square/widgets/post_card.dart';
 import 'package:chatapp_app/features/square/widgets/post_detail_skeleton.dart';
+import 'package:chatapp_app/features/square/widgets/post_image_hero.dart';
 
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
@@ -101,6 +102,68 @@ void main() {
     expect(_card(tester, 1).heroTag, 'avatar-post-1');
     expect(_card(tester, 1).cardHeroTag, isNull);
     expect(_taggedCardHeroes(tester), isEmpty);
+  });
+
+  testWidgets('有图动态:图片 Hero 卡 → 详情(整卡 Hero 让位)', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'GET /posts': (options) => ok(pageJson([
+            postJson(
+              id: 3,
+              authorId: 9,
+              nickname: 'Alice',
+              text: '带图的',
+              images: ['http://test/media/posts/3.png'],
+            ),
+          ])),
+      'GET /posts/3': (options) => ok(postJson(
+            id: 3,
+            authorId: 9,
+            nickname: 'Alice',
+            text: '带图的',
+            images: ['http://test/media/posts/3.png'],
+          )),
+      'GET /posts/3/comments': (options) => ok(pageJson([])),
+      'GET /presence': (options) => ok({'results': []}),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+    await tester.tap(navTab('回声'));
+    await tester.pumpAndSettle();
+
+    // 飞行前:有图 → 不包任何 Hero(tag 都是 null),头像 Hero 也在飞行时让位
+    expect(_card(tester, 3).cardHeroTag, isNull);
+    expect(_card(tester, 3).imageHeroTag, isNull);
+
+    // 点正文进详情:这张卡有 240 高的图片,卡中心落在图片上会打开大图查看器
+    // (既有行为),所以要按文字位置点。
+    await tester.tap(find.text('带图的').first);
+    await tester.pump(); // 飞行首帧
+
+    // 飞行中:整卡 Hero 不参与(有图走图片),图片 Hero 落在卡上
+    expect(_card(tester, 3).cardHeroTag, isNull);
+    expect(_card(tester, 3).imageHeroTag, 'post-image-3');
+    expect(_card(tester, 3).heroTag, 'avatar-post-3');
+
+    await tester.pumpAndSettle();
+
+    // 目标侧:详情页同一 tag 落在图片块上(§1 第 9 条「卡图片 → 详情图片」)
+    final detailImageTags = tester
+        .widgetList<PostImageHero>(find.descendant(
+            of: find.byType(PostDetailPage), matching: find.byType(PostImageHero)))
+        .map((hero) => hero.tag)
+        .toList();
+    expect(detailImageTags, contains('post-image-3'));
+    // 详情页里没有整卡 Hero(Hero 不得嵌套)
+    expect(
+      tester
+          .widgetList<CardHero>(find.descendant(
+              of: find.byType(PostDetailPage), matching: find.byType(CardHero)))
+          .where((hero) => hero.tag != null),
+      isEmpty,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('我的动态进详情:无 extra → 两端都不带整卡 tag', (tester) async {

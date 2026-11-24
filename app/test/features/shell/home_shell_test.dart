@@ -22,7 +22,7 @@ void main() {
   testWidgets('四个 Tab 都在;回声可切换;「我」显示昵称与资料入口', (tester) async {
     final adapter = _adapter(profile: profileJson(nickname: '小明'));
     await pumpApp(tester, adapter, prefs: _loggedIn);
-    // 广场空态的 HeartRipple 在 IndexedStack 隐藏页也一直跑(pumpAndSettle 永不收敛)
+    // 广场空态插画 / 骨架在 IndexedStack 隐藏页也会跑循环动画(pumpAndSettle 永不收敛)
     await pumpFrames(tester);
 
     expect(find.byType(EmberNavBar), findsOneWidget);
@@ -32,8 +32,8 @@ void main() {
     expect(navTab('我'), findsOneWidget);
 
     await tester.tap(navTab('回声'));
-    await pumpFrames(tester); // 空态涟漪无限动画(原 pumpAndSettle)
-    expect(find.text('还没有动态'), findsOneWidget);
+    await pumpFrames(tester); // 空态不再有涟漪,但骨架呼吸仍在(原 pumpAndSettle)
+    expect(find.text('还没有人留下回声'), findsOneWidget);
 
     await tester.tap(navTab('我'));
     await pumpFrames(tester);

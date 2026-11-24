@@ -31,42 +31,56 @@ import 'features/square/post_detail_args.dart';
 import 'features/square/post_detail_page.dart';
 import 'features/stats/stats_page.dart';
 
-/// 聊天页的转场:从右滑入,位移曲线取 `spring.standard`(E-5.3 page spec §1 第 7 条)。
+/// 二级页统一转场(§9.3 / §9.4 + §7.1):从右滑入,位移用 `spring.standard`;
+/// 系统开了「减弱动态效果」时退化成 **120ms 线性淡入**(§8.4),不做位移。
 ///
-/// 为什么单独给 `/chat/:peerId` 开一条 `pageBuilder` 而不是全局换掉页面转场:
-/// §9.4 的「二级页右滑入」是本单先落地的样板,但其余二级页还没迁移(E-5.6),
-/// 全局改会把它们的转场一起改掉。
+/// 为什么逐条写 `pageBuilder` 而不是全局换掉页面转场:§9.4 的「二级页右滑入」只在
+/// 已迁移的页面上生效,其余二级页还没迁(E-5.6),全局改会把它们的转场一起改掉。
+///
+/// Hero 与这条转场的关系(E-5.5 page spec §1 第 9 条):`disableAnimations` 为真时
+/// Hero 自己就不包了(`PostImageHero` / `CardHero` 都静默降级),转场同时退成淡入 ——
+/// 于是「图片 Hero 转场退化为淡入」是这两处一起成立的结果。
 ///
 /// 参数说明:
+/// - [context] Navigator 侧上下文:从 MediaQuery 读「是否减弱动态效果」,据此选
+///   转场时长(120ms 淡入 / 320ms 滑入)。
 /// - [state] go_router 的路由状态(取 key)。
 /// - [child] 目标页面。
 ///
 /// Returns:
-///   带弹簧位移转场的页面。
-CustomTransitionPage<void> chatRoutePage(GoRouterState state, Widget child) =>
-    CustomTransitionPage<void>(
-      key: state.pageKey,
-      transitionDuration: const Duration(milliseconds: 320),
-      reverseTransitionDuration: const Duration(milliseconds: 240),
-      child: child,
-      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        if (EmberMotion.reducedOf(context)) return child;
-        // 只关心「进入 / 退出」这一条 spring,`secondaryAnimation` 留给下层页面
-        // 自己画(这里不改下层,避免与被推走的列表叠出双层位移)。
-        return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(1, 0),
-            end: Offset.zero,
-          ).animate(
-            CurvedAnimation(
-              parent: animation,
-              curve: EmberMotion.springCurve(EmberMotion.standard),
-            ),
+///   带弹簧位移(或减弱动态效果下的淡入)转场的页面。
+CustomTransitionPage<void> subPageRoute(
+  BuildContext context,
+  GoRouterState state,
+  Widget child,
+) {
+  final reduced = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    transitionDuration: reduced ? EmberMotion.reduced : const Duration(milliseconds: 320),
+    reverseTransitionDuration:
+        reduced ? EmberMotion.reduced : const Duration(milliseconds: 240),
+    child: child,
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      // 减弱动态效果:只淡入,不位移、不缩放(§8.4)。
+      if (reduced) return FadeTransition(opacity: animation, child: child);
+      // 只关心「进入 / 退出」这一条 spring,`secondaryAnimation` 留给下层页面
+      // 自己画(这里不改下层,避免与被推走的列表叠出双层位移)。
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(1, 0),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: EmberMotion.springCurve(EmberMotion.standard),
           ),
-          child: child,
-        );
-      },
-    );
+        ),
+        child: child,
+      );
+    },
+  );
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
   // 会话状态变化 → 让 GoRouter 重新跑一遍 redirect
@@ -101,7 +115,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/chat/:peerId',
         // 二级页右滑入(E-5.3 page spec §1 第 7 条):位移用 `spring.standard`,
         // 不用 Material 默认的曲线;减弱动态效果时直接落终态(§7.3)。
-        pageBuilder: (context, state) => chatRoutePage(
+        pageBuilder: (context, state) => subPageRoute(
+          context,
           state,
           ChatPage(
             peerId: state.pathParameters['peerId']!,
@@ -130,13 +145,19 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/posts/:id',
-        builder: (context, state) {
+        // 动态详情是二级页(§9.3 沉浸内容):右滑入 + 图片 Hero;
+        // 减弱动态效果时转场退成淡入(Hero 由 PostImageHero 自己让位)。
+        pageBuilder: (context, state) {
           final args = state.extra is PostDetailArgs
               ? state.extra as PostDetailArgs
               : null; // 深链/无来源:extra 不是 PostDetailArgs(或为 null)
-          return PostDetailPage(
-            postId: int.parse(state.pathParameters['id']!),
-            args: args,
+          return subPageRoute(
+            context,
+            state,
+            PostDetailPage(
+              postId: int.parse(state.pathParameters['id']!),
+              args: args,
+            ),
           );
         },
       ),

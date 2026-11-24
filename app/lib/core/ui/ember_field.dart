@@ -33,6 +33,8 @@ class EmberField extends StatefulWidget {
     this.suffix,
     this.focusNode,
     this.autofocus = false,
+    this.fieldKey,
+    this.maxLength,
   });
 
   /// 文本控制器。
@@ -76,6 +78,15 @@ class EmberField extends StatefulWidget {
 
   /// 是否自动聚焦。
   final bool autofocus;
+
+  /// 内部 [TextField] 的 Key;`null` 时用默认的 `ember.field.input`。
+  ///
+  /// 为什么需要:页面测试要按 Key 定点输入(`tester.enterText`),而页面里可能同时
+  /// 有多个输入框 —— 默认 Key 会串。
+  final Key? fieldKey;
+
+  /// 最大字数;`null` 不限制。给评论输入这类有后端上限的场合用(不显示计数器)。
+  final int? maxLength;
 
   @override
   State<EmberField> createState() => _EmberFieldState();
@@ -124,12 +135,13 @@ class _EmberFieldState extends State<EmberField> {
     }
 
     Widget field = TextField(
-      key: const Key('ember.field.input'),
+      key: widget.fieldKey ?? const Key('ember.field.input'),
       controller: widget.controller,
       focusNode: _focusNode,
       enabled: widget.enabled,
       obscureText: widget.obscureText,
       maxLines: widget.maxLines,
+      maxLength: widget.maxLength,
       keyboardType: widget.keyboardType,
       autofocus: widget.autofocus,
       onChanged: widget.onChanged,
@@ -179,6 +191,8 @@ class _EmberFieldState extends State<EmberField> {
         ),
         // errorText 交给 Tab 下方的自绘说明,避免 Material 默认红字带自己的字号/颜色。
         errorStyle: const TextStyle(height: 0, fontSize: 0),
+        // maxLength 给的是**上限**而不是「必须显示计数器」,计数器会额外占一行。
+        counterText: '',
       ),
     );
 

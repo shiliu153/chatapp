@@ -1,64 +1,82 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_radius.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_skeleton.dart';
-import '../../../core/theme/heart_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
+import '../../../core/ui/ember_ui.dart';
 
-/// 广场/我的动态加载骨架(附录 D):3 张卡骨架 — 圆头像 + 两条文字 + 图块 + 操作行。
-/// 呼吸动画为无限循环 — 可见它的测试只用有限 pump。
+/// 回声(广场)动态流加载骨架(E-5.5 page spec §5「动态流加载中」):
+/// 3 张 [`EmberCard`] 骨架 —— 头像圆 + 两行文字 + 图片块 + 操作行,形状按目标内容
+/// (§8.3 骨架「形状按目标内容」)。
+///
+/// 骨架的呼吸是 `EmberSkeleton` 内部的 1.2s 循环(§8.3 / §7.3 允许的两处循环动画之一);
+/// 用到它的用例不要 `pumpAndSettle`(永远不收敛),按帧推进即可。
 class SquareSkeleton extends StatelessWidget {
+  /// 构造骨架。
   const SquareSkeleton({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
     return SingleChildScrollView(
-        // 3 张卡总高 > 一屏:包滚动,小屏不溢出(骨架屏为静态展示,不可交互)
-        child: Column(
-          key: key ?? const Key('square.skeleton'),
-          children: [
-            for (var i = 0; i < 3; i++) ...[
-              if (i > 0) const SizedBox(height: AppSpacing.cardGap),
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                decoration: BoxDecoration(
-                  color: colors.bgCard,
-                  borderRadius: BorderRadius.circular(AppRadius.card),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const AppSkeleton(
-                            width: 40, height: 40, radius: AppRadius.full),
-                        const SizedBox(width: AppSpacing.md),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const AppSkeleton(width: 120, height: 14),
-                            const SizedBox(height: AppSpacing.xs),
-                            const AppSkeleton(width: 72, height: 12),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    const AppSkeleton(width: double.infinity, height: 14),
-                    const SizedBox(height: AppSpacing.sm),
-                    const AppSkeleton(width: 220, height: 14),
-                    const SizedBox(height: AppSpacing.md),
-                    const AppSkeleton(
-                        width: double.infinity, height: 120, radius: AppRadius.image),
-                    const SizedBox(height: AppSpacing.md),
-                    const AppSkeleton(width: 140, height: 16),
-                  ],
-                ),
+      // 3 张卡总高 > 一屏:包滚动,小屏不溢出(骨架屏为静态展示,不可交互)
+      child: Column(
+        key: const Key('square.skeleton'),
+        children: [
+          for (var i = 0; i < 3; i++) ...[
+            if (i > 0) SizedBox(height: tokens.space12),
+            const _SkeletonCard(),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// 一张卡骨架:内边距 20(与真卡一致),行距按真卡的 4 / 8 / 12。
+class _SkeletonCard extends StatelessWidget {
+  const _SkeletonCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return EmberCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const EmberSkeleton(
+                width: EmberComponentSizes.avatarMd,
+                height: EmberComponentSizes.avatarMd,
+                shape: BoxShape.circle,
+              ),
+              SizedBox(width: tokens.space12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  EmberSkeleton(width: 120, height: tokens.fontSizeSubtitle),
+                  SizedBox(height: tokens.space4),
+                  EmberSkeleton(width: 72, height: tokens.fontSizeMicro),
+                ],
               ),
             ],
-          ],
-        ),
-      );
+          ),
+          SizedBox(height: tokens.space12),
+          EmberSkeleton(height: tokens.fontSizeBody),
+          SizedBox(height: tokens.space8),
+          EmberSkeleton(width: 220, height: tokens.fontSizeBody),
+          SizedBox(height: tokens.space12),
+          EmberSkeleton(
+            height: 120,
+            radius: tokens.radiusSm,
+          ),
+          SizedBox(height: tokens.space12),
+          Row(
+            children: [
+              EmberSkeleton(width: 40, height: tokens.fontSizeCaption),
+              SizedBox(width: tokens.space16),
+              EmberSkeleton(width: 40, height: tokens.fontSizeCaption),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }

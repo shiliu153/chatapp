@@ -85,7 +85,7 @@ void main() {
     expect(find.byKey(const Key('post.back')), findsOneWidget);
   });
 
-  testWidgets('空评论:emoji 空态', (tester) async {
+  testWidgets('空评论:一句居中提示(spec §5)', (tester) async {
     final adapter = ScriptedAdapter({
       'GET /posts/1': (options) =>
           ok(postJson(id: 1, nickname: 'Alice', text: '正文')),
@@ -94,17 +94,17 @@ void main() {
     await pumpDetail(tester, adapter, postId: 1);
     await tester.pumpAndSettle();
 
-    expect(find.text('还没有评论'), findsOneWidget);
-    expect(find.text('来抢沙发'), findsOneWidget);
+    expect(find.text('还没有评论，来说点什么'), findsOneWidget);
   });
 
-  testWidgets('动态不存在 → 显示错误态', (tester) async {
+  testWidgets('动态不存在 → 「这条动态已被删除」+ 返回(spec §5)', (tester) async {
     final adapter = ScriptedAdapter({
       'GET /posts/404': (options) => jsonError(404, '动态不存在'),
     });
     await pumpDetail(tester, adapter, postId: 404);
     await tester.pumpAndSettle();
-    expect(find.text('动态不存在'), findsOneWidget);
+    expect(find.text('这条动态已被删除'), findsOneWidget);
+    expect(find.byKey(const Key('post.deleted.back')), findsOneWidget);
   });
 
   testWidgets('点评论者头像打开公开资料页', (tester) async {
