@@ -101,4 +101,28 @@ void main() {
     const field = EmberField(placeholder: 'x');
     expect(field.enabled, isTrue);
   });
+
+  testWidgets('同一页两个 EmberField:第二个字段也能 enterText(聚焦光晕不得改结构)', (tester) async {
+    final first = TextEditingController();
+    final second = TextEditingController();
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+    await pumpEmber(
+      tester,
+      Column(
+        children: [
+          EmberField(controller: first),
+          const SizedBox(height: 12),
+          EmberField(controller: second),
+        ],
+      ),
+    );
+
+    await tester.enterText(find.byType(EmberField).first, '13800138000');
+    await tester.enterText(find.byType(EmberField).last, '123456');
+
+    expect(first.text, '13800138000');
+    expect(second.text, '123456',
+        reason: '第二个字段丢字 = 聚焦光晕又改成「聚焦才包一层」,TextField 被重建');
+  });
 }

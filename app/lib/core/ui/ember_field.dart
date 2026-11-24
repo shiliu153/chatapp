@@ -182,17 +182,26 @@ class _EmberFieldState extends State<EmberField> {
       ),
     );
 
-    // 聚焦时的 2px 外扩(@12%):画在输入框外侧,不占布局。
-    if (_focused && widget.enabled && !hasError) {
-      field = Container(
-        padding: const EdgeInsets.all(EmberComponentSizes.fieldFocusHalo),
-        decoration: BoxDecoration(
-          color: colors.brandDefault.withValues(alpha: 0.12),
-          borderRadius: radius,
-        ),
-        child: field,
-      );
-    }
+    // 聚焦时的 2px 外扩(@12%):画在输入框外侧。
+    //
+    // **结构必须恒定**(2026-11-24 E-5.6a 实测):早先这里是「聚焦才包一层
+    // Container」,于是每次聚焦/失焦都会让内层 `TextField` 换掉父类型 →
+    // `EditableText` 连同它的 `TextInputConnection` 一起重建,表现是同一页第二个
+    // 字段 `enterText` 静默丢字(登录页的验证码框正是第二个),真机上也会丢
+    // IME 组字/光标位置。所以改成「恒定包一层、不聚焦时内边距 0 + 全透明」。
+    final haloOn = _focused && widget.enabled && !hasError;
+    field = Container(
+      padding: EdgeInsets.all(
+        haloOn ? EmberComponentSizes.fieldFocusHalo : 0,
+      ),
+      decoration: BoxDecoration(
+        color: haloOn
+            ? colors.brandDefault.withValues(alpha: 0.12)
+            : Colors.transparent,
+        borderRadius: radius,
+      ),
+      child: field,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
