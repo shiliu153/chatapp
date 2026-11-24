@@ -160,7 +160,7 @@ curl -sS -X POST https://api.github.com/repos/shiliu153/chatapp/releases \
 | 1.0.12 | 2026-11-09 | `v1.0.12` | [v1.0.12 — 设备管理 / 会话管理 / 滑卡增强 / 使用报告 / 聊天敏感词](https://github.com/shiliu153/chatapp/releases/tag/v1.0.12)(附件 `chatapp-1.0.12.apk`,60,899,154 字节,SHA-1 `e389eaf80f117c1810de95cba226ae38d4460bee`) | `abc6889` | `chatapp-1.0.12.apk` |
 | 1.0.13 | 2026-11-11 | `v1.0.13` | [v1.0.13 — R–W 六批（语音介绍 / 筛选精选 / 广场收藏 / 运营看板 / 聊天打磨）](https://github.com/shiliu153/chatapp/releases/tag/v1.0.13)(附件 `chatapp-1.0.13.apk`,61,505,970 字节,SHA-1 `94f80d55f0d7f7ceb58cbcc2816c9760ae0b7691`) | `e7456f6` | `chatapp-1.0.13.apk` |
 | 1.0.14 | 2026-11-23 | `v1.0.14` | [v1.0.14 — 第五轮安全整改与发版工程收口](https://github.com/shiliu153/chatapp/releases/tag/v1.0.14)(附件 `chatapp-1.0.14.apk`,61,538,738 字节,SHA-1 `058640b31f6c330b30e633beb11b5e76a1c597de`) | `a98a4ce` | `chatapp-1.0.14.apk` |
-| 1.0.15 | 2026-11-24 | `v1.0.15` | [v1.0.15 — 修复 release 包无网络(补 INTERNET 权限)](https://github.com/shiliu153/chatapp/releases/tag/v1.0.15)(附件 `chatapp-1.0.15.apk`) | — | `chatapp-1.0.15.apk` |
+| 1.0.15 | 2026-11-24 | `v1.0.15` | [v1.0.15 — 修复 release 包无网络(补 INTERNET 权限)](https://github.com/shiliu153/chatapp/releases/tag/v1.0.15)(附件 `chatapp-1.0.15.apk`,61,720,000 字节,SHA-1 `af63c9844157b74dbf3c7a3b9b1309c736522535`) | `4589436` | `chatapp-1.0.15.apk` |
 <!-- END generated:release-records -->
 
 ## 6. v1.0.4 的历史说明(不补建)
