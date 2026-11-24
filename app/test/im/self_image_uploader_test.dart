@@ -77,6 +77,31 @@ void main() {
     expect(form.files.single.value.filename, 'a.jpg');
   });
 
+  // 回归(#499):文件名只能取 basename,而且**不能**依赖当前平台的分隔符。
+  // Windows 上 `Platform.pathSeparator` 是 `\`,而临时目录 / 部分插件给的路径用 `/` 拼,
+  // 按平台分隔符切会切不动,整条路径被当成文件名发给服务端。
+  group('文件名只取 basename,两种分隔符都要取到', () {
+    for (final separator in ['/', '\\']) {
+      test('路径用 `$separator` 分隔', () async {
+        queue('POST /im/images', [(options) async => ok(imageJson(), status: 201)]);
+        final path = '${tempDir.path}${separator}a.jpg';
+        // 把这条路径原样物化成真实文件,让断言与平台无关:POSIX 上反斜杠是合法的文件名
+        // 字符(文件直接落在 tempDir 的父目录里,不需要建子目录),Windows 上它就是分隔符。
+        final file = File(path);
+        addTearDown(() async {
+          if (await file.exists()) await file.delete();
+        });
+        await file.writeAsBytes([1, 2, 3, 4]);
+
+        await uploader().upload(path);
+
+        final form = adapter.log.single.data as FormData;
+        expect(form.files.single.value.filename, 'a.jpg',
+            reason: '文件名里不该带任何目录,更不能变成整条本地路径');
+      });
+    }
+  });
+
   test('断网重试:所有重试复用同一个 key,第三次成功', () async {
     queue('POST /im/images', [
       offline,

@@ -71,8 +71,40 @@ void main() {
     expect(form.fields.single.key, 'duration_ms');
     expect(form.fields.single.value, '12500');
     expect(form.files.single.value.contentType?.mimeType, 'audio/mp4');
+    expect(form.files.single.value.filename, 'voice.m4a',
+        reason: '文件名只取 basename,不能带上临时目录');
     // 上传带一个合法的幂等键(口径见 docs/api/conventions.md「幂等键」)
     expect(sentKeys().single, matches(RegExp(r'^[A-Za-z0-9._:-]{1,128}$')));
+  });
+
+  // 回归(#499):文件名不能靠 `Platform.pathSeparator` 切 —— Windows 上是 `\`,
+  // 而临时目录 / 部分插件给的路径用 `/` 拼,切不动就会把整条路径当文件名发给服务端。
+  group('文件名只取 basename,两种分隔符都要取到', () {
+    for (final separator in ['/', '\\']) {
+      test('路径用 `$separator` 分隔', () async {
+        adapter.routes['POST /im/voices'] = (options) => ok({
+              'id': 48,
+              'url': 'http://test/media/chat/voices/48-ff.m4a',
+              'duration_ms': 3000,
+              'size': 4,
+              'status': 'ready',
+            }, status: 201);
+        final path = '${tempDir.path}${separator}separator-voice.m4a';
+        // 路径原样物化成真实文件,断言便与平台无关:POSIX 上反斜杠是合法的文件名字符
+        // (文件落在 tempDir 的父目录里,不必建子目录),Windows 上它就是分隔符。
+        final file = File(path);
+        addTearDown(() async {
+          if (await file.exists()) await file.delete();
+        });
+        await file.writeAsBytes([0, 1, 2, 3]);
+
+        await uploader.upload(path, 3000);
+
+        final form = adapter.log.last.data as FormData;
+        expect(form.files.single.value.filename, 'separator-voice.m4a',
+            reason: '文件名里不该带任何目录,更不能变成整条本地路径');
+      });
+    }
   });
 
   test('202 → pending → ready:先回调排队,再轮询一次拿 url', () async {
