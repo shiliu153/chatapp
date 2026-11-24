@@ -251,20 +251,29 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 **必须带**(否则线上崩溃与白屏不会上报,见 backlog A-4);Web 侧对应 `web/.env.production` 的
 `VITE_ERROR_REPORTING=1`。
 
-**装到手机之前先验一条**(2026-11-24 起):
+**装到手机之前先跑一条**(2026-11-24 起):
 
 ```bash
-aapt2 dump permissions app/build/app/outputs/flutter-apk/app-release.apk | grep INTERNET
+python scripts/check_release_apk.py app/build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Flutter 模板只在 `debug/`、`profile/` 的清单里声明 `INTERNET`,release 构建不合并 —— 缺了它整包
-没网(现象=登录页「网络不给力」而服务端 0 请求)。1.0.1–1.0.14 全部踩过,详见
-[`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md)。
+十秒内查三件事,退出码 0 才算这个包能装:
 
-这一行现在由门禁 `contract-app-manifest-internet` 机械守住(`python scripts/check_app_manifest.py`,
+1. **权限** —— 包里声明了 `android.permission.INTERNET`。Flutter 模板只在 `debug/`、`profile/`
+   的清单里声明它,release 构建不合并;缺了整包没网(现象=登录页「网络不给力」而服务端 0 请求),
+   1.0.1–1.0.14 全部踩过,详见 [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md);
+2. **内嵌 `API_BASE`** —— 解包 `lib/<abi>/libapp.so` 扫字符串,要求生产基址
+   `https://chat.shiliu153.cn/api/v1` 在、且没有 `127.0.0.1` / `10.0.2.2` / 任何裸 IP
+   (裸跑 `flutter build apk` 会落回 `http://127.0.0.1:8000/api/v1`);
+3. **版本号** —— `versionName` 等于 `app/pubspec.yaml` 的版本名。
+
+它从 `ANDROID_HOME` / `ANDROID_SDK_ROOT` / 常见安装位置 / `PATH` 找 `aapt2`(WSL 里能找到 Windows
+那份),也可以 `--aapt2 <路径>` 显式指定;**缺 `aapt2` 时退出码 2 并明说跳过了哪两项**,不会静默通过。
+
+仓库侧另有一条门禁 `contract-app-manifest-internet`(`python scripts/check_app_manifest.py`,
 随 `scripts/verify.sh contract` 跑):`main/AndroidManifest.xml` 里缺 `INTERNET` 即红,
-`debug/` 与 `profile/` 里有声明也不算数 —— 那两份只服务热重载。上面那条 `aapt2` 命令是装机前的
-最后一道人眼校验(门禁只能读仓库,读不了装到手机上的那个包)。
+`debug/` 与 `profile/` 里有声明也不算数 —— 那两份只服务热重载。门禁只能读**仓库**,
+上面这条脚本读的是**装到手机上的那个包**,两者互补。
 
 **升版本号 = 三处版本号 + tag + Release 三件事同时做**,清单与命令见
 [`docs/ops/release.md`](../ops/release.md)(发版记录 owner 是

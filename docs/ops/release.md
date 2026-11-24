@@ -42,7 +42,7 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 |---|---|---|
 | 1 | 走完发布流程:分支 → PR → CI 全绿 → squash 合并 | 记下**合并后**的 `origin/main` SHA |
 | 2 | `python scripts/sync_version.py --write` | `--check` 退出码 0 |
-| 3 | 构建 APK(`--dart-define=ERROR_REPORTING=true`)与 Web(`npm run build`) | 产物存在,版本号与关于页一致 |
+| 3 | 构建 APK(`--dart-define=ERROR_REPORTING=true`)与 Web(`npm run build`) | 产物存在,`python scripts/check_release_apk.py <apk>` 退出码 0,版本号与关于页一致 |
 | 4 | 部署:APK 上传到 `/www/wwwroot/chatapp-web/chatapp-<版本>.apk`,更新 `.env` 三个变量,重启 web;`dist` 覆盖 | 重启后 `/app/config` 返回新 `latest_version` |
 | 5 | 打 tag 并推送:`git tag -a v<版本> -m "<一句话主题>" <步骤 1 的 SHA>` + `git push origin v<版本>` | `git ls-remote --tags origin` 能看到 |
 | 6 | **建 / 更新 Release**(§4) | Release 页面可见,附件可下载 |
@@ -62,11 +62,24 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 >
 > 2026-11-11 的 1.0.13 就是在默认分支 web 轨已经红着的情况下完成上线的 —— 纪律没有机械执行 = 没有纪律。
 >
-> **步骤 3 构建完先验一条**(2026-11-24 起):
-> `aapt2 dump permissions app/build/app/outputs/flutter-apk/app-release.apk | grep INTERNET`。
-> Flutter 模板只在 `debug/`、`profile/` 的清单里声明 `INTERNET`,release 不合并;缺了它整包没网,
-> 现象是登录页「网络不给力」而服务端 0 请求。1.0.1–1.0.14 全部踩过,详见
-> [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md)。
+> **步骤 3 构建完先跑这条命令**(2026-11-24 起):
+>
+> ```bash
+> python scripts/check_release_apk.py app/build/app/outputs/flutter-apk/app-release.apk
+> ```
+>
+> 十秒内做完三项体检,**退出码 0 才算步骤 3 完成**:
+>
+> 1. 包里声明了 `android.permission.INTERNET` —— Flutter 模板只在 `debug/`、`profile/` 的清单里
+>    声明它,release 构建不合并;缺了整包没网,现象是登录页「网络不给力」而服务端 0 请求
+>    (1.0.1–1.0.14 全部踩过);
+> 2. 内嵌 `API_BASE` 是生产基址 `https://chat.shiliu153.cn/api/v1`,且包里没有 `127.0.0.1` /
+>    `10.0.2.2` / 任何裸 IP —— `API_BASE` 走编译期 `--dart-define`,裸跑 `flutter build apk`
+>    会落回 `http://127.0.0.1:8000/api/v1`;
+> 3. `versionName` 等于 `app/pubspec.yaml` 的版本名(忽略 `+build`)。
+>
+> 缺 `aapt2` 时它**不静默通过**(退出码 2):用 `--aapt2` 指过去,或设 `ANDROID_HOME`。
+> 三项各自对应的事故与判据见 [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md)。
 
 ### 3.1 步骤 2 之前先跑一条命令(2026-11-09 起)
 
