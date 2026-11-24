@@ -57,6 +57,9 @@ void main() {
       ),
     );
     await tester.pump();
+    // `Image.asset` 的解码是异步的:不先把它解好就截图,空态会截到一块空白
+    // (E-5.3 的 `chat_golden_test` 同一个坑,同一套修法)。
+    await _precacheAssets(tester);
     await tester.pump();
   }
 
@@ -208,3 +211,25 @@ void main() {
 
 /// 空态按钮的回调(金图不点它,但 `EmberEmpty` 要求给)。
 void _noop() {}
+
+/// 把**资源图**先解码好再截图(`Image.asset` 的解码是异步的,直接截会截到空)。
+///
+/// 两遍:先扫树里的 `Image`(动态卡的 `Image.network` 在测试里一律 400,跳过),
+/// 再把 [SquareIllustrationKind] 的四张资产(明 / 暗 × 空态 / 失败态)逐个预热 ——
+/// 空态场景只用到其中一张,但四张一起预热才能保证任何一张进金图时都已经解好。
+Future<void> _precacheAssets(WidgetTester tester) async {
+  final context = tester.element(find.byType(Scaffold));
+  final elements = find.byType(Image).evaluate().toList();
+  await tester.runAsync(() async {
+    for (final element in elements) {
+      final provider = (element.widget as Image).image;
+      if (provider is! AssetImage) continue;
+      await precacheImage(provider, element);
+    }
+    for (final kind in SquareIllustrationKind.values) {
+      for (final dark in const [false, true]) {
+        await precacheImage(AssetImage(kind.assetPath(dark: dark)), context);
+      }
+    }
+  });
+}
