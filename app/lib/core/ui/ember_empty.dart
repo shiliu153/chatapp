@@ -20,6 +20,7 @@ class EmberEmpty extends StatelessWidget {
     this.description,
     this.actionLabel,
     this.onAction,
+    this.actionKey,
   });
 
   /// 插画(尺寸建议落在 72–96 之间,由调用方按内容选)。
@@ -36,6 +37,9 @@ class EmberEmpty extends StatelessWidget {
 
   /// 主按钮回调。
   final VoidCallback? onAction;
+
+  /// 主按钮的 [Key](页面测试与定点点击按它取);`null` 时按钮不带 key。
+  final Key? actionKey;
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +87,11 @@ class EmberEmpty extends StatelessWidget {
           ],
           if (hasAction) ...[
             SizedBox(height: tokens.space24),
-            EmberButton(label: actionLabel!, onPressed: onAction),
+            EmberButton(
+              key: actionKey,
+              label: actionLabel!,
+              onPressed: onAction,
+            ),
           ],
         ],
       ),

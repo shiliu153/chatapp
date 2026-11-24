@@ -92,6 +92,10 @@ flutter:
     # 聊天贴纸(批次 J):与 web/public/stickers/ 逐字节一致,由
     # scripts/check_stickers.py 在 contract.yml 里把关
     - assets/stickers/
+    # 空态插画(E-5.2):三张 unDraw 矢量图的明暗两套 PNG 导出
+    # (主色改 `brand.default`,深色版把墨色与浅灰换成暖中性阶)。来源 / 导出方式见
+    # assets/illustrations/README.md;不引 flutter_svg,插画一律 PNG。
+    - assets/illustrations/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

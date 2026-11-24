@@ -1,21 +1,27 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
-import '../../../core/theme/app_gradients.dart';
 import '../../../core/theme/ember_colors.dart';
-import '../../../core/theme/heart_theme_context.dart';
+import '../../../core/theme/ember_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
 
 /// 发现页的「撤销上一次滑卡」按钮(批次 O,discovery.md §3.9)。
 ///
-/// 外观照附录 A.1 的操作钮:48 圆钮、`bgCard` 底 + `divider` 描边,外圈是
-/// **30 秒倒计时环**(底环 `divider`、进度弧 `gradientHeart`)。倒计时归零后
-/// 按钮置灰、不再响应点击 —— 后端同样会在 30 秒后回 `40003`。
+/// 外观照 E-5.2 page spec §3 / §4 的**撤销钮**:48 圆钮、`surface.card` 底 +
+/// `border.divider` 描边,外圈是 **30 秒倒计时环**(底环 `border.divider`、进度弧
+/// `brand.default` —— 心跳期的渐变扫光已随渐变一起取消)。倒计时归零后按钮置灰、
+/// 不再响应点击 —— 后端同样会在 30 秒后回 `40003`。
+///
+/// 保留倒计时环的理由(规格 §7 拍板 7):它是**窗口提示**(用户得知道还能撤多久),
+/// 不是装饰动效 —— 所以它不属于 §7.3 禁的那类循环动画,也没做成循环。
 ///
 /// 倒计时以「挂载时给的 [remaining]」为起点,由 [AnimationController] 驱动:
 /// 页面每次重建都会传一份新的 [remaining],但只有**换了一次滑卡**(key 变)才会
 /// 重建 State,所以中途重建不会把倒计时拉回 30 秒。
 class UndoButton extends StatefulWidget {
+  /// 构造撤销钮。
   const UndoButton({
     super.key,
     required this.remaining,
@@ -80,7 +86,7 @@ class _UndoButtonState extends State<UndoButton> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     final enabled = !_expired && !_busy;
     return Semantics(
       button: true,
@@ -111,17 +117,17 @@ class _UndoButtonState extends State<UndoButton> with SingleTickerProviderStateM
           child: Center(
             child: Container(
               // 内圈缩进一个描边宽度 + 一点留白,让倒计时环与圆钮之间有缝
-              width: UndoButton.size - _UndoRingPainter.stroke * 2 - 4,
-              height: UndoButton.size - _UndoRingPainter.stroke * 2 - 4,
+              width: UndoButton.size - _UndoRingPainter.stroke * 2 - tokens.space4,
+              height: UndoButton.size - _UndoRingPainter.stroke * 2 - tokens.space4,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: colors.bgCard,
-                border: Border.all(color: colors.divider, width: 1.5),
+                color: colors.surfaceCard,
+                border: Border.all(color: colors.borderDivider),
               ),
               child: Icon(
-                Icons.undo_rounded,
+                PhosphorIconsRegular.arrowCounterClockwise,
                 size: UndoButton._iconSize,
-                color: enabled ? colors.text1 : colors.text3,
+                color: enabled ? colors.textPrimary : colors.textTertiary,
               ),
             ),
           ),
@@ -131,11 +137,11 @@ class _UndoButtonState extends State<UndoButton> with SingleTickerProviderStateM
   }
 }
 
-/// 外圈倒计时环:底环 `divider` 3px,进度弧 `gradientHeart` 3px,自 12 点顺时针。
+/// 外圈倒计时环:底环 `border.divider` 3px,进度弧 `brand.default` 3px,自 12 点顺时针。
 class _UndoRingPainter extends CustomPainter {
   _UndoRingPainter({required this.progress, required this.colors, required this.active});
 
-  /// 剩余比例,1 = 满窗,0 = 过期。
+  /// 剩余比例:1 = 满窗,0 = 过期。
   final double progress;
 
   /// 自绘发生在 paint 阶段(拿不到 BuildContext),色板由外部注入。
@@ -158,7 +164,7 @@ class _UndoRingPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
-        ..color = colors.divider,
+        ..color = colors.borderDivider,
     );
     if (progress <= 0) return;
     canvas.drawArc(
@@ -170,10 +176,8 @@ class _UndoRingPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
         ..strokeCap = StrokeCap.round
-        ..shader = active
-            ? AppGradients.heartSweepOf(colors).createShader(rect)
-            : null
-        ..color = active ? colors.brand : colors.text3,
+        // 环色 = 品牌色实值(§3 撤销钮行):渐变扫光属心跳期做法,已取消。
+        ..color = active ? colors.brandDefault : colors.textTertiary,
     );
   }
 

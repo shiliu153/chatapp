@@ -214,8 +214,8 @@ void main() {
     await pumpFrames(tester, frames: 12);
 
     await tester.tap(find.byKey(const Key('discovery.like')));
-    // 倒计时环一直在走,不能 pumpAndSettle
-    await pumpFrames(tester);
+    // 倒计时环一直在走,不能 pumpAndSettle;飞出是弹簧(约 0.5 秒),多推几帧才落地
+    await pumpFrames(tester, frames: 24);
 
     expect(find.byKey(const Key('discovery.undo')), findsOneWidget);
     expectNoLightSurfaces(tester, '发现页(撤销按钮)');

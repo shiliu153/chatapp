@@ -104,7 +104,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('discovery.like')));
-    await pumpFrames(tester);
+    // 飞出是弹簧(约 0.5 秒)再发请求,少推几帧会停在「请求还没回来」的中间态
+    await pumpFrames(tester, frames: 24);
 
     expect(tester.takeException(), isNull);
     expect(find.text('附近暂时没有新的人了'), findsOneWidget);

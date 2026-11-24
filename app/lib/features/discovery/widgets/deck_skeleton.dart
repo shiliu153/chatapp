@@ -1,130 +1,109 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_motion.dart';
-import '../../../core/theme/app_radius.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/ember_colors.dart';
-import '../../../core/theme/heart_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
+import '../../../core/ui/ember_ui.dart';
 
-/// 发现页加载骨架:与卡面等大的呼吸块 + 操作钮位。
-/// 无限动画:可见状态的测试只用有限 pump,禁 pumpAndSettle。
-class DeckSkeleton extends StatefulWidget {
+/// 发现页加载骨架:与卡面等大的骨架块 + 操作钮位(spec §8.2 / §8.3「骨架」行)。
+///
+/// 形状按目标内容来:卡面是 `radius.xl` 的大圆角块,操作钮是两个圆形块;
+/// 呼吸(透明度 .5↔1、1.2s 循环)由 [EmberSkeleton] 提供 —— 它是规范允许的
+/// **唯二循环动画**之一,且减弱动态效果时自动静止(§8.4)。
+///
+/// 无限动画:可见状态的测试只用有限 `pump`,禁 `pumpAndSettle`。
+class DeckSkeleton extends StatelessWidget {
+  /// 构造骨架。
   const DeckSkeleton({super.key});
 
   @override
-  State<DeckSkeleton> createState() => _DeckSkeletonState();
-}
-
-class _DeckSkeletonState extends State<DeckSkeleton> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: AppMotion.loop)..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
-    return AnimatedBuilder(
-        animation: _c,
-        builder: (context, _) => Opacity(
-          opacity: 0.5 + 0.5 * _c.value,
-          child: Column(
-            children: [
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.pageH, AppSpacing.sm, AppSpacing.pageH, 0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: colors.divider,
-                      borderRadius: BorderRadius.circular(AppRadius.discoveryCard),
-                    ),
-                    child: Align(
-                      alignment: Alignment.bottomLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _bar(0.62, colors),
-                            const SizedBox(height: 9),
-                            _bar(0.38, colors),
-                            const SizedBox(height: 9),
-                            _bar(0.84, colors),
-                            const SizedBox(height: AppSpacing.md),
-                            const Row(children: [_Chip(), SizedBox(width: 6), _Chip()]),
-                          ],
-                        ),
-                      ),
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              tokens.space20,
+              tokens.space8,
+              tokens.space20,
+              0,
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) => Stack(
+                children: [
+                  Positioned.fill(
+                    child: EmberSkeleton(
+                      radius: tokens.radiusXl,
+                      height: constraints.maxHeight,
                     ),
                   ),
-                ),
+                  Positioned(
+                    left: tokens.space20,
+                    right: tokens.space20,
+                    bottom: tokens.space20,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        EmberSkeleton(width: 180, height: tokens.fontSizeTitle),
+                        SizedBox(height: tokens.space12),
+                        EmberSkeleton(width: 96, height: tokens.fontSizeCaption),
+                        SizedBox(height: tokens.space12),
+                        EmberSkeleton(width: 240, height: tokens.fontSizeCaption),
+                        SizedBox(height: tokens.space16),
+                        Row(
+                          children: [
+                            EmberSkeleton(
+                              width: 44,
+                              height: 16,
+                              radius: tokens.radiusXs,
+                            ),
+                            SizedBox(width: tokens.space8),
+                            EmberSkeleton(
+                              width: 44,
+                              height: 16,
+                              radius: tokens.radiusXs,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(
-                height: 88,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _Circle(44),
-                    SizedBox(width: 44),
-                    _Circle(44),
-                  ],
-                ),
+            ),
+          ),
+        ),
+        SizedBox(
+          height: SwipeDeckSkeletonMetrics.actionRowHeight,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              EmberSkeleton(
+                width: EmberComponentSizes.actionButtonSmall,
+                height: EmberComponentSizes.actionButtonSmall,
+                shape: BoxShape.circle,
               ),
-              const SizedBox(height: AppSpacing.lg),
+              SizedBox(width: SwipeDeckSkeletonMetrics.actionGap),
+              EmberSkeleton(
+                width: EmberComponentSizes.actionButtonLarge,
+                height: EmberComponentSizes.actionButtonLarge,
+                shape: BoxShape.circle,
+              ),
             ],
           ),
         ),
-      );
-  }
-
-  Widget _bar(double widthFactor, EmberColors colors) => FractionallySizedBox(
-        alignment: Alignment.centerLeft,
-        widthFactor: widthFactor,
-        child: Container(
-          height: 10,
-          decoration: BoxDecoration(
-            color: colors.bgCard.withValues(alpha: 0.75),
-            borderRadius: BorderRadius.circular(5),
-          ),
-        ),
-      );
-}
-
-class _Chip extends StatelessWidget {
-  const _Chip();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.heart;
-    return Container(
-        width: 44,
-        height: 16,
-        decoration: BoxDecoration(
-          color: colors.bgCard.withValues(alpha: 0.75),
-          borderRadius: BorderRadius.circular(AppRadius.chip),
-        ),
-      );
+        SizedBox(height: tokens.space20),
+      ],
+    );
   }
 }
 
-class _Circle extends StatelessWidget {
-  const _Circle(this.size);
+/// 骨架里两个圆形块与卡组的几何对齐用的口径(与 `SwipeDeck` 保持同一套间距)。
+///
+/// 单独放一处而不是 import `swipe_deck.dart`:骨架屏不该为了两个常数把卡组
+/// 拖进依赖图(它也用在别的页面级骨架场景里)。
+abstract final class SwipeDeckSkeletonMetrics {
+  /// 操作钮之间的间距。
+  static const actionGap = 44.0;
 
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.heart;
-    return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(color: colors.divider, shape: BoxShape.circle),
-      );
-  }
+  /// 操作钮行的高度。
+  static const actionRowHeight = 88.0;
 }

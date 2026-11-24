@@ -92,6 +92,10 @@ void main() {
 
     await _openSheet(tester);
     await tester.enterText(find.byKey(const Key('filter.city')), '杭州');
+    // 面板最高占屏 60%(「余烬 Ember」§9.3 / `EmberSheet`):标签区在折叠线以下,
+    // 点之前要先滚到它,否则 tap 落在可视区外(命中不到)
+    await tester.ensureVisible(find.text('旅行'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('旅行'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('filter.apply')));
@@ -113,6 +117,8 @@ void main() {
     await _openSheet(tester);
     // 拖右滑块:像素 → 数值的换算由 RangeSlider 自己算(按压点决定抓哪个滑块),
     // 所以这里不写死期望值,只断言「确实变了」+「请求参数 == 面板显示的数字」
+    await tester.ensureVisible(find.byType(RangeSlider));
+    await tester.pumpAndSettle();
     final slider = tester.getRect(find.byType(RangeSlider));
     await tester.dragFrom(Offset(slider.right - 24, slider.center.dy), const Offset(-60, 0));
     await tester.pumpAndSettle();

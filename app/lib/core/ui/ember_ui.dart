@@ -4,14 +4,17 @@
 /// 改动里补一行,评审时差异一眼能看出「组件层多了什么」。
 library;
 
+export 'ember_action_button.dart';
 export 'ember_avatar.dart';
 export 'ember_badge.dart';
 export 'ember_button.dart';
 export 'ember_card.dart';
+export 'ember_chip.dart';
 export 'ember_component_sizes.dart';
 export 'ember_empty.dart';
 export 'ember_field.dart';
 export 'ember_glow.dart';
+export 'ember_online_dot.dart';
 export 'ember_pressable.dart';
 export 'ember_sheet.dart';
 export 'ember_skeleton.dart';

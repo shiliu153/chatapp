@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 
 import 'tokens.g.dart' as tokens;
 
@@ -57,6 +58,26 @@ abstract final class EmberMotion {
   static Duration transitionOf(BuildContext context, Duration normal) =>
       reducedOf(context) ? reduced : normal;
 
+  /// 把 spring 表达成 [Curve](`t` 0→1 摊到 [settle] 那条时间轴上)。
+  ///
+  /// **只给分段编排用**:配对成功这类「几段压在同一条总时间轴」的动效,段落是
+  /// `Interval` 切的,而 `Interval` 只能吃 [Curve] —— 直接写 `Curves.*` 等于把曲线
+  /// 常量偷偷带回来(spec §7.1「位移类动画一律用 spring,不用 Curves」)。用弹簧曲线
+  /// 当段落缓动,手感与逐段 `SpringSimulation` 同源,又不破坏「一条时间轴可跳过」。
+  ///
+  /// 返回值**可能过冲**(>1 / <0),透明度类用途要自己 clamp:
+  /// ```dart
+  /// opacity: EmberMotion.gentleCurve.transform(t).clamp(0, 1)
+  /// ```
+  static Curve springCurve(
+    SpringDescription spring, {
+    Duration settle = const Duration(milliseconds: 900),
+  }) =>
+      EmberSpringCurve(spring, settle);
+
+  /// 分段编排默认用的 `spring.gentle` 曲线(大卡片、情感时刻)。
+  static Curve get gentleCurve => springCurve(gentle);
+
   /// token 里的毫秒是 `double`(生成器统一按数值档输出),这里折成 [Duration],
   /// 顺带保证不会因为截断丢掉小数毫秒。
   static Duration _ms(double milliseconds) =>
@@ -69,4 +90,27 @@ abstract final class EmberMotion {
         stiffness: stiffness,
         ratio: dampingRatio,
       );
+}
+
+/// 用 [SpringSimulation] 采样出来的 [Curve](见 [EmberMotion.springCurve])。
+///
+/// 为什么不用 `Curve` 的固定公式:token 里的弹簧是「阻尼比 + 刚度」两个数,采样
+/// 弹簧本身才能保证与按压 / 位移那些 `SpringSimulation` 走同一套物理参数。
+class EmberSpringCurve extends Curve {
+  /// 构造一条弹簧曲线。
+  const EmberSpringCurve(this.spring, this.settle);
+
+  /// 弹簧参数(`spring.fast` / `standard` / `gentle` / `effects`)。
+  final SpringDescription spring;
+
+  /// `t = 1` 对应的物理时间:取到弹簧基本收敛的长度(默认 900ms)。
+  final Duration settle;
+
+  @override
+  double transformInternal(double t) {
+    if (t <= 0) return 0;
+    final seconds = settle.inMicroseconds * t / Duration.microsecondsPerSecond;
+    // 初始速度 0、位移 0→1:这是「松开手之后自己走完」的那条轨迹。
+    return SpringSimulation(spring, 0, 1, 0).x(seconds);
+  }
 }

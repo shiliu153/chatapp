@@ -58,6 +58,18 @@ abstract final class EmberComponentSizes {
   /// 可点卡片按压缩放(spec §8.3「pressed: scale .98」)。
   static const cardPressedScale = 0.98;
 
+  /// Chip 胶囊的可视高度(spec §8.3 只给了三种状态的取值,没给高度;由内边距 8 +
+  /// `caption` 13×1.45 ≈ 35 收整到 36,与 `radius.pill` 配合)。
+  ///
+  /// 热区仍是 token `size.touch.app`(48):胶囊视觉小、可点区域不小(§8.4)。
+  static const chipHeight = 36.0;
+
+  /// 圆形操作钮的小档直径(E-5.2 page spec §3「圆形 56 / 64」)。
+  static const actionButtonSmall = 56.0;
+
+  /// 圆形操作钮的大档直径(主操作「喜欢」)。
+  static const actionButtonLarge = 64.0;
+
   /// 空态插画下沿(spec §8.3「插画 72–96」)。
   static const illustrationMin = 72.0;
 

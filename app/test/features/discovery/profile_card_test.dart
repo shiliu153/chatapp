@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
+
 import 'package:chatapp_app/features/discovery/models.dart';
 import 'package:chatapp_app/features/discovery/widgets/profile_card.dart';
 import 'package:chatapp_app/features/presence/models.dart';
@@ -92,7 +94,7 @@ void main() {
     await tester.pumpWidget(_wrap(candidate));
     await tester.pump();
 
-    expect(find.byIcon(Icons.person_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsRegular.user), findsOneWidget);
   });
 
   testWidgets('在线 → 昵称旁「● 在线」', (tester) async {
@@ -103,6 +105,11 @@ void main() {
 
     expect(find.byKey(const Key('card.onlineDot')), findsOneWidget);
     expect(find.text('在线'), findsOneWidget);
+
+    // Semantics:在线状态不只靠颜色(§8.4),读屏要能念出「在线」
+    final handle = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('在线'), findsOneWidget);
+    handle.dispose();
   });
 
   testWidgets('离线 → 「x 分钟前在线」;未知 → 不显示', (tester) async {

@@ -3,18 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import '../../core/api_exception.dart';
-import '../../core/theme/heart_theme_context.dart';
-import '../../core/theme/app_radius.dart';
-import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/widgets/app_badge.dart';
-import '../../core/widgets/app_button.dart';
-import '../../core/widgets/app_empty_state.dart';
-import '../../core/widgets/app_error_view.dart';
-import '../../core/widgets/app_toast.dart';
-import '../../core/widgets/heart_ripple.dart';
+import '../../core/theme/ember_theme_context.dart';
+import '../../core/theme/tokens.g.dart' as tokens;
+import '../../core/ui/ember_ui.dart';
 import '../chat/match_cache.dart';
 import '../presence/presence_controller.dart';
 import '../profile/models.dart';
@@ -29,6 +24,7 @@ import 'visits_controller.dart';
 import 'widgets/daily_strip.dart';
 import 'widgets/deck_skeleton.dart';
 import 'widgets/discovery_filter_sheet.dart';
+import 'widgets/discovery_illustration.dart';
 import 'widgets/match_overlay.dart';
 import 'widgets/swipe_deck.dart';
 import 'widgets/undo_button.dart';
@@ -36,12 +32,22 @@ import 'widgets/undo_button.dart';
 /// 额度用完时的统一提示(discovery.md §3.10)。
 const likeQuotaExhaustedHint = '今日喜欢次数已用完,明天再来';
 
+/// 遇见(发现)页(「余烬 Ember」§9.1 主轴 + E-5.2 page spec §1 / §3)。
+///
+/// 本单只换视觉与动效,业务逻辑零改动:`discoveryProvider` / `likeQuotaProvider` /
+/// `swipeUndoProvider` 的请求与状态机一行没动。
+///
+/// 与心跳期的三处明显差别(page spec §1 的「用户可见的变化」表):
+/// 1. 页面标题「发现」→ **「遇见」**(与底栏 tab 对齐,§9.1);
+/// 2. 页内边距 16 → **20**(§5.2),顶部入口换 Phosphor 图标;
+/// 3. 筛选入口自绘胶囊 → **[EmberChip]**(§8.3 Chip 行,本单在 `core/ui` 新增)。
 class DiscoveryPage extends ConsumerWidget {
+  /// 构造页面。
   const DiscoveryPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.heart;
+    final colors = context.ember;
     final profile = ref.watch(profileProvider);
     // 每日喜欢额度(discovery.md §3.10)。只有当 `like_limit > 0` 时才有文案,
     // 后端默认不限(0)—— 那种情况下 provider 返回 null,整行不渲染。
@@ -56,31 +62,39 @@ class DiscoveryPage extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.pageH, AppSpacing.lg, AppSpacing.pageH, AppSpacing.md),
+              padding: EdgeInsets.fromLTRB(
+                tokens.space20,
+                tokens.space16,
+                tokens.space20,
+                tokens.space12,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('发现', style: AppText.display.copyWith(color: colors.text1)),
+                      // `display` 32 / Fraunces(§4.2 Tab 大标题档)。
+                      Text(
+                        '遇见',
+                        style: AppText.display.copyWith(color: colors.textPrimary),
+                      ),
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           _TopEntry(
                             entryKey: const Key('discovery.likes'),
-                            icon: Icons.favorite_rounded,
-                            iconColor: colors.brand,
+                            icon: PhosphorIconsRegular.heart,
+                            selectedIcon: PhosphorIconsFill.heart,
                             label: '喜欢我的人',
                             count: ref.watch(likesReceivedCountProvider).value ?? 0,
                             onTap: () => context.push('/likes'),
                           ),
-                          const SizedBox(width: AppSpacing.xs),
+                          SizedBox(width: tokens.space8),
                           _TopEntry(
                             entryKey: const Key('discovery.visits'),
-                            icon: Icons.visibility_rounded,
-                            iconColor: colors.text2,
+                            icon: PhosphorIconsRegular.eye,
+                            selectedIcon: PhosphorIconsFill.eye,
                             label: '谁看过我',
                             count: ref.watch(visitsCountProvider).value ?? 0,
                             onTap: () => context.push('/visits'),
@@ -89,7 +103,7 @@ class DiscoveryPage extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: AppSpacing.sm),
+                  SizedBox(height: tokens.space8),
                   // 筛选入口单独占一行:三个入口 + 计数角标挤在标题行里,
                   // 360dp 窄屏会溢出(标题行保持原样不动)。
                   Row(
@@ -100,7 +114,7 @@ class DiscoveryPage extends ConsumerWidget {
                         Text(
                           '今日还可喜欢 $remaining 次',
                           key: const Key('discovery.quota'),
-                          style: AppText.caption.copyWith(color: colors.text2),
+                          style: AppText.caption.copyWith(color: colors.textSecondary),
                         ),
                     ],
                   ),
@@ -112,7 +126,7 @@ class DiscoveryPage extends ConsumerWidget {
             Expanded(
               child: profile.when(
                 loading: () => const DeckSkeleton(),
-                error: (error, _) => AppErrorView(
+                error: (error, _) => _ErrorView(
                   message: apiMessageOf(error),
                   onRetry: () => ref.read(profileProvider.notifier).reload(),
                 ),
@@ -127,6 +141,61 @@ class DiscoveryPage extends ConsumerWidget {
   }
 }
 
+/// 加载失败:unDraw「Connection lost」+ 说明 + 主按钮「重试」(§5 / §8.3 空态错误形态)。
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message, required this.onRetry});
+
+  /// 后端 / 网络给的文案(页面不再自己编)。
+  final String message;
+
+  /// 重试回调。
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return _CenteredScrollable(
+      child: EmberEmpty(
+        illustration: const DiscoveryIllustration(
+          DiscoveryIllustrationKind.loadFailed,
+        ),
+        title: '没能拉到人',
+        description: message,
+        actionLabel: '重试',
+        actionKey: const Key('discovery.retry'),
+        onAction: onRetry,
+      ),
+    );
+  }
+}
+
+/// 空 / 错 / 引导三态的**矮屏包装**:放得下就居中,放不下就能滚。
+///
+/// 为什么需要:顶部有标题行 + 「今日精选」区块之后,卡组区在矮屏(600dp 上下)只剩
+/// 两百多像素,而空态是「插画 96 + 标题 + 说明 + 主按钮」一整列 —— 直接 `Center`
+/// 会抛 `RenderFlex overflowed`(紫黑条)。这是布局兜底,不是视觉的一部分。
+class _CenteredScrollable extends StatelessWidget {
+  const _CenteredScrollable({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.all(tokens.space24),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 资料不全时不能滑卡,先把人引去向导。
 class _IncompleteView extends StatelessWidget {
   const _IncompleteView({required this.profile});
@@ -135,19 +204,16 @@ class _IncompleteView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xxl),
-        child: AppEmptyState(
-          mark: const HeartRipple(),
-          title: '完善资料后就能开始滑卡',
-          description: '还差:${profile.missingFields.map(missingFieldLabel).join('、')}',
-          action: AppButton(
-            key: const Key('discovery.goOnboarding'),
-            label: '去完善',
-            onPressed: () => context.go('/onboarding'),
-          ),
+    return _CenteredScrollable(
+      child: EmberEmpty(
+        illustration: const DiscoveryIllustration(
+          DiscoveryIllustrationKind.profileIncomplete,
         ),
+        title: '完善资料后就能开始滑卡',
+        description: '还差:${profile.missingFields.map(missingFieldLabel).join('、')}',
+        actionLabel: '去完善',
+        actionKey: const Key('discovery.goOnboarding'),
+        onAction: () => context.go('/onboarding'),
       ),
     );
   }
@@ -168,7 +234,7 @@ class _DeckView extends ConsumerWidget {
       {required bool like}) async {
     if (like && _likeBlocked(ref)) {
       // 按钮已经置灰,这条是拖拽右滑的兜底:不去撞后端,直接告诉用户今天没了
-      AppToast.show(context, likeQuotaExhaustedHint);
+      EmberToast.show(context, likeQuotaExhaustedHint);
       return false;
     }
     try {
@@ -201,7 +267,7 @@ class _DeckView extends ConsumerWidget {
         unawaited(quota.refresh()); // 顺手把「还剩 0 次」拉回来,别再显示旧数字
       }
       if (context.mounted) {
-        AppToast.show(context,
+        EmberToast.show(context,
             error.code == likeQuotaExceededCode ? likeQuotaExhaustedHint : error.message);
       }
       return false;
@@ -215,14 +281,14 @@ class _DeckView extends ConsumerWidget {
   Future<void> _undo(BuildContext context, WidgetRef ref) async {
     try {
       await ref.read(swipeUndoProvider.notifier).undo();
-      if (context.mounted) AppToast.show(context, '已撤销');
+      if (context.mounted) EmberToast.show(context, '已撤销');
     } on ApiException catch (error) {
       if (error.code == undoSwipeUnavailableCode) {
         ref.read(swipeUndoProvider.notifier).forget();
-        if (context.mounted) AppToast.show(context, '没有可撤销的操作');
+        if (context.mounted) EmberToast.show(context, '没有可撤销的操作');
         return;
       }
-      if (context.mounted) AppToast.show(context, error.message);
+      if (context.mounted) EmberToast.show(context, error.message);
     }
   }
 
@@ -245,7 +311,7 @@ class _DeckView extends ConsumerWidget {
     final undoAction = undo == null ? null : _undoButton(context, ref, undo);
     return deck.when(
       loading: () => const DeckSkeleton(),
-      error: (error, _) => AppErrorView(
+      error: (error, _) => _ErrorView(
         message: apiMessageOf(error),
         onRetry: () => ref.read(discoveryProvider.notifier).reload(),
       ),
@@ -262,6 +328,9 @@ class _DeckView extends ConsumerWidget {
                 presenceById: presenceById,
                 likeBlocked: quota.isBlockedAt(ref.read(discoveryClockProvider)()),
                 undoAction: undoAction,
+                // 拍板结果 3:本单只做普通 push,卡 → 资料页的 Hero 转场留给 E-5.4
+                onOpenProfile: (candidate) =>
+                    context.push('/users/${candidate.userId}'),
                 onDecide: (candidate, {required like}) =>
                     _decide(context, ref, candidate, like: like),
               );
@@ -281,44 +350,31 @@ class _EmptyView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final undo = undoAction;
-    // 顶部多了「今日精选」区块之后,卡组区在矮屏(600dp 上下)会变窄,
-    // 空态 + 撤销按钮的自然高度可能超出可用高度 —— 所以这里可滚可居中:
-    // 放得下时照旧居中,放不下时能滚,不会抛 RenderFlex overflow。
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.xxl),
-              child: AppEmptyState(
-                mark: const HeartRipple(),
-                title: '附近暂时没有新的人了',
-                description: '过会儿再来看看吧',
-                action: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AppButton(
-                      key: const Key('discovery.refresh'),
-                      label: '刷新',
-                      onPressed: onRefresh,
-                    ),
-                    if (undo != null) ...[
-                      const SizedBox(height: AppSpacing.lg),
-                      undo,
-                    ],
-                  ],
-                ),
-              ),
+    return _CenteredScrollable(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          EmberEmpty(
+            illustration: const DiscoveryIllustration(
+              DiscoveryIllustrationKind.emptyNearby,
             ),
+            title: '附近暂时没有新的人了',
+            description: '过会儿再来看看吧',
+            actionLabel: '刷新',
+            actionKey: const Key('discovery.refresh'),
+            onAction: onRefresh,
           ),
-        ),
+          if (undo != null) ...[
+            SizedBox(height: tokens.space16),
+            undo,
+          ],
+        ],
       ),
     );
   }
 }
 
-/// 「筛选」入口(批次 S):胶囊按钮,已生效时高亮成品牌色,提示「现在不是默认池子」。
+/// 「筛选」入口(批次 S):[EmberChip],已生效时切到选中态,提示「现在不是默认池子」。
 ///
 /// 点开面板 → 拿到用户选好的筛选(或重置)→ 写进 [discoveryFilterProvider];
 /// 筛选态一变,候选池 provider 会自己重拉,这里不用手动 reload。
@@ -339,47 +395,28 @@ class _FilterEntry extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.heart;
     final active = !ref.watch(discoveryFilterProvider).isEmpty;
-    final tone = active ? colors.brand : colors.text2;
-    return Semantics(
-      button: true,
-      label: active ? '筛选,已生效' : '筛选',
-      child: InkWell(
-        key: const Key('discovery.filter'),
-        borderRadius: BorderRadius.circular(AppRadius.full),
-        onTap: () => _open(context, ref),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md, vertical: AppSpacing.xs),
-          decoration: BoxDecoration(
-            color: active ? colors.brand.withValues(alpha: .12) : colors.bgCard,
-            borderRadius: BorderRadius.circular(AppRadius.full),
-            border: Border.all(color: active ? colors.brand : colors.divider),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.tune_rounded, size: 16, color: tone),
-              const SizedBox(width: AppSpacing.xs),
-              Text('筛选',
-                  style: AppText.caption.copyWith(
-                      color: tone,
-                      fontWeight: active ? FontWeight.w600 : FontWeight.w500)),
-            ],
-          ),
-        ),
-      ),
+    return EmberChip(
+      key: const Key('discovery.filter'),
+      label: '筛选',
+      icon: PhosphorIconsRegular.slidersHorizontal,
+      selected: active,
+      // 选中态自己会读「筛选,已选中」;这里只补「有筛选在生效」这层语义。
+      semanticLabel: active ? '筛选，已生效' : '筛选',
+      onTap: () => _open(context, ref),
     );
   }
 }
 
 /// 发现页右上角入口:图标 + 文案 + 角标;窄屏(<360dp)只留图标,靠 Semantics 读屏。
+///
+/// 图标口径(§6):未选中 = Regular + `text.tertiary`;有计数时切 **Fill + `brand.default`**
+/// —— 那正是「选中 / 未读」那一行,计数本身就说明有内容等着看。
 class _TopEntry extends StatelessWidget {
   const _TopEntry({
     required this.entryKey,
     required this.icon,
-    required this.iconColor,
+    required this.selectedIcon,
     required this.label,
     required this.count,
     required this.onTap,
@@ -387,37 +424,48 @@ class _TopEntry extends StatelessWidget {
 
   final Key entryKey;
   final IconData icon;
-  final Color iconColor;
+  final IconData selectedIcon;
   final String label;
   final int count;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
+    final colors = context.ember;
     final showLabel = MediaQuery.sizeOf(context).width >= 360;
-    final semantic = count > 0 ? '$label,$count 人' : label;
-    return Semantics(
-      button: true,
-      label: semantic,
-      child: InkWell(
-        key: entryKey,
-        borderRadius: BorderRadius.circular(AppRadius.full),
-        onTap: onTap,
+    final active = count > 0;
+    final semantic = active ? '$label，$count 人' : label;
+    return EmberPressable(
+      key: entryKey,
+      onTap: onTap,
+      pressedScale: 0.97,
+      borderRadius: BorderRadius.circular(tokens.radiusPill),
+      semanticLabel: semantic,
+      builder: (context, state) => SizedBox(
+        // 热区 ≥48×48(§8.4):图标本体 20,靠内边距把可点区域撑起来。
+        height: tokens.sizeTouchApp,
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.xs, vertical: AppSpacing.xs),
+          padding: EdgeInsets.symmetric(horizontal: tokens.space8),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 20, color: iconColor),
+              Icon(
+                active ? selectedIcon : icon,
+                size: tokens.sizeIcon20,
+                color: active ? colors.brandDefault : colors.textTertiary,
+              ),
               if (showLabel) ...[
-                const SizedBox(width: AppSpacing.xs),
-                Text(label, style: AppText.caption.copyWith(color: colors.text2)),
+                SizedBox(width: tokens.space4),
+                Text(
+                  label,
+                  style: AppText.caption.copyWith(color: colors.textSecondary),
+                ),
               ],
-              if (count > 0) ...[
-                const SizedBox(width: AppSpacing.xs),
-                AppBadge(count: count),
+              if (active) ...[
+                SizedBox(width: tokens.space4),
+                // 计数已经写进外层 `Semantics(label:)`(「喜欢我的人，3 人」),
+                // 角标自己再播一次会重复,所以只让它出画面、不出声。
+                ExcludeSemantics(child: EmberBadge(count: count)),
               ],
             ],
           ),

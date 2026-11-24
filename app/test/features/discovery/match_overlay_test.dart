@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/widgets/app_avatar.dart';
+import 'package:chatapp_app/core/ui/ember_avatar.dart';
 import 'package:chatapp_app/features/discovery/models.dart';
 import 'package:chatapp_app/features/discovery/widgets/match_overlay.dart';
 import 'package:chatapp_app/features/profile/models.dart';
@@ -31,7 +31,7 @@ void main() {
 
     expect(find.text('你们已互相喜欢'), findsOneWidget);
     expect(find.text('和 小红 打个招呼吧'), findsOneWidget);
-    expect(find.byType(AppAvatar), findsNWidgets(2)); // 双头像在位(无头像侧回退占位)
+    expect(find.byType(EmberAvatar), findsNWidgets(2)); // 双头像在位(无头像侧回退首字)
     expect(find.byKey(const Key('match.continue')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('match.continue')));
