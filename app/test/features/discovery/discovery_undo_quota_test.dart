@@ -22,8 +22,9 @@ final _undoKey = find.byKey(const Key('discovery.undo'));
 /// 滑一张卡并把请求放行到「响应已回来」,但**不**推完 30 秒倒计时。
 Future<void> _swipeAndSettle(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('discovery.like')));
-  // 飞出动画(250ms)+ 请求往返;总共只推 0.8 秒,离 30 秒窗口还远
-  for (var i = 0; i < 8; i++) {
+  // 飞出是 `spring.standard`(E-5.2 把 250ms 曲线换成了弹簧,收敛约 0.5 秒)+ 请求往返;
+  // 总共推 1.6 秒,离 30 秒窗口还远
+  for (var i = 0; i < 16; i++) {
     await tester.pump(const Duration(milliseconds: 100));
   }
 }
@@ -74,6 +75,18 @@ void main() {
     expect(find.text('小红,25'), findsNothing);
     expect(find.text('小刚,25'), findsOneWidget);
     expect(_undoKey, findsOneWidget);
+    // 撤销钮同样要有读屏标签(§8.4:图标按钮必须有 `Semantics(label:)`)
+    expect(
+      tester
+          .widgetList<Semantics>(
+            // `discovery.undo` 这个 key 挂在按钮内部的 GestureDetector 上,
+            // 语义壳是它的**上层**(UndoButton 自己包的那层 Semantics)
+            find.ancestor(of: _undoKey, matching: find.byType(Semantics)),
+          )
+          .map((node) => node.properties.label)
+          .whereType<String>(),
+      contains('撤销上一次滑卡'),
+    );
 
     await tester.tap(_undoKey);
     await tester.pump();

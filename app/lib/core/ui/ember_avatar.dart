@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../theme/ember_motion.dart';
+import '../theme/ember_colors.dart';
 import '../theme/ember_theme_context.dart';
 import '../theme/tokens.g.dart' as tokens;
 import 'ember_component_sizes.dart';
 import 'ember_glow.dart';
+import 'ember_online_dot.dart';
 import 'ember_skeleton.dart';
 
 /// 头像:一律圆形;尺寸 28/32/40/48/56/96;无照片时首字 + 柔色底;
@@ -80,32 +81,33 @@ class EmberAvatar extends StatelessWidget {
         height: size,
         shape: BoxShape.circle,
       );
-    } else {
+    } else if (image == null) {
       core = Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: colors.surfaceSunken,
-          image: image == null
-              ? null
-              : DecorationImage(image: image!, fit: BoxFit.cover),
         ),
         alignment: Alignment.center,
-        child: image == null
-            ? Text(
-                _initials(name),
-                textScaler: size >= EmberComponentSizes.avatarHero
-                    ? TextScaler.linear(1)
-                    : TextScaler.noScaling,
-                style: TextStyle(
-                  // 首字随尺寸档缩放:大图不打字,小图不溢出。
-                  fontSize: (size * 0.4).clamp(tokens.fontSizeMicro, tokens.fontSizeTitle),
-                  fontWeight: FontWeight.w600,
-                  color: colors.textSecondary,
-                ),
-              )
-            : null,
+        child: _initialsText(colors),
+      );
+    } else {
+      // 有图时走 `Image` + `errorBuilder` 而不是 `DecorationImage`:
+      // 解码失败(网络图 404 / 半张包)时能**回落到首字**,而不是既画不出图又抛一个
+      // 没人接的异常(踩过:widget 测试里 NetworkImage 一律 400,直接红)。
+      core = ClipOval(
+        child: SizedBox.square(
+          dimension: size,
+          child: Image(
+            image: image!,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stack) => ColoredBox(
+              color: colors.surfaceSunken,
+              child: Center(child: _initialsText(colors)),
+            ),
+          ),
+        ),
       );
     }
 
@@ -118,7 +120,7 @@ class EmberAvatar extends StatelessWidget {
           Positioned(
             right: 0,
             bottom: 0,
-            child: _OnlineDot(size: dotSize, background: colors.surfaceCard),
+            child: EmberOnlineDot(size: dotSize, background: colors.surfaceCard),
           ),
         ],
       );
@@ -154,64 +156,18 @@ class EmberAvatar extends StatelessWidget {
     // 用 runes 而不是 `[0]`:后者按 UTF-16 取码元,会把 emoji 昵称劈成半个字符。
     return trimmed.isEmpty ? '?' : String.fromCharCode(trimmed.runes.first);
   }
-}
 
-/// 在线点:`status.success` + 背景色描边 + 呼吸(spec §8.3)。
-class _OnlineDot extends StatefulWidget {
-  const _OnlineDot({required this.size, required this.background});
-
-  final double size;
-  final Color background;
-
-  @override
-  State<_OnlineDot> createState() => _OnlineDotState();
-}
-
-class _OnlineDotState extends State<_OnlineDot>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: EmberMotion.loop,
-  );
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (EmberMotion.reducedOf(context)) {
-      if (_controller.isAnimating) _controller.stop();
-      _controller.value = 0.5;
-    } else if (!_controller.isAnimating) {
-      _controller.repeat(reverse: true);
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.ember;
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) => Opacity(
-        // 呼吸只动透明度,不动尺寸(尺寸一动,头像环会跟着抖)。
-        opacity: 0.6 + 0.4 * _controller.value,
-        child: Container(
-          width: widget.size,
-          height: widget.size,
-          decoration: BoxDecoration(
-            color: colors.statusSuccess,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: widget.background,
-              width: EmberComponentSizes.onlineDotStroke,
-            ),
-          ),
+  /// 首字占位文字:字号随尺寸档缩放(大图不打字,小图不溢出),`text.tertiary` 之外的
+  /// 中性档取 `text.secondary` —— 它与 `surface.sunken` 的对比度过线(§3.4)。
+  Widget _initialsText(EmberColors colors) => Text(
+        _initials(name),
+        textScaler: size >= EmberComponentSizes.avatarHero
+            ? TextScaler.linear(1)
+            : TextScaler.noScaling,
+        style: TextStyle(
+          fontSize: (size * 0.4).clamp(tokens.fontSizeMicro, tokens.fontSizeTitle),
+          fontWeight: FontWeight.w600,
+          color: colors.textSecondary,
         ),
-      ),
-    );
-  }
+      );
 }

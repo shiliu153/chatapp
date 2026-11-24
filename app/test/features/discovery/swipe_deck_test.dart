@@ -94,23 +94,46 @@ void main() {
     expect(decisions, ['9:like', '10:pass']);
   });
 
-  testWidgets('点喜欢:按钮脉冲 1→1.25→1(base 220ms)', (tester) async {
+  testWidgets('喜欢钮没有心跳脉冲:点下去只有一次按压反馈,没有循环缩放', (tester) async {
+    // E-5.2 page spec §7.3 / 拍板 2:装饰性循环动画一律取消(只留在线点呼吸与骨架屏)。
+    // 旧用例断言的是 1→1.25→1 的脉冲,现在改成「脉冲键不存在 + 按压弹簧会收敛回 1」。
     final decisions = <String>[];
     await tester.pumpWidget(_Host(decisions: decisions));
     await tester.pump();
 
+    expect(find.byKey(const Key('deck.pulse')), findsNothing);
+
     await tester.tap(find.byKey(const Key('discovery.like')));
-    await tester.pump(); // ticker 基线帧(首帧不推进动画)
-    await tester.pump(const Duration(milliseconds: 110)); // 220 的中点 = 峰值
+    await tester.pump(); // ticker 基线帧
+    await tester.pump(const Duration(milliseconds: 60));
 
-    double scaleOfPulse() => tester
-        .widget<Transform>(find.byKey(const Key('deck.pulse')))
-        .transform
-        .getMaxScaleOnAxis();
+    final likeButton = find.byKey(const Key('discovery.like'));
+    expect(tester.getSize(likeButton), const Size(64, 64)); // 主操作大档
 
-    expect(scaleOfPulse(), closeTo(1.25, 0.02));
+    // 弹簧收敛后(没有脉冲残留)缩放回到 1:残留循环动画会让这里持续 ≠ 1
+    await tester.pump(const Duration(milliseconds: 600));
+    final transform = tester.widget<Transform>(
+      find.descendant(of: likeButton, matching: find.byType(Transform)).first,
+    );
+    expect(transform.transform.storage[0], closeTo(1.0, 0.01));
+  });
 
-    await tester.pump(const Duration(milliseconds: 110)); // 脉冲走完
-    expect(scaleOfPulse(), closeTo(1.0, 0.02));
+  testWidgets('喜欢 / 跳过两钮都有读屏标签(§8.4 图标按钮必须有 label)', (tester) async {
+    final decisions = <String>[];
+    await tester.pumpWidget(_Host(decisions: decisions));
+    await tester.pump();
+    // 语义节点由 `EmberPressable` 的 `Semantics(label:)` 提供:直接读组件声明的
+    // label(卡片上的「喜欢爬山」也是同一批文字,按 label 搜索会撞上,不能用来断言)
+    String labelOf(String key) => tester
+        .widget<Semantics>(
+          find
+              .descendant(of: find.byKey(Key(key)), matching: find.byType(Semantics))
+              .first,
+        )
+        .properties
+        .label!;
+
+    expect(labelOf('discovery.like'), '喜欢');
+    expect(labelOf('discovery.pass'), '跳过');
   });
 }

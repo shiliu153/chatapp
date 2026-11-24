@@ -11,6 +11,10 @@
 //
 // 与 `smoke_test.dart` 同一条轨(`.github/workflows/app-ui.yml` 的 app-ui),
 // 后端**不可达**也不影响:标签池用 `tagsProvider` 覆盖成固定值,不碰网络。
+//
+// 2026-11-24(E-5.2)起面板换成 `EmberSheet`,最高只占 **60% 屏高**(「余烬 Ember」§9.3),
+// 所以标签区在 CI 的 320×640 逻辑屏上落在折叠线以下:用例先用**真实拖拽**把内容滚上来,
+// 再点 chip —— 这一步顺带证明「滚动区收得到真实拖拽」,正是 issue #213 的原始症状。
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -63,16 +67,18 @@ void main() {
     expect(viewport.size.height, greaterThan(100),
         reason: '滚动视口只有 ${viewport.size.height},内容会被画在视口外 → 整块点不动');
 
-    // ② chip 在滚动区内:点它必须变成选中态(选中后「应用」带出 tag_ids)
-    await tester.tap(find.text('音乐'));
-    await tester.pumpAndSettle();
-
-    // ③ RangeSlider 也在滚动区内:从**右端**往左拖,上限必须变小。
+    // ② RangeSlider 在滚动区顶部(刚打开时可见):从**右端**往左拖,上限必须变小。
     //    必须从右端抓:RangeSlider 抓「离按下点最近的滑块」,从中间按会抓到左滑块
     //    (已经在最小值 18,再往左拖不动),看起来就像「拖了没反应」。
     final sliderRect = tester.getRect(find.byType(RangeSlider));
     await tester.dragFrom(
         Offset(sliderRect.right - 30, sliderRect.center.dy), const Offset(-140, 0));
+    await tester.pumpAndSettle();
+
+    // ③ 标签区在折叠线以下:先用**真实指针**滚上来,再点 chip。
+    //    `drag` 而不是 `ensureVisible`:这条用例验的就是「滚动区能收到真实拖拽事件」。
+    await _scrollIntoView(tester, find.text('音乐'), scrollView);
+    await tester.tap(find.text('音乐'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('filter.apply')));
@@ -86,6 +92,24 @@ void main() {
     final maxAge = int.parse(age.split('-').last);
     expect(maxAge, isNot(99), reason: '滑块没收到指针事件:age_max 仍是偏好上限 99($age)');
   });
+}
+
+/// 用**真实拖拽**把 [target] 滚进 [scrollable] 的可视区(最多试 6 次)。
+///
+/// 不用 `ensureVisible`(那是程序化滚动):这条用例要证明的是「滚动区吃得到真实
+/// 指针拖拽」,issue #213 的症状恰好是「控件画得出来、但拖不动也点不动」。
+Future<void> _scrollIntoView(
+    WidgetTester tester, Finder target, Finder scrollable) async {
+  for (var i = 0; i < 6; i++) {
+    final viewport = tester.getRect(scrollable);
+    final rect = tester.getRect(target);
+    final visible =
+        rect.top >= viewport.top && rect.bottom <= viewport.bottom - 4;
+    if (visible) return;
+    await tester.drag(scrollable, const Offset(0, -120));
+    await tester.pumpAndSettle();
+  }
+  fail('滚了 6 次仍没把 $target 滚进可视区(视口 ${tester.getRect(scrollable)})');
 }
 
 /// 打开面板的宿主:把「应用」拿到的筛选原样显示出来,好让用例断言结果。

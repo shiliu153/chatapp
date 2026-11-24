@@ -1,12 +1,10 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
-import '../../../core/theme/heart_theme_context.dart';
-import '../../../core/theme/app_gradients.dart';
-import '../../../core/theme/app_motion.dart';
-import '../../../core/theme/app_shadows.dart';
-import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/ember_motion.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
+import '../../../core/ui/ember_ui.dart';
 import '../../presence/models.dart';
 import '../models.dart';
 import 'profile_card.dart';
@@ -15,12 +13,35 @@ import 'profile_card.dart';
 typedef DecideCallback = Future<bool> Function(Candidate candidate, {required bool like});
 
 /// 卡组:顶层卡可拖拽,松手超出阈值 → 飞出并回调 [onDecide];没超出 → 弹回。
+///
+/// 动效口径(「余烬 Ember」§7.1 / E-5.2 page spec §4):
+/// - 飞出与弹回都是 **`spring.standard`**(有位移 → spatial 弹簧,不再有 250ms
+///   定长 easeOut 曲线);弹簧可被下一次手势续接,手感比定长曲线软;
+/// - 卡片按下 **`scale .98`**(`spring.fast`),松手 / 开始拖拽即回弹;
+/// - 操作钮换成 [EmberActionButton]:喜欢钮是朱砂实底 + `emberGlow`,**没有心跳脉冲**
+///   (装饰性循环动画已被 spec §7.3 取消)。
+///
+/// 业务语义一行没动:[onDecide] 返回 false(失败 / 后端拒)时卡会摆回原位,
+/// 额度用完只置灰按钮、拖拽仍交给后端判定。
 class SwipeDeck extends StatefulWidget {
-  const SwipeDeck({super.key, required this.candidates, required this.onDecide,
-      this.presenceById = const {}, this.undoAction, this.likeBlocked = false});
+  /// 构造卡组。
+  const SwipeDeck({
+    super.key,
+    required this.candidates,
+    required this.onDecide,
+    this.presenceById = const {},
+    this.undoAction,
+    this.likeBlocked = false,
+    this.onOpenProfile,
+  });
 
+  /// 待滑的候选(第一个是顶层卡)。
   final List<Candidate> candidates;
+
+  /// 滑卡回调(左滑 / 跳过 → `like: false`)。
   final DecideCallback onDecide;
+
+  /// 在线状态,按 userId 索引。
   final Map<int, Presence> presenceById;
 
   /// 卡面下方最左侧的次要操作(发现页放撤销按钮);为 null 时不给它留位置。
@@ -29,19 +50,31 @@ class SwipeDeck extends StatefulWidget {
   /// 每日喜欢额度用完(429 + 42904):喜欢钮置灰不可点,拖拽仍交给后端判定。
   final bool likeBlocked;
 
-  /// 附录 A.1 的操作钮间距。
+  /// 点卡面进对方资料页(E-5.2 page spec §7 拍板 3:本单只做**普通 push**,
+  /// Hero 转场留给 E-5.4)。为 null 时不响应点击。
+  final ValueChanged<Candidate>? onOpenProfile;
+
+  /// 操作钮之间的间距(E-5.2 page spec §3 的操作钮行)。
   static const actionGap = 44.0;
+
+  /// 操作钮行的高度(大档 64 + 上下留白,给按压缩放留余量)。
+  static const actionRowHeight = 88.0;
 
   @override
   State<SwipeDeck> createState() => _SwipeDeckState();
 }
 
-class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMixin {
+class _SwipeDeckState extends State<SwipeDeck> with TickerProviderStateMixin {
   /// 拖过卡宽的多少比例算「滑出去」。
   static const _thresholdFraction = 0.25;
 
-  late final AnimationController _controller =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 250));
+  /// 位置动画(飞出 / 弹回):值域 0→1,映射到起点→终点。
+  late final AnimationController _slide = AnimationController(vsync: this, value: 0);
+
+  /// 按压缩放:值域 .98↔1。
+  late final AnimationController _press =
+      AnimationController(vsync: this, value: 1, duration: const Duration(milliseconds: 1));
+
   Animation<Offset>? _animation;
   Offset _offset = Offset.zero;
   bool _flying = false;
@@ -49,7 +82,8 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
 
   @override
   void dispose() {
-    _controller.dispose();
+    _slide.dispose();
+    _press.dispose();
     super.dispose();
   }
 
@@ -69,17 +103,43 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
 
   double get _width => MediaQuery.sizeOf(context).width;
 
+  /// 用弹簧把位置从 [from] 推到 [to];减弱动态效果时直接落到终点(§7.3)。
   Future<void> _animateTo(Offset target) async {
-    _controller.reset();
-    final animation = Tween<Offset>(begin: _offset, end: target)
-        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    final from = _offset;
+    if (from == target) return;
+    final animation = Tween<Offset>(begin: from, end: target).animate(_slide);
     _animation = animation;
     animation.addListener(_onTick);
-    await _controller.forward();
+    _slide.value = 0;
+    if (EmberMotion.reducedOf(context)) {
+      // 减弱动态效果:不位移,直接落终点(value 的 setter 会通知监听者重绘)。
+      _slide.value = 1;
+    } else {
+      await _slide.animateWith(
+        SpringSimulation(EmberMotion.standard, 0, 1, 0),
+      );
+    }
     animation.removeListener(_onTick);
+    _animation = null;
   }
 
-  void _onTick() => setState(() => _offset = _animation!.value);
+  void _onTick() {
+    final animation = _animation;
+    if (animation == null) return;
+    setState(() => _offset = animation.value);
+  }
+
+  /// 按压反馈:顶层卡缩到 .98(spec §8.2 卡片 pressed),`spring.fast`。
+  void _setPressed(bool pressed) {
+    final target = pressed ? EmberComponentSizes.cardPressedScale : 1.0;
+    if (EmberMotion.reducedOf(context)) {
+      _press.value = 1;
+      return;
+    }
+    _press.animateWith(
+      SpringSimulation(EmberMotion.fast, _press.value, target, _press.velocity),
+    );
+  }
 
   void _onPanUpdate(DragUpdateDetails details) =>
       setState(() => _offset += Offset(details.delta.dx, 0));
@@ -104,7 +164,7 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
     final candidate = widget.candidates.first;
     _flying = true;
     _flightId = candidate.userId;
-    await _animateTo(Offset(like ? _width * 1.5 : -_width * 1.5, _offset.dy + 32));
+    await _animateTo(Offset(like ? _width * 1.5 : -_width * 1.5, _offset.dy + tokens.space32));
     if (!mounted) return;
     try {
       await widget.onDecide(candidate, like: like);
@@ -122,7 +182,6 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
     final candidates = widget.candidates;
     if (candidates.isEmpty) return const SizedBox.shrink();
     final top = candidates.first;
@@ -131,29 +190,47 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
       children: [
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.pageH, AppSpacing.sm, AppSpacing.pageH, 0),
+            padding: EdgeInsets.fromLTRB(
+              tokens.space20,
+              tokens.space8,
+              tokens.space20,
+              0,
+            ),
             child: Stack(
               fit: StackFit.expand,
               children: [
                 if (second != null)
                   Transform.scale(
-                      scale: 0.95,
-                      child: ProfileCard(
-                          candidate: second,
-                          presence: widget.presenceById[second.userId])),
-                GestureDetector(
-                  key: const Key('deck.topCard'),
-                  // 必须 opaque:默认 deferToChild 时,照片区没有命中目标,按在照片上拖不动
-                  behavior: HitTestBehavior.opaque,
-                  onPanUpdate: _flying ? null : _onPanUpdate,
-                  onPanEnd: _flying ? null : _onPanEnd,
-                  child: Transform.translate(
+                    scale: 0.95,
+                    child: ProfileCard(
+                      candidate: second,
+                      presence: widget.presenceById[second.userId],
+                    ),
+                  ),
+                AnimatedBuilder(
+                  animation: Listenable.merge([_slide, _press]),
+                  builder: (context, child) => Transform.translate(
                     offset: _offset,
                     child: Transform.rotate(
                       angle: _offset.dx / _width * 0.3,
-                      child: ProfileCard(
-                          candidate: top, presence: widget.presenceById[top.userId]),
+                      child: Transform.scale(scale: _press.value, child: child),
+                    ),
+                  ),
+                  child: GestureDetector(
+                    key: const Key('deck.topCard'),
+                    // 必须 opaque:默认 deferToChild 时,照片区没有命中目标,按在照片上拖不动
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: _flying ? null : (_) => _setPressed(true),
+                    onTapUp: _flying ? null : (_) => _setPressed(false),
+                    onTapCancel: _flying ? null : () => _setPressed(false),
+                    onTap: _flying || widget.onOpenProfile == null
+                        ? null
+                        : () => widget.onOpenProfile!(top),
+                    onPanUpdate: _flying ? null : _onPanUpdate,
+                    onPanEnd: _flying ? null : _onPanEnd,
+                    child: ProfileCard(
+                      candidate: top,
+                      presence: widget.presenceById[top.userId],
                     ),
                   ),
                 ),
@@ -162,7 +239,7 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
           ),
         ),
         SizedBox(
-          height: 88,
+          height: SwipeDeck.actionRowHeight,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -170,123 +247,28 @@ class _SwipeDeckState extends State<SwipeDeck> with SingleTickerProviderStateMix
                 widget.undoAction!,
                 const SizedBox(width: SwipeDeck.actionGap),
               ],
-              _DeckActionButton(
-                buttonKey: const Key('discovery.pass'),
-                icon: Icons.close_rounded,
-                size: 56,
-                foreground: colors.text3,
-                background: colors.bgCard,
-                borderColor: colors.divider,
-                shadow: AppShadows.card,
+              EmberActionButton(
+                key: const Key('discovery.pass'),
+                icon: PhosphorIconsRegular.x,
+                semanticLabel: '跳过',
+                size: EmberActionButtonSize.small,
                 onPressed: _flying ? null : () => _flyOut(like: false),
               ),
               const SizedBox(width: SwipeDeck.actionGap),
-              _DeckActionButton(
-                buttonKey: const Key('discovery.like'),
-                icon: Icons.favorite_rounded,
-                size: 64,
-                // 额度用完时退成与「跳过」同款中性钮:不点渐变高音,一眼看出不可点
-                foreground: widget.likeBlocked ? colors.text3 : Colors.white,
-                background: widget.likeBlocked ? colors.bgCard : null,
-                gradient: widget.likeBlocked ? null : AppGradients.heartOf(colors),
-                borderColor: widget.likeBlocked ? colors.divider : null,
-                shadow: widget.likeBlocked ? AppShadows.card : AppShadows.primaryGlow(colors.brandDefault),
-                pulse: !widget.likeBlocked,
+              EmberActionButton(
+                key: const Key('discovery.like'),
+                icon: PhosphorIconsFill.heart,
+                semanticLabel: '喜欢',
+                variant: EmberActionButtonVariant.primary,
+                size: EmberActionButtonSize.large,
+                // 额度用完:置灰(无光晕无按压),但拖拽右滑仍交给后端判定
                 onPressed: _flying || widget.likeBlocked ? null : () => _flyOut(like: true),
               ),
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.lg),
+        SizedBox(height: tokens.space20),
       ],
-    );
-  }
-}
-
-/// 附录 A.1 滑卡操作钮:圆钮 + 按压 .96;喜欢钮带心跳脉冲 1→1.25→1。
-class _DeckActionButton extends StatefulWidget {
-  const _DeckActionButton({
-    required this.buttonKey,
-    required this.icon,
-    required this.size,
-    required this.foreground,
-    this.background,
-    this.gradient,
-    this.borderColor,
-    required this.shadow,
-    this.pulse = false,
-    this.onPressed,
-  });
-
-  final Key buttonKey;
-  final IconData icon;
-  final double size;
-  final Color foreground;
-  final Color? background;
-  final Gradient? gradient;
-  final Color? borderColor;
-  final List<BoxShadow> shadow;
-  final bool pulse;
-  final VoidCallback? onPressed;
-
-  @override
-  State<_DeckActionButton> createState() => _DeckActionButtonState();
-}
-
-class _DeckActionButtonState extends State<_DeckActionButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse =
-      AnimationController(vsync: this, duration: AppMotion.base);
-  var _pressed = false;
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  void _handleTap() {
-    if (widget.onPressed == null) return;
-    if (widget.pulse) _pulse.forward(from: 0); // 与飞出并行,不阻塞
-    widget.onPressed!();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.onPressed != null;
-    return GestureDetector(
-      key: widget.buttonKey,
-      behavior: HitTestBehavior.opaque,
-      onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
-      onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
-      onTapCancel: enabled ? () => setState(() => _pressed = false) : null,
-      onTap: _handleTap,
-      child: AnimatedScale(
-        scale: _pressed ? 0.96 : 1,
-        duration: AppMotion.fast,
-        child: AnimatedBuilder(
-          animation: _pulse,
-          builder: (context, child) => Transform.scale(
-            key: widget.pulse ? const Key('deck.pulse') : null,
-            scale: 1 + 0.25 * math.sin(math.pi * _pulse.value),
-            child: child,
-          ),
-          child: Container(
-            width: widget.size,
-            height: widget.size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: widget.background,
-              gradient: widget.gradient,
-              border: widget.borderColor == null
-                  ? null
-                  : Border.all(color: widget.borderColor!, width: 1.5),
-              boxShadow: widget.shadow,
-            ),
-            child: Icon(widget.icon, size: 24, color: widget.foreground),
-          ),
-        ),
-      ),
     );
   }
 }

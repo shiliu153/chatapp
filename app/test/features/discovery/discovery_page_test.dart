@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/widgets/heart_ripple.dart';
+import 'package:chatapp_app/features/discovery/widgets/discovery_illustration.dart';
 
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
@@ -137,7 +137,7 @@ void main() {
     await drainToast(tester); // 失败提示走 AppToast,2s 后自己消失(否则报 pending timer)
   });
 
-  testWidgets('空态用涟漪元素与主按钮「刷新」', (tester) async {
+  testWidgets('空态用 unDraw 插画与主按钮「刷新」', (tester) async {
     final adapter = ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
       'GET /users/me': (options) => ok(profileJson()),
@@ -146,7 +146,8 @@ void main() {
     await pumpApp(tester, adapter, prefs: _loggedIn);
     await pumpFrames(tester); // 涟漪是无限动画,不能 pumpAndSettle
 
-    expect(find.byType(HeartRipple), findsOneWidget);
+    // E-5.2 拍板 5:空态用 unDraw 图(不再用灰色图标 / 涟漪占位,§6)
+    expect(find.byType(DiscoveryIllustration), findsOneWidget);
     expect(find.text('附近暂时没有新的人了'), findsOneWidget);
     expect(find.byKey(const Key('discovery.refresh')), findsOneWidget);
   });
@@ -164,6 +165,19 @@ void main() {
     expect(find.byKey(const Key('discovery.goOnboarding')), findsOneWidget);
   });
 
+  testWidgets('页面标题是「遇见」,旧名「发现」已消失', (tester) async {
+    final adapter = ScriptedAdapter({
+      'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
+      'GET /users/me': (options) => ok(profileJson()),
+      'GET /discovery/candidates': (options) => ok([candidateJson(userId: 9)]),
+    });
+    await pumpApp(tester, adapter, prefs: _loggedIn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('遇见'), findsWidgets); // 底栏 tab + 页面标题同名(§9.1)
+    expect(find.text('发现'), findsNothing);
+  });
+
   testWidgets('发现页显示喜欢我的人数,点入口进列表', (tester) async {
     final adapter = ScriptedAdapter({
       'POST /auth/token/refresh': (options) => ok({'access': 'a2', 'refresh': 'r2'}),
@@ -179,6 +193,22 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('3'), findsOneWidget);
+
+    // Semantics:入口读作「喜欢我的人，3 人」(计数不只在角标里,§8.4)
+    final handle = tester.ensureSemantics();
+    expect(
+      tester
+          .widget<Semantics>(
+            find.descendant(
+              of: find.byKey(const Key('discovery.likes')),
+              matching: find.byType(Semantics),
+            ).first,
+          )
+          .properties
+          .label,
+      '喜欢我的人，3 人',
+    );
+    handle.dispose();
 
     await tester.tap(find.byKey(const Key('discovery.likes')));
     await tester.pumpAndSettle();
