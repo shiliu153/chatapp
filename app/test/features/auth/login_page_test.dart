@@ -21,8 +21,10 @@ void main() {
     expect(adapter.log.where((r) => r.path == '/auth/sms/send'), hasLength(1));
     expect(find.text('60 秒后重发'), findsOneWidget);
 
-    // 卸载页面以取消倒计时 Timer,否则测试结束会报 pending timer
+    // 卸载页面以取消倒计时 Timer,否则测试结束会报 pending timer;
+    // 再推过 EmberToast 的 2s 自动消失(它自带一个 Timer,不推完同样会报 pending)。
     await tester.pumpWidget(const SizedBox());
+    await drainToast(tester);
   });
 
   testWidgets('手机号格式不对 → 不发请求', (tester) async {

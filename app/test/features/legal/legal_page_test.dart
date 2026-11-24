@@ -15,6 +15,18 @@ void main() {
     expect(userAgreementText.isNotEmpty, isTrue);
   });
 
+  testWidgets('读屏:返回键读「返回」,标题按 header 播报(E-5.6a page spec §6)', (tester) async {
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(MaterialApp(theme: heartTheme, home: LegalPage.agreement()));
+
+    expect(tester.getSemantics(find.byKey(const Key('legal.back'))).label, '返回');
+    expect(
+      tester.getSemantics(find.text('用户协议')).getSemanticsData().flagsCollection.isHeader,
+      isTrue,
+    );
+    handle.dispose();
+  });
+
   testWidgets('隐私政策页标题正确', (tester) async {
     await tester.pumpWidget(MaterialApp(theme: heartTheme, home: LegalPage.privacy()));
     expect(find.text('隐私政策'), findsOneWidget);
