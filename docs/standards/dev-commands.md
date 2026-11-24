@@ -261,6 +261,11 @@ Flutter 模板只在 `debug/`、`profile/` 的清单里声明 `INTERNET`,release
 没网(现象=登录页「网络不给力」而服务端 0 请求)。1.0.1–1.0.14 全部踩过,详见
 [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md)。
 
+这一行现在由门禁 `contract-app-manifest-internet` 机械守住(`python scripts/check_app_manifest.py`,
+随 `scripts/verify.sh contract` 跑):`main/AndroidManifest.xml` 里缺 `INTERNET` 即红,
+`debug/` 与 `profile/` 里有声明也不算数 —— 那两份只服务热重载。上面那条 `aapt2` 命令是装机前的
+最后一道人眼校验(门禁只能读仓库,读不了装到手机上的那个包)。
+
 **升版本号 = 三处版本号 + tag + Release 三件事同时做**,清单与命令见
 [`docs/ops/release.md`](../ops/release.md)(发版记录 owner 是
 [`docs/releases.yml`](../releases.yml))。

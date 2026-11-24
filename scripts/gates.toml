@@ -103,6 +103,20 @@ reason = "后端全量测试(前置 MySQL + Redis);这是 backend 轨唯一的�
 # --- contract(本地与 CI 完全同源;条数以 `python scripts/run_gates.py --list` 为准) ---
 
 [[gate]]
+id = "contract-app-manifest-internet"
+scope = "contract"
+kind = "python"
+command = "python scripts/check_app_manifest.py"
+reason = "release 包只合并 app/android/app/src/main 的清单,而 Flutter 模板只在 debug/ 与 profile/ 里声明 INTERNET(热重载用):main 缺这一行,整包 socket 全 EPERM、服务端 0 请求,本地调试却完全无感。1.0.1–1.0.14 每个 release 包都是这样(见 docs/pitfalls/android-emulator.md),#483 补回了这一行,但没有任何东西防止它再次消失"
+
+[[gate]]
+id = "contract-app-manifest-internet-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_check_app_manifest -v"
+reason = "两个方向都会坏:漏报 = 权限又被挪回 debug/ 或合并冲突时丢掉,门禁却说合规(正是它存在的理由);误报 = 注释掉的声明被当成声明、别的 uses-permission 顶替 INTERNET、debug/profile 缺文件被当成违例 —— 人只能把门禁关掉"
+
+[[gate]]
 id = "contract-app-models"
 scope = "contract"
 kind = "python"

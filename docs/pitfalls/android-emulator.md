@@ -59,7 +59,7 @@ Google 源在国内不可直连,以下已就位(2026-09-10 `flutter build apk --
   ```
 
   没输出就是这个问题(debug 包同一命令有 `android.permission.INTERNET`)。
-  修复=在 `app/android/app/src/main/AndroidManifest.xml` 声明 INTERNET(已在 main 修复,随 1.0.15 发版;**不要**再挪进 debug);
+  修复=在 `app/android/app/src/main/AndroidManifest.xml` 声明 INTERNET(已在 main 修复,随 1.0.15 发版;**不要**再挪进 debug;2026-11-24 起由门禁 `contract-app-manifest-internet` 机械守住,缺了 `scripts/verify.sh contract` 即红);
   历史记录里 1.0.7 / 1.0.8 / 1.0.9 三次「release 包网络超时 / 劣化」都是这条,与模拟器长跑劣化无关。
 - ⚠️ **release 与 debug 包签名不同**:直接 `install -r` 会 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`,先 `adb uninstall com.chatapp.chatapp_app`。
 - ⚠️ **模拟器上 App 的 WS「只收不发」**(2026-11-07 批次 J 实测,两次独立复现):聊天气泡一直停在
