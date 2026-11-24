@@ -251,6 +251,16 @@ cd app && ../flutter/bin/flutter.bat build apk --release --dart-define=API_BASE=
 **必须带**(否则线上崩溃与白屏不会上报,见 backlog A-4);Web 侧对应 `web/.env.production` 的
 `VITE_ERROR_REPORTING=1`。
 
+**装到手机之前先验一条**(2026-11-24 起):
+
+```bash
+aapt2 dump permissions app/build/app/outputs/flutter-apk/app-release.apk | grep INTERNET
+```
+
+Flutter 模板只在 `debug/`、`profile/` 的清单里声明 `INTERNET`,release 构建不合并 —— 缺了它整包
+没网(现象=登录页「网络不给力」而服务端 0 请求)。1.0.1–1.0.14 全部踩过,详见
+[`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md)。
+
 **升版本号 = 三处版本号 + tag + Release 三件事同时做**,清单与命令见
 [`docs/ops/release.md`](../ops/release.md)(发版记录 owner 是
 [`docs/releases.yml`](../releases.yml))。

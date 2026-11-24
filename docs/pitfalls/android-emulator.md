@@ -31,6 +31,7 @@ Google 源在国内不可直连,以下已就位(2026-09-10 `flutter build apk --
 - ⚠️ **只保留一个 runserver 进程**:Windows 下多个 runserver 可同时绑定 8000,旧进程会拿旧配置抢答(踩过:旧 ALLOWED_HOSTS 导致 400)。排查:`netstat -ano | grep :8000` + `Get-CimInstance Win32_Process` 看 PID 启动时间和命令行。
 - ⚠️ **覆盖安装后行为仍像旧代码 → 怀疑装到了旧产物**(2026-09-13 踩过):现象=新功能完全不生效但后端日志显示请求正常。排查:`adb shell dumpsys package com.chatapp.chatapp_app | grep lastUpdateTime` 对照安装时刻;**处理=干净重打 `flutter build apk` 再 `install -r`**。诊断手段:临时 `debugPrint` + release 包直接 `adb logcat -d | grep "\[标签"`(release 里 debugPrint 仍输出)。
 - ⚠️ **模拟器长跑数小时后 IM 长连接劣化**(2026-09-12 实测,腾讯 SDK 时代;自建 imserver 下 45s 心跳已解决,保留作历史参考):消息最长隔 ~2 分钟才到、记录加载慢、偶发「网络不给力」;`adb logcat -d | grep -c ERR_CONNECTION_RESET` 每 ~2 分钟一次(SDK 心跳 120s 踩线跑不过链路重置)。判据:同机裸 TCP 空闲不断、后端接口全 15~60ms、宿主直连腾讯正常 → 模拟器侧劣化。处理:**冷启动重启(`-no-snapshot-load`)即恢复**——⚠️ 动模拟器前先和用户确认。
+  (release 包上报「网络不给力」的那次**不是**这条,见下面 2026-11-24 条目:那是缺 INTERNET 权限。)
 - ⚠️ **模拟器相册默认是空的**:测照片上传先 `adb push 本地图.png /sdcard/Pictures/x.png` 并触发媒体扫描(`adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Pictures/x.png`),或改用 `-d windows` 走文件选择。
 - ⚠️ 模拟器访问宿主机一律 **`10.0.2.2`**(不是 127.0.0.1——那指向模拟器自己)。
 - ⚠️ **Android 明文 HTTP 下「接口全通、语音播不了」**(2026-11-09 批次 R 实测,排查花了半小时):
@@ -43,11 +44,23 @@ Google 源在国内不可直连,以下已就位(2026-09-10 `flutter build apk --
   **只放开 debug**(`profile`/`release` 构建仍禁明文)。看到「播放失败」先查这个,别先怀疑播放器封装或 URL 拼接。
 - ⚠️ **`adb shell input tap` 用「设备像素」,但截图预览可能被缩放/加边**:2026-11-07 实测,目测截图把底部 tab 点在 y=1745,而 `uiautomator dump` 里真实 bounds 是 y=2143–2311 —— 点了 5 次都没切换,误判成「tab 点不动」。**正确姿势:先 `adb shell uiautomator dump /sdcard/ui.xml && adb shell cat /sdcard/ui.xml`,按 `content-desc` 找到节点再取 bounds 中点去点**;登录页的 `获取验证码`/`登录` 同理(踩过的假象:以为按钮坏了,实际是点偏)。
 - ⚠️ **输入框聚焦时软键盘会让布局整体上移**:同一坐标「点前有效、点后无效」十有八九是键盘动画期间点的。先 `input keyevent 4` 收键盘、等 1 秒,再按 dump 的 bounds 点。
-- ⚠️ **release 包偶发「网络不给力」而 debug 包同一操作成功**(2026-11-07 实测):先用 `flutter build apk --debug` 复测同一路径,别急着改代码 —— 本次根因是模拟器长跑劣化(见上一条),`adb reboot` 后恢复正常;release 包默认开证书绑定(`CERT_PINNING`),排查时可临时 `--dart-define=CERT_PINNING=off` 对照(该产物**不要**发版)。
-  **2026-11-07 批次 I 复现**:`-no-snapshot-load` 冷启动 + 全新安装的 release 包,登录页点「获取验证码」仍报「网络不给力」,
-  服务端 `/auth/sms/send` **0 条**(同机 `GET /app/config` 正常、每 0.6s 一次在刷);换成 `flutter build apk --debug`
-  同一路径立刻成功(服务端有记录、倒计时 59 秒)。结论:**该模拟器上 UI 验收一律用 debug 包**(与批次 F 一致),
-  release 包只用来验「装得上、能启动」;要复现 release 网络问题先试 `CERT_PINNING=off` 与 `adb reboot`。
+- ⚠️ **release 包「网络不给力」= 包缺联网权限,不是网络问题**(2026-11-07 首现,**2026-11-24 定位**):
+  现象=登录页点「获取验证码」报「网络不给力,请检查网络后重试」,服务端 `/auth/sms/send` **0 条**;
+  同一台机器换成 `flutter build apk --debug` 立刻成功(服务端有记录、倒计时 59 秒),而 `adb reboot`、
+  `-no-snapshot-load` 冷启动、`--dart-define=CERT_PINNING=off` 都救不回来。
+  根因=**release 包没有 `android.permission.INTERNET`**:Flutter 模板只在 `debug/`、`profile/` 的
+  AndroidManifest 里声明它(给热重载用),`main/` 清单不写就**不会**合并进 release;没有该权限时
+  Android 直接拒绝 socket(EPERM)→ Dio `connectionError` → `ApiException.from` 统一翻成
+  「网络不给力」,于是请求一条都出不了设备,服务端自然 0 条。
+  判据(装机前 10 秒可查,`aapt2` 在 Android SDK 的 `build-tools/<版本>/`):
+
+  ```bash
+  aapt2 dump permissions app/build/app/outputs/flutter-apk/app-release.apk | grep INTERNET
+  ```
+
+  没输出就是这个问题(debug 包同一命令有 `android.permission.INTERNET`)。
+  修复=在 `app/android/app/src/main/AndroidManifest.xml` 声明 INTERNET(已在 main 修复,随 1.0.15 发版;**不要**再挪进 debug);
+  历史记录里 1.0.7 / 1.0.8 / 1.0.9 三次「release 包网络超时 / 劣化」都是这条,与模拟器长跑劣化无关。
 - ⚠️ **release 与 debug 包签名不同**:直接 `install -r` 会 `INSTALL_FAILED_UPDATE_INCOMPATIBLE`,先 `adb uninstall com.chatapp.chatapp_app`。
 - ⚠️ **模拟器上 App 的 WS「只收不发」**(2026-11-07 批次 J 实测,两次独立复现):聊天气泡一直停在
   **「发送中」**,10 秒 ×3 次重试后置为失败;**库内没有任何行**。但同一个连接:
