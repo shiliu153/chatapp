@@ -65,10 +65,30 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// 滚到某个 key 可见。
+  ///
+  /// E-5.6c 之后编辑页多了底部主操作区(保存 52 + 上下 12),列表可视高度少了约 76,
+  /// 语音卡后半段的按钮会落到 `ListView` 的构建范围之外 —— `ensureVisible` 要求元素
+  /// 已经在树里,所以先用 `scrollUntilVisible` 把它滚进来(元素已在树里时照旧直接
+  /// `ensureVisible`,不做多余滚动)。
+  Future<void> scrollTo(WidgetTester tester, Key key) async {
+    final target = find.byKey(key);
+    if (target.evaluate().isEmpty) {
+      await tester.scrollUntilVisible(
+        target,
+        200,
+        scrollable: find
+            .descendant(of: find.byType(ListView), matching: find.byType(Scrollable))
+            .first,
+      );
+    }
+    await tester.ensureVisible(target);
+    await tester.pumpAndSettle();
+  }
+
   /// 卡内按钮会随录音状态换位置(录音后卡片变高),点之前先滚到可见。
   Future<void> tapKey(WidgetTester tester, Key key) async {
-    await tester.ensureVisible(find.byKey(key));
-    await tester.pumpAndSettle();
+    await scrollTo(tester, key);
     await tester.tap(find.byKey(key));
     await tester.pumpAndSettle();
   }
@@ -97,6 +117,7 @@ void main() {
     await openVoiceCard(tester, adapter);
 
     await recordOneSecond(tester);
+    await scrollTo(tester, const Key('edit.voice.upload'));
     expect(find.byKey(const Key('edit.voice.upload')), findsOneWidget);
     expect(find.byKey(const Key('edit.voice.local.play')), findsOneWidget);
 
@@ -179,8 +200,7 @@ void main() {
     await openVoiceCard(tester, adapter);
 
     await recordOneSecond(tester);
-    await tester.ensureVisible(find.byKey(const Key('edit.voice.upload')));
-    await tester.pumpAndSettle();
+    await scrollTo(tester, const Key('edit.voice.upload'));
     await tester.tap(find.byKey(const Key('edit.voice.upload')));
     // 转码中有常驻转圈:有限推进,不能 pumpAndSettle
     await pumpFrames(tester);
