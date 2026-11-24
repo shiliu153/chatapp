@@ -9,6 +9,7 @@ import '../../../core/theme/ember_colors.dart';
 import '../../../core/theme/ember_theme_context.dart';
 import '../../../core/theme/tokens.g.dart' as tokens;
 import '../../../core/ui/ember_ui.dart';
+import '../../../core/widgets/avatar_hero.dart';
 import '../../../core/widgets/app_spinner.dart';
 import '../../../im/im_client.dart';
 import '../../../im/voice_transcode.dart';
@@ -37,6 +38,8 @@ class MessageBubble extends StatelessWidget {
     this.onTapImage,
     this.onTapQuote,
     this.onToggleSelect,
+    this.onTapAvatar,
+    this.avatarHeroTag,
     this.selectable = false,
     this.selected = false,
     this.selectionMode = false,
@@ -71,6 +74,17 @@ class MessageBubble extends StatelessWidget {
 
   /// 多选模式下点气泡本体:切换这条的选中状态(批次 T-2)。
   final VoidCallback? onToggleSelect;
+
+  /// 点对端头像 → 对方资料页(E-5.4 page spec §3「对话页气泡头像 → 资料页」)。
+  ///
+  /// 自己的头像不给点:资料页的「我的」入口在底栏,从自己头像点过去等于绕路。
+  final VoidCallback? onTapAvatar;
+
+  /// 对端头像的 Hero tag(与资料页头图同名即飞)。
+  ///
+  /// **每条消息一个 tag**(`avatar-msg-<msgId>`):同一个人在同一屏会出现多次,
+  /// 同一 tag 出现两次会让 Hero 直接抛「multiple heroes share the same tag」。
+  final String? avatarHeroTag;
 
   /// 这条消息**能不能**被多选。已撤回 / 发送中 / 居中灰条都不给勾 ——
   /// 前两者删了没有意义(已撤回本来就不显示内容),灰条没有气泡本体可点。
@@ -150,11 +164,7 @@ class MessageBubble extends StatelessWidget {
     }
 
     final isSelf = message.isSelf;
-    final avatar = EmberAvatar(
-      image: _avatarProvider(isSelf ? selfAvatarUrl : peerAvatarUrl),
-      size: EmberComponentSizes.avatarMd,
-      name: isSelf ? '我' : (peerName ?? ''),
-    );
+    final avatar = _avatar(isSelf);
     final tappable = selectionMode && selectable;
     final bubble = GestureDetector(
       // 气泡本体的稳定 key:测试与 integration_test 用它点「这一条」,
@@ -269,6 +279,34 @@ class MessageBubble extends StatelessWidget {
             if (isSelf) ...[SizedBox(width: tokens.space8), avatar],
           ],
         ),
+      ),
+    );
+  }
+
+  /// 头像:对端头像可点(进资料页)且参与 Hero,自己头像只展示。
+  ///
+  /// 多选模式下不给点:此刻唯一动作是「勾选 / 取消勾选」,点头像跳页会让想勾选的
+  /// 手指跑到别的页面去(与气泡本体同一条纪律)。
+  Widget _avatar(bool isSelf) {
+    final avatar = EmberAvatar(
+      image: _avatarProvider(isSelf ? selfAvatarUrl : peerAvatarUrl),
+      size: EmberComponentSizes.avatarMd,
+      name: isSelf ? '我' : (peerName ?? ''),
+    );
+    final onTap = onTapAvatar;
+    if (isSelf || selectionMode || onTap == null) return avatar;
+    return EmberPressable(
+      // 稳定 key:测试与 integration_test 按「哪条消息的头像」定点点击
+      key: Key('chat.avatar:${message.msgId}'),
+      onTap: onTap,
+      pressedScale: 0.97,
+      borderRadius: BorderRadius.circular(tokens.radiusPill),
+      semanticLabel: '${peerName ?? '对方'}的头像，查看资料',
+      builder: (context, state) => AvatarHero(
+        tag: avatarHeroTag,
+        imageUrl: peerAvatarUrl,
+        fromRadius: tokens.radiusPill,
+        child: avatar,
       ),
     );
   }

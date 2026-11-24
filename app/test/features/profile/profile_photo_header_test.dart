@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import 'package:chatapp_app/core/widgets/avatar_hero.dart';
 import 'package:chatapp_app/features/profile/widgets/profile_photo_header.dart';
@@ -42,7 +43,7 @@ void main() {
     )));
     await pumpFrames(tester, frames: 3);
 
-    expect(find.byIcon(Icons.person_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsRegular.user), findsOneWidget);
   });
 
   testWidgets('在线:渲染呼吸点 + 「在线」', (tester) async {

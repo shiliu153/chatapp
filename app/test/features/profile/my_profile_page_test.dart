@@ -1,11 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:chatapp_app/features/profile/my_profile_page.dart';
+
 import '../../support/harness.dart';
 import '../../support/sample_data.dart';
 import '../../support/scripted_adapter.dart';
 
 const _loggedIn = {'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7};
+
+
+/// 「我」页正文是 ListView:身份卡 + 资料分组之后,入口分组落在 800×600 视口的
+/// 折叠线以下。断言前先滚到目标,而不是断言「没渲染 = 没功能」。
+Future<void> scrollTo(WidgetTester tester, Key key) async {
+  await tester.scrollUntilVisible(
+    find.byKey(key),
+    120,
+    scrollable: find.descendant(
+      of: find.byType(MyProfilePage),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
 
 void main() {
   testWidgets('行版式:ID/昵称/性别等取值渲染', (tester) async {
@@ -30,8 +47,10 @@ void main() {
     expect(find.text('小雨'), findsOneWidget);
     expect(find.text('女'), findsOneWidget);
     expect(find.byKey(const Key('my.card.identity')), findsOneWidget);
-    expect(find.byKey(const Key('my.row.preference')), findsOneWidget);
+    await scrollTo(tester, const Key('my.row.posts'));
     expect(find.byKey(const Key('my.row.posts')), findsOneWidget);   // 我的动态入口
+    await scrollTo(tester, const Key('my.row.preference'));
+    expect(find.byKey(const Key('my.row.preference')), findsOneWidget);
     expect(find.text('编辑资料'), findsNothing); // 独立入口已删
     // 纯入口行(头像/想找的人/设置)没有取值概念,不能显示「未填」
     expect(find.text('未填'), findsNothing);

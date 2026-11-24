@@ -125,8 +125,7 @@ void main() {
 
     await tester.tap(navTab('我'));
     await pumpFrames(tester);
-    await tester.tap(find.byKey(const Key('my.row.posts')));
-    await tester.pumpAndSettle();
+    await tapMyProfileEntry(tester, const Key('my.row.posts'), frames: true);
     await tester.tap(find.byKey(const Key('post.card.7')));
     await tester.pumpAndSettle();
 

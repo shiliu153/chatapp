@@ -144,7 +144,12 @@ class EmberAvatar extends StatelessWidget {
         ].join('，');
     if (label.isEmpty) return content;
     return Semantics(
+      // `container: true`:头像自成一个语义节点,标签不会被上层卡片吞进
+      // 「一行一大串」里(§8.4「列表行 = 一行一件事」的反面)。
+      container: true,
       image: true,
+      // 占位首字 / 头像图对读屏没有增量信息,只念「昵称,在线」(§8.4)。
+      excludeSemantics: true,
       label: label,
       child: content,
     );

@@ -23,12 +23,7 @@ ScriptedAdapter _adapter(Map<String, dynamic> favoritesPage) => ScriptedAdapter(
 Future<void> _openFavorites(WidgetTester tester) async {
   await tester.tap(navTab('我'));
   await tester.pumpAndSettle();
-  await tester.ensureVisible(find.byKey(const Key('my.row.favorites')));
-  await tester.pumpAndSettle();
-  await tester.drag(find.byKey(const Key('my.row.posts')), const Offset(0, -120));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('my.row.favorites')));
-  await tester.pumpAndSettle();
+  await tapMyProfileEntry(tester, const Key('my.row.favorites'));
 }
 
 /// 我的收藏:入口在「我的」页里「我的动态」旁边;取消收藏后该行必须消失

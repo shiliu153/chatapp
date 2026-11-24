@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import 'package:chatapp_app/features/chat/voice_playback.dart';
 import 'package:chatapp_app/features/profile/widgets/voice_intro_bar.dart';
@@ -43,12 +44,12 @@ void main() {
 
     expect(player.played, ['http://test/media/voices/intro.m4a']);
     expect(player.lastIsLocal, isFalse);
-    expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsFill.pause), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('voice.play')));
     await tester.pump();
     expect(player.stopped, ['http://test/media/voices/intro.m4a']);
-    expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsFill.play), findsOneWidget);
   });
 
   testWidgets('进度回调 → 进度文案跟着走;播完复位', (tester) async {
@@ -67,7 +68,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.text('0:00 / 0:18'), findsOneWidget);
-    expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsFill.play), findsOneWidget);
   });
 
   testWidgets('加载失败 → 「播放失败,点击重试」,再点一次可重试', (tester) async {
@@ -78,13 +79,13 @@ void main() {
     await tester.pump();
 
     expect(find.text('播放失败,点击重试'), findsOneWidget);
-    expect(find.byIcon(Icons.refresh_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsRegular.arrowClockwise), findsOneWidget);
 
     player.failPlay = false;
     await tester.tap(find.byKey(const Key('voice.play')));
     await tester.pump();
     expect(player.played, ['http://test/media/voices/intro.m4a']);
-    expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
+    expect(find.byIcon(PhosphorIconsFill.pause), findsOneWidget);
   });
 
   testWidgets('本地录音试听走 DeviceFileSource(isLocal)', (tester) async {

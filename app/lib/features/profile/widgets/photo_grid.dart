@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import '../../../core/api_exception.dart';
 import '../../../core/image_pick.dart';
@@ -106,7 +107,7 @@ class _PhotoTile extends StatelessWidget {
               errorBuilder: (context, error, stack) => ColoredBox(
                 color: colors.divider,
                 child: Center(
-                  child: Icon(Icons.image_rounded, color: colors.text3),
+                  child: Icon(PhosphorIconsRegular.imageBroken, color: colors.text3),
                 ),
               ),
             ),
@@ -158,7 +159,7 @@ class _RemoveBadge extends StatelessWidget {
           shape: BoxShape.circle,
           color: colors.text1.withValues(alpha: .55),
         ),
-        child: const Icon(Icons.close_rounded, size: 14, color: Colors.white),
+        child: const Icon(PhosphorIconsRegular.x, size: 14, color: Colors.white),
       );
   }
 }
@@ -208,7 +209,7 @@ class _AddTileState extends State<_AddTile> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: colors.brand),
                     )
-                  : Icon(Icons.add_photo_alternate_rounded,
+                  : Icon(PhosphorIconsRegular.plusSquare,
                       size: 24, color: colors.text3),
             ),
           ),

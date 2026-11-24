@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:chatapp_app/core/widgets/app_skeleton.dart';
+import 'package:chatapp_app/core/ui/ember_ui.dart';
 import 'package:chatapp_app/features/profile/widgets/profile_skeleton.dart';
 import 'package:chatapp_app/features/profile/widgets/user_profile_skeleton.dart';
 
@@ -17,7 +17,7 @@ void main() {
     await pumpFrames(tester, frames: 3);
 
     expect(find.byKey(const Key('profile.skeleton')), findsOneWidget);
-    expect(find.byType(AppSkeleton), findsWidgets);
+    expect(find.byType(EmberSkeleton), findsWidgets);
   });
 
   testWidgets('UserProfileSkeleton 渲染头图 + 行骨架', (tester) async {
@@ -25,6 +25,6 @@ void main() {
     await pumpFrames(tester, frames: 3);
 
     expect(find.byKey(const Key('user.skeleton')), findsOneWidget);
-    expect(find.byType(AppSkeleton), findsWidgets);
+    expect(find.byType(EmberSkeleton), findsWidgets);
   });
 }

@@ -39,6 +39,9 @@ void main() {
     await pumpFrames(tester);
     expect(find.text('小明'), findsOneWidget);
     expect(find.byKey(const Key('my.card.identity')), findsOneWidget); // 身份卡即编辑入口
+    // 入口分组在 800×600 视口的折叠线以下,滚到它再断言
+    await scrollMyProfileTo(tester, find.byKey(const Key('my.row.settings')),
+        frames: true);
     expect(find.text('想找的人'), findsOneWidget);
     expect(find.text('设置'), findsOneWidget);
   });

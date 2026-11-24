@@ -12,11 +12,8 @@ const _loggedIn = {'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7};
 Future<void> _openSettings(WidgetTester tester) async {
   await tester.tap(navTab('我'));
   await tester.pumpAndSettle();
-  // 「设置」行在列表底部,可能折叠线以下;先滚到可见再点
-  await tester.ensureVisible(find.byKey(const Key('my.row.settings')));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('my.row.settings')));
-  await tester.pumpAndSettle();
+  // 「设置」行在折叠线以下(新「我」页更高):先滚到可见再点
+  await tapMyProfileEntry(tester, const Key('my.row.settings'));
 }
 
 /// 把设置页滚到某一行可见。
