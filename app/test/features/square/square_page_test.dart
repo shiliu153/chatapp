@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import 'package:chatapp_app/core/theme/ember_colors.dart';
-import 'package:chatapp_app/core/widgets/breathing_dot.dart';
+import 'package:chatapp_app/core/ui/ember_ui.dart';
 import 'package:chatapp_app/features/profile/user_profile_page.dart';
 
 import '../../support/harness.dart';
@@ -39,7 +40,9 @@ void main() {
     expect(find.text('Alice'), findsOneWidget);
     expect(find.text('今天天气真好'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
-    expect(find.byKey(const Key('square.fab')), findsOneWidget);
+    // 发帖入口在顶栏(E-5.5 §7 拍板 #5:顶栏 plus,原渐变 FAB 退役)
+    expect(find.byKey(const Key('square.compose.plus')), findsOneWidget);
+    expect(find.byType(FloatingActionButton), findsNothing);
   });
 
   testWidgets('空态:涟漪 + 文案 + 发布按钮,点按钮进发布页', (tester) async {
@@ -50,8 +53,8 @@ void main() {
     await tester.tap(navTab('回声'));
     await pumpFrames(tester); // HeartRipple 无限动画,禁 settle
 
-    expect(find.text('广场'), findsOneWidget); // 页内大标题(底栏 tab 自 E-5.1 起叫「回声」)
-    expect(find.text('还没有动态'), findsOneWidget);
+    expect(find.text('回声'), findsWidgets); // 页内大标题(底栏 tab 自 E-5.1 起叫「回声」)
+    expect(find.text('还没有人留下回声'), findsOneWidget);
     expect(find.text('发一条,让大家认识你'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('square.compose')));
@@ -85,11 +88,11 @@ void main() {
     await _openSquare(tester);
 
     await tester.tap(find.byKey(const Key('post.like.1')));
-    await tester.pump();   // 乐观:马上变红
-    expect(tester.widget<Icon>(find.byIcon(Icons.favorite_rounded)).color,
+    await tester.pump(); // 乐观:马上变实心 heart + brand.default
+    expect(tester.widget<Icon>(find.byIcon(PhosphorIconsFill.heart)).color,
         EmberColors.light.brandDefault);
-    await tester.pumpAndSettle();   // 请求失败 → 回滚
-    expect(find.byIcon(Icons.favorite_border_rounded), findsOneWidget);
+    await tester.pumpAndSettle(); // 请求失败 → 回滚
+    expect(find.byIcon(PhosphorIconsRegular.heart), findsOneWidget);
     await tester.pump(const Duration(seconds: 3)); // AppToast 2s Timer 收尾
   });
 
@@ -201,12 +204,12 @@ void main() {
     expect(
         find.descendant(
             of: find.byKey(const Key('post.avatar.1')),
-            matching: find.byType(BreathingDot)),
+            matching: find.byType(EmberOnlineDot)),
         findsOneWidget);
     expect(
         find.descendant(
             of: find.byKey(const Key('post.avatar.2')),
-            matching: find.byType(BreathingDot)),
+            matching: find.byType(EmberOnlineDot)),
         findsNothing);
     // 查的正是两条动态的作者 id
     final request = adapter.log.lastWhere((r) => r.path == '/presence');
@@ -254,6 +257,6 @@ void main() {
 
     await tester.tap(find.byKey(const Key('square.empty.toRecommend')));
     await pumpFrames(tester);
-    expect(find.text('还没有动态'), findsOneWidget);
+    expect(find.text('还没有人留下回声'), findsOneWidget);
   });
 }

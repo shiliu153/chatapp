@@ -1,73 +1,58 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_radius.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/widgets/app_skeleton.dart';
-import '../../../core/theme/heart_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
+import '../../../core/ui/ember_ui.dart';
 
-/// 动态详情加载骨架(附录 D):1 张卡骨架 + 2 条评论行骨架。
-/// 呼吸动画为无限循环 — 可见它的测试只用有限 pump。
+/// 动态详情加载骨架(E-5.5 page spec §5):1 张卡骨架 + 2 条评论块骨架。
+///
+/// 只在**没有** `PostDetailArgs.seed` 时出现(我的动态 / 深链):有 seed 时详情页
+/// 直接拿列表快照直出真卡,否则首帧没有 Hero 目标就不飞(见 `post_detail_page.dart`)。
+///
+/// 呼吸是 [EmberSkeleton] 的 1.2s 循环 —— 用到它的用例不要 `pumpAndSettle`。
 class PostDetailSkeleton extends StatelessWidget {
+  /// 构造骨架。
   const PostDetailSkeleton({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
     return SingleChildScrollView(
-        // 骨架为静态展示,包滚动免疫小屏溢出(同 SquareSkeleton)
-        child: Column(
-          key: key ?? const Key('post.skeleton'),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              decoration: BoxDecoration(
-                color: colors.bgCard,
-                borderRadius: BorderRadius.circular(AppRadius.card),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const AppSkeleton(width: 40, height: 40, radius: AppRadius.full),
-                      const SizedBox(width: AppSpacing.md),
-                      const AppSkeleton(width: 120, height: 14),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  const AppSkeleton(width: double.infinity, height: 14),
-                  const SizedBox(height: AppSpacing.sm),
-                  const AppSkeleton(width: 240, height: 14),
-                ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            for (var i = 0; i < 2; i++) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.pageH),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      // 骨架为静态展示,包滚动免疫小屏溢出(同 SquareSkeleton)
+      child: Column(
+        key: const Key('post.skeleton'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          EmberCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    const AppSkeleton(width: 28, height: 28, radius: AppRadius.full),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const AppSkeleton(width: 96, height: 12),
-                          const SizedBox(height: AppSpacing.xs),
-                          const AppSkeleton(width: 200, height: 13),
-                        ],
-                      ),
+                    const EmberSkeleton(
+                      width: EmberComponentSizes.avatarMd,
+                      height: EmberComponentSizes.avatarMd,
+                      shape: BoxShape.circle,
                     ),
+                    SizedBox(width: tokens.space12),
+                    EmberSkeleton(width: 120, height: tokens.fontSizeSubtitle),
                   ],
                 ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
+                SizedBox(height: tokens.space12),
+                EmberSkeleton(height: tokens.fontSizeBody),
+                SizedBox(height: tokens.space8),
+                EmberSkeleton(width: 240, height: tokens.fontSizeBody),
+              ],
+            ),
+          ),
+          SizedBox(height: tokens.space16),
+          for (var i = 0; i < 2; i++) ...[
+            EmberSkeleton(
+              height: 56,
+              radius: tokens.radiusMd,
+            ),
+            SizedBox(height: tokens.space12),
           ],
-        ),
-      );
+        ],
+      ),
+    );
   }
 }

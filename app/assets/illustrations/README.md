@@ -1,6 +1,7 @@
-# 空态插画(E-5.2 / E-5.3)
+# 空态插画(E-5.2 / E-5.3 / E-5.5)
 
-[unDraw](https://undraw.co) 插画,服务发现页(E-5.2)与对话线(E-5.3)的空 / 错误态。
+[unDraw](https://undraw.co) 插画,服务发现页(E-5.2)、对话线(E-5.3)与回声 / 广场
+(E-5.5)的空 / 错误态。
 
 | 文件 | unDraw 原名 | 用在哪 |
 |---|---|---|
@@ -9,6 +10,8 @@
 | `discovery_load_failed_light/dark.png` | [Connection lost](https://undraw.co/illustration/connection-lost_am29) | 加载失败 |
 | `chat_empty_light/dark.png` | [Chatting](https://undraw.co/illustration/chatting_29rn) | 会话列表空(「还没有对话」) |
 | `chat_error_light/dark.png` | [Connection lost](https://undraw.co/illustration/connection-lost_am29) | 会话列表 / 聊天页加载失败 |
+| `square_empty_light/dark.png` | [Online posts](https://undraw.co/illustration/online-posts_avfn) | 动态流空(「还没有人留下回声」) |
+| `square_error_light/dark.png` | [Connection lost](https://undraw.co/illustration/connection-lost_am29) | 广场 / 动态详情加载失败 |
 
 ## 为什么每张两份(明 / 暗)
 

@@ -1,28 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import '../../../core/format.dart';
-import '../../../core/theme/heart_theme_context.dart';
-import '../../../core/theme/app_motion.dart';
-import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/app_avatar.dart';
-import '../../../core/widgets/app_card.dart';
+import '../../../core/theme/ember_colors.dart';
+import '../../../core/theme/ember_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
+import '../../../core/ui/ember_ui.dart';
 import '../../../core/widgets/avatar_hero.dart';
 import '../../../core/widgets/card_hero.dart';
 import '../models.dart';
 import 'post_images.dart';
+import 'post_reaction_buttons.dart';
 
-/// 动态卡(附录 D):AppCard 白卡 R20;圆形头像(在线呼吸点)+ 昵称/时间/正文
-/// + 九宫格 + 操作行(点赞带心跳脉冲);右上 ··· 菜单。
+/// 动态卡(E-5.5 page spec §1 第 1–6 条 / §3 / §4):
 ///
-/// 操作行的三个手势互相独立、命中区不重叠:
-/// 头像/昵称 → [onTapAuthor];点赞**图标** → [onToggleLike];点赞**数字** →
-/// [onTapLikes](0 赞时不响应);··· 菜单 → [menuAction](`favorite` / `unfavorite`
-/// 对「自己」和「他人」的动态都给,`delete` / `report` 才是二选一)。
+/// | 元素 | 取值 |
+/// |---|---|
+/// | 卡 | [`EmberCard`]:`surface.card` + `radius.lg` + `elev.1` + 内边距 20;深色 `border.divider` 无阴影 |
+/// | 作者行 | [`EmberAvatar`] 40 + 昵称 `subtitle` 17/w600 + 时间 `caption` 13 `text.tertiary` |
+/// | 正文 | `body` 15 / 行高 1.55 |
+/// | 图片 | [`PostImages`]:`radius.sm` 12、间距 4、最多 9 宫格 |
+/// | 点赞 / 评论 | Phosphor `heart` / `chat-circle` 20 + `caption` 13 计数 |
 ///
-/// Hero 互斥(spec §5):[heroTag](头像)与 [cardHeroTag](整卡)至多传一个,
-/// 同传在 debug 下触发 SDK 嵌套断言崩溃。
+/// 操作行的三个手势互相独立、命中区不重叠:头像/昵称 → [onTapAuthor];点赞**图标**
+/// → [onToggleLike];点赞**数字** → [onTapLikes](0 赞时不响应);··· 菜单 →
+/// [menuAction](`favorite` / `unfavorite` 对「自己」和「他人」都给,`delete` /
+/// `report` 才是二选一)。
+///
+/// **Hero 纪律**(SDK `heroes.dart` 硬断言:Hero 的 child 及其后代不得再包含 Hero):
+/// 一张卡任意时刻至多一个 Hero。三者按来源互斥,由调用方保证:
+/// - [cardHeroTag]:整卡飞进详情(无图动态沿用批次⑤的整卡转场);
+/// - [imageHeroTag]:图片飞进详情(§1 第 9 条,E-5.5 新增);
+/// - [heroTag]:头像飞进资料页(两个 Hero 都让位时才给)。
 class PostCard extends StatelessWidget {
+  /// 构造动态卡。
   const PostCard({
     super.key,
     required this.post,
@@ -36,296 +48,241 @@ class PostCard extends StatelessWidget {
     this.menuAction,
     this.heroTag,
     this.cardHeroTag,
+    this.imageHeroTag,
   });
 
+  /// 动态本身。
   final Post post;
+
+  /// 是否是我发的(决定菜单给「删除」还是「举报」)。
   final bool isMine;
+
+  /// 作者是否在线(头像右下角绿点)。
   final bool online;
+
+  /// 点头像 / 昵称(进资料页);null 表示不可点(自己 / 整卡态)。
   final VoidCallback? onTapAuthor;
+
+  /// 点卡片(进详情);详情页内传 null(不再进详情)。
   final VoidCallback? onTap;
 
   /// 点赞**图标区**:点赞 / 取消点赞(语义不变,别改成「打开列表」)。
   final VoidCallback? onToggleLike;
 
-  /// 点赞**数字区**:打开点赞列表。两区命中范围互不重叠(见 [_LikeTail])。
+  /// 点赞**数字区**:打开点赞列表。
   final VoidCallback? onTapLikes;
+
+  /// 点某张图(打开大图查看器)。
   final void Function(int index)? onOpenImage;
+
+  /// `···` 菜单动作(`favorite` / `unfavorite` / `delete` / `report`)。
   final void Function(String action)? menuAction;
 
-  /// 头像 Hero tag(附录 C.7);null(我的动态/整卡态)不包。
+  /// 头像 Hero tag;null 不包。
   final String? heroTag;
 
-  /// 整卡 Hero tag(附录 D);null(普通态)不包。与 [heroTag] 互斥。
+  /// 整卡 Hero tag;null 不包。与 [imageHeroTag] / [heroTag] 互斥。
   final String? cardHeroTag;
+
+  /// 图片 Hero tag;null 不包。与 [cardHeroTag] 互斥。
+  final String? imageHeroTag;
+
+  /// 卡片读屏标签:作者 + 正文摘要 + 赞数 + 评论数(spec §6 第 3 条)。
+  String get _semanticsLabel {
+    final summary = post.text.trim();
+    final brief = summary.length <= 30 ? summary : '${summary.substring(0, 30)}…';
+    return [
+      post.author.nickname,
+      if (brief.isNotEmpty) brief,
+      '${post.likeCount} 赞',
+      '${post.commentCount} 评论',
+    ].join('，');
+  }
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
-    final card = AppCard(
+    final colors = context.ember;
+    final semantics = _semanticsLabel;
+
+    Widget card = EmberCard(
       key: Key('post.card.${post.id}'),
       onTap: onTap,
+      // 可点卡由 EmberCard 自己包（语义容器 + 按压 .98）；静态卡（详情页顶卡）
+      // 走下面的手包 Semantics，两处都保证读屏能念出这张卡。
+      semanticsLabel: onTap == null ? null : semantics,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AvatarHero(
-            tag: heroTag,
-            imageUrl: post.author.avatarUrl,
-            fromRadius: AppRadius.full,
-            child: GestureDetector(
-              key: Key('post.avatar.${post.id}'),
-              behavior: HitTestBehavior.opaque,
-              // null(自己/整卡态)= 空回调吞掉点击,不落到卡片的「进详情」
-              onTap: onTapAuthor ?? () {},
-              child: AppAvatar(
-                imageUrl: post.author.avatarUrl,
-                size: 40,
-                showOnlineDot: online,
-                fallbackText: post.author.nickname,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
+          _author(context),
+          SizedBox(width: tokens.space12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: GestureDetector(
-                          key: Key('post.nickname.${post.id}'),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: onTapAuthor ?? () {},
-                          child: Text(post.author.nickname,
-                              style: AppText.subtitle
-                                  .copyWith(color: colors.text1)),
-                        ),
-                      ),
-                    ),
-                    if (menuAction != null)
-                      SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: PopupMenuButton<String>(
-                          key: Key('post.more.${post.id}'),
-                          padding: EdgeInsets.zero,
-                          icon: Icon(Icons.more_horiz_rounded,
-                              size: 20, color: colors.text3),
-                          onSelected: (value) => menuAction!(value),
-                          itemBuilder: (context) => [
-                            // 收藏对「自己」和「他人」的动态都给:它是私密书签,
-                            // 所以不能塞进下面那个 isMine 二选一里。
-                            PopupMenuItem(
-                              key: const Key('post.menu.favorite'),
-                              value:
-                                  post.isFavorited ? 'unfavorite' : 'favorite',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    post.isFavorited
-                                        ? Icons.bookmark_rounded
-                                        : Icons.bookmark_border_rounded,
-                                    size: 20,
-                                    color: post.isFavorited
-                                        ? colors.brand
-                                        : colors.text3,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(post.isFavorited ? '取消收藏' : '收藏'),
-                                ],
-                              ),
-                            ),
-                            if (isMine)
-                              const PopupMenuItem(
-                                  key: Key('post.menu.delete'),
-                                  value: 'delete',
-                                  child: Text('删除'))
-                            else
-                              const PopupMenuItem(
-                                  key: Key('post.menu.report'),
-                                  value: 'report',
-                                  child: Text('举报')),
-                          ],
-                        ),
-                      ),
-                  ],
+                _titleRow(colors),
+                SizedBox(height: tokens.space4),
+                Text(
+                  formatPostTime(post.createdAt),
+                  style: AppText.caption.copyWith(color: colors.textTertiary),
                 ),
-                const SizedBox(height: 2),
-                Text(formatPostTime(post.createdAt),
-                    style: AppText.micro.copyWith(color: colors.text3)),
                 if (post.text.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(post.text,
-                      style: AppText.body.copyWith(color: colors.text1)),
+                  SizedBox(height: tokens.space8),
+                  Text(
+                    post.text,
+                    style: AppText.body.copyWith(color: colors.textPrimary),
+                  ),
                 ],
                 if (post.images.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  PostImages(urls: post.images, onTap: onOpenImage),
+                  SizedBox(height: tokens.space12),
+                  PostImages(
+                    urls: post.images,
+                    onTap: onOpenImage,
+                    heroTag: imageHeroTag,
+                  ),
                 ],
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    // 点赞位拆成两个**互不重叠**的命中区(见 [_LikeTail]):
-                    // 图标 = 点赞/取消(行为不变),数字 = 打开点赞列表。
-                    _PulseIcon(
-                      iconKey: Key('post.like.${post.id}'),
-                      icon: post.likedByMe
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_border_rounded,
-                      color: post.likedByMe ? colors.brand : colors.text3,
-                      pulse: post.likedByMe, // didUpdateWidget 里只在「未赞→已赞」触发
-                      onTap: onToggleLike,
-                    ),
-                    _LikeTail(
-                      countKey: Key('post.likeCount.${post.id}'),
-                      count: post.likeCount,
-                      color: post.likedByMe ? colors.brand : colors.text3,
-                      // 0 赞时**不响应**:不弹空列表。空回调是为了吞掉这次点击,
-                      // 否则它会冒到卡片的 onTap 变成「进详情」(与头像同一个套路)。
-                      onTap: post.likeCount > 0 ? onTapLikes : () {},
-                    ),
-                    const SizedBox(width: 16),
-                    _ActionIcon(
-                      icon: Icons.mode_comment_rounded,
-                      color: colors.text3,
-                      count: post.commentCount,
-                      onTap: onTap,
-                    ),
-                  ],
-                ),
+                SizedBox(height: tokens.space4),
+                _actionRow(),
               ],
             ),
           ),
         ],
       ),
     );
+
+    if (onTap == null) {
+      // 静态卡：EmberCard 不包 EmberPressable，语义容器在这里补
+      // （读屏仍要念「作者，正文摘要，N 赞，M 评论」）。
+      card = Semantics(container: true, label: semantics, child: card);
+    }
+
+    // 整卡 Hero（无图动态）：与图片 Hero 互斥，调用方只给其中一个。
     return CardHero(tag: cardHeroTag, child: card);
   }
-}
 
-/// 操作行图标 + 计数(评论位;无脉冲需求)。
-class _ActionIcon extends StatelessWidget {
-  const _ActionIcon({
-    required this.icon,
-    required this.color,
-    required this.count,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final Color color;
-  final int count;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-          child: Row(
-            children: [
-              Icon(icon, size: 20, color: color),
-              const SizedBox(width: 4),
-              Text('$count', style: AppText.caption.copyWith(color: color)),
-            ],
+  /// 头像(+ 在线点 + 资料页 Hero)。
+  Widget _author(BuildContext context) => AvatarHero(
+        tag: heroTag,
+        imageUrl: post.author.avatarUrl,
+        fromRadius: tokens.radiusPill,
+        child: GestureDetector(
+          key: Key('post.avatar.${post.id}'),
+          behavior: HitTestBehavior.opaque,
+          // null(自己/整卡态)= 空回调吞掉点击,不落到卡片的「进详情」
+          onTap: onTapAuthor ?? () {},
+          child: EmberAvatar(
+            image: (post.author.avatarUrl == null || post.author.avatarUrl!.isEmpty)
+                ? null
+                : NetworkImage(post.author.avatarUrl!),
+            name: post.author.nickname,
+            size: EmberComponentSizes.avatarMd,
+            online: online,
           ),
         ),
       );
-}
 
-/// 点赞心跳脉冲(§6.2 微交互):状态从未赞翻到已赞时 1→1.25→1(base)。
-///
-/// **只包图标**,不包数字:数字是另一个命中区([_LikeTail]),两个 `InkWell`
-/// 是 Row 里的兄弟节点,矩形天然不重叠;若像改造前那样把「图标 + 数字」包成
-/// 一个 `InkWell`,再叠一个数字手势就会变成「点哪都点赞」或「点哪都开列表」。
-class _PulseIcon extends StatefulWidget {
-  const _PulseIcon({
-    this.iconKey,
-    required this.icon,
-    required this.color,
-    required this.pulse,
-    this.onTap,
-  });
-
-  final Key? iconKey;
-  final IconData icon;
-  final Color color;
-
-  /// 当前是否已赞;didUpdateWidget 检测 false→true 翻转触发脉冲。
-  final bool pulse;
-  final VoidCallback? onTap;
-
-  @override
-  State<_PulseIcon> createState() => _PulseIconState();
-}
-
-class _PulseIconState extends State<_PulseIcon>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: AppMotion.base);
-  late final Animation<double> _scale = TweenSequence([
-    TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.25), weight: 0.5),
-    TweenSequenceItem(tween: Tween(begin: 1.25, end: 1.0), weight: 0.5),
-  ]).animate(CurvedAnimation(parent: _c, curve: AppMotion.easeOut));
-
-  @override
-  void didUpdateWidget(covariant _PulseIcon oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // 只在「未赞 → 已赞」翻带动效;取消赞不弹
-    if (widget.pulse && !oldWidget.pulse) {
-      if (MediaQuery.disableAnimationsOf(context)) return;
-      _c.forward(from: 0);
-    }
-  }
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-        key: widget.iconKey,
-        onTap: widget.onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
-          child: ScaleTransition(
-            scale: _scale,
-            child: Icon(widget.icon, size: 20, color: widget.color),
+  /// 昵称 + `···` 菜单。
+  Widget _titleRow(EmberColors colors) => Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                key: Key('post.nickname.${post.id}'),
+                behavior: HitTestBehavior.opaque,
+                onTap: onTapAuthor ?? () {},
+                child: Text(
+                  post.author.nickname,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.subtitle.copyWith(color: colors.textPrimary),
+                ),
+              ),
+            ),
           ),
-        ),
+          if (menuAction != null) _MoreMenu(post: post, isMine: isMine, onAction: menuAction!),
+        ],
+      );
+
+  /// 操作行:点赞图标 / 赞数(点赞列表入口)/ 评论。
+  Widget _actionRow() => Row(
+        children: [
+          PostLikeButton(
+            iconKey: Key('post.like.${post.id}'),
+            liked: post.likedByMe,
+            onTap: onToggleLike,
+          ),
+          PostLikeCount(
+            countKey: Key('post.likeCount.${post.id}'),
+            count: post.likeCount,
+            liked: post.likedByMe,
+            onTap: onTapLikes,
+          ),
+          SizedBox(width: tokens.space16),
+          PostCommentButton(
+            iconKey: Key('post.comment.${post.id}'),
+            count: post.commentCount,
+            onTap: onTap,
+          ),
+        ],
       );
 }
 
-/// 点赞计数(点赞列表入口):与图标区**并列**,不套在同一个手势里。
-///
-/// 两个区是 Row 里的兄弟节点,矩形天然不重叠;`opaque` 让整块(含内边距)
-/// 都能接到指针。`onTap` 传空回调 = 吞掉点击(不响应),但不冒到卡片上。
-class _LikeTail extends StatelessWidget {
-  const _LikeTail({
-    this.countKey,
-    required this.count,
-    required this.color,
-    this.onTap,
-  });
+/// `···` 菜单:收藏(对所有人都给,它是私密书签)+ 删除 / 举报(按归属二选一)。
+class _MoreMenu extends StatelessWidget {
+  const _MoreMenu({required this.post, required this.isMine, required this.onAction});
 
-  final Key? countKey;
-  final int count;
-  final Color color;
-  final VoidCallback? onTap;
+  final Post post;
+  final bool isMine;
+  final void Function(String action) onAction;
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-        key: countKey,
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Padding(
-          // 左侧留 4px 与图标区分开:两块命中矩形相邻但不重叠
-          padding: const EdgeInsets.fromLTRB(4, 6, 2, 6),
-          child: Text('$count', style: AppText.caption.copyWith(color: color)),
+  Widget build(BuildContext context) {
+    final colors = context.ember;
+    return SizedBox(
+      width: tokens.sizeTouchApp,
+      height: tokens.sizeTouchApp,
+      child: PopupMenuButton<String>(
+        key: Key('post.more.${post.id}'),
+        padding: EdgeInsets.zero,
+        tooltip: '更多',
+        icon: Icon(
+          PhosphorIconsRegular.dotsThree,
+          size: tokens.sizeIcon20,
+          color: colors.textTertiary,
         ),
-      );
+        onSelected: onAction,
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            key: const Key('post.menu.favorite'),
+            value: post.isFavorited ? 'unfavorite' : 'favorite',
+            child: Row(
+              children: [
+                Icon(
+                  post.isFavorited
+                      ? PhosphorIconsFill.bookmarkSimple
+                      : PhosphorIconsRegular.bookmarkSimple,
+                  size: tokens.sizeIcon20,
+                  color: post.isFavorited ? colors.brandDefault : colors.textTertiary,
+                ),
+                SizedBox(width: tokens.space8),
+                Text(post.isFavorited ? '取消收藏' : '收藏'),
+              ],
+            ),
+          ),
+          if (isMine)
+            const PopupMenuItem(
+              key: Key('post.menu.delete'),
+              value: 'delete',
+              child: Text('删除'),
+            )
+          else
+            const PopupMenuItem(
+              key: Key('post.menu.report'),
+              value: 'report',
+              child: Text('举报'),
+            ),
+        ],
+      ),
+    );
+  }
 }
