@@ -10,7 +10,7 @@ void main() {
 
     expect(find.text('新配对提醒'), findsOneWidget);
     expect(find.text('新消息提醒'), findsOneWidget);
-    expect(find.text('即将上线'), findsNWidgets(2));
+    expect(find.textContaining('即将上线'), findsNWidgets(2));
 
     final switches = tester.widgetList<Switch>(find.byType(Switch)).toList();
     expect(switches, hasLength(2));

@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:chatapp_app/core/providers.dart';
-import 'package:chatapp_app/core/widgets/app_button.dart';
+import 'package:chatapp_app/core/ui/ember_ui.dart';
 import 'package:chatapp_app/features/settings/feedback_page.dart';
 
 import '../../support/harness.dart';
@@ -38,14 +38,14 @@ void main() {
   testWidgets('内容不足 10 字时提交按钮禁用', (tester) async {
     await pumpPage(tester);
 
-    final button = tester.widget<AppButton>(find.byKey(const Key('feedback.submit')));
+    final button = tester.widget<EmberButton>(find.byKey(const Key('feedback.submit')));
     expect(button.onPressed, isNull);
 
     await tester.enterText(find.byKey(const Key('feedback.content')), '太短了');
     await tester.pumpAndSettle();
 
     final stillDisabled =
-        tester.widget<AppButton>(find.byKey(const Key('feedback.submit')));
+        tester.widget<EmberButton>(find.byKey(const Key('feedback.submit')));
     expect(stillDisabled.onPressed, isNull);
   });
 

@@ -1,81 +1,91 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:phosphor_glyphs/phosphor_glyphs.dart';
 
 import '../../core/app_info.dart';
-import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/widgets/app_brand_mark.dart';
-import '../../core/widgets/app_list_row.dart';
-import '../../core/widgets/app_row_group.dart';
-import '../../core/widgets/app_sub_page_bar.dart';
-import '../../core/theme/heart_theme_context.dart';
+import '../../core/theme/ember_theme_context.dart';
+import '../../core/theme/tokens.g.dart' as tokens;
+import '../../core/ui/ember_ui.dart';
+import '../auth/ember_brand_mark.dart';
+import 'widgets/settings_rows.dart';
 
-/// 关于页:应用名、版本、协议入口与版权。
+/// 关于页(E-5.6b 迁移到 Ember):应用名、版本、协议入口与版权。
+///
+/// 只换皮:展示内容一字不动(`appDisplayName` / `appVersion` / `appIcpNumber` 仍以
+/// `core/app_info.dart` 为唯一事实来源)。品牌 mark 换成准入线用的
+/// [`EmberBrandMark`](朱砂圆角方 + 心形,没有渐变 —— 心跳期的渐变 mark 已退役);
+/// 协议入口走 [`EmberSettingsTile`],版权两行走 `micro` + `text.tertiary`。
 class AboutPage extends StatelessWidget {
+  /// 构造关于页。
   const AboutPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.heart;
-    return Scaffold(
-        backgroundColor: colors.bgPage,
-        body: SafeArea(
-          bottom: false,
-          child: Column(
+    final colors = context.ember;
+    return EmberPageScaffold(
+      title: '关于',
+      backKey: const Key('about.back'),
+      body: ListView(
+        padding: EdgeInsets.only(
+          top: tokens.space32,
+          bottom: tokens.space40 + MediaQuery.viewPaddingOf(context).bottom,
+        ),
+        children: [
+          const Center(child: EmberBrandMark(size: 72)),
+          SizedBox(height: tokens.space16),
+          Center(
+            child: Text(
+              appDisplayName,
+              style: AppText.title.copyWith(color: colors.textPrimary),
+            ),
+          ),
+          SizedBox(height: tokens.space4),
+          Center(
+            child: Text(
+              '版本 $appVersion',
+              key: const Key('about.version'),
+              style: AppText.caption.copyWith(color: colors.textTertiary),
+            ),
+          ),
+          SizedBox(height: tokens.space32),
+          SettingsGroup(
             children: [
-              const AppSubPageBar(title: '关于'),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(AppSpacing.pageH,
-                      AppSpacing.xxl, AppSpacing.pageH, AppSpacing.xxl),
-                  children: [
-                    const Center(child: AppBrandMark(size: 72)),
-                    const SizedBox(height: AppSpacing.md),
-                    Center(
-                      child: Text(appDisplayName,
-                          style: AppText.title.copyWith(color: colors.text1)),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Center(
-                      child: Text(
-                        '版本 $appVersion',
-                        key: const Key('about.version'),
-                        style: AppText.caption.copyWith(color: colors.text3),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xxl),
-                    AppRowGroup(
-                      children: [
-                        AppListRow(
-                          key: const Key('about.agreement'),
-                          icon: Icons.description_rounded,
-                          title: '用户协议',
-                          onTap: () => context.push('/legal/agreement'),
-                        ),
-                        AppListRow(
-                          key: const Key('about.privacy'),
-                          icon: Icons.privacy_tip_rounded,
-                          title: '隐私政策',
-                          onTap: () => context.push('/legal/privacy'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.xxl),
-                    if (appIcpNumber.isNotEmpty)
-                      Center(
-                        child: Text(appIcpNumber,
-                            style: AppText.micro.copyWith(color: colors.text3)),
-                      ),
-                    Center(
-                      child: Text('© 2026 $appDisplayName',
-                          style: AppText.micro.copyWith(color: colors.text3)),
-                    ),
-                  ],
-                ),
+              EmberSettingsTile(
+                key: const Key('about.agreement'),
+                icon: PhosphorIconsRegular.fileText,
+                title: '用户协议',
+                showChevron: true,
+                showDivider: true,
+                padding: settingsRowPadding,
+                onTap: () => context.push('/legal/agreement'),
+              ),
+              EmberSettingsTile(
+                key: const Key('about.privacy'),
+                icon: PhosphorIconsRegular.shieldCheck,
+                title: '隐私政策',
+                showChevron: true,
+                padding: settingsRowPadding,
+                onTap: () => context.push('/legal/privacy'),
               ),
             ],
           ),
-        ),
-      );
+          SizedBox(height: tokens.space32),
+          if (appIcpNumber.isNotEmpty)
+            Center(
+              child: Text(
+                appIcpNumber,
+                style: AppText.micro.copyWith(color: colors.textTertiary),
+              ),
+            ),
+          Center(
+            child: Text(
+              '© 2026 $appDisplayName',
+              style: AppText.micro.copyWith(color: colors.textTertiary),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
