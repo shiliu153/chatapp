@@ -302,7 +302,7 @@ class TestApply(RoundtripFixture):
                 "color": {
                     "surface": {"page": {"$value": "{color.paper.5}", "$type": "color"}},
                     "brand": {
-                        "default": {"$value": "{color.ember.700}", "$type": "color", "$description": "品牌锚点"},
+                        "default": {"$value": "{color.overlay.scrim}", "$type": "color", "$description": "品牌锚点"},
                         "on": {"$value": "#FFFFFF", "$type": "color"},
                     },
                     "overlay": {"scrim": {"$value": "rgba(28,23,20,0.92)", "$type": "color"}},
@@ -320,10 +320,10 @@ class TestApply(RoundtripFixture):
             status = rt.report_set("light", doc, apply=True)
         self.assertEqual(status, 0)
         after = self.source_text()
-        self.assertIn("{color.ember.700}", after)
+        self.assertIn("{color.overlay.scrim}", after)
         self.assertIn("\r\n", after, "落盘后换行符被改成 LF 了")
         self.assertEqual(
-            before.replace("{color.ember.600}", "{color.ember.700}"),
+            before.replace("{color.ember.600}", "{color.overlay.scrim}"),
             after,
             "落盘除目标值外还动了别的东西",
         )
@@ -348,6 +348,70 @@ class TestApply(RoundtripFixture):
         """导出物里没有该 set 时返回 2（输入问题，不是漂移）。"""
         with _quiet():
             self.assertEqual(rt.report_set("light", {"color": {}}, apply=False), 2)
+
+
+class TestDanglingAlias(RoundtripFixture):
+    """钉住「值变成解析不了的引用」这条 2026-11-28 真实导出撞到的坑。
+
+    样本来自第一次真实往返:Tokens Studio 在「set 根就是 `color` 分组」的项目里，
+    把引用写成 set 内相对路径 ``{ember.100}``，而仓库要求全路径 ``{color.ember.100}``。
+    这种值进仓库后生成器会 fail-closed（`别名指向不存在的 token`），但如果校验器
+    把它当普通值变更放过，`--apply` 之后本地才会炸 —— 那时人已经以为「只改了个值」。
+    """
+
+    def test_alias_target_parsing(self) -> None:
+        """只认整值别名，字符串里嵌花括号不算。"""
+        self.assertEqual(rt.alias_target("{color.ember.100}"), "color.ember.100")
+        self.assertIsNone(rt.alias_target("#FFFFFF"))
+        self.assertIsNone(rt.alias_target("0 2px 8px rgba(28,23,20,0.06)"))
+        self.assertIsNone(rt.alias_target(400))
+
+    def test_dangling_alias_blocks_apply(self) -> None:
+        """截断成相对路径的引用必须判悬空、拒绝落盘，并提示完整写法。"""
+        before = self.source_text()
+        doc = json.loads(json.dumps(_LIGHT_FIXTURE))
+        doc["color"]["brand"]["default"]["$value"] = "{ember.100}"
+        buffer, ctx = _capture()
+        with ctx:
+            status = rt.report_set("light", doc, apply=True)
+        self.assertEqual(status, 1)
+        self.assertEqual(before, self.source_text(), "悬空引用时文件被改动了")
+        self.assertIn("悬空引用", buffer.getvalue())
+
+    def test_resolvable_alias_is_allowed(self) -> None:
+        """换成仓库里确实存在的引用就该放行（含 --apply）。"""
+        doc = json.loads(json.dumps(_LIGHT_FIXTURE))
+        doc["color"]["brand"]["default"]["$value"] = "{color.overlay.scrim}"
+        with _quiet():
+            status = rt.report_set("light", doc, apply=True)
+        self.assertEqual(status, 0)
+        self.assertIn("{color.overlay.scrim}", self.source_text())
+
+    def test_dangling_detection_ignores_unchanged_values(self) -> None:
+        """仓库里本来就有的值不参与悬空判定（否则 untouched 的旧值会被误报）。"""
+        changes = [
+            {"path": "color.brand.default", "old": "#FFF", "new": "#000", "display_old": "", "display_new": ""}
+        ]
+        self.assertEqual(rt.dangling_aliases(changes, "light"), [])
+
+
+class TestRealRepoNamespace(unittest.TestCase):
+    """用**真仓库**的命名空间钉住「截断引用」的提示能力（不 monkeypatch TOKENS_DIR）。"""
+
+    def test_suggest_alias_on_real_repo(self) -> None:
+        """``{ember.100}`` 应被提示成 ``{color.ember.100}``。
+
+        备注信息:
+            样本正是 2026-11-28 第一次真实导出:``primitive.color.json`` 里
+            ``color.ember.300`` 被写成 ``{ember.100}``，缺了 ``color.`` 前缀。
+            这个用例必须跑在真仓库上 —— 提示能力依赖真实的跨 set 命名空间，
+            放临时样本里测不到（临时目录只有 light/dark 两份文件）。
+        """
+        namespace = rt.namespace_paths()
+        self.assertIn("color.ember.100", namespace)
+        self.assertNotIn("ember.100", namespace)
+        self.assertEqual(rt.suggest_alias("ember.100", "primitive"), "color.ember.100")
+        self.assertIsNone(rt.suggest_alias("no.such.token", "primitive"))
 
 
 class TestImportable(unittest.TestCase):

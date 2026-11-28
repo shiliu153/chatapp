@@ -13,6 +13,7 @@ E-1 之后仓库的事实来源是 `design/tokens/*.json`，Figma 侧只是**可
 | 差异类别 | 含义 | 处置 |
 |---|---|---|
 | **值变更** | 路径、`$type` 都没动，只有 `$value` 不同 | 可用 `--apply` 落盘 |
+| **悬空引用** | 值变更把某个值改成了 `{alias}`，但该别名在仓库里不存在 | **拒绝 `--apply`**，必须回 PR 手改 |
 | **结构变更** | 路径新增/缺失、`$type` 变了、`$description` 变了 | **拒绝 `--apply`**，必须回 PR 手改 |
 
 用法（仓库根目录）::
@@ -69,6 +70,7 @@ TS_TYPE_ALIASES: dict[str, str] = {
 #: `--apply` 落盘时按这个约定重写，否则一次改值会带来满文件的换行噪声。
 _INDENT = "  "
 _HEX_RE = re.compile(r"^#([0-9a-fA-F]{3,8})$")
+_ALIAS_RE = re.compile(r"^\{([^{}]+)\}$")
 _RGB_RE = re.compile(
     r"^rgba?\(\s*([0-9.]+%?)\s*,\s*([0-9.]+%?)\s*,\s*([0-9.]+%?)\s*(?:,\s*([0-9.]+%?)\s*)?\)$"
 )
@@ -455,6 +457,79 @@ def normalize_type(raw: Any) -> str | None:
     return TS_TYPE_ALIASES.get(raw, raw)
 
 
+def alias_target(value: Any) -> str | None:
+    """取出「整值就是一个别名引用」时被引用的 token 路径。
+
+    参数说明:
+        value: 一个 token 的值。
+
+    返回参数:
+        str | None: 形如 ``color.ember.100`` 的目标路径；不是纯别名时返回 ``None``。
+
+    使用示例:
+        ``alias_target("{color.ember.100}") == "color.ember.100"``
+
+    备注信息:
+        只认**整值**别名。仓库里没有「字符串里嵌别名」的写法（阴影是纯文本），
+        所以不做部分替换 —— 那会把 ``0 2px 8px rgba(...)`` 这类值当引用去解析。
+    """
+    if not isinstance(value, str):
+        return None
+    match = _ALIAS_RE.match(value.strip())
+    return match.group(1) if match else None
+
+
+def namespace_paths() -> set[str]:
+    """仓库四个源文件合并后的 token 路径全集。
+
+    返回参数:
+        set[str]: 所有可用于别名解析的路径。
+
+    使用示例:
+        ``"color.ember.100" in namespace_paths()``
+
+    备注信息:
+        别名是**跨 set** 解析的（``semantic.light.json`` 里的 ``{color.paper.5}``
+        指向 ``primitive.color.json``），所以判定命名空间必须取并集而不是只看当前 set。
+    """
+    paths: set[str] = set()
+    for filename in SET_FILES.values():
+        path = TOKENS_DIR / filename
+        if path.exists():
+            paths |= set(flatten(read_json(path)))
+    return paths
+
+
+def suggest_alias(target: str, set_name: str) -> str | None:
+    """给一个悬空引用猜出「正确写法」，用于报错提示。
+
+    参数说明:
+        target: 导出物里写的引用目标（已剥掉花括号）。
+        set_name: 当前校验的 set 名。
+
+    返回参数:
+        str | None: 猜到的完整路径；猜不出来返回 ``None``。
+
+    使用示例:
+        ``suggest_alias("ember.100", "primitive") == "color.ember.100"``
+
+    备注信息:
+        2026-11-28 真实导出物上撞到的形态:Tokens Studio 在「set 根就是 `color` 分组」
+        的项目里，把引用写成 **set 内相对路径** ``{ember.100}``，而仓库要求全路径
+        ``{color.ember.100}``。这种截断在仓库侧就是**悬空引用**，生成器会 fail-closed，
+        所以这里不只是报错，还要把「应该写成什么」直接说出来 —— 否则人只会看到一条
+        「别名指向不存在的 token」，不知道是前缀丢了。
+    """
+    namespace = namespace_paths()
+    for head in read_json(TOKENS_DIR / SET_FILES[set_name]):
+        if head.startswith("$"):
+            continue
+        candidate = f"{head}.{target}"
+        if candidate in namespace:
+            return candidate
+    return None
+
+
 def find_set(doc: dict[str, Any], name: str) -> dict[str, Any] | None:
     """从导出物里取出某个 token set 的子树。
 
@@ -684,6 +759,35 @@ def apply_changes(set_name: str, changes: list[dict[str, Any]]) -> int:
     return 0
 
 
+def dangling_aliases(changes: list[dict[str, Any]], set_name: str) -> list[tuple[str, str, str | None]]:
+    """挑出「值变更把某个值改成了仓库里不存在的引用」的那些。
+
+    参数说明:
+        changes: ``compare`` 返回的值变更列表。
+        set_name: 当前校验的 set 名（用来猜「完整路径」应为怎么写）。
+
+    返回参数:
+        list[tuple]: 每项是 ``(token 路径, 引用目标, 建议的完整路径或 None)``。
+
+    使用示例:
+        ``dangling_aliases([{"path": "color.ember.300", "new": "{ember.100}", ...}], "primitive")``
+
+    备注信息:
+        为什么值变更还要单独判一次引用：**别名变值也是值变更**，但改成一个解析不了的
+        别名不会在 Dart/CSS 生成物里留下任何痕迹（生成器 fail-closed 直接报错），
+        而 ``--apply`` 之后本地才会炸 —— 那时人已经以为「只改了个值」。
+        2026-11-28 第一次真实导出就撞上了：Tokens Studio 把引用写成 set 内相对路径
+        ``{ember.100}``，仓库要求 ``{color.ember.100}``。
+    """
+    namespace = namespace_paths()
+    found: list[tuple[str, str, str | None]] = []
+    for change in changes:
+        target = alias_target(change["new"])
+        if target is not None and target not in namespace:
+            found.append((change["path"], target, suggest_alias(target, set_name)))
+    return found
+
+
 def report_set(set_name: str, doc: dict[str, Any], apply: bool) -> int:
     """校验并（可选）落盘一个 set。
 
@@ -716,15 +820,22 @@ def report_set(set_name: str, doc: dict[str, Any], apply: bool) -> int:
             print(f"  {change['path']}: {change['display_old']} -> {change['display_new']}")
     else:
         print("值变更:无（导出物与仓库完全等价）")
+    dangling = dangling_aliases(changes, set_name)
+    if dangling:
+        print(f"::error::悬空引用 {len(dangling)} 处（新值引用了仓库里不存在的 token,不自动落盘）:")
+        for change_path, target, hint in dangling:
+            tail = f";正确写法应为 {{{hint}}}" if hint else ""
+            print(f"  {change_path} -> {{{target}}}{tail}")
     if problems:
         print(f"::error::结构变更 {len(problems)} 处（必须走 PR 手改,不自动落盘）:")
         for problem in problems:
             print(f"  {problem}")
+    if problems or dangling:
         return 1
     if apply and changes:
         return apply_changes(set_name, changes)
     if changes:
-        print("提示:加 --apply 可把这些值写入源文件（结构未变,安全）")
+        print("提示:加 --apply 可把这些值写入源文件（结构未变,引用可解析,安全）")
     return 0
 
 
