@@ -30,7 +30,7 @@ class AppErrorView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(title, style: AppText.subtitle.copyWith(fontSize: 17)),
+              Text(title, style: AppText.subtitle),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 message,

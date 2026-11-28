@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_typography.dart';
 import '../theme/heart_theme_context.dart';
+import '../theme/tokens.g.dart' as tokens;
 
 /// 「心跳」规则 §5.2 二级页顶栏:高 52,返回箭头 22 `text1`,标题 17/w600 居中。
 ///
@@ -42,7 +43,7 @@ class AppSubPageBar extends StatelessWidget {
             Text(
               title,
               style: AppText.subtitle
-                  .copyWith(fontSize: 17, color: colors.text1), // 17/w600(§5.2)
+                  .copyWith(color: colors.text1), // 17/w600(§5.2):字号取 AppText.subtitle,不再写死
             ),
             if (showBack)
               Positioned(
@@ -62,7 +63,7 @@ class AppSubPageBar extends StatelessWidget {
                 top: 0,
                 bottom: 0,
                 child: Padding(
-                  padding: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.only(right: tokens.space8),
                   child: Center(child: trailing),
                 ),
               ),
