@@ -211,8 +211,12 @@ class _EmberPressableState extends State<EmberPressable>
       button: widget.semanticButton,
       enabled: _enabled,
       label: label,
-      // `true` 时外层标签是唯一事实:子节点的 `Text` 不再贡献第二份同名标签(#513)
+      // `true` 时外层标签是唯一事实:子节点的 `Text` 不再贡献第二份同名标签(#513)。
+      // **但排除子语义会连 `GestureDetector` 贡献的 tap action 一起丢掉** ——
+      // 那样读屏只能念、点不动(2026-11-28 实测 `clickable` 从 true 变 false),
+      // 所以必须由这一层自己补上 onTap。
       excludeSemantics: widget.excludeChildSemantics,
+      onTap: widget.excludeChildSemantics && _enabled ? widget.onTap : null,
       child: content,
     );
   }
