@@ -750,20 +750,43 @@ systemctl disable --now superagent-proxy superagent-proxy-refresh.timer
 `start-superagent.sh` 判 mihomo 不可用(端口没在听,或端口在听但出网不通)会自动回退宿主 7897,等于回到改造前,**不用改脚本、不用重启**。
 要连启动脚本一起回退:`ls -1 /root/start-superagent.sh.bak-*` 找最近那份 `cp -a` 回去。
 
-### 12.9 WSL 里 `git fetch` 的 TLS 抖动(2026-11-24 起有处置,根因未定)
+### 12.9 WSL 里 `git fetch` 到 GitHub 站不住(2026-11-24 起有处置;2026-11-28 复现并锁定处置)
 
-**现象**:superagent 的 ticket prepare(内部就是一次 `git fetch`)连续失败,报
+**现象**:superagent 的 ticket prepare(内部就是一次 `git fetch`)失败,错误文案**不止一种**:
 
 ```
 fatal: unable to access 'https://github.com/shiliu153/chatapp.git/': Failure when receiving data from the peer
 error: RPC failed; curl 56 GnuTLS recv error (-110): The TLS connection was non-properly terminated.
+fatal: unable to access '…': Empty reply from server
+fatal: unable to access '…': Failed to connect to github.com port 443 after 124855 ms: Couldn't connect to server
+fatal: expected flush after ref listing
 ```
 
-对照:**同一个仓库、同一时刻**,Windows 宿主上的 `git fetch` 正常;`gh api` 也正常。所以不是凭据、
-不是仓库、也不是「网不通」—— 是 WSL 这条 TLS 连接被中途掐断。历史上同类抖动出现过四次
-(#332 / #396 / #474,以及 2026-11-24 这次的 ticket prepare 连挂两次)。
+历史上四次(#332 / #396 / #474,以及 2026-11-24 的 ticket prepare 连挂两次)。**同一个仓库、同一时刻**,
+Windows 宿主上的 `git fetch` 正常,`gh api` 也正常 —— 所以不是凭据、不是仓库、也不是「网全断」。
 
-**已做的处置(2026-11-24,写进 WSL 的 `~/.gitconfig`)**:
+#### 先分诊,别一头扎进 TLS
+
+2026-11-28 实测到**两种完全不同的**原因都会走到上面这些文案,处置相反,所以先跑这三条:
+
+```bash
+# ① 直连到底通不通(注意 --noproxy:worker 的 no_proxy 会把 github 各域划成直连)
+curl -s -o /dev/null -w "%{http_code} %{time_total}\n" --max-time 10 --noproxy "*" https://api.github.com/rate_limit
+# ② 代理那条腿活不活
+curl -s -o /dev/null -w "%{http_code} %{time_total}\n" --max-time 10 -x http://127.0.0.1:7890 https://api.github.com/rate_limit
+# ③ git 协议端点本身通不通(比首页更能代表 git)
+curl -s -o /dev/null -w "%{http_code} %{time_total}\n" --max-time 20 --noproxy "*" "https://github.com/shiliu153/chatapp.git/info/refs?service=git-upload-pack"
+```
+
+| 结果 | 结论 | 处置 |
+|---|---|---|
+| ② 是 `000` | **机场节点死了**(典型是端口池轮换),不是 TLS | 跑 `bash scripts/superagent-proxy/refresh.sh`,再跑一遍 ② 直到 200 |
+| ①③ 都 200,只有 `git` 挂 | 直连那条腿对 **git 的长连接**不可靠 | 给仓库挂上代理(下面那条),别再去调 `http.*` 参数 |
+| ① 也挂 + 文案是 `GnuTLS` / `peer` | 才是经典 TLS 截断 | 见「已做的处置」,并按顺序加备选 |
+
+#### 已做的处置(P1,2026-11-24)
+
+写进 WSL 的 `~/.gitconfig`:
 
 ```bash
 git config --global http.version HTTP/1.1       # 躲开 HTTP/2 多路复用在劣质链路上的 reset
@@ -772,26 +795,31 @@ git config --global http.lowSpeedLimit 1000     # 低于 1KB/s
 git config --global http.lowSpeedTime 60        # 持续 60s 才判失败(默认太急)
 ```
 
-**效果(截至 2026-11-28)**:配置之后 WSL 侧的 `git fetch` / `git pull --ff-only` 连续成功 ——
-2026-11-24 当天 ticket prepare 恢复;2026-11-28 一次会话内 6 次 `git fetch`(拉 4 个 agent 分支
-+ 2 个 flow 分支)与 3 次母体 `pull --ff-only` **全部一次通过**,没有再复现 GnuTLS / peer 错误。
-**这是「已连续 N 次未复现」,不是「根因已确认」** —— 别把它当成治好了。
+**这四条不是解药**。2026-11-28 它们全都在,`git fetch` 仍然连挂三次(`expected flush after ref listing` /
+`Empty reply from server` / `Couldn't connect … after 124855 ms`),`git ls-remote origin HEAD` 挂满 60s
+超时。同一时刻:直连 `api.github.com` 5/5 `200`、`~0.35s`;`github.com:443` TCP 通;
+**直连 git 协议端点 `200 / 1.07s`**;直连 `https://github.com/` 首页 **`000`**;经 mihomo 端点 `200 / 1.00s`。
 
-**若再复现**,按这个顺序加,每加一条观察 2~3 次派单:
+#### 真正生效的那一刀(P2,2026-11-28 起)
 
-1. `git config --global http.proxy http://127.0.0.1:7890` —— 让 git 走机场专线
-   (GitHub 各组域现在是直连,直连路径上的 TLS 抖动就绕不过去;走机场等于换一条腿,
-   代价是慢一倍,见 §12.1);
-2. `git config --global http.sslVerify true` 显式写死(排除某次实验残留的 false);
-3. 给 ticket prepare 那次 `git fetch` 加**重试**(2 次、间隔 5s)—— 这条要改 superagent 源码
-   (`/root/dsh-superagent`),不在本仓库,属另一单。
+```bash
+git -C /root/src/chatapp config http.proxy http://127.0.0.1:7890
+```
 
-**怎么确认是同一类故障**:错误文本里同时出现 `Failure when receiving data from the peer`
-或 `GnuTLS recv error (-110)`;`git ls-remote origin` 也挂;而同一时刻 `gh api user` 返回正常。
-三条齐了就是它 —— 不要先去查 token 或代理。
+加上之后 `git ls-remote` 与 `git fetch` **立刻恢复**(实测 `e34e04c…` 一次拿到)。为什么是**仓库级**而不是全局:
+全局会把 `npm` / `pub` / 镜像站的 git 流量也送进机场,而那些本来直连更快;而仓库级对
+`git worktree add` 出来的每个 worker worktree 同样生效(worktree 共用主仓的 `.git/config`)。
 
+> 这条同时解释了 2026-11-24 那次「配完就再没复现」的错觉:那几天机场线路恰好稳。
+> **判断标准只有一个:能不能连续 3 次 `git -C /root/src/chatapp fetch --dry-run` 全过。**
 
+#### 若再复现,按顺序加
 
+1. 先确认 ② 不是 `000`(机场死了先 `refresh.sh`,与 git 无关);
+2. 上面那条 P2 是否还在(`git -C /root/src/chatapp config --get http.proxy`);
+3. `git config --global http.sslVerify true` 显式写死(排除残余的 false);
+4. 给 ticket prepare 那次 `git fetch` 加**重试**(2 次、间隔 5s)—— 要改 superagent 源码
+   (`/root/dsh-superagent`),不在本仓库。
 ## 13. 派单前守门:WSL 没起来先拉起(2026-11-09 起)
 
 ### 13.1 为什么要有这一步
