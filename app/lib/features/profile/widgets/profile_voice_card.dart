@@ -59,6 +59,8 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
       },
       // 进入页面时服务端已有的语音(没有就是 null,不是空对象)
       initialVoice: ref.read(profileProvider).value?.voice,
+      // 录音时长用「松手 − 按下」算;时钟走 provider,测试里可拨动(见 #533)
+      now: ref.read(profileVoiceClockProvider),
     )..addListener(_onVoiceChanged);
   }
 
