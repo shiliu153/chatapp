@@ -507,7 +507,8 @@ scripts/design_tokens.py  （DTCG 解析 + 代码生成，纯标准库）
 - **真实往返踩到的坑（2026-11-28 第一次导出）**：本项目的 set 根是 `color` 分组，Tokens Studio
   会把引用写成 **set 内相对路径** `{ember.100}`，而仓库要求全路径 `{color.ember.100}`。
   这种值进仓库就是悬空引用（`design_tokens.py` 会 fail-closed），所以校验器会拦下并直接提示
-  正确写法。**在 Figma 里把值改成「引用另一个 token」时，务必确认导出物里的路径带全前缀。**
+  正确写法。**操作口径：在 Figma 里要设引用时，用 JSON 视图手输全路径 `{color.ember.100}`
+  （不要用取色器旁的下拉去选 token），导出后跑一次校验器确认没被判悬空。**
 - 落盘后照旧 `python scripts/design_tokens.py --write` 重生成三份生成物，
   `--check` 必须绿（`scripts/verify.sh contract` 兜底）。
 
