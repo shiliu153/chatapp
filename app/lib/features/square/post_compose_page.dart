@@ -16,8 +16,11 @@ import 'widgets/compose_photo_grid.dart';
 /// 单张图片上限 5MB(与后端 `config/images.py` 一致,本地先拦一次)。
 const _maxBytes = 5 * 1024 * 1024;
 
-/// 单条动态最多 9 张图。
-const _maxCount = 9;
+/// 单条动态最多几张图。
+///
+/// 直接引用 `pickImagesDefaultLimit`(相册多选的默认上限):两处若各写一个 9 就会漂移 ——
+/// 「相册让你选 12 张、页面只收 9 张」这种不一致不会有任何测试或门禁发现。
+const _maxCount = pickImagesDefaultLimit;
 
 /// 正文上限(与后端 `posts` 序列化器的 500 字上限一致)。
 const _maxTextLength = 500;
@@ -71,7 +74,7 @@ class _PostComposePageState extends ConsumerState<PostComposePage> {
     if (files.isEmpty) return;
     for (final file in files) {
       if (_images.length >= _maxCount) {
-        EmberToast.show(context, '最多 9 张图片');
+        EmberToast.show(context, '最多 $_maxCount 张图片');
         break;
       }
       final bytes = await file.readAsBytes();
