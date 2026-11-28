@@ -19,7 +19,7 @@ usage() {
   backend    起依赖 → 迁移 → OpenAPI 生成物校验 → 后端门禁(gates.toml 的 backend 组)
   web        npm ci → 生成 API 类型 → 网页端门禁(web 组)
   imserver   imserver 单元 / 集成 / HTTP e2e(docker)
-  app        flutter pub get → App 门禁(analyze + test)
+  app        flutter pub get → App 门禁(analyze + 裸值 + test)
   contract   跨栈契约门禁(gates.toml 的 contract 组)
   all        依次跑 backend web imserver app contract
   deps       只起依赖容器
