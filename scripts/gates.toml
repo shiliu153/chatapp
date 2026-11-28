@@ -208,6 +208,13 @@ command = "python -m unittest scripts.test_design_tokens -v"
 reason = "生成器判错的两个方向都不能静默:别名悬空/循环会产出空值(渲染成透明,比门禁红难查),色阶自然序与 8 位 alpha 分量顺序错了会静默生成「看起来对」的错误常量"
 
 [[gate]]
+id = "contract-figma-tokens-roundtrip-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_figma_tokens_roundtrip -v"
+reason = "Figma 免费档没有 Theme、同步只能单文件,「只改值不改结构」这条纪律只能靠这个判据兜住。它错的两个方向都贵:把 hex→rgba、legacy 键名、`$themes` 包裹块误判成结构变更 → 第一次真实往返就红一片,人会把校验器关掉;publish/report 时把真实的类型变更或路径增删当成值变更 → 生成物改形状却当成「改了个色值」混进评审。自测还钉住落盘后的**字节级**不变性(含 LF/CRLF 混存),否则一次改值会带来满文件重排"
+
+[[gate]]
 id = "contract-docs-index-check"
 scope = "contract"
 kind = "python"

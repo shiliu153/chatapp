@@ -469,11 +469,51 @@ scripts/design_tokens.py  （DTCG 解析 + 代码生成，纯标准库）
 
 ### 10.3 Figma 侧（免费档）
 
-- 免费档只有 1 个项目 / 1 编辑者，**没有多模式 Variable 同步**。所以：**仓库 JSON 是事实来源，Figma 是可视化编辑端**。
-- Tokens Studio 免费档加载 `design/tokens/*.json`（JSON 文件或 GitHub raw URL），改完导出 JSON，提交 PR —— 与代码改动走同一条评审。
-- 双模式在 JSON 里用两个 token set 表达（`light` / `dark`），Figma 内靠切换 theme 预览。
-- **只允许在 Figma 里改值，不允许改结构**（token 名、层级、新增分类一律走 PR）。这条是免费档下唯一能防住漂移的纪律。
-- 若将来需要多模式自动同步，再评估 Team 档（€39/月），届时只换同步方式，不动 token 结构。
+> **2026-11-28 按官方分档表复核过一次，本节已把当初的两条错误假设改掉。**
+> 依据：[Paid Figma plugin features](https://docs.tokens.studio/get-started/pro-licence)
+> 的 Free / Team 对照表（不是营销页的口径）。
+
+- 免费档 = 1 个项目 / 1 编辑者。**仓库 JSON 是事实来源，Figma 是可视化编辑端**，这条不变。
+
+| 能力 | 免费档 | Team 档 |
+|---|---|---|
+| token 数与 set 数 | 不限（**同名 token 允许存在于不同 set**，这正是双模式的基础） | 同 |
+| 同步到 Git / 外部存储 | ✅ 但**只能一个文件** | 多文件 + 分支 |
+| **新建 / 修改 Theme** | ❌ 只能切换别人建好的 Theme | ✅ |
+| 多模式 Figma Variables | ❌（依赖 Theme） | ✅ |
+
+两条被证伪的旧假设：
+
+1. ~~「Figma 内靠切换 theme 预览双模式」~~ —— **建 Theme 是付费项**，免费档建不出来。
+   免费档的替代是手动勾选 set 的 checkbox（启用 `light` / 停用 `dark`），能预览，
+   但每切一次要手点，且不保存成可切换的 Theme。
+   注：**Figma 原生 Variables 我们本来就不用**（消费者是 `design_tokens.py`），
+   所以「不支持多模式 Variable 同步」对我们不构成损失。
+2. ~~「连 GitHub raw URL 拉取」~~ —— 能连，但免费档只允许**单文件**同步；本仓库是
+   4 个文件，单文件同步会把它们合并/覆盖成一个。**所以本轮不接 sync provider，
+   走「本地 JSON 导入 + 导出」**：Tokens Studio 可以一次性吃下一个 set 的 JSON。
+
+工作方式（免费档下真实可行的形态）：
+
+- 一次只编辑**一个 set**（`light` / `dark` / `primitive` / `scale`），改完导出该 set 的
+  JSON，提交 PR —— 与代码改动走同一条评审。双模式 = 两轮，不是一轮。
+- **只允许在 Figma 里改值，不允许改结构**（token 名、层级、`$type`、`$description`、
+  新增分类一律走 PR）。
+- 这条纪律**不靠自觉**，靠机械判据：`python scripts/figma_tokens_roundtrip.py --export <导出文件>`
+  把差异分成「值变更 / 结构变更」两类，结构变更（路径增删、类型变更、描述变更）**拒绝落盘**，
+  只有值变更可用 `--apply` 写回源文件；导出物里的 `$themes` / `$metadata` 包裹块、
+  legacy 键名（`value` 而非 `$value`）、`hex → rgba()` 改写、`"8px" → 8`、
+  `fontFamily` 数组化都在该脚本里归一，不算结构变更。
+- 落盘后照旧 `python scripts/design_tokens.py --write` 重生成三份生成物，
+  `--check` 必须绿（`scripts/verify.sh contract` 兜底）。
+
+**什么时候才值得升 Team（€39/月）**：当且仅当出现下面任一情况——
+① 双模式往返的频率高到「两轮手工导出」成为瓶颈；② 需要把多文件目录直接挂成 sync provider
+（省掉手工导出）；③ 需要 Figma 原生 Variables 的多模式做原型联动。
+在此之前**不付费**；升档只换同步方式，token 结构与纪律不变。
+（价格以 [tokens.studio/pricing](https://tokens.studio/pricing) 当期页面为准：官网写明
+所有插件付费能力已并入 Team 档，历史 Pro / Starter Plus / Essential 订阅自动迁移。）
+
 
 ### 10.4 过渡期双轨
 
