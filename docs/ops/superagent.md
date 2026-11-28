@@ -606,10 +606,23 @@ dnsTunneling=true
 **为什么不是「干脆不用代理、全直连」**:worker 还要 `npm ci` / `pub get` / 拉 Flutter 依赖,
 那些国内不可达。所以代理要留,只是不该留在宿主那一跳上。
 
-**但 GitHub 那一组域现在**确实**走直连**(2026-11-25 实测):`/root/start-superagent.sh` 的
-`no_proxy` 把 `api.github.com` / `github.com` / `codeload.github.com` /
-`raw.githubusercontent.com` / `objects.githubusercontent.com` / `wb.shiliu153.me` 全划成直连 ——
-直连比机场快一倍(NAT 下直连 20/20、0.39s;经机场 0.85~1.7s 且偶发失败)。
+**GitHub 那一组域 2026-11-28 起改为走代理**(此前 2026-11-25 起的口径是「走直连」,
+理由是直连比机场快一倍:NAT 下直连 20/20、0.39s,经机场 0.85~1.7s 且偶发失败)。
+翻转的原因:2026-11-28 实测 WSL 内直连已不通 —— `github.com:443` 连不上,
+`git fetch` 报 `Failed to connect to github.com port 443`,129s 超时;同一时刻经 mihomo
+一次就过。而「GitHub 优先直连」这条口径的代价是**全押**:worker 的轮询、`gh`、`git fetch`、
+release 附件全在那一组域上,直连一断就一起断。现在 GitHub 与其余外网同路:
+
+| 流量 | 走哪条腿 | 在 no_proxy 里 |
+|---|---|---|
+| 模型网关 `wb.shiliu153.me`(经 8788 兜底代理) | 直连 | ✅ |
+| 本地服务 `localhost` / `127.0.0.1` / `::1` / 宿主网关 | 直连 | ✅ |
+| **GitHub 各域 + npm / pub / pypi 等其余外网** | mihomo `127.0.0.1:7890`(兜底宿主 Clash) | ❌ |
+
+**回滚点**:某天直连恢复且确实更快时,把那五个域加回 `start-superagent.sh` 的 `no_proxy`
+—— 但必须同改 `scripts/superagent_health.py::WORKER_NO_PROXY` 与本节,
+否则门禁 `contract-worker-no-proxy-selftest` 会红(它钉「两份相等」**且**「GitHub 域必须不在清单里」,
+让翻转永远是一次显式决定)。
 口径只有这一份,巡检侧靠 `worker_gh_env()` 与它对齐(§15)。
 
 ### 12.2 拓扑
@@ -617,12 +630,13 @@ dnsTunneling=true
 ```
 DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
  ├─ 模型流量 → 127.0.0.1:8788(superagent-failover)→ wb.shiliu153.me   ← 在 no_proxy 内,不进机场
- └─ 其余外网 → 127.0.0.1:7890(mihomo,systemd)→ 机场节点
+ └─ 其余外网(含 GitHub)→ 127.0.0.1:7890(mihomo,systemd)→ 机场节点
                 └─ 兜底:172.26.240.1:7897(宿主 Clash)
 ```
 
 `no_proxy` 里每一项都不能删:`localhost` / `127.0.0.1`(本地服务含 8788)、`wb.shiliu153.me`
-(模型网关在国内,送进机场等于绕出国再绕回来)、宿主网关本身。
+(模型网关在国内,送进机场等于绕出国再绕回来)、宿主网关本身。**GitHub 各域不在其中**
+(2026-11-28 起),理由见上一小节。
 
 ### 12.3 组件与命令
 
@@ -770,7 +784,8 @@ Windows 宿主上的 `git fetch` 正常,`gh api` 也正常 —— 所以不是�
 2026-11-28 实测到**两种完全不同的**原因都会走到上面这些文案,处置相反,所以先跑这三条:
 
 ```bash
-# ① 直连到底通不通(注意 --noproxy:worker 的 no_proxy 会把 github 各域划成直连)
+# ① 直连到底通不通(用 --noproxy "*" 强制不走代理;2026-11-28 起 GitHub 已改走代理,
+#    所以「能走代理」已经不够,这一条量的是「直连这条路本身还通不通」= 回滚可行性)
 curl -s -o /dev/null -w "%{http_code} %{time_total}\n" --max-time 10 --noproxy "*" https://api.github.com/rate_limit
 # ② 代理那条腿活不活
 curl -s -o /dev/null -w "%{http_code} %{time_total}\n" --max-time 10 -x http://127.0.0.1:7890 https://api.github.com/rate_limit
@@ -821,7 +836,9 @@ git -C /root/src/chatapp config http.proxy http://127.0.0.1:7890
 `git worktree add` 出来的每个 worker worktree 同样生效(worktree 共用主仓的 `.git/config`)。
 
 > **但 P2 有一个坑:`no_proxy` 会把它顶掉。** libcurl 先看 `no_proxy`,命中就**绕过**显式配置的
-> `http.proxy` —— 而 worker 的 `no_proxy` 里正含着 `github.com`。2026-11-28 worker 侧的一次
+> `http.proxy` —— 而 2026-11-28 之前的 worker `no_proxy` 里正含着 `github.com`。
+> **(2026-11-28 口径翻转后这个坑不再触发**:GitHub 各域已从 `no_proxy` 摘掉,仓库级
+> `http.proxy` 现在真的生效;下面这段留作历史证据,以及「为什么口径必须收敛到一份」的教训。)2026-11-28 worker 侧的一次
 > `git push` 就是这么挂的:仓库级 `http.proxy` 设着,但请求被 `no_proxy` 顶回直连,而那一刻直连的
 > `github.com:443`(含 `info/refs` 端点)是死路(`curl` 两种走法都 `000/20s`,而 `api.github.com`
 > 两种走法都 `200`)。处置两步:① `bash scripts/superagent-proxy/refresh.sh`(节点端口池轮换,
@@ -1048,23 +1065,32 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 
 | 检查 | 判据 |
 |---|---|
-| 出网(经代理) | **经 mihomo** `GET https://api.github.com/rate_limit` 必须 2xx(探针期间临时摘掉 `no_proxy`,否则量到的是直连) |
-| 出网(直连,2026-11-28 加) | **不经任何代理** `GET https://api.github.com/rate_limit` 必须 2xx(`ProxyHandler({})`) |
+| 出网(经 mihomo) | **经 mihomo** `GET https://api.github.com/rate_limit` 必须 2xx(探针期间临时摘掉 `no_proxy` 兜底,防止口径又被改回直连时量错对象) |
 | 入队三连 | `thread` / `trigger_thread` / `ticket` 三张表都要有该 issue(`@SUPERAGENT_HEALTH_ISSUES`) |
 | 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束(**自动扫全表**,不用配置) |
 | 游标新鲜度 | `kv` 里 `github-cursor:*` 的最新时间落后超过 10 分钟(`SUPERAGENT_CURSOR_STALE_MINUTES`),**且** GitHub 通知里有「未读且 `updated_at` 晚于游标」的条目 |
 | CI 红轨(**默认关**) | 默认分支上每条 workflow 的**最新一次 push run** 都不能是红的(`SUPERAGENT_HEALTH_CI_RED=1` 才查;判据 = `scripts/l4_intake.py::red_runs`) |
 | WSL 继承代理(第六项) | 进程环境里的 `http(s)_proxy` 排除 worker 自 export 的 `--proxy` 之后,对剩下的值做一次 3 秒 TCP 建连;**不通才算红** |
 
-**出网为什么拆成两条腿(2026-11-28)**:worker 的出口口径是「GitHub 各域 + `wb.shiliu153.me`
-走**直连**,其余走 mihomo」,这份 `no_proxy` 写在 `start-superagent.sh` 里。原先只有「经代理」
-一项,而 `urllib` 的 `ProxyHandler` 会照 `no_proxy` 把请求改成直连,探针主机又正是
-`api.github.com` —— 于是那一项**一直在探直连**,而真正的直连断开反而没有观测点
-(2026-11-25 的盲区:worker 拉不到通知,巡检全绿);反方向是机场抽风时误报红(同日 16:15 /
-16:30 各一次)。现在:经代理那一支在探针期间临时摘掉 `no_proxy`
-(`_proxy_bypass_disabled`),直连那一支用 `ProxyHandler({})` 显式不用代理;巡检里所有 `gh`
-子进程统一走 `worker_gh_env()`,`no_proxy` 显式写成 worker 那一份,不再继承「巡检自己是怎么被
-拉起来的」。判据与自测口径见 `scripts/superagent-health/README.md`。
+**出网这一项为什么只剩代理一条腿(2026-11-28,同一天改了两次)**:先说前半段 ——
+worker 的出口口径当时是「GitHub 各域走**直连**,其余走 mihomo」,而 `urllib` 的
+`ProxyHandler` 会照 `no_proxy` 把请求改成直连,探针主机又正是 `api.github.com`,于是
+「经代理」那一项**一直在探直连**,真正的直连断开反而没有观测点(2026-11-25 的盲区:
+worker 拉不到通知,巡检全绿);反方向是机场抽风时误报红(同日 16:15 / 16:30 各一次)。
+当时把出网拆成「经代理 / 直连」两腿来治。
+
+后半段(同日):口径翻转成「GitHub 也走 mihomo」之后,**直连那条腿不再进报告** ——
+它不是 worker 的路径,而本机直连确实不通,当必检项就是永久假红(假红的下场是人把巡检关掉)。
+函数 `check_egress_direct()` 保留,供人工排障时回答「直连那条路回来了没有」:
+
+```bash
+python -c "from scripts import superagent_health as h; print(h.check_egress_direct(None))"
+```
+
+现在:经代理那一支仍在探针期间临时摘掉 `no_proxy`(`_proxy_bypass_disabled`)——
+它防的是「口径某天又被改回直连,探针静默量错对象」;巡检里所有 `gh` 子进程统一走
+`worker_gh_env()`,`no_proxy` 显式写成 worker 那一份,不再继承「巡检自己是怎么被拉起来的」。
+判据与自测口径见 `scripts/superagent-health/README.md`。
 
 第五项是 2026-11-16 从 `main-health.yml` 并过来的,理由与代价见 §8.1 上方那段。它**每条红轨
 一个检查名**(`CI 红轨 <workflow>`),这样指纹能把「web 红了」与「imserver 红了」分开 ——

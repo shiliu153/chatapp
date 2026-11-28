@@ -170,14 +170,18 @@ main() {
   #   localhost/127.0.0.1/::1 —— 本地服务(含 8788 模型兜底代理)不该绕出去
   #   wb.shiliu153.me         —— 模型网关在国内,送进机场等于绕出国再绕回来
   #   172.26.x.x(HOSTIP)     —— 宿主网关本身
-  #   api.github.com / github.com / codeload / raw./objects.githubusercontent.com
-  #                           —— **GitHub 那一组域走直连**(2026-11-25 实测:直连比机场快一倍,
-  #                              20/20 · 0.39s vs 0.85~1.7s 且偶发失败)。少了这五个,
-  #                              worker 的全部 GitHub 流量会被压到机场上 —— 机场一抽风,
-  #                              轮询与 git 就一起断,而监控看不出是这一层的事。
+  # **GitHub 那一组域 2026-11-28 起改为走代理,不再进 no_proxy**:
+  #   原口径(2026-11-25)是「GitHub 各域走直连」,理由是直连比机场快一倍(NAT 下
+  #   20/20 · 0.39s)。2026-11-28 实测直连已不通(WSL 内 `github.com:443` 连不上,
+  #   git fetch 报 `Failed to connect ... port 443`,129s 超时;同一时刻经 mihomo
+  #   一次就过),而「直连优先」这条口径会让 worker 的全部 GitHub 流量(轮询 /
+  #   `gh` / `git fetch` / release 附件)一起断在这条死路上,且巡检当时看不出是这一层。
+  #   所以现在 GitHub 与其余外网同路:全部经 mihomo(兜底宿主 Clash)。
+  #   若哪天直连恢复且确实更快,回滚点就是把那五个域加回本行(以及
+  #   scripts/superagent_health.py::WORKER_NO_PROXY,两处必须同时改)。
   # 这一行与 scripts/superagent_health.py 的 WORKER_NO_PROXY 必须逐项一致:
   # 由 `scripts/test_worker_no_proxy.py` 机械比对(门禁 contract-worker-no-proxy),改一处就得改两处。
-  export no_proxy="localhost,127.0.0.1,::1,${HOSTIP:-172.26.240.1},wb.shiliu153.me,api.github.com,github.com,codeload.github.com,raw.githubusercontent.com,objects.githubusercontent.com,.local"
+  export no_proxy="localhost,127.0.0.1,::1,${HOSTIP:-172.26.240.1},wb.shiliu153.me,.local"
   export NO_PROXY="$no_proxy"
 
   export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
