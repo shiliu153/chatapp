@@ -109,6 +109,7 @@ async function onRemove(id: number) {
   position: absolute;
   left: var(--space-xs);
   bottom: var(--space-xs);
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 照片上的角标 chip 的 2px 纵向贴边:space 档位从 4 起;到期:E-5 迁移「我」页时按 §8 标签规范重定 */
   padding: 2px var(--space-sm);
   border-radius: var(--radius-full);
   font-size: var(--text-badge);

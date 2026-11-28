@@ -223,6 +223,7 @@ async function onBlock() {
   margin-top: var(--space-md);
 }
 .user-profile__tag {
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 资料页标签的 2px 纵向贴边:space 档位从 4 起;到期:E-5 迁移资料页时按 §8 标签规范重定 */
   padding: 2px var(--space-md);
   border-radius: var(--radius-full);
   background: var(--color-bg-page);

@@ -132,6 +132,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   border: none;
   border-radius: var(--radius-image);
   background: none;
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 表情格内边距 2px:space 档位从 4 起,这是 56px 点按热区里的贴边留白;到期:E-5 迁移聊天页时按 §8.3 重定热区后清掉 */
   padding: 2px;
   cursor: pointer;
 }

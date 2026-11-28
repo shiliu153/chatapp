@@ -108,6 +108,7 @@ const meta = computed(() =>
   margin-top: var(--space-xs);
 }
 .candidate-card__tag {
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 卡片标签(描边式 chip)的 2px 纵向贴边:space 档位从 4 起;到期:E-5 迁移发现页时按 §8 标签规范重定 */
   padding: 2px var(--space-sm);
   border-radius: var(--radius-full);
   background: var(--overlay-on-photo);

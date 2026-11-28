@@ -15,8 +15,8 @@ defineProps<{ current: string; min: string; downloadUrl: string }>()
   min-height: 100vh;
   display: grid;
   place-content: center;
-  gap: 12px;
-  padding: 32px;
+  gap: var(--space-12);
+  padding: var(--space-32);
   text-align: center;
   background: var(--color-bg-page);
   color: var(--color-text-primary);

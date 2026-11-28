@@ -88,6 +88,7 @@ const rows = [
   display: flex;
   flex: 1;
   flex-direction: column;
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 通知项「名称/说明」两行的 2px 行间隙:space 档位从 4 起;到期:E-5 迁移设置页时清掉 */
   gap: 2px;
 }
 .notify__name {

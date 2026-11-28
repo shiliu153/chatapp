@@ -71,7 +71,7 @@ import { APP_ICP, APP_NAME, APP_VERSION } from './appInfo'
   border-radius: var(--radius-sheet);
   background: var(--gradient-heart);
   color: var(--color-bg-card);
-  font-size: 32px;
+  font-size: var(--text-display);
 }
 .about__name {
   color: var(--color-text1);

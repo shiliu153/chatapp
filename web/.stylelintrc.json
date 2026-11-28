@@ -1,0 +1,38 @@
+{
+  "ignoreFiles": ["src/styles/tokens.generated.css"],
+  "overrides": [
+    {
+      "files": ["**/*.vue"],
+      "customSyntax": "postcss-html"
+    }
+  ],
+  "rules": {
+    "color-no-hex": true,
+    "color-no-invalid-hex": true,
+    "function-disallowed-list": ["rgb", "rgba", "hsl", "hsla"],
+    "declaration-property-unit-disallowed-list": {
+      "/^(padding|margin)(-(top|right|bottom|left|block|inline)(-(start|end))?)?$/": [
+        "px",
+        "rem",
+        "em",
+        "pt",
+        "vh",
+        "vw",
+        "vmin",
+        "vmax"
+      ],
+      "/^(row-|column-)?gap$/": ["px", "rem", "em", "pt", "vh", "vw", "vmin", "vmax"],
+      "/^border(-(top|right|bottom|left)(-(start|end))?)?-radius$/": [
+        "px",
+        "rem",
+        "em",
+        "pt",
+        "vh",
+        "vw",
+        "vmin",
+        "vmax"
+      ],
+      "/^font(-size)?$/": ["px", "rem", "em", "pt", "vh", "vw", "vmin", "vmax"]
+    }
+  }
+}

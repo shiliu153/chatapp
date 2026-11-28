@@ -119,6 +119,7 @@ function titleOf(candidate: Candidate): string {
   inset: auto 0 0 0;
   display: flex;
   flex-direction: column;
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 照片遮罩里「昵称/年龄」两行的 2px 行间隙:space 档位从 4 起;到期:E-5 迁移发现页时清掉 */
   gap: 2px;
   padding: var(--space-xl) var(--space-sm) var(--space-sm);
   background: linear-gradient(to bottom, transparent, var(--color-photo-scrim));
