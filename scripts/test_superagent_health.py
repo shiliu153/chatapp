@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import http.server
 import json
 import os
 import shutil
@@ -15,14 +17,63 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Iterator, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts import superagent_health as healthcheck  # noqa: E402
+
+
+@contextlib.contextmanager
+def _local_server() -> Iterator[Tuple[str, int]]:
+    """起一个只回 200 的本机 HTTP 服务,充当「一定能通」的靶子。
+
+    参数说明:
+        无。
+
+    返回参数:
+        上下文迭代出 ``(Host 头, 端口)``;退出时关服务、释放端口。
+
+    使用示例:
+        >>> with _local_server() as (host, port):
+        ...     healthcheck.check_egress_direct(None, 3, f"http://127.0.0.1:{port}/")
+
+    备注信息:
+        出网那几项的判据里「通 / 不通」是全部信息量,用真实公网做断言会让自测在断网的 CI
+        上飘;本机回环既快又稳定,而且能把 ``no_proxy`` / ``http_proxy`` 摆成任意组合来验
+        「代理到底有没有被用上」。
+    """
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _QuietHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address[0], server.server_address[1]
+        yield f"{host}:{port}", port
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+class _QuietHandler(http.server.BaseHTTPRequestHandler):
+    """回 200 且不打印访问日志的极简 handler。"""
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler 的约定名
+        """对任何 GET 都回 200 与一个空 JSON。"""
+        body = b"{}"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+        """吞掉访问日志:自测输出里不需要它。"""
 
 
 def make_db(tmp: str) -> sqlite3.Connection:
@@ -182,6 +233,68 @@ class EgressTests(unittest.TestCase):
     def test_reports_selector_when_config_missing(self) -> None:
         check = healthcheck.check_proxy_selector("/nonexistent/config.yaml")
         self.assertEqual(check.state, healthcheck.OK)
+
+    def test_explicit_proxy_wins_over_no_proxy(self) -> None:
+        """``no_proxy`` 含探针主机时,经代理那一支**仍必须真的走代理**。
+
+        这是本文件最容易骗人的地方:worker 的 ``no_proxy`` 故意含 ``api.github.com``,
+        而 urllib 的 ``ProxyHandler`` 会照着 ``no_proxy`` 把请求改成直连 —— 于是「经代理探」
+        其实一直在探直连(对着死端口 9 也判绿)。这里用本机监听套接字当靶子、把
+        ``no_proxy`` 设成它的主机,再让代理指向死端口:判 ``bad`` 才说明代理真的被用上了。
+        """
+        with _local_server() as (host_header, port):
+            with unittest.mock.patch.dict(
+                os.environ, {"no_proxy": "127.0.0.1", "NO_PROXY": "127.0.0.1"}
+            ):
+                check = healthcheck.check_egress(
+                    "http://127.0.0.1:9", None, timeout=3, url=f"http://127.0.0.1:{port}/"
+                )
+        self.assertEqual(check.state, healthcheck.BAD)
+        self.assertTrue(host_header)
+
+
+class DirectEgressTests(unittest.TestCase):
+    """直连那条腿单列:worker 的 `no_proxy` 让 GitHub 走直连,没有这一项就是观测盲区。"""
+
+    def test_direct_probe_ignores_env_proxy(self) -> None:
+        """环境里 ``http_proxy`` 指向死端口时,直连那一支照旧成功。
+
+        原巡检只有「经代理」一支,而它被 ``no_proxy`` 悄悄改成了直连;两条腿分开之后,
+        直连必须显式无视环境代理 —— 这是「不量错对象」的底线。
+        """
+        with _local_server() as (_host, port):
+            with unittest.mock.patch.dict(
+                os.environ, {"http_proxy": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9"}
+            ):
+                check = healthcheck.check_egress_direct(
+                    None, timeout=3, url=f"http://127.0.0.1:{port}/"
+                )
+        self.assertEqual(check.state, healthcheck.OK)
+
+    def test_direct_probe_reports_bad_on_dead_port(self) -> None:
+        check = healthcheck.check_egress_direct(
+            None, timeout=3, url="http://127.0.0.1:9/"
+        )
+        self.assertEqual(check.state, healthcheck.BAD)
+
+
+class WorkerGhEnvTests(unittest.TestCase):
+    """`gh` 调用的出口口径必须与 worker 一致,且不继承调用方的 `no_proxy`。"""
+
+    def test_no_proxy_covers_github_hosts(self) -> None:
+        hosts = healthcheck.WORKER_NO_PROXY.split(",")
+        for host in ("api.github.com", "github.com", "codeload.github.com",
+                     "raw.githubusercontent.com", "objects.githubusercontent.com",
+                     "wb.shiliu153.me", "127.0.0.1"):
+            self.assertIn(host, hosts)
+
+    def test_env_overrides_inherited_no_proxy(self) -> None:
+        with unittest.mock.patch.dict(os.environ, {"no_proxy": "example.com", "NO_PROXY": "example.com"}):
+            env = healthcheck.worker_gh_env("http://127.0.0.1:7890")
+        self.assertEqual(env["no_proxy"], healthcheck.WORKER_NO_PROXY)
+        self.assertEqual(env["NO_PROXY"], healthcheck.WORKER_NO_PROXY)
+        self.assertEqual(env["https_proxy"], "http://127.0.0.1:7890")
+        self.assertEqual(env["HTTPS_PROXY"], "http://127.0.0.1:7890")
 
 
 class ProxyInheritTests(unittest.TestCase):

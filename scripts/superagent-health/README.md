@@ -29,7 +29,8 @@ systemd timer,**每 15 分钟一轮**,开机 3 分钟后先补一轮(`OnBootSec`
 
 | 检查 | 判据 | 异常含义 |
 |---|---|---|
-| 出网 | 经代理 `GET https://api.github.com/rate_limit` 必须 2xx | worker 的 git / 轮询已经不能工作 |
+| 出网(经代理,2026-11-28 收窄) | **经 mihomo** `GET https://api.github.com/rate_limit` 必须 2xx(探针时临时摘掉 `no_proxy`,否则量到的是直连) | mihomo 那条腿断了:凡是需要出国的东西都会挂(`npm ci` / `pub get` / 机场订阅) |
+| 出网(直连,2026-11-28 新增) | **不经任何代理** `GET https://api.github.com/rate_limit` 必须 2xx(`ProxyHandler({})`,无视 `http_proxy`) | GitHub 直连断了 —— worker 的轮询与 `gh` 全走这条腿,而这条腿原先**没有观测点** |
 | 出口节点 | mihomo 当前节点;选到 `HOST-FALLBACK` 只记录不告警 | 机场线路挂了,正在走宿主兜底 |
 | WSL 继承代理(2026-11-17 起) | 进程环境里的 `http(s)_proxy` 排除 worker 自 export 的那个值后,对剩下的值做一次 TCP 探针(3 秒);不通才算红 | 继承到的是死端口:`wsl -e bash -c '…'` 的联网命令会**静默挂住**(mirrored 的 autoProxy 把 Windows 系统代理导进了 WSL) |
 | 入队三连 | `thread` / `trigger_thread` / `ticket` 三张表都要有该 issue | 评论没进队列(§4.1 的静默丢单) |
@@ -42,6 +43,22 @@ systemd timer,**每 15 分钟一轮**,开机 3 分钟后先补一轮(`OnBootSec`
 当然不动,只看时间会天天误报 —— 误报把人训成不看告警,比没有告警更糟。所以先看游标是否落后
 阈值,再取 `gh api notifications` 判断「有没有比游标更新的未读」:有 → 异常(告警里打印游标
 时间、落后分钟数、未读条数与前 3 条标题);没有 → 闲置,跳过。游标新鲜时**根本不联网**。
+
+**出网为什么要两条腿**(2026-11-28):worker 的出口口径是
+「GitHub 各域 + `wb.shiliu153.me` 走**直连**,其余走 mihomo」,这份 `no_proxy` 写在
+`/root/start-superagent.sh` 里。原先巡检只有「经代理」一项,而它坑在两个地方:
+
+1. `urllib` 的 `ProxyHandler` 会照着 `no_proxy` 把请求改成直连 —— 探针主机正是
+   `api.github.com`,于是「经代理探」**一直在探直连**,死端口也判绿(自测里
+   `test_dead_proxy_reports_bad_without_raising` 就是这么在本机红的);
+2. 于是**直连那条腿完全没有观测点**:GitHub 直连一断,worker 拉不到通知、派工评论不进队,
+   巡检却全绿(2026-11-25 的实际盲区);反过来机场抽风时巡检报红而 worker 其实没事
+   (同日 16:15 / 16:30 各一次误报)。
+
+现在两条腿分开报:「经代理」那一支在探针期间临时摘掉 `no_proxy`(见
+`_proxy_bypass_disabled`),「直连」那一支用 `ProxyHandler({})` 显式不用代理。
+巡检里所有 `gh` 子进程也统一走 `worker_gh_env()`:代理变量指向 mihomo,`no_proxy` 显式写成
+worker 的那一份 —— 不再继承「巡检自己是怎么被拉起来的」。
 
 同一条告警里还带一个旁证「轮询心跳 `github-since`」:它每轮结束都会前进,**停在很久以前**
 ⇒ 轮询 loop 自己停了;**新鲜而游标不动** ⇒ 本来就是闲置。它只做旁证,不参与判定。
@@ -177,6 +194,11 @@ python -m unittest scripts.test_mail -v                  # 发信内核:主题 /
 **只有 worker 自 export 的 7890 → 绿**(否则一切正常时天天报红,人会去关告警)。
 另外「活着 → 绿但写明潜伏态」「大写变量也查」「裸 `host:port` 也解析」「畸形值不许静默跳过」
 各一条;探针只用本机回环监听套接字与死端口,**不联网**。
+
+**出网两条腿**那组(2026-11-28)钉的是「别量错对象」:`no_proxy` 含探针主机时经代理那一支
+**仍必须真的走代理**(对着死端口必须判红 —— 这是原先骗人的那段);直连那一支在
+`http_proxy` 指向死端口时照旧成功;死端口上判红;`worker_gh_env` 覆盖掉继承来的 `no_proxy`
+并把 `WORKER_NO_PROXY` 里该有的主机逐个点名。靶子是本机回环上的临时 HTTP 服务,**不联网**。
 
 **安全自愈**那组把四道闸逐条钉住(尤其「本该不重启却重启了」这个方向,那会把别人的活连同
 会话一起弄丢):停摆 + 无活跃 assignment + worktree 干净 → **回调刚好被调一次**、告警含
