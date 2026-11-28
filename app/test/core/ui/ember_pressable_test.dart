@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -98,6 +99,58 @@ void main() {
       await pumpEmber(tester, _box(onTap: null, autofocus: true));
       await tester.pump();
       expect(find.byType(EmberFocusRing), findsNothing);
+    });
+  });
+
+  // 读屏标签的两道口径(#513:真机上 `EmberButton` 被念成「退出登录 + 换行 + 退出登录」)。
+  group('EmberPressable · 子节点语义', () {
+    Widget boxWith({required bool exclude}) => EmberPressable(
+          onTap: () {},
+          pressedScale: 0.97,
+          semanticLabel: '退出登录',
+          excludeChildSemantics: exclude,
+          builder: (context, state) => const SizedBox(
+            width: 120,
+            height: 52,
+            child: Center(child: Text('退出登录')),
+          ),
+        );
+
+    testWidgets('excludeChildSemantics=true:标签只念一遍,且仍可被读屏点击', (tester) async {
+      await pumpEmber(
+        tester,
+        EmberPressable(
+          onTap: () {},
+          pressedScale: 0.97,
+          semanticLabel: '退出登录',
+          excludeChildSemantics: true,
+          builder: (context, state) => const SizedBox(
+            width: 120,
+            height: 52,
+            child: Center(child: Text('退出登录')),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final node = tester.getSemantics(find.byType(EmberPressable));
+      // 关键:不能是「退出登录\n退出登录」
+      expect(node.label, '退出登录');
+
+      // 排除子语义会把 GestureDetector 的 tap action 一起丢掉 —— 必须由 Semantics 自己补。
+      // 断言语义数据里带 tap:读屏才能念到「按钮」并激活它。
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+    });
+
+    testWidgets('默认(false):保留子语义,标签与子文字都会出现', (tester) async {
+      await pumpEmber(tester, boxWith(exclude: false));
+      await tester.pump();
+
+      final node = tester.getSemantics(find.byType(EmberPressable));
+      expect(node.label.contains('退出登录'), isTrue);
+      // 子节点仍在:合并后的标签里会出现两次(这正是 #513 要消掉的那种形态,
+      // 只有在「标签 == 子文字」的按钮上才该用 excludeChildSemantics: true)
+      expect('退出登录'.allMatches(node.label).length, greaterThan(1));
     });
   });
 }

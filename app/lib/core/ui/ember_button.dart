@@ -97,6 +97,8 @@ class EmberButton extends StatelessWidget {
       autofocus: autofocus,
       focusColor: variant == EmberButtonVariant.danger ? colors.statusDanger : null,
       semanticLabel: semanticsLabel ?? (loading ? '$label，处理中' : label),
+      // 标签取的就是可见文字:不排除子节点语义的话,同一句会被念两遍(#513)
+      excludeChildSemantics: true,
       builder: (context, state) {
         final visuals = _resolve(colors, state, disabled: disabled);
         Widget content = Row(

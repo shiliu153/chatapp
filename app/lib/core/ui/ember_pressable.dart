@@ -36,6 +36,7 @@ class EmberPressable extends StatefulWidget {
     this.pressedScale = 0.97,
     this.borderRadius,
     this.semanticLabel,
+    this.excludeChildSemantics = false,
     this.semanticButton = true,
     this.autofocus = false,
     this.focusNode,
@@ -62,6 +63,17 @@ class EmberPressable extends StatefulWidget {
 
   /// 读屏播报用的标签(图标按钮必须有,§8.4)。`null` 时不额外包一层 Semantics。
   final String? semanticLabel;
+
+  /// 给了 [semanticLabel] 时,是否**丢弃子节点的语义**。
+  ///
+  /// 只在「标签就是子节点里那句可见文字」时传 `true`(`EmberButton` 就是这种):
+  /// 否则同一句话会被念两遍 —— 外层 `Semantics(label:)` 一份、内层 `Text` 又一份,
+  /// 读屏上是「退出登录 + 换行 + 退出登录」(2026-11-28 真机实测,#513)。
+  ///
+  /// **内容比标签更丰富的场景必须保持 `false`**(例如通知行:标签只写标题与计数,
+  /// 日期与正文由子节点给)。那种情况正确的做法是让页面把完整信息拼进 [semanticLabel],
+  /// 而不是把子节点语义丢掉。
+  final bool excludeChildSemantics;
 
   /// 是否按「按钮」播报(卡片应传 false)。
   final bool semanticButton;
@@ -199,6 +211,12 @@ class _EmberPressableState extends State<EmberPressable>
       button: widget.semanticButton,
       enabled: _enabled,
       label: label,
+      // `true` 时外层标签是唯一事实:子节点的 `Text` 不再贡献第二份同名标签(#513)。
+      // **但排除子语义会连 `GestureDetector` 贡献的 tap action 一起丢掉** ——
+      // 那样读屏只能念、点不动(2026-11-28 实测 `clickable` 从 true 变 false),
+      // 所以必须由这一层自己补上 onTap。
+      excludeSemantics: widget.excludeChildSemantics,
+      onTap: widget.excludeChildSemantics && _enabled ? widget.onTap : null,
       child: content,
     );
   }
