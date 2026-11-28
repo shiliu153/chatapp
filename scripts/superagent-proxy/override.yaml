@@ -31,6 +31,32 @@ log-level: info
 profile:
   store-selected: false
 
+# ── 传输层四项(2026-11-25 在运行时先加、2026-11-28 固化进仓库)───────────────
+# 这四项原先只存在于运行时的 /root/.dsh/proxy/bin/override.yaml。问题在于「重跑
+# install.sh 会把它们冲掉」—— 也就是说它们是**漂移**而不是配置。每项的理由:
+
+# ① 关 IPv6:这台 WSL 只有 eth0 的 fe80::/64,**没有 IPv6 默认路由**,而机场节点会解析出
+#    AAAA。mihomo 的 journal 里每条失败都会先白试一次 v6 再回落 v4 —— 一倍的失败噪音,
+#    还会把 url-test 的 delay 抬高。关掉之后 v6 地址直接不解析。
+ipv6: false
+
+# ② 并发建连:节点瞬时失效时(§12.6「节点级瞬时失效是本机常态」)顺序建连要一个接一个
+#    i/o timeout,而并发建连只要有一条通就成。worker 一轮要读 60~100 次 GitHub,
+#    这条是「单节点抽风不再整轮失败」的关键。
+tcp-concurrent: true
+
+# ③ 统一延迟口径:url-test 的 delay 默认取「最后一次握手」,而并发建连后每次握手路径可能不同,
+#    不统一就会出现「同一个节点测出两个差很多的 delay」,组内来回抖(与 tolerance 打架)。
+unified-delay: true
+
+# ④ keep-alive 30s:GitHub 那侧对空闲连接有回收,30s 的心跳比默认 15s 少一半无谓报文,
+#    又比「不保活」少一次 TLS 重建。实测经 mihomo 单次耗时从 1.7s 降到 0.85~1.0s 区间。
+keep-alive-interval: 30
+
+# 注意:以上都是顶层键,render-config.py 的 apply_override 会原样盖进最终 config.yaml;
+# 改完记得跑 `bash scripts/superagent-proxy/install.sh` 让运行时跟仓库一致,
+# 再 `mihomo -t -f /root/.dsh/proxy/config.yaml -d /root/.dsh/proxy` 验语法。
+
 # GitHub 专用测速组。机场自带的「自动选择」测的是 http://cp.cloudflare.com,
 # 选出来的是「连 cloudflare 最快的节点」,不等于「能稳定拉 GitHub 的节点」。
 # 本项目的实际痛点是 api.github.com 新建 TLS 连接被间歇重置(§11),
