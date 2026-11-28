@@ -194,6 +194,7 @@ async function onSubmit() {
   border-radius: var(--radius-full);
   background: var(--gradient-heart);
   color: var(--color-bg-card);
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 反馈成功页大标题 28px:字阶只有 title(24)/display(32),没有 28 档;到期:补字阶 token 或随 Ember 迁移改成 var(--text-display)(会改视觉,需一次验收) */
   font-size: 28px;
 }
 .feedback__done-title {

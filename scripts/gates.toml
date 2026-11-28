@@ -431,6 +431,20 @@ kind = "python"
 command = "python scripts/sync_version.py --check"
 reason = "版本号唯一事实来源是 app/pubspec.yaml,三处必须一致(CI 会拦)"
 [[gate]]
+id = "contract-web-raw-values-check"
+scope = "contract"
+kind = "python"
+command = "python scripts/check_web_raw_values.py --check"
+reason = "Web 裸值门禁的判定器是 stylelint 配置,而配置**不会自己喊**:删一条规则、把 ignoreFiles 加宽成 src/**、去掉 .vue 的 customSyntax、拿掉 npm 脚本里的 --report-needless-disables —— 四种做法都让门禁静默变绿。这条把「判据至少还是那份」与「白名单必须逐处 + 点名规则 + 原因 + 到期」变成机械判定,纯 Python 秒级,不需要 Node"
+
+[[gate]]
+id = "contract-web-raw-values-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_check_web_raw_values -v"
+reason = "配置守卫判错的两个方向都不能静默:漏报 = 判据被悄悄削掉却仍然绿(它存在的理由),误报 = 把「加严」(多一条规则、单位列表更长)判成违规,人只能把守卫关掉;另钉住白名单四件事(整文件开关 / 未点名规则 / 没写原因 / 没写到期)与「目录写错不许零文件全绿」。放在 contract 组:web 组有 paths 过滤,只改 scripts/ 的 PR 不会触发它"
+
+[[gate]]
 id = "contract-worker-no-proxy-selftest"
 scope = "contract"
 kind = "python"
@@ -486,6 +500,15 @@ cwd = "web"
 requires = ["npm"]
 command = "npm run lint"
 reason = "零告警是硬门槛(eslint --max-warnings 0)"
+
+[[gate]]
+id = "web-raw-values"
+scope = "web"
+kind = "shell"
+cwd = "web"
+requires = ["npm"]
+command = "npm run lint:styles"
+reason = "Ember §11.2 的「裸值」一行在 Web 侧此前没有判定器(只有 tests/unit/no-raw-color.spec.ts 管色值,字号 / 间距 / 圆角全靠人眼)。判据是 stylelint(`web/.stylelintrc.json`,与 App 侧 `check_app_raw_values.py` 逐条同口径):裸 hex / 裸 rgb()·hsl() / 裸字号 / 裸间距 / 裸圆角一律取 var(--…);生成物 tokens.generated.css 整文件排除,存量按 `stylelint-disable-next-line … -- 原因;到期:…` 逐处放行(条数看门禁输出)。秒级、不碰 vite 构建"
 
 [[gate]]
 id = "web-schema-artifact"

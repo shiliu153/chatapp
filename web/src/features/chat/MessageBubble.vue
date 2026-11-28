@@ -322,6 +322,7 @@ const quoteText = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 气泡内「昵称/正文」两行的 2px 行间隙:space 档位从 4 起;到期:E-5 迁移聊天页、行距改由 §4.2 字阶行高承担后清掉 */
   gap: 2px;
   max-width: 100%;
   padding: var(--space-xs) var(--space-sm);
@@ -450,6 +451,7 @@ const quoteText = computed(() => {
   align-self: center;
   max-width: var(--bubble-max-ratio);
   margin: 0;
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 系统灰条(胶囊里一行字)的 2px 纵向贴边:space 档位从 4 起;到期:E-5 迁移聊天页时随灰条规范一并重定 */
   padding: 2px var(--space-md);
   border-radius: var(--radius-full);
   background: var(--color-divider);

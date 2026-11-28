@@ -192,3 +192,25 @@
 - **指纹按规范化后的内容算**(`\r\n` → `\n`)。Windows 检出是 CRLF、WSL / CI 是 LF,
   不规范化会让同一份契约算出两个哈希 —— 那是 `artifacts.py` 早就踩过的同一个坑,
   `scripts/test_gen_web_schema.py` 专门钉了一条「CRLF 与 LF 同指纹」。
+
+## 「裸值」门禁的判据住在 `web/.stylelintrc.json`,但真正跑它的是 npm 脚本(2026-11-28)
+
+Ember §11.2 的「裸值」一行在 Web 侧落地成 `web-raw-values`(`npm run lint:styles`),
+配置守卫是 `contract-web-raw-values-check`(`python scripts/check_web_raw_values.py --check`)。
+四个坑,全都实测踩过:
+
+- **`ignoreFiles` 按「配置所在目录」解析,不是按 `cwd`**:配置放在 `web/` 时,
+  `src/styles/tokens.generated.css` 才是对的;把配置挪到别处(自测时我先把配置放 `/tmp`)会让
+  这条豁免**静默失效**,门禁一跑就是生成物里成片的 `#RRGGBB`。守卫里那条「ignoreFiles 里的
+  路径必须真实存在」就是防这种「空豁免」。
+- **`.vue` 的 `<style>` 块必须有 `customSyntax: "postcss-html"`**:少了它 stylelint 读不了
+  `.vue`,整站页面的 `<style>` 块**一声不响**。守卫把这条单列成一条判定。
+- **白名单是行内 `stylelint-disable-next-line <规则> -- 原因;到期:…`,靠三条旗标才能「只增不减」**:
+  `--report-descriptionless-disables`(没写原因就红)、`--report-needless-disables`
+  (存量清掉却没删就红)、`--report-invalid-scope-disables`(规则名敲错就红)。
+  少一条旗标,白名单就会慢慢长成全文件的 `stylelint-disable` —— 那等于把门禁关掉。
+- **`contract` 轨没有 Node**:所以「判据还是不是那份」「白名单纪律」「门禁还注册着」这三件事
+  收在纯 Python 的配置守卫里(秒级),而「配置到底判不判」由 stylelint 自己在 `web` 轨判
+  —— 形态各判一半,别把 `npx stylelint` 塞进 contract 轨(会红在「没有 `node_modules`」)。
+  行为面另有一条 vitest 用例钉住(`web/tests/unit/stylelint-raw-values.spec.ts`:三类裸值必判红、
+  `var()` 派生写法不误报、生成物整文件排除)。

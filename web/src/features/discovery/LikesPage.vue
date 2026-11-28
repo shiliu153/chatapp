@@ -196,6 +196,7 @@ function formatLikedAt(iso: string): string {
 .likes__meta {
   display: flex;
   flex-direction: column;
+  /* stylelint-disable-next-line declaration-property-unit-disallowed-list -- 列表项「昵称/时间」两行的 2px 行间隙:space 档位从 4 起;到期:E-5 迁移「谁喜欢我」页时清掉 */
   gap: 2px;
   min-width: 0;
 }
