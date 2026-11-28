@@ -114,7 +114,7 @@
 | E-5.3 对话页（会话列表 + 聊天页） | ✅ [#501](https://github.com/shiliu153/chatapp/pull/501)（2026-11-24） |
 | E-5.4 我的 + 资料页（含 Hero 三条入口） | ✅ [#510](https://github.com/shiliu153/chatapp/pull/510)（2026-11-24） |
 | E-5.5 回声（广场）页 + 动态详情 | ✅ [#511](https://github.com/shiliu153/chatapp/pull/511)（2026-11-24） |
-| E-5.6 二级页（拆 a/b/c/d 四单） | 🔄 a 准入进行中（[#512](https://github.com/shiliu153/chatapp/pull/512)）；b 设置 [#507](https://github.com/shiliu153/chatapp/issues/507) / c 表单 [#508](https://github.com/shiliu153/chatapp/issues/508) / d 列表 [#509](https://github.com/shiliu153/chatapp/issues/509) 排队 |
+| E-5.6 二级页（拆 a/b/c/d 四单） | ✅ a 准入 [#512](https://github.com/shiliu153/chatapp/pull/512)（2026-11-25）· b 设置 [#516](https://github.com/shiliu153/chatapp/pull/516) · c 表单 [#517](https://github.com/shiliu153/chatapp/pull/517) · d 列表 [#515](https://github.com/shiliu153/chatapp/pull/515)（2026-11-28 合，均过模拟器手测） |
 
 顺序按「用户停留时长 × 改动面」：
 
@@ -185,3 +185,11 @@
   同页第二个字段 `enterText` 静默丢字（真机丢 IME 组字）。另发现 `EmberButton` 读屏标签念两遍
   （`EmberPressable` 的 Semantics 与内层 `Text` 各贡献一份），已开组件单
   [#513](https://github.com/shiliu153/chatapp/issues/513) 单独修。
+- 2026-11-28：**App 线 E-5.6 收口** —— b 设置 [#516](https://github.com/shiliu153/chatapp/pull/516)、
+  c 表单 [#517](https://github.com/shiliu153/chatapp/pull/517)、d 列表 [#515](https://github.com/shiliu153/chatapp/pull/515)
+  三单合并。合并前做了**主人在场的模拟器验收**（`emulator-5554` / Pixel_7 / Android 17）：
+  三支本地合成临时分支构建 debug 包、登录真实生产后端逐页手点，覆盖通知 / 收藏 / 我的动态 / 点赞 /
+  聊天搜索 / 设置六页 / 编辑资料（含空昵称与未满 18 两条校验的红字 + 描边）/ 偏好 / 深色整轮。
+  结论:三单视觉与交互符合 Ember;**未验**的是发帖页与照片格的滚动区（golden 与用例已覆盖取值）。
+  同轮还确认了 [#513](https://github.com/shiliu153/chatapp/issues/513) 那条读屏缺陷的真实表现:
+  真机上 `全部已读` / `退出登录` 这类 Ember 按钮的标签确实是「动词 + 换行 + 动词」。
