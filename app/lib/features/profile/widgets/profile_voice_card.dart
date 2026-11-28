@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/ember_colors.dart';
 import '../../../core/theme/heart_theme_context.dart';
+import '../../../core/theme/tokens.g.dart' as tokens;
 import '../../../core/widgets/app_dialog.dart';
 import '../../../core/widgets/app_section_card.dart';
 import '../../../core/widgets/app_spinner.dart';
@@ -257,7 +258,9 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
           Container(
             decoration: BoxDecoration(
               color: colors.divider,
-              borderRadius: BorderRadius.circular(2),
+              // 胶囊圆角:4px 高度下 `radiusPill` 由绘制期钳到高度一半(= 2),与原先
+              // 写死的 `circular(2)` 逐像素等价(`test/core/ui/radius_pill_equivalence_test.dart`)。
+              borderRadius: BorderRadius.circular(tokens.radiusPill),
             ),
           ),
           FractionallySizedBox(
@@ -265,7 +268,7 @@ class _ProfileVoiceCardState extends ConsumerState<ProfileVoiceCard> {
             child: Container(
               decoration: BoxDecoration(
                 color: colors.brand,
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(tokens.radiusPill),
               ),
             ),
           ),

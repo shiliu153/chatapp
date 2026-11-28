@@ -7,7 +7,9 @@ import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../theme/heart_theme_context.dart';
 
-/// 选项(单选/多选共用;`AppChipGroup` 也吃这个类型)。
+/// 选项(单选/多选共用;使用方是 [AppOptionGroup])。
+///
+/// 注:同期的 `AppChipGroup` 已于 2026-11-28 退役(#531),本类型现在只有 [AppOptionGroup] 一个使用者。
 class AppOption<T> {
   const AppOption({required this.value, required this.label});
 

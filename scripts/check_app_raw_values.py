@@ -438,46 +438,11 @@ WHITELIST: tuple[WhitelistEntry, ...] = (
         expiry="与在线点规格一并收口,做法同上一条",
     ),
     WhitelistEntry(
-        path="core/widgets/app_badge.dart",
-        line=20,
-        snippet="padding: const EdgeInsets.symmetric(horizontal: 5),",
-        reason="18px 角标的横向留白(角标按高度定尺寸,space 档位从 4 起)",
-        expiry="角标组件清理单:改读 space 档位(4 或 8)并复跑角标截图",
-    ),
-    WhitelistEntry(
-        path="core/widgets/app_badge.dart",
-        line=23,
-        snippet="borderRadius: BorderRadius.circular(9),",
-        reason="18px 高度角标的胶囊圆角 = 高度一半,不是 radius 档位",
-        expiry="同一单里改成 tokens.radiusPill(圆角由半径表达,不写死高度的一半)",
-    ),
-    WhitelistEntry(
         path="features/chat/chats_page.dart",
         line=374,
         snippet="padding: EdgeInsets.symmetric( horizontal: tokens.space4, vertical: 1, )",
         reason="「官方」标签的 1px 贴边留白(描边式标签),space 档位从 4 起,没有 1",
         expiry="若规范为描边标签定义内边距就改读 token;改成 space4 需先过视觉验收,不在本单范围",
-    ),
-    WhitelistEntry(
-        path="features/discovery/widgets/profile_card.dart",
-        line=308,
-        snippet="borderRadius: BorderRadius.circular(3),",
-        reason="6px 高度滑动指示点的胶囊圆角 = 高度一半",
-        expiry="改成 tokens.radiusPill,或先为「指示点」补规格",
-    ),
-    WhitelistEntry(
-        path="features/profile/widgets/profile_voice_card.dart",
-        line=260,
-        snippet="borderRadius: BorderRadius.circular(2),",
-        reason="4px 高度录制进度条的胶囊圆角 = 高度一半(轨道层)",
-        expiry="改成 tokens.radiusPill",
-    ),
-    WhitelistEntry(
-        path="features/profile/widgets/profile_voice_card.dart",
-        line=268,
-        snippet="borderRadius: BorderRadius.circular(2),",
-        reason="同一条进度条的填充层,圆角同上",
-        expiry="改成 tokens.radiusPill",
     ),
 )
 

@@ -305,7 +305,9 @@ class _PhotoDot extends StatelessWidget {
       height: 6,
       margin: EdgeInsets.symmetric(horizontal: tokens.space4 / 2),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(3),
+        // 胶囊圆角:6px 高度下 `radiusPill` 由绘制期钳到高度一半(= 3),与原先写死的
+        // `circular(3)` 逐像素等价,见 `test/core/ui/radius_pill_equivalence_test.dart`。
+        borderRadius: BorderRadius.circular(tokens.radiusPill),
         color: active ? Colors.white : Colors.white.withValues(alpha: 0.45),
         boxShadow: [
           BoxShadow(
