@@ -69,4 +69,63 @@ void main() {
     expect(adapter.log.where((r) => r.method == 'POST' && r.path == '/posts'),
         hasLength(1));
   });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // 两条上限护栏(#532)。它们原本没有任何用例覆盖:
+  //   · 「> 9 张」在生产里**可达** —— 已选 2 张再一次性多选 9 张,循环补到 9 张时命中;
+  //   · 「> 5MB」在生产里**够不到** —— `pickImagesFromGallery` 传了
+  //     `maxWidth: 1080 / imageQuality: 85`,image_picker 在交给 App 前就降采样了。
+  //     它保留为防御性护栏(将来放开 maxWidth 时不至于裸奔),这里用注入的假 picker 让它不再是死码。
+  // ───────────────────────────────────────────────────────────────────────
+
+  /// 造 n 个「小图」文件(每个 10 字节,远低于 5MB)。
+  List<XFile> smallFiles(int n) => [
+        for (var i = 0; i < n; i++)
+          XFile.fromData(Uint8List.fromList(List.filled(10, i)), name: 'a$i.png'),
+      ];
+
+  testWidgets('一次多选超过剩余额度:只收到 9 张并提示「最多 9 张图片」', (tester) async {
+    final adapter = ScriptedAdapter({});
+    var round = 0;
+    await pumpCompose(tester, adapter, pickImages: () async {
+      round++;
+      // 第一轮给 2 张,第二轮给 9 张 —— 累计 11,必然溢出 `_maxCount = 9`。
+      return smallFiles(round == 1 ? 2 : 9);
+    });
+
+    await tester.tap(find.byKey(const Key('compose.add')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('compose.picked.1')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('compose.add')));
+    await tester.pumpAndSettle();
+
+    // 正好 9 张(第 10、11 张被挡掉),并且弹出提示。
+    expect(find.byKey(const Key('compose.picked.8')), findsOneWidget);
+    expect(find.byKey(const Key('compose.picked.9')), findsNothing);
+    expect(find.text('最多 9 张图片'), findsOneWidget);
+
+    EmberToast.hide();
+    await tester.pump();
+  });
+
+  testWidgets('单张超过 5MB:拒收该图并提示「单张图片不能超过 5MB」', (tester) async {
+    final adapter = ScriptedAdapter({});
+    await pumpCompose(tester, adapter, pickImages: () async => [
+          // 5MB + 1 字节:刚好越过阈值。
+          XFile.fromData(
+            Uint8List.fromList(List.filled(5 * 1024 * 1024 + 1, 7)),
+            name: 'big.jpg',
+          ),
+        ]);
+
+    await tester.tap(find.byKey(const Key('compose.add')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('compose.picked.0')), findsNothing);
+    expect(find.text('单张图片不能超过 5MB'), findsOneWidget);
+
+    EmberToast.hide();
+    await tester.pump();
+  });
 }
