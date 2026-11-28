@@ -818,8 +818,12 @@ git -C /root/src/chatapp config http.proxy http://127.0.0.1:7890
 1. 先确认 ② 不是 `000`(机场死了先 `refresh.sh`,与 git 无关);
 2. 上面那条 P2 是否还在(`git -C /root/src/chatapp config --get http.proxy`);
 3. `git config --global http.sslVerify true` 显式写死(排除残余的 false);
-4. 给 ticket prepare 那次 `git fetch` 加**重试**(2 次、间隔 5s)—— 要改 superagent 源码
-   (`/root/dsh-superagent`),不在本仓库。
+4. **加重试**:这是最稳的一刀,但 2026-11-28 查清了它**不在 superagent 的可配置面里** ——
+   `settings-version:*` 里的 `prepare` 现在是**空串**(默认不走自定义命令),也就是说那次 `git fetch`
+   发生在 **DSH worker 内置的工作区准备**里。要加就得改 DSH 运行时本身,成本高于「仓库级
+   `http.proxy`」那一刀,所以**暂不做**,先靠上面 P2 兜着。若哪天连 P2 也压不住,更便宜的绕法是
+   在 `start-superagent.sh` 里 worker 起来前**先跑一次 `git fetch`**(把 refs 拉新),失败才退出。
+
 ## 13. 派单前守门:WSL 没起来先拉起(2026-11-09 起)
 
 ### 13.1 为什么要有这一步
