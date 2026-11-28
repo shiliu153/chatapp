@@ -497,10 +497,10 @@ scripts/design_tokens.py  （DTCG 解析 + 代码生成，纯标准库）
 | token 生成物新鲜度 | JSON 改了但生成物没跟上 → 红；**明暗两套键集不一致**也红（少一个深色值 → 该元素在深色模式下静默回落到浅色值） | `python scripts/design_tokens.py --check` |
 | 规范 ↔ token 同步 | §3.2 / §3.3 / §18.2 的表与 `design/tokens/*.json` 不一致（含透明度）→ 红，**双向**；§18.2 整节被删属正常（迁移完成），不判红 | `python scripts/design_spec_sync.py --check` |
 | 对比度 | §3.4 全部分级配对，双模式 → 任一不过 → 红 | `python scripts/design_contrast.py --check` |
-| 裸值 | 新代码出现裸 hex / 裸字号 / 裸间距 / 裸圆角 → 红 | App：自定义 lint；Web：`stylelint` + `eslint` 规则 |
+| 裸值 | 新代码出现裸 hex / 裸字号 / 裸间距 / 裸圆角 → 红 | App：`python scripts/check_app_raw_values.py --check`（门禁 `app-raw-values`，扫 `app/lib`、排除 token 生成物，存量按脚本内的逐条白名单放行）；Web：`stylelint` + `eslint` 规则 |
 | 视觉回归 | 关键页 golden 截图漂移 → 红 | `scripts/verify.sh app`（golden） |
 | 无障碍 | Web 页 axe-core 零 critical + Lighthouse a11y | `scripts/verify.sh web` |
-| 字号 | 正文 <13、任意 <11 → 红 | 并入裸值 lint |
+| 字号 | 正文 <13、任意 <11 → 红 | 并入裸值判定：App 由 `check_app_raw_values.py` 对写死的字号一并报出下限 |
 
 对比度校验脚本的判据**就是 §3.4 那张表**，不许在代码里另写一份阈值。
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# App 栈:pub get + 门禁(gates.toml 的 app 组:analyze / test)。CI 与本地同一份。
+# App 栈:pub get + 门禁(gates.toml 的 app 组:analyze / raw-values / test)。CI 与本地同一份。
 set -euo pipefail
 . "$(dirname -- "${BASH_SOURCE[0]}")/env.sh"
 

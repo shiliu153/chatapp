@@ -48,6 +48,13 @@ command = "flutter analyze"
 reason = "静态检查零告警是 App 的硬门槛(analyze 有告警等于没写测试)"
 
 [[gate]]
+id = "app-raw-values"
+scope = "app"
+kind = "python"
+command = "python scripts/check_app_raw_values.py --check"
+reason = "Ember §11.2 的「裸值」一行此前只有人工 grep(E-5.1~E-5.6 六单的验收都是手写一条 grep,而 grep 只认 0xFF,认不出 fontSize: 17 / EdgeInsets.all(16) / BorderRadius.circular(9)):视觉取值必须走 tokens —— 生成物 tokens.g.dart 由 design_tokens 守住源头,这条守住「页面里不许再写死」。纯 Python 扫文件,秒级且不起 Flutter"
+
+[[gate]]
 id = "app-test"
 scope = "app"
 kind = "shell"
@@ -122,6 +129,13 @@ scope = "contract"
 kind = "python"
 command = "python scripts/check_app_models.py --verbose"
 reason = "App 手写模型读取的字段必须存在于 OpenAPI 契约,否则运行时才炸"
+
+[[gate]]
+id = "contract-app-raw-values-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_check_app_raw_values -v"
+reason = "裸值门禁两个方向都会坏:漏报 = 裸 hex / 裸字号 / 裸间距 / 裸圆角回到页面却判合规(它存在的理由),误报 = 注释 / 字符串 / 生成物 / tokens 派生表达式被当成裸值(人只能把门禁关掉);另钉住白名单只增不减(条目失效没红)与「找不到 token 生成物不许伪装成绿」。放在 contract 组而不是 app 组:这条轨每次 PR 都跑,而改门禁本身的改动通常只落在 scripts/"
 
 [[gate]]
 id = "contract-check-docs-links-selftest"
