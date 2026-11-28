@@ -67,6 +67,7 @@ Windows 的系统代理导进**它派生的每一个进程**的环境里 —— 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import ipaddress
 import json
 import os
@@ -82,7 +83,7 @@ import urllib.request
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Tuple
 
 # `python3 scripts/superagent_health.py` 时 sys.path[0] 是 scripts/,而
 # `python3 -m unittest scripts.test_superagent_health` 时仓库根已在 sys.path 里。
@@ -112,6 +113,17 @@ DEFAULT_TOKEN = "/root/.dsh/github-mcp-token.txt"
 DEFAULT_REPO = "shiliu153/chatapp"
 DEFAULT_BRANCH = "main"
 EGRESS_URL = "https://api.github.com/rate_limit"
+
+#: worker 自己的出口口径,逐字抄 `/root/start-superagent.sh` 的 `no_proxy`:**GitHub 各域与模型网关
+#: 走直连,其余走 mihomo**。巡检里的 `gh` 调用必须与它同口径,否则量到的是「巡检这台的网」而不是
+#: worker 的网 —— 直连断了巡检全绿(盲区),机场抽风巡检报红而 worker 其实没事(2026-11-25
+#: 16:15 / 16:30 各误报过一次)。口径漂移由 `test_worker_no_proxy_covers_github_hosts` 兜住。
+WORKER_NO_PROXY = (
+    "localhost,127.0.0.1,::1,"
+    "wb.shiliu153.me,"
+    "api.github.com,github.com,codeload.github.com,"
+    "raw.githubusercontent.com,objects.githubusercontent.com"
+)
 NOTIFICATIONS_PATH = "notifications?all=false&per_page=50"
 CI_RUNS_PATH = "repos/{repo}/actions/runs?branch={branch}&event=push&per_page=100"
 DEFAULT_CURSOR_STALE_MINUTES = 10
@@ -217,35 +229,174 @@ def _read_token(path: str) -> Optional[str]:
     return token or None
 
 
-def check_egress(proxy: str, token: Optional[str], timeout: float = 15.0) -> Check:
-    """经代理访问一次 GitHub API:这是 worker 全部外网能力的代表。
+@contextlib.contextmanager
+def _proxy_bypass_disabled() -> Iterator[None]:
+    """临时摘掉 ``no_proxy``,让显式指定的代理真的被用上。
 
-    Args:
-        proxy: 出口代理 URL(如 `http://127.0.0.1:7890`)。
-        token: GitHub token;给了就带上,避免匿名限流误判。
-        timeout: 单次超时秒数。
+    参数说明:
+        无。
 
-    Returns:
-        一条检查结果:`ok` 表示真的拿到 2xx。
+    返回参数:
+        不返回;退出上下文时把 ``no_proxy`` / ``NO_PROXY`` 原样放回去。
+
+    使用示例:
+        >>> with _proxy_bypass_disabled():
+        ...     check_egress("http://127.0.0.1:7890", None)
+
+    备注信息:
+        ``urllib.request.ProxyHandler.proxy_open`` 在发请求前会问 ``proxy_bypass(host)``,
+        而它读的正是环境里的 ``no_proxy``。worker 的 ``no_proxy`` **故意**含
+        ``api.github.com``(GitHub 走直连),所以「经代理探 api.github.com」在 worker 的环境里
+        **从来就不生效** —— 量到的是直连。2026-11-28 本机复现:巡检自测
+        ``test_dead_proxy_reports_bad_without_raising`` 对着死端口 ``127.0.0.1:9`` 仍然判绿。
+        只摘 ``no_proxy`` 就够了:``http_proxy`` 决定「用哪个代理」,``no_proxy`` 决定
+        「哪些不走代理」,后者才是这里要绕开的。
     """
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({"http": proxy, "https": proxy})
-    )
-    request = urllib.request.Request(EGRESS_URL, headers={"User-Agent": "superagent-health"})
+    saved = {
+        name: os.environ.pop(name)
+        for name in ("no_proxy", "NO_PROXY")
+        if name in os.environ
+    }
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
+
+
+def _probe(
+    url: str, token: Optional[str], timeout: float, proxy: Optional[str]
+) -> Tuple[Optional[int], Optional[str], float]:
+    """发一次 GET,把「拿到什么状态码 / 为什么失败 / 用了多久」摊平返回。
+
+    参数说明:
+        url: 要访问的地址。
+        token: GitHub token;给了就带上,避免匿名限流把「通」误判成「不通」。
+        timeout: 单次超时秒数。
+        proxy: 代理 URL;``None`` 表示**强制直连**(不看代理,也不理 ``http_proxy``)。
+
+    返回参数:
+        ``(状态码, 失败说明, 耗时秒)``。失败说明为 ``None`` 表示请求跑完了
+        (状态码仍可能不是 2xx);耗时在失败时为 ``0.0``。
+
+    使用示例:
+        >>> _probe(EGRESS_URL, None, 5, DEFAULT_PROXY)
+        (200, None, 0.412)
+
+    备注信息:
+        直连那一支用 ``ProxyHandler({})``:传 ``None`` 是「让 urllib 自己去读环境变量」,
+        那不是直连,而是「读到一个什么是什么」—— 巡检最不能犯的错就是量错对象。
+    """
+    if proxy:
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": proxy, "https": proxy})
+        )
+    else:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    request = urllib.request.Request(url, headers={"User-Agent": "superagent-health"})
     if token:
         request.add_header("Authorization", "Bearer " + token)
     started = datetime.now(timezone.utc)
     try:
-        with opener.open(request, timeout=timeout) as resp:
-            status = resp.status
+        with _proxy_bypass_disabled() if proxy else contextlib.nullcontext():
+            with opener.open(request, timeout=timeout) as resp:
+                status = resp.status
     except urllib.error.HTTPError as exc:
-        return Check("出网(api.github.com)", BAD, f"HTTP {exc.code}:代理通但接口报错")
+        return exc.code, f"HTTP {exc.code}:链路通但接口报错", 0.0
     except Exception as exc:  # noqa: BLE001 - 任何异常都是「出网不通」
-        return Check("出网(api.github.com)", BAD, f"{type(exc).__name__}: {exc}")
-    elapsed = (datetime.now(timezone.utc) - started).total_seconds()
-    if not 200 <= status < 300:
-        return Check("出网(api.github.com)", BAD, f"HTTP {status}")
-    return Check("出网(api.github.com)", OK, f"HTTP {status} · {elapsed:.1f}s")
+        return None, f"{type(exc).__name__}: {exc}", 0.0
+    return status, None, (datetime.now(timezone.utc) - started).total_seconds()
+
+
+def check_egress(
+    proxy: str, token: Optional[str], timeout: float = 15.0, url: str = EGRESS_URL
+) -> Check:
+    """经**代理**访问一次 GitHub API:量的是 mihomo 那条腿。
+
+    参数说明:
+        proxy: 出口代理 URL(如 ``http://127.0.0.1:7890``)。
+        token: GitHub token;给了就带上,避免匿名限流误判。
+        timeout: 单次超时秒数。
+        url: 探针地址,默认 :data:`EGRESS_URL`;自测用本机监听套接字换掉它。
+
+    返回参数:
+        一条检查结果:``ok`` 表示经代理真的拿到 2xx。
+
+    使用示例:
+        >>> check_egress("http://127.0.0.1:7890", None).state
+        'ok'
+
+    备注信息:
+        探针主机是 ``api.github.com``,而 worker 的 ``no_proxy`` 正好把它划进直连 ——
+        不摘掉 ``no_proxy`` 的话这一项量的其实是直连(见 :func:`_proxy_bypass_disabled`)。
+        直连那条腿由 :func:`check_egress_direct` 单独量,两条腿分开报,
+        断哪条都能看出来。
+    """
+    status, error, elapsed = _probe(url, token, timeout, proxy)
+    name = "出网(经代理 api.github.com)"
+    if error:
+        return Check(name, BAD, error)
+    if status is None or not 200 <= status < 300:
+        return Check(name, BAD, f"HTTP {status}")
+    return Check(name, OK, f"HTTP {status} · {elapsed:.1f}s")
+
+
+def check_egress_direct(
+    token: Optional[str], timeout: float = 15.0, url: str = EGRESS_URL
+) -> Check:
+    """**不经任何代理**访问一次 GitHub API:量的是直连那条腿。
+
+    参数说明:
+        token: GitHub token;给了就带上,避免匿名限流误判。
+        timeout: 单次超时秒数。
+        url: 探针地址,默认 :data:`EGRESS_URL`;自测用本机监听套接字换掉它。
+
+    返回参数:
+        一条检查结果:``ok`` 表示直连真的拿到 2xx。
+
+    使用示例:
+        >>> check_egress_direct(None).state
+        'ok'
+
+    备注信息:
+        为什么单列一条:worker 的 ``no_proxy`` 让 GitHub 各域走**直连**,而原先的巡检只探
+        代理,于是「直连断了」这个故障完全没有观测点 —— 巡检全绿而 worker 一条通知都拉不到
+        (2026-11-25 的实际盲区)。反方向的误报也一起解决:机场抽风时直连那条腿仍然绿,
+        不会再整轮判红。
+    """
+    status, error, elapsed = _probe(url, token, timeout, None)
+    name = "出网(直连 api.github.com)"
+    if error:
+        return Check(name, BAD, error)
+    if status is None or not 200 <= status < 300:
+        return Check(name, BAD, f"HTTP {status}")
+    return Check(name, OK, f"HTTP {status} · {elapsed:.1f}s")
+
+
+def worker_gh_env(proxy: str) -> Dict[str, str]:
+    """按 worker 的出口口径构造 ``gh`` 子进程的环境。
+
+    参数说明:
+        proxy: 出口代理 URL;非 GitHub 域走它。
+
+    返回参数:
+        可直接传给 ``subprocess.run(env=...)`` 的完整环境字典。
+
+    使用示例:
+        >>> env = worker_gh_env(DEFAULT_PROXY); env["no_proxy"] == WORKER_NO_PROXY
+        True
+
+    备注信息:
+        巡检原来是「代理变量设成 mihomo、``no_proxy`` 原样继承」,而继承来的 ``no_proxy``
+        取决于巡检怎么被拉起(systemd / 交互 shell / CI 各不相同),于是同一个脚本在不同
+        调用方式下量到的网不一样。现在两处 ``gh`` 调用统一走这里:``no_proxy`` 显式写成
+        worker 的那一份(:data:`WORKER_NO_PROXY`),代理变量显式指向 mihomo。
+    """
+    env = dict(os.environ)
+    env.update(
+        {"HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "https_proxy": proxy, "http_proxy": proxy}
+    )
+    env.update({"NO_PROXY": WORKER_NO_PROXY, "no_proxy": WORKER_NO_PROXY})
+    return env
 
 
 def check_proxy_selector(config_path: str) -> Check:
@@ -610,8 +761,7 @@ def fetch_notifications(
     binary = find_gh_cli(gh_cli)
     if not binary:
         return [], "找不到 GitHub CLI(gh / gh-agent)"
-    env = dict(os.environ)
-    env.update({"HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "https_proxy": proxy, "http_proxy": proxy})
+    env = worker_gh_env(proxy)
     try:
         done = subprocess.run(
             [binary, "api", NOTIFICATIONS_PATH],
@@ -751,8 +901,7 @@ def fetch_ci_runs(
     if not binary:
         return None, "找不到 GitHub CLI(gh / gh-agent)"
     path = CI_RUNS_PATH.format(repo=repo, branch=branch)
-    env = dict(os.environ)
-    env.update({"HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "https_proxy": proxy, "http_proxy": proxy})
+    env = worker_gh_env(proxy)
     try:
         done = subprocess.run(
             [binary, "api", path], capture_output=True, text=True, timeout=timeout, env=env
@@ -1252,6 +1401,9 @@ def build_report(
 
     if not args.skip_egress:
         report.add(check_egress(args.proxy, token))
+        # 直连那条腿单列:worker 的 no_proxy 让 GitHub 走直连,只探代理会留下
+        # 「直连断了巡检全绿」的盲区(2026-11-25 实际踩到)。
+        report.add(check_egress_direct(token))
         report.add(check_proxy_selector(args.proxy_config))
         # 第六项跟这两项同一组(都是「代理 / 出网」),所以复用 `--skip-egress` 一起跳过 ——
         # 离线自测与「不想看网络那几项」的场合只要一个开关;要单独关它用 `--skip-proxy-inherit`。

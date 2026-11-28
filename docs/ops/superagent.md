@@ -888,16 +888,27 @@ cd <任一检出目录> && bash scripts/verify.sh deps   # 只起依赖;要拆�
 这台机器会关机,关机期间没有 worker 也就没有可巡检的对象,恢复开机后第一轮立刻告诉你
 「现在能不能干活」。
 
-查五项,外加 2026-11-17 新增的第六项:
+查六项(第六项 2026-11-17 补;出网 2026-11-28 拆成代理 / 直连两条腿):
 
 | 检查 | 判据 |
 |---|---|
-| 出网 | 经代理 `GET https://api.github.com/rate_limit` 必须 2xx |
+| 出网(经代理) | **经 mihomo** `GET https://api.github.com/rate_limit` 必须 2xx(探针期间临时摘掉 `no_proxy`,否则量到的是直连) |
+| 出网(直连,2026-11-28 加) | **不经任何代理** `GET https://api.github.com/rate_limit` 必须 2xx(`ProxyHandler({})`) |
 | 入队三连 | `thread` / `trigger_thread` / `ticket` 三张表都要有该 issue(`@SUPERAGENT_HEALTH_ISSUES`) |
 | 僵尸 assignment | `state ∈ {running, pending}` 且超过 45 分钟没结束(**自动扫全表**,不用配置) |
 | 游标新鲜度 | `kv` 里 `github-cursor:*` 的最新时间落后超过 10 分钟(`SUPERAGENT_CURSOR_STALE_MINUTES`),**且** GitHub 通知里有「未读且 `updated_at` 晚于游标」的条目 |
 | CI 红轨(**默认关**) | 默认分支上每条 workflow 的**最新一次 push run** 都不能是红的(`SUPERAGENT_HEALTH_CI_RED=1` 才查;判据 = `scripts/l4_intake.py::red_runs`) |
 | WSL 继承代理(第六项) | 进程环境里的 `http(s)_proxy` 排除 worker 自 export 的 `--proxy` 之后,对剩下的值做一次 3 秒 TCP 建连;**不通才算红** |
+
+**出网为什么拆成两条腿(2026-11-28)**:worker 的出口口径是「GitHub 各域 + `wb.shiliu153.me`
+走**直连**,其余走 mihomo」,这份 `no_proxy` 写在 `start-superagent.sh` 里。原先只有「经代理」
+一项,而 `urllib` 的 `ProxyHandler` 会照 `no_proxy` 把请求改成直连,探针主机又正是
+`api.github.com` —— 于是那一项**一直在探直连**,而真正的直连断开反而没有观测点
+(2026-11-25 的盲区:worker 拉不到通知,巡检全绿);反方向是机场抽风时误报红(同日 16:15 /
+16:30 各一次)。现在:经代理那一支在探针期间临时摘掉 `no_proxy`
+(`_proxy_bypass_disabled`),直连那一支用 `ProxyHandler({})` 显式不用代理;巡检里所有 `gh`
+子进程统一走 `worker_gh_env()`,`no_proxy` 显式写成 worker 那一份,不再继承「巡检自己是怎么被
+拉起来的」。判据与自测口径见 `scripts/superagent-health/README.md`。
 
 第五项是 2026-11-16 从 `main-health.yml` 并过来的,理由与代价见 §8.1 上方那段。它**每条红轨
 一个检查名**(`CI 红轨 <workflow>`),这样指纹能把「web 红了」与「imserver 红了」分开 ——
