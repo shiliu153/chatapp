@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/tokens.g.dart' as tokens;
+
 /// 举报类型:值与后端 ReportType 对齐。
 const reportTypes = [
   ('harassment', '骚扰'),
@@ -29,7 +31,12 @@ class _ReportSheetState extends State<ReportSheet> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
+      padding: EdgeInsets.fromLTRB(
+      tokens.space16,
+      tokens.space16,
+      tokens.space16,
+      tokens.space16 + MediaQuery.viewInsetsOf(context).bottom,
+    ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,

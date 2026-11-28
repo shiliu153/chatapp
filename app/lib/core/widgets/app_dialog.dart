@@ -44,7 +44,7 @@ class AppDialog extends StatelessWidget {
                 title,
                 textAlign: TextAlign.center,
                 style: AppText.subtitle
-                    .copyWith(fontSize: 17, color: colors.text1),
+                    .copyWith(color: colors.text1),
               ),
               if (message != null) ...[
                 const SizedBox(height: AppSpacing.sm),

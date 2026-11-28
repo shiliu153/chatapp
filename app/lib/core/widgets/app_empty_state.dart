@@ -34,7 +34,7 @@ class AppEmptyState extends StatelessWidget {
           else if (emoji != null)
             Text(emoji!, style: AppText.emoji),
           const SizedBox(height: AppSpacing.md),
-          Text(title, style: AppText.subtitle.copyWith(fontSize: 17)),
+          Text(title, style: AppText.subtitle),
           if (description != null) ...[
             const SizedBox(height: AppSpacing.xs),
             Text(
