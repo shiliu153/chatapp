@@ -810,6 +810,23 @@ git -C /root/src/chatapp config http.proxy http://127.0.0.1:7890
 全局会把 `npm` / `pub` / 镜像站的 git 流量也送进机场,而那些本来直连更快;而仓库级对
 `git worktree add` 出来的每个 worker worktree 同样生效(worktree 共用主仓的 `.git/config`)。
 
+> **但 P2 有一个坑:`no_proxy` 会把它顶掉。** libcurl 先看 `no_proxy`,命中就**绕过**显式配置的
+> `http.proxy` —— 而 worker 的 `no_proxy` 里正含着 `github.com`。2026-11-28 worker 侧的一次
+> `git push` 就是这么挂的:仓库级 `http.proxy` 设着,但请求被 `no_proxy` 顶回直连,而那一刻直连的
+> `github.com:443`(含 `info/refs` 端点)是死路(`curl` 两种走法都 `000/20s`,而 `api.github.com`
+> 两种走法都 `200`)。处置两步:① `bash scripts/superagent-proxy/refresh.sh`(节点端口池轮换,
+> 27 个节点变了)让代理侧 `info/refs` 回到 `200/0.7s`;② `env -u no_proxy -u NO_PROXY git -c
+> http.proxy=http://127.0.0.1:7890 push`,一次成功。
+>
+> 所以验 P2 是否真生效,不能只看 `git config --get http.proxy` 有值,要看**这一条过不过**:
+>
+> ```bash
+> git -C /root/src/chatapp -c http.proxy=http://127.0.0.1:7890 ls-remote origin HEAD >/dev/null && echo P2-OK
+> ```
+>
+> 不过就先跑 `refresh.sh` 再试;仍不过就临时 `env -u no_proxy` 跑那一次(别把 `no_proxy` 永久删掉
+> —— 它守着「GitHub 走直连」这条主路径,见 §12.1 与门禁 `contract-worker-no-proxy-selftest`)。
+>
 > 这条同时解释了 2026-11-24 那次「配完就再没复现」的错觉:那几天机场线路恰好稳。
 > **判断标准只有一个:能不能连续 3 次 `git -C /root/src/chatapp fetch --dry-run` 全过。**
 
