@@ -56,6 +56,15 @@ class _PostComposePageState extends ConsumerState<PostComposePage> {
     super.dispose();
   }
 
+  /// 选图:把相册选回来的文件逐个过两道护栏,再追加到 [_images]。
+  ///
+  /// 两道护栏的**可达性不同**(2026-11-28 实测 + 用例钉住,见 #532):
+  /// - **「最多 9 张」可达**:加号格只在 `< 9` 时渲染,但「已选 2 张再一次性多选 9 张」
+  ///   会让循环补到 9 张后命中本分支 —— 这是真实用户路径;
+  /// - **「单张 > 5MB」生产路径够不到**:`pickImagesFromGallery` 传了
+  ///   `maxWidth: 1080 / imageQuality: 85`,image_picker 在交给本页之前就降采样了。
+  ///   它**保留为防御性护栏**(将来放开 `maxWidth` 时不至于裸奔),并由
+  ///   `app/test/features/square/post_compose_page_test.dart` 用注入的假 picker 覆盖。
   Future<void> _pick() async {
     final files = await widget.pickImages();
     if (!mounted) return;
