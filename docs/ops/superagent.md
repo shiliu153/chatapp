@@ -502,7 +502,56 @@ bash /root/start-superagent.sh restart
 
 ## 12. 出口代理:WSL 内自建 mihomo(2026-11-09 起)
 
-### 12.0 前提:WSL 必须是 mirrored 网络模式(2026-11-13 血案)
+### 12.0 网络模式怎么定:先看直连是否真通(mirrored / NAT 都会变)
+
+> **2026-11-28 改口径**:本节原来写死「前提:WSL 必须是 mirrored」,那条结论**只对 2026-11-13
+> 的那套宿主成立**。2026-11-24 宿主换成 Vortex(`com.vortex.helper`,vgate0 Rust Wintun TUN)
+> 之后,`mirrored` 反而**全断** —— 判据没变(还是「直连到底通不通」),但答案反了过来。
+> 现在这台机器的答案是 **NAT**。
+
+**当前实况(2026-11-28 复测,`%USERPROFILE%\\.wslconfig`)**:`networkingMode=NAT` +
+`dnsTunneling=true` + `autoProxy=false`,`wsl --shutdown` 后生效。特征:`ip -4 addr` 的 eth0 是
+**NAT 网段**(实测 `172.26.240.64/20`,不是 mirrored 的 `2.0.0.1/24`);WSL 直连
+`api.github.com` **5/5 拿到 200,0.33~0.41s**;宿主 Clash 的 `127.0.0.1:7897` 在 WSL 里**不再**
+直接可达(要改用宿主网关 IP,当前 `172.26.240.1`)。
+
+**判据(一句话)**:宿主连得通、WSL 连不通 + UDP DNS 正常 = 先量一次**直连**:
+
+```bash
+wsl -e bash -lc 'for i in 1 2 3 4 5; do curl -s -o /dev/null -w "%{http_code} %{time_total}\\n" --max-time 10 --noproxy "*" https://api.github.com/rate_limit; done'
+```
+
+全 200 → 当前模式可用,**不要为了「按文档」去切 mirrored**;全 `000` / 超时 → 换模式再量一次。
+两种模式的症状对照:
+
+| | mirrored(2026-11-13 那套宿主) | NAT(2026-11-24 起,现用) |
+|---|---|---|
+| 直连 TCP | 被 aTrust 的 WFP 过滤器整体拦掉 | 通(5/5,~0.35s) |
+| UDP DNS | 正常(所以「网是好的」的错觉特别强) | 正常 |
+| WSL 回环 `127.0.0.1` | 正常(是当时的卖点) | 正常 |
+| 宿主 Clash `127.0.0.1:7897` | WSL 里直接可达 | **不可达**,要走宿主网关 IP |
+| 换成 Vortex TUN 之后 | **全断**:回环 relay 坏(127.0.0.1 全超时)+ 对外 TCP 全断 | 可用 |
+| `autoProxy` 副作用 | 默认**开**,把 Windows 系统代理导进 WSL 每个进程 | 已显式关掉 |
+
+**结论:答案不写在文档里,写在探针里。** Vortex / aTrust 这类 TUN / WFP 一动,答案就可能翻面。
+切模式前先备份 `.wslconfig`(本机备份是 `.wslconfig.bak-mirrored`),切完按上表复量。
+
+**要不要切回 mirrored(2026-11-28 评估结论:暂不切)**。回切的前提是**宿主那个拦 WSL TCP 的东西没了**
+(Vortex / aTrust 卸载或改了策略,且 mirrored 下直连也是 200)。真回切时这三件事逐条验,任一不过就
+回滚到 NAT:
+
+1. WSL 回环能连本地服务 —— mirrored 曾出现 `127.0.0.1` 路由被指到 `loopback0` 导致全部超时,
+   修法是 `ip route del 127.0.0.1 via 169.254.x.x dev loopback0 table 127`;
+2. WSL 内的 mihomo(`7890`)与 failover(`8788`)都能出网;
+3. `bash /root/start-superagent.sh status` 全部 `ready`。
+
+**为什么现在不切**:好处只有一个(宿主 Clash 的 7897 少一跳可达),而 NAT 下这一跳本来就用不上
+—— worker 走 WSL 内 mihomo,NAT 还顺带堵掉了 `autoProxy` 那条继承链(§12.6 最后一条)。
+换模式是**有风险的净收益为负**的动作,留到宿主 TUN 变化时再评估。
+
+---
+
+**以下是 2026-11-13 那次血案的原始记录**(为什么当时得出 mirrored,留作证据):
 
 **装 Sangfor aTrust 之类会装 WFP 过滤器的企业 VPN 之后,WSL 的直连 TCP 会被整体拦掉**
 (2026-11-13 实测:UDP DNS 照常通 —— `dig @223.5.5.5` 有应答、`getent hosts` 也正常 —— 所以
@@ -554,9 +603,14 @@ dnsTunneling=true
 宿主代理在并发下**掉 8%**(55/60),而这正是 worker 一轮轮询的样子(60~100 次读)。掉的那几个
 就是 §11 里把健康位打成 `error` 的来源。换掉宿主那一跳之后 60/60 全通。
 
-**为什么不是「干脆不用代理、全直连」**:GitHub 直连确实快(`gh` 单次 1.59s vs 经 mihomo 1.57s,
-基本没差),但 worker 还要 `npm ci` / `pub get` / 拉 Flutter 依赖,那些国内不可达。所以代理要留,
-只是不该留在宿主那一跳上。
+**为什么不是「干脆不用代理、全直连」**:worker 还要 `npm ci` / `pub get` / 拉 Flutter 依赖,
+那些国内不可达。所以代理要留,只是不该留在宿主那一跳上。
+
+**但 GitHub 那一组域现在**确实**走直连**(2026-11-25 实测):`/root/start-superagent.sh` 的
+`no_proxy` 把 `api.github.com` / `github.com` / `codeload.github.com` /
+`raw.githubusercontent.com` / `objects.githubusercontent.com` / `wb.shiliu153.me` 全划成直连 ——
+直连比机场快一倍(NAT 下直连 20/20、0.39s;经机场 0.85~1.7s 且偶发失败)。
+口径只有这一份,巡检侧靠 `worker_gh_env()` 与它对齐(§15)。
 
 ### 12.2 拓扑
 
@@ -611,11 +665,12 @@ DSH worker(WSL,继承 /root/start-superagent.sh 导出的环境)
 
 ### 12.6 已知偏差
 
-- **WSL 必须是 `networkingMode=mirrored`**(2026-11-13)。不是的话,装了企业 VPN(aTrust)之后
-  WSL 的直连 TCP 会被拦,而 UDP DNS 仍然通 —— 表现是「代理端口在听、节点全 timeout、模型网关
-  ETIMEDOUT」,极其难查。判据与改法见 §12.0。切了 mirrored 之后:
-  `start-superagent.sh` 里「mihomo 不可用就回退宿主 `${HOSTIP}:7897`」那一跳基本用不上了
-  (宿主网关变成真实路由器),别把它当成主路径依赖。
+- **网络模式不是常量,是探针的结果**(2026-11-28 改)。2026-11-13 的结论是「必须 mirrored」
+  (aTrust 的 WFP 过滤器拦直连 TCP 而 UDP DNS 照通,表现是「代理端口在听、节点全 timeout、
+  模型网关 ETIMEDOUT」);2026-11-24 宿主换成 Vortex TUN 之后**答案翻面**,现用 **NAT**
+  (`dnsTunneling=true` + `autoProxy=false`)。判据、对照表与回切条件见 §12.0 ——
+  **别再照抄「必须 mirrored」**。NAT 下 `start-superagent.sh` 里「mihomo 不可用就回退宿主
+  `${HOSTIP}:7897`」那一跳仍保留(宿主网关是 `172.26.240.1`),但同样别当成主路径依赖。
 
 - **重启后首轮轮询要 ~20 分钟**。`pollRound` 每轮要串行读完 67 个订阅 Thread(每个还要读评论/PR/CI),
   首轮没有任何增量可省。这与代理无关:改造前后都是这个量级。**重启后不要以为「派单丢了」** ——
