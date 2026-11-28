@@ -313,6 +313,13 @@ command = "bash scripts/superagent-proxy/selftest.sh"
 reason = "出口代理渲染是「坏订阅」唯一防线:残配置写进 config.yaml 会让 mihomo 起不来 → worker 全断网"
 
 [[gate]]
+id = "contract-release-apk-check-selftest"
+scope = "contract"
+kind = "python"
+command = "python -m unittest scripts.test_check_release_apk -v"
+reason = "release APK 体检器判错的两个方向都不能静默:漏报 = 兜里那个包没 INTERNET 权限 / 内嵌 10.0.2.2 / 版本号没跟上,装到手机上才炸(1.0.1–1.0.14 每版都犯过);误报 = 把好包判红,红线被当噪音关掉。真实 APK 的那一次要 Android SDK(aapt2),CI 的 contract 轨没装,所以只在这里跑离线自测,真跑挂在发版清单里"
+
+[[gate]]
 id = "contract-release-prep-selftest"
 scope = "contract"
 kind = "python"
