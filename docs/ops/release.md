@@ -80,6 +80,12 @@ python scripts/sync_version.py --check    # CI 用;不一致退出码 1
 >
 > 缺 `aapt2` 时它**不静默通过**(退出码 2):用 `--aapt2` 指过去,或设 `ANDROID_HOME`。
 > 三项各自对应的事故与判据见 [`docs/pitfalls/android-emulator.md`](../pitfalls/android-emulator.md)。
+>
+> **为什么「真实 APK 体检」不进 `contract` 组**(2026-11-28 定):只有**离线自测**
+> (`contract-release-apk-check-selftest`)进了机械门禁;真跑一次要 Android SDK 的 `aapt2`,
+> 而 CI 的 `contract` 轨没装它,加进去只会把每个 PR 都判红(或逼着别人给它开豁免)。
+> 所以真跑留在上面这一步 —— 它守的是「发出去的包」,天然只发生在发版时。
+> 打包机上一次手跑的成本是十秒,值。
 
 ### 3.1 步骤 2 之前先跑一条命令(2026-11-09 起)
 
