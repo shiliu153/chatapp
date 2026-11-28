@@ -200,6 +200,8 @@ python -m unittest scripts.test_mail -v                  # 发信内核:主题 /
 `http_proxy` 指向死端口时照旧成功;死端口上判红;`worker_gh_env` 覆盖掉继承来的 `no_proxy`
 并把 `WORKER_NO_PROXY` 里该有的主机逐个点名。靶子是本机回环上的临时 HTTP 服务,**不联网**。
 
+**`no_proxy` 两份清单的一致性由门禁兜住**(2026-11-28 加):`scripts/test_worker_no_proxy.py` 读启动脚本里那一行 `export no_proxy=` 与巡检的 `WORKER_NO_PROXY`,要求 **GitHub 那一组完全相等**、五个必需域与基础项逐个点名。立这条门禁的原因是**已经漂移过一次**:运行时那份有五个 GitHub 域,仓库模板里没有 —— 任何人跑一次 `scripts/superagent-start/install.sh` 就会把「GitHub 走直连」静默冲掉,worker 的轮询与 `git`一起被压到机场上。门禁 id `contract-worker-no-proxy-selftest`。
+
 **安全自愈**那组把四道闸逐条钉住(尤其「本该不重启却重启了」这个方向,那会把别人的活连同
 会话一起弄丢):停摆 + 无活跃 assignment + worktree 干净 → **回调刚好被调一次**、告警含
 「已自动重启」、`autoreheal.log` 落盘;有 `running` / `pending` 会话、worktree 有未提交改动、
