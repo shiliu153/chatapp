@@ -791,9 +791,19 @@ curl -s -o /dev/null -w "%{http_code} %{time_total}\n" --max-time 20 --noproxy "
 ```bash
 git config --global http.version HTTP/1.1       # 躲开 HTTP/2 多路复用在劣质链路上的 reset
 git config --global http.postBuffer 524288000   # 500MB;小 buffer 在大 pack 上会触发分块失败
-git config --global http.lowSpeedLimit 1000     # 低于 1KB/s
+git config --global http.lowSpeedLimit 200      # 低于 200B/s
 git config --global http.lowSpeedTime 60        # 持续 60s 才判失败(默认太急)
 ```
+
+> **`lowSpeedLimit` 从 1000 调到 200 是 2026-11-28 的实测修正**:1000 会在「慢但仍在传」时直接判死。
+> 当天同一分钟内对同一仓库连试:
+>
+> ```bash
+> git -C /root/src/chatapp fetch --dry-run                        # fatal: Operation too slow. Less than 1000 bytes/sec …
+> git -C /root/src/chatapp -c http.lowSpeedLimit=200 fetch --dry-run   # 一次通过
+> ```
+>
+> 放宽不等于关掉(0 才是关):200B/s 仍能在真卡住时于 60 秒内报出来。
 
 **这四条不是解药**。2026-11-28 它们全都在,`git fetch` 仍然连挂三次(`expected flush after ref listing` /
 `Empty reply from server` / `Couldn't connect … after 124855 ms`),`git ls-remote origin HEAD` 挂满 60s
