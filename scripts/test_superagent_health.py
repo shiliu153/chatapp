@@ -254,12 +254,18 @@ class EgressTests(unittest.TestCase):
 
 
 class DirectEgressTests(unittest.TestCase):
-    """直连那条腿单列:worker 的 `no_proxy` 让 GitHub 走直连,没有这一项就是观测盲区。"""
+    """直连那条腿的探针函数(2026-11-28 起只供人工排障,不进巡检报告)。
+
+    备注信息:
+        走 proxy 那一支靠 ``_proxy_bypass_disabled`` 保证量的是代理;这一支必须显式无视
+        环境代理(``ProxyHandler({})``),否则「量的是什么」取决于调用方的环境变量 ——
+        巡检最不能犯的错就是量错对象。
+    """
 
     def test_direct_probe_ignores_env_proxy(self) -> None:
         """环境里 ``http_proxy`` 指向死端口时,直连那一支照旧成功。
 
-        原巡检只有「经代理」一支,而它被 ``no_proxy`` 悄悄改成了直连;两条腿分开之后,
+        原巡检只有「经代理」一支,而它被 ``no_proxy`` 悄悄改成了直连;拆成两支之后,
         直连必须显式无视环境代理 —— 这是「不量错对象」的底线。
         """
         with _local_server() as (_host, port):
@@ -281,12 +287,20 @@ class DirectEgressTests(unittest.TestCase):
 class WorkerGhEnvTests(unittest.TestCase):
     """`gh` 调用的出口口径必须与 worker 一致,且不继承调用方的 `no_proxy`。"""
 
-    def test_no_proxy_covers_github_hosts(self) -> None:
+    def test_no_proxy_keeps_model_gateway_and_drops_github(self) -> None:
+        """``no_proxy`` 里该有的有、该没的没(2026-11-28 口径:GitHub 也走 mihomo)。
+
+        备注信息:
+            两个方向都钉:``wb.shiliu153.me``(模型网关在国内,送进机场等于绕出国再绕回来)
+            与回环地址必须在;那五个 GitHub 域**必须不在** —— 它们一旦被划成直连,worker 的
+            轮询与 ``git`` 就会绕开代理去撞一条已不通的路(2026-11-28 实测直连 443 超时)。
+        """
         hosts = healthcheck.WORKER_NO_PROXY.split(",")
-        for host in ("api.github.com", "github.com", "codeload.github.com",
-                     "raw.githubusercontent.com", "objects.githubusercontent.com",
-                     "wb.shiliu153.me", "127.0.0.1"):
+        for host in ("wb.shiliu153.me", "127.0.0.1", "localhost"):
             self.assertIn(host, hosts)
+        for host in ("api.github.com", "github.com", "codeload.github.com",
+                     "raw.githubusercontent.com", "objects.githubusercontent.com"):
+            self.assertNotIn(host, hosts)
 
     def test_env_overrides_inherited_no_proxy(self) -> None:
         with unittest.mock.patch.dict(os.environ, {"no_proxy": "example.com", "NO_PROXY": "example.com"}):

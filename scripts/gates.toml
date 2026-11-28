@@ -456,7 +456,7 @@ id = "contract-worker-no-proxy-selftest"
 scope = "contract"
 kind = "python"
 command = "python -m unittest scripts.test_worker_no_proxy -v"
-reason = "worker 的 no_proxy(GitHub 各域 + 模型网关走直连)同时被启动脚本与巡检消费,而两份**只有口头约定**:2026-11-28 实测到运行时那份有五个 GitHub 域、仓库模板里没有 —— 任何人跑一次 superagent-start/install.sh 就会把「GitHub 走直连」静默冲掉,worker 的轮询与 git 一起被压到机场上,而巡检看不出是这一层。这条把「改一处必须改两处」变成机械判定:少一个主机就红"
+reason = "worker 的 no_proxy(只有模型网关走直连,其余含 GitHub 各域走 mihomo)同时被启动脚本与巡检消费,而两份**只有口头约定**:2026-11-28 实测到运行时那份有五个 GitHub 域、仓库模板里没有,任何人跑一次 superagent-start/install.sh 就会把口径静默冲掉。同日口径又翻转过一次(直连 443 不通,GitHub 改走代理),所以这条同时钉两件事:两份的 GitHub 组必须相等(改一处必须改两处),且五个 GitHub 域**必须不在**清单里(两处一起加回也算红 —— 那是一次显式口径翻转,得连带改 docs §12 与启动脚本注释)"
 
 # --- imserver -------------------------------------------------------------
 

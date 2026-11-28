@@ -2,7 +2,7 @@
 
 为什么要有这一条
 ----------------
-worker 的出口口径是「**GitHub 各域 + 模型网关走直连,其余走 mihomo**」,这份清单同时被两处消费:
+worker 的出口口径是「**只有模型网关走直连,其余(含 GitHub 各域)走 mihomo**」,这份清单同时被两处消费:
 
 * ``scripts/superagent-start/start-superagent.sh`` —— 真正 ``export no_proxy`` 给 worker 的地方;
 * ``scripts/superagent_health.py::WORKER_NO_PROXY`` —— 巡检里 ``gh`` 子进程用的同一份口径。
@@ -14,7 +14,14 @@ worker 的出口口径是「**GitHub 各域 + 模型网关走直连,其余走 mi
 轮询与 ``git`` 一起断,而巡检当时只看代理那条腿,看不出是这一层的事(观测盲区正是
 PR #518 修掉的那条)。
 
-这条自测把「改一处必须改两处」变成机械判定:少一个主机就红。
+2026-11-28 口径翻转(同日):WSL 内直连 ``github.com:443`` 已不通(git fetch 报
+``Failed to connect ... port 443``,129s 超时;同一时刻经 mihomo 一次就过),于是
+**GitHub 各域也从 no_proxy 里摘掉**,与其余外网同路。本文件因此同时钉两件事:
+
+1. 两份清单的 GitHub 组必须相等(改一处必须改两处);
+2. GitHub 各域**必须不在**清单里 —— 有人把它们加回去(即回滚口径)却只改一处时,
+   第 1 条会红;两处一起加回时,第 2 条会红并提示这是一次**有意的口径翻转**,
+   得连同 ``docs/ops/superagent.md`` §12 与门禁 reason 一起改。
 
 用法
 ----
@@ -40,9 +47,10 @@ from scripts import superagent_health as healthcheck  # noqa: E402
 #: 启动脚本(模板)的路径。
 START_SCRIPT = ROOT / "scripts" / "superagent-start" / "start-superagent.sh"
 
-#: 必须在两份清单里同时出现的 GitHub 域。少一个就是漂移:
-#: worker 的轮询、``gh``、``git fetch``、release 附件下载全在这五个域上。
-REQUIRED_GITHUB_HOSTS = (
+#: **必须不出现在两份清单里**的 GitHub 域(2026-11-28 起它们与其余外网同路走代理)。
+#: worker 的轮询、``gh``、``git fetch``、release 附件下载全在这五个域上 ——
+#: 把它们划进直连,一旦直连不通就是「全部 GitHub 流量断在一条死路上」。
+FORBIDDEN_GITHUB_HOSTS = (
     "api.github.com",
     "github.com",
     "codeload.github.com",
@@ -126,12 +134,19 @@ class NoProxyConsistencyTests(unittest.TestCase):
             "改一处必须改两处(见本文件模块 docstring 里 2026-11-28 的那次漂移)",
         )
 
-    def test_required_github_hosts_present(self) -> None:
-        """五个必需域逐个点名,防止「两边一起少写」也能通过相等判定。"""
-        for host in REQUIRED_GITHUB_HOSTS:
+    def test_github_hosts_go_through_proxy(self) -> None:
+        """五个 GitHub 域**都必须不在**两份清单里(2026-11-28 口径:与其余外网同路走代理)。
+
+        备注信息:
+            这条不是「越少越好」的风格要求,而是判据:WSL 内直连 443 不通,把 GitHub 划进
+            ``no_proxy`` 等于让 worker 的轮询与 ``git`` 全部绕开代理去撞墙。
+            真要回滚(某天直连恢复且更快),得连着 ``docs/ops/superagent.md`` §12、
+            门禁 reason 与启动脚本注释一起改 —— 让这次翻转仍然是一次**显式决定**。
+        """
+        for host in FORBIDDEN_GITHUB_HOSTS:
             with self.subTest(host=host):
-                self.assertIn(host, self.script_hosts, f"启动脚本的 no_proxy 缺 {host}")
-                self.assertIn(host, self.health_hosts, f"WORKER_NO_PROXY 缺 {host}")
+                self.assertNotIn(host, self.script_hosts, f"启动脚本的 no_proxy 又把 {host} 划成直连了")
+                self.assertNotIn(host, self.health_hosts, f"WORKER_NO_PROXY 又把 {host} 划成直连了")
 
     def test_required_base_hosts_present(self) -> None:
         """本地回环与模型网关两项必须在两份里都有——它们各自防一类事故。"""

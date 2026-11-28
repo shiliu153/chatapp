@@ -114,15 +114,18 @@ DEFAULT_REPO = "shiliu153/chatapp"
 DEFAULT_BRANCH = "main"
 EGRESS_URL = "https://api.github.com/rate_limit"
 
-#: worker 自己的出口口径,逐字抄 `/root/start-superagent.sh` 的 `no_proxy`:**GitHub 各域与模型网关
-#: 走直连,其余走 mihomo**。巡检里的 `gh` 调用必须与它同口径,否则量到的是「巡检这台的网」而不是
-#: worker 的网 —— 直连断了巡检全绿(盲区),机场抽风巡检报红而 worker 其实没事(2026-11-25
-#: 16:15 / 16:30 各误报过一次)。口径漂移由 `test_worker_no_proxy_covers_github_hosts` 兜住。
+#: worker 自己的出口口径,逐字抄 `/root/start-superagent.sh` 的 `no_proxy`:**模型网关走直连,
+#: 其余(含 GitHub 各域)走 mihomo**。巡检里的 `gh` 调用必须与它同口径,否则量到的是
+#: 「巡检这台的网」而不是 worker 的网 —— 直连断了巡检全绿(盲区),机场抽风巡检报红而 worker
+#: 其实没事(2026-11-25 16:15 / 16:30 各误报过一次)。口径漂移由
+#: `test_worker_no_proxy_covers_github_hosts` 兜住。
+#:
+#: 2026-11-28 口径翻转:GitHub 那一组域**不再**划进直连(WSL 内直连 443 已不通),
+#: 与其余外网同路走 mihomo。回滚 = 把五个 GitHub 域加回来,且必须同改
+#: `scripts/superagent-start/start-superagent.sh`(门禁会红)。
 WORKER_NO_PROXY = (
     "localhost,127.0.0.1,::1,"
-    "wb.shiliu153.me,"
-    "api.github.com,github.com,codeload.github.com,"
-    "raw.githubusercontent.com,objects.githubusercontent.com"
+    "wb.shiliu153.me"
 )
 NOTIFICATIONS_PATH = "notifications?all=false&per_page=50"
 CI_RUNS_PATH = "repos/{repo}/actions/runs?branch={branch}&event=push&per_page=100"
@@ -245,10 +248,11 @@ def _proxy_bypass_disabled() -> Iterator[None]:
 
     备注信息:
         ``urllib.request.ProxyHandler.proxy_open`` 在发请求前会问 ``proxy_bypass(host)``,
-        而它读的正是环境里的 ``no_proxy``。worker 的 ``no_proxy`` **故意**含
-        ``api.github.com``(GitHub 走直连),所以「经代理探 api.github.com」在 worker 的环境里
-        **从来就不生效** —— 量到的是直连。2026-11-28 本机复现:巡检自测
-        ``test_dead_proxy_reports_bad_without_raising`` 对着死端口 ``127.0.0.1:9`` 仍然判绿。
+        而它读的正是环境里的 ``no_proxy``。**2026-11-28 起 worker 的 no_proxy 已经不含
+        GitHub 各域**(那一组改走 mihomo),所以「经代理探 api.github.com」现在本来就量到代理;
+        本函数留着当保险 —— 万一哪天 ``no_proxy`` 又把 GitHub 划回直连,这道摘除保证探针
+        仍然量的是代理那条腿,而不是静默退化成直连(2026-11-28 复现过:巡检自测
+        ``test_dead_proxy_reports_bad_without_raising`` 对着死端口 ``127.0.0.1:9`` 仍判绿)。
         只摘 ``no_proxy`` 就够了:``http_proxy`` 决定「用哪个代理」,``no_proxy`` 决定
         「哪些不走代理」,后者才是这里要绕开的。
     """
@@ -326,10 +330,10 @@ def check_egress(
         'ok'
 
     备注信息:
-        探针主机是 ``api.github.com``,而 worker 的 ``no_proxy`` 正好把它划进直连 ——
-        不摘掉 ``no_proxy`` 的话这一项量的其实是直连(见 :func:`_proxy_bypass_disabled`)。
-        直连那条腿由 :func:`check_egress_direct` 单独量,两条腿分开报,
-        断哪条都能看出来。
+        探针主机是 ``api.github.com``。2026-11-28 起 worker 的 ``no_proxy`` 不再把 GitHub
+        划进直连,所以这一项量到的**就是** worker 真正走的代理那条腿(``_proxy_bypass_disabled``
+        仍然兜着:万一 no_proxy 又被改回直连,它保证这里量的还是代理)。直连那条腿由
+        :func:`check_egress_direct` 单独量,但**已不进巡检报告** —— 它不是 worker 的路径。
     """
     status, error, elapsed = _probe(url, token, timeout, proxy)
     name = "出网(经代理 api.github.com)"
@@ -358,10 +362,11 @@ def check_egress_direct(
         'ok'
 
     备注信息:
-        为什么单列一条:worker 的 ``no_proxy`` 让 GitHub 各域走**直连**,而原先的巡检只探
-        代理,于是「直连断了」这个故障完全没有观测点 —— 巡检全绿而 worker 一条通知都拉不到
-        (2026-11-25 的实际盲区)。反方向的误报也一起解决:机场抽风时直连那条腿仍然绿,
-        不会再整轮判红。
+        **2026-11-28 起这条腿已不进巡检报告**(不进 :func:`run_checks`):worker 的出口口径
+        改成「GitHub 也走 mihomo」之后,直连不是 worker 的路径,把它当必检项等于拿一条
+        没人走的路报红 —— 而本机直连现在确实不通,那会变成永久假红,人只会把巡检关掉。
+        函数保留,供人工排障时回答「直连那条路回来了没有」(历史上它比机场快一倍,
+        真回来了就值得切回去,见 `docs/ops/superagent.md` §12.1)。
     """
     status, error, elapsed = _probe(url, token, timeout, None)
     name = "出网(直连 api.github.com)"
@@ -1401,9 +1406,9 @@ def build_report(
 
     if not args.skip_egress:
         report.add(check_egress(args.proxy, token))
-        # 直连那条腿单列:worker 的 no_proxy 让 GitHub 走直连,只探代理会留下
-        # 「直连断了巡检全绿」的盲区(2026-11-25 实际踩到)。
-        report.add(check_egress_direct(token))
+        # 直连那条腿**不进报告**(2026-11-28):GitHub 已改走 mihomo,直连不是 worker 的路径,
+        # 而本机直连确实不通 —— 当必检项就是永久假红。要查它用手工排障:
+        # `python -c "from scripts import superagent_health as h; print(h.check_egress_direct(None))"`。
         report.add(check_proxy_selector(args.proxy_config))
         # 第六项跟这两项同一组(都是「代理 / 出网」),所以复用 `--skip-egress` 一起跳过 ——
         # 离线自测与「不想看网络那几项」的场合只要一个开关;要单独关它用 `--skip-proxy-inherit`。
