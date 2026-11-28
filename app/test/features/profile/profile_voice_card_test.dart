@@ -14,6 +14,21 @@ import '../../support/scripted_adapter.dart';
 
 const _loggedIn = {'auth.access': 'a', 'auth.refresh': 'r', 'auth.user_id': 7};
 
+/// 可拨动的假时钟:录音时长 = 「松手时刻 − 按下时刻」,测试里把时间拨过去即可。
+///
+/// 为什么需要它:早先这里靠 `runAsync(Future.delayed(1.1s))` **真等墙钟**跨过
+/// 「最短 1 秒」,CPU 被占满时窗口会抖,于是同一文件单跑也会随机挂**不同**的用例
+/// (#533)。注入假钟后既不用等待,也不受机器负载影响。
+class _FakeClock {
+  DateTime _now = DateTime.utc(2026, 1, 1, 12);
+
+  /// 供 `profileVoiceClockProvider` 使用(是 `DateTime Function()`)。
+  DateTime call() => _now;
+
+  /// 把时间往前拨。
+  void advance(Duration delta) => _now = _now.add(delta);
+}
+
 /// 内存版文件读写:widget 测试跑在假时钟 zone 里,真实文件 IO 的 Future 不会完成。
 class _FakeVoiceIo implements ProfileVoiceIo {
   final deleted = <String>[];
@@ -27,9 +42,11 @@ class _FakeVoiceIo implements ProfileVoiceIo {
 
 void main() {
   late _FakeVoiceIo io;
+  late _FakeClock clock;
 
   setUp(() {
     io = _FakeVoiceIo();
+    clock = _FakeClock();
   });
 
   ScriptedAdapter adapterWith({
@@ -49,6 +66,7 @@ void main() {
       voiceRecorderProvider.overrideWithValue(FakeVoiceRecorder()),
       voiceTempPathProvider.overrideWithValue(() async => '/tmp/profile-voice.m4a'),
       profileVoiceIoProvider.overrideWithValue(io),
+      profileVoiceClockProvider.overrideWithValue(clock.call),
     ]);
     await tester.pumpAndSettle();
     await tester.tap(navTab('我'));
@@ -93,12 +111,16 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// 按住麦克风 1.1 秒(真实时间,跨过最短 1 秒)再松手。
+  /// 录一段「够长」的录音:按下 → 拨快 1.1 秒假钟 → 松手。
+  ///
+  /// 不再真等墙钟(#533):`pump(600ms)` 只负责跨过长按识别阈值,
+  /// 「录了多久」由 [clock] 决定,所以这条 helper 与机器负载无关。
   Future<void> recordOneSecond(WidgetTester tester) async {
     final gesture = await tester
         .startGesture(tester.getCenter(find.byKey(const Key('edit.voice.mic'))));
     await tester.pump(const Duration(milliseconds: 600)); // 触发长按
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 1100)));
+    clock.advance(const Duration(milliseconds: 1100)); // 拨快假钟,不用等待
+    await tester.pump(const Duration(milliseconds: 16));
     await gesture.up();
     await tester.pumpAndSettle();
   }

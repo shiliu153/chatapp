@@ -28,3 +28,13 @@ class ProfileVoiceIo {
 /// 全局文件读写;测试里 override 成假实现。
 final profileVoiceIoProvider =
     Provider<ProfileVoiceIo>((ref) => const ProfileVoiceIo());
+
+/// 录音时长的时钟;测试里 override 成**可拨动**的假钟。
+///
+/// 为什么也抽成 provider:[VoiceRecordController] 用「松手时刻 − 按下时刻」算时长
+/// (`_now().difference(_startedAt)`),而 2026-11-28 之前测试是靠
+/// `runAsync(Future.delayed(1.1s))` **真等墙钟**跨过「最短 1 秒」——
+/// CPU 被占满时这个窗口会抖,判定就不稳,于是同一文件单跑时随机挂**不同**的用例。
+/// 注入假钟后测试把时间拨过去即可,既不等待也不受机器负载影响。
+final profileVoiceClockProvider =
+    Provider<DateTime Function()>((ref) => DateTime.now);
